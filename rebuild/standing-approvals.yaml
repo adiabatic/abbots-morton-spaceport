@@ -1490,10 +1490,11 @@ rules:
       except_left: []
   - id: jai-it-baseline-join-created
     verdict: approve
-    note: "·J’ai reaches one pixel further and joins ·It at the baseline where the old font left a break, and ·It stands where it was: the pixel the reach adds is the column the join would otherwise have closed. qsJai's baseline exit has carried qsIt on its toward-list since the letter landed in “Add ·J’ai”, where the extend record that lengthens that exit by one before ·Tea, ·Thaw, ·Ye, ·-ing, ·Roe, ·Exam, ·It and ·I landed with it, and qsIt's baseline entry is open to every left letter but ·It itself, the single exclusion “Never join ·It to itself” carved. it-baseline-join-created is the same new join into that entry from ·Et, ·Eight, ·Awe, ·Ox, ·Oy and ·Ooze, none of which lengthens its reach, which is why ·It closes a column onto them and stands still here, and it-xheight-join-created-lengthened-reach is the same decision one height up. What ·It does with its own exit is part of that same decision rather than a second change: qsIt's pairing table carries no baseline-entry-and-baseline-exit pairing and unlocks that one combination behind ss04 alone, which “Let ss04 join ·It at the baseline on both sides with any neighbor” authored, so outside ss04 the letter hands its baseline exit back as it takes the entry, the pixel of exit the old font drew for it going with the stroke — which is why the rule names the ·It that keeps no exit beside the ones that keep a baseline or an x-height one, exactly as it-baseline-join-created does. The shape holds ·J’ai to its own-frame origin alone and trusts the cells it names for both letters' pictures, so the crown that pulls in a column or two where the old font had already trimmed it rides inside the join — that contraction is qsJai's own record, the by-1 x-height entry after ·Pea, ·Tea, ·No, ·Low, ·At and ·I and the by-2 after ·Ah and ·Utter, both landing with the letter — while a window where the crown moves that origin is the composed reading's, with jai-crown-contracted naming the pixel. Where ·Gay closes the window, gay-entry-contracted speaks for its pulled-in baseline entry and ah-gay-xheight-join-created for the join ·Ah opens into it. Every window that reached a sitting approved the join"
+    note: "·J’ai reaches one pixel further and joins ·It at the baseline where the old font left a break, and ·It stands where it was: the pixel the reach adds is the column the join would otherwise have closed. qsJai's baseline exit has carried qsIt on its toward-list since the letter landed in “Add ·J’ai”, where the extend record that lengthens that exit by one before ·Tea, ·Thaw, ·Ye, ·-ing, ·Roe, ·Exam, ·It and ·I landed with it, and qsIt's baseline entry is open to every left letter but ·It itself, the single exclusion “Never join ·It to itself” carved. it-baseline-join-created is the same new join into that entry from ·Et, ·Eight, ·Awe, ·Ox, ·Oy and ·Ooze, none of which lengthens its reach, which is why ·It closes a column onto them and stands still here, and it-xheight-join-created-lengthened-reach is the same decision one height up. What ·It does with its own exit is part of that same decision rather than a second change: qsIt's pairing table carries no baseline-entry-and-baseline-exit pairing and unlocks that one combination behind ss04 alone, which “Let ss04 join ·It at the baseline on both sides with any neighbor” authored, so outside ss04 the letter hands its baseline exit back as it takes the entry, the pixel of exit the old font drew for it going with the stroke — which is why the rule names the ·It that keeps no exit beside the ones that keep a baseline or an x-height one, exactly as it-baseline-join-created does. The shape holds ·J’ai to its own-frame origin alone and trusts the cells it names for both letters' pictures, so the crown that pulls in a column or two where the old font had already trimmed it rides inside the join — that contraction is qsJai's own record, the by-1 x-height entry after ·Pea, ·Tea, ·No, ·Low, ·At and ·I and the by-2 after ·Ah and ·Utter, both landing with the letter — while a window where the crown moves that origin is the composed reading's, with jai-crown-contracted naming the pixel. The rule declines the ·J’ai the old font drew with two columns of crown entry stacked in front of it: that letter gives the crown up rather than gaining anything as it takes the join, so ·It closes a column onto it instead of standing, and jai-it-baseline-join-created-after-dropped-crown carries that count beside jai-entry-extension-dropped-reach-kept. Where ·Gay closes the window, gay-entry-contracted speaks for its pulled-in baseline entry and ah-gay-xheight-join-created for the join ·Ah opens into it. Every window that reached a sitting approved the join"
     match:
       before:
         pivot: qsJai
+        except_pivots: [qsJai.en-y5.ex-y0.en-ext-2]
         seam_out: break
         follower: qsIt
       after:
@@ -1787,4 +1788,35 @@ rules:
         pivots: [qsTea.half.ex-y5.ex-ext-1]
         gained: [[1, 0]]
         shift: 1
+      except_left: []
+  - id: jai-entry-extension-dropped-reach-kept
+    verdict: approve
+    note: "·J’ai gives up the two columns of crown entry the old font drew after ·Gay and ·May and keeps the pixel of baseline reach it carries forward, so the letter redraws in place and holds its own advance. jai-entry-extension-dropped is the same crown coming off where the reach goes with it and the follower comes a column closer; the entry extension is a record qsJai does not carry at all — the ·Gay arm was deleted in “Extend ·Gay ~x~ ·J’ai by another pixel”, which put that reach on qsGay's x-height exit at by-3, and the ·May arm never entered the rune, qsMay's own by-2 exit toward the qsJai family carrying it instead — and rebuild/m1-divergences.yaml holds both readings, as same-seam-extension-non-summing and may-jai-extension-consolidated. What the letter's own outgoing seam does is a change of its own: where the reach it keeps newly lands on ·It, jai-it-baseline-join-created-after-dropped-crown speaks for that seam and the two rules explain the window between them, the trade judging the picture ·J’ai settles into and the join the seam that picture opens; where ·Gay in front of it reaches a pixel further, gay-jai-xheight-extension-added does. jai-crown-contracted, jai-entry-contracted-exit-extension-dropped and jai-entry-contracted-by-two-exit-extension-dropped are ·J’ai's other standing changes at the crown, and jai-exit-extension-dropped the reach at the other end. Every window that reached a sitting approved the tighter crown"
+    match:
+      before:
+        pivots: [qsJai.en-y5.ex-y0.en-ext-2]
+      after:
+        pivots: [qsJai.hapax.en-y5.ex-y0.ex-ext-1]
+        dropped: [[0, 8], [1, 1], [2, 0], [2, 2], [3, 1], [4, 2], [5, 4], [5, 5], [5, 8], [6, 6], [6, 7]]
+        added: [[0, 1], [1, 0], [1, 2], [2, 1], [2, 3], [3, 2], [4, 4], [4, 5], [5, 6], [5, 7]]
+        shift: 0
+      except_left: []
+  - id: jai-it-baseline-join-created-after-dropped-crown
+    verdict: approve
+    note: "·J’ai joins ·It at the baseline where the old font left a break, and ·It closes one column onto it — the windows where the crown entry the old font stacked in front of ·J’ai has come off and the letter keeps the pixel of reach it draws forward instead. jai-it-baseline-join-created is the same seam on the ·J’ai the old font drew without that crown: there the letter gains the reach as it takes the join, the gained pixel and the closing column cancel, and ·It stands where it was, so the two windows want two counts and the other rule declines this before form by name. qsJai's baseline exit has named qsIt on its toward-list since the letter landed in “Add ·J’ai”, and qsIt's baseline entry carries no from-list at all, refusing only ·It itself on the why at “·It never joins to itself”, so the join follows from open surfaces on both sides rather than from a pair ruling. jai-entry-extension-dropped-reach-kept names the picture ·J’ai settles into and this rule the seam that picture opens, so the two speak at one position and explain between them every window that carries anything else. Where ·It gives up its own baseline exit in the same stroke that change has no rule yet, so those windows stay on the docket. Every window that reached a sitting approved the join"
+    match:
+      before:
+        pivot: qsJai.en-y5.ex-y0.en-ext-2
+        seam_out: break
+        follower: qsIt
+      after:
+        joined: y0
+        pivot_cells:
+          - qsJai/hapax/x-height/baseline/ex-ext-1
+        receiver_cells:
+          - qsIt/hapax/baseline/baseline/
+          - qsIt/hapax/baseline/x-height/
+        shift: -1
+        follower_advance: 0
+        follower_reach: 0
       except_left: []
