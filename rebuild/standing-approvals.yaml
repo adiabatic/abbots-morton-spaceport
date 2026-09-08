@@ -1509,3 +1509,24 @@ rules:
         follower_advance: 0
         follower_reach: 0
       except_left: []
+  - id: key-it-baseline-join-created
+    verdict: approve
+    note: "·It takes a baseline entry from ·Key where the old font left a break, closing a column onto ·Key's shortened foot and handing it straight back: the ·It that takes the join draws a pixel of baseline entry to the left of its stroke, so the letter is a column wider and everything past it stands where that shorter foot left it. What opens the seam is ss04 granting ·It the baseline-entry-and-baseline-exit pairing unconditionally, which is what “Let ss04 join ·It at the baseline on both sides with any neighbor” did; qsKey's baseline exit has carried qsIt on its toward-list since the letter landed in “Add ·Key”, and qsIt's baseline entry refuses only ·It itself, the single exclusion “Never join ·It to itself” carved. The other column the pair closes is the pixel of exit qsKey's contract record takes off before ·May, ·No and ·It, which key-exit-contracted already records, so that rule names ·Key's shorter foot and this one the seam that foot opens, and the two explain each of these windows between them; key-it-entry-extension-drawn names the pixel ·It draws to meet it, and key-it-entry-extension-drawn-exit-extension-dropped the same pixel on an ·It that gives up its own reach in the same stroke. it-baseline-join-created is the same new baseline join into ·It from the left letters that draw it no entry pixel, and key-no-baseline-join-created is ·Key's other new join here. Every window that reached a sitting approved the join"
+    match:
+      before:
+        pivot: qsKey
+        seam_out: break
+        follower: qsIt
+      after:
+        joined: y0
+        pivot_cells:
+          - qsKey/hapax/None/baseline/ex-con-1
+          - qsKey/hapax/top/baseline/ex-con-1
+        receiver_cells:
+          - qsIt/hapax/baseline/None/en-ext-1
+          - qsIt/hapax/baseline/baseline/en-ext-1
+          - qsIt/hapax/baseline/x-height/en-ext-1
+        shift: -1
+        follower_advance: 1
+        follower_reach: 0
+      except_left: []
