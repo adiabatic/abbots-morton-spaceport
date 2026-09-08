@@ -1820,3 +1820,15 @@ rules:
         follower_advance: 0
         follower_reach: 0
       except_left: []
+  - id: gay-entry-contracted-xheight-extension-added
+    verdict: approve
+    note: "·Gay's contracted baseline entry after ·No and its pixel of x-height reach into the next ·No are one stroke: the entry sits on qsGay's contract record, landed as “Contract `·No.alt ~b~ ·Gay` by a pixel”, and the reach on qsGay's extend record, whose why: reads “Add a pixel of extension for `·Gay ~x~ ·No` and make them join — I can't see why they can't join”, landed in “Join ·Gay ~x~ ·Et and ·Gay ~x~ ·No”. The two cancel, so ·Gay and everything after it stand where they were and only the letter's own stroke changes; gay-entry-contracted and gay-no-xheight-extension-added each name half of it and neither can speak for the pair, since the frame takes the contraction and the gained pixel lands inside the old picture rather than past its right edge. The user read the whole stroke in ·No ~b~ ·Gay ~x~ ·No at a sitting and called it a solid improvement"
+    match:
+      before:
+        pivots: [qsGay.en-y0.ex-y5]
+      after:
+        pivots: [qsGay.hapax.en-y0.ex-y5.en-con-1.ex-ext-1]
+        dropped: [[0, 3]]
+        added: [[4, 8]]
+        shift: 0
+      except_left: []
