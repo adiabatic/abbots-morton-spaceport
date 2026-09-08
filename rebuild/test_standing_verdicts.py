@@ -1407,6 +1407,18 @@ def test_the_checked_in_ligature_rule_reads_exactly_what_it_always_did():
     assert not sv._matches(match, tea_i())
 
 
+def test_the_batch_workflow_the_skill_points_at_is_saved_under_that_name():
+    """The skill's Batches section names the saved workflow by its slash command and its file, and the workflow's first statement registers exactly that name: both are read from the checked-in files, so whenever this lane runs it holds the pointer and the registry together. It is the only gate that reads either (make test exempts .claude/ wholesale), and neither file is in the lane's closure (`rebuild_gate_closure_files` in rebuild/tools/artifact_cycle.py), so an edit confined to them moves no lane key on its own; the drift is caught on the next run the closure does trigger."""
+    workflow = (sv.ROOT / ".claude/workflows/batch-standing-approvals.js").read_text()
+    head = re.match(r"export const meta = \{\s*\n\s*name: '([^']+)',", workflow)
+    assert head is not None
+    assert head.group(1) == "batch-standing-approvals"
+    skill = (sv.ROOT / ".claude/skills/dont-bug-me-about-this-ever-again/SKILL.md").read_text()
+    batches = skill.split("## Batches", 1)[1].split("\n## ", 1)[0]
+    assert "`/batch-standing-approvals " in batches
+    assert "`.claude/workflows/batch-standing-approvals.js`" in batches
+
+
 def _write_rules(path, rules):
     path.write_text(json.dumps({"format": sv.FORMAT, "rules": rules}))
     return path
