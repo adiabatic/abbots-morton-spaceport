@@ -1700,3 +1700,21 @@ rules:
         follower_advance: 0
         follower_reach: 0
       except_left: []
+  - id: it-roe-xheight-join-retargeted
+    verdict: approve
+    note: "·It drops to the baseline to join ·Roe, where the old font joined the two at the x-height, and neither letter moves: ·Roe redraws around the lowered seam and holds its own advance. ·Roe is one stroke between two tips on the left, so whichever tip receives the join the other is the one that carries on — the rune's own note, beside the pairing that forbids entering and leaving at the same height, both landed in “Declare ·I done and add ·Roe” — and these are the windows where ·Roe goes on to reach ·Oy, ·Ox, ·Awe, ·Eight or ·J’ai at the x-height, so its incoming seam has to come down. The ·It that meets it is the one qsIt's pairing table unlocks under ss04 alone, on “Let ss04 join ·It at the baseline on both sides with any neighbor”, which is why these windows diverge under that configuration and no other, and the extra column of ·Roe's entry is qsRoe's own extend record after ·It. it-roe-baseline-join-retargeted is the same seam moving the other way, where ·Roe's outgoing stroke is the baseline one; roe-oy-xheight-join-created and roe-thaw-baseline-join-created name the joins ·Roe's free tip opens, and this rule explains those windows beside them. It speaks only for the ·It the old font entered at the baseline and that settles into a cell keeping its picture, so an ·It that gains a pixel of exit as the seam drops is a window of its own. Every window that reached a sitting approved the lowered join"
+    match:
+      before:
+        pivot: qsIt.en-y0.ex-y5
+        seam_out: y5
+        follower: qsRoe
+      after:
+        retarget: y0
+        pivot_cells:
+          - qsIt/hapax/baseline/baseline/
+          - qsIt/hapax/baseline/baseline/en-ext-1
+        receiver_cells:
+          - qsRoe/hapax/baseline/x-height/en-ext-1
+        shift: 0
+        follower_shift: 0
+      except_left: []
