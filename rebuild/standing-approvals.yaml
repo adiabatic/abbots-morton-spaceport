@@ -1739,3 +1739,22 @@ rules:
         follower_advance: -3
         follower_reach: 0
       except_left: []
+  - id: it-roe-baseline-join-retargeted
+    verdict: approve
+    note: "·It reaches up to the x-height to join ·Roe, where the old font joined the two at the baseline, and neither letter moves: ·Roe redraws around the raised seam and holds its own advance. It is the mirror of it-roe-xheight-join-retargeted, and for the same reason — ·Roe is one stroke between two tips on the left, so whichever tip receives the join the other is the one that carries on, the rune's own note beside the pairing that forbids entering and leaving at the same height, both from “Declare ·I done and add ·Roe” — except that here ·Roe goes on to reach ·Thaw, ·Vie, ·See, ·No or ·Ah at the baseline, so its incoming seam has to go up. The extra column of ·Roe's entry is qsRoe's own extend record after ·It, and the rule is bounded to the ·It the old font drew after ·Day, which is the ·It that keeps its picture across the change: an ·It that gives up a pixel of exit as the seam rises moves its follower another column and is a window of its own. roe-thaw-baseline-join-created names the join ·Roe's free tip opens, and the two rules explain those windows between them. Every window that reached a sitting approved the raised join or called it either"
+    match:
+      before:
+        pivot: qsIt.en-y0.ex-y0.after-day
+        seam_out: y0
+        follower: qsRoe
+      after:
+        retarget: y5
+        pivot_cells:
+          - qsIt/hapax/baseline/x-height/
+        receiver_cells:
+          - qsRoe/hapax/x-height/None/en-ext-1
+          - qsRoe/hapax/x-height/baseline/en-ext-1
+          - qsRoe/hapax/x-height/baseline/en-ext-1+ex-ext-1
+        shift: 0
+        follower_shift: 0
+      except_left: []
