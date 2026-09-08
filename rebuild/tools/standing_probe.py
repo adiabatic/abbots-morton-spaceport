@@ -82,7 +82,7 @@ def _piece_text(intern, piece):
 
 
 def _reading(intern, before, after):
-    """One position's rendered change in words: both pieces absent is inkless, one absent is ink appearing or vanishing, the same shape key is a placement (and possibly an own-frame origin) move, a different key is a redraw whose cell counts say how much and whose whole traded set is named — a redrawn rule is written from that trade, so a truncated one would have to be re-derived by hand, and this runs only for units the caller named."""
+    """One position's rendered change in words: both pieces absent is inkless, one absent is ink appearing or vanishing, the same shape key is a placement (and possibly an own-frame origin) move, a different key is a redraw whose cell counts say how much and whose whole traded set is named, read with the after picture aligned by however far the own-frame origin moved, which is the frame a redrawn rule's dropped and added sets are written in — a redrawn rule is written from that trade, so a truncated one would have to be re-derived by hand, and this runs only for units the caller named."""
     if before is None and after is None:
         return "inkless"
     if before is None:
@@ -92,17 +92,20 @@ def _reading(intern, before, after):
     moved = f"placed {_columns(after[2] - before[2]):+} col"
     if before[3] != after[3]:
         moved += f", height {_columns(after[3] - before[3]):+} row"
+    origin = after[4] - before[4]
+    turned = f", origin {_columns(origin):+} col" if origin else ""
     if before[1] == after[1]:
-        origin = after[4] - before[4]
-        return f"same shape, {moved}" + (f", origin {_columns(origin):+} col" if origin else "")
+        return f"same shape, {moved}{turned}"
     painted, kept = intern.cells(before[1]), intern.cells(after[1])
     if painted is None or kept is None:
-        return f"redrawn (curved or off-grid), {moved}"
-    gone, gained = painted - kept, kept - painted
+        return f"redrawn (curved or off-grid), {moved}{turned}"
+    frame = origin // PIXEL_SIZE if origin % PIXEL_SIZE == 0 else 0
+    shifted = {(column + frame, row) for column, row in kept}
+    gone, gained = painted - shifted, shifted - painted
     dropped = " ".join(f"[{column}, {row}]" for column, row in sorted(gone)) or "nothing"
     added = " ".join(f"[{column}, {row}]" for column, row in sorted(gained)) or "nothing"
     trade = f" [dropped {dropped}; added {added}]"
-    return f"redrawn {len(painted)}→{len(kept)} cells (−{len(gone)} +{len(gained)}), {moved}{trade}"
+    return f"redrawn {len(painted)}→{len(kept)} cells (−{len(gone)} +{len(gained)}), {moved}{turned}{trade}"
 
 
 def _describe(unit, rules, context, blankness, families):
