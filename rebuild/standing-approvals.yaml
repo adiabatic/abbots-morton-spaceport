@@ -1327,3 +1327,14 @@ rules:
         follower_advance: 0
         follower_reach: 0
       except_left: []
+  - id: gay-jai-xheight-extension-added
+    verdict: approve
+    note: "·Gay reaches one pixel further into ·J’ai than the old font drew — three columns of x-height reach where the old font's single extension slot allowed two — carrying ·J’ai and everything past it one column right. The reach is qsGay's x-height extend record before qsJai and qsJai_qsUtter, at by-3: lengthened in “Extend ·Gay ~x~ ·J’ai by another pixel”, freed of its ·Pea carve-out in “Stop making an exception when ·Pea comes before”, and left as the only arm before ·J’ai in “Stop letting the letter after ·J’ai shorten ·Gay ~x~ ·J’ai”. gay-no-xheight-extension-added is the same gained exit pixel on the same rune's ·No arm, and because the old font drew no reach at all there, its cell is the first column of the stretch while this rule's is the third; vie-utter-xheight-extension-added and day-utter-xheight-extension-added are the two ·Utter ligatures' own. The rule speaks only for the ·Gay whose frame otherwise stands: where the letter also takes the new baseline join in front of it it settles into a reaching-back form this rule does not name, which is gay-baseline-join-created-reaching-back-before-jai's window; where it pulls its baseline entry in, gay-entry-contracted reads this same tail pixel as its own exit-extension delta; and the ·Gay the old font's carve-out left drawing no reach at all gains a wider stretch and is not this trade. What ·J’ai does under the longer reach is a change of its own, so a window where it gives up its crown entry or its own baseline tail is the composed reading's, with jai-entry-extension-dropped or jai-exit-extension-dropped. Every window that reached a sitting approved the longer reach"
+    match:
+      before:
+        pivots: [qsGay.ex-y5.ex-ext-2]
+      after:
+        pivots: [qsGay.hapax.ex-y5.ex-ext-3]
+        gained: [[5, 8]]
+        shift: 1
+      except_left: []
