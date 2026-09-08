@@ -1338,3 +1338,15 @@ rules:
         gained: [[5, 8]]
         shift: 1
       except_left: []
+  - id: at-may-exit-extension-shortened
+    verdict: approve
+    note: "·At draws two pixels less of the baseline reach into ·May, and ·May stands where it was — qsAt’s extend record reaches by three before ·May where the old font drew five, the record landing with the letter in “Add ·At”, and the reach runs on under ·May rather than in front of it, so the follower and everything past it keep their columns. The letter takes that reach on the falling stance qsAt’s prefer record picks before ·May, so a window where ·At settles onto its rising stance instead is a different change and not this trade. key-exit-contracted is the same pure-loss redraw one letter over; et-may-exit-contracted, fee-tea-ss03-exit-extension-shortened and utter-gay-exit-extension-dropped name the same kind of shorter reach at the name grain, which reads only the seam it judges and would bless whatever else the window did — the reason this one is written as a redraw, since these windows carry ·May’s own entry changes beside it. Where they do, may-entry-extension-dropped, may-entry-stub-dropped and bay-may-entry-contracted speak for ·May’s entry and this rule for the reach into it, and the rules explain the window between them. It speaks only where every other pixel in the window is accounted for, so a window whose second change has no rule yet still reaches the docket. Every window that reached a sitting approved the shorter reach"
+    match:
+      before:
+        pivots: [qsAt.ex-y0.before-may.ex-ext-5]
+      after:
+        pivots: [qsAt.falling.ex-y0.ex-ext-3]
+        dropped: [[5, 0], [6, 0]]
+        added: []
+        shift: 0
+      except_left: []
