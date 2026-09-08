@@ -1,4 +1,4 @@
-.PHONY: all test test-rebuild test-rebuild-slow test-slowly test-leaks leak-snapshot typecheck print-job serve explainer check-html-before check-html-after build-kerning-hardcases review test-and-review review-build review-serve review-cycle artifact-cycle verdict-ready cycle-timings job-costs complaint-docket novelty-order kernel-build kernel-check kernel-gate conform-deep prettier woff2 clean
+.PHONY: all test test-rebuild test-rebuild-slow test-slowly test-leaks leak-snapshot typecheck print-job serve explainer check-html-before check-html-after build-kerning-hardcases review test-and-review review-build review-serve review-cycle artifact-cycle verdict-ready cycle-timings job-costs complaint-docket novelty-order kernel-build kernel-check kernel-gate conform-deep standing-daemon standing-daemon-stop prettier woff2 clean
 
 all:
 	uv run python tools/build_font.py glyph_data/ site/
@@ -105,6 +105,23 @@ review-cycle:
 	else \
 		uv run python -m rebuild.review.serve; \
 	fi
+
+# Hold the review surface in one process for the standing probe and the standing dry run: `serve` loads the surface, its font pair and the human units once and answers probe and dry-run requests over var/standing-daemon.sock, byte for byte what the in-process form prints (rebuild/tools/standing_daemon.py is the authority on what it holds, when it declines, and when it exits by itself: the surface manifest, the fonts, the loaded code or uv.lock moving). The tool serves in the foreground, so this recipe detaches it (nohup, log to var/standing-daemon.log) and waits until its status verb answers or the process dies. STANDING_DAEMON_BYTES prices what it holds and no cycle width subtracts it, so stop it before a gate or cycle pass: `make standing-daemon-stop` or SIGTERM, either of which removes the socket.
+standing-daemon:
+	@mkdir -p var; \
+	nohup uv run python rebuild/tools/standing_daemon.py serve < /dev/null > var/standing-daemon.log 2>&1 & \
+	pid=$$!; waited=0; \
+	while kill -0 $$pid 2>/dev/null && [ $$waited -lt 300 ] && ! uv run python rebuild/tools/standing_daemon.py status > /dev/null 2>&1; do \
+		sleep 2; waited=$$((waited + 2)); \
+	done; \
+	if uv run python rebuild/tools/standing_daemon.py status; then \
+		printf 'log: var/standing-daemon.log; stop it with make standing-daemon-stop\n'; \
+	else \
+		printf 'the standing daemon did not answer; see var/standing-daemon.log\n'; exit 1; \
+	fi
+
+standing-daemon-stop:
+	uv run python rebuild/tools/standing_daemon.py stop
 
 # Answer "am I ready to verdict?": surface freshness, gate greenness, verdict-store alignment, server, blanks. Exit 0 when ready. Every green artifact cycle already closes on this checklist, so this is the form for asking on its own, not a step after a cycle.
 verdict-ready:

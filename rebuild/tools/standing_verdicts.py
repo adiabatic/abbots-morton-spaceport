@@ -61,7 +61,7 @@ This is the zero-touch sibling of echo_verdicts.py: echo fill extends the user's
 
 Records are stamped with the manifest's generated_at, so any human verdict beats a standing fill on merge, and a parked unit (a skip verdict) is not blank and is never filled. The artifact cycle runs this after the echo fill, with a merge_verdicts pass to land the file. The run's report rolls every composed line's credit back up per rule, so each rule's whole reach reads in one place — deliberately not a column that sums across rules, since a window two rules explain between them counts toward each of them.
 
-Every decision above is per-unit pure: what the composed reading credits a window with, whether a guard holds it, and which rules' own matchers accept or hold it are a function of the unit's index record, the two fonts' rendering of its window, and the rules file, and of nothing else — the verdict store only decides which of those decisions become fills. `Decider.decide` is that function, `rule_reach` assembles a run out of its answers, and the memo (`Memo`, the `--memo` flag; the verdict chain passes it) persists the answers across passes so a surface-moving pass evaluates only the units whose key is new. A unit's key is its build-time `content_key` stamp, joined with the persisted `ink_deltas` that stamp deliberately leaves out and with the after font's compiled-glyph digest for every family the window's after cells name (`fingerprint.after_font_glyph_digests`, the same per-family grain the review unit cache and the oracle's position store invalidate at, so a drawing or anchor change reaches exactly the windows that can feel it); a unit the surface never stamped is evaluated every pass and never stored. The memo's own stamp is the rules file's raw bytes, since the fill quotes each rule's `note` into every record, the code that decides (`MEMO_CODE_MODULES`, held to this module's import closure by rebuild/test_standing_verdicts.py), the before font wholesale, the after font's family-blind remainder, and `uv.lock` for the shaper; any of those moving drops the memo entirely, and over-invalidation is the safe direction. What is written back is bounded to the units on this surface, so it never outgrows the human domain, and the fills and the report are byte-identical served or computed, which rebuild/test_standing_verdicts.py proves over the frozen mini bundle. The `--require-reach` rollup reads the same answers, so its pass over the whole domain costs no second evaluation. A `--targeted` run — the authoring loop's form, taking its rule from `--explain` and further windows from `--unit` — evaluates only the units the rule could speak for at the name grain (`_reachable`) plus the listed ones, prints that rule's own line, the composed lines crediting it, its rollup line, its tripwire and its explain block byte-identical to the whole-domain run's, and one line per listed unit with the decision the run counted, and writes neither a fill file nor the memo; it costs the surface load rather than the domain, and the whole-domain run stays the final pass and the cycle's form. rebuild/test_standing_verdicts.py holds the identity, and the candidate invariant behind it for every checked-in rule, over the same frozen mini bundle.
+Every decision above is per-unit pure: what the composed reading credits a window with, whether a guard holds it, and which rules' own matchers accept or hold it are a function of the unit's index record, the two fonts' rendering of its window, and the rules file, and of nothing else — the verdict store only decides which of those decisions become fills. `Decider.decide` is that function, `rule_reach` assembles a run out of its answers, and the memo (`Memo`, the `--memo` flag; the verdict chain passes it) persists the answers across passes so a surface-moving pass evaluates only the units whose key is new. A unit's key is its build-time `content_key` stamp, joined with the persisted `ink_deltas` that stamp deliberately leaves out and with the after font's compiled-glyph digest for every family the window's after cells name (`fingerprint.after_font_glyph_digests`, the same per-family grain the review unit cache and the oracle's position store invalidate at, so a drawing or anchor change reaches exactly the windows that can feel it); a unit the surface never stamped is evaluated every pass and never stored. The memo's own stamp is the rules file's raw bytes, since the fill quotes each rule's `note` into every record, the code that decides (`MEMO_CODE_MODULES`, held to this module's import closure by rebuild/test_standing_verdicts.py), the before font wholesale, the after font's family-blind remainder, and `uv.lock` for the shaper; any of those moving drops the memo entirely, and over-invalidation is the safe direction. What is written back is bounded to the units on this surface, so it never outgrows the human domain, and the fills and the report are byte-identical served or computed, which rebuild/test_standing_verdicts.py proves over the frozen mini bundle. The `--require-reach` rollup reads the same answers, so its pass over the whole domain costs no second evaluation. A `--targeted` run — the authoring loop's form, taking its rule from `--explain` and further windows from `--unit` — evaluates only the units the rule could speak for at the name grain (`_reachable`) plus the listed ones, prints that rule's own line, the composed lines crediting it, its rollup line, its tripwire and its explain block byte-identical to the whole-domain run's, and one line per listed unit with the decision the run counted, and writes neither a fill file nor the memo; it costs the surface load rather than the domain, and the whole-domain run stays the final pass and the cycle's form. rebuild/test_standing_verdicts.py holds the identity, and the candidate invariant behind it for every checked-in rule, over the same frozen mini bundle. Either form can be served instead of loaded: with `--daemon auto|always|never` and `--socket PATH`, a standing daemon (`rebuild/tools/standing_daemon.py`, the authority on what it holds and when it declines) that answers at the socket and holds this surface runs this same `main` — the same `Decider`, the same lines — over the objects it holds and hands back the streams and the exit code, byte-identical to the in-process run, which rebuild/test_standing_daemon.py holds over the mini bundle; the verdict chain's in-process call hands `main` its own `units` and is never served.
 """
 
 import argparse
@@ -82,6 +82,7 @@ sys.path.insert(0, str(ROOT))
 from rebuild.pipeline import fingerprint  # noqa: E402
 from rebuild.review.ink import IDENTITY_DIFF, InkComparator, delta_digest, features_for  # noqa: E402
 from rebuild.validation.classify import PIXEL_SIZE  # noqa: E402
+from rebuild.tools import standing_client  # noqa: E402
 from rebuild.tools.review_docket import ACCEPTING_VERDICTS, latest_verdicts, load_units  # noqa: E402
 
 SURFACE = ROOT / "rebuild/out/review"
@@ -95,6 +96,7 @@ MEMO_CODE_MODULES = (
     "rebuild/review/ink.py",
     "rebuild/review/unit_index.py",
     "rebuild/tools/review_docket.py",
+    "rebuild/tools/standing_client.py",
     "rebuild/tools/standing_verdicts.py",
     "rebuild/validation/classify.py",
     "rebuild/validation/rowmodel.py",
@@ -2917,7 +2919,8 @@ def targeted_report(rules, rule, units, listed_ids, records, stamp, decide):
     return lines
 
 
-def main(argv=None, *, units=None):
+def main(argv=None, *, units=None, context=None):
+    argv = sys.argv[1:] if argv is None else list(argv)
     parser = argparse.ArgumentParser(description=(__doc__ or "").split(":")[0] + ".")
     parser.add_argument(
         "verdicts", help="the verdicts file that defines blankness (an export or the autosave)"
@@ -2962,6 +2965,7 @@ def main(argv=None, *, units=None):
         action="store_true",
         help="with --memo: evaluate every unit regardless of what the memo holds, and rewrite it",
     )
+    standing_client.add_arguments(parser)
     args = parser.parse_args(argv)
     if args.fresh_memo and args.memo is None:
         parser.error("--fresh-memo needs --memo")
@@ -2978,6 +2982,10 @@ def main(argv=None, *, units=None):
         )
     if args.unit and not args.targeted:
         parser.error("--unit needs --targeted")
+    if units is None and context is None:
+        served = standing_client.ask("fill", argv, args.surface, mode=args.daemon, socket_path=args.socket)
+        if served is not None:
+            return standing_client.relay(served)
 
     surface = pathlib.Path(args.surface)
     manifest = json.loads((surface / "manifest.json").read_text())
@@ -3006,8 +3014,9 @@ def main(argv=None, *, units=None):
             f"{_shape_names(lambda shape: shape.needs_ink_deltas, 'and')} shapes; such a rule cannot "
             "match anything on it — rebuild the surface (make review-cycle) first"
         )
-    context = None
-    if any(shape.font_backed for shape in declared) or len(composable) > 1:
+    if not (any(shape.font_backed for shape in declared) or len(composable) > 1):
+        context = None
+    elif context is None:
         before_font, after_font = surface / "fonts" / "before.otf", surface / "fonts" / "after.otf"
         if not (before_font.is_file() and after_font.is_file()):
             raise SystemExit(

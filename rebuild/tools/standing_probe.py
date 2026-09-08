@@ -1,4 +1,4 @@
-"""Explain why a review-surface unit still queues, in the standing approvals' own terms, so the next once-and-for-all rule is written from evidence instead of rediscovered: for each unit named, print its two grains side by side — the recorded before glyphs and after cells with their seams, and the rendered pieces of both fonts with each piece's placement, own-frame origin and cell count, read as "same shape placed N columns over", "redrawn", or "inkless" — then say what every checked-in rule makes of it (matches, held by except_left, or nothing), whether the composed reading credits any rules and whether that credit reaches the two-event threshold, and how many human units share exactly this unit's ink-delta digests and how they were verdicted, which is where the user's earlier decision usually turns out to be already recorded. `--extension-cells PIVOT TOKEN SEAM` answers the other question a new extension-dropped rule always asks — which pivot and follower cells it has to name in full — by enumerating every window on the surface where a PIVOT glyph carrying TOKEN (an `ex-ext-N` on the before glyph, or an `ex-con-N` on the after cell whose before glyph never carried an exit extension) exits at SEAM on both sides and settles into a cell without the named extension or with a shorter one, or into a cell carrying the named contraction, with the follower's family, both after cells, and the verdict tally per pair. `--retarget-cells PIVOT BEFORE_SEAM FOLLOWER AFTER_SEAM` is the same survey for a join-retargeted or join-created rule, over every window where a PIVOT glyph's seam into FOLLOWER moves from BEFORE_SEAM to AFTER_SEAM. `--survey BEFORE_GLYPH` (or `--survey BEFORE_GLYPH AFTER_CELL`) is the enumeration every form-naming shape — redrawn, ink-gain, entry-contracted, entry-extension-dropped, stub-dropped, slide — and the join-dropped shape need before a rule in them can be written: every human unit whose window carries a before glyph under that prefix, grouped by the before form and the after cell it settles into, then by the family on its left with the seam change into it, the seam change out of it, and the follower's family and cell, each group with its verdict tally, read off the index with no shaping so it costs the surface load and nothing more; windows the survey cannot place because their sides do not line up letter for letter are counted, not silently dropped. `--coverage RULE_ID` turns a survey back on a rule that already exists: it re-runs whichever enumeration the rule's shape has (`COVERAGE_SHAPES` is the roster: the cell-naming shapes through their pair enumeration, from the rule's own before-side fields and relaxed of everything the rule names — though never of the before forms it declines, which are a companion rule's survey rather than this one's — and the form-naming shapes through the survey over the rule's family with each named list relaxed while the others hold, since nothing else on the before side pins a redraw at the name grain; ligature names no forms and ink-delta names digests, so neither has one and the tool says so) and reports the pivot forms, follower families and follower cells — or the before forms, the after forms as the after font names them (`_cell_glyph_name`), and for entry-contracted the left families — the enumeration reaches that the rule does not yet name, each with its verdict tally — a docket of candidates rather than a widening instruction, since a follower joins the list only once its own recorded decision has been found. `--find TEXT` is the way back from a notation to unit ids: a plain substring match over every human unit's notation, blanks first and capped, because one letter pair matches thousands of records; `--blank-only` and `--limit N` narrow it, and the notation's grammar is `parse_expect`'s in test/test_shaping.py, never re-read here. `--shapes` prints the symptom-to-shape menu, walked off the standing approvals' own SHAPES table so a new shape enters the menu the moment it enters the table, and a run that resolves no unit id prints it too. All the lists it prints — pivot cells, followers, follower cells — come out in code-point order, which is the order the rules file and the skill are written in. Read-only: nothing here writes to the surface or the store."""
+"""Explain why a review-surface unit still queues, in the standing approvals' own terms, so the next once-and-for-all rule is written from evidence instead of rediscovered: for each unit named, print its two grains side by side — the recorded before glyphs and after cells with their seams, and the rendered pieces of both fonts with each piece's placement, own-frame origin and cell count, read as "same shape placed N columns over", "redrawn", or "inkless" — then say what every checked-in rule makes of it (matches, held by except_left, or nothing), whether the composed reading credits any rules and whether that credit reaches the two-event threshold, and how many human units share exactly this unit's ink-delta digests and how they were verdicted, which is where the user's earlier decision usually turns out to be already recorded. `--extension-cells PIVOT TOKEN SEAM` answers the other question a new extension-dropped rule always asks — which pivot and follower cells it has to name in full — by enumerating every window on the surface where a PIVOT glyph carrying TOKEN (an `ex-ext-N` on the before glyph, or an `ex-con-N` on the after cell whose before glyph never carried an exit extension) exits at SEAM on both sides and settles into a cell without the named extension or with a shorter one, or into a cell carrying the named contraction, with the follower's family, both after cells, and the verdict tally per pair. `--retarget-cells PIVOT BEFORE_SEAM FOLLOWER AFTER_SEAM` is the same survey for a join-retargeted or join-created rule, over every window where a PIVOT glyph's seam into FOLLOWER moves from BEFORE_SEAM to AFTER_SEAM. `--survey BEFORE_GLYPH` (or `--survey BEFORE_GLYPH AFTER_CELL`) is the enumeration every form-naming shape — redrawn, ink-gain, entry-contracted, entry-extension-dropped, stub-dropped, slide — and the join-dropped shape need before a rule in them can be written: every human unit whose window carries a before glyph under that prefix, grouped by the before form and the after cell it settles into, then by the family on its left with the seam change into it, the seam change out of it, and the follower's family and cell, each group with its verdict tally, read off the index with no shaping so it costs the surface load and nothing more; windows the survey cannot place because their sides do not line up letter for letter are counted, not silently dropped. `--coverage RULE_ID` turns a survey back on a rule that already exists: it re-runs whichever enumeration the rule's shape has (`COVERAGE_SHAPES` is the roster: the cell-naming shapes through their pair enumeration, from the rule's own before-side fields and relaxed of everything the rule names — though never of the before forms it declines, which are a companion rule's survey rather than this one's — and the form-naming shapes through the survey over the rule's family with each named list relaxed while the others hold, since nothing else on the before side pins a redraw at the name grain; ligature names no forms and ink-delta names digests, so neither has one and the tool says so) and reports the pivot forms, follower families and follower cells — or the before forms, the after forms as the after font names them (`_cell_glyph_name`), and for entry-contracted the left families — the enumeration reaches that the rule does not yet name, each with its verdict tally — a docket of candidates rather than a widening instruction, since a follower joins the list only once its own recorded decision has been found. `--find TEXT` is the way back from a notation to unit ids: a plain substring match over every human unit's notation, blanks first and capped, because one letter pair matches thousands of records; `--blank-only` and `--limit N` narrow it, and the notation's grammar is `parse_expect`'s in test/test_shaping.py, never re-read here. `--shapes` prints the symptom-to-shape menu, walked off the standing approvals' own SHAPES table so a new shape enters the menu the moment it enters the table, and a run that resolves no unit id prints it too. All the lists it prints — pivot cells, followers, follower cells — come out in code-point order, which is the order the rules file and the skill are written in. Read-only: nothing here writes to the surface or the store. `--daemon auto|always|never` and `--socket PATH` decide who loads the surface: when a standing daemon (`rebuild/tools/standing_daemon.py`, the authority on what it holds and when it declines) answers at the socket and holds this surface, the run is served by it — this same `main` over the objects it holds, printed through these same lines, so the output is byte for byte the in-process run's — and otherwise the surface loads in this process; `always` refuses to load and `never` refuses to ask, a bare `--shapes` never asks, and a caller handing `main` its own `units` or `context` is never served."""
 
 import argparse
 import collections
@@ -15,6 +15,7 @@ sys.path.insert(0, str(ROOT))
 
 from rebuild.pipeline.geometry import HEIGHT_Y  # noqa: E402
 from rebuild.review.ink import features_for  # noqa: E402
+from rebuild.tools import standing_client  # noqa: E402
 from rebuild.tools import standing_verdicts as sv  # noqa: E402
 from rebuild.tools.review_docket import latest_verdicts, load_units  # noqa: E402
 from rebuild.validation.classify import PIXEL_SIZE  # noqa: E402
@@ -524,7 +525,8 @@ def _coverage(units, blankness, rules, rule_id):
         print(DOCKET_NOTE)
 
 
-def main(argv=None):
+def main(argv=None, *, units=None, context=None):
+    argv = sys.argv[1:] if argv is None else list(argv)
     parser = argparse.ArgumentParser(description=(__doc__ or "").split(":")[0] + ".")
     parser.add_argument("units", nargs="*", help="unit ids to explain (u-3mJ7kPq2Xw9)")
     parser.add_argument("--verdicts", default=str(VERDICTS), help="the verdicts file that defines blankness")
@@ -567,14 +569,20 @@ def main(argv=None):
     parser.add_argument(
         "--shapes", action="store_true", help="print the symptom-to-shape menu and, with no unit named, stop"
     )
+    standing_client.add_arguments(parser)
     args = parser.parse_args(argv)
     if args.survey and len(args.survey) > 2:
         parser.error("--survey takes BEFORE_GLYPH and at most one AFTER_CELL")
     asked = (args.units, args.extension_cells, args.retarget_cells, args.survey, args.find, args.coverage)
+    if args.shapes and not any(asked):
+        _shapes()
+        return 0
+    if units is None and context is None:
+        served = standing_client.ask("probe", argv, args.surface, mode=args.daemon, socket_path=args.socket)
+        if served is not None:
+            return standing_client.relay(served)
     if args.shapes:
         _shapes()
-        if not any(asked):
-            return 0
     surface = pathlib.Path(args.surface)
     manifest = json.loads((surface / "manifest.json").read_text())
     verdicts = pathlib.Path(args.verdicts)
@@ -592,7 +600,7 @@ def main(argv=None):
             )
     blankness = Blankness(records, stale)
     rules = sv.load_rules(pathlib.Path(args.rules))
-    human = _human(load_units(surface))
+    human = _human(load_units(surface) if units is None else units)
     listed = False
     if args.extension_cells:
         _extension_cells(human, blankness, *args.extension_cells)
@@ -611,12 +619,12 @@ def main(argv=None):
         listed = True
     described = 0
     if args.units:
-        context = None
         fonts = surface / "fonts" / "before.otf", surface / "fonts" / "after.otf"
-        if all(font.is_file() for font in fonts):
-            context = sv.SlideContext(*fonts)
-        else:
-            print(NO_FONTS)
+        if context is None:
+            if all(font.is_file() for font in fonts):
+                context = sv.SlideContext(*fonts)
+            else:
+                print(NO_FONTS)
         families: dict[frozenset, list] = collections.defaultdict(list)
         for unit in human:
             deltas = unit.get("ink_deltas") or {}

@@ -4,10 +4,11 @@ Every fan-out width in this repository derives from the box it runs on: total ph
 
 ## The memory-bound fan-outs
 
-Two fan-outs are memory-bound. Each names its cost where its width is resolved.
+Two fan-outs are memory-bound, and one holder is priced beside them. Each names its cost where its width is resolved.
 
 - The kernel's delta wave, one `build-tables` process over every settlement configuration (`conform.SETTLEMENT_CONFIGS`; the ss10 overlay settles nothing and enumerates nothing): `default` enumerates first and keeps its trace memo, then the other configurations run as deltas over it, `--threads` at a time. `CONFIG_PEAK_BYTES` in `rebuild/pipeline/kernel_exec.py` is what one configuration holds until it has written its artifacts, and it is both terms of the width — the co-resident term, since `default`'s memo stays alive for the wave, and the divisor, since a delta is bounded by a configuration enumerated from scratch — while `TABLE_BUILD_PEAK_BYTES` beside it is the whole process those bound, the figure `make job-costs` watches the run_m1 step against. `kernel_threads_default` resolves the solo width a bare `run_m1` gets (`KERNEL_THREADS_DEFAULT`); `kernel_threads_budget` in `rebuild/tools/artifact_cycle.py` resolves a cycle's, taking gate:make-test's pytest pool off the box beside `default`'s memo before the division. The string replay that follows the table build (`run_m1.run_replay_strings`) takes the same width into one crate process, and prices a configuration at the same constant: a replay's engine holds a subset of what the enumeration's holds, the trace memo over the windows the texts reach, so the division that width came from still answers.
 - The review-surface build. In `rebuild/tools/artifact_cycle.py`, `SURFACE_PARENT_BYTES` is the parent that holds the whole corpus at any width and is subtracted from the box before the division, `SURFACE_WORKER_BYTES` is what one worker holds, `SURFACE_JOBS_CAP` is where the build stops scaling, and `surface_job_budget` is the one division over them. A box the pooled shape does not fit floors at one, which is the serial build rather than a refusal.
+- The standing daemon (`rebuild/tools/standing_daemon.py`), which holds one review surface and its font pair for the standing probe and the standing dry run so that neither loads the surface per process. `STANDING_DAEMON_BYTES` there is what that one process holds, resolved by `serve` as `describe_fit(…, cap=1)` at start — one by design, since `serve` refuses to start beside a daemon that already answers — and it is a co-resident figure no cycle width subtracts: `surface_job_budget` and `kernel_threads_budget` price a box with no daemon on it, so the daemon is stopped before a cycle pass (`make standing-daemon-stop`) and exits by itself once the surface it holds is rebuilt.
 
 ## Everything else
 
@@ -28,7 +29,7 @@ The first two win ahead of everything derived.
 
 ## One gate at a time
 
-Widths derive from total memory, never from what is free, so a gate started while another runs does not see it: both fan out to the full box and page or starve each other. The artifact cycle already serializes its own steps and takes gate:make-test's pool off the box before dividing the kernel's; nothing does that across independent processes. A workflow that runs agents in parallel therefore runs its gates through a single serialized stage, with each agent's edits landing before that stage rather than each agent gating its own work.
+Widths derive from total memory, never from what is free, so a gate started while another runs does not see it, and neither sees a standing daemon holding a surface beside them (`STANDING_DAEMON_BYTES`, which is why the daemon is stopped before a pass): both fan out to the full box and page or starve each other. The artifact cycle already serializes its own steps and takes gate:make-test's pool off the box before dividing the kernel's; nothing does that across independent processes. A workflow that runs agents in parallel therefore runs its gates through a single serialized stage, with each agent's edits landing before that stage rather than each agent gating its own work.
 
 ## Measuring
 
