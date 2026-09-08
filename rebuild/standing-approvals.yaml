@@ -1596,3 +1596,25 @@ rules:
         added: []
         shift: 0
       except_left: []
+  - id: tea-baseline-join-created-follower-widened
+    verdict: approve
+    note: "·Tea's full bar joins ·Day, ·Roe and ·May at the baseline where the old font drew the half stub and left a break, and each of those followers takes the join on a stroke the rebuild extends by a column, so the follower comes one column nearer and hands that column straight back past itself. tea-baseline-join-created is the same seam into the followers that hold their own advance, and its note parks these three for exactly this reason — one rule declares one advance. ·Day's and ·Roe's baseline entries carry the extra column on their own extend records, qsDay's before ·Tea and ·Ye since “Checkpoint the qsDay/qsUtter/qsNo migration batch with its triage residue down to 2,535” and qsRoe's before an exitless ·Tea since “Set ·Roe back a pixel off ·Tea's bar when nothing joins on after it”, while ·May's column comes off its own x-height exit, the by-1 extend qsMay draws whenever its entry is live. What puts the full bar in front of them is qsTea's ss03 x-height unlock, authored as “Always draw ·Tea's full bar after a flat x-height stroke under ss03” and merged into the one record that carries its why: in “Consolidate ·Tea's `ss03` rules”, and the ·Et-scoped ss05 unlock of the full stance's baseline-entry-and-baseline-exit pairing, which is why the rule names the ·Tea entered at the baseline beside the one entered at the x-height; the divergence ledger's reviewed-approved `ss03-chain-join-gains` entry is where the decision lives, capability-grained with no except list. The rule speaks only for the followers that hand back exactly one column: the ·Roe that gives up a baseline exit of its own as it takes the entry hands back two, the ·May whose old font already drew the reach hands back none, and the ·Roe that settles into a contracted x-height entry moves its own frame, which a created join can only declare as a reach back over the old left edge — all three stay on the docket, as do the ·Day+Utter windows, every one of which is word-final and so never shows what the follower hands on. Every window that reached a sitting approved the join"
+    match:
+      before:
+        pivot: qsTea
+        seam_out: break
+        follower: [qsDay, qsMay, qsRoe]
+      after:
+        joined: y0
+        pivot_cells:
+          - qsTea/full/baseline/baseline/
+          - qsTea/full/x-height/baseline/
+        receiver_cells:
+          - qsDay/half/baseline/None/en-ext-1
+          - qsDay/half/baseline/baseline/en-ext-1
+          - qsMay/loop/baseline/x-height/ex-ext-1
+          - qsRoe/hapax/baseline/None/en-ext-1
+        shift: -1
+        follower_advance: 1
+        follower_reach: 0
+      except_left: []
