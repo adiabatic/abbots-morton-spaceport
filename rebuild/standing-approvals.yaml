@@ -1635,3 +1635,31 @@ rules:
         follower_advance: 0
         follower_reach: 0
       except_left: []
+  - id: may-fee-xheight-join-dropped
+    verdict: approve
+    note: "·Fee sits a column further from ·May — the two no longer join at the x-height, and ·Fee draws its loop forward instead. The break is decided from ·May's side: qsMay's prefer record yields its own x-height exit before ·Fee under the except clause added in “Make ·Fee join forward at the x-height, and back into ·Day·Utter”, and the loop stance forbids taking an x-height entry and an x-height exit at once, so a ·May that has taken one has nothing left to reach with. fee-unjoined-loop is the loop ·Fee draws once the reach behind it is gone, with the whole of that decision's record and the user's why on qsFee's prefer; this rule is the gap the same stroke opens, which fee-unjoined-loop's own note parks. It names the cells both letters settle into rather than holding ·May's picture, because the ·May that gives the reach up redraws in place as it does. The rule is bounded to the ·May the window leaves unentered: a ·May that has taken a new x-height entry gives up a longer stroke and sets ·Fee nowhere further at all, which is not this gap. Every window that reached a sitting approved the break or called it either"
+    match:
+      before:
+        pivot: qsMay
+        seam_out: y5
+        follower: qsFee
+      after:
+        gap: 1
+        pivot_cells:
+          - qsMay/loop/None/None/
+        receiver_cells:
+          - qsFee/loop/None/x-height/
+          - qsFee/loop/None/x-height/ex-ext-1
+      except_left: []
+  - id: may-xheight-exit-and-reach-dropped
+    verdict: approve
+    note: "·May draws its plain loop where the old font drew an x-height exit stroke with a pixel of reach on it into a break, and whatever follows comes two columns closer — the stroke and the reach going together. may-xheight-exit-dropped is the same loop where the old font drew no reach and the follower comes one column closer, and its note parks this deeper trade, since a redrawn rule declares one trade and one count. The decision is that rule's in full: qsMay's refuse record gives the baseline exit up before ·Tea on the user's why at “Let ·Ah·May·Tea join on both sides of ·May again”, everywhere but after ·Ah and unconditionally under ss03, the x-height exit that would otherwise stand in its place is the one qsMay's prefer record declines before ·Tea, an exception it has carried since “Reach ·Utter into ·May, and rejoin four more chains”, and the loop stance forbids taking an x-height entry and an x-height exit at once, so a ·May that has taken a new x-height entry reaches nothing forward. Where ·Utter leads, utter-baseline-join-created and utter-may-baseline-join-retargeted speak for the rest of the window; where ·Ah does, ah-may-xheight-join-created and ah-may-xheight-join-created-after-contracted-entry do. The trade is read at the pivot alone and says nothing about that letter's own outgoing seam, so a window where the ·Fee ·May used to reach at the x-height stands off it instead gives those two columns straight back and holds no reading here — a redrawn trade and a dropped join cannot share one position — and may-fee-xheight-join-dropped is the gap seen on its own. Every window that reached a sitting approved this loop or called it either"
+    match:
+      before:
+        pivots: [qsMay.ex-ext-1, qsMay.en-y0.ex-y5.ex-ext-1]
+      after:
+        pivots: [qsMay.loop.en-y5]
+        dropped: [[1, 1], [1, 2], [1, 4], [1, 5], [2, 6], [2, 7], [3, 0], [3, 3], [3, 8], [4, 1], [4, 2], [4, 8], [5, 8]]
+        added: [[0, 1], [0, 2], [0, 4], [0, 5], [1, 0], [1, 6], [1, 7], [2, 8], [3, 1], [3, 2]]
+        shift: -2
+      except_left: []
