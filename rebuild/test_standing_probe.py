@@ -1,9 +1,13 @@
-"""Tests for the standing-approval probe, the read-only instrument the rule-writing skill works from: that every family and cell listing it prints comes out in code-point order rather than alphabetically, which is the order the rules file is written in and so the order a survey can be pasted from; that its two silent degradations now label the exact reading they invalidate — a verdicts file stamped for another manifest makes every verdict unknown rather than the positive claim BLANK, and a surface with no font pair says which columns and which composed line are missing and why; that `--shapes` is walked off `standing_verdicts.SHAPES` at runtime, one row per shape with the symptom its own matcher's docstring opens with, and that a run resolving no unit id prints that menu too; that `--find` is a plain substring match over notations, blanks first and capped with the total stated, because one letter pair reaches thousands of records; that `--coverage` re-runs a rule's own survey relaxed of everything the rule names and reports the followers, forms and cells it does not, once, as a docket rather than an instruction — and says plainly when the rule's shape has no enumeration to run; and that the redrawn trade a `--reading` line names is never truncated, since a redrawn rule is written from exactly that list. Everything here is hermetic: a synthetic surface under tmp_path, a rules file beside it, and no live build artifact anywhere, which is the standard every file of this suite is held to."""
+"""Tests for the standing-approval probe, the read-only instrument the rule-writing skill works from: that every family and cell listing it prints comes out in code-point order rather than alphabetically, which is the order the rules file is written in and so the order a survey can be pasted from; that its two silent degradations now label the exact reading they invalidate — a verdicts file stamped for another manifest makes every verdict unknown rather than the positive claim BLANK, and a surface with no font pair says which columns and which composed line are missing and why; that `--shapes` is walked off `standing_verdicts.SHAPES` at runtime, one row per shape with the symptom its own matcher's docstring opens with, and that a run resolving no unit id prints that menu too; that `--find` is a plain substring match over notations, blanks first and capped with the total stated, because one letter pair reaches thousands of records; that `--survey` groups every position under a before-glyph prefix by before form, after cell, left family, seam changes and follower with a verdict tally each, in code-point order, narrows to one after cell, counts the windows it cannot place, and says when nothing carries the glyph; that `--coverage` re-runs a rule's own survey relaxed of everything the rule names and reports the followers, forms and cells it does not, once, as a docket rather than an instruction — answering for every shape in `SHAPES` but ligature and ink-delta, the join-dropped shape through the pair enumeration and the form-naming shapes through the survey with each named list relaxed while the others hold — and says plainly when the rule's shape has no enumeration to run; that the cell-to-glyph-name reading the form coverage prints is held against `cell_label` over the mini spec; and that the redrawn trade a `--reading` line names is never truncated, since a redrawn rule is written from exactly that list. Everything here is hermetic: a synthetic surface under tmp_path, a rules file beside it, and no live build artifact anywhere, which is the standard every file of this suite is held to."""
 
 import json
 
 import pytest
 
+from rebuild.pipeline.geometry import HEIGHT_Y
+from rebuild.pipeline.model import CellId
+from rebuild.pipeline.settle import cell_label
+from rebuild.review import enrich
 from rebuild.tools import standing_probe as probe
 from rebuild.tools import standing_verdicts as sv
 from rebuild.validation.classify import PIXEL_SIZE
@@ -55,6 +59,62 @@ INK_RULE = {
     "match": {"after": {"ink_deltas": [DELTA]}, "except_left": []},
 }
 
+GAP_RULE = {
+    "id": "no-gay-baseline-join-dropped",
+    "verdict": "approve",
+    "note": "·Gay sits two columns further from a raised ·No",
+    "match": {
+        "before": {"pivot": "qsNo", "seam_out": "y0", "follower": "qsGay"},
+        "after": {
+            "gap": 2,
+            "pivot_cells": ["qsNo/loop/x-height/None/"],
+            "receiver_cells": ["qsGay/hapax/None/None/"],
+        },
+        "except_left": [],
+    },
+}
+
+GAP_RULE_BARE = {
+    "id": "at-it-xheight-join-dropped",
+    "verdict": "approve",
+    "note": "·It sits a column further from ·At",
+    "match": {
+        "before": {"pivot": "qsAt", "seam_out": "y5", "follower": "qsIt"},
+        "after": {"gap": 1},
+        "except_left": [],
+    },
+}
+
+REDRAWN_RULE = {
+    "id": "utter-gay-exit-extension-dropped",
+    "verdict": "approve",
+    "note": "·Gay sits a pixel closer to ·Utter",
+    "match": {
+        "before": {"pivots": ["qsUtter.ex-ext-1"]},
+        "after": {
+            "pivots": ["qsUtter.mono.ex-y5", "qsUtter.mono.en-y0.ex-y5"],
+            "dropped": [[5, 5]],
+            "added": [],
+            "shift": -1,
+        },
+        "except_left": [],
+    },
+}
+
+ENTRY_RULE = {
+    "id": "gay-entry-contracted",
+    "verdict": "approve",
+    "note": "·Gay's baseline entry pulls in one pixel after ·Bay",
+    "match": {
+        "before": {"left": ["qsBay"], "pivots": ["qsGay.en-y0.ex-y5"]},
+        "after": {
+            "pivots": ["qsGay.hapax.en-y0.en-con-1", "qsGay.hapax.en-y0.ex-y5.en-con-1"],
+            "entry_contraction": 1,
+        },
+        "except_left": [],
+    },
+}
+
 
 def unit(uid, glyphs, seams, cells, after_seams, *, codepoints, notation="·X ~b~ ·Y", deltas=None):
     return {
@@ -103,6 +163,12 @@ def retarget_window(uid, follower, follower_cell, **kwargs):
         codepoints=_codepoints(follower),
         **kwargs,
     )
+
+
+def window(uid, glyphs, cells, seams, after_seams, **kwargs):
+    """One window spelled out on both sides, its codepoints counted off the before glyphs."""
+    codepoints = ":".join(["E000"] * sum(sv._components(sv._family(name)) for name in glyphs))
+    return unit(uid, glyphs, seams, cells, after_seams, codepoints=codepoints, **kwargs)
 
 
 def _surface(tmp_path, units):
@@ -157,6 +223,24 @@ def _section(out, header):
     body = []
     for line in lines[lines.index(header) + 1 :]:
         if not line.startswith("    "):
+            break
+        body.append(line.strip())
+    return body
+
+
+def _survey_groups(out):
+    """The survey's group lines — a before form and the after cell it settles into — which sit two spaces in, above their rows at eight."""
+    return [
+        line.strip() for line in out.splitlines() if line.startswith("  ") and not line.startswith("        ")
+    ]
+
+
+def _survey_rows(out, group):
+    lines = out.splitlines()
+    start = next(index for index, line in enumerate(lines) if line.strip() == group)
+    body = []
+    for line in lines[start + 1 :]:
+        if not line.startswith("        "):
             break
         body.append(line.strip())
     return body
@@ -373,7 +457,7 @@ def test_coverage_says_plainly_when_a_shape_has_no_enumeration(tmp_path, capsys)
     units = [tea_window("c-1", "qsVie", "qsVie/normal/baseline/None/", deltas={"default": DELTA})]
     out = _run(tmp_path, capsys, units, ["--coverage", INK_RULE["id"]], rules=(EXT_RULE, INK_RULE))
     assert "declares the ink-delta shape, which has no relaxed enumeration to run" in out
-    assert "--extension-cells" in out and "--retarget-cells" in out
+    assert "--extension-cells" in out and "--retarget-cells" in out and "--survey" in out
     assert "does not name" not in out
 
 
@@ -381,6 +465,222 @@ def test_coverage_of_an_unknown_rule_id_says_so(tmp_path, capsys):
     units = [tea_window("c-1", "qsVie", "qsVie/normal/baseline/None/")]
     out = _run(tmp_path, capsys, units, ["--coverage", "no-such-rule"])
     assert "no-such-rule: no rule by that id in this rules file" in out
+
+
+def test_coverage_answers_for_every_shape_but_ligature_and_ink_delta():
+    """A shape entering SHAPES fails here until the probe answers for it or the exemption is argued: ligature names no forms, ink-delta names digests."""
+    assert set(probe.COVERAGE_SHAPES) == set(sv.SHAPES) - {"ligature", "ink-delta"}
+
+
+GAP_WINDOWS = [
+    ("g-1", "qsGay", "qsGay/hapax/None/None/"),
+    ("g-2", "qsThaw", "qsThaw/hapax/None/None/"),
+    ("g-3", "qsGay", "qsGay/hapax/None/baseline/"),
+]
+
+
+def test_coverage_dispatches_to_the_gap_enumeration(tmp_path, capsys):
+    units = [
+        window(uid, ["qsNo", follower], ["qsNo/loop/x-height/None/", cell], ["y0"], ["break"])
+        for uid, follower, cell in GAP_WINDOWS
+    ]
+    out = _run(tmp_path, capsys, units, ["--coverage", GAP_RULE["id"]], rules=(EXT_RULE, GAP_RULE))
+    assert "(join-dropped shape)" in out
+    assert _section(out, "  follower families the rule does not name:") == ["1  qsThaw  {'BLANK': 1}"]
+    assert _section(out, "  follower cells the rule does not name:") == [
+        "1  qsGay/hapax/None/baseline/  {'BLANK': 1}",
+        "1  qsThaw/hapax/None/None/  {'BLANK': 1}",
+    ]
+    assert "pivot forms: the rule names every one this enumeration reaches" in out
+
+
+def test_coverage_of_a_gap_rule_without_cell_lists_reads_only_its_followers(tmp_path, capsys):
+    """A join-dropped rule that holds both pictures names no cells, so the cells are not an axis it could be missing."""
+    units = [
+        window(
+            "g-1",
+            ["qsAt", "qsIt"],
+            ["qsAt/rising/x-height/None/", "qsIt/normal/None/None/"],
+            ["y5"],
+            ["break"],
+        ),
+        window(
+            "g-2",
+            ["qsAt", "qsMay"],
+            ["qsAt/rising/x-height/None/", "qsMay/loop/None/None/"],
+            ["y5"],
+            ["break"],
+        ),
+    ]
+    out = _run(tmp_path, capsys, units, ["--coverage", GAP_RULE_BARE["id"]], rules=(EXT_RULE, GAP_RULE_BARE))
+    assert _section(out, "  follower families the rule does not name:") == ["1  qsMay  {'BLANK': 1}"]
+    assert "pivot forms" not in out
+    assert "follower cells" not in out
+
+
+def utter_window(uid, pivot, pivot_cell):
+    """One window where an ·Utter form settles into a cell in front of ·Gay at the x-height."""
+    return window(uid, [pivot, "qsGay"], [pivot_cell, "qsGay/hapax/x-height/None/"], ["y5"], ["y5"])
+
+
+def test_coverage_names_the_forms_a_redrawn_rule_does_not(tmp_path, capsys):
+    """The pivot-form gap in miniature: a before form the rule's prefix does not cover settling into a named after form is the docket, an after form a named before form settles into is the docket, and a position unnamed on both sides is neither — it is the family's unrelated business."""
+    units = [
+        utter_window("r-1", "qsUtter.ex-ext-1", "qsUtter/mono/None/x-height/"),
+        utter_window("r-2", "qsUtter.en-y0.ex-ext-1", "qsUtter/mono/baseline/x-height/"),
+        utter_window("r-3", "qsUtter.ex-ext-1", "qsUtter/alternate/None/baseline/"),
+        utter_window("r-4", "qsUtter", "qsUtter/mono/None/None/"),
+    ]
+    records = [{"unit": "r-3", "verdict": "approve", "note": "", "at": STAMP}]
+    out = _run(
+        tmp_path,
+        capsys,
+        units,
+        ["--coverage", REDRAWN_RULE["id"]],
+        rules=(EXT_RULE, REDRAWN_RULE),
+        records=records,
+    )
+    assert "(redrawn shape), enumerated over every qsUtter position" in out
+    assert _section(out, "  before forms the rule does not name:") == [
+        "1  qsUtter.en-y0.ex-ext-1  {'BLANK': 1}"
+    ]
+    assert _section(out, "  after forms the rule does not name:") == [
+        "1  qsUtter.alternate.ex-y0  {'approve': 1}"
+    ]
+    assert "qsUtter.mono  " not in out and "qsUtter/mono/None/None/" not in out
+    assert out.count(probe.DOCKET_NOTE) == 1
+
+
+def gay_window(uid, left, pivot, pivot_cell):
+    """One window where a ·Gay form stands after a left letter at the baseline and joins ·No at the x-height."""
+    return window(
+        uid,
+        [left, pivot, "qsNo"],
+        [f"{left}/hapax/None/baseline/", pivot_cell, "qsNo/loop/x-height/None/"],
+        ["y0", "y5"],
+        ["y0", "y5"],
+    )
+
+
+def test_coverage_names_the_left_families_an_entry_contracted_rule_does_not(tmp_path, capsys):
+    units = [
+        gay_window("e-1", "qsBay", "qsGay.en-y0.ex-y5", "qsGay/hapax/baseline/x-height/en-con-1"),
+        gay_window("e-2", "qsDay", "qsGay.en-y0.ex-y5", "qsGay/hapax/baseline/x-height/en-con-1"),
+        gay_window("e-3", "qsDay", "qsGay.en-y0", "qsGay/hapax/baseline/None/en-con-1"),
+    ]
+    out = _run(tmp_path, capsys, units, ["--coverage", ENTRY_RULE["id"]], rules=(EXT_RULE, ENTRY_RULE))
+    assert _section(out, "  left families the rule does not name:") == ["1  qsDay  {'BLANK': 1}"]
+    assert "before forms: the rule names every one this enumeration reaches" in out
+    assert "after forms: the rule names every one this enumeration reaches" in out
+
+
+SURVEY_UNITS = [
+    window(
+        "s-1",
+        ["qsAh", "qsKey", "qsIt"],
+        ["qsAh/hapax/None/None/", "qsKey/hapax/None/baseline/ex-con-1", "qsIt/normal/baseline/None/"],
+        ["break", "y0"],
+        ["break", "y0"],
+    ),
+    window(
+        "s-2",
+        ["qsAh", "qsKey", "qsNo"],
+        ["qsAh/hapax/None/None/", "qsKey/hapax/None/baseline/ex-con-1", "qsNo/loop/baseline/None/"],
+        ["break", "y0"],
+        ["break", "y0"],
+    ),
+    window(
+        "s-3",
+        ["qsKey.en-y8", "qsMay"],
+        ["qsKey/hapax/top/None/", "qsMay/loop/None/None/"],
+        ["break"],
+        ["break"],
+    ),
+    window(
+        "s-4", ["qsAh", "qsKey"], ["qsAh/hapax/None/None/", "qsKey/hapax/None/None/"], ["break"], ["break"]
+    ),
+]
+
+
+def test_survey_groups_positions_by_form_cell_seams_and_follower(tmp_path, capsys):
+    """Groups come out by before form then after cell in code-point order with the token as the tie-break, rows under a group by left family, seams and follower in the same order (·No before ·It), and a pivot at the window's end prints the edge marker where its seam out and follower would be."""
+    records = [{"unit": "s-2", "verdict": "approve", "note": "", "at": STAMP}]
+    out = _run(tmp_path, capsys, SURVEY_UNITS, ["--survey", "qsKey"], records=records)
+    assert _line(out, "survey of qsKey: 4 positions").endswith("follower family and cell:")
+    assert _survey_groups(out) == [
+        "1  qsKey  →  qsKey/hapax/None/None/  {'BLANK': 1}",
+        "2  qsKey  →  qsKey/hapax/None/baseline/ex-con-1  {'BLANK': 1, 'approve': 1}",
+        "1  qsKey.en-y8  →  qsKey/hapax/top/None/  {'BLANK': 1}",
+    ]
+    assert _survey_rows(
+        out, "2  qsKey  →  qsKey/hapax/None/baseline/ex-con-1  {'BLANK': 1, 'approve': 1}"
+    ) == [
+        "1  left qsAh break→break   out y0→y0 → qsNo qsNo/loop/baseline/None/  {'approve': 1}",
+        "1  left qsAh break→break   out y0→y0 → qsIt qsIt/normal/baseline/None/  {'BLANK': 1}",
+    ]
+    assert _survey_rows(out, "1  qsKey  →  qsKey/hapax/None/None/  {'BLANK': 1}") == [
+        f"1  left qsAh break→break   out {probe.EDGE} → {probe.EDGE} {probe.EDGE}  {{'BLANK': 1}}"
+    ]
+    assert _survey_rows(out, "1  qsKey.en-y8  →  qsKey/hapax/top/None/  {'BLANK': 1}") == [
+        f"1  left {probe.EDGE} {probe.EDGE}   out break→break → qsMay qsMay/loop/None/None/  {{'BLANK': 1}}"
+    ]
+
+
+def test_survey_narrows_to_one_after_cell(tmp_path, capsys):
+    out = _run(tmp_path, capsys, SURVEY_UNITS, ["--survey", "qsKey", "qsKey/hapax/top/None/"])
+    assert "survey of qsKey settling into qsKey/hapax/top/None/: 1 positions" in out
+    assert "ex-con-1" not in out
+
+
+def test_survey_counts_the_windows_it_cannot_place(tmp_path, capsys):
+    """A window whose sides do not line up letter for letter has no position the survey can key, so it is counted rather than silently dropped; a window without the glyph is neither."""
+    units = [
+        SURVEY_UNITS[3],
+        window(
+            "s-5",
+            ["qsKey", "qsTea", "qsOy"],
+            ["qsKey/hapax/None/None/", "qsTea_qsOy/hapax/None/None/"],
+            ["break", "y5"],
+            ["break"],
+        ),
+        window(
+            "s-6", ["qsAh", "qsMay"], ["qsAh/hapax/None/None/", "qsMay/loop/None/None/"], ["break"], ["break"]
+        ),
+    ]
+    out = _run(tmp_path, capsys, units, ["--survey", "qsKey"])
+    header = _line(out, "survey of qsKey: 1 positions")
+    assert header.endswith(
+        "; 1 windows carry it but do not line up letter for letter, so they are not placed:"
+    )
+
+
+def test_survey_says_when_no_window_carries_the_glyph(tmp_path, capsys):
+    units = [tea_window("u-1", "qsVie", "qsVie/normal/baseline/None/")]
+    out = _run(tmp_path, capsys, units, ["--survey", "qsKey"])
+    assert "no human unit carries a glyph under qsKey" in out
+    assert "declared by match.after." not in out
+
+
+def test_a_stale_stamp_labels_the_survey_groups_too(tmp_path, capsys):
+    out = _run(tmp_path, capsys, SURVEY_UNITS, ["--survey", "qsKey"], stamp=OTHER_STAMP)
+    assert f"{{'{probe.UNKNOWN_VERDICT}': 2}}" in out
+    assert "BLANK" not in _past_the_warning(out)
+
+
+AFTER_CELLS = [
+    CellId("qsTea", "full", "x-height", "baseline", ()),
+    CellId("qsKey", "hapax", None, "baseline", ("ex-con-1",)),
+    CellId("qsMay", "loop", "baseline", "x-height", ("en-con-1", "ex-ext-1")),
+    CellId("qsUtter", "mono", None, None, ()),
+    *(CellId("qsNo", "loop", height, None, ()) for height in HEIGHT_Y),
+]
+
+
+def test_a_cell_names_its_after_glyph_the_way_settle_labels_it(mini_bundle):
+    """The spec-free reading agrees with the pipeline's namer over every field a cell carries, the registry's heights included, so a naming change in the pipeline goes red here."""
+    spec = enrich.load_spec(mini_bundle.spec_root)
+    for cell in AFTER_CELLS:
+        assert probe._cell_glyph_name(enrich.cell_token(cell)) == cell_label(spec, cell)
 
 
 class _Intern:
