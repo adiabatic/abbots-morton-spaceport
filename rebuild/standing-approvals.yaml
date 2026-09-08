@@ -1456,3 +1456,30 @@ rules:
         shift: 0
         follower_shift: 0
       except_left: []
+  - id: it-xheight-join-created-lengthened-reach
+    verdict: approve
+    note: "·Fee, ·May and ·I each reach one pixel further and join ·It at the x-height where the old font left a break, and ·It stands where it was: the pixel the reach adds is the column the join would otherwise have closed. Each rune's extend record lengthens that x-height exit by one before ·It — qsFee's since the letter landed in “Add ·Fee”, qsMay's since “Migrate the four worst families to the new rune-file format, conformance-verified”, and qsI's since “Add ·I”, on both of its loops — and qsIt's x-height entry is open to every left letter but ·It itself, the single exclusion “Never join ·It to itself” carved, so the join follows from open surfaces on both sides rather than from a pair ruling. it-xheight-join-created is the same new join into that entry from ·Low and ·Ah, whose x-height exits carry no such reach, which is why ·It closes a column onto them and stands still here; it-baseline-join-created and jai-it-baseline-join-created are the same pair of decisions one height down. The rule names each pivot's entered cells beside its unentered one, and ·I's smaller loop beside its regular one, since the reach is the same stroke on every one of them, and the word-final ·It beside the one that goes on to a baseline exit or draws its own reach. What each pivot does at its own entry is a decision of its own, so where ·May's entry contracts in front of the join bay-may-entry-contracted speaks for that column and the two rules explain the window between them. Where ·Gay closes the window, gay-entry-contracted speaks for its pulled-in baseline entry and utter-gay-exit-extension-dropped for ·Utter's shorter reach into it, so those windows are the composed reading's. Every window that reached a sitting approved the join or called it either"
+    match:
+      before:
+        pivot: [qsFee, qsMay, qsI]
+        seam_out: break
+        follower: qsIt
+      after:
+        joined: y5
+        pivot_cells:
+          - qsFee/loop/None/x-height/ex-ext-1
+          - qsFee/loop/top/x-height/ex-ext-1
+          - qsMay/loop/None/x-height/ex-ext-1
+          - qsMay/loop/baseline/x-height/en-con-1+ex-ext-1
+          - qsMay/loop/baseline/x-height/ex-ext-1
+          - qsI/loop/None/x-height/ex-ext-1
+          - qsI/loop/baseline/x-height/ex-ext-1
+          - qsI/smaller-loop/baseline/x-height/ex-ext-1
+        receiver_cells:
+          - qsIt/hapax/x-height/None/
+          - qsIt/hapax/x-height/baseline/
+          - qsIt/hapax/x-height/baseline/ex-ext-1
+        shift: 0
+        follower_advance: 0
+        follower_reach: 0
+      except_left: []
