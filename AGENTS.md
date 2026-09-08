@@ -37,6 +37,7 @@ Git holds the history, so a checked-in note earns its place only by recording th
 - `tmp/` is scratch and may be wiped between change sets; `var/` (gitignored too) holds what outlives a run: the cycle's build logs, its review-surface snapshots, and hand-kept archives under `var/keep/`. Anything that must survive a `tmp/` wipe goes under `var/`.
 - The M1 table build runs in Rust: `rebuild/kernel-rs/` is the engine of record, `cargo` is a hard prerequisite beside `uv` for anything that builds tables (the rebuild suite included), and a settlement-semantics change is written once, in the crate. `rebuild/pipeline/kernel_exec.py` is the seam and its docstring the map of it; `doc/rebuild-design.md` §14.1 holds the design facts.
 - Never commit without explicit user approval: show the changes and wait for the go-ahead.
+- When creating a GitHub tracking issue with sub-issues, add the sub-issues in the order that suits the set (priority or dependency order, whichever fits) and do not repeat the list in the tracking issue body; the sub-issue list is the list.
 - At a natural commit point, spawn a fresh sub-agent to draft commit-message suggestions and present them for approval.
 - In this repository only: multiline commit messages are fine, though not mandatory, and no worktrees unless explicitly asked.
 - Commit messages describe the author/reader experience ("Make tables.html store state in the URL, not localStorage") or how the letters look different ("Reduce the half-·He extension at the x-height", "Don't join ·Way·Thaw ever"), never the mechanism.
