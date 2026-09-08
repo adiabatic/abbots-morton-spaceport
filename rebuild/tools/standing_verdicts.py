@@ -61,7 +61,7 @@ This is the zero-touch sibling of echo_verdicts.py: echo fill extends the user's
 
 Records are stamped with the manifest's generated_at, so any human verdict beats a standing fill on merge, and a parked unit (a skip verdict) is not blank and is never filled. The artifact cycle runs this after the echo fill, with a merge_verdicts pass to land the file. The run's report rolls every composed line's credit back up per rule, so each rule's whole reach reads in one place — deliberately not a column that sums across rules, since a window two rules explain between them counts toward each of them.
 
-Every decision above is per-unit pure: what the composed reading credits a window with, whether a guard holds it, and which rules' own matchers accept or hold it are a function of the unit's index record, the two fonts' rendering of its window, and the rules file, and of nothing else — the verdict store only decides which of those decisions become fills. `Decider.decide` is that function, `rule_reach` assembles a run out of its answers, and the memo (`Memo`, the `--memo` flag; the verdict chain passes it) persists the answers across passes so a surface-moving pass evaluates only the units whose key is new. A unit's key is its build-time `content_key` stamp, joined with the persisted `ink_deltas` that stamp deliberately leaves out and with the after font's compiled-glyph digest for every family the window's after cells name (`fingerprint.after_font_glyph_digests`, the same per-family grain the review unit cache and the oracle's position store invalidate at, so a drawing or anchor change reaches exactly the windows that can feel it); a unit the surface never stamped is evaluated every pass and never stored. The memo's own stamp is the rules file's raw bytes, since the fill quotes each rule's `note` into every record, the code that decides (`MEMO_CODE_MODULES`, held to this module's import closure by rebuild/test_standing_verdicts.py), the before font wholesale, the after font's family-blind remainder, and `uv.lock` for the shaper; any of those moving drops the memo entirely, and over-invalidation is the safe direction. What is written back is bounded to the units on this surface, so it never outgrows the human domain, and the fills and the report are byte-identical served or computed, which rebuild/test_standing_verdicts.py proves over the frozen mini bundle. The `--require-reach` rollup reads the same answers, so its pass over the whole domain costs no second evaluation.
+Every decision above is per-unit pure: what the composed reading credits a window with, whether a guard holds it, and which rules' own matchers accept or hold it are a function of the unit's index record, the two fonts' rendering of its window, and the rules file, and of nothing else — the verdict store only decides which of those decisions become fills. `Decider.decide` is that function, `rule_reach` assembles a run out of its answers, and the memo (`Memo`, the `--memo` flag; the verdict chain passes it) persists the answers across passes so a surface-moving pass evaluates only the units whose key is new. A unit's key is its build-time `content_key` stamp, joined with the persisted `ink_deltas` that stamp deliberately leaves out and with the after font's compiled-glyph digest for every family the window's after cells name (`fingerprint.after_font_glyph_digests`, the same per-family grain the review unit cache and the oracle's position store invalidate at, so a drawing or anchor change reaches exactly the windows that can feel it); a unit the surface never stamped is evaluated every pass and never stored. The memo's own stamp is the rules file's raw bytes, since the fill quotes each rule's `note` into every record, the code that decides (`MEMO_CODE_MODULES`, held to this module's import closure by rebuild/test_standing_verdicts.py), the before font wholesale, the after font's family-blind remainder, and `uv.lock` for the shaper; any of those moving drops the memo entirely, and over-invalidation is the safe direction. What is written back is bounded to the units on this surface, so it never outgrows the human domain, and the fills and the report are byte-identical served or computed, which rebuild/test_standing_verdicts.py proves over the frozen mini bundle. The `--require-reach` rollup reads the same answers, so its pass over the whole domain costs no second evaluation. A `--targeted` run — the authoring loop's form, taking its rule from `--explain` and further windows from `--unit` — evaluates only the units the rule could speak for at the name grain (`_reachable`) plus the listed ones, prints that rule's own line, the composed lines crediting it, its rollup line, its tripwire and its explain block byte-identical to the whole-domain run's, and one line per listed unit with the decision the run counted, and writes neither a fill file nor the memo; it costs the surface load rather than the domain, and the whole-domain run stays the final pass and the cycle's form. rebuild/test_standing_verdicts.py holds the identity, and the candidate invariant behind it for every checked-in rule, over the same frozen mini bundle.
 """
 
 import argparse
@@ -1590,7 +1590,7 @@ def _composable_digest(rules):
 
 
 def _candidates(match, unit):
-    """The window positions one composable rule could speak for, read off the index record before anything is shaped: a slide, ink-gain, entry-drop, stub-drop, or redrawn rule's are the glyphs whose recorded before name carries one of its pivot prefixes; an entry-contracted rule additionally requires one of the named families immediately on the pivot's left; a join-dropped rule's are the positions where the named pivot's recorded seam into the named follower dropped from the named height to a break, and into whichever after cells it names; a join-retargeted or join-created rule's are the positions where the named pivot's recorded seam into the named follower moved from the named before state to the named new height and both after cells the rule names, less any position whose before glyph falls under a form the rule declines; an extension rule's are the positions meeting every per-position precondition the single-rule matcher reads — the named drop (an `ex-ext-N` on the before glyph, or an `ex-con-N` on the after cell whose before glyph never carried an exit extension), the named seam standing still at that position on both sides, the pivot and follower after cells, and the follower's own family answering for its own cell — and none at all unless the named seam is a yK height, since the walk has to know which row a dropped tail sits on. Deliberately name-grain and cheap, because this is the pre-gate that decides whether a window is worth shaping at all: a rule with no candidate here can never be credited, and a window holding fewer than two candidate positions is never shaped."""
+    """The window positions one composable rule could speak for, read off the index record before anything is shaped: a slide, ink-gain, entry-drop, stub-drop, or redrawn rule's are the glyphs whose recorded before name carries one of its pivot prefixes; an entry-contracted rule additionally requires one of the named families immediately on the pivot's left; a join-dropped rule's are the positions where the named pivot's recorded seam into the named follower dropped from the named height to a break, and into whichever after cells it names; a join-retargeted or join-created rule's are the positions where the named pivot's recorded seam into the named follower moved from the named before state to the named new height and both after cells the rule names, less any position whose before glyph falls under a form the rule declines; an extension rule's are `_extension_positions` — the positions meeting every per-position precondition the single-rule matcher reads — and none at all unless the named seam is a yK height, since the walk has to know which row a dropped tail sits on. Deliberately name-grain and cheap, because this is the pre-gate that decides whether a window is worth shaping at all: a rule with no candidate here can never be credited, and a window holding fewer than two candidate positions is never shaped."""
     glyphs = unit["before"]["glyphs"]
     if (
         _is_slide_match(match)
@@ -1606,11 +1606,16 @@ def _candidates(match, unit):
         return _join_pairs(match, unit)
     if _is_retarget_match(match) or _is_created_join_match(match):
         return _retarget_pairs(match, unit)
-    mb, ma = match["before"], match["after"]
-    if not SEAM_ROW.fullmatch(mb["seam_out"]):
+    if not SEAM_ROW.fullmatch(match["before"]["seam_out"]):
         return []
-    seams, after_seams = unit["before"]["seams"], unit["after"]["seams"]
-    cells = unit["after"]["cells"]
+    return _extension_positions(match, unit)
+
+
+def _extension_positions(match, unit):
+    """The positions an extension-dropped rule could speak for, read off the index record: the positions meeting every per-position precondition the single-rule matcher reads — the named drop (an `ex-ext-N` on the before glyph, or an `ex-con-N` on the after cell whose before glyph never carried an exit extension), the named seam standing still at that position on both sides, the pivot and follower after cells, and the follower's own family answering for its own cell. Whether the named seam is a row the walk can place a dropped tail on is `_candidates`' question, not this one's, so a rule whose seam is not a yK height is still judged here the way its own matcher judges it."""
+    glyphs, seams = unit["before"]["glyphs"], unit["before"]["seams"]
+    cells, after_seams = unit["after"]["cells"], unit["after"]["seams"]
+    mb, ma = match["before"], match["after"]
     followers = _families(mb["follower"])
     reach = min(len(glyphs), len(cells), len(seams) + 1, len(after_seams) + 1) - 1
     return [
@@ -1625,6 +1630,27 @@ def _candidates(match, unit):
         and cells[i + 1] in ma["follower_cells"]
         and _cell_rune(cells[i + 1]) == _family(glyphs[i + 1])
     ]
+
+
+def _reachable(match, unit):
+    """Whether a rule could speak for a unit at all, read at the name grain before anything is shaped: a composable shape's candidate positions (`_candidates`, with the extension shape read through `_extension_positions` so a rule whose seam is not a yK row is judged the way its own matcher judges it), a glyph carrying the pivot prefix for the ligature shape, and every persisted digest among the named ones for the ink-delta shape. Each is a precondition its shape's matcher reads guarded or unguarded, and the composed walk asks a rule only at its candidate positions, so a unit this refuses stands on none of the rule's lines — filled, already verdicted, held, or composed credit — which is what lets a targeted run evaluate only the units it admits and print that rule's lines byte-identical to the whole domain's; rebuild/test_standing_verdicts.py holds that for every checked-in rule over the frozen mini bundle."""
+    if not unit.get("before") or not unit.get("after"):
+        return False
+    shape = _shape_of(match)
+    if shape is None:
+        return False
+    if shape is SHAPES["extension-dropped"]:
+        return bool(_extension_positions(match, unit))
+    if shape.composable:
+        return bool(_candidates(match, unit))
+    if shape is SHAPES["ligature"]:
+        return any(_is_pivot(name, match["before"]["pivot"]) for name in unit["before"]["glyphs"])
+    deltas = unit.get("ink_deltas")
+    return (
+        isinstance(deltas, dict)
+        and bool(deltas)
+        and set(deltas.values()) <= set(match["after"]["ink_deltas"])
+    )
 
 
 def _pieces_by_glyph(names, run):
@@ -2837,6 +2863,60 @@ def _explain_lines(rule_id, reach, records):
     ]
 
 
+def _listed_lines(rules, rule, listed, records, decide):
+    """One line per listed unit, in the order listed: the verdict the store holds on it (`blank` when none), whether it is a name-grain candidate of the targeted rule (`_reachable`), and what the run decided about it — the composed reading that claims it, with the verdict a fill carries or `held` when a guard holds the window, else the rules whose own matchers accept it and the rules whose except_left hold it, in rules-file order, else that no rule speaks for it. This is the answer to why a specimen is missing from the explain block, and it reads the same `Decision` the run counted, so listing a unit never changes a line above it."""
+    order = {each["id"]: index for index, each in enumerate(rules)}
+    lines = []
+    for unit in listed:
+        unit_id = unit["id"]
+        verdict = records[unit_id]["verdict"] if unit_id in records else "blank"
+        candidacy = "a candidate" if _reachable(rule["match"], unit) else "not a candidate"
+        decision = decide(unit)
+        composed = decision.composed
+        if composed is not None:
+            outcome = "held" if composed.held else composed.verdict
+            reading = f"composed {' + '.join(composed.credited)} ({outcome})"
+        else:
+            clauses = []
+            if decision.matched:
+                clauses.append("matched by " + " ".join(sorted(decision.matched, key=order.__getitem__)))
+            if decision.held:
+                clauses.append(
+                    "held by except_left " + " ".join(sorted(decision.held, key=order.__getitem__))
+                )
+            reading = "; ".join(clauses) or "no rule speaks for it"
+        lines.append(f"  listed {unit_id} ({verdict}): {candidacy} of {rule['id']}; {reading}")
+    return lines
+
+
+def targeted_report(rules, rule, units, listed_ids, records, stamp, decide):
+    """The report of a `--targeted` run: the whole-domain report restricted to the lines about one rule, read over the units the rule could speak for at the name grain (`_reachable`) plus the listed ids, kept in surface order because `Reach` and the explain block list ids in iteration order and the lines have to read as the whole-domain run's. Every unit the whole-domain run would put on this rule's lines is in the subset, and every decision is per-unit pure, so the rule's own line, the composed lines crediting it, its rollup line, its tripwire and its explain block come out byte for byte the same; other rules' lines are left out, because over this subset they would read only what these windows happen to carry and the rollup would call every other rule dead. The vocabulary line reads the whole surface as always, since it is name-grain and reads no decision, and each listed unit gets a line of its own (`_listed_lines`)."""
+    listed = list(dict.fromkeys(listed_ids))
+    wanted = set(listed)
+    match = rule["match"]
+    subset = [unit for unit in units if unit["id"] in wanted or _reachable(match, unit)]
+    run = rule_reach(rules, subset, records, stamp, decide=decide)
+    by_id = {unit["id"]: unit for unit in subset}
+    rule_id = rule["id"]
+    lines = [
+        f"  targeted at {rule_id}: {len(subset)} of {len(units)} human units evaluated — the rule's "
+        f"name-grain candidates plus {len(listed)} listed — and no fill file written"
+    ]
+    lines += _listed_lines(
+        rules, rule, [by_id[unit_id] for unit_id in listed if unit_id in by_id], records, decide
+    )
+    lines += [
+        f"  listed {unit_id}: not a human unit on this surface" for unit_id in listed if unit_id not in by_id
+    ]
+    crediting = {ids: counts for ids, counts in run.composed_counts.items() if rule_id in ids}
+    lines += _tally_lines([rule], Run(run.fills, crediting, run.reaches), False)
+    lines += _rollup_lines([rule], run.reaches)
+    lines += _tripwire_lines({rule_id: run.reaches[rule_id]}, records)
+    lines += _vocabulary_lines([rule], units)
+    lines += _explain_lines(rule_id, run.reaches[rule_id], records)
+    return lines
+
+
 def main(argv=None, *, units=None):
     parser = argparse.ArgumentParser(description=(__doc__ or "").split(":")[0] + ".")
     parser.add_argument(
@@ -2844,11 +2924,23 @@ def main(argv=None, *, units=None):
     )
     parser.add_argument("--surface", default=str(SURFACE))
     parser.add_argument("--rules", default=str(RULES))
-    parser.add_argument("--out", default=str(OUT))
+    parser.add_argument("--out", default=None, help=f"where the fill file goes (default {OUT.name})")
     parser.add_argument(
         "--explain",
         metavar="RULE",
         help="also print this rule's matched unit ids, split into the blanks it filled, the ones a verdict already covers, and the ones its except_left held",
+    )
+    parser.add_argument(
+        "--targeted",
+        action="store_true",
+        help="evaluate only the --explain rule's name-grain candidates plus any --unit ids, print that rule's lines — own line, composed lines crediting it, rollup, tripwire and explain block, byte-identical to the whole-domain run's — and one decision line per listed unit; writes no fill file and never touches the memo. The authoring loop's form: a surface load rather than a domain evaluation. The whole-domain run stays the final pass and the cycle's form.",
+    )
+    parser.add_argument(
+        "--unit",
+        action="append",
+        metavar="UNIT_ID",
+        default=[],
+        help="with --targeted: also evaluate this unit and say what the run decided about it; repeatable",
     )
     parser.add_argument(
         "--open-only",
@@ -2877,6 +2969,15 @@ def main(argv=None, *, units=None):
         parser.error(
             "--explain reads the whole domain's already-verdicted column and cannot be combined with --open-only"
         )
+    if args.targeted and args.explain is None:
+        parser.error("--targeted takes its rule from --explain")
+    if args.targeted and (args.out is not None or args.memo is not None or args.require_reach):
+        parser.error(
+            "a targeted run writes no fill file and no memo, and reach is a reading of the whole domain: "
+            "drop --out/--memo/--require-reach"
+        )
+    if args.unit and not args.targeted:
+        parser.error("--unit needs --targeted")
 
     surface = pathlib.Path(args.surface)
     manifest = json.loads((surface / "manifest.json").read_text())
@@ -2923,6 +3024,14 @@ def main(argv=None, *, units=None):
         memo = Memo.open(args.memo, environment, family_digests, fresh=args.fresh_memo)
     decider = Decider(rules, context, memo)
 
+    if args.targeted:
+        rule = next(rule for rule in rules if rule["id"] == args.explain)
+        for line in targeted_report(
+            rules, rule, units, args.unit, records, manifest["generated_at"], decider.decide
+        ):
+            print(line)
+        return 0
+
     candidates = open_units(units, records) if args.open_only else units
     run = rule_reach(rules, candidates, records, manifest["generated_at"], decide=decider.decide)
 
@@ -2952,7 +3061,7 @@ def main(argv=None, *, units=None):
         "exported_at": manifest["generated_at"],
         "verdicts": run.fills,
     }
-    out = pathlib.Path(args.out)
+    out = pathlib.Path(args.out) if args.out else OUT
     out.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n")
     print(
         f"wrote {out.name}: {len(run.fills)} standing-approval verdicts onto manifest "

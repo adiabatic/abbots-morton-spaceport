@@ -1,7 +1,8 @@
-"""Tests for the standing-approval fill: the delta shapes — the two structural pattern matches, being the ligature shape (pivot glyph, seams into and out of it, follower family, post-ligature seam, flank-seam identity) and the extension-dropped shape (pivot glyph giving up a named stretch of exit — an `ex-ext-N` it carried, in whole or down to a shorter one its named after cell keeps, or an `ex-con-N` its named after cell carries when the before glyph never had an exit extension — the seam it exits into holding its height, the full after-cell identity of pivot and follower, every other seam standing still, nothing ligating anywhere, and the unit's own judgment fields agreeing that this seam is the question), the ink-exact ink-delta shape (the unit's persisted per-config digests being a nonempty subset of the ones the rule blesses, so an ink-identical window matches nothing and one unlisted delta under one config fails the whole unit closed, and a surface predating the field refuses the run outright), and the rendered-pixel slide shape, whose preconditions are read off the index record before anything is shaped (a nonempty `ink_deltas` holding one distinct digest whose keys are exactly the unit's config set, and a pivot-prefix name among the recorded before glyphs) and whose geometry is then re-derived in a purpose-built font pair, where the pivot keeps its exact ink with its own-frame origin displaced by the declared column count and every span's union of ink slides cumulatively — so a union-invisible name-grain re-spelling to the pivot's right rides along, while one stray pixel anywhere in the window, or a font pair that never settles into the named pivot, fails the match closed — the rendered-pixel ink-gain shape, whose preconditions match the slide shape's and whose geometry is the named pivot keeping its placement, height, and own-frame origin while gaining exactly the named cells, every following span moving by the declared count — the rendered-pixel join-dropped shape, whose preconditions are a named pivot–follower seam dropping from a yK height to a break plus the slide shape's digest-agreement, and whose geometry is both letters keeping their exact picture and own-frame origin — or, where the rule names in full the cells both letters settle into, the pivot keeping only that origin and free to redraw in place, and, where it declares the columns its follower hands back, the follower moving that origin right by them and free to redraw inside the receiver cells — with the follower sitting the declared gap further and everything after it sitting the same extra gap away — the rendered-pixel entry-extension-dropped shape, whose preconditions match the slide shape's and whose geometry is the named pivot keeping its placement, height, and own-frame origin while its after picture is the old one compacted left by the declared column count, everything after the pivot sliding closer by that count — the rendered-pixel stub-dropped shape, whose preconditions match the slide shape's and whose geometry is walked position by position because a pivot is a position rather than a name: each position that settles into a named after form is judged as the old picture compacted left by the declared column count with its placement moving right by that count and its origin standing still, every span between pivots rendering identically with no displacement — so a second same-family letter keeping its old form rides as span ink, and one stray pixel anywhere fails the match closed — the rendered-pixel redrawn shape, whose preconditions match the slide shape's and whose geometry is walked position by position because a pivot is a position rather than a name: each position that settles into a named after form is judged as the named cell trade at one common column offset (an entry-extended frame names the same trade one column over), its own frame standing still or taking up to the entry contraction its new form names, its placement carrying the displacement accumulated so far — or as much of that contraction as the frame left closer than that, which the rest of the window then carries too — every span between pivots rendering identically under it, and the displacement growing by the declared shift and whatever the pivot took at each pivot — so a second same-family letter keeping its old form rides as span ink, a trade that only gives ink up names an empty added set (an exit contraction, which the name-grain extension-dropped shape would speak for too but blindly), and one stray pixel anywhere fails the match closed — the composed reading that runs before all of them and credits two or more events in one window, whether they come from two rules or from one rule speaking twice — its name-grain pre-gate refusing to shape a window holding fewer than two candidate positions, its walk carrying a running column displacement across the window so that each span between events must render identically once displaced, its chaining of a join-dropped or extension event whose follower is itself the next event, its skipping of an extension's named follower so a named redraw does not block composition, its refusal of a pivot contracting off the seam row, of a tail wider than the pivot gave up, and of two rules claiming one position, its judging of a failed candidate as ordinary span ink, its per-shape guard scopes, and its own reporting line, which `main` keeps clear of the per-rule lines — the except_left guard, which reads a ligature's trailing left component and refuses the whole unit rather than the one position, blankness against the verdicts file (parked skip verdicts are not blank), the non-winning manifest stamp on every emitted record, and rules-file validation, which admits exactly one shape per rule and checks that shape's own coherence."""
+"""Tests for the standing-approval fill: the delta shapes — the two structural pattern matches, being the ligature shape (pivot glyph, seams into and out of it, follower family, post-ligature seam, flank-seam identity) and the extension-dropped shape (pivot glyph giving up a named stretch of exit — an `ex-ext-N` it carried, in whole or down to a shorter one its named after cell keeps, or an `ex-con-N` its named after cell carries when the before glyph never had an exit extension — the seam it exits into holding its height, the full after-cell identity of pivot and follower, every other seam standing still, nothing ligating anywhere, and the unit's own judgment fields agreeing that this seam is the question), the ink-exact ink-delta shape (the unit's persisted per-config digests being a nonempty subset of the ones the rule blesses, so an ink-identical window matches nothing and one unlisted delta under one config fails the whole unit closed, and a surface predating the field refuses the run outright), and the rendered-pixel slide shape, whose preconditions are read off the index record before anything is shaped (a nonempty `ink_deltas` holding one distinct digest whose keys are exactly the unit's config set, and a pivot-prefix name among the recorded before glyphs) and whose geometry is then re-derived in a purpose-built font pair, where the pivot keeps its exact ink with its own-frame origin displaced by the declared column count and every span's union of ink slides cumulatively — so a union-invisible name-grain re-spelling to the pivot's right rides along, while one stray pixel anywhere in the window, or a font pair that never settles into the named pivot, fails the match closed — the rendered-pixel ink-gain shape, whose preconditions match the slide shape's and whose geometry is the named pivot keeping its placement, height, and own-frame origin while gaining exactly the named cells, every following span moving by the declared count — the rendered-pixel join-dropped shape, whose preconditions are a named pivot–follower seam dropping from a yK height to a break plus the slide shape's digest-agreement, and whose geometry is both letters keeping their exact picture and own-frame origin — or, where the rule names in full the cells both letters settle into, the pivot keeping only that origin and free to redraw in place, and, where it declares the columns its follower hands back, the follower moving that origin right by them and free to redraw inside the receiver cells — with the follower sitting the declared gap further and everything after it sitting the same extra gap away — the rendered-pixel entry-extension-dropped shape, whose preconditions match the slide shape's and whose geometry is the named pivot keeping its placement, height, and own-frame origin while its after picture is the old one compacted left by the declared column count, everything after the pivot sliding closer by that count — the rendered-pixel stub-dropped shape, whose preconditions match the slide shape's and whose geometry is walked position by position because a pivot is a position rather than a name: each position that settles into a named after form is judged as the old picture compacted left by the declared column count with its placement moving right by that count and its origin standing still, every span between pivots rendering identically with no displacement — so a second same-family letter keeping its old form rides as span ink, and one stray pixel anywhere fails the match closed — the rendered-pixel redrawn shape, whose preconditions match the slide shape's and whose geometry is walked position by position because a pivot is a position rather than a name: each position that settles into a named after form is judged as the named cell trade at one common column offset (an entry-extended frame names the same trade one column over), its own frame standing still or taking up to the entry contraction its new form names, its placement carrying the displacement accumulated so far — or as much of that contraction as the frame left closer than that, which the rest of the window then carries too — every span between pivots rendering identically under it, and the displacement growing by the declared shift and whatever the pivot took at each pivot — so a second same-family letter keeping its old form rides as span ink, a trade that only gives ink up names an empty added set (an exit contraction, which the name-grain extension-dropped shape would speak for too but blindly), and one stray pixel anywhere fails the match closed — the composed reading that runs before all of them and credits two or more events in one window, whether they come from two rules or from one rule speaking twice — its name-grain pre-gate refusing to shape a window holding fewer than two candidate positions, its walk carrying a running column displacement across the window so that each span between events must render identically once displaced, its chaining of a join-dropped or extension event whose follower is itself the next event, its skipping of an extension's named follower so a named redraw does not block composition, its refusal of a pivot contracting off the seam row, of a tail wider than the pivot gave up, and of two rules claiming one position, its judging of a failed candidate as ordinary span ink, its per-shape guard scopes, and its own reporting line, which `main` keeps clear of the per-rule lines — the except_left guard, which reads a ligature's trailing left component and refuses the whole unit rather than the one position, blankness against the verdicts file (parked skip verdicts are not blank), the non-winning manifest stamp on every emitted record, rules-file validation, which admits exactly one shape per rule and checks that shape's own coherence, and the targeted run, whose subset is the rule's name-grain candidates plus the listed units and whose lines for that rule are the whole-domain run's byte for byte."""
 
 import json
 import pathlib
+import re
 import sys
 
 import pytest
@@ -2843,6 +2844,35 @@ def _invoke_main(tmp_path, monkeypatch, units, verdicts, rules_list=(RULE,), fon
 def _run_main(tmp_path, monkeypatch, units, verdicts, rules_list=(RULE,), fonts=None, extra=()):
     _code, payload = _invoke_main(tmp_path, monkeypatch, units, verdicts, rules_list, fonts, extra)
     return payload
+
+
+def _target_main(tmp_path, monkeypatch, units, verdicts, flags, rules_list=(RULE,), fonts=None):
+    """The CLI spawned without --out and with `flags` in place of it, the targeted run's form: its exit code, after checking that the run wrote no fill file — neither at the default `OUT`, which is pointed into tmp_path for the call, nor anywhere else under it — and no memo."""
+    surface = _surface(tmp_path, units, fonts)
+    rules = _write_rules(tmp_path / "rules.yaml", list(rules_list))
+    verdicts_path = tmp_path / "verdicts.json"
+    verdicts_path.write_text(
+        json.dumps({"format": "ams-review-verdicts/1", "manifest_generated_at": STAMP, "verdicts": verdicts})
+    )
+    monkeypatch.setattr(sv, "OUT", tmp_path / "default-out.json")
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "standing_verdicts.py",
+            str(verdicts_path),
+            "--surface",
+            str(surface),
+            "--rules",
+            str(rules),
+            *flags,
+        ],
+    )
+    code = sv.main()
+    assert not (tmp_path / "default-out.json").exists()
+    assert not (tmp_path / "out.json").exists()
+    assert not list(tmp_path.glob("*.ndjson.gz"))
+    return code
 
 
 def test_main_fills_only_blank_matching_human_units(tmp_path, monkeypatch):
@@ -7094,8 +7124,8 @@ def _mini_rules(surface, path):
     return _write_rules(path, sv.load_rules(sv.RULES) + [mini_rule])
 
 
-def _run_over_mini(tmp_path, monkeypatch, surface, rules, verdicts, extra):
-    """The CLI over the mini surface: its exit code and the fills file's bytes."""
+def _run_over_mini(tmp_path, monkeypatch, surface, rules, verdicts, extra, writes=True):
+    """The CLI over the mini surface: its exit code and the fills file's bytes — or None for the bytes when `writes` is off, the targeted run's form, which is spawned without --out and is checked to have written nothing."""
     stamp = json.loads((surface / "manifest.json").read_text())["generated_at"]
     tmp_path.mkdir(parents=True, exist_ok=True)
     verdicts_path = tmp_path / "verdicts.json"
@@ -7103,9 +7133,15 @@ def _run_over_mini(tmp_path, monkeypatch, surface, rules, verdicts, extra):
         json.dumps({"format": "ams-review-verdicts/1", "manifest_generated_at": stamp, "verdicts": verdicts})
     )
     out = tmp_path / "out.json"
-    argv = [str(verdicts_path), "--surface", str(surface), "--rules", str(rules), "--out", str(out), *extra]
+    argv = [str(verdicts_path), "--surface", str(surface), "--rules", str(rules), *extra]
+    if writes:
+        argv += ["--out", str(out)]
     monkeypatch.setattr(sys, "argv", ["standing_verdicts.py", *argv])
-    return sv.main(), out.read_bytes()
+    code = sv.main()
+    if not writes:
+        assert not out.exists()
+        return code, None
+    return code, out.read_bytes()
 
 
 def test_the_mini_bundle_reaches_a_composed_line_and_the_bundle_local_rule(
@@ -7115,6 +7151,7 @@ def test_the_mini_bundle_reaches_a_composed_line_and_the_bundle_local_rule(
     rules = _mini_rules(mini_surface, tmp_path / "rules.yaml")
     _code, fills = _run_over_mini(tmp_path, monkeypatch, mini_surface, rules, [], ())
     capsys.readouterr()
+    assert fills is not None
     notes = [record["note"] for record in json.loads(fills)["verdicts"]]
     assert any(note.startswith("[standing: mini-bundle-ink-delta]") for note in notes)
     assert any(" + " in note.partition("]")[0] for note in notes)
@@ -7154,3 +7191,181 @@ def test_the_memo_serves_the_mini_bundle_byte_for_byte(tmp_path, monkeypatch, ca
         f"  memo: served {keyed}, computed 0, unkeyed 0; memo.ndjson.gz holds {keyed} entries"
     ]
     assert runs["fresh"][1] == runs["cold"][1]
+
+
+def test_a_rules_lines_never_name_a_unit_outside_its_name_grain_candidates(tmp_path, mini_surface):
+    """What the targeted run rests on: over the frozen mini bundle, under the checked-in rules and the bundle-local ink-delta rule, every unit a rule's own matcher accepts or holds, and every unit a composed reading credits it at, is one `_reachable` admits for that rule — so a run over only the admitted units sees everything the whole domain would put on the rule's lines — and the narrowing is real, since some rule with a reach admits fewer units than the domain holds."""
+    rules = sv.load_rules(_mini_rules(mini_surface, tmp_path / "rules.yaml"))
+    context = sv.SlideContext(mini_surface / "fonts" / "before.otf", mini_surface / "fonts" / "after.otf")
+    decide = sv.Decider(rules, context).decide
+    units = _human_units(mini_surface)
+    named = {rule["id"]: set() for rule in rules}
+    for unit in units:
+        decision = decide(unit)
+        credited = decision.composed.credited if decision.composed is not None else ()
+        for rule_id in (*credited, *decision.matched, *decision.held):
+            named[rule_id].add(unit["id"])
+    admitted = {
+        rule["id"]: {unit["id"] for unit in units if sv._reachable(rule["match"], unit)} for rule in rules
+    }
+    assert all(named[rule_id] <= admitted[rule_id] for rule_id in named)
+    assert any(named[rule_id] and len(admitted[rule_id]) < len(units) for rule_id in named)
+
+
+ROLLUP_LINE = re.compile(
+    r"^    (\S+): (\d+) on its own line, (\d+) credited across \d+ composed lines?, (\d+) in all$"
+)
+TARGETED_HEADER = re.compile(r"^  targeted at (\S+): (\d+) of (\d+) human units evaluated")
+
+
+def _lines_about(lines, rule_id):
+    """Everything a report says about one rule, in the pieces the targeted run promises byte for byte: its own tally line, the composed tally lines whose credited tuple names it, its rollup line, whether a reached-nothing line names it, the tripwire fragments under it, and its four-line explain block."""
+    crediting = []
+    for line in lines:
+        head, sep, _rest = line.partition(": ")
+        if sep and head.startswith("  ") and not head.startswith("    ") and " + " in head:
+            if rule_id in head[2:].split(" + "):
+                crediting.append(line)
+    start = lines.index(f"  explain {rule_id}:")
+    return {
+        "own": [line for line in lines if line.startswith(f"  {rule_id}: ")],
+        "composed": crediting,
+        "rollup": [line for line in lines if line.startswith(f"    {rule_id}: ")],
+        "nothing": any(line.startswith(f"  REACHED NOTHING: {rule_id} ") for line in lines),
+        "tripwire": sorted(
+            re.findall(r"(\S+) under " + re.escape(rule_id) + r" \((\w+)\)", "\n".join(lines))
+        ),
+        "explain": lines[start : start + 4],
+    }
+
+
+def test_a_targeted_run_prints_a_rules_lines_byte_identical_to_the_whole_domain(
+    tmp_path, monkeypatch, capsys, mini_surface
+):
+    """The identity the targeted run is for: over a real build of the frozen mini bundle, with a store holding a reject and an approve, every rule the whole-domain rollup shows reaching anything — a rule with composed credit, a rule with an own line, the non-composable bundle-local ink-delta rule — and the first rule that reached nothing get a targeted run each, which exits clean, writes nothing, evaluates a subset no larger than the domain (and smaller for at least one rule), and prints the rule's own line, the composed lines crediting it, its rollup line, its reached-nothing line, its tripwire fragments and its explain block exactly as a whole-domain run with the same `--explain` printed them (`--explain` is single-valued, so the whole domain runs once per rule here)."""
+    rules = _mini_rules(mini_surface, tmp_path / "rules.yaml")
+    stamp = json.loads((mini_surface / "manifest.json").read_text())["generated_at"]
+    human = [unit["id"] for unit in _human_units(mini_surface)]
+    verdicts = [
+        {"unit": human[0], "verdict": "reject", "note": "", "at": stamp},
+        {"unit": human[-1], "verdict": "approve", "note": "", "at": stamp},
+    ]
+    code, _fills = _run_over_mini(tmp_path / "whole", monkeypatch, mini_surface, rules, verdicts, ())
+    whole = capsys.readouterr().out.splitlines()
+    assert code == 0
+    rollups = [ROLLUP_LINE.match(line) for line in whole]
+    reached = [found.group(1) for found in rollups if found and found.group(4) != "0"]
+    unreached = [found.group(1) for found in rollups if found and found.group(4) == "0"]
+    assert reached and unreached
+    narrowed = []
+    for rule_id in [*reached, unreached[0]]:
+        code, _fills = _run_over_mini(
+            tmp_path / "whole" / rule_id, monkeypatch, mini_surface, rules, verdicts, ("--explain", rule_id)
+        )
+        whole = capsys.readouterr().out.splitlines()
+        assert code == 0
+        code, fills = _run_over_mini(
+            tmp_path / rule_id,
+            monkeypatch,
+            mini_surface,
+            rules,
+            verdicts,
+            ("--explain", rule_id, "--targeted"),
+            writes=False,
+        )
+        targeted = capsys.readouterr().out.splitlines()
+        assert code == 0 and fills is None
+        header = TARGETED_HEADER.match(targeted[0])
+        assert header is not None and header.group(1) == rule_id
+        evaluated, domain = int(header.group(2)), int(header.group(3))
+        assert domain == len(human) and evaluated <= domain
+        narrowed.append(evaluated < domain)
+        assert _lines_about(targeted, rule_id) == _lines_about(whole, rule_id)
+    assert any(narrowed)
+
+
+@pytest.mark.parametrize(
+    "flags",
+    [
+        ("--targeted",),
+        ("--explain", RULE["id"], "--targeted", "--out", "OUT"),
+        ("--explain", RULE["id"], "--targeted", "--memo", "MEMO"),
+        ("--explain", RULE["id"], "--targeted", "--require-reach"),
+        ("--explain", RULE["id"], "--targeted", "--open-only"),
+        ("--unit", "u-1"),
+    ],
+)
+def test_a_targeted_run_refuses_the_flags_that_would_write_or_read_the_whole_domain(
+    tmp_path, monkeypatch, flags
+):
+    """A targeted run can never land a fill file or touch the memo, and reach stays a whole-domain reading: it takes its rule from --explain and refuses --out, --memo, --require-reach and --open-only outright, and --unit means nothing without it, so a copied cycle command line cannot write a subset fill by mistake."""
+    substituted = tuple(
+        {"OUT": str(tmp_path / "out.json"), "MEMO": str(tmp_path / "memo.ndjson.gz")}.get(flag, flag)
+        for flag in flags
+    )
+    with pytest.raises(SystemExit):
+        _target_main(tmp_path, monkeypatch, [canonical("u-1")], [], substituted)
+    assert not (tmp_path / "out.json").exists()
+    assert not (tmp_path / "default-out.json").exists()
+    assert not list(tmp_path.glob("*.ndjson.gz"))
+
+
+def test_a_listed_unit_gets_its_decision_line_and_moves_no_line_of_the_rules(tmp_path, monkeypatch, capsys):
+    """Listing a unit is a reading, never a change: each listed id gets one line saying whether it is a name-grain candidate of the rule and what the run decided about it — matched, held by the guard, spoken for by no rule, or not a human unit at all — and every other line of the report is the one the run without the listing printed."""
+    units = [
+        canonical("u-1"),
+        canonical("u-2", left="qsOut.ex-ext-1"),
+        unit(
+            "u-4",
+            ["qsPea", "qsAh"],
+            ["y0"],
+            ["qsPea/full/None/baseline/", "qsAh/hapax/baseline/None/"],
+            ["y0"],
+        ),
+    ]
+    rule_id = RULE["id"]
+    _target_main(tmp_path / "bare", monkeypatch, units, [], ("--explain", rule_id, "--targeted"))
+    bare = capsys.readouterr().out.splitlines()
+    listing = ("--unit", "u-1", "--unit", "u-2", "--unit", "u-4", "--unit", "u-9")
+    _target_main(tmp_path / "listed", monkeypatch, units, [], ("--explain", rule_id, "--targeted", *listing))
+    listed = capsys.readouterr().out.splitlines()
+    assert listed[1:5] == [
+        f"  listed u-1 (blank): a candidate of {rule_id}; matched by {rule_id}",
+        f"  listed u-2 (blank): a candidate of {rule_id}; held by except_left {rule_id}",
+        f"  listed u-4 (blank): not a candidate of {rule_id}; no rule speaks for it",
+        "  listed u-9: not a human unit on this surface",
+    ]
+    assert bare[0] == (
+        f"  targeted at {rule_id}: 2 of 3 human units evaluated — the rule's name-grain candidates plus "
+        "0 listed — and no fill file written"
+    )
+    assert listed[0] == (
+        f"  targeted at {rule_id}: 3 of 3 human units evaluated — the rule's name-grain candidates plus "
+        "4 listed — and no fill file written"
+    )
+    assert bare[1:] == listed[5:]
+    assert f"  {rule_id}: 1 filled, 0 already verdicted, 1 held for review by except_left" in bare
+
+
+def test_a_listed_composed_window_names_its_credit(tmp_path, monkeypatch, capsys, slide_fonts):
+    """A targeted run at one of two composing rules prints the composed line crediting both, the rule's own line at zero, and a rollup carrying the credit, exactly as the whole-domain run at test_main_writes_one_composed_record_and_leaves_the_per_rule_lines prints them, and a listed composed window's line names the credited rules and the verdict the fill carries."""
+    rule_id = SLIDE_RULE["id"]
+    _target_main(
+        tmp_path,
+        monkeypatch,
+        [composed_window("c-1")],
+        [],
+        ("--explain", rule_id, "--targeted", "--unit", "c-1"),
+        rules_list=(SLIDE_RULE, COMPOSED_EXT_RULE),
+        fonts=slide_fonts,
+    )
+    lines = capsys.readouterr().out.splitlines()
+    assert (
+        f"  {rule_id} + {COMPOSED_EXT_RULE['id']}: 1 filled, 0 already verdicted, 0 held for review by except_left"
+    ) in lines
+    assert f"  {rule_id}: 0 filled, 0 already verdicted, 0 held for review by except_left" in lines
+    assert f"    {rule_id}: 0 on its own line, 1 credited across 1 composed line, 1 in all" in lines
+    assert not any(line.startswith(f"  {COMPOSED_EXT_RULE['id']}: ") for line in lines)
+    assert (
+        f"  listed c-1 (blank): a candidate of {rule_id}; composed {rule_id} + {COMPOSED_EXT_RULE['id']} (approve)"
+    ) in lines
