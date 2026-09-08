@@ -1,4 +1,4 @@
-"""Explain why a review-surface unit still queues, in the standing approvals' own terms, so the next once-and-for-all rule is written from evidence instead of rediscovered: for each unit named, print its two grains side by side — the recorded before glyphs and after cells with their seams, and the rendered pieces of both fonts with each piece's placement, own-frame origin and cell count, read as "same shape placed N columns over", "redrawn", or "inkless" — then say what every checked-in rule makes of it (matches, held by except_left, or nothing), whether the composed reading credits any rules and whether that credit reaches the two-event threshold, and how many human units share exactly this unit's ink-delta digests and how they were verdicted, which is where the user's earlier decision usually turns out to be already recorded. `--extension-cells PIVOT TOKEN SEAM` answers the other question a new extension-dropped rule always asks — which pivot and follower cells it has to name in full — by enumerating every window on the surface where a PIVOT glyph carrying TOKEN (an `ex-ext-N` on the before glyph, or an `ex-con-N` on the after cell whose before glyph never carried an exit extension) exits at SEAM on both sides and settles into a cell without the named extension or with a shorter one, or into a cell carrying the named contraction, with the follower's family, both after cells, and the verdict tally per pair. `--retarget-cells PIVOT BEFORE_SEAM FOLLOWER AFTER_SEAM` is the same survey for a join-retargeted or join-created rule, over every window where a PIVOT glyph's seam into FOLLOWER moves from BEFORE_SEAM to AFTER_SEAM. `--coverage RULE_ID` turns either survey back on a rule that already exists: it re-runs whichever enumeration the rule's shape has, from the rule's own before-side fields and relaxed of everything the rule names — though never of the before forms it declines, which are a companion rule's survey rather than this one's — and reports the pivot forms, follower families and follower cells the enumeration reaches that the rule does not yet name, each with its verdict tally — a docket of candidates rather than a widening instruction, since a follower joins the list only once its own recorded decision has been found. `--find TEXT` is the way back from a notation to unit ids: a plain substring match over every human unit's notation, blanks first and capped, because one letter pair matches thousands of records; `--blank-only` and `--limit N` narrow it, and the notation's grammar is `parse_expect`'s in test/test_shaping.py, never re-read here. `--shapes` prints the symptom-to-shape menu, walked off the standing approvals' own SHAPES table so a new shape enters the menu the moment it enters the table, and a run that resolves no unit id prints it too. All the lists it prints — pivot cells, followers, follower cells — come out in code-point order, which is the order the rules file and the skill are written in. Read-only: nothing here writes to the surface or the store."""
+"""Explain why a review-surface unit still queues, in the standing approvals' own terms, so the next once-and-for-all rule is written from evidence instead of rediscovered: for each unit named, print its two grains side by side — the recorded before glyphs and after cells with their seams, and the rendered pieces of both fonts with each piece's placement, own-frame origin and cell count, read as "same shape placed N columns over", "redrawn", or "inkless" — then say what every checked-in rule makes of it (matches, held by except_left, or nothing), whether the composed reading credits any rules and whether that credit reaches the two-event threshold, and how many human units share exactly this unit's ink-delta digests and how they were verdicted, which is where the user's earlier decision usually turns out to be already recorded. `--extension-cells PIVOT TOKEN SEAM` answers the other question a new extension-dropped rule always asks — which pivot and follower cells it has to name in full — by enumerating every window on the surface where a PIVOT glyph carrying TOKEN (an `ex-ext-N` on the before glyph, or an `ex-con-N` on the after cell whose before glyph never carried an exit extension) exits at SEAM on both sides and settles into a cell without the named extension or with a shorter one, or into a cell carrying the named contraction, with the follower's family, both after cells, and the verdict tally per pair. `--retarget-cells PIVOT BEFORE_SEAM FOLLOWER AFTER_SEAM` is the same survey for a join-retargeted or join-created rule, over every window where a PIVOT glyph's seam into FOLLOWER moves from BEFORE_SEAM to AFTER_SEAM. `--survey BEFORE_GLYPH` (or `--survey BEFORE_GLYPH AFTER_CELL`) is the enumeration every form-naming shape — redrawn, ink-gain, entry-contracted, entry-extension-dropped, stub-dropped, slide — and the join-dropped shape need before a rule in them can be written: every human unit whose window carries a before glyph under that prefix, grouped by the before form and the after cell it settles into, then by the family on its left with the seam change into it, the seam change out of it, and the follower's family and cell, each group with its verdict tally, read off the index with no shaping so it costs the surface load and nothing more; windows the survey cannot place because their sides do not line up letter for letter are counted, not silently dropped. `--coverage RULE_ID` turns a survey back on a rule that already exists: it re-runs whichever enumeration the rule's shape has (`COVERAGE_SHAPES` is the roster: the cell-naming shapes through their pair enumeration, from the rule's own before-side fields and relaxed of everything the rule names — though never of the before forms it declines, which are a companion rule's survey rather than this one's — and the form-naming shapes through the survey over the rule's family with each named list relaxed while the others hold, since nothing else on the before side pins a redraw at the name grain; ligature names no forms and ink-delta names digests, so neither has one and the tool says so) and reports the pivot forms, follower families and follower cells — or the before forms, the after forms as the after font names them (`_cell_glyph_name`), and for entry-contracted the left families — the enumeration reaches that the rule does not yet name, each with its verdict tally — a docket of candidates rather than a widening instruction, since a follower joins the list only once its own recorded decision has been found. `--find TEXT` is the way back from a notation to unit ids: a plain substring match over every human unit's notation, blanks first and capped, because one letter pair matches thousands of records; `--blank-only` and `--limit N` narrow it, and the notation's grammar is `parse_expect`'s in test/test_shaping.py, never re-read here. `--shapes` prints the symptom-to-shape menu, walked off the standing approvals' own SHAPES table so a new shape enters the menu the moment it enters the table, and a run that resolves no unit id prints it too. All the lists it prints — pivot cells, followers, follower cells — come out in code-point order, which is the order the rules file and the skill are written in. Read-only: nothing here writes to the surface or the store."""
 
 import argparse
 import collections
@@ -13,6 +13,7 @@ import yaml
 ROOT = pathlib.Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
 
+from rebuild.pipeline.geometry import HEIGHT_Y  # noqa: E402
 from rebuild.review.ink import features_for  # noqa: E402
 from rebuild.tools import standing_verdicts as sv  # noqa: E402
 from rebuild.tools.review_docket import latest_verdicts, load_units  # noqa: E402
@@ -24,6 +25,7 @@ PS_NAMES = ROOT / "postscript_glyph_names.yaml"
 UNNAMED_CODEPOINT = 0x110000
 UNKNOWN_VERDICT = "UNKNOWN(stale-stamp)"
 FIND_LIMIT = 20
+EDGE = "—"
 NO_FONTS = (
     "this surface carries no fonts/before.otf + fonts/after.otf, so nothing below is read at the rendered "
     "grain: no piece placements, no own-frame origins, no cell counts, no reading of what moved, and no "
@@ -43,10 +45,22 @@ def _family_codepoints():
 
 
 def _codepoint_key(token):
-    """A cell string or a bare family name ranked in code-point order: the code points of the rune's underscore-joined components, so a bare family precedes every ligature that leads with it, then the whole token, which orders two cells of one letter stably. A name the PostScript map does not cover sorts after every named one rather than breaking the listing."""
+    """A cell string, an old-font glyph name, or a bare family name ranked in code-point order: the code points of the rune's underscore-joined components, so a bare family precedes every ligature that leads with it, then the whole token, which orders two cells or two forms of one letter stably. A name the PostScript map does not cover sorts after every named one rather than breaking the listing."""
     codepoints = _family_codepoints()
-    rune = sv._cell_rune(token)
+    rune = sv._family(sv._cell_rune(token))
     return ([codepoints.get(part, UNNAMED_CODEPOINT) for part in rune.split("_")], token)
+
+
+def _cell_glyph_name(cell):
+    """The name the after font gives the glyph a review-surface cell settles into — rune, stance, `en-yN` and `ex-yN` for the entry and exit it carries, then its adjustments — which is the vocabulary a rule's `match.after.pivots` is written in. `cell_label` in rebuild/pipeline/settle.py is the authority; this is the same formula read off the cell string, with the heights mapped through `HEIGHT_Y` instead of a loaded registry, so the index answers without a spec."""
+    rune, stance, entry, exit_, _adjustments = sv._cell_parts(cell)
+    parts = [rune, stance]
+    if entry != "None":
+        parts.append(f"en-y{HEIGHT_Y.get(entry, entry)}")
+    if exit_ != "None":
+        parts.append(f"ex-y{HEIGHT_Y.get(exit_, exit_)}")
+    parts.extend(sv._cell_adjustments(cell))
+    return ".".join(parts)
 
 
 class Blankness(NamedTuple):
@@ -263,6 +277,95 @@ def _retarget_cells(units, blankness, pivot, before_seam, follower, after_seam):
     print("follower cells:", [value for value, _tally in _tallied(pairs, 2)])
 
 
+class Position(NamedTuple):
+    """One pivot position as the survey keys it: the before glyph, the after cell it settles into, the family whose stroke touches it on the left, the seam change into it and out of it, and the follower's family and cell — EDGE wherever the window ends instead."""
+
+    glyph: str
+    cell: str
+    left: str
+    into: str
+    out: str
+    follower: str
+    follower_cell: str
+
+
+def _seam_change(seams, after_seams, index):
+    if 0 <= index < len(seams) and index < len(after_seams):
+        return f"{seams[index]}→{after_seams[index]}"
+    return EDGE
+
+
+def _survey_positions(units, blankness, prefix, after_cell=None):
+    """Every position whose before glyph falls under `prefix` — the dotted-prefix reading `_is_pivot` gives a rule's pivots, so `qsKey` reaches every ·Key form and `qsKey.ex-ext-1` one of them — keyed by `Position` with each key's verdict tally, and the count of windows carrying the prefix whose sides do not line up letter for letter, which no index-only survey can place. With `after_cell`, only the positions settling into exactly that cell. Relaxed of everything a rule in any form-naming shape could say past its before family, which is what makes it both the survey such a rule is written from and the enumeration `--coverage` turns back on one."""
+    rows: dict[Position, collections.Counter] = collections.defaultdict(collections.Counter)
+    skipped = 0
+    for unit in units:
+        glyphs = unit["before"]["glyphs"]
+        if not any(sv._is_pivot(name, prefix) for name in glyphs):
+            continue
+        if not sv._letter_for_letter(unit):
+            skipped += 1
+            continue
+        seams, cells, after_seams = unit["before"]["seams"], unit["after"]["cells"], unit["after"]["seams"]
+        verdict = blankness.of(unit["id"])
+        last = len(glyphs) - 1
+        for index, glyph in enumerate(glyphs):
+            if not sv._is_pivot(glyph, prefix) or (after_cell is not None and cells[index] != after_cell):
+                continue
+            key = Position(
+                glyph,
+                cells[index],
+                sv._joining_family(glyphs[index - 1]) if index else EDGE,
+                _seam_change(seams, after_seams, index - 1) if index else EDGE,
+                _seam_change(seams, after_seams, index) if index < last else EDGE,
+                sv._family(glyphs[index + 1]) if index < last else EDGE,
+                cells[index + 1] if index < last else EDGE,
+            )
+            rows[key][verdict] += 1
+    return rows, skipped
+
+
+def _survey(units, blankness, prefix, after_cell):
+    rows, skipped = _survey_positions(units, blankness, prefix, after_cell)
+    where = f" settling into {after_cell}" if after_cell else ""
+    unplaced = (
+        f"; {skipped} windows carry it but do not line up letter for letter, so they are not placed"
+        if skipped
+        else ""
+    )
+    if not rows:
+        print(f"no human unit carries a glyph under {prefix}{where}{unplaced}")
+        return
+    positions = sum(sum(tally.values()) for tally in rows.values())
+    print(
+        f"survey of {prefix}{where}: {positions} positions, grouped by before form and after cell, then by "
+        f"left family, seam change in and out, follower family and cell{unplaced}:"
+    )
+    groups: dict[tuple, list] = collections.defaultdict(list)
+    for key, tally in rows.items():
+        groups[(key.glyph, key.cell)].append((key, tally))
+    for glyph, cell in sorted(groups, key=lambda pair: (_codepoint_key(pair[0]), _codepoint_key(pair[1]))):
+        total: collections.Counter = collections.Counter()
+        for _key, tally in groups[(glyph, cell)]:
+            total.update(tally)
+        print(f"  {sum(total.values()):>5}  {glyph}  →  {cell}  {dict(total)}")
+        ordered = sorted(
+            groups[(glyph, cell)],
+            key=lambda item: (
+                _codepoint_key(item[0].left),
+                item[0].into,
+                item[0].out,
+                _codepoint_key(item[0].follower),
+                _codepoint_key(item[0].follower_cell),
+            ),
+        )
+        for key, tally in ordered:
+            print(
+                f"        {sum(tally.values()):>5}  left {key.left} {key.into}   "
+                f"out {key.out} → {key.follower} {key.follower_cell}  {dict(tally)}"
+            )
+
+
 def _find(units, blankness, needle, blank_only, limit):
     """Every human unit whose notation contains the given text, blanks first and capped. The cap is load-bearing rather than tidy: one letter pair reaches thousands of records, so an uncapped listing is unreadable and the total is what the reader actually wants. Plain substring and nothing more — the `data-expect` grammar has an authority already (`parse_expect` in test/test_shaping.py) and a second reading of it here could only drift from it."""
     hits = [unit for unit in units if needle in (unit.get("notation") or "")]
@@ -308,6 +411,13 @@ COVERAGE_SHAPES = {
     "extension-dropped": ("--extension-cells", "pivot_cells", "follower_cells"),
     "join-retargeted": ("--retarget-cells", "pivot_cells", "receiver_cells"),
     "join-created": ("--retarget-cells", "pivot_cells", "receiver_cells"),
+    "join-dropped": ("--retarget-cells", "pivot_cells", "receiver_cells"),
+    "slide": ("--survey", None, None),
+    "ink-gain": ("--survey", None, None),
+    "entry-extension-dropped": ("--survey", None, None),
+    "entry-contracted": ("--survey", None, None),
+    "stub-dropped": ("--survey", None, None),
+    "redrawn": ("--survey", None, None),
 }
 
 
@@ -317,6 +427,9 @@ def _coverage_pairs(units, blankness, shape, match):
         return _extension_pairs(
             units, blankness, before["pivot"], before["exit_extension"], before["seam_out"]
         )
+    if shape == "join-dropped":
+        before = match["before"]
+        return _retarget_pairs(units, blankness, before["pivot"], before["seam_out"], None, "break")
     target = "retarget" if shape == "join-retargeted" else "joined"
     return _retarget_pairs(
         units,
@@ -329,8 +442,59 @@ def _coverage_pairs(units, blankness, shape, match):
     )
 
 
+def _pair_coverage(units, blankness, rule_id, shape, match):
+    """The cell-naming shapes' coverage: the relaxed pair enumeration, then each list the rule carries read against what it reached. join-dropped names its two cell lists only when it frees the pivot to redraw, so an absent list is not an axis — the rule holds the picture instead."""
+    _flag, pivot_field, follower_field = COVERAGE_SHAPES[shape]
+    pairs = _coverage_pairs(units, blankness, shape, match)
+    axes = []
+    if pivot_field in match["after"]:
+        axes.append(("pivot forms", 0, set(match["after"][pivot_field])))
+    axes.append(("follower families", 1, set(sv._families(match["before"]["follower"]))))
+    if follower_field in match["after"]:
+        axes.append(("follower cells", 2, set(match["after"][follower_field])))
+    header = f"coverage for rule {rule_id!r} ({shape} shape), enumerated relaxed of everything it names:"
+    return header, [
+        (label, [(value, tally) for value, tally in _tallied(pairs, position) if value not in listed])
+        for label, position, listed in axes
+    ]
+
+
+def _form_coverage(units, blankness, rule_id, shape, match):
+    """The form-naming shapes' coverage: the survey over the rule's whole family, with each list the rule names relaxed while its other lists hold — the before forms settling into a named after form that no before pivot covers, the after forms (as the after font names them) a named before form settles into that no after pivot covers, and for entry-contracted the left families a named before form under a named after form stands after. Holding the other lists is what keeps this a docket about the rule's own change: nothing else on the before side pins a redraw at the name grain, and relaxing every list at once would list the family's every unrelated position."""
+    before_named, after_named = match["before"]["pivots"], match["after"]["pivots"]
+    family = sv._family(before_named[0])
+    rows, _skipped = _survey_positions(units, blankness, family)
+    axes = [
+        ("before forms", "glyph", lambda value: sv._named_pivot(value, before_named), lambda value: value),
+        (
+            "after forms",
+            "cell",
+            lambda value: sv._named_pivot(_cell_glyph_name(value), after_named),
+            _cell_glyph_name,
+        ),
+    ]
+    if "left" in match["before"]:
+        lefts = set(sv._families(match["before"]["left"]))
+        axes.insert(0, ("left families", "left", lefts.__contains__, lambda value: value))
+    result = []
+    for label, field, is_named, shown in axes:
+        tallies: dict[str, collections.Counter] = collections.defaultdict(collections.Counter)
+        for key, tally in rows.items():
+            value = getattr(key, field)
+            if value == EDGE or is_named(value):
+                continue
+            if all(named(getattr(key, other)) for _label, other, named, _shown in axes if other != field):
+                tallies[shown(value)].update(tally)
+        result.append((label, [(value, tallies[value]) for value in sorted(tallies, key=_codepoint_key)]))
+    header = (
+        f"coverage for rule {rule_id!r} ({shape} shape), enumerated over every {family} position with each "
+        "list it names relaxed while the others hold:"
+    )
+    return header, result
+
+
 def _coverage(units, blankness, rules, rule_id):
-    """What a rule's own survey reaches that the rule does not yet name. It re-runs the relaxed enumeration for the rule's shape from the rule's before-side fields, then reports each pivot form, follower family and follower cell outside the rule's lists with the verdict tally of the windows that reached it — the docket a rule's next extension is argued from, one entry at a time and each still needing its own recorded decision."""
+    """What a rule's own survey reaches that the rule does not yet name. It re-runs the relaxed enumeration for the rule's shape from the rule's before-side fields — `_pair_coverage` for a shape that names cells, `_form_coverage` for one that names forms — then reports each value outside the rule's lists with the verdict tally of the windows that reached it — the docket a rule's next extension is argued from, one entry at a time and each still needing its own recorded decision."""
     rule = next((rule for rule in rules if rule["id"] == rule_id), None)
     if rule is None:
         print(f"{rule_id}: no rule by that id in this rules file")
@@ -341,20 +505,14 @@ def _coverage(units, blankness, rules, rule_id):
         flags = ", ".join(f"{name} ({flag})" for name, (flag, *_) in COVERAGE_SHAPES.items())
         print(
             f"rule {rule_id!r} declares the {shape} shape, which has no relaxed enumeration to run: "
-            f"--coverage answers for {flags}, the shapes whose surveys enumerate cells at all"
+            f"--coverage answers for {flags}, the shapes that name forms or cells a survey can reach"
         )
         return
-    _flag, pivot_field, follower_field = COVERAGE_SHAPES[shape]
-    named = (
-        ("pivot forms", 0, set(match["after"][pivot_field])),
-        ("follower families", 1, set(sv._families(match["before"]["follower"]))),
-        ("follower cells", 2, set(match["after"][follower_field])),
-    )
-    pairs = _coverage_pairs(units, blankness, shape, match)
-    print(f"coverage for rule {rule_id!r} ({shape} shape), enumerated relaxed of everything it names:")
+    enumerate_ = _form_coverage if COVERAGE_SHAPES[shape][0] == "--survey" else _pair_coverage
+    header, axes = enumerate_(units, blankness, rule_id, shape, match)
+    print(header)
     missing = False
-    for label, position, listed in named:
-        unnamed = [(value, tally) for value, tally in _tallied(pairs, position) if value not in listed]
+    for label, unnamed in axes:
         if not unnamed:
             print(f"  {label}: the rule names every one this enumeration reaches")
             continue
@@ -385,6 +543,12 @@ def main(argv=None):
         help="enumerate the pivot and follower cells a join-retargeted or join-created rule for PIVOT's seam into FOLLOWER moving from BEFORE_SEAM to AFTER_SEAM would have to name",
     )
     parser.add_argument(
+        "--survey",
+        nargs="+",
+        metavar=("BEFORE_GLYPH", "AFTER_CELL"),
+        help="every human unit carrying a before glyph under BEFORE_GLYPH (a prefix, as a rule's pivots are), grouped by the after cell it settles into — only AFTER_CELL when given — the seam change on each side with the left family, and the follower family and cell, a verdict tally per group, in code-point order",
+    )
+    parser.add_argument(
         "--coverage",
         metavar="RULE_ID",
         help="re-run a checked-in rule's own survey relaxed of everything it names, and report what it reaches that the rule does not",
@@ -404,7 +568,9 @@ def main(argv=None):
         "--shapes", action="store_true", help="print the symptom-to-shape menu and, with no unit named, stop"
     )
     args = parser.parse_args(argv)
-    asked = (args.units, args.extension_cells, args.retarget_cells, args.find, args.coverage)
+    if args.survey and len(args.survey) > 2:
+        parser.error("--survey takes BEFORE_GLYPH and at most one AFTER_CELL")
+    asked = (args.units, args.extension_cells, args.retarget_cells, args.survey, args.find, args.coverage)
     if args.shapes:
         _shapes()
         if not any(asked):
@@ -433,6 +599,9 @@ def main(argv=None):
         listed = True
     if args.retarget_cells:
         _retarget_cells(human, blankness, *args.retarget_cells)
+        listed = True
+    if args.survey:
+        _survey(human, blankness, args.survey[0], args.survey[1] if len(args.survey) > 1 else None)
         listed = True
     if args.find:
         _find(human, blankness, args.find, args.blank_only, args.limit)
