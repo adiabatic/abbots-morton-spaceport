@@ -1307,3 +1307,23 @@ rules:
       after:
         gap: 3
       except_left: []
+  - id: gay-may-baseline-join-created
+    verdict: approve
+    note: "·Gay joins ·May at the baseline where the old font left a break, and ·May closes one column onto it and holds its own advance, so whatever follows the pair moves with the follower. Both surfaces are open and no pair ruling narrows either: qsGay's baseline exit has carried qsMay on its toward-list since the letter landed in “Add ·Gay”, and qsMay's loop stance, the first its order reaches for, carries a baseline entry with no from-list at all, unrestricted since the letter landed in “Migrate the four worst families to the new rune-file format, conformance-verified”. Neither side lengthens the seam — qsMay is absent from qsGay's baseline-exit extend record, and qsMay has carried no baseline-entry extend record at all since “Never lengthen ·May's baseline-entry join” — so the column ·May closes is the whole of the change. may-gay-baseline-join-created is the same pair running the other way and says nothing about this direction; ah-gay-xheight-join-created names ·Gay's incoming seam where ·Ah leads and this rule its outgoing one, and gay-baseline-join-created, gay-baseline-join-created-reaching-back and et-gay-baseline-join-created are the new joins into ·Gay from the other side. gay-no-baseline-join-retargeted, gay-no-xheight-extension-added, gay-entry-contracted and gay-xheight-entry-exit-extension-dropped are ·Gay's other standing changes on this surface, and may-xheight-exit-dropped, may-entry-stub-dropped and may-entry-extension-dropped ·May's; where ·Tea follows and takes its full bar under ss03, tea-full-bar-after-xheight-stroke-ss03 speaks for the rest of the window. The rule is bounded to the ·Gay the old font drew on its bare isolated shape, which is the ·Gay this join finds standing still: where the letter in front drops its own baseline join into ·Gay, the letter redraws off its entered form onto the one it draws unentered and moves its own frame with it, so the created join is no event there and that break — into a ·Gay that keeps its baseline exit, which no rule speaks for — leaves those windows on the docket. It names the word-final loop beside the one carrying the pixel of x-height reach into ·Tea, since ·May draws the same picture either way, and stops there: where ·J’ai follows, that reach grows by a column on qsMay's own extend record and ·May settles into a cell of its own. Every window that reached a sitting approved this join"
+    match:
+      before:
+        pivot: qsGay
+        seam_out: break
+        follower: qsMay
+      after:
+        joined: y0
+        pivot_cells:
+          - qsGay/hapax/None/baseline/
+          - qsGay/hapax/x-height/baseline/
+        receiver_cells:
+          - qsMay/loop/baseline/None/
+          - qsMay/loop/baseline/x-height/ex-ext-1
+        shift: -1
+        follower_advance: 0
+        follower_reach: 0
+      except_left: []
