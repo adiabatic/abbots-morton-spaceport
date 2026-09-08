@@ -1777,3 +1777,14 @@ rules:
         follower_advance: 0
         follower_reach: 0
       except_left: []
+  - id: tea-jai-xheight-extension-added
+    verdict: approve
+    note: "Half-·Tea reaches one pixel further into ·J’ai than the old font drew, carrying ·J’ai and everything past it one column right. The reach is qsTea's own extend record, which lengthens that x-height exit by one wherever ·May stands in front of the bar and ·J’ai closes the word, and carries the user's why: on the record itself; it landed in “Make ·May and ·J’ai not touch, even when there’s a ·Tea “between” them”. The divergence is the one-slot-per-glyph limit same-seam-extension-non-summing records from the other side: the old font spends ·May's single extension slot on the ·May·Tea seam and has none left for the ·Tea·J’ai one, while the rebuild puts the whole connector on ·Tea's own exit. gay-jai-xheight-extension-added is the same gained reach into the same letter read off ·Gay's record, and gay-no-xheight-extension-added, vie-utter-xheight-extension-added and day-utter-xheight-extension-added are the rest of that family. What ·J’ai does under the longer reach is a change of its own, so a window where its crown pulls in is the composed reading's, with jai-crown-contracted. Every window that reached a sitting approved the longer reach"
+    match:
+      before:
+        pivots: [qsTea.half.ex-y5]
+      after:
+        pivots: [qsTea.half.ex-y5.ex-ext-1]
+        gained: [[1, 0]]
+        shift: 1
+      except_left: []
