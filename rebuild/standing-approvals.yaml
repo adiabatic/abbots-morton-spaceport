@@ -1350,3 +1350,23 @@ rules:
         added: []
         shift: 0
       except_left: []
+  - id: ah-tea-xheight-join-created
+    verdict: approve
+    note: "·Ah joins ·Tea at the x-height where the old font left a break, and ·Tea closes two columns onto it — one for the join, one for the tail ·Ah gives up — while holding its own advance, so whatever follows the pair moves with it. ·Tea's side is an x-height entry the full stance has only under ss03, granted by the unlock that carries qsAh among its lefts: authored as “Draw word-final ·Ah·Tea with the full bar under ss03”, widened to every letter that sticks out with a flat rightward stroke in “Always draw ·Tea's full bar after a flat x-height stroke under ss03”, and merged into the one record that carries its why: in “Consolidate ·Tea's `ss03` rules”. The tail is what “Stop expanding `·Ah ~x~ ·Tea` by a pixel under `ss03`” took off qsAh's extend record, so the ·Ah that drew a pixel into the gap draws none into the join. ·Ah's x-height exit has no toward-list at all, and the rule names the ·Ah that takes a baseline entry beside the one that takes none and the one ·J’ai contracts, since the letter draws the same sigmoid in all three. ah-gay-xheight-join-created is the same break becoming an x-height join into the follower that closes a column further, ah-bay-exit-extension-dropped is the same tail coming off before ·Tea itself where the seam already stood at the x-height, and tea-full-bar-after-xheight-stroke-ss03 is the full bar ·Tea takes where the old font had already joined it. The shape holds ·Ah to its own-frame origin alone, so the dropped tail rides inside the join rather than being judged, and the cells both letters settle into are what bound it; a window carrying a second change beside the join is the composed reading's rather than this rule's. Every window that reached a sitting approved it"
+    match:
+      before:
+        pivot: qsAh
+        seam_out: break
+        follower: qsTea
+      after:
+        joined: y5
+        pivot_cells:
+          - qsAh/hapax/None/x-height/
+          - qsAh/hapax/baseline/x-height/
+          - qsAh/hapax/baseline/x-height/en-con-1
+        receiver_cells:
+          - qsTea/full/x-height/None/
+        shift: -2
+        follower_advance: 0
+        follower_reach: 0
+      except_left: []
