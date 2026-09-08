@@ -1663,3 +1663,40 @@ rules:
         added: [[0, 1], [0, 2], [0, 4], [0, 5], [1, 0], [1, 6], [1, 7], [2, 8], [3, 1], [3, 2]]
         shift: -2
       except_left: []
+  - id: ah-may-xheight-join-created
+    verdict: approve
+    note: "·Ah joins ·May at the x-height where the old font left a break: ·Ah closes three columns onto it and draws a pixel of reach into the join, so ·May comes two columns nearer in all and holds its own advance. qsMay's loop stance takes the join on the unrestricted x-height entry whose from-list has carried qsAh since the `x-height-arrivers` group was named in “Name ·May's x-height arrivers once”, qsAh's x-height exit has no toward-list at all and so reaches every follower that will have it, and the pixel of reach is qsAh's own extend record before ·They and ·May, which landed with the letter in “Add ·Ah”. What ·May draws once the join has taken its entry is a change of its own — the loop stance forbids an x-height entry and an x-height exit at once, so the stroke the old font drew forward goes away — and may-xheight-exit-and-reach-dropped speaks for it, the two rules explaining these windows between them. ah-may-xheight-join-created-after-contracted-entry is the same join where ·J’ai has already pulled ·Ah's entry in and the letter is a column narrower for it; ah-gay-xheight-join-created and ah-tea-xheight-join-created are ·Ah's other new x-height joins, and ah-entry-contracted-after-jai and ah-bay-exit-extension-dropped its other standing changes on this surface. Every window that reached a sitting approved the join"
+    match:
+      before:
+        pivot: qsAh
+        seam_out: break
+        follower: qsMay
+      after:
+        joined: y5
+        pivot_cells:
+          - qsAh/hapax/None/x-height/ex-ext-1
+          - qsAh/hapax/baseline/x-height/ex-ext-1
+        receiver_cells:
+          - qsMay/loop/x-height/None/
+        shift: -2
+        follower_advance: 0
+        follower_reach: 0
+      except_left: []
+  - id: ah-may-xheight-join-created-after-contracted-entry
+    verdict: approve
+    note: "The same new ·Ah ~x~ ·May join ah-may-xheight-join-created records, in the window where ·J’ai has already pulled ·Ah's entry in: the contracted cell is a column narrower than the cell the letter takes after any other left, so ·May comes a column nearer still, and one rule declares one shift. The contraction is qsAh's own contract record, authored as “Contract ·J’ai ~b~ ·Ah by a pixel” and recorded by ah-entry-contracted-after-jai; the join, the pixel of reach ·Ah draws into it and the exitless loop ·May settles into belong to ah-may-xheight-join-created and may-xheight-exit-and-reach-dropped, so the three rules explain this window between them and none speaks for it alone. Nothing in this rule's own survey has reached a sitting — its one window is blank — but every window of the join it narrows was approved"
+    match:
+      before:
+        pivot: qsAh
+        seam_out: break
+        follower: qsMay
+      after:
+        joined: y5
+        pivot_cells:
+          - qsAh/hapax/baseline/x-height/en-con-1+ex-ext-1
+        receiver_cells:
+          - qsMay/loop/x-height/None/
+        shift: -3
+        follower_advance: 0
+        follower_reach: 0
+      except_left: []
