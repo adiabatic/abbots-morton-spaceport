@@ -1560,3 +1560,22 @@ rules:
         added: [[1, 1], [1, 2], [1, 3], [1, 4], [1, 5]]
         shift: -1
       except_left: []
+  - id: key-no-baseline-join-created
+    verdict: approve
+    note: "·No takes a baseline entry from ·Key where the old font left a break, and closes a column onto ·Key's shortened foot while holding its own advance, so whatever follows the pair moves with it — qsNo's flipped stance carries the letter's only baseline entry, and its from-list has named qsKey since ·Key landed in “Add ·Key”, where qsKey's baseline exit took qsNo onto its toward-list in the same commit. The column is the one beyond the pixel of exit qsKey's contract record takes off before ·May, ·No and ·It, which key-exit-contracted already records, so that rule names ·Key's shorter foot and this one the seam that foot opens, and the two explain each of these windows between them. Where the chain runs on, it-baseline-join-created names ·No's own outgoing seam into ·It and the two rules explain those windows between them; key-it-baseline-join-created is ·Key's other new join here. Every window that reached a sitting approved the join"
+    match:
+      before:
+        pivot: qsKey
+        seam_out: break
+        follower: qsNo
+      after:
+        joined: y0
+        pivot_cells:
+          - qsKey/hapax/None/baseline/ex-con-1
+        receiver_cells:
+          - qsNo/flipped/baseline/None/
+          - qsNo/flipped/baseline/baseline/
+        shift: -1
+        follower_advance: 0
+        follower_reach: 0
+      except_left: []
