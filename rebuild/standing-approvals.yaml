@@ -1370,3 +1370,46 @@ rules:
         follower_advance: 0
         follower_reach: 0
       except_left: []
+  - id: tea-baseline-join-created
+    verdict: approve
+    note: "·Tea takes the full bar after a flat x-height stroke and joins the follower at the baseline where the old font drew the half stub and left a break, the follower coming one column nearer and holding its own advance. qsTea's full stance carries a baseline exit with no toward-list, so every follower whose baseline entry is open meets it, and the letters its policy refuses that exit before — ·Thaw, ·Excite, ·Exam and ·It, on the why recorded there — keep the break; what puts the full bar there is the same stance's x-height entry, unlocked under ss03 in “Make ·Tea under ss03 work right” for a left letter whose stroke arrives flat at the x-height and a follower that can enter at the baseline, and freed of that follower gate in “Always draw ·Tea's full bar after a flat x-height stroke under ss03”, so the bar descends whether or not anything takes it. The divergence ledger's reviewed-approved `ss03-chain-join-gains` entry is where the decision lives, capability-grained with no except list. tea-full-bar-after-xheight-stroke-ss03 names the picture ·Tea settles into and this rule the seam it opens, so the two speak at one position and explain between them every window that carries anything else; tea-no-xheight-join-retargeted is the same bar meeting a ·No the old font already joined at the x-height, utter-tea-baseline-join-created runs the other way into ·Tea, and tea-i-exit-extension-dropped and tea-oy-ligature-break are ·Tea's other standing changes on this surface. The followers named are the ones that hold their own advance: ·Day and ·Roe take the join on an entry the rebuild extends by a column and ·May on an exit it extends, each handing that column back past itself, and one rule declares one advance, so they want their own; ·Roe's contracted x-height entry moves its own frame, which a created join can only declare as a reach back over the old left edge, so those windows, and the ligature followers whose every window here is word-final and so never shows what the follower hands on, stay on the docket. The shape judges the two letters' origins and placements and trusts the cells it names for their pictures, so a fill is only as honest as the rest of the window — closed against any other ink on its own line, judged pixel by pixel in a composed reading. Every window that reached a sitting approved the join"
+    match:
+      before:
+        pivot: qsTea.half.en-y5.after-xheight-exit
+        seam_out: break
+        follower: [qsVie, qsSee, qsMay, qsNo, qsLow, qsAt, qsI, qsAh, qsUtter, qsOut, qsOoze]
+      after:
+        joined: y0
+        pivot_cells:
+          - qsTea/full/x-height/baseline/
+        receiver_cells:
+          - qsVie/normal/baseline/None/
+          - qsVie/swept-out/baseline/baseline/
+          - qsSee/curled-over/baseline/y6/
+          - qsSee/normal/baseline/None/
+          - qsSee/normal/baseline/top/
+          - qsMay/loop/baseline/None/
+          - qsNo/flipped/baseline/None/
+          - qsNo/flipped/baseline/baseline/
+          - qsLow/hapax/baseline/None/
+          - qsLow/hapax/baseline/x-height/
+          - qsLow/hapax/baseline/x-height/ex-ext-1
+          - qsAt/rising/baseline/None/
+          - qsAt/rising/baseline/x-height/
+          - qsI/smaller-loop/baseline/None/
+          - qsI/smaller-loop/baseline/x-height/
+          - qsI/smaller-loop/baseline/x-height/ex-ext-1
+          - qsAh/hapax/baseline/None/
+          - qsAh/hapax/baseline/x-height/
+          - qsUtter/mono/baseline/None/
+          - qsUtter/mono/baseline/x-height/
+          - qsUtter/mono/baseline/x-height/ex-ext-1
+          - qsOut/normal/baseline/None/
+          - qsOut/swept-up/baseline/x-height/
+          - qsOut/swept-up/baseline/x-height/ex-ext-1
+          - qsOoze/hapax/baseline/None/
+          - qsOoze/hapax/baseline/baseline/
+        shift: -1
+        follower_advance: 0
+        follower_reach: 0
+      except_left: []
