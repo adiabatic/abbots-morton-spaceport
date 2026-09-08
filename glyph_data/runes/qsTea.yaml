@@ -116,6 +116,7 @@ stances:
           left:
             family:
             - qsDay_qsUtter
+            - qsThey_qsUtter
             - qsVie_qsUtter
             - qsSee_qsUtter
             - qsJai_qsUtter

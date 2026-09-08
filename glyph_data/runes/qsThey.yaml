@@ -1,0 +1,132 @@
+rune: qsThey
+codepoint: 0xE657
+ductus:
+  hapax: | # DRAFT — pending author sign-off
+    - Begun at the top at the x-height, where a previous letter may connect coming from the left, the stroke runs down and slightly to the left, through the baseline and into the descender, then curls along the bottom to the right and back up, ending at the tip of the hook below the baseline. Where the letter connects to the next one, the hook keeps climbing up and to the right to meet it at the baseline.
+    - Or the same path in reverse, begun at the tip of the hook below the baseline: the stroke curls down and to the left along the bottom of the descender, then climbs up and slightly to the right through the baseline, ending at the top at the x-height, where it may connect to the next letter.
+mono:
+  bitmap:
+  - "  #  "  #
+  - "  #  "
+  - " #   "
+  - " #   "
+  - " #   "
+  - "#    "  #
+  - "#    "
+  - "#   #"
+  - " ### "
+  y_offset: -3
+stances:
+  hapax:
+    motion: hapax
+    traits: []
+    bitmap:
+    - "  #  "  #
+    - "  #  "
+    - " #   "
+    - " #   "
+    - " #   "
+    - "#    "  #
+    - "#    "
+    - "#   #"
+    - " ### "
+    y_offset: -3
+    bitmaps:
+      hooked-up-to-the-baseline:
+        bitmap:
+        - "  #   "  #
+        - "  #   "
+        - " #    "
+        - " #    "
+        - " #    "
+        - "#     "  #
+        - "#    #"
+        - "#   # "
+        - " ###  "
+        y_offset: -3
+    surface:
+      entries:
+        x-height:
+          x: 2
+          stroke: vertical
+          from:
+          - family:
+            - qsI
+            - qsAh
+            - qsUtter
+      exits:
+        baseline:
+          x: 6
+          ink_y: -1
+          stroke: diagonal
+          withdrawal: safe
+          toward:
+          - family:
+            - qsTea
+            - qsDay
+            - qsDay_qsUtter
+            - qsGay
+            - qsThaw
+            - qsVie
+            - qsVie_qsUtter
+            - qsSee
+            - qsMay
+            - qsNo
+            - qsLow
+            - qsRoe
+            - qsIt
+            - qsAt
+            - qsI
+            - qsAh
+            - qsOut
+            - qsOut_qsTea
+            - qsOoze
+        x-height:
+          x: 3
+          stroke: vertical
+          withdrawal: safe
+          toward:
+          - family:
+            - qsNo
+            - qsRoe
+            - qsIt
+            - qsEt
+            - qsEight
+            - qsAwe
+            - qsOx
+      pairings:
+        never:
+        - entry: x-height
+          exit: x-height
+      cells:
+      - entry: none
+        exit: baseline
+        bitmap: hooked-up-to-the-baseline
+      - entry: x-height
+        exit: baseline
+        bitmap: hooked-up-to-the-baseline
+      unlocks: []
+      require: []
+policy:
+  order:
+  - hapax
+  refuse:
+  - exit: baseline
+    when:
+      self: {entry: none}
+      right:
+        except:
+        - {family: qsMay}
+  prefer:
+  - cell: {exit: none}
+    over: {exit: baseline}
+    when:
+      right:
+        family: qsTea
+        then:
+          except:
+          - {family: qsPea}
+  extend: []
+  contract: []
+  resolve: []
+  groups: {}

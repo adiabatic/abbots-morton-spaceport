@@ -234,6 +234,44 @@ policy:
             - qsSee
             - qsMay
             - qsLow
+  - cell:
+      entry: none
+      exit: baseline
+    over:
+      entry: baseline
+      exit: none
+    when:
+      left: {family: qsThey}
+      right:
+        family:
+        - qsDay
+        - qsDay_qsUtter
+        - qsThaw
+        - qsVie
+        - qsVie_qsUtter
+        - qsSee
+        - qsMay
+        - qsNo
+        - qsLow
+        - qsAt
+        - qsI
+        - qsAh
+        - qsUtter
+        - qsOut
+        - qsOut_qsTea
+        - qsOoze
+        except:
+        - family: qsAt
+          then: {family: qsMay}
+        - family: qsUtter
+          then:
+            family:
+            - qsThaw
+            - qsVie
+            - qsVie_qsUtter
+            - qsSee
+            - qsMay
+            - qsLow
   extend:
   - entry: baseline
     by: 1

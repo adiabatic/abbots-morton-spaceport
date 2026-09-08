@@ -57,6 +57,8 @@ stances:
             - qsDay
             - qsDay_qsUtter
             - qsGay
+            - qsThey
+            - qsThey_qsUtter
             - qsFee
             - qsJai
             - qsJai_qsUtter
@@ -85,6 +87,8 @@ policy:
         family:
         - qsBay
         - qsGay
+        - qsThey
+        - qsThey_qsUtter
         - qsFee
   - exit: x-height
     by: 1
@@ -99,7 +103,6 @@ policy:
         family:
         - qsPea
         - qsTea
-        - qsThey
         - qsHe
   - entry: x-height
     by: 1
@@ -117,5 +120,7 @@ policy:
         family:
         - qsAh
         - qsUtter
+        except:
+        - {family: qsThey_qsUtter}
   resolve: []
   groups: {}

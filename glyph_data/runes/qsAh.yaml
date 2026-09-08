@@ -72,6 +72,7 @@ policy:
       right:
         family:
         - qsThey
+        - qsThey_qsUtter
         - qsMay
   contract:
   - entry: baseline

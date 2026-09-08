@@ -107,6 +107,17 @@ policy:
   - exit: x-height
     when:
       left:
+        family: qsThey
+        joined_at: none
+      right:
+        family:
+        - qsBay
+        - qsThey
+        - qsThey_qsUtter
+        - qsFee
+  - exit: x-height
+    when:
+      left:
         family: qsNo
         joined_at: none
       right: {family: qsMay}
@@ -193,6 +204,7 @@ policy:
         family:
         - qsBay
         - qsThey
+        - qsThey_qsUtter
         - qsFee
   - exit: x-height
     by: 1

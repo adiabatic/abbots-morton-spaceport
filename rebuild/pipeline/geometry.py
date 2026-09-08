@@ -294,15 +294,12 @@ def realize(
 
 
 def seam_gap(left: GlyphRecord, right: GlyphRecord, height: Height | int) -> int:
-    """The section 9 arithmetic: with the two anchors aligned by curs, the count of blank pixels between the left glyph's last ink and the right glyph's first ink at the seam row. 0 = the join physically realizes; negative = overlap."""
+    """The section 9 arithmetic: with the two anchors aligned by curs, the count of blank pixels between the left glyph's last ink and the right glyph's first ink at the seam row. A left exit row carrying `ink_y` is read at that row instead, since its anchor stands off the stroke's own row (·They's hook reaches the baseline anchor from y=-1). 0 = the join physically realizes; negative = overlap."""
     y = _height_y(height)
     if left.exit is None or right.entry is None:
         raise GeometryError("seam_gap needs a live exit on the left and a live entry on the right")
-    left_span = ink_span(left.bitmap, left.y_offset, y)
-    left_scan_y = y
-    if left_span is None and left.exit_ink_y is not None:
-        left_scan_y = left.exit_ink_y
-        left_span = ink_span(left.bitmap, left.y_offset, left_scan_y)
+    left_scan_y = y if left.exit_ink_y is None else left.exit_ink_y
+    left_span = ink_span(left.bitmap, left.y_offset, left_scan_y)
     right_span = ink_span(right.bitmap, right.y_offset, y)
     if left_span is None or right_span is None:
         raise GeometryError(f"seam_gap at y={y}: a side has no ink at the seam row")

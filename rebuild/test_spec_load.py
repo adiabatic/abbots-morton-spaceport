@@ -203,7 +203,7 @@ def test_provenance_and_record_parsing(spec):
     assert short_entry_contract.by == guarded_contract.by == 1
     assert short_entry_contract.entry == guarded_contract.entry == "x-height"
     assert short_entry_contract.when.left == Condition(family=("qsPea", "qsTea", "qsOut_qsTea"))
-    assert guarded_contract.when.left == Condition(family=("qsThey", "qsHe"))
+    assert guarded_contract.when.left == Condition(family=("qsHe",))
 
 
 def test_scope_condition_parsing(spec):
@@ -797,6 +797,7 @@ CHAIN_BEARING_EXCEPT_RECORDS = (
     ("qsIt.prefer[1]", 1),
     ("qsIt.prefer[2]", 1),
     ("qsIt.prefer[3]", 1),
+    ("qsIt.prefer[4]", 1),
     ("qsMay.prefer[0]", 1),
     ("qsNo.prefer[5]", 1),
     ("qsOy.prefer[0]", 3),
@@ -812,7 +813,7 @@ CHAIN_BEARING_EXCEPT_RECORDS = (
     ids=[row[0].replace("[", "").replace("]", "") for row in CHAIN_BEARING_EXCEPT_RECORDS],
 )
 def test_every_chain_bearing_except_walks_its_parents_tail(spec, record_id, reach):
-    """The ten live records whose right condition hangs a chain off an except: entry, with the slot each one reaches. An except entry tests its parent's own slot rather than a deeper one, so a chain hung off it walks the tail its parent was already reading and its hops count against the same cap — which is what engine.rs's an_except_entry_carrying_a_chain_walks_the_same_tail and an_except_entry_carrying_a_four_hop_chain_walks_the_same_tail state over synthetic specs, and this is the authored data they stand in for. The census is asserted whole, so a newly authored chain cannot slip past the list."""
+    """The live records whose right condition hangs a chain off an except: entry, with the slot each one reaches. An except entry tests its parent's own slot rather than a deeper one, so a chain hung off it walks the tail its parent was already reading and its hops count against the same cap — which is what engine.rs's an_except_entry_carrying_a_chain_walks_the_same_tail and an_except_entry_carrying_a_four_hop_chain_walks_the_same_tail state over synthetic specs, and this is the authored data they stand in for. The census is asserted whole, so a newly authored chain cannot slip past the list."""
     records = dict(_policy_records(spec))
     carriers = {name for name, record in records.items() if _chain_bearing_excepts(record.when.right, [])}
     assert carriers == {row[0] for row in CHAIN_BEARING_EXCEPT_RECORDS}
