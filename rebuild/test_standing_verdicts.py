@@ -559,6 +559,40 @@ GAINED_CREATED_JOIN_RULE = {
     },
 }
 
+REDRAWN_UNDER_CREATED_JOIN_RULE = {
+    "id": "fixture-redrawn-under-a-created-join",
+    "verdict": "approve",
+    "note": "·Eight's bowl pulls in a column, and the tighter letter carries ·F3 a column right",
+    "match": {
+        "before": {"pivots": ["qsEight.redraw-join-fixture"]},
+        "after": {
+            "pivots": ["qsEight.smaller-loop.redraw-join-fixture"],
+            "dropped": [[1, 2]],
+            "added": [[1, 1]],
+            "shift": 1,
+        },
+        "except_left": [],
+    },
+}
+
+REDRAWN_CREATED_JOIN_RULE = {
+    "id": "fixture-join-created-behind-a-redraw",
+    "verdict": "approve",
+    "note": "·Eight joins ·F3 at the baseline where the old font left a break, and ·F3 comes two columns back onto the bowl",
+    "match": {
+        "before": {"pivot": "qsEight.redraw-join-fixture", "seam_out": "break", "follower": "qsF3"},
+        "after": {
+            "joined": "y0",
+            "pivot_cells": ["qsEight/smaller-loop/baseline/baseline/"],
+            "receiver_cells": ["qsF3/full/baseline/None/"],
+            "shift": -2,
+            "follower_advance": 0,
+            "follower_reach": 0,
+        },
+        "except_left": [],
+    },
+}
+
 CONTRACTED_CREATED_JOIN_RULE = {
     "id": "fixture-join-created-behind-a-contraction",
     "verdict": "approve",
@@ -1796,6 +1830,8 @@ register_glyph("before", "qsSee.ex-y0.stub-fixture", GROUNDED_SEE, 250)
 register_glyph("after", "qsSee.straighter.stub-fixture", STRAIGHTER_SEE, 250)
 register_glyph("before", "qsTea.half.en-y5.after-xheight-exit.gain-join-fixture", HALF_TEA_BAR, 100)
 register_glyph("after", "qsTea.full.en-y5.gain-join-fixture", FULL_TEA_BAR, 50)
+register_glyph("before", "qsEight.redraw-join-fixture", EIGHTISH, 100)
+register_glyph("after", "qsEight.smaller-loop.redraw-join-fixture", EIGHTISH_SMALLER, 50)
 
 LEAD = register_pair("qsL", "qsL")
 SEE = register_pair("qsSee.ex-y0", "qsSee.straighter")
@@ -1860,6 +1896,9 @@ STUB_SEE = register_pair("qsSee.ex-y0.stub-fixture", "qsSee.straighter.stub-fixt
 REACHING_TEA = register_pair("qsTea.half.ex-y5.reach-fixture", "qsTea.reaching")
 TEA_GAINING_A_JOIN = register_pair(
     "qsTea.half.en-y5.after-xheight-exit.gain-join-fixture", "qsTea.full.en-y5.gain-join-fixture"
+)
+EIGHT_REDRAWING_INTO_A_JOIN = register_pair(
+    "qsEight.redraw-join-fixture", "qsEight.smaller-loop.redraw-join-fixture"
 )
 
 BEFORE_GLYPHS = _OUTLINES["before"]
@@ -1943,6 +1982,10 @@ SLIDE_FONTS = {
     ),
     "after-gained-created-join-unmoved": (
         {**AFTER_GLYPHS, "qsTea.full.en-y5.gain-join-fixture": (FULL_TEA_BAR, 100)},
+        AFTER_CMAP,
+    ),
+    "after-redrawn-created-join-unmoved": (
+        {**AFTER_GLYPHS, "qsEight.smaller-loop.redraw-join-fixture": (EIGHTISH_SMALLER, 100)},
         AFTER_CMAP,
     ),
     "after-retarget-behind-created-join-unmoved": (
@@ -4790,6 +4833,9 @@ CONTRACTED_CREATED_JOIN_RULES = [CONTRACTED_ENTRY_RULE, CONTRACTED_CREATED_JOIN_
 GAINED_CREATED_JOIN_GLYPHS = ["qsL", "qsTea.half.en-y5.after-xheight-exit.gain-join-fixture", "qsF3"]
 GAINED_CREATED_JOIN_CODEPOINTS = spell(LEAD, TEA_GAINING_A_JOIN, FOLLOWER_3)
 GAINED_CREATED_JOIN_RULES = [GAIN_UNDER_CREATED_JOIN_RULE, GAINED_CREATED_JOIN_RULE]
+REDRAWN_CREATED_JOIN_GLYPHS = ["qsL", "qsEight.redraw-join-fixture", "qsF3"]
+REDRAWN_CREATED_JOIN_CODEPOINTS = spell(LEAD, EIGHT_REDRAWING_INTO_A_JOIN, FOLLOWER_3)
+REDRAWN_CREATED_JOIN_RULES = [REDRAWN_UNDER_CREATED_JOIN_RULE, REDRAWN_CREATED_JOIN_RULE]
 JOIN_RETARGET_GLYPHS = ["qsL", "qsAt", "qsIt", "qsTea.half.ex-y5", "qsNo.en-ext-1"]
 JOIN_RETARGET_CODEPOINTS = spell(LEAD, AT, IT, TEA, NO)
 JOIN_RETARGET_RULES = [JOIN_RULE, RETARGET_RULE]
@@ -5115,6 +5161,24 @@ def gained_created_join_window(uid="gcj-1"):
         ],
         ["y0", "y0"],
         codepoints=GAINED_CREATED_JOIN_CODEPOINTS,
+        configs=("default",),
+        ink_deltas={"default": SLIDE_DELTA},
+        pair={"left": 1, "right": 2},
+    )
+
+
+def redrawn_created_join_window(uid="rcj-1"):
+    return unit(
+        uid,
+        list(REDRAWN_CREATED_JOIN_GLYPHS),
+        ["y0", "break"],
+        [
+            "qsL/full/None/None/",
+            "qsEight/smaller-loop/baseline/baseline/",
+            "qsF3/full/baseline/None/",
+        ],
+        ["y0", "y0"],
+        codepoints=REDRAWN_CREATED_JOIN_CODEPOINTS,
         configs=("default",),
         ink_deltas={"default": SLIDE_DELTA},
         pair={"left": 1, "right": 2},
@@ -5879,6 +5943,38 @@ def test_two_ink_gains_claiming_one_position_still_refuse(slide_context):
     assert sv._composed_walk(rules, gained_created_join_window(), slide_context()) is None
 
 
+def test_a_created_join_chains_behind_a_redrawn_trade_on_its_pivot(slide_context):
+    """·Eight's bowl pulling in and the baseline join only that bowl reaches are two claims on one letter — the picture it takes and the seam it offers — so the trade leads the position and the join rides behind it, both credited there."""
+    events = sv._composed(REDRAWN_CREATED_JOIN_RULES, redrawn_created_join_window(), slide_context())
+    assert events == {
+        REDRAWN_UNDER_CREATED_JOIN_RULE["id"]: [1],
+        REDRAWN_CREATED_JOIN_RULE["id"]: [1],
+    }
+
+
+def test_neither_rule_alone_reads_a_created_join_behind_a_redraw(slide_context):
+    window = redrawn_created_join_window()
+    for rule in REDRAWN_CREATED_JOIN_RULES:
+        assert not sv._matches(rule["match"], window, context=slide_context())
+        assert sv._composed_walk([rule], window, slide_context()) is None
+
+
+def test_a_created_join_chained_behind_a_redraw_still_needs_its_follower_moved(slide_context):
+    events = sv._composed(
+        REDRAWN_CREATED_JOIN_RULES,
+        redrawn_created_join_window(),
+        slide_context("after-redrawn-created-join-unmoved"),
+    )
+    assert events is None
+
+
+def test_two_redrawn_trades_claiming_one_position_still_refuse(slide_context):
+    twin = json.loads(json.dumps(REDRAWN_UNDER_CREATED_JOIN_RULE))
+    twin["id"] = REDRAWN_UNDER_CREATED_JOIN_RULE["id"] + "-again"
+    rules = [REDRAWN_UNDER_CREATED_JOIN_RULE, twin]
+    assert sv._composed_walk(rules, redrawn_created_join_window(), slide_context()) is None
+
+
 def test_a_created_join_chains_behind_a_retarget_on_its_follower(slide_context):
     events = sv._composed(RETARGETED_CREATED_JOIN_RULES, retargeted_created_join_window(), slide_context())
     assert events == {RETARGET_RULE["id"]: [1], RETARGETED_CREATED_JOIN_RULE["id"]: [2]}
@@ -6601,6 +6697,11 @@ COMPOSED_WALK_CORPORA = {
         GAINED_CREATED_JOIN_RULE,
         lambda: [gained_created_join_window(), vertical_gain_window(), created_join_window()],
         ("after", "after-gained-created-join-unmoved"),
+    ),
+    "join-created-behind-a-redraw": (
+        REDRAWN_CREATED_JOIN_RULE,
+        lambda: [redrawn_created_join_window(), redrawn_window(), created_join_window()],
+        ("after", "after-redrawn-created-join-unmoved"),
     ),
     "join-created-behind-a-contraction": (
         CONTRACTED_CREATED_JOIN_RULE,

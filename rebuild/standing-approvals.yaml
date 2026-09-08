@@ -576,10 +576,10 @@ rules:
       except_left: []
   - id: it-baseline-join-created
     verdict: approve
-    note: "·It takes a baseline entry from ·Et, ·Awe, ·Ox, ·Oy and ·Ooze where the old font left a break, closes one column onto each of them, and gives up the baseline exit its own pairing table only unlocks under ss04, so the gained entry and the surrendered exit are one decision — qsIt's baseline entry refuses only ·It itself, qsAwe, qsOx and qsOoze have carried qsIt on their baseline-exit toward-lists since “Add ·Awe”, “Add ·Ox” and “Add ·Ooze”, qsOy's open baseline exit withholds only before the ·It·No chain, qsEt's baseline exit is open to everything, and every window that reached a sitting approved the join"
+    note: "·It takes a baseline entry from ·Et, ·Eight, ·Awe, ·Ox, ·Oy and ·Ooze where the old font left a break, closes one column onto each of them, and gives up the baseline exit its own pairing table only unlocks under ss04, so the gained entry and the surrendered exit are one decision — qsIt's baseline entry refuses only ·It itself, qsAwe, qsOx and qsOoze have carried qsIt on their baseline-exit toward-lists since “Add ·Awe”, “Add ·Ox” and “Add ·Ooze”, qsOy's open baseline exit withholds only before the ·It·No chain, qsEt's baseline exit is open to everything, and ·Eight reaches ·It only on its smaller-loop stance, whose baseline exit names ·Tea and ·It and nothing else, so the tighter bowl and this join are one record — “Give ·Eight a smaller loop before ·Tea and ·It, mirroring ·I's” — with eight-smaller-loop naming the picture ·Eight settles into and this rule the seam that picture opens, the two speaking at one position and explaining between them every window that carries anything else. jai-it-baseline-join-created is the same new join into this entry from the one left letter that lengthens its reach to take it, which is why ·It stands still there and closes a column here, and it-xheight-join-created and it-xheight-join-created-lengthened-reach are the same decision one height up. Every window that reached a sitting approved the join"
     match:
       before:
-        pivot: [qsEt, qsAwe, qsOx, qsOy, qsOoze]
+        pivot: [qsEt, qsEight, qsAwe, qsOx, qsOy, qsOoze]
         seam_out: break
         follower: qsIt
       after:
@@ -588,6 +588,9 @@ rules:
           - qsEt/hapax/None/baseline/
           - qsEt/hapax/x-height/baseline/
           - qsEt/hapax/x-height/baseline/en-ext-1
+          - qsEight/smaller-loop/None/baseline/
+          - qsEight/smaller-loop/x-height/baseline/
+          - qsEight/smaller-loop/x-height/baseline/en-ext-1
           - qsAwe/hapax/None/baseline/
           - qsAwe/hapax/x-height/baseline/
           - qsAwe/hapax/x-height/baseline/en-ext-1
