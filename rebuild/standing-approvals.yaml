@@ -1413,3 +1413,23 @@ rules:
         follower_advance: 0
         follower_reach: 0
       except_left: []
+  - id: pea-it-baseline-join-retargeted
+    verdict: approve
+    note: "·Pea reaches ·It at the x-height where the old font joined the two at the baseline, drawing its half motion where the old font drew the full one, and ·It stands where it was — qsPea's policy refuses the baseline exit outright before ·It, on the user's why at “These join ·Pea through the half motion's x-height dip instead; without this refusal the structural floor would pick the lower baseline seam over the half chain”, so the letter reaches ·It out of that dip; qsPea's x-height exit is open to every letter that can enter at the x-height but ·Tea, ·Day, ·Fee, ·Ye, ·No and ·Owe, and qsIt's x-height entry is open to every left letter but ·It itself, the single exclusion “Never join ·It to itself” carved. Both surfaces and the refusal landed with the family in “Migrate the four worst families to the new rune-file format, conformance-verified”. Neither letter moves a column of its own, so whatever follows the pair stands still with it, and the rule names the ·Pea the old font entered at the x-height and at y6 beside the one it entered not at all, since the letter draws the same dip in all three, and the word-final ·It beside the one that goes on to a baseline exit. utter-it-baseline-join-retargeted and no-baseline-join-retargeted record the same raised seam into ·It one pivot over, pea-no-xheight-join-retargeted is ·Pea's own seam running the other way, and it-xheight-join-created and it-xheight-join-created-lengthened-reach are the new joins into that same entry. Where ·Gay closes the window, gay-entry-contracted speaks for its pulled-in baseline entry and utter-gay-exit-extension-dropped for ·Utter's shorter reach into it, so those windows are the composed reading's. Every window that reached a sitting approved the raised join"
+    match:
+      before:
+        pivot: qsPea
+        seam_out: y0
+        follower: qsIt
+      after:
+        retarget: y5
+        pivot_cells:
+          - qsPea/half/None/x-height/
+          - qsPea/half/x-height/x-height/
+          - qsPea/half/y6/x-height/
+        receiver_cells:
+          - qsIt/hapax/x-height/None/
+          - qsIt/hapax/x-height/baseline/
+        shift: 0
+        follower_shift: 0
+      except_left: []
