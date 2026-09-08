@@ -1296,3 +1296,14 @@ rules:
         follower_advance: 0
         follower_reach: 0
       except_left: []
+  - id: tea-thaw-baseline-join-dropped
+    verdict: approve
+    note: "·Thaw sits three columns further from ·Tea — the two no longer join, because both sides refuse the seam: qsTea's policy refuses a baseline exit outright whenever ·Thaw, ·Excite, ·Exam or ·It follows, the user's rationale sitting on that record's own `why:`, and qsThaw's baseline entry, the only entry the letter has, has never carried qsTea on its from-list — the letters that reach into that foot are the ones “Add ·Thaw” enumerates, and the ·Tea+·Oy tail that lands there is a family of its own, which a bare-family pivot does not reach. The refusal landed with the family in “Migrate the four worst families to the new rune-file format, conformance-verified”, the commit that also gives qsTea the ss05 unlock for the baseline-entry-and-baseline-exit pairing the letter otherwise never takes, when ·Et leads. ·Tea has no other exit to offer that foot, so it settles into a cell with no exit at all whichever form it draws — the full bar, the half, and the one ·Fee raises to the x-height under ss03 all lose the same reach — which is why the rule names the letter rather than one of its forms. Neither letter moves a pixel of its own as the reach goes, so the rule holds both pictures rather than naming the cells they settle into, and that is where its bound lies: any other ink in the window fails this match closed until a rule of its own blesses it, so the ·It ~x~ ·Et break in front of the pair and ·Fee's shortened reach into ·Tea are the composed reading's, it-et-xheight-join-dropped and fee-tea-ss03-exit-extension-shortened naming their seams and this rule ·Tea's. What the rule does not see is which ·Tea reaches the foot, since it names the family: a form a later migration draws into that seam fills on the same reading, which is qsTea's refuse and qsThaw's from-list's scope rather than this rule's. no-thaw-baseline-join-dropped and it-thaw-baseline-join-dropped are ·Thaw's other lost reaches and no-thaw-baseline-join-created the one it gains; at-it-xheight-join-dropped, it-et-xheight-join-dropped and no-gay-baseline-join-dropped are the rest of the breaks on the books. Every window that reached a sitting approved the break"
+    match:
+      before:
+        pivot: qsTea
+        seam_out: y0
+        follower: qsThaw
+      after:
+        gap: 3
+      except_left: []
