@@ -22,7 +22,7 @@ Each expressible delta shape is a row in SHAPES, and a rule declares exactly one
 
 - The `redrawn` shape judges the same rendered pixels for a letter redrawn in place to a named new form: the old-font pivot form gives way to a named new form whose own-frame picture is the old one with the named cells gone and the named cells added — both sets read at one common column offset, because an entry extension inserts a column at the pivot's left edge and carries the whole frame right with it, so an entry-extended variant shows the same trade one column over — the own-frame origin standing still, and everything after the pivot sliding by the declared count, which may be zero when the new form keeps the pivot's advance: ·Eight's bowl pulling in one column before ·Tea and ·It, beside the dropped connector extension that slides ·It closer, is the founding example, and a window that also carries a second blessed change still needs the composed reading. The pivot's own placement stands still too, unless its new form names an entry contraction, which lets the letter sit up to that many columns closer to whatever precedes it — however much of the contraction the seam behind it had left to give, since a left neighbor the old font had already drawn that tight leaves nothing to close — and everything after the pivot carries whatever it took there on top of the declared count: ·J'ai's crown coming in after a half-height ·Pea or ·Tea moves the letter and the rest of the word, while the same crown after an ·At the old font had already contracted moves only what the dropped tail moves. Its added set may be empty, which is a form that only gives ink up — ·Key's foot dropping its terminal pixel before ·May, ·No and ·It, its follower coming a column closer — and that is the shape an exit contraction wants whenever the survey's windows carry anything else at all, because the `follower_cells` shape reads only names and would bless whatever else the window did.
 
-- The `join-created` shape judges a named pair that newly joins: the pivot and follower may redraw, the pivot keeping its own-frame origin while the follower either keeps its own or reaches back over its old left edge by a declared column count, the pivot stays under the standing displacement, the follower moves by a second declared count, everything after it moves by that count combined with the follower's own declared advance delta, and the recorded break becomes the named height. A follower reaches back when the form that takes the join inserts columns at its left edge — ·Gay's reachable-at-the-baseline stroke does, which is why a rule has to say so rather than let a moved origin read as a slide. The shift and the advance are two counts because a follower that redraws wider gives back what the join closed — the reaches-way-back ·Utter comes a column nearer ·May and leaves the rest of the word standing — and one number cannot say both. A rule may also declare a stub drop the pivot itself takes: the left-side entry the old font stacked in front of the join comes off, so the pivot's ink starts up to that many columns later while its own frame stands, and the follower and everything past it carry whatever it took on top of the declared shift and advance — which is what ·May's own entry coming off in front of its new baseline join into ·Gay looks like, in the same windows where a ·May the old font drew without that entry stands exactly where it was. Its pivot side may name several families at once, which is how one letter's new entry is recorded in a single rule for every left neighbor that now reaches it — a window with any other ink change needs the composed reading.
+- The `join-created` shape judges a named pair that newly joins: the pivot and follower may redraw, the pivot keeping its own-frame origin while the follower either keeps its own or reaches back over its old left edge by a declared column count, the pivot stays under the standing displacement, the follower moves by a second declared count, everything after it moves by that count combined with the follower's own declared advance delta, and the recorded break becomes the named height. A follower reaches back when the form that takes the join inserts columns at its left edge — ·Gay's reachable-at-the-baseline stroke does, which is why a rule has to say so rather than let a moved origin read as a slide. The shift and the advance are two counts because a follower that redraws wider gives back what the join closed — the reaches-way-back ·Utter comes a column nearer ·May and leaves the rest of the word standing — and one number cannot say both. A rule may also declare a stub drop the pivot itself takes: the left-side entry the old font stacked in front of the join comes off, so the pivot's ink starts up to that many columns later while its own frame stands, and the follower and everything past it carry whatever it took on top of the declared shift and advance — which is what ·May's own entry coming off in front of its new baseline join into ·Gay looks like, in the same windows where a ·May the old font drew without that entry stands exactly where it was. Its pivot side may name several families at once, which is how one letter's new entry is recorded in a single rule for every left neighbor that now reaches it, and it may name the before forms it declines to speak for, which is what keeps two counts on one seam apart when the forms nest inside one another: the ·J'ai the old font drew with a stacked crown entry hands the follower a column where the ·J'ai drawn without one gains a reach that cancels it, and a prefix-named pivot cannot otherwise tell the two apart — a window with any other ink change needs the composed reading.
 
 - The `retarget` shape judges a named join that has changed height: the pivot and the follower may both redraw, they keep their own-frame origin, the pivot keeps its column placement, the follower comes a declared number of columns nearer — none at all where the new seam leaves it standing, two where ·Utter reaching ·May at the x-height pulls it back into itself — and everything after the follower sits a second declared number of columns over. Half-·Tea joining ·No at the x-height becoming full ·Tea joining flipped ·No at the baseline is what that looks like, as distinct from a join becoming a break (the gap shape, whose pictures stay and whose follower sits further).
 
@@ -1255,13 +1255,14 @@ def _validate_redrawn(rule_id, match) -> None:
 
 
 def _retarget_pairs(match, unit):
-    """Glyph indices where the named pair changed its join state: any of the pivot prefixes, the follower's family, the named before seam becoming the named after seam, letter for letter, with the pivot and follower settling into cells the rule names in full and the follower's after cell still that same family's."""
+    """Glyph indices where the named pair changed its join state: any of the pivot prefixes and none of the before forms the rule declines, the follower's family, the named before seam becoming the named after seam, letter for letter, with the pivot and follower settling into cells the rule names in full and the follower's after cell still that same family's. A declined form is how a rule steps aside from a before form that nests inside one of its prefixes and carries a count of its own, since prefixes alone cannot separate a form from its own extensions."""
     if not _letter_for_letter(unit):
         return []
     glyphs, seams = unit["before"]["glyphs"], unit["before"]["seams"]
     cells, after_seams = unit["after"]["cells"], unit["after"]["seams"]
     followers = _families(match["before"]["follower"])
     pivots = _families(match["before"]["pivot"])
+    declined = match["before"].get("except_pivots", ())
     seam = match["before"]["seam_out"]
     retarget = match["after"].get("retarget", match["after"].get("joined"))
     reach = min(len(glyphs), len(cells), len(seams) + 1, len(after_seams) + 1) - 1
@@ -1269,6 +1270,7 @@ def _retarget_pairs(match, unit):
         i
         for i in range(reach)
         if any(_is_pivot(glyphs[i], pivot) for pivot in pivots)
+        and not _named_pivot(glyphs[i], declined)
         and _family(glyphs[i + 1]) in followers
         and seams[i] == seam
         and after_seams[i] == retarget
@@ -1403,6 +1405,7 @@ def _matches_join_created(match, unit, excluded, context=None):
     key = (
         "join-created",
         tuple(_families(match["before"]["pivot"])),
+        tuple(match["before"].get("except_pivots", ())),
         tuple(_families(match["before"]["follower"])),
         match["after"]["joined"],
         tuple(match["after"]["pivot_cells"]),
@@ -1461,7 +1464,7 @@ def _validate_join_retarget(rule_id, match) -> None:
 
 
 def _validate_join_created(rule_id, match) -> None:
-    """The join-created shape's own coherence, checked once at load: the before seam must be a break and the after seam a yK height, because a pair that already joined belongs to the retarget or extension shape, while a new break belongs to the gap shape. The follower's declared reach cannot be negative, since a form that pulls its left edge in is an entry contraction rather than a new join's receiver, and a declared pivot stub drop has to be at least a column, since a pivot that gives nothing up is the plain created join and says so by leaving the field off. The cells have to belong to the letters the rule names, on either side — a rule may name several pivots, which is what lets one letter's new entry be recorded once for every left neighbor that now reaches it."""
+    """The join-created shape's own coherence, checked once at load: the before seam must be a break and the after seam a yK height, because a pair that already joined belongs to the retarget or extension shape, while a new break belongs to the gap shape. The follower's declared reach cannot be negative, since a form that pulls its left edge in is an entry contraction rather than a new join's receiver, and a declared pivot stub drop has to be at least a column, since a pivot that gives nothing up is the plain created join and says so by leaving the field off. Every before form the rule declines has to fall under one of the pivots it names, since a declined form outside them refuses nothing and hides the rule's real scope. The cells have to belong to the letters the rule names, on either side — a rule may name several pivots, which is what lets one letter's new entry be recorded once for every left neighbor that now reaches it."""
     if match["before"]["seam_out"] != "break":
         _fail(
             f"rule {rule_id!r}: match.before.seam_out names {match['before']['seam_out']!r}; "
@@ -1483,8 +1486,15 @@ def _validate_join_created(rule_id, match) -> None:
             f"{match['after']['pivot_stub_drop']}; a pivot that gives up no left-side entry is the "
             "plain created join, which says so by leaving the field off"
         )
+    pivots = _families(match["before"]["pivot"])
+    for declined in match["before"].get("except_pivots", ()):
+        if not _named_pivot(declined, pivots):
+            _fail(
+                f"rule {rule_id!r}: match.before.except_pivots names {declined!r}, which no pivot "
+                f"the rule matches on ({', '.join(pivots)}) reaches"
+            )
     named = (
-        ("pivot_cells", [_family(name) for name in _families(match["before"]["pivot"])]),
+        ("pivot_cells", [_family(name) for name in pivots]),
         ("receiver_cells", _families(match["before"]["follower"])),
     )
     for field, runes in named:
@@ -1570,7 +1580,7 @@ def _composable_digest(rules):
 
 
 def _candidates(match, unit):
-    """The window positions one composable rule could speak for, read off the index record before anything is shaped: a slide, ink-gain, entry-drop, stub-drop, or redrawn rule's are the glyphs whose recorded before name carries one of its pivot prefixes; an entry-contracted rule additionally requires one of the named families immediately on the pivot's left; a join-dropped rule's are the positions where the named pivot's recorded seam into the named follower dropped from the named height to a break, and into whichever after cells it names; a join-retargeted or join-created rule's are the positions where the named pivot's recorded seam into the named follower moved from the named before state to the named new height and both after cells the rule names; an extension rule's are the positions meeting every per-position precondition the single-rule matcher reads — the named drop (an `ex-ext-N` on the before glyph, or an `ex-con-N` on the after cell whose before glyph never carried an exit extension), the named seam standing still at that position on both sides, the pivot and follower after cells, and the follower's own family answering for its own cell — and none at all unless the named seam is a yK height, since the walk has to know which row a dropped tail sits on. Deliberately name-grain and cheap, because this is the pre-gate that decides whether a window is worth shaping at all: a rule with no candidate here can never be credited, and a window holding fewer than two candidate positions is never shaped."""
+    """The window positions one composable rule could speak for, read off the index record before anything is shaped: a slide, ink-gain, entry-drop, stub-drop, or redrawn rule's are the glyphs whose recorded before name carries one of its pivot prefixes; an entry-contracted rule additionally requires one of the named families immediately on the pivot's left; a join-dropped rule's are the positions where the named pivot's recorded seam into the named follower dropped from the named height to a break, and into whichever after cells it names; a join-retargeted or join-created rule's are the positions where the named pivot's recorded seam into the named follower moved from the named before state to the named new height and both after cells the rule names, less any position whose before glyph falls under a form the rule declines; an extension rule's are the positions meeting every per-position precondition the single-rule matcher reads — the named drop (an `ex-ext-N` on the before glyph, or an `ex-con-N` on the after cell whose before glyph never carried an exit extension), the named seam standing still at that position on both sides, the pivot and follower after cells, and the follower's own family answering for its own cell — and none at all unless the named seam is a yK height, since the walk has to know which row a dropped tail sits on. Deliberately name-grain and cheap, because this is the pre-gate that decides whether a window is worth shaping at all: a rule with no candidate here can never be credited, and a window holding fewer than two candidate positions is never shaped."""
     glyphs = unit["before"]["glyphs"]
     if (
         _is_slide_match(match)
@@ -2131,7 +2141,7 @@ class SlideContext:
 
 
 class Shape(NamedTuple):
-    """One expressible delta shape: the match.after field that declares it, the field names match.before and match.after must carry exactly (an empty tuple means the block itself must be absent), the further match.after fields a rule may carry but need not — an arm a window only sometimes shows, which every rule without it declares by leaving it off — which of those fields are lists of cell strings, of delta digests, or of glyph-name prefixes — or integer column counts, or a family name that may also be a list of them — rather than plain scalars, the matcher that reads a unit for it, and its own coherence check. The row also carries the three facts a run has to know about a shape before it reads any unit — whether it can take part in a composed reading, whether it re-shapes windows in the surface's own font pair, and whether it reads the surface's persisted ink deltas, which are independent of one another — and the scope its except_left guard is read in when a composed reading credits it: the whole window, or the left neighbor of each credited position, and None for a shape that never composes."""
+    """One expressible delta shape: the match.after field that declares it, the field names match.before and match.after must carry exactly (an empty tuple means the block itself must be absent), the further match.after and match.before fields a rule may carry but need not — an arm a window only sometimes shows, which every rule without it declares by leaving it off — which of those fields are lists of cell strings, of delta digests, or of glyph-name prefixes — or integer column counts, or a family name that may also be a list of them — rather than plain scalars, the matcher that reads a unit for it, and its own coherence check. The row also carries the three facts a run has to know about a shape before it reads any unit — whether it can take part in a composed reading, whether it re-shapes windows in the surface's own font pair, and whether it reads the surface's persisted ink deltas, which are independent of one another — and the scope its except_left guard is read in when a composed reading credits it: the whole window, or the left neighbor of each credited position, and None for a shape that never composes."""
 
     keyed_by: str
     before: tuple[str, ...]
@@ -2140,6 +2150,7 @@ class Shape(NamedTuple):
     matcher: Callable[[dict, dict, set[str], "SlideContext | None"], bool]
     validate: Callable[[str, dict], None] | None = None
     optional: tuple[str, ...] = ()
+    before_optional: tuple[str, ...] = ()
     digest_lists: tuple[str, ...] = ()
     name_lists: tuple[str, ...] = ()
     int_fields: tuple[str, ...] = ()
@@ -2304,6 +2315,8 @@ SHAPES = {
         matcher=_matches_join_created,
         validate=_validate_join_created,
         optional=("pivot_stub_drop",),
+        before_optional=("except_pivots",),
+        name_lists=("except_pivots",),
         int_fields=("shift", "follower_advance", "follower_reach", "pivot_stub_drop"),
         family_fields=("pivot", "follower"),
         composable=True,
@@ -2354,7 +2367,7 @@ def load_rules(path) -> list:
             )
         shape = SHAPES[declared[0]]
         for block, fields in (("before", shape.before), ("after", shape.after)):
-            optional = shape.optional if block == "after" else ()
+            optional = shape.optional if block == "after" else shape.before_optional
             if not fields:
                 if block in match:
                     _fail(f"rule {rule_id!r}: the {declared[0]} shape carries no match.{block} block")

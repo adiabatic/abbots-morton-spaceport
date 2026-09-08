@@ -5620,6 +5620,61 @@ def test_a_created_join_pivot_list_that_repeats_a_family_is_refused_at_load(tmp_
         sv.load_rules(_write_rules(tmp_path / "rules.yaml", [rule]))
 
 
+def _declining(*forms):
+    rule = json.loads(json.dumps(CREATED_JOIN_RULE))
+    rule["id"] = "fixture-join-created-declining"
+    rule["match"]["before"]["except_pivots"] = list(forms)
+    return rule
+
+
+def test_a_created_join_rule_declining_the_window_form_does_not_match(slide_context):
+    rule = _declining("qsJ.ex-y0.ex-ext-3.long")
+    assert not sv._matches(rule["match"], created_join_window(), context=slide_context())
+
+
+def test_a_created_join_rule_declining_another_form_still_matches(slide_context):
+    rule = _declining("qsJ.ex-y0.ex-ext-3.short")
+    assert sv._matches(rule["match"], created_join_window(), context=slide_context())
+
+
+def test_two_created_joins_claiming_one_position_still_refuse(slide_context):
+    twin = json.loads(json.dumps(CREATED_JOIN_RULE))
+    twin["id"] = CREATED_JOIN_RULE["id"] + "-again"
+    twin["match"]["after"]["shift"] = -1
+    rules = [SLIDE_RULE, CREATED_JOIN_RULE, twin]
+    assert sv._composed_walk(rules, composed_created_join_window(), slide_context()) is None
+
+
+def test_a_created_join_that_declines_the_form_leaves_the_position_to_its_companion(slide_context):
+    """Two counts on one seam, kept apart by the before form each rule speaks for: the rule that declines this window's form is not a claim on the position at all, so the companion reads it and the window composes."""
+    twin = json.loads(json.dumps(CREATED_JOIN_RULE))
+    twin["id"] = CREATED_JOIN_RULE["id"] + "-again"
+    twin["match"]["after"]["shift"] = -1
+    twin["match"]["before"]["except_pivots"] = ["qsJ.ex-y0.ex-ext-3.long"]
+    rules = [SLIDE_RULE, CREATED_JOIN_RULE, twin]
+    events = sv._composed(rules, composed_created_join_window(), slide_context())
+    assert events == {SLIDE_RULE["id"]: [1], CREATED_JOIN_RULE["id"]: [2]}
+
+
+def test_a_created_join_declining_a_form_no_pivot_reaches_is_refused_at_load(tmp_path):
+    rule = _declining("qsSee.ex-y0")
+    with pytest.raises(SystemExit, match="which no pivot"):
+        sv.load_rules(_write_rules(tmp_path / "rules.yaml", [rule]))
+
+
+def test_a_created_join_declining_a_cell_string_is_refused_at_load(tmp_path):
+    rule = _declining("qsJ/hapax/None/baseline/ex-ext-1")
+    with pytest.raises(SystemExit, match="glyph-name prefixes"):
+        sv.load_rules(_write_rules(tmp_path / "rules.yaml", [rule]))
+
+
+def test_a_retarget_rule_declining_a_pivot_form_is_refused_at_load(tmp_path):
+    rule = json.loads(json.dumps(RETARGET_RULE))
+    rule["match"]["before"]["except_pivots"] = ["qsPea.half.ex-y5"]
+    with pytest.raises(SystemExit, match="needs match.before to be exactly"):
+        sv.load_rules(_write_rules(tmp_path / "rules.yaml", [rule]))
+
+
 def pea_retarget_window(uid="pr-1"):
     return unit(
         uid,
