@@ -50,6 +50,7 @@ Git holds the history, so a checked-in note earns its place only by recording th
 - Don't hard-wrap comments or docstrings; one long line per paragraph.
 - Write joins between letter names in `data-expect` notation and no other: `~b~` for a baseline join, `~x~` for an x-height join, `|` for a break, `+` for a ligature, stance suffixes on the letter (`·It ~b~ ·Day.half`). `doc/data-expect.md` documents the grammar; `parse_expect` in `test/test_shaping.py` is the authority.
   - A bare `~` is not an operator — never write `·Tea~·Utter`. Spell the height out, or when the sentence only means the pair or the seam, say that in prose ("the ·Tea·Utter seam").
+- Always present suggested commit messages and join notation in inline code or fenced code blocks so Markdown preserves every literal character, including tildes.
 
 ## HTML/CSS/JS
 
