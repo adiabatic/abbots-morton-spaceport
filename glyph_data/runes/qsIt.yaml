@@ -141,6 +141,18 @@ policy:
         family: qsDay
         stance: half
       right: {family: qsUtter}
+  - entry: baseline
+    when:
+      left: {family: qsThey}
+      right: {family: qsDay}
+  - entry: x-height
+    when:
+      left: {family: qsThey}
+      right: {family: qsDay}
+  - exit: baseline
+    when:
+      left: {family: qsThey}
+      right: {family: qsDay}
   prefer:
   - id: withhold-before-no-after-oy
     cell: {exit: none}
