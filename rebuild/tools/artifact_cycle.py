@@ -1668,7 +1668,7 @@ def plan_rows(plan: Plan) -> list[console.PlanRow]:
     A pass that skips run_m1 outright is the exception: nothing rebuilds, so the key the mid-run re-decision would compare is the one `main` has already compared and found no green for, and the sweep will certainly run. So is a `--fresh` pass, which reads no green at all and so has nothing to prove unnecessary with. Those rows read `run`, and the counts line is a flat number rather than a range it could never reach the top of.
     """
     rows: list[console.PlanRow] = []
-    for index, step in enumerate(plan.steps, start=1):
+    for step in plan.steps:
         undecided = (
             step.name in UNDECIDED_UNTIL_RUN_M1
             and not step.skipped
@@ -1682,7 +1682,6 @@ def plan_rows(plan: Plan) -> list[console.PlanRow]:
         )
         rows.append(
             console.PlanRow(
-                number=index,
                 status=status,
                 name=step.name,
                 note=UNDECIDED_UNTIL_RUN_M1[step.name] if undecided else step.note,
@@ -2890,12 +2889,12 @@ def _step_outcome(report: CycleReport, plan: Plan, step: Step, *, retention_ran:
 def summary_rows(report: CycleReport, plan: Plan, *, retention_ran: bool) -> list[console.SummaryRow]:
     """The table, a row per planned step. A step that did not run carries no figure at all — a skipped run_m1 still has the last build's unmatched count on the report and a skipped surface build its totals, and printing those beside `skipped` would report this pass's numbers as facts about a stage this pass never ran."""
     rows: list[console.SummaryRow] = []
-    for index, step in enumerate(plan.steps, start=1):
+    for step in plan.steps:
         outcome = _step_outcome(report, plan, step, retention_ran=retention_ran)
         ran = outcome not in ("skipped", "not run")
         rows.append(
             console.SummaryRow(
-                number=index,
+                number=None,
                 name=step.name,
                 outcome=outcome,
                 figure=_figure_beside(outcome, step_figure(report, step.name)) if ran else "",

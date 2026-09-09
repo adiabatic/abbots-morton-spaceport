@@ -252,10 +252,10 @@ def test_console_imports_nothing_else_in_this_tree():
 
 def _rows():
     return [
-        console.PlanRow(1, console.STATUS_RUN, "snapshot", "copies the served surface"),
-        console.PlanRow(2, console.STATUS_RUN, "run_m1", argv="uv run python -m rebuild.pipeline.run_m1"),
-        console.PlanRow(3, console.STATUS_SKIP, "surface-build", "green record matches"),
-        console.PlanRow(4, console.STATUS_MAYBE, "gate:conform", "may re-skip after run_m1", "make conform"),
+        console.PlanRow(console.STATUS_RUN, "snapshot", "copies the served surface"),
+        console.PlanRow(console.STATUS_RUN, "run_m1", argv="uv run python -m rebuild.pipeline.run_m1"),
+        console.PlanRow(console.STATUS_SKIP, "surface-build", "green record matches"),
+        console.PlanRow(console.STATUS_MAYBE, "gate:conform", "may re-skip after run_m1", "make conform"),
     ]
 
 
@@ -267,11 +267,11 @@ def test_the_counts_line_states_a_range_only_while_a_step_is_undecided():
 
 def test_plan_lines_carry_the_column_the_note_and_the_argv():
     lines = console.plan_lines(_rows())
-    assert lines[0] == "  1  run   snapshot       copies the served surface"
-    assert lines[1] == "  2  run   run_m1"
-    assert lines[2] == "           $ uv run python -m rebuild.pipeline.run_m1"
-    assert lines[3] == "  3  skip  surface-build  green record matches"
-    assert lines[4] == "  4  run?  gate:conform   may re-skip after run_m1"
+    assert lines[0] == "  run   snapshot       copies the served surface"
+    assert lines[1] == "  run   run_m1"
+    assert lines[2] == "        $ uv run python -m rebuild.pipeline.run_m1"
+    assert lines[3] == "  skip  surface-build  green record matches"
+    assert lines[4] == "  run?  gate:conform   may re-skip after run_m1"
 
 
 def test_the_step_banner_numbers_the_step_and_wraps_its_description(capsys):
@@ -283,7 +283,7 @@ def test_the_step_banner_numbers_the_step_and_wraps_its_description(capsys):
     )
     lines = capsys.readouterr().out.splitlines()
     assert lines[0] == ""
-    assert lines[1].startswith("---- step 2 of 4  run_m1  step 0.0s  cycle 0.0s ----")
+    assert lines[1].startswith("---- step 1  run_m1  step 0.0s  cycle 0.0s ----")
     body = lines[2:-2]
     assert len(body) > 1
     assert all(len(line) <= console.WRAP_COLUMNS for line in body)
@@ -295,7 +295,50 @@ def test_the_step_banner_numbers_the_step_and_wraps_its_description(capsys):
 def test_a_step_outside_the_plan_still_opens_a_banner(capsys):
     digest = _digest()
     digest.step_start("ad-hoc", ["true"], "")
-    assert "---- step ? of 4  ad-hoc " in capsys.readouterr().out
+    assert "---- step 1  ad-hoc " in capsys.readouterr().out
+
+
+def test_execution_numbers_follow_concurrent_starts_and_match_logs_and_summary(tmp_path):
+    names = ["snapshot", "run_m1", "surface-build", "gate:conform"]
+    out = io.StringIO()
+    digest = _digest(log_dir=tmp_path, out=out, aliases={"run_m1:gates-only": "run_m1"})
+    digest.step_skipped("snapshot", "no surface")
+    digest.step_not_run("surface-build", "not needed")
+    digest.note("run_m1", "waiting")
+    digest.step_start("gate:conform", None)
+    digest.step_end("gate:conform", None, "FAILED")
+    barrier = threading.Barrier(3)
+
+    def start(name):
+        barrier.wait(timeout=10)
+        digest.step_start(name, None)
+        digest.child_line(name, console.STDOUT, name)
+        digest.step_end(name, None, "ok")
+
+    threads = [threading.Thread(target=start, args=(name,)) for name in ("run_m1:gates-only", "extra")]
+    for thread in threads:
+        thread.start()
+    barrier.wait(timeout=10)
+    for thread in threads:
+        thread.join(timeout=10)
+        assert not thread.is_alive()
+    digest.substep("run_m1:gates-only", "late-child")
+    digest.child_line("late-child", console.STDOUT, "late output")
+    digest.substep_end("late-child")
+    rows = [console.SummaryRow(None, name, "ok") for name in [*names, "extra"]]
+    digest.summary(rows)
+    rendered = out.getvalue()
+    starts = re.findall(r"^---- step (\d+)  (\S+)", rendered, re.MULTILINE)
+    assert [number for number, _ in starts] == ["1", "2", "3"]
+    assert starts[0] == ("1", "gate:conform")
+    for number, name in starts[1:]:
+        log = (tmp_path / f"{int(number):02d}-{name}.log").read_text()
+        assert ("run_m1:gates-only" if name == "run_m1" else name) in log
+        if name == "run_m1":
+            assert "late output" in log
+    summary = rendered.split(console.SUMMARY_BANNER)[1]
+    assert re.findall(r"^\s+(\d+)\s+(\S+)", summary, re.MULTILINE) == starts
+    assert re.findall(r"^\s+-\s+(\S+)", summary, re.MULTILINE) == ["snapshot", "surface-build"]
 
 
 def test_an_alias_reports_under_the_plan_row_it_stands_for(capsys):
@@ -303,7 +346,7 @@ def test_an_alias_reports_under_the_plan_row_it_stands_for(capsys):
     digest.step_start("run_m1:gates-only", ["true"], "")
     digest.child_line("run_m1:gates-only", console.STDOUT, "[warn] oracle cache reused")
     out = capsys.readouterr().out
-    assert "---- step 2 of 4  run_m1  step" in out
+    assert "---- step 1  run_m1  step" in out
     assert _bodies(out, "run_m1") == ["warn oracle cache reused"]
 
 
@@ -333,7 +376,7 @@ def test_an_unpaired_timing_is_log_only(capsys, tmp_path):
     digest.step_start("run_m1", ["true"], "")
     digest.child_line("run_m1", console.STDOUT, "[t] kernel_enumerate[default] 3.0s")
     assert _bodies(capsys.readouterr().out, "run_m1") == []
-    assert (tmp_path / "run" / "02-run_m1.log").read_text() == "[t] kernel_enumerate[default] 3.0s\n"
+    assert (tmp_path / "run" / "01-run_m1.log").read_text() == "[t] kernel_enumerate[default] 3.0s\n"
 
 
 def test_a_phase_closes_once_and_the_second_timing_is_log_only(capsys):
@@ -486,7 +529,7 @@ def test_a_substep_logs_and_surfaces_under_its_parent(capsys, tmp_path):
     out = capsys.readouterr().out
     assert out.splitlines()[-3:-1] == ['+  "volatile": {', ""]
     assert _bodies(out, "census") == ["warn the pins moved"]
-    log = (tmp_path / "run" / "00-census.log").read_text().splitlines()
+    log = (tmp_path / "run" / "01-census.log").read_text().splitlines()
     assert log == ['+  "volatile": {', "", "stderr| [warn] the pins moved"]
 
 
@@ -546,6 +589,10 @@ def test_a_failure_dumps_the_whole_step_log_verbatim(capsys, tmp_path):
 
 def test_the_summary_prints_the_table_the_cycle_lines_and_the_verdict(capsys):
     digest = _digest()
+    digest.step_start("snapshot", None)
+    digest.step_end("snapshot", None, "ok")
+    digest.step_start("run_m1", None)
+    digest.step_end("run_m1", None, "ok")
     rows = [
         console.SummaryRow(1, "snapshot", "ok", "15,903 units", 0.4),
         console.SummaryRow(2, "run_m1", "ok", "7 unmatched", 1988.0),
@@ -555,7 +602,7 @@ def test_the_summary_prints_the_table_the_cycle_lines_and_the_verdict(capsys):
     out = capsys.readouterr().out
     assert console.SUMMARY_BANNER in out
     assert "  1  snapshot       ok       15,903 units    0.4s" in out
-    assert "  3  surface-build  skipped" in out
+    assert "  -  surface-build  skipped" in out
     assert "READY - adjudicate at the docket" in out
     assert out.rstrip().endswith("Cycle complete.")
 
@@ -610,9 +657,9 @@ def test_the_log_directory_holds_the_plan_the_terminal_copy_and_a_log_per_step(c
         digest.child_line("run_m1", console.STDERR, "compiling")
         digest.child_line("run_m1", console.STDOUT, "[warn] no green recorded")
         digest.step_end("run_m1", _Result(), "ok", "")
-    assert sorted(path.name for path in run.iterdir()) == ["02-run_m1.log", "plan.txt", "terminal.log"]
+    assert sorted(path.name for path in run.iterdir()) == ["01-run_m1.log", "plan.txt", "terminal.log"]
     assert (run / "plan.txt").read_text() == "artifact cycle\n4 steps: 2–3 will run, 1 skipped\n"
-    assert (run / "02-run_m1.log").read_text().splitlines() == [
+    assert (run / "01-run_m1.log").read_text().splitlines() == [
         "wrote tables.json",
         "stderr| compiling",
         "[warn] no green recorded",
