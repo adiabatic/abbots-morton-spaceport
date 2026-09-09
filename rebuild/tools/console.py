@@ -31,7 +31,7 @@ import threading
 import time
 import traceback
 from collections.abc import Callable, Sequence
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import IO, Protocol
 
@@ -130,9 +130,8 @@ class StepResult(Protocol):
 
 @dataclass(frozen=True)
 class PlanRow:
-    """One row of the plan block: its number, whether it will run, its name, the reason it will not (or the condition under which it still might), and the argv it would spawn. A skipped row keeps its note verbatim, because the note is the whole of what a skipped step has to say."""
+    """One row of the plan block: whether it will run, its name, the reason it will not (or the condition under which it still might), and the argv it would spawn. A skipped row keeps its note verbatim, because the note is the whole of what a skipped step has to say."""
 
-    number: int
     status: str
     name: str
     note: str = ""
@@ -290,15 +289,14 @@ def counts_line(rows: Sequence[PlanRow]) -> str:
 
 
 def plan_lines(rows: Sequence[PlanRow]) -> list[str]:
-    """One line per step — number, run/skip column, name, note — with each row that will spawn something followed by its `$ argv`. The note is reprinted verbatim rather than reworded, because for a skipped step it is the entire explanation and for an undecided one it is the condition."""
+    """One line per step — run/skip column, name, note — with each row that will spawn something followed by its `$ argv`. Numbers belong to execution: parallel gates and conditional skips leave the start order undecided until the steps run."""
     if not rows:
         return []
-    number_width = max(len(str(row.number)) for row in rows)
     status_width = max(len(row.status) for row in rows)
     name_width = max(len(row.name) for row in rows)
     lines: list[str] = []
     for row in rows:
-        head = f"  {row.number:>{number_width}}  {row.status:<{status_width}}  {row.name:<{name_width}}"
+        head = f"  {row.status:<{status_width}}  {row.name:<{name_width}}"
         lines.append(f"{head}  {row.note}".rstrip())
         if row.argv:
             lines.append(f"{' ' * (len(head) - name_width)}$ {row.argv}")
@@ -355,7 +353,7 @@ class _Tee:
 class Digest:
     """The cycle's renderer and its sink: every line the terminal shows is written here, and every line a child prints passes through here on its way to that step's log.
 
-    Constructed with the plan's step names (which is where the numbering and the width of the step column come from), the run's log directory (or None for no filesystem at all), the alias map that lets a spawn under one name report under the plan's row for it, and the three injection points a test needs — the output stream, the clock, and the silence window. Used as a context manager around everything after the dry-run return, so the tee and the heartbeat thread are installed and removed in one place.
+    Constructed with the plan's step names for the width of the step column, the run's log directory (or None for no filesystem at all), the alias map that lets a spawn under one name report under the plan's row for it, and the three injection points a test needs — the output stream, the clock, and the silence window. Step banners allocate consecutive numbers under the output lock; logs and the closing table use that same start order, with skipped and unstarted steps left unnumbered. Used as a context manager around everything after the dry-run return, so the tee and the heartbeat thread are installed and removed in one place.
 
     `emit` and `emit_block` are the lock-serialized writers this replaces an earlier `_Emitter` with, kept under their old names so a call site that has not been converted still compiles and still cannot splice a line. Every argument being optional is part of that: a bare construction is a renderer with no plan behind it and no directory under it, which is what a caller wanting nothing but a serialized stdout still asks for and what the driver's suite hands its stage functions.
     """
@@ -380,6 +378,7 @@ class Digest:
         self._open: dict[str, _StepState] = {}
         self._closed_starts: dict[str, float] = {}
         self._substeps: dict[str, str] = {}
+        self._numbers: dict[str, int] = {}
         self._name_width = max([_NAME_WIDTH_FLOOR, *(len(name) for name in self.steps)])
         self._terminal: IO[str] | None = None
         self._saved_streams: tuple[IO[str], IO[str]] | None = None
@@ -568,7 +567,10 @@ class Digest:
         reasons: Sequence[str] = (),
     ) -> None:
         """The closing block: the step table, then the cycle-level lines the driver composed, then the verdict. Reasons are reprinted verbatim under a `CYCLE FAILED:` / `CYCLE INTERRUPTED:` heading, and a green run ends on `Cycle complete.` with no reasons block at all."""
-        lines = ["", self._rule(SUMMARY_BANNER), *_summary_table(rows), ""]
+        with self._lock:
+            numbered = [replace(row, number=self._number(row.name)) for row in rows]
+            numbered.sort(key=lambda row: row.number if row.number is not None else float("inf"))
+        lines = ["", self._rule(SUMMARY_BANNER), *_summary_table(numbered), ""]
         lines.extend(cycle_lines)
         if verdict == VERDICT_OK:
             lines.extend(["", "Cycle complete."])
@@ -652,11 +654,10 @@ class Digest:
         return head + "-" * max(4, WRAP_COLUMNS - len(head))
 
     def _banner_text(self, state: _StepState) -> str:
-        total = len(self.steps) if self.steps else "?"
         number = "?" if state.number is None else state.number
         now = self._clock()
         return (
-            f"step {number} of {total}  {state.display}  "
+            f"step {number}  {state.display}  "
             f"step {fmt_duration(now - state.started)}  cycle {fmt_duration(now - self._t0)}"
         )
 
@@ -667,7 +668,7 @@ class Digest:
         return self.aliases.get(name, name)
 
     def _number(self, display: str) -> int | None:
-        return self.steps.index(display) + 1 if display in self.steps else None
+        return self._numbers.get(display)
 
     def _state_for(self, name: str, *, banner: bool) -> _StepState:
         """The state a line belongs to, opened on demand. A `child_line` for a step nobody started still gets a state rather than being dropped: the whole promise here is that no line of child output is lost, and a driver bug is a thing to see in the log, not a reason to swallow the log. Such a state is transient — nothing banner-worthy is happening under it and nobody is going to close it, which is what `substep_end` reaps — and it is dated from the step of that name that already ran, so a line arriving after a step closed reads as late rather than as a step that has just begun."""
@@ -679,6 +680,8 @@ class Digest:
             self._close_log(state)
         now = self._clock()
         display = self._display(key)
+        if banner and display not in self._numbers:
+            self._numbers[display] = len(self._numbers) + 1
         state = _StepState(
             name=key,
             display=display,
@@ -744,7 +747,7 @@ def _summary_table(rows: Sequence[SummaryRow]) -> list[str]:
     header = ("#", "step", "outcome", "figure", "time")
     body = [
         (
-            "?" if row.number is None else str(row.number),
+            "-" if row.number is None else str(row.number),
             row.name,
             row.outcome,
             row.figure,

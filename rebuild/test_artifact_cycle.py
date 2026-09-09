@@ -79,7 +79,7 @@ def _plan_text(plan: ac.Plan) -> str:
     return "\n".join(ac.render_plan(plan))
 
 
-_PLAN_ROW = r"^\s+\d+\s+(?:run\?|run|skip)\s+"
+_PLAN_ROW = r"^\s+(?:run\?|run|skip)\s+"
 
 
 def _step_lines(text: str, name: str) -> str:
@@ -1549,10 +1549,6 @@ _CHILD_SCRIPT = (
 _TWO_STREAM_CHILD = "import sys; print('on stdout'); print('on stderr', file=sys.stderr); sys.exit({rc})"
 
 
-def _step_number(plan: ac.Plan, name: str) -> int:
-    return [step.name for step in plan.steps].index(name) + 1
-
-
 def test_a_pass_files_one_log_per_step_beside_its_plan_and_a_copy_of_the_terminal(tmp_path, capsys):
     """What the terminal does not show still has to be somewhere, and that somewhere is one directory per run: the plan as it was printed, a byte copy of the terminal, and a log per step holding both of that child's streams in arrival order with the stderr ones tagged. `latest` points at it so an agent tailing a run never has to know the stamp."""
     plan = _plan()
@@ -1570,7 +1566,7 @@ def test_a_pass_files_one_log_per_step_beside_its_plan_and_a_copy_of_the_termina
         )
 
     assert (log_dir / console.PLAN_TXT).read_text().startswith("artifact cycle")
-    step_log = log_dir / f"{_step_number(plan, 'gate:js'):02d}-gate-js.log"
+    step_log = log_dir / "01-gate-js.log"
     assert sorted(step_log.read_text().splitlines()) == ["on stdout", "stderr| on stderr"]
     terminal = (log_dir / console.TERMINAL_LOG).read_text()
     assert "gate:js" in terminal and "Runs the review app's node test suite" in terminal
@@ -1618,10 +1614,10 @@ def test_the_reuse_route_banners_under_the_plans_run_m1_row(tmp_path, capsys):
         )
         ac._close_step(digest, report, ac.RUN_M1_REUSE_STEP, result, "ok")
     out = capsys.readouterr().out
-    assert f"step {_step_number(plan, 'run_m1')} of {len(plan.steps)}  run_m1  step" in out
+    assert "step 1  run_m1  step" in out
     assert ac.RUN_M1_REUSE_STEP not in out
     assert "ok  12 unmatched, pins pass" in out
-    assert (log_dir / f"{_step_number(plan, 'run_m1'):02d}-run_m1.log").read_text() == "re-adjudicating\n"
+    assert (log_dir / "01-run_m1.log").read_text() == "re-adjudicating\n"
 
 
 def test_two_verbatim_children_interleave_between_lines_and_never_inside_one(capsys):
@@ -3913,7 +3909,7 @@ def test_main_re_adjudicates_when_only_comparison_side_inputs_moved(tmp_path, mo
     row = _step_lines(out, "run_m1")
     assert "rebuild/m1-divergences.yaml" in row
     assert re.search(
-        r"^ +\d+ +run +run_m1 +only comparison-side inputs moved[^\n]*the tables and font are reused[^\n]*\n"
+        r"^ +run +run_m1 +only comparison-side inputs moved[^\n]*the tables and font are reused[^\n]*\n"
         r" +\$ uv run python -m rebuild\.pipeline\.run_m1 --gates-only",
         row,
         re.MULTILINE,
@@ -4386,7 +4382,7 @@ def test_the_census_diff_is_a_child_of_the_census_step_and_prints_in_full(tmp_pa
     assert '+  "rows": 2' in out.splitlines()
     assert out.count("---- step ") == 1
     assert "review it at commit time" in report.census_status
-    census_log = (log_dir / f"{_step_number(plan, 'census'):02d}-census.log").read_text()
+    census_log = (log_dir / "01-census.log").read_text()
     assert diff in census_log
     assert not (log_dir / "00-git-diff.log").exists()
 
@@ -4417,9 +4413,7 @@ def test_the_summary_table_carries_each_steps_figure_and_what_it_cost():
     assert rows["gate:rebuild-contracts"].figure == "3 unexplained"
     assert rows["gate:js"].outcome == "not run"
     assert rows["retention"].outcome == "not run"
-    assert [row.number for row in ac.summary_rows(report, plan, retention_ran=False)] == list(
-        range(1, len(plan.steps) + 1)
-    )
+    assert all(row.number is None for row in ac.summary_rows(report, plan, retention_ran=False))
     swept = {row.name: row for row in ac.summary_rows(report, plan, retention_ran=True)}
     assert swept["retention"].outcome == "ok"
     assert swept["retention"].figure == report.retention_figure
