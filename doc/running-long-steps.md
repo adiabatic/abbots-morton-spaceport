@@ -12,6 +12,8 @@ nohup caffeinate -i make artifact-cycle > tmp/cycle-pass.log 2>&1 &
 pid=$!
 ```
 
+When a tool harness cleans up the shell's process group on return, launch the command in a separate session with `subprocess.Popen(..., start_new_session=True)` through `uv run python`, with standard input disconnected and output redirected to the log. `nohup` ignores hangup signals but does not create a separate session.
+
 ## Where the output lands
 
 - The redirect log under `tmp/` is scratch: it holds the same terminal output and the wrapper's `rc=` line, and the next run overwrites it. The run directory is the kept record.
