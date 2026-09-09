@@ -211,6 +211,13 @@ policy:
     when:
       right: {family: qsTea}
       feature: ss03
-  contract: []
+  contract:
+  - entry: x-height
+    by: 2
+    when:
+      left:
+        family:
+        - qsThey_qsUtter
+        - qsUtter
   resolve: []
   groups: {}
