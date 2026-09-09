@@ -44,17 +44,17 @@
         "units": 1185851,
         "rows": 4108891,
         "batches": 488,
-        "echo_groups": 8940
+        "echo_groups": 8939
       },
       "machine_approved": {
-        "units": 1008627,
+        "units": 1008628,
         "by_class": {
           "boundary-echo": 161164,
           "zwnj-word-initial-unification": 107,
           "halves-entry-extension-restored": 223,
           "same-seam-extension-non-summing": 1453,
           "dangling-anchor-dropped": 164383,
-          "bare-name-live-join": 323755,
+          "bare-name-live-join": 323756,
           "may-jai-extension-consolidated": 693,
           "jai-entry-contraction-respelled": 107,
           "ss10-isolation-completed": 292733,
@@ -69,7 +69,7 @@
       "class_unit_count": {
         "boundary-echo": 182894,
         "dangling-anchor-dropped": 170101,
-        "bare-name-live-join": 334390
+        "bare-name-live-join": 334391
       },
       "secondary_seams": {
         "units_with_markers": 111275,
@@ -79,7 +79,7 @@
       }
     },
     "built": {
-      "human_units": 146161,
+      "human_units": 146160,
       "worked_example_echo_siblings": 567,
       "config_note_distribution": [
         [
@@ -145,16 +145,16 @@
       "units": 1190934
     },
     "ink": {
-      "machine_total": 572942,
-      "non_identical": 617992,
+      "machine_total": 572943,
+      "non_identical": 617991,
       "by_class": {
         "boundary-echo": 102741,
         "zwnj-word-initial-unification": 107,
         "dangling-anchor-dropped": 151881,
-        "bare-name-live-join": 318213
+        "bare-name-live-join": 318214
       },
       "boundary_echo_exempt": 90982,
-      "human_units": 527010,
+      "human_units": 527009,
       "batches": 1757
     },
     "families": {
@@ -163,14 +163,14 @@
         "tea-it-xheight": 137,
         "oy-it-baseline": 48,
         "may-utter-gains": 914,
-        "seam-loss-withdrawal": 10226,
+        "seam-loss-withdrawal": 10225,
         "extension-non-summing": 61266,
         "unmatched-misc": 9573,
         "deferred-ss04": 6930,
         "deferred-ss10": 47704,
         "deferred-ss03": 5485
       },
-      "total": 144322
+      "total": 144321
     }
   }
 }
