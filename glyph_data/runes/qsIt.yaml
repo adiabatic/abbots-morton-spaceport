@@ -149,10 +149,6 @@ policy:
     when:
       left: {family: qsThey}
       right: {family: qsDay}
-  - exit: baseline
-    when:
-      left: {family: qsThey}
-      right: {family: qsDay}
   prefer:
   - id: withhold-before-no-after-oy
     cell: {exit: none}
