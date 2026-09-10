@@ -160,6 +160,10 @@ kernel-gate: kernel-check
 conform-deep:
 	uv run python -m rebuild.tools.deep_sweep $(ARGS)
 
+# The deep sweep's cheap form: the crate's string replay one letter past the build's own horizon, over the texts naming the runes whose content moved since the last recorded walk (ARGS='--families qsPea,qsTea' to name them, ARGS='--all' for the whole universe overnight, ARGS='--status' to ask whether it is armed). Its green is keyed on rune content, so a rune edit arms it and the artifact cycle says so each pass; it is never a cycle gate, for the price rebuild/tools/deep_replay.py states. A green `make conform-deep` at this depth refreshes it too.
+replay-deep:
+	uv run python -m rebuild.tools.deep_replay $(ARGS)
+
 # Compress the built OTFs in site/ into WOFF2 alongside them. Each compression reads one OTF and writes the .woff2 beside it, sharing nothing, so they run at the box's cores rather than one at a time — and the count is a bare integer from `usable_cores` rather than xargs's own `-P 0`, which means "as many processes as possible" and is exactly the unbounded shape the clamp exists to avoid. `usable_cores` is the repo's one core reader, and it sees an affinity mask and a cgroup CPU quota where `getconf` and `sysctl` read straight past them; the `uv run` that asks it costs nothing here, since this target depends on `all`, whose own first line is a `uv run` seconds earlier.
 woff2: all
 	find site -maxdepth 1 -name '*.otf' -print0 | xargs -0 -n1 -P "$$(uv run python -c 'from rebuild.tools.memory_budget import usable_cores; print(usable_cores())')" woff2_compress

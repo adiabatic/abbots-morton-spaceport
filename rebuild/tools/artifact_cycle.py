@@ -78,6 +78,7 @@ MAKE_TEST_GREEN = ROOT / "rebuild" / "out" / "make-test-green.json"
 RUN_M1_GREEN = ROOT / "rebuild" / "out" / "run-m1-green.json"
 CONFORM_GREEN = ROOT / "rebuild" / "out" / "conform-green.json"
 DEEP_SWEEP_GREEN = ROOT / "rebuild" / "out" / "deep-sweep-green.json"
+DEEP_REPLAY_GREEN = ROOT / "rebuild" / "out" / "deep-replay-green.json"
 BEHAVIOR_CLASSES = M1_OUT / "behavior_classes.json"
 REBUILD_CONTRACTS_GREEN = ROOT / "rebuild" / "out" / "rebuild-contracts-green.json"
 PLUMBING_GREEN = ROOT / "rebuild" / "out" / "plumbing-green.json"
@@ -107,6 +108,8 @@ SURFACE_JOBS_CAP = 8
 MAKE_TEST_POOL_WORKERS = 2
 CONFORM_HORIZON_DEFAULT = 4
 DEEP_SWEEP_HORIZON_DEFAULT = 5
+# One letter past the build's own replay (`run_m1.REPLAY_HORIZON`), the depth at which a text first exercises a letter third slot behind a letter left; the deep replay's charter is that one letter, and `make replay-deep ARGS='--horizon 6'` goes deeper on demand.
+DEEP_REPLAY_HORIZON_DEFAULT = 5
 COMPILE_CODE_FILES = (
     "rebuild/pipeline/emit_gsub.py",
     "rebuild/pipeline/emit_gpos.py",
@@ -621,6 +624,60 @@ def record_deep_sweep_green(
         path if path is not None else DEEP_SWEEP_GREEN,
         {"fingerprint": fingerprint, "horizon": horizon, "files": files},
     )
+
+
+def record_deep_replay_green(
+    runes: dict[str, str], horizon: int, structure: str | None, path: Path | None = None
+) -> None:
+    """The deep replay's last-green record (`rebuild.tools.deep_replay`): the horizon the recorded walk reached, every rune's prose-blind digest as the walk covered it — under `files`, so `moved_inputs_note` can name what moved since — the replay structure stamp for the record, and a fingerprint over the rune lines so `read_green_record` reads it like every sibling record. A rune the record does not carry counts as moved."""
+    lines = [f"{name}\t{digest}" for name, digest in sorted(runes.items())]
+    _record_outcome(
+        path if path is not None else DEEP_REPLAY_GREEN,
+        {"fingerprint": _digest_lines(lines), "horizon": horizon, "structure": structure, "files": runes},
+    )
+
+
+def deep_replay_moved(record: dict | None, runes: dict[str, str]) -> list[str]:
+    """The runes whose texts the next deep replay has to walk: every rune whose current prose-blind digest is not the one the record carries, a rune the record never walked included, sorted. Everything when there is no record; a rune the record carries that no longer exists moves nothing, since no text names it."""
+    if record is None or not isinstance(record.get("files"), dict):
+        return sorted(runes)
+    recorded = record["files"]
+    return sorted(name for name, digest in runes.items() if recorded.get(name) != digest)
+
+
+def deep_replay_green_path(root: Path | None = None) -> Path:
+    """Where a tree keeps the deep replay's record: `DEEP_REPLAY_GREEN` for the live repo, and the same place under any other root, so a status asked of an invented tree never opens the live record. The root defaults at call time rather than at definition, so a test that re-roots the module re-roots this too."""
+    if root is None or Path(root).resolve() == ROOT.resolve():
+        return DEEP_REPLAY_GREEN
+    return Path(root) / "rebuild" / "out" / "deep-replay-green.json"
+
+
+def deep_replay_status(
+    root: Path | None = None, horizon: int = DEEP_REPLAY_HORIZON_DEFAULT
+) -> tuple[str, str]:
+    """Whether the deep replay still stands for the runes on disk, as (status, note) for the cycle's one-line report beside the deep sweep's. `current` means the record carries every rune at its current digest and reached this depth or deeper; `armed` names the runes whose content moved since the recorded walk, or the shallower depth it reached, and `make replay-deep` is the remedy; `never-run` means no record at all. Reporting only — the deep replay is never a cycle gate, for the price `rebuild/tools/deep_replay.py` states."""
+    from rebuild.pipeline import fingerprint
+
+    root = ROOT if root is None else root
+    record = read_green_record(deep_replay_green_path(root))
+    if record is None:
+        return (
+            "never-run",
+            "no deep replay has been recorded; run `make replay-deep ARGS='--all'` once, overnight",
+        )
+    moved = deep_replay_moved(record, fingerprint.rune_digests(root))
+    if moved:
+        return (
+            "armed",
+            f"{capped_labels(moved)} moved since the last horizon-{record.get('horizon')} walk; run `make replay-deep`",
+        )
+    recorded = record.get("horizon")
+    if not isinstance(recorded, int) or recorded < horizon:
+        return (
+            "armed",
+            f"the recorded deep replay reached horizon {recorded}, shallower than {horizon}; run `make replay-deep`",
+        )
+    return "current", f"horizon {recorded}"
 
 
 def deep_sweep_status(root: Path = ROOT, horizon: int = DEEP_SWEEP_HORIZON_DEFAULT) -> tuple[str, str]:
@@ -2739,6 +2796,14 @@ def _deep_sweep_report(root: Path = ROOT) -> tuple[str, str]:
         return "unknown", f"could not be read ({exc!r})"
 
 
+def _deep_replay_report(root: Path | None = None) -> tuple[str, str]:
+    """`deep_replay_status` for the summary, on the same terms as the deep sweep's line."""
+    try:
+        return deep_replay_status(root)
+    except Exception as exc:
+        return "unknown", f"could not be read ({exc!r})"
+
+
 INFORMATIONAL_STEPS = ("census", "job-costs")
 
 _CARRY_WROTE = re.compile(r"^wrote \S+: (\d+) carried onto manifest")
@@ -2905,7 +2970,7 @@ def summary_rows(report: CycleReport, plan: Plan, *, retention_ran: bool) -> lis
 
 
 def summary_cycle_lines(report: CycleReport, plan: Plan, retention_lines: list[str]) -> list[str]:
-    """What the table cannot hold: the paths a reader goes to next, the verdict chain's step-by-step outcome, the out-of-band deep sweep's standing, and what retention pruned. There is no instruction here: a green pass follows these lines with the readiness checklist itself (`readiness_block`), and a red pass's next command is whatever the failure block names.
+    """What the table cannot hold: the paths a reader goes to next, the verdict chain's step-by-step outcome, the standing of the two out-of-band instruments — the deep sweep and the deep replay — and what retention pruned. There is no instruction here: a green pass follows these lines with the readiness checklist itself (`readiness_block`), and a red pass's next command is whatever the failure block names.
 
     The chain's own news is indented under the two lines it belongs to — what the carry landed and how much queue it left, then what each fill and merge wrote. Those are the lines a reader came for after a sitting: which rule filled what, and whether the queue moved. They reach this process only as the chain's printed output, and `_standing_fill_news` and the scrapes beside it have already cut them down to a handful, so the summary carries them rather than sending a reader to `cycle_summary.json` and the plumbing step's own log for the one number that says whether the pass was worth running.
     """
@@ -2917,6 +2982,7 @@ def summary_cycle_lines(report: CycleReport, plan: Plan, retention_lines: list[s
         return [f"      {line}" for line in lines]
 
     deep_status, deep_note = _deep_sweep_report()
+    replay_status, replay_note = _deep_replay_report()
     lines = [
         f"  snapshot dir     : {show(report.snapshot_dir)}",
         f"  carry output     : {show(report.carry_out)}",
@@ -2933,6 +2999,7 @@ def summary_cycle_lines(report: CycleReport, plan: Plan, retention_lines: list[s
         f"  census pins      : {report.census_status}",
         f"  job costs        : {report.job_costs_status}",
         f"  deep sweep       : {deep_status} ({deep_note})",
+        f"  deep replay      : {replay_status} ({replay_note})",
         "  run_m1 summaries :",
         *(f"      {path}" for path in M1_SUMMARY_FILES.values()),
         f"      {CONFORM_SUMMARY}",
@@ -2978,6 +3045,7 @@ def _surface_block(surface_dir: Path) -> dict:
 
 def cycle_summary_payload(report: CycleReport, failures: list[str], plan: Plan, exit_kind: str) -> dict:
     deep_status, deep_note = _deep_sweep_report()
+    replay_status, replay_note = _deep_replay_report()
     return {
         "format": "ams-cycle-summary/1",
         "finished_at": datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z"),
@@ -3002,6 +3070,7 @@ def cycle_summary_payload(report: CycleReport, failures: list[str], plan: Plan, 
             ),
         },
         "deep_sweep": {"status": deep_status, "note": deep_note},
+        "deep_replay": {"status": replay_status, "note": replay_note},
         "make_test_fingerprint": (
             plan.make_test_fingerprint if report.gate_make_test_green is True or plan.skip_make_test else None
         ),
