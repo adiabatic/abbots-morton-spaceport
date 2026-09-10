@@ -28,6 +28,8 @@ def bench(tmp_path, monkeypatch):
     monkeypatch.setattr(ac, "CONFORM_GREEN", tmp_path / "conform-green.json")
     monkeypatch.setattr(deep_sweep, "CONFORM_GREEN", tmp_path / "conform-green.json")
     monkeypatch.setattr(deep_sweep, "tables_stamped", lambda: True)
+    monkeypatch.setattr(ac, "DEEP_REPLAY_GREEN", tmp_path / "deep-replay-green.json")
+    monkeypatch.setattr(deep_sweep, "refresh_deep_replay", lambda horizon: None)
     return tmp_path
 
 

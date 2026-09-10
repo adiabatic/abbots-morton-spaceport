@@ -43,7 +43,7 @@ def _no_stated_widths(monkeypatch):
 def _redirect_contracts_lane_reads(monkeypatch, tmp_path):
     """The read half of the suite's no-live-repo standard, and it needs its own argument, because a read costs the repo nothing and so was never covered by the write redirect in the conftest. What it costs instead is the truth of the test: the cycle resolves its *read* paths from the live repo at call time exactly as it resolves its write paths, so a test driving `_run_cycle` over mocked stages still renders its summary from whatever review surface and behavior-class sidecar happen to be sitting in rebuild/out — a number the test never built, from a build it never ran, which flips with the working tree under it. Every test here is a contracts-lane test, so there is no lane to check and no legitimate live read to preserve: this module sees the live artifacts as absent, and the audit guard fails anything that reaches past this for one.
 
-    It says that at the four seams that turn a live path into a value the cycle keys on. The review surface is a constant and redirects as one. The behavior-class sidecar cannot: `deep_sweep_skip_lines` re-roots BEHAVIOR_CLASSES against ROOT, so pointing the constant outside ROOT makes it unreadable for *every* root and breaks the tests that pass their own — the seam that survives is the default root itself. The last two are what the gates' `*_skip_lines(ROOT)` reach through: two globs over rebuild/out (`baselines_value`, `_subset_tables`) and the per-file digest, which answers "absent" for a live path exactly as it already does for one that is missing. Every one of them answers only for the live root, so a caller that passes its own — which is how the tests about those functions are written — runs the real thing.
+    It says that at the five seams that turn a live path into a value the cycle keys on. The review surface is a constant and redirects as one, and so is the deep replay's record, which the summary reads for its standing. The behavior-class sidecar cannot: `deep_sweep_skip_lines` re-roots BEHAVIOR_CLASSES against ROOT, so pointing the constant outside ROOT makes it unreadable for *every* root and breaks the tests that pass their own — the seam that survives is the default root itself. The last two are what the gates' `*_skip_lines(ROOT)` reach through: two globs over rebuild/out (`baselines_value`, `_subset_tables`) and the per-file digest, which answers "absent" for a live path exactly as it already does for one that is missing. Every one of them answers only for the live root, so a caller that passes its own — which is how the tests about those functions are written — runs the real thing.
     """
     from rebuild.pipeline import fingerprint
 
@@ -52,6 +52,7 @@ def _redirect_contracts_lane_reads(monkeypatch, tmp_path):
     real_subsets = ac._subset_tables
     real_sha = ac._sha256_path
     monkeypatch.setattr(ac, "REVIEW_OUT", tmp_path / "review")
+    monkeypatch.setattr(ac, "DEEP_REPLAY_GREEN", tmp_path / "deep-replay-green.json")
     monkeypatch.setattr(
         ac,
         "_sha256_path",
@@ -5615,6 +5616,7 @@ def test_retention_leaves_the_snapshots_alone_when_the_pass_took_none(
     ordinary = _plan(snapshot_dir=tmp_path / "var" / "review-pre-fresh")
     monkeypatch.setattr(ac, "ROOT", tmp_path)
     monkeypatch.setattr(ac, "REVIEW_OUT", tmp_path / "review")
+    monkeypatch.setattr(ac, "DEEP_REPLAY_GREEN", tmp_path / "deep-replay-green.json")
     (tmp_path / "var").mkdir()
     survivor = tmp_path / "var" / "review-pre-abc1234"
     survivor.mkdir()
@@ -5638,6 +5640,7 @@ def test_retention_leaves_the_journal_and_stashes_alone_while_the_server_is_up(
     plan = _plan(skip_plumbing=True, plumbing_note=ac.PLUMBING_SKIP_NOTE)
     monkeypatch.setattr(ac, "ROOT", tmp_path)
     monkeypatch.setattr(ac, "REVIEW_OUT", tmp_path / "review")
+    monkeypatch.setattr(ac, "DEEP_REPLAY_GREEN", tmp_path / "deep-replay-green.json")
     (tmp_path / "review").mkdir()
     (tmp_path / "review" / "manifest.json").write_text(json.dumps({"generated_at": "2026-08-07T00:00:00Z"}))
     (tmp_path / "var").mkdir()
@@ -6052,6 +6055,7 @@ def test_retention_prunes_the_build_logs_under_a_live_server_too(tmp_path, monke
     plan = _plan(skip_plumbing=True, plumbing_note=ac.PLUMBING_SKIP_NOTE)
     monkeypatch.setattr(ac, "ROOT", tmp_path)
     monkeypatch.setattr(ac, "REVIEW_OUT", tmp_path / "review")
+    monkeypatch.setattr(ac, "DEEP_REPLAY_GREEN", tmp_path / "deep-replay-green.json")
     monkeypatch.setattr(ac, "BUILD_LOGS_ROOT", tmp_path / "var" / "build-logs")
     (tmp_path / "var" / "build-logs").mkdir(parents=True)
     for index in range(ac.BUILD_LOGS_KEEP + 3):

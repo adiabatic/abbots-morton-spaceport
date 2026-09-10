@@ -4,7 +4,7 @@ What makes it periodic rather than per-edit is what its green is keyed on, and t
 
 The structural check the belt runs — every splitter-separated buffer identical to its segments shaped alone — comes along at this depth, which is the only place its coverage past the belt's horizon lives: nothing on a build's path shapes a length-5 string. The ZWNJ slot's own structure — zero advance, no ink — needs no depth at all: read-back proves it statically off the font bytes once per build.
 
-A green run also refreshes gate:conform's own record when it swept at least the belt's horizon, because an exhaustive sweep at any depth N covers every string the belt at depth 4 would have shaped. So an overnight deep run leaves the next cycle's belt already proved rather than making the reviewer wait for it twice.
+A green run also refreshes gate:conform's own record when it swept at least the belt's horizon, because an exhaustive sweep at any depth N covers every string the belt at depth 4 would have shaped. So an overnight deep run leaves the next cycle's belt already proved rather than making the reviewer wait for it twice. It refreshes the deep replay's record the same way (`rebuild.tools.deep_replay`) when it swept at least that walk's horizon: every text it shapes it also settles against the tables the font holds, so the per-family replay at that depth has nothing left to ask.
 
 Run as: uv run python -m rebuild.tools.deep_sweep, or through `make conform-deep`.
 """
@@ -24,6 +24,7 @@ from rebuild.pipeline import run_m1
 from rebuild.tools.artifact_cycle import (
     CONFORM_GREEN,
     CONFORM_HORIZON_DEFAULT,
+    DEEP_REPLAY_HORIZON_DEFAULT,
     DEEP_SWEEP_GREEN,
     DEEP_SWEEP_HORIZON_DEFAULT,
     clear_contradicted_green,
@@ -32,6 +33,7 @@ from rebuild.tools.artifact_cycle import (
     deep_sweep_skip_files,
     deep_sweep_skip_fingerprint,
     deep_sweep_status,
+    record_deep_replay_green,
     record_deep_sweep_green,
     record_green,
     sweep_job_budget,
@@ -57,6 +59,16 @@ def arming_key() -> str:
             "the M1 artifacts are stale relative to the runes on disk — run `make artifact-cycle` (or `make review-cycle`) first, so the deep sweep never shapes a font the sources have outgrown"
         )
     return fingerprint
+
+
+def refresh_deep_replay(horizon: int) -> None:
+    """The deep replay's record as a green sweep at `horizon` leaves it: every rune on disk at its current digest, since the sweep settled every text naming any of them."""
+    from rebuild.pipeline import fingerprint
+    from rebuild.pipeline.spec_load import load_default_spec
+
+    record_deep_replay_green(
+        fingerprint.rune_digests(ROOT), horizon, run_m1.replay_structure_stamp(load_default_spec())
+    )
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -114,6 +126,12 @@ def main(argv: list[str] | None = None) -> int:
         return 0
     record_deep_sweep_green(deep_key, args.horizon, files=deep_sweep_skip_files(ROOT))
     print(f"deep sweep: green at horizon {args.horizon} — recorded in {DEEP_SWEEP_GREEN.name}", flush=True)
+    if args.horizon >= DEEP_REPLAY_HORIZON_DEFAULT:
+        refresh_deep_replay(args.horizon)
+        print(
+            f"deep replay: green too — every text at horizon {args.horizon} was settled here, so nothing is left for `make replay-deep` to walk",
+            flush=True,
+        )
     if (
         args.horizon >= CONFORM_HORIZON_DEFAULT
         and conform_skip_fingerprint(ROOT, CONFORM_HORIZON_DEFAULT) == belt_key
