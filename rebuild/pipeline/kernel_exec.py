@@ -21,6 +21,7 @@ import fcntl
 import gzip
 import json
 import os
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -472,6 +473,101 @@ def replay_strings(
             f"replay-strings answered for {sorted(answered)} where {sorted(configs)} were asked for"
         )
     return answered
+
+
+class EmittedOrderDisagreement(KernelRunError):
+    """The `replay-emitted` verb found a row the shipped settlement order answers differently from its configuration's table: the crate's own sentence, which names the configuration, the row, the emitted rule that fired and the table's own rule. Its own class so a build can tell the finding from a boundary failure."""
+
+
+def replay_emitted(
+    windows: Path,
+    *,
+    config: str,
+    table: Path,
+    order: Path,
+    context: Path,
+    timings: bool = False,
+) -> dict[str, int]:
+    """One configuration's packed window enumeration walked against the shipped settlement order by the crate's `replay-emitted` verb (`rebuild/kernel-rs/src/shipped_order.rs`): `{rows, expanded}` on a clean walk, `expanded` counting the rows tried member by member because an emitted look class admitted their deep class in part. `windows` is the `.gz` the build packed (`table.windows_path`), decompressed here and streamed to the verb's standard input, since the crate reads its own plain payload and carries no decompressor; `table` is the configuration's settlement TSV, `order` the file `emit_gsub.emitted_order_tsv` writes and `context` the one `emit_gsub.emitted_context_tsv` writes. A disagreement is an `EmittedOrderDisagreement` carrying the crate's sentence; every other refusal is a plain `KernelRunError`."""
+    ensure_built()
+    arguments = [
+        str(BINARY),
+        "replay-emitted",
+        "-",
+        f"--config={config}",
+        f"--table={table}",
+        f"--order={order}",
+        f"--context={context}",
+    ]
+    if timings:
+        arguments.append("--timings")
+    read_end, write_end = os.pipe()
+    try:
+        with _uplift_lock(fcntl.LOCK_SH):
+            process = subprocess.Popen(
+                arguments, stdin=read_end, stdout=subprocess.PIPE, stderr=subprocess.PIPE
+            )
+    except FileNotFoundError:
+        os.close(read_end)
+        os.close(write_end)
+        raise KernelRunError(
+            f"no kernel binary at {BINARY} — run `make kernel-build` first, or let the caller's cargo_build() build it"
+        ) from None
+    os.close(read_end)
+
+    unreadable: list[OSError] = []
+
+    def pump() -> None:
+        # The verb stops reading at its disagreement cap, so the pipe closing under the writer is a walk that has already answered, not a failure of the seam; the sink is opened first so that a payload that will not open still closes the verb's standard input.
+        try:
+            with os.fdopen(write_end, "wb", buffering=1 << 20) as sink:
+                try:
+                    with gzip.open(windows, "rb") as source:
+                        shutil.copyfileobj(source, sink, length=1 << 20)
+                except BrokenPipeError:
+                    raise
+                except OSError as error:
+                    unreadable.append(error)
+        except BrokenPipeError:
+            pass
+
+    writer = threading.Thread(target=pump, name=f"replay-emitted[{config}]", daemon=True)
+    writer.start()
+    try:
+        stdout, stderr = process.communicate(timeout=TIMEOUT)
+    except subprocess.TimeoutExpired:
+        process.kill()
+        process.communicate()
+        raise KernelRunError(
+            f"the kernel gave no answer within {TIMEOUT} seconds on replay-emitted ({' '.join(arguments)})"
+        ) from None
+    finally:
+        writer.join()
+    if unreadable:
+        raise KernelRunError(f"{windows}: {unreadable[0]}")
+    errors = stderr.decode(errors="replace").strip()
+    if process.returncode == 2:
+        raise KernelRunError(
+            f"kernel does not support replay-emitted yet, or rejected the invocation as a usage error: {errors} ({' '.join(arguments)})"
+        )
+    if process.returncode != 0:
+        if "shipped-order disagreement" in errors:
+            raise EmittedOrderDisagreement(errors)
+        raise KernelRunError(f"the kernel exited {process.returncode} on replay-emitted: {errors}")
+    _forward_stderr(errors, timings, arguments, verb="replay-emitted")
+    try:
+        answer = json.loads(stdout.decode())
+    except (UnicodeDecodeError, json.JSONDecodeError) as error:
+        raise KernelRunError(f"the kernel's replay-emitted answer is not one JSON line: {error}") from None
+    if (
+        not isinstance(answer, dict)
+        or set(answer) != {"config", "rows", "expanded"}
+        or answer["config"] != config
+    ):
+        raise KernelRunError(
+            f"replay-emitted answered {answer!r} where a {{config: {config!r}, rows, expanded}} line was asked for"
+        )
+    return {key: int(answer[key]) for key in ("rows", "expanded")}
 
 
 def _forward_stderr(

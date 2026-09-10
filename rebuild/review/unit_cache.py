@@ -150,6 +150,7 @@ KERNEL_NON_SURFACE_MODULES = frozenset(
         "replay.rs",
         "rulefold.rs",
         "sha256.rs",
+        "shipped_order.rs",
         "stream.rs",
     }
 )

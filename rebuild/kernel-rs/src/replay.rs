@@ -195,8 +195,8 @@ impl<'i> Formation<'i> {
     }
 }
 
-/// The label pool one walk keys its windows and rules through: every spelling once, its id the key's word for it, and whether that spelling is one of the five that end a window's reach.
-struct Labels {
+/// The label pool one walk keys its windows and rules through: every spelling once, its id the key's word for it, and whether that spelling is one of the five that end a window's reach. The shipped-order walk (`shipped_order.rs`) keys through the same pool.
+pub(crate) struct Labels {
     ids: HashMap<Rc<str>, u32>,
     texts: Vec<Rc<str>>,
     boundaryish: Vec<bool>,
@@ -205,7 +205,7 @@ struct Labels {
 }
 
 impl Labels {
-    fn new() -> Self {
+    pub(crate) fn new() -> Self {
         let mut labels = Self {
             ids: HashMap::new(),
             texts: Vec::new(),
@@ -224,7 +224,7 @@ impl Labels {
         labels
     }
 
-    fn intern(&mut self, text: &str) -> u32 {
+    pub(crate) fn intern(&mut self, text: &str) -> u32 {
         if let Some(&id) = self.ids.get(text) {
             return id;
         }
@@ -237,7 +237,7 @@ impl Labels {
         id
     }
 
-    fn text(&self, id: u32) -> &str {
+    pub(crate) fn text(&self, id: u32) -> &str {
         &self.texts[id as usize]
     }
 
