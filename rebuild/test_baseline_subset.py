@@ -121,6 +121,29 @@ class TestEnsureFresh:
         assert baseline_subset.ensure_fresh(root) is True
         assert subset.exists()
 
+    def test_an_interrupted_refilter_leaves_the_prior_stamp_reading_stale(self, tmp_path, monkeypatch):
+        """refresh leaves the prior stamp on disk while it rewrites the tables under it, and the stamp's content digests are what make that safe: a table the crash cut short hashes to something the stamp never recorded, so the stamp cannot vouch for it even under an unmoved key."""
+        root = _seed_repo(tmp_path)
+        baseline_subset.ensure_fresh(root)
+        stamp = root / "rebuild" / "out" / "m1" / baseline_subset.STAMP_NAME
+        before = stamp.read_bytes()
+        original = baseline_subset.filter_table
+
+        def filter_then_crash(source, destination, alphabet=baseline_subset.M1_ALPHABET):
+            original(source, destination, alphabet)
+            written = destination.read_bytes()
+            destination.write_bytes(written[: len(written) // 2])
+            raise OSError("simulated crash mid-refilter")
+
+        monkeypatch.setattr(baseline_subset, "filter_table", filter_then_crash)
+        with pytest.raises(OSError, match="mid-refilter"):
+            baseline_subset.refresh(root)
+        assert stamp.read_bytes() == before
+        assert baseline_subset.is_fresh(root) is False
+        monkeypatch.setattr(baseline_subset, "filter_table", original)
+        assert baseline_subset.ensure_fresh(root) is True
+        assert baseline_subset.is_fresh(root) is True
+
     def test_refiltering_unchanged_sources_is_byte_identical(self, tmp_path):
         root = _seed_repo(tmp_path)
         baseline_subset.refresh(root)
@@ -285,6 +308,8 @@ class TestDefaultCovered:
         assert "ss06" in message
         assert "default" in message
         assert "ACCEPTANCE_CONFIGS" in message
+        differing = ("E670\tqsIt.x\t0\t\t0,0,150\n", "E670\tqsIt\t0\t\t0,0,150\n")
+        assert f"first differing pair {differing}" in message
         assert baseline_subset.is_fresh(root) is False
 
     def test_a_missing_roster_source_refuses_naming_it(self, tmp_path):
