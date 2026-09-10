@@ -14,7 +14,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
-from rebuild.pipeline import compile_font, conform, emit_gpos, emit_gsub, oracle, readback
+from rebuild.pipeline import compile_font, emit_gpos, emit_gsub, oracle, readback
 from rebuild.pipeline import run_m1
 from rebuild.pipeline.spec_load import (
     DEFAULT_REGISTRY_PATH,
