@@ -72,7 +72,7 @@ M1_ALPHABET = frozenset(
 
 _IDENTITY_REMEDY = "the acceptance gate covers it by running default alone, which holds only while the two filter to the same rows; if it has genuinely diverged, add it to ACCEPTANCE_CONFIGS in rebuild/pipeline/conform.py (what the ·Owe migration needs, BASELINE-PLAN section 5) and drop it from DEFAULT_COVERED_CONFIGS here"
 
-EXTRACT_REMEDY = "re-extract with `uv run python -m rebuild.baseline.cli extract --all --out rebuild/out` then `uv run python -m rebuild.baseline.cli summarize --out rebuild/out`, or rebuild the font the tables were extracted from (the header's git_sha names the commit it was built at; the site font is `make all` output)"
+_EXTRACT_REMEDY = "re-extract with `uv run python -m rebuild.baseline.cli extract --all --out rebuild/out` then `uv run python -m rebuild.baseline.cli summarize --out rebuild/out`, or rebuild the font the tables were extracted from (the header's git_sha names the commit it was built at; the site font is `make all` output)"
 
 
 class SubsetIdentityError(RuntimeError):
@@ -278,19 +278,19 @@ def prove_font_provenance(repo_root: Path = REPO_ROOT) -> dict[str, str]:
         recorded = header.get("font_sha256")
         if not font_relative or not recorded:
             raise BaselineProvenanceError(
-                f"{source.name} carries no '# font:' / '# font_sha256:' header pair, so nothing says which font shaped its rows — it predates the header contract rebuild/baseline/model.render_header writes, so {EXTRACT_REMEDY}"
+                f"{source.name} carries no '# font:' / '# font_sha256:' header pair, so nothing says which font shaped its rows — it predates the header contract rebuild/baseline/model.render_header writes, so {_EXTRACT_REMEDY}"
             )
         font_path = Path(repo_root) / font_relative
         if font_path not in live_digests:
             if not font_path.is_file():
                 raise BaselineProvenanceError(
-                    f"{source.name} was extracted from {font_relative}, which is not on disk at {font_path} — the site font is gitignored `make all` output, so run `make all` before adjudicating against these tables, or {EXTRACT_REMEDY}"
+                    f"{source.name} was extracted from {font_relative}, which is not on disk at {font_path} — the site font is gitignored `make all` output, so run `make all` before adjudicating against these tables, or {_EXTRACT_REMEDY}"
                 )
             live_digests[font_path] = fingerprint.file_sha256(font_path)
         live = live_digests[font_path]
         if live != recorded:
             raise BaselineProvenanceError(
-                f"{source.name} was extracted from a {font_relative} that hashed to {recorded}, but the {font_relative} on disk now hashes to {live} — its rows are not the rows this font shapes, so {EXTRACT_REMEDY}"
+                f"{source.name} was extracted from a {font_relative} that hashed to {recorded}, but the {font_relative} on disk now hashes to {live} — its rows are not the rows this font shapes, so {_EXTRACT_REMEDY}"
             )
         proven[source.name] = recorded
     return proven
