@@ -4314,30 +4314,72 @@ def test_classify_rebuild_recordable_whenever_it_is_green():
     assert not hard.recordable
 
 
-def test_the_census_diff_is_a_child_of_the_census_step_and_prints_in_full(tmp_path, capsys):
-    """The diff is what a commit accepts, so it is the one child whose plain lines belong on the terminal verbatim — copy-pasteable, with no step column in front of them. It is also not a step of the plan: registering it under census puts its lines in census's log and its own summary under census's column, without a second banner for a step that is already open. The step stays open until the diff has run, because a sub-step spawned under a closed parent opens a state nobody closes — a log handle held to the end of the pass and a heartbeat for a step that finished."""
+_ACCEPTED_PINS = {
+    "invariant": {
+        "classes": ["boundary-echo", "bare-name-live-join"],
+        "machine_approved_classes": ["boundary-echo", "bare-name-live-join"],
+        "no_verdict_classes": ["boundary-echo"],
+        "families": ["no-chain-gains"],
+    },
+    "volatile": {"audit": {"row_count": 10, "units": 4}},
+}
+
+_LEDGER_YAML = """- id: boundary-echo
+  no_verdict: true
+- id: bare-name-live-join
+  ink_identical: true
+- id: vie-baseline-entry-extension-dropped
+  no_verdict: true
+"""
+
+
+def _census_fixture(monkeypatch, tmp_path, *, accepted, current):
+    """The census step's inputs, off the real tree: the pins the refresh child is taken to have just written, the index copy the step holds them against, and a three-entry ledger for the reach line."""
+    pins = tmp_path / "review-census-pins.json"
+    pins.write_text(json.dumps(current, indent=2) + "\n")
+    ledger = tmp_path / "m1-divergences.yaml"
+    ledger.write_text(_LEDGER_YAML)
+    monkeypatch.setattr(ac, "CENSUS_PINS", pins)
+    monkeypatch.setattr(ac, "DIVERGENCE_LEDGER", ledger)
+    monkeypatch.setattr(ac, "accepted_census", lambda: accepted)
+
+
+def _moved_invariant() -> dict:
+    return {
+        "invariant": {
+            "classes": ["boundary-echo", "bare-name-live-join", "vie-baseline-entry-extension-dropped"],
+            "machine_approved_classes": ["boundary-echo", "bare-name-live-join"],
+            "no_verdict_classes": ["boundary-echo", "vie-baseline-entry-extension-dropped"],
+            "families": ["no-chain-gains", "deferred-ss10"],
+        },
+        "volatile": {"audit": {"row_count": 12, "units": 5}},
+    }
+
+
+def test_the_census_invariant_diff_prints_under_the_census_step_in_full(tmp_path, capsys, monkeypatch):
+    """When the invariant moved, its block's diff is what a commit accepts, so its lines belong on the terminal verbatim — copy-pasteable, with no step column in front of them — and only its lines: the volatile hunks a letter batch moves stay out. It is not a step of the plan: filed under census, its lines land in census's log and under census's column, without a second banner for a step that is already open, and no log of its own."""
     plan = _plan()
     log_dir = tmp_path / "logs"
     registry = ac._ChildRegistry()
     report = ac.CycleReport()
-    diff = '-  "rows": 1\n+  "rows": 2'
+    _census_fixture(monkeypatch, tmp_path, accepted=_ACCEPTED_PINS, current=_moved_invariant())
 
     def spawn(name, argv, *, emit, registry, stream, **passthrough):
-        script = "pass" if name == "census" else f"print({diff!r})"
-        return ac._run_step(name, [sys.executable, "-c", script], emit=emit, registry=registry, stream=stream)
+        return ac._run_step(name, [sys.executable, "-c", "pass"], emit=emit, registry=registry, stream=stream)
 
     with console.Digest(steps=[step.name for step in plan.steps], log_dir=log_dir) as digest:
         ac._do_census(report, spawn=spawn, emit=digest, registry=registry, plan=plan)
         assert digest._open == {}
 
     out = capsys.readouterr().out
-    assert '-  "rows": 1' in out.splitlines()
-    assert '+  "rows": 2' in out.splitlines()
+    assert '+    "deferred-ss10"' in out.splitlines()
+    assert '+    "vie-baseline-entry-extension-dropped"' in out.splitlines()
+    assert "row_count" not in out
     assert out.count("---- step ") == 1
-    assert "review it at commit time" in report.census_status
+    assert report.census_status.startswith("invariant moved: ")
     census_log = (log_dir / "01-census.log").read_text()
-    assert diff in census_log
-    assert not (log_dir / "00-git-diff.log").exists()
+    assert '+    "deferred-ss10"' in census_log.splitlines()
+    assert not (log_dir / "00-invariant-diff.log").exists()
 
 
 def test_the_summary_table_carries_each_steps_figure_and_what_it_cost():
@@ -4440,23 +4482,9 @@ def test_every_spawned_step_closes_with_its_own_figure_and_peak(capsys, tmp_path
     assert any("ok  15,903 units, 81,894 rows  rss 1.0G" in line for line in closing), closing
 
 
-def test_do_census_updates_the_pins_and_reports_the_diff():
-    """The checked-in pins are the last accepted census, so the step always rewrites them and always shows the diff: what it prints is exactly what a commit would be accepting."""
-    calls: list[str] = []
-
-    def spawn(name, argv, *, emit, registry, stream):
-        calls.append(name)
-        return _step(name, 0, stdout='-  "rows": 1\n+  "rows": 2\n' if name == "git-diff" else "")
-
-    report = ac.CycleReport()
-    ac._do_census(report, spawn=spawn, emit=ac._Emitter(), registry=ac._ChildRegistry(), plan=_plan())
-    assert calls == ["census", "git-diff"]
-    assert report.census_status == (
-        "updated (diff vs the last accepted census shown above — review it at commit time)"
-    )
-
-
-def test_do_census_says_so_when_the_refresh_moved_nothing():
+def test_do_census_names_the_invariant_movement_and_reports_reach(monkeypatch, tmp_path):
+    """The summary line carries the finding: which classes appeared, which exemptions and families came with them — the one movement worth interrupting a commit for — and beside it the reach line, holding the ledger's declarations against what the corpus reached. Both are what a cycle log greps, and both land in cycle_summary.json."""
+    _census_fixture(monkeypatch, tmp_path, accepted=_ACCEPTED_PINS, current=_moved_invariant())
     calls: list[str] = []
 
     def spawn(name, argv, *, emit, registry, stream):
@@ -4465,12 +4493,85 @@ def test_do_census_says_so_when_the_refresh_moved_nothing():
 
     report = ac.CycleReport()
     ac._do_census(report, spawn=spawn, emit=ac._Emitter(), registry=ac._ChildRegistry(), plan=_plan())
-    assert calls == ["census", "git-diff"]
+    assert calls == ["census"]
+    assert report.census_status == (
+        "invariant moved: classes +1 (vie-baseline-entry-extension-dropped);"
+        " no-verdict +1 (vie-baseline-entry-extension-dropped); families +1 (deferred-ss10)"
+        " — its diff is shown above; review it at commit time"
+    )
+    assert report.census_reach == (
+        "machine-approved: 2 classes approve units, 1 undeclared; ink-identical: 1 declared, all approving;"
+        " no-verdict: 2 of 2 declared reached; ledger: 3 of 3 classes reached"
+    )
+    assert report.census_reach_sets is not None
+    assert report.census_reach_sets["machine_approved_undeclared"] == ["boundary-echo"]
+    payload = ac.cycle_summary_payload(report, [], _plan(), "ok")
+    assert payload["census_status"] == report.census_status
+    assert payload["census_reach"] == report.census_reach
+    assert payload["census_reach_sets"] == report.census_reach_sets
+
+
+def test_do_census_says_the_invariant_is_unchanged_when_only_the_volatile_block_moved(monkeypatch, tmp_path):
+    """A letter batch moves the volatile totals on nearly every pass. That is not the movement a commit needs a reader for, so the status says the invariant held rather than sending them to a diff, and nothing is printed; the totals have their home in cycle_summary.json."""
+    current = {**_ACCEPTED_PINS, "volatile": {"audit": {"row_count": 12, "units": 5}}}
+    _census_fixture(monkeypatch, tmp_path, accepted=_ACCEPTED_PINS, current=current)
+    printed: list[str] = []
+    emit = ac._Emitter()
+    monkeypatch.setattr(emit, "emit", printed.append)
+
+    report = ac.CycleReport()
+    ac._do_census(
+        report,
+        spawn=lambda name, argv, **kw: _step(name, 0),
+        emit=emit,
+        registry=ac._ChildRegistry(),
+        plan=_plan(),
+    )
+    assert report.census_status == (
+        "invariant unchanged (only the volatile totals moved; cycle_summary.json carries the surface's)"
+    )
+    assert not any(line.startswith(("---", "+++", "@@")) for line in printed)
+    assert report.census_reach.startswith("machine-approved: ")
+    assert "unreached 1 (vie-baseline-entry-extension-dropped)" in report.census_reach
+
+
+def test_do_census_says_so_when_the_refresh_moved_nothing(monkeypatch, tmp_path):
+    _census_fixture(
+        monkeypatch, tmp_path, accepted=_ACCEPTED_PINS, current=json.loads(json.dumps(_ACCEPTED_PINS))
+    )
+
+    report = ac.CycleReport()
+    ac._do_census(
+        report,
+        spawn=lambda name, argv, **kw: _step(name, 0),
+        emit=ac._Emitter(),
+        registry=ac._ChildRegistry(),
+        plan=_plan(),
+    )
     assert report.census_status == "updated (matches the last accepted census)"
 
 
-def test_do_census_reports_a_failed_refresh_and_diffs_nothing():
-    """A refresh can fail on a surface that predates the census sidecar. It is informational, so there is nothing to diff and nothing to record — the next pass that rebuilds the surface heals it."""
+def test_do_census_says_when_there_is_no_accepted_census_to_hold_the_pins_against(monkeypatch, tmp_path):
+    """An untracked pins file, or no git at all, leaves the step nothing to compare with. The reach line still stands, since it needs only the ledger and the pins just written."""
+    _census_fixture(monkeypatch, tmp_path, accepted=None, current=_moved_invariant())
+
+    report = ac.CycleReport()
+    ac._do_census(
+        report,
+        spawn=lambda name, argv, **kw: _step(name, 0),
+        emit=ac._Emitter(),
+        registry=ac._ChildRegistry(),
+        plan=_plan(),
+    )
+    assert (
+        report.census_status
+        == "updated (no accepted census to compare against: the pins are not in the index)"
+    )
+    assert report.census_reach.startswith("machine-approved: ")
+
+
+def test_do_census_reports_a_failed_refresh_and_compares_nothing():
+    """A refresh can fail on a surface that predates the census sidecar. It is informational, so there is nothing to hold against the accepted census and nothing to record — the next pass that rebuilds the surface heals it."""
     calls: list[str] = []
 
     def spawn(name, argv, *, emit, registry, stream):
@@ -4481,6 +4582,7 @@ def test_do_census_reports_a_failed_refresh_and_diffs_nothing():
     ac._do_census(report, spawn=spawn, emit=ac._Emitter(), registry=ac._ChildRegistry(), plan=_plan())
     assert calls == ["census"]
     assert report.census_status == "update FAILED (exit 2) — informational"
+    assert report.census_reach == "not computed (the refresh failed)"
 
 
 def test_a_failed_census_refresh_never_fails_the_cycle(monkeypatch):
@@ -4524,6 +4626,7 @@ def test_a_rehearsal_never_runs_the_census(monkeypatch, tmp_path):
 
     assert rc == 0
     assert report.census_status == "skipped (rehearsal: the checked-in pins track the live surface)"
+    assert report.census_reach == "skipped (rehearsal)"
 
 
 def test_do_job_costs_reports_a_clean_check():
