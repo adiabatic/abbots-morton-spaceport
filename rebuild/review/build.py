@@ -2246,7 +2246,7 @@ def build_table_diff(
             f"{baseline_dir} and {new_dir} settle every window alike, so there is nothing to diff"
         )
 
-    if with_witnesses and entries:
+    if with_witnesses:
         try:
             with warnings.catch_warnings():
                 warnings.simplefilter("ignore")
