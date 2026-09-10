@@ -16,7 +16,7 @@ The cycle runs no cross-language check, because there is no second implementatio
 
 gate:make-test is auto-skipped when its input closure is provably unchanged since the last green run. The closure is every tracked or untracked-unignored file outside what make_test_exempt exempts — the exempt trees, the exempt files, Markdown, and the Makefile itself beyond what `make -n all` and `make -n test` print — that function being the authority and arguing each exemption from what the gate executes (make all -> build_font over glyph_data/*.yaml non-recursively, typst, pyright over tools/ test/ conftest.py, pytest test/ site/), none of which reads any of it, so a diff confined there cannot move the gate's outcome and re-running its ≈15 CPU-minutes would verify nothing. The last green fingerprint lives in rebuild/out/make-test-green.json, written by rebuild.tools.make_test_gate — the `make test` entry point — on every green run, so interactive greens and cycle greens share one record and `make test` itself self-skips on the same test. cycle_summary.json still records the fingerprint the cycle ran (or validly skipped) against, for display only — the skip decision reads the shared green record alone, so a contradicted green that make_test_gate deleted can never be resurrected out of an older summary. The fingerprint sees file content only — a system-toolchain change (a typst upgrade, say; pyright and pytest are pinned through uv.lock, which is in the closure) is invisible to it. --force-make-test runs the gate regardless (as does `make test FORCE=1` inside the wrapper).
 
-The verdict plumbing is guarded the same way, by rebuild/out/plumbing-green.json. Every step of it is a pure function of the surface, the verdicts master, the live store, the checked-in standing approvals, and its own code, so the key is (the surface's inputs fingerprint and stamp, the master's path and bytes, the autosave's bytes, standing-approvals' bytes, the chain's own import closure plus review/serve.py). Two of those components are there because a narrower key looked sufficient and was not. The master, because it is the one input the autosave's hash cannot see: an export dropped at the repo root can outrank the autosave in the auto-resolution and carry verdicts the store has never held. The code, because every sibling key folds in its own stage's executable and this chain's lives in a tree no other fingerprint reads — without it a fix to a fill's matcher or the carry's ink fallback would be skipped as already proven, silently never running. That component is the named closure `plumbing_code_paths` rather than the whole of rebuild/tools/, and rebuild/test_plumbing_closure.py walks the entry points' import graph on every contracts run to prove the name still covers what runs.
+The verdict plumbing is guarded the same way, by rebuild/out/plumbing-green.json. Every step of it is a pure function of the surface, the verdicts master, the live store, the checked-in standing approvals, and its own code, so the key is (the surface's inputs fingerprint and stamp, the master's path and bytes, the autosave's bytes, standing-approvals' bytes, the chain's own import closure plus review/serve.py). Two of those components are there because a narrower key looked sufficient and was not. The master, because it is the one input the autosave's hash cannot see: an export dropped at the repo root can outrank the autosave in the auto-resolution and carry verdicts the store has never held. The code, because every sibling key folds in its own stage's executable and this chain's lives in a tree no other fingerprint reads — without it a fix to a fill's matcher or to the carry's join would be skipped as already proven, silently never running. That component is the named closure `plumbing_code_paths` rather than the whole of rebuild/tools/, and rebuild/test_plumbing_closure.py walks the entry points' import graph on every contracts run to prove the name still covers what runs.
 
 The key is captured the moment the chain closes, not at the end of the pass, so a store write landing while the census runs cannot be absorbed into a fixpoint nothing verified; the record itself is written later, once complaints has also succeeded. And the fixpoint is claimed only when the chain has witnessed it. The steps feed forward — the carry's merge gives echo-fill new agreement to read, and echo-fill only removes blanks, so it can never hand standing-fill work it did not already have — but standing-fill runs last, and a standing fill can make an echo group unanimous while a blank sibling remains. Refusing the green whenever the standing merge moved anything would cost a whole extra pass to close the cascade. In one process another echo pass costs a second, so the chain runs the cascade to a standstill itself and the green rests on a re-run that demonstrably wrote nothing.
 
@@ -809,7 +809,7 @@ def surface_build_skippable(
     )
 
 
-# The chain's own code, named module by module rather than as the whole of rebuild/tools/: the closure of rebuild.tools.verdict_chain, which runs every step, held to the walked import graph by rebuild/test_plumbing_closure.py on every contracts run. This driver is not an entry point, because every argv it hands the chain names an input the key already hashes — the surface, a snapshot of that same surface, the master, the store — or a flag that disables the skip outright, and the chain's own flag parsing lives in verdict_chain; the two width yardsticks the pipeline takes from this tree (memory_budget and peak_rss, reached only through kernel_exec) are the pipeline_code component's coverage question, which the key carries whole through its manifest line, so the walk stops at that component's boundary rather than dragging a fan-out width and a cost reading into a verdict's closure.
+# The chain's own code, named module by module rather than as the whole of rebuild/tools/: the closure of rebuild.tools.verdict_chain, which runs every step, held to the walked import graph by rebuild/test_plumbing_closure.py on every contracts run. This driver is not an entry point, because every argv it hands the chain names an input the key already hashes — the surface, the master, the store — or a flag that disables the skip outright, and the chain's own flag parsing lives in verdict_chain; the two width yardsticks the pipeline takes from this tree (memory_budget and peak_rss, reached only through kernel_exec) are the pipeline_code component's coverage question, which the key carries whole through its manifest line, so the walk stops at that component's boundary — fingerprint is where the chain meets it — rather than dragging a fan-out width and a cost reading into a verdict's closure.
 PLUMBING_ENTRY_POINTS = ("rebuild.tools.verdict_chain",)
 PLUMBING_TOOL_MODULES = (
     "carry_verdicts",
@@ -833,7 +833,7 @@ def plumbing_code_paths(root: Path = ROOT) -> list[Path]:
 def plumbing_skip_fingerprint(
     root: Path = ROOT, surface: Path | None = None, master: Path | None = None
 ) -> str | None:
-    """Content key over everything the verdict plumbing reads: the surface it resolves unit ids against, the verdicts master it carries forward, the live store it merges into, the checked-in standing approvals, and the chain's own code. The standing approvals ride this key by raw bytes, alone among the files the rebuild lanes now hash prose-blind: `standing_verdicts` quotes each rule's `note` verbatim into the verdict note of every fill it writes, so a reword changes what the chain writes and has to re-run it. Carry, merge, both fills with their merges, and the complaint docket are pure functions of exactly those, and the chain is idempotent once it has run — so a key matching the record a *complete* chain left behind proves re-running it would write nothing new. The master is in the key because it is the one input the autosave's hash cannot see: an export dropped at the repo root can outrank the autosave in the auto-resolution and carry verdicts the store has never held. The code is in it for the same reason every sibling key carries its own stage's executable — a fix to a fill's matcher or to the carry's fallback must run rather than be skipped as proven — and it is the chain's real import closure (`plumbing_code_paths`, which a contracts test holds against the chain's import graph) plus the review/ modules the chain runs that the surface build does not — serve.py, which merge_verdicts reads the store through, and status.py and journal.py, which the merge and the readiness check run; review/'s build-side modules ride inside the manifest fingerprint's review_code. The manifest line drops `unit_index.ASSET_COMPONENTS`, because no step of the chain reads the copied app shell — and an assets refresh rewrites exactly that field, which must not re-run a chain every one of whose real inputs is unmoved. None when the surface has no fingerprinted manifest or no master was resolved."""
+    """Content key over everything the verdict plumbing reads: the surface it resolves unit ids against, the verdicts master it carries forward, the live store it merges into, the checked-in standing approvals, and the chain's own code. The standing approvals ride this key by raw bytes, alone among the files the rebuild lanes now hash prose-blind: `standing_verdicts` quotes each rule's `note` verbatim into the verdict note of every fill it writes, so a reword changes what the chain writes and has to re-run it. Carry, merge, both fills with their merges, and the complaint docket are pure functions of exactly those, and the chain is idempotent once it has run — so a key matching the record a *complete* chain left behind proves re-running it would write nothing new. The master is in the key because it is the one input the autosave's hash cannot see: an export dropped at the repo root can outrank the autosave in the auto-resolution and carry verdicts the store has never held. The code is in it for the same reason every sibling key carries its own stage's executable — a fix to a fill's matcher or to the carry's join must run rather than be skipped as proven — and it is the chain's real import closure (`plumbing_code_paths`, which a contracts test holds against the chain's import graph) plus the review/ modules the chain runs that the surface build does not — serve.py, which merge_verdicts reads the store through, and status.py and journal.py, which the merge and the readiness check run; review/'s build-side modules ride inside the manifest fingerprint's review_code. The manifest line drops `unit_index.ASSET_COMPONENTS`, because no step of the chain reads the copied app shell — and an assets refresh rewrites exactly that field, which must not re-run a chain every one of whose real inputs is unmoved. None when the surface has no fingerprinted manifest or no master was resolved."""
     if master is None:
         return None
     surface_dir = surface if surface is not None else REVIEW_OUT
@@ -1447,13 +1447,7 @@ def build_plan(
         ]
         if do_carry:
             assert resolved_carry_out is not None
-            plumbing_argv += [
-                "--source",
-                str(resolved_snapshot),
-                str(verdicts),
-                "--carry-out",
-                str(resolved_carry_out),
-            ]
+            plumbing_argv += ["--verdicts", str(verdicts), "--carry-out", str(resolved_carry_out)]
         else:
             plumbing_argv += ["--merge-master", str(verdicts)]
         if not do_merge:
@@ -1601,20 +1595,17 @@ def resolve_carry_source() -> dict | None:
 
 
 def describe_carry_source(resolved: dict, root: Path) -> str:
+    """The one line that says which master the carry resolved to. A master stamped for an older surface than the served one is named as such and carried all the same: a verdict names its unit by content id, so it lands on the unit of that id on the live surface or on nothing, and never on the wrong window."""
     try:
         shown = resolved["path"].relative_to(root)
     except ValueError:
         shown = resolved["path"]
-    if resolved["aligned"]:
-        return (
-            f"Auto-resolved carry source: {shown} ({resolved['count']} effective verdicts, stamped for the served surface). "
-            "Pass --verdicts to override."
-        )
-    return (
-        f"ERROR: the best carry source, {shown} ({resolved['count']} effective verdicts), is stamped {resolved['stamp']}, not the served surface. "
-        "Its verdicts were recorded against a surface rebuild/out/review no longer holds — review.build ran outside a cycle, or a cycle died between its surface build and its merge — and pairing them with a snapshot of the live directory would resolve their unit ids onto the wrong windows, which carry_verdicts now refuses outright. "
-        "Recover first: carry the file onto the live surface from its stamp-matching var/review-pre-* snapshot (uv run python rebuild/tools/carry_verdicts.py --source <snapshot> <verdicts>, then rebuild.tools.merge_verdicts), or rerun with --no-carry to proceed without these verdicts, or --verdicts to name a different master."
+    stamped = (
+        "stamped for the served surface"
+        if resolved["aligned"]
+        else f"stamped {resolved['stamp']}, an older surface than the served one; its verdicts land by unit id"
     )
+    return f"Auto-resolved carry source: {shown} ({resolved['count']} effective verdicts, {stamped}). Pass --verdicts to override."
 
 
 def resolve_short_id() -> str:
@@ -3578,8 +3569,6 @@ def main(argv: list[str] | None = None) -> int:
             )
         else:
             announce(describe_carry_source(resolved, ROOT))
-            if not resolved["aligned"]:
-                return 2
             args.verdicts = resolved["path"]
 
     skip_plumbing = False

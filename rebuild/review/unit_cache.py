@@ -31,7 +31,7 @@ STORE_NAME = "unit-cache.ndjson.gz"
 SIGNATURE_STORE_FORMAT = "ams-review-ink-signatures/2"
 SIGNATURE_STORE_NAME = "ink-signatures.tsv.gz"
 
-# The carry identity's non-participating fields (rebuild/tools/carry_verdicts.py imports this): no_verdict, exemplar, echo, and cluster are ledger- or reduce-derived, and id — the projection's own digest, so it cannot feed itself — and batch, which no fragment carries, are excluded so a surface that still carries them hashes the same; explain, drafts, provenance, and secondary_seams are derived presentation whose adjudicable content is already covered by the window plus both fonts' glyphs, cells, and seams; ink_deltas is the same delta identity persisted per config; content_key is the stamp of this very projection and must not feed itself. The highlight is inside the projection, and a slim fragment (`audit.slim_fragment`) omits it, so a slim fragment's stamp is over what it carries and is not the stamp the same window's full fragment would have borne — which strands nothing, because the units written slim are the ones that take no verdict, and the exclusions here are what keep every human unit's stamp where it was. picture_identical is a pure function of the window and both fonts' placed glyphs, which the projection already covers through codepoints, configs, and both sides' glyphs, cells, and seams, so excluding it changes nothing the key says — while including it would restamp every unit whose flag flips the day the channel lands and strand the verdicts recorded against them; ink_identical is the one derived flag inside the key, kept there only as the byte-identity contract with every prior snapshot.
+# The carry identity's non-participating fields (rebuild/test_carry_verdicts.py holds the contract): no_verdict, exemplar, echo, and cluster are ledger- or reduce-derived, and id — the projection's own digest, so it cannot feed itself — and batch, which no fragment carries, are excluded so a surface that still carries them hashes the same; explain, drafts, provenance, and secondary_seams are derived presentation whose adjudicable content is already covered by the window plus both fonts' glyphs, cells, and seams; ink_deltas is the same delta identity persisted per config; content_key is the stamp of this very projection and must not feed itself. The highlight is inside the projection, and a slim fragment (`audit.slim_fragment`) omits it, so a slim fragment's stamp is over what it carries and is not the stamp the same window's full fragment would have borne — which strands nothing, because the units written slim are the ones that take no verdict, and the exclusions here are what keep every human unit's stamp where it was. picture_identical is a pure function of the window and both fonts' placed glyphs, which the projection already covers through codepoints, configs, and both sides' glyphs, cells, and seams, so excluding it changes nothing the key says — while including it would restamp every unit whose flag flips the day the channel lands and strand the verdicts recorded against them; ink_identical is the one derived flag inside the key, kept there only as the byte-identity contract with every prior snapshot.
 CARRY_PRESENTATION_KEYS = frozenset(
     {
         "id",
@@ -52,7 +52,7 @@ CARRY_PRESENTATION_KEYS = frozenset(
 
 
 def carry_projection(unit: Mapping) -> str:
-    """The carry content key as recorded historically: the unit's non-presentation fields as sorted-key JSON. This is a byte-identity contract with every prior surface snapshot — changing the serialization or the exclusion set strands carried verdicts."""
+    """The carry content key as recorded historically: the unit's non-presentation fields as sorted-key JSON. This is a byte-identity contract with every verdict on record: a unit's id is this projection's digest, so changing the serialization or the exclusion set renames every unit and strands every verdict the store holds."""
     return json.dumps(
         {key: value for key, value in unit.items() if key not in CARRY_PRESENTATION_KEYS},
         sort_keys=True,
@@ -93,11 +93,6 @@ def echo_id_for(key_repr: str) -> str:
 def is_content_id(value: object) -> bool:
     """Whether `value` is a unit or echo id of the content-addressed shape: the prefix, then exactly `ID_SYMBOLS` base58 symbols."""
     return isinstance(value, str) and _ID_PATTERN.match(value) is not None
-
-
-def is_positional_id(value: object) -> bool:
-    """Whether `value` is a unit id of the shape a surface carried before ids were content-addressed — `u-` followed by digits, assigned in triage order — which is what a journal or verdict store written against such a surface names its units by, and what the cutover migration rewrites."""
-    return isinstance(value, str) and value.startswith("u-") and value[2:].isdigit()
 
 
 def store_path(out_dir: Path) -> Path:

@@ -918,8 +918,6 @@ def test_unit_and_echo_ids_carry_the_prefix_and_the_shape():
     assert echo != unit_cache.echo_id_for(repr((("default",), (0xE650, 0xE652), "a-class", "deadbeee")))
     for bad in ("u-0000", "u-3mJ7kPq2Xw", "u-3mJ7kPq2Xw9Z", "u-0O0O0O0O0O0", "3mJ7kPq2Xw9", None, 7):
         assert not unit_cache.is_content_id(bad), bad
-    assert unit_cache.is_positional_id("u-0000") and unit_cache.is_positional_id("u-1080063")
-    assert not unit_cache.is_positional_id(unit_id) and not unit_cache.is_positional_id("e-0001")
 
 
 def test_a_units_id_is_its_stamps_and_moves_only_with_its_content(base_surface):

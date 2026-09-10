@@ -20,7 +20,7 @@ ROOT = pathlib.Path(__file__).resolve().parents[2]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from rebuild.review import journal, unit_index  # noqa: E402
+from rebuild.review import unit_index  # noqa: E402
 from rebuild.tools import (  # noqa: E402
     carry_verdicts,
     complaint_docket,
@@ -39,7 +39,7 @@ MAX_ECHO_ROUNDS = 4
 
 
 def _run(name: str, call: Callable[[], int | None]) -> int:
-    """One step, opened as a phase and timed. A tool that fails by `SystemExit` — which is how the stamp guards and the rules-file validation refuse — reports its message and its code here rather than taking the whole chain down, so the steps after it can be reported as not run."""
+    """One step, opened as a phase and timed. A tool that fails by `SystemExit` — which is how the merge's stamp guard and the rules-file validation refuse — reports its message and its code here rather than taking the whole chain down, so the steps after it can be reported as not run."""
     console.phase(name)
     started = time.perf_counter()
     try:
@@ -54,26 +54,6 @@ def _run(name: str, call: Callable[[], int | None]) -> int:
     if code:
         print(f"{console.FAILED_LINE}{name} (exit {code})", flush=True)
     return code
-
-
-def _carry(carry_argv: list[str], units: list[dict], sources, journal_path: pathlib.Path) -> int:
-    """The carry step: the carry itself, then the one-time id migration the cutover to content-addressed unit ids owes the journal. A snapshot that still names its units positionally yields the mapping from each positional id to the content id its stamp names (`carry_verdicts.id_migration`), and the journal's lines under that snapshot's stamp are rewritten through it (`journal.migrate_unit_ids`), in the same cycle the ids change, so the history a `--restore-as-of` replays names the units the surface names from here on. A content-addressed snapshot maps nothing after a manifest read, which is what makes the migration a one-time event rather than a per-cycle cost."""
-    code = carry_verdicts.main(carry_argv, current_units=units)
-    if code:
-        return code
-    for source_dir, _verdicts in sources:
-        snapshot = pathlib.Path(source_dir)
-        mapping = carry_verdicts.id_migration(snapshot)
-        if not mapping:
-            continue
-        stamp = json.loads((snapshot / "manifest.json").read_text())["generated_at"]
-        result = journal.migrate_unit_ids(journal_path, stamp=stamp, mapping=mapping)
-        print(
-            f"journal: {result['rewritten']} lines under {result['events']} events stamped {stamp} "
-            f"carried onto content ids ({len(mapping)} units mapped from {snapshot.name})",
-            flush=True,
-        )
-    return 0
 
 
 def _write_fills(path: pathlib.Path, stamp: str, fills: list[dict]) -> None:
@@ -111,12 +91,12 @@ def main(argv: list[str] | None = None) -> int:
     )
     parser.add_argument("--surface", type=pathlib.Path, default=SURFACE)
     parser.add_argument(
-        "--source",
-        nargs=2,
+        "--verdicts",
+        type=pathlib.Path,
         action="append",
         default=[],
-        metavar=("SURFACE_DIR", "VERDICTS_JSON"),
-        help="a prior surface and the verdicts recorded against it, for the carry; repeatable",
+        metavar="VERDICTS_JSON",
+        help="a prior verdicts file for the carry, landed by unit id; repeatable",
     )
     parser.add_argument("--carry-out", type=pathlib.Path, help="where the carried verdicts are written")
     parser.add_argument(
@@ -132,7 +112,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--standing-memo",
         type=pathlib.Path,
-        help=f"where the standing fill keeps its per-unit decisions across passes; defaults to {standing_verdicts.MEMO_NAME} beside the surface directory, outside it, so a surface rebuild never clears it and the pre-pass snapshot never copies it",
+        help=f"where the standing fill keeps its per-unit decisions across passes; defaults to {standing_verdicts.MEMO_NAME} beside the surface directory, outside it, so a surface rebuild never clears it",
     )
     parser.add_argument(
         "--fresh-standing-memo",
@@ -156,23 +136,20 @@ def main(argv: list[str] | None = None) -> int:
     print(f"[t] index {time.perf_counter() - started:.1f}s\t({len(units)} units)", flush=True)
     stamp = json.loads((surface / "manifest.json").read_text())["generated_at"]
 
-    if args.source:
+    if args.verdicts:
         if args.carry_out is None:
-            parser.error("--source needs --carry-out")
+            parser.error("--verdicts needs --carry-out")
         carry_argv: list[str] = []
-        for source in args.source:
-            carry_argv += ["--source", *source]
+        for verdicts in args.verdicts:
+            carry_argv += ["--verdicts", str(verdicts)]
         carry_argv += ["--out", str(args.carry_out), "--current-surface", str(surface)]
-        if args.no_merge:
-            code = _run("carry", lambda: carry_verdicts.main(carry_argv, current_units=units))
-        else:
-            code = _run("carry", lambda: _carry(carry_argv, units, args.source, args.journal))
+        code = _run("carry", lambda: carry_verdicts.main(carry_argv, current_units=units))
         if code:
             return code
     if args.no_merge:
         return 0
 
-    to_merge = args.carry_out if args.source else args.merge_master
+    to_merge = args.carry_out if args.verdicts else args.merge_master
     if to_merge is not None:
         code = _merge("merge", to_merge, autosave=args.autosave, surface=surface, journal=args.journal)
         if code:
