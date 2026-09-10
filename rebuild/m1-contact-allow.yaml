@@ -1,5 +1,5 @@
-# Reviewed declared-OK signatures for the section 9 off-anchor-contact gate ("hard error, appealable", design doc section 9).
-# Every entry below is a corner today's font already draws on a baseline-proven join; the signature shape is defects.py's `contact:<left glyph>:<right glyph>:y<row>`. Human-reviewed like rebuild/m1-divergences.yaml; the conformance run never writes this file.
+# Reviewed declared-OK signatures for the section 9 defect gates ("hard error, appealable", design doc section 9). rebuild/pipeline/defects.py mints every gate's signature and holds each finding against this one list, so an E-ANCHOR `anchor:` signature or an E-DANGLE `dangle:` one blesses here the same way an E-CONTACT `contact:` one does; the signature shape is whatever defects.py reports for the finding.
+# Every entry below is an off-anchor-contact corner today's font already draws on a baseline-proven join, in defects.py's `contact:<left glyph>:<right glyph>:y<row>` shape. Human-reviewed like rebuild/m1-divergences.yaml; the conformance run never writes this file.
 # The `why:` prose here is agent-written, not the user's voice — the rune files' "only the user writes `why:`" rule is scoped to glyph_data/runes/qs*.yaml and stops there. Draft the sentence in the surrounding idiom and land it; the user reviews whether the signature belongs, not who wrote its sentence.
 
 - signature: contact:qsOy.hapax.ex-y0:qsIt.hapax.en-y0:y1
