@@ -184,13 +184,13 @@ def test_check_unit_requires_a_well_formed_ink_deltas_map():
     assert check_unit(unit, "m1-audit") == []
 
 
-def test_check_unit_ties_ink_deltas_emptiness_to_ink_identical():
-    """The map and the flag are two views of one fact, so the checker refuses to ship them disagreeing: a machine-approved ink-identical unit records no delta at all, and a unit whose ink moved records at least one."""
+def test_check_unit_ties_ink_deltas_emptiness_to_the_identity_channels():
+    """The map and the flags are two views of one fact, so the checker refuses to ship them disagreeing: a machine-approved ink- or picture-identical unit records no delta at all, and a unit whose pixels moved records at least one."""
     identical = _fixture_unit(ink_identical=True)
     assert check_unit(identical, "m1-audit") == []
     assert identical["ink_deltas"] == {}
     identical["ink_deltas"] = {identical["configs"][0]: "d-0123456789ab"}
-    assert any("ink-identical units" in error for error in check_unit(identical, "m1-audit"))
+    assert any("empty ink_deltas" in error for error in check_unit(identical, "m1-audit"))
     identical["ink_deltas"] = {}
     assert check_unit(identical, "m1-audit") == []
 
@@ -212,7 +212,7 @@ def test_check_unit_admits_one_machine_channel_at_most():
 
 
 def test_check_unit_takes_picture_identical_units_out_of_the_human_workload():
-    """A picture-identical unit leaves the human workload exactly as an ink-identical one does — no echo, no cluster, and the slim fragment shape — while keeping the nonempty ink_deltas its name-grain change records."""
+    """A picture-identical unit leaves the human workload exactly as an ink-identical one does — no echo, no cluster, the slim fragment shape, and empty ink_deltas, since the delta is read at the picture grain and an empty delta under every config is what the flag means."""
     unit = _fixture_unit(ink_identical=False)
     unit["picture_identical"] = True
     assert any("echo null" in error for error in check_unit(unit, "m1-audit"))
@@ -222,8 +222,9 @@ def test_check_unit_takes_picture_identical_units_out_of_the_human_workload():
     assert any("omit drafts" in error for error in check_unit(unit, "m1-audit"))
     for key in SLIM_OMITTED_KEYS:
         del unit[key]
+    assert any("empty ink_deltas" in error for error in check_unit(unit, "m1-audit"))
+    unit["ink_deltas"] = {}
     assert check_unit(unit, "m1-audit") == []
-    assert unit["ink_deltas"]
 
 
 def test_check_manifest_requires_the_three_machine_channels():

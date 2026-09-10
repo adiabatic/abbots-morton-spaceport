@@ -1221,6 +1221,36 @@ def test_an_ink_identical_unit_does_not_match():
     assert not sv._matches(INK_RULE["match"], ink_delta_unit(deltas={}))
 
 
+def test_an_ink_delta_rule_reaches_a_window_carrying_a_union_invisible_tuck(tmp_path):
+    """A blessed digest fills the window where the same change rides beside a tuck: ·Fee shortens by a column in both windows, and in one of them ·At also gives up a column ·J'ai paints anyway. The surface's delta is read at the picture grain, so both windows persist the tuck-free digest, and a rule naming it — derived from the plain window, the way the probe's family line derives it — matches the tucked one too, with nothing else in the rule."""
+    from rebuild.review.ink import InkComparator, delta_digest
+
+    cmap = {0xE001: "qsFee", 0xE002: "qsAt", 0xE003: "qsJai", 0xE004: "qsAt.plain"}
+    three_columns, two_columns = (_rect(0, 0, 150, 150),), (_rect(0, 0, 100, 150),)
+    before_glyphs = {
+        "qsFee": (three_columns, 150),
+        "qsAt": (three_columns, 100),
+        "qsJai": (two_columns, 100),
+        "qsAt.plain": (three_columns, 100),
+    }
+    after_glyphs = {**before_glyphs, "qsFee": (two_columns, 100), "qsAt": (two_columns, 100)}
+    before = _build_font(tmp_path / "before.ttf", before_glyphs, cmap)
+    after = _build_font(tmp_path / "after.ttf", after_glyphs, cmap)
+    comparator = InkComparator(before, after)
+    plain = chr(0xE001) + chr(0xE004) + chr(0xE003)
+    tucked = chr(0xE001) + chr(0xE002) + chr(0xE003)
+    blessed = delta_digest(comparator.config_diff(plain, "default"))
+    rule = {**INK_RULE, "match": {"after": {"ink_deltas": [blessed]}, "except_left": []}}
+    window = {
+        "id": "u-tucked",
+        "ink_deltas": {"default": delta_digest(comparator.config_diff(tucked, "default"))},
+        "before": {"glyphs": ["qsFee", "qsAt", "qsJai"]},
+    }
+    assert window["ink_deltas"] == {"default": blessed}
+    assert sv._matches_ink_delta(rule["match"], window, set())
+    assert not sv._matches_ink_delta(rule["match"], window, {"qsAt"})
+
+
 def test_an_ink_deltas_field_that_is_not_a_mapping_does_not_match():
     assert not sv._matches(INK_RULE["match"], ink_delta_unit(deltas=[DELTA_A]))
     assert not sv._matches(INK_RULE["match"], ink_delta_unit(deltas=DELTA_A))
@@ -2912,7 +2942,7 @@ def test_main_fills_only_blank_matching_human_units(tmp_path, monkeypatch):
 
 
 def test_main_never_fills_a_unit_outside_the_human_workload(tmp_path, monkeypatch):
-    """A machine-approved unit carries batch null, and a picture-identical one still carries the nonempty ink_deltas the ink-delta and slide shapes read — so the candidate filter has to read the workload split itself rather than infer it from an empty delta field."""
+    """A machine-approved unit carries batch null, and a Junior-equivalent one still carries the nonempty ink_deltas the ink-delta and slide shapes read — so the candidate filter has to read the workload split itself rather than infer it from an empty delta field."""
     units = [canonical("u-1"), canonical("u-2")]
     units[1]["batch"] = None
     payload = _run_main(tmp_path, monkeypatch, units, [])

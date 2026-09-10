@@ -1,6 +1,6 @@
-"""Tests for the review surface's ink-identity comparison: the unified boolean (config_diff's identity sentinel, which the signature now carries by definition) reproduces the worked readings — the ◊ZWNJ ·May·Oy·Pea window is ink-identical only because kerning is neutralized, ␣·Pea·Pea is ink-identical outright, a real one-pixel change is not picture-identical, and the verdict is deterministic across comparators.
+"""Tests for the review surface's ink comparison: the piece-grain boolean (`ink_identical`, the sorted placed pieces equal) reproduces the worked readings — the ◊ZWNJ ·May·Oy·Pea window is ink-identical only because kerning is neutralized, ␣·Pea·Pea is ink-identical outright, a real one-pixel change is not picture-identical, and the verdict is deterministic across comparators — and the picture-grain delta (`config_diff`, the cells only one font paints over the whole window with the slid tail pulled back) reads through a union-invisible tuck: a change one glyph hands to a neighbor that still paints the pixel is the empty sentinel on its own, and beside a real change it leaves that change's digest as it is, so the window keys with its tuck-free siblings — while the same re-spelling at a seam the neighbor no longer reaches stays in the delta as the hole it paints.
 
-Nothing here reads the live corpus. The windows come from the frozen mini bundle's audit and are shaped in that bundle's own font, because every claim in this file is about the comparator rather than about today's letters. The fold's soundness is definitional rather than sampled: `signature` returns the same two `run_ink` lists `config_diff` reads, so equal signatures give equal deltas and equal ink flags with nothing left to sample. What a sample cannot say either way is that the signature ignores glyph names, so the marker font gives two names one outline and holds their signatures equal.
+Nothing here reads the live corpus. The windows come from the frozen mini bundle's audit and are shaped in that bundle's own font, because every claim in this file is about the comparator rather than about today's letters. The fold's soundness is definitional rather than sampled: `signature` returns the same two `run_ink` lists `config_diff` and `ink_pieces` read, so equal signatures give equal deltas and equal ink flags with nothing left to sample. What a sample cannot say either way is that the signature ignores glyph names, so the marker font gives two names one outline and holds their signatures equal. What a sample does hold is the property the two identity channels rest on: over a stride of the frozen windows, the sentinel is exactly the reference picture reading, so the build's picture flag, read off the same diffs it digests, can never part company with `picture_equal`.
 
 Also here: `delta_digest`, the persisted identity of one config's localized delta, whose shape check_unit enforces and whose recipe is a byte-identity contract with the digests recorded in rebuild/standing-approvals.yaml.
 
@@ -227,9 +227,10 @@ def overlap_comparator(tmp_path_factory):
 
 
 def test_picture_identity_sees_through_an_overlap_removal(overlap_comparator):
-    """The piece-grain reading sees a changed ·B and a nonempty delta; the whole-run picture is the same six cells on both sides. The delta alone could not say so — ·A is stripped as common prefix, taking the pixel that still covers ·B's loss with it."""
+    """The piece-grain reading sees a changed ·B; the whole-run picture is the same six cells on both sides, so the delta is the empty sentinel and the picture channel approves — the pixel ·B gives up is one ·A still paints, and the delta is read over the window's union rather than over the pieces that changed."""
     assert overlap_comparator.ink_identical(OVERLAP_TEXT, ("default",)) is False
-    assert overlap_comparator.config_diff(OVERLAP_TEXT, "default") != IDENTITY_DIFF
+    assert overlap_comparator.pieces_identical(OVERLAP_TEXT, "default") is False
+    assert overlap_comparator.config_diff(OVERLAP_TEXT, "default") == IDENTITY_DIFF
     assert overlap_comparator.picture_identical(OVERLAP_TEXT, ("default",)) is True
     picture = {(column, row) for column in range(3) for row in range(3)}
     assert overlap_comparator.run_cells("before", OVERLAP_TEXT, {}) == picture
@@ -237,17 +238,74 @@ def test_picture_identity_sees_through_an_overlap_removal(overlap_comparator):
 
 
 def test_picture_identity_fails_closed_off_the_grid(tmp_path):
-    """No cell reading can be made of a placement or an outline that is not on the PIXEL_SIZE grid, and the channel refuses rather than guesses: an off-grid advance and an off-grid edge each leave the window to a human."""
+    """No cell reading can be made of a placement or an outline that is not on the PIXEL_SIZE grid, and the channel refuses rather than guesses: an off-grid advance and an off-grid edge each leave the window to a human, and the delta falls back to the piece grain — translated outlines with the shift in font units — which is never the sentinel for pieces that differ."""
     before = _build_font(tmp_path / "before.ttf", OVERLAP_BEFORE, OVERLAP_CMAP)
     slid = _build_font(tmp_path / "slid.ttf", {"qsA": (COLUMN, 75), "qsB": (HALF_COLUMN, 100)}, OVERLAP_CMAP)
     comparator = InkComparator(before, slid)
     assert comparator.run_cells("after", OVERLAP_TEXT, {}) is None
     assert comparator.picture_identical(OVERLAP_TEXT, ("default",)) is False
+    diff = comparator.config_diff(OVERLAP_TEXT, "default")
+    assert diff != IDENTITY_DIFF
+    assert all(isinstance(operator, str) for piece in diff[0] + diff[1] for operator, _points in piece)
     ragged = (((0, 0), (25, 0), (25, 150), (0, 150)),)
     torn = _build_font(tmp_path / "torn.ttf", {"qsA": (COLUMN, 100), "qsB": (ragged, 100)}, OVERLAP_CMAP)
     comparator = InkComparator(before, torn)
     assert comparator.run_cells("after", OVERLAP_TEXT, {}) is None
     assert comparator.picture_identical(OVERLAP_TEXT, ("default",)) is False
+    assert comparator.config_diff(OVERLAP_TEXT, "default") != IDENTITY_DIFF
+
+
+THREE_COLUMNS = (((0, 0), (150, 0), (150, 150), (0, 150)),)
+INSET_TWO_COLUMNS = (((50, 0), (150, 0), (150, 150), (50, 150)),)
+TUCK_CMAP = {0xE001: "qsFee", 0xE002: "qsAt", 0xE003: "qsJai", 0xE004: "qsAt.plain"}
+# ·At's third column is double-drawn by ·J'ai's first in the before font; after, ·At gives that column up and ·J'ai paints it alone. ·Fee shortens by a column in both windows, which is the real change, and the plain ·At keeps its old drawing on both sides.
+TUCK_BEFORE = {
+    "qsFee": (THREE_COLUMNS, 150),
+    "qsAt": (THREE_COLUMNS, 100),
+    "qsJai": (COLUMN, 100),
+    "qsAt.plain": (THREE_COLUMNS, 100),
+}
+TUCK_AFTER = {**TUCK_BEFORE, "qsFee": (COLUMN, 100), "qsAt": (COLUMN, 100)}
+TUCK_HOLE = {**TUCK_AFTER, "qsJai": (INSET_TWO_COLUMNS, 100)}
+TUCK_ALONE = chr(0xE002) + chr(0xE003)
+TUCKED_WINDOW = chr(0xE001) + chr(0xE002) + chr(0xE003)
+PLAIN_WINDOW = chr(0xE001) + chr(0xE004) + chr(0xE003)
+FEE_SHORTENED = (((0, 0), (0, 1), (0, 2)), (), -1)
+
+
+@pytest.fixture(scope="module")
+def tuck_comparator(tmp_path_factory):
+    root = tmp_path_factory.mktemp("tuck-fonts")
+    before = _build_font(root / "before.ttf", TUCK_BEFORE, TUCK_CMAP)
+    after = _build_font(root / "after.ttf", TUCK_AFTER, TUCK_CMAP)
+    return InkComparator(before, after)
+
+
+def test_a_union_invisible_tuck_is_the_empty_sentinel_on_its_own(tuck_comparator):
+    """·At·J'ai alone: the pieces differ, the picture does not, so the delta is the sentinel and the picture channel approves the window."""
+    assert tuck_comparator.pieces_identical(TUCK_ALONE, "default") is False
+    assert tuck_comparator.config_diff(TUCK_ALONE, "default") == IDENTITY_DIFF
+    assert tuck_comparator.picture_identical(TUCK_ALONE, ("default",)) is True
+
+
+def test_a_tuck_beside_a_real_change_keeps_the_real_changes_digest(tuck_comparator):
+    """The founding case: ·Fee shortens by a column and the ·At·J'ai tuck rides in the tail. The tail is the before tail slid one column closer with no pixel different, so it is pulled back and stripped whole, and what is left is exactly the shortened ·Fee — the same delta and digest the tuck-free window records, so both key into one echo family and one blessed digest fills both."""
+    tucked = tuck_comparator.config_diff(TUCKED_WINDOW, "default")
+    plain = tuck_comparator.config_diff(PLAIN_WINDOW, "default")
+    assert tucked == plain == FEE_SHORTENED
+    assert delta_digest(tucked) == delta_digest(plain)
+    assert tuck_comparator.picture_identical(TUCKED_WINDOW, ("default",)) is False
+
+
+def test_a_re_spelling_the_neighbor_no_longer_covers_stays_in_the_delta(tmp_path):
+    """The hazard the grain has to respect: the same name-grain change to ·At beside a ·J'ai that no longer reaches the column paints a real hole, and the hole is the delta — a column lost with nothing slid — rather than the shortened-·Fee family's digest. The grain is the rendered union of this window, never an allowlist of re-spellings that are usually invisible."""
+    before = _build_font(tmp_path / "before.ttf", TUCK_BEFORE, TUCK_CMAP)
+    holed = _build_font(tmp_path / "holed.ttf", TUCK_HOLE, TUCK_CMAP)
+    comparator = InkComparator(before, holed)
+    diff = comparator.config_diff(TUCKED_WINDOW, "default")
+    assert diff != FEE_SHORTENED
+    assert diff == (((0, 0), (0, 1), (0, 2)), (), 0)
+    assert comparator.picture_identical(TUCK_ALONE, ("default",)) is False
 
 
 def test_u_0126_is_ink_identical_only_because_kerning_is_neutralized(comparator):
@@ -277,7 +335,7 @@ def test_verdicts_are_deterministic_across_two_comparators(mini_units, comparato
 
 
 def test_config_diff_localizes_the_delta_to_the_changed_region(comparator):
-    """The worked flanking-context example from the may-baseline-entry-extension-dropped class: ·Pea·May drops ·May's one-pixel baseline entry extension, and followers appended after the judged pair add no ink to the delta — ·Low and ·Low·Fee render identically in their own frames and merely slide left by the dropped pixel's 50 units, so the localized delta is byte-identical across the follower contexts (one echo key, one visual question) and only the recorded shift distinguishes a window with followers from the bare pair, whose delta shows nothing sliding."""
+    """The worked flanking-context example from the may-baseline-entry-extension-dropped class: ·Pea·May drops ·May's one-pixel baseline entry extension, and followers appended after the judged pair add no cell to the delta — ·Low and ·Low·Fee paint the same picture and merely slide left by the dropped column, so the localized delta is byte-identical across the follower contexts (one echo key, one visual question) and only the recorded shift distinguishes a window with followers from the bare pair, whose delta shows nothing sliding."""
     pair = "".join(chr(value) for value in (0xE650, 0xE665))
     one_follower = "".join(chr(value) for value in (0xE650, 0xE665, 0xE667))
     two_followers = "".join(chr(value) for value in (0xE650, 0xE665, 0xE667, 0xE658))
@@ -288,7 +346,7 @@ def test_config_diff_localizes_the_delta_to_the_changed_region(comparator):
     assert diff_two[:2] == diff_pair[:2]
     assert diff_two[0] and diff_two[1]
     assert diff_pair[2] == 0
-    assert diff_two[2] == -50
+    assert diff_two[2] == -1
 
 
 def test_a_real_one_pixel_change_is_not_picture_identical(comparator):
@@ -297,12 +355,14 @@ def test_a_real_one_pixel_change_is_not_picture_identical(comparator):
     assert comparator.picture_identical(text, ("default",)) is False
 
 
-def test_piece_identity_implies_picture_identity_over_a_sample(mini_units, comparator):
-    """The build asks the picture question only where the piece question said no, on the strength of this implication; a stride over the frozen windows holds it against real compiled outlines, off-grid placements included."""
+def test_the_delta_sentinel_is_the_picture_reading_over_a_sample(mini_units, comparator):
+    """The property the two identity channels rest on, held over a stride of the frozen windows against real compiled outlines: `config_diff` answers the sentinel exactly where the reference picture reading says the window is one picture, and wherever the pieces are identical the sentinel follows — so piece identity implies the sentinel, the sentinel implies picture identity, and the build's picture flag, read off the same diffs it digests, can never part company with `picture_equal`."""
     for unit in mini_units.units[::5]:
         for config in unit.configs:
-            if comparator.config_diff(_text(unit), config) == IDENTITY_DIFF:
-                assert comparator.picture_equal(_text(unit), config), (unit.codepoints, config)
+            sentinel = comparator.config_diff(_text(unit), config) == IDENTITY_DIFF
+            assert sentinel == comparator.picture_equal(_text(unit), config), (unit.codepoints, config)
+            if comparator.pieces_identical(_text(unit), config):
+                assert sentinel, (unit.codepoints, config)
 
 
 def test_delta_digest_is_a_d_prefixed_twelve_hex_token(comparator):

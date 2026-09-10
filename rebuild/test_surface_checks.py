@@ -201,7 +201,8 @@ def test_a_human_unit_with_drafts_null_fails_the_build():
 def test_every_machine_channel_and_the_exemption_take_the_slim_shape(flag):
     """Slim is a property of taking no verdict rather than of one channel: a picture-identical unit, a Junior-equivalent one and a unit in a no-verdict class each ship without the explain material, and each fails the build carrying it."""
     unit = _one(SLIM_UNIT)
-    unit.update(ink_identical=False, ink_deltas={"ss02": "d-000000000000"}, **{flag: True})
+    deltas = {} if flag == "picture_identical" else {"ss02": "d-000000000000"}
+    unit.update(ink_identical=False, ink_deltas=deltas, **{flag: True})
     assert check_unit(unit) == []
     unit["drafts"] = _one()["drafts"]
     _complaint(check_unit(unit), "omit drafts")
@@ -363,10 +364,11 @@ def test_a_home_with_nothing_to_see_fails_the_build():
 
 
 def test_a_picture_identical_home_fails_the_build_the_same_way():
-    """Picture identity is the same nothing-to-see at the coarser grain: the home keeps the nonempty ink_deltas a name-grain change records, and the resolver's suppression must still have fired."""
+    """Picture identity is the same nothing-to-see at the coarser grain: the home's delta is empty under every config, and the resolver's suppression must still have fired."""
     manifest, shards = _homed_surface()
     home = _unit(shards, SEAM_HOME)
     home["picture_identical"] = True
+    home["ink_deltas"] = {}
     home["echo"] = None
     home["cluster"] = None
     manifest["human_unit_ids"] = [uid for uid in manifest["human_unit_ids"] if uid != SEAM_HOME]
