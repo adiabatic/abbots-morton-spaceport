@@ -1,4 +1,4 @@
-//! One realizing string per settlement rule, read off the rows the fixpoint recorded rather than searched for over the finished table. A rule is realizable exactly when some string reaches a window it first-matches, and the rows already pin such a string for every window they hold: a row's successor at the next position is a row whose input is its right1, whose left is its outcome and whose right slots are its own shifted one up, so a chain of rows from a seed — a row whose left is a boundary, reached by the text of that one boundary — to the row spells the inputs that put the row's left state where the row found it, and the row's own slots spell the right context the settlement read. [`Prefixes`] is that chain for every row, the shortest one, found by one breadth-first pass over the rows in their key order; what is left open is only the tail past the last pinned slot — the section 5.7 formation guard's second slot for a surviving pair at the window's end, and the slot a formed ligature at the window's end must still stand before. This module closes that tail, checks the closed window still first-matches the rule under the fold's own first-match-wins, and hands back one token stream per rule; the build writes them into the windows head, and `run_m1`'s witness stage settles each one through the crate and asserts the rule fires at the position the certificate names. That check is what proves the pins: a chain whose prefix settled to some other left state would settle its certificate to some other rule.
+//! One realizing string per settlement rule, read off the rows the fixpoint recorded rather than searched for over the finished table. A rule is realizable exactly when some string reaches a window it first-matches, and the rows already pin such a string for every window they hold: a row's successor at the next position is a row whose input is its right1, whose left is its outcome and whose right slots are its own shifted one up, so a chain of rows from a seed — a row whose left is a boundary, reached by the text of that one boundary — to the row spells the inputs that put the row's left state where the row found it, and the row's own slots spell the right context the settlement read. [`Prefixes`] is that chain for every row, the shortest one, found by one breadth-first pass over the rows in their key order; what is left open is only the tail past the last pinned slot — the section 5.7 formation guard's second slot for a surviving pair at the window's end, and the slot a formed ligature at the window's end must still stand before. This module closes that tail, checks the closed window still first-matches the rule under the fold's own first-match-wins, and hands back one token stream per rule; the build writes them into the windows head, and `run_m1`'s witness stage settles each one through the crate and asserts the rule fires at the position the certificate names. That check is what proves the pins a chain carries: a chain whose prefix settled to some other left state would settle its certificate to some other rule. The pins a chain cannot carry are refused here, before any certificate is written: a rule whose replayed rows no chain reaches at all is a left state the worklist admitted beside a right1 no producing window had, and [`certify`] names the rule, the row and the pin rather than handing the witness stage a table with nothing to vouch for its rules.
 //!
 //! The chain is the shortest one and not the worklist's own because the worklist is a stack: an item's first visitor is whatever the depth-first walk reached it through, and the chains that fall out of that are thousands of letters long, each of which the witness stage would settle wave by wave. Breadth-first over the rows, every row's chain is as short as any text that reaches it.
 //!
@@ -119,9 +119,9 @@ fn partition(rows: &LabelRows<'_>, before: impl Fn(&[&str; 6]) -> bool) -> usize
     low
 }
 
-/// One certificate per rule, in rule order, each a token stream spelled in the windows vocabulary: rune names for letters, the three boundary glyph labels for the boundaries. `first_rows` is what [`crate::fold::first_match_rows`] handed back, the rows each rule first-matched under the replay, shortest chain first. A rule no row of its own closes into a certificate is refused, naming the rule, because the fold has already proven a replayed row first-matches it and a row that cannot be realized is a pin the worklist got wrong.
+/// One certificate per rule, in rule order, each a token stream spelled in the windows vocabulary: rune names for letters, the three boundary glyph labels for the boundaries. `first_rows` is what [`crate::fold::first_match_rows`] handed back, the rows each rule first-matched under the replay, shortest chain first. A rule no row of its own closes into a certificate is refused, naming the rule, because the fold has already proven a replayed row first-matches it and a row that cannot be realized is a pin the worklist got wrong. The refusal comes in two sentences, for the two ways a row fails to realize. A row no producer chain reaches — no row of the enumeration settles to its left before its input with its pinned right slots behind, so [`Prefixes`] left it at [`UNREACHED`] — is a pin failure at the row itself: the worklist admitted a left state beside a right1 no producing window had, and the refusal names the rule, the row, and which of the pins does not hold (`pin_failure`), provided the enumeration settles to that left somewhere, which a fixpoint's every letter left does. A row a chain does reach but whose tail no closure carries to a window the rule wins is the other sentence, since there the pins held and the constraint search came up empty.
 ///
-/// A product the spec cannot spell certifies nothing and answers the empty list: a rule none of whose rows renders as a text — a deep-slot member the spec models no rune for — is a hand-built product's, the fold's own test bench, and not a build's, since an enumeration's every label is a modeled rune or a boundary. The windows head then carries no certificates, and `run_m1`'s witness stage refuses a table whose certificates do not cover its rules, so the empty answer can never reach a font.
+/// A product the spec cannot spell certifies nothing and answers the empty list: a rule one of whose rows renders as no text — a deep-slot member the spec models no rune for — or whose unreached row stands on a left no row settles to, is a hand-built product's, the fold's own test bench, and not a build's, since an enumeration's every label is a modeled rune or a boundary and its every letter left is some window's outcome. The windows head then carries no certificates, and `run_m1`'s witness stage refuses a table whose certificates do not cover its rules, so the empty answer can never reach a font; but that count is a belt under this module's own refusals, never the sentence a build's pin failure is meant to fire.
 pub fn certify(
     index: &SpecIndex,
     options: &mut WindowOptions<'_>,
@@ -135,10 +135,19 @@ pub fn certify(
     for (seat, rule) in rules.iter().enumerate() {
         let mut found: Option<Vec<RightToken>> = None;
         let mut spelled_any = false;
+        let mut unspellable_any = false;
+        let mut unreached: Option<usize> = None;
         'rows: for &row in &first_rows[seat] {
-            let Some((tokens, position)) = pinned_tokens(index, prefixes, rows, row).ok().flatten()
-            else {
-                continue;
+            let (tokens, position) = match pinned_tokens(index, prefixes, rows, row) {
+                Ok(Some(pinned)) => pinned,
+                Ok(None) => {
+                    unreached.get_or_insert(row);
+                    continue;
+                }
+                Err(_) => {
+                    unspellable_any = true;
+                    continue;
+                }
             };
             spelled_any = true;
             let mut closed: Vec<Vec<RightToken>> = Vec::new();
@@ -160,7 +169,14 @@ pub fn certify(
                     .map(|token| right_token_label(index, token))
                     .collect(),
             ),
-            None if !spelled_any => return Ok(Vec::new()),
+            None if unspellable_any => return Ok(Vec::new()),
+            None if !spelled_any => {
+                let row = unreached.expect("a rule the replay handed rows to has at least one");
+                match pin_failure(rows, seat, rule, row, first_rows[seat].len()) {
+                    Some(complaint) => return Err(complaint),
+                    None => return Ok(Vec::new()),
+                }
+            }
             None => {
                 return Err(format!(
                     "rule {seat} ({} -> {}) first-matches {} replayed row(s) but none of them closes into a string it first-matches; the worklist's pins for those rows do not hold",
@@ -172,6 +188,58 @@ pub fn certify(
         }
     }
     Ok(certificates)
+}
+
+/// The sentence a rule whose every replayed row lies on no producer chain is refused with: the rule, the first such row, and the pin that does not hold — found by asking the rows for the producer the chain needed, one pinned slot at a time. A producer of a row is a row at the position before it whose right1 is the row's input, whose outcome is the row's left, and whose deeper right slots are the row's own shifted one down, out to the first slot the row does not carry; the first of those conditions no row of the enumeration meets is the pin the worklist admitted without a window to produce it. `None` for a left no row of the enumeration settles to at all: the worklist only ever pins a left it settled in some window, so a left that is nobody's outcome is a hand-built product's, and answers the empty certificate list rather than a pin failure.
+fn pin_failure(
+    rows: &LabelRows<'_>,
+    seat: usize,
+    rule: &Rule,
+    row: usize,
+    count: usize,
+) -> Option<String> {
+    let key = rows.key(row);
+    let [input, left, right1, right2, right3, _right4] = key;
+    let mut producers: Vec<usize> = (0..rows.len())
+        .filter(|&other| rows.outcome(other).as_ref() == left)
+        .collect();
+    if producers.is_empty() {
+        return None;
+    }
+    let mut sentence = String::new();
+    producers.retain(|&other| rows.right1(other).as_ref() == input);
+    if producers.is_empty() {
+        sentence.push_str(&format!(
+            "rows settle to {left}, but none of them before {input}, so the pin of that left before this input was never produced"
+        ));
+    } else {
+        let pins: [(&str, &str, &str); 3] = [
+            (right1, "right1", "second"),
+            (right2, "right2", "third"),
+            (right3, "right3", "fourth"),
+        ];
+        for (slot, (label, name, ordinal)) in pins.into_iter().enumerate() {
+            if label == NA_LABEL {
+                break;
+            }
+            producers.retain(|&other| rows.key(other)[3 + slot] == label);
+            if producers.is_empty() {
+                sentence.push_str(&format!(
+                    "rows settle to {left} before {input}, but none of them carries {label} at its {ordinal} slot, so the pin of {name} {label} beside that left was never produced"
+                ));
+                break;
+            }
+        }
+        if sentence.is_empty() {
+            sentence.push_str(
+                "its producers exist but none of them lies on a chain from a seed itself",
+            );
+        }
+    }
+    Some(format!(
+        "rule {seat} ({} -> {}) first-matches {count} replayed row(s) and none of them lies on a producer chain from a seed; the first, ({}, {}, {}, {}, {}, {}), is a pin failure: {sentence}",
+        rule.input_glyph, rule.outcome, key[0], key[1], key[2], key[3], key[4], key[5]
+    ))
 }
 
 /// The tokens one replayed row pins, and the position of its input among them: the chain's seed boundary unless it is the run edge, the input of every row of the chain before this one, the row's input as its family, then its right slots out to the first one the window does not carry. Every one of these is fixed by the rows; only what follows is the closure's to choose. `None` for a row no seed reaches, an error for a label the spec cannot spell.
@@ -438,6 +506,8 @@ mod tests {
     use crate::fixpoint::{EnumerationModes, enumerate_transitions};
     use crate::fold::{expand, first_match_rows, fold_product};
     use crate::index::fixtures;
+    use crate::stream::{FixpointProduct, TransitionRow};
+    use std::rc::Rc;
 
     const SHIPPING: EnumerationModes = EnumerationModes {
         simulated_prospect: true,
@@ -552,6 +622,145 @@ mod tests {
             complaint.contains("no replayed row first-matches"),
             "{complaint}"
         );
+    }
+
+    /// A row no producer chain reaches — a phantom the worklist would have pinned wrongly, here a real row re-keyed to a pin no window before it carries — is a pin failure naming the rule, the row and the pin, not the empty answer a hand-built product gets; and a product the spec cannot spell still gets that empty answer.
+    #[test]
+    fn a_row_no_chain_reaches_is_a_pin_failure_and_an_unspellable_one_is_not() {
+        let index = fixtures::mini();
+        let product = enumerate_transitions(&index, &[], SHIPPING).expect("the fixpoint closes");
+        let mut rules = fold_product(&index, product.clone())
+            .expect("and folds")
+            .decision
+            .rules;
+        let mut letters: Vec<Rc<str>> = Vec::new();
+        let mut lefts: Vec<Rc<str>> = Vec::new();
+        for row in &product.transitions {
+            if !boundaryish(&row.right1) && !letters.contains(&row.right1) {
+                letters.push(Rc::clone(&row.right1));
+            }
+            if !boundaryish(&row.left) && !lefts.contains(&row.left) {
+                lefts.push(Rc::clone(&row.left));
+            }
+        }
+        let carried = |row: &TransitionRow, slot: usize, label: &Rc<str>| {
+            product.transitions.iter().any(|other| {
+                other.input_glyph == row.input_glyph
+                    && match slot {
+                        0 => other.left == *label,
+                        1 => other.left == row.left && other.right1 == *label,
+                        _ => {
+                            other.left == row.left
+                                && other.right1 == row.right1
+                                && other.right2 == *label
+                        }
+                    }
+            })
+        };
+        let (real, slot, label) = product
+            .transitions
+            .iter()
+            .filter(|row| !boundaryish(&row.left) && !boundaryish(&row.right1))
+            .find_map(|row| {
+                [0usize, 1, 2].into_iter().find_map(|slot| {
+                    let pool = if slot == 0 { &lefts } else { &letters };
+                    pool.iter()
+                        .find(|label| !carried(row, slot, label))
+                        .map(|label| (row, slot, Rc::clone(label)))
+                })
+            })
+            .expect("a letter-left row and a pin no window before it carries");
+        let mut phantom = real.clone();
+        match slot {
+            0 => phantom.left = Rc::clone(&label),
+            1 => phantom.right1 = Rc::clone(&label),
+            _ => phantom.right2 = Rc::clone(&label),
+        }
+        phantom.outcome = Rc::from("qsPhantom.pin");
+        let mut transitions = product.transitions.clone();
+        transitions.push(phantom.clone());
+        transitions.sort_by(|left, right| left.key().cmp(&right.key()));
+        let phantom_product = FixpointProduct {
+            transitions,
+            ..product.clone()
+        };
+        rules.insert(
+            0,
+            Rule {
+                input_glyph: Rc::clone(&phantom.input_glyph),
+                backtrack: Some(vec![Rc::clone(&phantom.left)]),
+                look1: Some(vec![Rc::clone(&phantom.right1)]),
+                look2: Some(vec![Rc::clone(&phantom.right2)]),
+                look3: None,
+                look4: None,
+                outcome: Rc::from("qsPhantom.pin"),
+                provenance: Vec::new(),
+                joint: false,
+            },
+        );
+        let fold_rows = expand(&phantom_product);
+        let rows = LabelRows::new(
+            &phantom_product.transitions,
+            &phantom_product.notes,
+            &fold_rows,
+        );
+        let prefixes = Prefixes::over(&rows);
+        let first_rows = first_match_rows(&rows, &rules, None, ROW_CAP, Some(prefixes.dist()))
+            .expect("the phantom's rule wins it");
+        let mut options = WindowOptions::new(&index).expect("the fixture's options build");
+        let complaint = certify(&index, &mut options, &prefixes, &rows, &rules, &first_rows)
+            .expect_err("the phantom row is a pin failure");
+        assert!(complaint.starts_with("rule 0 ("), "{complaint}");
+        assert!(complaint.contains("is a pin failure"), "{complaint}");
+        assert!(
+            complaint.contains(&format!(
+                "({}, {}, {}, {}",
+                phantom.input_glyph, phantom.left, phantom.right1, phantom.right2
+            )),
+            "{complaint}"
+        );
+        assert!(complaint.contains("never produced"), "{complaint}");
+        let pin = if slot == 0 {
+            format!("rows settle to {label}, but none of them before")
+        } else {
+            format!("carries {label} at its")
+        };
+        assert!(complaint.contains(&pin), "{complaint}");
+
+        let mut bench_row = product
+            .transitions
+            .iter()
+            .find(|row| boundaryish(&row.left) && !boundaryish(&row.right1))
+            .expect("a seed row with a letter at right1")
+            .clone();
+        bench_row.right2 = Rc::from("qsNever");
+        bench_row.outcome = Rc::from("qsPhantom.pin");
+        let mut unspellable = product.transitions.clone();
+        unspellable.push(bench_row.clone());
+        unspellable.sort_by(|left, right| left.key().cmp(&right.key()));
+        let bench = FixpointProduct {
+            transitions: unspellable,
+            ..product.clone()
+        };
+        let fold_rows = expand(&bench);
+        let rows = LabelRows::new(&bench.transitions, &bench.notes, &fold_rows);
+        let prefixes = Prefixes::over(&rows);
+        rules[0] = Rule {
+            input_glyph: Rc::clone(&bench_row.input_glyph),
+            backtrack: None,
+            look1: Some(vec![Rc::clone(&bench_row.right1)]),
+            look2: Some(vec![Rc::from("qsNever")]),
+            look3: None,
+            look4: None,
+            outcome: Rc::from("qsPhantom.pin"),
+            provenance: Vec::new(),
+            joint: false,
+        };
+        let first_rows = first_match_rows(&rows, &rules, None, ROW_CAP, Some(prefixes.dist()))
+            .expect("the rule wins its row");
+        let answer = certify(&index, &mut options, &prefixes, &rows, &rules, &first_rows)
+            .expect("a hand-built product certifies nothing rather than failing");
+        assert!(answer.is_empty());
     }
 
     /// The tail closure's two constraints, on the ligature fixture: a stream ending in a surviving formation pair is closed with a follower under which the guard fires, and one ending in a formed ligature is closed so the ligature still stands. Both are read back through the same constraint check, so a closed stream is one the check calls closed.
