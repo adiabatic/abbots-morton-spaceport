@@ -554,3 +554,149 @@ fn a_table_build_without_a_stamp_is_a_usage_error() {
         );
     }
 }
+
+/// The shipped-order walk through the binary: a table's own settlement TSV handed back as the order answers every row of its enumeration, from a file and from standard input alike; a context file that is not renames and classes is a 1 naming the file; a command line missing one of the three files, or spelling a world flag, is a 2.
+#[test]
+fn a_shipped_order_walk_answers_a_tables_rows_from_a_file_or_stdin() {
+    let root = scratch("cli-emitted");
+    let spec = spec_at(&root);
+    let outdir = root.join("tables");
+    let built = run(&[
+        "build-tables",
+        word(&spec),
+        word(&outdir),
+        "--configs=default,ss03",
+        "--inputs=cli-stamp",
+    ]);
+    assert!(built.status.success(), "{}", complaint(&built));
+    let table = outdir.join("settlement-ss03.tsv");
+    let windows = outdir.join("windows-ss03.tsv");
+    let context = root.join("context-ss03.tsv");
+    std::fs::write(
+        &context,
+        "rename\tqsMay\tqsMay.ss03\nrename\tqsMay.noentry\tqsMay.ss03.noentry\n",
+    )
+    .expect("the context file is writable");
+    let order = root.join("order.tsv");
+    let twin = |token: &str| match token {
+        "qsMay" => "qsMay.ss03".to_owned(),
+        "qsMay.noentry" => "qsMay.ss03.noentry".to_owned(),
+        other => other.to_owned(),
+    };
+    let mut renamed = String::new();
+    for (number, line) in std::fs::read_to_string(&table)
+        .expect("the table landed")
+        .lines()
+        .enumerate()
+    {
+        if number < 2 {
+            renamed.push_str(line);
+        } else {
+            let fields: Vec<String> = line
+                .split('\t')
+                .enumerate()
+                .map(|(column, field)| {
+                    if column < 7 {
+                        field
+                            .split(' ')
+                            .map(twin)
+                            .collect::<Vec<String>>()
+                            .join(" ")
+                    } else {
+                        field.to_owned()
+                    }
+                })
+                .collect();
+            renamed.push_str(&fields.join("\t"));
+        }
+        renamed.push('\n');
+    }
+    std::fs::write(&order, renamed).expect("the order file is writable");
+    let rows = std::fs::read_to_string(&windows)
+        .expect("the enumeration landed")
+        .lines()
+        .count()
+        - 2;
+    let table_flag = format!("--table={}", word(&table));
+    let order_flag = format!("--order={}", word(&order));
+    let context_flag = format!("--context={}", word(&context));
+    let output = run(&[
+        "replay-emitted",
+        word(&windows),
+        "--config=ss03",
+        &table_flag,
+        &order_flag,
+        &context_flag,
+    ]);
+    assert!(output.status.success(), "{}", complaint(&output));
+    assert!(output.stderr.is_empty(), "a clean walk says nothing");
+    assert_eq!(
+        String::from_utf8_lossy(&output.stdout),
+        format!("{{\"config\":\"ss03\",\"rows\":{rows},\"expanded\":0}}\n")
+    );
+
+    let piped = std::process::Command::new(KERNEL)
+        .args([
+            "replay-emitted",
+            "-",
+            "--config=ss03",
+            &table_flag,
+            &order_flag,
+            &context_flag,
+            "--timings",
+        ])
+        .stdin(std::fs::File::open(&windows).expect("the enumeration opens"))
+        .output()
+        .expect("the binary runs on a pipe");
+    assert!(piped.status.success(), "{}", complaint(&piped));
+    assert_eq!(
+        piped.stdout, output.stdout,
+        "stdin and the file are one walk"
+    );
+    let phases: Vec<&str> = complaint(&piped)
+        .lines()
+        .map(timing_phase)
+        .map(str::to_owned)
+        .collect::<Vec<String>>()
+        .leak()
+        .iter()
+        .map(String::as_str)
+        .collect();
+    assert_eq!(phases, ["replay_emitted[ss03]", "replay_emitted_total"]);
+
+    let stray = root.join("stray.tsv");
+    std::fs::write(&stray, "label\tx\n").expect("writable");
+    let refused = run(&[
+        "replay-emitted",
+        word(&windows),
+        "--config=ss03",
+        &table_flag,
+        &order_flag,
+        &format!("--context={}", word(&stray)),
+    ]);
+    assert_eq!(refused.status.code(), Some(1));
+    assert!(
+        complaint(&refused).contains("stray.tsv: context line 1"),
+        "{}",
+        complaint(&refused)
+    );
+
+    let missing = run(&[
+        "replay-emitted",
+        word(&windows),
+        "--config=ss03",
+        &table_flag,
+        &order_flag,
+    ]);
+    assert_eq!(missing.status.code(), Some(2));
+    let worldly = run(&[
+        "replay-emitted",
+        word(&windows),
+        "--config=ss03",
+        &table_flag,
+        &order_flag,
+        &context_flag,
+        "--vote-slots-off",
+    ]);
+    assert_eq!(worldly.status.code(), Some(2));
+}

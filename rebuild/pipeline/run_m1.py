@@ -455,6 +455,16 @@ def run(
             f"{len(witness_summary['failures'])} rule(s) whose certificate does not fire them; see {out_dir / 'witness_summary.json'}"
         )
 
+    if inputs is not None:
+        console.phase("emitted_order")
+        start = time.perf_counter()
+        emitted = run_emitted_order(spec, tables, out_dir, kernel_threads=kernel_threads)
+        print(f"[t] emitted_order {time.perf_counter() - start:.1f}s", flush=True)
+        if not emitted["pass"]:
+            raise SystemExit(
+                f"the shipped settlement order answers a row differently from its table: {emitted['complaint']}"
+            )
+
     console.phase("glyph_minting")
     start = time.perf_counter()
     cell_glyphs = mint_cell_glyphs(spec, tables)
@@ -666,6 +676,72 @@ def run_rule_witnesses(
         )
     summary = {"pass": not failures, "configs": per_config, "failures": failures[:50]}
     (out_dir / "witness_summary.json").write_text(json.dumps(summary, indent=2) + "\n")
+    return summary
+
+
+EMITTED_ORDER_SUMMARY = "emitted_order_summary.json"
+
+
+def run_emitted_order(
+    spec: ResolvedSpec,
+    tables: Mapping[str, tuple],
+    out_dir: Path,
+    kernel_threads: int | None = None,
+) -> dict:
+    """The shipped-order stage: the settlement order the emitter ships — every configuration's table folded into one lookup and sorted by `emit_gsub._ordered_settle_rules` — replayed first-match against every row of every configuration's window enumeration by the crate's `replay-emitted` verb (`rebuild/kernel-rs/src/shipped_order.rs`), one process per configuration over the packed enumeration the build just wrote under `out_dir`. Each row, renamed into the stream its configuration's marker lookups produce, has to be answered by the first emitted rule of its input that admits it with the row's own outcome — member by member where an emitted look class admits the row's deep class in part, since a rule folded from another configuration's fiber partition can do that and still answer every member as the row does; a row answered differently is a red build naming the configuration, the row, the emitted rule that fired and the table's own rule.
+
+    This is the one proof of the shipped order that reads the tables: the fold's partition assertion, the string replay and the witness stage each walk a configuration's rules in that configuration's own order, and read-back compares the font to the plan rather than the plan to the tables, so without this stage the order the font ships was proven by the HarfBuzz belt alone — which keys on code and on behavior classes and skips a rune edit that mints no new shape. It runs on every build, on the tables the build just folded, so a rune edit that reorders the fold without minting a new rule shape is caught here rather than at the next code change. O(rows) per configuration, nothing settled, and the configurations run `kernel_threads` at a time behind one small process each: what a walk holds is the rules and the labels, never a memo or an engine.
+    """
+    from rebuild.pipeline import emit_gsub
+
+    configs = [config for config in conform.SETTLEMENT_CONFIGS if config in tables]
+    threads = max(
+        1,
+        min(kernel_threads or kernel_exec.KERNEL_THREADS_DEFAULT, len(configs), usable_cores()),
+    )
+    summary: dict = {"pass": True, "configs": {}, "complaint": None}
+    with tempfile.TemporaryDirectory() as scratch:
+        directory = Path(scratch)
+        order = directory / "emitted-order.tsv"
+        order.write_text(emit_gsub.emitted_order_tsv(spec, tables))
+        summary["rules"] = sum(1 for _ in order.read_text().splitlines()) - 2
+
+        def walk_one(config: str) -> tuple[str, dict[str, int]]:
+            started = time.perf_counter()
+            entry = tables[config]
+            decision = entry[0] if isinstance(entry, (tuple, list)) else entry
+            context = directory / f"context-{config}.tsv"
+            context.write_text(emit_gsub.emitted_context_tsv(spec, config, decision))
+            answer = kernel_exec.replay_emitted(
+                table_module.windows_path(out_dir, config),
+                config=config,
+                table=out_dir / f"settlement-{config}.tsv",
+                order=order,
+                context=context,
+                timings=True,
+            )
+            print(
+                f"[t] emitted_order[{config}] {time.perf_counter() - started:.1f}s\trows={answer['rows']} expanded={answer['expanded']}",
+                flush=True,
+            )
+            return config, answer
+
+        with ThreadPoolExecutor(max_workers=threads) as walkers:
+            futures = [walkers.submit(walk_one, config) for config in configs]
+            for finished in as_completed(futures):
+                try:
+                    config, answer = finished.result()
+                except kernel_exec.EmittedOrderDisagreement as error:
+                    summary["pass"] = False
+                    summary["complaint"] = str(error)
+                    for other in futures:
+                        other.cancel()
+                    break
+                summary["configs"][config] = answer
+    summary["configs"] = {
+        config: summary["configs"][config] for config in configs if config in summary["configs"]
+    }
+    (out_dir / EMITTED_ORDER_SUMMARY).write_text(json.dumps(summary, indent=2) + "\n")
     return summary
 
 

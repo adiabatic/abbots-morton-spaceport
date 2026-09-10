@@ -528,11 +528,59 @@ def _settle_rule_of(rule) -> SettleRule:
     )
 
 
-def fold_settle_rules(spec: ResolvedSpec, tables_by_config: Mapping) -> tuple[SettleRule, ...]:
-    """The emitted settlement lookup's rows in FEA order, each carrying the per-configuration table rules it folded from — the same fold, the same marker renaming and the same ordering `emit_gsub` writes, exposed on its own so a reader of the recorded fold can hold it to the stamped tables without minting a glyph inventory or emitting FEA text."""
+def ordered_fold(spec: ResolvedSpec, tables_by_config: Mapping) -> list[_FoldedRule]:
+    """The folded rules in the exact order the settlement lookup ships them — the same fold, the same marker renaming and the same ordering `emit_gsub` writes — with the fold's accounting asserted, exposed on its own so a reader of the shipped order can hold it to the stamped tables without minting a glyph inventory or emitting FEA text."""
     grouped = _ordered_settle_rules(_fold_rules(tables_by_config, spec), _marker_names(spec))
     _assert_fold_sources(grouped, tables_by_config)
-    return tuple(_settle_rule_of(rule) for rule in grouped)
+    return grouped
+
+
+def fold_settle_rules(spec: ResolvedSpec, tables_by_config: Mapping) -> tuple[SettleRule, ...]:
+    """`ordered_fold` as the plan's structured rows, each carrying the per-configuration table rules it folded from."""
+    return tuple(_settle_rule_of(rule) for rule in ordered_fold(spec, tables_by_config))
+
+
+EMITTED_ORDER_CONFIG = "emitted"
+
+
+def _slot_text(members: tuple[str, ...] | None) -> str:
+    return " ".join(members) if members else "-"
+
+
+def emitted_order_tsv(spec: ResolvedSpec, tables_by_config: Mapping) -> str:
+    """The shipped settlement order as a settlement TSV the crate reads back (`artifacts::read_settlement_tsv`): one line per emitted row in FEA order, in the marker-folded label space the stream wears, with the provenance column naming the table rules the row folded from as `<configuration>#<rule index>` so a refusal can name them. This is the file the crate's `replay-emitted` verb walks each configuration's rows against (`run_m1.run_emitted_order`); `EMITTED_ORDER_CONFIG` is the configuration its head names, since the order belongs to every configuration at once."""
+    lines = [
+        f"# settlement table, config {EMITTED_ORDER_CONFIG}",
+        "input\tbacktrack\tlookahead1\tlookahead2\tlookahead3\tlookahead4\toutcome\tjoint\tprovenance",
+    ]
+    for rule in ordered_fold(spec, tables_by_config):
+        lines.append(
+            "\t".join(
+                (
+                    rule.input_glyph,
+                    _slot_text(rule.backtrack),
+                    _slot_text(rule.look1),
+                    _slot_text(rule.look2),
+                    _slot_text(rule.look3),
+                    _slot_text(rule.look4),
+                    rule.outcome,
+                    "joint" if rule.joint else "-",
+                    "; ".join(f"{config}#{index}" for config, index in rule.sources),
+                )
+            )
+        )
+    return "\n".join(lines) + "\n"
+
+
+def emitted_context_tsv(spec: ResolvedSpec, config, decision) -> str:
+    """What one configuration's stream does to the labels its table spells, for the crate's `replay-emitted` verb (`shipped_order::read_context`): a `rename` record per raw label the marker fold renames under this configuration (`_raw_rename_map`, the same map the fold renamed the configuration's rules through), and a `class` record per deep class the table's rows stand at, its members in the table's raw label space."""
+    lines = [
+        f"rename\t{raw}\t{twin}"
+        for raw, twin in sorted(_raw_rename_map(spec, _config_features(config)).items())
+    ]
+    for token, members in sorted(getattr(decision, "deep_classes", {}).items()):
+        lines.append(f"class\t{token}\t{' '.join(members)}")
+    return "".join(f"{line}\n" for line in lines)
 
 
 def _assert_fold_sources(rules: Iterable, tables_by_config: Mapping) -> None:

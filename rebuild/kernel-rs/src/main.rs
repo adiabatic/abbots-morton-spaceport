@@ -1,4 +1,4 @@
-//! `ams-m1-kernel` — the Rust reimplementation of the M1 settlement kernel (tracker issue #40). Today it does the ingest step, the settlement core and the whole table build: it reads an `ams-m1-spec/1` dump into the interned model, echoes that model back out in canonical form (sub-issue #42), settles single windows against it — a batch of cases at a time for every Python caller that needs a window settled, and the whole late-formation surface for the guard (sub-issue #43) — runs the whole table-build worklist fixpoint over one configuration in either candidacy world and at either deep-slot grain, writing the transitions stream `kernel_io.read_transitions` parses back (sub-issues #44 and #45), runs a whole named set of configurations that way in one process, concurrently, for the builds that want all of them at once (sub-issue #46), folds those configurations into the two tables and the window enumeration a build persists rather than emitting a stream at all, replays a build's persisted rules over the whole string universe against its own settlement to check the enumeration complete (issue #176), and answers deep-slot liveness and fiber questions one key at a time, a liveness-grain inspection verb (sub-issue #45) whose Python-side differential retired at issue #78.
+//! `ams-m1-kernel` — the Rust reimplementation of the M1 settlement kernel (tracker issue #40). Today it does the ingest step, the settlement core and the whole table build: it reads an `ams-m1-spec/1` dump into the interned model, echoes that model back out in canonical form (sub-issue #42), settles single windows against it — a batch of cases at a time for every Python caller that needs a window settled, and the whole late-formation surface for the guard (sub-issue #43) — runs the whole table-build worklist fixpoint over one configuration in either candidacy world and at either deep-slot grain, writing the transitions stream `kernel_io.read_transitions` parses back (sub-issues #44 and #45), runs a whole named set of configurations that way in one process, concurrently, for the builds that want all of them at once (sub-issue #46), folds those configurations into the two tables and the window enumeration a build persists rather than emitting a stream at all, replays a build's persisted rules over the whole string universe against its own settlement to check the enumeration complete (issue #176), replays the order the emitter ships those rules in against every configuration's rows, and answers deep-slot liveness and fiber questions one key at a time, a liveness-grain inspection verb (sub-issue #45) whose Python-side differential retired at issue #78.
 //!
 //! **This crate is the definition of settlement.** The ranking, the refusals, the specificity order under them, the prospect and the late-formation guard have one home, and a settlement-semantics change is written here and nowhere else. What Python still binds is the boundary rather than the answer: `rebuild/pipeline/kernel_io.py` is the binding contract for the dump — it is whatever `kernel_io.spec_json` writes, and the strictness is whatever `kernel_io.spec_of` enforces — `rebuild/pipeline/model.py` for the field sets a dump carries, and `rebuild/pipeline/table.py` for the bytes [`ams_m1_kernel::fold`] and [`ams_m1_kernel::artifacts`] write, whose readers and digests it carries; byte-identity of the persisted artifacts against a stamped baseline is what holds a fold change to one answer. `rebuild/pipeline/settle.py` keeps settlement's vocabulary and none of its semantics — the token and boundary types, `cell_label`, `is_entry_bearing`, `word_position`, and the ligature formation staged before settlement, whose verdicts come from `guard-sweep` — and every other Python consumer, the conform sweep and the witness gate and explain and probe and the review surface, settles through `settle-cases`. `doc/rebuild-design.md` §14.1 carries the design facts behind the port — chiefly that the packing, not the language, is the win, and that the standard SipHash hasher beat the finalizer-less fast hasher that a first pass reached for.
 //!
@@ -15,6 +15,7 @@
 //! - `ams-m1-kernel enumerate-configs <spec> <outdir> --configs=a,b,… [--threads=N] [--candidacy-prospect] [--vote-slots-off] [--deep-classes-off] [--timings]` runs several configurations' fixpoints in one process and writes each one's stream to `<outdir>/transitions-<config>.ndjson`, creating the directory with its parents and overwriting what it finds. stdout stays silent, because here the answer is the files — and they mean nothing except on exit 0, since a configuration that fails exits 1 naming itself and leaves whatever the other configurations had already written behind. A run that does reach exit 0 leaves that promise glob-safe: any `transitions-*.ndjson` already in the directory naming a configuration this run was not asked about is swept before the first one is written, so the whole set a consumer finds there is the set the command line named. `--configs=` is required and spells the configurations the way Python does, `conform.ACCEPTANCE_CONFIGS`'s own tokens: `default` for no features, anything else a `+`-joined feature list whose names are checked against the spec exactly as `--features=` checks them. A token that is not the canonical spelling of the features it names — out of order, repeated, empty, or empty between two `+` — is a usage error rather than a configuration, which is what keeps the filename, the stream head's `config` and the caller's own word for it in agreement by construction. The world flags name one world for the whole invocation, as they do for one `enumerate`.
 //! - `ams-m1-kernel build-tables <spec> <outdir> --configs=a,b,… --inputs=<stamp> [--threads=N] [--config-seed-off] [--candidacy-prospect] [--vote-slots-off] [--deep-classes-off] [--timings] [--cache-census]` runs the same fixpoints and then folds each one in place, writing `<outdir>/settlement-<config>.tsv`, `<outdir>/treaties-<config>.tsv` and the uncompressed `<outdir>/windows-<config>.tsv` under the fingerprint `--inputs` names, and writing one `{"config":…,"digest":…}` line per configuration to stdout in the order the command line named them. The configurations past `default` are enumerated as deltas over it: `default` runs first and alone, keeping its trace memo, and the rest then run `--threads` at a time reading that memo for every window naming none of their own unlocking runes ([`ams_m1_kernel::memo`]), which files the bytes a from-scratch enumeration files; `--config-seed-off` is that from-scratch arm, and a set without `default` runs as if it were on. The same memo crosses builds: `--memo-stamp=<text>` writes each configuration's finished memo as `<outdir>/memo-<config>.tsv` under a head carrying the configuration, the world and that stamp, and `--seed=<dir>` reads a previous build's files from there behind `--edited=a,b,…`, the runes whose content moved since, and `--moved-classes=a,b,…`, the predicate classes whose membership did, so a window whose evaluation read none of them is answered as it was answered then; a file for another configuration or world is refused, a missing one is simply not read, a moved class this spec no longer declares is passed over (nothing in a valid memo can have read it), and either list without `--seed=` is a usage error. No stream is written and none is read: the fold runs on the product the worklist still holds, so the several hundred megabytes a stream would cost to write and read back are never spent. The harness gzips the windows payload, as it gzips the stream, for the same reason. The directory is created and nothing in it is swept — a build writes into its own artifact directory beside a dozen other families. `--inputs=` is required, because a serialized enumeration is trusted or refused on the stamp it carries.
 //! - `ams-m1-kernel replay-strings <spec> <outdir> --configs=a,b,… --horizon=N [--families=a,b,…] [--threads=N] [--candidacy-prospect] [--vote-slots-off] [--timings]` reads each named configuration's `<outdir>/settlement-<config>.tsv` back and walks every text of length 1 through `N` over the spec's alphabet — or, with `--families=`, only the texts naming one of those runes, a ligature being named through its components — applying the rules first-match with the settled left fed forward and holding every window's rule outcome to this engine's own settlement of it ([`ams_m1_kernel::replay`]). It is the enumeration-completeness check `run_m1` runs on every build, and one `{"config":…,"texts":…,"windows":…,"skipped":…}` line per configuration on stdout is a clean answer; a window the rules and the engine disagree on exits 1 naming the configuration, the window and the text it was reached in, as does a window the engine refuses. The horizon is required rather than defaulted, because the depth a walk proved is a claim its caller records. The grain flag is not spelled: a replay settles single windows, which have no grain to name.
+//! - `ams-m1-kernel replay-emitted <windows> --config=<token> --table=<settlement.tsv> --order=<order.tsv> --context=<context.tsv> [--timings]` walks one configuration's window enumeration — the plain `ams-m1-windows/2` payload at `<windows>`, or standard input for `-` — against the shipped settlement order ([`ams_m1_kernel::shipped_order`]): `--order=` is every configuration's rules in the order the emitter ships them, spelled as a settlement TSV whose provenance column names the table rules each row folded from; `--context=` is the configuration's marker fold and deep classes, one `rename` or `class` record per line; `--table=` is the configuration's own settlement TSV, read only to name the rule the table answered a disagreeing row with. Every row is renamed into the configuration's stream and the first emitted rule of its input that admits it has to answer with the row's outcome; one `{"config":…,"rows":…,"expanded":…}` line on stdout is a clean answer — `expanded` counting the rows tried member by member because an emitted look class admitted their deep class in part — and a row the shipped order answers differently exits 1 naming the configuration, the row, the emitted rule that fired and the table's own rule. No spec is read: the tables are the settled answer, and what is checked is whether the lookup that ships reads them back.
 //! - `ams-m1-kernel liveness-cases <spec> <keys> [--features=a,b,…] [--candidacy-prospect] [--vote-slots-off]` answers one deep-slot question per key line: `3<tab><input><tab><r1><tab><r2>` and `4<tab><input><tab><r1><tab><r2><tab><r3>` answer `live` or `dead` — the full filter verdict, chain arm and liveness arm together — and `fibers<tab><input><tab><r1><tab><r2>` answers with the context's fiber partition as compact JSON. Every name is a rune family name; a key naming anything else stops the run. Each output line is the key line, a tab, and the answer, in file order.
 //!
 //! Concurrency reaches exactly as far as the configuration and no further: `enumerate-configs` runs at most `--threads` configurations at once — serially when nobody said, and never wider than the machine's parallelism or the configuration count — and `build-tables` runs its delta wave at that width behind `default`. [`ams_m1_kernel::fanout`] carries both halves of why that is the whole of it — what makes the bytes a function of the plan rather than of the schedule, and why the worklist inside one configuration stays sequential. Peak memory rises roughly linearly with that width, since each configuration in flight holds its whole working set until its stream has been emitted, so `--threads` is the lever a machine with less memory than parallelism reaches for.
@@ -42,9 +43,9 @@ use ams_m1_kernel::liveness::ProspectLiveness;
 use ams_m1_kernel::model::Sym;
 use ams_m1_kernel::options::WindowOptions;
 use ams_m1_kernel::stream::feature_config_token;
-use ams_m1_kernel::{cases, emit, fanout, guard, parse};
+use ams_m1_kernel::{artifacts, cases, emit, fanout, guard, parse, shipped_order};
 
-const USAGE: &str = "usage: ams-m1-kernel spec-echo <spec>\n       ams-m1-kernel settle-cases <spec> <cases> [--features=a,b] [--candidacy-prospect] [--vote-slots-off]\n       ams-m1-kernel guard-sweep <spec> [--config=default|ss03+ss05]\n       ams-m1-kernel enumerate <spec> [--features=a,b] [--candidacy-prospect] [--vote-slots-off] [--deep-classes-off] [--timings] [--cache-census]\n       ams-m1-kernel enumerate-configs <spec> <outdir> --configs=default,ss03 [--threads=N] [--candidacy-prospect] [--vote-slots-off] [--deep-classes-off] [--timings] [--cache-census]\n       ams-m1-kernel build-tables <spec> <outdir> --configs=default,ss03 --inputs=<stamp> [--threads=N] [--config-seed-off] [--seed=<dir> [--edited=qsPea,qsTea] [--moved-classes=a,b]] [--memo-stamp=<text>] [--candidacy-prospect] [--vote-slots-off] [--deep-classes-off] [--timings] [--cache-census]\n       ams-m1-kernel replay-strings <spec> <outdir> --configs=default,ss03 --horizon=N [--families=qsPea,qsTea] [--threads=N] [--candidacy-prospect] [--vote-slots-off] [--timings]\n       ams-m1-kernel liveness-cases <spec> <keys> [--features=a,b] [--candidacy-prospect] [--vote-slots-off]";
+const USAGE: &str = "usage: ams-m1-kernel spec-echo <spec>\n       ams-m1-kernel settle-cases <spec> <cases> [--features=a,b] [--candidacy-prospect] [--vote-slots-off]\n       ams-m1-kernel guard-sweep <spec> [--config=default|ss03+ss05]\n       ams-m1-kernel enumerate <spec> [--features=a,b] [--candidacy-prospect] [--vote-slots-off] [--deep-classes-off] [--timings] [--cache-census]\n       ams-m1-kernel enumerate-configs <spec> <outdir> --configs=default,ss03 [--threads=N] [--candidacy-prospect] [--vote-slots-off] [--deep-classes-off] [--timings] [--cache-census]\n       ams-m1-kernel build-tables <spec> <outdir> --configs=default,ss03 --inputs=<stamp> [--threads=N] [--config-seed-off] [--seed=<dir> [--edited=qsPea,qsTea] [--moved-classes=a,b]] [--memo-stamp=<text>] [--candidacy-prospect] [--vote-slots-off] [--deep-classes-off] [--timings] [--cache-census]\n       ams-m1-kernel replay-strings <spec> <outdir> --configs=default,ss03 --horizon=N [--families=qsPea,qsTea] [--threads=N] [--candidacy-prospect] [--vote-slots-off] [--timings]\n       ams-m1-kernel replay-emitted <windows> --config=default --table=<settlement.tsv> --order=<order.tsv> --context=<context.tsv> [--timings]\n       ams-m1-kernel liveness-cases <spec> <keys> [--features=a,b] [--candidacy-prospect] [--vote-slots-off]";
 
 /// What a command line named, before any verb has said how many positionals it wants. The three mode flags are spelled as negations because all three modes ship on, so a plain invocation is the shipping configuration.
 struct Flags<'a> {
@@ -63,6 +64,9 @@ struct Flags<'a> {
     edited: Option<Vec<&'a str>>,
     moved_classes: Option<Vec<&'a str>>,
     memo_stamp: Option<&'a str>,
+    table: Option<&'a str>,
+    order: Option<&'a str>,
+    context: Option<&'a str>,
     simulated_prospect: bool,
     vote_slots: bool,
     deep_classes: bool,
@@ -83,6 +87,8 @@ struct Vocabulary {
     timings: bool,
     /// `--horizon=` and `--families=`, the string replay's own two: how deep to walk, and which runes' texts to walk.
     horizon: bool,
+    /// The shipped-order walk's three files: `--table=`, `--order=` and `--context=`, which only ever arrive together and beside `--config=`.
+    emitted: bool,
     /// The table build's own five: `--config-seed-off` enumerates every configuration from scratch instead of reading `default`'s finished memo for the windows a configuration shares with it; `--seed=` names a previous build's memo files, and `--edited=` the runes and `--moved-classes=` the predicate classes that moved since, which only arrive beside it; `--memo-stamp=` is the stamp this build writes its own memo files under, and a build handed none writes none.
     seeding: bool,
 }
@@ -96,6 +102,7 @@ const CASES_FLAGS: Vocabulary = Vocabulary {
     inputs: false,
     timings: false,
     horizon: false,
+    emitted: false,
     seeding: false,
 };
 const ENUMERATE_FLAGS: Vocabulary = Vocabulary {
@@ -106,6 +113,7 @@ const ENUMERATE_FLAGS: Vocabulary = Vocabulary {
     inputs: false,
     timings: true,
     horizon: false,
+    emitted: false,
     seeding: false,
 };
 const CONFIGS_FLAGS: Vocabulary = Vocabulary {
@@ -116,6 +124,7 @@ const CONFIGS_FLAGS: Vocabulary = Vocabulary {
     inputs: false,
     timings: true,
     horizon: false,
+    emitted: false,
     seeding: false,
 };
 const TABLES_FLAGS: Vocabulary = Vocabulary {
@@ -126,6 +135,7 @@ const TABLES_FLAGS: Vocabulary = Vocabulary {
     inputs: true,
     timings: true,
     horizon: false,
+    emitted: false,
     seeding: true,
 };
 /// The replay spells the fan-out's configuration flags and the timing diagnostic, plus its own two, and neither the grain nor the stamp: it settles single windows and writes no artifact. `--cache-census` rides in with `--timings` by the vocabulary's shape and [`plan_replay`] refuses it, since the walk keeps no memo the census could read.
@@ -137,6 +147,7 @@ const REPLAY_FLAGS: Vocabulary = Vocabulary {
     inputs: false,
     timings: true,
     horizon: true,
+    emitted: false,
     seeding: false,
 };
 /// `guard-sweep` names one configuration or none; its world is pinned in `guard.rs`, so [`plan_guard`] refuses the mode flags [`scan_flags`] accepts for every other verb.
@@ -148,6 +159,20 @@ const GUARD_FLAGS: Vocabulary = Vocabulary {
     inputs: false,
     timings: false,
     horizon: false,
+    emitted: false,
+    seeding: false,
+};
+
+/// The shipped-order walk names one configuration, its three files and the timing diagnostic, and no world at all: it settles nothing, so the mode flags are refused in [`plan_emitted`] rather than read, as `--cache-census` is.
+const EMITTED_FLAGS: Vocabulary = Vocabulary {
+    grain: false,
+    features: false,
+    config: true,
+    configs: false,
+    inputs: false,
+    timings: true,
+    horizon: false,
+    emitted: true,
     seeding: false,
 };
 
@@ -228,6 +253,16 @@ struct ReplayPlan<'a> {
     timings: bool,
 }
 
+/// What a `replay-emitted` invocation asked for: the window enumeration to walk (`-` for standard input), the configuration it belongs to, that configuration's own settlement TSV, the shipped order and the configuration's context.
+struct EmittedPlan<'a> {
+    windows: &'a str,
+    config: &'a str,
+    table: &'a str,
+    order: &'a str,
+    context: &'a str,
+    timings: bool,
+}
+
 /// What a `liveness-cases` invocation asked for. There is no grain flag: a fiber partition is derived wherever the deep world holds, whatever grain an enumeration would then be written at.
 struct LivenessPlan<'a> {
     spec: &'a str,
@@ -291,6 +326,12 @@ fn main() -> ExitCode {
             };
             replay_strings(&plan)
         }
+        "replay-emitted" => {
+            let Some(plan) = plan_emitted(rest) else {
+                return usage();
+            };
+            replay_emitted(&plan)
+        }
         "liveness-cases" => {
             let Some(plan) = plan_liveness(rest) else {
                 return usage();
@@ -332,6 +373,9 @@ fn scan_flags(rest: &[String], vocabulary: Vocabulary) -> Option<Flags<'_>> {
     let mut edited: Option<Vec<&str>> = None;
     let mut moved_classes: Option<Vec<&str>> = None;
     let mut memo_stamp: Option<&str> = None;
+    let mut table: Option<&str> = None;
+    let mut order: Option<&str> = None;
+    let mut context: Option<&str> = None;
     let mut simulated_prospect = true;
     let mut vote_slots = true;
     let mut deep_classes = true;
@@ -372,6 +416,27 @@ fn scan_flags(rest: &[String], vocabulary: Vocabulary) -> Option<Flags<'_>> {
                 return None;
             }
             memo_stamp = Some(stamp);
+        } else if vocabulary.emitted
+            && let Some(path) = argument.strip_prefix("--table=")
+        {
+            if path.is_empty() || table.is_some() {
+                return None;
+            }
+            table = Some(path);
+        } else if vocabulary.emitted
+            && let Some(path) = argument.strip_prefix("--order=")
+        {
+            if path.is_empty() || order.is_some() {
+                return None;
+            }
+            order = Some(path);
+        } else if vocabulary.emitted
+            && let Some(path) = argument.strip_prefix("--context=")
+        {
+            if path.is_empty() || context.is_some() {
+                return None;
+            }
+            context = Some(path);
         } else if vocabulary.timings && argument == "--timings" {
             timings = true;
         } else if vocabulary.timings && argument == "--cache-census" {
@@ -425,6 +490,8 @@ fn scan_flags(rest: &[String], vocabulary: Vocabulary) -> Option<Flags<'_>> {
                 return None;
             }
             families = Some(list.split(',').collect());
+        } else if vocabulary.emitted && argument == "-" {
+            positionals.push(argument.as_str());
         } else if argument.starts_with('-') {
             return None;
         } else {
@@ -447,6 +514,9 @@ fn scan_flags(rest: &[String], vocabulary: Vocabulary) -> Option<Flags<'_>> {
         edited,
         moved_classes,
         memo_stamp,
+        table,
+        order,
+        context,
         simulated_prospect,
         vote_slots,
         deep_classes,
@@ -609,6 +679,25 @@ fn plan_replay(rest: &[String]) -> Option<ReplayPlan<'_>> {
         threads: flags.threads,
         simulated_prospect: flags.simulated_prospect,
         vote_slots: flags.vote_slots,
+        timings: flags.timings,
+    })
+}
+
+/// A world flag on this verb is a usage error: the walk settles nothing, so there is no world for it to answer in, and a caller spelling one has the wrong verb.
+fn plan_emitted(rest: &[String]) -> Option<EmittedPlan<'_>> {
+    let flags = scan_flags(rest, EMITTED_FLAGS)?;
+    if flags.census || !flags.simulated_prospect || !flags.vote_slots {
+        return None;
+    }
+    let [windows] = flags.positionals.as_slice() else {
+        return None;
+    };
+    Some(EmittedPlan {
+        windows,
+        config: flags.config?,
+        table: flags.table?,
+        order: flags.order?,
+        context: flags.context?,
         timings: flags.timings,
     })
 }
@@ -893,6 +982,41 @@ fn replay_strings(plan: &ReplayPlan<'_>) -> Result<(), String> {
     }
     write_lines(&lines)?;
     clock.finish("replay_total");
+    Ok(())
+}
+
+/// One configuration's rows walked against the shipped order, read from the file the plan names or from standard input for `-`. The answer is one JSON line; a disagreement is the walk's own complaint, prefixed with the configuration the way the fan-out prefixes its refusals.
+fn replay_emitted(plan: &EmittedPlan<'_>) -> Result<(), String> {
+    let mut clock = Timings::new(fanout::Report::timed(plan.timings));
+    let started = Instant::now();
+    let read =
+        |path: &str| std::fs::read_to_string(path).map_err(|error| format!("{path}: {error}"));
+    let table = artifacts::read_settlement_tsv(&read(plan.table)?)
+        .map_err(|complaint| format!("{}: {complaint}", plan.table))?;
+    let order = artifacts::read_settlement_tsv(&read(plan.order)?)
+        .map_err(|complaint| format!("{}: {complaint}", plan.order))?;
+    let context = shipped_order::read_context(&read(plan.context)?)
+        .map_err(|complaint| format!("{}: {complaint}", plan.context))?;
+    let mut walk = shipped_order::Walk::new(plan.config, &table, &order, &context);
+    let report = if plan.windows == "-" {
+        walk.walk(&mut std::io::stdin().lock())
+    } else {
+        let file = std::fs::File::open(plan.windows)
+            .map_err(|error| format!("{}: {error}", plan.windows))?;
+        walk.walk(&mut std::io::BufReader::with_capacity(1 << 20, file))
+    }
+    .map_err(|complaint| format!("{}: {complaint}", plan.windows))?;
+    write_lines(&[format!(
+        "{{\"config\":{},\"rows\":{},\"expanded\":{}}}",
+        json_string(plan.config),
+        report.rows,
+        report.expanded
+    )])?;
+    clock.record(
+        &format!("replay_emitted[{}]", plan.config),
+        started.elapsed(),
+    );
+    clock.finish("replay_emitted_total");
     Ok(())
 }
 

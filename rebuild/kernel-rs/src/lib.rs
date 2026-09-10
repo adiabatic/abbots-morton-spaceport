@@ -25,6 +25,7 @@ pub mod parse;
 pub mod replay;
 pub mod rulefold;
 pub(crate) mod sha256;
+pub mod shipped_order;
 pub mod specificity;
 pub mod stream;
 pub mod types;
