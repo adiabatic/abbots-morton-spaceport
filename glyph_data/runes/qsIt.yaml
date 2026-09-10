@@ -141,10 +141,6 @@ policy:
         family: qsDay
         stance: half
       right: {family: qsUtter}
-  - entry: baseline
-    when:
-      left: {family: qsThey}
-      right: {family: qsDay}
   - entry: x-height
     when:
       left: {family: qsThey}
