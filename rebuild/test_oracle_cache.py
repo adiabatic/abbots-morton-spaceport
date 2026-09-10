@@ -233,6 +233,22 @@ def test_a_ligature_rune_edit_invalidates_only_rows_carrying_all_its_components(
     assert "qsTea_qsOy" not in ligature.families_of(ligature.mask_of(tea_pea))
 
 
+def test_a_ligature_rune_edit_stales_the_windows_carrying_its_formed_label():
+    """The settle memo's grain (issue 202): its windows hold formed labels, so a window of ·Tea+Oy labels names the ligature rune and neither component, and the component clause alone would serve every such window across an edit to `qsTea_qsOy.yaml`. The formed label's bit must read as moved on its own; a component's label alone still must not, and an edit to a component must not retire a window naming only the formed ligature, whose file the edit never touched."""
+    spec = fixtures.mini_spec()
+    ligature = oracle_cache.StaleMask(spec, {"qsTea_qsOy"})
+    formed = ligature.bit_of("qsTea_qsOy")
+    assert formed and ligature.stale(formed)
+    assert not ligature.stale(ligature.bit_of("qsTea"))
+    assert not ligature.stale(ligature.bit_of("qsOy"))
+    assert ligature.stale(ligature.bit_of("qsTea") | ligature.bit_of("qsOy"))
+    assert ligature.bit_of("#EDGE") == 0
+
+    component = oracle_cache.StaleMask(spec, {"qsTea"})
+    assert component.stale(component.bit_of("qsTea"))
+    assert not component.stale(component.bit_of("qsTea_qsOy"))
+
+
 def test_a_moved_family_the_registry_cannot_place_stales_every_row():
     """The escape hatch under the mask: a moved name carrying neither a codepoint nor a sequence — a rune file appearing for a family the registry has not been taught yet — reaches rows by a route the bits cannot describe, so it stales all of them rather than none."""
     spec = fixtures.mini_spec()

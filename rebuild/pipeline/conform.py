@@ -680,7 +680,7 @@ class _RefusedWindow:
 
 @dataclass(frozen=True)
 class SettleMemoFile:
-    """Where one configuration's settle memo lives between phases and what it must be keyed with to be read. The belt and the oracle each hold a walk over the same texts, so whichever runs first writes the file and the other loads it instead of settling. `stamp` is the whole-memo stamp (`oracle_cache.settle_memo_stamp`: the walk's code closure, the non-rune data, the resolved spec structure and capability-feature universe, the engine's settlement flags, the configuration) and `family_keys` the per-family rune keys (`oracle_cache.settle_family_keys`), on the oracle row cache's own two-grained argument: a window's settlement is a function of the rune files its six slots name — every ligature rune whose components all appear among them included — and of nothing another rune file holds, so a file that carries another stamp is treated as absent, and a file under the same stamp serves every entry naming no moved family and drops the rest."""
+    """Where one configuration's settle memo lives between phases and what it must be keyed with to be read. The belt and the oracle each hold a walk over the same texts, so whichever runs first writes the file and the other loads it instead of settling. `stamp` is the whole-memo stamp (`oracle_cache.settle_memo_stamp`: the walk's code closure, the non-rune data, the resolved spec structure and capability-feature universe, the engine's settlement flags, the configuration) and `family_keys` the per-family rune keys (`oracle_cache.settle_family_keys`), on the oracle row cache's own two-grained argument: a window's settlement is a function of the rune files its six slots name — a formed ligature label naming its rune directly, and every ligature rune whose components all appear among them included — and of nothing another rune file holds, so a file that carries another stamp is treated as absent, and a file under the same stamp serves every entry naming no moved family and drops the rest."""
 
     path: Path
     stamp: str
@@ -864,7 +864,7 @@ class _SettledWindowWalk:
         return outcome
 
     def _load_memo(self) -> None:
-        """Read the shared memo file into `_cold`, once, on the first wave that would otherwise reach the crate. A file that is missing, carries another stamp, or will not decode loads nothing — or as many whole blocks as decoded before it broke, every one of which is a valid memo entry on its own — and the walk settles the rest as it always has. A file under this stamp whose family keys moved loads every block minus the entries naming a moved family, counted in `stale_windows`; a moved family the registry cannot place stales the whole file."""
+        """Read the shared memo file into `_cold`, once, on the first wave that would otherwise reach the crate. A file that is missing, carries another stamp, or will not decode loads nothing — or as many whole blocks as decoded before it broke, every one of which is a valid memo entry on its own — and the walk settles the rest as it always has. A file under this stamp whose family keys moved loads every block minus the entries naming a moved family — by a letter's label, by a formed ligature's label, or by both components of a moved ligature rune — counted in `stale_windows`; a moved family the registry cannot place stales the whole file."""
         self._memo_loaded = True
         if self.memo is None:
             return

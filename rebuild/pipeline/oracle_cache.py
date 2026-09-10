@@ -20,7 +20,7 @@ The one assumption the key rests on that nothing else in the pipeline pins: ever
 
 Everything degrades toward a full pass. `load_store` answers `None` for an absent, unreadable, format-mismatched, stamp-mismatched, digest-mismatched, short or trailer-less store, and a `None` costs one cold oracle and nothing else; a store whose position stamp or position keys will not compare loads with every position stale, which costs one pass of shaping and nothing else.
 
-The settle memo the oracle shares with the conform belt (`conform.SettleMemoFile`) keys its entries the same way, and its key primitives live here beside the row store's because they are the same primitives: `settle_family_keys` is `family_keys` without the alias line, since the walk never reads the alias map, and `settle_memo_stamp` is the row stamp without the subset and alias-boundary lines, since a memo entry is a settlement and nothing more. A memo entry's reach is read off its window's labels rather than off a row's codepoints — the six slots' families plus every ligature rune all of whose components appear among them — and `StaleMask.bit_of` is the label-grain door into the same mask. `SettleMemoInputs` is the disk-derived half of both, snapshotted before the spec they describe is loaded, on `run_m1.tables_inputs`' discipline: a key cut before the load can only name content the settlements are at least as new as, so a rune edited during a run lands under a key the next pass reports moved, whichever side of the load the edit fell on.
+The settle memo the oracle shares with the conform belt (`conform.SettleMemoFile`) keys its entries the same way, and its key primitives live here beside the row store's because they are the same primitives: `settle_family_keys` is `family_keys` without the alias line, since the walk never reads the alias map, and `settle_memo_stamp` is the row stamp without the subset and alias-boundary lines, since a memo entry is a settlement and nothing more. A memo entry's reach is read off its window's labels rather than off a row's codepoints — the six slots' families, a formed ligature label naming its rune directly, plus every ligature rune all of whose components appear among them — and `StaleMask.bit_of` is the label-grain door into the same mask. `SettleMemoInputs` is the disk-derived half of both, snapshotted before the spec they describe is loaded, on `run_m1.tables_inputs`' discipline: a key cut before the load can only name content the settlements are at least as new as, so a rune edited during a run lands under a key the next pass reports moved, whichever side of the load the edit fell on.
 """
 
 from __future__ import annotations
@@ -302,7 +302,7 @@ def moved_note(recorded: Mapping[str, str], current: Mapping[str, str], limit: i
 
 
 class StaleMask:
-    """The per-row staleness test, as a bitmask over the families a row can reach. One bit per family in sorted registry order; `mask_of` folds a row's codepoints, and `stale` answers whether any moved family is inside — directly, for a family carrying a codepoint, or through the ligature clause, which fires only when every component of a moved ligature rune appears in the row. That clause is `unit_cache.UnitKeyer._relevant_families` inverted at row grain and read off `spec.registry.families[...].sequence` rather than off a `_`-split of the name, because the sequence is the declaration `settle.form_ligatures` actually routes on. A moved family the registry can place neither by codepoint nor by sequence stales every row: over-invalidation is the safe direction, and there is no such family today."""
+    """The per-row staleness test, as a bitmask over the families a row can reach. One bit per family in sorted registry order; `mask_of` folds a row's codepoints, and `stale` answers whether any moved family is inside — directly, for a family carrying a codepoint, or through the ligature clause, which fires only when every component of a moved ligature rune appears in the row. That clause is `unit_cache.UnitKeyer._relevant_families` inverted at row grain and read off `spec.registry.families[...].sequence` rather than off a `_`-split of the name, because the sequence is the declaration `settle.form_ligatures` actually routes on. A moved ligature rune also carries its own bit, because the settle memo keys windows on formed labels: a window whose slot holds `qsThey_qsUtter` names that rune directly and no component, so the component clause alone would serve it across an edit to the ligature's file. A moved family the registry can place neither by codepoint nor by sequence stales every row: over-invalidation is the safe direction, and there is no such family today."""
 
     def __init__(self, spec: ResolvedSpec, moved: Collection[str] = ()) -> None:
         families = spec.registry.families
@@ -328,6 +328,7 @@ class StaleMask:
             if info is not None and info.codepoint is not None:
                 symbols |= self._bit[name]
             elif info is not None and info.sequence:
+                symbols |= self._bit[name]
                 ligatures.append(self._ligatures[name])
             else:
                 self.everything = True
@@ -344,7 +345,7 @@ class StaleMask:
         return mask
 
     def bit_of(self, family: str) -> int:
-        """The bit one family name folds into a mask, zero for a name the registry does not place — a boundary label, a window edge, or an unknown family — which is the label-grain door the settle memo reads through, since a memo window names families by label rather than by codepoint."""
+        """The bit one family name folds into a mask, zero for a name the registry does not place — a boundary label, a window edge, or an unknown family — which is the label-grain door the settle memo reads through, since a memo window names families by label rather than by codepoint. A formed ligature label folds the ligature rune's own bit, which `stale` reads directly when that rune moved."""
         return self._bit.get(family, 0)
 
     def stale(self, mask: int) -> bool:
