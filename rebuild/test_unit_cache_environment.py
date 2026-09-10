@@ -93,8 +93,9 @@ def _served(capfd) -> tuple[int, int]:
 
 
 @pytest.fixture(scope="module")
-def spec():
-    return load_spec(REPO_ROOT)
+def spec(mini_bundle):
+    """The bundle's own spec, which is also the root the stamps below are taken over: the keys are compared with themselves across a font recompile, so any root holding the families serves, and the bundle's keeps the live runes out of these tests' closure."""
+    return load_spec(mini_bundle.spec_root)
 
 
 @pytest.fixture(scope="module")
@@ -104,25 +105,27 @@ def base_surface(tmp_path_factory, mini_bundle):
     return out
 
 
-def test_a_gsub_only_recompile_leaves_every_cache_key_alone(tmp_path, spec):
+def test_a_gsub_only_recompile_leaves_every_cache_key_alone(tmp_path, spec, mini_bundle):
     """The finding this module exists for, stated at the grain it is decided at: appending a GSUB lookup moves nothing the cache stamps. Before this, it moved `after_helpers`, which both whole-store stamps carry, so the whole store went."""
-    families, helpers = unit_cache.family_content_keys(REPO_ROOT, spec, MINI_FONT)
+    root = mini_bundle.spec_root
+    families, helpers = unit_cache.family_content_keys(root, spec, MINI_FONT)
     rewired = _with_extra_gsub_lookup(MINI_FONT, tmp_path / "rewired.otf")
-    families_after, helpers_after = unit_cache.family_content_keys(REPO_ROOT, spec, rewired)
+    families_after, helpers_after = unit_cache.family_content_keys(root, spec, rewired)
     assert helpers == helpers_after
     assert families == families_after
     for stamp in (
-        lambda digest: unit_cache.environment_stamp(REPO_ROOT, spec, MINI, MINI_FONT, MINI_FONT, digest),
-        lambda digest: unit_cache.signature_environment(REPO_ROOT, MINI_FONT, digest),
+        lambda digest: unit_cache.environment_stamp(root, spec, MINI, MINI_FONT, MINI_FONT, digest),
+        lambda digest: unit_cache.signature_environment(root, MINI_FONT, digest),
     ):
         assert stamp(helpers) == stamp(helpers_after)
 
 
-def test_a_widened_family_moves_that_family_key_and_leaves_the_environment(tmp_path, spec):
+def test_a_widened_family_moves_that_family_key_and_leaves_the_environment(tmp_path, spec, mini_bundle):
     """The other half of a recompile, which must land the opposite way: a family whose compiled glyphs moved invalidates at per-unit grain through its own key, and touches no whole-store stamp."""
-    families, helpers = unit_cache.family_content_keys(REPO_ROOT, spec, MINI_FONT)
+    root = mini_bundle.spec_root
+    families, helpers = unit_cache.family_content_keys(root, spec, MINI_FONT)
     widened = _with_a_widened_family(MINI_FONT, tmp_path / "widened.otf")
-    families_after, helpers_after = unit_cache.family_content_keys(REPO_ROOT, spec, widened)
+    families_after, helpers_after = unit_cache.family_content_keys(root, spec, widened)
     assert helpers == helpers_after
     moved = {name for name in families if families[name] != families_after.get(name)}
     assert moved, "widening a family did not move its content key"

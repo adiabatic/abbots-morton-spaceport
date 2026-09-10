@@ -130,10 +130,12 @@ def _alphabet_meta() -> dict:
     return {"migrated": len(M1_ALPHABET & set(LETTERS)), "total": len(LETTERS)}
 
 
-def _inputs_fingerprint(repo_root: Path, m1_dir: Path, before_font: Path, junior_font: Path) -> dict:
+def _inputs_fingerprint(
+    repo_root: Path, m1_dir: Path, before_font: Path, junior_font: Path, spec_root: Path | None = None
+) -> dict:
     """Stage A values are copied from run_m1's recorded inputs_fingerprint.json rather than recomputed, so a surface rebuilt over stale out/m1 artifacts carries the stale hashes and the readiness checker can flag it; nulls mean the record predates fingerprinting."""
     stage_a = fingerprint.read_stage_a(m1_dir) or {key: None for key in fingerprint.STAGE_A_COMPONENTS}
-    return {**stage_a, **fingerprint.stage_b(repo_root, before_font, junior_font)}
+    return {**stage_a, **fingerprint.stage_b(repo_root, before_font, junior_font, spec_root)}
 
 
 def _upem(path: Path) -> int:
@@ -1375,6 +1377,7 @@ def _write_surface(
     font_digests: Mapping[str, str],
     served_ids: Collection[str] = (),
     tally: pile_tally.PileTally | None = None,
+    spec_root: Path | None = None,
 ) -> _WrittenSurface:
     """Stream the per-unit JSON fragments into shards (per class, id order within each), copy fonts, and write the manifest with its parent-once `generated_at`/`repo_head` stamps and the triage index (`human_unit_ids`, in the order `workload.units` stands in, which `build_m1` has sorted by `audit.triage_key`; a batch is a slice of it). `fragments` is asked once, for every unit in the order the shards will take them — classes in `unit_index.class_shard_key` order, which is the order the sidecars are written in anyway, and each class's units by id, so a class's fragments and its locator rows ascend together and a fresh unit lands where its content puts it rather than where the queue does — and each fragment it yields is written, checked, projected onto the sidecar spools and released before the next is pulled, so the parent holds one fragment at a time rather than every unit's from the moment they exist until the manifest. What survives a fragment is slim: its shard address and the checker's per-unit identity for the cross-unit predicates, its sidecar lines on disk, and the two values `_WrittenSurface` carries. `check_shards`' predicates run over the fragments as they go by, through the same `_SurfaceCheck` the whole-surface form feeds, and `served_ids` carries the cache's plan into it (see `check_shards`). The manifest-shape predicates (`check_manifest`) and the beside-the-manifest file predicates (`_check_output_files`) do not run per build: every field they read is written right here out of this function's own inputs, and the fonts are held instead by the digest taken at load and asserted at `_copy_font`. `check_output_dir` proves them over a real build once per contracts run — `rebuild/test_app_index.py` over the mini bundle, `rebuild/test_review_build.py` over a table diff — and `refresh_assets` still runs the file predicates over the surface it restamps."""
     ordered = sorted(classes, key=lambda entry: unit_index.class_shard_key(entry.id))
@@ -1467,7 +1470,9 @@ def _write_surface(
             "mode": "m1-audit",
             "generated_at": _generated_at(audit_path, ledger_path, before_font, after_font),
             "repo_head": _repo_head(repo_root),
-            "inputs_fingerprint": _inputs_fingerprint(repo_root, subset_dir, before_font, junior_font),
+            "inputs_fingerprint": _inputs_fingerprint(
+                repo_root, subset_dir, before_font, junior_font, spec_root
+            ),
             "source": {
                 "audit": _relative(audit_path, repo_root),
                 "ledger": _relative(ledger_path, repo_root),
@@ -1656,7 +1661,7 @@ def build_m1(
     fresh_unit_cache: bool = False,
     spec_root: Path | None = None,
 ) -> dict:
-    # The spec is the one input a frozen workload cannot carry in its tables: the enricher re-settles every window from it, so a bundle of audit rows, subsets and a font describes a rebuild that only still happens while the runes agree with them. `spec_root` lets such a bundle name its own frozen copy (the objects rebuild/review/fixtures/mini/pin.json names, materialized out of git by the rebuild suite's mini_bundle fixture) and stay hermetic across rune edits; everything else — the fingerprints, the git head, the relative paths in the manifest, the corpus pins — stays on `repo_root`, because those are facts about this checkout rather than about the workload.
+    # The spec is the one input a frozen workload cannot carry in its tables: the enricher re-settles every window from it, so a bundle of audit rows, subsets and a font describes a rebuild that only still happens while the runes agree with them. `spec_root` lets such a bundle name its own frozen copy (the objects rebuild/review/fixtures/mini/pin.json names, materialized out of git by the rebuild suite's mini_bundle fixture) and stay hermetic across rune edits; everything else — the fingerprints, the git head, the relative paths in the manifest, the corpus pins — stays on `repo_root`, because those are facts about this checkout rather than about the workload; the one fingerprint component that follows the spec is `explain_prose`, since the refuse and ledger rationales the surface quotes are the spec root's, which is also what keeps a bundled build's manifest from reading the live runes.
     spec_root = Path(spec_root) if spec_root is not None else Path(repo_root)
     out_dir = Path(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -1982,6 +1987,7 @@ def build_m1(
                 font_digests,
                 served_ids=frozenset(served_by_id),
                 tally=tally,
+                spec_root=spec_root,
             )
         finally:
             reader.close()

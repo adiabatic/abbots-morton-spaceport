@@ -6,7 +6,7 @@ A run that actually spawns the suite is judged through the cycle's own failure c
 
 The suite runs narrower than its key says. The green record carries a per-test input closure beside the key — what each test read, imported and spawned, recorded by rebuild/conftest.py's audit guard — and when the key has moved this wrapper diffs the record's per-label digests against the tree, writes the ids the diff cannot reach to a selection file the suite deselects from, and prints what that kept off. `rebuild.tools.contracts_closure` is the authority on the closure and the selection, and its rule is that every doubt runs the test: a test with no closure, a new or renamed id, a test that spawned a child the hook could not follow, and every test at all when an input was added or removed or a global one moved. A green narrowed run records a green for the whole suite, because the tests it kept off passed against inputs whose bytes have not changed, and it merges its sidecar into the record so those tests keep the closures they were recorded with. `--force` runs the whole suite and re-records every closure.
 
-AMS_RUN_PYRIGHT rides the environment into the spawned suite: pyright checks the whole tree from `[tool.pyright] include`, and the suite's pytest_configure is where it runs, overlapping collection.
+AMS_RUN_PYRIGHT rides the environment into the spawned suite: pyright checks the whole tree from `[tool.pyright] include`, and the suite's pytest_configure is where it runs, overlapping collection — under its own green record (`rebuild.tools.pyright_gate`), so a run this wrapper narrows to a rune edit's tests spawns no type check at all.
 
 AMS_POOL_UNIT names the pool (POOL_UNIT_BY_LANE), which is what has the suite's xdist controller append a kind:"pool" line to the cycle-timings journal recording every worker's peak, the observation `make job-costs` reports for this suite. The name is written into a copy of the environment and never into the shared one, so nothing spawned after the suite inherits it.
 """
@@ -36,8 +36,8 @@ from rebuild.tools.artifact_cycle import (
     record_green,
 )
 from rebuild.tools.cycle_timings import POOL_UNIT_ENV, CheckVerdict, record_check
+from rebuild.tools.pyright_gate import PYRIGHT_ENV
 
-PYRIGHT_ENV = "AMS_RUN_PYRIGHT"
 POOL_UNIT_BY_LANE = {"contracts": "rebuild-contracts"}
 
 

@@ -441,6 +441,16 @@ def test_corrupt_signature_store_reshapes_and_degrades_to_the_same_bytes(
     assert _tree(surface) == _tree(base_surface)
 
 
+def test_a_bundled_build_stamps_the_explain_prose_of_its_own_spec(base_surface, mini_bundle):
+    """The manifest's `explain_prose` is the bundle's, not the checkout's: the rationales the mini surface quotes come from the spec root the fixture materializes, and hashing the live runes for it would both misdescribe the surface and put every live rune into this whole module's closure — the base surface is what every test here builds on."""
+    from rebuild.pipeline import fingerprint
+
+    manifest = json.loads((base_surface / "manifest.json").read_text(encoding="utf-8"))
+    assert manifest["inputs_fingerprint"]["explain_prose"] == fingerprint.explain_prose_value(
+        mini_bundle.spec_root
+    )
+
+
 def test_unit_store_environment_tracks_each_kernel_settlement_mode(monkeypatch):
     """The stamp a cached store is keyed on has to move when the kernel's settlement mode does, or a store written under one mode would serve units the other never produced. The subset directory is only hashed, never read for content, so the frozen bundle stands in for the live one."""
     spec = fixtures.mini_spec()
