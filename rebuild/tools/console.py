@@ -447,7 +447,7 @@ class Digest:
         self.stop()
 
     def replay(self, lines: Sequence[str]) -> None:
-        """Lines the terminal has already shown, into `terminal.log` alone. The driver answers three questions before there is a digest to catch them — whether a red cycle's snapshot is being kept, whether anything carryable was found, and which master the carry resolved to — and the copy of the terminal is meant to be a copy, so they are written into the file rather than said to the reader twice."""
+        """Lines the terminal has already shown, into `terminal.log` alone. The driver answers two questions before there is a digest to catch them — whether anything carryable was found, and which master the carry resolved to — and the copy of the terminal is meant to be a copy, so they are written into the file rather than said to the reader twice."""
         with self._lock:
             if self._terminal is None:
                 return
@@ -695,7 +695,7 @@ class Digest:
         return state
 
     def _open_log(self, state: _StepState) -> None:
-        """Open a step's log file, which happens on the first line that step's child prints rather than when its banner goes up. A step that spawns nothing — the snapshot and the retention pass both run in this process — would otherwise leave an empty file in every run directory, and a run directory reads best when a file in it means a child ran."""
+        """Open a step's log file, which happens on the first line that step's child prints rather than when its banner goes up. A step that spawns nothing — the retention pass runs in this process — would otherwise leave an empty file in every run directory, and a run directory reads best when a file in it means a child ran."""
         if self.log_dir is None:
             return
         number = 0 if state.number is None else state.number

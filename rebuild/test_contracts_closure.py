@@ -480,7 +480,6 @@ def test_the_cycle_plan_names_the_narrowing(tmp_path, monkeypatch):
         verdicts=None,
         no_carry=True,
         carry_out=None,
-        snapshot_dir=tmp_path / "snap",
         skip_gates=False,
         first_run=False,
         short_id="abc",

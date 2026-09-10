@@ -24,7 +24,7 @@ pkill -f 'rebuild\.review\.serve'
 
 ## What a pass does
 
-- Snapshot the served surface, rebuild the M1 font and tables, rebuild the review surface, run the verdict chain, refresh the census pins, run the gates, check the checked-in per-unit memory peaks against what this box measured, and on a green finish prune the regenerable piles.
+- Rebuild the M1 font and tables, rebuild the review surface, run the verdict chain, refresh the census pins, run the gates, check the checked-in per-unit memory peaks against what this box measured, and on a green finish prune the regenerable piles.
 - Every heavy stage skips when its green record proves its inputs unchanged since its last green run, so a pass that changed nothing costs seconds. A gate that did not run is unverified, not waived: `make verdict-ready` reads NOT READY until one does.
 - A green pass closes on the readiness checklist itself, so there is nothing to run after it; `make verdict-ready` is the form for asking on its own.
 - When only comparison-side inputs moved, the pass re-runs the gates over the artifacts already on disk instead of rebuilding them; `doc/testing.md` § Re-adjudicating without a build is the recipe and names the roster.
@@ -71,7 +71,7 @@ uv run python -m rebuild.tools.merge_verdicts --restore-as-of <time> --apply
 
 A green pass ends with a retention pass over the regenerable piles; `--keep-history` skips it, and the tracked copy under `rebuild/evidence/` is never touched. Both piles live under `var/`, the gitignored tree for output that outlives a run; `tmp/` holds only scratch and is safe to wipe between change sets.
 
-- Only this pass's `var/review-pre-*` snapshot and the stamp-aligned `verdicts-carried-<sha>.json` survive.
+- Only the stamp-aligned `verdicts-carried-<sha>.json` survives among the root carried files.
 - `verdicts-autosave-*` stashes older than the journal's last base event go; the journal replays them.
 - The journal is compacted to the restore floor `RETENTION_WINDOW_DAYS` states, and run directories under `var/build-logs/` beyond `BUILD_LOGS_KEEP` go (both in `rebuild/tools/artifact_cycle.py`).
 
