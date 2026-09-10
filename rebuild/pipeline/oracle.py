@@ -9,6 +9,7 @@ The producer of what the oracle classifies stays in conform.py: `_compare_row` a
 
 from __future__ import annotations
 
+import functools
 import itertools
 import os
 import shutil
@@ -39,6 +40,7 @@ from rebuild.pipeline.conform import (
     load_alias_map,
 )
 from rebuild.pipeline.model import ResolvedSpec, isolated_overlay_active
+from rebuild.pipeline.spec_load import DEFAULT_REGISTRY_PATH
 from rebuild.validation.rowmodel import Row, format_codepoints, iter_rows
 
 # The same bound on the oracle's side, where the texts arrive as baseline rows rather than as a product.
@@ -138,6 +140,17 @@ def unaliased_subset_names(subset_dir: Path, alias_path: Path) -> dict[str, list
     return {name: sorted(configs) for name, configs in sorted(missing.items())}
 
 
+@functools.cache
+def ss10_formable_pairs(registry_path: Path = DEFAULT_REGISTRY_PATH) -> frozenset[str]:
+    """Every ligature the registry declares, as the colon-joined codepoints of its component sequence (`E653:E67A` for qsDay_qsUtter). `rebuild/script.yaml` is the authority on which sequences form, so the ss10 suppression arm of `classify_divergence` reads its roster from there rather than from a hand-kept list a newly migrated ligature would have to remember to extend."""
+    families = yaml.safe_load(registry_path.read_text(encoding="utf-8"))["families"]
+    return frozenset(
+        format_codepoints(tuple(int(families[name]["codepoint"]) for name in info["sequence"]))
+        for info in families.values()
+        if info.get("sequence")
+    )
+
+
 def classify_divergence(row: DivergentRow) -> str | None:
     """Assign a divergent row to exactly one ledger class from its phenomenon set (computed by `_compare_row` against the alias map). The set is a partition by construction: each row gets the single highest-precedence class, with the precedence documented in rebuild/m1-divergences.yaml. None = unexplained, which fails conformance."""
     phenomena = set(row.phenomena)
@@ -150,10 +163,8 @@ def classify_divergence(row: DivergentRow) -> str | None:
         # The ratified boundary-equals-word-boundary rule (design section 3.4): the new font renders every segment of a window containing a run-splitting boundary (space or ZWNJ) identically to that segment standing alone — enforced per build by the belt's own split-buffer check — so a boundary row can only diverge from the baseline where the old font was itself inconsistent across the boundary, and every segment-internal divergence resurfaces on the segment's own enumerated row. Boundary rows therefore carry no adjudicable information and are absorbed wholesale, ahead of every other cell/seam-grain class.
         return "boundary-echo"
     if "ligation" in phenomena:
-        # Under the isolated overlay the new font never forms the ligature at all (the ss10 pre-empt replaces every letter before formation) while the old font keeps drawing its own ligature, so the suppression class outranks the marker-staging one (whose 00B7 arm would otherwise swallow the namer-dot ss10 windows).
-        if row.config == "ss10" and (
-            "E653:E67A" in row.codepoints or "E652:E679" in row.codepoints or "E67B:E652" in row.codepoints
-        ):
+        # Under the isolated overlay the new font never forms the ligature at all (the ss10 pre-empt replaces every letter before formation) while the old font keeps drawing its own ligature, so the suppression class outranks the marker-staging one (whose 00B7 arm would otherwise swallow the namer-dot ss10 windows). The formable pairs are the registry's ligature sequences, so a newly migrated ligature never leaves its ss10 rows unmatched.
+        if row.config == "ss10" and any(pair in row.codepoints for pair in ss10_formable_pairs()):
             return "ss10-ligature-suppressed"
         if "E67B:E652" in row.codepoints and "ss03" in row.config:
             return "ss03-out-tea-ligature-kept"
@@ -342,6 +353,12 @@ def _may_ligature_seam_loosened(row: DivergentRow) -> bool:
 # qsKey joined at its own migration on the qsAwe shape: no stances in the old record, so its top entry and baseline exit both ride the base cmap glyph and bare qsKey keeps its seams under ss10 (qsSee|qsKey stays y8, qsKey|qsVie stays y0), while the receivers the old font serves through contextual forms (qsTea.en-y0.en-ext-1, qsDay.half, qsMay.en-y0.ex-y5, qsNo.alt) are substituted away and isolate correctly.
 # qsThaw joined at its own migration on the qsOut precedent, entry side only: its baseline entry anchor rides the bare cmap glyph, so every left whose exit anchor also survives the overlay keeps joining it under the old ss10 (qsBay|qsThaw stays y0, likewise qsDay/qsEt/qsEight/qsAwe/qsOx/qsOy/qsOoze — and qsPea|qsThaw rejoins under ss10 alone, because the after-tall break is itself a calt substitution the overlay disables), while its one exit lives on a calt stance the overlay does substitute away (qsThaw|qsIng breaks under ss10).
 # Bare qsZoo retains its x-height entry and baseline exit under the old ss10 overlay (qsMay|qsZoo stays y5 and qsZoo|qsVie stays y0); its half form is substituted away and loses the baseline entry.
+# qsI is a member on the qsAwe shape, both sides: its baseline entry and x-height exit ride the base cmap glyph (qsPea|qsI stays y0, qsI|qsEt and qsI|qsRoe stay y5), and its one stance carries the same two anchors.
+# qsEt is a member on the qsAwe shape: no stances in the old record, so its x-height entry and baseline exit both ride the base cmap glyph (qsMay|qsEt stays y5, qsEt|qsVie stays y0).
+# qsSee is a member on both sides: its baseline entry and top exit ride the base cmap glyph (qsPea|qsSee stays y0, qsSee|qsKey stays y8, the one receiver with a top entry), while the y6 and baseline exits live on stances the overlay substitutes away (qsSee|qsVie breaks under ss10).
+# qsRoe is a member on the qsOut precedent, entry side only: both its entries ride the base cmap glyph (qsPea|qsRoe stays y0, qsMay|qsRoe stays y5), while every exit lives on a stance the overlay substitutes away (qsRoe|qsVie breaks under ss10).
+# qsVie is a member on the qsOut precedent, entry side only: its baseline entry rides the base cmap glyph (qsPea|qsVie and qsEt|qsVie stay y0), while its one exit lives on a stance the overlay substitutes away (qsVie|qsAh breaks under ss10).
+# Membership is every migrated letter whose bare old glyph carries a live anchor; the overlay's other surviving exits — bare qsPea, qsMay and qsOy — only ever land on a member's entry, so every join the old font draws under ss10 touches a member.
 SS10_UNCOVERED_BY_OLD_FONT = frozenset(
     {
         "qsAh",
@@ -361,13 +378,18 @@ SS10_UNCOVERED_BY_OLD_FONT = frozenset(
         "qsKey",
         "qsThaw",
         "qsZoo",
+        "qsI",
+        "qsEt",
+        "qsSee",
+        "qsRoe",
+        "qsVie",
     }
 )
 
 
 @predicate("ss10_isolation_completed")
 def _ss10_isolation_completed(row: DivergentRow) -> bool:
-    """Under ss10 the new model renders every position bare (the overlay forces the default stance with no seam), so a join the old font still drew there reads as a seam-loss. The old font's ss10 overlay was authored before the runes in `SS10_UNCOVERED_BY_OLD_FONT` (whose anchors ride the base cmap glyph, so the old overlay keeps their joins too) and never isolates them, so it keeps joining the new letters under ss10; the new font's complete isolation is the intended correction. Matches ss10 rows whose only seam change is losses, each on a seam touching one of those new runes (an existing|existing seam never joins under the old ss10, so it can never reach here). Space and ZWNJ rows are excluded so the boundary-echo blanket keeps the partition exact."""
+    """Under ss10 the new model renders every position bare (the overlay forces the default stance with no seam), so a join the old font still drew there reads as a seam-loss. The old font's ss10 overlay was authored before the runes in `SS10_UNCOVERED_BY_OLD_FONT` (whose anchors ride the base cmap glyph, so the old overlay keeps their joins too) and never isolates them, so it keeps joining the new letters under ss10; the new font's complete isolation is the intended correction. Matches ss10 rows whose only seam change is losses, each on a seam touching one of those runes; a lost seam between two non-members stays unmatched, and since the overlay's surviving exits outside the set (bare qsPea, qsMay and qsOy) only ever land on a member's entry, the old font draws no such seam and any that appears is a regression to surface. Space and ZWNJ rows are excluded so the boundary-echo blanket keeps the partition exact."""
     if {"0020", "200C"} & set(row.codepoints.split(":")):
         return False
     if row.config != "ss10" or "seam" not in row.kinds:
