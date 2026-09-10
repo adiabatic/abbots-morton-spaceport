@@ -142,6 +142,26 @@ def test_a_stamp_matching_pair_carries_onto_the_renumbered_surface(tmp_path, mon
     assert [record["unit"] for record in payload["verdicts"]] == ["u-9"]
 
 
+def test_the_carry_prints_its_four_figures_whatever_it_landed(tmp_path, monkeypatch, capsys):
+    """The line the cycle records off the carry: every human unit on the new surface, how many a prior verdict keyed onto, how many none did, and how many prior verdicts found no unit to land on."""
+    kept, gone = _content_unit("E650:E652"), _content_unit("E652:E653")
+    prior = tmp_path / "prior"
+    _write_surface(prior, "2026-07-01T00:00:00Z", [kept, gone])
+    current = tmp_path / "current"
+    _write_surface(current, "2026-07-02T00:00:00Z", [kept])
+    verdicts = tmp_path / "verdicts.json"
+    _write_verdicts(
+        verdicts,
+        "2026-07-01T00:00:00Z",
+        [
+            {"unit": kept["id"], "verdict": "approve", "note": "", "at": "2026-07-01T01:00:00Z"},
+            {"unit": gone["id"], "verdict": "reject", "note": "", "at": "2026-07-01T01:00:00Z"},
+        ],
+    )
+    _run_carry(monkeypatch, prior, verdicts, tmp_path / "out.json", current)
+    assert "carry figures: human=1 key_hits=1 unhit=0 stranded=1" in capsys.readouterr().out.splitlines()
+
+
 def test_a_change_to_the_judged_window_moves_the_content_key():
     """The complement, so the exclusions above cannot pass by keying on nothing: the fields the reviewer judges — the window, the configs it covers, and the cells and seams both fonts draw — are all in the key, and moving any of them retires the old verdict instead of carrying it onto a different question."""
     unit = _fixture_units()[0]

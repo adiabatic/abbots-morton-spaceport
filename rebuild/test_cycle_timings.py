@@ -185,6 +185,7 @@ def test_finish_copies_the_summary_blocks(tmp_path):
         "gates": {"js": {"status": "green"}},
         "plan": {"short_id": "abc"},
         "argv": ["prog", "--fresh"],
+        "carry": {"human": 60000, "key_hits": 51946, "unhit": 8054, "stranded": 12},
         "census_status": "clean",
     }
     timings.finish(payload)
@@ -197,7 +198,7 @@ def test_finish_copies_the_summary_blocks(tmp_path):
     assert entry["mem_total_bytes"] == memory_budget.total_memory_bytes()
     assert entry["started_at"] == timings.started_at
     assert entry["wall_s"] >= 0.0
-    for key in ("exit", "interrupted", "failures", "gates", "plan", "argv"):
+    for key in ("exit", "interrupted", "failures", "gates", "plan", "argv", "carry"):
         assert entry[key] == payload[key]
     assert "census_status" not in entry
 
@@ -206,7 +207,9 @@ def test_finish_defaults_missing_summary_keys_to_null(tmp_path):
     path = tmp_path / "j.ndjson"
     ct.CycleTimings(path).finish({})
     (entry,) = _lines(path)
-    assert all(entry[key] is None for key in ("exit", "interrupted", "failures", "gates", "plan", "argv"))
+    assert all(
+        entry[key] is None for key in ("exit", "interrupted", "failures", "gates", "plan", "argv", "carry")
+    )
 
 
 def test_append_warns_once_and_never_raises(tmp_path, capsys):

@@ -252,6 +252,9 @@ def main(argv=None, *, current_units=None):
                     f"{record['unit']}@{source}={record['verdict']}" for record, source in matches
                 )
                 print(f"  {unit_id} <- {sides}")
+    print(
+        f"carry figures: human={len(human)} key_hits={len(human) - len(unhit)} unhit={len(unhit)} stranded={len(stranded)}"
+    )
 
     carried.sort(key=lambda r: r["unit"])
     payload = {

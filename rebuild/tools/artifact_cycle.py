@@ -1785,6 +1785,7 @@ class CycleReport:
     assets_status: str = "not run"
     carry_out: Path | None = None
     carry_lines: list[str] = field(default_factory=list)
+    carry_figures: dict[str, int] | None = None
     merge_status: str = "not run"
     merge_lines: list[str] = field(default_factory=list)
     echo_fill_status: str = "not run"
@@ -2194,8 +2195,9 @@ def _do_plumbing(
 
     report.carry_lines = _scrape(
         sections.get("carry", []),
-        lambda line: any(word in line for word in ("carried", "kinds", "queue", "fallback")),
+        lambda line: any(word in line for word in ("carried", "kinds", "queue", "fallback", "figures")),
     )
+    report.carry_figures = carry_figures(report.carry_lines)
     for name in ("merge", "echo-merge", "standing-merge"):
         setattr(
             report,
@@ -2807,6 +2809,16 @@ INFORMATIONAL_STEPS = ("census", "job-costs")
 
 _CARRY_WROTE = re.compile(r"^wrote \S+: (\d+) carried onto manifest")
 _CARRY_QUEUE = re.compile(r"^human queue: (\d+) -> (\d+)")
+_CARRY_FIGURES = re.compile(r"^carry figures: human=(\d+) key_hits=(\d+) unhit=(\d+) stranded=(\d+)$")
+
+
+def carry_figures(lines: list[str]) -> dict[str, int] | None:
+    """The carry's four figures, read off the one line it prints them on: the human units on the new surface, how many of them a prior verdict keyed onto, how many none did, and how many prior verdicts found no unit to land on. They ride the cycle summary and the run line in the timings journal, so the question of how much a carry loses across a surface rebuild is answered from the record rather than from a rerun. None when the carry printed no such line — the store-only route, a rehearsal, a chain that failed before it."""
+    for line in lines:
+        match = _CARRY_FIGURES.match(line)
+        if match is not None:
+            return dict(zip(("human", "key_hits", "unhit", "stranded"), map(int, match.groups())))
+    return None
 
 
 def carry_figure(lines: list[str]) -> str:
@@ -3083,6 +3095,7 @@ def cycle_summary_payload(report: CycleReport, failures: list[str], plan: Plan, 
         "echo_groups": report.echo_groups,
         "carry_out": _as_str(report.carry_out),
         "carry_lines": list(report.carry_lines),
+        "carry": report.carry_figures,
         "merge_status": report.merge_status,
         "merge_lines": list(report.merge_lines),
         "echo_fill_status": report.echo_fill_status,
