@@ -1,6 +1,6 @@
 """The one-command driver for the commit-time artifact cycle.
 
-It mechanizes the commit-time sequence: recompile M1.otf and vet it, rebuild the review surface in place, run the verdict plumbing over it, refresh the census pins from the surface's census sidecar and print their git diff (the checked-in pins are the last accepted census, so reviewing that diff at commit time is what accepts a new one), run the five gates, and — once they have joined and their pytest controllers have stamped this pass's own per-worker peaks into the timings journal — hold the checked-in per-unit peaks against what this box actually measured (rebuild.tools.calibrate_budgets --check). Always ending on a summary table, even on failure. What the terminal shows is a digest — one banner per step carrying the description of what that step is for, the phases and counters its child speaks, every warning, and a closing line — while the whole of every child's output lands under var/build-logs/<stamp>-<short sha>/: one log per step with stdout and stderr merged in arrival order, beside plan.txt and a byte copy of the terminal, with var/build-logs/latest pointing at the newest run and a failed step replaying its own log verbatim under its banner. rebuild.tools.console owns both halves of that — the line protocol a child speaks and the renderer that reads it.
+It mechanizes the commit-time sequence: recompile M1.otf and vet it, rebuild the review surface in place, run the verdict plumbing over it, refresh the census pins from the surface's census sidecar and name what moved in their invariant block against the last accepted census (the checked-in pins are that census, so committing the rewritten file is what accepts a new one), run the five gates, and — once they have joined and their pytest controllers have stamped this pass's own per-worker peaks into the timings journal — hold the checked-in per-unit peaks against what this box actually measured (rebuild.tools.calibrate_budgets --check). Always ending on a summary table, even on failure. What the terminal shows is a digest — one banner per step carrying the description of what that step is for, the phases and counters its child speaks, every warning, and a closing line — while the whole of every child's output lands under var/build-logs/<stamp>-<short sha>/: one log per step with stdout and stderr merged in arrival order, beside plan.txt and a byte copy of the terminal, with var/build-logs/latest pointing at the newest run and a failed step replaying its own log verbatim under its banner. rebuild.tools.console owns both halves of that — the line protocol a child speaks and the renderer that reads it.
 
 That last step gates nothing, by the same argument the census pins are not a gate: a divisor that has gone stale makes a pool the wrong width, which is a cost rather than a defect, so it is reported loudly and never fails a pass whose artifacts are green. Committing the re-seeded constant is the acceptance, and when the check trips the driver diffs the three files that hold those constants so a working tree where one has already moved says so.
 
@@ -59,7 +59,8 @@ from typing import TYPE_CHECKING
 ROOT = Path(__file__).resolve().parents[2]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
-from rebuild.review import app_index, unit_index  # noqa: E402
+from rebuild.review import app_index, census, unit_index  # noqa: E402
+from rebuild.review.audit import load_ledger  # noqa: E402
 from rebuild.tools import console  # noqa: E402
 from rebuild.tools.cycle_timings import CYCLE_RUN_ENV, CheckVerdict  # noqa: E402
 from rebuild.tools.peak_rss import reap_peak_rss_bytes  # noqa: E402
@@ -73,6 +74,8 @@ M1_OUT = ROOT / "rebuild" / "out" / "m1"
 ECHO_FILL = ROOT / "verdicts-echo-fill.json"
 STANDING_FILL = ROOT / "verdicts-standing-fill.json"
 CYCLE_SUMMARY = ROOT / "rebuild" / "out" / "cycle_summary.json"
+CENSUS_PINS = ROOT / "rebuild" / "review-census-pins.json"
+DIVERGENCE_LEDGER = ROOT / "rebuild" / "m1-divergences.yaml"
 CYCLE_TIMINGS = ROOT / "rebuild" / "out" / "cycle-timings.ndjson"
 MAKE_TEST_GREEN = ROOT / "rebuild" / "out" / "make-test-green.json"
 RUN_M1_GREEN = ROOT / "rebuild" / "out" / "run-m1-green.json"
@@ -930,7 +933,7 @@ STEP_DESCRIPTIONS = {
     "surface-build": "Rebuilds the review surface: every unit the tables reach is drafted, enriched, and checked, with cache-served units re-verified by content key. Writes the shards, manifest, and census sidecar that the app and the verdict plumbing read.",
     "assets-refresh": "Overwrites the served copy of the review app's JS, CSS, and HTML and restamps only the manifest's static component. No shard or sidecar moves, so the open tab's store stays aligned.",
     "plumbing": "Carries the verdicts master onto the new surface by unit id, merges it into the store, and runs the echo and standing fills to their fixpoint. Ends by writing the complaint docket of what still needs a human.",
-    "census": "Rewrites rebuild/review-census-pins.json from the census sidecar the surface build emitted and prints its git diff in full. Committing that diff is how the census is accepted.",
+    "census": "Rewrites rebuild/review-census-pins.json from the census sidecar the surface build emitted, names what moved in its invariant block against the last accepted census (diffing that block alone when it did), and holds the ledger's declarations against the classes the corpus reached. Committing the rewritten pins is how the census is accepted.",
     "gates": "The four post-build gates, skipped together under --skip-gates.",
     "gate:js": "Runs the review app's node test suite over its JavaScript. Fast, and independent of every build artifact.",
     "gate:conform": "Shapes the compiled font with HarfBuzz over the swept texts and checks it against a fresh re-settlement window by window, the split-buffer check at horizon 4 included; the ss10 overlay takes its own two-letter arm against the bare rendering. The proof that HarfBuzz does what the tables say over every rule shape the lookup emits; that the tables are complete over the same texts is run_m1's string replay, on every build.",
@@ -942,18 +945,18 @@ STEP_DESCRIPTIONS = {
 
 
 def step_description(name: str) -> str:
-    """What a step's banner says that step is for, out of the table above: two sentences per step, printed on every run. They are keyed by step name and live beside the step definitions rather than in a document, because the one moment a reader wants to know what gate:conform proves is the moment they are watching it run, and a description that has to be looked up somewhere else is one nobody looks up. Two of those keys name variants rather than steps of their own — `run_m1:gates-only` is the re-adjudication route, which spawns under that name and reports under run_m1's row, and `gates` is the placeholder --skip-gates leaves in place of four. `_run_step` reaches this rather than the plan because it is handed a name and not a plan, and because two of the things it spawns are children of steps rather than steps — the census diff and the job-costs diff — for which the empty answer is the right one."""
+    """What a step's banner says that step is for, out of the table above: two sentences per step, printed on every run. They are keyed by step name and live beside the step definitions rather than in a document, because the one moment a reader wants to know what gate:conform proves is the moment they are watching it run, and a description that has to be looked up somewhere else is one nobody looks up. Two of those keys name variants rather than steps of their own — `run_m1:gates-only` is the re-adjudication route, which spawns under that name and reports under run_m1's row, and `gates` is the placeholder --skip-gates leaves in place of four. `_run_step` reaches this rather than the plan because it is handed a name and not a plan, and because one of the things it spawns is a child of a step rather than a step — the job-costs diff — for which the empty answer is the right one."""
     return STEP_DESCRIPTIONS.get(name, "")
 
 
-SUBSTEP_PARENTS = {"git-diff": "census", "job-costs-diff": "job-costs"}
+SUBSTEP_PARENTS = {"invariant-diff": "census", "job-costs-diff": "job-costs"}
 
 
 @dataclass
 class Step:
     """One row of the plan. `skipped` is stated rather than read off `argv`, because the two answer different questions: `argv is None` also describes the retention pass, which does real work in this process, and the `gates` placeholder, which stands in for five steps at once. The run/skip column and the counts line derive from `skipped`, so a step that runs without spawning anything still reads as one that will run.
 
-    Two spawns are not rows here at all: the census's git diff and the job-costs diff are children of steps rather than steps of the plan, and SUBSTEP_PARENTS above is what names them. Registering one with the digest files its output in the parent's log and surfaces its lines under the parent's column, and keeps `_run_step` from opening a second banner for a step that is already open.
+    Two things are not rows here at all: the census's invariant diff, which the driver prints itself, and the job-costs diff it spawns are children of steps rather than steps of the plan, and SUBSTEP_PARENTS above is what names them. Registering one with the digest files its output in the parent's log and surfaces its lines under the parent's column, and keeps `_run_step` from opening a second banner for a step that is already open.
     """
 
     name: str
@@ -1389,7 +1392,7 @@ def build_plan(
                     "--surface",
                     str(REVIEW_OUT),
                 ],
-                "then `git diff -- rebuild/review-census-pins.json`, printed in full — the pins are the last accepted census; review the diff at commit time",
+                "then names what moved in the invariant block against the index copy, diffing that block alone — the pins are the last accepted census; commit them to accept this one",
                 lane="build",
             )
         )
@@ -1681,6 +1684,8 @@ class CycleReport:
     standing_merge_lines: list[str] = field(default_factory=list)
     plumbing_fixpoint: bool = False
     census_status: str = "not run"
+    census_reach: str = "not run"
+    census_reach_sets: dict | None = None
     job_costs_status: str = "not run"
     job_costs_ok: bool | None = None
     complaints_status: str = "not run"
@@ -1787,7 +1792,7 @@ def _run_step(
 ) -> _StepResult:
     """One child, run to completion with both pipes drained into the digest — which logs every line it is handed and surfaces the ones worth surfacing. The banner is opened here and the closing line is not: a step closes with its own headline figure, and the figure only exists once the caller has read what the child left behind — the three summary JSONs, the manifest's totals, the chain's sections — so `_close_step` is called by the stage that knows it. `env` is what this process's environment is overlaid with for this child alone, and its default of None is the inheritance every other step wants; a step that states one gets that copy and nothing else in the cycle sees it.
 
-    `stream` says this child's unparsed lines belong on the terminal verbatim as well as in its log, which is true of the two diffs a step prints for a human to act on — the census pins', whose whole point is that it is read and committed, and the constants', on the pass where the job-costs check trips and asks whether one has already been re-seeded. Everything else a child says reaches the terminal as an event or not at all, and reaches the log either way, so a failure has its whole output replayed under its own banner rather than nothing at all.
+    `stream` says this child's unparsed lines belong on the terminal verbatim as well as in its log, which is true of the one diff a spawned child prints for a human to act on — the constants', on the pass where the job-costs check trips and asks whether one has already been re-seeded (the census's invariant diff is the driver's own lines, filed the same way). Everything else a child says reaches the terminal as an event or not at all, and reaches the log either way, so a failure has its whole output replayed under its own banner rather than nothing at all.
 
     A step whose spawn the registry refused opens no banner: a torn-down registry means a SIGINT already landed, and a banner for a child that never started would report a step this pass did not run.
     """
@@ -2145,30 +2150,61 @@ def _read_complaints(report: CycleReport, lines: list[str], returncode: int) -> 
     report.complaints_status = "done"
 
 
+def accepted_census() -> dict | None:
+    """The last accepted census: the index copy of the pins, which is what the working tree's rewrite will be diffed against at commit time. None when there is none to read — the file is untracked, or git is unavailable — in which case the pass has nothing to compare against and says so."""
+    try:
+        shown = subprocess.run(
+            ["git", "show", f":{CENSUS_PINS.relative_to(ROOT).as_posix()}"],
+            cwd=ROOT,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+    except OSError:
+        return None
+    if shown.returncode != 0 or not shown.stdout.strip():
+        return None
+    return json.loads(shown.stdout)
+
+
 def _do_census(
     report: CycleReport, *, spawn, emit: console.Digest, registry: _ChildRegistry, plan: Plan
 ) -> None:
-    """Rewrite the census pins from the surface's census-facts.json sidecar and print their git diff. The checked-in pins are the last accepted census, so that diff is exactly what a commit would be accepting: volatile totals that move with every letter added or reshaped, and an invariant block whose movement deserves a closer look. Nothing here gates — the step records no green and never fails the cycle — and a refresh that fails (a surface predating the sidecar, say) is reported and left alone, since the next pass that rebuilds the surface heals it."""
-    census = spawn("census", plan.argv("census"), emit=emit, registry=registry, stream=False)
-    if census.returncode != 0:
-        report.census_status = f"update FAILED (exit {census.returncode}) — informational"
-        _close_step(emit, report, "census", census, "ok")
+    """Rewrite the census pins from the surface's census-facts.json sidecar, then say what the rewrite means rather than print it for a reader to work out. The checked-in pins are the last accepted census, so the rewrite is held against the index copy: when only the volatile block moved the status says the invariant is unchanged, and when the invariant moved the status names the movement — classes appearing or going, machine-approved classes gained or lost, no-verdict exemptions and families likewise — and the invariant block's own diff is printed under the banner, verbatim and copy-pasteable, with the volatile hunks left out of it. That scoping is `_do_job_costs`'s argument applied within one file: the volatile block moves on nearly every letter, and a diff printed on every pass trains a reader to skip the one where the invariant moved. Beside the delta the step reports reach — the ledger's `ink_identical` and `no_verdict` declarations held against the classes the corpus actually reached and machine-approved — because that is the one census fact with no other home: the ledger holds the declarations, the pins the reach, and neither says on its own that a declared class went unreached or that a class started approving units nobody declared. Nothing here gates — the step records no green and never fails the cycle — and a refresh that fails (a surface predating the sidecar, say) is reported and left alone, since the next pass that rebuilds the surface heals it."""
+    refresh = spawn("census", plan.argv("census"), emit=emit, registry=registry, stream=False)
+    if refresh.returncode != 0:
+        report.census_status = f"update FAILED (exit {refresh.returncode}) — informational"
+        report.census_reach = "not computed (the refresh failed)"
+        _close_step(emit, report, "census", refresh, "ok")
         return
-    emit.substep(SUBSTEP_PARENTS["git-diff"], "git-diff")
-    diff = spawn(
-        "git-diff",
-        ["git", "diff", "--", "rebuild/review-census-pins.json"],
-        emit=emit,
-        registry=registry,
-        stream=True,
-    )
-    if diff.stdout.strip():
+    current = json.loads(CENSUS_PINS.read_text(encoding="utf-8"))
+    reached = census.reach(load_ledger(DIVERGENCE_LEDGER), current["invariant"])
+    report.census_reach = reached.describe()
+    report.census_reach_sets = reached.as_json()
+    accepted = accepted_census()
+    if accepted is None:
         report.census_status = (
-            "updated (diff vs the last accepted census shown above — review it at commit time)"
+            "updated (no accepted census to compare against: the pins are not in the index)"
+        )
+        _close_step(emit, report, "census", refresh, "ok")
+        return
+    findings = census.invariant_delta(accepted.get("invariant", {}), current["invariant"])
+    if findings:
+        emit.substep(SUBSTEP_PARENTS["invariant-diff"], "invariant-diff")
+        for line in census.invariant_diff(accepted.get("invariant", {}), current["invariant"]):
+            emit.child_line("invariant-diff", console.STDOUT, line)
+            emit.emit(line)
+        emit.substep_end("invariant-diff")
+        report.census_status = (
+            f"invariant moved: {'; '.join(findings)} — its diff is shown above; review it at commit time"
+        )
+    elif accepted.get("volatile") != current.get("volatile"):
+        report.census_status = (
+            "invariant unchanged (only the volatile totals moved; cycle_summary.json carries the surface's)"
         )
     else:
         report.census_status = "updated (matches the last accepted census)"
-    _close_step(emit, report, "census", census, "ok")
+    _close_step(emit, report, "census", refresh, "ok")
 
 
 def _do_job_costs(
@@ -2178,7 +2214,7 @@ def _do_job_costs(
 
     Nothing here gates, and that is deliberate rather than an oversight: a divisor that has gone stale makes a pool the wrong width, which costs wall time or swap, but it cannot make an artifact wrong — so it must never red a pass whose artifacts are green. The loudness is the summary line and `job_costs_ok`, and the acceptance is a human's commit of the re-seeded constant, exactly as the census pins are accepted by committing their diff. A tool that cannot run at all is reported as informational too: a broken check is the check's problem, and the cycle has nothing to say about the constants either way.
 
-    The diff is conditional where the census's is unconditional, because the two files are nothing alike. rebuild/review-census-pins.json exists only to hold the census, so its whole diff is the acceptance and printing it every pass costs a reader nothing. The four files that hold these constants hold a great deal besides them, so an unconditional diff would print unrelated work on every pass and train a reader to skip the one pass where it mattered. When the check trips it answers the single question worth asking then: has the constant already been re-seeded in this working tree, so the commit in hand is already the acceptance?
+    The diff is conditional for the same reason the census's is scoped to its invariant block. The four files that hold these constants hold a great deal besides them, so an unconditional diff would print unrelated work on every pass and train a reader to skip the one pass where it mattered; the pins file holds nothing but the census, but its volatile block moves with nearly every letter and would do the same. When the check trips it answers the single question worth asking then: has the constant already been re-seeded in this working tree, so the commit in hand is already the acceptance?
     """
     check = spawn("job-costs", plan.argv("job-costs"), emit=emit, registry=registry, stream=False)
     if check.returncode == 0:
@@ -2653,6 +2689,7 @@ def _run_cycle(
             report.complaints_status = f"skipped ({plan.complaints_note})"
         if plan.review_out is not None:
             report.census_status = "skipped (rehearsal: the checked-in pins track the live surface)"
+            report.census_reach = "skipped (rehearsal)"
             emit.step_skipped("census", "rehearsal: the checked-in pins track the live surface")
         else:
             _do_census(report, spawn=spawn, emit=emit, registry=registry, plan=plan)
@@ -2888,6 +2925,7 @@ def summary_cycle_lines(report: CycleReport, plan: Plan, retention_lines: list[s
         ),
         f"  complaint groups : {report.complaints_status}",
         f"  census pins      : {report.census_status}",
+        f"  census reach     : {report.census_reach}",
         f"  job costs        : {report.job_costs_status}",
         f"  deep sweep       : {deep_status} ({deep_note})",
         f"  deep replay      : {replay_status} ({replay_note})",
@@ -2987,6 +3025,8 @@ def cycle_summary_payload(report: CycleReport, failures: list[str], plan: Plan, 
         "standing_merge_status": report.standing_merge_status,
         "standing_merge_lines": list(report.standing_merge_lines),
         "census_status": report.census_status,
+        "census_reach": report.census_reach,
+        "census_reach_sets": report.census_reach_sets,
         "job_costs_status": report.job_costs_status,
         "job_costs_ok": report.job_costs_ok,
         "complaints_status": report.complaints_status,

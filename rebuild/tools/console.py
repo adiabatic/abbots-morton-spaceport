@@ -470,7 +470,7 @@ class Digest:
         *,
         verbatim: bool = False,
     ) -> None:
-        """Open a step: its rule line, its description wrapped at 76 columns, a blank line, and the argv it is about to spawn. `verbatim` says this step's unparsed lines belong on the terminal too, which is true of the diffs a step prints for a human to act on — the census pins', whose whole point is that it is read and committed, and the constants', on the pass where the job-costs check trips."""
+        """Open a step: its rule line, its description wrapped at 76 columns, a blank line, and the argv it is about to spawn. `verbatim` says this step's unparsed lines belong on the terminal too, which is true of the diff a spawned child prints for a human to act on — the constants', on the pass where the job-costs check trips."""
         with self._lock:
             state = self._state_for(name, banner=True)
             state.verbatim = verbatim
@@ -515,12 +515,12 @@ class Digest:
             self._one_line(name, text)
 
     def substep(self, parent: str, name: str) -> None:
-        """File a spawn under another step's banner. The census's `git diff` and the job-costs diff are children of steps rather than steps of the plan, and this is what lets them log into their parent's file and surface under its column without the spawn seam growing a keyword that thirty test fakes would have to grow with it."""
+        """File a sub-step under another step's banner. The census's invariant diff and the job-costs diff are children of steps rather than steps of the plan, and this is what lets them log into their parent's file and surface under its column without the spawn seam growing a keyword that thirty test fakes would have to grow with it."""
         with self._lock:
             self._substeps[name] = parent
 
     def substep_end(self, name: str) -> None:
-        """Close whatever a sub-step's own lines opened. A sub-step that spawns once its parent has closed — the `git diff` the census prints after its refresh — would otherwise leave a state nobody ever closes: its log handle open until `stop()`, and the heartbeat announcing a step that finished minutes ago. A parent still genuinely open is left exactly where it is, since the sub-step never opened it and closing it here would take its banner's own closing line away."""
+        """Close whatever a sub-step's own lines opened. A sub-step whose lines arrive once its parent has closed — a diff printed after the step that owns it has signed off — would otherwise leave a state nobody ever closes: its log handle open until `stop()`, and the heartbeat announcing a step that finished minutes ago. A parent still genuinely open is left exactly where it is, since the sub-step never opened it and closing it here would take its banner's own closing line away."""
         with self._lock:
             state = self._open.get(self._key(name))
             if state is not None and state.transient:

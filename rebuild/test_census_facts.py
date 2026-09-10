@@ -28,11 +28,15 @@ from rebuild.review.census import (
     derive_premerge,
     ink_group_from_flags,
     ink_histogram,
+    invariant_delta,
+    invariant_diff,
     invariant_group,
     load_facts,
+    reach,
     workload_digest,
     write_facts,
 )
+from rebuild.review.audit import LedgerClass
 from rebuild.review.enrich import LETTERS
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
@@ -281,10 +285,18 @@ def test_built_group_reports_a_missing_worked_example_as_none(tmp_path):
 
 
 def _pins(row_count: int) -> dict:
-    """A pin set in the checked-in file's two-block shape, small enough to hand-write: one structural fact and one volatile group."""
+    """A pin set in the checked-in file's two-block shape, small enough to hand-write: the structural block over three classes and two volatile groups."""
     return {
-        "invariant": {"classes_count": 3, "no_verdict_classes": ["boundary-echo"]},
-        "volatile": {"audit": {"row_count": row_count, "units": 1}},
+        "invariant": {
+            "classes": ["boundary-echo", "a", "b"],
+            "machine_approved_classes": ["a"],
+            "no_verdict_classes": ["boundary-echo"],
+            "families": ["no-chain-gains"],
+        },
+        "volatile": {
+            "audit": {"row_count": row_count, "units": 1},
+            "families": {"census": {"no-chain-gains": 1}, "total": 1},
+        },
     }
 
 
@@ -326,7 +338,7 @@ def test_load_facts_refuses_a_missing_wrong_format_or_orphaned_sidecar(tmp_path)
 
 
 def test_invariant_group_keeps_each_sources_own_order():
-    """The structural block draws on three orders and preserves all of them: the machine-approved classes in the manifest's own by_class order (a histogram, not a sorted list), the no-verdict classes in manifest class order, and the families in the FAMILY_ORDER order family_census emits. A block that reshuffled would show a hunk on every pass and so tell a diff reader nothing."""
+    """The structural block draws on three orders and preserves all of them: the classes and the no-verdict classes in manifest class order, the machine-approved classes in the manifest's own by_class order (a histogram, not a sorted list), and the families in the FAMILY_ORDER order family_census emits. A block that reshuffled would move on every pass and so tell `invariant_delta` nothing."""
     manifest = {
         "classes": [
             {"id": "boundary-echo", "no_verdict": True},
@@ -336,7 +348,7 @@ def test_invariant_group_keeps_each_sources_own_order():
         "machine_approved": {"units": 5, "by_class": {"bare-name-live-join": 3, "boundary-echo": 2}},
     }
     assert invariant_group(manifest, {"no-chain-gains": 8, "deferred-ss03": 1}) == {
-        "classes_count": 3,
+        "classes": ["boundary-echo", "bare-name-live-join", "halves-entry-extension-restored"],
         "machine_approved_classes": ["bare-name-live-join", "boundary-echo"],
         "no_verdict_classes": ["boundary-echo", "halves-entry-extension-restored"],
         "families": ["no-chain-gains", "deferred-ss03"],
@@ -374,7 +386,7 @@ def test_build_facts_reduces_its_own_premerge_records(tmp_path):
         [(snap.class_id, snap.no_verdict) for snap in capture], "10"
     )
     assert facts["pins"]["invariant"] == {
-        "classes_count": 3,
+        "classes": [meta["id"] for meta in manifest["classes"]],
         "machine_approved_classes": ["bare-name-live-join", "boundary-echo"],
         "no_verdict_classes": ["boundary-echo"],
         "families": ["no-chain-gains"],
@@ -384,9 +396,22 @@ def test_build_facts_reduces_its_own_premerge_records(tmp_path):
 
 
 def _cli_surface(tmp_path: Path, pins: dict) -> Path:
+    """A built surface as the census CLI reads one: a manifest carrying the class list and machine-approved histogram the invariant block reduces, shaped to agree with `pins`, and the sidecar beside it."""
     surface = tmp_path / "surface"
     surface.mkdir()
-    manifest = {"generated_at": "2026-01-01T00:00:00Z", "repo_head": "0000000"}
+    invariant = pins["invariant"]
+    manifest = {
+        "generated_at": "2026-01-01T00:00:00Z",
+        "repo_head": "0000000",
+        "classes": [
+            {"id": identifier, "no_verdict": identifier in invariant["no_verdict_classes"]}
+            for identifier in invariant["classes"]
+        ],
+        "machine_approved": {
+            "units": len(invariant["machine_approved_classes"]),
+            "by_class": {identifier: 1 for identifier in invariant["machine_approved_classes"]},
+        },
+    }
     (surface / "manifest.json").write_text(json.dumps(manifest), encoding="utf-8")
     write_facts(surface, _facts(pins))
     return surface
@@ -406,19 +431,15 @@ def test_check_reads_the_sidecar_and_reports_per_key_mismatches(tmp_path, monkey
     assert "  volatile.audit.row_count: pinned 1 != computed 2" in capsys.readouterr().err.splitlines()
 
 
-def test_update_copies_the_sidecars_pins_verbatim(tmp_path, monkeypatch):
-    """`--update` is a straight copy of the sidecar's pins block into the checked-in file, both blocks and every key — the build's own emission is what lands, so accepting a census can only ever be "review one diff"."""
+def test_update_copies_the_sidecars_volatile_block_and_reduces_the_invariant_again(tmp_path, monkeypatch):
+    """`--update` copies the sidecar's volatile block into the checked-in file verbatim — the build's own emission is what lands — and reduces the invariant block again from the surface's manifest and the sidecar's family census, so the file carries the block's current shape even when the sidecar was written by a build that recorded it differently."""
     pins_path = tmp_path / "pins.json"
     monkeypatch.setattr(census, "PINS_PATH", pins_path)
     monkeypatch.setattr(census, "REPO_ROOT", tmp_path)
-    pins = {
-        "invariant": {"classes_count": 3, "families": ["no-chain-gains"]},
-        "volatile": {
-            "audit": {"row_count": 2, "units": 1},
-            "families": {"census": {"no-chain-gains": 1}, "total": 1},
-        },
-    }
+    pins = _pins(row_count=2)
+    stale = {"invariant": {"classes_count": 3}, "volatile": pins["volatile"]}
     surface = _cli_surface(tmp_path, pins)
+    write_facts(surface, _facts(stale))
     assert census.main(["--update", "--surface", str(surface)]) == 0
     assert json.loads(pins_path.read_text(encoding="utf-8")) == pins
 
@@ -445,8 +466,118 @@ def test_from_scratch_recomputes_from_sources_without_the_sidecar(tmp_path, monk
     assert volatile["families"] == {"census": {"seam-loss-withdrawal": 3}, "total": 3}
     assert volatile["built"] == built_group(surface, manifest)
     assert pins["invariant"] == {
-        "classes_count": 3,
+        "classes": [meta["id"] for meta in manifest["classes"]],
         "machine_approved_classes": ["bare-name-live-join", "boundary-echo"],
         "no_verdict_classes": ["boundary-echo"],
         "families": ["seam-loss-withdrawal"],
     }
+
+
+def _ledger_entry(identifier: str, *, ink_identical: bool = False, no_verdict: bool = False) -> LedgerClass:
+    return LedgerClass(
+        id=identifier,
+        status="accepted",
+        why="",
+        ink_identical=ink_identical,
+        no_verdict=no_verdict,
+        count=0,
+        exemplar_keys=frozenset(),
+    )
+
+
+_ACCEPTED_INVARIANT = {
+    "classes": ["boundary-echo", "bare-name-live-join", "deferred-ss10"],
+    "machine_approved_classes": ["boundary-echo", "bare-name-live-join"],
+    "no_verdict_classes": ["boundary-echo"],
+    "families": ["no-chain-gains", "deferred-ss10"],
+}
+
+
+def test_invariant_delta_is_empty_exactly_when_nothing_moved():
+    assert invariant_delta(_ACCEPTED_INVARIANT, dict(_ACCEPTED_INVARIANT)) == []
+
+
+def test_invariant_delta_names_what_appeared_and_what_went_in_the_blocks_own_order():
+    """The summary line carries the finding rather than a pointer to a diff: which classes appeared or went, which classes the machinery started or stopped approving units of, which exemptions and families came and went — each list in the order the block records it, so a cycle log greps the same way every pass."""
+    current = {
+        "classes": ["boundary-echo", "bare-name-live-join", "see-out-fused", "deferred-ss04"],
+        "machine_approved_classes": ["boundary-echo", "bare-name-live-join", "see-out-fused"],
+        "no_verdict_classes": ["boundary-echo", "see-out-fused"],
+        "families": ["no-chain-gains", "deferred-ss04"],
+    }
+    assert invariant_delta(_ACCEPTED_INVARIANT, current) == [
+        "classes +2 (see-out-fused, deferred-ss04)",
+        "classes -1 (deferred-ss10)",
+        "machine-approved +1 (see-out-fused)",
+        "no-verdict +1 (see-out-fused)",
+        "families +1 (deferred-ss04)",
+        "families -1 (deferred-ss10)",
+    ]
+
+
+def test_invariant_delta_tells_a_reorder_and_a_shape_change_from_a_corpus_change():
+    """A ledger reorder moves the block's lists without moving membership, and a change to what the block records — a count becoming a list — is a change to the block rather than to the corpus; neither may read as classes appearing."""
+    reordered = {**_ACCEPTED_INVARIANT, "classes": ["bare-name-live-join", "boundary-echo", "deferred-ss10"]}
+    assert invariant_delta(_ACCEPTED_INVARIANT, reordered) == ["classes reordered"]
+    counted = {**_ACCEPTED_INVARIANT}
+    counted["classes_count"] = counted.pop("classes")
+    assert invariant_delta(counted, _ACCEPTED_INVARIANT) == [
+        "classes_count no longer recorded",
+        "classes newly recorded",
+    ]
+
+
+def test_invariant_diff_is_the_blocks_own_unified_diff():
+    """What the cycle prints when the invariant moved: the block's diff and nothing from the volatile block around it, in the pins file's own pretty-printing so its lines match what `git diff` would show for those keys."""
+    current = {**_ACCEPTED_INVARIANT, "families": ["no-chain-gains"]}
+    lines = invariant_diff(_ACCEPTED_INVARIANT, current)
+    assert lines[:2] == ["--- invariant (accepted)", "+++ invariant (this surface)"]
+    assert '-    "deferred-ss10"' in lines
+    assert all("units" not in line for line in lines)
+    assert invariant_diff(_ACCEPTED_INVARIANT, dict(_ACCEPTED_INVARIANT)) == []
+
+
+def test_reach_holds_the_ledgers_declarations_against_what_the_corpus_reached():
+    """Machine approval is emergent, so the ledger's ink-identical declarations and the classes that actually approve units are different sets and can disagree both ways; a no-verdict declaration and a ledger entry can each go unreached when no unit in the corpus matches them. The pins hold the reach and the ledger the declarations, and this is the one place they meet."""
+    ledger = [
+        _ledger_entry("boundary-echo", no_verdict=True),
+        _ledger_entry("bare-name-live-join", ink_identical=True),
+        _ledger_entry("see-out-fused", ink_identical=True),
+        _ledger_entry("vie-baseline-entry-extension-dropped", no_verdict=True),
+    ]
+    invariant = {
+        "classes": ["boundary-echo", "bare-name-live-join", "see-out-fused", "deferred-ss10"],
+        "machine_approved_classes": ["boundary-echo", "bare-name-live-join", "deferred-ss10"],
+        "no_verdict_classes": ["boundary-echo"],
+        "families": ["deferred-ss10"],
+    }
+    reached = reach(ledger, invariant)
+    assert reached.unreached == ("vie-baseline-entry-extension-dropped",)
+    assert reached.ink_declared == ("bare-name-live-join", "see-out-fused")
+    assert reached.ink_declared_unapproved == ("see-out-fused",)
+    assert reached.machine_approved_undeclared == ("boundary-echo", "deferred-ss10")
+    assert reached.no_verdict_declared == ("boundary-echo", "vie-baseline-entry-extension-dropped")
+    assert reached.no_verdict_reached == ("boundary-echo",)
+    assert reached.no_verdict_unreached == ("vie-baseline-entry-extension-dropped",)
+    assert reached.describe() == (
+        "machine-approved: 3 classes approve units, 2 undeclared;"
+        " ink-identical: 2 declared, 1 (see-out-fused) approving none;"
+        " no-verdict: 1 of 2 declared reached, unreached 1 (vie-baseline-entry-extension-dropped);"
+        " ledger: 3 of 4 classes reached, unreached 1 (vie-baseline-entry-extension-dropped)"
+    )
+    assert reached.as_json()["ink_declared_unapproved"] == ["see-out-fused"]
+
+
+def test_reach_reads_clean_when_the_ledger_and_the_corpus_agree():
+    ledger = [
+        _ledger_entry("boundary-echo", no_verdict=True),
+        _ledger_entry("bare-name-live-join", ink_identical=True),
+    ]
+    reached = reach(ledger, _ACCEPTED_INVARIANT)
+    assert reached.unreached == ()
+    assert reached.ink_declared_unapproved == ()
+    assert reached.no_verdict_unreached == ()
+    assert reached.describe() == (
+        "machine-approved: 2 classes approve units, 1 undeclared; ink-identical: 1 declared, all approving;"
+        " no-verdict: 1 of 1 declared reached; ledger: 2 of 2 classes reached"
+    )

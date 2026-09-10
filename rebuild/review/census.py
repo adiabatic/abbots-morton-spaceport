@@ -1,6 +1,6 @@
-"""The review-surface census: the groups a surface build reduces its own state to, and the regenerator that writes them into rebuild/review-census-pins.json — the last accepted census. Every artifact-cycle pass rewrites that file from the surface's census-facts.json sidecar and prints its git diff, and committing the diff is the acceptance. Nothing asserts the checked-in numbers, so a moved count is something to read rather than a baseline to re-bless.
+"""The review-surface census: the groups a surface build reduces its own state to, and the regenerator that writes them into rebuild/review-census-pins.json — the last accepted census. Every artifact-cycle pass rewrites that file from the surface's census-facts.json sidecar, names what moved in its invariant block, and committing the rewritten file is the acceptance. Nothing asserts the checked-in numbers, so a moved count is something to read rather than a baseline to re-bless.
 
-The file is two blocks so that diff reads. `volatile` holds what legitimately moves with every migrated letter: the manifest, built, audit, ink, and families groups, counts and all. `invariant` holds the structural facts whose movement deserves a human — how many classes the surface ships, which classes the build machine-approves, which are exempt from individual verdicts, and which verdict families the corpus reaches. The invariant block deliberately restates structure the volatile dicts' keys already carry; both blocks are machine-written from one emission so they cannot drift apart, and hoisting the structure out is what makes a new class or a new no-verdict exemption its own legible hunk instead of a line lost among moved totals.
+The file is two blocks so that the cycle can say which kind of movement a pass produced. `volatile` holds what legitimately moves with every migrated letter: the manifest, built, audit, ink, and families groups, counts and all. `invariant` holds the structural facts whose movement deserves a human — which classes the surface ships, which classes the build machine-approves, which are exempt from individual verdicts, and which verdict families the corpus reaches. The invariant block deliberately restates structure the volatile dicts' keys already carry; both blocks are machine-written from one emission so they cannot drift apart, and hoisting the structure out is what lets `invariant_delta` name a new class or a new no-verdict exemption in one summary line, and what scopes the diff the cycle prints to that block alone. The volatile totals have their own home in `rebuild/out/cycle_summary.json`; the invariant block's machine-approved and family lists have none, since both are emergent — a class is machine-approved when the build approved at least one of its units through any channel, whatever the ledger declares — which is why `reach` holds the ledger's declarations against them.
 
 The tests no longer read this file at all — a build asserting the numbers it just wrote proves nothing. They assert internal consistency (the deduped units still account for every audit row), source-derived invariants (the manifest's own totals, the ledger's no-verdict classes), and mirrors (a shard walk against the sidecar the same build wrote from memory).
 
@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import argparse
 import contextlib
+import difflib
 import hashlib
 import json
 import sys
@@ -33,6 +34,7 @@ from rebuild.review import unit_index
 from rebuild.review.audit import (
     BATCH_SIZE,
     UNMATCHED_CLASS,
+    LedgerClass,
     Unit,
     _config_index,
     assign_batches,
@@ -84,13 +86,140 @@ def manifest_group(manifest: dict) -> dict:
 
 
 def invariant_group(manifest: dict, families_census: dict[str, int]) -> dict:
-    """The structural half of the pins, in the orders their sources already carry: how many classes the surface ships, which classes the build machine-approves, which are exempt from individual verdicts, and which verdict families the corpus reaches. Every one of these is implied by some volatile group's keys, and that restatement is deliberate — both blocks come from one machine emission, so they cannot drift apart, and hoisting the structure into a block of its own is what lets a new class, a new no-verdict exemption, or a family appearing read as its own hunk when the rewritten pins are reviewed as a diff, instead of hiding among the counts a rune commit moves anyway."""
+    """The structural half of the pins, in the orders their sources already carry: which classes the surface ships, which classes the build machine-approves, which are exempt from individual verdicts, and which verdict families the corpus reaches. Every one of these is implied by some volatile group's keys, and that restatement is deliberate — both blocks come from one machine emission, so they cannot drift apart, and hoisting the structure into a block of its own is what lets `invariant_delta` name a class, a no-verdict exemption, or a family appearing or going, instead of leaving it to be found among the counts a rune commit moves anyway. The classes are listed rather than counted for the same reason: a count can say that one appeared, and only the list can say which."""
     return {
-        "classes_count": len(manifest["classes"]),
+        "classes": [meta["id"] for meta in manifest["classes"]],
         "machine_approved_classes": list(manifest["machine_approved"]["by_class"]),
         "no_verdict_classes": [meta["id"] for meta in manifest["classes"] if meta["no_verdict"]],
         "families": list(families_census),
     }
+
+
+INVARIANT_LABELS = {
+    "classes": "classes",
+    "machine_approved_classes": "machine-approved",
+    "no_verdict_classes": "no-verdict",
+    "families": "families",
+}
+
+
+def _named(ids: Sequence[str]) -> str:
+    return f"{len(ids)} ({', '.join(ids)})" if ids else "0"
+
+
+def invariant_delta(accepted: Mapping, current: Mapping) -> list[str]:
+    """What moved in the invariant block since the accepted census, named: for each list it holds, the ids that appeared and the ids that went — `classes +2 (a, b)`, `machine-approved -1 (c)` — in the block's own key order. Empty exactly when nothing moved, which is what lets a summary line say the invariant is unchanged and mean it. A list whose membership held but whose order moved says so, since the orders are the sources' own and a reorder there is a ledger or manifest reorder rather than a census fact; a key one side lacks is named as the block's shape changing, so the pass that changes what the block records reads as that and not as a corpus that grew thirty classes at once."""
+    findings: list[str] = []
+    keys = list(accepted) + [key for key in current if key not in accepted]
+    for key in keys:
+        label = INVARIANT_LABELS.get(key, key)
+        if key not in current:
+            findings.append(f"{label} no longer recorded")
+            continue
+        if key not in accepted:
+            findings.append(f"{label} newly recorded")
+            continue
+        old, new = accepted[key], current[key]
+        if not isinstance(old, list) or not isinstance(new, list):
+            if old != new:
+                findings.append(f"{label} {old!r} -> {new!r}")
+            continue
+        gained = [item for item in new if item not in old]
+        lost = [item for item in old if item not in new]
+        if gained:
+            findings.append(f"{label} +{_named(gained)}")
+        if lost:
+            findings.append(f"{label} -{_named(lost)}")
+        if not gained and not lost and old != new:
+            findings.append(f"{label} reordered")
+    return findings
+
+
+def invariant_diff(accepted: Mapping, current: Mapping) -> list[str]:
+    """The invariant block's unified diff, accepted against current, over the same pretty-printing the pins file uses — the part of `git diff -- rebuild/review-census-pins.json` a reader is asked to look at, without the volatile hunks that surround it there."""
+    return list(
+        difflib.unified_diff(
+            json.dumps(accepted, indent=2).splitlines(),
+            json.dumps(current, indent=2).splitlines(),
+            fromfile="invariant (accepted)",
+            tofile="invariant (this surface)",
+            lineterm="",
+        )
+    )
+
+
+@dataclass(frozen=True)
+class Reach:
+    """The ledger's declarations held against what the corpus reached, off the invariant block and the ledger the surface was built over. `unreached` are the ledger entries no unit in the corpus matched, so the surface ships no class for them. `machine_approved` is emergent — a class is in it when the build approved at least one of its units through any channel — and is held against the ledger's `ink_identical` declarations in both directions: `ink_declared_unapproved` is a declared class the machinery approved no unit of, `machine_approved_undeclared` an approving class the ledger never declared. `no_verdict` is declared in the ledger and copied onto each class the surface ships, so its one possible disagreement is a declared class the corpus never reached. Neither file says any of this on its own: the ledger holds the declarations and the pins the reach, and `describe` is the one line that puts them side by side."""
+
+    ledger: tuple[str, ...]
+    unreached: tuple[str, ...]
+    machine_approved: tuple[str, ...]
+    ink_declared: tuple[str, ...]
+    ink_declared_unapproved: tuple[str, ...]
+    machine_approved_undeclared: tuple[str, ...]
+    no_verdict_declared: tuple[str, ...]
+    no_verdict_reached: tuple[str, ...]
+    no_verdict_unreached: tuple[str, ...]
+
+    def describe(self) -> str:
+        """The one summary line. The classes that approve units without a declaration are counted rather than named, since approving through the picture or Junior channel, or as a deferred family, is the ordinary case and a class joining them is the invariant delta's news; the names are in `as_json`. What is named is each disagreement in the other direction — a declaration the corpus cannot show."""
+        machine = (
+            f"machine-approved: {len(self.machine_approved)} classes approve units,"
+            f" {len(self.machine_approved_undeclared)} undeclared;"
+            f" ink-identical: {len(self.ink_declared)} declared, "
+            + (
+                f"{_named(self.ink_declared_unapproved)} approving none"
+                if self.ink_declared_unapproved
+                else "all approving"
+            )
+        )
+        no_verdict = (
+            f"no-verdict: {len(self.no_verdict_reached)} of {len(self.no_verdict_declared)} declared reached"
+            + (f", unreached {_named(self.no_verdict_unreached)}" if self.no_verdict_unreached else "")
+        )
+        ledger = f"ledger: {len(self.ledger) - len(self.unreached)} of {len(self.ledger)} classes reached" + (
+            f", unreached {_named(self.unreached)}" if self.unreached else ""
+        )
+        return "; ".join((machine, no_verdict, ledger))
+
+    def as_json(self) -> dict:
+        return {
+            "ledger": list(self.ledger),
+            "unreached": list(self.unreached),
+            "machine_approved": list(self.machine_approved),
+            "ink_declared": list(self.ink_declared),
+            "ink_declared_unapproved": list(self.ink_declared_unapproved),
+            "machine_approved_undeclared": list(self.machine_approved_undeclared),
+            "no_verdict_declared": list(self.no_verdict_declared),
+            "no_verdict_reached": list(self.no_verdict_reached),
+            "no_verdict_unreached": list(self.no_verdict_unreached),
+        }
+
+
+def reach(ledger: Sequence[LedgerClass], invariant: Mapping) -> Reach:
+    """`Reach` over a loaded ledger and an invariant block, every list in its source's order: ledger lists in ledger order, reached lists in the block's."""
+    reached = set(invariant["classes"])
+    machine = tuple(invariant["machine_approved_classes"])
+    ink_declared = tuple(entry.id for entry in ledger if entry.ink_identical)
+    no_verdict_declared = tuple(entry.id for entry in ledger if entry.no_verdict)
+    return Reach(
+        ledger=tuple(entry.id for entry in ledger),
+        unreached=tuple(entry.id for entry in ledger if entry.id not in reached),
+        machine_approved=machine,
+        ink_declared=ink_declared,
+        ink_declared_unapproved=tuple(identifier for identifier in ink_declared if identifier not in machine),
+        machine_approved_undeclared=tuple(
+            identifier for identifier in machine if identifier not in ink_declared
+        ),
+        no_verdict_declared=no_verdict_declared,
+        no_verdict_reached=tuple(invariant["no_verdict_classes"]),
+        no_verdict_unreached=tuple(
+            identifier
+            for identifier in no_verdict_declared
+            if identifier not in invariant["no_verdict_classes"]
+        ),
+    )
 
 
 def _shard_units(out_dir: Path, meta: dict) -> Iterable[dict]:
@@ -457,7 +586,7 @@ def _build_or_load_surface(surface: Path | None):
 def compute_pins(
     surface: Path | None = None, repo_root: Path = REPO_ROOT, from_scratch: bool = False
 ) -> dict:
-    """The full pin set, both blocks. By default every group is read from the surface's census-facts.json sidecar, which the build derived from the same state it shaped the surface out of; `from_scratch` recomputes all five volatile groups from the source artifacts instead, re-shaping and re-enriching the corpus."""
+    """The full pin set, both blocks. By default the volatile groups are read from the surface's census-facts.json sidecar, which the build derived from the same state it shaped the surface out of, and the invariant block is reduced again from the surface's manifest and the sidecar's family census — the same two sources the build reduced it from — so the checked-in file carries the block's current shape whatever build wrote the sidecar. `from_scratch` recomputes all five volatile groups from the source artifacts instead, re-shaping and re-enriching the corpus."""
     if from_scratch:
         with _build_or_load_surface(surface) as (out_dir, manifest):
             families = families_group(repo_root)
@@ -472,7 +601,11 @@ def compute_pins(
                 },
             }
     with _build_or_load_surface(surface) as (out_dir, manifest):
-        return load_facts(out_dir, manifest)["pins"]
+        volatile = load_facts(out_dir, manifest)["pins"]["volatile"]
+        return {
+            "invariant": invariant_group(manifest, volatile["families"]["census"]),
+            "volatile": volatile,
+        }
 
 
 def _dumps(pins: dict) -> str:

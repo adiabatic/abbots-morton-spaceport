@@ -31,10 +31,11 @@ pkill -f 'rebuild\.review\.serve'
 
 ### The census
 
-Every non-rehearsal pass rewrites `rebuild/review-census-pins.json` from the census sidecar the surface build emits and prints `git diff -- rebuild/review-census-pins.json` in full. That file is the last accepted census and committing the diff is the acceptance, so reading it belongs to the commit:
+Every non-rehearsal pass rewrites `rebuild/review-census-pins.json` from the census sidecar the surface build emits and holds the rewrite against the index copy. That file is the last accepted census and committing the rewritten file is the acceptance; the summary's `census pins` line says what the commit would be accepting:
 
-- The `volatile` block holds totals that move with every migrated letter; glance at it.
-- The `invariant` block holds which classes the surface ships, which the build machine-approves, which are exempt from individual verdicts, and which verdict families the corpus reaches; a change there wants real attention.
+- The `volatile` block holds totals that move with every migrated letter. When only it moved the line reads `invariant unchanged`, nothing is printed, and `rebuild/out/cycle_summary.json` carries the surface's totals.
+- The `invariant` block holds which classes the surface ships, which the build machine-approves, which are exempt from individual verdicts, and which verdict families the corpus reaches. When it moved the line names the movement (`classes +1 (…)`, `machine-approved -1 (…)`, `families +1 (…)`) and the block's own diff is printed under the census banner, volatile hunks left out; that is what wants real attention at commit time.
+- The `census reach` line beside it holds the ledger's `ink_identical` and `no_verdict` declarations against what the corpus reached: how many classes approve units and which of them the ledger never declared, which declared classes approve none, and which ledger entries and exemptions no unit reached. Neither the ledger nor the pins says that on its own; `census.reach` in `rebuild/review/census.py` is the authority, and `cycle_summary.json` carries the sets under `census_reach_sets`.
 
 ## What is prose-blind
 
