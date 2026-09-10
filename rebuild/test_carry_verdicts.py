@@ -1,22 +1,14 @@
-"""Tests for the cross-surface carry: the content key a prior surface's verdict is re-resolved against when the surface is rebuilt, and the stamp guard that refuses a source pair whose verdicts were recorded against a different surface than the one offered. For the key, everything the rebuild churns — ids, batches, drafts, provenance, the derived group ids, and the per-config ink_deltas map — is presentation and stays out, so a field's first appearance cannot strand the verdicts recorded before it; everything the reviewer actually judged stays in, so a real change to the window loses its old verdict rather than inheriting one. The key tests' units are the shipped review fixtures, which the §7 contract checker also gates in test_review_build."""
+"""Tests for the carry: the content key a unit's id derives from, which is what lets a verdict follow its unit across surface rebuilds, and the join on that id the carry performs. For the key, everything the rebuild churns — ids, batches, drafts, provenance, the derived group ids, and the per-config ink_deltas map — is presentation and stays out, so a field's first appearance cannot rename a unit and strand the verdicts recorded on it; everything the reviewer actually judged stays in, so a real change to the window loses its old verdict rather than inheriting one. The key tests' units are the shipped review fixtures, which the §7 contract checker also gates in test_review_build."""
 
 import hashlib
 import json
 from pathlib import Path
 
-import pytest
-
 from rebuild.review import unit_cache
-from rebuild.tools import carry_verdicts
-from rebuild.tools.carry_verdicts import (
-    PRESENTATION_KEYS,
-    content_hash,
-    content_key,
-    id_migration,
-    identity_of,
-    main,
-    stranded_units,
-)
+from rebuild.review.unit_cache import CARRY_PRESENTATION_KEYS as PRESENTATION_KEYS
+from rebuild.review.unit_cache import carry_content_hash as content_hash
+from rebuild.review.unit_cache import carry_projection as content_key
+from rebuild.tools.carry_verdicts import main
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 FIXTURE_UNITS = REPO_ROOT / "rebuild" / "review" / "fixtures" / "units"
@@ -30,7 +22,7 @@ def _fixture_units():
 
 
 def test_ink_deltas_does_not_move_the_content_key():
-    """The field's introduction is invisible to the carry: a prior-surface unit predating ink_deltas and the same current-surface unit carrying it key identically, so every verdict recorded against the older surface still lands."""
+    """The field's introduction is invisible to the key: a unit predating ink_deltas and the same unit carrying it key identically, so every verdict recorded before the field still names its unit."""
     units = _fixture_units()
     assert any(unit["ink_deltas"] for unit in units), "no fixture unit records a delta"
     for current in units:
@@ -52,7 +44,7 @@ def test_every_presentation_key_is_invisible_to_the_content_key():
 
 
 def test_content_key_stamp_does_not_move_the_content_key():
-    """The build-time stamp is itself presentation: a prior-surface unit predating the stamp and the same current-surface unit carrying it key identically, so the stamp's introduction cannot strand a single verdict recorded against an unstamped surface."""
+    """The build-time stamp is itself presentation: a unit predating the stamp and the same unit carrying it key identically, so the stamp's introduction renamed nothing."""
     units = _fixture_units()
     assert all("content_key" in unit for unit in units), "the fixtures predate the stamp"
     for current in units:
@@ -64,12 +56,31 @@ def test_content_key_stamp_is_declared_presentation():
     assert "content_key" in PRESENTATION_KEYS
 
 
-def test_content_hash_reads_the_stamp_or_computes_the_same_value():
-    """Stamped and unstamped surfaces resolve against each other: the fixture stamps are exactly the sha256 of the projection an unstamped unit hashes to, so a mixed source pair carries losslessly. This also pins the checked-in fixture stamps against rot."""
+def test_content_hash_is_the_sha256_of_the_projection():
+    """The fixture stamps are exactly the sha256 of the projection, stamped or not, which pins the checked-in fixture stamps against rot."""
     for current in _fixture_units():
         stripped = {key: value for key, value in current.items() if key != "content_key"}
         assert content_hash(current) == content_hash(stripped), current["id"]
         assert current["content_key"] == hashlib.sha256(content_key(stripped).encode()).hexdigest()
+
+
+def test_a_change_to_the_judged_window_moves_the_content_key():
+    """The complement, so the exclusions above cannot pass by keying on nothing: the fields the reviewer judges — the window, the configs it covers, and the cells and seams both fonts draw — are all in the key, and moving any of them retires the old verdict instead of carrying it onto a different question."""
+    unit = _fixture_units()[0]
+    for key, replacement in (
+        ("codepoints", "E650:E650"),
+        ("configs", ["ss07"]),
+        ("after", {**unit["after"], "seams": [*unit["after"]["seams"], "break"]}),
+        ("before", {**unit["before"], "seams": [*unit["before"]["seams"], "break"]}),
+        ("ink_identical", not unit["ink_identical"]),
+    ):
+        assert content_key({**unit, key: replacement}) != content_key(unit), key
+
+
+def test_picture_identity_is_invisible_to_the_content_key_unlike_ink_identity():
+    """`picture_identical` is a pure function of the window and both fonts' placed glyphs, all of which the key already covers, and it arrived after the ids on record were stamped — so it is a presentation key, while `ink_identical` stays inside the key only as the byte-identity contract with those ids."""
+    unit = _fixture_units()[0]
+    assert content_key({**unit, "picture_identical": not unit["picture_identical"]}) == content_key(unit)
 
 
 def _write_surface(root, stamp, units):
@@ -94,93 +105,6 @@ def _write_verdicts(path, stamp, verdicts):
     )
 
 
-def _run_carry(monkeypatch, prior, verdicts, out, current):
-    monkeypatch.setattr(
-        "sys.argv",
-        [
-            "carry_verdicts.py",
-            "--source",
-            str(prior),
-            str(verdicts),
-            "--out",
-            str(out),
-            "--current-surface",
-            str(current),
-        ],
-    )
-    main()
-
-
-def test_a_source_pair_with_disagreeing_stamps_refuses(tmp_path, monkeypatch):
-    """The verdicts' unit ids only resolve correctly on the surface they were recorded against, so a pair whose stamps disagree must refuse instead of carrying onto the wrong windows."""
-    prior = tmp_path / "prior"
-    _write_surface(prior, "2026-07-01T00:00:00Z", [])
-    verdicts = tmp_path / "verdicts.json"
-    _write_verdicts(verdicts, "2026-06-01T00:00:00Z", [])
-    out = tmp_path / "out.json"
-    with pytest.raises(SystemExit, match="different surface"):
-        _run_carry(monkeypatch, prior, verdicts, out, tmp_path / "current")
-    assert not out.exists()
-
-
-def test_a_stamp_matching_pair_carries_onto_the_renumbered_surface(tmp_path, monkeypatch):
-    prior = tmp_path / "prior"
-    unit = {"id": "u-1", "batch": 1, "codepoints": "E650:E652", "configs": ["default"], "window": "w"}
-    _write_surface(prior, "2026-07-01T00:00:00Z", [unit])
-    current = tmp_path / "current"
-    _write_surface(current, "2026-07-02T00:00:00Z", [{**unit, "id": "u-9"}])
-    verdicts = tmp_path / "verdicts.json"
-    _write_verdicts(
-        verdicts,
-        "2026-07-01T00:00:00Z",
-        [{"unit": "u-1", "verdict": "approve", "note": "", "at": "2026-07-01T01:00:00Z"}],
-    )
-    out = tmp_path / "out.json"
-    _run_carry(monkeypatch, prior, verdicts, out, current)
-    payload = json.loads(out.read_text())
-    assert payload["manifest_generated_at"] == "2026-07-02T00:00:00Z"
-    assert [record["unit"] for record in payload["verdicts"]] == ["u-9"]
-
-
-def test_the_carry_prints_its_four_figures_whatever_it_landed(tmp_path, monkeypatch, capsys):
-    """The line the cycle records off the carry: every human unit on the new surface, how many a prior verdict keyed onto, how many none did, and how many prior verdicts found no unit to land on."""
-    kept, gone = _content_unit("E650:E652"), _content_unit("E652:E653")
-    prior = tmp_path / "prior"
-    _write_surface(prior, "2026-07-01T00:00:00Z", [kept, gone])
-    current = tmp_path / "current"
-    _write_surface(current, "2026-07-02T00:00:00Z", [kept])
-    verdicts = tmp_path / "verdicts.json"
-    _write_verdicts(
-        verdicts,
-        "2026-07-01T00:00:00Z",
-        [
-            {"unit": kept["id"], "verdict": "approve", "note": "", "at": "2026-07-01T01:00:00Z"},
-            {"unit": gone["id"], "verdict": "reject", "note": "", "at": "2026-07-01T01:00:00Z"},
-        ],
-    )
-    _run_carry(monkeypatch, prior, verdicts, tmp_path / "out.json", current)
-    assert "carry figures: human=1 key_hits=1 unhit=0 stranded=1" in capsys.readouterr().out.splitlines()
-
-
-def test_a_change_to_the_judged_window_moves_the_content_key():
-    """The complement, so the exclusions above cannot pass by keying on nothing: the fields the reviewer judges — the window, the configs it covers, and the cells and seams both fonts draw — are all in the key, and moving any of them retires the old verdict instead of carrying it onto a different question."""
-    unit = _fixture_units()[0]
-    for key, replacement in (
-        ("codepoints", "E650:E650"),
-        ("configs", ["ss07"]),
-        ("after", {**unit["after"], "seams": [*unit["after"]["seams"], "break"]}),
-        ("before", {**unit["before"], "seams": [*unit["before"]["seams"], "break"]}),
-        ("ink_identical", not unit["ink_identical"]),
-    ):
-        assert content_key({**unit, key: replacement}) != content_key(unit), key
-
-
-def test_picture_identity_is_invisible_to_the_content_key_unlike_ink_identity():
-    """`picture_identical` is a pure function of the window and both fonts' placed glyphs, all of which the key already covers, and it arrived after every archived snapshot was stamped — so it is a presentation key, while `ink_identical` stays inside the key only as the byte-identity contract with those snapshots."""
-    unit = _fixture_units()[0]
-    assert content_key({**unit, "picture_identical": not unit["picture_identical"]}) == content_key(unit)
-
-
 def _content_unit(codepoints: str, **fields) -> dict:
     """A unit as a content-addressed surface writes it: stamped over its carry projection and named by that stamp."""
     unit = {"id": None, "codepoints": codepoints, "configs": ["default"], "window": "w", **fields}
@@ -189,80 +113,56 @@ def _content_unit(codepoints: str, **fields) -> dict:
     return unit
 
 
-def _surfaces_read(monkeypatch) -> list[Path]:
-    """Every surface root the carry walks, so a test can say which surfaces the carry never opened."""
-    roots: list[Path] = []
-    real = carry_verdicts.iter_surface
-
-    def spy(root):
-        roots.append(Path(root))
-        return real(root)
-
-    monkeypatch.setattr(carry_verdicts, "iter_surface", spy)
-    return roots
+def _record(unit, verdict, at="2026-07-01T01:00:00Z", note=""):
+    return {"unit": unit["id"], "verdict": verdict, "note": note, "at": at}
 
 
-def test_a_content_id_verdict_carries_by_identity_without_opening_its_surface(tmp_path, monkeypatch):
-    """A content id is the identity the carry resolves by, so a verdict naming one is its own resolution: it lands on the current unit of the same id, and the surface it was recorded on is never read for it."""
-    unit = _content_unit("E650:E652")
-    prior = tmp_path / "prior"
-    _write_surface(prior, "2026-07-01T00:00:00Z", [unit])
+def _carry(tmp_path, current_units, *verdict_files):
     current = tmp_path / "current"
-    _write_surface(current, "2026-07-02T00:00:00Z", [unit, _content_unit("E652:E653")])
+    _write_surface(current, "2026-07-02T00:00:00Z", current_units)
+    out = tmp_path / "out.json"
+    argv = []
+    for path in verdict_files:
+        argv += ["--verdicts", str(path)]
+    main([*argv, "--out", str(out), "--current-surface", str(current)])
+    return json.loads(out.read_text())
+
+
+def test_a_verdict_lands_on_the_unit_of_its_id_and_a_stale_stamp_is_no_bar(tmp_path):
+    """The id is the identity, so a verdicts file stamped for an older surface carries onto the live one by id alone: the unit still on the surface takes its verdict under the new stamp, and the unit that is gone strands its verdict."""
+    kept, gone = _content_unit("E650:E652"), _content_unit("E652:E653")
     verdicts = tmp_path / "verdicts.json"
     _write_verdicts(
-        verdicts,
-        "2026-07-01T00:00:00Z",
-        [{"unit": unit["id"], "verdict": "reject", "note": "n", "at": "2026-07-01T01:00:00Z"}],
+        verdicts, "2026-06-01T00:00:00Z", [_record(kept, "approve", note="fine"), _record(gone, "reject")]
     )
-    roots = _surfaces_read(monkeypatch)
-    out = tmp_path / "out.json"
-    _run_carry(monkeypatch, prior, verdicts, out, current)
-    payload = json.loads(out.read_text())
-    assert [(record["unit"], record["verdict"]) for record in payload["verdicts"]] == [(unit["id"], "reject")]
-    assert prior not in roots
+    payload = _carry(tmp_path, [kept, _content_unit("E653:E654")], verdicts)
+    assert payload["manifest_generated_at"] == "2026-07-02T00:00:00Z"
+    [record] = payload["verdicts"]
+    assert (record["unit"], record["verdict"], record["at"]) == (
+        kept["id"],
+        "approve",
+        "2026-07-01T01:00:00Z",
+    )
+    assert record["note"] == f"[carried {kept['id']}@verdicts.json, verdicted 2026-07-01] fine"
 
 
-def test_identity_of_names_the_content_id_on_either_surface_shape():
-    """A unit named positionally and the same unit named by its content resolve to one identity, which is what lets a verdict recorded before the cutover land on a surface written after it."""
-    unit = _content_unit("E650:E652")
-    positional = {**unit, "id": "u-0412"}
-    assert identity_of(unit) == unit["id"]
-    assert identity_of(positional) == unit["id"]
-    moved = {key: value for key, value in positional.items() if key != "content_key"}
-    assert identity_of(moved) == unit["id"]
-    assert identity_of({**moved, "codepoints": "E650:E650"}) != unit["id"]
-
-
-def test_stranded_units_fetches_only_the_records_the_identity_path_never_read(tmp_path):
-    first, second = _content_unit("E650:E652"), _content_unit("E652:E653")
-    prior = tmp_path / "prior"
-    _write_surface(prior, "2026-07-01T00:00:00Z", [first, second])
-    held = {"id": first["id"], "already": True}
-    stranded = [
-        ({"unit": first["id"]}, "prior", held),
-        ({"unit": second["id"]}, "prior", None),
-        ({"unit": "u-gone"}, "prior", None),
+def test_the_newest_verdict_per_unit_wins_across_files_and_skips_never_carry(tmp_path):
+    unit, skipped = _content_unit("E650:E652"), _content_unit("E652:E653")
+    older, newer = tmp_path / "older.json", tmp_path / "newer.json"
+    _write_verdicts(
+        older, "S0", [_record(unit, "reject", at="2026-07-01T01:00:00Z"), _record(skipped, "skip")]
+    )
+    _write_verdicts(newer, "S0", [_record(unit, "approve", at="2026-07-03T01:00:00Z")])
+    payload = _carry(tmp_path, [unit, skipped], older, newer)
+    assert [(record["unit"], record["verdict"]) for record in payload["verdicts"]] == [
+        (unit["id"], "approve")
     ]
-    resolved = stranded_units(prior, stranded)
-    assert resolved[0][2] is held
-    fetched = resolved[1][2]
-    assert fetched is not None and fetched["codepoints"] == "E652:E653"
-    assert resolved[2][2] is None
-    assert stranded_units(prior, [stranded[0]]) == [stranded[0]]
 
 
-def test_id_migration_maps_a_positional_surface_and_never_walks_a_content_addressed_one(
-    tmp_path, monkeypatch
-):
-    """The cutover rewrite: every positional id on the snapshot maps to the content id its stamp names, and a snapshot whose index already carries content ids answers empty off its manifest alone, without a walk over its units."""
-    unit = _content_unit("E650:E652")
-    positional = tmp_path / "positional"
-    _write_surface(positional, "2026-07-01T00:00:00Z", [{**unit, "id": "u-0412"}])
-    assert id_migration(positional) == {"u-0412": unit["id"]}
-    addressed = tmp_path / "addressed"
-    _write_surface(addressed, "2026-07-02T00:00:00Z", [unit])
-    roots = _surfaces_read(monkeypatch)
-    assert id_migration(addressed) == {}
-    assert roots == []
-    assert id_migration(tmp_path / "missing") == {}
+def test_the_carry_prints_its_four_figures_whatever_it_landed(tmp_path, capsys):
+    """The line the cycle records off the carry: every human unit on the new surface, how many a prior verdict keyed onto, how many none did, and how many prior verdicts found no unit to land on."""
+    kept, gone, fresh = _content_unit("E650:E652"), _content_unit("E652:E653"), _content_unit("E653:E654")
+    verdicts = tmp_path / "verdicts.json"
+    _write_verdicts(verdicts, "S0", [_record(kept, "approve"), _record(gone, "reject")])
+    _carry(tmp_path, [kept, fresh], verdicts)
+    assert "carry figures: human=2 key_hits=1 unhit=1 stranded=1" in capsys.readouterr().out.splitlines()

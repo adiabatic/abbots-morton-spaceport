@@ -4,7 +4,7 @@ The shards are the authority and this file is a projection of them — never a s
 
 Two fields are counted rather than copied, because counting is all any reader does with them: `render_groups` is the number of groups (standing fill wants "exactly one") and `secondary_seams` the number of seams (standing fill wants "none"). Two more are the manifest's rather than the shard's: `order` is the unit's position in the manifest's triage index (`human_unit_ids`) and `batch` the slice of `batch_size` that position falls in, both null for a unit outside the index — a fragment carries neither, because a unit's place in the queue is not a fact about the unit, and `human_positions` is how every reader derives them. Everything else is the shard's own value.
 
-The file is stamped with the manifest's identity digest (`manifest_sha256`), exactly as the unit store is, so a surface half-written by a crashed build can never be read as describing the shards beside it — and a reader that finds no index, or one stamped for another manifest, falls back to streaming the shards through the same projection. That fallback is what lets carry resolve verdicts against the archived snapshots under var/review-pre-*, every one of which predates this file.
+The file is stamped with the manifest's identity digest (`manifest_sha256`), exactly as the unit store is, so a surface half-written by a crashed build can never be read as describing the shards beside it — and a reader that finds no index, or one stamped for another manifest, falls back to streaming the shards through the same projection, so a surface whose index is missing or stale still reads as its shards say.
 """
 
 from __future__ import annotations
@@ -31,7 +31,7 @@ def class_shard_key(class_id: str) -> str:
 
 
 def class_shards(meta: Mapping[str, Any]) -> list[str]:
-    """One manifest class entry's shard parts, in part order. A `ams-review-manifest/1` entry carries a single `shard` string instead of the `shards` list, and reading either is load-bearing rather than politeness: the unit cache reads the prior surface's shards and the carry reads the archived snapshots under `var/review-pre-*`, both of which are the older shape until they are rebuilt."""
+    """One manifest class entry's shard parts, in part order. A `ams-review-manifest/1` entry carries a single `shard` string instead of the `shards` list, and reading either is load-bearing rather than politeness: the unit cache reads the prior surface's shards, which are the older shape until they are rebuilt."""
     shards = meta.get("shards")
     if shards is None:
         return [str(meta["shard"])]
@@ -46,7 +46,7 @@ def human_positions(manifest: Mapping[str, Any]) -> dict[str, int]:
 def workload_slot(
     positions: Mapping[str, int], batch_size: int, fragment: Mapping[str, Any]
 ) -> dict[str, int | None]:
-    """A unit's `order` and `batch` as the index states them, both None for a unit the index does not hold — unless the fragment itself carries a `batch`, which only a surface written before fragments stopped carrying one does (the archived snapshots the carry resolves against), and then that batch stands with no `order`, since such a surface paged in id order and its index, where it has one, says the same."""
+    """A unit's `order` and `batch` as the index states them, both None for a unit the index does not hold — unless the fragment itself carries a `batch`, which only a surface written before fragments stopped carrying one does, and then that batch stands with no `order`, since such a surface paged in id order and its index, where it has one, says the same."""
     order = positions.get(fragment["id"])
     if order is not None:
         return {"order": order, "batch": order // batch_size}
@@ -269,7 +269,7 @@ def stream_shards(surface: Path) -> Iterator[dict]:
 
 
 def iter_units(surface: Path) -> Iterator[dict]:
-    """Every unit on a surface, projected, one at a time: the index when it is there and stamped for this manifest, the shards otherwise. A caller that keeps only a slice of the corpus — the carry, which wants the few tens of thousands of units a prior surface's verdicts actually name — should read it this way rather than through `load_units`, so the other four hundred thousand records never coexist with the ones it is keeping."""
+    """Every unit on a surface, projected, one at a time: the index when it is there and stamped for this manifest, the shards otherwise. A caller that keeps only a slice of the corpus should read it this way rather than through `load_units`, so the other four hundred thousand records never coexist with the ones it is keeping."""
     if index_is_current(surface):
         with gzip.open(index_path(surface), "rt", encoding="utf-8") as stream:
             next(stream)

@@ -367,7 +367,7 @@ def test_dry_run_plan_runs_the_whole_chain_as_one_step():
     assert names.index("census") == names.index("plumbing") + 1
     argv = {step.name: step for step in plan.steps}["plumbing"].argv
     assert argv is not None
-    assert argv[:11] == [
+    assert argv[:10] == [
         "uv",
         "run",
         "python",
@@ -375,12 +375,11 @@ def test_dry_run_plan_runs_the_whole_chain_as_one_step():
         "rebuild.tools.verdict_chain",
         "--surface",
         str(ac.REVIEW_OUT),
-        "--source",
-        str(ac.ROOT / "var" / "review-pre-abc1234"),
+        "--verdicts",
         "v.json",
         "--carry-out",
     ]
-    assert argv[11] == str(ac.ROOT / "verdicts-carried-abc1234.json")
+    assert argv[10] == str(ac.ROOT / "verdicts-carried-abc1234.json")
     assert "--no-merge" not in argv
     assert plan.do_merge is True
 
@@ -390,7 +389,7 @@ def test_dry_run_plan_no_merge_carries_and_stops():
     step = {step.name: step for step in plan.steps}["plumbing"]
     assert step.argv is not None
     assert "--no-merge" in step.argv
-    assert "--source" in step.argv
+    assert "--verdicts" in step.argv
     assert "--no-merge" in step.note or "carry only" in step.note
     assert plan.do_merge is False
 
@@ -2446,17 +2445,20 @@ def test_dry_run_auto_resolves_the_carry_source(tmp_path, monkeypatch, capsys):
     assert str(tmp_path / "verdicts-autosave.json") in out
 
 
-def test_auto_resolution_refuses_a_mismatched_stamp(tmp_path, monkeypatch, capsys):
-    """When no candidate is stamped for the served surface, the cycle stops before any work rather than pairing the newest-stamped file with a snapshot it wasn't recorded against — the mis-carry the qsEt cycle hit."""
+def test_auto_resolution_carries_a_mismatched_stamp_by_unit_id(tmp_path, monkeypatch, capsys):
+    """When no candidate is stamped for the served surface, the newest-stamped file is carried all the same, and named as older: a verdict lands on the unit of its content id or on nothing, so a stale stamp cannot put one on the wrong window."""
     _seed_auto_repo(tmp_path, monkeypatch)
     (tmp_path / "verdicts-carried-old.json").write_text(
         json.dumps(_verdicts_doc("2026-07-10T00:00:00Z", ["u-1"]))
     )
-    assert ac.main(["--dry-run"]) == 2
+    assert ac.main(["--dry-run"]) == 0
     out = capsys.readouterr().out
-    assert "ERROR: the best carry source, verdicts-carried-old.json" in out
-    assert "not the served surface" in out
-    assert "--no-carry" in out
+    assert (
+        "Auto-resolved carry source: verdicts-carried-old.json (1 effective verdicts, stamped 2026-07-10T00:00:00Z, an older surface"
+        in out
+    )
+    assert "land by unit id" in out
+    assert "ERROR" not in out
 
 
 def test_dry_run_degrades_to_no_carry_when_nothing_carryable(tmp_path, monkeypatch, capsys):
@@ -4968,7 +4970,7 @@ def test_dry_run_plan_store_only_merges_the_master_and_takes_no_snapshot():
     assert by_name["snapshot"].argv is None
     assert "the surface did not move" in by_name["snapshot"].note
     argv = _argv(by_name["plumbing"])
-    assert "--source" not in argv
+    assert "--verdicts" not in argv
     assert argv[argv.index("--merge-master") + 1] == "v.json"
     assert "--no-merge" not in argv
     assert plan.do_merge

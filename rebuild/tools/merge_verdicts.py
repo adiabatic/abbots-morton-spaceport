@@ -129,8 +129,8 @@ def run_merge(
         if data["manifest_generated_at"] != stamp:
             print(
                 f"ERROR: {_rel(path)} is stamped {data['manifest_generated_at']}, not the served surface "
-                f"({stamp}). Refusing to join unit ids across surfaces — re-resolve it with "
-                "rebuild/tools/carry_verdicts.py instead."
+                f"({stamp}). Refusing to merge a file stamped for another surface — carry it onto this one with "
+                "rebuild/tools/carry_verdicts.py first."
             )
             return 1
         payloads.append((path, data))
