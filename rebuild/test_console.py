@@ -652,7 +652,7 @@ def test_the_log_directory_holds_the_plan_the_terminal_copy_and_a_log_per_step(c
     with _digest(log_dir=run) as digest:
         digest.plan_block(["artifact cycle", "4 steps: 2–3 will run, 1 skipped"])
         digest.step_start("run_m1", ["true"], "Builds the tables.")
-        print("Snapshotted the surface")
+        print("Auto-resolved carry source: verdicts-autosave.json")
         digest.child_line("run_m1", console.STDOUT, "wrote tables.json")
         digest.child_line("run_m1", console.STDERR, "compiling")
         digest.child_line("run_m1", console.STDOUT, "[warn] no green recorded")
@@ -666,25 +666,25 @@ def test_the_log_directory_holds_the_plan_the_terminal_copy_and_a_log_per_step(c
     ]
     terminal = (run / "terminal.log").read_text()
     assert "artifact cycle" in terminal
-    assert "Snapshotted the surface" in terminal
+    assert "Auto-resolved carry source: verdicts-autosave.json" in terminal
     assert "warn no green recorded" in terminal
     assert (root / "latest").is_symlink()
     assert (root / "latest").resolve() == run.resolve()
-    assert capsys.readouterr().out.count("Snapshotted the surface") == 1
+    assert capsys.readouterr().out.count("Auto-resolved carry source: verdicts-autosave.json") == 1
 
 
 def test_a_step_that_spawns_nothing_leaves_no_log_behind(capsys, tmp_path):
-    """One log per spawned step, and none for a step that spawns nothing. The snapshot and the retention pass both run inside the driver's own process, so a file opened when their banner went up would sit in every run directory at zero bytes — and a reader who opens a run directory wants a file in it to mean a child ran and said something."""
+    """One log per spawned step, and none for a step that spawns nothing. The retention pass runs inside the driver's own process, so a file opened when its banner went up would sit in every run directory at zero bytes — and a reader who opens a run directory wants a file in it to mean a child ran and said something."""
     run = tmp_path / "run"
     with _digest(log_dir=run) as digest:
-        digest.step_start("snapshot", None, "Copies the surface that is currently served.")
-        digest.step_end("snapshot", None, "ok", "clone -> var/review-pre-abc1234")
+        digest.step_start("retention", None, "Prunes the regenerable piles a green cycle leaves behind.")
+        digest.step_end("retention", None, "ok", "removed 1 carried; journal intact")
         digest.step_start("run_m1", ["true"], "Builds the tables.")
         digest.child_line("run_m1", console.STDOUT, "wrote tables.json")
         digest.step_end("run_m1", _Result(), "ok", "")
     assert sorted(path.name for path in run.iterdir()) == ["02-run_m1.log", "terminal.log"]
     surfaced = _surfaced(capsys.readouterr().out)
-    assert any("clone -> var/review-pre-abc1234" in line for line in surfaced)
+    assert any("removed 1 carried; journal intact" in line for line in surfaced)
 
 
 def test_a_skip_says_the_word_once(capsys, tmp_path):
