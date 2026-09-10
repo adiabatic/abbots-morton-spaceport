@@ -695,18 +695,18 @@ class TestTheMemoryDerivedThreadDefault:
             kernel_exec.kernel_threads_default(total_bytes=34_359_738_368)
 
     @pytest.mark.parametrize(
-        "total, wanted", [(4_000_000_000, 1), (34_359_738_368, 5), (32_000_000_000, 5), (64_000_000_000, 12)]
+        "total, wanted", [(4_000_000_000, 1), (34_359_738_368, 3), (32_000_000_000, 3), (64_000_000_000, 8)]
     )
     def test_the_width_follows_the_box_and_never_falls_below_one(self, total, wanted):
-        """The whole point of the derivation: a 32 GB box holds its whole delta wave at once — five deltas beside `default`'s memo, one more than the acceptance set has — in either spelling of 32 GB, so the answer does not rest on a unit convention; a box too small for one configuration gets one anyway, and a roomier box gets what it has room for instead of the constrained box's width."""
+        """Both spellings of 32 GB fit three deltas beside `default`'s retained memo at the measured 6 GB per-configuration bound. A box too small for one configuration gets one anyway, while the 64 GB box fits eight before the caller applies its configuration and CPU caps."""
         assert kernel_exec.kernel_threads_default(total_bytes=total) == wanted
 
     def test_a_coresident_pool_comes_off_the_box_before_it_is_divided(self):
         """What a caller running the fan-out beside something else — the artifact cycle, beside its pytest pool — takes off the top, so the width answers for the machine the configurations will actually share rather than for an empty one. It is the caller's fact and defaults to nothing, because a bare run_m1 has nothing beside it."""
-        assert kernel_exec.kernel_threads_default(total_bytes=64_000_000_000) == 12
+        assert kernel_exec.kernel_threads_default(total_bytes=64_000_000_000) == 8
         assert (
             kernel_exec.kernel_threads_default(coresident_bytes=13_000_000_000, total_bytes=64_000_000_000)
-            == 9
+            == 5
         )
 
     def test_a_stated_width_outranks_a_coresident_reservation_too(self, monkeypatch):

@@ -328,6 +328,62 @@ class TestAliasAndLedger:
             position_row = replace(base, kinds=("position",), phenomena=("position-kern-attributable",))
             assert oracle.classify_divergence(position_row) is None
 
+    def test_zoo_contraction_class_requires_the_old_tea_zoo_trim(self):
+        old_zoo = CellId("qsZoo", "full", "x-height", None, ("en-trim-1",))
+        new_zoo = replace(old_zoo, adjustments=("en-con-1",))
+        old_names = ("qsTea.half.ex-y5.ex-con-1", "qsZoo.en-trim-1")
+        phenomena = tuple(sorted(conform._cell_deltas(old_zoo, new_zoo, old_names, 1)))
+        row = conform.DivergentRow(
+            config="default",
+            codepoints="E652:E65B",
+            kinds=("cell",),
+            position=1,
+            baseline_glyphs=old_names,
+            baseline_seams=("y5",),
+            new_cells=("qsTea/half/None/x-height/", "qsZoo/full/x-height/None/en-con-1"),
+            new_seams=("y5",),
+            phenomena=phenomena,
+        )
+        assert oracle.classify_divergence(row) == "zoo-entry-contraction-respelled"
+        for other in (
+            replace(row, codepoints="E650:E65B"),
+            replace(row, baseline_glyphs=("qsTea.half.ex-y5", "qsZoo.en-trim-1")),
+            replace(row, baseline_glyphs=("qsTea.half.en-y8.ex-y5.ex-con-1", "qsZoo.en-trim-1")),
+            replace(row, baseline_glyphs=(old_names[0], "qsZoo.en-con-2")),
+            replace(row, new_cells=("qsTea/half/top/x-height/", row.new_cells[1])),
+            replace(row, new_cells=(row.new_cells[0], "qsZoo/full/x-height/None/en-con-2")),
+            replace(row, phenomena=("+en-con-1",)),
+            replace(row, phenomena=phenomena + ("+ex-ext-1",)),
+            replace(row, kinds=("cell", "position"), phenomena=phenomena + ("position-drift",)),
+        ):
+            assert oracle.classify_divergence(other) is None
+
+    def test_zoo_contraction_class_excludes_the_unchanged_position_it_roe_redraw(self):
+        """The old ·It·Roe pixels differ before ·Tea·Zoo even when every origin and advance matches. That residue must stay visible instead of riding the downstream entry-contraction identity."""
+        row = conform.DivergentRow(
+            config="default",
+            codepoints="E670:E668:E652:E65B",
+            kinds=("cell",),
+            position=3,
+            baseline_glyphs=(
+                "qsIt.ex-y5",
+                "qsRoe.en-ext-1-at-5",
+                "qsTea.half.ex-y5.ex-con-1",
+                "qsZoo.en-trim-1",
+            ),
+            baseline_seams=("y5", "break", "y5"),
+            new_cells=(
+                "qsIt/hapax/None/x-height/",
+                "qsRoe/hapax/x-height/None/en-ext-1",
+                "qsTea/half/None/x-height/",
+                "qsZoo/full/x-height/None/en-con-1",
+            ),
+            new_seams=("y5", "break", "y5"),
+            phenomena=("+en-con-1", "-en-trim-1"),
+        )
+        for config in ("default", "ss03", "ss04", "ss05", "ss02+ss03+ss05"):
+            assert oracle.classify_divergence(replace(row, config=config)) is None
+
 
 class TestKernEvaluator:
     def test_family_expansion_and_carve_outs(self, tmp_path):

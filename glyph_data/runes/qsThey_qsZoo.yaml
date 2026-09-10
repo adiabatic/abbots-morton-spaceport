@@ -1,0 +1,37 @@
+rune: qsThey_qsZoo
+sequence:
+- qsThey
+- qsZoo
+ductus:
+  hapax: | # DRAFT — pending author sign-off
+    Begun at the x-height, the stroke descends down and to the left into the ·They hook, curls right along its foot and climbs to the right. It turns downward into the half-·Zoo foot, curls right along the bottom, and climbs to the right, ending below the baseline.
+stances:
+  hapax:
+    motion: hapax
+    traits: []
+    bitmap:
+    - "  #      " #
+    - "  #      "
+    - " #       "
+    - " #       "
+    - " #       "
+    - "#        " #
+    - "#   #   #"
+    - "#   #  # "
+    - " ### ##  "
+    y_offset: -3
+    surface:
+      entries: {}
+      exits: {}
+      cells: []
+      unlocks: []
+      require: []
+policy:
+  order:
+  - hapax
+  refuse: []
+  prefer: []
+  extend: []
+  contract: []
+  resolve: []
+  groups: {}

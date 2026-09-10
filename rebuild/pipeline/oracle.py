@@ -216,6 +216,29 @@ def classify_divergence(row: DivergentRow) -> str | None:
     if phenomena and phenomena <= {"+en-con-1", "+en-con-2"} and "E65D" in row.codepoints:
         # The old pipeline's exit contractions before ·J'ai are tucks — the left keeps its ink and only the anchor moves in, overlapping the follower — which M1 re-spells as ·J'ai's own entry contraction: the crown gives up the overlapped columns and abuts instead, so the placed composite, every origin, and every advance are unchanged and only ·J'ai's cell name gains the con token. The subset guard keeps any row where real ink moved elsewhere out of the class.
         return "jai-entry-contraction-respelled"
+    if (
+        phenomena == {"+en-con-1", "-en-trim-1"}
+        and "E652:E65B" in row.codepoints
+        and any(
+            old_left == "qsTea.half.ex-y5.ex-con-1"
+            and old_right == "qsZoo.en-trim-1"
+            and new_left == "qsTea/half/None/x-height/"
+            and new_right
+            in {
+                "qsZoo/full/x-height/None/en-con-1",
+                "qsZoo/full/x-height/baseline/en-con-1",
+            }
+            for old_left, old_right, new_left, new_right in zip(
+                row.baseline_glyphs, row.baseline_glyphs[1:], row.new_cells, row.new_cells[1:]
+            )
+        )
+        and not any(
+            left == "qsIt.ex-y5" and right == "qsRoe.en-ext-1-at-5"
+            for left, right in zip(row.baseline_glyphs, row.baseline_glyphs[1:])
+        )
+    ):
+        # ·Zoo's entry contraction places the same crown as the old ·Tea exit tuck plus ·Zoo entry trim. The unrelated ·It·Roe redraw changes ink without moving origins or advances, so the position channel cannot reject it and this class excludes that old pair explicitly.
+        return "zoo-entry-contraction-respelled"
     # The may-exit-withdrawal-generalized class retired with qsMay's pulled-back exit; a row resurrecting these phenomena carries an ink delta, so it must surface UNMATCHED rather than fall through to the name-grain classes below.
     if any(item.startswith("+ex-bind-") for item in phenomena) or "-ex-ext-1" in phenomena:
         return None
@@ -273,6 +296,7 @@ for _class_id in (
     "see-out-fusion-respelled",
     "may-jai-extension-consolidated",
     "jai-entry-contraction-respelled",
+    "zoo-entry-contraction-respelled",
 ):
     CLASS_PREDICATE_IDS[_class_id.replace("-", "_")] = _class_id
     PREDICATES[_class_id.replace("-", "_")] = _class_predicate(_class_id)
@@ -317,6 +341,7 @@ def _may_ligature_seam_loosened(row: DivergentRow) -> bool:
 # qsBay joined on direct pair evidence, the qsAt shape: the old overlay leaves bare qsBay's baseline exit live (qsBay|qsVie stays y0, likewise qsSee/qsLow/qsRoe/qsAt/qsAh/qsOut/qsOoze), while the contextual en-y5 entry form is substituted away correctly, so every entry into qsBay isolates (qsI|qsBay breaks under ss10).
 # qsKey joined at its own migration on the qsAwe shape: no stances in the old record, so its top entry and baseline exit both ride the base cmap glyph and bare qsKey keeps its seams under ss10 (qsSee|qsKey stays y8, qsKey|qsVie stays y0), while the receivers the old font serves through contextual forms (qsTea.en-y0.en-ext-1, qsDay.half, qsMay.en-y0.ex-y5, qsNo.alt) are substituted away and isolate correctly.
 # qsThaw joined at its own migration on the qsOut precedent, entry side only: its baseline entry anchor rides the bare cmap glyph, so every left whose exit anchor also survives the overlay keeps joining it under the old ss10 (qsBay|qsThaw stays y0, likewise qsDay/qsEt/qsEight/qsAwe/qsOx/qsOy/qsOoze — and qsPea|qsThaw rejoins under ss10 alone, because the after-tall break is itself a calt substitution the overlay disables), while its one exit lives on a calt stance the overlay does substitute away (qsThaw|qsIng breaks under ss10).
+# Bare qsZoo retains its x-height entry and baseline exit under the old ss10 overlay (qsMay|qsZoo stays y5 and qsZoo|qsVie stays y0); its half form is substituted away and loses the baseline entry.
 SS10_UNCOVERED_BY_OLD_FONT = frozenset(
     {
         "qsAh",
@@ -335,6 +360,7 @@ SS10_UNCOVERED_BY_OLD_FONT = frozenset(
         "qsBay",
         "qsKey",
         "qsThaw",
+        "qsZoo",
     }
 )
 

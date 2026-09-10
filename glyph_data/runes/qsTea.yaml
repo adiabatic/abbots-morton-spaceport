@@ -210,10 +210,6 @@ policy:
   - exit: x-height
     by: 1
     when:
-      right: {family: qsZoo}
-  - exit: x-height
-    by: 1
-    when:
       self: {entry: none}
       right: {family: qsJay}
   resolve: []
