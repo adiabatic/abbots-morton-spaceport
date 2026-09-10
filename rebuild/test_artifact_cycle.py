@@ -534,6 +534,8 @@ def test_the_plumbing_row_falls_back_to_the_merge_when_no_carry_ran(tmp_path, mo
     )
     assert failures == []
     assert ac.carry_figure(report.carry_lines) == ""
+    assert report.carry_figures is None
+    assert ac.cycle_summary_payload(report, [], plan, "ok")["carry"] is None
     assert ac.step_figure(report, "plumbing") == "merge merged; no open complaints"
 
 
@@ -872,7 +874,14 @@ def _chain_stdout(*sections, fixpoint=True, failed=None):
 
 
 _FULL_CHAIN = (
-    ("carry", ["wrote verdicts-carried-abc.json: 51946 carried onto manifest S1", "kinds: {'approve': 5}"]),
+    (
+        "carry",
+        [
+            "wrote verdicts-carried-abc.json: 51946 carried onto manifest S1",
+            "kinds: {'approve': 5}",
+            "carry figures: human=60000 key_hits=51946 unhit=8054 stranded=12",
+        ],
+    ),
     (
         "merge",
         [
@@ -1097,6 +1106,8 @@ def test_the_driver_reads_a_line_per_step_out_of_one_child(capsys):
     assert report.standing_merge_status == "merged"
     assert any(line.startswith("nothing changed") for line in report.standing_merge_lines)
     assert any("carried onto manifest" in line for line in report.carry_lines)
+    assert report.carry_figures == {"human": 60000, "key_hits": 51946, "unhit": 8054, "stranded": 12}
+    assert ac.cycle_summary_payload(report, [], _plan(), "ok")["carry"] == report.carry_figures
     assert report.complaints_status == "no open complaints"
     assert report.plumbing_fixpoint is True
 
