@@ -558,12 +558,9 @@ CONFORM_NO_SIDECAR_LINE = "behavior_classes\tabsent"
 
 
 def conform_skip_lines(root: Path = ROOT, horizon: int = CONFORM_HORIZON_DEFAULT) -> list[str]:
-    from rebuild.pipeline import fingerprint
-
     lines = deep_sweep_skip_lines(root)
     if lines is None:
         lines = [CONFORM_NO_SIDECAR_LINE]
-    lines += fingerprint.path_lines(root, fingerprint.font_compile_tool_paths(root))
     lines.append(f"horizon\t{horizon}")
     return lines
 
@@ -573,7 +570,7 @@ def conform_skip_files(root: Path = ROOT, horizon: int = CONFORM_HORIZON_DEFAULT
 
 
 def conform_skip_fingerprint(root: Path = ROOT, horizon: int = CONFORM_HORIZON_DEFAULT) -> str:
-    """Content key over what the belt samples for, on the posture the deep sweep takes: the deep sweep's own arming lines (`deep_sweep_skip_lines` — the behavior-class set the build enumerated out of the emitted lookup, the font-compilation code in `COMPILE_CODE_FILES`, and the uharfbuzz version), the tools/ closure the compile runs (`fingerprint.font_compile_tool_paths`), and the horizon, so a green at a shallower horizon can never satisfy a deeper gate. A build that has left no behavior-class sidecar contributes `CONFORM_NO_SIDECAR_LINE` in the classes' place, a key no sweep records a green under, since every sweep runs over a build that wrote one.
+    """Content key over what the belt samples for, on the posture the deep sweep takes: the deep sweep's own arming lines (`deep_sweep_skip_lines` — the behavior-class set the build enumerated out of the emitted lookup, the font-compilation code in `COMPILE_CODE_FILES` and the tools/ closure the compile runs, and the uharfbuzz version) and the horizon, so a green at a shallower horizon can never satisfy a deeper gate. A build that has left no behavior-class sidecar contributes `CONFORM_NO_SIDECAR_LINE` in the classes' place, a key no sweep records a green under, since every sweep runs over a build that wrote one.
 
     Deliberately not the rune digests, not the tables' stamp, and not M1.otf's bytes: a rune edit moves all three on every pass, and what the belt is chartered for after the crate's string replay (`run_m1.run_replay_strings`, on every build) is HarfBuzz's application semantics over the shapes the emitted lookup asks it to handle — a rule shape, the code that turns a plan into bytes, and the shaper. An edit that mints no new shape leaves nothing the belt has not already shaped, so its green legitimately survives, and the class enumeration is fail-closed (`emit_gsub.behavior_classes`), so a novel shape can never leave the key unmoved. The accepted residue is that a disagreement only HarfBuzz can see waits for the next code change or deep sweep rather than the next rune edit; the belt's universe itself is unchanged.
     """
@@ -581,7 +578,7 @@ def conform_skip_fingerprint(root: Path = ROOT, horizon: int = CONFORM_HORIZON_D
 
 
 def deep_sweep_skip_lines(root: Path = ROOT) -> list[str] | None:
-    """The deep sweep's arming key: the behavior-class set the build enumerated (rebuild/out/m1/behavior_classes.json, written by emit_gsub.behavior_classes), the font-compilation code that turns a plan into bytes, and the shaper version the sweep shapes through. None when no build has left a sidecar to read, which is the caller's cue to run the cycle before asking whether the deep sweep is armed.
+    """The deep sweep's arming key: the behavior-class set the build enumerated (rebuild/out/m1/behavior_classes.json, written by emit_gsub.behavior_classes), the font-compilation code that turns a plan into bytes (the pipeline modules in `COMPILE_CODE_FILES` and the tools/ closure compile_font hands the mini font to, `fingerprint.font_compile_tool_paths`, since an edit to the glyph compiler or the FEA emitter moves M1.otf's bytes and has to arm this sweep and the belt together), and the shaper version the sweep shapes through. None when no build has left a sidecar to read, which is the caller's cue to run the cycle before asking whether the deep sweep is armed.
 
     Deliberately not the rune digests and not M1.otf's bytes: a rune edit moves both on every pass, and the deep sweep exists to sample HarfBuzz behavior at a depth the belt cannot reach. What it samples is the set of shapes the emitted lookup asks the shaper to handle, so an edit that mints no new shape leaves nothing for a deeper run to find, and its green legitimately survives. There is also no horizon line: the deep sweep is "5 or deeper", so the depth a green record proved rides in the record's payload and is compared with >=, where folding it into the key would make a horizon-6 green fail to satisfy a horizon-5 question.
 
@@ -589,6 +586,7 @@ def deep_sweep_skip_lines(root: Path = ROOT) -> list[str] | None:
     """
     import importlib.metadata
 
+    from rebuild.pipeline import fingerprint
     from rebuild.pipeline.emit_gsub import BEHAVIOR_CLASSES_FORMAT
 
     try:
@@ -602,6 +600,7 @@ def deep_sweep_skip_lines(root: Path = ROOT) -> list[str] | None:
         return None
     lines = [f"class:{token}\tpresent" for token in classes]
     lines += [f"{rel}\t{_sha256_path(root / rel)}" for rel in COMPILE_CODE_FILES]
+    lines += fingerprint.path_lines(root, fingerprint.font_compile_tool_paths(root))
     lines.append(f"uharfbuzz\t{importlib.metadata.version('uharfbuzz')}")
     return lines
 
