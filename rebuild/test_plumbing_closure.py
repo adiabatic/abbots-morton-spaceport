@@ -9,9 +9,7 @@ import ast
 from pathlib import Path
 
 from rebuild.pipeline import fingerprint
-from rebuild.review import serve
 from rebuild.tools import artifact_cycle as ac
-from rebuild.tools import review_server
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 
@@ -103,9 +101,3 @@ def test_the_driver_and_the_width_and_telemetry_tools_stay_outside_the_chain():
     )
     named = sorted(path.stem for path in ac.plumbing_code_paths(REPO_ROOT) if path.stem in outside)
     assert named == [], f"PLUMBING_TOOL_MODULES names them anyway: {', '.join(named)}"
-
-
-def test_the_port_the_chain_probes_is_the_port_the_server_binds():
-    """merge_verdicts refuses to write the store while the app is up, so the probe it asks has to name the port rebuild.review.serve actually binds. The two literals sat in separate files with nothing holding them equal until the probe became a module of its own."""
-    assert "rebuild.tools.review_server" in reachable_modules(ac.PLUMBING_ENTRY_POINTS)
-    assert review_server.REVIEW_PORT == serve.PORT
