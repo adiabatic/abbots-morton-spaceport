@@ -799,8 +799,8 @@ def _phase1_unit(
     """One unit's whole per-unit work: the ink flags and deltas, the enrichment, and the fragment drafted from it (`unit_to_json`) — returned as the slim projection the parent's reduces read and the fragment itself, which the caller spools or, for a verification sample, patches in hand. The EnrichedUnit is local to this call: nothing downstream needs it once the fragment exists, and drafting here rather than after the parent's reduces is what keeps the batch's shapes in the memo for the drafter's replay."""
     text = "".join(chr(value) for value in unit.codepoint_values)
     diffs = tuple(comparator.config_diff(text, config) for config in unit.configs)
-    unit.ink_identical = all(diff == IDENTITY_DIFF for diff in diffs)
-    unit.picture_identical = not unit.ink_identical and comparator.picture_identical(text, unit.configs)
+    unit.ink_identical = comparator.ink_identical(text, unit.configs)
+    unit.picture_identical = not unit.ink_identical and all(diff == IDENTITY_DIFF for diff in diffs)
     unit.junior_equivalent = not (unit.ink_identical or unit.picture_identical) and oracle.approves(
         unit.configs, text
     )
@@ -2542,10 +2542,10 @@ def check_unit(unit: dict, mode: str = "m1-audit") -> list[str]:
             )
             if isinstance(unit.get("configs"), list):
                 need(set(deltas) <= set(unit["configs"]), "ink_deltas keys must be a subset of configs")
-            if unit.get("ink_identical") is True:
-                need(not deltas, "ink-identical units must carry empty ink_deltas")
-            elif unit.get("ink_identical") is False:
-                need(bool(deltas), "units with ink changes must carry a nonempty ink_deltas")
+            if unit.get("ink_identical") is True or unit.get("picture_identical") is True:
+                need(not deltas, "ink- and picture-identical units must carry empty ink_deltas")
+            elif unit.get("ink_identical") is False and unit.get("picture_identical") is False:
+                need(bool(deltas), "units with a visible ink change must carry a nonempty ink_deltas")
     stamp = unit.get("content_key")
     need(
         isinstance(stamp, str) and len(stamp) == 64 and all(ch in "0123456789abcdef" for ch in stamp),
