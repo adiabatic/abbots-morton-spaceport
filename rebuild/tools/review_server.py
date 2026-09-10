@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import socket
 
-REVIEW_PORT = 7294
+from rebuild.review.serve import PORT as REVIEW_PORT
 
 
 def server_listening(port: int = REVIEW_PORT) -> bool:
