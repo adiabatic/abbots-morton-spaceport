@@ -591,6 +591,25 @@ def test_explain_prose_is_the_one_component_a_refuse_why_moves(tmp_path):
     }
 
 
+def test_explain_prose_follows_the_spec_root_a_build_names(tmp_path):
+    """A workload bundled with its own frozen spec serves that spec's rationales, so the component is taken over the spec root and the checkout's runes are never opened for it; a build that names no spec root reads the checkout, where the two are one tree. The other Stage B components stay on the checkout either way."""
+    root = _fake_repo(tmp_path / "checkout")
+    spec_root = _fake_repo(tmp_path / "spec")
+    (root / "glyph_data" / "runes" / "qsPea.yaml").write_text(PROSE_RUNE)
+    (spec_root / "glyph_data" / "runes" / "qsPea.yaml").write_text(
+        PROSE_RUNE.replace("render thick", "render thin")
+    )
+    fonts = (root / "site" / "before.otf", root / "site" / "junior.otf")
+    bundled = fingerprint.stage_b(root, *fonts, spec_root)
+    checkout = fingerprint.stage_b(root, *fonts)
+    assert bundled["explain_prose"] == fingerprint.explain_prose_value(spec_root)
+    assert checkout["explain_prose"] == fingerprint.explain_prose_value(root)
+    assert bundled["explain_prose"] != checkout["explain_prose"]
+    assert {key: value for key, value in bundled.items() if key != "explain_prose"} == {
+        key: value for key, value in checkout.items() if key != "explain_prose"
+    }
+
+
 def _ledger_components(root, text):
     (root / fingerprint.DIVERGENCE_LEDGER_LABEL).write_text(text)
     return fingerprint.compute_all(root)

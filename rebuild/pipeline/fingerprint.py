@@ -492,13 +492,14 @@ def stage_a(repo_root: Path) -> dict:
     }
 
 
-def stage_b(repo_root: Path, before_font: Path, junior_font: Path) -> dict:
+def stage_b(repo_root: Path, before_font: Path, junior_font: Path, spec_root: Path | None = None) -> dict:
+    """The review-side components. `explain_prose` is taken over `spec_root` when a build names one, because the rationales the surface quotes are read from the spec it settles under — a workload bundled with its own frozen spec serves that spec's `why`s, not this checkout's — and over the checkout otherwise, where the two are the same tree."""
     root = Path(repo_root)
     return {
         "review_code": hash_paths(root, review_code_paths(root)),
         "static": hash_paths(root, static_paths(root)),
         "fonts": hash_paths(root, [Path(before_font), Path(junior_font)]),
-        "explain_prose": explain_prose_value(root),
+        "explain_prose": explain_prose_value(Path(spec_root) if spec_root is not None else root),
     }
 
 

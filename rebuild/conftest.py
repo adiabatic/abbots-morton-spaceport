@@ -37,11 +37,14 @@ GREEN_RECORDS = (
     "REBUILD_CONTRACTS_GREEN",
     "RUN_M1_GREEN",
     "MAKE_TEST_GREEN",
+    "PYRIGHT_GREEN",
 )
 
 REBUILD_DIR = Path(__file__).resolve().parent
 MINI = REBUILD_DIR / "review" / "fixtures" / "mini"
 LANES = ("contracts",)
+# What the collection walk under rebuild/ leaves alone: the crate, whose target/ tree is nearly every entry the walk would otherwise visit, and the build output. Every entry visited costs each xdist worker a `collect_ignore` lookup on each conftest, and on CPython 3.13+ a module attribute miss formats its error through getcwd(), which workers spawned by `python -c` all pay against the same directory — so the walk, not its tests, was the floor a narrowed run paid.
+collect_ignore = ["kernel-rs", "out"]
 # The live trees, derived rather than listed: rebuild/out/ (everything the build and the cycle write), the whole of tmp/ and var/, the root-level verdicts-* stores, and whatever the rebuild gate exempts from its input closure. That last list is derived rather than copied so it tracks the gate, but it needs a subtraction, because its entries are exempt for two different reasons: rebuild/evidence/ and the census pins are regenerated state the gate refuses to hash, while rebuild/review/jstests/ and rebuild/m1-contact-allow.yaml are checked-in source that the gate merely has no reason to hash — the JS suite the cycle's own plan step globs, and the human-reviewed allow-list whose only reader is the defect gate — and source is what a contracts test is free to read. var/ is forbidden whole rather than by the cycle snapshots that sit in it, and tmp/ with it: both trees are entirely outside the suite's input closure, and the write standard below already bars every test from writing under the live repo, so nothing a contracts test may legitimately read can be in either. A test that wants a scratch directory takes `tmp_path`.
 _EXEMPT_SOURCE = ("rebuild/review/jstests/", "rebuild/m1-contact-allow.yaml")
 _FORBIDDEN = tuple(

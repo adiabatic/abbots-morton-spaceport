@@ -5,7 +5,8 @@ from pathlib import Path
 
 import pytest
 
-from rebuild.conftest import LANES, governs, is_live_artifact_path
+from rebuild.conftest import LANES, collect_ignore, governs, is_live_artifact_path
+from rebuild.tools import contracts_closure
 
 pytest_plugins = ("pytester",)
 
@@ -126,3 +127,9 @@ class TestGuardEndToEnd:
         result = _child(pytester, monkeypatch)
         result.assert_outcomes(passed=1, failed=1)
         result.stdout.fnmatch_lines(["*ContractsLaneViolation*"])
+
+
+def test_the_collection_walk_leaves_the_crate_and_the_build_output_alone():
+    """The two subtrees the walk under rebuild/ never enters — the crate, named by the closure's own prefix for it, and the live build output — which between them are nearly every entry a worker would otherwise visit and stat before deselecting a single test. Anything else under rebuild/ stays walkable, so a test file added in a new subtree is still found."""
+    assert set(collect_ignore) == {Path(contracts_closure.KERNEL_PREFIX).name, "out"}
+    assert all("/" not in name for name in collect_ignore)
