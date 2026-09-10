@@ -1792,7 +1792,7 @@ async function advanceDocket({ stale = false } = {}) {
     units: decision.unitIds.join(','),
     docket: '1',
     stamp: manifest.generated_at,
-    unit: decision.unitIds[0],
+    unit: null,
     view: null,
   });
 }
