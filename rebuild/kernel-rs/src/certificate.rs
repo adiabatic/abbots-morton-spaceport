@@ -32,7 +32,7 @@ const EDGE_LABEL: &str = "#EDGE";
 /// The chain length of a row no seed reaches through the producer relation.
 pub const UNREACHED: u32 = u32::MAX;
 
-/// Every row's shortest producer chain: the row it is reached from and how many rows the chain holds before it, zero for a seed. Built by one breadth-first pass over the rows in their key order, so a successor set — the rows at the next position whose input, left and pinned right slots the row fixes — is a contiguous run found by binary search, and a run once reached is never scanned again, because its every row was assigned the first time. A row the pass never reaches keeps [`UNREACHED`], which the fold treats as the longest chain there is.
+/// Every row's shortest producer chain: the row it is reached from and how many rows the chain holds before it, zero for a seed. Built by one breadth-first pass over the rows in their key order, so a successor set — the rows at the next position whose input, left and pinned right slots the row fixes, out to the last slot the successor's own window carries — is a handful of contiguous runs found by binary search, one per depth the successor may have stopped carrying slots at, and a run once reached is never scanned again, because its every row was assigned the first time. A row the pass never reaches keeps [`UNREACHED`], which the fold treats as the longest chain there is.
 pub struct Prefixes {
     dist: Vec<u32>,
     parent: Vec<u32>,
@@ -63,17 +63,30 @@ impl Prefixes {
                 .iter()
                 .position(|label| *label == NA_LABEL)
                 .map_or(5, |open| 3 + open);
-            let prefix = &prefix[..pinned];
-            let start = partition(rows, |key| &key[..pinned] < prefix);
-            let end = partition(rows, |key| &key[..pinned] <= prefix);
-            if start == end || !scanned.insert((start as u32, end as u32)) {
-                continue;
+            // A successor carries the producer's pins out to the last slot its own window enumerated, and a slot it never split stands at `#NA` behind the ones it did; so beside the run keyed on the whole pinned prefix, every shorter prefix followed by `#NA` is a run of successors too — the rows a non-deep input leaves with its third and fourth slots dropped, whose pins the worklist forwards onto their own successors.
+            let mut runs: Vec<(usize, usize)> = Vec::new();
+            for carried in 3..=pinned {
+                let mut wanted: Vec<&str> = prefix[..carried].to_vec();
+                if carried < pinned {
+                    wanted.push(NA_LABEL);
+                }
+                let width = wanted.len();
+                let start = partition(rows, |key| key[..width] < wanted[..]);
+                let end = partition(rows, |key| key[..width] <= wanted[..]);
+                if start < end {
+                    runs.push((start, end));
+                }
             }
-            for next in start..end {
-                if dist[next] == UNREACHED {
-                    dist[next] = dist[at] + 1;
-                    parent[next] = row;
-                    queue.push_back(next as u32);
+            for (start, end) in runs {
+                if !scanned.insert((start as u32, end as u32)) {
+                    continue;
+                }
+                for next in start..end {
+                    if dist[next] == UNREACHED {
+                        dist[next] = dist[at] + 1;
+                        parent[next] = row;
+                        queue.push_back(next as u32);
+                    }
                 }
             }
         }
@@ -536,7 +549,7 @@ mod tests {
                 assert_eq!(from[2], to[0]);
                 assert_eq!(from[3], to[2]);
                 for (pinned, next) in [(from[4], to[3]), (from[5], to[4])] {
-                    if pinned == NA_LABEL {
+                    if pinned == NA_LABEL || next == NA_LABEL {
                         break;
                     }
                     assert_eq!(pinned, next);
