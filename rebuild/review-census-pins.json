@@ -45,7 +45,7 @@
         "units": 1373866,
         "rows": 4741705,
         "batches": 539,
-        "echo_groups": 9711
+        "echo_groups": 7828
       },
       "machine_approved": {
         "units": 1179188,
@@ -82,7 +82,7 @@
     },
     "built": {
       "human_units": 161661,
-      "worked_example_echo_siblings": 616,
+      "worked_example_echo_siblings": 629,
       "config_note_distribution": [
         [
           null,

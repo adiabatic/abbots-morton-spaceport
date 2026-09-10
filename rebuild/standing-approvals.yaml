@@ -46,7 +46,7 @@ rules:
     note: "·I loops more tightly after a baseline entry — the smaller-loop-survives-extension override accepted at the qsI close"
     match:
       after:
-        ink_deltas: [d-fb9cc0e103ca]
+        ink_deltas: [d-9df007ed88b5]
       except_left: []
   - id: see-grounded-left-column-dropped
     verdict: approve
