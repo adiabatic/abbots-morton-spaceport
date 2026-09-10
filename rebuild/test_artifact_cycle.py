@@ -3187,7 +3187,16 @@ def test_deep_sweep_fingerprint_moves_with_a_class_or_the_compile_code(tmp_path)
     grown = ac.deep_sweep_skip_fingerprint(tmp_path)
     assert grown != base
     (tmp_path / ac.COMPILE_CODE_FILES[0]).write_text("# rewritten\n")
-    assert ac.deep_sweep_skip_fingerprint(tmp_path) != grown
+    rewritten = ac.deep_sweep_skip_fingerprint(tmp_path)
+    assert rewritten != grown
+    (tmp_path / "tools").mkdir()
+    (tmp_path / "tools" / "build_font.py").write_text("# fea emitter\n")
+    with_tools = ac.deep_sweep_skip_fingerprint(tmp_path)
+    assert with_tools != rewritten
+    files = ac.deep_sweep_skip_files(tmp_path)
+    assert files is not None
+    assert "tools/build_font.py" in files
+    assert ac.conform_skip_files(tmp_path, 4)["tools/build_font.py"] == files["tools/build_font.py"]
 
 
 def test_deep_sweep_status_walks_unknown_never_run_armed_and_current(tmp_path, monkeypatch):
