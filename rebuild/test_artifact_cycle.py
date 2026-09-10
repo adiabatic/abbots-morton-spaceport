@@ -238,14 +238,12 @@ def test_dry_run_plan_default():
         verdicts=Path("verdicts-X.json"),
         no_carry=False,
         carry_out=None,
-        snapshot_dir=None,
         skip_gates=False,
         first_run=False,
         short_id="abc1234",
         ncores=1,
         total_bytes=BOX_44_GB,
     )
-    assert plan.snapshot_dir == ac.ROOT / "var" / "review-pre-abc1234"
     assert plan.carry_out == ac.ROOT / "verdicts-carried-abc1234.json"
 
     by_name = {step.name: step for step in plan.steps}
@@ -361,7 +359,7 @@ def test_dry_run_plan_skip_conform():
 
 
 def test_dry_run_plan_runs_the_whole_chain_as_one_step():
-    plan = _plan(snapshot_dir=None, short_id="abc1234")
+    plan = _plan(short_id="abc1234")
     names = [step.name for step in plan.steps]
     assert names.index("plumbing") == names.index("surface-build") + 1
     assert names.index("census") == names.index("plumbing") + 1
@@ -543,7 +541,6 @@ def test_dry_run_plan_skips_the_chain_without_a_carry():
         verdicts=None,
         no_carry=True,
         carry_out=None,
-        snapshot_dir=None,
         skip_gates=False,
         first_run=False,
         short_id="abc",
@@ -555,7 +552,6 @@ def test_dry_run_plan_skips_the_chain_without_a_carry():
         verdicts=None,
         no_carry=False,
         carry_out=None,
-        snapshot_dir=None,
         skip_gates=False,
         first_run=True,
         short_id="abc",
@@ -570,7 +566,6 @@ def test_dry_run_plan_no_carry():
         verdicts=None,
         no_carry=True,
         carry_out=None,
-        snapshot_dir=None,
         skip_gates=False,
         first_run=False,
         short_id="def5678",
@@ -580,18 +575,16 @@ def test_dry_run_plan_no_carry():
     assert by_name["plumbing"].argv is None
 
 
-def test_dry_run_plan_first_run_skips_snapshot_and_carry():
+def test_dry_run_plan_first_run_skips_the_carry():
     plan = ac.build_plan(
         verdicts=None,
         no_carry=False,
         carry_out=None,
-        snapshot_dir=None,
         skip_gates=False,
         first_run=True,
         short_id="0000000",
     )
     by_name = {step.name: step for step in plan.steps}
-    assert by_name["snapshot"].argv is None
     assert by_name["plumbing"].argv is None
     assert plan.carry_out is None
 
@@ -601,7 +594,6 @@ def test_dry_run_plan_skip_gates():
         verdicts=None,
         no_carry=True,
         carry_out=None,
-        snapshot_dir=None,
         skip_gates=True,
         first_run=False,
         short_id="abc",
@@ -617,13 +609,11 @@ def test_render_plan_is_stringable():
         verdicts=Path("v.json"),
         no_carry=False,
         carry_out=None,
-        snapshot_dir=None,
         skip_gates=False,
         first_run=False,
         short_id="abc1234",
     )
     text = _plan_text(plan)
-    assert "review-pre-abc1234" in text
     assert "rebuild.pipeline.run_m1" in text
 
 
@@ -640,12 +630,11 @@ def test_every_plan_step_says_what_it_is_for():
 
 
 def test_a_step_that_spawns_nothing_is_not_automatically_a_skipped_one():
-    """The run/skip column reads `skipped`, not `argv is None`, because the snapshot and the retention pass do real work in this process and the `gates` placeholder stands in for five steps at once. Reading the column off argv would file all three under `skip` and make the counts line a lie."""
+    """The run/skip column reads `skipped`, not `argv is None`, because the retention pass does real work in this process and the `gates` placeholder stands in for five steps at once. Reading the column off argv would file both under `skip` and make the counts line a lie."""
     plan = _plan()
     by_name = {step.name: step for step in plan.steps}
-    for name in ("snapshot", "retention"):
-        assert by_name[name].argv is None
-        assert by_name[name].skipped is False
+    assert by_name["retention"].argv is None
+    assert by_name["retention"].skipped is False
     for step in plan.steps:
         if step.argv is not None:
             assert step.skipped is False, step.name
@@ -708,7 +697,7 @@ def test_the_plan_block_counts_its_steps_and_leaves_the_sweep_undecided():
 
 
 def test_the_plan_block_leads_with_its_arithmetic_and_puts_the_paths_after_the_rows():
-    """What a reader came to the top of a pass for is how many steps there are and what each one will run, so the header goes straight into the count and the rows. The paths this pass resolved — where the snapshot lands, which master the carry reads, where the carried file goes — follow them rather than splitting the header from its own arithmetic, and the concurrency block, which answers how the steps share the box, still comes last."""
+    """What a reader came to the top of a pass for is how many steps there are and what each one will run, so the header goes straight into the count and the rows. The paths this pass resolved — which master the carry reads, where the carried file goes — follow them rather than splitting the header from its own arithmetic, and the concurrency block, which answers how the steps share the box, still comes last."""
     plan = _plan()
     lines = ac.render_plan(plan)
     assert lines[0].startswith("artifact cycle ")
@@ -717,7 +706,6 @@ def test_the_plan_block_leads_with_its_arithmetic_and_puts_the_paths_after_the_r
     paths = next(index for index, line in enumerate(lines) if line.startswith("  first run "))
     concurrency = next(index for index, line in enumerate(lines) if line.strip().startswith("Concurrency"))
     assert 0 < counts < last_row < paths < concurrency
-    assert [line for line in lines if line.startswith("  snapshot dir ")]
     assert [line for line in lines if line.startswith("  carry output ")]
 
 
@@ -798,7 +786,6 @@ def _plan(**overrides: Any) -> ac.Plan:
         verdicts=Path("v.json"),
         no_carry=False,
         carry_out=None,
-        snapshot_dir=Path("/tmp/snap-x"),
         skip_gates=False,
         first_run=False,
         short_id="testid",
@@ -2080,7 +2067,6 @@ def test_dry_run_renders_concurrency():
         verdicts=Path("v.json"),
         no_carry=False,
         carry_out=None,
-        snapshot_dir=None,
         skip_gates=False,
         first_run=False,
         short_id="abc1234",
@@ -2121,7 +2107,6 @@ def test_dry_run_skip_gates_appends_jobs_budgets():
         verdicts=None,
         no_carry=True,
         carry_out=None,
-        snapshot_dir=None,
         skip_gates=True,
         first_run=False,
         short_id="abc1234",
@@ -2139,7 +2124,6 @@ def test_dry_run_skip_gates_appends_jobs_budgets():
         verdicts=Path("v.json"),
         no_carry=False,
         carry_out=None,
-        snapshot_dir=None,
         skip_gates=False,
         first_run=False,
         short_id="abc1234",
@@ -2158,7 +2142,6 @@ def test_review_out_rehearsal_plan(monkeypatch, tmp_path):
         verdicts=Path("v.json"),
         no_carry=False,
         carry_out=None,
-        snapshot_dir=None,
         skip_gates=False,
         first_run=False,
         short_id="abc1234",
@@ -2172,7 +2155,6 @@ def test_review_out_rehearsal_plan(monkeypatch, tmp_path):
     assert argv[argv.index("--surface") + 1] == str(rehearsal_out)
     assert plan.surface_dir == rehearsal_out
     assert plan.review_out == rehearsal_out
-    assert str(ac.REVIEW_OUT) in by_name["snapshot"].note
 
     monkeypatch.setattr(ac, "server_listening", lambda *a, **k: True)
     waiver = argparse.Namespace(review_out=rehearsal_out, yes=False, stop_server=False)
@@ -3827,34 +3809,6 @@ def test_the_readiness_block_reports_a_checklist_it_could_not_compute(monkeypatc
     assert lines == ["readiness: the checklist could not be computed (RuntimeError('no manifest'))"]
 
 
-def test_resolve_snapshot_dir_takes_the_first_free_name(tmp_path):
-    assert ac.resolve_snapshot_dir(tmp_path, "abc1234") == tmp_path / "review-pre-abc1234"
-    (tmp_path / "review-pre-abc1234").mkdir()
-    assert ac.resolve_snapshot_dir(tmp_path, "abc1234") == tmp_path / "review-pre-abc1234-2"
-    (tmp_path / "review-pre-abc1234-2").mkdir()
-    assert ac.resolve_snapshot_dir(tmp_path, "abc1234") == tmp_path / "review-pre-abc1234-3"
-    assert ac.resolve_snapshot_dir(tmp_path, "def5678") == tmp_path / "review-pre-def5678"
-
-
-def test_build_plan_gives_a_second_pass_at_one_head_its_own_snapshot(tmp_path, monkeypatch):
-    monkeypatch.setattr(ac, "ROOT", tmp_path)
-    monkeypatch.setattr(ac, "JSTEST_DIR", tmp_path / "jstests")
-    (tmp_path / "var").mkdir()
-    first = _plan(snapshot_dir=None).snapshot_dir
-    assert first == tmp_path / "var" / "review-pre-testid"
-    first.mkdir()
-    assert _plan(snapshot_dir=None).snapshot_dir == tmp_path / "var" / "review-pre-testid-2"
-
-
-def test_prune_snapshots_collects_the_suffixed_names(tmp_path):
-    for name in ("review-pre-abc1234", "review-pre-abc1234-2", "review-pre-abc1234-3"):
-        (tmp_path / name).mkdir()
-    keep = tmp_path / "review-pre-abc1234-3"
-    removed = ac.prune_snapshots(tmp_path, keep)
-    assert {path.name for path in removed} == {"review-pre-abc1234", "review-pre-abc1234-2"}
-    assert keep.exists()
-
-
 def _unsettled_repo(tmp_path, monkeypatch, stamp="2026-07-17T20:24:44Z"):
     """A repo where no keyed stage can auto-skip: run_m1's key matches no record, the make-test closure is unreadable, and neither rebuild lane's key matches. `_settled_repo` is the converged counterpart."""
     _seed_auto_repo(tmp_path, monkeypatch, stamp=stamp)
@@ -4088,30 +4042,6 @@ def test_run_cycle_sweeps_when_the_finished_artifacts_carry_no_green(monkeypatch
     assert report.gate_conform == "green"
     assert "SKIPPED after run_m1" not in capsys.readouterr().out
     assert ac.cycle_summary_payload(report, [], plan, "ok")["gates"]["conform"]["skip"] is None
-
-
-def test_unfinished_cycle_snapshot_is_only_claimed_from_a_red_summary(tmp_path):
-    snapshot = tmp_path / "review-pre-abc1234"
-    snapshot.mkdir()
-    summary = tmp_path / "cycle_summary.json"
-    assert ac.unfinished_cycle_snapshot(summary) is None
-    for exit_kind in ("interrupted", "failed"):
-        summary.write_text(json.dumps({"exit": exit_kind, "snapshot_dir": str(snapshot)}))
-        assert ac.unfinished_cycle_snapshot(summary) == snapshot
-    summary.write_text(json.dumps({"exit": "ok", "snapshot_dir": str(snapshot)}))
-    assert ac.unfinished_cycle_snapshot(summary) is None
-    summary.write_text(json.dumps({"exit": "failed", "snapshot_dir": str(tmp_path / "gone")}))
-    assert ac.unfinished_cycle_snapshot(summary) is None
-
-
-def test_retention_spares_the_snapshot_of_a_cycle_that_never_finished(tmp_path):
-    for name in ("review-pre-abc1234", "review-pre-abc1234-2", "review-pre-old"):
-        (tmp_path / name).mkdir()
-    keep = tmp_path / "review-pre-abc1234-2"
-    preserve = tmp_path / "review-pre-abc1234"
-    removed = ac.prune_snapshots(tmp_path, keep, preserve)
-    assert {path.name for path in removed} == {"review-pre-old"}
-    assert keep.exists() and preserve.exists()
 
 
 def test_do_run_m1_skip_reads_recorded_summaries(monkeypatch, tmp_path):
@@ -4421,7 +4351,7 @@ def test_the_summary_table_carries_each_steps_figure_and_what_it_cost():
     report.gate_conform = f"skipped ({ac.CONFORM_SKIP_NOTE})"
     report.gate_contracts = "FAILED (3 unexplained)"
     report.gate_contracts_green = False
-    report.retention_figure = "removed 1 snapshot, 1 carried, 0 build logs, 0 stashes; journal intact"
+    report.retention_figure = "removed 1 carried, 0 build logs, 0 stashes; journal intact"
     report.step_seconds = {"run_m1": 1988.0, "surface-build": 61.0, "gate:rebuild-contracts": 92.0}
     report.step_returncodes = {"run_m1": 0, "surface-build": 0, "gate:rebuild-contracts": 1}
 
@@ -4956,19 +4886,15 @@ def test_dry_run_plan_skip_plumbing_replaces_the_whole_chain():
     by_name = {step.name: step for step in plan.steps}
     assert by_name["plumbing"].argv is None
     assert by_name["plumbing"].note == f"SKIPPED ({ac.PLUMBING_SKIP_NOTE})"
-    assert by_name["snapshot"].argv is None
-    assert by_name["snapshot"].note.startswith(f"SKIPPED ({ac.PLUMBING_SKIP_NOTE})")
     assert plan.complaints_note == ac.PLUMBING_SKIP_NOTE
     assert by_name["census"].argv is not None
 
 
-def test_dry_run_plan_store_only_merges_the_master_and_takes_no_snapshot():
-    """The surface did not move, so the carry would resolve every unit against itself and its re-prefixed notes could never outrank the store. What is left is the one input the store's own hash cannot see — the master — so the chain merges that directly, and there is no snapshot to take."""
+def test_dry_run_plan_store_only_merges_the_master():
+    """The surface did not move, so the carry would resolve every unit against itself and its re-prefixed notes could never outrank the store. What is left is the one input the store's own hash cannot see — the master — so the chain merges that directly."""
     plan = _plan(store_only=True)
     by_name = {step.name: step for step in plan.steps}
     assert plan.carry_out is None
-    assert by_name["snapshot"].argv is None
-    assert "the surface did not move" in by_name["snapshot"].note
     argv = _argv(by_name["plumbing"])
     assert "--verdicts" not in argv
     assert argv[argv.index("--merge-master") + 1] == "v.json"
@@ -5190,7 +5116,6 @@ def test_main_skips_the_plumbing_on_a_matching_record(tmp_path, monkeypatch, cap
     row = _step_lines(out, "plumbing")
     assert "uv run python -m rebuild.tools.verdict_chain" in row
     assert "--merge-master" in row
-    assert "SKIPPED (the surface did not move" in _step_lines(out, "snapshot")
 
 
 def test_main_runs_the_census_on_the_pass_that_skips_the_plumbing(tmp_path, monkeypatch, capsys):
@@ -5214,7 +5139,7 @@ def test_main_never_skips_the_plumbing_on_a_pass_that_writes_the_surface(tmp_pat
 
 
 def test_main_never_skips_the_plumbing_under_fresh_or_a_partial_chain(tmp_path, monkeypatch, capsys):
-    """--carry-out and --snapshot-dir join the list because the skip writes neither file: honoring the flag and skipping the step cannot both happen, so the flag wins."""
+    """--carry-out joins the list because the skip writes no such file: honoring the flag and skipping the step cannot both happen, so the flag wins."""
     _settled_repo(tmp_path, monkeypatch)
     ac.record_plumbing_green("plu")
     for argv in (
@@ -5223,22 +5148,9 @@ def test_main_never_skips_the_plumbing_under_fresh_or_a_partial_chain(tmp_path, 
         ["--dry-run", "--no-carry"],
         ["--dry-run", "--review-out", str(tmp_path / "rehearse")],
         ["--dry-run", "--carry-out", str(tmp_path / "carried.json")],
-        ["--dry-run", "--snapshot-dir", str(tmp_path / "snap")],
     ):
         assert ac.main(argv) == 0
         assert ac.PLUMBING_SKIP_NOTE not in capsys.readouterr().out
-
-
-def test_main_skipping_the_plumbing_takes_the_snapshot_with_it(tmp_path, monkeypatch):
-    """No carry reads the snapshot and no surface write threatens the live copy, so the pass takes none — and retention says so instead of naming a directory that was never made."""
-    _settled_repo(tmp_path, monkeypatch)
-    ac.record_plumbing_green("plu")
-    calls: list[tuple] = []
-    monkeypatch.setattr(ac, "snapshot_surface", lambda src, dst: calls.append((src, dst)) or "cloned")
-    monkeypatch.setattr(ac, "server_listening", lambda port=ac.REVIEW_PORT: False)
-    monkeypatch.setattr(ac, "_run_cycle", lambda plan, report, emit, registry, **_: 0)
-    assert ac.main([]) == 0
-    assert calls == []
 
 
 def _assets_only_repo(tmp_path, monkeypatch):
@@ -5250,14 +5162,13 @@ def _assets_only_repo(tmp_path, monkeypatch):
 
 
 def test_main_refreshes_the_assets_when_only_the_static_component_moved(tmp_path, monkeypatch, capsys):
-    """An app JS/CSS/HTML edit plans a copy and a restamp, never a whole surface build. Everything downstream inherits the skip: no snapshot, and — on a matching plumbing record — no chain either, since the manifest line the key hashes drops the component the refresh rewrites."""
+    """An app JS/CSS/HTML edit plans a copy and a restamp, never a whole surface build. Everything downstream inherits the skip: on a matching plumbing record, no chain either, since the manifest line the key hashes drops the component the refresh rewrites."""
     _assets_only_repo(tmp_path, monkeypatch)
     ac.record_plumbing_green("plu")
     assert ac.main(["--dry-run"]) == 0
     out = capsys.readouterr().out
     assert "SKIPPED (only the review UI assets moved" in _step_lines(out, "surface-build")
     assert "uv run python -m rebuild.review.build refresh-assets" in _step_lines(out, "assets-refresh")
-    assert "SKIPPED" in _step_lines(out, "snapshot")
     assert f"SKIPPED ({ac.PLUMBING_SKIP_NOTE})" in _step_lines(out, "plumbing")
 
     ac.record_plumbing_green("moved")
@@ -5265,7 +5176,6 @@ def test_main_refreshes_the_assets_when_only_the_static_component_moved(tmp_path
     out = capsys.readouterr().out
     assert "uv run python -m rebuild.review.build refresh-assets" in _step_lines(out, "assets-refresh")
     assert "--merge-master" in _step_lines(out, "plumbing")
-    assert "SKIPPED (the surface did not move" in _step_lines(out, "snapshot")
 
 
 def test_main_plans_no_assets_refresh_when_the_surface_already_matches(tmp_path, monkeypatch, capsys):
@@ -5362,7 +5272,6 @@ def test_main_leaves_the_server_up_on_the_settled_pass(tmp_path, monkeypatch, ca
     monkeypatch.setattr(
         ac, "stop_review_server", lambda timeout=ac.SERVER_STOP_TIMEOUT: pytest.fail("stopped")
     )
-    monkeypatch.setattr(ac, "snapshot_surface", lambda src, dst: "cloned")
     monkeypatch.setattr(ac, "_run_cycle", lambda plan, report, emit, registry, **_: 0)
     assert ac.main([]) == 0
     assert ac.SERVER_STAYS_UP_NOTE in capsys.readouterr().out
@@ -5375,7 +5284,6 @@ def test_main_stops_the_server_when_the_pass_rebuilds_the_surface(tmp_path, monk
     monkeypatch.setattr(
         ac, "stop_review_server", lambda timeout=ac.SERVER_STOP_TIMEOUT: stops.append(1) or True
     )
-    monkeypatch.setattr(ac, "snapshot_surface", lambda src, dst: "cloned")
     monkeypatch.setattr(ac, "_run_cycle", lambda plan, report, emit, registry, **_: 0)
     assert ac.main(["--stop-server"]) == 0
     assert stops == [1]
@@ -5390,7 +5298,6 @@ def test_main_leaves_the_server_up_for_an_assets_refresh_pass(tmp_path, monkeypa
     monkeypatch.setattr(
         ac, "stop_review_server", lambda timeout=ac.SERVER_STOP_TIMEOUT: pytest.fail("stopped")
     )
-    monkeypatch.setattr(ac, "snapshot_surface", lambda src, dst: "cloned")
     monkeypatch.setattr(ac, "_run_cycle", lambda plan, report, emit, registry, **_: 0)
     assert ac.main([]) == 0
     assert ac.SERVER_STAYS_UP_NOTE in capsys.readouterr().out
@@ -5400,37 +5307,8 @@ def test_main_leaves_the_server_up_for_an_assets_refresh_pass(tmp_path, monkeypa
     assert "REFUSING TO RUN" in capsys.readouterr().out
 
 
-def test_snapshot_surface_copies_tree(tmp_path):
-    src = tmp_path / "src"
-    (src / "sub").mkdir(parents=True)
-    (src / "sub" / "a.json").write_text("[1]")
-    (src / "manifest.json").write_text("{}")
-    dst = tmp_path / "dst"
-    how = ac.snapshot_surface(src, dst)
-    assert how in ("cloned", "copied")
-    assert (dst / "manifest.json").read_text() == "{}"
-    assert (dst / "sub" / "a.json").read_text() == "[1]"
-
-
 def _carried(stamp):
     return json.dumps({"format": "ams-review-verdicts/1", "manifest_generated_at": stamp, "verdicts": []})
-
-
-def test_prune_snapshots_removes_others_keeps_the_cycle_snapshot_and_ignores_files(tmp_path):
-    (tmp_path / "review-pre-a").mkdir()
-    (tmp_path / "review-pre-b").mkdir()
-    keep = tmp_path / "review-pre-keep"
-    keep.mkdir()
-    a_file = tmp_path / "review-pre-x.json"
-    a_file.write_text("{}")
-
-    removed = ac.prune_snapshots(tmp_path, keep)
-
-    assert removed == [tmp_path / "review-pre-a", tmp_path / "review-pre-b"]
-    assert keep.exists()
-    assert a_file.exists()
-    assert not (tmp_path / "review-pre-a").exists()
-    assert not (tmp_path / "review-pre-b").exists()
 
 
 def test_prune_carried_keeps_aligned_and_keep_and_deletes_stale(tmp_path):
@@ -5600,7 +5478,7 @@ def test_build_plan_retention_off_on_rehearsal(tmp_path):
 
 
 def test_retention_never_runs_for_real_during_the_suite(real_run_retention):
-    """The tripwire on the autouse stub. Retention resolves its targets from ac.ROOT at call time — no fixture redirects that — so a real run from inside the suite deletes the live repo's snapshots and carried exports, and compacts its verdict journal. Any test reaching a green finish with record_greens set would do it, and one did: a suite run deleted a live cycle's only snapshot between its build and its carry, stranding the pass's verdicts."""
+    """The tripwire on the autouse stub. Retention resolves its targets from ac.ROOT at call time — no fixture redirects that — so a real run from inside the suite deletes the live repo's carried exports and compacts its verdict journal. Any test reaching a green finish with record_greens set would do it, and one did: a suite run swept a live cycle's piles between its build and its carry."""
     assert ac.run_retention is not real_run_retention
     assert ac.run_retention(_plan(record_greens=True)) == []
 
@@ -5628,31 +5506,6 @@ def test_finish_runs_retention_on_a_real_green_finish(monkeypatch):
     rc = ac._finish(ac.CycleReport(), [], plan)
     assert rc == 0
     assert calls["n"] == 1
-
-
-def test_retention_leaves_the_snapshots_alone_when_the_pass_took_none(
-    tmp_path, monkeypatch, capsys, real_run_retention
-):
-    """A skip pass never makes the snapshot retention prunes to, so pruning would delete the last stamp-aligned copy — the very one describe_carry_source tells you to recover from when a surface gets restamped outside a cycle."""
-    skipping = _plan(skip_plumbing=True, plumbing_note=ac.PLUMBING_SKIP_NOTE)
-    ordinary = _plan(snapshot_dir=tmp_path / "var" / "review-pre-fresh")
-    monkeypatch.setattr(ac, "ROOT", tmp_path)
-    monkeypatch.setattr(ac, "REVIEW_OUT", tmp_path / "review")
-    monkeypatch.setattr(ac, "DEEP_REPLAY_GREEN", tmp_path / "deep-replay-green.json")
-    (tmp_path / "var").mkdir()
-    survivor = tmp_path / "var" / "review-pre-abc1234"
-    survivor.mkdir()
-    monkeypatch.setattr(journal, "compact", lambda path, cutoff: {"compacted": False})
-    monkeypatch.setattr(ac, "prune_stashes", lambda root, journal_path: [])
-    monkeypatch.setattr(ac, "server_listening", lambda port=ac.REVIEW_PORT: False)
-
-    left_alone = real_run_retention(skipping)
-    assert any("snapshots : left intact" in line for line in left_alone.lines)
-    assert left_alone.figure.startswith("removed ") and "snapshots" in left_alone.figure
-    assert survivor.is_dir()
-
-    real_run_retention(ordinary)
-    assert not survivor.exists()
 
 
 def test_retention_leaves_the_journal_and_stashes_alone_while_the_server_is_up(
@@ -6021,13 +5874,10 @@ def test_main_mints_one_run_directory_and_points_latest_at_it(tmp_path, monkeypa
 
 
 def test_main_copies_what_it_said_before_the_digest_into_the_terminal_log(tmp_path, monkeypatch, capsys):
-    """Two of the pass's most consequential lines are printed before the plan is even resolved: which master the carry resolved to, and whether a red cycle's snapshot is being kept. terminal.log is meant to be a byte copy of the terminal, so they belong in it — once, on each side."""
+    """The pass's most consequential line is printed before the plan is even resolved: which master the carry resolved to. terminal.log is meant to be a byte copy of the terminal, so it belongs in it — once, on each side."""
     _settled_repo(tmp_path, monkeypatch)
     ac.record_plumbing_green("plu")
     monkeypatch.setattr(ac, "server_listening", lambda port=ac.REVIEW_PORT: False)
-    stranded = tmp_path / "var" / "review-pre-dead123"
-    stranded.mkdir()
-    monkeypatch.setattr(ac, "unfinished_cycle_snapshot", lambda summary_path=None: stranded)
     seen: dict[str, ac.Plan] = {}
 
     def fake_cycle(plan, report, emit, registry, **kw):
@@ -6041,8 +5891,6 @@ def test_main_copies_what_it_said_before_the_digest_into_the_terminal_log(tmp_pa
     log_dir = seen["plan"].log_dir
     assert log_dir is not None
     terminal = (log_dir / console.TERMINAL_LOG).read_text()
-    kept = f"keeping its snapshot at {stranded} as well as this pass's."
-    assert out.count(kept) == 1 and terminal.count(kept) == 1
     assert out.count("Auto-resolved carry source") == 1
     assert terminal.count("Auto-resolved carry source") == 1
 
