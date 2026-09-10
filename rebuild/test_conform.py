@@ -541,9 +541,53 @@ class TestClassifierRouting:
             assert oracle.classify_divergence(row) == "boundary-echo", boundary
 
     def test_ss10_ligation_routes_to_ligature_suppressed(self):
-        for pair in ("E653:E67A", "E652:E679"):
+        pairs = oracle.ss10_formable_pairs()
+        assert {
+            "E653:E67A",
+            "E652:E679",
+            "E67B:E652",
+            "E659:E67A",
+            "E65A:E67A",
+            "E65D:E67A",
+            "E657:E67A",
+        } <= pairs
+        for pair in sorted(pairs):
             row = self._row("ss10", ("ligation",), codepoints=f"E650:{pair}")
             assert oracle.classify_divergence(row) == "ss10-ligature-suppressed", pair
+
+    def test_ss10_formable_pairs_are_the_registry_sequences(self, tmp_path):
+        registry = tmp_path / "script.yaml"
+        registry.write_text(
+            "families:\n"
+            "  qsPea: {codepoint: 0xE650}\n"
+            "  qsTea: {codepoint: 0xE652}\n"
+            "  qsOy: {codepoint: 0xE679}\n"
+            "  qsTea_qsOy: {sequence: [qsTea, qsOy]}\n"
+            "  qsPea_qsTea_qsOy: {sequence: [qsPea, qsTea, qsOy]}\n",
+            encoding="utf-8",
+        )
+        assert oracle.ss10_formable_pairs(registry) == frozenset({"E652:E679", "E650:E652:E679"})
+
+    def test_ss10_predicate_needs_a_member_on_every_lost_seam(self):
+        def loss(left_cp, left, right_cp, right):
+            return conform.DivergentRow(
+                config="ss10",
+                codepoints=f"{left_cp}:{right_cp}",
+                kinds=("seam",),
+                position=0,
+                baseline_glyphs=(left.split("/")[0], right.split("/")[0]),
+                baseline_seams=("y0",),
+                new_cells=(left, right),
+                new_seams=("break",),
+                phenomena=("seam-loss",),
+            )
+
+        bare_carrier = loss("E650", "qsPea/full/None/None/", "E659", "qsVie/normal/None/None/")
+        assert oracle.PREDICATES["ss10_isolation_completed"](bare_carrier) is True
+        for rune in ("qsI", "qsEt", "qsSee", "qsRoe", "qsVie"):
+            assert rune in oracle.SS10_UNCOVERED_BY_OLD_FONT, rune
+        non_members = loss("E650", "qsPea/full/None/None/", "E665", "qsMay/loop/None/None/")
+        assert oracle.PREDICATES["ss10_isolation_completed"](non_members) is False
 
     def test_ss10_namer_dot_ligation_outranks_marker_staging(self):
         row = self._row("ss10", ("ligation",), codepoints="00B7:E653:E67A")
