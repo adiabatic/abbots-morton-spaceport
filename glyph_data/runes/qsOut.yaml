@@ -49,6 +49,7 @@ stances:
             - qsGay
             - qsThey
             - qsSee
+            - qsZoo
             - qsJai
             - qsMay
             - qsNo
@@ -98,6 +99,7 @@ stances:
             - qsGay
             - qsThey
             - qsSee
+            - qsZoo
             - qsJai
             - qsMay
             - qsNo
@@ -118,6 +120,7 @@ stances:
             - qsDay
             - qsDay_qsUtter
             - qsFee
+            - qsZoo
             - qsJai
             - qsJai_qsUtter
             - qsNo

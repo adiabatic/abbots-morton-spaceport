@@ -1,0 +1,201 @@
+rune: qsZoo
+codepoint: 0xE65B
+ductus:
+  full: | # DRAFT — pending author sign-off
+    Begun at the left of the crown at the x-height, the stroke runs right, curves downward, and descends to the left through the baseline. It curls right along the bottom of the descender and climbs up to the right, ending below the baseline.
+  half: | # DRAFT — pending author sign-off
+    Begun at the baseline on the left, the stroke descends into the foot, curls right along the bottom of the descender, and climbs up to the right, ending below the baseline.
+mono:
+  bitmap:
+  - "###  " #
+  - "   # "
+  - "   # "
+  - "  #  "
+  - " #   "
+  - " #   " #
+  - "#   #"
+  - "#  # "
+  - " ##  "
+  y_offset: -3
+stances:
+  full:
+    motion: full
+    traits: []
+    bitmap:
+    - "###  " #
+    - "   # "
+    - "   # "
+    - "  #  "
+    - " #   "
+    - " #   " #
+    - "#   #"
+    - "#  # "
+    - " ##  "
+    y_offset: -3
+    surface:
+      entries:
+        x-height:
+          x: 0
+          stroke: horizontal
+          from:
+          - family:
+            - qsPea
+            - qsTea
+            - qsFee
+            - qsMay
+            - qsNo
+            - qsLow
+            - qsIt
+            - qsAt
+            - qsI
+            - qsAh
+            - qsUtter
+            - qsOut
+      exits:
+        baseline:
+          x: 5
+          ink_y: -1
+          stroke: diagonal
+          withdrawal: safe
+          toward:
+          - family:
+            - qsTea
+            - qsDay
+            - qsDay_qsUtter
+            - qsGay
+            - qsThaw
+            - qsVie
+            - qsVie_qsUtter
+            - qsSee
+            - qsZoo
+            - qsMay
+            - qsNo
+            - qsLow
+            - qsRoe
+            - qsIt
+            - qsAt
+            - qsI
+            - qsAh
+            - qsUtter
+            - qsOut
+            - qsOut_qsTea
+            - qsOoze
+      cells: []
+      unlocks: []
+      require: []
+  half:
+    motion: half
+    traits:
+    - half
+    bitmap:
+    - "     " #
+    - "     "
+    - "     "
+    - "     "
+    - "     "
+    - "#    " #
+    - "#   #"
+    - "#  # "
+    - " ##  "
+    y_offset: -3
+    surface:
+      entries:
+        baseline:
+          x: 0
+          stroke: vertical
+          from:
+          - family:
+            - qsBay
+            - qsTea
+            - qsDay
+            - qsKey
+            - qsGay
+            - qsZoo
+            - qsJai
+            - qsNo
+            - qsIt
+            - qsEt
+            - qsEight
+            - qsAwe
+            - qsOx
+            - qsOy
+            - qsOoze
+      exits:
+        baseline:
+          x: 5
+          ink_y: -1
+          stroke: diagonal
+          withdrawal: safe
+          toward:
+          - family:
+            - qsTea
+            - qsDay
+            - qsDay_qsUtter
+            - qsGay
+            - qsThaw
+            - qsVie
+            - qsVie_qsUtter
+            - qsSee
+            - qsZoo
+            - qsMay
+            - qsNo
+            - qsLow
+            - qsRoe
+            - qsIt
+            - qsAt
+            - qsI
+            - qsAh
+            - qsUtter
+            - qsOut
+            - qsOut_qsTea
+            - qsOoze
+      cells: []
+      unlocks: []
+      require: []
+policy:
+  order:
+  - full
+  - half
+  refuse:
+  - exit: baseline
+    when:
+      left: {family: qsThey}
+  prefer:
+  - stance: full
+    when:
+      left: {family: qsTea}
+  - cell: {exit: none}
+    over: {exit: baseline}
+    when:
+      right:
+        family: qsNo
+        then: {family: qsEt}
+  - cell: {exit: none}
+    over: {exit: baseline}
+    when:
+      right:
+        family: qsTea
+        then:
+          except:
+          - {family: qsPea}
+  extend:
+  - stance: full
+    entry: x-height
+    by: 1
+    when:
+      left: {family: qsMay}
+  contract:
+  - stance: full
+    entry: x-height
+    by: 1
+    when:
+      left: {family: qsTea}
+  - stance: full
+    entry: x-height
+    by: 2
+    when:
+      left:
+        family: qsPea
+        stance: half
+  resolve: []
+  groups: {}

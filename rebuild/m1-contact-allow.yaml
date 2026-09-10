@@ -1111,3 +1111,107 @@
 - signature: contact:qsI.smaller-loop.en-y0.ex-y5:qsThey.hapax.en-y5.ex-y0:y3
 - signature: contact:qsI.smaller-loop.en-y0.ex-y5:qsThey_qsUtter.hapax.en-y5:y3
 - signature: contact:qsI.smaller-loop.en-y0.ex-y5:qsThey_qsUtter.hapax.en-y5.ex-y5:y3
+
+# ·Zoo's below-baseline contacts retain the shipped corners. Both letters' complete below-baseline drawings match the old glyphs after alignment at the seam; entry contractions affect the crown, an entry extension moves the hook and its exit anchor together, and the locked twin keeps the same drawing.
+- signature: contact:qsGay.hapax.en-y5.ex-y0:qsZoo.half.en-y0:y-2
+  why: The ·Gay loop abuts half-·Zoo's left descender at y=-2, as in baseline row E67A:E655:E65B; the follower's exit state leaves this corner unchanged.
+- signature: contact:qsGay.hapax.en-y5.ex-y0:qsZoo.half.en-y0.ex-y0:y-2
+  why: The ·Gay loop abuts half-·Zoo's left descender at y=-2, as in baseline row E67A:E655:E65B; the follower's exit state leaves this corner unchanged.
+- signature: contact:qsZoo.full.en-y5.ex-y0:qsDay.half.en-y0:y-1
+  why: The ·Zoo hook abuts half-·Day's left descender at y=-1, as in baseline row E65B:E653; entry and exit variants preserve both below-baseline drawings relative to the seam.
+- signature: contact:qsZoo.full.en-y5.ex-y0:qsDay.half.en-y0.ex-y0:y-1
+  why: The ·Zoo hook abuts half-·Day's left descender at y=-1, as in baseline row E65B:E653; entry and exit variants preserve both below-baseline drawings relative to the seam.
+- signature: contact:qsZoo.full.en-y5.ex-y0:qsDay_qsUtter.half.en-y0:y-1
+  why: The ·Zoo hook abuts the half ·Day+Utter ligature's left descender at y=-1, as in baseline row E65B:E653:E67A; the ligature's outgoing reach changes no below-baseline ink.
+- signature: contact:qsZoo.full.en-y5.ex-y0:qsDay_qsUtter.half.en-y0.ex-y5:y-1
+  why: The ·Zoo hook abuts the half ·Day+Utter ligature's left descender at y=-1, as in baseline row E65B:E653:E67A; the ligature's outgoing reach changes no below-baseline ink.
+- signature: contact:qsZoo.full.en-y5.ex-y0:qsDay_qsUtter.half.en-y0.ex-y5.ex-ext-1:y-1
+  why: The ·Zoo hook abuts the half ·Day+Utter ligature's left descender at y=-1, as in baseline row E65B:E653:E67A; the ligature's outgoing reach changes no below-baseline ink.
+- signature: contact:qsZoo.full.en-y5.ex-y0:qsZoo.half.en-y0:y-1
+  why: The first ·Zoo's hook abuts half-·Zoo's left descender at y=-1, as in baseline row E65B:E65B; the entry, lock, and outgoing-anchor variants retain the same corner.
+- signature: contact:qsZoo.full.en-y5.ex-y0:qsZoo.half.en-y0.ex-y0:y-1
+  why: The first ·Zoo's hook abuts half-·Zoo's left descender at y=-1, as in baseline row E65B:E65B; the entry, lock, and outgoing-anchor variants retain the same corner.
+- signature: contact:qsZoo.full.en-y5.ex-y0.en-con-1:qsDay.half.en-y0:y-1
+  why: The ·Zoo hook abuts half-·Day's left descender at y=-1, as in baseline row E65B:E653; entry and exit variants preserve both below-baseline drawings relative to the seam.
+- signature: contact:qsZoo.full.en-y5.ex-y0.en-con-1:qsDay.half.en-y0.ex-y0:y-1
+  why: The ·Zoo hook abuts half-·Day's left descender at y=-1, as in baseline row E65B:E653; entry and exit variants preserve both below-baseline drawings relative to the seam.
+- signature: contact:qsZoo.full.en-y5.ex-y0.en-con-1:qsDay_qsUtter.half.en-y0:y-1
+  why: The ·Zoo hook abuts the half ·Day+Utter ligature's left descender at y=-1, as in baseline row E65B:E653:E67A; the ligature's outgoing reach changes no below-baseline ink.
+- signature: contact:qsZoo.full.en-y5.ex-y0.en-con-1:qsDay_qsUtter.half.en-y0.ex-y5:y-1
+  why: The ·Zoo hook abuts the half ·Day+Utter ligature's left descender at y=-1, as in baseline row E65B:E653:E67A; the ligature's outgoing reach changes no below-baseline ink.
+- signature: contact:qsZoo.full.en-y5.ex-y0.en-con-1:qsDay_qsUtter.half.en-y0.ex-y5.ex-ext-1:y-1
+  why: The ·Zoo hook abuts the half ·Day+Utter ligature's left descender at y=-1, as in baseline row E65B:E653:E67A; the ligature's outgoing reach changes no below-baseline ink.
+- signature: contact:qsZoo.full.en-y5.ex-y0.en-con-1:qsZoo.half.en-y0:y-1
+  why: The first ·Zoo's hook abuts half-·Zoo's left descender at y=-1, as in baseline row E65B:E65B; the entry, lock, and outgoing-anchor variants retain the same corner.
+- signature: contact:qsZoo.full.en-y5.ex-y0.en-con-1:qsZoo.half.en-y0.ex-y0:y-1
+  why: The first ·Zoo's hook abuts half-·Zoo's left descender at y=-1, as in baseline row E65B:E65B; the entry, lock, and outgoing-anchor variants retain the same corner.
+- signature: contact:qsZoo.full.en-y5.ex-y0.en-con-2:qsDay.half.en-y0:y-1
+  why: The ·Zoo hook abuts half-·Day's left descender at y=-1, as in baseline row E65B:E653; entry and exit variants preserve both below-baseline drawings relative to the seam.
+- signature: contact:qsZoo.full.en-y5.ex-y0.en-con-2:qsDay.half.en-y0.ex-y0:y-1
+  why: The ·Zoo hook abuts half-·Day's left descender at y=-1, as in baseline row E65B:E653; entry and exit variants preserve both below-baseline drawings relative to the seam.
+- signature: contact:qsZoo.full.en-y5.ex-y0.en-con-2:qsDay_qsUtter.half.en-y0:y-1
+  why: The ·Zoo hook abuts the half ·Day+Utter ligature's left descender at y=-1, as in baseline row E65B:E653:E67A; the ligature's outgoing reach changes no below-baseline ink.
+- signature: contact:qsZoo.full.en-y5.ex-y0.en-con-2:qsDay_qsUtter.half.en-y0.ex-y5:y-1
+  why: The ·Zoo hook abuts the half ·Day+Utter ligature's left descender at y=-1, as in baseline row E65B:E653:E67A; the ligature's outgoing reach changes no below-baseline ink.
+- signature: contact:qsZoo.full.en-y5.ex-y0.en-con-2:qsDay_qsUtter.half.en-y0.ex-y5.ex-ext-1:y-1
+  why: The ·Zoo hook abuts the half ·Day+Utter ligature's left descender at y=-1, as in baseline row E65B:E653:E67A; the ligature's outgoing reach changes no below-baseline ink.
+- signature: contact:qsZoo.full.en-y5.ex-y0.en-con-2:qsZoo.half.en-y0:y-1
+  why: The first ·Zoo's hook abuts half-·Zoo's left descender at y=-1, as in baseline row E65B:E65B; the entry, lock, and outgoing-anchor variants retain the same corner.
+- signature: contact:qsZoo.full.en-y5.ex-y0.en-con-2:qsZoo.half.en-y0.ex-y0:y-1
+  why: The first ·Zoo's hook abuts half-·Zoo's left descender at y=-1, as in baseline row E65B:E65B; the entry, lock, and outgoing-anchor variants retain the same corner.
+- signature: contact:qsZoo.full.en-y5.ex-y0.en-ext-1:qsDay.half.en-y0:y-1
+  why: The ·Zoo hook abuts half-·Day's left descender at y=-1, as in baseline row E65B:E653; entry and exit variants preserve both below-baseline drawings relative to the seam.
+- signature: contact:qsZoo.full.en-y5.ex-y0.en-ext-1:qsDay.half.en-y0.ex-y0:y-1
+  why: The ·Zoo hook abuts half-·Day's left descender at y=-1, as in baseline row E65B:E653; entry and exit variants preserve both below-baseline drawings relative to the seam.
+- signature: contact:qsZoo.full.en-y5.ex-y0.en-ext-1:qsDay_qsUtter.half.en-y0:y-1
+  why: The ·Zoo hook abuts the half ·Day+Utter ligature's left descender at y=-1, as in baseline row E65B:E653:E67A; the ligature's outgoing reach changes no below-baseline ink.
+- signature: contact:qsZoo.full.en-y5.ex-y0.en-ext-1:qsDay_qsUtter.half.en-y0.ex-y5:y-1
+  why: The ·Zoo hook abuts the half ·Day+Utter ligature's left descender at y=-1, as in baseline row E65B:E653:E67A; the ligature's outgoing reach changes no below-baseline ink.
+- signature: contact:qsZoo.full.en-y5.ex-y0.en-ext-1:qsDay_qsUtter.half.en-y0.ex-y5.ex-ext-1:y-1
+  why: The ·Zoo hook abuts the half ·Day+Utter ligature's left descender at y=-1, as in baseline row E65B:E653:E67A; the ligature's outgoing reach changes no below-baseline ink.
+- signature: contact:qsZoo.full.en-y5.ex-y0.en-ext-1:qsZoo.half.en-y0:y-1
+  why: The first ·Zoo's hook abuts half-·Zoo's left descender at y=-1, as in baseline row E65B:E65B; the entry, lock, and outgoing-anchor variants retain the same corner.
+- signature: contact:qsZoo.full.en-y5.ex-y0.en-ext-1:qsZoo.half.en-y0.ex-y0:y-1
+  why: The first ·Zoo's hook abuts half-·Zoo's left descender at y=-1, as in baseline row E65B:E65B; the entry, lock, and outgoing-anchor variants retain the same corner.
+- signature: contact:qsZoo.full.ex-y0:qsDay.half.en-y0:y-1
+  why: The ·Zoo hook abuts half-·Day's left descender at y=-1, as in baseline row E65B:E653; entry and exit variants preserve both below-baseline drawings relative to the seam.
+- signature: contact:qsZoo.full.ex-y0:qsDay.half.en-y0.ex-y0:y-1
+  why: The ·Zoo hook abuts half-·Day's left descender at y=-1, as in baseline row E65B:E653; entry and exit variants preserve both below-baseline drawings relative to the seam.
+- signature: contact:qsZoo.full.ex-y0:qsDay_qsUtter.half.en-y0:y-1
+  why: The ·Zoo hook abuts the half ·Day+Utter ligature's left descender at y=-1, as in baseline row E65B:E653:E67A; the ligature's outgoing reach changes no below-baseline ink.
+- signature: contact:qsZoo.full.ex-y0:qsDay_qsUtter.half.en-y0.ex-y5:y-1
+  why: The ·Zoo hook abuts the half ·Day+Utter ligature's left descender at y=-1, as in baseline row E65B:E653:E67A; the ligature's outgoing reach changes no below-baseline ink.
+- signature: contact:qsZoo.full.ex-y0:qsDay_qsUtter.half.en-y0.ex-y5.ex-ext-1:y-1
+  why: The ·Zoo hook abuts the half ·Day+Utter ligature's left descender at y=-1, as in baseline row E65B:E653:E67A; the ligature's outgoing reach changes no below-baseline ink.
+- signature: contact:qsZoo.full.ex-y0:qsZoo.half.en-y0:y-1
+  why: The first ·Zoo's hook abuts half-·Zoo's left descender at y=-1, as in baseline row E65B:E65B; the entry, lock, and outgoing-anchor variants retain the same corner.
+- signature: contact:qsZoo.full.ex-y0:qsZoo.half.en-y0.ex-y0:y-1
+  why: The first ·Zoo's hook abuts half-·Zoo's left descender at y=-1, as in baseline row E65B:E65B; the entry, lock, and outgoing-anchor variants retain the same corner.
+- signature: contact:qsZoo.full.ex-y0.locked:qsDay.half.en-y0:y-1
+  why: The ·Zoo hook abuts half-·Day's left descender at y=-1, as in baseline row E65B:E653; entry and exit variants preserve both below-baseline drawings relative to the seam.
+- signature: contact:qsZoo.full.ex-y0.locked:qsDay.half.en-y0.ex-y0:y-1
+  why: The ·Zoo hook abuts half-·Day's left descender at y=-1, as in baseline row E65B:E653; entry and exit variants preserve both below-baseline drawings relative to the seam.
+- signature: contact:qsZoo.full.ex-y0.locked:qsDay_qsUtter.half.en-y0:y-1
+  why: The ·Zoo hook abuts the half ·Day+Utter ligature's left descender at y=-1, as in baseline row E65B:E653:E67A; the ligature's outgoing reach changes no below-baseline ink.
+- signature: contact:qsZoo.full.ex-y0.locked:qsDay_qsUtter.half.en-y0.ex-y5:y-1
+  why: The ·Zoo hook abuts the half ·Day+Utter ligature's left descender at y=-1, as in baseline row E65B:E653:E67A; the ligature's outgoing reach changes no below-baseline ink.
+- signature: contact:qsZoo.full.ex-y0.locked:qsDay_qsUtter.half.en-y0.ex-y5.ex-ext-1:y-1
+  why: The ·Zoo hook abuts the half ·Day+Utter ligature's left descender at y=-1, as in baseline row E65B:E653:E67A; the ligature's outgoing reach changes no below-baseline ink.
+- signature: contact:qsZoo.full.ex-y0.locked:qsZoo.half.en-y0:y-1
+  why: The first ·Zoo's hook abuts half-·Zoo's left descender at y=-1, as in baseline row E65B:E65B; the entry, lock, and outgoing-anchor variants retain the same corner.
+- signature: contact:qsZoo.full.ex-y0.locked:qsZoo.half.en-y0.ex-y0:y-1
+  why: The first ·Zoo's hook abuts half-·Zoo's left descender at y=-1, as in baseline row E65B:E65B; the entry, lock, and outgoing-anchor variants retain the same corner.
+- signature: contact:qsZoo.half.en-y0.ex-y0:qsDay.half.en-y0:y-1
+  why: The ·Zoo hook abuts half-·Day's left descender at y=-1, as in baseline row E65B:E653; entry and exit variants preserve both below-baseline drawings relative to the seam.
+- signature: contact:qsZoo.half.en-y0.ex-y0:qsDay.half.en-y0.ex-y0:y-1
+  why: The ·Zoo hook abuts half-·Day's left descender at y=-1, as in baseline row E65B:E653; entry and exit variants preserve both below-baseline drawings relative to the seam.
+- signature: contact:qsZoo.half.en-y0.ex-y0:qsDay_qsUtter.half.en-y0:y-1
+  why: The ·Zoo hook abuts the half ·Day+Utter ligature's left descender at y=-1, as in baseline row E65B:E653:E67A; the ligature's outgoing reach changes no below-baseline ink.
+- signature: contact:qsZoo.half.en-y0.ex-y0:qsDay_qsUtter.half.en-y0.ex-y5:y-1
+  why: The ·Zoo hook abuts the half ·Day+Utter ligature's left descender at y=-1, as in baseline row E65B:E653:E67A; the ligature's outgoing reach changes no below-baseline ink.
+- signature: contact:qsZoo.half.en-y0.ex-y0:qsDay_qsUtter.half.en-y0.ex-y5.ex-ext-1:y-1
+  why: The ·Zoo hook abuts the half ·Day+Utter ligature's left descender at y=-1, as in baseline row E65B:E653:E67A; the ligature's outgoing reach changes no below-baseline ink.
+- signature: contact:qsZoo.half.en-y0.ex-y0:qsZoo.half.en-y0:y-1
+  why: The first ·Zoo's hook abuts half-·Zoo's left descender at y=-1, as in baseline row E65B:E65B; the entry, lock, and outgoing-anchor variants retain the same corner.
+- signature: contact:qsZoo.half.en-y0.ex-y0:qsZoo.half.en-y0.ex-y0:y-1
+  why: The first ·Zoo's hook abuts half-·Zoo's left descender at y=-1, as in baseline row E65B:E65B; the entry, lock, and outgoing-anchor variants retain the same corner.

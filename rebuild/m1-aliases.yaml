@@ -39,6 +39,9 @@ qsTea.half.en-y5.after-xheight-exit: {rune: qsTea, stance: half, entry: x-height
 qsTea.half.en-y8.ex-y5: {rune: qsTea, stance: half, entry: top, exit: x-height}
 qsTea.half.en-y8.ex-y5.noentry: {rune: qsTea, stance: half, exit: x-height, adjustments: [locked]}
 qsTea.half.ex-y5: {rune: qsTea, stance: half, exit: x-height}
+qsTea.half.en-y8.ex-y5.ex-con-1: {rune: qsTea, stance: half, entry: top, exit: x-height}
+qsTea.half.en-y8.ex-y5.noentry.ex-con-1: {rune: qsTea, stance: half, exit: x-height, adjustments: [locked]}
+qsTea.half.ex-y5.ex-con-1: {rune: qsTea, stance: half, exit: x-height}
 qsTea.noentry: {rune: qsTea, stance: full, adjustments: [locked]}
 qsTea_qsOy: {rune: qsTea_qsOy, stance: hapax}
 qsDay: {rune: qsDay, stance: full}
@@ -69,6 +72,7 @@ qsThey.ex-y0.before-may.en-y5: {rune: qsThey, stance: hapax, entry: x-height, ex
 qsThey.ex-y0.before-may.en-y5.en-ext-1: {rune: qsThey, stance: hapax, entry: x-height, exit: baseline}
 qsThey.ex-y5: {rune: qsThey, stance: hapax, exit: x-height}
 qsThey.noentry: {rune: qsThey, stance: hapax, adjustments: [locked]}
+qsThey_qsZoo: {rune: qsThey_qsZoo, stance: hapax}
 qsThey_qsUtter: {rune: qsThey_qsUtter, stance: hapax}
 qsThey_qsUtter.en-ext-1: {rune: qsThey_qsUtter, stance: hapax, entry: x-height}
 qsThey_qsUtter.noentry: {rune: qsThey_qsUtter, stance: hapax}
@@ -81,6 +85,13 @@ qsDay_qsUtter.half.en-y0.ex-y5.en-ext-1: {rune: qsDay_qsUtter, stance: half, ent
 qsDay_qsUtter.half.en-y0.ex-y5.ex-con-2: {rune: qsDay_qsUtter, stance: half, entry: baseline, exit: x-height}
 qsDay_qsUtter.half.en-y0.ex-y5.ex-ext-1: {rune: qsDay_qsUtter, stance: half, entry: baseline, exit: x-height, adjustments: [ex-ext-1]}
 qsFee: {rune: qsFee, stance: loop}
+qsZoo: {rune: qsZoo, stance: full}
+qsZoo.en-con-2: {rune: qsZoo, stance: full, entry: x-height, adjustments: [en-con-2]}
+qsZoo.en-ext-1: {rune: qsZoo, stance: full, entry: x-height, adjustments: [en-ext-1]}
+qsZoo.en-trim-1: {rune: qsZoo, stance: full, entry: x-height, adjustments: [en-trim-1]}
+qsZoo.half.en-y0.ex-y0: {rune: qsZoo, stance: half, entry: baseline, exit: baseline}
+qsZoo.noentry: {rune: qsZoo, stance: full, adjustments: [locked]}
+qsNo.alt.en-y0.ex-y0.after-zoo: {rune: qsNo, stance: flipped, entry: baseline, exit: baseline}
 qsFee.en-y5: {rune: qsFee, stance: reversed-loop, entry: x-height}
 qsFee.en-y8.ex-y5: {rune: qsFee, stance: loop, entry: top, exit: x-height}
 qsFee.en-y8.ex-y5.ex-ext-1: {rune: qsFee, stance: loop, entry: top, exit: x-height, adjustments: [ex-ext-1]}

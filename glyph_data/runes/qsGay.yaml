@@ -58,6 +58,7 @@ stances:
             - qsKey
             - qsGay
             - qsThey
+            - qsZoo
             - qsJai
             - qsMay
             - qsNo
@@ -89,6 +90,7 @@ stances:
             - qsVie
             - qsVie_qsUtter
             - qsSee
+            - qsZoo
             - qsMay
             - qsNo
             - qsLow
@@ -149,6 +151,7 @@ policy:
         - qsTea
         - qsDay
         - qsDay_qsUtter
+        - qsZoo
         - qsRoe
         - qsIt
         - qsI
@@ -170,6 +173,7 @@ policy:
           - qsTea
           - qsDay
           - qsDay_qsUtter
+          - qsZoo
           - qsRoe
           - qsIt
           - qsI
@@ -196,6 +200,7 @@ policy:
         - qsTea
         - qsDay
         - qsDay_qsUtter
+        - qsZoo
         - qsRoe
         - qsIt
         - qsI

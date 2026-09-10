@@ -11,9 +11,10 @@ The design calls are the user's. Where the old record forks — which bitmaps be
 ## Hard rules
 
 - Never author `why:` in `glyph_data/runes/` — that field is the user's voice. The agent-written `why:` homes are `rebuild/m1-contact-allow.yaml` and `rebuild/m1-divergences.yaml` only.
-- Scope every entry `from:` and exit `toward:` list from baseline pair rows, never from FEA reconnaissance — the old font joins some pairs by GPOS anchors alone, with no calt rule for a grep to find.
+- Scope every entry `from:` and exit `toward:` list from the baseline's actual joined seams. Start with the pair map, then scan all in-scope triples and quadruples in every non-overlay acceptance configuration: a predecessor's contextual exit can reach a different entry row than its isolated pair exposes. Complete both neighboring scopes from those rows; FEA reconnaissance is never the authority, because some joins use GPOS anchors alone.
 - A rune is gated on its ductus: every stance names a motion, and any motion prose not carried byte-for-byte from the old YAML gets `# DRAFT — pending author sign-off` on its key line.
 - Behavior ground truth outranks a literal reading of the old YAML: when they disagree, transcribe faithfully and let the gates arbitrate — divergences land in the ledger with evidence, never as silent spec edits.
+- Before adding an ink-identical class for a form-name difference, compare the placed ink over all candidate windows. The position channel catches moved origins and advances, but an unrelated shape change can keep both unchanged; exclude such windows from the class.
 - Never commit without approval; at the commit point, spawn a fresh sub-agent for commit-message suggestions. Subject `Add ·X`; the body describes how the letters now look and join, not the mechanism.
 - Detach the long steps and never single-thread pytest — `doc/running-long-steps.md` carries the detach recipe and the hung-run traps, and `doc/parallelism.md` the width rules.
 
@@ -35,7 +36,7 @@ Add the codepoint to `M1_ALPHABET` in `rebuild/pipeline/baseline_subset.py`. Not
 
 - Bitmaps verbatim from the old YAML — double-quoted rows, bare trailing `#` markers on the rows at glyph-space y 5 and 0.
 - Rune files use the structural YAML style (everything block, three flow leaf shapes); finish with `uv run python tools/reflow_yaml.py` and expect a no-op.
-- `from:`/`toward:` members in code-point order, straight from the evidence tool's join map. Left-facing lists are ligature-transparent automatically — never hand-add `qsA_qsX` lefts; naming a ligature literally is for carving it out.
+- `from:`/`toward:` members in code-point order, from the evidence tool's join map completed against the longer baseline windows. A pair-map omission is not a refusal: verify contextual join heights before closing a row's scope. Left-facing lists are ligature-transparent automatically — never hand-add `qsA_qsX` lefts; naming a ligature literally is for carving it out.
 - Old `derive` directives touching the letter become `extend:`/`contract:` records — and expect the qsJai lesson: an old exit tuck that removes ink across rows usually re-spells as the receiver's own entry contraction, not as a contract on this side.
 
 ## 3 — neighbors and ledgers
@@ -44,7 +45,7 @@ Add the codepoint to `M1_ALPHABET` in `rebuild/pipeline/baseline_subset.py`. Not
 - ss10: decide `SS10_UNCOVERED_BY_OLD_FONT` membership in `rebuild/pipeline/oracle.py` — the qsAwe shape (no stances in the old record, both anchors riding the base cmap glyph) or qsAt's direct pair evidence — and extend both the set's comment there and the `ss10-isolation-completed` `why:` in `rebuild/m1-divergences.yaml` the way every past member did. `classify_divergence` grows an arm only for a genuinely new phenomenon; most letters add no ledger class.
 - `rebuild/m1-contact-allow.yaml`: each off-anchor-contact error on a corner the old font already draws gets a signature plus an agent-written `why:` in the surrounding idiom.
 - `rebuild/pipeline/smoke_sequences_m1.txt`: add the codepoint to the header list, then a block modeled on the latest letter's — isolation, every joining left, every joining right, the breaks, ligature seams both ways, the yield chains, the ZWNJ locked twin, an exit severed by ZWNJ, the namer dot.
-- `rebuild/test_review_enrich.py`'s subset-table row count is the one hand-update nothing prompts for; the evidence tool prints the expected number.
+- `rebuild/test_review_enrich.py::test_subset_tables_iterate` checks containment over the frozen mini bundle, so a migration needs no test-count edit. The evidence tool's printed subset growth is evidence about the live tables; `baseline_subset.ensure_fresh` owns their refresh.
 
 ## 4 — batch scratch and WHATNEXT
 
@@ -80,4 +81,4 @@ Show the diff, present the sub-agent's commit-message candidates, wait for the g
 uv run python .claude/skills/add-a-new-letter/letter_evidence.py ·Zoo
 ```
 
-Accepts `·Zoo`, `Zoo`, `qsZoo`, or `E65B`; scans all eleven full baseline tables in about a minute. Its sections map one-to-one onto the work: the LEFT/RIGHT pair maps are the `toward:`/`from:` scope evidence and the outline of the smoke block (partners marked `*` are unmigrated — recording one is deferred-partner evidence to re-verify at that partner's migration); the compiled-forms inventory is the stance worklist (a `.half`/`.alt`/contextual name means a stance or cell to model, `en-con`/`en-trim`/`en-ext`/`ex-ext` names mean contraction and extension records); the alias worklist is what `run_m1`'s completeness gate will demand, available before the first build; and the subset-growth line is the new `test_review_enrich.py` number.
+Accepts `·Zoo`, `Zoo`, `qsZoo`, or `E65B`; scans all eleven full baseline tables in about a minute. Its sections map one-to-one onto the work: the LEFT/RIGHT pair maps are the `toward:`/`from:` scope evidence and the outline of the smoke block (partners marked `*` are unmigrated — recording one is deferred-partner evidence to re-verify at that partner's migration); the compiled-forms inventory is the stance worklist (a `.half`/`.alt`/contextual name means a stance or cell to model, `en-con`/`en-trim`/`en-ext`/`ex-ext` names mean contraction and extension records); the alias worklist is what `run_m1`'s completeness gate will demand, available before the first build; and the subset-growth line describes the expected live-table growth. Its printed test-count instruction does not apply to the containment assertion in `rebuild/test_review_enrich.py::test_subset_tables_iterate`.

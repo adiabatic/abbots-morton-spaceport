@@ -1,6 +1,6 @@
 # Curated sequence set for the M1 CoreText-vs-HarfBuzz smoke harness (M1-PLAN section 5, coretext_smoke).
 # One sequence per line as whitespace-separated hex codepoints; text after "#" is the label.
-# Codepoints: qsPea E650, qsBay E651, qsTea E652, qsDay E653, qsKey E654, qsGay E655, qsThaw E656, qsThey E657, qsFee E658, qsVie E659, qsSee E65A, qsJai E65D, qsMay E665, qsNo E666, qsLow E667, qsRoe E668, qsIt E670, qsEt E672, qsEight E673, qsAt E674, qsI E675, qsAh E676, qsAwe E677, qsOx E678, qsOy E679, qsUtter E67A, qsOut E67B, qsOoze E67E, space 0020, namer dot 00B7, ZWNJ 200C.
+# Codepoints: qsPea E650, qsBay E651, qsTea E652, qsDay E653, qsKey E654, qsGay E655, qsThaw E656, qsThey E657, qsFee E658, qsVie E659, qsSee E65A, qsZoo E65B, qsJai E65D, qsMay E665, qsNo E666, qsLow E667, qsRoe E668, qsIt E670, qsEt E672, qsEight E673, qsAt E674, qsI E675, qsAh E676, qsAwe E677, qsOx E678, qsOy E679, qsUtter E67A, qsOut E67B, qsOoze E67E, space 0020, namer dot 00B7, ZWNJ 200C.
 # The driver runs every line under all eight acceptance configurations.
 #
 # The prototype probe rows, carried forward.
@@ -1113,3 +1113,119 @@ E657 200C E67A            # They ZWNJ Utter (formation severed)
 E676 200C E657            # Ah ZWNJ They (entry severed)
 E657 200C E666            # They ZWNJ No (exit severed)
 00B7 E657                 # namer dot before Deep They (stays)
+
+# qsZoo windows: the full motion receives at the x-height, the half motion at the baseline; both exit below the baseline into a baseline receiver. The qsThey_qsZoo ligature has no external joins.
+E65B                      # ·Zoo in isolation
+E651 E670 E65B            # Entered ·It reaches full ·Zoo at the x-height
+E651 E666 E65B            # Entered alternate ·No reaches half-·Zoo at the baseline
+E658 E652 E65B            # Under ss03, entered full ·Tea reaches half-·Zoo at the baseline
+200C E670 E65B            # Locked ·It reaches full ·Zoo at the x-height
+E650 E65B                 # ·Pea enters full ·Zoo at the x-height; ·Zoo contracts by two
+E651 E65B                 # ·Bay enters half-·Zoo at the baseline
+E652 E65B                 # Half-·Tea enters full ·Zoo at the x-height; ·Zoo contracts by one
+E653 E65B                 # ·Day enters half-·Zoo at the baseline
+E654 E65B                 # ·Key enters half-·Zoo at the baseline
+E655 E65B                 # ·Gay extends into half-·Zoo at the baseline
+E658 E65B                 # ·Fee enters full ·Zoo at the x-height
+E65B E65B                 # Full ·Zoo enters half-·Zoo at the baseline
+E65D E65B                 # ·J’ai enters half-·Zoo at the baseline
+E665 E65B                 # ·May enters full ·Zoo at the x-height; ·Zoo extends by one
+E666 E65B                 # ·No enters full ·Zoo at the x-height
+E667 E65B                 # ·Low enters full ·Zoo at the x-height
+E670 E65B                 # ·It enters half-·Zoo at the baseline
+E672 E65B                 # ·Et enters half-·Zoo at the baseline
+E673 E65B                 # ·Eight enters half-·Zoo at the baseline
+E674 E65B                 # ·At enters full ·Zoo at the x-height
+E675 E65B                 # ·I enters full ·Zoo at the x-height
+E676 E65B                 # ·Ah enters full ·Zoo at the x-height
+E677 E65B                 # ·Awe enters half-·Zoo at the baseline
+E678 E65B                 # ·Ox enters half-·Zoo at the baseline
+E679 E65B                 # ·Oy enters half-·Zoo at the baseline
+E67A E65B                 # ·Utter enters full ·Zoo at the x-height
+E67B E65B                 # ·Out enters full ·Zoo at the x-height
+E67E E65B                 # ·Ooze enters half-·Zoo at the baseline
+E656 E65B                 # ·Thaw and ·Zoo break
+E659 E65B                 # ·Vie and ·Zoo break
+E65A E65B                 # ·See and ·Zoo break
+E668 E65B                 # ·Roe and ·Zoo break
+E65B E652                 # ·Zoo enters full ·Tea at the baseline
+E65B E653                 # ·Zoo enters half-·Day at the baseline
+E65B E655                 # ·Zoo enters ·Gay at the baseline
+E65B E656                 # ·Zoo enters ·Thaw at the baseline
+E65B E659                 # ·Zoo enters ·Vie at the baseline
+E65B E65A                 # ·Zoo enters ·See at the baseline
+E65B E665                 # ·Zoo enters ·May at the baseline
+E65B E666                 # ·Zoo enters flipped ·No at the baseline
+E65B E667                 # ·Zoo enters ·Low at the baseline
+E65B E668                 # ·Zoo enters ·Roe at the baseline
+E65B E670                 # ·Zoo enters ·It at the baseline
+E65B E674                 # ·Zoo enters rising ·At at the baseline
+E65B E675                 # ·Zoo enters ·I at the baseline
+E65B E676                 # ·Zoo enters ·Ah at the baseline
+E65B E67A                 # ·Zoo enters ·Utter at the baseline
+E65B E67B                 # ·Zoo enters ·Out at the baseline
+E65B E67E                 # ·Zoo enters ·Ooze at the baseline
+E65B E650                 # ·Zoo and ·Pea break
+E65B E651                 # ·Zoo and ·Bay break
+E65B E654                 # ·Zoo and ·Key break
+E65B E657                 # ·Zoo and ·They break
+E65B E658                 # ·Zoo and ·Fee break
+E65B E65D                 # ·Zoo and ·J’ai break
+E65B E672                 # ·Zoo and ·Et break
+E65B E673                 # ·Zoo and ·Eight break
+E65B E677                 # ·Zoo and ·Awe break
+E65B E678                 # ·Zoo and ·Ox break
+E65B E679                 # ·Zoo and ·Oy break
+E651 E65B E665            # Half-·Zoo keeps both baseline joins
+E665 E65B E665            # Full ·Zoo keeps the extended entry and baseline exit
+E650 E65B E665            # Full ·Zoo keeps the contracted entry and baseline exit
+E652 E65B E665            # Full ·Zoo keeps the one-pixel contraction and baseline exit
+E651 E655 E65B            # ·Gay yields its entry to reach half-·Zoo
+E65B E652 E653            # ·Zoo yields so ·Tea joins ·Day
+E65B E652 E650            # ·Zoo keeps its entry into ·Tea before ·Pea
+E65B E67A E652 E653       # ·Zoo ·Utter ·Tea ·Day yield window
+E65B E666 E672            # ·Zoo breaks before ·No joins ·Et
+E65B E674 E665            # ·At yields its entry to serve ·May
+E65B E670 E67A            # ·Zoo ·It ·Utter yield window
+E651 E65B E670 E67A       # Half-·Zoo yields so ·It joins ·Utter
+E65B E670 E67A E650       # ·It joins ·Utter as ·Utter reaches ·Pea at the x-height
+E65B E670 E67A E656       # ·Zoo joins ·It while alternate ·Utter serves ·Thaw
+E65B E670 E67A E659       # ·Zoo joins ·It while alternate ·Utter serves ·Vie
+E65B E670 E67A E65A       # ·Zoo joins ·It while alternate ·Utter serves ·See
+E65B E670 E67A E665       # ·Zoo joins ·It while alternate ·Utter serves ·May
+E65B E670 E67A E667       # ·Zoo joins ·It while alternate ·Utter serves ·Low
+E65B E670 E67A E674       # ·Zoo joins ·It while alternate ·Utter serves ·At
+E65B E670 E67A E675       # ·Zoo joins ·It while alternate ·Utter serves ·I
+E65B E670 E67A E676       # ·Zoo joins ·It while alternate ·Utter serves ·Ah
+E65B E670 E67A E67B       # ·Zoo joins ·It while alternate ·Utter serves ·Out
+E65B E670 E67A E67E       # ·Zoo joins ·It while alternate ·Utter serves ·Ooze
+E653 E67A E65B            # `·Day+Utter` enters full ·Zoo at the x-height
+E657 E67A E65B            # `·They+Utter` enters full ·Zoo at the x-height
+E659 E67A E65B            # `·Vie+Utter` enters full ·Zoo at the x-height
+E65A E67A E65B            # `·See+Utter` enters full ·Zoo at the x-height
+E65D E67A E65B            # `·J’ai+Utter` enters full ·Zoo at the x-height
+E652 E679 E65B            # `·Tea+Oy` enters half-·Zoo at the baseline
+E67B E652 E65B            # `·Out+Tea` and ·Zoo break
+E65B E653 E67A            # ·Zoo enters `·Day+Utter.half` at the baseline
+E65B E659 E67A            # ·Zoo enters `·Vie+Utter` at the baseline
+E65B E67B E652            # ·Zoo enters `·Out+Tea` at the baseline
+E65B E65A E67A            # ·Zoo and `·See+Utter` break
+E65B E65D E67A            # ·Zoo and `·J’ai+Utter` break
+E65B E652 E679            # ·Zoo and `·Tea+Oy` break
+E657 E65B                 # `·They+Zoo` in isolation
+E675 E657 E65B            # ·I and `·They+Zoo` break
+E676 E657 E65B            # ·Ah and `·They+Zoo` break
+E67A E657 E65B            # ·Utter and `·They+Zoo` break
+E65B E657 E65B            # ·Zoo and `·They+Zoo` break
+E657 E65B E652            # `·They+Zoo` and ·Tea break
+E657 E65B E666            # `·They+Zoo` and ·No break
+E657 E65B E65B            # `·They+Zoo` and ·Zoo break
+E657 E65B E657 E65B       # Adjacent `·They+Zoo` ligatures break
+E657 200C E65B            # ZWNJ severs `·They+Zoo` formation
+200C E65B                 # Locked ·Zoo twin
+200C E65B E665            # Locked ·Zoo keeps its baseline exit
+E651 200C E65B            # ZWNJ severs the entry from ·Bay
+E65B 200C E665            # ZWNJ severs the exit into ·May
+200C E657 E65B            # Locked `·They+Zoo` twin
+00B7 E65B                 # Namer dot before Deep ·Zoo
+00B7 E657 E65B            # Namer dot before Deep `·They+Zoo`

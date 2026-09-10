@@ -146,12 +146,12 @@ class TestTheWidthsAlreadyOnRecord:
         )
 
     @pytest.mark.parametrize("total", SPELLINGS_OF_32_GB)
-    def test_the_shipped_divisor_holds_the_32_gb_box_at_the_width_the_delta_wave_needs(self, total: int):
-        """The forward direction, and the only comparison left that means anything once `KERNEL_THREADS_DEFAULT` is derived: the left side is the divisor this repo actually ships run through the derivation this repo actually ships — a configuration's peak taken off the box for `default`'s retained memo and then divided into what is left — against a box that is stated rather than probed, and the right side is more deltas in flight than the whole acceptance set has, so the box runs its delta wave at once. Re-measuring `CONFIG_PEAK_BYTES` is meant to move this number, and pinning it here is what makes a re-seed say so in the same commit rather than widen a box quietly. The second assertion is the bound the process constant states against the per-configuration one: the whole table build, at the delta width the acceptance set can reach, fits under one configuration more than that width."""
+    def test_the_shipped_divisor_holds_the_32_gb_box_at_its_budgeted_width(self, total: int):
+        """The shipped divisor reserves one configuration for `default`'s retained memo before dividing the stated box's remaining budget among deltas. Both spellings of 32 GB fit three deltas beside that memo with the measured 6 GB per-configuration bound. Re-measuring `CONFIG_PEAK_BYTES` deliberately moves this pinned width. The second assertion bounds the whole-process estimate by the per-configuration estimate times the largest configuration count the build can hold."""
         from rebuild.pipeline.conform import SETTLEMENT_CONFIGS
         from rebuild.pipeline.kernel_exec import TABLE_BUILD_PEAK_BYTES, kernel_threads_default
 
-        assert kernel_threads_default(total_bytes=total) == 5
+        assert kernel_threads_default(total_bytes=total) == 3
         assert TABLE_BUILD_PEAK_BYTES <= CONFIG_PEAK_BYTES * len(SETTLEMENT_CONFIGS)
 
     def test_the_shipped_surface_divisor_narrows_the_32_gib_box_below_its_core_clamp(self):

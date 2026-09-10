@@ -129,7 +129,6 @@ policy:
       self: {entry: none}
       left:
         family:
-        - qsZoo
         - qsShe
         - qsEat
         - qsOwe
@@ -276,6 +275,32 @@ policy:
             - qsSee
             - qsMay
             - qsLow
+  - cell:
+      entry: none
+      exit: baseline
+    over:
+      entry: baseline
+      exit: none
+    when:
+      left: {family: qsZoo}
+      right:
+        family: qsUtter
+        except:
+        - family: qsUtter
+          then:
+            family:
+            - qsThaw
+            - qsVie
+            - qsVie_qsUtter
+            - qsSee
+            - qsMay
+            - qsLow
+            - qsAt
+            - qsI
+            - qsAh
+            - qsOut
+            - qsOut_qsTea
+            - qsOoze
   extend:
   - entry: baseline
     by: 1

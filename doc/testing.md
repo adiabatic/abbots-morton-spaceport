@@ -32,6 +32,7 @@ Never single-thread a broad run; `doc/parallelism.md` carries the width rules. D
 - This is also the pyright gate for `rebuild/`: `make_test_exempt` exempts that tree wholesale, so `make test` can never be its gate.
 - The suite does not run the slow-marked tests; `make test-rebuild-slow` does, at the width its Makefile recipe states and argues.
 - Codex's macOS sandbox blocks `sysctl -n hw.memsize`, so `rebuild/test_memory_budget.py::TestTheLiveProbe::test_the_portable_probe_is_byte_identical_to_hw_memsize_on_darwin` fails there even when the probe is correct; if it is the suite's only failure, rerun it outside the sandbox. Never weaken the probe or the test.
+- The same sandbox blocks Unix socket binding in `rebuild/test_standing_daemon.py`: a daemon-start traceback ending in `standing_client.bind` with `PermissionError: [Errno 1] Operation not permitted` requires an unrestricted rerun. When these sandbox restrictions fail the contracts lane, rerun `make test-rebuild` outside the sandbox so the normal gate records the verified result.
 
 ## Re-adjudicating without a build
 
