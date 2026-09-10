@@ -295,7 +295,7 @@ class TestDefaultCovered:
 
 
 class TestSubsetNames:
-    """The sidecar that replaced a ten-million-row stream: the alias check's whole input, written once per refilter and stamped so it cannot go missing behind a fresh reading."""
+    """The sidecar that replaced a stream of every subset row: the alias check's whole input, written once per refilter and stamped so it cannot go missing behind a fresh reading."""
 
     def test_the_sidecar_holds_the_kept_rows_distinct_names_per_config(self, tmp_path):
         root = _seed_repo(tmp_path)
