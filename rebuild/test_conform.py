@@ -964,6 +964,26 @@ def _tea_prefers_half_before_may(spec):
     return dataclasses.replace(spec, runes=runes)
 
 
+def _tea_oy_refuses_its_exit(spec):
+    """A real edit to the ligature rune and to no component's file: ·Tea+Oy refuses its baseline exit before every letter, so every window whose left slot is a formed ·Tea+Oy settles to a break where it joined, while ·Tea's and ·Oy's own windows stand."""
+    import dataclasses
+
+    from rebuild.pipeline import model
+
+    ligature = spec.runes["qsTea_qsOy"]
+    letters = tuple(
+        sorted(name for name, info in spec.registry.families.items() if info.codepoint is not None)
+    )
+    refuse = model.PolicyRecord(
+        kind="refuse", exit="baseline", when=model.When(right=model.Condition(family=letters))
+    )
+    runes = dict(spec.runes)
+    runes["qsTea_qsOy"] = dataclasses.replace(
+        ligature, policy=dataclasses.replace(ligature.policy, refuse=(refuse,))
+    )
+    return dataclasses.replace(spec, runes=runes)
+
+
 def _font_edited(source: Path, target: Path, touches) -> Path:
     """A copy of `source` whose glyphs `touches` names are advanced by a pixel-odd amount: a family's compiled digest moves through its metrics alone, every outline stays, and every row that shapes one of those glyphs draws its followers somewhere else."""
     from fontTools.ttLib import TTFont
@@ -2029,6 +2049,51 @@ class TestSettleMemoFile:
             {},
             edited_guard,
             memo=self._memo(tmp_path, keys={**keys, "qsTea": "qsTea@1"}),
+        )
+        assert third.walk_many(texts) == expected
+        assert third._settle_calls == 0 and third.stale_windows == 0
+
+    def test_a_ligature_rune_edit_retires_the_entries_naming_its_formed_label(self, spec, guard, tmp_path):
+        """The persisted-memo regression for issue 202. A memo window holds formed labels, so the windows a ligature rune's edit reaches are the ones carrying its own label — `qsTea_qsOy` at any slot — beside the ones the order-blind component clause already retires for carrying both ·Tea and ·Oy unformed; the formed-label windows carry no component label that clause could fire on. Under keys naming only the ligature as moved, the loaded file must retire exactly those windows and answer what a walk with no file answers; a second save under the new keys then serves everything, which is the property the issue's repro lost: a rewrite that stamps a stale entry with the current keys leaves no ordinary run able to retire it."""
+        texts = self._texts(spec)
+        keys = {name: f"{name}@0" for name in spec.registry.families}
+        first = conform._SettledWindowWalk(spec, frozenset(), {}, guard, memo=self._memo(tmp_path, keys=keys))
+        before = first.walk_many(texts)
+        assert first.save_memo()
+
+        def reaches_ligature(window) -> bool:
+            families = {conform._label_family(label) for label in window}
+            return "qsTea_qsOy" in families or {"qsTea", "qsOy"} <= families
+
+        def names_only_the_formed_label(window) -> bool:
+            families = {conform._label_family(label) for label in window}
+            return "qsTea_qsOy" in families and not families & {"qsTea", "qsOy"}
+
+        naming = {window for window in first.windows if reaches_ligature(window)}
+        assert 0 < len(naming) < len(first.windows)
+        assert any(names_only_the_formed_label(window) for window in naming)
+
+        edited = _tea_oy_refuses_its_exit(spec)
+        edited_guard = kernel_exec.guard_sweep(edited)
+        reference = conform._SettledWindowWalk(edited, frozenset(), {}, edited_guard)
+        expected = reference.walk_many(texts)
+        assert expected != before, "the ligature rune edit moved no settlement"
+
+        moved = {**keys, "qsTea_qsOy": "qsTea_qsOy@1"}
+        second = conform._SettledWindowWalk(
+            edited, frozenset(), {}, edited_guard, memo=self._memo(tmp_path, keys=moved)
+        )
+        assert second.walk_many(texts) == expected
+        assert second.memo_windows == len(first.windows)
+        assert second.stale_windows == len(naming)
+        served = set(first.windows) - naming
+        fresh = set(second.windows) - served
+        assert len(fresh) == second.fresh_windows
+        assert 0 < second.fresh_windows < len(reference.windows)
+        assert all(reaches_ligature(window) or window not in first.windows for window in fresh)
+        assert second.save_memo()
+        third = conform._SettledWindowWalk(
+            edited, frozenset(), {}, edited_guard, memo=self._memo(tmp_path, keys=moved)
         )
         assert third.walk_many(texts) == expected
         assert third._settle_calls == 0 and third.stale_windows == 0
