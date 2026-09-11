@@ -9,9 +9,10 @@
 //! The index takes ownership of the [`Spec`] rather than borrowing it, which buys two things. There are no lifetimes to thread through the engine, the guard, and the caches; and the interner is reachable mutably at build time, so [`Vocab`] and the withdrawn-state symbols can be interned into the spec's own pool instead of living in a second one. Interning into that pool cannot disturb emission, which walks the tree and never the pool.
 
 use std::cell::{Cell, RefCell};
-use std::collections::{BTreeSet, HashMap};
+use std::collections::BTreeSet;
 
 use crate::error::SettleError;
+use crate::hash::HashMap;
 use crate::model::{
     BoundaryToken, ResolvedSpec, Rune, ScriptRegistry, Spec, Stance, SurfaceRow, Sym, Table,
 };
@@ -123,23 +124,26 @@ impl SpecIndex {
             .iter()
             .map(|(height, _)| *height)
             .collect();
-        let mut withdrawn = HashMap::with_capacity(declared_heights.len());
+        let mut withdrawn =
+            HashMap::with_capacity_and_hasher(declared_heights.len(), Default::default());
         for height in declared_heights {
             let composed = format!("{}{WITHDRAWN_SUFFIX}", spec.symbols.resolve(height));
             withdrawn.insert(height, spec.symbols.intern(&composed));
         }
-        let mut ids = HashMap::with_capacity(spec.symbols.len());
+        let mut ids = HashMap::with_capacity_and_hasher(spec.symbols.len(), Default::default());
         for (symbol, text) in spec.symbols.iter() {
             ids.insert(text.to_owned(), symbol);
         }
-        let mut runes = HashMap::with_capacity(spec.root.runes.len());
+        let mut runes =
+            HashMap::with_capacity_and_hasher(spec.root.runes.len(), Default::default());
         let mut rune_index = Vec::with_capacity(spec.root.runes.len());
-        let mut group_owner: HashMap<Sym, u32> = HashMap::new();
+        let mut group_owner: HashMap<Sym, u32> = HashMap::default();
         for (seat, (name, rune)) in spec.root.runes.iter().enumerate() {
             let seat =
                 u32::try_from(seat).expect("a spec dump models far fewer than four billion runes");
             runes.insert(*name, seat);
-            let mut groups = HashMap::with_capacity(rune.policy.groups.len());
+            let mut groups =
+                HashMap::with_capacity_and_hasher(rune.policy.groups.len(), Default::default());
             for (group, members) in rune.policy.groups.iter() {
                 groups.insert(*group, members.iter().copied().collect());
                 group_owner.entry(*group).or_insert(seat);

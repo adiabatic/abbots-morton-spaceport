@@ -6,10 +6,9 @@
 //!
 //! A filter is a struct with a memo, and its engine arrives per call rather than being captured. That shape is load-bearing: the fixpoint hands in the engine it settles with, because the probes share that engine's memo and its fired-pointer journal, and a second engine would silently change the `cited_provenance` the build reports. Taking `&mut Engine` per call is how the crate says that out loud — the fixpoint owns the one engine and lends it, and the borrow checker rejects the second one. The liveness probe is lent on exactly the same terms and for exactly the same reason.
 
-use std::collections::{HashMap, HashSet};
-
 use crate::engine::{Engine, Slots};
 use crate::error::SettleError;
+use crate::hash::{HashMap, HashSet};
 use crate::index::SpecIndex;
 use crate::liveness::ProspectLiveness;
 use crate::model::{Condition, Sym};
@@ -31,7 +30,7 @@ pub fn right_chain_reach(cond: &Condition) -> usize {
 ///
 /// A set with no iteration order is the honest type: every reader asks it for membership, so nothing downstream can see an order to depend on.
 fn deep_inputs(index: &SpecIndex, reach: usize) -> HashSet<Sym> {
-    let mut out = HashSet::new();
+    let mut out = HashSet::default();
     for (name, rune) in index.runes() {
         for record in rune.policy.prefer.iter().chain(&rune.policy.resolve) {
             if let Some(right) = record.when.right.as_ref()
@@ -76,7 +75,7 @@ pub fn fourth_slot_inputs(index: &SpecIndex, deep_world: bool) -> HashSet<Sym> {
 ///
 /// Keeping only the inputs with a non-empty list is the matching census exactly, because a rune is censused at a reach precisely when some record of its qualifies at that reach. An input with no entry here can never be live on this arm.
 fn chains_at<'i>(index: &'i SpecIndex, reach: usize) -> HashMap<Sym, Vec<&'i Condition>> {
-    let mut out: HashMap<Sym, Vec<&'i Condition>> = HashMap::new();
+    let mut out: HashMap<Sym, Vec<&'i Condition>> = HashMap::default();
     for (name, rune) in index.runes() {
         for record in rune.policy.prefer.iter().chain(&rune.policy.resolve) {
             if let Some(right) = record.when.right.as_ref()
@@ -102,7 +101,7 @@ impl<'i> ThirdSlotFilter<'i> {
     pub fn new(index: &'i SpecIndex) -> Self {
         Self {
             chains: chains_at(index, 2),
-            verdicts: HashMap::new(),
+            verdicts: HashMap::default(),
         }
     }
 
@@ -160,7 +159,7 @@ impl<'i> FourthSlotFilter<'i> {
     pub fn new(index: &'i SpecIndex) -> Self {
         Self {
             chains: chains_at(index, 3),
-            verdicts: HashMap::new(),
+            verdicts: HashMap::default(),
         }
     }
 

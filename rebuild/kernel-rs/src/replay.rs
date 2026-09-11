@@ -4,13 +4,13 @@
 //!
 //! The memo is a speed device and nothing else, as the belt's is: a window key answers once per configuration and every recurrence across the universe is a hash probe, and the verdict is the same whether every window misses or every window hits. What makes the universe affordable here rather than in Python is that a miss costs one engine call in the same process instead of a batched round trip and no shaper runs beside it; the walk is still priced in distinct raw windows, which grow as the alphabet to the horizon, so the per-build depth is the belt's own (`run_m1.REPLAY_HORIZON`) and a deeper walk is the periodic sweep's. Under the locality theorem `doc/rebuild-design.md` §10 states, a walk restricted to the texts naming an edited family covers every window whose answer or reachability that edit could have moved, which is the O(delta) form a rune edit takes.
 
-use std::collections::HashMap;
 use std::rc::Rc;
 
 use crate::engine::{Engine, EngineModes, Slots};
 use crate::fixpoint::{EDGE_LABEL, locked_glyph_name, right_token_label};
 use crate::fold::{NA_LABEL, Rule};
 use crate::guard::GuardState;
+use crate::hash::HashMap;
 use crate::index::SpecIndex;
 use crate::model::Sym;
 use crate::types::{EDGE, LeftContext, RightToken, Settled, SettledPool, TokenKind, cell_label};
@@ -135,7 +135,7 @@ impl<'i> Formation<'i> {
             })
             .collect();
         sequences.sort_by_key(|(sequence, _)| std::cmp::Reverse(sequence.len()));
-        let mut by_lead: HashMap<Sym, Vec<(Vec<Sym>, Sym)>> = HashMap::new();
+        let mut by_lead: HashMap<Sym, Vec<(Vec<Sym>, Sym)>> = HashMap::default();
         for (sequence, name) in sequences {
             by_lead
                 .entry(sequence[0])
@@ -207,7 +207,7 @@ pub(crate) struct Labels {
 impl Labels {
     pub(crate) fn new() -> Self {
         let mut labels = Self {
-            ids: HashMap::new(),
+            ids: HashMap::default(),
             texts: Vec::new(),
             boundaryish: Vec::new(),
             edge: 0,
@@ -269,7 +269,7 @@ struct RuleIndex {
 
 impl RuleIndex {
     fn new(labels: &mut Labels, rules: &[Rule]) -> Self {
-        let mut by_input: HashMap<u32, Vec<IndexedRule>> = HashMap::new();
+        let mut by_input: HashMap<u32, Vec<IndexedRule>> = HashMap::default();
         for rule in rules {
             let input = labels.intern(&rule.input_glyph);
             let mut slot = |members: &Option<Vec<Rc<str>>>| {
@@ -354,11 +354,11 @@ impl<'i> Replay<'i> {
             formation: Formation::new(index),
             labels,
             rules,
-            memo: HashMap::new(),
+            memo: HashMap::default(),
             pool: SettledPool::default(),
             seat_labels: Vec::new(),
-            input_labels: HashMap::new(),
-            locked_labels: HashMap::new(),
+            input_labels: HashMap::default(),
+            locked_labels: HashMap::default(),
             disagreements: Vec::new(),
         }
     }

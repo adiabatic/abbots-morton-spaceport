@@ -8,10 +8,10 @@
 //!
 //! The replay that asserts the partition is also where the rules meet their realizing strings. It records, per rule, the replayed rows with the shortest producer chains that first-match it, and [`crate::certificate`] closes each such row's chain into a string the rule first-matches at the row's own position — one certificate per rule, written into the windows head beside the rules, which is how the build proves every rule reachable by settling rather than by searching.
 
-use std::collections::{HashMap, HashSet};
 use std::rc::Rc;
 
 use crate::certificate;
+use crate::hash::{HashMap, HashSet};
 use crate::index::SpecIndex;
 use crate::options::WindowOptions;
 use crate::rulefold::rules_for_input;
@@ -229,7 +229,7 @@ pub fn fold_with(
     let rows = LabelRows::new(&product.transitions, &product.notes, &fold_rows);
     let mut rules: Vec<Rule> = Vec::new();
     let mut identity_guards: i64 = 0;
-    let mut replay_lefts: ReplayLefts = HashMap::new();
+    let mut replay_lefts: ReplayLefts = HashMap::default();
     for (start, end) in input_runs(&rows) {
         let slice = rows.slice(start, end);
         let input_glyph = Rc::clone(slice.input_glyph(0));
@@ -254,7 +254,7 @@ pub fn fold_with(
         .iter()
         .map(|cell| (cell, entry_extension(cell)))
         .collect();
-    let mut seen: HashSet<(Rc<str>, Rc<str>, String, i64)> = HashSet::new();
+    let mut seen: HashSet<(Rc<str>, Rc<str>, String, i64)> = HashSet::default();
     for row in 0..rows.len() {
         let base = rows.base(row);
         let Some(left_settled) = product.left_settled(base) else {
@@ -340,8 +340,8 @@ fn assert_key_sorted(rows: &[TransitionRow]) -> Result<(), String> {
 
 /// The label-grain expansion of one product, in `table.Window.key` order. See the module docstring for why the sort is per prefix run rather than global. Public so a caller replaying a perturbed rule list can build the same rows the fold asserted over.
 pub fn expand(product: &FixpointProduct) -> Vec<FoldRow> {
-    let mut pool: HashSet<Rc<str>> = HashSet::new();
-    let mut members: HashMap<&str, Vec<Rc<str>>> = HashMap::new();
+    let mut pool: HashSet<Rc<str>> = HashSet::default();
+    let mut members: HashMap<&str, Vec<Rc<str>>> = HashMap::default();
     for (token, names) in &product.deep_classes {
         let interned = names
             .iter()
@@ -399,7 +399,7 @@ fn near_slots(row: &TransitionRow) -> [&str; 4] {
 ///
 /// The successor index is keyed on the follower's (left, input, right1), which is the row's own (outcome, right1, right2), so the scan never touches a window the first three slots already rule out. Nothing here reads a successor's joint flag, only the seam it settled — read through `seats`, the product's table the follower's settled seat indexes — so the pass is order-free and the flags can be applied in one sweep afterwards.
 fn flag_prospect_joints(class: &[TransitionRow], seats: &[Settled], fold: &mut [FoldRow]) {
-    let mut successors: HashMap<(&str, &str, &str), Vec<u32>> = HashMap::new();
+    let mut successors: HashMap<(&str, &str, &str), Vec<u32>> = HashMap::default();
     for (seat, row) in fold.iter().enumerate() {
         let base = &class[row.seat as usize];
         successors
@@ -517,7 +517,7 @@ pub fn assert_outcome_partition(
 
 /// The rules grouped by the input they rewrite, each seat beside its rule in table order — the shape a first-match-wins replay walks.
 pub fn rules_by_input(rules: &[Rule]) -> HashMap<&str, Vec<(usize, &Rule)>> {
-    let mut by_input: HashMap<&str, Vec<(usize, &Rule)>> = HashMap::new();
+    let mut by_input: HashMap<&str, Vec<(usize, &Rule)>> = HashMap::default();
     for (seat, rule) in rules.iter().enumerate() {
         by_input
             .entry(&rule.input_glyph)
@@ -668,7 +668,7 @@ pub fn assert_deep_class_unions(product: &FixpointProduct, rules: &[Rule]) -> Re
             )
         })
         .collect();
-    let mut by_input: HashMap<&str, Vec<&Rule>> = HashMap::new();
+    let mut by_input: HashMap<&str, Vec<&Rule>> = HashMap::default();
     for rule in rules {
         by_input.entry(&rule.input_glyph).or_default().push(rule);
     }

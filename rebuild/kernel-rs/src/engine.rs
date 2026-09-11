@@ -10,9 +10,8 @@
 //!
 //! Three raises live in this half, all of them spec defects rather than settlement outcomes, and all three keep Python's sentence: a left condition carrying `then:`, a right condition carrying a left-only axis, and an unresolvable class name (which [`SpecIndex::class_members`] raises). Everything else here answers rather than raises — an unavailable entry, a forbidden pairing, a closed-out exit, and a refusal are all eliminations, and a window with no candidates at all is the ranking's problem, not enumeration's.
 
-use std::collections::{HashMap, HashSet};
-
 use crate::error::SettleError;
+use crate::hash::{HashMap, HashSet};
 use crate::index::{Read, SpecIndex, StanceId};
 use crate::memo::{MemoBase, MemoSnapshot};
 use crate::model::{
@@ -637,18 +636,18 @@ impl<'i> Engine<'i> {
             simulated_prospect: modes.simulated_prospect,
             vote_slots: modes.vote_slots,
             simulated_prospect_fallbacks: 0,
-            fired: HashSet::new(),
+            fired: HashSet::default(),
             fired_log: modes.trace_memo.then(Vec::new),
             capture_starts: Vec::new(),
             deltas: DeltaPool::default(),
             reads: ReadsPool::default(),
             read_starts: Vec::new(),
-            closure_cache: HashMap::new(),
+            closure_cache: HashMap::default(),
             candidates_cache: CandidatesMemo::default(),
-            prospect_cache: HashMap::new(),
-            exit_sources_cache: HashMap::new(),
-            virtual_left_cache: HashMap::new(),
-            pairing_sets: HashMap::new(),
+            prospect_cache: HashMap::default(),
+            exit_sources_cache: HashMap::default(),
+            virtual_left_cache: HashMap::default(),
+            pairing_sets: HashMap::default(),
             explain_ladder: modes.explain_ladder,
             trace_cache: modes.trace_memo.then(TraceMemo::default),
             bases: Vec::new(),
@@ -682,8 +681,8 @@ impl<'i> Engine<'i> {
         let reads = std::mem::take(&mut self.reads);
         self.trace_cache = Some(TraceMemo::default());
         self.candidates_cache = CandidatesMemo::default();
-        self.prospect_cache = HashMap::new();
-        self.closure_cache = HashMap::new();
+        self.prospect_cache = HashMap::default();
+        self.closure_cache = HashMap::default();
         Some(MemoSnapshot {
             entries: memo.entries,
             settled: memo.settled.into_table(),
@@ -734,8 +733,8 @@ impl<'i> Engine<'i> {
     pub fn release_memos(&mut self) {
         self.trace_cache = self.trace_cache.as_ref().map(|_| TraceMemo::default());
         self.candidates_cache = CandidatesMemo::default();
-        self.prospect_cache = HashMap::new();
-        self.closure_cache = HashMap::new();
+        self.prospect_cache = HashMap::default();
+        self.closure_cache = HashMap::default();
         self.deltas = DeltaPool::default();
         self.reads = ReadsPool::default();
     }
@@ -906,7 +905,7 @@ impl<'i> Engine<'i> {
             .fired_log
             .as_mut()
             .expect("captures only open in trace-memo mode");
-        let mut seen: HashSet<Pointer> = HashSet::new();
+        let mut seen: HashSet<Pointer> = HashSet::default();
         let mut delta = Vec::new();
         for pointer in &log[start..] {
             if seen.insert(*pointer) {
@@ -2052,7 +2051,7 @@ impl<'i> Engine<'i> {
         }
         let mut applicable: Vec<Applicable<'i>> = Vec::new();
         for OwnedRecord { owner, record } in gathered {
-            let mut favored: HashSet<Candidate> = HashSet::new();
+            let mut favored: HashSet<Candidate> = HashSet::default();
             let mut relevant = false;
             for candidate in survivors {
                 let Some(vote) =
@@ -2730,7 +2729,7 @@ impl<'i> Engine<'i> {
         }
 
         let mut ranked_order: Vec<Candidate> = Vec::new();
-        let mut ranked: HashMap<Candidate, RankedCandidate> = HashMap::new();
+        let mut ranked: HashMap<Candidate, RankedCandidate> = HashMap::default();
         for candidate in &survivors {
             let join_count = self.score(rune_name, *candidate, committed, slots)?;
             let prospect = self.prospect(rune_name, *candidate, slots)?;

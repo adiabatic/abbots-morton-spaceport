@@ -6,10 +6,11 @@
 //!
 //! What a certificate is not: a proof that HarfBuzz applies the rule. That is `gate:conform`'s, over the compiled font. A certificate proves the rule reachable in the kernel's own settlement, which is the realizability half of the dead-rule alarm — the half the fold's never-first refusal cannot state, because that replay reads the table's own rows and a row is realizable only if its left state is.
 
-use std::collections::{HashSet, VecDeque};
+use std::collections::VecDeque;
 
 use crate::fixpoint::right_token_label;
 use crate::fold::{LabelRows, Rule, boundaryish, first_match, rules_by_input};
+use crate::hash::HashSet;
 use crate::index::SpecIndex;
 use crate::options::WindowOptions;
 use crate::types::{EDGE, NAMER_DOT, RightToken, SPACE, TokenKind, ZWNJ};
@@ -44,7 +45,7 @@ impl Prefixes {
         let mut dist = vec![UNREACHED; count];
         let mut parent = vec![UNREACHED; count];
         let mut queue: VecDeque<u32> = VecDeque::new();
-        let mut scanned: HashSet<(u32, u32)> = HashSet::new();
+        let mut scanned: HashSet<(u32, u32)> = HashSet::default();
         for (row, length) in dist.iter_mut().enumerate() {
             if boundaryish(rows.left(row)) {
                 *length = 0;

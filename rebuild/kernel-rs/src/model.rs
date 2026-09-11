@@ -4,8 +4,9 @@
 //!
 //! Heights stay ordinary symbols at this stage. The registry's `heights` mapping is the authority on what each one means, and the deeper packing belongs to the sub-issues after this one; enum-ifying the vocabulary now would freeze something the dump is allowed to grow. The prior art's derived accelerators — feature masks, entry-bearing flags, letter bitmasks — are likewise absent on purpose: ingest is faithful and lossless and nothing more.
 
-use std::collections::HashMap;
 use std::num::NonZeroU32;
+
+use crate::hash::HashMap;
 
 /// An interned vocabulary string, valid only against the [`Interner`] that minted it. Comparison, hashing, and later packing all happen on the integer, never on the text.
 ///
@@ -13,7 +14,7 @@ use std::num::NonZeroU32;
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct Sym(NonZeroU32);
 
-/// The one string pool a parsed dump resolves through: a `Vec<String>` for `Sym` to text and a `HashMap` for text to `Sym`, both on the standard SipHash hasher. A finalizer-less fast hasher measured far slower than SipHash on this project's keys, whose low bits are a five-value alphabet, so the standard hasher is a measured choice rather than a default left in place.
+/// The one string pool a parsed dump resolves through: a `Vec<String>` for `Sym` to text and a map for text to `Sym`, on the crate's own hasher ([`crate::hash`]). The hasher is a measured choice: a finalizer-less fast hasher measures far slower than SipHash on this project's keys, whose low bits are a five-value alphabet, and a finalized one measures far faster, which is the one the crate takes.
 #[derive(Clone, Debug, Default)]
 pub struct Interner {
     strings: Vec<String>,

@@ -8,13 +8,13 @@
 //!
 //! The snapshot is shared behind an [`Arc`] rather than copied per configuration, because the memo is the enumeration's high-water mark and a copy per delta configuration would put the fan-out back on the memory bound the delta was meant to lift. It therefore holds no `Rc`, no reference into any engine, and no ladder — the fixpoint never records one — and a base is read-only from the moment it is built.
 
-use std::collections::{HashMap, HashSet};
 use std::fmt::Write as _;
 use std::io::{BufRead, Write as _};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use crate::engine::{DeltaSeat, Pointer, ReadsSeat, TraceEntry, TraceKey};
+use crate::hash::{HashMap, HashSet};
 use crate::index::{Read, SpecIndex};
 use crate::model::{PolicyRecord, Provenance, Sym, When};
 use crate::types::{
@@ -82,7 +82,7 @@ impl Exclusion {
     pub fn of(runes: impl IntoIterator<Item = Sym>) -> Self {
         Self {
             runes: runes.into_iter().collect(),
-            classes: HashSet::new(),
+            classes: HashSet::default(),
         }
     }
 
@@ -184,7 +184,7 @@ struct Symbols {
 impl Symbols {
     fn new() -> Self {
         Self {
-            seats: HashMap::new(),
+            seats: HashMap::default(),
             lines: Vec::new(),
         }
     }
@@ -246,7 +246,7 @@ struct FileTable<T> {
 impl<T: std::hash::Hash + Eq + Clone> FileTable<T> {
     fn new() -> Self {
         Self {
-            seats: HashMap::new(),
+            seats: HashMap::default(),
             lines: Vec::new(),
         }
     }

@@ -10,12 +10,12 @@
 //!
 //! The probes run on the build's own tracing engine, so their traces land in the shared memo and their fired pointers in `Engine::fired`, exactly as the liveness probes' traces already do. The one imported rather than probed assumption is the left-class collapse [`ProspectLiveness::seat_left_classes`] already trusts; the fixpoint's per-build echo check is the standing guard on it at real-left, real-entry, real-adjustment grain.
 
-use std::collections::HashMap;
 use std::rc::Rc;
 
 use crate::census::FourthSlotFilter;
 use crate::engine::{Engine, Slots};
 use crate::error::{SettleError, SettleErrorKind};
+use crate::hash::HashMap;
 use crate::liveness::ProspectLiveness;
 use crate::model::Sym;
 use crate::options::WindowOptions;
@@ -113,7 +113,7 @@ impl DeepFiberDeriver {
         full_coords.push(UNKNOWN);
         let deep_world = engine.simulated_prospect() || engine.vote_slots();
 
-        let mut seats: HashMap<Rc<FiberKey>, usize> = HashMap::new();
+        let mut seats: HashMap<Rc<FiberKey>, usize> = HashMap::default();
         let mut grouped: Vec<(Rc<FiberKey>, Vec<RightToken>)> = Vec::new();
         for third in static_options {
             if third.kind() != TokenKind::Letter {
@@ -214,7 +214,7 @@ fn r4_groups(key: &FiberKey, full_coords: &[RightToken]) -> Vec<Vec<RightToken>>
         .map(|(seat, coord)| (*coord, seat))
         .collect();
     let mut ordered: Vec<Vec<RightToken>> = Vec::new();
-    let mut by_column: HashMap<Vec<&FiberRecord>, usize> = HashMap::new();
+    let mut by_column: HashMap<Vec<&FiberRecord>, usize> = HashMap::default();
     for &option in &key.options4 {
         if option.kind() != TokenKind::Letter {
             ordered.push(vec![option]);

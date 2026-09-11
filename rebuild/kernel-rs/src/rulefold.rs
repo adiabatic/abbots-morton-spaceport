@@ -5,11 +5,11 @@
 //! Two structural facts make this cheaper here than in Python without changing an answer. The rows arrive key-sorted, so an input's rows are grouped by left and each left's rows are already in `(r1, r2, r3, r4)` order — which was both the insertion order the Python original's `group_rows` dict had and the order its `sorted(group_rows.items())` calls asked for, so one sorted slice answers both and a prefix range is a binary search rather than a scan. And a signature is a sorted, deduplicated vector rather than a hash set, which is the same equivalence relation `frozenset` imposes with an order that makes it hashable.
 
 use std::cmp::Ordering;
-use std::collections::{HashMap, HashSet};
 use std::hash::Hash;
 use std::rc::Rc;
 
 use crate::fold::{BOUNDARY_LOOKAHEAD_CLASS, LabelRows, NA_LABEL, Rule, boundaryish};
+use crate::hash::{HashMap, HashSet};
 use crate::stream::{python_repr, python_tuple};
 
 /// What one input's fold produced: its ordered rules, how many of them are identity guards, and the lefts a first-match-wins replay has to cover to cover them all.
@@ -37,7 +37,7 @@ fn signature_blocks<K: Eq + Hash>(
     values: &[Rc<str>],
     mut signature_of: impl FnMut(&Rc<str>) -> K,
 ) -> Blocks {
-    let mut groups: HashMap<K, Vec<Rc<str>>> = HashMap::new();
+    let mut groups: HashMap<K, Vec<Rc<str>>> = HashMap::default();
     for value in values {
         groups
             .entry(signature_of(value))
@@ -147,7 +147,7 @@ pub fn rules_for_input(
     let by_left: HashMap<Rc<str>, (usize, usize)> = spans.iter().cloned().collect();
     let lefts: Vec<Rc<str>> = spans.iter().map(|(left, _)| Rc::clone(left)).collect();
 
-    let mut left_signatures: HashMap<Rc<str>, Signature<5>> = HashMap::new();
+    let mut left_signatures: HashMap<Rc<str>, Signature<5>> = HashMap::default();
     for (left, span) in &spans {
         left_signatures.insert(
             Rc::clone(left),
@@ -294,7 +294,7 @@ impl Emission {
         let whole = (0usize, group.keys.len());
         let group_r1s = group.slot_values(whole, 0);
 
-        let mut r1_signatures: HashMap<Rc<str>, Signature<4>> = HashMap::new();
+        let mut r1_signatures: HashMap<Rc<str>, Signature<4>> = HashMap::default();
         for (key, row) in &group.keys {
             r1_signatures.entry(Rc::clone(&key[0])).or_default().push([
                 Rc::clone(&key[1]),
@@ -369,7 +369,7 @@ impl Emission {
             let block_r2s = group.slot_values(r1_span, 1);
             let r1_members: HashSet<&Rc<str>> = r1_block.iter().collect();
 
-            let mut r2_signatures: HashMap<Rc<str>, Signature<4>> = HashMap::new();
+            let mut r2_signatures: HashMap<Rc<str>, Signature<4>> = HashMap::default();
             let mut distinct_outcomes: Vec<&str> = Vec::new();
             let mut block_joint = false;
             for (key, row) in &group.keys {
@@ -488,7 +488,7 @@ impl Emission {
                     ));
                 }
                 let r2_members: HashSet<&Rc<str>> = r2_block.iter().collect();
-                let mut r3_signatures: HashMap<Rc<str>, Signature<4>> = HashMap::new();
+                let mut r3_signatures: HashMap<Rc<str>, Signature<4>> = HashMap::default();
                 for (key, row) in &group.keys {
                     if !r1_members.contains(&key[0]) || !r2_members.contains(&key[1]) {
                         continue;
@@ -577,7 +577,7 @@ impl Emission {
                         ));
                     }
                     let r3_members: HashSet<&Rc<str>> = r3_block.iter().collect();
-                    let mut r4_signatures: HashMap<Rc<str>, Signature<4>> = HashMap::new();
+                    let mut r4_signatures: HashMap<Rc<str>, Signature<4>> = HashMap::default();
                     for (key, row) in &group.keys {
                         if !r1_members.contains(&key[0])
                             || !r2_members.contains(&key[1])
