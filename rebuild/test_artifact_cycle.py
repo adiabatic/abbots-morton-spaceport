@@ -1977,8 +1977,8 @@ class TestTheSurfaceBuildWidth:
         assert ac.surface_job_budget(skip_gates=False, ncores=5, total_bytes=1_000_000_000_000) == 3
 
     def test_memory_binds_before_the_cap_once_the_box_is_small_enough(self):
-        """The direction that makes deriving this width worth doing: the 48 GiB box has twelve cores' worth of permission, and what it runs is the pool that fits beside the parent's own pile rather than the eight a core clamp handed every box alike. Both bounds are inequalities because both surface constants are readings to keep current: a re-seed may move the width, but it must neither floor this box nor hand it the cap."""
-        width = ac.surface_job_budget(skip_gates=True, ncores=12, total_bytes=BOX_48_GIB)
+        """The direction that makes deriving this width worth doing: the 32 GiB box has ten cores' worth of permission, and what it runs is the pool that fits beside the parent's own pile rather than the eight a core clamp handed every box alike. Both bounds are inequalities because both surface constants are readings to keep current: a re-seed may move the width, but it must neither floor this box nor hand it the cap."""
+        width = ac.surface_job_budget(skip_gates=True, ncores=10, total_bytes=BOX_32_GIB)
         assert 1 < width < ac.SURFACE_JOBS_CAP
 
     def test_the_pytest_pool_comes_off_the_box_before_the_division(self):

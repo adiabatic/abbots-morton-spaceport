@@ -13,6 +13,7 @@ import argparse
 import datetime
 import hashlib
 import json
+import math
 import multiprocessing.connection
 import random
 import shutil
@@ -553,7 +554,7 @@ class _ShardWriter:
 
     The cap exists for the browser: the app parses each part as one JSON string, and V8's `String::kMaxLength` under pointer compression is 2**29 - 24 bytes. Blink hands `JSON.parse` an empty string rather than an error when it cannot materialize a body that long, so an oversized shard surfaces as "Unexpected end of JSON input" from a fetch that looked like it succeeded. `SHARD_PART_BYTES` is half that ceiling, and the other half is headroom.
 
-    A class that fits in one part keeps the bare `units/<class-id>.json` name, so the small classes, the checked-in fixtures, and the archived surfaces never churn. A class that does not is written as `units/<class-id>.000.json`, `units/<class-id>.001.json`, … — contiguous from zero, three digits, every part numbered, never a bare name beside numbered ones. Both spellings sort where `unit_index.class_shard_key` puts the class, because the character after the class id is `.` either way.
+    A class that fits in one part keeps the bare `units/<class-id>.json` name, so the small classes, the checked-in fixtures, and the archived surfaces never churn. A class that does not is written as `units/<class-id>.000.json`, `units/<class-id>.001.json`, … — contiguous from zero, three digits, every part numbered, never a bare name beside numbered ones. Both spellings sort where `unit_index.class_shard_key` puts the class, because the character after the class id is `.` either way. A class opened `numbered` takes the numbered spelling whatever its part count, which is what makes a part's relative path final the moment a fragment is added to it: the fresh spool opens its class that way so that an address is final when the fragment is added rather than when the class closes.
 
     The framing is `_write_json`'s, for the reasons its docstring gives: each fragment is serialized inside a one-element list whose framing is peeled back off, so a part's bytes are the one-shot `json.dumps(part, indent=1, ensure_ascii=True) + "\\n"` bytes by construction. Every part lands within the cap except one holding a single fragment that exceeds it alone, which nothing here can make smaller.
 
@@ -577,10 +578,12 @@ class _ShardWriter:
         self._handle: BinaryIO | None = None
         self._open = False
         self._size = 0
+        self._numbered = False
 
-    def open(self, class_id: str, prior_parts: Sequence[str] = ()) -> None:
+    def open(self, class_id: str, prior_parts: Sequence[str] = (), *, numbered: bool = False) -> None:
         assert self._class_id is None, "close the open class first"
         self._class_id = class_id
+        self._numbered = numbered
         self._prior = [part for part in prior_parts if (self._out_dir / part).is_file()]
         self._parts = []
         self._handle = None
@@ -674,9 +677,9 @@ class _ShardWriter:
             path.write_bytes(b"[]\n")
             self._parts.append(path)
         names = (
-            [f"{class_id}.json"]
-            if len(self._parts) == 1
-            else [f"{class_id}.{index:03d}.json" for index in range(len(self._parts))]
+            [f"{class_id}.{index:03d}.json" for index in range(len(self._parts))]
+            if self._numbered or len(self._parts) > 1
+            else [f"{class_id}.json"]
         )
         for index, (part, name) in enumerate(zip(self._parts, names, strict=True)):
             if isinstance(part, str):
@@ -729,23 +732,29 @@ FRESH_SPOOL_NAME = "fresh.spool.partial"
 
 
 class _FragmentSpool:
-    """Where one process's freshly drafted fragments wait between phase 1 and the write: a `_ShardWriter` over `<out_dir>/fresh.spool.partial`, one class named for the process that drafts into it (`serial`, or the pool's `w<index>`), so the parts carry the shard framing and each fragment's address reads back through `unit_cache.PriorFragmentReader` exactly as a served fragment's does out of the previous surface. That is the whole point of spooling rather than retaining: a fresh unit's `EnrichedUnit` dies the moment its fragment is on disk, and the write treats the two kinds of fragment alike — read by address, patched, released. `add` spools one fragment; `close` seals the parts and resolves every address to a `PriorFragment` carrying the stamp the drafting wrote, so the read back holds a fresh fragment to its own key exactly as it holds a served one. The spool root is the runner's to sweep, on success and failure alike."""
+    """Where one process's freshly drafted fragments wait between phase 1 and the write: a `_ShardWriter` over `<out_dir>/fresh.spool.partial`, one class named for the process that drafts into it (`serial`, or the pool's `w<index>`), so the parts carry the shard framing and each fragment's address reads back through `unit_cache.PriorFragmentReader` exactly as a served fragment's does out of the previous surface. That is the whole point of spooling rather than retaining: a fresh unit's `EnrichedUnit` dies the moment its fragment is on disk, and the write treats the two kinds of fragment alike — read by address, patched, released. `add` spools one fragment and resolves its address on the spot — the class is opened numbered, so the part's name is final before the class closes — as a `PriorFragment` carrying the stamp the drafting wrote, so the read back holds a fresh fragment to its own key exactly as it holds a served one. The addresses leave the spool batch by batch rather than at the end of the phase: `flush` hands over every address added since the last flush, which is what lets a pool worker answer each batch with its own addresses and hold nothing past the reply, and `close` seals and commits the parts, answering with whatever is still pending. The spool root is the runner's to sweep, on success and failure alike."""
 
     def __init__(self, out_dir: Path, name: str) -> None:
         self._writer = _ShardWriter(Path(out_dir) / FRESH_SPOOL_NAME)
-        self._writer.open(name)
-        self._spans: dict[str, tuple[tuple[int, int, int], str | None]] = {}
+        self._writer.open(name, numbered=True)
+        self._name = name
+        self._pending: dict[str, unit_cache.PriorFragment] = {}
 
     def add(self, fragment: dict) -> None:
-        self._spans[fragment["id"]] = (self._writer.add(fragment), fragment.get("content_key"))
+        part, start, length = self._writer.add(fragment)
+        unit_id = fragment["id"]
+        self._pending[unit_id] = unit_cache.PriorFragment(
+            f"units/{self._name}.{part:03d}.json", start, length, unit_id, fragment.get("content_key")
+        )
+
+    def flush(self) -> dict[str, unit_cache.PriorFragment]:
+        pending, self._pending = self._pending, {}
+        return pending
 
     def close(self) -> dict[str, unit_cache.PriorFragment]:
-        parts = self._writer.close()
+        self._writer.close()
         self._writer.commit()
-        return {
-            unit_id: unit_cache.PriorFragment(parts[part], start, length, unit_id, stamp)
-            for unit_id, ((part, start, length), stamp) in self._spans.items()
-        }
+        return self.flush()
 
 
 def _prune_orphan_shards(out_dir: Path, manifest: dict) -> list[str]:
@@ -853,7 +862,7 @@ def _recompute_fragment(
 
 
 def _phase1_batches(enricher: Enricher, units):
-    """Phase 1's unit batches, released as each one closes. The enricher's settlement batches (`Enricher.explain_unit_batches`) are the build's unit batch boundary, and the shared shape memo (`ink.release_shape_memos`) is released behind every one of them, so what the comparator, the oracle and the enricher share across a batch — each (text, config) shaped once for the three of them — is what a process holds at any moment, rather than everything its slice ever shaped. The pool worker and the in-process runner both iterate this rather than the enricher's batches directly, which is what makes the bound a fact about the build and not about one of its paths."""
+    """Phase 1's unit batches, released as each one closes. The enricher's settlement batches (`Enricher.explain_unit_batches`) are the build's unit batch boundary, and the shared shape memo (`ink.release_shape_memos`) is released behind every one of them, so what the comparator, the oracle and the enricher share across a batch — each (text, config) shaped once for the three of them — is what a process holds at any moment, rather than everything it ever shaped. The pool worker and the in-process runner both iterate this rather than the enricher's batches directly, which is what makes the bound a fact about the build and not about one of its paths."""
     for unit_batch, reports in enricher.explain_unit_batches(units):
         yield unit_batch, reports
         release_shape_memos()
@@ -940,9 +949,9 @@ def _resolve_signature_digests(
 
 
 def _surface_worker(conn, init: dict) -> None:
-    """A persistent, stateful surface worker (spawn-only: uharfbuzz/fontTools C objects are not fork-safe, and drafts._import_test_shaping mutates a module-global singleton). `phase1` computes config_diff + enrich + draft over its slice, batch by batch with the shared shape memo released behind each (`_phase1_batches`), spooling every fragment to the build's fresh spool as it is drafted (`_FragmentSpool`, under the class name the message carries) so that no EnrichedUnit outlives its batch here, and answers with the slim projections and each fragment's spool address; the parent reads the fragments back by address itself as it writes the shards, so nothing is held in this process for it to pull and no phase-2 message exists. The other message, `verify`, recomputes phase 1 and the patch for a handful of units the cache served — units this worker never enriched — and answers with each one's content key and its freshly computed ink deltas, which is what makes the served fragments continuously checkable against a fresh computation of the same window.
+    """A persistent, stateful surface worker (spawn-only: uharfbuzz/fontTools C objects are not fork-safe, and drafts._import_test_shaping mutates a module-global singleton). Each `phase1` message hands over one batch of units off the parent's queue, and the worker computes config_diff + enrich + draft over it with the shared shape memo released behind it (`_phase1_batches`), spooling every fragment to the build's fresh spool as it is drafted (`_FragmentSpool`, under the class name the message carries, opened on the first batch and kept across them) so that no EnrichedUnit outlives its batch here, and answers `batch` with that batch's slim projections and each fragment's spool address, holding nothing past the reply: what this process holds at any moment is one batch's units, projections and addresses, never a share of the corpus. `phase1-done` closes the spool and answers the `ok` that ends the phase, carrying nothing; the parent reads the fragments back by address itself as it writes the shards, so nothing is held in this process for it to pull and no phase-2 message exists. The other message, `verify`, recomputes phase 1 and the patch for a handful of units the cache served — units this worker never enriched — and answers with each one's content key and its freshly computed ink deltas, which is what makes the served fragments continuously checkable against a fresh computation of the same window.
 
-    `phase1` answers with a running count as each batch lands, ahead of the one `ok` that ends the phase, which is what lets the parent say how far through the corpus the pool is while it is still working rather than only once a worker has finished. `verify` sends none: it is a couple of hundred units against tens of thousands, and a counter nobody would read costs a message per unit.
+    The batch replies are the progress the parent prints: each one lands as its batch closes, so the parent can say how far through the corpus the pool is while it is still working rather than only once a worker has finished. `verify` sends none: it is a couple of hundred units against tens of thousands, and a counter nobody would read costs a message per unit.
     """
     try:
         comparator = InkComparator(init["before_font"], init["after_font"], shaper_for)
@@ -963,32 +972,40 @@ def _surface_worker(conn, init: dict) -> None:
         if tally:
             tally.hold("worker.subset_rows", enricher._subset_rows, nested=True)
             tally.hold_reading("ink.shape_memo", shape_memo_census)
+        spool: _FragmentSpool | None = None
+        batches = 0
         while True:
             message = conn.recv()
             if message[0] == "stop":
                 conn.send(("peak", peak_rss_self_bytes()))
                 return
             if message[0] == "phase1":
+                if spool is None:
+                    spool = _FragmentSpool(init["out_dir"], message[2])
+                batches += 1
                 results: list[_UnitProjection] = []
-                spool = _FragmentSpool(init["out_dir"], message[2]) if message[1] else None
                 for unit_batch, reports in _phase1_batches(enricher, message[1]):
                     for unit, report in zip(unit_batch, reports):
                         projection, fragment = _phase1_unit(
                             unit, comparator, oracle, enricher, drafter, report
                         )
-                        assert spool is not None
                         spool.add(fragment)
                         results.append(projection)
-                    conn.send(("progress", len(results)))
-                spooled = spool.close() if spool is not None else {}
+                spooled = spool.flush()
                 if tally:
                     tally.hold("worker.projections", results)
                     tally.hold("worker.spooled", spooled)
-                    tally.boundary(f"{message[2]}/phase1")
-                conn.send(("ok", results, spooled))
+                    tally.boundary(f"{message[2]}/phase1-{batches}")
+                conn.send(("batch", results, spooled))
                 if tally:
                     tally.release("worker.projections")
                     tally.release("worker.spooled")
+                del message, results, spooled
+            elif message[0] == "phase1-done":
+                if spool is not None:
+                    spool.close()
+                    spool = None
+                conn.send(("ok",))
             elif message[0] == "verify":
                 keys: dict[str, tuple] = {}
                 for chunk in _released_batches(message[1]):
@@ -1013,19 +1030,15 @@ def _record_surface_pool(width: int, peaks: dict[str, int]) -> None:
     record_pool("surface", width=width, worker_peaks=peaks, controller_peak_bytes=peak_rss_self_bytes())
 
 
-def _partition(items: list, parts: int) -> list[list]:
-    """Contiguous, near-even slices of `items` in order — the first `len % parts` slices carry one extra so ids stay in triage order across the whole partition."""
-    size, extra = divmod(len(items), parts)
-    slices: list[list] = []
-    start = 0
-    for index in range(parts):
-        length = size + (1 if index < extra else 0)
-        slices.append(items[start : start + length])
-        start += length
-    return slices
-
-
 PHASE1_UNITS = "units enriched"
+
+# The most fresh units the parent hands a pool worker per `phase1` message. It is the enricher's settlement batch width rather than a width of its own because one boundary in the build already carries the shape-memo release (`_phase1_batches`) and the settlement batch, and the hand-out puts the worker's units, projections and spool addresses on the same boundary: a worker holds one batch of each, and a wider hand-out would only raise that pile without moving the memo's bound. Read through the module global at call time, so a test can narrow it.
+PHASE1_HANDOUT_UNITS = EXPLAIN_UNIT_BATCH_SIZE
+
+
+def _handout_width(fresh: int, nworkers: int) -> int:
+    """How many units one `phase1` message carries: `PHASE1_HANDOUT_UNITS`, or fewer when the fresh pile would not otherwise reach every worker twice over. The ceiling bounds what a worker holds; the spread is what keeps a small pile pooled — a dev-loop build of a few thousand fresh units at eight jobs is eight workers drawing a few hundred at a time rather than one drawing the lot while seven idle behind the end marker — and two draws per worker is what lets the queue even out batches of unequal cost. On the full corpus the ceiling binds, so the settlement batch is the hand-out there."""
+    return max(1, min(PHASE1_HANDOUT_UNITS, math.ceil(fresh / (2 * nworkers))))
 
 
 def _phase_timing(label: str, started: float, note: str = "") -> None:
@@ -1037,7 +1050,7 @@ def _phase_timing(label: str, started: float, note: str = "") -> None:
 
 
 class _FreshRunner:
-    """Phase 1 over the units the cache could not serve — in-process when `jobs` is 1, across persistent spawn workers otherwise, with identical per-unit semantics either way, which is what lets the serial and parallel builds share every reduce and stay byte-identical. The parent keeps the triage order and every order-sensitive reduce (the index and its batches, family promotion, echo grouping, secondary-home resolution) and takes each fresh unit's id off the projection its drafting stamped; the runner enriches and drafts, spooling each fragment to disk as it is drafted (`_FragmentSpool`, under `out_dir`) so that no EnrichedUnit outlives the batch that produced it in either path, and hands the fragments back one at a time through `fragment`, read by address out of the spool exactly as a served fragment is read out of the previous surface. The spool is swept at `close`, whichever way the build ends."""
+    """Phase 1 over the units the cache could not serve — in-process when `jobs` is 1, across persistent spawn workers otherwise, with identical per-unit semantics either way, which is what lets the serial and parallel builds share every reduce and stay byte-identical. The parent keeps the triage order and every order-sensitive reduce (the index and its batches, family promotion, echo grouping, secondary-home resolution) and takes each fresh unit's id off the projection its drafting stamped; the runner enriches and drafts, spooling each fragment to disk as it is drafted (`_FragmentSpool`, under `out_dir`) so that no EnrichedUnit outlives the batch that produced it in either path, and hands the fragments back one at a time through `fragment`, read by address out of the spool exactly as a served fragment is read out of the previous surface. Pooled, each worker draws batches off one queue over the fresh pile (`_handout_width` units at a time, one batch in flight per worker) rather than owning a contiguous share of it, so which worker drafts which unit is decided by timing and moves no bytes: `OutlineIntern` keys by shape rather than by first-seen order, the parent joins each projection back to its unit by `input_key`, and every reduce that reads order runs here over the whole projection set. The spool is swept at `close`, whichever way the build ends."""
 
     def __init__(
         self,
@@ -1069,12 +1082,11 @@ class _FreshRunner:
         self._local: tuple | None = None
         self._procs: list = []
         self._conns: list = []
-        self._slices: list[list] = []
         # The verification sample is worker work too, and it is the whole of the work when the cache served every unit: a pool sized on the fresh pile alone leaves a no-change rebuild recomputing its sample in the parent, which is both slower (200 units serially against eight workers' worth of them: measured 55.6 s against 42.4 s for the units phase of a fully-served build) and much heavier, since the parent that already holds every served fragment then builds an enricher and its per-config subset tables on top (18.9 GB peak against 8.8 GB, where a worker's copy would have been its own process's).
         workload_size = max(len(fresh), len(self._verify))
         if jobs > 1 and workload_size > 1:
             nworkers = min(jobs, workload_size)
-            self._slices = _partition(fresh, nworkers)
+            self._handout = _handout_width(len(fresh), nworkers)
             init = {
                 "before_font": before_font,
                 "after_font": after_font,
@@ -1094,15 +1106,10 @@ class _FreshRunner:
                 self._conns.append(parent_conn)
 
     def phase1(self) -> dict[str, _UnitProjection]:
-        """Enrich and draft every fresh unit, returning the projections the parent's reduces read — keyed by the unit's input key, since a fresh unit has no id until its drafting stamps one — and keeping each fragment's spool address for `fragment`. Pooled, each worker spools its own slice under its own class name and answers with the addresses beside its projections; serial, the same loop runs here over one spool, at the enricher's batch width with the memo released behind each batch, and either way the EnrichedUnit is gone by the time its batch closes."""
+        """Enrich and draft every fresh unit, returning the projections the parent's reduces read — keyed by the unit's input key, since a fresh unit has no id until its drafting stamps one — and keeping each fragment's spool address for `fragment`. Pooled, each worker spools the batches it draws under its own class name and answers each batch with its addresses beside its projections, merged here as they arrive (`_drive_phase1`); serial, the same loop runs here over one spool, at the enricher's batch width with the memo released behind each batch and the addresses taken off the spool behind each batch too, and either way the EnrichedUnit is gone by the time its batch closes."""
         projections: dict[str, _UnitProjection] = {}
         if self._conns:
-            for index, (conn, chunk) in enumerate(zip(self._conns, self._slices)):
-                conn.send(("phase1", chunk, f"w{index}"))
-            for results, spooled in self._collect("phase 1"):
-                for projection in results:
-                    projections[projection.input_key] = projection
-                self._spooled.update(spooled)
+            self._drive_phase1(projections)
         elif self._fresh:
             comparator, oracle, enricher, drafter = self._in_process()
             spool = _FragmentSpool(self._out_dir, "serial")
@@ -1111,8 +1118,9 @@ class _FreshRunner:
                     projection, fragment = _phase1_unit(unit, comparator, oracle, enricher, drafter, report)
                     spool.add(fragment)
                     projections[projection.input_key] = projection
+                self._spooled.update(spool.flush())
                 self._count(len(projections))
-            self._spooled = spool.close()
+            self._spooled.update(spool.close())
         return projections
 
     def fragment(self, unit_id: str) -> dict:
@@ -1125,27 +1133,37 @@ class _FreshRunner:
         console.progress(done, len(self._fresh), PHASE1_UNITS, file=sys.stderr)
 
     def hold_piles(self, tally: pile_tally.PileTally) -> None:
-        """Hand the debug tally the piles this runner holds in the parent: the spool address kept per fresh unit from phase 1 until `close` sweeps the spool — pooled, the addresses every worker answered with; serial, the one spool's — and, once the serial path has built its enricher, that enricher's projected subset tables. Pooled, the tables live in the workers, which tally their own at their own phase ends; the parent's hold then reads as empty, which is the honest reading rather than a gap."""
+        """Hand the debug tally the piles this runner holds in the parent: the spool address kept per fresh unit from phase 1 until `close` sweeps the spool — pooled, the addresses the workers answered with batch by batch; serial, the one spool's — and, once the serial path has built its enricher, that enricher's projected subset tables. Pooled, the tables live in the workers, which tally their own at their own batch boundaries; the parent's hold then reads as empty, which is the honest reading rather than a gap."""
         tally.hold("runner.spooled", self._spooled)
         tally.hold("runner.subset_rows", self._local[2]._subset_rows if self._local else {}, nested=True)
 
-    def _collect(self, label: str) -> list:
-        """Every worker's answer to one phase, read as it arrives rather than one worker at a time — which is what lets a counter reach the terminal while the phase is still running, since a parent blocked on `recv` in submission order says nothing until its first worker has finished. `wait` hands back whichever connections have something; a `progress` tag replaces that worker's share of the count and reprints the sum, and the phase is over once every connection has answered with the payload after its `ok`. An error raises here exactly as it did when the parent recv'd in turn, and the replies queued behind it are drained by `close()`."""
-        share = dict.fromkeys(self._conns, 0)
+    def _drive_phase1(self, projections: dict[str, _UnitProjection]) -> None:
+        """Hand the fresh pile out to the pool one batch at a time and merge each reply as it arrives, rather than one worker at a time — which is what lets a counter reach the terminal while the phase is still running, since a parent blocked on `recv` in submission order says nothing until its first worker has finished. Every worker starts with one batch and at most one is ever in flight per worker, so a worker holds one batch of units; `wait` hands back whichever connections have something, a `batch` reply is merged into `projections` and the spool addresses and hands that worker the next batch, or the end marker once the pile is drawn down, and the phase is over once every worker has answered the marker with its `ok`. The count printed is the sum of the batches merged, so it is a true running total. An error raises here as it would from a `recv` in turn, and the replies queued behind it are drained by `close()`."""
+        handouts = batched(self._fresh, self._handout)
+        names = {conn: f"w{index}" for index, conn in enumerate(self._conns)}
+
+        def hand(conn) -> None:
+            batch = next(handouts, None)
+            conn.send(("phase1-done",) if batch is None else ("phase1", batch, names[conn]))
+
+        for conn in self._conns:
+            hand(conn)
         waiting = list(self._conns)
-        answered: list = []
+        done = 0
         while waiting:
             for conn in cast(list, multiprocessing.connection.wait(waiting)):
                 reply = conn.recv()
-                if reply[0] == "progress":
-                    share[conn] = reply[1]
-                    self._count(sum(share.values()))
-                    continue
-                if reply[0] == "error":
-                    raise RuntimeError(f"surface worker failed in {label}:\n" + reply[1])
-                answered.append(reply[1:])
-                waiting.remove(conn)
-        return answered
+                if reply[0] == "batch":
+                    for projection in reply[1]:
+                        projections[projection.input_key] = projection
+                    self._spooled.update(reply[2])
+                    done += len(reply[1])
+                    self._count(done)
+                    hand(conn)
+                elif reply[0] == "error":
+                    raise RuntimeError("surface worker failed in phase 1:\n" + reply[1])
+                else:
+                    waiting.remove(conn)
 
     def _in_process(self) -> tuple:
         """The comparator, oracle, enricher, and drafter the serial path works through, built once and on first use. Lazy because the verification sample can be the only work there is — a rebuild the cache served whole still recomputes its sample, and it must not pay for these until it does."""
@@ -1198,7 +1216,7 @@ class _FreshRunner:
         return keys
 
     def close(self) -> None:
-        """Stop every worker, collect the peak each one answers with, join the processes, and sweep the fresh spool — reached from a `finally`, so the path that matters most is the failing one. A phase raises from inside its own recv loop, which leaves the conns after the failing one still holding that phase's `("ok", …)` reply, so the shutdown reply carries its own `peak` tag and this drains whatever is queued ahead of it: reading a phase's payload as a peak would raise out of the `finally`, displace the worker's traceback, and abandon the join below with spawn workers still running. The spool goes last, after every reader and worker that could hold one of its parts open is done with it."""
+        """Stop every worker, collect the peak each one answers with, join the processes, and sweep the fresh spool — reached from a `finally`, so the path that matters most is the failing one. A phase raises from inside its own recv loop, which leaves the conns after the failing one still holding that phase's replies — a `batch` with its payload, and the `ok` behind it — so the shutdown reply carries its own `peak` tag and this drains whatever is queued ahead of it: reading a phase's payload as a peak would raise out of the `finally`, displace the worker's traceback, and abandon the join below with spawn workers still running. The spool goes last, after every reader and worker that could hold one of its parts open is done with it."""
         peaks: dict[str, int] = {}
         for index, conn in enumerate(self._conns):
             try:

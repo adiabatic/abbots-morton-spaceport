@@ -415,6 +415,16 @@ def test_serial_and_parallel_builds_are_byte_identical(base_surface, mini_bundle
     assert _tree(parallel) == _tree(base_surface)
 
 
+def test_a_narrowed_hand_out_pool_is_byte_identical_to_the_serial_build(
+    base_surface, mini_bundle, tmp_path, monkeypatch
+):
+    """The pool hands the fresh pile out a batch at a time, so which worker drafts which unit is decided by timing; narrowing the hand-out makes the mini pile a few dozen batches over two workers, which is where any per-worker state leaking into the output would show as a byte that moved. At the checked-in ceiling `_handout_width` spreads the mini pile into a handful of batches, which is little interleaving to prove it on."""
+    monkeypatch.setattr("rebuild.review.build.PHASE1_HANDOUT_UNITS", 37)
+    parallel = tmp_path / "narrowed"
+    _build(parallel, mini_bundle, jobs=2)
+    assert _tree(parallel) == _tree(base_surface)
+
+
 def _signatures(capfd) -> tuple[int, int]:
     match = re.search(r"signatures: (\d[\d,]*) cached, (\d[\d,]*) shaped", capfd.readouterr().err)
     assert match, "the build did not report its signature plan"
