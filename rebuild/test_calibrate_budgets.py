@@ -244,7 +244,7 @@ def test_the_seed_stamp_is_the_committer_time_of_the_constants_own_line(tmp_path
     tree = tmp_path / "tree"
     (tree / "rebuild" / "pipeline").mkdir(parents=True)
     source = tree / "rebuild" / "pipeline" / "kernel_exec.py"
-    source.write_text("OTHER = 1\nCONFIG_PEAK_BYTES = 4_000_000_000\n", encoding="utf-8")
+    source.write_text("OTHER = 1\nDELTA_PEAK_BYTES = 4_000_000_000\n", encoding="utf-8")
     env = {
         "GIT_AUTHOR_NAME": "t",
         "GIT_AUTHOR_EMAIL": "t@example.invalid",
@@ -258,18 +258,18 @@ def test_the_seed_stamp_is_the_committer_time_of_the_constants_own_line(tmp_path
     git("init", "-q")
     git("add", ".")
     git("commit", "-q", "-m", "seed")
-    assert cb.constant_seeded_at(source, "CONFIG_PEAK_BYTES", root=tree) == "2026-09-05T20:18:22Z"
-    source.write_text("OTHER = 1\nCONFIG_PEAK_BYTES = 3_000_000_000\n", encoding="utf-8")
-    assert cb.constant_seeded_at(source, "CONFIG_PEAK_BYTES", root=tree) is None
+    assert cb.constant_seeded_at(source, "DELTA_PEAK_BYTES", root=tree) == "2026-09-05T20:18:22Z"
+    source.write_text("OTHER = 1\nDELTA_PEAK_BYTES = 3_000_000_000\n", encoding="utf-8")
+    assert cb.constant_seeded_at(source, "DELTA_PEAK_BYTES", root=tree) is None
     env["GIT_COMMITTER_DATE"] = env["GIT_AUTHOR_DATE"] = "2026-09-06T01:02:03Z"
     git("commit", "-q", "-am", "re-seed")
-    assert cb.constant_seeded_at(source, "CONFIG_PEAK_BYTES", root=tree) == "2026-09-06T01:02:03Z"
+    assert cb.constant_seeded_at(source, "DELTA_PEAK_BYTES", root=tree) == "2026-09-06T01:02:03Z"
 
 
 def test_a_tree_that_is_not_a_checkout_has_no_bound(tmp_path):
     source = tmp_path / "kernel_exec.py"
-    source.write_text("CONFIG_PEAK_BYTES = 4_000_000_000\n", encoding="utf-8")
-    assert cb.constant_seeded_at(source, "CONFIG_PEAK_BYTES", root=tmp_path) is None
+    source.write_text("DELTA_PEAK_BYTES = 4_000_000_000\n", encoding="utf-8")
+    assert cb.constant_seeded_at(source, "DELTA_PEAK_BYTES", root=tmp_path) is None
 
 
 def test_the_live_tree_dates_its_constants_in_the_journals_own_stamp_shape():
@@ -345,13 +345,16 @@ def test_the_width_clauses_answer_for_the_box_and_the_tree_they_are_given(tmp_pa
     )
     (tree / "rebuild" / "pipeline").mkdir(parents=True)
     (tree / "rebuild" / "pipeline" / "kernel_exec.py").write_text(
-        f"{cb.KERNEL_CONFIG_NAME} = 8_000_000_000\n", encoding="utf-8"
+        f"{cb.KERNEL_DELTA_NAME} = 8_000_000_000\n{cb.KERNEL_MEMO_NAME} = 4_000_000_000\n", encoding="utf-8"
     )
     rows = cb.build_rows([], {}, constants=CONSTANTS, host=HOST, recent=20, tolerance=0.0, seeded_at={})
     out = "\n".join(cb.render_rows(rows, host=HOST, total_bytes=48_000_000_000, cores=12, root=tree))
     assert "48.00 GB total" in out
     assert "capped at 3" in out
-    assert "its delta wave runs 4 at 8.00 GB each out of 48.00 GB total" in out
+    assert (
+        "its delta wave runs 4 at 8.00 GB each out of 48.00 GB total, less a reserve of 8.00 GB, less 4.00 GB co-resident"
+        in out
+    )
     assert "the font suite takes the cores this process may run on (12), not the division" in out
     assert "the surface build's parent is subtracted from the box rather than divided into it" in out
     assert "the refill pool runs 12 at 2.00 GB each out of 48.00 GB total" in out

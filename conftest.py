@@ -61,7 +61,7 @@ def pytest_configure(config: pytest.Config) -> None:
         raise pytest.UsageError("pyright type check failed (see output above)")
 
 
-# What one font-suite worker holds at its peak. Nothing here divides by it — the branch below takes the core count, because a worker this small cannot bind a pool before the cores do — but it is what prices `make test` as a co-resident pool when something else wants the same box, so it is named rather than left in prose. Seeded from the peak-RSS summary line below (issue #51), which has these workers at 0.11–0.28 GB apiece across runs, and rounded up past the top of that range for the same reason kernel_exec.CONFIG_PEAK_BYTES rounds up past its own measurement: a per-unit cost that errs low is what puts a box into swap, while one that errs high only narrows a pool.
+# What one font-suite worker holds at its peak. Nothing here divides by it — the branch below takes the core count, because a worker this small cannot bind a pool before the cores do — but it is what prices `make test` as a co-resident pool when something else wants the same box, so it is named rather than left in prose. Seeded from the peak-RSS summary line below (issue #51), which has these workers at 0.11–0.28 GB apiece across runs, and rounded up past the top of that range for the same reason kernel_exec.DELTA_PEAK_BYTES rounds up past its own measurement: a per-unit cost that errs low is what puts a box into swap, while one that errs high only narrows a pool.
 FONT_SUITE_WORKER_BYTES = 300_000_000
 
 

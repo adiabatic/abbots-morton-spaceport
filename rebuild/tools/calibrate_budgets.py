@@ -1,6 +1,6 @@
 """Hold the checked-in per-unit memory peaks against what this box actually measured — `make job-costs`, the instrument for issue #92.
 
-Several widths in this tree are a box divided by a measured per-unit peak: what one pytest worker of a suite holds, what one kernel configuration holds while it is live. Each of those peaks is a checked-in constant — `FONT_SUITE_WORKER_BYTES` in the root `conftest.py`, `CONFIG_PEAK_BYTES` in `rebuild/pipeline/kernel_exec.py`, `SURFACE_PARENT_BYTES` and `SURFACE_WORKER_BYTES` in `rebuild/tools/artifact_cycle.py` — and every one of them is a reading of a working set that a memory-saver or a heavier fixture can move out from under. The measurements that would catch such a move are already being taken on every run, by two instruments that were never introduced to each other: each xdist controller's per-worker peaks, and the peak RSS the cycle stamps on every step it spawns. So a divisor could go stale silently, and a stale one announces itself not as a red test but as a box in swap — or, in the other direction, as a pool held to a quarter of the width it had room for. This module is the introduction, and it is a file read: no build, no import of the code it prices.
+Several widths in this tree are a box divided by a measured per-unit peak: what one pytest worker of a suite holds, what one kernel configuration holds while it is live. Each of those peaks is a checked-in constant — `FONT_SUITE_WORKER_BYTES` in the root `conftest.py`, `DELTA_PEAK_BYTES` and `DEFAULT_MEMO_BYTES` in `rebuild/pipeline/kernel_exec.py`, `SURFACE_PARENT_BYTES` and `SURFACE_WORKER_BYTES` in `rebuild/tools/artifact_cycle.py` — and every one of them is a reading of a working set that a memory-saver or a heavier fixture can move out from under. The measurements that would catch such a move are already being taken on every run, by two instruments that were never introduced to each other: each xdist controller's per-worker peaks, and the peak RSS the cycle stamps on every step it spawns. So a divisor could go stale silently, and a stale one announces itself not as a red test but as a box in swap — or, in the other direction, as a pool held to a quarter of the width it had room for. This module is the introduction, and it is a file read: no build, no import of the code it prices.
 
 What it reads is the cycle-timings journal and nothing else. `kind:"pool"` records supply one observation per worker, because the unit being priced is one worker and a pool of eight is therefore eight measurements of it. Named `kind:"step"` records supply their `peak_rss_bytes`, but only where that figure genuinely is one unit, and that caveat wants stating rather than hinting: `peak_rss.reap_peak_rss_bytes` maxes over a child's whole process tree instead of summing it, so a step peak is the widest single process under that step. That is one unit exactly where the step's tree is a parent holding heads over one-thread children (`run_m1`), or a parent holding the whole corpus over workers each holding one batch of it (`surface-build`), where the max reads the parent and the parent is what that row prices, and it is emphatically not one unit for `gate:make-test`, whose tree carries `make all` and `uv run pyright` beside the pool. The `UNITS` registry below states, per unit, which sources are honest for it, and each entry carries the argument in its own words.
 
@@ -52,9 +52,10 @@ class Unit:
     note: str
 
 
-# The kernel's two constants live in one file: the per-configuration figure the fan-out width is divided out of, and the whole-process figure the run_m1 step is watched against.
+# The kernel's three constants live in one file: the per-delta figure the fan-out width is divided out of, the memo figure taken off the box before that division, and the whole-process figure the run_m1 step is watched against.
 KERNEL_SOURCE = "rebuild/pipeline/kernel_exec.py"
-KERNEL_CONFIG_NAME = "CONFIG_PEAK_BYTES"
+KERNEL_DELTA_NAME = "DELTA_PEAK_BYTES"
+KERNEL_MEMO_NAME = "DEFAULT_MEMO_BYTES"
 
 UNITS: tuple[Unit, ...] = (
     Unit(
@@ -81,7 +82,7 @@ UNITS: tuple[Unit, ...] = (
         source=KERNEL_SOURCE,
         pool_units=(),
         step_names=("run_m1",),
-        step_caveat="run_m1's peak is the widest single process in its tree, and that is the one build-tables child holding every settlement configuration — default's retained memo beside every delta in flight — so the step peak reads the whole table build at whatever width the cycle handed it, never one configuration. CONFIG_PEAK_BYTES, the per-configuration figure the width is divided out of, is not measured by any step here: its reading is the crate's own --cache-census on default, and the bound it states is that this unit's peak stays under one configuration more than the delta width.",
+        step_caveat="run_m1's peak is the widest single process in its tree, and that is the one build-tables child holding every settlement configuration — default's retained memo beside every delta in flight — so the step peak reads the whole table build at whatever width the cycle handed it, never one configuration. DELTA_PEAK_BYTES, the per-delta figure the width is divided out of, and DEFAULT_MEMO_BYTES, the memo taken off the box first, are not measured by any step here: their reading is the direct whole-wave measurement under --cache-census, and the bound they state is that this unit's peak stays under the memo plus one delta per width.",
         note="The direct measurement is one build-tables over every settlement configuration under /usr/bin/time -l with --cache-census, which is what to reach for before re-seeding either constant; this row is the cheap standing watch beside it rather than a replacement for it.",
     ),
     Unit(
@@ -380,11 +381,10 @@ def _width_clause(unit: Unit, constant_bytes: int, *, total_bytes: int, cores: i
         allowed = memory_budget.describe_fit(constant_bytes, total_bytes=total_bytes)
         return f"the font suite takes the cores this process may run on ({cores}), not the division; memory would allow {allowed}"
     if unit.name == "kernel-build":
-        configuration = _int_constant(root / KERNEL_SOURCE, KERNEL_CONFIG_NAME)
-        fit = memory_budget.describe_fit(
-            configuration, coresident_bytes=configuration, total_bytes=total_bytes
-        )
-        return f"the whole table build is watched here and divides nothing; its delta wave runs {fit} ({KERNEL_CONFIG_NAME}, one taken off first for default's memo), which run_m1.build_tables then narrows by the configurations there are to answer and the cores there are to answer them with"
+        delta = _int_constant(root / KERNEL_SOURCE, KERNEL_DELTA_NAME)
+        memo = _int_constant(root / KERNEL_SOURCE, KERNEL_MEMO_NAME)
+        fit = memory_budget.describe_fit(delta, coresident_bytes=memo, total_bytes=total_bytes)
+        return f"the whole table build is watched here and divides nothing; its delta wave runs {fit} ({KERNEL_DELTA_NAME} divided in, {KERNEL_MEMO_NAME} taken off first for default's memo), which run_m1.build_tables then narrows by the configurations there are to answer and the cores there are to answer them with"
     if unit.name == "surface-parent":
         worker = _int_constant(root / SURFACE_SOURCE, SURFACE_WORKER_NAME)
         cap = min(_int_constant(root / SURFACE_SOURCE, SURFACE_CAP_NAME), cores)
