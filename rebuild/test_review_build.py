@@ -604,14 +604,22 @@ def test_the_shard_writer_keeps_the_previous_surface_whole_until_commit(tmp_path
 
 
 def test_the_fresh_spool_reads_every_fragment_back_by_address(tmp_path):
-    """A fresh fragment waits on disk between phase 1 and the write, and it comes back through the same reader that serves a prior fragment out of the previous surface: the spool is shard-framed, each address names the part the writer settled on at close, and a fragment drafted with `content_key` None is read back under that placeholder stamp. Reading is by address, so the write may ask in any order — shard order interleaves the workers' slices — and asking under a stamp the fragment does not carry is the same refusal a moved prior fragment gets."""
+    """A fresh fragment waits on disk between phase 1 and the write, and it comes back through the same reader that serves a prior fragment out of the previous surface: the spool is shard-framed, each address names its part in the numbered spelling the spool's class is opened under, so an address is final as its fragment is added and `flush` hands the addresses over batch by batch — each flush answering with what was added since the last, an empty flush answering with nothing and writing no part — and a fragment drafted with `content_key` None is read back under that placeholder stamp. Reading is by address, so the write may ask in any order — shard order interleaves the workers' batches — and asking under a stamp the fragment does not carry is the same refusal a moved prior fragment gets."""
     spool = review_build._FragmentSpool(tmp_path, "w0")
     fragments = [{"id": f"u-{index:04d}", "content_key": None, "text": "x" * index} for index in range(5)]
-    for fragment in fragments:
+    for fragment in fragments[:2]:
         spool.add(fragment)
-    spooled = spool.close()
+    spooled = spool.flush()
+    assert sorted(spooled) == [fragment["id"] for fragment in fragments[:2]]
+    assert spool.flush() == {}
+    for fragment in fragments[2:]:
+        spool.add(fragment)
+    spooled.update(spool.close())
     assert sorted(spooled) == [fragment["id"] for fragment in fragments]
-    assert {located.part for located in spooled.values()} == {"units/w0.json"}
+    assert {located.part for located in spooled.values()} == {"units/w0.000.json"}
+    assert sorted(path.name for path in (tmp_path / review_build.FRESH_SPOOL_NAME / "units").iterdir()) == [
+        "w0.000.json"
+    ]
     assert all(located.content_key is None for located in spooled.values())
     with unit_cache.PriorFragmentReader(tmp_path / review_build.FRESH_SPOOL_NAME) as reader:
         for fragment in reversed(fragments):
@@ -724,9 +732,9 @@ def test_a_serial_surface_build_files_no_pool_record(tmp_path, monkeypatch):
 def test_a_pooled_build_counts_its_units_and_closes_every_phase_it_opens(
     tmp_path, mini_bundle, capfd, monkeypatch
 ):
-    """The two things a watcher gets from a build that runs for minutes, over the one workload small enough to prove them on: which phase it is in, and how far through the corpus its pool has got. Every phase pairs — the `[t] review.build <phase>` line the timings journal has always read is what closes the `[phase]` line the terminal opens — and the counter is summed across the workers as each answers rather than after the last one finishes, which is what the two lines are: each of the two workers reports its own slice of the one pass over the fresh pile, which enriches and drafts in the same step. That the total is reached at all is the claim worth having, since a share left unread or a worker the parent stopped draining shows up here as a count that stops short of the units the manifest says this build wrote.
+    """The two things a watcher gets from a build that runs for minutes, over the one workload small enough to prove them on: which phase it is in, and how far through the corpus its pool has got. Every phase pairs — the `[t] review.build <phase>` line the timings journal has always read is what closes the `[phase]` line the terminal opens — and the counter is a running sum over the batches the workers answer with, one line per batch as it lands rather than one after the last worker finishes. The mini pile spreads into several batches across the two workers (`_handout_width`), each answered as it lands. That the total is reached at all is the claim worth having, since a batch left unread or a worker the parent stopped draining shows up here as a count that stops short of the units the manifest says this build wrote.
 
-    Every phase line also carries the parent's peak RSS as the `rss_gb=` token `parse_inner_timings` reads, ahead of the phase's own note, so `make cycle-timings ARGS='--inner'` can say which phase reached the step's high-water mark. And with `AMS_SURFACE_PILE_TALLY=1` in the environment the workers inherit, each worker tallies its own piles at the end of its one phase onto stdout — the projections it is about to answer with and the spool address beside each, its subset tables and the shape memo, and no enrichment among them, since a fresh unit's fragment went to the spool as it was drafted — which is why this test captures at the file-descriptor grain: a spawn child writes past `sys.stdout`. The parent's own boundaries show the other half of that: the spool addresses every worker answered with are held per fresh unit from the units phase until the runner closes, and no pile of enrichments exists anywhere.
+    Every phase line also carries the parent's peak RSS as the `rss_gb=` token `parse_inner_timings` reads, ahead of the phase's own note, so `make cycle-timings ARGS='--inner'` can say which phase reached the step's high-water mark. And with `AMS_SURFACE_PILE_TALLY=1` in the environment the workers inherit, each worker tallies its own piles at every batch boundary onto stdout — the projections it is about to answer with and the spool address beside each, bounded by the hand-out width rather than by any share of the corpus, its subset tables and the shape memo, and no enrichment among them, since a fresh unit's fragment went to the spool as it was drafted — which is why this test captures at the file-descriptor grain: a spawn child writes past `sys.stdout`. The parent's own boundaries show the other half of that: the spool addresses the workers answered with are held per fresh unit from the units phase until the runner closes, and no pile of enrichments exists anywhere.
     """
     monkeypatch.setenv(pile_tally.TALLY_ENV, "1")
     out = tmp_path / "surface"
@@ -761,18 +769,24 @@ def test_a_pooled_build_counts_its_units_and_closes_every_phase_it_opens(
     assert all(inner[phase]["rss_gb"] > 0 for phase in phases)
     counters = [event for event in events if isinstance(event, console.Progress)]
     assert counters and all(event.total == total for event in counters)
-    assert all(event.done is not None and 0 < event.done <= total for event in counters)
-    assert len(counters) == 2
+    width = review_build._handout_width(total, 2)
+    batches = -(-total // width)
+    assert batches > 2
+    assert len(counters) == batches
     assert all(event.unit == review_build.PHASE1_UNITS for event in counters)
-    assert [event.done for event in counters].count(total) == 1
+    done = [event.done for event in counters if event.done is not None]
+    assert len(done) == batches and done == sorted(done) and done[-1] == total and 0 < done[0] <= width
     tallies = _tally_lines(captured.out)
-    assert sorted(name for name in tallies if "/" in name) == ["w0/phase1", "w1/phase1"]
-    for worker in ("w0", "w1"):
-        after_phase1 = tallies[f"{worker}/phase1"]
-        assert after_phase1["worker.projections"] > 0
-        assert after_phase1["worker.spooled"] == after_phase1["worker.projections"]
-        assert "worker.subset_rows" in after_phase1 and "ink.shape_memo" in after_phase1
-    assert sum(tallies[f"{worker}/phase1"]["worker.spooled"] for worker in ("w0", "w1")) == total
+    boundaries = sorted(name for name in tallies if "/" in name)
+    assert len(boundaries) == batches
+    assert {name.split("/")[0] for name in boundaries} == {"w0", "w1"}
+    assert all(re.fullmatch(r"w[01]/phase1-\d+", name) for name in boundaries)
+    for name in boundaries:
+        after_batch = tallies[name]
+        assert 0 < after_batch["worker.projections"] <= width
+        assert after_batch["worker.spooled"] == after_batch["worker.projections"]
+        assert "worker.subset_rows" in after_batch and "ink.shape_memo" in after_batch
+    assert sum(tallies[name]["worker.spooled"] for name in boundaries) == total
     assert not _enrichment_piles(tallies)
     parent_only = _tally_lines(captured.out, parent=True)
     assert list(parent_only) == ["load", "plan", "units", "manifest+check", "census-facts", "cache"]
@@ -868,7 +882,7 @@ def test_a_serial_build_tallies_its_piles_at_every_phase_boundary_and_writes_the
 
 
 def test_close_finds_the_peak_behind_an_unconsumed_phase_reply(tmp_path, monkeypatch):
-    """`close()` runs from a `finally`, so its hardest caller is a build that is already failing: a phase raises from inside its own recv loop, and every conn after the failing one still holds that phase's `("ok", …)` reply. The shutdown reply therefore carries its own `peak` tag and `close()` drains past whatever is queued ahead of it — reading a phase's payload as a peak would raise out of the `finally`, displace the worker traceback the caller came to see, and leave the join loop below unrun with spawn workers still alive."""
+    """`close()` runs from a `finally`, so its hardest caller is a build that is already failing: a phase raises from inside its own recv loop, and every conn after the failing one still holds that phase's replies — a `batch` with its payload, and the `ok` behind it. The shutdown reply therefore carries its own `peak` tag and `close()` drains past whatever is queued ahead of it — reading a phase's payload as a peak would raise out of the `finally`, displace the worker traceback the caller came to see, and leave the join loop below unrun with spawn workers still alive."""
     journal = tmp_path / "cycle-timings.ndjson"
     monkeypatch.setattr("rebuild.tools.cycle_timings.JOURNAL", journal)
 
@@ -893,7 +907,8 @@ def test_close_finds_the_peak_behind_an_unconsumed_phase_reply(tmp_path, monkeyp
         out_dir=tmp_path,
     )
     parent, child = multiprocessing.Pipe()
-    child.send(("ok", ["projection-a", "projection-b"], {}))
+    child.send(("batch", ["projection-a", "projection-b"], {}))
+    child.send(("ok",))
     child.send(("peak", 1_500_000))
     proc = _StubProc()
     runner._conns = [parent]
@@ -936,10 +951,8 @@ def test_an_in_process_build_releases_the_shape_memo_behind_each_batch(mini_bund
     assert shape_memo_census().entries == 0
 
 
-def test_a_pool_worker_releases_the_shape_memo_behind_each_batch(mini_bundle, monkeypatch, tmp_path):
-    """The pooled build's worker takes the same boundary, and it is held here in-process: `_surface_worker` is driven over a pipe from a thread rather than a spawn, so the spy on the build module's `release_shape_memos` is the one the worker's `_phase1_batches` reaches. Phase 1 over the mini workload loads the memo before its first boundary, and the worker answers its stop with the memo empty and no EnrichedUnit alive in the process — its slice went to the spool as it was drafted, and the addresses come back beside the projections. The phase's `progress` counts arrive ahead of its `ok` and are read past here the way the parent reads them, never decreasing and reaching the slice."""
-    seen = _spy_on_releases(monkeypatch)
-    units = load_workload(MINI / "audit.tsv", mini_bundle.ledger, dict(LETTERS)).units
+def _drive_worker_in_thread(mini_bundle, out_dir: Path, chunks: list[list]) -> list[tuple]:
+    """`_surface_worker` driven over a pipe from a thread rather than a spawn, handed `chunks` one `phase1` message at a time the way the parent hands batches out, then the end marker and the stop; answers with every reply in order — one `batch` per chunk, the `ok`, the `peak`. In-thread is what lets a test see the worker's own process state: the spy on the build module's `release_shape_memos` is the one the worker's `_phase1_batches` reaches, and the objects alive after the stop are the worker's."""
     init = {
         "before_font": review_build.SITE_BEFORE_FONT,
         "after_font": MINI / "M1.otf",
@@ -947,33 +960,67 @@ def test_a_pool_worker_releases_the_shape_memo_behind_each_batch(mini_bundle, mo
         "subset_dir": MINI,
         "repo_root": REPO_ROOT,
         "spec_root": mini_bundle.spec_root,
-        "out_dir": tmp_path,
+        "out_dir": out_dir,
     }
     parent, child = multiprocessing.Pipe()
     worker = threading.Thread(target=review_build._surface_worker, args=(child, init), daemon=True)
     worker.start()
+    replies: list[tuple] = []
     try:
-        parent.send(("phase1", units, "w0"))
-        counts: list[int] = []
-        reply = parent.recv()
-        while reply[0] == "progress":
-            counts.append(reply[1])
-            reply = parent.recv()
-        assert reply[0] == "ok", reply[1]
-        assert len(reply[1]) == len(units)
-        # The units crossed the pipe as copies, so the ids the worker's drafting stamped come back on its projections rather than on the units held here.
-        assert sorted(reply[2]) == sorted(projection.unit_id for projection in reply[1])
-        assert all(unit_cache.is_content_id(unit_id) for unit_id in reply[2])
-        assert counts == sorted(counts) and counts[-1] == len(units)
+        for chunk in chunks:
+            parent.send(("phase1", chunk, "w0"))
+            replies.append(parent.recv())
+            assert replies[-1][0] != "error", replies[-1][1]
+        parent.send(("phase1-done",))
+        replies.append(parent.recv())
         parent.send(("stop",))
-        assert parent.recv()[0] == "peak"
+        replies.append(parent.recv())
     finally:
         parent.close()
         worker.join(timeout=60)
     assert not worker.is_alive()
+    return replies
+
+
+def _two_chunks(mini_bundle) -> list[list]:
+    units = load_workload(MINI / "audit.tsv", mini_bundle.ledger, dict(LETTERS)).units
+    split = len(units) // 3
+    assert 0 < split < len(units) - split
+    return [units[:split], units[split:]]
+
+
+def test_a_pool_worker_releases_the_shape_memo_behind_each_batch(mini_bundle, monkeypatch, tmp_path):
+    """The pooled build's worker takes the same boundary as the serial build, once per batch it is handed. Each batch loads the memo before its boundary, each `batch` reply carries that batch's projections and addresses and nothing of the batches before it — the second reply's length is the second chunk's, not the running total — every address is a content id matching one of the reply's own projections, the `ok` that answers the end marker carries no payload, and the worker answers its stop with the memo empty and no EnrichedUnit alive in the process: every fragment went to the spool as it was drafted."""
+    seen = _spy_on_releases(monkeypatch)
+    chunks = _two_chunks(mini_bundle)
+    replies = _drive_worker_in_thread(mini_bundle, tmp_path, chunks)
+    assert [reply[0] for reply in replies] == ["batch", "batch", "ok", "peak"]
+    for chunk, reply in zip(chunks, replies[:2], strict=True):
+        assert len(reply[1]) == len(chunk)
+        # The units crossed the pipe as copies, so the ids the worker's drafting stamped come back on its projections rather than on the units held here.
+        assert sorted(reply[2]) == sorted(projection.unit_id for projection in reply[1])
+        assert all(unit_cache.is_content_id(unit_id) for unit_id in reply[2])
+    assert replies[2] == ("ok",)
     assert _live_enriched_units() == 0
-    assert seen and seen[0] > 0
+    assert len(seen) == len(chunks) and all(entries > 0 for entries in seen)
     assert shape_memo_census().entries == 0
+
+
+def test_a_pool_worker_holds_one_batch_of_projections_and_addresses(
+    mini_bundle, monkeypatch, tmp_path, capfd
+):
+    """The pile-tally claim behind `SURFACE_WORKER_BYTES`, proved on the fixture rather than on a live pass: with `AMS_SURFACE_PILE_TALLY=1` the worker tallies a `w0/phase1-<n>` boundary per batch, and at each one `worker.projections` and `worker.spooled` count exactly the batch it was handed — released behind the reply rather than accumulated, so the second boundary reads the second chunk and not the sum — with the subset tables and the shape memo beside them and no enrichment anywhere."""
+    monkeypatch.setenv(pile_tally.TALLY_ENV, "1")
+    chunks = _two_chunks(mini_bundle)
+    replies = _drive_worker_in_thread(mini_bundle, tmp_path, chunks)
+    assert [reply[0] for reply in replies] == ["batch", "batch", "ok", "peak"]
+    tallies = _tally_lines(capfd.readouterr().out)
+    assert list(tallies) == ["w0/phase1-1", "w0/phase1-2"]
+    for chunk, name in zip(chunks, tallies, strict=True):
+        assert tallies[name]["worker.projections"] == len(chunk)
+        assert tallies[name]["worker.spooled"] == len(chunk)
+        assert "worker.subset_rows" in tallies[name] and "ink.shape_memo" in tallies[name]
+    assert not _enrichment_piles(tallies)
 
 
 @pytest.mark.parametrize(
