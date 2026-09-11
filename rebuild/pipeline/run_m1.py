@@ -597,7 +597,7 @@ def run_replay_strings(
 ) -> dict:
     """The enumeration-completeness check every build runs right after its tables land: the crate's `replay-strings` verb over the settlement TSVs under `out_dir`, walking the string universe to `REPLAY_HORIZON` and holding every window's first-match rule outcome to the engine's own settlement (`rebuild/kernel-rs/src/replay.rs`). The universe is O(delta) on a rune edit: `replay_families` reads the last green record beside the tables, and while `replay_structure_stamp` holds, only the texts naming a moved rune or a rune whose records read one are walked; a build with no green record or a moved structure walks everything, and a build where nothing moved walks nothing and carries the record forward. A caller with no stamp — a spec of its own, whose rune files are not the repo's — walks the whole universe and records nothing.
 
-    The record written beside the tables is what the next build's delta is cut against, so it carries the structure stamp and every rune digest as well as the counts, and it is written green or red: a disagreement lands in it with the crate's sentence and raises `SystemExit` naming the text. The fan-out width is the table build's: a replay's engine holds a subset of what the enumeration's holds — the same trace memo over the windows the texts reach, with no liveness probe cascade beyond the prospect's own — so `kernel_exec.CONFIG_PEAK_BYTES` bounds it from above and the division that width came from still answers.
+    The record written beside the tables is what the next build's delta is cut against, so it carries the structure stamp and every rune digest as well as the counts, and it is written green or red: a disagreement lands in it with the crate's sentence and raises `SystemExit` naming the text. The fan-out width is the table build's: a replay's engine holds a subset of what the enumeration's holds — the same trace memo over the windows the texts reach, with no liveness probe cascade beyond the prospect's own — so `kernel_exec.DELTA_PEAK_BYTES` bounds it from above and the division that width came from still answers; the `DEFAULT_MEMO_BYTES` that division also takes off the box is a memo the replay does not hold, so the width is conservative here.
     """
     configs = conform.SETTLEMENT_CONFIGS
     threads = max(
@@ -1337,7 +1337,7 @@ def main(argv: list[str] | None = None) -> None:
         default=None,
         help=(
             "how many delta configurations the kernel enumerates and folds at once beside default's memo, capped at the configuration count and the cores this process may actually run on; the ceiling is memory rather than CPU, so the default is derived from the box in hand rather than checked in — on this one "
-            f"{describe_fit(kernel_exec.CONFIG_PEAK_BYTES, coresident_bytes=kernel_exec.CONFIG_PEAK_BYTES)} — which AMS_KERNEL_THREADS short-circuits and this flag beats in turn"
+            f"{describe_fit(kernel_exec.DELTA_PEAK_BYTES, coresident_bytes=kernel_exec.DEFAULT_MEMO_BYTES)}, the co-resident term being default's retained memo — which AMS_KERNEL_THREADS short-circuits and this flag beats in turn"
         ),
     )
     args = parser.parse_args(argv)

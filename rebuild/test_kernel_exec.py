@@ -669,7 +669,7 @@ class TestTheMemoStamp:
 
 
 class TestTheMemoryDerivedThreadDefault:
-    """The width the fan-out falls back to is the box, less `default`'s retained memo, divided by `CONFIG_PEAK_BYTES` (issue #63, sub-issue #86), so what can be asserted about it here is its shape and its branches, never its value — the value is whatever machine is running the suite. Every branch is exercised through `kernel_threads_default`'s `total_bytes` keyword, which is a pure function over an invented box; `KERNEL_THREADS_DEFAULT` itself is resolved at import and could only be moved by reloading the module, which would reset `_BUILT` and drop the live spec dumps underneath whatever else the session is holding."""
+    """The width the fan-out falls back to is the box, less `default`'s retained memo snapshot (`DEFAULT_MEMO_BYTES`), divided by one delta (`DELTA_PEAK_BYTES`) (issue #63, sub-issue #86), so what can be asserted about it here is its shape and its branches, never its value — the value is whatever machine is running the suite. Every branch is exercised through `kernel_threads_default`'s `total_bytes` keyword, which is a pure function over an invented box; `KERNEL_THREADS_DEFAULT` itself is resolved at import and could only be moved by reloading the module, which would reset `_BUILT` and drop the live spec dumps underneath whatever else the session is holding."""
 
     @pytest.fixture(autouse=True)
     def _no_inherited_override(self, monkeypatch):
@@ -695,18 +695,18 @@ class TestTheMemoryDerivedThreadDefault:
             kernel_exec.kernel_threads_default(total_bytes=34_359_738_368)
 
     @pytest.mark.parametrize(
-        "total, wanted", [(4_000_000_000, 1), (34_359_738_368, 3), (32_000_000_000, 3), (64_000_000_000, 8)]
+        "total, wanted", [(4_000_000_000, 1), (34_359_738_368, 4), (32_000_000_000, 3), (64_000_000_000, 9)]
     )
     def test_the_width_follows_the_box_and_never_falls_below_one(self, total, wanted):
-        """Both spellings of 32 GB fit three deltas beside `default`'s retained memo at the measured 6 GB per-configuration bound. A box too small for one configuration gets one anyway, while the 64 GB box fits eight before the caller applies its configuration and CPU caps."""
+        """The 32 GiB box fits four deltas beside `default`'s 2.5 GB memo snapshot at the 5.5 GB per-delta bound, while the decimal 32 GB spelling is half a gigabyte short of the fourth and fits three. A box too small for one delta gets one anyway, while the 64 GB box fits nine before the caller applies its configuration and CPU caps."""
         assert kernel_exec.kernel_threads_default(total_bytes=total) == wanted
 
     def test_a_coresident_pool_comes_off_the_box_before_it_is_divided(self):
-        """What a caller running the fan-out beside something else — the artifact cycle, beside its pytest pool — takes off the top, so the width answers for the machine the configurations will actually share rather than for an empty one. It is the caller's fact and defaults to nothing, because a bare run_m1 has nothing beside it."""
-        assert kernel_exec.kernel_threads_default(total_bytes=64_000_000_000) == 8
+        """What a caller running the fan-out beside something else — the artifact cycle, beside its pytest pool — takes off the top, so the width answers for the machine the configurations will actually share rather than for an empty one. It comes off beside `default`'s memo term rather than instead of it, which is why 13 GB costs the 64 GB box two deltas and not three. It is the caller's fact and defaults to nothing, because a bare run_m1 has nothing beside it."""
+        assert kernel_exec.kernel_threads_default(total_bytes=64_000_000_000) == 9
         assert (
             kernel_exec.kernel_threads_default(coresident_bytes=13_000_000_000, total_bytes=64_000_000_000)
-            == 5
+            == 7
         )
 
     def test_a_stated_width_outranks_a_coresident_reservation_too(self, monkeypatch):
