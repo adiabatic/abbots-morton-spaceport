@@ -23,6 +23,7 @@ import sys
 import tempfile
 import time
 from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor, as_completed
+from contextlib import suppress
 from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Callable, Mapping, NoReturn
@@ -418,7 +419,7 @@ def run(
     kernel_threads: int | None = None,
     memo_inputs: oracle_cache.SettleMemoInputs | None = None,
 ) -> dict:
-    """`inputs` is `tables_inputs` over the sources `spec` was loaded from, snapshotted before the load so it can only ever name content the tables are at least as new as. Supplying it serializes the window enumeration under `out_dir` for the conformance sweep; a caller running a spec of its own leaves it out. `memo_inputs` is `settle_memo_inputs` cut at the same moment, and lets the witness stage share the belt's and the oracle's settle memo; without it the stage settles every certificate and shares nothing. `kernel_threads` reaches the table build and the string replay and nothing else."""
+    """`inputs` is `tables_inputs` over the sources `spec` was loaded from, snapshotted before the load so it can only ever name content the tables are at least as new as. Supplying it serializes the window enumeration under `out_dir` for the conformance sweep; a caller running a spec of its own leaves it out. `memo_inputs` is `settle_memo_inputs` cut at the same moment, and names the settle memo files the string replay fills and the witness stage, the oracle and the belt then load; without it the replay files nothing, the witness stage settles every certificate and nothing is shared. `kernel_threads` reaches the table build and the string replay and nothing else."""
     out_dir.mkdir(parents=True, exist_ok=True)
     console.phase("spec_load")
     start = time.perf_counter()
@@ -436,7 +437,7 @@ def run(
 
     console.phase("replay_strings")
     start = time.perf_counter()
-    replay = run_replay_strings(spec, out_dir, inputs, kernel_threads=kernel_threads)
+    replay = run_replay_strings(spec, out_dir, inputs, kernel_threads=kernel_threads, memo_inputs=memo_inputs)
     walked = "whole universe" if replay["families"] is None else f"{len(replay['families'])} families"
     print(
         f"[t] replay_strings {time.perf_counter() - start:.1f}s {rss_token(process_peak_rss_bytes())}",
@@ -594,10 +595,13 @@ def run_replay_strings(
     out_dir: Path,
     inputs: str | None,
     kernel_threads: int | None = None,
+    memo_inputs: oracle_cache.SettleMemoInputs | None = None,
 ) -> dict:
     """The enumeration-completeness check every build runs right after its tables land: the crate's `replay-strings` verb over the settlement TSVs under `out_dir`, walking the string universe to `REPLAY_HORIZON` and holding every window's first-match rule outcome to the engine's own settlement (`rebuild/kernel-rs/src/replay.rs`). The universe is O(delta) on a rune edit: `replay_families` reads the last green record beside the tables, and while `replay_structure_stamp` holds, only the texts naming a moved rune or a rune whose records read one are walked; a build with no green record or a moved structure walks everything, and a build where nothing moved walks nothing and carries the record forward. A caller with no stamp — a spec of its own, whose rune files are not the repo's — walks the whole universe and records nothing.
 
-    The record written beside the tables is what the next build's delta is cut against, so it carries the structure stamp and every rune digest as well as the counts, and it is written green or red: a disagreement lands in it with the crate's sentence and raises `SystemExit` naming the text. The fan-out width is the table build's: a replay's engine holds a subset of what the enumeration's holds — the same trace memo over the windows the texts reach, with no liveness probe cascade beyond the prospect's own — so `kernel_exec.DELTA_PEAK_BYTES` bounds it from above and the division that width came from still answers; the `DEFAULT_MEMO_BYTES` that division also takes off the box is a memo the replay does not hold, so the width is conservative here.
+    The walk is also the settle memo's producer. With `memo_inputs` (`settle_memo_inputs`, cut before the spec loaded), every whole-universe walk asks the crate to file its window memo per configuration beside the tables (`kernel_exec.replay_memo_dump`) and absorbs each one into the configuration's `conform.SettleMemoFile` under the stamp and family keys `conform.settle_memo_files` cuts, so the witness stage, the oracle and the belt load what the replay settled instead of settling it again; a dump is deleted in this phase whatever the walk or the absorb did, and a failed absorb is a warning rather than a red build, since every reader settles what the file lacks. That is what widens the walk past the structure stamp: the memo stamp covers the comparison-side modules the replay's own stamp does not, so when any configuration's file is absent or fails `conform.settle_memo_standing` the whole universe is walked to refill it, where the replay alone would have walked nothing. A narrowed walk — a rune edit — files nothing and leaves the standing files to retire their own stale entries.
+
+    The record written beside the tables is what the next build's delta is cut against, so it carries the structure stamp and every rune digest as well as the counts, and it is written green or red: a disagreement lands in it with the crate's sentence and raises `SystemExit` naming the text. The fan-out width is the table build's: a replay's engine holds a subset of what the enumeration's holds — the same trace memo over the windows the texts reach, with no liveness probe cascade beyond the prospect's own — so `kernel_exec.DELTA_PEAK_BYTES` bounds it from above and the division that width came from still answers; the `DEFAULT_MEMO_BYTES` that division also takes off the box is a memo the replay does not hold, so the width is conservative here. The window memo adds one inverse label map and a block buffer beside that memo, and the absorb runs in this process after the crate has exited.
     """
     configs = conform.SETTLEMENT_CONFIGS
     threads = max(
@@ -612,6 +616,13 @@ def run_replay_strings(
         if recordable and structure is not None
         else None
     )
+    memos = conform.settle_memo_files(out_dir, spec, memo_inputs)
+    for config in memos:
+        with suppress(FileNotFoundError):
+            kernel_exec.replay_memo_dump(out_dir, config).unlink()
+    if memos and not all(conform.settle_memo_standing(memo) for memo in memos.values()):
+        families = None
+    emitting = families is None and bool(memos)
     summary: dict = {
         "format": REPLAY_FORMAT,
         "horizon": REPLAY_HORIZON,
@@ -623,23 +634,47 @@ def run_replay_strings(
         "pass": True,
         "complaint": None,
     }
-    if families is None or families:
-        try:
-            summary["configs"] = kernel_exec.replay_strings(
-                spec,
-                out_dir,
-                configs,
-                horizon=REPLAY_HORIZON,
-                families=families,
-                threads=threads,
-                timings=True,
-            )
-        except kernel_exec.ReplayDisagreement as error:
-            summary["pass"] = False
-            summary["complaint"] = str(error)
+    try:
+        if families is None or families:
+            try:
+                summary["configs"] = kernel_exec.replay_strings(
+                    spec,
+                    out_dir,
+                    configs,
+                    horizon=REPLAY_HORIZON,
+                    families=families,
+                    threads=threads,
+                    timings=True,
+                    memo_dir=out_dir if emitting else None,
+                )
+            except kernel_exec.ReplayDisagreement as error:
+                summary["pass"] = False
+                summary["complaint"] = str(error)
+        if emitting and summary["pass"]:
+            for config, memo in memos.items():
+                _absorb_replay_memo(out_dir, config, memo, spec)
+    finally:
+        for config in memos:
+            with suppress(FileNotFoundError):
+                kernel_exec.replay_memo_dump(out_dir, config).unlink()
     if recordable:
         (out_dir / REPLAY_SUMMARY).write_text(json.dumps(summary, indent=2) + "\n")
     return summary
+
+
+def _absorb_replay_memo(out_dir: Path, config: str, memo: conform.SettleMemoFile, spec: ResolvedSpec) -> None:
+    """One configuration's window memo absorbed into its settle memo file and reported as `[t] settle_memo_emit <config>`, so the cost lands in the cycle journal beside `replay_strings`. A dump the crate never filed, or one `conform.absorb_replay_memo` refuses, is a warning: the readers settle what the file lacks."""
+    dump = kernel_exec.replay_memo_dump(out_dir, config)
+    started = time.perf_counter()
+    if not dump.is_file():
+        console.warn(f"settle memo: the replay filed no window memo for {config} at {dump}")
+        return
+    try:
+        entries = conform.absorb_replay_memo(dump, memo, spec, config)
+    except (kernel_exec.KernelRunError, OSError) as error:
+        console.warn(f"settle memo: {dump} not absorbed ({error}); the readers settle instead")
+        return
+    print(f"[t] settle_memo_emit {config} {time.perf_counter() - started:.2f}s entries={entries}", flush=True)
 
 
 def run_rule_witnesses(
@@ -650,7 +685,7 @@ def run_rule_witnesses(
 ) -> dict:
     """The witness stage: every configuration's certificates settled through the crate and each rule asserted to fire in its own (`conform.check_rule_certificates`), which is the realizability half of the dead-rule alarm — the crate's fold refuses a rule no replayed row first-matches, and this refuses a rule whose replayed row no string reaches, which is what a wrong pin in the worklist would look like. It runs here, on the tables the build just folded, because the certificates are a fact about exactly those tables: nothing can check them against stale artifacts, and `--gates-only` reuses tables this stage already passed.
 
-    Each configuration's walk shares the settle memo the belt and the oracle share (`conform.settle_memo_files`, keyed per family off `memo_inputs` the way the oracle row cache is), so a window any of the three has settled since the runes it names last moved is settled once — and this stage, running first, is the one that seeds the file. That key is where the window-locality theorem reaches the certificates: a rune edit retires only the memo entries naming an edited family, so only the certificates naming one are re-settled. A caller building a spec of its own has no memo inputs and no memo, and settles everything. The summary is written beside the other gate summaries; a red one stops the build before a glyph is minted.
+    Each configuration's walk shares the settle memo the string replay fills and the oracle and the belt load (`conform.settle_memo_files`, keyed per family off `memo_inputs` the way the oracle row cache is), so a window any of them has settled since the runes it names last moved is settled once; on a whole-universe replay this stage serves every certificate's windows off the file the replay just filled and settles only what a narrowed replay left standing. That key is where the window-locality theorem reaches the certificates: a rune edit retires only the memo entries naming an edited family, so only the certificates naming one are re-settled. A caller building a spec of its own has no memo inputs and no memo, and settles everything. The summary is written beside the other gate summaries; a red one stops the build before a glyph is minted.
     """
     guard_verdicts = kernel_exec.guard_sweep(spec)
     memos = conform.settle_memo_files(out_dir, spec, memo_inputs)
@@ -787,7 +822,7 @@ def run_font_conformance(
 
     The fan-out spends the section 5.7 verdict surface once for the whole run rather than once per worker: a spawned worker inherits nothing, so each would otherwise build the crate it found and sweep the spec for itself. The mapping pickles, so it rides the submission; the serial arm sweeps inside `run_conformance` as before.
 
-    At the per-edit horizon each configuration's walk shares its settle memo with the oracle's walk over the same texts, through a file under `out_dir` keyed per family the way the oracle row cache is (`conform.settle_memo_files`, off `settle_memo_inputs` snapshotted before the spec loads): whichever phase runs first settles and writes, the other loads, and a rune edit retires only the entries whose windows name an edited family. A deeper sweep shares nothing — its memo is a multiple of the belt's, and a file that size would cost the next belt and oracle workers more to decode than they save.
+    At the per-edit horizon each configuration's walk shares its settle memo with the string replay that fills it and the oracle's walk over the same texts, through a file under `out_dir` keyed per family the way the oracle row cache is (`conform.settle_memo_files`, off `settle_memo_inputs` snapshotted before the spec loads): the replay writes what it settled, each later phase loads and writes back what it added, and a rune edit retires only the entries whose windows name an edited family. A deeper sweep shares nothing — its memo is a multiple of the belt's, and a file that size would cost the next belt and oracle workers more to decode than they save.
     """
     inputs = tables_inputs()
     memo_inputs = settle_memo_inputs()
@@ -1008,7 +1043,7 @@ def run_oracle(
     fresh_cache: bool = False,
     memo_inputs: oracle_cache.SettleMemoInputs | None = None,
 ) -> dict:
-    """The section 6 oracle over the subset tables, one worker per `conform.ACCEPTANCE_CONFIGS` entry when `jobs` allows, with the row cache read before the first row and written after the last. `memo_inputs` is `settle_memo_inputs` as the caller snapshotted it before loading `spec`, and names the settle memo files this pass shares with the belt (`conform.settle_memo_files`): the oracle's rows are the belt's texts, so a settlement configuration whose file the belt wrote under these keys settles nothing, and one the belt has not reached yet writes the file the belt will load. A caller with no inputs shares nothing, and the overlay configuration has no memo to share, since its worker settles nothing at all.
+    """The section 6 oracle over the subset tables, one worker per `conform.ACCEPTANCE_CONFIGS` entry when `jobs` allows, with the row cache read before the first row and written after the last. `memo_inputs` is `settle_memo_inputs` as the caller snapshotted it before loading `spec`, and names the settle memo files this pass shares with the belt (`conform.settle_memo_files`): the oracle's rows are the belt's texts, so a settlement configuration whose file the replay filled or the belt wrote under these keys settles nothing, and one neither has reached yet writes the file the belt will load. A caller with no inputs shares nothing, and the overlay configuration has no memo to share, since its worker settles nothing at all.
 
     The cache's keys are cut once here — the row keys from the rune tree, the position keys from the compiled font and the kern sidecar — and handed to the workers, and then cut a second time at promotion, where a store is written only if neither a stamp nor a single key moved while the run held them. That second cut is the point: `fingerprint.rune_digests` reads the rune files off disk, a full run takes minutes, and the house style is to detach a long run and keep editing — so a rune touched mid-run would otherwise be recorded under a digest the verdicts on disk were never built from, and the next pass would serve pre-edit verdicts as fresh, green, forever. `_settle_green`'s recompute-before-recording and `artifact_cycle`'s green keys are the same discipline for the same reason.
 

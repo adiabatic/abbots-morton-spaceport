@@ -2,10 +2,15 @@
 //!
 //! Three things hold the walk to the belt's own reading of a window, `conform._window_rights`. The slots a window is keyed on are the raw labels of the formed token stream out to the fourth, `#EDGE` past the end and `#NA` from the first slot after a boundary on, because no record peeks past a boundary; the engine is handed the raw tokens themselves, edge-padded, exactly as `_SettledWindowWalk._rights` hands them across the seam; and the left slot is the settled cell's label, which the fixpoint's own partition premise holds injective over settled lefts. Ligatures form before anything else, greedy and longest-first over the modeled sequences, each match yielding to the section 5.7 guard over the two raw tokens past it — `settle.form_ligatures` restated over [`GuardState`], so the token stream the walk settles is the one the emitted formation lookup produces.
 //!
-//! The memo is a speed device and nothing else, as the belt's is: a window key answers once per configuration and every recurrence across the universe is a hash probe, and the verdict is the same whether every window misses or every window hits. What makes the universe affordable here rather than in Python is that a miss costs one engine call in the same process instead of a batched round trip and no shaper runs beside it; the walk is still priced in distinct raw windows, which grow as the alphabet to the horizon, so the per-build depth is the belt's own (`run_m1.REPLAY_HORIZON`) and a deeper walk is the periodic sweep's. Under the locality theorem `doc/rebuild-design.md` §10 states, a walk restricted to the texts naming an edited family covers every window whose answer or reachability that edit could have moved, which is the O(delta) form a rune edit takes.
+//! The memo is also the build's settle memo. `write_window_memo` files it per configuration once the walk is green, one row per distinct window keyed on the input rune, the settled left and the four raw rights after the cascade, with every distinct settled record beside it — the same partition `conform._SettledWindowWalk` keys on, spelled in this crate's own vocabulary: the input as `right_token_label` or, after a ZWNJ, the chokepoint's locked name; the rights as raw labels; the left as a boundary label where the reach stops and otherwise as a seat into the record table, since `cell_label` and `geometry.display_name` are two spellings of one function of the cell and the Python side respells a seat through its own. The marker fold is the Python side's too (`conform.absorb_replay_memo`, over `model.raw_rename_map`): this crate never learns a configuration's marker names, and the seam's contract is that the file names raw labels and seats and nothing renamed. The file is written uncompressed, as every artifact this crate writes is, and is consumed and deleted by `run_m1.run_replay_strings` in the same phase.
+//!
+//! As a speed device for the walk itself the memo is what the belt's is: a window key answers once per configuration and every recurrence across the universe is a hash probe, and the verdict is the same whether every window misses or every window hits. What makes the universe affordable here rather than in Python is that a miss costs one engine call in the same process instead of a batched round trip and no shaper runs beside it; the walk is still priced in distinct raw windows, which grow as the alphabet to the horizon, so the per-build depth is the belt's own (`run_m1.REPLAY_HORIZON`) and a deeper walk is the periodic sweep's. Under the locality theorem `doc/rebuild-design.md` §10 states, a walk restricted to the texts naming an edited family covers every window whose answer or reachability that edit could have moved, which is the O(delta) form a rune edit takes.
 
+use std::io::Write as _;
+use std::path::Path;
 use std::rc::Rc;
 
+use crate::emit::json_string;
 use crate::engine::{Engine, EngineModes, Slots};
 use crate::fixpoint::{EDGE_LABEL, locked_glyph_name, right_token_label};
 use crate::fold::{NA_LABEL, Rule};
@@ -13,7 +18,10 @@ use crate::guard::GuardState;
 use crate::hash::HashMap;
 use crate::index::SpecIndex;
 use crate::model::Sym;
-use crate::types::{EDGE, LeftContext, RightToken, Settled, SettledPool, TokenKind, cell_label};
+use crate::types::{
+    EDGE, LeftContext, RightToken, Settled, SettledPool, SettledSeat, TokenKind, cell_label,
+    settled_json,
+};
 
 /// What one configuration's walk answered: how many texts it walked, how many distinct windows it settled and checked, and how many texts the family filter left out.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
@@ -241,6 +249,14 @@ impl Labels {
         &self.texts[id as usize]
     }
 
+    fn id_of(&self, text: &str) -> Option<u32> {
+        self.ids.get(text).copied()
+    }
+
+    fn len(&self) -> usize {
+        self.texts.len()
+    }
+
     /// `_window_rights`' cascade past `slot`: `#NA` the moment the slot before it was a boundary, the edge, or itself `#NA`.
     fn stops_reach(&self, id: u32) -> bool {
         self.boundaryish[id as usize]
@@ -305,6 +321,12 @@ impl RuleIndex {
             .map_or(input, |rule| rule.outcome)
     }
 }
+
+/// The head token of the window memo file `write_window_memo` writes; `kernel_exec.REPLAY_MEMO_FORMAT` is its Python spelling.
+pub const MEMO_FORMAT: &str = "ams-m1-replay-memo/1";
+
+/// How many rows the emitter encodes between writes: a block's bytes are the only thing held beyond the memo itself.
+const MEMO_BLOCK_ROWS: usize = 1 << 14;
 
 /// One memoized window: the input rune, the settled left's label, and the four right labels after the cascade.
 type WindowKey = (Sym, u32, [u32; 4]);
@@ -558,6 +580,127 @@ impl<'i> Replay<'i> {
         }
     }
 
+    /// The memo filed at `path` for the Python side to absorb: a `# ams-m1-replay-memo/1<tab><head json>` line naming the configuration, the horizon, the row count, the label and record counts and the column width; then the label table, one referenced spelling per line in id order; then one `settled_json` line per seated record in seat order; then the rows, seven little-endian integers each, `u16` where every index fits and `u32` otherwise. A row is the input label, the left, the four rights and the record index. The input is the rune's raw label, or its locked name where the left is the ZWNJ and the chokepoint locks the rune — the `#NA` cascade keeps a post-ZWNJ letter out of every right slot, so the left alone decides it. The left is a label index where its spelling stops the reach (the edge and the three boundaries) and otherwise the record table's seat offset past the label count, so the two kinds share one column and the reader tells them apart by the count in the head. Two seats sharing one `cell_label` collapse to the first, which is the collapse the walk's own key made. Nothing but the block in flight is held beyond the memo.
+    pub fn write_window_memo(
+        &mut self,
+        path: &Path,
+        config: &str,
+        horizon: usize,
+    ) -> Result<(), String> {
+        let zwnj = self
+            .labels
+            .id_of("uni200C")
+            .expect("the label pool spells the ZWNJ from birth");
+        let mut inputs: HashMap<Sym, (u32, u32)> = HashMap::default();
+        let walked: Vec<(Sym, u32)> = self
+            .input_labels
+            .iter()
+            .map(|(rune, label)| (*rune, *label))
+            .collect();
+        for (rune, raw) in walked {
+            let locked = self.locked_label(rune, raw);
+            inputs.insert(rune, (raw, locked));
+        }
+        let mut seat_of_label: HashMap<u32, usize> = HashMap::default();
+        for (seat, label) in self.seat_labels.iter().enumerate() {
+            seat_of_label.entry(*label).or_insert(seat);
+        }
+        let input_of = |rune: Sym, left: u32| -> Result<u32, String> {
+            let (raw, locked) = inputs.get(&rune).copied().ok_or_else(|| {
+                format!("{} was settled but never labeled", self.index.resolve(rune))
+            })?;
+            Ok(if left == zwnj { locked } else { raw })
+        };
+        let mut referenced = vec![false; self.labels.len()];
+        for (rune, left, rights) in self.memo.keys() {
+            referenced[input_of(*rune, *left)? as usize] = true;
+            if self.labels.stops_reach(*left) {
+                referenced[*left as usize] = true;
+            }
+            for right in rights {
+                referenced[*right as usize] = true;
+            }
+        }
+        let mut compact: Vec<u32> = vec![u32::MAX; self.labels.len()];
+        let mut table: Vec<u32> = Vec::new();
+        for (id, wanted) in referenced.iter().enumerate() {
+            if *wanted {
+                compact[id] = u32::try_from(table.len()).expect("fewer labels than ids");
+                table.push(u32::try_from(id).expect("an id is a u32"));
+            }
+        }
+        let labels = table.len();
+        let records = self.pool.len();
+        let rows = self.memo.len();
+        let wide = labels + records > usize::from(u16::MAX) + 1;
+        let width: usize = if wide { 4 } else { 2 };
+        let complain = |error: std::io::Error| format!("{}: {error}", path.display());
+        let file = std::fs::File::create(path).map_err(complain)?;
+        let mut out = std::io::BufWriter::with_capacity(1 << 20, file);
+        writeln!(
+            out,
+            "# {MEMO_FORMAT}\t{{\"config\":{},\"horizon\":{horizon},\"rows\":{rows},\"labels\":{labels},\"records\":{records},\"width\":{width}}}",
+            json_string(config)
+        )
+        .map_err(complain)?;
+        for id in &table {
+            writeln!(out, "{}", self.labels.text(*id)).map_err(complain)?;
+        }
+        for seat in 0..records {
+            writeln!(
+                out,
+                "{}",
+                settled_json(self.index, self.pool.get(SettledSeat::at(seat)))
+            )
+            .map_err(complain)?;
+        }
+        let label_count = u32::try_from(labels).expect("fewer labels than ids");
+        let mut block: Vec<u8> = Vec::with_capacity(MEMO_BLOCK_ROWS * 7 * width);
+        let push = |block: &mut Vec<u8>, value: u32| {
+            if wide {
+                block.extend_from_slice(&value.to_le_bytes());
+            } else {
+                block.extend_from_slice(
+                    &u16::try_from(value)
+                        .expect("a narrow file holds only narrow indexes")
+                        .to_le_bytes(),
+                );
+            }
+        };
+        let mut pending = 0;
+        for ((rune, left, rights), outcome) in &self.memo {
+            let input = compact[input_of(*rune, *left)? as usize];
+            let left_column = if self.labels.stops_reach(*left) {
+                compact[*left as usize]
+            } else {
+                let seat = seat_of_label.get(left).copied().ok_or_else(|| {
+                    format!(
+                        "the settled left {} names no seated record",
+                        self.labels.text(*left)
+                    )
+                })?;
+                label_count + u32::try_from(seat).expect("a seat is a u32")
+            };
+            push(&mut block, input);
+            push(&mut block, left_column);
+            for right in rights {
+                push(&mut block, compact[*right as usize]);
+            }
+            push(
+                &mut block,
+                u32::try_from(outcome.seat.index()).expect("a seat is a u32"),
+            );
+            pending += 1;
+            if pending == MEMO_BLOCK_ROWS {
+                out.write_all(&block).map_err(complain)?;
+                block.clear();
+                pending = 0;
+            }
+        }
+        out.write_all(&block).map_err(complain)?;
+        out.flush().map_err(complain)
+    }
+
     fn spell_window(&self, rune: Sym, left: u32, rights: [u32; 4]) -> String {
         format!(
             "({}, {}, {}, {}, {}, {})",
@@ -746,6 +889,225 @@ mod tests {
             .expect("qsTea is in the alphabet");
         assert!(wanted[pea] && wanted[tea]);
         assert_eq!(wanted.iter().filter(|seat| **seat).count(), 2);
+    }
+
+    /// A scratch directory of this module's own under `target/`, cleared first.
+    fn scratch(name: &str) -> std::path::PathBuf {
+        let directory = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("target/test-scratch")
+            .join(name);
+        let _ = std::fs::remove_dir_all(&directory);
+        std::fs::create_dir_all(&directory).expect("the scratch directory is makeable");
+        directory
+    }
+
+    /// One filed window memo read back whole: the head's JSON, the label table, the record lines, and the rows as seven integers each, decoded at the width the head states.
+    struct FiledMemo {
+        head: serde_json::Value,
+        labels: Vec<String>,
+        records: Vec<String>,
+        rows: Vec<[u32; 7]>,
+    }
+
+    fn read_memo(path: &Path) -> FiledMemo {
+        let bytes = std::fs::read(path).expect("the memo was filed");
+        let mut at = 0;
+        let mut line = || {
+            let end = bytes[at..]
+                .iter()
+                .position(|byte| *byte == b'\n')
+                .expect("a line ends");
+            let text = std::str::from_utf8(&bytes[at..at + end]).expect("text lines are UTF-8");
+            at += end + 1;
+            text.to_owned()
+        };
+        let head_line = line();
+        let (marker, json) = head_line.split_once('\t').expect("the head is two fields");
+        assert_eq!(marker, format!("# {MEMO_FORMAT}"));
+        let head: serde_json::Value = serde_json::from_str(json).expect("the head is JSON");
+        let count = |key: &str| head[key].as_u64().expect("a count") as usize;
+        let labels: Vec<String> = (0..count("labels")).map(|_| line()).collect();
+        let records: Vec<String> = (0..count("records")).map(|_| line()).collect();
+        let width = count("width");
+        let body = &bytes[at..];
+        assert_eq!(
+            body.len(),
+            count("rows") * 7 * width,
+            "the rows fill the tail"
+        );
+        let rows: Vec<[u32; 7]> = body
+            .chunks(7 * width)
+            .map(|row| {
+                let mut values = [0u32; 7];
+                for (slot, value) in row.chunks(width).zip(values.iter_mut()) {
+                    *value = match width {
+                        2 => u32::from(u16::from_le_bytes([slot[0], slot[1]])),
+                        _ => u32::from_le_bytes([slot[0], slot[1], slot[2], slot[3]]),
+                    };
+                }
+                values
+            })
+            .collect();
+        FiledMemo {
+            head,
+            labels,
+            records,
+            rows,
+        }
+    }
+
+    /// The filed memo is complete over what the walk settled: one row per window the report counted, the head's count agreeing, every input and right inside the label table, every left inside the label table or the record table past it, and every record index seated.
+    #[test]
+    fn the_window_memo_files_one_row_per_settled_window_inside_its_tables() {
+        let index = fixtures::mini();
+        let rules = folded_rules(&index);
+        let mut walk = replay(&index, &rules);
+        let report = walk
+            .walk_universe(Universe::whole(3))
+            .expect("the table is complete");
+        let path = scratch("replay-memo-complete").join("replay-windows-default.bin");
+        walk.write_window_memo(&path, "default", 3)
+            .expect("the memo files");
+        let filed = read_memo(&path);
+        assert_eq!(filed.head["config"], "default");
+        assert_eq!(filed.head["horizon"], 3);
+        assert_eq!(filed.rows.len() as u64, report.windows);
+        assert_eq!(filed.head["rows"], filed.rows.len());
+        assert_eq!(filed.records.len(), walk.pool.len());
+        let labels = filed.labels.len() as u32;
+        let records = filed.records.len() as u32;
+        assert!(labels > 0 && records > 0);
+        for row in &filed.rows {
+            assert!(row[0] < labels, "the input is a label");
+            assert!(row[1] < labels + records, "the left is a label or a seat");
+            assert!(row[2..6].iter().all(|right| *right < labels));
+            assert!(row[6] < records, "the value is a seated record");
+        }
+        assert!(!filed.labels.iter().any(String::is_empty));
+        assert!(filed.labels.iter().any(|label| label == EDGE_LABEL));
+    }
+
+    /// The spellings the Python conversion depends on: an entry-bearing letter after a ZWNJ is filed under its locked name and a letter the chokepoint never locks under its raw one, the left of both is the ZWNJ's label, and the `#NA` cascade holds in the file exactly as it does in the key — every slot past a boundary or the edge is `#NA`.
+    #[test]
+    fn a_post_zwnj_input_is_filed_locked_and_nothing_reaches_past_a_boundary() {
+        let index = fixtures::mini();
+        let rules = folded_rules(&index);
+        let mut walk = replay(&index, &rules);
+        let pea = fixtures::sym(&index, "qsPea");
+        let it = fixtures::sym(&index, "qsIt");
+        let mut report = Report::default();
+        let mut formed = Vec::new();
+        for raw in [
+            vec![RightToken::Zwnj, RightToken::Letter(pea)],
+            vec![RightToken::Zwnj, RightToken::Letter(it)],
+            vec![
+                RightToken::Letter(pea),
+                RightToken::Space,
+                RightToken::Letter(pea),
+                RightToken::Letter(pea),
+            ],
+        ] {
+            walk.walk_text(&raw, &mut formed, &mut report)
+                .expect("the fixture's texts settle");
+        }
+        let path = scratch("replay-memo-locked").join("replay-windows-default.bin");
+        walk.write_window_memo(&path, "default", 4)
+            .expect("the memo files");
+        let filed = read_memo(&path);
+        let spelled = |row: &[u32; 7]| -> Vec<String> {
+            let mut words: Vec<String> = vec![filed.labels[row[0] as usize].clone()];
+            words.push(if (row[1] as usize) < filed.labels.len() {
+                filed.labels[row[1] as usize].clone()
+            } else {
+                format!("seat:{}", row[1] as usize - filed.labels.len())
+            });
+            words.extend(
+                row[2..6]
+                    .iter()
+                    .map(|right| filed.labels[*right as usize].clone()),
+            );
+            words
+        };
+        let rows: Vec<Vec<String>> = filed.rows.iter().map(spelled).collect();
+        let after_zwnj: Vec<&Vec<String>> = rows.iter().filter(|row| row[1] == "uni200C").collect();
+        assert_eq!(after_zwnj.len(), 2, "{rows:?}");
+        assert!(
+            after_zwnj
+                .iter()
+                .any(|row| row[0] == "qsPea.noentry" && row[2..] == ["#EDGE", "#NA", "#NA", "#NA"]),
+            "{rows:?}"
+        );
+        assert!(
+            after_zwnj.iter().any(|row| row[0] == "qsIt"),
+            "a rune the chokepoint never locks keeps its raw name: {rows:?}"
+        );
+        assert!(
+            rows.iter()
+                .any(|row| row[0] == "qsPea" && row[2..] == ["space", "#NA", "#NA", "#NA"]),
+            "{rows:?}"
+        );
+        assert!(
+            rows.iter()
+                .any(|row| row[0] == "qsPea" && row[1] == "space" && row[2] == "qsPea"),
+            "the letter after the space keys on the space as its left: {rows:?}"
+        );
+        for row in &rows {
+            let mut reach = true;
+            for right in &row[2..] {
+                if !reach {
+                    assert_eq!(right, "#NA", "{row:?}");
+                }
+                reach = reach
+                    && !["#EDGE", "#NA", "space", "uni200C", "periodcentered"]
+                        .contains(&right.as_str());
+            }
+            assert!(!row[0].starts_with('#') && row[1] != "#NA");
+        }
+    }
+
+    /// The left's transport: a left is filed as a label exactly when its spelling stops the reach, and as a seat otherwise, and a seat's record round-trips through `settled_json` to the record the walk seated under the label the walk keyed on.
+    #[test]
+    fn a_left_is_a_boundary_label_where_the_reach_stops_and_a_seat_otherwise() {
+        let index = fixtures::mini();
+        let rules = folded_rules(&index);
+        let mut walk = replay(&index, &rules);
+        walk.walk_universe(Universe::whole(3))
+            .expect("the table is complete");
+        let path = scratch("replay-memo-lefts").join("replay-windows-default.bin");
+        walk.write_window_memo(&path, "default", 3)
+            .expect("the memo files");
+        let filed = read_memo(&path);
+        let labels = filed.labels.len() as u32;
+        let mut seated = 0;
+        let mut boundaries = 0;
+        for row in &filed.rows {
+            if row[1] < labels {
+                let text = &filed.labels[row[1] as usize];
+                assert!(
+                    [EDGE_LABEL, "space", "uni200C", "periodcentered"].contains(&text.as_str()),
+                    "{text} is not a left that stops the reach"
+                );
+                boundaries += 1;
+            } else {
+                let seat = (row[1] - labels) as usize;
+                let value: serde_json::Value =
+                    serde_json::from_str(&filed.records[seat]).expect("a record line is JSON");
+                let record = crate::cases::parse_settled(&index, &value)
+                    .expect("a record line reads back as a settled record");
+                assert_eq!(&record, walk.pool.get(SettledSeat::at(seat)));
+                assert_eq!(
+                    cell_label(&index, &record.cell),
+                    walk.labels.text(walk.seat_labels[seat])
+                );
+                seated += 1;
+            }
+        }
+        assert!(seated > 0 && boundaries > 0);
+        for (seat, line) in filed.records.iter().enumerate() {
+            let value: serde_json::Value = serde_json::from_str(line).expect("JSON");
+            let record = crate::cases::parse_settled(&index, &value).expect("reads back");
+            assert_eq!(&record, walk.pool.get(SettledSeat::at(seat)));
+        }
     }
 
     /// `_window_rights`' cascade: a boundary at the first slot blanks every deeper one, the edge does the same, and a letter run reads all four.

@@ -5,6 +5,7 @@ import hashlib
 import inspect
 import json
 import os
+import struct
 import subprocess
 import sys
 import zlib
@@ -16,7 +17,7 @@ from typing import Any
 
 import pytest
 
-from rebuild.pipeline import baseline_subset, conform, kernel_exec, oracle, oracle_cache, settle
+from rebuild.pipeline import baseline_subset, conform, kernel_exec, oracle, oracle_cache, run_m1, settle
 from rebuild.pipeline.fixtures import mini_spec
 from rebuild.pipeline.model import CellId
 
@@ -1734,12 +1735,12 @@ class TestSettledWindowWalk:
 
     SWEEP_CHUNK = 4096
 
-    def _sweep(self, spec, features, alphabet, max_length, rules_by_input=None, deep_index=None):
-        """Sweep every text up to `max_length`: the walk's settled stream and names against an unmemoized settlement of the very same formed tokens, and its memo keys against the raw-grain replay both sides share `_window_rights` for. What the first arm alarms is the memo's keying rather than one engine against another — both sides are the crate now — because the walk answers a window once and replays it wherever the key recurs while the reference settles every text's positions in a sequence of its own, so a key that blanked a slot settlement can still read would show up here as a wrong outcome somewhere. Texts stream through in chunks so the reference's decoded traces stay a bounded pile; the walk keeps its memo across them. With `rules_by_input` supplied, the replay also runs through `deep_index` and its (window, first-matching rule) pairs come back for the class-grain arms to assert on."""
+    def _sweep(self, spec, features, alphabet, max_length, rules_by_input=None, deep_index=None, memo=None):
+        """Sweep every text up to `max_length`: the walk's settled stream and names against an unmemoized settlement of the very same formed tokens, and its memo keys against the raw-grain replay both sides share `_window_rights` for. What the first arm alarms is the memo's keying rather than one engine against another — both sides are the crate now — because the walk answers a window once and replays it wherever the key recurs while the reference settles every text's positions in a sequence of its own, so a key that blanked a slot settlement can still read would show up here as a wrong outcome somewhere. Texts stream through in chunks so the reference's decoded traces stay a bounded pile; the walk keeps its memo across them. With `rules_by_input` supplied, the replay also runs through `deep_index` and its (window, first-matching rule) pairs come back for the class-grain arms to assert on. With `memo`, the walk loads that settle memo file first, which is how a file another producer wrote is held to the same reference."""
         import itertools
 
         guard = kernel_exec.guard_sweep(spec)
-        walker = conform._SettledWindowWalk(spec, features, {}, guard)
+        walker = conform._SettledWindowWalk(spec, features, {}, guard, memo=memo)
         replayed: list[tuple[tuple[str, ...], int | None]] = []
         for length in range(1, max_length + 1):
             stream = itertools.product(alphabet, repeat=length)
@@ -1804,7 +1805,7 @@ class TestSettledWindowWalk:
     def test_prospect_live_slots_agree_between_walk_and_replay(self, monkeypatch):
         """The issue-28 arm of the deep-slot filters, exercised end to end: under the simulated-prospect default, `fixtures.prospect_spec`'s A-before-B-C windows carry a live third slot the table enumerates, and the memoized walk and the unmemoized replay must agree on the split — the same observational-identity bar as the chain-arm sweeps above, with the table's own deep-token index carrying the class map into the replay's rule matching."""
         from rebuild.pipeline import fixtures
-        from rebuild.pipeline.emit_gsub import _raw_rename_map
+        from rebuild.pipeline.model import raw_rename_map
         from rebuild.pipeline.kernel_exec import build_tables
 
         monkeypatch.setattr(kernel_exec, "SIMULATED_PROSPECT_DEFAULT", True)
@@ -1814,7 +1815,7 @@ class TestSettledWindowWalk:
         assert any(rule.look3 for rule in decision.rules)
         assert decision.deep_classes
         rules_by_input = conform._renamed_rules_by_input(spec, frozenset(), decision)
-        index = conform._DeepTokenIndex(decision, _raw_rename_map(spec, frozenset()))
+        index = conform._DeepTokenIndex(decision, raw_rename_map(spec, frozenset()))
         _walker, replayed = self._sweep(
             spec, frozenset(), conform.spec_alphabet(spec), 5, rules_by_input, index
         )
@@ -1825,7 +1826,7 @@ class TestSettledWindowWalk:
         import dataclasses
 
         from rebuild.pipeline import fixtures, model
-        from rebuild.pipeline.emit_gsub import _raw_rename_map
+        from rebuild.pipeline.model import raw_rename_map
         from rebuild.pipeline.kernel_exec import build_tables
 
         spec = fixtures.mini_spec()
@@ -1849,7 +1850,7 @@ class TestSettledWindowWalk:
         decision = build_tables(spec, frozenset())[0]
         assert any(row.right4 in decision.deep_classes for row in decision.transitions)
         rules_by_input = conform._renamed_rules_by_input(spec, frozenset(), decision)
-        index = conform._DeepTokenIndex(decision, _raw_rename_map(spec, frozenset()))
+        index = conform._DeepTokenIndex(decision, raw_rename_map(spec, frozenset()))
         alphabet = tuple(
             chr(codepoint)
             for codepoint in (
@@ -1952,6 +1953,157 @@ class TestSettledWindowWalk:
         assert walker.audit_extra_rows
 
 
+def _dump_parts(dump: Path) -> tuple[dict, list[bytes], list[bytes], bytes]:
+    """A crate-filed window memo taken apart: the head, the label lines, the record lines and the row bytes."""
+    data = dump.read_bytes()
+    head_line, _, _ = data.partition(b"\n")
+    head = json.loads(head_line.decode().partition("\t")[2])
+    parts = data.split(b"\n", 1 + head["labels"] + head["records"])
+    return head, parts[1 : 1 + head["labels"]], parts[1 + head["labels"] : -1], parts[-1]
+
+
+def _write_dump(
+    dump: Path, head: dict, labels: list[bytes], records: list[bytes], rows: list[tuple[int, ...]]
+) -> None:
+    """A window memo in the crate's own layout, with the head's counts taken from what is written."""
+    head = {**head, "rows": len(rows), "labels": len(labels), "records": len(records)}
+    code = "<" + {2: "H", 4: "I"}[head["width"]] * 7
+    body = b"".join(struct.pack(code, *row) for row in rows)
+    text = f"# {kernel_exec.REPLAY_MEMO_FORMAT}\t{json.dumps(head, separators=(',', ':'))}\n".encode()
+    dump.write_bytes(text + b"".join(line + b"\n" for line in [*labels, *records]) + body)
+
+
+class TestCrateEmittedSettleMemo:
+    """The settle memo the string replay files is the belt's memo in the crate's spelling, and `absorb_replay_memo` is the seam that respells it. The headline arm is the walk-equivalence sweep over a file the crate wrote: a mis-spelled key misses rather than mismatches, so the alarm for the label conversion is a walk that settles anything at all (`fresh_windows`), and the alarm for a wrong outcome is the settled stream against the unmemoized reference. The rest holds the file to what a belt-written one is held to — stamp, family keys, the per-family retirement — and the conversion's own refusals."""
+
+    STAMP = "replay-stamp-a"
+
+    @pytest.fixture(scope="class")
+    def dumps_dir(self, tmp_path_factory, spec):
+        out_dir = tmp_path_factory.mktemp("replay-memo")
+        run_m1.build_tables(spec, out_dir)
+        kernel_exec.replay_strings(
+            spec, out_dir, conform.SETTLEMENT_CONFIGS, horizon=4, families=None, threads=2, memo_dir=out_dir
+        )
+        return out_dir
+
+    def _memo(self, tmp_path, config="default", stamp=STAMP, keys=None):
+        return conform.SettleMemoFile(tmp_path / f"settle-memo-{config}.gz", stamp, dict(keys or {}))
+
+    @pytest.mark.parametrize("config", ["default", "ss03"])
+    def test_the_absorbed_memo_serves_every_window_the_walk_reaches_and_settles_alike(
+        self, spec, dumps_dir, tmp_path, config
+    ):
+        """The equivalence arm: the sweep to the replay's horizon over a walk carrying the crate-emitted file settles nothing — every key the walk spells is one the conversion spelled — and its streams and names equal the unmemoized reference. `ss03` exercises the marker fold on the input and right slots, `default` the bare spelling."""
+        memo = self._memo(tmp_path, config)
+        entries = conform.absorb_replay_memo(
+            kernel_exec.replay_memo_dump(dumps_dir, config), memo, spec, config
+        )
+        assert entries > 0 and conform.settle_memo_standing(memo)
+        walker, _ = TestSettledWindowWalk._sweep(
+            TestSettledWindowWalk(),
+            spec,
+            conform.features_for_config(config),
+            conform.spec_alphabet(spec),
+            4,
+            memo=memo,
+        )
+        assert walker.fresh_windows == 0, "a key the conversion spelled differently from the walk"
+        assert walker.stale_windows == 0
+        assert walker._settle_calls == 0
+        assert walker.memo_windows == entries == len(walker.windows)
+
+    def test_a_dump_under_another_head_or_configuration_or_short_of_its_rows_is_refused(
+        self, spec, guard, dumps_dir, tmp_path
+    ):
+        """Each refusal writes nothing: a standing file is left as it was, and where none stood none appears."""
+        memo = self._memo(tmp_path)
+        standing = conform._SettledWindowWalk(spec, frozenset(), {}, guard, memo=memo)
+        standing.walk_many(["\ue652"])
+        assert standing.save_memo()
+        before = memo.path.read_bytes()
+        head, labels, records, body = _dump_parts(kernel_exec.replay_memo_dump(dumps_dir, "default"))
+        other_format = tmp_path / "other-format.bin"
+        other_format.write_bytes(b"# ams-m1-replay-memo/0\t" + json.dumps(head).encode() + b"\n")
+        truncated = tmp_path / "truncated.bin"
+        truncated.write_bytes(kernel_exec.replay_memo_dump(dumps_dir, "default").read_bytes()[:-3])
+        for dump, config in [
+            (other_format, "default"),
+            (kernel_exec.replay_memo_dump(dumps_dir, "ss03"), "default"),
+            (truncated, "default"),
+        ]:
+            with pytest.raises(kernel_exec.KernelRunError):
+                conform.absorb_replay_memo(dump, memo, spec, config)
+            assert memo.path.read_bytes() == before
+        absent = self._memo(tmp_path / "absent")
+        with pytest.raises(kernel_exec.KernelRunError):
+            conform.absorb_replay_memo(truncated, absent, spec, "default")
+        assert not absent.path.exists()
+
+    def test_the_absorbed_file_carries_its_stamp_and_keys_and_retires_by_family(
+        self, spec, guard, dumps_dir, tmp_path
+    ):
+        """The converted file behaves under `StaleMask` like one the belt wrote: it reads back under exactly the stamp and family keys it was given, a rune edit to one key retires exactly the entries whose windows name that family, and another stamp reads as no file."""
+        keys = {name: f"{name}@0" for name in spec.registry.families}
+        memo = self._memo(tmp_path, keys=keys)
+        entries = conform.absorb_replay_memo(
+            kernel_exec.replay_memo_dump(dumps_dir, "default"), memo, spec, "default"
+        )
+        loaded = conform._SettledWindowWalk(spec, frozenset(), {}, guard, memo=memo)
+        loaded._load_memo()
+        assert loaded.memo_windows == entries and loaded.stale_windows == 0
+        naming = sum(
+            any(conform._label_family(label) == "qsTea" for label in window) for window in loaded._cold
+        )
+        assert 0 < naming < entries
+        moved = conform._SettledWindowWalk(
+            spec, frozenset(), {}, guard, memo=self._memo(tmp_path, keys={**keys, "qsTea": "qsTea@1"})
+        )
+        moved._load_memo()
+        assert moved.memo_windows == entries and moved.stale_windows == naming
+        assert len(moved._cold) == entries - naming
+        restamped = conform._SettledWindowWalk(
+            spec, frozenset(), {}, guard, memo=self._memo(tmp_path, stamp="b")
+        )
+        restamped._load_memo()
+        assert restamped.memo_windows == 0 and not conform.settle_memo_standing(
+            self._memo(tmp_path, stamp="b")
+        )
+
+    def test_two_crate_keys_that_collapse_to_one_walk_key_must_agree(self, spec, guard, dumps_dir, tmp_path):
+        """Two seats whose cells spell one display name are one walk key: rows keyed on either seat absorb as one entry when they agree, and a dump where they disagree is refused whole."""
+        head, labels, records, _ = _dump_parts(kernel_exec.replay_memo_dump(dumps_dir, "default"))
+        record = json.loads(records[0])
+        twin = json.dumps({**record, "extension": record["extension"] + 1}, separators=(",", ":")).encode()
+        names = [line.decode() for line in labels]
+        edge, na, pea, tea = (names.index(label) for label in ("#EDGE", "#NA", "qsPea", "qsTea"))
+        seat = len(labels)
+        dump = tmp_path / "collapsing.bin"
+        _write_dump(
+            dump,
+            head,
+            labels,
+            [records[0], twin],
+            [(pea, seat, tea, edge, na, na, 0), (pea, seat + 1, tea, edge, na, na, 0)],
+        )
+        memo = self._memo(tmp_path)
+        assert conform.absorb_replay_memo(dump, memo, spec, "default") == 2
+        walker = conform._SettledWindowWalk(spec, frozenset(), {}, guard, memo=memo)
+        walker._load_memo()
+        assert walker.memo_windows == 2 and len(walker._cold) == 1
+        _write_dump(
+            dump,
+            head,
+            labels,
+            [records[0], twin],
+            [(pea, seat, tea, edge, na, na, 0), (pea, seat + 1, tea, edge, na, na, 1)],
+        )
+        refused = self._memo(tmp_path / "refused")
+        with pytest.raises(kernel_exec.KernelRunError, match="two ways"):
+            conform.absorb_replay_memo(dump, refused, spec, "default")
+        assert not refused.path.exists()
+
+
 class TestDeepTokenIndex:
     """The transport's raw-vs-renamed contract: `_DeepTokenIndex` is built from the table's raw label space but queried with the walk's marker-folded labels, so every member combination of every class-bearing row must resolve to exactly the deep components of the row's renamed key. The walk-equivalence sweeps cannot see a one-sided rename slip — both paths share the index — so this arm checks resolution against the rows directly, on a config whose rename map touches the row shape that broke first: a bare (singleton-fiber) r3 the config renames, under a class-token r4."""
 
@@ -1959,7 +2111,7 @@ class TestDeepTokenIndex:
         import dataclasses
 
         from rebuild.pipeline import model
-        from rebuild.pipeline.emit_gsub import _raw_rename_map
+        from rebuild.pipeline.model import raw_rename_map
         from rebuild.pipeline.kernel_exec import build_tables
 
         spec = mini_spec()
@@ -1990,7 +2142,7 @@ class TestDeepTokenIndex:
         spec = dataclasses.replace(spec, runes=runes)
         features = frozenset({"ss03"})
         decision = build_tables(spec, features)[0]
-        renames = _raw_rename_map(spec, features)
+        renames = raw_rename_map(spec, features)
         assert renames.get("qsMay") == "qsMay.ss03"
         index = conform._DeepTokenIndex(decision, renames)
         deep = decision.deep_classes

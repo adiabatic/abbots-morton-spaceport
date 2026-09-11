@@ -470,7 +470,8 @@ pub struct ReplayAnswer {
     pub timed: Vec<String>,
 }
 
-/// Every configuration's persisted rules replayed over `universe`, at most `workers` at a time: each one reads `<outdir>/settlement-<config>.tsv` back, walks the universe's texts, and holds the rules' first-match answer to the engine's own settlement window by window. The world is the enumeration's, minus the grain: a replay settles single windows, which have no grain to name.
+/// Every configuration's persisted rules replayed over `universe`, at most `workers` at a time: each one reads `<outdir>/settlement-<config>.tsv` back, walks the universe's texts, and holds the rules' first-match answer to the engine's own settlement window by window. The world is the enumeration's, minus the grain: a replay settles single windows, which have no grain to name. With a `memo_dir`, each green walk files its window memo there as `replay-windows-<config>.bin` ([`replay::Replay::write_window_memo`]); a walk that raises files nothing.
+#[allow(clippy::too_many_arguments)]
 pub fn run_configs_replay(
     index: &SpecIndex,
     configs: &[Configuration<'_>],
@@ -479,14 +480,20 @@ pub fn run_configs_replay(
     universe: replay::Universe<'_>,
     workers: usize,
     report: Report,
+    memo_dir: Option<&Path>,
 ) -> Result<Vec<ReplayAnswer>, String> {
     claim_all(configs, workers, |config| {
-        run_config_replay(index, config, modes, outdir, universe, report)
+        run_config_replay(index, config, modes, outdir, universe, report, memo_dir)
             .map_err(|complaint| format!("{}: {complaint}", config.token))
     })
 }
 
-/// One configuration replayed: its rules read back, the walk run, and the phase named `replay[<config>]` when the caller wants it timed.
+/// Where one configuration's window memo lands under `memo_dir`; `kernel_exec.replay_memo_dump` names the same file.
+pub fn replay_memo_path(memo_dir: &Path, token: &str) -> PathBuf {
+    memo_dir.join(format!("replay-windows-{token}.bin"))
+}
+
+/// One configuration replayed: its rules read back, the walk run, and the phase named `replay[<config>]` when the caller wants it timed; then, with a `memo_dir`, the window memo filed under `replay_memo[<config>]`.
 pub fn run_config_replay(
     index: &SpecIndex,
     config: &Configuration<'_>,
@@ -494,6 +501,7 @@ pub fn run_config_replay(
     outdir: &Path,
     universe: replay::Universe<'_>,
     report: Report,
+    memo_dir: Option<&Path>,
 ) -> Result<ReplayAnswer, String> {
     let token = config.token;
     let started = Instant::now();
@@ -512,6 +520,16 @@ pub fn run_config_replay(
     let mut timed: Vec<String> = Vec::new();
     if report.timings {
         timed.push(timing_line(&format!("replay[{token}]"), started.elapsed()));
+    }
+    if let Some(memo_dir) = memo_dir {
+        let started = Instant::now();
+        walk.write_window_memo(&replay_memo_path(memo_dir, token), token, universe.horizon)?;
+        if report.timings {
+            timed.push(timing_line(
+                &format!("replay_memo[{token}]"),
+                started.elapsed(),
+            ));
+        }
     }
     Ok(ReplayAnswer {
         report: walked,

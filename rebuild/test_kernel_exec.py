@@ -11,7 +11,7 @@ from dataclasses import replace
 
 import pytest
 
-from rebuild.pipeline import conform, fixtures, kernel_exec, kernel_io, run_m1, spec_load
+from rebuild.pipeline import conform, fixtures, kernel_exec, kernel_io, oracle_cache, run_m1, spec_load
 from rebuild.pipeline import table as table_module
 from rebuild.pipeline.settle import (
     EDGE,
@@ -750,6 +750,30 @@ class TestTheStringReplay:
         with pytest.raises(ValueError):
             kernel_exec.replay_strings(SPEC, tables_dir, ["default"], horizon=3, families=[], threads=1)
 
+    def test_a_memo_directory_files_one_window_memo_per_configuration(self, tables_dir, tmp_path):
+        """`memo_dir` reaches the verb as `--memo-dir=` and each configuration's window memo lands under it with the head `absorb_replay_memo` reads, while the answer is the one the same walk gives without it; a walk asked for none files none beside the tables."""
+        answered = kernel_exec.replay_strings(
+            SPEC,
+            tables_dir,
+            conform.SETTLEMENT_CONFIGS,
+            horizon=3,
+            families=None,
+            threads=2,
+            memo_dir=tmp_path,
+        )
+        assert answered == kernel_exec.replay_strings(
+            SPEC, tables_dir, conform.SETTLEMENT_CONFIGS, horizon=3, families=None, threads=2
+        )
+        for config in conform.SETTLEMENT_CONFIGS:
+            dump = kernel_exec.replay_memo_dump(tmp_path, config)
+            assert dump == tmp_path / f"replay-windows-{config}.bin" and dump.is_file()
+            with dump.open("rb") as handle:
+                marker, _, head = handle.readline().decode().rstrip("\n").partition("\t")
+            assert marker == f"# {kernel_exec.REPLAY_MEMO_FORMAT}"
+            assert json.loads(head)["config"] == config
+            assert json.loads(head)["rows"] == answered[config]["windows"]
+        assert not list(tables_dir.glob("replay-windows-*.bin"))
+
     def test_a_table_edited_behind_the_engine_is_refused_naming_the_text(self, tables_dir, tmp_path):
         for name in ("settlement-default.tsv", "settlement-ss03.tsv"):
             (tmp_path / name).write_text((tables_dir / name).read_text())
@@ -824,7 +848,9 @@ class TestTheReplayStage:
     def test_the_stage_records_what_it_walked_and_walks_the_delta_next_time(self, monkeypatch, tmp_path):
         asked: list = []
 
-        def replay_strings(spec, out_dir, configs, *, horizon, families, threads, timings=False):
+        def replay_strings(
+            spec, out_dir, configs, *, horizon, families, threads, timings=False, memo_dir=None
+        ):
             asked.append((tuple(configs), horizon, families, threads))
             return {config: {"texts": 1, "windows": 1, "skipped": 0} for config in configs}
 
@@ -848,16 +874,55 @@ class TestTheReplayStage:
         assert third["families"] is not None and "qsPea" in third["families"] and third["walked"]
         assert asked[-1][2] == third["families"]
 
+    def test_a_memo_file_absent_or_restamped_widens_the_walk_and_asks_for_a_dump(self, monkeypatch, tmp_path):
+        """The memo stamp covers modules the replay's own stamp does not, so a configuration's settle memo file that is absent or under another stamp makes a build that would otherwise walk nothing walk the whole universe and file the dumps that refill it; a rune edit walks its families and files none, and a pass where every file stands and nothing moved walks nothing. A dump the stub never filed is a warning, never a red stage."""
+        asked: list = []
+
+        def replay_strings(
+            spec, out_dir, configs, *, horizon, families, threads, timings=False, memo_dir=None
+        ):
+            asked.append((families, memo_dir))
+            return {config: {"texts": 1, "windows": 1, "skipped": 0} for config in configs}
+
+        monkeypatch.setattr(kernel_exec, "replay_strings", replay_strings)
+        monkeypatch.setattr(run_m1, "replay_structure_stamp", lambda spec, root=None: "s1")
+        digests = {name: f"d-{name}" for name in SPEC.runes}
+        monkeypatch.setattr(run_m1.fingerprint, "rune_digests", lambda root: dict(digests))
+        inputs = oracle_cache.SettleMemoInputs(rune_digests=dict(digests), oracle_code="code", data="data")
+        memos = conform.settle_memo_files(tmp_path, SPEC, inputs)
+
+        first = run_m1.run_replay_strings(SPEC, tmp_path, "stamp", memo_inputs=inputs)
+        assert first["pass"] and first["families"] is None
+        assert asked == [(None, tmp_path)]
+        for memo in memos.values():
+            assert conform._write_settle_memo(memo, [])
+        again = run_m1.run_replay_strings(SPEC, tmp_path, "stamp", memo_inputs=inputs)
+        assert again["families"] == [] and not again["walked"] and len(asked) == 1
+
+        digests["qsPea"] = "d-qsPea-2"
+        edited = run_m1.run_replay_strings(SPEC, tmp_path, "stamp", memo_inputs=inputs)
+        assert edited["families"] and "qsPea" in edited["families"]
+        assert asked[-1] == (edited["families"], None)
+
+        restamped = replace(memos["ss03"], stamp="another")
+        assert conform._write_settle_memo(restamped, [])
+        assert not conform.settle_memo_standing(memos["ss03"])
+        widened = run_m1.run_replay_strings(SPEC, tmp_path, "stamp", memo_inputs=inputs)
+        assert widened["families"] is None and asked[-1] == (None, tmp_path)
+        assert not list(tmp_path.glob("replay-windows-*.bin"))
+
     def test_a_caller_with_no_stamp_walks_everything_and_records_nothing(self, monkeypatch, tmp_path):
         asked: list = []
 
-        def replay_strings(spec, out_dir, configs, *, horizon, families, threads, timings=False):
-            asked.append(families)
+        def replay_strings(
+            spec, out_dir, configs, *, horizon, families, threads, timings=False, memo_dir=None
+        ):
+            asked.append((families, memo_dir))
             return {config: {"texts": 1, "windows": 1, "skipped": 0} for config in configs}
 
         monkeypatch.setattr(kernel_exec, "replay_strings", replay_strings)
         summary = run_m1.run_replay_strings(SPEC, tmp_path, None)
-        assert asked == [None]
+        assert asked == [(None, None)]
         assert summary["structure"] is None and summary["runes"] == {}
         assert run_m1.read_replay_record(tmp_path) is None
 

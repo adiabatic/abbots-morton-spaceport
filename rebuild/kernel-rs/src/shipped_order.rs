@@ -21,7 +21,7 @@ pub struct Report {
 /// How many disagreements a walk names before it stops: enough to see a shape, few enough that the complaint stays one screen.
 const NAMED_DISAGREEMENTS: usize = 5;
 
-/// What one configuration's stream does to the labels its table spells: the marker fold, raw label to the twin the stream wears under this configuration (`emit_gsub._raw_rename_map`), and the deep classes the table's rows stand at, each token with its members in the table's raw label space (`DecisionTable.deep_classes`).
+/// What one configuration's stream does to the labels its table spells: the marker fold, raw label to the twin the stream wears under this configuration (`model.raw_rename_map`), and the deep classes the table's rows stand at, each token with its members in the table's raw label space (`DecisionTable.deep_classes`).
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Context {
     pub renames: Vec<(String, String)>,
