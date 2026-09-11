@@ -269,6 +269,19 @@ class TestTheHandRunDefaults:
         assert widened == ac.surface_job_budget(skip_gates=True)
         assert widened == min(memory_budget.usable_cores(), ac.SURFACE_JOBS_CAP)
 
+    def test_the_signature_width_is_the_hand_runs_whole_box(self, monkeypatch: pytest.MonkeyPatch):
+        """The surface build's second width is the one no box's memory narrows: a signature worker is one comparator, so the hand run's default is the cores at the unreserved arm, and shrinking the box to one that floors `--jobs` at a single unit worker leaves it where it was. That separation is the assertion — a width derived from memory would move with the box, and this one must not."""
+        import rebuild.tools.artifact_cycle as ac
+        from rebuild.review import build
+
+        cores = memory_budget.usable_cores()
+        args = _parser_built_by(build.main).parse_args([])
+        assert args.signature_jobs == ac.signature_job_budget(skip_gates=True) == cores
+        monkeypatch.setenv("AMS_TOTAL_MEMORY_BYTES", "8000000000")
+        narrowed = _parser_built_by(build.main).parse_args([])
+        assert narrowed.jobs == 1
+        assert narrowed.signature_jobs == cores
+
 
 class TestTheFloorAtOne:
     @pytest.mark.parametrize(

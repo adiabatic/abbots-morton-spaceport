@@ -431,6 +431,44 @@ def _signatures(capfd) -> tuple[int, int]:
     return int(match.group(1).replace(",", "")), int(match.group(2).replace(",", ""))
 
 
+def test_a_pooled_signature_pass_is_byte_identical_to_the_serial_one(
+    base_surface, mini_bundle, tmp_path, capfd, monkeypatch
+):
+    """The signature phase's pool maps chunks of the miss pile, each reply carrying its worker's peak beside the chunk's digests, and `pool.map` keeps the chunks in miss order — so a pooled pass over a cold store lands every digest on the row that asked for it and the surface it builds is the serial one byte for byte, the ink-signature store included. The same pass files one `signature` pool record in the journal (the autouse redirect's), its peaks folded under the labels the workers answered with: the serial build ahead of it filed nothing, and the mini pile is shallow enough that one worker can drain it before the other finishes spawning, so the record is held to the pool's worker names and its width rather than to two answering workers. The threshold is lowered here because the mini pile is far under the checked-in one, and the units runner is held at one job so the only pool in this build is the one under test."""
+    from rebuild.tools import cycle_timings
+
+    monkeypatch.setattr("rebuild.review.build._SIGNATURE_POOL_THRESHOLD", 1)
+    serial = tmp_path / "serial"
+    _build(serial, mini_bundle, jobs=1)
+    _cached, serial_shaped = _signatures(capfd)
+    assert serial_shaped > 0
+    pooled = tmp_path / "pooled"
+    _build(pooled, mini_bundle, jobs=1, signature_jobs=2)
+    err = capfd.readouterr().err
+    match = re.search(r"signatures: (\d[\d,]*) cached, (\d[\d,]*) shaped across 2 workers", err)
+    assert match, err
+    assert int(match.group(2).replace(",", "")) == serial_shaped
+    assert _tree(pooled) == _tree(base_surface)
+    lines = cycle_timings.JOURNAL.read_text(encoding="utf-8").splitlines()
+    assert len(lines) == 1
+    record = json.loads(lines[0])
+    assert (record["kind"], record["unit"], record["width"]) == ("pool", "signature", 2)
+    peaks = record["worker_peak_rss_bytes"]
+    assert 1 <= len(peaks) <= 2 and all(label.startswith("SpawnPoolWorker-") for label in peaks)
+    assert all(isinstance(peak, int) and peak > 0 for peak in peaks.values())
+
+
+def test_a_signature_pile_under_the_threshold_stays_serial(base_surface, mini_bundle, tmp_path, capfd):
+    """A width of the phase's own must not cost a shallow miss pile the serial path: under `_SIGNATURE_POOL_THRESHOLD` the parent shapes through its shared shapers at any width, starts no pool, files no pool record, and builds the same bytes. The journal is the autouse redirect's, so what is asserted is that nothing was written to it."""
+    from rebuild.tools import cycle_timings
+
+    surface = tmp_path / "shallow"
+    _build(surface, mini_bundle, jobs=1, signature_jobs=4)
+    assert " shaped serially)" in capfd.readouterr().err
+    assert not cycle_timings.JOURNAL.exists()
+    assert _tree(surface) == _tree(base_surface)
+
+
 def test_no_change_rebuild_serves_every_signature(base_surface, mini_bundle, tmp_path, capfd):
     surface = _copy(base_surface, tmp_path)
     _build(surface, mini_bundle, jobs=1)

@@ -267,6 +267,8 @@ def test_dry_run_plan_default():
         "rebuild.review.build",
         "--jobs",
         str(plan.surface_jobs),
+        "--signature-jobs",
+        str(plan.signature_jobs),
     ]
     assert _argv(by_name["plumbing"])[:5] == [
         "uv",
@@ -338,7 +340,7 @@ def test_dry_run_plan_conform_jobs_cap():
 def test_dry_run_plan_states_a_surface_width_of_one_in_the_argv():
     plan = _plan(ncores=2)
     by_name = {step.name: step for step in plan.steps}
-    assert _argv(by_name["surface-build"])[-2:] == ["--jobs", "1"]
+    assert _argv(by_name["surface-build"])[-4:-2] == ["--jobs", "1"]
     assert plan.surface_jobs == 1
 
 
@@ -2196,7 +2198,7 @@ def test_dry_run_renders_concurrency():
     by_name = {step.name: step for step in plan.steps}
     assert _argv(by_name["run_m1"])[1:6] == ["run", "python", "-m", "rebuild.pipeline.run_m1", "--jobs"]
     # Every width is stated on the command line, one included. A width of one that emitted no flag would hand the child its own default — the unreserved arm of the same budget, a different number wherever the pool subtraction changes the answer — and the memory term makes one a width the arithmetic actually reaches.
-    assert _argv(by_name["surface-build"])[-2:] == ["--jobs", str(surface_width)]
+    assert _argv(by_name["surface-build"])[-4:-2] == ["--jobs", str(surface_width)]
 
 
 def test_dry_run_skip_gates_appends_jobs_budgets():
@@ -2214,7 +2216,7 @@ def test_dry_run_skip_gates_appends_jobs_budgets():
     solo_width = ac.surface_job_budget(skip_gates=True, ncores=12, total_bytes=BOX_44_GB)
     assert plan.sweep_jobs == ac.sweep_job_budget(12, total_bytes=BOX_44_GB)
     assert _argv(by_name["run_m1"])[5:7] == ["--jobs", str(plan.sweep_jobs)]
-    assert _argv(by_name["surface-build"])[-2:] == ["--jobs", str(solo_width)]
+    assert _argv(by_name["surface-build"])[-4:-2] == ["--jobs", str(solo_width)]
     assert f"run_m1 sweeps --jobs {plan.sweep_jobs}" in _plan_text(plan)
     assert f"surface-build --jobs {solo_width}" in _plan_text(plan)
 
@@ -2232,7 +2234,7 @@ def test_dry_run_skip_gates_appends_jobs_budgets():
     gated_width = ac.surface_job_budget(skip_gates=False, ncores=12, total_bytes=BOX_44_GB)
     assert _argv(default_by_name["run_m1"])[5:7] == ["--jobs", str(default_plan.sweep_jobs)]
     assert default_plan.sweep_jobs == plan.sweep_jobs
-    assert _argv(default_by_name["surface-build"])[-2:] == ["--jobs", str(gated_width)]
+    assert _argv(default_by_name["surface-build"])[-4:-2] == ["--jobs", str(gated_width)]
 
 
 def test_review_out_rehearsal_plan(monkeypatch, tmp_path):
@@ -2810,6 +2812,38 @@ def test_dry_run_plan_skip_make_test():
     assert "Lane t0   [from t=0, background]  : gate:js" in rendered
 
 
+def test_the_signature_pool_takes_the_cores_the_surface_width_cannot():
+    """The ink-signature phase's width is the one fan-out in the plan that memory does not derive: a signature worker holds one comparator and nothing a `*_BYTES` constant prices, so on a ten-core box the gated arm answers the cores less gate:make-test's two and the skip arm the whole box — both above the surface width memory holds the same box to, and neither clamped by `SURFACE_JOBS_CAP`, which is where the unit worker stops scaling and not this one. The argv carries the width beside `--jobs`, and the plan block states it on a row of its own with its derivation, so a reader can see the two widths differ and why. The widths are read off the budget rather than written here."""
+    gated = _plan(skip_make_test=False, ncores=10, total_bytes=BOX_32_GIB)
+    assert gated.signature_jobs == ac.signature_job_budget(skip_gates=False, ncores=10) == 8
+    assert gated.signature_jobs > gated.surface_jobs
+    gated_by_name = {step.name: step for step in gated.steps}
+    assert _argv(gated_by_name["surface-build"])[-4:] == [
+        "--jobs",
+        str(gated.surface_jobs),
+        "--signature-jobs",
+        "8",
+    ]
+    rendered = _plan_text(gated)
+    assert "    surface-build --signature-jobs   : 8  (" in rendered
+    assert "8 of 10 cores, less gate:make-test's two" in rendered
+
+    solo = _plan(skip_make_test=True, make_test_note="closure unchanged", ncores=10, total_bytes=BOX_32_GIB)
+    assert (
+        solo.signature_jobs == ac.signature_job_budget(skip_gates=False, skip_make_test=True, ncores=10) == 10
+    )
+    assert solo.signature_jobs > ac.SURFACE_JOBS_CAP > solo.surface_jobs
+    assert _argv({step.name: step for step in solo.steps}["surface-build"])[-2:] == ["--signature-jobs", "10"]
+    assert "10 of 10 cores, the whole box" in _plan_text(solo)
+
+    skipped = _plan(skip_gates=True, ncores=10, total_bytes=BOX_32_GIB)
+    assert skipped.signature_jobs == 10
+    assert "surface-build --signature-jobs 10 (" in _plan_text(skipped)
+
+    assert ac.signature_job_budget(skip_gates=False, ncores=2) == 1
+    assert ac.signature_job_derivation(skip_gates=False, ncores=2).endswith("floored at one")
+
+
 def test_skip_make_test_frees_the_surface_build_budget():
     """The sweeps' width is the box's cores under the shard clamp either way — nothing about make-test bears on it — while the surface build is the stage that gives both cores and bytes back to a pytest pool that is actually running. On the 48 GiB box the pool's bytes sit inside a worker's worth of slack, so both arms answer the same width — the pair separating is the fit-terms seam's assertion — and what this checks is that the plan resolves each arm's own terms and its reason line says which one it resolved: the gated arm's derivation carries the pool's bytes in its co-resident clause, and the skip arm says the build takes the whole box. The widths are read off the budget rather than written here, so a re-seed of either surface constant never has to come back to this test."""
     plan = _plan(
@@ -2824,7 +2858,7 @@ def test_skip_make_test_frees_the_surface_build_budget():
     assert plan.surface_jobs == solo_width
     assert plan.sweep_jobs == ac.sweep_job_budget(10, total_bytes=BOX_48_GIB)
     by_name = {step.name: step for step in plan.steps}
-    assert _argv(by_name["surface-build"])[-2:] == ["--jobs", str(solo_width)]
+    assert _argv(by_name["surface-build"])[-4:-2] == ["--jobs", str(solo_width)]
     rendered = _plan_text(plan)
     assert f"surface-build --jobs             : {solo_width}" in rendered
     assert f"less {format_gb(ac.SURFACE_PARENT_BYTES)} GB co-resident" in rendered
@@ -2835,7 +2869,7 @@ def test_skip_make_test_frees_the_surface_build_budget():
     assert gated.surface_jobs == gated_width
     assert gated.sweep_jobs == ac.sweep_job_budget(10, total_bytes=BOX_48_GIB)
     gated_by_name = {step.name: step for step in gated.steps}
-    assert _argv(gated_by_name["surface-build"])[-2:] == ["--jobs", str(gated_width)]
+    assert _argv(gated_by_name["surface-build"])[-4:-2] == ["--jobs", str(gated_width)]
     _per_unit, gated_coresident, _cap = ac._surface_fit_terms(
         skip_gates=False, skip_make_test=False, ncores=10
     )
