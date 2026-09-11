@@ -20,9 +20,9 @@ import sys
 import time
 from array import array
 from contextlib import suppress
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
-from typing import TYPE_CHECKING, Callable, Iterable, Mapping, Sequence, cast
+from typing import TYPE_CHECKING, Callable, Iterable, Iterator, Mapping, Sequence, cast
 
 import yaml
 
@@ -686,6 +686,12 @@ class SettleMemoFile:
     path: Path
     stamp: str
     family_keys: Mapping[str, str] = field(default_factory=dict)
+    write_path: Path | None = None
+
+    @property
+    def writes_part(self) -> bool:
+        """Whether a walk keyed with this file writes a part beside it rather than the file itself: `write_path` names the part, and the walk reads `path` as every walk does but files only the windows it settled fresh, for `absorb_settle_memo_parts` to fold into `path` once every range of the configuration has landed. That is the shape one row range of a cut oracle configuration takes, since a range that replaced the shared file whole would drop what the other ranges settled."""
+        return self.write_path is not None
 
 
 def settle_memo_files(
@@ -723,9 +729,11 @@ def settle_memo_standing(memo: SettleMemoFile) -> bool:
 _SettleMemoBlock = tuple[list[str], list[Settled], list[array], array]
 
 
-def _write_settle_memo(memo: SettleMemoFile, blocks: Iterable[_SettleMemoBlock]) -> bool:
-    """The one writer of a settle memo file: a header pickle carrying the format, `memo.stamp` and `memo.family_keys`, then one pickle per block — the labels and the settled records the block introduces, then its six key columns and its value column as indexes into everything introduced so far — staged beside the path and moved into place whole, so a reader in another process sees either the old file or the new one. A file the filesystem refuses is a warning and False, never a red build: the memo is a speed device and every reader settles what it lacks."""
-    path = memo.path
+def _write_settle_memo(
+    memo: SettleMemoFile, blocks: Iterable[_SettleMemoBlock], path: Path | None = None
+) -> bool:
+    """The one writer of a settle memo file: a header pickle carrying the format, `memo.stamp` and `memo.family_keys`, then one pickle per block — the labels and the settled records the block introduces, then its six key columns and its value column as indexes into everything introduced so far — staged beside the path and moved into place whole, so a reader in another process sees either the old file or the new one. `path` is where the file lands, `memo.path` unless a caller is filing a part beside it. A file the filesystem refuses is a warning and False, never a red build: the memo is a speed device and every reader settles what it lacks."""
+    path = memo.path if path is None else Path(path)
     staged = path.with_name(f"{path.name}.{os.getpid()}.tmp")
     try:
         path.parent.mkdir(parents=True, exist_ok=True)
@@ -773,6 +781,85 @@ def _memo_blocks(items: Iterable[tuple[_Window, _Outcome]]) -> Iterable[_SettleM
             [array("I", map(label_index.__getitem__, column)) for column in columns],
             array("I", map(outcome_index.__getitem__, map(id, values))),
         )
+
+
+def _read_settle_memo(memo: SettleMemoFile, spec: ResolvedSpec) -> Iterator[tuple[_SettleMemoBlock, int]]:
+    """The blocks of the file at `memo.path` as a walk keyed with `memo` reads them, each beside the count of entries retired out of it. A file that is missing, carries another stamp, or whose header will not read yields nothing; a file under this stamp whose family keys moved yields every block less the entries naming a moved family — by a letter's label, by a formed ligature's label, or by both components of a moved ligature rune (`oracle_cache.StaleMask` at label grain) — and a moved family the registry cannot place yields nothing, since it stales the whole file. A block that will not decode ends the read with a warning, and every whole block before it stands on its own: the labels and records a block introduces are indexed only by that block and the ones after it. The retirement is priced per block over the label columns rather than per key — a bit per label, six column folds in C, one comprehension over the masks — and lands in the columns themselves, so a block yielded here is a valid block of a memo file in its own right, which is what lets `absorb_settle_memo_parts` re-file the standing blocks unchanged."""
+    bits: list[int] = []
+    loaded = 0
+    try:
+        with gzip.open(memo.path, "rb") as handle:
+            header = pickle.load(handle)
+            if (
+                not isinstance(header, dict)
+                or header.get("format") != SETTLE_MEMO_FORMAT
+                or header.get("stamp") != memo.stamp
+            ):
+                return
+            recorded = header.get("family_keys")
+            if not isinstance(recorded, dict):
+                return
+            mask = oracle_cache.StaleMask(spec, oracle_cache.moved_families(recorded, memo.family_keys))
+            if mask.everything:
+                return
+            retiring = bool(mask.moved)
+            while True:
+                try:
+                    new_labels, new_items, columns, values = pickle.load(handle)
+                except EOFError:
+                    break
+                retired = 0
+                if retiring:
+                    bits.extend(mask.bit_of(_label_family(label)) for label in new_labels)
+                    masks = functools.reduce(
+                        lambda left, right: map(operator.or_, left, right),
+                        (map(bits.__getitem__, column) for column in columns),
+                    )
+                    keep = [not mask.stale(window_mask) for window_mask in masks]
+                    retired = len(keep) - sum(keep)
+                    if retired:
+                        columns = [array("I", itertools.compress(column, keep)) for column in columns]
+                        values = array("I", itertools.compress(values, keep))
+                loaded += len(values) + retired
+                yield (new_labels, new_items, columns, values), retired
+    except FileNotFoundError:
+        return
+    except _SETTLE_MEMO_READ_ERRORS as error:
+        print(
+            f"[warn] settle memo: {memo.path} stopped reading after {loaded} windows ({error}); the rest are settled again",
+            file=sys.stderr,
+            flush=True,
+        )
+
+
+def absorb_settle_memo_parts(memo: SettleMemoFile, parts: Sequence[Path], spec: ResolvedSpec) -> bool:
+    """The parts the row ranges of one cut configuration filed beside the shared file, folded into it: the standing file's blocks re-filed as `_read_settle_memo` yields them — under the stamp, less the entries naming a moved family, exactly what a walk that replaced the file whole would have carried forward — then each part's blocks with every index shifted past the labels and records the file has introduced ahead of it, since a block indexes into the tables accumulated so far in its file, and a part's blocks were indexed within the part. The result lands under the current family keys, staged and replaced through `_write_settle_memo`, so a retired entry never rides a header that vouches for it (the issue 202 shape) and a reader in another process sees the old file or the new one. No parts on disk is a no-op and False; a standing file that is absent or restamped contributes nothing, and the parts become the file. Two ranges that both settled one window both filed it, and the later entry wins on load exactly as it does in the walk's own dict; the belt's prune pass is where the file loses the repeat. True when a file was written."""
+    present = [Path(part) for part in parts if Path(part).is_file()]
+    if not present:
+        return False
+
+    def blocks() -> Iterator[_SettleMemoBlock]:
+        labels = 0
+        outcomes = 0
+        for block, _retired in _read_settle_memo(memo, spec):
+            yield block
+            labels += len(block[0])
+            outcomes += len(block[1])
+        for part in present:
+            base_labels, base_outcomes = labels, outcomes
+            for (new_labels, new_items, columns, values), _ in _read_settle_memo(
+                replace(memo, path=part), spec
+            ):
+                yield (
+                    new_labels,
+                    new_items,
+                    [array("I", (index + base_labels for index in column)) for column in columns],
+                    array("I", (value + base_outcomes for value in values)),
+                )
+                labels += len(new_labels)
+                outcomes += len(new_items)
+
+    return _write_settle_memo(memo, blocks())
 
 
 def _ambiguous_ids(spelling: Sequence[str], used: Iterable[int]) -> set[int]:
@@ -923,6 +1010,7 @@ class _SettledWindowWalk:
         self._memo_loaded = False
         self._refused = 0
         self._outcomes: dict[Settled, _Outcome] = {}
+        self._fresh: list[_Window] = []
         self._settle_calls = 0
         self._audit_seen: set[tuple[settle.LeftContext, settle.RightToken, tuple[settle.RightToken, ...]]] = (
             set()
@@ -1017,6 +1105,8 @@ class _SettledWindowWalk:
 
     def _record(self, window: _Window, item: Settled | None, text: str) -> None:
         self.fresh_windows += 1
+        if self.memo is not None and self.memo.writes_part:
+            self._fresh.append(window)
         if item is None:
             self._refused += 1
             self.windows[window] = _RefusedWindow(
@@ -1042,68 +1132,43 @@ class _SettledWindowWalk:
             return
         started = time.perf_counter()
         labels: list[str] = []
-        bits: list[int] = []
         outcomes: list[_Outcome] = []
         loaded = 0
         stale = 0
         try:
-            with gzip.open(self.memo.path, "rb") as handle:
-                header = pickle.load(handle)
-                if (
-                    not isinstance(header, dict)
-                    or header.get("format") != SETTLE_MEMO_FORMAT
-                    or header.get("stamp") != self.memo.stamp
-                ):
-                    return
-                recorded = header.get("family_keys")
-                if not isinstance(recorded, dict):
-                    return
-                mask = oracle_cache.StaleMask(
-                    self.spec, oracle_cache.moved_families(recorded, self.memo.family_keys)
-                )
-                if mask.everything:
-                    return
-                retiring = bool(mask.moved)
-                while True:
-                    try:
-                        new_labels, new_items, columns, values = pickle.load(handle)
-                    except EOFError:
-                        break
-                    labels.extend(map(sys.intern, new_labels))
-                    if retiring:
-                        bits.extend(mask.bit_of(_label_family(label)) for label in new_labels)
-                    outcomes.extend(self._outcome(item) for item in new_items)
-                    entries = zip(
+            for (new_labels, new_items, columns, values), retired in _read_settle_memo(self.memo, self.spec):
+                labels.extend(map(sys.intern, new_labels))
+                outcomes.extend(self._outcome(item) for item in new_items)
+                self._cold.update(
+                    zip(
                         zip(*(map(labels.__getitem__, column) for column in columns)),
                         map(outcomes.__getitem__, values),
                     )
-                    if retiring:
-                        masks = functools.reduce(
-                            lambda left, right: map(operator.or_, left, right),
-                            (map(bits.__getitem__, column) for column in columns),
-                        )
-                        keep = [not mask.stale(window_mask) for window_mask in masks]
-                        stale += len(keep) - sum(keep)
-                        entries = itertools.compress(entries, keep)
-                    self._cold.update(entries)
-                    loaded += len(values)
-        except FileNotFoundError:
-            return
-        except _SETTLE_MEMO_READ_ERRORS as error:
-            print(
-                f"[warn] settle memo: {self.memo.path} stopped reading after {loaded} windows ({error}); the rest are settled again",
-                file=sys.stderr,
-                flush=True,
-            )
+                )
+                loaded += len(values) + retired
+                stale += retired
         finally:
             self.memo_windows = loaded
             self.stale_windows = stale
             self.memo_seconds += time.perf_counter() - started
 
     def save_memo(self, prune: bool = False) -> bool:
-        """Write the memo to the shared file when this walk settled a window the file did not hold, through `_write_settle_memo`, which replaces the file atomically so a reader in another process sees either the old file or the new one. Refusals are not outcomes and are not written; a walk that reaches one of those windows asks the crate again. `prune` drops the loaded entries this walk never reached instead of carrying them forward, counted in `pruned_windows`, and is only honest for a walk over the whole universe — the belt's. True when a file was written."""
+        """Write the memo to the shared file when this walk settled a window the file did not hold, through `_write_settle_memo`, which replaces the file atomically so a reader in another process sees either the old file or the new one. Refusals are not outcomes and are not written; a walk that reaches one of those windows asks the crate again. `prune` drops the loaded entries this walk never reached instead of carrying them forward, counted in `pruned_windows`, and is only honest for a walk over the whole universe — the belt's. A walk whose memo names a `write_path` files only the windows it settled fresh, as a part at that path, and leaves the shared file to `absorb_settle_memo_parts`. True when a file was written."""
         if self.memo is None:
             return False
+        if self.memo.writes_part:
+            if not self.fresh_windows:
+                return False
+            started = time.perf_counter()
+            fresh = (
+                (window, outcome)
+                for window in self._fresh
+                if not isinstance(outcome := self.windows[window], _RefusedWindow)
+            )
+            try:
+                return _write_settle_memo(self.memo, _memo_blocks(fresh), self.memo.write_path)
+            finally:
+                self.memo_seconds += time.perf_counter() - started
         if prune:
             self.pruned_windows = len(self._cold)
         if not self.fresh_windows and not (prune and self._cold):
@@ -1544,12 +1609,18 @@ def _verify_served_sample(
     table_path: Path,
     store: "oracle_cache.RowStore",
     sample: "oracle_cache.VerificationSample",
+    first_row: int = 0,
+    stop_row: int | None = None,
 ) -> None:
-    """Re-derive the pass's stratified sample of served rows and prove each against the record it was served from. Every family that served a row contributes rows here, so a family-wide poisoning — the shape a rune edited mid-run produces — is caught with probability one rather than with probability sample-over-served, and the seed carries the pass ordinal so the covered slice rotates instead of re-proving the same fraction of a percent every pass. The rows are re-read in a second streaming pass over the same table rather than held from the first: the draw is only final once the last row has been offered, and a couple of hundred rows are cheap to find again where tens of thousands of live `Row` objects would not be cheap to keep. A mismatch is a hard stop, not a miss — the store is describing verdicts this build does not produce, and `divergence-audit.tsv` is a fingerprinted artifact the surface build's manifest is stamped against."""
+    """Re-derive the pass's stratified sample of served rows and prove each against the record it was served from. Every family that served a row contributes rows here, so a family-wide poisoning — the shape a rune edited mid-run produces — is caught with probability one rather than with probability sample-over-served, and the seed carries the pass ordinal so the covered slice rotates instead of re-proving the same fraction of a percent every pass. The rows are re-read in a second streaming pass over the range the sample was drawn over — `[first_row, stop_row)`, the whole table by default — rather than held from the first: the draw is only final once the last row has been offered, and a couple of hundred rows are cheap to find again where tens of thousands of live `Row` objects would not be cheap to keep. A mismatch is a hard stop, not a miss — the store is describing verdicts this build does not produce, and `divergence-audit.tsv` is a fingerprinted artifact the surface build's manifest is stamped against."""
     wanted = set(sample.indexes())
     if not wanted:
         return
-    picked = [(index, row) for index, row in enumerate(iter_rows(table_path)) if index in wanted]
+    picked = [
+        (index, row)
+        for index, row in enumerate(iter_rows(table_path, first_row, stop_row), start=first_row)
+        if index in wanted
+    ]
     walked = walker.walk_many([row.text for _, row in picked])
     for (index, row), (settled, _names) in zip(picked, walked):
         fresh = _cached_verdict(_compare_row(spec, aliases, config, features, row, settled))

@@ -1,6 +1,6 @@
 """Hold the checked-in per-unit memory peaks against what this box actually measured — `make job-costs`, the instrument for issue #92.
 
-Several widths in this tree are a box divided by a measured per-unit peak: what one pytest worker of a suite holds, what one kernel configuration holds while it is live. Each of those peaks is a checked-in constant — `FONT_SUITE_WORKER_BYTES` in the root `conftest.py`, `DELTA_PEAK_BYTES` and `DEFAULT_MEMO_BYTES` in `rebuild/pipeline/kernel_exec.py`, `SURFACE_PARENT_BYTES` and `SURFACE_WORKER_BYTES` in `rebuild/tools/artifact_cycle.py` — and every one of them is a reading of a working set that a memory-saver or a heavier fixture can move out from under. The measurements that would catch such a move are already being taken on every run, by two instruments that were never introduced to each other: each xdist controller's per-worker peaks, and the peak RSS the cycle stamps on every step it spawns. So a divisor could go stale silently, and a stale one announces itself not as a red test but as a box in swap — or, in the other direction, as a pool held to a quarter of the width it had room for. This module is the introduction, and it is a file read: no build, no import of the code it prices.
+Several widths in this tree are a box divided by a measured per-unit peak: what one pytest worker of a suite holds, what one kernel configuration holds while it is live. Each of those peaks is a checked-in constant — `FONT_SUITE_WORKER_BYTES` in the root `conftest.py`, `DELTA_PEAK_BYTES` and `DEFAULT_MEMO_BYTES` in `rebuild/pipeline/kernel_exec.py`, `SURFACE_PARENT_BYTES`, `SURFACE_WORKER_BYTES` and `ORACLE_SHARD_BYTES` in `rebuild/tools/artifact_cycle.py` — and every one of them is a reading of a working set that a memory-saver or a heavier fixture can move out from under. The measurements that would catch such a move are already being taken on every run, by two instruments that were never introduced to each other: each xdist controller's per-worker peaks, and the peak RSS the cycle stamps on every step it spawns. So a divisor could go stale silently, and a stale one announces itself not as a red test but as a box in swap — or, in the other direction, as a pool held to a quarter of the width it had room for. This module is the introduction, and it is a file read: no build, no import of the code it prices.
 
 What it reads is the cycle-timings journal and nothing else. `kind:"pool"` records supply one observation per worker, because the unit being priced is one worker and a pool of eight is therefore eight measurements of it. Named `kind:"step"` records supply their `peak_rss_bytes`, but only where that figure genuinely is one unit, and that caveat wants stating rather than hinting: `peak_rss.reap_peak_rss_bytes` maxes over a child's whole process tree instead of summing it, so a step peak is the widest single process under that step. That is one unit exactly where the step's tree is a parent holding heads over one-thread children (`run_m1`), or a parent holding the whole corpus over workers each holding one batch of it (`surface-build`), where the max reads the parent and the parent is what that row prices, and it is emphatically not one unit for `gate:make-test`, whose tree carries `make all` and `uv run pyright` beside the pool. The `UNITS` registry below states, per unit, which sources are honest for it, and each entry carries the argument in its own words.
 
@@ -37,6 +37,7 @@ SURFACE_PARENT_NAME = "SURFACE_PARENT_BYTES"
 SURFACE_WORKER_NAME = "SURFACE_WORKER_BYTES"
 STANDING_FILL_PARENT_NAME = "STANDING_FILL_PARENT_BYTES"
 STANDING_FILL_WORKER_NAME = "STANDING_FILL_WORKER_BYTES"
+ORACLE_SHARD_NAME = "ORACLE_SHARD_BYTES"
 
 
 @dataclass(frozen=True)
@@ -102,6 +103,15 @@ UNITS: tuple[Unit, ...] = (
         step_names=(),
         step_caveat="",
         note="These pool records come from rebuild/review/build.py's own runner rather than from a pytest controller — cycle_timings.record_pool is deliberately not a pytest entry point — and each supplies one observation per worker that answered. The row is legitimately quiet on a box the arithmetic has already narrowed to a single worker, because a serial build starts no pool to measure; a deliberate `--jobs N` hand run is what puts an observation on the record there, and the row's unverified-here line is the honest reading until one does.",
+    ),
+    Unit(
+        name="oracle-shard",
+        constant=ORACLE_SHARD_NAME,
+        source=SURFACE_SOURCE,
+        pool_units=("oracle-shard",),
+        step_names=(),
+        step_caveat="",
+        note="These pool records come from `run_m1.run_oracle`'s own fan-in rather than from a pytest controller: one record per oracle fan-out, one observation per row range that ran, each the range's worker's own peak as it reported it home. The run_m1 step peak is deliberately not admitted: that step's widest process is the table build's child, which the kernel-build row prices, and it would read a build's footprint as a shard's. The row is quiet on a box the arithmetic narrows to `--jobs 1`, since the serial oracle starts no pool; a hand `run_m1 --gates-only` at any wider width puts an observation on the record.",
     ),
     Unit(
         name="standing-fill-parent",

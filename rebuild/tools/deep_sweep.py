@@ -20,7 +20,7 @@ ROOT = Path(__file__).resolve().parents[2]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from rebuild.pipeline import run_m1
+from rebuild.pipeline import conform, run_m1
 from rebuild.tools.artifact_cycle import (
     CONFORM_GREEN,
     CONFORM_HORIZON_DEFAULT,
@@ -85,7 +85,7 @@ def main(argv: list[str] | None = None) -> int:
         "--jobs",
         type=int,
         default=sweep_job_budget(),
-        help="how many acceptance configurations sweep at once, in the same lane the cycle's conform gate uses",
+        help="worker budget in the same lane the cycle's conform gate uses; the belt runs one process per acceptance configuration and no more, since a configuration is its unit, so a wider number is narrowed to that count",
     )
     parser.add_argument(
         "--status",
@@ -105,9 +105,9 @@ def main(argv: list[str] | None = None) -> int:
         )
     deep_key = arming_key()
     belt_key = conform_skip_fingerprint(ROOT, CONFORM_HORIZON_DEFAULT)
-    jobs = max(1, args.jobs)
+    jobs = max(1, min(args.jobs, len(conform.ACCEPTANCE_CONFIGS)))
     print(
-        f"deep sweep: horizon {args.horizon} over every settlement configuration at {jobs} jobs (the ss10 overlay's arm stays at its own horizon)",
+        f"deep sweep: horizon {args.horizon} over every settlement configuration at {jobs} jobs, one process per acceptance configuration at most (the ss10 overlay's arm stays at its own horizon)",
         flush=True,
     )
     summary = run_m1.run_font_conformance(max_length=args.horizon, jobs=jobs, summary_name=SUMMARY_NAME)

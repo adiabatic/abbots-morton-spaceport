@@ -62,9 +62,9 @@ from rebuild.pipeline.settle import cell_label
 from rebuild.pipeline.spec_load import load_default_spec
 from rebuild.pipeline.table import DecisionTable
 from rebuild.tools import console
-from rebuild.tools.cycle_timings import CYCLE_RUN_ENV, CheckVerdict, record_check
+from rebuild.tools.cycle_timings import CYCLE_RUN_ENV, CheckVerdict, record_check, record_pool
 from rebuild.tools.memory_budget import describe_fit, usable_cores
-from rebuild.tools.peak_rss import process_peak_rss_bytes, rss_token
+from rebuild.tools.peak_rss import peak_rss_self_bytes, process_peak_rss_bytes, rss_token
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 OUT_DIR = REPO_ROOT / "rebuild" / "out" / "m1"
@@ -77,8 +77,9 @@ KERN_SIDECAR_YAML = REPO_ROOT / "glyph_data" / "senior_quikscript_kerning.yaml"
 RAW_STANCE = "cmap"
 
 
-def _spawn_pool(jobs: int) -> ProcessPoolExecutor:
-    workers = min(jobs, len(conform.ACCEPTANCE_CONFIGS))
+def _spawn_pool(jobs: int, units: int) -> ProcessPoolExecutor:
+    """A spawn pool no wider than `jobs` and no wider than the `units` its caller is about to submit: the belt submits one per acceptance configuration and gets that many, the oracle submits one per row range and gets as many as the box allows."""
+    workers = max(1, min(jobs, units))
     return ProcessPoolExecutor(max_workers=workers, mp_context=multiprocessing.get_context("spawn"))
 
 
@@ -496,13 +497,6 @@ def _defect_summary_fields(report: defects.DefectReport) -> dict:
     }
 
 
-def _tail_gate_threads(sweep_jobs: int | None, build_threads: int, ncores: int | None = None) -> int:
-    """The shipped-order walker pool's width: `build_threads` (the table build's memory-derived width, `_table_build_threads`, which already caps at the configuration count and the cores), narrowed to the cores the oracle pool leaves free (`usable_cores()` less `sweep_jobs`, floored at one), or not narrowed when nothing is co-resident (`sweep_jobs` None, a caller building a spec of its own). The walks are the one stage of the table-only branch that can still be running when the oracle starts: the oracle waits on the settle memos the witness stage writes after the string replay has exited (`TableGates.wait_for_memo`), so the replay crate — the branch's one heavy holder, priced at `kernel_exec.DELTA_PEAK_BYTES` a configuration — is never beside an oracle worker and keeps the build's width, while a walk holds the rules and the labels and streams its rows, far inside that price. Taking the walks' cores off the box before their width is taken is what keeps the oracle's per-configuration seconds where a solo oracle has them; the narrowing prices no memory, since nothing in the tree measures what an oracle worker holds (`sweep_job_budget` prices one in prose and `calibrate_budgets.UNITS` names none), and the walks need none priced."""
-    cores = ncores or usable_cores()
-    free = cores if sweep_jobs is None else max(1, cores - sweep_jobs)
-    return max(1, min(free, build_threads))
-
-
 @dataclass
 class _TableGateState:
     """What the table-only branch leaves for `TableGates` to read: `memo_ready` set once the witness stage's settle memos are on disk or the replay-then-witness chain has gone red, and the exception each stage would have raised in the serial form; the summaries themselves reach their readers as the JSON files each stage writes."""
@@ -541,7 +535,7 @@ def _run_table_gates(
     walk_threads: int,
     state: _TableGateState,
 ) -> None:
-    """The table-only branch, on one background thread beside the glyph chain. The string replay runs first, at the table build's width (`replay_threads`), and the witness stage after it, in that order because the replay writes each configuration's settle memo file whole on a whole-universe walk (`conform.absorb_replay_memo`) and the witness stage loads that file and writes it back with its own windows added; `state.memo_ready` is set once the witness stage's files are on disk, or the moment that chain goes red, and `TableGates` sets it as well when this thread ends any other way, so a wait on it can never hang. Beside that chain the shipped-order walks run on a thread of their own at `walk_threads` (`_tail_gate_threads`, the width that leaves the oracle its cores), each configuration's walk waiting on its own pack (`Packing.wait`), and the packing closes here after the last of them. Nothing raises out of this thread: the exception each stage would have raised in the serial form lands in `state`, and `TableGates` raises the first red in that order."""
+    """The table-only branch, on one background thread beside the glyph chain. The string replay runs first, at the table build's width (`replay_threads`), and the witness stage after it, in that order because the replay writes each configuration's settle memo file whole on a whole-universe walk (`conform.absorb_replay_memo`) and the witness stage loads that file and writes it back with its own windows added; `state.memo_ready` is set once the witness stage's files are on disk, or the moment that chain goes red, and `TableGates` sets it as well when this thread ends any other way, so a wait on it can never hang. Beside that chain the shipped-order walks run on a thread of their own at `walk_threads` (the build's width, which `run` passes through: the oracle's pool is the whole box, so narrowing the walks to the cores it leaves would serialize them onto one and put their whole length on the critical path; their residue shares the box with the pool's first seconds instead, the overlap `doc/parallelism.md` states), each configuration's walk waiting on its own pack (`Packing.wait`), and the packing closes here after the last of them. Nothing raises out of this thread: the exception each stage would have raised in the serial form lands in `state`, and `TableGates` raises the first red in that order."""
     with ThreadPoolExecutor(max_workers=1, thread_name_prefix="emitted-order") as walks:
         emitted = (
             walks.submit(_emitted_order_stage, spec, tables, out_dir, packing, walk_threads)
@@ -634,12 +628,10 @@ def run(
     inputs: str | None = None,
     kernel_threads: int | None = None,
     memo_inputs: oracle_cache.SettleMemoInputs | None = None,
-    *,
-    sweep_jobs: int | None = None,
 ) -> tuple[dict, TableGates]:
     """The build: the tables, then two branches over them. The table-only branch (`_run_table_gates`, on one background thread) runs the string replay, the witness stage and the shipped-order walks; the glyph chain — minting, the defect gates, the emission, the compile and the read-back — runs here on the calling thread, writes `pipeline_summary.json` and the Stage A record, and returns its summary with the branch's `TableGates` handle without joining it. The join is the caller's: `main` calls `wait_for_memo` before the oracle and `join` after it, so the gate is decided over both branches, and `close` in a `finally`. A chain complaint yields to the branch's: when anything here raises, the branch's first red is raised in its place if it has one, so a red replay is reported as the tables incomplete rather than as whatever the chain made of them.
 
-    `inputs` is `tables_inputs` over the sources `spec` was loaded from, snapshotted before the load so it can only ever name content the tables are at least as new as. Supplying it serializes the window enumeration under `out_dir` for the conformance sweep and the shipped-order walk; a caller running a spec of its own leaves it out, and the walk does not run. `memo_inputs` is `settle_memo_inputs` cut at the same moment, and names the settle memo files the string replay fills and the witness stage, the oracle and the belt then load; without it the replay files nothing, the witness stage settles every certificate and nothing is shared. `kernel_threads` reaches the table build, the packing and the string replay, and bounds the shipped-order walks; `sweep_jobs` is the width of the oracle pool that can still be starting while the walks run, and narrows the walks through `_tail_gate_threads` — None means nothing co-resident.
+    `inputs` is `tables_inputs` over the sources `spec` was loaded from, snapshotted before the load so it can only ever name content the tables are at least as new as. Supplying it serializes the window enumeration under `out_dir` for the conformance sweep and the shipped-order walk; a caller running a spec of its own leaves it out, and the walk does not run. `memo_inputs` is `settle_memo_inputs` cut at the same moment, and names the settle memo files the string replay fills and the witness stage, the oracle and the belt then load; without it the replay files nothing, the witness stage settles every certificate and nothing is shared. `kernel_threads` reaches the table build, the packing and the string replay, and is the shipped-order walks' width too: the walks are the one stage of the table-only branch that can still be running when the oracle's pool starts, since the oracle waits only on the settle memos the witness stage writes after the replay crate has exited (`TableGates.wait_for_memo`), and the residue of a walk shares the box with that pool for its last seconds rather than being narrowed to the cores the pool leaves, which — the pool being the whole box — would serialize the walks and put their whole length on the run's critical path.
     """
     out_dir.mkdir(parents=True, exist_ok=True)
     console.phase("spec_load")
@@ -677,7 +669,7 @@ def run(
             packing,
             memo_inputs,
             build_threads,
-            _tail_gate_threads(sweep_jobs, build_threads),
+            build_threads,
             state,
         ),
     )
@@ -1076,7 +1068,7 @@ def run_font_conformance(
         collected: dict[str, conform.ConformanceConfigResult] = {}
         kernel_exec.ensure_built()
         guard_verdicts = kernel_exec.guard_sweep(spec)
-        with _spawn_pool(jobs) as pool:
+        with _spawn_pool(jobs, len(conform.ACCEPTANCE_CONFIGS)) as pool:
             futures = {
                 pool.submit(
                     conform.conformance_config_worker,
@@ -1268,6 +1260,15 @@ def _report_oracle_cache(
         console.warn(f"oracle position store: re-shaping the rows that reach {moved_position_keys}")
 
 
+def _shard_settle_memo(
+    memo: conform.SettleMemoFile | None, scratch: Path, shard: oracle.OracleShard
+) -> conform.SettleMemoFile | None:
+    """The settle memo file one row range reads and writes: the configuration's shared file as it stands for an uncut configuration, and for a range of a cut one the same file to read with its own part under the run's scratch to write, so the ranges of one configuration cannot replace the shared file over one another and the parent absorbs every part once they have all landed."""
+    if memo is None or shard.of == 1:
+        return memo
+    return replace(memo, write_path=oracle.settle_memo_part(scratch, shard.config, shard.index))
+
+
 def run_oracle(
     out_dir: Path = OUT_DIR,
     spec: ResolvedSpec | None = None,
@@ -1276,13 +1277,15 @@ def run_oracle(
     fresh_cache: bool = False,
     memo_inputs: oracle_cache.SettleMemoInputs | None = None,
 ) -> dict:
-    """The section 6 oracle over the subset tables, one worker per `conform.ACCEPTANCE_CONFIGS` entry when `jobs` allows, with the row cache read before the first row and written after the last. `memo_inputs` is `settle_memo_inputs` as the caller snapshotted it before loading `spec`, and names the settle memo files this pass shares with the belt (`conform.settle_memo_files`): the oracle's rows are the belt's texts, so a settlement configuration whose file the replay filled or the belt wrote under these keys settles nothing, and one neither has reached yet writes the file the belt will load. A caller with no inputs shares nothing, and the overlay configuration has no memo to share, since its worker settles nothing at all.
+    """The section 6 oracle over the subset tables, with the row cache read before the first row and written after the last. Above `--jobs 1` the unit of work is a row range of one configuration's table rather than a configuration: `oracle.oracle_shard_plan` cuts every table (by the row counts the subset stamp carries, `baseline_subset.subset_row_counts`; a table the stamp does not count stays one range) so that `jobs` workers each get a worker's share of the whole, and `_spawn_pool` is as wide as the box allows, where one worker per configuration left every core past the configuration count idle for the length of the phase. Each range writes its own audit segment and its own store segment, and files the settle memo windows it settled fresh as a part; the parent folds the ranges' tallies (`oracle.merge_config_shards`), concatenates the segments (`oracle.join_oracle_audit`, `oracle_cache.join_store_segments`) and absorbs the parts into the shared memo files (`conform.absorb_settle_memo_parts`, on the same pool), all in row order, so the summary, the audit and every store's records are the ones an uncut run writes. The crate's formation surface is swept once here and rides every submission, as the belt's fan-out does. `memo_inputs` is `settle_memo_inputs` as the caller snapshotted it before loading `spec`, and names the settle memo files this pass shares with the belt (`conform.settle_memo_files`): the oracle's rows are the belt's texts, so a settlement configuration whose file the replay filled or the belt wrote under these keys settles nothing, and one neither has reached yet writes the file the belt will load. A caller with no inputs shares nothing, and the overlay configuration has no memo to share, since its worker settles nothing at all.
 
     The cache's keys are cut once here — the row keys from the rune tree, the position keys from the compiled font and the kern sidecar — and handed to the workers, and then cut a second time at promotion, where a store is written only if neither a stamp nor a single key moved while the run held them. That second cut is the point: `fingerprint.rune_digests` reads the rune files off disk, a full run takes minutes, and the house style is to detach a long run and keep editing — so a rune touched mid-run would otherwise be recorded under a digest the verdicts on disk were never built from, and the next pass would serve pre-edit verdicts as fresh, green, forever. `_settle_green`'s recompute-before-recording and `artifact_cycle`'s green keys are the same discipline for the same reason.
 
     Cutting those keys is itself allowed to fail without taking the gate down with it. `alias_family_digests` refuses an alias head no rune digest stands behind, and the alias map is exactly the sort of hand-edited file that arrives one typo away from unreadable — so a key that will not cut leaves this pass with no cache at all: every row derived, no store written, the gate doing what it did before there was a cache. Whether a ledger can be re-adjudicated must never turn on whether a file the comparison does not read parses.
 
-    Staging lives inside this run's pid-named audit scratch, so a killed run's stores are swept by `discard_oracle_audit_scratch` exactly as its shards are, and two oracles sharing an `out_dir` — a `--gates-only` pass beside a cycle — can neither read nor promote over one another. Promotion happens only after `join_oracle_audit` has accepted the audit: a store describing an audit that was never written is worse than no store.
+    Staging lives inside this run's pid-named audit scratch, so a killed run's stores, segments and memo parts are swept by `discard_oracle_audit_scratch` exactly as its audit segments are, and two oracles sharing an `out_dir` — a `--gates-only` pass beside a cycle — can neither read nor promote over one another. Promotion happens only after `join_oracle_audit` has accepted the audit: a store describing an audit that was never written is worse than no store; and a cut configuration one of whose ranges staged no segment is joined by nobody and promoted by nobody, which is the all-or-nothing `promote_stores` already keeps.
+
+    Every range's own peak is filed as one observation of the `oracle-shard` pool unit (`cycle_timings.record_pool`), which is what `make job-costs` prices `artifact_cycle.ORACLE_SHARD_BYTES` against.
     """
     if spec is None:
         spec = load_default_spec()
@@ -1320,8 +1323,17 @@ def run_oracle(
     settle_memos = conform.settle_memo_files(out_dir, spec, memo_inputs)
     try:
         if jobs > 1:
-            collected: dict[str, oracle.OracleConfigResult] = {}
-            with _spawn_pool(jobs) as pool:
+            shards = oracle.oracle_shard_plan(jobs, baseline_subset.subset_row_counts(out_dir))
+            segments = {config: 0 for config in conform.ACCEPTANCE_CONFIGS}
+            for shard in shards:
+                segments[shard.config] = shard.of
+            kernel_exec.ensure_built()
+            guard_verdicts = kernel_exec.guard_sweep(spec)
+            landed: dict[str, list[tuple[oracle.OracleShard, oracle.OracleConfigResult]]] = {
+                config: [] for config in conform.ACCEPTANCE_CONFIGS
+            }
+            width = min(jobs, len(shards))
+            with _spawn_pool(jobs, len(shards)) as pool:
                 futures = {
                     pool.submit(
                         oracle.oracle_config_worker,
@@ -1329,22 +1341,73 @@ def run_oracle(
                         out_dir,
                         ALIAS_YAML,
                         DIVERGENCES_YAML,
-                        config,
+                        shard.config,
                         out_dir / "M1.otf",
                         KERN_SIDECAR_YAML,
                         audit_dir=scratch,
                         row_cache=row_cache,
-                        settle_memo=settle_memos.get(config),
-                    ): config
-                    for config in conform.ACCEPTANCE_CONFIGS
+                        settle_memo=_shard_settle_memo(settle_memos.get(shard.config), scratch, shard),
+                        guard_verdicts=guard_verdicts,
+                        shard=shard,
+                    ): shard
+                    for shard in shards
                 }
+                done = 0
                 for future in as_completed(futures):
                     result = future.result()
-                    collected[result.config] = result
-                    console.progress(len(collected), len(conform.ACCEPTANCE_CONFIGS), "configurations")
-            ordered = [collected[config] for config in conform.ACCEPTANCE_CONFIGS]
+                    landed[result.config].append((futures[future], result))
+                    done += 1
+                    console.progress(done, len(shards), "shards")
+                merges = {
+                    config: pool.submit(
+                        conform.absorb_settle_memo_parts,
+                        memo,
+                        [
+                            oracle.settle_memo_part(scratch, config, index)
+                            for index in range(segments[config])
+                        ],
+                        spec,
+                    )
+                    for config, memo in settle_memos.items()
+                    if segments[config] > 1
+                }
+                absorbed = [config for config, future in merges.items() if future.result()]
+            if absorbed:
+                console.say(f"settle memo: absorbed the ranges' parts for {', '.join(absorbed)}")
+            record_pool(
+                "oracle-shard",
+                width=width,
+                worker_peaks={
+                    shard.label: result.peak_rss_bytes for pairs in landed.values() for shard, result in pairs
+                },
+                controller_peak_bytes=peak_rss_self_bytes(),
+            )
+            ordered = [
+                oracle.merge_config_shards(
+                    [result for _shard, result in sorted(landed[config], key=lambda pair: pair[0].first_row)]
+                )
+                for config in conform.ACCEPTANCE_CONFIGS
+            ]
             report = oracle.merge_oracle_results(ordered)
-            oracle.join_oracle_audit(out_dir, scratch, conform.ACCEPTANCE_CONFIGS, report.divergent_rows)
+            oracle.join_oracle_audit(
+                out_dir, scratch, conform.ACCEPTANCE_CONFIGS, report.divergent_rows, segments=segments
+            )
+            if row_cache is not None and row_cache.write_dir is not None:
+                for merged in ordered:
+                    if segments[merged.config] > 1 and merged.pass_ordinal is not None:
+                        stamp = row_cache.environment[merged.config]
+                        oracle_cache.join_store_segments(
+                            scratch,
+                            merged.config,
+                            segments[merged.config],
+                            stamp,
+                            stamp.labels["subset"],
+                            merged.pass_ordinal,
+                            row_cache.family_keys,
+                            merged.rows_compared,
+                            row_cache.position_environment,
+                            row_cache.position_keys,
+                        )
         else:
             report = oracle.compare_against_baseline(
                 spec,
@@ -1576,7 +1639,7 @@ def main(argv: list[str] | None = None) -> None:
         "--jobs",
         type=int,
         default=sweep_jobs,
-        help=f"worker budget for the oracle and conformance shards, one process per acceptance configuration and no more, since that is all `_spawn_pool` will start; the default is the same `sweep_job_budget()` width the artifact cycle already passes rather than a checked-in one — {sweep_jobs} on this box, a CPU ceiling rather than a memory one for the reasons that budget's own docstring argues — so a hand run no longer walks the two belts a configuration at a time. `--jobs 1` is serial. The table build's own width, which is the memory-bound one, is --kernel-threads.",
+        help=f"worker budget for the oracle and the conformance sweep: the oracle cuts every configuration's table into row ranges and runs this many at once, while the conformance sweep runs one process per acceptance configuration and no more, since that is its unit; the default is the same `sweep_job_budget()` width the artifact cycle already passes rather than a checked-in one — {sweep_jobs} on this box, the cores under the memory clamp that budget's own docstring argues from `ORACLE_SHARD_BYTES` — so a hand run walks the oracle at the cycle's width. `--jobs 1` is serial. The table build's own width is --kernel-threads.",
     )
     parser.add_argument(
         "--conform-only",
@@ -1674,7 +1737,6 @@ def main(argv: list[str] | None = None) -> None:
             inputs=inputs,
             kernel_threads=args.kernel_threads,
             memo_inputs=memo_inputs,
-            sweep_jobs=jobs,
         )
         console.timing("run_total", time.perf_counter() - start, rss_token(process_peak_rss_bytes()))
         console.say(json.dumps(summary, indent=2))

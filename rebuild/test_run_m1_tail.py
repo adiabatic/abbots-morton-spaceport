@@ -395,22 +395,8 @@ class TestThePacking:
 
 
 class TestTheTailWidth:
-    def test_the_walks_take_the_cores_the_oracle_pool_leaves_free_inside_the_builds_width(self):
-        assert run_m1._tail_gate_threads(6, 5, ncores=10) == 4
-        assert run_m1._tail_gate_threads(6, 3, ncores=10) == 3
-        assert run_m1._tail_gate_threads(2, 5, ncores=10) == 5
-        assert run_m1._tail_gate_threads(2, 4, ncores=10) == 4
-        assert run_m1._tail_gate_threads(10, 5, ncores=10) == 1
-        assert run_m1._tail_gate_threads(12, 5, ncores=10) == 1
-
-    def test_nothing_co_resident_is_the_builds_width_capped_at_the_cores(self):
-        assert run_m1._tail_gate_threads(None, 3, ncores=3) == 3
-        assert run_m1._tail_gate_threads(None, 5, ncores=64) == 5
-        assert run_m1._tail_gate_threads(None, 5, ncores=3) == 3
-        assert run_m1._tail_gate_threads(None, 5) == min(usable_cores(), 5)
-
-    def test_the_replay_keeps_the_builds_width_and_the_walks_take_the_tails(self, monkeypatch, tmp_path):
-        """`kernel_threads` — the memory-derived width, or a stated `--kernel-threads` — reaches the replay unchanged, since the oracle cannot start until the replay has exited; the walks, which can outlive the memo wait, are narrowed to the cores the oracle leaves free."""
+    def test_the_replay_and_the_walks_take_the_builds_width(self, monkeypatch, tmp_path):
+        """`kernel_threads` — the memory-derived width, or a stated `--kernel-threads` — reaches the replay and the walks unchanged: the oracle cannot start until the replay has exited, and the walks' residue past the memo wait shares the box with the oracle's pool rather than being narrowed to the cores that whole-box pool would leave, which would serialize the walks onto one core."""
         events: list = []
         widths: dict[str, int | None] = {}
         _stub_chain(monkeypatch, events)
@@ -429,12 +415,12 @@ class TestTheTailWidth:
         monkeypatch.setattr(run_m1, "run_replay_strings", recording_replay)
         monkeypatch.setattr(run_m1, "run_emitted_order", recording_walks)
         cores = usable_cores()
-        _summary, gates = _run(tmp_path, kernel_threads=2, sweep_jobs=cores - 1)
+        _summary, gates = _run(tmp_path, kernel_threads=2)
         try:
             gates.join()
         finally:
             gates.close()
-        assert widths == {"replay": min(2, cores), "walks": 1}
+        assert widths == {"replay": min(2, cores), "walks": min(2, cores)}
 
 
 class TestTheMemoWait:

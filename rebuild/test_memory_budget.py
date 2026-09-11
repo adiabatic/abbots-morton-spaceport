@@ -250,7 +250,7 @@ class TestTheHandRunDefaults:
         assert extract._shard_workers_default(cgroup_root=SAMPLES / "no-such-box") == host
 
     def test_the_m1_driver_sweeps_at_the_budget_the_artifact_cycle_would_pass(self):
-        """run_m1's `--jobs` is the post-build sweeps' width, and the default is the same `sweep_job_budget()` the cycle already passes rather than a checked-in one, so a hand run walks the Manual-pin and oracle belts at the cycle's width instead of a configuration at a time. A CPU budget rather than a memory one, which is why nothing is subtracted from a box here; run_m1's memory ceiling is `--kernel-threads` and these jobs never reach it."""
+        """run_m1's `--jobs` is the post-build sweeps' width, and the default is the same `sweep_job_budget()` the cycle already passes rather than a checked-in one, so a hand run cuts the oracle's tables into row ranges across the cycle's width instead of walking a configuration at a time. The width is the cores under the clamp `ORACLE_SHARD_BYTES` argues, with nothing subtracted for a co-resident pool; run_m1's other memory ceiling is `--kernel-threads`, and these jobs never reach it."""
         import rebuild.tools.artifact_cycle as ac
         from rebuild.pipeline import run_m1
 

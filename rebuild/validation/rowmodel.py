@@ -117,12 +117,18 @@ def header_config_token(header: dict[str, str]) -> str:
     return config.split()[0]
 
 
-def iter_rows(path: Path | str) -> Iterator[Row]:
+def iter_rows(path: Path | str, start: int = 0, stop: int | None = None) -> Iterator[Row]:
+    """The table's rows in file order, parsed from data line `start` up to but not including `stop`. The lines before `start` are read past without being parsed, so a caller walking one range of a table pays the decompression of the prefix and none of its parsing; the default range is the whole table."""
     with open_table(path) as fh:
+        seen = 0
         for line in fh:
             if line.startswith("#") or not line.strip():
                 continue
-            yield Row.from_tsv(line)
+            if stop is not None and seen >= stop:
+                return
+            if seen >= start:
+                yield Row.from_tsv(line)
+            seen += 1
 
 
 def iter_line_chunks(path: Path | str, chunk_size: int, limit: int | None = None) -> Iterator[list[str]]:
