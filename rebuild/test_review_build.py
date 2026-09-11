@@ -682,6 +682,57 @@ def test_the_serial_runner_spools_every_fragment_and_keeps_no_enrichment(tmp_pat
     assert not (tmp_path / review_build.FRESH_SPOOL_NAME).exists()
 
 
+def test_the_stamped_scaffold_keys_are_the_projections_share_of_the_scaffold(mini_bundle):
+    """`hold_scaffold` proves a fresh fragment's stamp by comparing the scaffold keys inside the carry projection instead of re-hashing the fragment, so the guard is as strong as the hash exactly when the keys it compares are the scaffold's whole share of the projection: every key `unit_scaffold` writes is one of `_SCAFFOLD_HEAD` and `_SCAFFOLD_TAIL`, `_STAMPED_SCAFFOLD_KEYS` is that set minus `CARRY_PRESENTATION_KEYS`, and moving a scaffold key moves `carry_content_hash` if and only if the key is a stamped one. A scaffold key added to either tuple fails here until the projection places it."""
+    unit = load_workload(MINI / "audit.tsv", mini_bundle.ledger, dict(LETTERS)).units[0]
+    scaffold_keys = review_build._SCAFFOLD_HEAD + review_build._SCAFFOLD_TAIL
+    scaffold = review_build.unit_scaffold(unit)
+    assert tuple(scaffold) == scaffold_keys
+    assert review_build._STAMPED_SCAFFOLD_KEYS == (
+        "ink_identical",
+        "junior_equivalent",
+        "class",
+        "group",
+        "codepoints",
+        "configs",
+        "config_note",
+        "config_gate",
+        "config_classes",
+        "config_class_note",
+        "render_groups",
+        "kinds",
+    )
+    assert set(review_build._STAMPED_SCAFFOLD_KEYS) == set(scaffold_keys) - unit_cache.CARRY_PRESENTATION_KEYS
+    stamp = unit_cache.carry_content_hash(scaffold)
+    for key in scaffold_keys:
+        moved = unit_cache.carry_content_hash({**scaffold, key: "moved"}) != stamp
+        assert moved == (key in review_build._STAMPED_SCAFFOLD_KEYS), key
+
+
+@pytest.mark.parametrize("key", review_build._SCAFFOLD_HEAD + review_build._SCAFFOLD_TAIL)
+def test_hold_scaffold_raises_exactly_when_the_parent_moves_a_stamped_field(key):
+    """Over pure dicts: a fragment and a scaffold that agree pass in silence, one that differs at a stamped key raises the `SystemExit` naming the unit and the key, and one that differs only at a key outside the projection passes, since the patch may write those freely under the stamp."""
+    fragment = {
+        "id": "u-3mJ7kPq2Xw9",
+        **{name: f"value of {name}" for name in review_build._STAMPED_SCAFFOLD_KEYS},
+    }
+    fragment.update(
+        {name: f"value of {name}" for name in review_build._SCAFFOLD_HEAD if name not in fragment}
+    )
+    fragment.update(
+        {name: f"value of {name}" for name in review_build._SCAFFOLD_TAIL if name not in fragment}
+    )
+    review_build.hold_scaffold(fragment, dict(fragment))
+    scaffold = {**fragment, key: "moved"}
+    if key not in review_build._STAMPED_SCAFFOLD_KEYS:
+        review_build.hold_scaffold(fragment, scaffold)
+        return
+    with pytest.raises(SystemExit) as caught:
+        review_build.hold_scaffold(fragment, scaffold)
+    assert f"unit {fragment['id']}:" in str(caught.value)
+    assert f"other values of {key} than" in str(caught.value)
+
+
 def test_prune_orphan_shards_removes_only_unreferenced_json(tmp_path):
     """Every part the manifest lists survives, and both spellings of a name it no longer lists go: the bare file a class left behind when it grew into parts, and a numbered part a shrinking class no longer fills."""
     units = tmp_path / "units"
