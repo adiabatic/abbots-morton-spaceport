@@ -26,7 +26,6 @@ import yaml
 from rebuild.pipeline import baseline_subset, geometry, kernel_exec, oracle_cache, settle
 from rebuild.pipeline.conform import (
     ACCEPTANCE_CONFIGS,
-    BOUNDARY_GLYPH_NAMES,
     OVERLAY_CONFIGS,
     DivergentRow,
     IsolatedOverlayShaper,
@@ -38,9 +37,8 @@ from rebuild.pipeline.conform import (
     _served_verdict,
     _SettledWindowWalk,
     _verify_served_sample,
-    features_for_config,
-    load_alias_map,
 )
+from rebuild.pipeline.labels import BOUNDARY_GLYPH_NAMES, features_for_config, load_alias_map
 from rebuild.pipeline.model import ResolvedSpec, isolated_overlay_active
 from rebuild.pipeline.spec_load import DEFAULT_REGISTRY_PATH
 from rebuild.tools.peak_rss import peak_rss_self_bytes

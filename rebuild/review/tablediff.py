@@ -262,7 +262,7 @@ class WitnessIndex:
         import itertools
 
         from rebuild.pipeline import kernel_exec, settle
-        from rebuild.pipeline.conform import features_for_config, formed_labels, spec_alphabet
+        from rebuild.pipeline.labels import features_for_config, formed_labels, spec_alphabet
 
         self.spec = spec
         self.config = config

@@ -24,9 +24,14 @@ from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import TYPE_CHECKING, Callable, Iterable, Iterator, Mapping, Sequence, cast
 
-import yaml
-
 from rebuild.pipeline import geometry, kernel_exec, oracle_cache, settle
+from rebuild.pipeline.labels import (
+    BOUNDARY_GLYPH_NAMES,
+    _BOUNDARY_KIND_LABELS,
+    features_for_config,
+    formed_labels,
+    spec_alphabet,
+)
 from rebuild.pipeline.model import (
     CellId,
     GlyphRecord,
@@ -34,12 +39,10 @@ from rebuild.pipeline.model import (
     Settled,
     feature_config_token,
     isolated_overlay_active,
-    marker_glyph_name,
     raw_rename_map,
-    relevant_marker_features,
     ss10_twin_name,
 )
-from rebuild.validation.rowmodel import CONFIGS, Row, format_codepoints, iter_rows
+from rebuild.validation.rowmodel import Row, format_codepoints, iter_rows
 
 if TYPE_CHECKING:
     from rebuild.pipeline.emit_gsub import _FoldedRule
@@ -47,7 +50,6 @@ if TYPE_CHECKING:
 
 ZWNJ = "\u200c"
 ZWNJ_SENTINEL = "<zwnj>"
-BOUNDARY_GLYPH_NAMES = {"space", "uni200C", "periodcentered", "periodcentered.lowered"}
 # The configurations letters settle under: one settlement table, treaty table, window enumeration, settle memo and rule-witness arm each, enumerated by the kernel one process apiece.
 SETTLEMENT_CONFIGS = ("default", "ss03", "ss04", "ss05", "ss03+ss05")
 # The isolated-overlay taste configurations: no table, because nothing settles under them (`model.isolated_overlay_active`); swept at `OVERLAY_HORIZON` behind read-back's isolation proof and oracled against the bare stream. `rebuild/test_conform.py` holds this roster to the registry's `overlay: isolated` features.
@@ -158,18 +160,6 @@ class Shaper:
             cached = tuple(pen.value)
             self._outline_cache[glyph_name] = cached
         return cached
-
-
-def spec_alphabet(spec: ResolvedSpec) -> tuple[str, ...]:
-    codepoints = sorted(
-        [rune.codepoint for rune in spec.runes.values() if rune.codepoint is not None]
-        + [token.codepoint for token in spec.registry.boundary_tokens.values()]
-    )
-    return tuple(chr(cp) for cp in codepoints)
-
-
-def features_for_config(config: str) -> frozenset[str]:
-    return frozenset(tag for tag, on in CONFIGS[config].items() if on)
 
 
 def zwnj_slots(text: str, shaped: list[dict]) -> set[int]:
@@ -352,9 +342,6 @@ def anchors_in_font_units(glyphs_by_name: Mapping[str, GlyphRecord]) -> Callable
     return lookup
 
 
-_BOUNDARY_KIND_LABELS = {"space": "space", "zwnj": "uni200C", "namer-dot": "periodcentered"}
-
-
 def isolated_overlay_labels(spec: ResolvedSpec, tokens: Sequence[settle.RightToken]) -> list[str]:
     """The glyph names an `overlay: isolated` taste set renders for raw tokens: every letter its anchor-free `.ss10` twin, every boundary token its own glyph. One name per raw token, because the pre-empt substitutes the twins before formation and no ligature ever forms — the 2026-07-04 ratification that join suppression also means ligation suppression."""
     return [
@@ -466,30 +453,6 @@ def raw_labels(
         else:
             raise ValueError(f"U+{cp:04X} outside the spec alphabet")
     return formed_labels(spec, settle.form_ligatures(spec, tokens, guard_verdicts), features)
-
-
-def formed_labels(spec: ResolvedSpec, formed: list[settle.RightToken], features: frozenset[str]) -> list[str]:
-    """The post-formation stream's labels in the config's renamed space: marker fold, then the ZWNJ chokepoint's `.noentry` suffix on entry-bearing letters. Interned, so the window keys built from millions of texts share one string object per label instead of holding a fresh fold per text alive."""
-    labels: list[str] = []
-    for position, token in enumerate(formed):
-        if token.kind != "letter":
-            labels.append(_BOUNDARY_KIND_LABELS[token.kind])
-            continue
-        name = token.letter
-        rune = spec.runes.get(name)
-        label = name
-        if rune is not None:
-            relevant = frozenset(relevant_marker_features(rune)) & features
-            label = marker_glyph_name(name, relevant)
-        if (
-            position > 0
-            and formed[position - 1].kind == "zwnj"
-            and rune is not None
-            and any(stance.surface.entries for stance in rune.stances.values())
-        ):
-            label = f"{label}.noentry"
-        labels.append(sys.intern(label))
-    return labels
 
 
 _WINDOW_BOUNDARIES = frozenset({"space", "uni200C", "periodcentered"})
@@ -1544,24 +1507,6 @@ class DivergentRow:
     new_cells: tuple[str, ...]
     new_seams: tuple[str, ...]
     phenomena: tuple[str, ...] = ()
-
-
-def load_alias_map(path: Path) -> dict[str, CellId | str]:
-    """rebuild/m1-aliases.yaml: old compiled glyph name -> CellId fields, or the literal strings "boundary" / "ignore" / "pending" (an acknowledged not-yet-authored entry: the completeness gate lets it through, but the comparison still treats the name as unaliased)."""
-    raw = yaml.safe_load(Path(path).read_text()) or {}
-    aliases: dict[str, CellId | str] = {}
-    for old_name, value in raw.items():
-        if isinstance(value, str):
-            aliases[old_name] = value
-            continue
-        aliases[old_name] = CellId(
-            rune=value["rune"],
-            stance=value["stance"],
-            entry=value.get("entry"),
-            exit=value.get("exit"),
-            adjustments=tuple(value.get("adjustments", ())),
-        )
-    return aliases
 
 
 def _seam_token(spec: ResolvedSpec, seam) -> str:
