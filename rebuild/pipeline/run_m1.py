@@ -242,7 +242,7 @@ def _table_build_threads(kernel_threads: int | None) -> int:
 
 
 def _core_bound_threads(count: int) -> int:
-    """The width of a per-configuration pool whose task is core-bound and holds nothing the memory-derived width prices: one task per settlement configuration, capped at the cores this process may actually run on, floored at one. A window packer holds a zlib stream and `_pack_windows`'s copy buffer — `_pack_windows` over the plain `default` enumeration from a `ThreadPoolExecutor` measures 4.31s, 4.43s and 4.40s per task at widths 1, 3 and 5 with maxrss 0.090, 0.097 and 0.107 GB, so it scales flat and widening it costs nothing — and a shipped-order walk is one single-threaded crate process that holds the rules and the labels and streams the rows, 0.105 GB of child RSS against a table build whose peak is the crate's. `AMS_KERNEL_THREADS` and `--kernel-threads` deliberately do not reach a pool sized here: that knob exists to keep the table build out of swap, so a build stated one wide narrows the crate's delta wave and the string replay while the packing and the walks still run every configuration at once."""
+    """The width of a per-configuration pool whose task is core-bound and holds nothing the memory-derived width prices: one task per settlement configuration, capped at the cores this process may actually run on, floored at one. A window packer holds a zlib stream and `_pack_windows`'s copy buffer — `_pack_windows` over the plain `default` enumeration from a `ThreadPoolExecutor` measures 1.26s, 1.22s and 1.30s per task at widths 1, 3 and 5 with maxrss 0.044, 0.054 and 0.062 GB, so it scales flat and widening it costs nothing — and a shipped-order walk is one single-threaded crate process that holds the rules and the labels and streams the rows, 0.105 GB of child RSS against a table build whose peak is the crate's. `AMS_KERNEL_THREADS` and `--kernel-threads` deliberately do not reach a pool sized here: that knob exists to keep the table build out of swap, so a build stated one wide narrows the crate's delta wave and the string replay while the packing and the walks still run every configuration at once."""
     return max(1, min(count, usable_cores()))
 
 
@@ -410,11 +410,11 @@ def overlay_table_files(tables_dir: Path, config: str) -> tuple[Path, ...]:
 
 
 def _pack_windows(payload: Path, path: Path) -> None:
-    """The plain window enumeration the kernel wrote, packed into the artifact beside the TSVs — a zeroed gzip stamp so two builds of one table are byte-identical, and level 6 rather than zlib's maximum, which is a wall-clock choice and not a contract one: what anything states identity at is the decompressed bytes. The crate's `artifacts::write_windows` carries the same note beside the payload it writes, and the memo files are packed the same way for the same reason."""
+    """The plain window enumeration the kernel wrote, packed into the artifact beside the TSVs — a zeroed gzip stamp so two builds of one table are byte-identical, and level 1, because the payload is gigabytes of plain TSV per build, written once and read back a handful of times, and the compressor's seconds come off every build that writes an `out_dir`. The level is a wall-clock choice and not a contract one: what anything states identity at is the decompressed bytes. The crate's `artifacts::write_windows` carries the same note beside the payload it writes, and the memo files are packed the same way for the same reason."""
     with (
         payload.open("rb") as source,
         path.open("wb") as raw,
-        gzip.GzipFile(filename="", fileobj=raw, mode="wb", mtime=0, compresslevel=6) as packed,
+        gzip.GzipFile(filename="", fileobj=raw, mode="wb", mtime=0, compresslevel=1) as packed,
     ):
         shutil.copyfileobj(source, packed, length=1 << 20)
 

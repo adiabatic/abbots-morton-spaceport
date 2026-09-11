@@ -2,6 +2,7 @@
 
 import gzip
 import json
+import shutil
 
 import pytest
 
@@ -38,17 +39,18 @@ def written(build_a):
 
 
 def restamp(source, dest, inputs):
-    """One enumeration under a different fingerprint: the head's `inputs` field rewritten in the payload and the whole thing repacked the way `run_m1._pack_windows` packs one, zeroed stamp included."""
+    """One enumeration under a different fingerprint: the head's `inputs` field rewritten in the payload and the whole thing repacked through `run_m1._pack_windows` itself, so the fixture carries the build's own stamp and level. The plain body passes through a scratch file beside `dest`, removed once packed, because `_pack_windows` reads its payload from a path."""
     marker, _, payload = gzip.decompress(source.read_bytes()).decode().partition("\t")
     head, _, rows = payload.partition("\n")
     record = json.loads(head)
     record["inputs"] = inputs
     body = f"{marker}\t{json.dumps(record, separators=(',', ':'))}\n{rows}"
-    with (
-        dest.open("wb") as raw,
-        gzip.GzipFile(filename="", fileobj=raw, mode="wb", mtime=0, compresslevel=6) as handle,
-    ):
-        handle.write(body.encode())
+    plain = dest.with_name(f"restamp-{dest.name}.tsv")
+    plain.write_bytes(body.encode())
+    try:
+        run_m1._pack_windows(plain, dest)
+    finally:
+        plain.unlink()
 
 
 class TestRoundTrip:
@@ -100,6 +102,26 @@ class TestRoundTrip:
                 assert (first / name).read_bytes() == (build_b / name).read_bytes(), name
             packed = table_module.windows_path(first, config)
             assert packed.read_bytes() == table_module.windows_path(build_b, config).read_bytes(), config
+
+    def test_the_pack_level_is_outside_what_the_artifact_claims(self, written, tmp_path):
+        """Identity is stated at the decompressed bytes, so the compression level is the clock's to choose: the build's payload packed at zlib's fastest and at its maximum is two different files, and each reads back to the artifact's stamp and digest."""
+        repacked = {}
+        for level in (1, 9):
+            repacked[level] = tmp_path / f"repacked-{level}.tsv.gz"
+            with (
+                gzip.GzipFile(written, "rb") as source,
+                repacked[level].open("wb") as raw,
+                gzip.GzipFile(filename="", fileobj=raw, mode="wb", mtime=0, compresslevel=level) as packed,
+            ):
+                shutil.copyfileobj(source, packed)
+        assert repacked[1].read_bytes() != repacked[9].read_bytes()
+        for path in repacked.values():
+            assert table_module.read_windows(path, windows=False)[0] == "fp-sources"
+        digests = {
+            table_module.windows_digest(table_module.read_windows(path)[1])
+            for path in (written, *repacked.values())
+        }
+        assert len(digests) == 1
 
     def test_a_file_that_is_not_an_enumeration_is_refused(self, tmp_path):
         path = table_module.windows_path(tmp_path, "default")
