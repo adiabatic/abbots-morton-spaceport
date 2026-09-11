@@ -8,12 +8,13 @@
 //!
 //! The product's own seats are a different table from the head's. A row holds its settled record and its left's as a [`SettledSeat`] apiece into [`FixpointProduct::seats`], in the order the fixpoint first reached each record, and that table never crosses the boundary: the writer resolves a row's seat to the record, and the record's cell to the head's seat, and spells only the latter. Two tables rather than one because they answer different questions — the head's is the cell vocabulary in `_cell_key` order, a contract Python reads, and the product's is every distinct settled triple, an economy the crate keeps to itself. A row's provenance is seated the same way, as a [`NotesSeat`] into [`FixpointProduct::notes`], and that table stays on this side of the boundary too: the writer spells the list the seat names, in the order the trace left it.
 
-use std::collections::{BTreeSet, HashMap, HashSet};
+use std::collections::BTreeSet;
 use std::fmt::Write as _;
 use std::io::Write as _;
 use std::rc::Rc;
 
 use crate::emit::{escape_into, json_string};
+use crate::hash::{HashMap, HashSet};
 use crate::index::SpecIndex;
 use crate::model::Sym;
 use crate::types::{CellId, NotesSeat, Settled, SettledSeat, adjustment_text};
@@ -151,7 +152,7 @@ pub fn write_transitions(
         .collect();
     cells.sort_by(|left, right| left.0.cmp(&right.0));
     // A whole-list dedup rather than the adjacent-only one: equal cells always sort together, but the sort key is the label view, so only injectivity of `cell_key` would make adjacency sufficient — and that premise belongs to Python's `_cell_key`, not to this emitter.
-    let mut counted: HashSet<&CellId> = HashSet::new();
+    let mut counted: HashSet<&CellId> = HashSet::default();
     cells.retain(|(_, cell)| counted.insert(*cell));
     let seats: HashMap<&CellId, usize> = cells
         .iter()

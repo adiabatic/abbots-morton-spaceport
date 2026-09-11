@@ -6,9 +6,10 @@
 //!
 //! Evaluation is stratified and stays that way here: predicate-class membership arrives pre-resolved from the registry through [`SpecIndex::class_members`], so expanding a policy condition never re-enters settlement. The one place expansion is deliberately approximate is `except:` — a carve-out that constrains anything beyond the family axis is ignored rather than modeled, an over-approximation that can only push a pair toward INCOMPARABLE, which is the refuse-to-guess direction.
 
-use std::collections::{BTreeSet, HashMap, HashSet};
+use std::collections::BTreeSet;
 
 use crate::error::SettleError;
+use crate::hash::{HashMap, HashSet};
 use crate::index::SpecIndex;
 use crate::model::{Condition, PolicyRecord, Sym, When};
 use crate::types::provenance_pointer;
@@ -62,7 +63,7 @@ pub fn axis_sets(
     when: &When,
     owner: Option<Sym>,
 ) -> Result<AxisSets, SettleError> {
-    let mut axes = AxisSets::new();
+    let mut axes = AxisSets::default();
     side_axes(
         index,
         when.left.as_ref(),
@@ -990,7 +991,7 @@ mod tests {
         assert_eq!(compare_axes(&broad, &narrow), Ordering::BOutranks);
         assert_eq!(compare_axes(&narrow, &narrow), Ordering::Equal);
         assert_eq!(
-            compare_axes(&AxisSets::new(), &AxisSets::new()),
+            compare_axes(&AxisSets::default(), &AxisSets::default()),
             Ordering::Equal
         );
     }

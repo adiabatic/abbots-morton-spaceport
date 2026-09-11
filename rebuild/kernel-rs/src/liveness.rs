@@ -12,11 +12,11 @@
 //!
 //! One instance per build, lent to both filters and to [`crate::fiber::DeepFiberDeriver`], and holding no engine of its own. The filters take the engine per call precisely so a second one cannot exist, which is what lets the probe hold no engine and need no cache keyed on one.
 
-use std::collections::{HashMap, HashSet};
 use std::rc::Rc;
 
 use crate::engine::{Engine, Slots};
 use crate::error::{SettleError, SettleErrorKind};
+use crate::hash::{HashMap, HashSet};
 use crate::index::SpecIndex;
 use crate::model::{Condition, PolicyRecord, Sym};
 use crate::types::{
@@ -68,17 +68,17 @@ impl<'i> ProspectLiveness<'i> {
         Self {
             index,
             tokens: None,
-            left_classes: HashMap::new(),
-            shapes: HashMap::new(),
-            conds: HashMap::new(),
-            sigs: HashMap::new(),
-            seat3: HashMap::new(),
-            joint34: HashMap::new(),
-            prospect3: HashMap::new(),
-            vote3: HashMap::new(),
-            seat4: HashMap::new(),
-            prospect4: HashMap::new(),
-            vote4: HashMap::new(),
+            left_classes: HashMap::default(),
+            shapes: HashMap::default(),
+            conds: HashMap::default(),
+            sigs: HashMap::default(),
+            seat3: HashMap::default(),
+            joint34: HashMap::default(),
+            prospect3: HashMap::default(),
+            vote3: HashMap::default(),
+            seat4: HashMap::default(),
+            prospect4: HashMap::default(),
+            vote4: HashMap::default(),
         }
     }
 
@@ -190,7 +190,7 @@ impl<'i> ProspectLiveness<'i> {
             LeftContext::boundary(TokenKind::Zwnj),
             LeftContext::boundary(TokenKind::NamerDot),
         ];
-        let mut seen: HashSet<Signature> = HashSet::new();
+        let mut seen: HashSet<Signature> = HashSet::default();
         let left_families: Vec<Sym> = self.index.runes().iter().map(|(name, _)| *name).collect();
         for left_family in left_families {
             for (stance, seam) in self.input_shapes(left_family).iter().copied() {
@@ -249,7 +249,7 @@ impl<'i> ProspectLiveness<'i> {
                     seams.push(Some(exit));
                 }
             }
-            let mut seen: HashSet<Option<Sym>> = HashSet::new();
+            let mut seen: HashSet<Option<Sym>> = HashSet::default();
             for seam in seams {
                 if seen.insert(seam) {
                     out.push((*stance_name, seam));

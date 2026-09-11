@@ -16,6 +16,7 @@ pub mod fiber;
 pub mod fixpoint;
 pub mod fold;
 pub mod guard;
+pub mod hash;
 pub mod index;
 pub mod liveness;
 pub mod memo;

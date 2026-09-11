@@ -6,9 +6,9 @@
 //!
 //! Nothing in this module reads the spec beyond resolving symbols for the two places settlement formats a name into prose — [`cell_label`], which the E-STRANDED message and the TSV artifacts read, and [`adjustment_text`], which spells the generated tokens. Both take the [`SpecIndex`] rather than a bare interner, because a label also needs the registry's height-to-y map, and because the index is what every caller already has in hand.
 
-use std::collections::HashMap;
 use std::num::NonZeroU32;
 
+use crate::hash::HashMap;
 use crate::index::SpecIndex;
 use crate::model::{Provenance, Sym};
 

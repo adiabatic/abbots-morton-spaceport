@@ -8,13 +8,14 @@
 //!
 //! One engine settles everything, and the two slot filters, the liveness probe and the fiber deriver all borrow it rather than building their own. That is load-bearing twice over: the trace memo makes a re-reached window free, and `Engine::fired` is the product's `cited_provenance`, so a probe running through a second engine would silently shrink what the dead-policy gate is told fired. The same argument makes the liveness probe a single instance lent to both filters and to the deriver.
 
-use std::collections::{BTreeSet, HashMap, HashSet};
+use std::collections::BTreeSet;
 use std::rc::Rc;
 
 use crate::census::{FourthSlotFilter, ThirdSlotFilter, fourth_slot_inputs, third_slot_inputs};
 use crate::engine::{CacheSize, Engine, EngineModes, Slots};
 use crate::error::SettleError;
 use crate::fiber::DeepFiberDeriver;
+use crate::hash::{HashMap, HashSet};
 use crate::index::SpecIndex;
 use crate::liveness::ProspectLiveness;
 use crate::memo::{MemoBase, MemoSnapshot};
@@ -354,11 +355,11 @@ fn enumerate_seeded<'i>(
     let mut labels = LabelPool::default();
     let mut seats = SettledPool::default();
     let mut notes = NotesPool::default();
-    let mut transitions: HashMap<WindowKey, Row> = HashMap::new();
+    let mut transitions: HashMap<WindowKey, Row> = HashMap::default();
     // The pending class-grain rows, split from the seats their keys hold, so that the echo pass walks them in the order they were created.
     let mut pending_rows: Vec<PendingDeepRow> = Vec::new();
-    let mut pending_seats: HashMap<PendingKey, usize> = HashMap::new();
-    let mut seen: HashSet<Item> = HashSet::new();
+    let mut pending_seats: HashMap<PendingKey, usize> = HashMap::default();
+    let mut seen: HashSet<Item> = HashSet::default();
     let mut worklist = seeds(&options);
 
     while let Some(item) = worklist.pop() {
@@ -722,7 +723,7 @@ fn enumerate_seeded<'i>(
     }
 
     let mut deep_classes: Vec<(String, Vec<String>)> = Vec::new();
-    let mut named_classes: HashSet<String> = HashSet::new();
+    let mut named_classes: HashSet<String> = HashSet::default();
     // The section 2.6 echo check, and the class rows' emission with it: for every multi-member row the last admitted member is re-traced at the row's real left — and the last r4 member at the representative third — and its whole row-visible record must equal the representative's. That is the standing real-left, real-entry, real-adjustment guard on the virtual-left collapse the fibers import, two members deep on every build.
     for pending in &pending_rows {
         let (label3, admitted3) = match pending.boundary3 {
@@ -925,8 +926,8 @@ fn enumerate_seeded<'i>(
         ));
     }
     // The product's cells are a set rather than a per-row list; collapsing the repeats here rather than at the emitter keeps one cell per seat out of one clone per row. A row's seat is checked before its cell because most rows share a seat already seen, and an integer set answers that without touching the cell at all.
-    let mut seen_seats: HashSet<SettledSeat> = HashSet::new();
-    let mut counted: HashSet<&CellId> = HashSet::new();
+    let mut seen_seats: HashSet<SettledSeat> = HashSet::default();
+    let mut counted: HashSet<&CellId> = HashSet::default();
     let mut cells: Vec<CellId> = Vec::new();
     for row in &rows {
         if seen_seats.insert(row.settled) {
@@ -955,8 +956,8 @@ fn enumerate_seeded<'i>(
             fourth_slot_matters: &mut fourth_slot_matters,
             deep_inputs: &deep_inputs,
             deep4_inputs: &deep4_inputs,
-            contexts: HashMap::new(),
-            r4_lists: HashMap::new(),
+            contexts: HashMap::default(),
+            r4_lists: HashMap::default(),
         };
         check.run(&product)?;
     }
@@ -1212,9 +1213,9 @@ impl DeepPartitionCheck<'_, '_> {
             .iter()
             .map(|(token, members)| (token.as_str(), members.as_slice()))
             .collect();
-        let mut used: HashSet<&str> = HashSet::new();
-        let mut seen3: HashMap<[&str; 4], HashMap<&str, &str>> = HashMap::new();
-        let mut seen4: HashMap<([&str; 4], &str), HashMap<&str, &str>> = HashMap::new();
+        let mut used: HashSet<&str> = HashSet::default();
+        let mut seen3: HashMap<[&str; 4], HashMap<&str, &str>> = HashMap::default();
+        let mut seen4: HashMap<([&str; 4], &str), HashMap<&str, &str>> = HashMap::default();
         for row in &product.transitions {
             let key = row.key();
             let family = rune_of(index, row.input_glyph.split('.').next().unwrap_or_default());
@@ -1312,7 +1313,7 @@ impl DeepPartitionCheck<'_, '_> {
                     ));
                 }
             }
-            let mut verdicts: HashSet<bool> = HashSet::new();
+            let mut verdicts: HashSet<bool> = HashSet::default();
             for member in &members3 {
                 let third = rune_of(index, member).expect("the member is inside the option list");
                 verdicts.insert(
@@ -1435,8 +1436,8 @@ impl DeepPartitionCheck<'_, '_> {
                 right2,
             )
             .map_err(complaint)?;
-        let mut static_letters: HashSet<Sym> = HashSet::new();
-        let mut fiber_of: HashMap<Sym, usize> = HashMap::new();
+        let mut static_letters: HashSet<Sym> = HashSet::default();
+        let mut fiber_of: HashMap<Sym, usize> = HashMap::default();
         for (seat, fiber) in fibers.fibers.iter().enumerate() {
             for member in &fiber.members {
                 static_letters.insert(member.letter());
@@ -1490,8 +1491,8 @@ impl DeepPartitionCheck<'_, '_> {
                 .sym_of(name)
                 .unwrap_or_else(|| panic!("the fixture mentions {name}"))
         };
-        let mut static_letters: HashSet<Sym> = HashSet::new();
-        let mut fiber_of: HashMap<Sym, usize> = HashMap::new();
+        let mut static_letters: HashSet<Sym> = HashSet::default();
+        let mut fiber_of: HashMap<Sym, usize> = HashMap::default();
         for (seat, fiber) in fibers.iter().enumerate() {
             for member in *fiber {
                 static_letters.insert(named(member));
@@ -2062,7 +2063,7 @@ mod tests {
     #[test]
     fn a_deep_label_is_the_bare_letter_alone_and_a_class_id_otherwise() {
         let mut classes: Vec<(String, Vec<String>)> = Vec::new();
-        let mut named: HashSet<String> = HashSet::new();
+        let mut named: HashSet<String> = HashSet::default();
         assert_eq!(
             deep_label(&mut classes, &mut named, owned(&["qsPea"])),
             "qsPea"
@@ -2131,8 +2132,8 @@ mod tests {
             fourth_slot_matters: &mut fourth,
             deep_inputs: &deep_inputs,
             deep4_inputs: &deep4_inputs,
-            contexts: HashMap::new(),
-            r4_lists: HashMap::new(),
+            contexts: HashMap::default(),
+            r4_lists: HashMap::default(),
         };
         for (context, fibers) in contexts {
             check.seed_context(index, *context, fibers);

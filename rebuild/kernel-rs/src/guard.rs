@@ -6,10 +6,9 @@
 //!
 //! One structural note: `GuardState::follower_formation` is answered once up front rather than inside the per-engine loop. It reads the spec and the two slots and nothing of the engine, so the answer is the same either way, and hoisting it is what lets the verdict memo and the engines be borrowed apart.
 
-use std::collections::{HashMap, HashSet};
-
 use crate::engine::{Engine, EngineModes, Slots};
 use crate::error::SettleError;
+use crate::hash::{HashMap, HashSet};
 use crate::index::SpecIndex;
 use crate::model::Sym;
 use crate::types::{
@@ -63,7 +62,7 @@ impl<'i> GuardState<'i> {
         Self {
             index,
             engines,
-            verdicts: HashMap::new(),
+            verdicts: HashMap::default(),
         }
     }
 
@@ -199,7 +198,7 @@ impl<'i> GuardState<'i> {
 
 /// Every feature some capability unlock is gated on, in sorted-name order — the axes the verdict is quantified over. Sorting is by the resolved text and not by symbol, because interning order is an accident of what the dump mentioned first.
 fn capability_features(index: &SpecIndex) -> Vec<Sym> {
-    let mut seen: HashSet<Sym> = HashSet::new();
+    let mut seen: HashSet<Sym> = HashSet::default();
     let mut features: Vec<Sym> = Vec::new();
     for (_, rune) in index.runes() {
         for (_, stance) in &rune.stances {

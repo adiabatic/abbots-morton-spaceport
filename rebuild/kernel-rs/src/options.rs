@@ -6,11 +6,12 @@
 //!
 //! The overwrite in [`WindowOptions::survivable`] is load-bearing and is kept rather than smoothed over: two ligatures whose sequences end in the same `(lead, trail)` pair both write at that pair's seat, and the one that wins is the one the dump declares later, because the loop walks the runes in the model's stored order. The enumeration's admission of an unformed pair therefore depends on which ligature spoke last.
 
-use std::collections::{BTreeSet, HashMap, HashSet};
+use std::collections::BTreeSet;
 use std::rc::Rc;
 
 use crate::error::SettleError;
 use crate::guard::GuardState;
+use crate::hash::{HashMap, HashSet};
 use crate::index::SpecIndex;
 use crate::model::{Rune, Sym};
 use crate::types::{EDGE, NAMER_DOT, RightToken, SPACE, TokenKind, ZWNJ};
@@ -26,7 +27,7 @@ pub type FollowerMap = HashMap<Sym, Option<BTreeSet<RightToken>>>;
 
 /// Every adjacent `(lead, trail)` pair every rune's sequence spells. Membership is the only question ever asked of it, so an unordered set is the honest type.
 pub fn formation_pairs(index: &SpecIndex) -> HashSet<FormationPair> {
-    let mut pairs = HashSet::new();
+    let mut pairs = HashSet::default();
     for (_, rune) in index.runes() {
         let Some(sequence) = rune_sequence(rune) else {
             continue;
@@ -56,13 +57,13 @@ pub fn survivable_formation_windows(
     right_letters: &[RightToken],
     right_boundaries: &[RightToken],
 ) -> Result<HashMap<FormationPair, Rc<FollowerMap>>, SettleError> {
-    let mut out: HashMap<FormationPair, Rc<FollowerMap>> = HashMap::new();
+    let mut out: HashMap<FormationPair, Rc<FollowerMap>> = HashMap::default();
     for (name, rune) in index.runes() {
         let Some(sequence) = rune_sequence(rune) else {
             continue;
         };
         let pair = (sequence[sequence.len() - 2], sequence[sequence.len() - 1]);
-        let mut follower_map = FollowerMap::new();
+        let mut follower_map = FollowerMap::default();
         for follower in right_letters {
             if let Some(follower_sequence) = sequence_of(index, follower.letter()) {
                 let lead = RightToken::Letter(follower_sequence[follower_sequence.len() - 2]);
@@ -94,7 +95,7 @@ pub fn survivable_formation_windows(
                 continue;
             }
             let second = RightToken::Letter(liga_sequence[1]);
-            let mut via_map = FollowerMap::new();
+            let mut via_map = FollowerMap::default();
             for follower in right_letters {
                 if guard.formation_blocked(*name, second, raw_of(index, *follower))? {
                     via_map.insert(follower.letter(), None);
@@ -156,7 +157,7 @@ impl<'i> WindowOptions<'i> {
         let formation_pairs = formation_pairs(index);
         let survivable =
             survivable_formation_windows(index, &mut guard, &right_letters, &right_boundaries)?;
-        let mut liga_sequences: HashMap<Sym, &'i [Sym]> = HashMap::new();
+        let mut liga_sequences: HashMap<Sym, &'i [Sym]> = HashMap::default();
         for (name, rune) in index.runes() {
             if let Some(sequence) = rune_sequence(rune) {
                 liga_sequences.insert(*name, sequence);

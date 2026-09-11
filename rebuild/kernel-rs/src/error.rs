@@ -103,7 +103,7 @@ impl std::error::Error for SettleError {}
 
 #[cfg(test)]
 mod tests {
-    use std::collections::HashMap;
+    use crate::hash::HashMap;
 
     use super::*;
 
@@ -137,7 +137,7 @@ mod tests {
 
     #[test]
     fn a_kind_keys_a_map_and_survives_the_message_changing() {
-        let mut tally: HashMap<SettleErrorKind, usize> = HashMap::new();
+        let mut tally: HashMap<SettleErrorKind, usize> = HashMap::default();
         for outcome in one_of_each() {
             *tally.entry(outcome.kind()).or_default() += 1;
         }

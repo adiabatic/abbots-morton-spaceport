@@ -4,7 +4,6 @@
 //!
 //! The digest is not a file. It is one scalar per configuration, reported on stdout for the caller to hold in acceptance order, rather than a second per-configuration artifact family that nothing else reads and that a stale copy could poison.
 
-use std::collections::HashSet;
 use std::fmt::Write as _;
 use std::io::Write as _;
 use std::path::Path;
@@ -12,6 +11,7 @@ use std::rc::Rc;
 
 use crate::emit::{escape_into, json_string};
 use crate::fold::{DecisionTable, Rule, TreatyTable};
+use crate::hash::HashSet;
 use crate::index::SpecIndex;
 use crate::sha256;
 use crate::stream::{TransitionRow, cell_key};
@@ -177,7 +177,7 @@ fn sorted_cells<'a>(index: &SpecIndex, cells: &'a [CellId]) -> Vec<&'a CellId> {
         .collect();
     seated.sort_by(|left, right| left.0.cmp(&right.0));
     // A whole-list dedup rather than the adjacent-only one, for the reason `stream::write_transitions` gives beside its own: equal cells always sort together, but the sort key is the label view, so only injectivity of `_cell_key` would make adjacency sufficient.
-    let mut counted: HashSet<&CellId> = HashSet::new();
+    let mut counted: HashSet<&CellId> = HashSet::default();
     seated.retain(|(_, cell)| counted.insert(*cell));
     seated.into_iter().map(|(_, cell)| cell).collect()
 }

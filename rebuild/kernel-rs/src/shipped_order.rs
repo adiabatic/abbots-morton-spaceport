@@ -4,11 +4,11 @@
 //!
 //! The walk is O(rows) with a bounded set of rules per input and nothing settled: the tables are the settled answer, and what is checked is whether the lookup that ships reads them back. That is what lets it run on every build, keyed on the same inputs as the tables, where the HarfBuzz belt that also proves the shipped order keys on code and on behavior classes and skips a rune edit that mints no new shape.
 
-use std::collections::{HashMap, HashSet};
 use std::io::BufRead;
 
 use crate::artifacts::WINDOWS_FORMAT;
 use crate::fold::{Rule, first_match, rules_by_input};
+use crate::hash::{HashMap, HashSet};
 use crate::replay::Labels;
 
 /// What one configuration's walk answered: how many rows it tried, and how many of them it tried member by member because an emitted look class admitted their deep class in part.
@@ -80,8 +80,8 @@ struct Order {
 impl Order {
     /// The emitted rules indexed, with every class of the configuration held against every look class: a class the slot admits whole joins the slot under its token, a class it admits in part is recorded as a split.
     fn new(labels: &mut Labels, rules: &[Rule], classes: &[(u32, Vec<u32>)]) -> Self {
-        let mut by_input: HashMap<u32, Vec<EmittedRule>> = HashMap::new();
-        let mut splits: HashSet<(usize, usize, u32)> = HashSet::new();
+        let mut by_input: HashMap<u32, Vec<EmittedRule>> = HashMap::default();
+        let mut splits: HashSet<(usize, usize, u32)> = HashSet::default();
         for (seat, rule) in rules.iter().enumerate() {
             let input = labels.intern(&rule.input_glyph);
             let mut slot = |members: &Option<Vec<std::rc::Rc<str>>>| {
