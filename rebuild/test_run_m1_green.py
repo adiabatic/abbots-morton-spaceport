@@ -127,6 +127,22 @@ def test_red_leaves_a_record_for_other_content_alone(green_store):
     assert record["fingerprint"] == "fp-other"
 
 
+class _JoinedGates:
+    """A `TableGates` whose branch is already done and green: what a stubbed `run` hands `main` beside its summary, so the memo wait, the join and the close all return at once."""
+
+    def wait_for_memo(self):
+        return None
+
+    def join(self):
+        return None
+
+    def first_red(self):
+        return None
+
+    def close(self):
+        return None
+
+
 def _stub_full_run(monkeypatch, *, defect_errors=(), pins=True, pins_in_scope=143, multi_matched=0):
     monkeypatch.setattr(run_m1.oracle, "unaliased_subset_names", lambda subset_dir, alias_path: {})
     monkeypatch.setattr(run_m1.baseline_subset, "ensure_fresh", lambda repo_root: False)
@@ -135,10 +151,10 @@ def _stub_full_run(monkeypatch, *, defect_errors=(), pins=True, pins_in_scope=14
     monkeypatch.setattr(
         run_m1,
         "run",
-        lambda spec, inputs, kernel_threads=None, memo_inputs=None: {
-            "defect_errors": list(defect_errors),
-            "notes": [],
-        },
+        lambda spec, inputs, kernel_threads=None, memo_inputs=None, sweep_jobs=None: (
+            {"defect_errors": list(defect_errors), "notes": []},
+            _JoinedGates(),
+        ),
     )
     monkeypatch.setattr(
         run_m1,
@@ -179,8 +195,8 @@ def test_main_refreshes_the_baseline_subset_before_anything_reads_it(monkeypatch
     monkeypatch.setattr(
         run_m1,
         "run",
-        lambda spec, inputs, kernel_threads=None, memo_inputs=None: events.append("run")
-        or {"defect_errors": [], "notes": []},
+        lambda spec, inputs, kernel_threads=None, memo_inputs=None, sweep_jobs=None: events.append("run")
+        or ({"defect_errors": [], "notes": []}, _JoinedGates()),
     )
     monkeypatch.setattr(
         run_m1,

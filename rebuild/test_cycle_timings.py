@@ -808,3 +808,44 @@ def test_main_by_outcome_reads_check_lines_only(tmp_path, capsys):
     assert ct.main(["--journal", str(path), "--by-outcome"]) == 0
     out = capsys.readouterr().out
     assert "gate:conform" not in out
+
+
+def test_parse_inner_timings_finds_every_label_when_two_branches_interleave():
+    """run_m1's table-only branch and its glyph chain print into one step log at once; each producer writes a whole line in one write, so however the lines interleave every label is found."""
+    text = "\n".join(
+        [
+            "[t] build_tables_total 247.9s rss_gb=16.13",
+            "[phase] replay_strings",
+            "[phase] glyph_minting",
+            "[t] glyph_minting 0.0s",
+            "[progress] 1/5 packed configurations",
+            "[phase] compile_font",
+            "[t] pack_windows[ss04] 7.1s",
+            "[t] compile_font 10.3s",
+            "[t] emitted_order[ss04] 8.6s rows=7623532 expanded=182",
+            "[t] readback 1.0s",
+            "[t] replay_strings 26.1s rss_gb=16.13",
+            "replay_strings: horizon 4, whole universe",
+            "[t] run_total 260.0s rss_gb=16.13",
+            "[t] rule_witnesses 18.2s",
+            "[t] settle_memo_wait 31.4s",
+            "[t] emitted_order 17.1s",
+            "[t] pack_windows_total 22.7s",
+            "[t] run_oracle 86.5s",
+        ]
+    )
+    assert [item["label"] for item in ct.parse_inner_timings(text)] == [
+        "build_tables_total",
+        "glyph_minting",
+        "pack_windows[ss04]",
+        "compile_font",
+        "emitted_order[ss04]",
+        "readback",
+        "replay_strings",
+        "run_total",
+        "rule_witnesses",
+        "settle_memo_wait",
+        "emitted_order",
+        "pack_windows_total",
+        "run_oracle",
+    ]

@@ -804,3 +804,55 @@ def test_two_children_at_once_never_splice_a_line(capsys, tmp_path):
         assert len(lines) == 400
         assert sum(1 for line in lines if line.startswith(console.STDERR_TAG)) == 200
         assert all(f"[warn] {tag}-" in line for line in lines)
+
+
+def test_two_phases_open_at_once_close_by_their_own_timing_lines_in_either_order(capsys):
+    """run_m1's two branches each open phases of their own — the glyph chain's `compile_font` beside the table-only branch's `replay_strings` — and either may close first; each `[t]` line closes the phase of its own label and no other."""
+    clock = _Clock()
+    digest = _digest(clock)
+    digest.step_start("run_m1", ["true"], "")
+    digest.child_line("run_m1", console.STDOUT, "[phase] replay_strings")
+    digest.child_line("run_m1", console.STDOUT, "[phase] compile_font")
+    clock.advance(10)
+    digest.child_line("run_m1", console.STDOUT, "[t] compile_font 10.0s")
+    clock.advance(16)
+    digest.child_line("run_m1", console.STDOUT, "[t] replay_strings 26.0s")
+    assert _bodies(capsys.readouterr().out, "run_m1") == [
+        "phase replay_strings",
+        "phase compile_font",
+        "phase compile_font done 10.0s",
+        "phase replay_strings done 26.0s",
+    ]
+    digest.child_line("run_m1", console.STDOUT, "[phase] rule_witnesses")
+    digest.child_line("run_m1", console.STDOUT, "[phase] readback")
+    clock.advance(1)
+    digest.child_line("run_m1", console.STDOUT, "[t] rule_witnesses 18.0s")
+    digest.child_line("run_m1", console.STDOUT, "[t] readback 1.0s")
+    assert _bodies(capsys.readouterr().out, "run_m1") == [
+        "phase rule_witnesses",
+        "phase readback",
+        "phase rule_witnesses done 18.0s",
+        "phase readback done 1.0s",
+    ]
+
+
+def test_a_counter_from_one_branch_carries_its_own_unit_and_is_dropped_when_either_branch_closes_a_phase(
+    capsys,
+):
+    """The packers count `packed configurations` while the oracle counts `configurations`, so a surfaced counter says whose it is; and a counter parked under two open phases is dropped the moment either closes, the same rule `test_a_counter_never_surfaces_under_a_phase_that_did_not_count_it` states for one phase."""
+    clock = _Clock()
+    digest = _digest(clock, heartbeat_seconds=60)
+    digest.step_start("run_m1", ["true"], "")
+    digest.child_line("run_m1", console.STDOUT, "[phase] run_oracle")
+    digest.child_line("run_m1", console.STDOUT, "[phase] emitted_order")
+    digest.child_line("run_m1", console.STDOUT, "[progress] 3/5 packed configurations")
+    capsys.readouterr()
+    clock.advance(61)
+    digest._heartbeat_tick()
+    assert _bodies(capsys.readouterr().out, "run_m1") == ["progress 3/5 packed configurations"]
+    digest.child_line("run_m1", console.STDOUT, "[progress] 4/5 packed configurations")
+    digest.child_line("run_m1", console.STDOUT, "[t] emitted_order 17.0s")
+    capsys.readouterr()
+    clock.advance(61)
+    digest._heartbeat_tick()
+    assert _bodies(capsys.readouterr().out, "run_m1") == ["heartbeat"]
