@@ -6993,6 +6993,27 @@ def test_the_memo_stamp_is_blind_to_the_rules_file(tmp_path):
     assert sv.rules_roster([SLIDE_RULE, COMPOSED_EXT_RULE], True).always == ()
 
 
+def test_the_memo_stamp_holds_still_across_a_docstring_edit(tmp_path):
+    """The deciding code reaches the stamp through `fingerprint.hash_paths`, whose per-file digest is prose-blind, so rewording a docstring in any module `MEMO_CODE_MODULES` names leaves the stamp where it stands and every decision the memo holds served — the cost of a reworded docstring in the unit index is otherwise the whole domain recomputed — while a statement edit in the same module drops it. A hand-built root with a real file at every roster path, so the assertion is about the roster rather than about this checkout."""
+    root = tmp_path / "repo"
+    for relative in sv.MEMO_CODE_MODULES:
+        (root / relative).parent.mkdir(parents=True, exist_ok=True)
+        (root / relative).write_text(f'"""{relative}"""\n\nMODULE = {relative!r}\n', encoding="utf-8")
+    (root / "uv.lock").write_text("lock\n", encoding="utf-8")
+    surface = _surface(tmp_path, [canonical("u-1")])
+    stamp, digests = sv.memo_environment(surface, root)
+    assert digests == {}
+    unit_index = root / "rebuild" / "review" / "unit_index.py"
+    assert unit_index.is_file()
+    unit_index.write_text(
+        '"""The unit index, reworded."""\n\n\nMODULE = "rebuild/review/unit_index.py"  # noted\n',
+        encoding="utf-8",
+    )
+    assert sv.memo_environment(surface, root) == (stamp, {})
+    unit_index.write_text('"""The unit index, reworded."""\n\nMODULE = "edited"\n', encoding="utf-8")
+    assert sv.memo_environment(surface, root) != (stamp, {})
+
+
 def test_the_memo_stamp_reads_the_fonts_when_the_surface_carries_them(tmp_path, slide_fonts):
     """With fonts beside the surface the stamp carries the before font wholesale and the after font's family-blind remainder, and the per-family digests the keys cite come back for every family the after font draws."""
     bare = _surface(tmp_path / "bare", [founding_window()])

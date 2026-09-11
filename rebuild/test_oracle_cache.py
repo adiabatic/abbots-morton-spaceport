@@ -635,7 +635,7 @@ def test_the_position_key_embeds_the_row_key(repo):
 
 
 def test_the_position_stamp_names_the_channel_s_code_the_toolchain_and_the_kern_sidecar(repo, tmp_path):
-    """The whole-store position stamp, line by line: the oracle's own module (the drift, the kern normalization and the sidecar evaluator live there), the toolchain lock that pins the shaper, and the kern sidecar's bytes, each asserted to move its own named line and only that. Nothing the row stamp already holds is repeated, so a store loads or drops on the row stamp alone and the position stamp decides only whether the positions beside the rows may be served."""
+    """The whole-store position stamp, line by line: the oracle's own module (the drift, the kern normalization and the sidecar evaluator live there), the toolchain lock that pins the shaper, and the kern sidecar's bytes, each asserted to move its own named line and only that. Nothing the row stamp already holds is repeated, so a store loads or drops on the row stamp alone and the position stamp decides only whether the positions beside the rows may be served. The module edit is a statement rather than a trailing newline, for `_perturb_rune`'s reason: the code line's digest is prose-blind (`fingerprint.code_file_digest`), so a comment, a docstring reword or a blank line leaves it where it was."""
     spec = fixtures.mini_spec()
     kern = tmp_path / "kern.yaml"
     kern.write_text("global:\n  value: 0\n", encoding="utf-8")
@@ -658,7 +658,7 @@ def test_the_position_stamp_names_the_channel_s_code_the_toolchain_and_the_kern_
     assert oracle_cache.moved_note(base.labels, stamp().labels) == "kern (changed)"
     kern.write_text("global:\n  value: 0\n", encoding="utf-8")
 
-    module.write_text(module.read_text(encoding="utf-8") + "\n", encoding="utf-8")
+    module.write_text(module.read_text(encoding="utf-8") + "\nPERTURBED = 1\n", encoding="utf-8")
     assert oracle_cache.moved_note(base.labels, stamp().labels) == "position_code (changed)"
     shutil.copyfile(REPO_ROOT / "rebuild" / "pipeline" / "oracle.py", module)
 

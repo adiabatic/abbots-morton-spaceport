@@ -530,12 +530,12 @@ SURFACE_READ_CODE = (
 
 
 def test_both_store_stamps_survive_a_pipeline_or_crate_edit_the_surface_never_reads(tmp_path):
-    """The narrowing both stamps' code line makes (`unit_cache.surface_code_paths`), stated as the cost it avoids: an edit to the driver, the oracle, a gate, the font compile, the conformance sweep, the oracle's row cache, the GSUB emitter, the pixel geometry or the crate's enumeration and fold — code the surface build never executes — would drop both stores through a whole-tree `pipeline_code` component and cost the next build a cold units phase. It moves neither stamp, while an edit to a module the build does run — the kernel seam, the stream vocabulary the build shares with the sweep, the shaper, the enricher, the crate's engine, the crate's lock file — moves both. A hand-built root, so the edits are real files and the assertion is about the rosters rather than about this checkout; rebuild/test_review_code_closure.py is what holds those rosters to the walked closure."""
+    """The narrowing both stamps' code line makes (`unit_cache.surface_code_paths`), stated as the cost it avoids: an edit to the driver, the oracle, a gate, the font compile, the conformance sweep, the oracle's row cache, the GSUB emitter, the pixel geometry or the crate's enumeration and fold — code the surface build never executes — would drop both stores through a whole-tree `pipeline_code` component and cost the next build a cold units phase. It moves neither stamp, while an edit to a module the build does run — the kernel seam, the stream vocabulary the build shares with the sweep, the shaper, the enricher, the crate's engine, the crate's lock file — moves both. A hand-built root, so the edits are real files and the assertion is about the rosters rather than about this checkout; rebuild/test_review_code_closure.py is what holds those rosters to the walked closure. Each file is written as a statement on both sides of its edit, because the code line's digest is prose-blind (`fingerprint.code_file_digest`) and falls back to raw bytes only for a file that will not parse: a Python file spelled as bare prose would prove the fallback rather than the projection."""
     spec = fixtures.mini_spec()
     root = tmp_path / "repo"
     for relative in SURFACE_UNREAD_CODE + SURFACE_READ_CODE:
         (root / relative).parent.mkdir(parents=True, exist_ok=True)
-        (root / relative).write_text(f"{relative}\n", encoding="utf-8")
+        (root / relative).write_text(f"RELATIVE = {relative!r}\n", encoding="utf-8")
 
     def stamps() -> tuple[str, str]:
         return (
@@ -545,11 +545,11 @@ def test_both_store_stamps_survive_a_pipeline_or_crate_edit_the_surface_never_re
 
     base = stamps()
     for relative in SURFACE_UNREAD_CODE:
-        (root / relative).write_text(f"{relative} edited\n", encoding="utf-8")
+        (root / relative).write_text(f"RELATIVE = {relative!r}\nEDITED = 1\n", encoding="utf-8")
         assert stamps() == base, relative
     previous = base
     for relative in SURFACE_READ_CODE:
-        (root / relative).write_text(f"{relative} edited\n", encoding="utf-8")
+        (root / relative).write_text(f"RELATIVE = {relative!r}\nEDITED = 1\n", encoding="utf-8")
         current = stamps()
         assert current[0] != previous[0], relative
         assert current[1] != previous[1], relative

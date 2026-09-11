@@ -138,11 +138,11 @@ def _subset_path(out_dir: Path, config: str) -> Path:
 
 
 def stamp_key(repo_root: Path = REPO_ROOT) -> str:
-    """The content key the stamp records: everything the subset tables are a pure function of — the alphabet, the source tables (by the same size-plus-digests proxy as fingerprint.baselines_value, so no 42MB table is ever read to answer a freshness check), and this module's own bytes, so a filter-logic change refilters rather than trusting output the old code wrote."""
+    """The content key the stamp records: everything the subset tables are a pure function of — the alphabet, the source tables (by the same size-plus-digests proxy as fingerprint.baselines_value, so no 42MB table is ever read to answer a freshness check), and this module's own code through `fingerprint.code_file_digest`, so a filter-logic change refilters rather than trusting output the old code wrote while a docstring reword trusts it."""
     lines = [
         "alphabet\t" + ",".join(f"{codepoint:04X}" for codepoint in sorted(M1_ALPHABET)),
         f"baselines\t{fingerprint.baselines_value(Path(repo_root))}",
-        f"filter_code\t{fingerprint.file_sha256(Path(__file__))}",
+        f"filter_code\t{fingerprint.code_file_digest(Path(__file__))}",
     ]
     return hashlib.sha256("\n".join(lines).encode()).hexdigest()
 
