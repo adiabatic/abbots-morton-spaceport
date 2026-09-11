@@ -61,17 +61,19 @@ This is the zero-touch sibling of echo_verdicts.py: echo fill extends the user's
 
 Records are stamped with the manifest's generated_at, so any human verdict beats a standing fill on merge, and a parked unit (a skip verdict) is not blank and is never filled. The artifact cycle runs this after the echo fill, with a merge_verdicts pass to land the file. The run's report rolls every composed line's credit back up per rule, so each rule's whole reach reads in one place — deliberately not a column that sums across rules, since a window two rules explain between them counts toward each of them.
 
-Every decision above is per-unit pure: what the composed reading credits a window with, whether a guard holds it, and which rules' own matchers accept or hold it are a function of the unit's index record, the two fonts' rendering of its window, and the rules file, and of nothing else — the verdict store only decides which of those decisions become fills. `Decider.decide` is that function, `rule_reach` assembles a run out of its answers, and the memo (`Memo`, the `--memo` flag; the verdict chain passes it) persists the answers across passes so a surface-moving pass evaluates only the units whose key is new. A unit's key is its build-time `content_key` stamp, joined with the persisted `ink_deltas` that stamp deliberately leaves out and with the after font's compiled-glyph digest for every family the window's after cells name (`fingerprint.after_font_glyph_digests`, the same per-family grain the review unit cache and the oracle's position store invalidate at, so a drawing or anchor change reaches exactly the windows that can feel it); a unit the surface never stamped is evaluated every pass and never stored. The memo's own stamp is the rules file's raw bytes, since the fill quotes each rule's `note` into every record, the code that decides (`MEMO_CODE_MODULES`, held to this module's import closure by rebuild/test_standing_verdicts.py), the before font wholesale, the after font's family-blind remainder, and `uv.lock` for the shaper; any of those moving drops the memo entirely, and over-invalidation is the safe direction. What is written back is bounded to the units on this surface, so it never outgrows the human domain, and the fills and the report are byte-identical served or computed, which rebuild/test_standing_verdicts.py proves over the frozen mini bundle. The `--require-reach` rollup reads the same answers, so its pass over the whole domain costs no second evaluation. A `--targeted` run — the authoring loop's form, taking its rule from `--explain` and further windows from `--unit` — evaluates only the units the rule could speak for at the name grain (`_reachable`) plus the listed ones, prints that rule's own line, the composed lines crediting it, its rollup line, its tripwire and its explain block byte-identical to the whole-domain run's, and one line per listed unit with the decision the run counted, and writes neither a fill file nor the memo; it costs the surface load rather than the domain, and the whole-domain run stays the final pass and the cycle's form. rebuild/test_standing_verdicts.py holds the identity, and the candidate invariant behind it for every checked-in rule, over the same frozen mini bundle. Either form can be served instead of loaded: with `--daemon auto|always|never` and `--socket PATH`, a standing daemon (`rebuild/tools/standing_daemon.py`, the authority on what it holds and when it declines) that answers at the socket and holds this surface runs this same `main` — the same `Decider`, the same lines — over the objects it holds and hands back the streams and the exit code, byte-identical to the in-process run, which rebuild/test_standing_daemon.py holds over the mini bundle; the verdict chain's in-process call hands `main` its own `units` and is never served.
+Every decision above is per-unit pure: what the composed reading credits a window with, whether a guard holds it, and which rules' own matchers accept or hold it are a function of the unit's index record, the two fonts' rendering of its window, and the rules file, and of nothing else — the verdict store only decides which of those decisions become fills. `Decider.decide` is that function, `rule_reach` assembles a run out of its answers, and the memo (`Memo`, the `--memo` flag; the verdict chain passes it) persists the answers across passes so a surface-moving pass evaluates only the units whose key is new. A unit's key is its build-time `content_key` stamp, joined with the persisted `ink_deltas` that stamp deliberately leaves out and with the after font's compiled-glyph digest for every family the window's after cells name (`fingerprint.after_font_glyph_digests`, the same per-family grain the review unit cache and the oracle's position store invalidate at, so a drawing or anchor change reaches exactly the windows that can feel it); a unit the surface never stamped is evaluated every pass and never stored. The memo's own stamp is the rules file's raw bytes, since the fill quotes each rule's `note` into every record, the code that decides (`MEMO_CODE_MODULES`, held to this module's import closure by rebuild/test_standing_verdicts.py), the before font wholesale, the after font's family-blind remainder, and `uv.lock` for the shaper; any of those moving drops the memo entirely, and over-invalidation is the safe direction. A dropped memo is refilled across a spawn pool at the width the caller states (`--jobs`; the verdict chain forwards the artifact cycle's, a hand run states the one the cycle's plan prints, and the tool derives none of its own), in this process or in the daemon serving the run alike, each worker deciding a chunk of the misses over its own `SlideContext` and handing back the memo's own wire records (`_prefill`), while a served pass, whose misses never reach the pool's threshold, stays serial. What is written back is bounded to the units on this surface, so it never outgrows the human domain, and the fills and the report are byte-identical served or computed, pooled or serial, which rebuild/test_standing_verdicts.py proves over the frozen mini bundle. The `--require-reach` rollup reads the same answers, so its pass over the whole domain costs no second evaluation. A `--targeted` run — the authoring loop's form, taking its rule from `--explain` and further windows from `--unit` — evaluates only the units the rule could speak for at the name grain (`_reachable`) plus the listed ones, prints that rule's own line, the composed lines crediting it, its rollup line, its tripwire and its explain block byte-identical to the whole-domain run's, and one line per listed unit with the decision the run counted, and writes neither a fill file nor the memo; it costs the surface load rather than the domain, and the whole-domain run stays the final pass and the cycle's form. rebuild/test_standing_verdicts.py holds the identity, and the candidate invariant behind it for every checked-in rule, over the same frozen mini bundle. Either form can be served instead of loaded: with `--daemon auto|always|never` and `--socket PATH`, a standing daemon (`rebuild/tools/standing_daemon.py`, the authority on what it holds and when it declines) that answers at the socket and holds this surface runs this same `main` — the same `Decider`, the same lines — over the objects it holds and hands back the streams and the exit code, byte-identical to the in-process run, which rebuild/test_standing_daemon.py holds over the mini bundle; the verdict chain's in-process call hands `main` its own `units` and is never served.
 """
 
 import argparse
 import gzip
 import hashlib
 import json
+import multiprocessing
 import pathlib
 import re
 import sys
 from collections.abc import Callable
+from itertools import batched
 from typing import NamedTuple, NoReturn
 
 import yaml
@@ -222,14 +224,28 @@ def _components(name):
     return name.count("_") + 1
 
 
+_alignment_cache: dict[int, tuple[dict, bool]] = {}
+
+
+def release_alignment_cache() -> None:
+    """Empty the per-unit alignment cache: the standing daemon does this behind every request and a pooled worker behind every chunk, so neither holds a unit past the pass that asked about it."""
+    _alignment_cache.clear()
+
+
 def _letter_for_letter(unit):
-    """Whether a before-glyph index and an after-cell index name the same letters all the way along the window, which is what the pivot/follower comparisons and the surface's own after-indexed `pair` both rely on. The two sides line up exactly when they merge the same codepoints at the same positions; requiring each side's components to sum to the window's own codepoint count makes the check fail closed should a name ever spell something other than a ligature."""
+    """Whether a before-glyph index and an after-cell index name the same letters all the way along the window, which is what the pivot/follower comparisons and the surface's own after-indexed `pair` both rely on. The two sides line up exactly when they merge the same codepoints at the same positions; requiring each side's components to sum to the window's own codepoint count makes the check fail closed should a name ever spell something other than a ligature. Every matcher and the composed walk ask this of a unit several times over, so the answer is cached per unit object for the run: the entry is keyed on the unit's `id()` and keeps the unit itself beside the answer, which is what makes that key sound, since no other object can take the address while the entry holds it."""
+    cached = _alignment_cache.get(id(unit))
+    if cached is not None:
+        return cached[1]
     codepoints = unit.get("codepoints") or ""
-    if not codepoints:
-        return False
-    before = [_components(_family(name)) for name in unit["before"]["glyphs"]]
-    after = [_components(_cell_rune(cell)) for cell in unit["after"]["cells"]]
-    return before == after and sum(before) == len(codepoints.split(":"))
+    if codepoints:
+        before = [_components(_family(name)) for name in unit["before"]["glyphs"]]
+        after = [_components(_cell_rune(cell)) for cell in unit["after"]["cells"]]
+        aligned = before == after and sum(before) == len(codepoints.split(":"))
+    else:
+        aligned = False
+    _alignment_cache[id(unit)] = (unit, aligned)
+    return aligned
 
 
 def _matches_ligature(match, unit, excluded, context=None):
@@ -2117,13 +2133,13 @@ def _composed_walk(rules, unit, context):
     return credited
 
 
-def _composed(rules, unit, context):
-    """The composed reading a fill may be written from: the name-grain pre-gate first, where two or more candidate positions must stand across the rules or the window is never shaped at all; then the walk, memoized per (rules, unit) so a window is shaped once however many times it is asked about; then the two-event threshold, because a window one rule accounts for at a single position belongs to that rule's own line and not to a composition, while the same rule speaking at two positions is a composition — the walk has held every pixel of the window against two blessed changes, which is more than any single-shape matcher's own localization asks for. Returns each credited rule's event positions before any guard is read, since the guards are scoped per credited rule and the caller has to know which positions earned the credit."""
+def _composed(rules, unit, context, digest=None):
+    """The composed reading a fill may be written from: the name-grain pre-gate first, where two or more candidate positions must stand across the rules or the window is never shaped at all; then the walk, memoized per (rules, unit) so a window is shaped once however many times it is asked about; then the two-event threshold, because a window one rule accounts for at a single position belongs to that rule's own line and not to a composition, while the same rule speaking at two positions is a composition — the walk has held every pixel of the window against two blessed changes, which is more than any single-shape matcher's own localization asks for. Returns each credited rule's event positions before any guard is read, since the guards are scoped per credited rule and the caller has to know which positions earned the credit. `digest` is `_composable_digest(rules)` computed once by a caller that asks per unit (`Decider` holds it for the run); left off, it is computed here."""
     if not unit.get("before") or not unit.get("after"):
         return None
     if sum(len(_candidates(rule["match"], unit)) for rule in rules) < 2:
         return None
-    key = (_composable_digest(rules), unit["id"])
+    key = (_composable_digest(rules) if digest is None else digest, unit["id"])
     if key not in context.composed:
         context.composed[key] = _composed_walk(rules, unit, context)
     events = context.composed[key]
@@ -2172,9 +2188,10 @@ def _composed_verdict(rules, unit, events, context):
 
 
 class SlideContext:
-    """The font-backed state the slide shape and the composed reading match with: one InkComparator over the surface's shipped font pair, a per-run memo of each rule's geometric verdict per unit so the guarded and unguarded passes over one rule shape a window once, and a second memo of each composed walk per unit, keyed on the composable rules' ids and matches so a window is shaped once however many times the same rules ask about it and a caller holding a second rule set against the same context is never served the first set's reading."""
+    """The font-backed state the slide shape and the composed reading match with: one InkComparator over the surface's shipped font pair, a per-run memo of each rule's geometric verdict per unit so the guarded and unguarded passes over one rule shape a window once, and a second memo of each composed walk per unit, keyed on the composable rules' ids and matches so a window is shaped once however many times the same rules ask about it and a caller holding a second rule set against the same context is never served the first set's reading. `fonts` keeps the pair it was built over, so a pooled worker (`_standing_pool_init`) builds its own context over provably the parent's fonts. Every key in both memos names the unit it was computed for and `Decider._decided` answers any repeat ask, so a pooled worker empties both behind every chunk at no cost, which is what makes its peak chunk-shaped rather than slice-shaped."""
 
     def __init__(self, before_font, after_font) -> None:
+        self.fonts = (before_font, after_font)
         self.comparator = InkComparator(before_font, after_font)
         self.memo: dict[tuple, bool] = {}
         self.composed: dict[tuple, dict[str, list[int]] | None] = {}
@@ -2657,6 +2674,7 @@ class Decider:
         self.context = context
         self.memo = memo
         self.composable = _composable(rules)
+        self.composable_digest = _composable_digest(self.composable)
         self._decided: dict[str, Decision] = {}
         self.served = 0
         self.computed = 0
@@ -2666,7 +2684,7 @@ class Decider:
         """The decision itself, computed: the composed reading first, because it claims a window before any single rule is asked about it, then — for an unclaimed window — each rule's own matcher, and for a guarded rule that refuses, its unguarded form, which is what says the guard held it."""
         composed = None
         if len(self.composable) > 1 and self.context is not None:
-            events = _composed(self.composable, unit, self.context)
+            events = _composed(self.composable, unit, self.context, self.composable_digest)
             if events is not None:
                 credited = tuple(rule["id"] for rule in self.rules if rule["id"] in events)
                 held = _composed_held(self.rules, unit, events, self.context)
@@ -2685,24 +2703,88 @@ class Decider:
                     held_by.append(rule["id"])
         return Decision(composed, frozenset(matched), frozenset(held_by))
 
+    def take(self, unit, decision: Decision) -> Decision:
+        """Count a decision computed for this run — here, or by a pooled worker handing it back through `_prefill` — exactly as `decide` counts one it computed itself: a keyed unit's into the memo's fresh entries and `computed`, an unkeyed unit's into `unkeyed`, and either into `_decided`."""
+        key = self.memo.key_for(unit) if self.memo is not None else None
+        if key is None:
+            self.unkeyed += 1
+        else:
+            self.computed += 1
+            assert self.memo is not None
+            self.memo.fresh[key] = decision
+        self._decided[unit["id"]] = decision
+        return decision
+
     def decide(self, unit) -> Decision:
         decision = self._decided.get(unit["id"])
         if decision is not None:
             return decision
         key = self.memo.key_for(unit) if self.memo is not None else None
         decision = self.memo.entries.get(key) if self.memo is not None and key is not None else None
-        if decision is not None:
-            self.served += 1
-        else:
-            decision = self.evaluate(unit)
-            if key is None:
-                self.unkeyed += 1
-            else:
-                self.computed += 1
-                assert self.memo is not None
-                self.memo.fresh[key] = decision
+        if decision is None:
+            return self.take(unit, self.evaluate(unit))
+        self.served += 1
         self._decided[unit["id"]] = decision
         return decision
+
+    def misses(self, units) -> list:
+        """The units among `units` this run would have to evaluate itself: not decided yet, and not held by the memo under their key."""
+        pile = []
+        for unit in units:
+            if unit["id"] in self._decided:
+                continue
+            if self.memo is not None:
+                key = self.memo.key_for(unit)
+                if key is not None and key in self.memo.entries:
+                    continue
+            pile.append(unit)
+        return pile
+
+
+# Below this many misses a pool's startup — spawn, the module import, the rules and two font loads, about 0.2 s a worker — outruns what it saves: a miss costs about 1.3 ms serially and about 11 us to pickle each way, so the break-even at width four sits near five hundred misses, and a warm pass, which computes tens of units, never comes near this. See rebuild/out/cycle-timings.ndjson for the plumbing rows these rates were read off.
+_STANDING_POOL_THRESHOLD = 2_000
+# Units per pooled task: enough that the pickling and the message are a small fraction of the work, few enough that the tasks load-balance across the workers and that a worker's peak is one chunk's windows rather than its whole share of the domain, since it releases its context memos and its alignment cache behind each one. STANDING_FILL_WORKER_BYTES in rebuild/tools/artifact_cycle.py is priced at this chunk width.
+_STANDING_POOL_CHUNK = 2_000
+
+_standing_pool_state: dict = {}
+
+
+def _standing_pool_init(rules, fonts) -> None:
+    """One worker's state for the whole pool: a `Decider` with no memo over the parent's rules and a `SlideContext` over the parent's font pair, or none when the parent had none, which is the regime where no rule shapes a window."""
+    context = None if fonts is None else SlideContext(*fonts)
+    _standing_pool_state["decider"] = Decider(rules, context)
+
+
+def _standing_pool_chunk(units) -> list[tuple[str, list]]:
+    """One pooled task: each unit's id beside its decision as `_decision_record` spells it, the memo's own wire shape, so `_decision_from_record` is the one reader of both. The worker's memos are emptied behind every chunk, so what it holds at its peak is one chunk's windows."""
+    decider = _standing_pool_state["decider"]
+    try:
+        return [(unit["id"], _decision_record(decider.evaluate(unit))) for unit in units]
+    finally:
+        if decider.context is not None:
+            decider.context.memo.clear()
+            decider.context.composed.clear()
+        release_alignment_cache()
+
+
+def _prefill(decider: Decider, asked, jobs: int) -> None:
+    """Decide the units the run is about to ask for and the memo cannot serve across a spawn pool, ahead of `rule_reach`, so both of its passes are then answered out of `Decider._decided`. The outcome is the serial pass's byte for byte: `rule_reach` walks the units in its own order whatever order the chunks come back in, `Memo.write` sorts its keys, and `served`, `computed` and `unkeyed` are totals, so completion order reaches neither the fills nor the memo nor the report. What is prefilled is exactly what the run asks about — the whole domain under --require-reach, else the narrowed candidates — since deciding a unit the run never asks about would advance `computed` and write a memo entry the serial pass never wrote. At a width of one, or below `_STANDING_POOL_THRESHOLD` misses, nothing happens here and the serial path is the whole pass. Each returned id is taken off the pile it was sent from, so a worker answering for a unit it was never handed, or twice, fails here rather than counting."""
+    if jobs <= 1:
+        return
+    misses = decider.misses(asked)
+    if len(misses) < _STANDING_POOL_THRESHOLD:
+        return
+    pile = {unit["id"]: unit for unit in misses}
+    fonts = None if decider.context is None else decider.context.fonts
+    chunks = list(batched(misses, _STANDING_POOL_CHUNK))
+    spawn = multiprocessing.get_context("spawn")
+    with spawn.Pool(
+        min(jobs, len(chunks)), initializer=_standing_pool_init, initargs=(decider.rules, fonts)
+    ) as pool:
+        for records in pool.imap_unordered(_standing_pool_chunk, chunks):
+            for unit_id, record in records:
+                decider.take(pile.pop(unit_id), _decision_from_record(record))
+    assert not pile, f"the pool never answered for {len(pile)} units"
 
 
 def rule_reach(rules, units, records, stamp, context=None, decide=None) -> Run:
@@ -2965,6 +3047,12 @@ def main(argv=None, *, units=None, context=None):
         action="store_true",
         help="with --memo: evaluate every unit regardless of what the memo holds, and rewrite it",
     )
+    parser.add_argument(
+        "--jobs",
+        type=int,
+        default=1,
+        help="how many worker processes decide the units the memo cannot serve, once that pile is deep enough to pay for a pool's startup; 1 is the serial pass. This tool derives no width of its own: the verdict chain forwards the artifact cycle's, priced there beside the gates the plumbing step shares the box with, and a hand run over the whole domain states the width the cycle's plan prints for the box (`make artifact-cycle ARGS='--dry-run'`, its `plumbing --standing-fill-jobs` line), served by the daemon or not. The fills, the memo and the report are byte-identical at any width.",
+    )
     standing_client.add_arguments(parser)
     args = parser.parse_args(argv)
     if args.fresh_memo and args.memo is None:
@@ -3042,6 +3130,7 @@ def main(argv=None, *, units=None, context=None):
         return 0
 
     candidates = open_units(units, records) if args.open_only else units
+    _prefill(decider, units if args.require_reach else candidates, args.jobs)
     run = rule_reach(rules, candidates, records, manifest["generated_at"], decide=decider.decide)
 
     # Reach is a reading of the surface rather than of the queue, so --require-reach judges it over the whole human domain against an empty store: a rule every one of whose windows a human already verdicted has still reached them, and a narrowed run would have been offered none of them.

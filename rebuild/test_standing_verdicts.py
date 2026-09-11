@@ -7214,6 +7214,175 @@ def test_the_memo_serves_the_mini_bundle_byte_for_byte(tmp_path, monkeypatch, ca
     assert runs["fresh"][1] == runs["cold"][1]
 
 
+@pytest.mark.parametrize("form", [(), ("--open-only", "--require-reach")])
+def test_a_pooled_refill_is_the_serial_pass_byte_for_byte(tmp_path, monkeypatch, capsys, mini_surface, form):
+    """The pool changes nothing but the time, held the same way the memo is: over the frozen mini bundle, a cold run that refills its memo across a spawn pool of two — the threshold lowered so the bundle's few hundred misses start one, the chunk shrunk so the pool is handed many tasks — writes the same fills, prints the same report and the same `memo:` line, and leaves the same memo bytes as the cold serial run, in both the bare form and the chain's. The parent's own `evaluate` is made to raise for the pooled run, so every decision it counted came back from a worker, whose spawned interpreter imports the module afresh and never sees the patch. This is the one test in the suite that starts a multiprocessing pool, which the closure recorder marks unclosable, so it runs on every narrowed lane."""
+    rules = _mini_rules(mini_surface, tmp_path / "rules.yaml")
+    stamp = json.loads((mini_surface / "manifest.json").read_text())["generated_at"]
+    human = [unit["id"] for unit in _human_units(mini_surface)]
+    verdicts = [
+        {"unit": human[0], "verdict": "reject", "note": "", "at": stamp},
+        {"unit": human[-1], "verdict": "approve", "note": "", "at": stamp},
+    ]
+    runs = {}
+    for label, extra in (("serial", ()), ("pooled", ("--jobs", "2"))):
+        memo = tmp_path / label / "memo.ndjson.gz"
+        if label == "pooled":
+            monkeypatch.setattr(sv, "_STANDING_POOL_THRESHOLD", 1)
+            monkeypatch.setattr(sv, "_STANDING_POOL_CHUNK", 7)
+            monkeypatch.setattr(
+                sv.Decider, "evaluate", lambda self, unit: pytest.fail(f"the parent evaluated {unit['id']}")
+            )
+        code, fills = _run_over_mini(
+            tmp_path / label, monkeypatch, mini_surface, rules, verdicts, form + ("--memo", str(memo), *extra)
+        )
+        runs[label] = (code, fills, tuple(capsys.readouterr().out.splitlines()), memo.read_bytes())
+    assert runs["serial"] == runs["pooled"]
+    keyed = len(human)
+    assert (
+        f"  memo: served 0, computed {keyed}, unkeyed 0; memo.ndjson.gz holds {keyed} entries"
+        in runs["pooled"][2]
+    )
+
+
+class _InlinePool:
+    """`multiprocessing`'s pool protocol answered in this process: the initializer runs here, so the real worker functions run over the real chunks, and the chunks come back in reverse, which is the completion order the parent's bookkeeping has to be blind to."""
+
+    def __init__(self, width, initializer, initargs):
+        self.width = width
+        self.chunks: list[list] = []
+        initializer(*initargs)
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *_exc):
+        return False
+
+    def imap_unordered(self, func, chunks):
+        self.chunks = [list(chunk) for chunk in chunks]
+        return [func(chunk) for chunk in reversed(self.chunks)]
+
+
+def _inline_pools(monkeypatch):
+    pools: list[_InlinePool] = []
+
+    class _Context:
+        @staticmethod
+        def Pool(width, initializer, initargs):
+            pools.append(_InlinePool(width, initializer, initargs))
+            return pools[-1]
+
+    monkeypatch.setattr(sv.multiprocessing, "get_context", lambda method: _Context)
+    return pools
+
+
+def _pile(count):
+    """Keyed units under distinct content keys, so each has its own memo key, plus one the build never stamped."""
+    return [_keyed_unit(f"k-{index}", content_key=f"{index:064x}") for index in range(count)] + [
+        canonical("u-unkeyed")
+    ]
+
+
+def test_the_prefill_counts_what_the_serial_pass_counts(tmp_path, monkeypatch):
+    """The parent's bookkeeping over a pool's answers is the serial pass's: with a memo already holding some of the units, a pooled run — the pool answered in-process, its chunks handed back in reverse — leaves the Decider with the same decisions, the same served, computed and unkeyed totals, and the same fresh memo entries as a run that decided everything itself, which is where a regression in the accounting would land without paying for a spawn."""
+    units = _pile(9)
+    memo_path = tmp_path / "memo.ndjson.gz"
+    served = sv.Memo(memo_path, "env", {})
+    seed = sv.Decider([RULE], None, served)
+    for unit in units[:3]:
+        seed.decide(unit)
+    served.write(units)
+    outcomes = []
+    for jobs in (1, 3):
+        memo = sv.Memo.open(memo_path, "env", {})
+        decider = sv.Decider([RULE], None, memo)
+        monkeypatch.setattr(sv, "_STANDING_POOL_THRESHOLD", 1)
+        monkeypatch.setattr(sv, "_STANDING_POOL_CHUNK", 2)
+        pools = _inline_pools(monkeypatch)
+        sv._prefill(decider, units, jobs)
+        assert len(pools) == (0 if jobs == 1 else 1)
+        if pools:
+            assert [len(chunk) for chunk in pools[0].chunks] == [2, 2, 2, 1]
+            assert pools[0].width == 3
+        for unit in units:
+            decider.decide(unit)
+        outcomes.append((decider._decided, decider.served, decider.computed, decider.unkeyed, memo.fresh))
+    assert outcomes[0] == outcomes[1]
+    assert outcomes[0][1:4] == (3, 6, 1)
+    assert set(outcomes[0][4]) == {served.key_for(unit) for unit in units[3:-1]}
+
+
+def test_the_prefill_asks_only_what_the_run_asks(tmp_path, monkeypatch):
+    """What a pooled run decides ahead is exactly what its passes will ask about — the whole domain under --require-reach, the open units alone under a bare --open-only — since a unit decided that the run never asks for would advance `computed` and land in the memo where the serial pass wrote nothing; and a targeted run, which writes neither, never reaches the prefill."""
+    asked = []
+    monkeypatch.setattr(
+        sv, "_prefill", lambda decider, units, jobs: asked.append(([u["id"] for u in units], jobs))
+    )
+    units = [canonical("u-1"), canonical("u-2"), canonical("u-3")]
+    accepted = [{"unit": "u-2", "verdict": "approve", "note": "", "at": STAMP}]
+    _run_main(tmp_path / "open", monkeypatch, units, accepted, extra=("--open-only", "--jobs", "4"))
+    _run_main(
+        tmp_path / "reach",
+        monkeypatch,
+        units,
+        accepted,
+        extra=("--open-only", "--require-reach", "--jobs", "4"),
+    )
+    _run_main(tmp_path / "bare", monkeypatch, units, accepted)
+    assert asked == [(["u-1", "u-3"], 4), (["u-1", "u-2", "u-3"], 4), (["u-1", "u-2", "u-3"], 1)]
+    _target_main(
+        tmp_path / "targeted",
+        monkeypatch,
+        units,
+        accepted,
+        ("--targeted", "--explain", RULE["id"], "--jobs", "4"),
+    )
+    assert len(asked) == 3
+
+
+def test_a_shallow_miss_pile_and_a_width_of_one_never_start_a_pool(monkeypatch):
+    """A warm pass keeps its single-digit seconds because its few misses never reach the threshold, and a width of one is the serial pass whatever the pile: neither reaches for a pool, held with the pool's entry point made to fail."""
+    monkeypatch.setattr(sv.multiprocessing, "get_context", lambda method: pytest.fail("a pool was started"))
+    units = _pile(5)
+    monkeypatch.setattr(sv, "_STANDING_POOL_THRESHOLD", len(units) + 1)
+    decider = sv.Decider([RULE], None, sv.Memo(pathlib.Path("unused"), "env", {}))
+    sv._prefill(decider, units, 8)
+    monkeypatch.setattr(sv, "_STANDING_POOL_THRESHOLD", 1)
+    sv._prefill(decider, units, 1)
+    assert (decider._decided, decider.computed, decider.unkeyed) == ({}, 0, 0)
+
+
+def test_the_decider_holds_the_composable_digest_for_the_run(slide_context):
+    """`_composed` is asked per unit and the digest it keys the walk memo on is constant for the run, so the Decider computes it once — and still tells two rule sets apart when both are driven through `evaluate` against one context, which is what the digest exists for."""
+    context = slide_context()
+    renamed = [json.loads(json.dumps(rule)) for rule in COMPOSABLE_RULES]
+    for rule in renamed:
+        rule["id"] = rule["id"] + "-twin"
+    first, twin = sv.Decider(COMPOSABLE_RULES, context), sv.Decider(renamed, context)
+    assert first.composable_digest == sv._composable_digest(sv._composable(COMPOSABLE_RULES))
+    assert first.composable_digest != twin.composable_digest
+    credited = first.evaluate(composed_window()).composed, twin.evaluate(composed_window()).composed
+    assert credited[0] is not None and credited[1] is not None
+    assert credited[0].credited == (SLIDE_RULE["id"], COMPOSED_EXT_RULE["id"])
+    assert credited[1].credited == (SLIDE_RULE["id"] + "-twin", COMPOSED_EXT_RULE["id"] + "-twin")
+    assert len(context.composed) == 2
+
+
+def test_the_alignment_cache_answers_per_unit_object_and_releases():
+    """Two distinct unit dicts under one id — the suite builds them constantly — get their own answers, because the cache is keyed on the object and keeps it alive so no other object can take its address; a repeat ask answers what a fresh computation answers; and `release_alignment_cache` empties it."""
+    sv.release_alignment_cache()
+    misaligned, aligned = canonical("u-1"), founding_window("u-1")
+    assert misaligned["id"] == aligned["id"]
+    assert sv._letter_for_letter(misaligned) is False
+    assert sv._letter_for_letter(aligned) is True
+    assert sv._letter_for_letter(misaligned) is False
+    assert {id(misaligned), id(aligned)} <= set(sv._alignment_cache)
+    sv.release_alignment_cache()
+    assert sv._alignment_cache == {}
+    assert sv._letter_for_letter(aligned) is True
+
+
 def test_a_rules_lines_never_name_a_unit_outside_its_name_grain_candidates(tmp_path, mini_surface):
     """What the targeted run rests on: over the frozen mini bundle, under the checked-in rules and the bundle-local ink-delta rule, every unit a rule's own matcher accepts or holds, and every unit a composed reading credits it at, is one `_reachable` admits for that rule — so a run over only the admitted units sees everything the whole domain would put on the rule's lines — and the narrowing is real, since some rule with a reach admits fewer units than the domain holds."""
     rules = sv.load_rules(_mini_rules(mini_surface, tmp_path / "rules.yaml"))

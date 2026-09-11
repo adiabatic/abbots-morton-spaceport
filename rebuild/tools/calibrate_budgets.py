@@ -35,6 +35,8 @@ SURFACE_SOURCE = "rebuild/tools/artifact_cycle.py"
 SURFACE_CAP_NAME = "SURFACE_JOBS_CAP"
 SURFACE_PARENT_NAME = "SURFACE_PARENT_BYTES"
 SURFACE_WORKER_NAME = "SURFACE_WORKER_BYTES"
+STANDING_FILL_PARENT_NAME = "STANDING_FILL_PARENT_BYTES"
+STANDING_FILL_WORKER_NAME = "STANDING_FILL_WORKER_BYTES"
 
 
 @dataclass(frozen=True)
@@ -89,7 +91,7 @@ UNITS: tuple[Unit, ...] = (
         pool_units=(),
         step_names=("surface-build",),
         step_caveat="reap_peak_rss_bytes maxes over the child's whole tree rather than summing it, and under this step that tree is one parent holding the whole corpus beside workers each holding a slice of it, so the max reads the parent — which is this unit exactly. What the same reading cannot see is the sum: parent plus every worker is the build's real footprint, and no step peak has ever been able to report it, which is why the divisor beside this row is measured by the surface pool records instead of here.",
-        note="The one row here whose constant is subtracted from the box rather than divided into it: the parent's pile is flat in the width, so it is surface_job_budget's co-resident term. Phase 2 streams into the shards, so the pile is the workload and the projections rather than every fragment, but it is still corpus-shaped — every migrated letter moves it — so expect to re-seed it per batch. The seed sits above the cache-phase peak a served build reaches, where the parent alone writes the store after the pool has closed, which is a few hundred megabytes over the pool-live pile a full build shows; a served pass's row is the one to read when re-seeding, and a full build's row underneath it is not the constant reading low.",
+        note="A row whose constant is subtracted from the box rather than divided into it: the parent's pile is flat in the width, so it is surface_job_budget's co-resident term. Phase 2 streams into the shards, so the pile is the workload and the projections rather than every fragment, but it is still corpus-shaped — every migrated letter moves it — so expect to re-seed it per batch. The seed sits above the cache-phase peak a served build reaches, where the parent alone writes the store after the pool has closed, which is a few hundred megabytes over the pool-live pile a full build shows; a served pass's row is the one to read when re-seeding, and a full build's row underneath it is not the constant reading low.",
     ),
     Unit(
         name="surface-worker",
@@ -99,6 +101,15 @@ UNITS: tuple[Unit, ...] = (
         step_names=(),
         step_caveat="",
         note="These pool records come from rebuild/review/build.py's own runner rather than from a pytest controller — cycle_timings.record_pool is deliberately not a pytest entry point — and each supplies one observation per worker that answered. The row is legitimately quiet on a box the arithmetic has already narrowed to a single worker, because a serial build starts no pool to measure; a deliberate `--jobs N` hand run is what puts an observation on the record there, and the row's unverified-here line is the honest reading until one does.",
+    ),
+    Unit(
+        name="standing-fill-parent",
+        constant=STANDING_FILL_PARENT_NAME,
+        source=SURFACE_SOURCE,
+        pool_units=(),
+        step_names=("plumbing",),
+        step_caveat="reap_peak_rss_bytes maxes over the child's whole tree rather than summing it, and under this step that tree is the verdict chain holding the whole unit index beside, on a memo-drop pass, the standing fill's refill workers each holding one chunk of it, so the max reads the chain parent — which is this unit exactly. The workers beside it are two orders smaller and never the max, and no row prices them: the fill files no pool record, because the module that would file it is in the memo's code stamp and a cost reading there would drop the memo on every edit to it, so STANDING_FILL_WORKER_BYTES is seeded by hand at the chunk width, as its docstring says.",
+        note="The surface parent's shape again, a constant subtracted from the box rather than divided into it: the chain parent is flat in the width, so it is standing_fill_jobs's co-resident term. The pile is the unit index, corpus-shaped like the surface parent's, so expect to re-seed it as the alphabet migrates. Every plumbing row reads against this constant, served passes included, since the parent holds the index whether or not a pool ran; a memo-drop pass that refilled in the parent with no pool reads higher, because the parent then evaluates the whole domain itself, and such a row underneath this seed's stamp is not the constant reading low.",
     ),
 )
 
@@ -364,7 +375,7 @@ def _sources_line(row: UnitRow) -> str | None:
 
 
 def _width_clause(unit: Unit, constant_bytes: int, *, total_bytes: int, cores: int, root: Path) -> str:
-    """The width this constant implies on the box in hand, said the way the call site that owns it says it. Four units, four shapes: the font suite's pool takes the cores flat and prices this constant as a co-resident rather than dividing by it, so a bare `describe_fit` there would state a width the repo never asks for; the kernel fan-out divides with no memory cap at all and is narrowed afterwards by the configuration count and the cores at run_m1.build_tables' own `min()`, neither of which is a constant to read, so that narrowing is stated in words; and the surface build names two constants rather than one, because its flat half is as large as its divided half — the parent row states what is subtracted from the box and the worker row what the remainder is divided by, so neither is the whole width on its own and each prints the other's figure to reach one. Both surface rows print the unreserved arm and say so, the gated cycle's further subtraction being a fact about a pass rather than about a box. The cap comes out of `root` rather than out of this module's own tree for the reason the constants do: a report is a pure function of a stated box and a stated tree, and a tree hard-coded here would have a test that invented both quietly reading the live repo for half its answer."""
+    """The width this constant implies on the box in hand, said the way the call site that owns it says it. Five units, four shapes: the font suite's pool takes the cores flat and prices this constant as a co-resident rather than dividing by it, so a bare `describe_fit` there would state a width the repo never asks for; the kernel fan-out divides with no memory cap at all and is narrowed afterwards by the configuration count and the cores at run_m1.build_tables' own `min()`, neither of which is a constant to read, so that narrowing is stated in words; the surface build names two constants rather than one, because its flat half is as large as its divided half — the parent row states what is subtracted from the box and the worker row what the remainder is divided by, so neither is the whole width on its own and each prints the other's figure to reach one; and the standing fill's parent is the surface parent's shape again, subtracted before a division by a worker constant this registry does not watch. The surface rows and the standing-fill row print the unreserved arm and say so, the gated cycle's further subtraction being a fact about a pass rather than about a box. The cap comes out of `root` rather than out of this module's own tree for the reason the constants do: a report is a pure function of a stated box and a stated tree, and a tree hard-coded here would have a test that invented both quietly reading the live repo for half its answer."""
     if unit.name == "font-suite":
         allowed = memory_budget.describe_fit(constant_bytes, total_bytes=total_bytes)
         return f"the font suite takes the cores this process may run on ({cores}), not the division; memory would allow {allowed}"
@@ -388,6 +399,12 @@ def _width_clause(unit: Unit, constant_bytes: int, *, total_bytes: int, cores: i
             constant_bytes, coresident_bytes=parent, cap=cap, total_bytes=total_bytes
         )
         return f"{fit}; under a gated cycle gate:make-test's pool comes off the box before this division too, and two cores off the cap"
+    if unit.name == "standing-fill-parent":
+        worker = _int_constant(root / SURFACE_SOURCE, STANDING_FILL_WORKER_NAME)
+        allowed = memory_budget.describe_fit(
+            worker, coresident_bytes=constant_bytes, cap=cores, total_bytes=total_bytes
+        )
+        return f"the standing fill's chain parent is subtracted from the box rather than divided into it; with it off, the refill pool runs {allowed} ({STANDING_FILL_WORKER_NAME}, seeded by hand); under a gated cycle gate:make-test's pool comes off the box before this division too, and two cores off the cap"
     return memory_budget.describe_fit(constant_bytes, total_bytes=total_bytes)
 
 
