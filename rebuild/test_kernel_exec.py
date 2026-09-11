@@ -522,7 +522,7 @@ class TestTheKernelInvocation:
             assert head is not None and head.stamp == run_m1.memo_stamp(edited)
 
     def test_a_configuration_delta_files_the_bytes_a_from_scratch_build_files(self, tmp_path):
-        """The configuration corollary of the window-locality theorem, held at the artifact: every configuration past `default` enumerated as a delta over `default`'s memo files the same settlement TSV, treaty TSV and window enumeration, byte for byte, as the same configuration enumerated on its own, and answers the same digest. The mini fixture unlocks a `qsMay` entry under `ss03`, so the delta has both windows to share and windows to settle itself."""
+        """The configuration corollary of the window-locality theorem, held at the artifact: every configuration past `default` enumerated as a delta over `default`'s memo files the same settlement TSV, treaty TSV and window enumeration, byte for byte, as the same configuration enumerated on its own, and answers the same digest. The mini fixture unlocks a `qsMay` entry under `ss03`, so the delta has both windows to share and windows to settle itself. The seeded arm claims its deltas heaviest-first rather than in declaration order, and the comparison holds the digests and the files it answers to the declaration-order arm's, configuration for configuration."""
         spec_path = tmp_path / "spec.json"
         kernel_io.write_spec(SPEC, spec_path)
         kernel_exec.ensure_built()

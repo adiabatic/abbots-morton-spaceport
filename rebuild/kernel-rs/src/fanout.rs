@@ -4,6 +4,7 @@
 //!
 //! Parallelism stops at the configuration, and declining to go finer is a decision rather than an omission: the product is a function of the row set — a class-grain row is traced at its fiber's canonical representative, so no traversal order reaches the bytes — but the worklist's LIFO drain order is held as contract anyway, and `cited_provenance` is what the one engine fired while tracing that configuration's windows, so a worklist split across threads would have to reproduce one engine's memo and journal across several to give the sequential answer, which is the whole cost the split would have been trying to avoid.
 
+use std::cmp::Reverse;
 use std::collections::BTreeSet;
 use std::io::Write;
 use std::path::{Path, PathBuf};
@@ -15,6 +16,7 @@ use crate::artifacts;
 use crate::engine::EngineModes;
 use crate::fixpoint::{self, EnumerationModes, Seed};
 use crate::fold;
+use crate::hash::HashSet;
 use crate::index::SpecIndex;
 use crate::memo::{
     Exclusion, MemoBase, MemoHead, MemoSnapshot, memo_path, read_memo, unlocking_runes, write_memo,
@@ -25,7 +27,6 @@ use crate::replay;
 use crate::stream::{self, FixpointProduct};
 
 /// One configuration a run answers: the token it is spelled by — the filename, the stream head's `config`, and the label of its timing lines — and the features that token resolved to.
-#[derive(Clone)]
 pub struct Configuration<'a> {
     pub token: &'a str,
     pub features: Vec<Sym>,
@@ -217,7 +218,7 @@ pub fn run_configs(
 
 /// Every configuration answered by `answer`, at most `workers` of them in flight, with each answer returned at the seat its configuration was named in.
 ///
-/// The worklist is a seat counter and nothing else: a worker claims the next configuration, answers it, and claims again, so one worker walks the whole list in listed order and several share it out without a plan. Order is recovered from the seat each answer carries rather than from the order the answers arrived in, which is what makes a caller's stderr and stdout a function of the plan alone.
+/// The worklist is [`claim_all_leading`]'s over the configurations in listed order, each carrying the seat it was named at: a worker claims the next configuration, answers it, and claims again, so one worker walks the whole list in listed order and several share it out without a plan. Order is recovered from the seat each answer carries rather than from the order the answers arrived in, which is what makes a caller's stderr and stdout a function of the plan alone.
 ///
 /// A `workers` of 0 is a run at one worker rather than a run that claims nothing: the count caps concurrency, and no cap can mean fewer than the one worker it takes to walk the list. The first failure stops further claims, since a run whose exit is nonzero says nothing about the directory it half filled, and the complaint reported is the earliest-seated of those any worker reached.
 fn claim_all<T: Send>(
@@ -225,29 +226,33 @@ fn claim_all<T: Send>(
     workers: usize,
     answer: impl Fn(&Configuration<'_>) -> Result<T, String> + Sync,
 ) -> Result<Vec<T>, String> {
-    claim_all_leading(configs, workers, || Ok(()), answer).map(|((), seated)| seated)
+    let work: Vec<(usize, &Configuration<'_>)> = configs.iter().enumerate().collect();
+    claim_all_leading(&work, workers, || Ok(()), |config| answer(config))
+        .map(|((), seated)| seat_answers(seated, configs.len()))
 }
 
-/// [`claim_all`] with one of its `workers` seats taken first by `lead`, which runs on the calling thread inside the pool's scope and is followed on that thread by the claim loop, so the pool is `workers` wide with the lead in it rather than beside it. The other seats are spawned before the lead runs, so the wave is under way while it does.
+/// [`claim_all`]'s machinery over any worklist, with one of its `workers` seats taken first by `lead`, which runs on the calling thread inside the pool's scope and is followed on that thread by the claim loop, so the pool is `workers` wide with the lead in it rather than beside it. The other seats are spawned before the lead runs, so the wave is under way while it does.
+///
+/// The counter hands out list positions and nothing else, but each item carries the seat its answer belongs at, and the answers come back as `(seat, answer)` pairs rather than in list order, so a caller may order its worklist by cost and still get every answer where it named it ([`seat_answers`] is the dense form). The first failure stops further claims, and the complaint reported is the one at the earliest carried seat among those any worker reached, so a configuration's complaint is the one it was named at rather than the one it was claimed at.
 ///
 /// `lead` carries no `Send` bound, and neither does what it answers, which is the reason the entry point exists: it is how a value that cannot cross a thread — the table build's enumerated product, whose transition rows and window options hold `Rc`s — is finished while the other seats claim. A failing lead stops further claims as a failing worker does, and its complaint is the run's word over any worker's: the lead is the seat the caller answered ahead of the whole list, so the earliest-seat rule the workers keep among themselves reaches it first.
-fn claim_all_leading<L, T: Send>(
-    configs: &[Configuration<'_>],
+fn claim_all_leading<W: Sync, L, T: Send>(
+    work: &[(usize, W)],
     workers: usize,
     lead: impl FnOnce() -> Result<L, String>,
-    answer: impl Fn(&Configuration<'_>) -> Result<T, String> + Sync,
-) -> Result<(L, Vec<T>), String> {
+    answer: impl Fn(&W) -> Result<T, String> + Sync,
+) -> Result<(L, Vec<(usize, T)>), String> {
     let spawned = workers.max(1) - 1;
     let next = AtomicUsize::new(0);
     let stop = AtomicBool::new(false);
     let answer = &answer;
     let (led, claimed) = std::thread::scope(|scope| {
         let handles: Vec<_> = (0..spawned)
-            .map(|_| scope.spawn(|| claim_seats(configs, &next, &stop, answer)))
+            .map(|_| scope.spawn(|| claim_seats(work, &next, &stop, answer)))
             .collect();
         let led = lead();
         let own = if led.is_ok() {
-            claim_seats(configs, &next, &stop, answer)
+            claim_seats(work, &next, &stop, answer)
         } else {
             stop.store(true, Ordering::Relaxed);
             Ok(Vec::new())
@@ -261,15 +266,11 @@ fn claim_all_leading<L, T: Send>(
         (led, claimed)
     });
     let led = led?;
-    let mut seated: Vec<Option<T>> = (0..configs.len()).map(|_| None).collect();
+    let mut seated: Vec<(usize, T)> = Vec::with_capacity(work.len());
     let mut failure: Option<(usize, String)> = None;
     for outcome in claimed {
         match outcome {
-            Ok(answered) => {
-                for (seat, one) in answered {
-                    seated[seat] = Some(one);
-                }
-            }
+            Ok(answered) => seated.extend(answered),
             Err((seat, complaint)) => {
                 if failure.as_ref().is_none_or(|(worst, _)| seat < *worst) {
                     failure = Some((seat, complaint));
@@ -279,38 +280,69 @@ fn claim_all_leading<L, T: Send>(
     }
     match failure {
         Some((_, complaint)) => Err(complaint),
-        None => Ok((
-            led,
-            seated
-                .into_iter()
-                .map(|one| one.expect("a run with no failure seated every configuration"))
-                .collect(),
-        )),
+        None => Ok((led, seated)),
     }
 }
 
-/// One seat's walk of the worklist: claim the next configuration, answer it, claim again, until the list is exhausted or someone has failed. A failure stops everyone's claiming and comes back with the seat it happened at, which is what the earliest-seat reduction reads.
-fn claim_seats<T>(
-    configs: &[Configuration<'_>],
+/// A run's `(seat, answer)` pairs as one answer per seat in seat order. A run that reported no failure answered every seat, since claiming stops only on a failure or an exhausted list.
+fn seat_answers<T>(answered: Vec<(usize, T)>, seats: usize) -> Vec<T> {
+    let mut seated: Vec<Option<T>> = (0..seats).map(|_| None).collect();
+    for (seat, one) in answered {
+        seated[seat] = Some(one);
+    }
+    seated
+        .into_iter()
+        .map(|one| one.expect("a run with no failure seated every configuration"))
+        .collect()
+}
+
+/// One seat's walk of the worklist: claim the next item, answer it, claim again, until the list is exhausted or someone has failed. Each answer comes back with the seat its item carries, and a failure stops everyone's claiming and comes back with that seat, which is what the earliest-seat reduction reads.
+fn claim_seats<W, T>(
+    work: &[(usize, W)],
     next: &AtomicUsize,
     stop: &AtomicBool,
-    answer: &(impl Fn(&Configuration<'_>) -> Result<T, String> + Sync),
+    answer: &(impl Fn(&W) -> Result<T, String> + Sync),
 ) -> Result<Vec<(usize, T)>, (usize, String)> {
     let mut mine: Vec<(usize, T)> = Vec::new();
     while !stop.load(Ordering::Relaxed) {
-        let seat = next.fetch_add(1, Ordering::Relaxed);
-        let Some(config) = configs.get(seat) else {
+        let position = next.fetch_add(1, Ordering::Relaxed);
+        let Some((seat, item)) = work.get(position) else {
             break;
         };
-        match answer(config) {
-            Ok(answered) => mine.push((seat, answered)),
+        match answer(item) {
+            Ok(answered) => mine.push((*seat, answered)),
             Err(complaint) => {
                 stop.store(true, Ordering::Relaxed);
-                return Err((seat, complaint));
+                return Err((*seat, complaint));
             }
         }
     }
     Ok(mine)
+}
+
+/// One delta as the wave claims it: the configuration, and its unlocking runes ([`unlocking_runes`]) computed once while the worklist is built, since both the claim order and the seat's exclusion read them.
+struct DeltaWork<'c> {
+    config: &'c Configuration<'c>,
+    unlocking: HashSet<Sym>,
+}
+
+/// The wave's worklist: every configuration but `default_seat`, each paired with the seat it was named at, in the order the wave claims them — the most unlocking runes first, the named seat as tie-break. The count is a structural proxy for how long a delta traces on its own: a delta whose features unlock more runes shares less of `default`'s memo and enumerates more of the product itself, and the proxy only has to separate the memo-heavy deltas from the cheap ones. Claiming those first ends the wave sooner on a box whose width is narrower than the roster, where a heavy delta claimed last runs its whole tail with the other seats idle. Claim order is a schedule and cannot reach the bytes: each delta reads only `default`'s snapshot behind its [`Arc`] and the previous build's files, never another delta's output, and every answer is seated by the seat it carries.
+fn delta_worklist<'c>(
+    index: &SpecIndex,
+    configs: &'c [Configuration<'c>],
+    default_seat: usize,
+) -> Vec<(usize, DeltaWork<'c>)> {
+    let mut work: Vec<(usize, DeltaWork<'c>)> = configs
+        .iter()
+        .enumerate()
+        .filter(|(seat, _)| *seat != default_seat)
+        .map(|(seat, config)| {
+            let unlocking = unlocking_runes(index, &config.features);
+            (seat, DeltaWork { config, unlocking })
+        })
+        .collect();
+    work.sort_by_key(|(seat, work)| (Reverse(work.unlocking.len()), *seat));
+    work
 }
 
 /// What one configuration's table build answered: the contract digest of its two tables, and its timing lines.
@@ -322,7 +354,7 @@ pub struct TableAnswer {
 
 /// Every configuration's two tables, its window enumeration and its digest, written under `outdir` at most `workers` at a time, each configuration reading what the seeding lets it read and leaving the memo file it says to leave.
 ///
-/// Under the configuration seed, the no-feature configuration enumerates first and alone, keeping its memo; its memo write and fold then run at one of the given width's seats while the rest run at the others, each reading that memo behind an exclusion naming its own unlocking runes, so the wall is one full enumeration plus one wave and the memo is held once, shared. A previous build's memo, where the seeding names one, is read behind the edited runes: `default` reads its own previous file whole, and a delta configuration reads `default`'s previous file behind the edited runes and its own unlocking runes together, and its own previous file only for the windows naming one of its unlocking runes, which is the one part of it the in-process memo cannot answer. A set without the no-feature configuration, or one configuration alone, has no in-process memo to seed from and every configuration reads its own previous file whole. Answers come back seated in the order the configurations were named, whatever order they ran in.
+/// Under the configuration seed, the no-feature configuration enumerates first and alone, keeping its memo; its memo write and fold then run at one of the given width's seats while the rest run at the others, each reading that memo behind an exclusion naming its own unlocking runes, so the wall is one full enumeration plus one wave and the memo is held once, shared. A previous build's memo, where the seeding names one, is read behind the edited runes: `default` reads its own previous file whole, and a delta configuration reads `default`'s previous file behind the edited runes and its own unlocking runes together, and its own previous file only for the windows naming one of its unlocking runes, which is the one part of it the in-process memo cannot answer. A set without the no-feature configuration, or one configuration alone, has no in-process memo to seed from and every configuration reads its own previous file whole. The wave claims the deltas heaviest-first by unlocking-rune count with the named seat as tie-break ([`delta_worklist`]), and the seat travels with the configuration, so the answers, their digests and their `[t]` lines come back in the order the configurations were named whatever order they ran in.
 ///
 /// Nothing is swept first, unlike the stream fan-out: `run_m1.build_tables` writes into the build's own artifact directory beside a dozen other families, and a run that deleted the tables of a configuration set the build no longer names would be answering a question nobody asked it.
 #[allow(clippy::too_many_arguments)]
@@ -393,19 +425,15 @@ pub fn run_configs_tables(
             .as_ref()
             .expect("a kept memo comes back from a trace-memo enumeration"),
     );
-    let rest: Vec<Configuration<'_>> = configs
-        .iter()
-        .enumerate()
-        .filter(|(seat, _)| *seat != default_seat)
-        .map(|(_, config)| config.clone())
-        .collect();
+    let rest = delta_worklist(index, configs, default_seat);
     let finish_default = || {
         finish_config_tables(index, default, outdir, inputs, report, pending)
             .map_err(|complaint| format!("{}: {complaint}", default.token))
     };
-    let (default_answer, mut answers) =
-        claim_all_leading(&rest, workers, finish_default, |config| {
-            let unlocking = unlocking_runes(index, &config.features);
+    let (default_answer, mut answered) =
+        claim_all_leading(&rest, workers, finish_default, |work: &DeltaWork<'_>| {
+            let config = work.config;
+            let unlocking = &work.unlocking;
             let previous_own = load_seed(index, &seeding, config.token, &world, |key| {
                 key.runes_named().any(|rune| unlocking.contains(&rune))
             })?;
@@ -430,8 +458,8 @@ pub fn run_configs_tables(
             run_config_tables(index, config, modes, outdir, inputs, report, seed, file)
                 .map_err(|complaint| format!("{}: {complaint}", config.token))
         })?;
-    answers.insert(default_seat, default_answer);
-    Ok(answers)
+    answered.push((default_seat, default_answer));
+    Ok(seat_answers(answered, configs.len()))
 }
 
 /// One configuration folded in place: its fixpoint over whatever the seed lets it read, the fold over the product that fixpoint still holds — the rule certificates closed over the enumeration's own [`WindowOptions`], so the guard is swept once — the three artifact files, and the digest of the pair, with the finished memo written to `file` when one is named. The phases are named `enumerate[<config>]`, `memo[<config>]` and `fold[<config>]` when the caller wants them timed, the census's `[c]` lines riding ahead of them as they do for a stream run. It is [`enumerate_config_tables`] then [`finish_config_tables`] on one thread, for the caller that wants both at once; the seeded fan-out takes the halves apart so `default`'s second half can run beside the wave.
@@ -678,6 +706,9 @@ mod tests {
     /// The two configurations the fixture can tell apart: it unlocks a `qsMay` entry under `ss03` and nothing under nothing.
     const TOKENS: [&str; 2] = ["default", "ss03"];
 
+    /// The set whose claim order is not its declaration order: `default`; a delta unlocking nothing, spelled `ss09` with no features because the fixture declares no second feature and the first no-feature configuration is the one that seeds; and `ss03`, the delta unlocking `qsMay`, which the wave claims first although it is named last.
+    const PERMUTING: [&str; 3] = ["default", "ss09", "ss03"];
+
     /// A scratch path of this test's own, cleared first so a stale file cannot stand in for one a run was supposed to write, and left uncreated so that making it is the run's own job. It lives under `target/`, which is gitignored, rather than in the system temp directory.
     fn scratch(name: &str) -> PathBuf {
         let directory = Path::new(env!("CARGO_MANIFEST_DIR"))
@@ -688,11 +719,23 @@ mod tests {
     }
 
     fn configurations(index: &SpecIndex) -> Vec<Configuration<'static>> {
-        TOKENS
+        configurations_of(index, &TOKENS)
+    }
+
+    fn permuting(index: &SpecIndex) -> Vec<Configuration<'static>> {
+        configurations_of(index, &PERMUTING)
+    }
+
+    /// The tokens as configurations: `default` and `ss09` with no features, anything else with the feature its token names.
+    fn configurations_of(
+        index: &SpecIndex,
+        tokens: &[&'static str],
+    ) -> Vec<Configuration<'static>> {
+        tokens
             .iter()
             .map(|token| Configuration {
                 token,
-                features: if *token == "default" {
+                features: if *token == "default" || *token == "ss09" {
                     Vec::new()
                 } else {
                     vec![fixtures::sym(index, token)]
@@ -960,16 +1003,16 @@ mod tests {
             .expect("a directory can occupy a settlement table's path");
     }
 
-    /// The table fan-out against itself across widths: the tables, the memo files and the digests are the same bytes seat for seat at no workers named, at one, and at more than there are configurations — the last being where the delta enumerates while `default`'s memo write and fold run on the calling thread. The stamped arm is the sharper one: it hands the snapshot to the wave while `write_memo` reads it, and that file, sorted by its writer, is compared too.
+    /// The table fan-out against itself across widths, over the set whose claim order is not its declaration order: the tables, the memo files and the digests are the same bytes seat for seat at no workers named, at one, at two — the width the claim order exists for, where one seat takes the heavy delta and the lead claims the cheap one after `default`'s memo write and fold — and at more than there are configurations, where the deltas enumerate while `default`'s memo write and fold run on the calling thread. The stamped arm is the sharper one: it hands the snapshot to the wave while `write_memo` reads it, and that file, sorted by its writer, is compared too.
     #[test]
     fn a_table_fan_out_files_the_same_bytes_at_every_width() {
         let index = fixtures::mini();
-        let configs = configurations(&index);
+        let configs = permuting(&index);
         let root = scratch("fan-out-tables");
         for (arm, seeding) in [("unstamped", Seeding::default()), ("stamped", stamped())] {
             let with_memo = seeding.memo_stamp.is_some();
             let mut first: Option<Filed> = None;
-            for workers in [0, 1, 8] {
+            for workers in [0, 1, 2, 8] {
                 let outdir = root.join(arm).join(format!("at-{workers}"));
                 let answers = run_configs_tables(
                     &index,
@@ -1007,13 +1050,13 @@ mod tests {
         std::fs::remove_dir_all(&root).expect("the scratch directory is removable");
     }
 
-    /// A table build's timing lines arrive in the caller's configuration order and name each configuration's three phases in the order they ran, whatever the width: `default`'s memo and fold lines come back where its enumerate line does, even when they were clocked beside the delta's.
+    /// A table build's timing lines arrive in the caller's configuration order and name each configuration's three phases in the order they ran, whatever the width: `default`'s memo and fold lines come back where its enumerate line does, even when they were clocked beside the deltas', and `ss03`'s come back last although the wave claims it first.
     #[test]
     fn a_table_build_times_its_three_phases_in_configuration_order_at_any_width() {
         let index = fixtures::mini();
-        let configs = configurations(&index);
+        let configs = permuting(&index);
         let root = scratch("fan-out-tables-timings");
-        for workers in [1, 8] {
+        for workers in [1, 2, 8] {
             let outdir = root.join(format!("at-{workers}"));
             let answers = run_configs_tables(
                 &index,
@@ -1042,6 +1085,9 @@ mod tests {
                     "enumerate[default]",
                     "memo[default]",
                     "fold[default]",
+                    "enumerate[ss09]",
+                    "memo[ss09]",
+                    "fold[ss09]",
                     "enumerate[ss03]",
                     "memo[ss03]",
                     "fold[ss03]"
@@ -1101,38 +1147,77 @@ mod tests {
         std::fs::remove_dir_all(&root).expect("the scratch directory is removable");
     }
 
-    /// The lead's overlap with the wave, pinned rather than raced: with two seats and one configuration to claim, the lead waits at a barrier the worker's answer reaches, so the worker has claimed and started answering while the lead is still running — the arrangement `default`'s memo write and fold rely on — and the run seats what both answered, the lead's answer apart from the seated ones. When both fail, the lead's word is the run's.
+    /// The wave's worklist over the permuting set: `ss03`, the delta unlocking `qsMay`, comes first carrying seat 2, the delta unlocking nothing follows carrying seat 1, `default` is not in it, and each entry holds its unlocking runes.
+    #[test]
+    fn the_delta_worklist_is_claimed_heaviest_first() {
+        let index = fixtures::mini();
+        let configs = permuting(&index);
+        let work = delta_worklist(&index, &configs, 0);
+        let seated: Vec<(usize, &str)> = work
+            .iter()
+            .map(|(seat, work)| (*seat, work.config.token))
+            .collect();
+        assert_eq!(seated, [(2, "ss03"), (1, "ss09")]);
+        let may = fixtures::sym(&index, "qsMay");
+        assert_eq!(work[0].1.unlocking.len(), 1);
+        assert!(work[0].1.unlocking.contains(&may));
+        assert!(work[1].1.unlocking.is_empty());
+    }
+
+    /// A failing item's complaint is reported at the seat it carries, not the position it was claimed at, pinned rather than raced: over a worklist seated out of order, every answer fails only once both items have met at a barrier, so both are claimed before either failure stops the claiming, whichever of the three seats claims them, and the run's word is the seat-1 item's although the seat-3 item was claimed first.
+    #[test]
+    fn a_failing_item_is_reported_at_the_seat_it_carries() {
+        let work = [(3, "ss03"), (1, "ss09")];
+        let met = std::sync::Barrier::new(2);
+        let complaint = claim_all_leading(
+            &work,
+            3,
+            || Ok(()),
+            |token: &&str| {
+                met.wait();
+                Err::<(), _>(format!("{token}: blocked"))
+            },
+        )
+        .expect_err("both items fail");
+        assert_eq!(complaint, "ss09: blocked");
+    }
+
+    /// The lead's overlap with the wave, pinned rather than raced: with two seats and a worklist seated out of order, the lead waits at a barrier the first item's answer reaches, so the worker has claimed and started answering while the lead is still running — the arrangement `default`'s memo write and fold rely on — and the run hands back what both answered carrying the seats the items were named at, the lead's answer apart from them. When both fail, the lead's word is the run's.
     #[test]
     fn a_lead_runs_beside_the_seat_that_claims_while_it_does() {
-        let index = fixtures::mini();
-        let configs = configurations(&index);
-        let rest = &configs[1..];
+        let work = [(3, "ss03"), (1, "ss09")];
         let met = std::sync::Barrier::new(2);
-        let (led, seated) = claim_all_leading(
-            rest,
+        let (led, mut seated) = claim_all_leading(
+            &work,
             2,
             || {
                 met.wait();
                 Ok("lead")
             },
-            |config| {
-                met.wait();
-                Ok(config.token.to_owned())
+            |token: &&str| {
+                if *token == "ss03" {
+                    met.wait();
+                }
+                Ok((*token).to_owned())
             },
         )
         .expect("both seats answer");
-        assert_eq!((led, seated), ("lead", vec![TOKENS[1].to_owned()]));
+        seated.sort_by_key(|(seat, _)| *seat);
+        assert_eq!(led, "lead");
+        assert_eq!(seated, [(1, "ss09".to_owned()), (3, "ss03".to_owned())]);
         let met = std::sync::Barrier::new(2);
         let complaint = claim_all_leading(
-            rest,
+            &work,
             2,
             || {
                 met.wait();
                 Err::<(), _>("lead: blocked".to_owned())
             },
-            |config| {
-                met.wait();
-                Err::<(), _>(format!("{}: blocked", config.token))
+            |token: &&str| {
+                if *token == "ss03" {
+                    met.wait();
+                }
+                Err::<(), _>(format!("{token}: blocked"))
             },
         )
         .expect_err("both seats fail");
