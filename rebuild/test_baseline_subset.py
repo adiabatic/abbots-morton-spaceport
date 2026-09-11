@@ -3,6 +3,7 @@
 import gzip
 import hashlib
 import json
+from pathlib import Path
 
 import pytest
 
@@ -110,6 +111,21 @@ class TestEnsureFresh:
         root = _seed_repo(tmp_path)
         before = baseline_subset.stamp_key(root)
         monkeypatch.setattr(baseline_subset, "M1_ALPHABET", frozenset({0x0020}))
+        assert baseline_subset.stamp_key(root) != before
+
+    def test_a_docstring_reword_in_the_filter_leaves_the_key_still(self, tmp_path, monkeypatch):
+        """The filter's own code reaches the key prose-blind (`fingerprint.code_file_digest`), so rewording a docstring here trusts the subset on disk and a statement change refilters. A copy of the module stands in for `__file__`, so the edits never touch the checkout."""
+        root = _seed_repo(tmp_path)
+        module = tmp_path / "baseline_subset.py"
+        source = Path(baseline_subset.__file__).read_text(encoding="utf-8")
+        module.write_text(source, encoding="utf-8")
+        monkeypatch.setattr(baseline_subset, "__file__", str(module))
+        before = baseline_subset.stamp_key(root)
+        module.write_text(
+            source.replace('"""The content key the stamp records:', '"""The key, reworded:'), encoding="utf-8"
+        )
+        assert baseline_subset.stamp_key(root) == before
+        module.write_text(source + "\nPERTURBED = 1\n", encoding="utf-8")
         assert baseline_subset.stamp_key(root) != before
 
     def test_a_deleted_output_reads_as_stale(self, tmp_path):

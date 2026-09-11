@@ -15,10 +15,13 @@ The standing approvals are in no component here either; `standing_approvals_dige
 Rune files are hashed by `rune_file_digest`, a prose-blind digest over the parsed document rather than the raw bytes: YAML comments and formatting, the ductus prose, the notes prose, and every `why` rationale — refuse records' included — are documentation no stage that builds anything consumes, so editing them must not stale the surface or re-run a cycle. What stays in the digest is exactly what can move an output or a gate: every geometric and policy field, the ductus *keys* (motion names, which the parity and naming lints enforce), and the *presence* of every prose field (the schema requires `why` on absolute prefers).
 
 One rationale is read after all, and it has two homes of its own rather than a place in that digest. `policy.refuse[].why` is what the kernel crate's engine appends to a refusal's elimination sentence when it is asked for an explain ladder — a request the table fixpoint never makes and the review surface's explain panel is the whole audience for. So it rides `rune_explain_digest`, which the review unit cache's family keys are built from, and the Stage B `explain_prose` component, which the surface's manifest stamps: rewording one re-enriches the windows whose explain text quotes it and re-stamps the surface, and costs nothing else. The tables' stamp, the conformance sweep's key, the rebuild suite's key, the artifact cycle's run_m1 green, the oracle row cache's family keys, and `unit_cache.environment_stamp` all read `rune_file_digest` and cannot see it.
+
+Code files hash through a projection of their own, for the runes' reason. `code_file_digest` parses a `.py` file and hashes its syntax tree with every docstring's text set to `None`, and hashes a `.rs` file with its whole-line `//` comments dropped, so rewording either moves no key `path_lines` builds: the tables' stamp, the run_m1 skip key, the trace-memo and replay stamps, the oracle row cache and the settle memo, both surface stores, the standing-fill memo and the standing daemon's stamp among them. What stays is everything the interpreter or the compiler can see — every identifier, every non-docstring string constant (matchers compare against literal error text), every annotation and default, every decorator, every Rust code line with its trailing comment — and the presence of each docstring, the way the rune projection keeps the presence of each prose field. A file that does not parse or decode falls back to its raw bytes, as `_projected_digest` does, so a stopping edit stays visible; every other suffix — the site fonts, the app shell, the crate's manifest and lock — hashes raw through `file_sha256`. Two closures stay raw on purpose, and both are the artifact cycle's rather than this module's: `artifact_cycle._closure_digest` with `make_test_closure_fingerprint`, because test fixtures and the closure tests read source text, and `pyright_gate`'s own, where a `# pyright: ignore` comment changes the answer being gated — so `gate:rebuild-contracts` and `gate:make-test` still run on a prose-only edit. `baseline_subset.stamp_key` reads `code_file_digest` directly for the same reason. rebuild/test_fingerprint.py is the authority on what the projection sees and pins the keys this module builds (`pipeline_code`, the tables' stamp, the run_m1 skip key) and the two raw closures; each memo or store pins its own stamp beside itself (rebuild/test_standing_verdicts.py for the standing-fill memo, rebuild/test_unit_cache.py for the surface stores, rebuild/test_baseline_subset.py for the subset key).
 """
 
 from __future__ import annotations
 
+import ast
 import hashlib
 import json
 from pathlib import Path
@@ -128,9 +131,57 @@ def _label(repo_root: Path, path: Path) -> str:
         return path.name
 
 
+def _without_docstrings(tree: ast.Module) -> ast.Module:
+    """The syntax tree with every docstring's text set to `None` in place: the leading string expression of the module and of each class and function body, which is exactly what `ast.get_docstring` reads. The expression stays, so a docstring's presence is still in the digest and a module holding only a docstring does not collapse onto an empty one."""
+    for node in ast.walk(tree):
+        if not isinstance(node, (ast.Module, ast.ClassDef, ast.FunctionDef, ast.AsyncFunctionDef)):
+            continue
+        if not node.body:
+            continue
+        first = node.body[0]
+        if isinstance(first, ast.Expr) and isinstance(first.value, ast.Constant):
+            if isinstance(first.value.value, str):
+                first.value.value = None
+    return tree
+
+
+def _projected_python(raw: bytes) -> str:
+    """A Python source's docstring-blind view: its syntax tree dumped without positions, so a comment, a reflowed blank line or a shifted line number is invisible and every identifier, constant, annotation, default and decorator is not."""
+    return ast.dump(_without_docstrings(ast.parse(raw)))
+
+
+def _projected_rust(raw: bytes) -> str:
+    """A Rust source with its whole-line comments dropped — `//`, `///` and `//!` alike, judged on the left-stripped line — and nothing else touched: a trailing comment on a code line rides along with the line, which is the conservative half of the projection."""
+    return "\n".join(line for line in raw.decode().splitlines() if not line.lstrip().startswith("//"))
+
+
+_CODE_PROJECTIONS: dict[str, Callable[[bytes], str]] = {".py": _projected_python, ".rs": _projected_rust}
+_CODE_DIGESTS: dict[tuple[str, str], str] = {}
+
+
+def code_file_digest(path: Path) -> str:
+    """One code file's prose-blind digest (the module docstring holds the contract for what the projection drops), and `file_sha256` for any other suffix. The dispatch is on the suffix before the file is opened, so a font or a baseline reaching `path_lines` is still streamed and never read whole. A file the projection cannot parse or decode digests to its raw bytes, so two broken drafts cannot collapse onto one value.
+
+    Memoized per process on the suffix and the raw content digest: the stamp functions rebuild these lines many times in one cycle, and the projection costs many times what the raw hash does, while a key on the path's size and mtime could serve a stale projection to a file rewritten to the same size within one clock tick — the shape the contract tests take. The raw hash the key costs is the cheap part of what the memo saves.
+    """
+    project = _CODE_PROJECTIONS.get(path.suffix)
+    if project is None:
+        return file_sha256(path)
+    raw_digest = file_sha256(path)
+    key = (path.suffix, raw_digest)
+    digest = _CODE_DIGESTS.get(key)
+    if digest is None:
+        try:
+            digest = hashlib.sha256(project(path.read_bytes()).encode()).hexdigest()
+        except SyntaxError, ValueError, RecursionError:
+            digest = raw_digest
+        _CODE_DIGESTS[key] = digest
+    return digest
+
+
 def path_lines(repo_root: Path, paths: list[Path]) -> list[str]:
-    """The per-file `label\\tdigest` lines a path-set hash is built from, sorted — exposed so a green record can store them and a skip miss can name exactly which input moved instead of reporting only that some 64-hex value did."""
-    return sorted(f"{_label(repo_root, path)}\t{file_sha256(path)}" for path in paths if path.is_file())
+    """The per-file `label\\tdigest` lines a path-set hash is built from, sorted — exposed so a green record can store them and a skip miss can name exactly which input moved instead of reporting only that some 64-hex value did. Each digest is `code_file_digest`'s: prose-blind for a Python or Rust source, the raw bytes for everything else."""
+    return sorted(f"{_label(repo_root, path)}\t{code_file_digest(path)}" for path in paths if path.is_file())
 
 
 def hash_paths(repo_root: Path, paths: list[Path]) -> str:
