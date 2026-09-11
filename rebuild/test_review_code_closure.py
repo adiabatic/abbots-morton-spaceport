@@ -312,6 +312,30 @@ def test_the_enumeration_and_the_fold_stay_outside_the_store_stamp():
     assert {"main.rs", "lib.rs", "engine.rs", "cases.rs", "Cargo.toml", "Cargo.lock"} <= stamped
 
 
+def test_the_sweep_the_row_cache_the_emitter_and_the_geometry_stay_outside_the_store_stamp():
+    """The narrowing stated at the grain a pipeline lever lands at: the conformance sweep, the oracle's row cache, the GSUB emitter and the pixel geometry are where a sweep or oracle change goes, and an edit there must not cost the review surface a cold units phase — while the leaf that carries the vocabulary the build shares with the sweep stays in, since it spells the labels a served unit was keyed under."""
+    stamped = {path.name for path in unit_cache.surface_code_paths(REPO_ROOT)}
+    outside = {"conform.py", "emit_gsub.py", "geometry.py", "oracle_cache.py"}
+    assert outside <= unit_cache.PIPELINE_NON_SURFACE_MODULES
+    assert not (outside & stamped)
+    assert "labels.py" in stamped
+
+
+LABELS_LEAF_IMPORTS = frozenset(
+    {"rebuild.pipeline.model", "rebuild.pipeline.settle", "rebuild.validation.rowmodel"}
+)
+
+
+def test_the_labels_leaf_imports_nothing_that_would_regrow_the_closure():
+    """`rebuild/pipeline/labels.py` is the module the surface build reaches for the sweep's vocabulary, and it earns its place by importing nothing the sweep does: `model`, `settle` and `rowmodel`, and no more. An import added there would drag its module back into `surface_code_paths` for every reader of a settled stream, and the roster tests above would then ask for the module to be stamped rather than for the leaf to stay a leaf — so the import list is pinned here as the claim itself."""
+    imports = {
+        name
+        for name in _imports(PIPELINE_DIR / "labels.py")
+        if (path := _module_path(name)) is not None and path.name != "__init__.py"
+    }
+    assert imports == LABELS_LEAF_IMPORTS, sorted(imports ^ LABELS_LEAF_IMPORTS)
+
+
 def test_every_roster_entry_is_on_disk():
     """A rename that leaves either roster behind would hash a module the surface runs under a name that no longer exists — `fingerprint.hash_paths` reads a missing path as a stable absence — so both are checked against the disk directly."""
     missing = sorted(

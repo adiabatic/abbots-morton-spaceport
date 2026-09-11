@@ -17,7 +17,16 @@ from typing import Any
 
 import pytest
 
-from rebuild.pipeline import baseline_subset, conform, kernel_exec, oracle, oracle_cache, run_m1, settle
+from rebuild.pipeline import (
+    baseline_subset,
+    conform,
+    kernel_exec,
+    labels,
+    oracle,
+    oracle_cache,
+    run_m1,
+    settle,
+)
 from rebuild.pipeline.fixtures import mini_spec
 from rebuild.pipeline.model import CellId
 
@@ -222,7 +231,7 @@ class TestAliasAndLedger:
             "uni200C: boundary\n"
             "qsPea: pending\n"
         )
-        aliases = conform.load_alias_map(path)
+        aliases = labels.load_alias_map(path)
         assert aliases["qsIt.en-y5.ex-y0"] == CellId("qsIt", "hapax", "x-height", "baseline", ())
         assert aliases["uni200C"] == "boundary"
         assert aliases["qsPea"] == "pending"
@@ -1159,7 +1168,7 @@ def _position_bench(spec, tmp_path: Path, ledger_entries: str = _INK_IDENTICAL_L
         for row in rows:
             handle.write(row + "\n")
     aliases = tmp_path / "aliases.yaml"
-    aliases.write_text("".join(f"{name}: pending\n" for name in sorted(names - conform.BOUNDARY_GLYPH_NAMES)))
+    aliases.write_text("".join(f"{name}: pending\n" for name in sorted(names - labels.BOUNDARY_GLYPH_NAMES)))
     ledger = tmp_path / "ledger.yaml"
     ledger.write_text(ledger_entries)
     stamps = {"default": _cache_stamp("default", table)}
@@ -1897,7 +1906,7 @@ class TestFontBlindComparison:
             tables,
             "default",
             frozenset(),
-            conform.load_alias_map(aliases),
+            labels.load_alias_map(aliases),
             ledger,
             {"ink-identical"},
             _SilentShaper(),  # pyright: ignore[reportArgumentType]
@@ -2635,7 +2644,7 @@ class TestSettleMemoFile:
         assert second.fresh_windows == 0
         assert second.memo_windows == len(first.windows)
         assert second.windows.keys() == first.windows.keys()
-        boundaries = set(conform._BOUNDARY_KIND_LABELS.values())
+        boundaries = set(labels._BOUNDARY_KIND_LABELS.values())
         for (settled, names), (expected, expected_names) in zip(again, walked):
             assert settled == expected
             assert names == [name if name in boundaries else f"minted.{name}" for name in expected_names]

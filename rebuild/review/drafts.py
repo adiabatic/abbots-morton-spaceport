@@ -11,7 +11,7 @@ from typing import Any, Callable
 
 import yaml
 
-from rebuild.pipeline.conform import load_alias_map
+from rebuild.pipeline.labels import load_alias_map
 from rebuild.pipeline.model import SS10_TWIN_SUFFIX, CellId
 from rebuild.pipeline.settle import is_boundary_settled
 from rebuild.pipeline.spec_load import _SchemaChecker

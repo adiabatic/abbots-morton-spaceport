@@ -11,14 +11,9 @@ from pathlib import Path
 from typing import Callable
 
 from rebuild.pipeline import kernel_exec, spec_load
-from rebuild.pipeline.conform import (
-    BOUNDARY_GLYPH_NAMES,
-    features_for_config,
-    isolated_overlay_active,
-    load_alias_map,
-)
 from rebuild.pipeline.explain import ExplainReport, explain_many
-from rebuild.pipeline.model import CellId, ResolvedSpec, Settled
+from rebuild.pipeline.labels import BOUNDARY_GLYPH_NAMES, features_for_config, load_alias_map
+from rebuild.pipeline.model import CellId, ResolvedSpec, Settled, isolated_overlay_active
 from rebuild.pipeline.settle import form_ligatures, is_boundary_settled, tokens_from_codepoints
 from rebuild.review.audit import Unit
 from rebuild.review.ink import OutlineCache, OutlineIntern, kern_neutral

@@ -9,7 +9,7 @@ from pathlib import Path
 import pytest
 
 from rebuild.pipeline import explain
-from rebuild.pipeline.conform import features_for_config
+from rebuild.pipeline.labels import features_for_config
 from rebuild.pipeline.settle import cell_label
 from rebuild.review import tablediff
 from rebuild.review.enrich import load_spec
