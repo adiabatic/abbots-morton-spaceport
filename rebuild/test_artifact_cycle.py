@@ -1,9 +1,11 @@
 import argparse
 import functools
+import gzip
 import hashlib
 import json
 import os
 import re
+import shutil
 import subprocess
 import sys
 import threading
@@ -619,7 +621,16 @@ def test_render_plan_is_stringable():
 
 def test_every_plan_step_says_what_it_is_for():
     """The banner prints a description on every run, so a step without one prints a bare rule and leaves the reader to guess. The reuse route is the one row whose description is not looked up under its own name: it spawns as run_m1:gates-only and reports under run_m1's row, and what it says has to be the re-adjudication's sentence rather than the build's."""
-    for plan in (_plan(), _plan(skip_gates=True), _plan(reuse_run_m1=True, run_m1_note="comparison-side")):
+    for plan in (
+        _plan(),
+        _plan(skip_gates=True),
+        _plan(reuse_run_m1=True, run_m1_note="comparison-side"),
+        _plan(
+            skip_surface=True,
+            promote_surface=Path("var/rehearsal-review"),
+            surface_note=ac.SURFACE_PROMOTE_NOTE,
+        ),
+    ):
         for step in plan.steps:
             assert step.describe, step.name
             assert step.describe in ac.STEP_DESCRIPTIONS.values(), step.name
@@ -2267,6 +2278,7 @@ def test_cycle_summary_payload_plan_block_and_argv():
         "reuse_run_m1": False,
         "skip_surface": False,
         "refresh_assets": False,
+        "promote_surface": None,
         "skip_contracts": False,
         "skip_plumbing": False,
         "review_out": None,
@@ -2275,6 +2287,7 @@ def test_cycle_summary_payload_plan_block_and_argv():
     }
     assert payload["argv"] == list(sys.argv)
     assert payload["assets_status"] == "not run"
+    assert payload["promote_status"] == "not run"
 
 
 def test_cycle_summary_payload_records_an_assets_refresh():
@@ -3531,6 +3544,213 @@ def test_surface_build_skippable_matches_manifest(tmp_path):
     assert not ac.surface_build_skippable(tmp_path, surface)
     restamp()
     assert ac.surface_build_skippable(tmp_path, surface)
+
+
+def _promotion_root(root):
+    """A repo root whose Stage A record and after font are what every surface here is stamped against, and the fingerprint a surface has to record to reproduce them byte for byte."""
+    from rebuild.pipeline import fingerprint
+
+    m1 = root / "rebuild" / "out" / "m1"
+    m1.mkdir(parents=True, exist_ok=True)
+    stage_a = {"data": "d", "baselines": "b", "pipeline_code": "p"}
+    (m1 / fingerprint.STAGE_A_FILENAME).write_text(json.dumps({"format": fingerprint.FORMAT, **stage_a}))
+    (m1 / "M1.otf").write_bytes(b"OTTO")
+    before_font, junior_font = fingerprint.font_paths(root)
+    return {**stage_a, **fingerprint.stage_b(root, before_font, junior_font)}
+
+
+def _write_surface(surface, recorded, stamp):
+    """One synthetic surface in the `test_surface_build_skippable_matches_manifest` idiom: a shard, a manifest recording `recorded` as its inputs fingerprint and `stamp` as its generated_at, and the three stamped sidecars written for that manifest."""
+    from rebuild.review import app_index, unit_index
+
+    surface.mkdir(parents=True, exist_ok=True)
+    (surface / "units-000.json").write_text("[]")
+    (surface / "manifest.json").write_text(
+        json.dumps(
+            {
+                "generated_at": stamp,
+                "inputs_fingerprint": recorded,
+                "classes": [{"id": "c", "shards": ["units-000.json"]}],
+                "fonts": {
+                    "after": {"file": "fonts/after.otf", "sha256": hashlib.sha256(b"OTTO").hexdigest()}
+                },
+                "totals": {"units": 1, "rows": 1, "batches": 1, "echo_groups": 0},
+            }
+        )
+    )
+    unit_index.write_index(surface, [])
+    app_index.write_app_artifacts(surface, {}, {})
+
+
+def test_promotable_surface_names_a_current_rehearsal_and_refuses_the_rest(tmp_path):
+    """The resolver answers for a directory that a live pass may move into place, so every precondition refuses on its own: no directory, the live directory itself, a rehearsal whose own fingerprint moved, one stamped older than the surface it would replace, and an unreadable manifest on either side. The stamp case is the one `surface_build_skippable` cannot see — generated_at is an input mtime rather than a build time — and it is what keeps merge_verdicts' newer-store refusal off the pass."""
+    expected = _promotion_root(tmp_path)
+    live = tmp_path / "rebuild" / "out" / "review"
+    rehearsal = tmp_path / "var" / "rehearsal-review"
+    summary = tmp_path / "rebuild" / "out" / "cycle_summary.json"
+    _write_surface(live, expected, "2026-01-01T00:00:00Z")
+    summary.parent.mkdir(parents=True, exist_ok=True)
+    summary.write_text(json.dumps({"plan": {"review_out": "rebuild/out/review"}}))
+    assert ac.promotable_surface(tmp_path, summary, live) is None
+    summary.unlink()
+    _write_surface(live, {**expected, "data": "stale"}, "2026-01-01T00:00:00Z")
+    assert ac.promotable_surface(tmp_path, summary, live) is None
+
+    _write_surface(rehearsal, expected, "2026-01-02T00:00:00Z")
+    assert ac.promotable_surface(tmp_path, summary, live) == rehearsal
+
+    _write_surface(rehearsal, {**expected, "review_code": "moved"}, "2026-01-02T00:00:00Z")
+    assert ac.promotable_surface(tmp_path, summary, live) is None
+
+    _write_surface(rehearsal, expected, "2025-12-31T00:00:00Z")
+    assert ac.promotable_surface(tmp_path, summary, live) is None
+    _write_surface(rehearsal, expected, "2026-01-01T00:00:00Z")
+    assert ac.promotable_surface(tmp_path, summary, live) == rehearsal
+
+    (rehearsal / "manifest.json").write_text("{ not json")
+    assert ac.promotable_surface(tmp_path, summary, live) is None
+    _write_surface(rehearsal, expected, "2026-01-02T00:00:00Z")
+    (live / "manifest.json").write_text("{ not json")
+    assert ac.promotable_surface(tmp_path, summary, live) is None
+
+
+def test_promotable_surface_reads_the_recorded_pointer_before_the_convention(tmp_path):
+    """`--review-out` takes any path, so the directory the last cycle summary recorded is asked first, resolved against the root because the summary stores it repo-relative; a summary with no pointer, or one that will not parse, falls through to the conventional directory rather than raising."""
+    expected = _promotion_root(tmp_path)
+    live = tmp_path / "rebuild" / "out" / "review"
+    _write_surface(live, {**expected, "data": "stale"}, "2026-01-01T00:00:00Z")
+    conventional = tmp_path / "var" / "rehearsal-review"
+    recorded = tmp_path / "var" / "elsewhere"
+    _write_surface(conventional, expected, "2026-01-02T00:00:00Z")
+    _write_surface(recorded, expected, "2026-01-02T00:00:00Z")
+    summary = tmp_path / "rebuild" / "out" / "cycle_summary.json"
+
+    summary.write_text(json.dumps({"plan": {"review_out": "var/elsewhere"}}))
+    assert ac.promotable_surface(tmp_path, summary, live) == recorded
+    summary.write_text(json.dumps({"plan": {"review_out": None}}))
+    assert ac.promotable_surface(tmp_path, summary, live) == conventional
+    summary.write_text("{ not json")
+    assert ac.promotable_surface(tmp_path, summary, live) == conventional
+    summary.write_text(json.dumps({"plan": {"review_out": "var/vanished"}}))
+    assert ac.promotable_surface(tmp_path, summary, live) == conventional
+
+
+def test_promote_surface_swaps_the_trees_and_leaves_no_leftover(tmp_path, monkeypatch):
+    """After the move the live path holds the source's files, the source is gone and nothing named `.superseded` remains. A leftover from a pass that died mid-way is cleared first, and when the second rename fails the live tree is put back whole — which is what two renames buy over a removal followed by a move."""
+    live = tmp_path / "review"
+    source = tmp_path / "rehearsal"
+    superseded = tmp_path / "review.superseded"
+    live.mkdir()
+    (live / "old.txt").write_text("old")
+    source.mkdir()
+    (source / "new.txt").write_text("new")
+    superseded.mkdir()
+    (superseded / "crashed.txt").write_text("leftover")
+
+    ac.promote_surface(source, live)
+    assert (live / "new.txt").read_text() == "new"
+    assert not (live / "old.txt").exists()
+    assert not source.exists()
+    assert not superseded.exists()
+
+    source.mkdir()
+    (source / "newer.txt").write_text("newer")
+    real_replace = os.replace
+    calls = []
+
+    def failing_second(src, dst):
+        calls.append((src, dst))
+        if len(calls) == 2:
+            raise OSError("simulated")
+        return real_replace(src, dst)
+
+    monkeypatch.setattr(ac.os, "replace", failing_second)
+    with pytest.raises(OSError, match="simulated"):
+        ac.promote_surface(source, live)
+    assert (live / "new.txt").read_text() == "new"
+    assert (source / "newer.txt").read_text() == "newer"
+    assert not superseded.exists()
+
+
+def test_a_promotion_whose_outgoing_tree_will_not_delete_still_counts(tmp_path, monkeypatch):
+    """Once the second rename has returned, the live path holds the rehearsal, so an outgoing tree that will not delete is left standing under its `.superseded` name for the next pass's sweep rather than turned into a failed move."""
+    live = tmp_path / "review"
+    source = tmp_path / "rehearsal"
+    superseded = tmp_path / "review.superseded"
+    live.mkdir()
+    (live / "old.txt").write_text("old")
+    source.mkdir()
+    (source / "new.txt").write_text("new")
+    real_rmtree = shutil.rmtree
+
+    def undeletable(path, ignore_errors=False, **kwargs):
+        if ignore_errors:
+            return None
+        return real_rmtree(path, ignore_errors=ignore_errors, **kwargs)
+
+    monkeypatch.setattr(ac.shutil, "rmtree", undeletable)
+    ac.promote_surface(source, live)
+    assert (live / "new.txt").read_text() == "new"
+    assert (superseded / "old.txt").read_text() == "old"
+    assert not source.exists()
+
+
+def test_recover_superseded_surface_settles_the_leftover_before_the_first_run_question(
+    tmp_path, monkeypatch, capsys
+):
+    """A `.superseded` tree beside a live one is the surface a promotion replaced, so it is deleted; one with no live tree beside it is the live surface a pass that died between the two renames had stepped aside, so it is put back. `main` settles it before asking whether the surface exists, so an interrupted promotion is neither a first run nor an orphan of the surface's size."""
+    live = tmp_path / "review"
+    superseded = tmp_path / "review.superseded"
+    assert ac.recover_superseded_surface(live) is None
+    superseded.mkdir()
+    (superseded / "manifest.json").write_text("{}")
+    note = ac.recover_superseded_surface(live)
+    assert note is not None and note.startswith("Put ")
+    assert (live / "manifest.json").exists()
+    assert not superseded.exists()
+    superseded.mkdir()
+    note = ac.recover_superseded_surface(live)
+    assert note is not None and note.startswith("Deleted ")
+    assert (live / "manifest.json").exists()
+    assert not superseded.exists()
+
+    _seed_auto_repo(tmp_path, monkeypatch)
+    os.replace(ac.REVIEW_OUT, ac.REVIEW_OUT.with_name("review.superseded"))
+    assert ac.main(["--dry-run"]) == 0
+    out = capsys.readouterr().out
+    assert "Put " in out and "review.superseded" in out
+    assert "First-run mode" not in out
+    assert (ac.REVIEW_OUT / "manifest.json").exists()
+
+
+def test_a_promoted_surface_still_answers_for_itself(tmp_path, mini_surface):
+    """The executable form of the soundness claim: every stamp inside a surface is content-only against its manifest, so a real build moved to another path is still current by every check the skip asks — the per-unit index, both app sidecars — and both stores load warm under the environment their headers carry, where a rebuild would have dropped them."""
+    from rebuild.review import app_index, unit_cache, unit_index
+
+    source = tmp_path / "rehearsal"
+    shutil.copytree(mini_surface, source)
+    live = tmp_path / "review"
+    live.mkdir()
+    (live / "stale.txt").write_text("outgoing")
+
+    def header_environment(path):
+        with gzip.open(path, "rt", encoding="utf-8") as stream:
+            return json.loads(next(stream))["environment"]
+
+    environment = header_environment(unit_cache.store_path(source))
+    signature_environment = header_environment(unit_cache.signature_store_path(source))
+
+    ac.promote_surface(source, live)
+
+    assert not source.exists()
+    assert not (live / "stale.txt").exists()
+    assert unit_index.index_is_current(live)
+    for name, fmt in app_index.ARTIFACTS:
+        assert app_index.artifact_is_current(live, name, fmt), name
+    store = unit_cache.load_store(live, environment)
+    assert store
+    signatures = unit_cache.load_signature_store(live, signature_environment)
+    assert signatures
 
 
 REFUSE_RUNE = "rune: qsX\npolicy:\n  refuse:\n  - {exit: baseline, why: two verticals render thick}\n"
@@ -5410,6 +5630,70 @@ def test_main_leaves_the_server_up_for_an_assets_refresh_pass(tmp_path, monkeypa
     assert "REFUSING TO RUN" in capsys.readouterr().out
 
 
+def _rehearsal_repo(tmp_path, monkeypatch):
+    """A settled repo whose live surface fails the byte-strict question and the assets-exempt one alike, while a rehearsal directory answers the strict one: the third question `main` asks, and the whole trigger for the promotion step."""
+    _settled_repo(tmp_path, monkeypatch)
+    rehearsal = tmp_path / "var" / "rehearsal-review"
+    rehearsal.mkdir(parents=True)
+    monkeypatch.setattr(
+        ac,
+        "surface_build_skippable",
+        lambda root=None, review_out=None, ignore=(): review_out is not None,
+    )
+    monkeypatch.setattr(ac, "promotable_surface", lambda root=None, summary_path=None, live=None: rehearsal)
+    return rehearsal
+
+
+def test_main_promotes_a_current_rehearsal_instead_of_rebuilding(tmp_path, monkeypatch, capsys):
+    """A live pass that follows a rehearsal plans a move, never a build: the promotion step names the directory it moves, the surface build reads as skipped under the promotion note, and no review.build command appears anywhere in the plan."""
+    rehearsal = _rehearsal_repo(tmp_path, monkeypatch)
+    assert ac.main(["--dry-run"]) == 0
+    out = capsys.readouterr().out
+    assert str(rehearsal) in _step_lines(out, "surface-promote")
+    assert f"SKIPPED ({ac.SURFACE_PROMOTE_NOTE})" in _step_lines(out, "surface-build")
+    assert "rebuild.review.build" not in out
+    assert "assets-refresh" not in out
+
+
+def test_a_promoting_pass_runs_the_whole_chain(tmp_path, monkeypatch, capsys):
+    """The plumbing skip and the store-only route both rest on the surface not moving. Under a promotion it does move and takes a new stamp, so even with a matching plumbing record the chain spawns the full carry — the store's verdicts have to land on the promoted units by id — and the carry-source line says the master is stamped for the surface this pass replaces rather than for the served one."""
+    _rehearsal_repo(tmp_path, monkeypatch)
+    ac.record_plumbing_green("plu")
+    assert ac.main(["--dry-run"]) == 0
+    out = capsys.readouterr().out
+    row = _step_lines(out, "plumbing")
+    assert "uv run python -m rebuild.tools.verdict_chain" in row
+    assert "--verdicts" in row and "--carry-out" in row
+    assert "--merge-master" not in row
+    assert "SKIPPED" not in row
+    assert "stamped for the surface this pass replaces; its verdicts land by unit id" in out
+    assert "stamped for the served surface" not in out
+
+
+def test_a_promoting_pass_takes_the_port(tmp_path, monkeypatch, capsys):
+    """A promotion swaps every shard and the stamp under the app in one rename, so it is a surface write whatever the skip flag says: the predicate refuses it while the three existing answers stand, and end to end a listening server makes the pass refuse without --stop-server — a --no-merge pass included, since the store is not what moves — and stop it with one."""
+    assert ac.server_may_stay_up(skip_surface=True, writes_store=False, promotes_surface=True) is False
+    assert ac.server_may_stay_up(skip_surface=True, writes_store=False) is True
+    assert ac.server_may_stay_up(skip_surface=True, writes_store=True) is False
+    assert ac.server_may_stay_up(skip_surface=False, writes_store=False) is False
+
+    _rehearsal_repo(tmp_path, monkeypatch)
+    monkeypatch.setattr(ac, "server_listening", lambda port=ac.REVIEW_PORT: True)
+    monkeypatch.setattr(ac, "_run_cycle", lambda plan, report, emit, registry, **_: 0)
+    stops: list[int] = []
+    monkeypatch.setattr(
+        ac, "stop_review_server", lambda timeout=ac.SERVER_STOP_TIMEOUT: stops.append(1) or True
+    )
+    assert ac.main([]) == 2
+    assert "REFUSING TO RUN" in capsys.readouterr().out
+    assert ac.main(["--no-merge"]) == 2
+    assert "REFUSING TO RUN" in capsys.readouterr().out
+    assert stops == []
+    assert ac.main(["--stop-server"]) == 0
+    assert stops == [1]
+    assert "Stopping the review server" in capsys.readouterr().out
+
+
 def _carried(stamp):
     return json.dumps({"format": "ams-review-verdicts/1", "manifest_generated_at": stamp, "verdicts": []})
 
@@ -5776,6 +6060,99 @@ def test_a_failed_assets_refresh_stops_the_pass_before_the_lanes(monkeypatch, ca
     assert report.assets_status.startswith("FAILED")
     assert report.gate_contracts == "not run (assets refresh failed)"
     assert "assets refresh failed" in capsys.readouterr().out
+
+
+def test_run_cycle_promotes_before_it_reports_the_surface_skipped(monkeypatch, tmp_path):
+    """The promotion stands where the surface build would have: nothing spawns under surface-build, the totals the summary reports are read out of the promoted manifest, and the step's seconds are on the report so its row reads `ok` rather than `not run`."""
+    monkeypatch.setattr(ac, "_do_run_m1", _pass_run_m1)
+    monkeypatch.setattr(ac, "_do_plumbing", _plumbing_ok)
+    monkeypatch.setattr(ac, "_do_census", _census_clean)
+    monkeypatch.setattr(ac, "_do_job_costs", _job_costs_clean)
+    monkeypatch.setattr(ac, "_gate_js_task", _js_ok)
+    monkeypatch.setattr(ac, "_gate_make_test_task", _make_ok)
+    monkeypatch.setattr(ac, "_gate_contracts_task", _contracts_green)
+    monkeypatch.setattr(ac, "_gate_conform_task", _conform_green)
+    _patch_gate_fingerprints(monkeypatch)
+    live = tmp_path / "rebuild" / "out" / "review"
+    live.mkdir(parents=True)
+    (live / "manifest.json").write_text(json.dumps({"totals": {"units": 1, "rows": 1}}))
+    source = tmp_path / "var" / "rehearsal-review"
+    source.mkdir(parents=True)
+    (source / "manifest.json").write_text(json.dumps({"totals": {"units": 7, "rows": 9}}))
+    monkeypatch.setattr(ac, "REVIEW_OUT", live)
+    spawned: list[str] = []
+
+    def spawn(name, argv, **k):
+        spawned.append(name)
+        return _step(name)
+
+    plan = _plan(skip_surface=True, promote_surface=source, surface_note=ac.SURFACE_PROMOTE_NOTE)
+    report = ac.CycleReport()
+    rc = ac._run_cycle(plan, report, ac._Emitter(), ac._ChildRegistry(), spawn=spawn)
+
+    assert rc == 0
+    assert "surface-build" not in spawned
+    assert report.surface_units == 7 and report.surface_rows == 9
+    assert not source.exists()
+    assert json.loads((live / "manifest.json").read_text())["totals"]["units"] == 7
+    assert "surface-promote" in report.step_seconds
+    assert report.promote_status.startswith("moved ")
+    outcomes = {row.name: row.outcome for row in ac.summary_rows(report, plan, retention_ran=False)}
+    assert outcomes["surface-promote"] == "ok"
+    assert outcomes["surface-build"] == "skipped"
+
+
+def test_a_failed_promotion_stops_the_pass_before_the_lanes(monkeypatch, capsys):
+    """A move that fails leaves the outgoing tree in place, and the pass stops there with one summary: neither rebuild lane is claimed to have run, and the promotion's own row reads FAILED."""
+    _patch_timing_cycle(monkeypatch)
+
+    def refuse(source, live=None):
+        raise OSError("cross-device link")
+
+    monkeypatch.setattr(ac, "promote_surface", refuse)
+    plan = _plan(
+        skip_surface=True, promote_surface=Path("var/rehearsal-review"), surface_note=ac.SURFACE_PROMOTE_NOTE
+    )
+    report = ac.CycleReport()
+    rc = ac._run_cycle(
+        plan, report, ac._Emitter(), ac._ChildRegistry(), spawn=lambda name, argv, **k: _step(name)
+    )
+
+    assert rc == 1
+    assert report.promote_status.startswith("FAILED")
+    assert report.gate_contracts == "not run (surface promotion failed)"
+    outcomes = {row.name: row.outcome for row in ac.summary_rows(report, plan, retention_ran=False)}
+    assert outcomes["surface-promote"] == "FAILED"
+    assert "surface promotion failed" in capsys.readouterr().out
+
+
+def test_a_promoting_pass_journals_no_surface_build_line(monkeypatch, tmp_path):
+    """The move spawns nothing, so the journal carries no surface-build step line for it — `make cycle-timings ARGS='--by-step'`'s surface-build row stays a sample of real builds — and the run line's plan block names the promoted directory, which is what lets a later reader count promoting passes."""
+    _patch_timing_cycle(monkeypatch)
+    monkeypatch.setattr(ac, "_do_surface_build", _surface_ok)
+    moved: list[Path] = []
+    monkeypatch.setattr(ac, "promote_surface", lambda source, live=None: moved.append(source))
+
+    journal_path = tmp_path / "timings.ndjson"
+    source = tmp_path / "var" / "rehearsal-review"
+    report = ac.CycleReport()
+    rc = ac._run_cycle(
+        _plan(skip_surface=True, promote_surface=source, surface_note=ac.SURFACE_PROMOTE_NOTE),
+        report,
+        ac._Emitter(),
+        ac._ChildRegistry(),
+        spawn=lambda name, argv, **k: _step(name),
+        timings=CycleTimings(journal_path),
+    )
+
+    assert rc == 0
+    assert moved == [source]
+    entries = [json.loads(line) for line in journal_path.read_text(encoding="utf-8").splitlines()]
+    assert [entry["name"] for entry in entries if entry["kind"] == "step"] == ["run_m1", "job-costs"]
+    run = entries[-1]
+    assert run["kind"] == "run"
+    assert run["plan"]["skip_surface"] is True
+    assert run["plan"]["promote_surface"] == str(source)
 
 
 def test_green_cycle_files_one_check_line_per_gate_it_judged(monkeypatch, tmp_path):
