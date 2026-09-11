@@ -1,5 +1,6 @@
 """Tests for the standing-approval fill: the delta shapes — the two structural pattern matches, being the ligature shape (pivot glyph, seams into and out of it, follower family, post-ligature seam, flank-seam identity) and the extension-dropped shape (pivot glyph giving up a named stretch of exit — an `ex-ext-N` it carried, in whole or down to a shorter one its named after cell keeps, or an `ex-con-N` its named after cell carries when the before glyph never had an exit extension — the seam it exits into holding its height, the full after-cell identity of pivot and follower, every other seam standing still, nothing ligating anywhere, and the unit's own judgment fields agreeing that this seam is the question), the ink-exact ink-delta shape (the unit's persisted per-config digests being a nonempty subset of the ones the rule blesses, so an ink-identical window matches nothing and one unlisted delta under one config fails the whole unit closed, and a surface predating the field refuses the run outright), and the rendered-pixel slide shape, whose preconditions are read off the index record before anything is shaped (a nonempty `ink_deltas` holding one distinct digest whose keys are exactly the unit's config set, and a pivot-prefix name among the recorded before glyphs) and whose geometry is then re-derived in a purpose-built font pair, where the pivot keeps its exact ink with its own-frame origin displaced by the declared column count and every span's union of ink slides cumulatively — so a union-invisible name-grain re-spelling to the pivot's right rides along, while one stray pixel anywhere in the window, or a font pair that never settles into the named pivot, fails the match closed — the rendered-pixel ink-gain shape, whose preconditions match the slide shape's and whose geometry is the named pivot keeping its placement, height, and own-frame origin while gaining exactly the named cells, every following span moving by the declared count — the rendered-pixel join-dropped shape, whose preconditions are a named pivot–follower seam dropping from a yK height to a break plus the slide shape's digest-agreement, and whose geometry is both letters keeping their exact picture and own-frame origin — or, where the rule names in full the cells both letters settle into, the pivot keeping only that origin and free to redraw in place, and, where it declares the columns its follower hands back, the follower moving that origin right by them and free to redraw inside the receiver cells — with the follower sitting the declared gap further and everything after it sitting the same extra gap away — the rendered-pixel entry-extension-dropped shape, whose preconditions match the slide shape's and whose geometry is the named pivot keeping its placement, height, and own-frame origin while its after picture is the old one compacted left by the declared column count, everything after the pivot sliding closer by that count — the rendered-pixel stub-dropped shape, whose preconditions match the slide shape's and whose geometry is walked position by position because a pivot is a position rather than a name: each position that settles into a named after form is judged as the old picture compacted left by the declared column count with its placement moving right by that count and its origin standing still, every span between pivots rendering identically with no displacement — so a second same-family letter keeping its old form rides as span ink, and one stray pixel anywhere fails the match closed — the rendered-pixel redrawn shape, whose preconditions match the slide shape's and whose geometry is walked position by position because a pivot is a position rather than a name: each position that settles into a named after form is judged as the named cell trade at one common column offset (an entry-extended frame names the same trade one column over), its own frame standing still or taking up to the entry contraction its new form names, its placement carrying the displacement accumulated so far — or as much of that contraction as the frame left closer than that, which the rest of the window then carries too — every span between pivots rendering identically under it, and the displacement growing by the declared shift and whatever the pivot took at each pivot — so a second same-family letter keeping its old form rides as span ink, a trade that only gives ink up names an empty added set (an exit contraction, which the name-grain extension-dropped shape would speak for too but blindly), and one stray pixel anywhere fails the match closed — the composed reading that runs before all of them and credits two or more events in one window, whether they come from two rules or from one rule speaking twice — its name-grain pre-gate refusing to shape a window holding fewer than two candidate positions, its walk carrying a running column displacement across the window so that each span between events must render identically once displaced, its chaining of a join-dropped or extension event whose follower is itself the next event, its skipping of an extension's named follower so a named redraw does not block composition, its refusal of a pivot contracting off the seam row, of a tail wider than the pivot gave up, and of two rules claiming one position, its judging of a failed candidate as ordinary span ink, its per-shape guard scopes, and its own reporting line, which `main` keeps clear of the per-rule lines — the except_left guard, which reads a ligature's trailing left component and refuses the whole unit rather than the one position, blankness against the verdicts file (parked skip verdicts are not blank), the non-winning manifest stamp on every emitted record, rules-file validation, which admits exactly one shape per rule and checks that shape's own coherence, and the targeted run, whose subset is the rule's name-grain candidates plus the listed units and whose lines for that rule are the whole-domain run's byte for byte."""
 
+import gzip
 import json
 import pathlib
 import re
@@ -6970,24 +6971,34 @@ def test_the_memo_key_moves_with_the_stamp_the_deltas_and_the_families_the_windo
     assert sv.unit_key(_keyed_unit(), {**digests, "qsMay": "n" * 64}) == key
 
 
-def test_the_memo_stamp_moves_with_the_rules_files_bytes(tmp_path):
-    """A rule's `note` is quoted into every fill it lands, so the memo keys on the file's raw bytes rather than the prose-blind digest the rebuild lanes use: a reword drops the memo, exactly as it re-runs the plumbing."""
+def test_the_memo_stamp_is_blind_to_the_rules_file(tmp_path):
+    """The rules file is no part of the whole-store stamp — it reaches the memo through the header's roster and each entry's relevant ids — so the stamp holds still across a reworded note and an appended rule alike, while the roster moves for the appended rule, for an edited match, for an edited except_left and for a changed verdict, and holds still for the reword and for a match spelled in another key order."""
     surface = _surface(tmp_path, [canonical("u-1")])
-    rules = _write_rules(tmp_path / "rules.yaml", [RULE])
-    stamp, digests = sv.memo_environment(rules, surface)
+    stamp, digests = sv.memo_environment(surface)
     assert digests == {}
-    assert sv.memo_environment(rules, surface) == (stamp, {})
-    reworded = _write_rules(tmp_path / "reworded.yaml", [dict(RULE, note=RULE["note"] + " (reworded)")])
-    assert sv.memo_environment(reworded, surface)[0] != stamp
+    assert sv.memo_environment(surface) == (stamp, {})
+    reworded = dict(RULE, note=RULE["note"] + " (reworded)")
+    roster = sv.rules_roster([RULE], False)
+    assert sv.rules_roster([reworded], False) == roster
+    assert sv.rules_roster([RULE, SLIDE_RULE], False) != roster
+    assert sv.rules_roster([guarded_rule(RULE, ["qsAh"])], False) != roster
+    assert sv.rules_roster([dict(RULE, verdict="either")], False) != roster
+    edited = json.loads(json.dumps(RULE))
+    edited["match"]["before"]["seam_into"] = "y0"
+    assert sv.rules_roster([edited], False) != roster
+    reordered = {"match": {key: RULE["match"][key] for key in reversed(list(RULE["match"]))}}
+    assert sv.rules_roster([dict(RULE, **reordered)], False) == roster
+    assert roster.always == (RULE["id"],) and roster.composed_gate is False
+    assert sv.rules_roster([RULE, SLIDE_RULE, COMPOSED_EXT_RULE], True).always == (RULE["id"],)
+    assert sv.rules_roster([SLIDE_RULE, COMPOSED_EXT_RULE], True).always == ()
 
 
 def test_the_memo_stamp_reads_the_fonts_when_the_surface_carries_them(tmp_path, slide_fonts):
     """With fonts beside the surface the stamp carries the before font wholesale and the after font's family-blind remainder, and the per-family digests the keys cite come back for every family the after font draws."""
     bare = _surface(tmp_path / "bare", [founding_window()])
     with_fonts = _surface(tmp_path / "fonts", [founding_window()], fonts=slide_fonts)
-    rules = _write_rules(tmp_path / "rules.yaml", [SLIDE_RULE])
-    bare_stamp, bare_digests = sv.memo_environment(rules, bare)
-    font_stamp, font_digests = sv.memo_environment(rules, with_fonts)
+    bare_stamp, bare_digests = sv.memo_environment(bare)
+    font_stamp, font_digests = sv.memo_environment(with_fonts)
     assert bare_stamp != font_stamp
     assert bare_digests == {}
     assert "qsSee" in font_digests and all(len(digest) == 64 for digest in font_digests.values())
@@ -7035,28 +7046,67 @@ def test_a_memo_stamped_for_another_environment_is_empty(tmp_path):
     memo = sv.Memo(path, "env-1", {})
     decision = sv.Decision(None, frozenset({RULE["id"]}), frozenset())
     memo.fresh[memo.key_for(unit) or ""] = decision
-    assert memo.write([unit]) == 1
+    roster = sv.rules_roster([RULE], False)
+    assert memo.write([unit], roster) == 1
     assert sv.Memo.open(path, "env-2", {}).entries == {}
     assert sv.Memo.open(path, "env-1", {}, fresh=True).entries == {}
-    assert sv.Memo.open(path, "env-1", {}).entries == {memo.key_for(unit): decision}
+    reopened = sv.Memo.open(path, "env-1", {})
+    assert reopened.entries == {memo.key_for(unit): decision} and reopened.stored == roster
     path.write_bytes(b"not a memo")
     assert sv.Memo.open(path, "env-1", {}).entries == {}
 
 
+def test_a_header_with_no_readable_roster_reads_as_every_rule_moved(tmp_path):
+    """A memo written with no roster, or whose roster is malformed, keeps its entries readable but has no rules to hold them against, so the Decider treats every rule as moved and serves none of them — over-invalidation, the safe direction."""
+    path = tmp_path / "memo.ndjson.gz"
+    unit = _keyed_unit()
+    memo = sv.Memo(path, "env", {})
+    memo.fresh[memo.key_for(unit) or ""] = sv.Decision(None, frozenset({"stored"}), frozenset())
+    assert memo.write([unit]) == 1
+    reopened = sv.Memo.open(path, "env", {})
+    assert reopened.stored is None and len(reopened.entries) == 1
+    assert sv.Decider([RULE], None, reopened).decide(unit).matched == {RULE["id"]}
+    for header in (
+        {"format": sv.MEMO_FORMAT, "environment": "env", "rules": [], "always": [], "composed_gate": False},
+        {
+            "format": sv.MEMO_FORMAT,
+            "environment": "env",
+            "rules": {"a": ["x"]},
+            "always": [],
+            "composed_gate": False,
+        },
+        {"format": sv.MEMO_FORMAT, "environment": "env", "rules": {}, "always": [1], "composed_gate": False},
+        {"format": sv.MEMO_FORMAT, "environment": "env", "rules": {}, "always": [], "composed_gate": None},
+    ):
+        with gzip.open(path, "wt", encoding="utf-8") as stream:
+            stream.write(json.dumps(header) + "\n")
+            stream.write(json.dumps([memo.key_for(unit), [None, ["stored"], [], []]]) + "\n")
+        reopened = sv.Memo.open(path, "env", {})
+        assert reopened.stored is None and len(reopened.entries) == 1
+        assert sv.Decider([RULE], None, reopened).decide(unit).matched == {RULE["id"]}
+
+
 def test_a_decision_survives_the_memo_round_trip(tmp_path):
-    composed = sv.Composed(("a", "b"), False, "either", "[standing: a + b] note")
+    """Every field of a decision comes back off the file as it went in — the composed part's credited ids, held flag, verdict and weakening rule, the matched and held ids, and the entry's relevant ids — and so does the roster in the header."""
+    composed = sv.Composed(("a", "b"), False, "either", "w")
     decisions = {
-        "1" * 64: sv.Decision(composed, frozenset(), frozenset()),
-        "2" * 64: sv.Decision(sv.Composed(("a", "b"), True, None, None), frozenset(), frozenset()),
-        "3" * 64: sv.Decision(None, frozenset({"a", "b"}), frozenset({"c"})),
+        "1" * 64: sv.Decision(composed, frozenset(), frozenset(), ("a", "b", "d")),
+        "2"
+        * 64: sv.Decision(sv.Composed(("a", "b"), True, None, None), frozenset(), frozenset(), ("a", "b")),
+        "3" * 64: sv.Decision(sv.Composed(("a",), False, "approve"), frozenset(), frozenset(), ("a",)),
+        "4" * 64: sv.Decision(None, frozenset({"a", "b"}), frozenset({"c"}), ("b",)),
+        "5" * 64: sv.Decision(None, frozenset(), frozenset()),
     }
     units = [_keyed_unit(f"k-{index}", content_key=stamp) for index, stamp in enumerate(decisions)]
     memo = sv.Memo(tmp_path / "memo.ndjson.gz", "env", {})
     for unit, decision in zip(units, decisions.values()):
         memo.fresh[memo.key_for(unit) or ""] = decision
-    assert memo.write(units) == 3
+    roster = sv.rules_roster([SLIDE_RULE, COMPOSED_EXT_RULE, RULE], True)
+    assert memo.write(units, roster) == 5
     reopened = sv.Memo.open(tmp_path / "memo.ndjson.gz", "env", {})
     assert [reopened.entries[memo.key_for(unit) or ""] for unit in units] == list(decisions.values())
+    assert reopened.stored is not None and reopened.stored == roster
+    assert list(reopened.stored.rules) == [SLIDE_RULE["id"], COMPOSED_EXT_RULE["id"], RULE["id"]]
 
 
 def test_the_memo_written_back_is_bounded_to_the_surface_and_keeps_what_it_did_not_read(tmp_path):
@@ -7072,7 +7122,7 @@ def test_the_memo_written_back_is_bounded_to_the_surface_and_keeps_what_it_did_n
 
 
 def test_a_served_unit_is_never_evaluated_and_an_unstamped_one_always_is(tmp_path):
-    memo = sv.Memo(tmp_path / "memo.ndjson.gz", "env", {})
+    memo = sv.Memo(tmp_path / "memo.ndjson.gz", "env", {}, stored=sv.rules_roster([RULE], False))
     served, unstamped = _keyed_unit("k-1"), canonical("u-1")
     memo.entries[memo.key_for(served) or ""] = sv.Decision(None, frozenset({"served"}), frozenset())
     decider = sv.Decider([RULE], None, memo)
@@ -7107,7 +7157,8 @@ def test_main_serves_the_second_run_from_the_memo_and_reports_it(tmp_path, monke
     ]
 
 
-def test_a_reworded_note_drops_the_memo(tmp_path, monkeypatch, capsys):
+def test_a_reworded_note_is_served_from_the_memo_in_the_new_wording(tmp_path, monkeypatch, capsys):
+    """A stored decision holds rule ids and no prose, and the fill's note is read from the live rules on the way out, so a reword computes nothing and every fill still quotes the new wording."""
     units = [_keyed_unit("k-1")]
     memo = tmp_path / "memo.ndjson.gz"
     _run_main(tmp_path / "first", monkeypatch, units, [], extra=("--memo", str(memo)))
@@ -7117,8 +7168,266 @@ def test_a_reworded_note_drops_the_memo(tmp_path, monkeypatch, capsys):
         tmp_path / "second", monkeypatch, units, [], rules_list=(reworded,), extra=("--memo", str(memo))
     )
     lines = capsys.readouterr().out.splitlines()
-    assert "  memo: served 0, computed 1, unkeyed 0; memo.ndjson.gz holds 1 entry" in lines
+    assert "  memo: served 1, computed 0, unkeyed 0; memo.ndjson.gz holds 1 entry" in lines
     assert payload["verdicts"][0]["note"].endswith("(reworded)")
+
+
+EXT_ONLY_GLYPHS = ["qsL", "qsM", "qsJ.ex-y0.ex-ext-1", "qsF3", "qsF1"]
+EXT_ONLY_CODEPOINTS = spell(LEAD, MIDDLE, PIVOT, FOLLOWER_3, FOLLOWER_1)
+
+
+def _nowhere_slide(uid="fixture-slide-nowhere"):
+    """A composable rule whose pivot no window of the suite draws, so it has a candidate position nowhere."""
+    copied = json.loads(json.dumps(SLIDE_RULE))
+    copied["id"] = uid
+    copied["match"]["before"]["pivots"] = ["qsSee.nowhere"]
+    copied["match"]["after"]["pivots"] = ["qsSee.nowhere"]
+    return copied
+
+
+def _keyed_windows():
+    """Three keyed slide windows: one both composable rules have a candidate in, one only the slide rule has, one only the extension rule has."""
+    both = dict(composed_window("w-both"), content_key="b" * 64)
+    slide = dict(twice_slid_window("w-slide"), content_key="s" * 64)
+    extension = dict(slide_unit("w-ext", EXT_ONLY_GLYPHS, EXT_ONLY_CODEPOINTS), content_key="e" * 64)
+    return [both, slide, extension]
+
+
+def _memo_line(lines):
+    return next(line for line in lines if line.startswith("  memo:"))
+
+
+def _warm_runs(tmp_path, monkeypatch, capsys, fonts, units, rules_by_label, memo=None):
+    """The CLI over `units` once per rule list, in order, all against one memo: each label's fills, its `memo:` line and its other report lines."""
+    memo = tmp_path / "memo.ndjson.gz" if memo is None else memo
+    runs = {}
+    for label, rules in rules_by_label.items():
+        payload = _run_main(
+            tmp_path / label,
+            monkeypatch,
+            units,
+            [],
+            rules_list=rules,
+            fonts=fonts,
+            extra=("--memo", str(memo)),
+        )
+        lines = capsys.readouterr().out.splitlines()
+        runs[label] = (payload, _memo_line(lines), [line for line in lines if not line.startswith("  memo:")])
+    return runs
+
+
+def test_a_units_relevant_rules_are_the_ones_that_could_speak_for_it(slide_context):
+    """An entry's relevant ids are exactly the composable rules with a candidate position in its window, in rules-file order, whatever the window's decision came to; the rules a composed reading reads for every window — a non-composable rule with a live guard or an `either` verdict — sit in the roster's `always` list instead, and a rule that is neither is in neither."""
+    context = slide_context()
+    inert_either = dict(RULE, id="inert-either", verdict="either", match=dict(RULE["match"], except_left=[]))
+    inert_approve = dict(RULE, id="inert-approve", match=dict(RULE["match"], except_left=[]))
+    rules = [RULE, SLIDE_RULE, inert_either, COMPOSED_EXT_RULE, inert_approve, _nowhere_slide()]
+    decider = sv.Decider(rules, context)
+    both, slide, extension = _keyed_windows()
+    assert decider.evaluate(both).relevant == (SLIDE_RULE["id"], COMPOSED_EXT_RULE["id"])
+    assert decider.evaluate(both).composed is not None
+    assert decider.evaluate(slide).relevant == (SLIDE_RULE["id"],)
+    assert decider.evaluate(extension).relevant == (COMPOSED_EXT_RULE["id"],)
+    assert decider.evaluate(extension).composed is None
+    assert decider.evaluate(canonical("u-1")).relevant == ()
+    assert decider.roster.always == (RULE["id"], "inert-either")
+
+
+def test_adding_a_rule_keeps_the_entries_it_has_no_candidate_in(tmp_path, monkeypatch, capsys, slide_fonts):
+    """A composable rule with no candidate position in a window puts no term into that window's pre-gate and no event into its walk, so appending one serves every stored entry as it stands, prints the appended rule's own empty line, and writes the same fills."""
+    runs = _warm_runs(
+        tmp_path,
+        monkeypatch,
+        capsys,
+        slide_fonts,
+        _keyed_windows(),
+        {"seed": COMPOSABLE_RULES, "appended": [*COMPOSABLE_RULES, _nowhere_slide()]},
+    )
+    assert runs["seed"][1] == "  memo: served 0, computed 3, unkeyed 0; memo.ndjson.gz holds 3 entries"
+    assert runs["appended"][1] == "  memo: served 3, computed 0, unkeyed 0; memo.ndjson.gz holds 3 entries"
+    assert runs["appended"][0] == runs["seed"][0]
+    assert any(line.startswith("  fixture-slide-nowhere: 0 ") for line in runs["appended"][2])
+
+
+def test_a_changed_rule_drops_only_the_entries_it_had_candidates_in(
+    tmp_path, monkeypatch, capsys, slide_fonts
+):
+    """Editing a rule's match re-evaluates the units whose stored relevant ids name it and the units its new form has a candidate in, and no other: a pivot added to the slide rule that no window draws re-evaluates the two windows the slide rule had candidates in and serves the extension-only one; a pivot the two ·See windows draw, added to the rule that had a candidate nowhere, re-evaluates those two, whose stored entries never named it, and serves the extension-only one again; and the fills come out as a fresh run's under the same rules."""
+    both, slide, extension = _keyed_windows()
+    widened = json.loads(json.dumps(SLIDE_RULE))
+    widened["match"]["before"]["pivots"] = ["qsSee.ex-y0", "qsSee.nowhere"]
+    retargeted = _nowhere_slide()
+    retargeted["match"]["before"]["pivots"] = ["qsSee.nowhere", "qsSee.ex-y0"]
+    runs = _warm_runs(
+        tmp_path,
+        monkeypatch,
+        capsys,
+        slide_fonts,
+        [both, slide, extension],
+        {
+            "seed": [SLIDE_RULE, COMPOSED_EXT_RULE, _nowhere_slide()],
+            "widened": [widened, COMPOSED_EXT_RULE, _nowhere_slide()],
+            "retargeted": [widened, COMPOSED_EXT_RULE, retargeted],
+        },
+    )
+    assert runs["seed"][1] == "  memo: served 0, computed 3, unkeyed 0; memo.ndjson.gz holds 3 entries"
+    assert runs["widened"][1] == "  memo: served 1, computed 2, unkeyed 0; memo.ndjson.gz holds 3 entries"
+    assert runs["widened"][0] == runs["seed"][0]
+    assert runs["retargeted"][1] == "  memo: served 1, computed 2, unkeyed 0; memo.ndjson.gz holds 3 entries"
+    fresh = _warm_runs(
+        tmp_path / "fresh",
+        monkeypatch,
+        capsys,
+        slide_fonts,
+        [both, slide, extension],
+        {"retargeted": [widened, COMPOSED_EXT_RULE, retargeted]},
+    )
+    assert runs["retargeted"][0] == fresh["retargeted"][0]
+    assert runs["retargeted"][2] == fresh["retargeted"][2]
+
+
+def test_a_vanished_rule_is_taken_off_the_entries_it_was_matched_on(
+    tmp_path, monkeypatch, capsys, slide_fonts
+):
+    """A non-composable rule that leaves the file is no candidate anywhere, so no entry is re-evaluated for it; it is taken off the matched and held sets of the entries that named it, which stops the memo naming a rule the report has no line for, and the file written back no longer names it either."""
+    held = dict(canonical("k-2", left="qsOut.ex-ext-1"), content_key="e" * 64, ink_deltas={"ss03": DELTA_A})
+    units = [_keyed_unit("k-1"), held]
+    memo = tmp_path / "memo.ndjson.gz"
+    runs = _warm_runs(
+        tmp_path,
+        monkeypatch,
+        capsys,
+        slide_fonts,
+        units,
+        {"seed": [RULE, SLIDE_RULE], "gone": [SLIDE_RULE]},
+        memo,
+    )
+    assert runs["seed"][1] == "  memo: served 0, computed 2, unkeyed 0; memo.ndjson.gz holds 2 entries"
+    assert [record["unit"] for record in runs["seed"][0]["verdicts"]] == ["k-1"]
+    assert runs["gone"][1] == "  memo: served 2, computed 0, unkeyed 0; memo.ndjson.gz holds 2 entries"
+    assert runs["gone"][0]["verdicts"] == []
+    with gzip.open(memo, "rt", encoding="utf-8") as stream:
+        next(stream)
+        records = [json.loads(line)[1] for line in stream]
+    assert all(record[1] == [] and record[2] == [] for record in records)
+
+
+def test_the_composed_gate_turning_on_drops_every_entry(tmp_path, monkeypatch, capsys, slide_fonts):
+    """The composed reading is on for the run, not per window, once two composable rules are in the file, so going from one to two re-evaluates every entry even where the second rule has no candidate — the one edit that moves a window's decision without touching a rule that could speak for it — and a third run under the same two serves everything."""
+    runs = _warm_runs(
+        tmp_path,
+        monkeypatch,
+        capsys,
+        slide_fonts,
+        _keyed_windows(),
+        {
+            "one": [SLIDE_RULE],
+            "two": [SLIDE_RULE, _nowhere_slide()],
+            "again": [SLIDE_RULE, _nowhere_slide()],
+            "one-again": [SLIDE_RULE],
+        },
+    )
+    assert runs["one"][1] == "  memo: served 0, computed 3, unkeyed 0; memo.ndjson.gz holds 3 entries"
+    assert runs["two"][1] == "  memo: served 0, computed 3, unkeyed 0; memo.ndjson.gz holds 3 entries"
+    assert runs["again"][1] == "  memo: served 3, computed 0, unkeyed 0; memo.ndjson.gz holds 3 entries"
+    assert runs["one-again"][1] == "  memo: served 0, computed 3, unkeyed 0; memo.ndjson.gz holds 3 entries"
+    assert runs["one-again"][0] == runs["one"][0]
+
+
+def test_a_changed_always_read_rule_drops_the_claimed_windows_only(
+    tmp_path, monkeypatch, capsys, slide_fonts
+):
+    """A non-composable rule with a live guard is read by every composed reading, so editing its guard re-evaluates the windows a composed reading claims and serves the rest: an unclaimed window reads no such rule, and the edited rule's own answers on it are repaired only where its name-grain precondition admits the window, which a ·Tea ligature rule's does for none of these."""
+    both, slide, extension = _keyed_windows()
+    guarded = guarded_rule(dict(RULE, id="guarded-ligature"), ["qsAh"])
+    reguarded = guarded_rule(dict(RULE, id="guarded-ligature"), ["qsOut"])
+    runs = _warm_runs(
+        tmp_path,
+        monkeypatch,
+        capsys,
+        slide_fonts,
+        [both, slide, extension],
+        {"seed": [*COMPOSABLE_RULES, guarded], "reguarded": [*COMPOSABLE_RULES, reguarded]},
+    )
+    assert runs["seed"][1] == "  memo: served 0, computed 3, unkeyed 0; memo.ndjson.gz holds 3 entries"
+    assert runs["reguarded"][1] == "  memo: served 1, computed 2, unkeyed 0; memo.ndjson.gz holds 3 entries"
+    assert runs["reguarded"][0] == runs["seed"][0]
+
+
+def test_two_composable_rules_swapping_places_re_evaluate_the_windows_naming_both(
+    tmp_path, monkeypatch, capsys, slide_fonts
+):
+    """Swapping two composable rules in the file moves no match digest and no verdict, and still moves what a claimed window's fill says, since the credited ids and their notes are written in rules-file order. A claimed window whose relevant ids no longer sit in the file's order is re-evaluated, a window naming one of them is served, and the fills come out as a fresh run's under the swapped file."""
+    both, slide, extension = _keyed_windows()
+    swapped = [COMPOSED_EXT_RULE, SLIDE_RULE]
+    runs = _warm_runs(
+        tmp_path,
+        monkeypatch,
+        capsys,
+        slide_fonts,
+        [both, slide, extension],
+        {"seed": COMPOSABLE_RULES, "swapped": swapped},
+    )
+    fresh = _warm_runs(
+        tmp_path / "fresh", monkeypatch, capsys, slide_fonts, [both, slide, extension], {"swapped": swapped}
+    )
+    assert runs["seed"][1] == "  memo: served 0, computed 3, unkeyed 0; memo.ndjson.gz holds 3 entries"
+    assert runs["swapped"][1] == "  memo: served 2, computed 1, unkeyed 0; memo.ndjson.gz holds 3 entries"
+    assert runs["swapped"][0] == fresh["swapped"][0]
+    assert runs["swapped"][2] == fresh["swapped"][2]
+    notes = {record["unit"]: record["note"] for record in runs["swapped"][0]["verdicts"]}
+    seeded = {record["unit"]: record["note"] for record in runs["seed"][0]["verdicts"]}
+    assert notes["w-both"] != seeded["w-both"]
+
+
+def test_a_new_non_composable_rule_is_asked_on_the_served_entries_its_shape_admits(
+    tmp_path, monkeypatch, capsys, slide_fonts
+):
+    """A non-composable rule appended to the file has a candidate position nowhere, so no unclaimed entry is re-evaluated for it; it is asked, guarded and unguarded, on every served unclaimed entry its name-grain precondition admits, and nothing else runs on those — the parent's `evaluate` is let through for the two claimed windows only and made to raise otherwise, so every other answer the run counted came through the repair. The fills and the report are a run's with no memo under the appended rules: the window the rule accepts is filled, the one its guard holds is reported held, the claimed windows are re-evaluated because a guarded rule joins the ones every composed reading reads, and the unclaimed extension window, which a ·Tea ligature rule's precondition does not admit, is served as it stands."""
+    held = dict(canonical("k-2", left="qsOut.ex-ext-1"), content_key="e" * 64, ink_deltas={"ss03": DELTA_A})
+    units = [_keyed_unit("k-1"), held, *_keyed_windows()]
+    appended = [*COMPOSABLE_RULES, RULE]
+    runs = _warm_runs(tmp_path, monkeypatch, capsys, slide_fonts, units, {"seed": COMPOSABLE_RULES})
+    fresh = _warm_runs(tmp_path / "fresh", monkeypatch, capsys, slide_fonts, units, {"appended": appended})
+    evaluate = sv.Decider.evaluate
+    monkeypatch.setattr(
+        sv.Decider,
+        "evaluate",
+        lambda self, unit: (
+            evaluate(self, unit)
+            if unit["id"] in {"w-both", "w-slide"}
+            else pytest.fail(f"evaluated {unit['id']}")
+        ),
+    )
+    runs.update(_warm_runs(tmp_path, monkeypatch, capsys, slide_fonts, units, {"appended": appended}))
+    assert runs["seed"][1] == "  memo: served 0, computed 5, unkeyed 0; memo.ndjson.gz holds 5 entries"
+    assert runs["appended"][1] == "  memo: served 1, computed 4, unkeyed 0; memo.ndjson.gz holds 5 entries"
+    assert runs["appended"][0] == fresh["appended"][0]
+    assert runs["appended"][2] == fresh["appended"][2]
+    assert "k-1" in {record["unit"] for record in runs["appended"][0]["verdicts"]}
+    assert "k-1" not in {record["unit"] for record in runs["seed"][0]["verdicts"]}
+
+
+def test_a_run_under_moved_rules_carries_no_entry_it_never_read(tmp_path):
+    """A narrowed run decides only the open units and carries the rest across unread, which is safe only under the roster they were stored under: heading an unread entry with a moved roster would serve it on the next pass as if it had been held against the moved rules. So a run under the stored roster carries every entry, and a run under a moved one keeps what it computed or served and drops the rest."""
+    path = tmp_path / "memo.ndjson.gz"
+    asked, unasked = _keyed_unit("a-1", content_key="a" * 64), _keyed_unit("n-1", content_key="n" * 64)
+    seed = sv.Memo(path, "env", {})
+    seeder = sv.Decider([RULE], None, seed)
+    for unit in (asked, unasked):
+        seeder.decide(unit)
+    assert seed.write([asked, unasked], seeder.roster) == 2
+    memo = sv.Memo.open(path, "env", {})
+    unmoved = sv.Decider([dict(RULE, note="reworded")], None, memo)
+    unmoved.decide(asked)
+    assert (unmoved.served, unmoved.computed) == (1, 0)
+    assert memo.write([asked, unasked], unmoved.roster) == 2
+    memo = sv.Memo.open(path, "env", {})
+    moved = sv.Decider([dict(RULE, verdict="either")], None, memo)
+    moved.decide(asked)
+    assert (moved.served, moved.computed) == (1, 0)
+    assert memo.write([asked, unasked], moved.roster) == 1
+    assert set(sv.Memo.open(path, "env", {}).entries) == {memo.key_for(asked)}
 
 
 def _human_units(surface):
@@ -7215,6 +7524,63 @@ def test_the_memo_serves_the_mini_bundle_byte_for_byte(tmp_path, monkeypatch, ca
 
 
 @pytest.mark.parametrize("form", [(), ("--open-only", "--require-reach")])
+def test_a_rules_edit_recomputes_only_the_units_the_edit_can_reach(
+    tmp_path, monkeypatch, capsys, mini_surface, form
+):
+    """The issue's own verification, over a real build of the frozen mini bundle under the checked-in rules and the bundle-local ink-delta rule: with every note reworded, a warm run computes nothing and still writes the fills, the exit code and every report line a run with no memo writes under the reworded rules, every fill quoting the new wording; and with one composable rule appended — a twin of a checked-in rule that has candidates here, so the walk's ambiguity refusal moves the fills of every window it reaches — a warm run computes exactly the human units the twin has a candidate position in and is byte-identical to a run with no memo under the appended rules. In both the bare form and the chain's."""
+    seeded = sv.load_rules(_mini_rules(mini_surface, tmp_path / "seed.yaml"))
+    human = _human_units(mini_surface)
+    reworded = [dict(rule, note=rule["note"] + " (reworded)") for rule in seeded]
+    twin = next(
+        json.loads(json.dumps(rule))
+        for rule in seeded
+        if sv._is_composable(rule)
+        and sv._shape_of(rule["match"]) is not sv.SHAPES["extension-dropped"]
+        and any(sv._candidates(rule["match"], unit) for unit in human)
+    )
+    twin["id"] += "-twin"
+    appended = [*reworded, twin]
+    reach = sum(1 for unit in human if sv._candidates(twin["match"], unit))
+    assert 0 < reach < len(human)
+    memo = tmp_path / "memo.ndjson.gz"
+    paths = {
+        "seed": tmp_path / "seed.yaml",
+        "reworded": _write_rules(tmp_path / "reworded.yaml", reworded),
+        "appended": _write_rules(tmp_path / "appended.yaml", appended),
+    }
+    runs = {}
+    for label, rules, extra in (
+        ("seed", "seed", ("--memo", str(memo))),
+        ("reworded", "reworded", ("--memo", str(memo))),
+        ("reworded-bare", "reworded", ()),
+        ("appended", "appended", ("--memo", str(memo))),
+        ("appended-bare", "appended", ()),
+    ):
+        code, fills = _run_over_mini(
+            tmp_path / label, monkeypatch, mini_surface, paths[rules], [], form + extra
+        )
+        lines = capsys.readouterr().out.splitlines()
+        report = tuple(line for line in lines if not line.startswith("  memo:"))
+        runs[label] = ((code, fills, report), [line for line in lines if line.startswith("  memo:")])
+    keyed = len(human)
+    assert runs["seed"][1] == [
+        f"  memo: served 0, computed {keyed}, unkeyed 0; memo.ndjson.gz holds {keyed} entries"
+    ]
+    assert runs["reworded"][1] == [
+        f"  memo: served {keyed}, computed 0, unkeyed 0; memo.ndjson.gz holds {keyed} entries"
+    ]
+    assert runs["reworded"][0] == runs["reworded-bare"][0]
+    assert runs["reworded"][0][1] != runs["seed"][0][1]
+    notes = [record["note"] for record in json.loads(runs["reworded"][0][1] or b"{}")["verdicts"]]
+    assert notes and all("(reworded)" in note for note in notes)
+    assert runs["appended"][1] == [
+        f"  memo: served {keyed - reach}, computed {reach}, unkeyed 0; memo.ndjson.gz holds {keyed} entries"
+    ]
+    assert runs["appended"][0] == runs["appended-bare"][0]
+    assert runs["appended"][0][1] != runs["reworded"][0][1]
+
+
+@pytest.mark.parametrize("form", [(), ("--open-only", "--require-reach")])
 def test_a_pooled_refill_is_the_serial_pass_byte_for_byte(tmp_path, monkeypatch, capsys, mini_surface, form):
     """The pool changes nothing but the time, held the same way the memo is: over the frozen mini bundle, a cold run that refills its memo across a spawn pool of two — the threshold lowered so the bundle's few hundred misses start one, the chunk shrunk so the pool is handed many tasks — writes the same fills, prints the same report and the same `memo:` line, and leaves the same memo bytes as the cold serial run, in both the bare form and the chain's. The parent's own `evaluate` is made to raise for the pooled run, so every decision it counted came back from a worker, whose spawned interpreter imports the module afresh and never sees the patch. This is the one test in the suite that starts a multiprocessing pool, which the closure recorder marks unclosable, so it runs on every narrowed lane."""
     rules = _mini_rules(mini_surface, tmp_path / "rules.yaml")
@@ -7292,7 +7658,7 @@ def test_the_prefill_counts_what_the_serial_pass_counts(tmp_path, monkeypatch):
     seed = sv.Decider([RULE], None, served)
     for unit in units[:3]:
         seed.decide(unit)
-    served.write(units)
+    served.write(units, seed.roster)
     outcomes = []
     for jobs in (1, 3):
         memo = sv.Memo.open(memo_path, "env", {})

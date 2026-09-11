@@ -61,7 +61,7 @@ This is the zero-touch sibling of echo_verdicts.py: echo fill extends the user's
 
 Records are stamped with the manifest's generated_at, so any human verdict beats a standing fill on merge, and a parked unit (a skip verdict) is not blank and is never filled. The artifact cycle runs this after the echo fill, with a merge_verdicts pass to land the file. The run's report rolls every composed line's credit back up per rule, so each rule's whole reach reads in one place — deliberately not a column that sums across rules, since a window two rules explain between them counts toward each of them.
 
-Every decision above is per-unit pure: what the composed reading credits a window with, whether a guard holds it, and which rules' own matchers accept or hold it are a function of the unit's index record, the two fonts' rendering of its window, and the rules file, and of nothing else — the verdict store only decides which of those decisions become fills. `Decider.decide` is that function, `rule_reach` assembles a run out of its answers, and the memo (`Memo`, the `--memo` flag; the verdict chain passes it) persists the answers across passes so a surface-moving pass evaluates only the units whose key is new. A unit's key is its build-time `content_key` stamp, joined with the persisted `ink_deltas` that stamp deliberately leaves out and with the after font's compiled-glyph digest for every family the window's after cells name (`fingerprint.after_font_glyph_digests`, the same per-family grain the review unit cache and the oracle's position store invalidate at, so a drawing or anchor change reaches exactly the windows that can feel it); a unit the surface never stamped is evaluated every pass and never stored. The memo's own stamp is the rules file's raw bytes, since the fill quotes each rule's `note` into every record, the code that decides (`MEMO_CODE_MODULES`, held to this module's import closure by rebuild/test_standing_verdicts.py), the before font wholesale, the after font's family-blind remainder, and `uv.lock` for the shaper; any of those moving drops the memo entirely, and over-invalidation is the safe direction. A dropped memo is refilled across a spawn pool at the width the caller states (`--jobs`; the verdict chain forwards the artifact cycle's, a hand run states the one the cycle's plan prints, and the tool derives none of its own), in this process or in the daemon serving the run alike, each worker deciding a chunk of the misses over its own `SlideContext` and handing back the memo's own wire records (`_prefill`), while a served pass, whose misses never reach the pool's threshold, stays serial. What is written back is bounded to the units on this surface, so it never outgrows the human domain, and the fills and the report are byte-identical served or computed, pooled or serial, which rebuild/test_standing_verdicts.py proves over the frozen mini bundle. The `--require-reach` rollup reads the same answers, so its pass over the whole domain costs no second evaluation. A `--targeted` run — the authoring loop's form, taking its rule from `--explain` and further windows from `--unit` — evaluates only the units the rule could speak for at the name grain (`_reachable`) plus the listed ones, prints that rule's own line, the composed lines crediting it, its rollup line, its tripwire and its explain block byte-identical to the whole-domain run's, and one line per listed unit with the decision the run counted, and writes neither a fill file nor the memo; it costs the surface load rather than the domain, and the whole-domain run stays the final pass and the cycle's form. rebuild/test_standing_verdicts.py holds the identity, and the candidate invariant behind it for every checked-in rule, over the same frozen mini bundle. Either form can be served instead of loaded: with `--daemon auto|always|never` and `--socket PATH`, a standing daemon (`rebuild/tools/standing_daemon.py`, the authority on what it holds and when it declines) that answers at the socket and holds this surface runs this same `main` — the same `Decider`, the same lines — over the objects it holds and hands back the streams and the exit code, byte-identical to the in-process run, which rebuild/test_standing_daemon.py holds over the mini bundle; the verdict chain's in-process call hands `main` its own `units` and is never served.
+Every decision above is per-unit pure: what the composed reading credits a window with, whether a guard holds it, and which rules' own matchers accept or hold it are a function of the unit's index record, the two fonts' rendering of its window, and the rules file, and of nothing else — the verdict store only decides which of those decisions become fills. `Decider.decide` is that function, `rule_reach` assembles a run out of its answers, and the memo (`Memo`, the `--memo` flag; the verdict chain passes it) persists the answers across passes so a surface-moving pass evaluates only the units whose key is new. A unit's key is its build-time `content_key` stamp, joined with the persisted `ink_deltas` that stamp deliberately leaves out and with the after font's compiled-glyph digest for every family the window's after cells name (`fingerprint.after_font_glyph_digests`, the same per-family grain the review unit cache and the oracle's position store invalidate at, so a drawing or anchor change reaches exactly the windows that can feel it); a unit the surface never stamped is evaluated every pass and never stored. The memo's own stamp is the code that decides (`MEMO_CODE_MODULES`, held to this module's import closure by rebuild/test_standing_verdicts.py), the before font wholesale, the after font's family-blind remainder, and `uv.lock` for the shaper; any of those moving drops the memo entirely, and over-invalidation is the safe direction. The rules file reaches the memo per entry instead: the header carries the file's `Roster` (each rule's match digest and verdict, the non-composable rules a composed reading reads for every window, and whether a composed reading is on), each entry carries the composable rules with a candidate position in its window, and a stored decision holds rule ids and no prose, so a rules commit re-evaluates only the units the moved rules can reach (`Decider._serve`) and a reworded note re-evaluates nothing while every fill quotes the new wording. The misses — a dropped memo's whole domain, or the units a moved rule can reach, which a broad rule carries past the pool's threshold — are refilled across a spawn pool at the width the caller states (`--jobs`; the verdict chain forwards the artifact cycle's, a hand run states the one the cycle's plan prints, and the tool derives none of its own), in this process or in the daemon serving the run alike, each worker deciding a chunk of the misses over its own `SlideContext` and handing back the memo's own wire records (`_prefill`), while a pass whose misses stay under the threshold — the ordinary served pass, or a narrow rule's landing — stays serial. What is written back is bounded to the units on this surface, so it never outgrows the human domain, and the fills and the report are byte-identical served or computed, pooled or serial, which rebuild/test_standing_verdicts.py proves over the frozen mini bundle. The `--require-reach` rollup reads the same answers, so its pass over the whole domain costs no second evaluation. A `--targeted` run — the authoring loop's form, taking its rule from `--explain` and further windows from `--unit` — evaluates only the units the rule could speak for at the name grain (`_reachable`) plus the listed ones, prints that rule's own line, the composed lines crediting it, its rollup line, its tripwire and its explain block byte-identical to the whole-domain run's, and one line per listed unit with the decision the run counted, and writes neither a fill file nor the memo; it costs the surface load rather than the domain, and the whole-domain run stays the final pass and the cycle's form. rebuild/test_standing_verdicts.py holds the identity, and the candidate invariant behind it for every checked-in rule, over the same frozen mini bundle. Either form can be served instead of loaded: with `--daemon auto|always|never` and `--socket PATH`, a standing daemon (`rebuild/tools/standing_daemon.py`, the authority on what it holds and when it declines) that answers at the socket and holds this surface runs this same `main` — the same `Decider`, the same lines — over the objects it holds and hands back the streams and the exit code, byte-identical to the in-process run, which rebuild/test_standing_daemon.py holds over the mini bundle; the verdict chain's in-process call hands `main` its own `units` and is never served.
 """
 
 import argparse
@@ -91,7 +91,7 @@ SURFACE = ROOT / "rebuild/out/review"
 RULES = ROOT / "rebuild/standing-approvals.yaml"
 OUT = ROOT / "verdicts-standing-fill.json"
 FORMAT = "ams-standing-approvals/1"
-MEMO_FORMAT = "ams-standing-fill-memo/1"
+MEMO_FORMAT = "ams-standing-fill-memo/2"
 MEMO_NAME = "standing-fill-memo.ndjson.gz"
 # The code a fill decision is a function of: this module and every repo module it reaches that reads a unit or shapes a window. rebuild/test_standing_verdicts.py holds the roster to the walked import graph, stopping at the key side — the pipeline modules, whose edits move the keys or the stamp rather than a decision.
 MEMO_CODE_MODULES = (
@@ -1607,6 +1607,13 @@ def _composable_digest(rules):
     return tuple((rule["id"], json.dumps(rule["match"], sort_keys=True)) for rule in rules)
 
 
+def _candidate_counts(rules, unit):
+    """How many positions each composable rule could speak for in one window (`_candidates`), by id in rules-file order — the terms of the composed pre-gate, computed once so the composed reading and the unit's memo entry read the same counts. Empty for a window with no shaped side, which no rule can speak for."""
+    if not unit.get("before") or not unit.get("after"):
+        return {}
+    return {rule["id"]: len(_candidates(rule["match"], unit)) for rule in rules}
+
+
 def _candidates(match, unit):
     """The window positions one composable rule could speak for, read off the index record before anything is shaped: a slide, ink-gain, entry-drop, stub-drop, or redrawn rule's are the glyphs whose recorded before name carries one of its pivot prefixes; an entry-contracted rule additionally requires one of the named families immediately on the pivot's left; a join-dropped rule's are the positions where the named pivot's recorded seam into the named follower dropped from the named height to a break, and into whichever after cells it names; a join-retargeted or join-created rule's are the positions where the named pivot's recorded seam into the named follower moved from the named before state to the named new height and both after cells the rule names, less any position whose before glyph falls under a form the rule declines; an extension rule's are `_extension_positions` — the positions meeting every per-position precondition the single-rule matcher reads — and none at all unless the named seam is a yK height, since the walk has to know which row a dropped tail sits on. Deliberately name-grain and cheap, because this is the pre-gate that decides whether a window is worth shaping at all: a rule with no candidate here can never be credited, and a window holding fewer than two candidate positions is never shaped."""
     glyphs = unit["before"]["glyphs"]
@@ -2133,11 +2140,13 @@ def _composed_walk(rules, unit, context):
     return credited
 
 
-def _composed(rules, unit, context, digest=None):
-    """The composed reading a fill may be written from: the name-grain pre-gate first, where two or more candidate positions must stand across the rules or the window is never shaped at all; then the walk, memoized per (rules, unit) so a window is shaped once however many times it is asked about; then the two-event threshold, because a window one rule accounts for at a single position belongs to that rule's own line and not to a composition, while the same rule speaking at two positions is a composition — the walk has held every pixel of the window against two blessed changes, which is more than any single-shape matcher's own localization asks for. Returns each credited rule's event positions before any guard is read, since the guards are scoped per credited rule and the caller has to know which positions earned the credit. `digest` is `_composable_digest(rules)` computed once by a caller that asks per unit (`Decider` holds it for the run); left off, it is computed here."""
+def _composed(rules, unit, context, digest=None, counts=None):
+    """The composed reading a fill may be written from: the name-grain pre-gate first, where two or more candidate positions must stand across the rules or the window is never shaped at all; then the walk, memoized per (rules, unit) so a window is shaped once however many times it is asked about; then the two-event threshold, because a window one rule accounts for at a single position belongs to that rule's own line and not to a composition, while the same rule speaking at two positions is a composition — the walk has held every pixel of the window against two blessed changes, which is more than any single-shape matcher's own localization asks for. Returns each credited rule's event positions before any guard is read, since the guards are scoped per credited rule and the caller has to know which positions earned the credit. `digest` is `_composable_digest(rules)` computed once by a caller that asks per unit (`Decider` holds it for the run) and `counts` is `_candidate_counts(rules, unit)` from a caller that also keys the unit's memo entry on them; left off, each is computed here."""
     if not unit.get("before") or not unit.get("after"):
         return None
-    if sum(len(_candidates(rule["match"], unit)) for rule in rules) < 2:
+    if counts is None:
+        counts = _candidate_counts(rules, unit)
+    if sum(counts.values()) < 2:
         return None
     key = (_composable_digest(rules) if digest is None else digest, unit["id"])
     if key not in context.composed:
@@ -2171,7 +2180,7 @@ def _composed_held(rules, unit, events, context):
 
 
 def _composed_verdict(rules, unit, events, context):
-    """The verdict and note one composed fill carries: the weakest verdict over the credited rules and over every non-composable rule whose own matcher accepts the window as well, since a window some blessed-either rule also speaks for cannot be approved outright on the strength of the others. The note names the credited ids in rules-file order and joins their own notes in the same order, and says which rule outside the credited set weakened the verdict when one did."""
+    """The verdict one composed fill carries and the id of the rule outside the credited set that weakened it, None when none did: the weakest verdict over the credited rules and over every non-composable rule whose own matcher accepts the window as well, since a window some blessed-either rule also speaks for cannot be approved outright on the strength of the others. The note is `_composed_note`'s, read from the live rules when the fill is written."""
     credited = [rule for rule in rules if rule["id"] in events]
     verdict = "either" if any(rule["verdict"] == "either" for rule in credited) else "approve"
     weakened = None
@@ -2182,9 +2191,7 @@ def _composed_verdict(rules, unit, events, context):
             if _matches(rule["match"], unit, context=context):
                 verdict, weakened = "either", rule["id"]
                 break
-    ids = " + ".join(rule["id"] for rule in credited)
-    note = f"[standing: {ids}] " + "; ".join(rule["note"] for rule in credited)
-    return verdict, note + (f" (either: {weakened})" if weakened else "")
+    return verdict, weakened
 
 
 class SlideContext:
@@ -2540,20 +2547,28 @@ class Run(NamedTuple):
 
 
 class Composed(NamedTuple):
-    """What the composed reading decided about one window: the credited rule ids in rules-file order, whether a guard holds the whole unit, and — for a window no guard holds — the verdict and note a fill of it carries. A held window's verdict is never computed, because nothing can write it."""
+    """What the composed reading decided about one window: the credited rule ids in rules-file order, whether a guard holds the whole unit, and — for a window no guard holds — the verdict a fill of it carries and the id of the non-composable `either` rule that weakened it, None when none did. A held window's verdict is never computed, because nothing can write it. No prose: the note a fill carries is read from the live rules on the way out (`_composed_note`), which is what lets a stored decision outlive a reworded note."""
 
     credited: tuple[str, ...]
     held: bool
     verdict: str | None
-    note: str | None
+    weakened: str | None = None
+
+
+def _composed_note(by_id, composed: Composed) -> str:
+    """The note a composed fill carries, read from the live rules on the way out exactly as a single-rule fill's is: the credited ids in rules-file order, their own notes joined in the same order, and the rule outside the credited set that weakened the verdict when one did."""
+    ids = " + ".join(composed.credited)
+    note = f"[standing: {ids}] " + "; ".join(by_id[rule_id]["note"] for rule_id in composed.credited)
+    return note + (f" (either: {composed.weakened})" if composed.weakened else "")
 
 
 class Decision(NamedTuple):
-    """Everything a run needs to know about one unit, and nothing the verdict store decides: the composed reading when one claims the window, else which rules' own matchers accept it and which rules' except_left hold it. A claimed window carries no per-rule answers, because the single-rule pass never sees it."""
+    """Everything a run needs to know about one unit, and nothing the verdict store decides: the composed reading when one claims the window, else which rules' own matchers accept it and which rules' except_left hold it. A claimed window carries no per-rule answers, because the single-rule pass never sees it. `relevant` is no part of the verdict but the memo entry's own key: the composable rules with a candidate position in this window (`_candidate_counts`), by id in rules-file order — the only rules that put a term into the composed pre-gate or an event into `_composed_walk`, so a rule outside it cannot move the composed part however it changes. Empty when no composed reading is on at all (`Decider.gate`)."""
 
     composed: Composed | None
     matched: frozenset[str]
     held: frozenset[str]
+    relevant: tuple[str, ...] = ()
 
 
 def unit_key(unit, family_digests) -> str | None:
@@ -2571,8 +2586,8 @@ def memo_code_paths(root=ROOT) -> list[pathlib.Path]:
     return [pathlib.Path(root) / relative for relative in MEMO_CODE_MODULES]
 
 
-def memo_environment(rules_path, surface, root=ROOT) -> tuple[str, dict[str, str]]:
-    """The memo's whole-store stamp and the after font's per-family digests the unit keys cite. Any line moving drops the memo entirely: the rules file by raw bytes, because a reworded `note` changes every fill quoting it; the deciding code (`memo_code_paths`); the before font wholesale, the after font's family-blind remainder (its helper glyphs, cmap and GPOS wiring), and `uv.lock`, which pins the HarfBuzz the shaper is. A surface carrying no fonts stamps the sentinel for both, which is the regime where no rule can shape a window at all."""
+def memo_environment(surface, root=ROOT) -> tuple[str, dict[str, str]]:
+    """The memo's whole-store stamp and the after font's per-family digests the unit keys cite. Any line moving drops the memo entirely: the deciding code (`memo_code_paths`); the before font wholesale, the after font's family-blind remainder (its helper glyphs, cmap and GPOS wiring), and `uv.lock`, which pins the HarfBuzz the shaper is. The rules file is not in it: it reaches the memo per entry, through the `Roster` in the header and each entry's `relevant` ids, so a rules commit drops the entries the moved rules can reach and a reworded note drops none. A surface carrying no fonts stamps the sentinel for both, which is the regime where no rule can shape a window at all."""
     before_font = pathlib.Path(surface) / "fonts" / "before.otf"
     after_font = pathlib.Path(surface) / "fonts" / "after.otf"
     family_digests: dict[str, str] = {}
@@ -2581,7 +2596,6 @@ def memo_environment(rules_path, surface, root=ROOT) -> tuple[str, dict[str, str
         family_digests, helpers = fingerprint.after_font_glyph_digests(after_font)
     lines = [
         f"format\t{MEMO_FORMAT}",
-        f"rules\t{fingerprint.file_sha256(pathlib.Path(rules_path))}",
         f"code\t{fingerprint.hash_paths(root, memo_code_paths(root))}",
         f"before_font\t{fingerprint.file_sha256(before_font) if before_font.is_file() else '-'}",
         f"after_helpers\t{helpers}",
@@ -2590,55 +2604,105 @@ def memo_environment(rules_path, surface, root=ROOT) -> tuple[str, dict[str, str
     return hashlib.sha256("\n".join(lines).encode()).hexdigest(), family_digests
 
 
+class Roster(NamedTuple):
+    """What the memo's header records about the rules file, and what a `Decider` holds the live file against: every rule's match digest and verdict by id, in rules-file order; the ids of the non-composable rules a composed reading reads for every window it claims, whatever the window holds — a non-inert except_left (`_composed_held`) or an `either` verdict (`_composed_verdict`) — in the same order; and whether a composed reading is on at all (`Decider.gate`). With an entry's own `relevant` ids this is the whole of what a stored decision is a function of past its unit key, and none of it is prose."""
+
+    rules: dict[str, tuple[str, str]]
+    always: tuple[str, ...]
+    composed_gate: bool
+
+
+def _match_digest(match) -> str:
+    return hashlib.sha256(json.dumps(match, sort_keys=True).encode()).hexdigest()[:16]
+
+
+def rules_roster(rules, composed_gate) -> Roster:
+    """The roster of a loaded rules file. Each match digest is key-order blind and covers `except_left`, which `load_rules` keeps inside `match`; it is deliberately not `fingerprint.standing_approvals_digest`, which is one digest over the whole file in the file's own key order."""
+    return Roster(
+        {rule["id"]: (_match_digest(rule["match"]), rule["verdict"]) for rule in rules},
+        tuple(
+            rule["id"]
+            for rule in rules
+            if not _is_composable(rule)
+            and (not _guard_is_inert(rule["match"]) or rule["verdict"] == "either")
+        ),
+        composed_gate,
+    )
+
+
+def _roster_from_header(header) -> Roster | None:
+    """The roster a memo header carries, or None for a header carrying none or a malformed one, which `Decider` reads as every rule having moved."""
+    rules, always, gate = header.get("rules"), header.get("always"), header.get("composed_gate")
+    if not isinstance(rules, dict) or not isinstance(always, list) or not isinstance(gate, bool):
+        return None
+    if not all(
+        isinstance(entry, list) and len(entry) == 2 and all(isinstance(part, str) for part in entry)
+        for entry in rules.values()
+    ) or not all(isinstance(rule_id, str) for rule_id in always):
+        return None
+    return Roster({rule_id: (entry[0], entry[1]) for rule_id, entry in rules.items()}, tuple(always), gate)
+
+
 def _decision_record(decision: Decision) -> list:
     composed = decision.composed
     return [
         (
             None
             if composed is None
-            else [list(composed.credited), composed.held, composed.verdict, composed.note]
+            else [list(composed.credited), composed.held, composed.verdict, composed.weakened]
         ),
         sorted(decision.matched),
         sorted(decision.held),
+        list(decision.relevant),
     ]
 
 
 def _decision_from_record(record: list) -> Decision:
-    composed, matched, held = record
+    """A decision back off its record, its rule ids interned: the domain holds a few hundred thousand entries naming a hundred rules, and `json` hands every line its own copies."""
+    composed, matched, held, relevant = record
     return Decision(
-        None if composed is None else Composed(tuple(composed[0]), composed[1], composed[2], composed[3]),
-        frozenset(matched),
-        frozenset(held),
+        (
+            None
+            if composed is None
+            else Composed(tuple(map(sys.intern, composed[0])), composed[1], composed[2], composed[3])
+        ),
+        frozenset(map(sys.intern, matched)),
+        frozenset(map(sys.intern, held)),
+        tuple(map(sys.intern, relevant)),
     )
 
 
 class Memo:
-    """The persisted decisions: one line per unit key under a header carrying the stamp `memo_environment` computes. A memo stamped for any other environment, or unreadable, is an empty one — over-invalidation is the safe direction, and a miss only costs the evaluation the memo would have saved. `write` keeps exactly the entries whose key belongs to a unit on the surface it was asked about, served, fresh, or carried from the file unread, so the file is bounded by the human domain and never sheds an entry a later pass could still serve. Pinned gzip mtime and level 1, like the unit store: written once and read once per pass."""
+    """The persisted decisions: one line per unit key under a header carrying the stamp `memo_environment` computes and the `Roster` of the rules file the decisions were made under. A memo stamped for any other environment, or unreadable, is an empty one — over-invalidation is the safe direction, and a miss only costs the evaluation the memo would have saved — and a header with no readable roster is one under which every rule has moved, which `Decider` serves nothing from. `write` keeps exactly the entries whose key belongs to a unit on the surface it was asked about — served, fresh, or carried from the file unread — so the file is bounded by the human domain and never sheds an entry a later pass could still serve, and writes the roster the run decided under into the header. An entry is carried unread only while that roster is the stored one: a narrowed run that never asks about a closed unit cannot vouch for its entry under rules that moved, and heading such an entry with the live roster would serve it on the next pass as if it had been held against them, so a run under a moved roster keeps only what it computed or served. Pinned gzip mtime and level 1, like the unit store: written once and read once per pass."""
 
-    def __init__(self, path, environment, family_digests, entries=None) -> None:
+    def __init__(self, path, environment, family_digests, entries=None, stored: Roster | None = None) -> None:
         self.path = pathlib.Path(path)
         self.environment = environment
         self.family_digests = family_digests
         self.entries: dict[str, Decision] = entries or {}
+        self.stored = stored
         self.fresh: dict[str, Decision] = {}
+        self.served: set[str] = set()
         self._keys: dict[str, str | None] = {}
 
     @classmethod
     def open(cls, path, environment, family_digests, *, fresh=False) -> "Memo":
         """The memo on disk, empty when there is nothing usable there or the caller asked to recompute everything (`--fresh-memo`, which still rewrites the file afterward)."""
         entries: dict[str, Decision] = {}
+        stored = None
         path = pathlib.Path(path)
         if not fresh and path.is_file():
             try:
                 with gzip.open(path, "rt", encoding="utf-8") as stream:
                     header = json.loads(next(stream))
                     if header.get("format") == MEMO_FORMAT and header.get("environment") == environment:
+                        stored = _roster_from_header(header)
                         for line in stream:
                             key, record = json.loads(line)
                             entries[key] = _decision_from_record(record)
             except OSError, EOFError, ValueError, TypeError, StopIteration:
-                entries = {}
-        return cls(path, environment, family_digests, entries)
+                entries, stored = {}, None
+        return cls(path, environment, family_digests, entries, stored)
 
     def key_for(self, unit) -> str | None:
         unit_id = unit["id"]
@@ -2646,17 +2710,28 @@ class Memo:
             self._keys[unit_id] = unit_key(unit, self.family_digests)
         return self._keys[unit_id]
 
-    def write(self, units) -> int:
-        """Write the memo back, bounded to `units`, and return how many entries it holds."""
+    def write(self, units, roster: Roster | None = None) -> int:
+        """Write the memo back, bounded to `units` and headed by `roster`, and return how many entries it holds. An entry the run neither computed nor served is carried only when `roster` is the one it was stored under."""
+        carry = roster == self.stored
         kept: dict[str, Decision] = {}
         for unit in units:
             key = self.key_for(unit)
             if key is None:
                 continue
-            decision = self.fresh.get(key) or self.entries.get(key)
+            decision = self.fresh.get(key)
+            if decision is None and (carry or key in self.served):
+                decision = self.entries.get(key)
             if decision is not None:
                 kept[key] = decision
-        header = {"format": MEMO_FORMAT, "environment": self.environment}
+        header = {
+            "format": MEMO_FORMAT,
+            "environment": self.environment,
+            "rules": (
+                None if roster is None else {rule_id: list(entry) for rule_id, entry in roster.rules.items()}
+            ),
+            "always": None if roster is None else list(roster.always),
+            "composed_gate": None if roster is None else roster.composed_gate,
+        }
         self.path.parent.mkdir(parents=True, exist_ok=True)
         with open(self.path, "wb") as handle:
             with gzip.GzipFile(fileobj=handle, mode="wb", mtime=0, compresslevel=1) as stream:
@@ -2667,7 +2742,10 @@ class Memo:
 
 
 class Decider:
-    """The per-unit pure function behind a run, answered once per unit however many times a run asks — the narrowed pass and the `--require-reach` pass over the whole domain share every answer — and served from the memo when one is open and holds the unit's key. `served`, `computed` and `unkeyed` are the run's own reading of what the memo bought it."""
+    """The per-unit pure function behind a run, answered once per unit however many times a run asks — the narrowed pass and the `--require-reach` pass over the whole domain share every answer — and served from the memo when one is open and holds, under the unit's key, an entry the live rules still stand behind (`_serve`). `served`, `computed` and `unkeyed` are the run's own reading of what the memo bought it.
+
+    What the live rules are held against is derived once here from the memo's stored `Roster`, which is what turns a rules commit from a whole-domain recompute into a probe of the rules that moved: `_stale` is every stored id whose match digest or verdict moved or that the live file no longer holds; `_dropped` the subset that vanished or whose match moved, since a verdict-only change leaves a rule's own matcher answers standing; `_probe` the live rules that are new or whose match moved, the only rules any per-unit candidate or reach check runs this pass; `_always_moved` whether the rules a composed reading reads for every window changed in any way; and `_gate_moved` whether the composed reading came on or went off. A memo with no stored roster has every rule moved.
+    """
 
     def __init__(self, rules, context, memo: Memo | None = None) -> None:
         self.rules = rules
@@ -2675,23 +2753,56 @@ class Decider:
         self.memo = memo
         self.composable = _composable(rules)
         self.composable_digest = _composable_digest(self.composable)
+        self.gate = len(self.composable) > 1 and context is not None
+        self.roster = rules_roster(rules, self.gate)
+        self._order = {rule["id"]: index for index, rule in enumerate(rules)}
+        stored = memo.stored if memo is not None else None
+        live = self.roster.rules
+        if stored is None:
+            self._gate_moved = self._always_moved = True
+            self._stale = self._dropped = frozenset(live)
+            self._probe = list(rules)
+        else:
+            self._gate_moved = stored.composed_gate != self.gate
+            self._always_moved = [(rule_id, stored.rules.get(rule_id)) for rule_id in stored.always] != [
+                (rule_id, live[rule_id]) for rule_id in self.roster.always
+            ]
+            self._dropped = frozenset(
+                rule_id
+                for rule_id, (digest, _verdict) in stored.rules.items()
+                if rule_id not in live or live[rule_id][0] != digest
+            )
+            self._stale = self._dropped | frozenset(
+                rule_id
+                for rule_id, entry in stored.rules.items()
+                if rule_id in live and live[rule_id] != entry
+            )
+            self._probe = [
+                rule
+                for rule in rules
+                if rule["id"] not in stored.rules or stored.rules[rule["id"]][0] != live[rule["id"]][0]
+            ]
         self._decided: dict[str, Decision] = {}
+        self._servings: dict[str, tuple[Decision, bool] | None] = {}
         self.served = 0
         self.computed = 0
         self.unkeyed = 0
 
     def evaluate(self, unit) -> Decision:
-        """The decision itself, computed: the composed reading first, because it claims a window before any single rule is asked about it, then — for an unclaimed window — each rule's own matcher, and for a guarded rule that refuses, its unguarded form, which is what says the guard held it."""
+        """The decision itself, computed: the composed reading first, because it claims a window before any single rule is asked about it, then — for an unclaimed window — each rule's own matcher, and for a guarded rule that refuses, its unguarded form, which is what says the guard held it. The candidate counts the composed pre-gate reads are taken once and also name the entry's relevant rules."""
         composed = None
-        if len(self.composable) > 1 and self.context is not None:
-            events = _composed(self.composable, unit, self.context, self.composable_digest)
+        relevant: tuple[str, ...] = ()
+        if self.gate:
+            counts = _candidate_counts(self.composable, unit)
+            relevant = tuple(rule_id for rule_id, count in counts.items() if count)
+            events = _composed(self.composable, unit, self.context, self.composable_digest, counts)
             if events is not None:
                 credited = tuple(rule["id"] for rule in self.rules if rule["id"] in events)
                 held = _composed_held(self.rules, unit, events, self.context)
-                verdict, note = (
+                verdict, weakened = (
                     (None, None) if held else _composed_verdict(self.rules, unit, events, self.context)
                 )
-                composed = Composed(credited, held, verdict, note)
+                composed = Composed(credited, held, verdict, weakened)
         matched: list[str] = []
         held_by: list[str] = []
         if composed is None:
@@ -2701,10 +2812,68 @@ class Decider:
                     matched.append(rule["id"])
                 elif not _guard_is_inert(match) and _matches(match, unit, guard=False, context=self.context):
                     held_by.append(rule["id"])
-        return Decision(composed, frozenset(matched), frozenset(held_by))
+        return Decision(composed, frozenset(matched), frozenset(held_by), relevant)
+
+    def _serve(self, unit, entry: Decision) -> tuple[Decision, bool] | None:
+        """The decision a memo entry still stands for under the live rules, with whether a matcher ran to repair it, or None when nothing short of `evaluate` can answer. Four refusals, every uncertain case falling to recompute: the composed gate moved, so no entry stands; a claimed window whose relevant ids include a stale rule, whose always-read rules moved, or whose relevant ids no longer sit in the file's order — a rule that had a candidate here and then moved or vanished can change the pre-gate sum, the walk's ambiguity refusal, a credit, a guard or the verdict, and the credited tuple is written in file order; an unclaimed window whose relevant ids include a dropped rule, for the same reasons short of the guard and the verdict; and any probed composable rule with a candidate position here, which would take part in the walk. What is left is served: a claimed window as it stands, an unclaimed one repaired at the rule grain — the dropped rules taken off its matched and held sets, and each probed rule its shape's name-grain precondition admits (`_reachable`; a composable rule with no candidate is admitted only when it is an extension rule whose seam the walk cannot place, read through `_extension_positions` as `_reachable` reads it) asked guarded and, for a non-inert guard, unguarded. The repair rests on `_reachable` admitting every unit a rule's own matcher accepts or holds, which rebuild/test_standing_verdicts.py holds over the frozen mini bundle (test_a_rules_lines_never_name_a_unit_outside_its_name_grain_candidates). A window with no shaped side is served as it stands, since no matcher accepts one."""
+        if self._gate_moved:
+            return None
+        relevant = set(entry.relevant)
+        composed = entry.composed
+        if composed is not None:
+            if self._always_moved or relevant & self._stale:
+                return None
+            if sorted(entry.relevant, key=self._order.__getitem__) != list(entry.relevant):
+                return None
+        elif relevant & self._dropped:
+            return None
+        if not unit.get("before") or not unit.get("after"):
+            return entry, False
+        repairs = []
+        for rule in self._probe:
+            match = rule["match"]
+            if _is_composable(rule):
+                if _candidates(match, unit):
+                    return None
+                if (
+                    composed is None
+                    and _shape_of(match) is SHAPES["extension-dropped"]
+                    and _extension_positions(match, unit)
+                ):
+                    repairs.append(rule)
+            elif composed is None and _reachable(match, unit):
+                repairs.append(rule)
+        if composed is not None:
+            return entry, False
+        matched = set(entry.matched) - self._dropped
+        held = set(entry.held) - self._dropped
+        for rule in repairs:
+            match = rule["match"]
+            if _matches(match, unit, context=self.context):
+                matched.add(rule["id"])
+            elif not _guard_is_inert(match) and _matches(match, unit, guard=False, context=self.context):
+                held.add(rule["id"])
+        return Decision(None, frozenset(matched), frozenset(held), entry.relevant), bool(repairs)
+
+    def _serving(self, unit) -> tuple[Decision, bool] | None:
+        """`_serve` over the unit's memo entry, answered once per unit however many times `misses` and `decide` ask, its key marked served in the memo so `Memo.write` keeps it under a moved roster, and written back over the entry when it repaired or trimmed it, so the file never keeps a rule the live file dropped."""
+        unit_id = unit["id"]
+        if unit_id not in self._servings:
+            serving = None
+            key = self.memo.key_for(unit) if self.memo is not None else None
+            if self.memo is not None and key is not None:
+                entry = self.memo.entries.get(key)
+                if entry is not None:
+                    serving = self._serve(unit, entry)
+                    if serving is not None:
+                        self.memo.served.add(key)
+                        if serving[0] != entry:
+                            self.memo.entries[key] = serving[0]
+            self._servings[unit_id] = serving
+        return self._servings[unit_id]
 
     def take(self, unit, decision: Decision) -> Decision:
-        """Count a decision computed for this run — here, or by a pooled worker handing it back through `_prefill` — exactly as `decide` counts one it computed itself: a keyed unit's into the memo's fresh entries and `computed`, an unkeyed unit's into `unkeyed`, and either into `_decided`."""
+        """Count a decision computed for this run — here, by a pooled worker handing it back through `_prefill`, or by `_serve` repairing an entry — exactly as `decide` counts one it computed itself: a keyed unit's into the memo's fresh entries and `computed`, an unkeyed unit's into `unkeyed`, and either into `_decided`."""
         key = self.memo.key_for(unit) if self.memo is not None else None
         if key is None:
             self.unkeyed += 1
@@ -2719,29 +2888,22 @@ class Decider:
         decision = self._decided.get(unit["id"])
         if decision is not None:
             return decision
-        key = self.memo.key_for(unit) if self.memo is not None else None
-        decision = self.memo.entries.get(key) if self.memo is not None and key is not None else None
-        if decision is None:
+        serving = self._serving(unit)
+        if serving is None:
             return self.take(unit, self.evaluate(unit))
+        decision, repaired = serving
+        if repaired:
+            return self.take(unit, decision)
         self.served += 1
         self._decided[unit["id"]] = decision
         return decision
 
     def misses(self, units) -> list:
-        """The units among `units` this run would have to evaluate itself: not decided yet, and not held by the memo under their key."""
-        pile = []
-        for unit in units:
-            if unit["id"] in self._decided:
-                continue
-            if self.memo is not None:
-                key = self.memo.key_for(unit)
-                if key is not None and key in self.memo.entries:
-                    continue
-            pile.append(unit)
-        return pile
+        """The units among `units` this run would have to evaluate itself: not decided yet, and not servable from the memo — no entry under their key, or an entry `_serve` refuses. An entry `_serve` repairs is not a miss: the repair is a matcher or two, run serially. A dropped memo misses everything; a rules commit misses the units the moved rules can reach, which a broad rule can carry past `_STANDING_POOL_THRESHOLD`, so a rule-landing pass can open the pool over a memo it mostly served."""
+        return [unit for unit in units if unit["id"] not in self._decided and self._serving(unit) is None]
 
 
-# Below this many misses a pool's startup — spawn, the module import, the rules and two font loads, about 0.2 s a worker — outruns what it saves: a miss costs about 1.3 ms serially and about 11 us to pickle each way, so the break-even at width four sits near five hundred misses, and a warm pass, which computes tens of units, never comes near this. See rebuild/out/cycle-timings.ndjson for the plumbing rows these rates were read off.
+# Below this many misses a pool's startup — spawn, the module import, the rules and two font loads, about 0.2 s a worker — outruns what it saves: a miss costs about 1.3 ms serially and about 11 us to pickle each way, so the break-even at width four sits near five hundred misses, and a warm pass over unmoved rules, which computes tens of units, never comes near this; a pass landing a rule broad enough to reach thousands of units does. See rebuild/out/cycle-timings.ndjson for the plumbing rows these rates were read off.
 _STANDING_POOL_THRESHOLD = 2_000
 # Units per pooled task: enough that the pickling and the message are a small fraction of the work, few enough that the tasks load-balance across the workers and that a worker's peak is one chunk's windows rather than its whole share of the domain, since it releases its context memos and its alignment cache behind each one. STANDING_FILL_WORKER_BYTES in rebuild/tools/artifact_cycle.py is priced at this chunk width.
 _STANDING_POOL_CHUNK = 2_000
@@ -2756,7 +2918,7 @@ def _standing_pool_init(rules, fonts) -> None:
 
 
 def _standing_pool_chunk(units) -> list[tuple[str, list]]:
-    """One pooled task: each unit's id beside its decision as `_decision_record` spells it, the memo's own wire shape, so `_decision_from_record` is the one reader of both. The worker's memos are emptied behind every chunk, so what it holds at its peak is one chunk's windows."""
+    """One pooled task: each unit's id beside its decision as `_decision_record` spells it — the composed part, the matched ids, the held ids and the relevant ids — the memo's own wire shape, so `_decision_from_record` is the one reader of both. The worker's memos are emptied behind every chunk, so what it holds at its peak is one chunk's windows."""
     decider = _standing_pool_state["decider"]
     try:
         return [(unit["id"], _decision_record(decider.evaluate(unit))) for unit in units]
@@ -2768,7 +2930,7 @@ def _standing_pool_chunk(units) -> list[tuple[str, list]]:
 
 
 def _prefill(decider: Decider, asked, jobs: int) -> None:
-    """Decide the units the run is about to ask for and the memo cannot serve across a spawn pool, ahead of `rule_reach`, so both of its passes are then answered out of `Decider._decided`. The outcome is the serial pass's byte for byte: `rule_reach` walks the units in its own order whatever order the chunks come back in, `Memo.write` sorts its keys, and `served`, `computed` and `unkeyed` are totals, so completion order reaches neither the fills nor the memo nor the report. What is prefilled is exactly what the run asks about — the whole domain under --require-reach, else the narrowed candidates — since deciding a unit the run never asks about would advance `computed` and write a memo entry the serial pass never wrote. At a width of one, or below `_STANDING_POOL_THRESHOLD` misses, nothing happens here and the serial path is the whole pass. Each returned id is taken off the pile it was sent from, so a worker answering for a unit it was never handed, or twice, fails here rather than counting."""
+    """Decide the units the run is about to ask for and the memo cannot serve (`Decider.misses`: no entry under the unit's key, or an entry the live rules refuse; an entry the live rules can repair is served serially and never sent) across a spawn pool, ahead of `rule_reach`, so both of its passes are then answered out of `Decider._decided`. The outcome is the serial pass's byte for byte: `rule_reach` walks the units in its own order whatever order the chunks come back in, `Memo.write` sorts its keys, and `served`, `computed` and `unkeyed` are totals, so completion order reaches neither the fills nor the memo nor the report. What is prefilled is exactly what the run asks about — the whole domain under --require-reach, else the narrowed candidates — since deciding a unit the run never asks about would advance `computed` and write a memo entry the serial pass never wrote. At a width of one, or below `_STANDING_POOL_THRESHOLD` misses, nothing happens here and the serial path is the whole pass. Each returned id is taken off the pile it was sent from, so a worker answering for a unit it was never handed, or twice, fails here rather than counting."""
     if jobs <= 1:
         return
     misses = decider.misses(asked)
@@ -2792,6 +2954,7 @@ def rule_reach(rules, units, records, stamp, context=None, decide=None) -> Run:
     if decide is None:
         decide = Decider(rules, context).decide
     order = {rule["id"]: index for index, rule in enumerate(rules)}
+    by_id = {rule["id"]: rule for rule in rules}
     fills = []
     claimed: set[str] = set()
     credited_units: dict[str, list[str]] = {}
@@ -2818,7 +2981,12 @@ def rule_reach(rules, units, records, stamp, context=None, decide=None) -> Run:
         else:
             counts[0] += 1
             fills.append(
-                {"unit": unit["id"], "verdict": composed.verdict, "note": composed.note, "at": stamp}
+                {
+                    "unit": unit["id"],
+                    "verdict": composed.verdict,
+                    "note": _composed_note(by_id, composed),
+                    "at": stamp,
+                }
             )
 
     reaches: dict[str, Reach] = {}
@@ -3040,7 +3208,7 @@ def main(argv=None, *, units=None, context=None):
     parser.add_argument(
         "--memo",
         metavar="PATH",
-        help="persist every unit's decision here, keyed on the unit's content key, its ink deltas and the after font's digests for the families its window names, under a stamp over the rules file's bytes, the deciding code and the fonts; a later run with the same stamp evaluates only the units whose key is new. The fills and the report are byte-identical served or computed. The verdict chain passes this; a dry run against candidate rules leaves it off so it never overwrites the chain's memo with another rules file's decisions.",
+        help="persist every unit's decision here, keyed on the unit's content key, its ink deltas and the after font's digests for the families its window names, under a stamp over the deciding code and the fonts, with each entry naming the rules that could speak for its unit; a later run with the same stamp evaluates the units whose key is new and the units a rule that moved since the memo was written can reach, and a reworded note re-evaluates nothing. The fills and the report are byte-identical served or computed. The verdict chain passes this; a dry run against candidate rules leaves it off so it never overwrites the chain's memo with another rules file's decisions.",
     )
     parser.add_argument(
         "--fresh-memo",
@@ -3117,7 +3285,7 @@ def main(argv=None, *, units=None, context=None):
 
     memo = None
     if args.memo is not None:
-        environment, family_digests = memo_environment(pathlib.Path(args.rules), surface)
+        environment, family_digests = memo_environment(surface)
         memo = Memo.open(args.memo, environment, family_digests, fresh=args.fresh_memo)
     decider = Decider(rules, context, memo)
 
@@ -3140,7 +3308,7 @@ def main(argv=None, *, units=None, context=None):
 
     lines = []
     if memo is not None:
-        held = memo.write(units)
+        held = memo.write(units, decider.roster)
         lines.append(
             f"  memo: served {decider.served}, computed {decider.computed}, unkeyed {decider.unkeyed}; "
             f"{memo.path.name} holds {held} {'entry' if held == 1 else 'entries'}"
