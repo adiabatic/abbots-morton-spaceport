@@ -19,6 +19,7 @@ from rebuild.review.audit import (
     assign_batches,
     batch_of,
     build_units,
+    format_codepoints,
     load_audit,
     load_ledger,
     load_workload,
@@ -288,7 +289,9 @@ def test_configs_within_a_unit_are_in_acceptance_order(mini):
 
 
 def test_parse_codepoints():
+    """The codepoint-string half of the codepoints-to-text derivation the ink-signature resolver shares with the audit, pinned in both directions: `build._resolve_signature_digests` parses a row's window on its way to the text the comparator shapes and `build.ink_sig` formats a window back into a signature key. `unit_cache.signature_code_paths` leaves audit.py out of the signature store's stamp on the strength of this pin; the `chr` join in build.py that finishes the derivation is argued in that docstring, not pinned here."""
     assert parse_codepoints("200C:E652:E679") == (0x200C, 0xE652, 0xE679)
+    assert format_codepoints((0x200C, 0xE652, 0xE679)) == "200C:E652:E679"
 
 
 def test_ink_duplicate_siblings_fold_to_one_unit(mini_bundle):

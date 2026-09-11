@@ -6,7 +6,7 @@ What the store serves is the previous build's emitted fragment (read back from t
 
 This module also owns the carry content key (the render identity rebuild/tools/carry_verdicts.py resolves prior verdicts against), so the build can stamp each unit's `content_key` at emission time and carry can probe stamped hashes instead of re-serializing every unit — one definition, shared by both sides, with the stamp itself excluded from the projection it hashes.
 
-Beside the per-unit store lives the ink-signature store (issue 18), which does for the ink-duplicate merge what the unit store does for enrichment: the merge needs one rendered-outcome signature per (window, config) over every relabel-split window — the one per-unit product computed before the unit universe exists, so the unit store can never serve it — and re-shaping those serially was the load phase's floor. Each entry's key follows the unit key's two-grained soundness argument exactly: the audit row pins the window, the config, the before font's rendered names, and the settled cells the after font is compiled to reproduce, and the per-family digests pin the after font's outlines, advances, and cursive anchors for every family the window can touch. The whole-store stamp carries what signatures depend on beyond that: the code the surface build runs (the same `surface_code_paths` closure the unit store keys on — the Shaper lives in rebuild/validation and the comparator in rebuild/review, and nothing narrower is proved) and the before font wholesale, plus the after font's non-family glyphs, cmap, and GPOS wiring. Deliberately absent: the ledger, the subsets, the Junior font, the corpus, and the draft harness — signatures read none of them, so this store survives edits that drop the unit store, and a build that re-enriches everything can still skip re-shaping the merge.
+Beside the per-unit store lives the ink-signature store (issue 18), which does for the ink-duplicate merge what the unit store does for enrichment: the merge needs one rendered-outcome signature per (window, config) over every relabel-split window — the one per-unit product computed before the unit universe exists, so the unit store can never serve it — and re-shaping those serially was the load phase's floor. Each entry's key follows the unit key's two-grained soundness argument exactly: the audit row pins the window, the config, the before font's rendered names, and the settled cells the after font is compiled to reproduce, and the per-family digests pin the after font's outlines, advances, and cursive anchors for every family the window can touch. The whole-store stamp carries what signatures depend on beyond that: the comparator's own code (`signature_code_paths` — rebuild/review/ink.py and the three rebuild/validation modules it imports, the import closure rebuild/test_review_code_closure.py walks from `rebuild.review.ink` in both directions) and the before font wholesale, plus the after font's non-family glyphs, cmap, and GPOS wiring. Deliberately absent: the rest of `surface_code_paths` — the build driver, this cache, the enricher, the drafts, the kernel seam, the crate, none of which a signature executes — and the ledger, the subsets, the Junior font, the corpus, and the draft harness. Signatures read none of them, so this store survives edits that drop the unit store: a build that re-enriches everything can still skip re-shaping the merge.
 """
 
 from __future__ import annotations
@@ -156,7 +156,7 @@ KERNEL_NON_SURFACE_MODULES = frozenset(
 
 
 def surface_code_paths(repo_root: Path) -> list[Path]:
-    """The code whose edit drops both per-unit stores: what the surface build actually runs, rather than every tree it might. The review side is `fingerprint.review_code_paths`, already held to build.py's import graph. The pipeline side is rebuild/pipeline minus `PIPELINE_NON_SURFACE_MODULES` and rebuild/validation whole, every module of which the build reaches. The crate side is rebuild/kernel-rs/src minus `KERNEL_NON_SURFACE_MODULES`, plus both Cargo files, since the crate's dependencies and profile shape every verb it answers. Before this closure existed the stamps folded `fingerprint.pipeline_code_paths` whole — every pipeline module, every Rust source, the font-compile tools — so an edit to the driver, a gate, the oracle or the crate's fold dropped the store and the next build paid a cold units phase for code it never executed. The conformance sweep, the oracle's row cache, the GSUB emitter and the pixel geometry are outside the closure for the same reason: the build reads the sweep's vocabulary through the `labels` leaf and executes none of the four.
+    """The code whose edit drops the per-unit store: what the surface build actually runs, rather than every tree it might. The ink-signature store keys on the narrower `signature_code_paths`, so an edit here that stays outside the comparator's closure re-enriches units and re-shapes nothing. The review side is `fingerprint.review_code_paths`, already held to build.py's import graph. The pipeline side is rebuild/pipeline minus `PIPELINE_NON_SURFACE_MODULES` and rebuild/validation whole, every module of which the build reaches. The crate side is rebuild/kernel-rs/src minus `KERNEL_NON_SURFACE_MODULES`, plus both Cargo files, since the crate's dependencies and profile shape every verb it answers. Before this closure existed the stamps folded `fingerprint.pipeline_code_paths` whole — every pipeline module, every Rust source, the font-compile tools — so an edit to the driver, a gate, the oracle or the crate's fold dropped the store and the next build paid a cold units phase for code it never executed. The conformance sweep, the oracle's row cache, the GSUB emitter and the pixel geometry are outside the closure for the same reason: the build reads the sweep's vocabulary through the `labels` leaf and executes none of the four.
 
     Module grain, which over-invalidates in the safe direction: a module imported for something the build never calls is still stamped, and the served-vs-recomputed sample inside every build stays the check that a served fragment equals a fresh computation. Two things are left out on purpose. The width and telemetry modules under rebuild/tools that the build takes its fan-out and its cost readings from cannot move a byte of a unit's products — rebuild/test_unit_cache.py's serial-and-parallel byte identity holds the width half — and the test that pins the rosters also pins that those are the only modules the build reaches outside the three trees. The font-compile tools roster is code the build never runs, and the draft harness line hashes tools/*.py anyway.
     """
@@ -172,6 +172,24 @@ def surface_code_paths(repo_root: Path) -> list[Path]:
         path for path in sorted((kernel / "src").rglob("*.rs")) if path.name not in KERNEL_NON_SURFACE_MODULES
     ]
     return pipeline + validation + crate + fingerprint.review_code_paths(root)
+
+
+# The comparator's import closure: rebuild/review/ink.py and the rebuild/validation modules it reaches — the shaper, the seam classifier it takes `PIXEL_SIZE` from, and the row model the shaper reads. An inclusion roster of literal paths rather than an exclusion list, since the walk from ink.py reaches these four files and no package `__init__.py`, so the roster is one literal a reader can check. rebuild/test_review_code_closure.py walks the import graph from `rebuild.review.ink` in both directions and checks each entry is on disk, because `fingerprint.path_lines` reads a missing path as an absence rather than a failure and a renamed comparator module would leave the hash silently.
+SIGNATURE_CODE_MODULES = (
+    "rebuild/review/ink.py",
+    "rebuild/validation/classify.py",
+    "rebuild/validation/rowmodel.py",
+    "rebuild/validation/shaping.py",
+)
+
+
+def signature_code_paths(repo_root: Path) -> list[Path]:
+    """The code whose edit drops the ink-signature store: the comparator's own import closure (`SIGNATURE_CODE_MODULES`), a strict subset of `surface_code_paths`. A signature is `InkComparator.signature` over a `Shaper` and the fontTools outline pens, and nothing else the surface build runs — the driver, the enricher, the drafts, the kernel seam, the crate — can move one, so an edit there re-enriches units and re-shapes nothing. Module grain, the safe over-inclusion: the row model is stamped because the shaper imports it, though no signature reads a row.
+
+    Three inputs sit outside the roster on argument rather than hash. The codepoints-to-text derivation in `build._resolve_signature_digests` has two halves: `audit.parse_codepoints` and `audit.format_codepoints`, whose round trip rebuild/test_review_audit.py::test_parse_codepoints pins and whose drift `build.ink_sig` turns into a KeyError on its first lookup, and the one-line `chr` join between a parsed row and the text the comparator shapes, which no test reaches. That join is the definition of what text a window's signature is taken over, so an edit to it is a change to what a signature means, and like this module's own `signature_key` schema and the store's framing it is expressed through `SIGNATURE_STORE_FORMAT` rather than the roster. A key-schema move cannot serve a wrong digest on its own, since the key is a content hash and every row re-keys into a miss; a join edit under an unbumped format would, which is why the format bump is the rule and not a courtesy. The uharfbuzz and fontTools versions ride no stamp, a gap shared with the unit store.
+    """
+    root = Path(repo_root)
+    return [root.joinpath(*relative.split("/")) for relative in SIGNATURE_CODE_MODULES]
 
 
 def environment_stamp(
@@ -464,11 +482,11 @@ def signature_store_path(out_dir: Path) -> Path:
 
 
 def signature_environment(repo_root: Path, before_font: Path, after_helpers_digest: str) -> str:
-    """The ink-signature store's whole-store stamp: only what a signature reads that the per-entry keys do not cover — the shaping code (`surface_code_paths`, the closure the unit store keys on: the Shaper lives in rebuild/validation and the comparator in rebuild/review, and a narrower closure than the build's is not proved), the before font wholesale, and the after font's non-family glyphs, cmap, and layout wiring. See the module docstring for why this is narrower than `environment_stamp`."""
+    """The ink-signature store's whole-store stamp: only what a signature reads that the per-entry keys do not cover — the comparator's code (`signature_code_paths`, the import closure of `rebuild.review.ink`), the before font wholesale, and the after font's non-family glyphs, cmap, and layout wiring. The code line is the comparator's closure and not the build's, so an edit to the driver, the census, the drafts, the kernel seam or the crate leaves this store serving while `environment_stamp` drops the unit store; the module docstring names the rest of what is left out."""
     root = Path(repo_root)
     lines = [
         f"format\t{SIGNATURE_STORE_FORMAT}",
-        f"surface_code\t{fingerprint.hash_paths(root, surface_code_paths(root))}",
+        f"comparator_code\t{fingerprint.hash_paths(root, signature_code_paths(root))}",
         f"before_font\t{_sha256_file(Path(before_font))}",
         f"after_helpers\t{after_helpers_digest}",
     ]
