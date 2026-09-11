@@ -8,6 +8,7 @@
 
 use std::num::NonZeroU32;
 
+use crate::emit::json_string;
 use crate::hash::HashMap;
 use crate::index::SpecIndex;
 use crate::model::{Provenance, Sym};
@@ -716,6 +717,34 @@ pub fn provenance_pointer(index: &SpecIndex, provenance: &Provenance) -> String 
         index.resolve(provenance.file),
         index.resolve(provenance.path)
     )
+}
+
+/// One settled record as the seam transports it and `kernel_exec.settled_of_row` reads it back: `{"cell":[rune,stance,entry,exit,[adjustments]],"seam":…,"extension":…}`, a height as its name or `null`. The `settle-cases` answer and the replay's window memo both spell a record through this one function, so the reader on the other side decodes one shape.
+pub(crate) fn settled_json(index: &SpecIndex, settled: &Settled) -> String {
+    let adjustments: Vec<String> = settled
+        .cell
+        .adjustments
+        .iter()
+        .map(|token| json_string(&adjustment_text(index, *token)))
+        .collect();
+    format!(
+        "{{\"cell\":[{},{},{},{},[{}]],\"seam\":{},\"extension\":{}}}",
+        json_string(index.resolve(settled.cell.rune)),
+        json_string(index.resolve(settled.cell.stance)),
+        height_json(index, settled.cell.entry),
+        height_json(index, settled.cell.exit),
+        adjustments.join(","),
+        height_json(index, settled.seam),
+        settled.extension
+    )
+}
+
+/// A height as its name or `null`: the spelling every JSON record with a height column shares.
+pub(crate) fn height_json(index: &SpecIndex, height: Option<Sym>) -> String {
+    match height {
+        Some(height) => json_string(index.resolve(height)),
+        None => "null".to_owned(),
+    }
 }
 
 /// A deterministic textual form of a cell, `settle.cell_label`: the diff-stable name the TSV artifacts, the explain output and the E-STRANDED message all read. Deliberately shaped like geometry's compiled display name without being it — geometry's carries a 63-byte cap this one does not.

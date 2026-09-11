@@ -22,6 +22,7 @@ from rebuild.pipeline.model import (
     ResolvedSpec,
     locked_glyph_name,
     marker_glyph_name,
+    raw_rename_map,
     relevant_marker_features,
 )
 from rebuild.pipeline.settle import RightToken
@@ -360,21 +361,6 @@ def _config_name(config) -> str:
     return "+".join(features) if features else "default"
 
 
-def _raw_rename_map(spec: ResolvedSpec | None, features: frozenset[str]) -> dict[str, str]:
-    """The marker fold: under a configuration, every raw label of a rune whose own capability the active sets change is worn as the marker twin (and its chokepoint twin follows), because the marker lookups run unconditionally before settlement."""
-    renames: dict[str, str] = {}
-    if spec is None:
-        return renames
-    for rune_name, rune in spec.runes.items():
-        relevant = frozenset(relevant_marker_features(rune)) & features
-        if not relevant:
-            continue
-        marker = marker_glyph_name(rune_name, relevant)
-        renames[rune_name] = marker
-        renames[locked_glyph_name(rune_name)] = locked_glyph_name(marker)
-    return renames
-
-
 def _renamed(rule, renames: dict[str, str]):
     if not renames:
         return rule
@@ -426,7 +412,7 @@ def _fold_rules(tables_by_config: Mapping, spec: ResolvedSpec | None = None) -> 
         table = tables_by_config[config]
         if isinstance(table, (tuple, list)):
             table = table[0]
-        renames = _raw_rename_map(spec, _config_features(config))
+        renames = raw_rename_map(spec, _config_features(config))
         for index, raw_rule in enumerate(getattr(table, "rules", ())):
             rule = _renamed(raw_rule, renames)
             key = (
@@ -573,10 +559,10 @@ def emitted_order_tsv(spec: ResolvedSpec, tables_by_config: Mapping) -> str:
 
 
 def emitted_context_tsv(spec: ResolvedSpec, config, decision) -> str:
-    """What one configuration's stream does to the labels its table spells, for the crate's `replay-emitted` verb (`shipped_order::read_context`): a `rename` record per raw label the marker fold renames under this configuration (`_raw_rename_map`, the same map the fold renamed the configuration's rules through), and a `class` record per deep class the table's rows stand at, its members in the table's raw label space."""
+    """What one configuration's stream does to the labels its table spells, for the crate's `replay-emitted` verb (`shipped_order::read_context`): a `rename` record per raw label the marker fold renames under this configuration (`model.raw_rename_map`, the same map the fold renamed the configuration's rules through), and a `class` record per deep class the table's rows stand at, its members in the table's raw label space."""
     lines = [
         f"rename\t{raw}\t{twin}"
-        for raw, twin in sorted(_raw_rename_map(spec, _config_features(config)).items())
+        for raw, twin in sorted(raw_rename_map(spec, _config_features(config)).items())
     ]
     for token, members in sorted(getattr(decision, "deep_classes", {}).items()):
         lines.append(f"class\t{token}\t{' '.join(members)}")

@@ -415,6 +415,15 @@ class ReplayDisagreement(KernelRunError):
     """The `replay-strings` verb found a window its rules and its engine answer differently, or one the engine refuses: the crate's own sentence, which names the configuration, the window and the text it was reached in. Its own class so a build can tell the finding from a boundary failure — the first is a red build naming a text, the second is the seam being wrong."""
 
 
+# The head token of the window memo the `replay-strings` verb files per configuration under `--memo-dir` (`rebuild/kernel-rs/src/replay.rs`'s `MEMO_FORMAT`); `conform.absorb_replay_memo` refuses a file naming anything else.
+REPLAY_MEMO_FORMAT = "ams-m1-replay-memo/1"
+
+
+def replay_memo_dump(out_dir: Path, config: str) -> Path:
+    """Where the `replay-strings` verb files one configuration's window memo under `out_dir` when asked for one (`fanout::replay_memo_path` spells the same name): a build input `run_m1.run_replay_strings` absorbs into the configuration's settle memo and deletes in the same phase, never an artifact."""
+    return Path(out_dir) / f"replay-windows-{config}.bin"
+
+
 def replay_strings(
     spec: ResolvedSpec,
     out_dir: Path,
@@ -424,8 +433,9 @@ def replay_strings(
     families: Sequence[str] | None,
     threads: int,
     timings: bool = False,
+    memo_dir: Path | None = None,
 ) -> dict[str, dict[str, int]]:
-    """Every named configuration's persisted rules under `out_dir` replayed over the string universe to `horizon` — every text, or with `families` only the texts naming one of those runes — first-match with the settled left fed forward, each window held to the crate's own settlement; `{config: {texts, windows, skipped}}` on a clean walk. The spec rides the same memoized dump the settlement verbs and the guard sweep read. A disagreement or a refused window is a `ReplayDisagreement` carrying the crate's sentence; every other refusal the CLI contract distinguishes is a plain `KernelRunError`, as is a clean exit whose answer does not name every configuration exactly once. An empty `families` is refused here rather than handed across, because the verb reads it as a usage error and the caller that has nothing to walk has nothing to ask."""
+    """Every named configuration's persisted rules under `out_dir` replayed over the string universe to `horizon` — every text, or with `families` only the texts naming one of those runes — first-match with the settled left fed forward, each window held to the crate's own settlement; `{config: {texts, windows, skipped}}` on a clean walk. The spec rides the same memoized dump the settlement verbs and the guard sweep read. A disagreement or a refused window is a `ReplayDisagreement` carrying the crate's sentence; every other refusal the CLI contract distinguishes is a plain `KernelRunError`, as is a clean exit whose answer does not name every configuration exactly once. An empty `families` is refused here rather than handed across, because the verb reads it as a usage error and the caller that has nothing to walk has nothing to ask. With a `memo_dir`, each green walk files its window memo there at `replay_memo_dump(memo_dir, config)` — every distinct window it settled, keyed in the crate's own spelling, with every distinct settled record beside them — and the answer is unchanged; the build asks for one on a whole-universe walk so the settle memo every later phase loads is filled here rather than by the oracle, while the deep walk (`rebuild/tools/deep_replay.py`) never asks, since a horizon-5 memo is a multiple of the belt's."""
     if families is not None and not families:
         raise ValueError("replay_strings takes a non-empty family list or None for the whole universe")
     spec_path = _spec_dump(spec)
@@ -442,6 +452,8 @@ def replay_strings(
     ]
     if families is not None:
         arguments.append(f"--families={','.join(families)}")
+    if memo_dir is not None:
+        arguments.append(f"--memo-dir={memo_dir}")
     if timings:
         arguments.append("--timings")
     finished = _run_kernel(arguments, "replay-strings")
@@ -779,17 +791,13 @@ def _elimination_of(row) -> settle.Elimination:
         raise KernelRunError("settle-cases returned malformed eliminations") from None
 
 
-def _settled_of(result) -> Settled:
-    """The settled cell alone, for a caller with no use for the ladder that chose it."""
-    if not isinstance(result, Mapping):
-        raise KernelRunError(f"settle-cases returned a malformed result: {result!r}")
-    _refusal(result)
-    row = result.get("settled")
+def settled_of_row(row) -> Settled:
+    """One `{"cell": [rune, stance, entry, exit, [adjustments]], "seam": …, "extension": …}` mapping as the crate spells a settled record (`types::settled_json`) decoded to an interned `Settled`: the shape a `settle-cases` answer carries under `settled` and the replay's window memo carries one record per line of, so both decode through this one codec."""
     if not isinstance(row, Mapping) or set(row) != {"cell", "seam", "extension"}:
-        raise KernelRunError(f"settle-cases returned a malformed settled result: {row!r}")
+        raise KernelRunError(f"the kernel spelled a malformed settled record: {row!r}")
     cell_row = row["cell"]
     if not isinstance(cell_row, list) or len(cell_row) != 5 or not isinstance(cell_row[4], list):
-        raise KernelRunError(f"settle-cases returned a malformed cell: {cell_row!r}")
+        raise KernelRunError(f"the kernel spelled a malformed cell: {cell_row!r}")
     try:
         return _interned(
             _SETTLED,
@@ -801,7 +809,15 @@ def _settled_of(result) -> Settled:
             ),
         )
     except TypeError:
-        raise KernelRunError(f"settle-cases returned a malformed cell: {cell_row!r}") from None
+        raise KernelRunError(f"the kernel spelled a malformed cell: {cell_row!r}") from None
+
+
+def _settled_of(result) -> Settled:
+    """The settled cell alone, for a caller with no use for the ladder that chose it."""
+    if not isinstance(result, Mapping):
+        raise KernelRunError(f"settle-cases returned a malformed result: {result!r}")
+    _refusal(result)
+    return settled_of_row(result.get("settled"))
 
 
 def _provenance_of(pointer) -> Provenance | None:

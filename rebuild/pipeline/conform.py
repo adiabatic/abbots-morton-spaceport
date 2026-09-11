@@ -1,6 +1,6 @@
 """Conformance gates (M1-PLAN sections 5 and 6, Group 3): HarfBuzz vs the settlement function, and the settlement function vs the section 13.1 baseline oracle.
 
-`run_conformance` promotes prototype/conform.py: the Shaper (MONOTONE_CHARACTERS cluster level; names via TTFont, never HarfBuzz's truncating API), the exhaustive length-1..horizon enumeration per settlement configuration (the per-edit belt, horizon 4 by default), split-buffer equivalence, gap-0 pen positions, and the font-vs-settle oracle diff, which takes no ledger: any divergence is a compiler defect by definition. The isolated-overlay configuration (ss10, `OVERLAY_CONFIGS`) has no settlement to compare against and takes a shorter arm of its own at `OVERLAY_HORIZON`: read-back proves per build that the pre-empt covers every letter cmap glyph and that no twin sits in any formation sequence, marker line, chokepoint class or settlement input, so the expected rendering of any text is per-letter twins at their `hmtx` advances with nothing formed and nothing attached, and one letter (each maps to its twin) plus every pair (no pair forms, joins or moves) is the whole of what HarfBuzz can still be asked. Coverage is deliberately not this sweep's job: read-back (rebuild/pipeline/readback.py) proves per build that the compiled font holds every emitted rule at its planned position, and the dead-rule alarm is split between the crate's fold, which refuses at table-build time any rule no replayed row first-matches (`fold::assert_outcome_partition`), and the build's witness stage (`check_rule_certificates`, run by `run_m1` over the certificates the crate wrote beside the rules), which keeps the realizability half — a string that fires the rule, settled rather than searched for. Enumeration completeness — whether a live raw window a string reaches is one the fixpoint enumerated with its pins satisfied, or one it left at `#NA` or never reached so the font answers it with a wildcard or a default rule — is the crate's `replay-strings` verb's (`rebuild/kernel-rs/src/replay.rs`, `run_m1.run_replay_strings`): `_SettledWindowWalk` and `_first_matching_rule` transcribed over the persisted rules instead of the font, run on every build at `run_m1.REPLAY_HORIZON`, whole-universe on a code or structure change and only over the texts naming an edited family on a rune edit. So the sweep's remaining unique charter is what only shaping the real binary can test — HarfBuzz's application semantics (lookup interaction across features, backtrack-sees-settled across subtable breaks, default-ignorable skipping, class matching, Extension indirection) and the sufficiency of the 6-slot window abstraction itself, which witness-constructed strings structurally cannot probe because witnesses are built from that abstraction. The deep form of the same sweep runs at horizon 5 or deeper on demand (`make conform-deep`, rebuild/tools/deep_sweep.py), armed by the behavior-class enumeration `emit_gsub.behavior_classes` plus the font-compilation code and the uharfbuzz version, so a rune edit that introduces no novel rule shape never stales it. The split-buffer check rides the belt itself, on the texts it can say anything about, which is where the standalone horizon-5 boundary gate's charter now lives: proven per build at the belt's horizon and periodically deeper by `make conform-deep`. The ZWNJ slot's own structure — zero advance, no ink — is read-back's static boundary-glyphs stage now, proven off the font bytes once per build rather than at every shaped slot. Settlement rides `_SettledWindowWalk`'s per-config window memo, so a distinct raw window costs one batched crate answer and every recurrence across the sweep's texts costs a dict probe; the oracle's rows are these same texts, and the two phases share that memo through one file per configuration under rebuild/out/m1 (`SettleMemoFile`), keyed per family the way the oracle row cache is, so a window either of them settles is settled once per configuration until a rune it names moves.
+`run_conformance` promotes prototype/conform.py: the Shaper (MONOTONE_CHARACTERS cluster level; names via TTFont, never HarfBuzz's truncating API), the exhaustive length-1..horizon enumeration per settlement configuration (the per-edit belt, horizon 4 by default), split-buffer equivalence, gap-0 pen positions, and the font-vs-settle oracle diff, which takes no ledger: any divergence is a compiler defect by definition. The isolated-overlay configuration (ss10, `OVERLAY_CONFIGS`) has no settlement to compare against and takes a shorter arm of its own at `OVERLAY_HORIZON`: read-back proves per build that the pre-empt covers every letter cmap glyph and that no twin sits in any formation sequence, marker line, chokepoint class or settlement input, so the expected rendering of any text is per-letter twins at their `hmtx` advances with nothing formed and nothing attached, and one letter (each maps to its twin) plus every pair (no pair forms, joins or moves) is the whole of what HarfBuzz can still be asked. Coverage is deliberately not this sweep's job: read-back (rebuild/pipeline/readback.py) proves per build that the compiled font holds every emitted rule at its planned position, and the dead-rule alarm is split between the crate's fold, which refuses at table-build time any rule no replayed row first-matches (`fold::assert_outcome_partition`), and the build's witness stage (`check_rule_certificates`, run by `run_m1` over the certificates the crate wrote beside the rules), which keeps the realizability half — a string that fires the rule, settled rather than searched for. Enumeration completeness — whether a live raw window a string reaches is one the fixpoint enumerated with its pins satisfied, or one it left at `#NA` or never reached so the font answers it with a wildcard or a default rule — is the crate's `replay-strings` verb's (`rebuild/kernel-rs/src/replay.rs`, `run_m1.run_replay_strings`): `_SettledWindowWalk` and `_first_matching_rule` transcribed over the persisted rules instead of the font, run on every build at `run_m1.REPLAY_HORIZON`, whole-universe on a code or structure change and only over the texts naming an edited family on a rune edit. So the sweep's remaining unique charter is what only shaping the real binary can test — HarfBuzz's application semantics (lookup interaction across features, backtrack-sees-settled across subtable breaks, default-ignorable skipping, class matching, Extension indirection) and the sufficiency of the 6-slot window abstraction itself, which witness-constructed strings structurally cannot probe because witnesses are built from that abstraction. The deep form of the same sweep runs at horizon 5 or deeper on demand (`make conform-deep`, rebuild/tools/deep_sweep.py), armed by the behavior-class enumeration `emit_gsub.behavior_classes` plus the font-compilation code and the uharfbuzz version, so a rune edit that introduces no novel rule shape never stales it. The split-buffer check rides the belt itself, on the texts it can say anything about, which is where the standalone horizon-5 boundary gate's charter now lives: proven per build at the belt's horizon and periodically deeper by `make conform-deep`. The ZWNJ slot's own structure — zero advance, no ink — is read-back's static boundary-glyphs stage now, proven off the font bytes once per build rather than at every shaped slot. Settlement rides `_SettledWindowWalk`'s per-config window memo, so a distinct raw window costs one batched crate answer and every recurrence across the sweep's texts costs a dict probe; the oracle's rows are these same texts, and the two phases share that memo through one file per configuration under rebuild/out/m1 (`SettleMemoFile`), keyed per family the way the oracle row cache is, which the string replay seeds on every whole-universe walk (`absorb_replay_memo`, over the window memo the crate's `replay-strings` verb files), so a window is settled once per configuration until a rune it names moves and a cold pass is cold in the replay rather than in the oracle.
 
 The section 6 oracle gate itself lives in rebuild/pipeline/oracle.py (`compare_against_baseline`, the ledger classifier, the position channel), which is the comparison side the enumeration's stamp leaves out. What stays here is its producer: `_compare_row` compares one baseline row's ligation (clusters), per-seam classification, and cell identity against the settled stream through the hand-written alias map and answers the `DivergentRow` the oracle classifies; `_cached_verdict` and `_served_verdict` are the codec between that answer and the oracle row cache's record, and `_verify_served_sample` re-derives a pass's served sample against the store. Those, with the walk, are the two entry points `oracle_cache.ORACLE_ROW_CODE_PATHS` is cut from, which is why they and not the classifier live in this file.
 
@@ -22,7 +22,7 @@ from array import array
 from contextlib import suppress
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import TYPE_CHECKING, Callable, Iterable, Mapping, Sequence
+from typing import TYPE_CHECKING, Callable, Iterable, Mapping, Sequence, cast
 
 import yaml
 
@@ -35,6 +35,7 @@ from rebuild.pipeline.model import (
     feature_config_token,
     isolated_overlay_active,
     marker_glyph_name,
+    raw_rename_map,
     relevant_marker_features,
     ss10_twin_name,
 )
@@ -583,9 +584,9 @@ def _matched_windows(spec, text, features, guard_verdicts, expected, rules_by_in
 
 
 def _renamed_rules_by_input(spec, features, decision) -> dict[str, list[tuple[int, Rule | _FoldedRule]]]:
-    from rebuild.pipeline.emit_gsub import _raw_rename_map, _renamed
+    from rebuild.pipeline.emit_gsub import _renamed
 
-    renames = _raw_rename_map(spec, frozenset(features))
+    renames = raw_rename_map(spec, frozenset(features))
     rules_by_input: dict[str, list[tuple[int, Rule | _FoldedRule]]] = {}
     for index, rule in enumerate(getattr(decision, "rules", ())):
         renamed = _renamed(rule, renames)
@@ -680,7 +681,7 @@ class _RefusedWindow:
 
 @dataclass(frozen=True)
 class SettleMemoFile:
-    """Where one configuration's settle memo lives between phases and what it must be keyed with to be read. The belt and the oracle each hold a walk over the same texts, so whichever runs first writes the file and the other loads it instead of settling. `stamp` is the whole-memo stamp (`oracle_cache.settle_memo_stamp`: the walk's code closure, the non-rune data, the resolved spec structure and capability-feature universe, the engine's settlement flags, the configuration) and `family_keys` the per-family rune keys (`oracle_cache.settle_family_keys`), on the oracle row cache's own two-grained argument: a window's settlement is a function of the rune files its six slots name — a formed ligature label naming its rune directly, and every ligature rune whose components all appear among them included — and of nothing another rune file holds, so a file that carries another stamp is treated as absent, and a file under the same stamp serves every entry naming no moved family and drops the rest."""
+    """Where one configuration's settle memo lives between phases and what it must be keyed with to be read. The string replay, the witness stage, the oracle and the belt each walk the same texts: the replay fills the file on every whole-universe walk from the window memo the crate already holds (`absorb_replay_memo`), and each later walk loads it and settles only what it lacks, writing back whatever it added. `stamp` is the whole-memo stamp (`oracle_cache.settle_memo_stamp`: the walk's code closure, the non-rune data, the resolved spec structure and capability-feature universe, the engine's settlement flags, the configuration) and `family_keys` the per-family rune keys (`oracle_cache.settle_family_keys`), on the oracle row cache's own two-grained argument: a window's settlement is a function of the rune files its six slots name — a formed ligature label naming its rune directly, and every ligature rune whose components all appear among them included — and of nothing another rune file holds, so a file that carries another stamp is treated as absent, and a file under the same stamp serves every entry naming no moved family and drops the rest."""
 
     path: Path
     stamp: str
@@ -704,10 +705,181 @@ def settle_memo_files(
     }
 
 
+def settle_memo_standing(memo: SettleMemoFile) -> bool:
+    """Whether the file at `memo.path` is one a walk keyed with `memo` would read: present, this format, and under this stamp — the header alone, so the question costs one pickle and never a block. Family keys are not the question: a file whose keys moved still stands and serves every entry naming no moved family (`_SettledWindowWalk._load_memo`), and only a rune edit moves them. `run_m1.run_replay_strings` asks it to decide whether the replay has to walk the whole universe to refill the file."""
+    try:
+        with gzip.open(memo.path, "rb") as handle:
+            header = pickle.load(handle)
+    except _SETTLE_MEMO_READ_ERRORS:
+        return False
+    return (
+        isinstance(header, dict)
+        and header.get("format") == SETTLE_MEMO_FORMAT
+        and header.get("stamp") == memo.stamp
+        and isinstance(header.get("family_keys"), dict)
+    )
+
+
+_SettleMemoBlock = tuple[list[str], list[Settled], list[array], array]
+
+
+def _write_settle_memo(memo: SettleMemoFile, blocks: Iterable[_SettleMemoBlock]) -> bool:
+    """The one writer of a settle memo file: a header pickle carrying the format, `memo.stamp` and `memo.family_keys`, then one pickle per block — the labels and the settled records the block introduces, then its six key columns and its value column as indexes into everything introduced so far — staged beside the path and moved into place whole, so a reader in another process sees either the old file or the new one. A file the filesystem refuses is a warning and False, never a red build: the memo is a speed device and every reader settles what it lacks."""
+    path = memo.path
+    staged = path.with_name(f"{path.name}.{os.getpid()}.tmp")
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with gzip.open(staged, "wb", compresslevel=1) as handle:
+            pickle.dump(
+                {"format": SETTLE_MEMO_FORMAT, "stamp": memo.stamp, "family_keys": dict(memo.family_keys)},
+                handle,
+                protocol=5,
+            )
+            for block in blocks:
+                pickle.dump(block, handle, protocol=5)
+        os.replace(staged, path)
+    except OSError as error:
+        with suppress(OSError):
+            staged.unlink()
+        print(f"[warn] settle memo: {path} not written ({error})", file=sys.stderr, flush=True)
+        return False
+    return True
+
+
+def _memo_blocks(items: Iterable[tuple[_Window, _Outcome]]) -> Iterable[_SettleMemoBlock]:
+    """A walk's memo entries encoded `SETTLE_MEMO_BLOCK` at a time into the shape `_write_settle_memo` files: each block introduces the labels and records its rows are the first to name, and indexes every row through the tables introduced so far."""
+    items = iter(items)
+    label_index: dict[str, int] = {}
+    outcome_index: dict[int, int] = {}
+    while True:
+        rows = list(itertools.islice(items, SETTLE_MEMO_BLOCK))
+        if not rows:
+            return
+        keys, values = zip(*rows)
+        columns = list(zip(*keys))
+        new_labels: list[str] = []
+        for label in dict.fromkeys(itertools.chain.from_iterable(columns)):
+            if label not in label_index:
+                label_index[label] = len(label_index)
+                new_labels.append(label)
+        new_items: list[Settled] = []
+        for outcome in dict.fromkeys(values):
+            if id(outcome) not in outcome_index:
+                outcome_index[id(outcome)] = len(outcome_index)
+                new_items.append(outcome[0])
+        yield (
+            new_labels,
+            new_items,
+            [array("I", map(label_index.__getitem__, column)) for column in columns],
+            array("I", map(outcome_index.__getitem__, map(id, values))),
+        )
+
+
+def _ambiguous_ids(spelling: Sequence[str], used: Iterable[int]) -> set[int]:
+    """Among the ids in use, every id whose spelling another id in use shares — the only ids through which two distinct crate keys could collapse to one walk key."""
+    first: dict[str, int] = {}
+    ambiguous: set[int] = set()
+    for label_id in used:
+        other = first.setdefault(spelling[label_id], label_id)
+        if other != label_id:
+            ambiguous.update((label_id, other))
+    return ambiguous
+
+
+def absorb_replay_memo(dump: Path, memo: SettleMemoFile, spec: ResolvedSpec, config: str) -> int:
+    """The crate's window memo for `config` (`kernel_exec.replay_memo_dump`, filed by the `replay-strings` verb) written as the configuration's settle memo file under `memo`'s stamp and family keys, and the row count. The dump keys every window in the crate's spelling — the input as the raw rune name or its `.noentry` twin, the rights as raw labels, the left as a boundary label or a seat into its record table — and this is the seam where that spelling becomes `formed_labels`': every label is folded through `model.raw_rename_map` once, every record decoded through `kernel_exec.settled_of_row` once, and a seated left respelled through `geometry.display_name` once, so the whole conversion is over a few thousand strings while the rows themselves pass through as columns of integers: the walk's label table is the renamed label table with the records' display names after it, which is exactly the id space the dump's left column already indexes. A dump under another format token, naming another configuration, or short of the rows its head counts is refused as a `KernelRunError` and writes nothing. Two crate keys can collapse to one walk key only through two ids in use spelling one label, so the row-level check runs only over the rows touching such an id, and a disagreement between collapsed rows is refused rather than absorbed — a memo is a correctness surface, and the readers settle what a refused file would have served."""
+    features = features_for_config(config)
+    data = dump.read_bytes()
+    head_line, _, _ = data.partition(b"\n")
+    marker, _, head_json = head_line.decode(errors="replace").partition("\t")
+    if marker != f"# {kernel_exec.REPLAY_MEMO_FORMAT}":
+        raise kernel_exec.KernelRunError(
+            f"{dump} is not a {kernel_exec.REPLAY_MEMO_FORMAT} window memo: {marker!r}"
+        )
+    try:
+        head = json.loads(head_json)
+    except ValueError as error:
+        raise kernel_exec.KernelRunError(f"{dump} carries a malformed head: {error}") from None
+    if (
+        not isinstance(head, dict)
+        or {"config", "horizon", "rows", "labels", "records", "width"} - head.keys()
+    ):
+        raise kernel_exec.KernelRunError(f"{dump} carries a malformed head: {head!r}")
+    if head["config"] != config:
+        raise kernel_exec.KernelRunError(f"{dump} names {head['config']!r} where {config!r} was expected")
+    try:
+        rows, label_count, record_count, width = (
+            int(head[key]) for key in ("rows", "labels", "records", "width")
+        )
+    except TypeError, ValueError:
+        raise kernel_exec.KernelRunError(f"{dump} carries a malformed head: {head!r}") from None
+    typecode = {2: "H", 4: "I"}.get(width)
+    if typecode is None or array(typecode).itemsize != width or min(rows, label_count, record_count) < 0:
+        raise kernel_exec.KernelRunError(f"{dump} carries a malformed head: {head!r}")
+    parts = data.split(b"\n", 1 + label_count + record_count)
+    body = parts[-1] if len(parts) == 2 + label_count + record_count else b""
+    if len(body) != rows * 7 * width:
+        raise kernel_exec.KernelRunError(
+            f"{dump} holds {len(body)} row bytes where its head counts {rows} rows of {7 * width}"
+        )
+    renames = raw_rename_map(spec, features)
+    try:
+        labels = [
+            renames.get(label, label) for label in (line.decode() for line in parts[1 : 1 + label_count])
+        ]
+        records = [
+            kernel_exec.settled_of_row(json.loads(line))
+            for line in parts[1 + label_count : 1 + label_count + record_count]
+        ]
+        labels += [geometry.display_name(spec, item.cell) for item in records]
+    except (UnicodeDecodeError, ValueError, KeyError, TypeError) as error:
+        raise kernel_exec.KernelRunError(f"{dump} carries a table this spec cannot read: {error}") from None
+    flat = array(typecode)
+    flat.frombytes(body)
+    if sys.byteorder == "big":
+        flat.byteswap()
+    columns = [flat[slot::7] for slot in range(7)]
+    del flat, body, parts, data
+    if rows:
+        if max(max(columns[slot]) for slot in (0, 2, 3, 4, 5)) >= label_count:
+            raise kernel_exec.KernelRunError(f"{dump} indexes a label past its table")
+        if max(columns[1]) >= len(labels) or max(columns[6]) >= record_count:
+            raise kernel_exec.KernelRunError(f"{dump} indexes a seat past its table")
+        ambiguous_lefts = _ambiguous_ids(labels, set(columns[1]))
+        ambiguous_slots = _ambiguous_ids(
+            labels, set().union(*(set(columns[slot]) for slot in (0, 2, 3, 4, 5)))
+        )
+        if ambiguous_lefts or ambiguous_slots:
+            seen: dict[tuple[str, ...], int] = {}
+            for row in zip(*columns):
+                if row[1] in ambiguous_lefts or any(row[slot] in ambiguous_slots for slot in (0, 2, 3, 4, 5)):
+                    key = tuple(labels[label_id] for label_id in row[:6])
+                    if seen.setdefault(key, row[6]) != row[6]:
+                        raise kernel_exec.KernelRunError(
+                            f"{dump} settles the window {key!r} two ways once respelled; nothing in it can be trusted"
+                        )
+
+    def blocks() -> Iterable[_SettleMemoBlock]:
+        for start in range(0, rows, SETTLE_MEMO_BLOCK):
+            end = min(rows, start + SETTLE_MEMO_BLOCK)
+            yield (
+                labels if start == 0 else [],
+                records if start == 0 else [],
+                [column[start:end] for column in columns[:6]],
+                columns[6][start:end],
+            )
+        if not rows:
+            yield (labels, records, [array("I") for _ in range(6)], array("I"))
+
+    if not _write_settle_memo(memo, blocks()):
+        raise kernel_exec.KernelRunError(f"{memo.path} could not be written")
+    return rows
+
+
 class _SettledWindowWalk:
     """The memoized settle walk one conformance config runs over every swept text: a left-to-right pass computes each letter slot's raw window key — exactly `_matched_windows`' slots, with the left read from the just-settled stream — and resolves it through `windows`, a window -> (Settled, glyph name, left label) memo; only a miss reaches the crate. The memo is a pure speed device and nothing else: it records no coverage, and the sweep's verdict is the same whether every window misses or every window hits. Sound because every memoized outcome is a pure function of the window as keyed: the left label is the settled cell's display name (`geometry.display_name`, injective over every CellId field), and the right slots are the raw tokens a case row carries, all of them and none beyond. The key never reads the glyph inventory: a walk with minted names and a walk with none key alike and differ only in the name each hands back, which is what lets the oracle and the belt share one memo file. That last point about the right slots is why the walk needs no liveness oracle at all: blanking the deep slots wherever the table's relevance filters prove nothing could read them costs more in probes than the blanking saves. `windows` is deliberately unbounded; the interned labels plus deduplicated outcome tuples keep the residual cost to the key tuples themselves. The walk-equivalence sweeps in rebuild/test_conform.py are the standing alarm on all of it.
 
-    `memo` names the file this walk shares with the other phase's walk over the same texts. It is read lazily, on the first wave that would otherwise reach the crate, so a walk that settles nothing — an oracle pass whose rows are all served — never pays to decode it; and `save_memo` writes it back only when this walk settled at least one window the file did not hold, so the second phase over a complete file rewrites nothing. The file is a gzip stream of pickles: a header carrying the format, the stamp and the per-family keys, then blocks of `SETTLE_MEMO_BLOCK` windows, each block the labels and outcomes it introduces plus its keys as columns of indexes into them. Writer and reader both work one block at a time — the memo is never in memory twice — and the outcome objects are shared with the memo dict itself, so a loaded memo costs what the same windows would have cost to settle: the key tuples and nothing else. A family whose key moved since the file was written retires every entry whose window names it (`oracle_cache.StaleMask` at label grain, the ligature clause included), and the retirement is priced per block over the label columns rather than per key: a bit per label, six column folds in C, one comprehension over the masks.
+    `memo` names the file this walk shares with every other walk over the same texts: the string replay fills it from the crate's own window memo on a whole-universe walk (`absorb_replay_memo`), and the witness stage, the oracle and the belt each load it and settle what it lacks. It is read lazily, on the first wave that would otherwise reach the crate, so a walk that settles nothing — an oracle pass whose rows are all served — never pays to decode it; and `save_memo` writes it back only when this walk settled at least one window the file did not hold, so a walk over a complete file rewrites nothing. The file is a gzip stream of pickles (`_write_settle_memo`, the one writer): a header carrying the format, the stamp and the per-family keys, then blocks of `SETTLE_MEMO_BLOCK` windows, each block the labels and outcomes it introduces plus its keys as columns of indexes into them. Writer and reader both work one block at a time — the memo is never in memory twice — and the outcome objects are shared with the memo dict itself, so a loaded memo costs what the same windows would have cost to settle: the key tuples and nothing else. A family whose key moved since the file was written retires every entry whose window names it (`oracle_cache.StaleMask` at label grain, the ligature clause included), and the retirement is priced per block over the label columns rather than per key: a bit per label, six column folds in C, one comprehension over the masks.
 
     Loaded entries sit in `_cold` until a walk first reaches them, and move into `windows` on that first hit, so the two dicts together are the memo and their split is what this walk has touched. That split is what `save_memo(prune=True)` writes on: the belt walks the whole universe every pass, so an entry it never reached is a window no text produces any more — its left slot named a settlement an edit has since moved — and carrying it forward would grow the file by a slice per rune edit forever. The oracle prunes nothing, since a served row is a window it never reached.
 
@@ -929,7 +1101,7 @@ class _SettledWindowWalk:
             self.memo_seconds += time.perf_counter() - started
 
     def save_memo(self, prune: bool = False) -> bool:
-        """Write the memo to the shared file when this walk settled a window the file did not hold, replacing the file atomically so a reader in another process sees either the old file or the new one. Refusals are not outcomes and are not written; a walk that reaches one of those windows asks the crate again. `prune` drops the loaded entries this walk never reached instead of carrying them forward, counted in `pruned_windows`, and is only honest for a walk over the whole universe — the belt's. True when a file was written."""
+        """Write the memo to the shared file when this walk settled a window the file did not hold, through `_write_settle_memo`, which replaces the file atomically so a reader in another process sees either the old file or the new one. Refusals are not outcomes and are not written; a walk that reaches one of those windows asks the crate again. `prune` drops the loaded entries this walk never reached instead of carrying them forward, counted in `pruned_windows`, and is only honest for a walk over the whole universe — the belt's. True when a file was written."""
         if self.memo is None:
             return False
         if prune:
@@ -937,60 +1109,20 @@ class _SettledWindowWalk:
         if not self.fresh_windows and not (prune and self._cold):
             return False
         started = time.perf_counter()
-        path = self.memo.path
-        staged = path.with_name(f"{path.name}.{os.getpid()}.tmp")
-        items: Iterable[tuple[_Window, _Outcome | _RefusedWindow]] = self.windows.items()
+        entries = self.windows.items()
+        items: Iterable[tuple[_Window, _Outcome]]
         if self._refused:
-            items = (entry for entry in items if not isinstance(entry[1], _RefusedWindow))
+            items = (
+                (window, outcome) for window, outcome in entries if not isinstance(outcome, _RefusedWindow)
+            )
+        else:
+            items = cast(Iterable[tuple[_Window, _Outcome]], entries)
         if not prune:
             items = itertools.chain(items, self._cold.items())
-        items = iter(items)
-        label_index: dict[str, int] = {}
-        outcome_index: dict[int, int] = {}
         try:
-            path.parent.mkdir(parents=True, exist_ok=True)
-            with gzip.open(staged, "wb", compresslevel=1) as handle:
-                pickle.dump(
-                    {
-                        "format": SETTLE_MEMO_FORMAT,
-                        "stamp": self.memo.stamp,
-                        "family_keys": dict(self.memo.family_keys),
-                    },
-                    handle,
-                    protocol=5,
-                )
-                while True:
-                    rows = list(itertools.islice(items, SETTLE_MEMO_BLOCK))
-                    if not rows:
-                        break
-                    keys, values = zip(*rows)
-                    columns = list(zip(*keys))
-                    new_labels: list[str] = []
-                    for label in dict.fromkeys(itertools.chain.from_iterable(columns)):
-                        if label not in label_index:
-                            label_index[label] = len(label_index)
-                            new_labels.append(label)
-                    new_items: list[Settled] = []
-                    for outcome in dict.fromkeys(values):
-                        if id(outcome) not in outcome_index:
-                            outcome_index[id(outcome)] = len(outcome_index)
-                            new_items.append(outcome[0])
-                    block = (
-                        new_labels,
-                        new_items,
-                        [array("I", map(label_index.__getitem__, column)) for column in columns],
-                        array("I", map(outcome_index.__getitem__, map(id, values))),
-                    )
-                    pickle.dump(block, handle, protocol=5)
-            os.replace(staged, path)
-        except OSError as error:
-            with suppress(OSError):
-                staged.unlink()
-            print(f"[warn] settle memo: {path} not written ({error})", file=sys.stderr, flush=True)
-            return False
+            return _write_settle_memo(self.memo, _memo_blocks(items))
         finally:
             self.memo_seconds += time.perf_counter() - started
-        return True
 
     def memo_line(self, config: str, written: bool) -> str | None:
         """The `[t]` line a phase prints for its share of the memo file, or None for a walk that has none."""

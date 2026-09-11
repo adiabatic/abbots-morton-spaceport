@@ -15,7 +15,7 @@ use crate::index::SpecIndex;
 use crate::model::Sym;
 use crate::types::{
     AdjustmentToken, Candidate, CellId, LeftContext, RightToken, Settled, Side, TokenKind,
-    TransitionTrace, adjustment_text, provenance_pointer,
+    TransitionTrace, height_json, provenance_pointer, settled_json,
 };
 
 /// The corpus's three raise buckets. `E-UNREACHABLE` takes the stranded window and every plain settle error alike, which is why the message rides beside it — an identity alone cannot tell a stranded exit from a rune that is not modeled.
@@ -178,32 +178,6 @@ fn candidate_json(index: &SpecIndex, candidate: &Candidate) -> String {
     )
 }
 
-fn settled_json(index: &SpecIndex, settled: &Settled) -> String {
-    let adjustments: Vec<String> = settled
-        .cell
-        .adjustments
-        .iter()
-        .map(|token| json_string(&adjustment_text(index, *token)))
-        .collect();
-    format!(
-        "{{\"cell\":[{},{},{},{},[{}]],\"seam\":{},\"extension\":{}}}",
-        json_string(index.resolve(settled.cell.rune)),
-        json_string(index.resolve(settled.cell.stance)),
-        height_json(index, settled.cell.entry),
-        height_json(index, settled.cell.exit),
-        adjustments.join(","),
-        height_json(index, settled.seam),
-        settled.extension
-    )
-}
-
-fn height_json(index: &SpecIndex, height: Option<Sym>) -> String {
-    match height {
-        Some(height) => json_string(index.resolve(height)),
-        None => "null".to_owned(),
-    }
-}
-
 fn strings_json(values: &[String]) -> String {
     let quoted: Vec<String> = values.iter().map(|value| json_string(value)).collect();
     format!("[{}]", quoted.join(","))
@@ -294,7 +268,7 @@ fn parse_left(index: &SpecIndex, value: &Value) -> Result<LeftContext, String> {
     })
 }
 
-fn parse_settled(index: &SpecIndex, value: &Value) -> Result<Settled, String> {
+pub(crate) fn parse_settled(index: &SpecIndex, value: &Value) -> Result<Settled, String> {
     let Value::Object(raw) = value else {
         return Err("the left's settled triple is not an object".to_owned());
     };
@@ -534,7 +508,7 @@ mod tests {
         assert_eq!(
             cell.adjustments
                 .iter()
-                .map(|token| adjustment_text(&index, *token))
+                .map(|token| crate::types::adjustment_text(&index, *token))
                 .collect::<Vec<String>>(),
             [
                 "locked",

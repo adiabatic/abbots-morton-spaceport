@@ -4,7 +4,7 @@ import dataclasses
 
 import pytest
 
-from rebuild.pipeline import conform, emit_gsub, fixtures, kernel_exec, run_m1
+from rebuild.pipeline import conform, emit_gsub, fixtures, kernel_exec, model, run_m1
 
 STAMP = "emitted-order-test"
 
@@ -51,7 +51,7 @@ def test_the_context_file_carries_the_marker_fold_and_the_deep_classes(spec, bui
     decision, _treaty = tables["ss03"]
     lines = emit_gsub.emitted_context_tsv(spec, "ss03", decision).splitlines()
     renames = {raw: twin for kind, raw, twin in (line.split("\t") for line in lines) if kind == "rename"}
-    assert renames == emit_gsub._raw_rename_map(spec, frozenset({"ss03"}))
+    assert renames == model.raw_rename_map(spec, frozenset({"ss03"}))
     assert renames and all(
         twin == f"{raw.split('.')[0]}.ss03{raw[len(raw.split('.')[0]):]}" for raw, twin in renames.items()
     )

@@ -700,3 +700,97 @@ fn a_shipped_order_walk_answers_a_tables_rows_from_a_file_or_stdin() {
     ]);
     assert_eq!(worldly.status.code(), Some(2));
 }
+
+/// The replay's window memo through the binary: `--memo-dir=` files one `replay-windows-<config>.bin` per configuration under the head `replay::MEMO_FORMAT` spells, the answer lines are the bytes the same walk prints without the flag, a walk without the flag files nothing, the timed run names the emission beside the walk, and a directory the walk cannot write into fails the run naming the configuration.
+#[test]
+fn a_replay_with_a_memo_directory_files_one_window_memo_per_configuration() {
+    let root = scratch("cli-replay-memo");
+    let spec = spec_at(&root);
+    let outdir = root.join("tables");
+    let built = run(&[
+        "build-tables",
+        word(&spec),
+        word(&outdir),
+        "--configs=default,ss03",
+        "--inputs=cli-stamp",
+    ]);
+    assert!(built.status.success(), "{}", complaint(&built));
+    let bare = run(&[
+        "replay-strings",
+        word(&spec),
+        word(&outdir),
+        "--configs=default,ss03",
+        "--horizon=3",
+    ]);
+    assert!(bare.status.success(), "{}", complaint(&bare));
+    assert!(
+        std::fs::read_dir(&outdir)
+            .expect("the tables directory lists")
+            .all(|entry| !entry
+                .expect("an entry")
+                .file_name()
+                .to_string_lossy()
+                .starts_with("replay-windows-")),
+        "a walk without the flag files no memo"
+    );
+    let memos = root.join("memos");
+    std::fs::create_dir_all(&memos).expect("the memo directory is makeable");
+    let memo_flag = format!("--memo-dir={}", word(&memos));
+    let filed = run(&[
+        "replay-strings",
+        word(&spec),
+        word(&outdir),
+        "--configs=default,ss03",
+        "--horizon=3",
+        &memo_flag,
+        "--timings",
+    ]);
+    assert!(filed.status.success(), "{}", complaint(&filed));
+    assert_eq!(filed.stdout, bare.stdout, "the answer lines are unchanged");
+    for (token, _) in CONFIGS {
+        let path = memos.join(format!("replay-windows-{token}.bin"));
+        let bytes = std::fs::read(&path).expect("each configuration's memo is filed");
+        let head = bytes
+            .split(|byte| *byte == b'\n')
+            .next()
+            .expect("a head line");
+        let head = std::str::from_utf8(head).expect("the head is text");
+        assert!(
+            head.starts_with(&format!(
+                "# {}\t{{\"config\":\"{token}\",\"horizon\":3,\"rows\":",
+                ams_m1_kernel::replay::MEMO_FORMAT
+            )),
+            "{head}"
+        );
+    }
+    let phases: Vec<String> = complaint(&filed)
+        .lines()
+        .map(|line| timing_phase(line).to_owned())
+        .collect();
+    assert!(
+        phases.iter().any(|phase| phase == "replay_memo[default]")
+            && phases.iter().any(|phase| phase == "replay[default]"),
+        "{phases:?}"
+    );
+
+    let blocker = root.join("blocker");
+    std::fs::write(&blocker, "not a directory\n").expect("writable");
+    let refused = run(&[
+        "replay-strings",
+        word(&spec),
+        word(&outdir),
+        "--configs=default,ss03",
+        "--horizon=3",
+        &format!("--memo-dir={}", word(&blocker.join("inside"))),
+    ]);
+    assert_eq!(refused.status.code(), Some(1), "{}", complaint(&refused));
+    assert!(
+        complaint(&refused).contains("default:") || complaint(&refused).contains("ss03:"),
+        "the refusal names the configuration: {}",
+        complaint(&refused)
+    );
+    assert!(
+        refused.stdout.is_empty(),
+        "nothing reaches stdout on a refusal"
+    );
+}

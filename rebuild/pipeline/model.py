@@ -349,6 +349,21 @@ def locked_glyph_name(raw_name: str) -> str:
     return f"{raw_name}.noentry"
 
 
+def raw_rename_map(spec: ResolvedSpec | None, features: frozenset[str]) -> dict[str, str]:
+    """The marker fold: under a configuration, every raw label of a rune whose own capability the active sets change is worn as the marker twin (and its chokepoint twin follows), because the marker lookups run unconditionally before settlement. The emitter renames a configuration's rules through it, the certificate check and the deep-token index read the same map, and `conform.absorb_replay_memo` respells the crate's raw window labels through it — which is why it lives here beside `marker_glyph_name` and `locked_glyph_name` rather than in the emitter."""
+    renames: dict[str, str] = {}
+    if spec is None:
+        return renames
+    for rune_name, rune in spec.runes.items():
+        relevant = frozenset(relevant_marker_features(rune)) & features
+        if not relevant:
+            continue
+        marker = marker_glyph_name(rune_name, relevant)
+        renames[rune_name] = marker
+        renames[locked_glyph_name(rune_name)] = locked_glyph_name(marker)
+    return renames
+
+
 def isolated_overlay_active(spec: ResolvedSpec, features: Collection[str]) -> bool:
     """Whether any active feature is a registered `overlay: isolated` taste set (ss10). Under one, the emitted font substitutes every letter's cmap glyph by its anchor-free `.ss10` twin before formation, so no ligature forms, nothing settles, and every seam is a break — there is no settlement table for such a configuration, and every consumer that would have settled under it answers the isolated stream instead (`settle.isolated_overlay_settled`)."""
     return any(
