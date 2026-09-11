@@ -1554,7 +1554,7 @@ def _write_surface(
 
 @dataclass(slots=True)
 class _UnitState:
-    """One unit's phase-1 products in the parent, served from the cache or returned by the runner, in the one shape the global reduces and the store writer read. Every string in it that repeats across units — the digests, the cluster, the family, the config names and delta digests — is interned into the one `sys.intern` table `audit.load_audit` describes, and the seam-home projection's tuples are pooled through `_pooled_seam_home`, because a pooled worker's reply and the store's JSON alike hand the parent a fresh copy of every name per unit, and this record is what the parent holds per unit for the rest of the build. The unit's own `ink_deltas` is this record's dict rather than a copy of it: nothing writes to it once it is here."""
+    """One unit's phase-1 products in the parent, served from the cache or returned by the runner, in the one shape the global reduces and the store writer read. Every string in it that repeats across units — the digests, the cluster, the family, the config names and delta digests — is interned into the one `sys.intern` table `audit.load_audit` describes, and the seam-home projection's tuples are pooled to one instance per distinct value — a fresh unit's through `_pooled_seam_home`, because a pooled worker's reply hands the parent a fresh copy of every name per unit; a served unit's at the store parse (`unit_cache.load_store`, into the same pool), so `_served_seam_home` walks nothing — and this record is what the parent holds per unit for the rest of the build. The unit's own `ink_deltas` is this record's dict rather than a copy of it: nothing writes to it once it is here."""
 
     ink_identical: bool
     picture_identical: bool
@@ -1595,7 +1595,7 @@ def _pooled_seam_home(seam_home: SeamHomeUnit, pool: dict) -> SeamHomeUnit:
     )
 
 
-def _slim_for(unit: Unit, cached: unit_cache.CachedUnit) -> bool:
+def _slim_for(unit: Unit, cached: unit_cache.ServedUnit) -> bool:
     """Whether this build would write the unit slim, answered before phase 1 runs from what the store already knows: the machine flags are the record's — pure functions of the fonts and the window, everything under the key, so the store's answer is this build's answer — and the exemption is this build's ledger's, which is the one input that can flip under a key-stable unit. Held against the record's own `slim` flag to decide whether the fragment it names is servable at all."""
     return cached.ink_identical or cached.picture_identical or cached.junior_equivalent or unit.no_verdict
 
@@ -1613,7 +1613,7 @@ def _homes(seam_assign) -> list[list]:
 
 
 def _served_as_is(
-    unit: Unit, cached: unit_cache.CachedUnit, found: unit_cache.PriorFragment, seam_assign
+    unit: Unit, cached: unit_cache.ServedUnit, found: unit_cache.PriorFragment, seam_assign
 ) -> bool:
     """Whether a served fragment's bytes on disk are already what this build writes for the unit, so the write copies them by address instead of reading, patching and serializing them. Everything under the content key is equal by the serving; the machine flags and ink deltas are the store's, which this build has taken as its own; what is left is what `patch_fragment` writes over a fragment from outside the key — the class after family promotion, the echo group, the ledger's exemplar and exemption flags, and the secondary-seam homes — each compared against the value the store says the fragment was written with. The address has to be one the shard writer returned (`verbatim`), since only the writer's own framing is safe to copy as bytes."""
     return (
@@ -1626,7 +1626,7 @@ def _served_as_is(
     )
 
 
-def _served_identity(unit: Unit, cached: unit_cache.CachedUnit, seam_assign) -> dict:
+def _served_identity(unit: Unit, cached: unit_cache.ServedUnit, seam_assign) -> dict:
     """The stand-in `_SurfaceCheck.unit` and the locator row read for a fragment served verbatim, in place of the fragment itself: every field the cross-unit predicates and the sidecars touch, drawn from the unit as this build holds it and from its store record, so a served unit is checked against its neighbors on every build without being parsed on any."""
     return {
         "id": unit.unit_id,
@@ -1641,29 +1641,27 @@ def _served_identity(unit: Unit, cached: unit_cache.CachedUnit, seam_assign) -> 
         "codepoints": unit.codepoints,
         "configs": list(unit.configs),
         "config_gate": config_gate(unit.configs, ACCEPTANCE_CONFIGS),
-        "pair": (
-            {"left": cached.proj["pair"][0], "right": cached.proj["pair"][1]} if cached.proj["pair"] else None
-        ),
+        "pair": {"left": cached.pair[0], "right": cached.pair[1]} if cached.pair else None,
         "secondary_seams": [{"home": home} for home, suppressed in seam_assign if not suppressed] or None,
         "drafts": {"policy": {"file": cached.policy_file}} if cached.policy_file else None,
     }
 
 
-def _cached_seam_home(unit, cached: unit_cache.CachedUnit) -> SeamHomeUnit:
-    proj = cached.proj
+def _served_seam_home(unit: Unit, cached: unit_cache.ServedUnit, pool: dict) -> SeamHomeUnit:
+    """A served unit's `SeamHomeUnit`, assembled from the tuples its store record arrived with — pooled at the parse, through the same `pool` `_pooled_seam_home` fills for the fresh units — plus the two fields the record does not carry, the unit's id and its codepoint values, the latter pooled as ints exactly as the fresh path pools them."""
     return SeamHomeUnit(
         unit_id=unit.unit_id,
-        codepoint_values=unit.codepoint_values,
+        codepoint_values=tuple(pool.setdefault(value, value) for value in unit.codepoint_values),
         ink_identical=cached.ink_identical,
         picture_identical=cached.picture_identical,
-        pair=(proj["pair"][0], proj["pair"][1]) if proj["pair"] else None,
-        after_spans=tuple((span[0], span[1]) for span in proj["after_spans"]),
-        after_cells=tuple(proj["after_cells"]),
-        after_seams=tuple(proj["after_seams"]),
-        before_spans=tuple((span[0], span[1]) for span in proj["before_spans"]),
-        before_glyphs=tuple(proj["before_glyphs"]),
-        before_seams=tuple(proj["before_seams"]),
-        seam_pairs=tuple((seam["pair"][0], seam["pair"][1]) for seam in cached.seams),
+        pair=cached.pair,
+        after_spans=cached.after_spans,
+        after_cells=cached.after_cells,
+        after_seams=cached.after_seams,
+        before_spans=cached.before_spans,
+        before_glyphs=cached.before_glyphs,
+        before_seams=cached.before_seams,
+        seam_pairs=cached.seam_pairs,
     )
 
 
@@ -1777,16 +1775,18 @@ def build_m1(
     for unit in workload.units:
         unit.input_key = keyer.key(unit)
     release_rows(workload.units)
-    store = None if fresh_unit_cache else unit_cache.load_store(out_dir, environment)
-    served: dict[str, unit_cache.CachedUnit] = {}
+    pool: dict = {}
+    store: dict[str, unit_cache.ServedUnit] | None = None
+    if not fresh_unit_cache:
+        named = {unit.input_key for unit in workload.units}
+        store = unit_cache.load_store(out_dir, environment, wanted=named, pool=pool)
+        del named
+    served: dict[str, unit_cache.ServedUnit] = {}
     located: dict[str, unit_cache.PriorFragment] = {}
     if store:
-        candidates = {
-            unit.input_key: store[unit.input_key] for unit in workload.units if unit.input_key in store
-        }
-        # A candidate's address is its store record's, the span the shard writer returned for the fragment when the previous surface was written, so placing it costs nothing: the walk over the previous surface's shards is asked only for the records the store handed back without an address (see `unit_cache.load_store` for when that is), and on a surface this code wrote that is no record at all. Either way a candidate is served only when the fragment at its address carries the very stamp the store recorded for it — the walk reads the stamp as it goes, and a store address is stamped with the record's own — and everything that rides on a served fragment, that these are the bytes `check_unit` passed in the build that emitted them, so this build need not check them again, is only as good as that equality. What the plan keeps is the fragment's address, not the fragment: the bytes are read back through it when the shard that takes them is being written, and held against the same id and stamp then, which for a store-addressed fragment is the one time it is read. The second condition is the shape: a fragment is served only when it is the slim or full fragment this build would write for the unit, because the exemption that decides it is the ledger's and sits outside the key — a unit crossing into the human workload on a ledger edit is re-enriched in full rather than served the slim fragment its class earned before the edit, and one crossing out is re-drafted slim rather than served with drafts nobody will read.
+        # The store holds only the records the workload names, so every record in it is a candidate. A candidate's address is its store record's, the span the shard writer returned for the fragment when the previous surface was written, so placing it costs nothing: the walk over the previous surface's shards is asked only for the records the store handed back without an address (see `unit_cache.load_store` for when that is), and on a surface this code wrote that is no record at all. Either way a candidate is served only when the fragment at its address carries the very stamp the store recorded for it — the walk reads the stamp as it goes, and a store address is stamped with the record's own — and everything that rides on a served fragment, that these are the bytes `check_unit` passed in the build that emitted them, so this build need not check them again, is only as good as that equality. What the plan keeps is the fragment's address, not the fragment: the bytes are read back through it when the shard that takes them is being written, and held against the same id and stamp then, which for a store-addressed fragment is the one time it is read. The second condition is the shape: a fragment is served only when it is the slim or full fragment this build would write for the unit, because the exemption that decides it is the ledger's and sits outside the key — a unit crossing into the human workload on a ledger edit is re-enriched in full rather than served the slim fragment its class earned before the edit, and one crossing out is re-drafted slim rather than served with drafts nobody will read.
         wanted: dict[str, set[str]] = {}
-        for cached in candidates.values():
+        for cached in store.values():
             found = cached.located()
             if found is None:
                 wanted.setdefault(cached.prior_class, set()).add(cached.prior_id)
@@ -1797,7 +1797,7 @@ def build_m1(
         served = {
             unit.input_key: cached
             for unit in workload.units
-            if (cached := candidates.get(unit.input_key)) is not None
+            if (cached := store.get(unit.input_key)) is not None
             and cached.prior_id in located
             and located[cached.prior_id].content_key == cached.content_key
             and cached.slim == _slim_for(unit, cached)
@@ -1816,10 +1816,12 @@ def build_m1(
     verify_units = [replace(unit) for unit in workload.units if unit.unit_id in sampled]
     if tally:
         tally.hold("unit_cache.keys", {unit.input_key: unit.unit_id for unit in workload.units})
-        tally.hold("unit_cache.store", store or {})
+        tally.hold("unit_cache.named", store or {})
         tally.hold("unit_cache.served", served)
         tally.hold("unit_cache.located", located)
         tally.boundary("plan")
+    # The records the workload names but does not serve are freed here for the rest of the pass; a tallied pass alone keeps them, through the hold above.
+    del store
     _phase_timing(
         "review.build plan", phase, f"(served {len(served):,} of {len(workload.units):,} units from cache)"
     )
@@ -1855,7 +1857,6 @@ def build_m1(
         del ids_seen
 
         states: dict[str, _UnitState] = {}
-        pool: dict = {}
         for unit in workload.units:
             cached = served.get(unit.input_key)
             if cached is not None:
@@ -1868,8 +1869,8 @@ def build_m1(
                     cluster=cached.cluster,
                     family=cached.family,
                     pair_codepoints=cached.pair_codepoints,
-                    seam_home=_pooled_seam_home(_cached_seam_home(unit, cached), pool),
-                    seam_rects=cached.seams,
+                    seam_home=_served_seam_home(unit, cached, pool),
+                    seam_rects=cached.seam_rects,
                     mismatches=cached.mismatches,
                 )
             else:
@@ -1993,7 +1994,7 @@ def build_m1(
                         continue
                     else:
                         fragment = reader.read(located[cached.prior_id])
-                        seams = cached.seams
+                        seams = cached.seam_rects
                 except ValueError as error:
                     raise SystemExit(
                         f"the fragment for {unit.unit_id} cannot be read back: {error}"

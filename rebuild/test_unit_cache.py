@@ -11,6 +11,7 @@ import shutil
 import sys
 from dataclasses import replace
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 import yaml
@@ -23,6 +24,8 @@ from rebuild.review.build import (
     SITE_JUNIOR_FONT,
     _cluster_id,
     _cluster_id_from_repr,
+    _seam_home_record,
+    _served_seam_home,
     _write_shard,
     build_m1,
 )
@@ -749,10 +752,14 @@ def test_the_cluster_a_fresh_unit_carries_keys_on_its_final_class(base_surface):
     assert seen_family
 
 
-def test_from_record_interns_what_repeats_across_records():
-    """Two records that name the same class, cluster, family, config, delta, cell name or seam token parse to the same string objects, so a million-record store costs one instance per distinct name; the per-record keys, which never repeat, are left alone."""
-    first = unit_cache.CachedUnit.from_record(json.loads(json.dumps(_round_trip_unit().to_record())))
-    second = unit_cache.CachedUnit.from_record(json.loads(json.dumps(_round_trip_unit().to_record())))
+def test_the_store_parse_interns_and_pools_what_repeats_across_records(tmp_path):
+    """Two records that name the same class, cluster, family, config, delta, cell name or seam token load as the same string objects, and their span and name tuples as the same tuple objects, so a million-record store costs one instance per distinct name and one per distinct tuple; the per-record keys, which never repeat, are left alone."""
+    (tmp_path / "manifest.json").write_text("{}", encoding="utf-8")
+    unit_cache.write_store(tmp_path, "env-a", [_round_trip_unit(), replace(_round_trip_unit(), key="k2")])
+    pool: dict = {}
+    loaded = unit_cache.load_store(tmp_path, "env-a", pool=pool)
+    assert loaded is not None
+    first, second = loaded["k1"], loaded["k2"]
     assert first.prior_class is second.prior_class is sys.intern("boundary-echo")
     assert first.cluster is second.cluster
     assert first.diffs_digest is second.diffs_digest
@@ -760,9 +767,77 @@ def test_from_record_interns_what_repeats_across_records():
     assert next(iter(first.ink_deltas)) is next(iter(second.ink_deltas)) is sys.intern("default")
     assert first.ink_deltas["default"] is second.ink_deltas["default"]
     for name in ("after_cells", "after_seams", "before_glyphs", "before_seams"):
-        assert all(a is b for a, b in zip(first.proj[name], second.proj[name], strict=True)), name
-    assert first.proj["after_seams"][0] is sys.intern("y5")
-    assert first == second
+        assert getattr(first, name) is getattr(second, name), name
+        assert all(a is b for a, b in zip(getattr(first, name), getattr(second, name), strict=True)), name
+    assert first.after_seams[0] is sys.intern("y5")
+    for name in ("pair", "after_spans", "before_spans", "seam_pairs"):
+        assert getattr(first, name) is getattr(second, name), name
+    assert first.after_spans[1] is first.before_spans[1] is second.seam_pairs[0] is pool[(1, 2)]
+    assert first.after_spans[0] is first.pair is pool[(0, 1)]
+    assert replace(first, key="k2") == second
+
+
+def test_a_store_serves_only_the_keys_the_workload_names(tmp_path, monkeypatch):
+    """The load parses only the lines whose key the caller names, sliced off the front of the raw line, so a record the workload has stopped naming costs a prefix compare and is never held — pinned by counting the record lines that reach `json.loads`, since a load that parsed every line and dropped the unnamed ones would serve the same keys; without `wanted`, every record loads as before."""
+    (tmp_path / "manifest.json").write_text("{}", encoding="utf-8")
+    records = [replace(_round_trip_unit(), key=key) for key in ("k1", "k2", "k3")]
+    unit_cache.write_store(tmp_path, "env-a", records)
+    parsed: list[str] = []
+    real = json.loads
+
+    def counting(text, *args, **kwargs):
+        record = real(text, *args, **kwargs)
+        if isinstance(record, dict) and "key" in record:
+            parsed.append(record["key"])
+        return record
+
+    monkeypatch.setattr(unit_cache.json, "loads", counting)
+    loaded = unit_cache.load_store(tmp_path, "env-a", wanted={"k1", "k3", "k9"})
+    assert loaded is not None and sorted(loaded) == ["k1", "k3"]
+    assert sorted(parsed) == ["k1", "k3"]
+    assert loaded["k3"] == replace(_round_trip_served(), key="k3")
+    parsed.clear()
+    loaded = unit_cache.load_store(tmp_path, "env-a")
+    assert loaded is not None and sorted(loaded) == ["k1", "k2", "k3"]
+    assert sorted(parsed) == ["k1", "k2", "k3"]
+    parsed.clear()
+    assert unit_cache.load_store(tmp_path, "env-a", wanted=set()) == {}
+    assert parsed == []
+
+
+def test_a_line_whose_key_cannot_be_sliced_reads_as_absent(tmp_path):
+    """A line that does not open with the key field, which `to_record` always writes first, is a line the load cannot select by its slice and reads as absent — its neighbors load, nothing raises — so a store this code did not write costs at most a fresh computation of the units it cannot name."""
+    (tmp_path / "manifest.json").write_text("{}", encoding="utf-8")
+    records = [replace(_round_trip_unit(), key=key) for key in ("k1", "k2", "k3")]
+    unit_cache.write_store(tmp_path, "env-a", records)
+    store = unit_cache.store_path(tmp_path)
+    with gzip.open(store, "rt", encoding="utf-8") as stream:
+        lines = stream.read().splitlines()
+    record = json.loads(lines[2])
+    lines[2] = json.dumps({**{name: value for name, value in record.items() if name != "key"}, "key": "k2"})
+    with gzip.open(store, "wt", encoding="utf-8") as stream:
+        stream.write("\n".join(lines) + "\n")
+    loaded = unit_cache.load_store(tmp_path, "env-a")
+    assert loaded is not None and sorted(loaded) == ["k1", "k3"]
+    assert unit_cache.load_store(tmp_path, "env-a", wanted={"k2"}) == {}
+
+
+def test_the_store_parse_reproduces_the_projection_it_was_written_from(tmp_path):
+    """The projection a served unit hands the secondary-home reduce, re-serialized the way the store writer serializes a fresh unit's, is the record's `proj` exactly — the identity a re-addressed served record's bytes rest on — and the pooled tuples it is assembled from are the fresh path's shapes: two-tuples of ints for the spans and the seam pairs, the unit's own id and codepoint values beside them."""
+    (tmp_path / "manifest.json").write_text("{}", encoding="utf-8")
+    written = _round_trip_unit()
+    unit_cache.write_store(tmp_path, "env-a", [written])
+    pool: dict = {}
+    loaded = unit_cache.load_store(tmp_path, "env-a", pool=pool)
+    assert loaded is not None
+    unit = SimpleNamespace(unit_id="u-0001", codepoint_values=(1, 2))
+    home = _served_seam_home(unit, loaded["k1"], pool)  # pyright: ignore[reportArgumentType]
+    assert _seam_home_record(home) == written.proj
+    assert json.dumps(_seam_home_record(home)) == json.dumps(written.proj)
+    assert (home.unit_id, home.codepoint_values) == ("u-0001", (1, 2))
+    assert home.seam_pairs == ((1, 2),) and home.seam_pairs[0] is pool[(1, 2)]
+    assert home.codepoint_values[0] is pool[1]
+    assert (home.ink_identical, home.picture_identical) == (False, False)
 
 
 def test_an_absent_manifest_hashes_to_a_sentinel_rather_than_raising(tmp_path):
@@ -816,12 +891,53 @@ def _round_trip_unit() -> unit_cache.CachedUnit:
     )
 
 
+def _round_trip_served() -> unit_cache.ServedUnit:
+    """The `ServedUnit` that `_round_trip_unit()`'s store line parses to."""
+    return unit_cache.ServedUnit(
+        key="k1",
+        prior_id="u-0001",
+        prior_class="boundary-echo",
+        content_key="f" * 64,
+        slim=False,
+        address=None,
+        ink_identical=False,
+        picture_identical=False,
+        junior_equivalent=False,
+        ink_deltas={"default": "d-0123456789ab"},
+        diffs_digest="deadbeef",
+        cluster="c-12345678",
+        family="",
+        pair_codepoints=(1, 2),
+        echo="e-2WvdGAWe6bX",
+        exemplar=False,
+        no_verdict=False,
+        homes=[["u-DdcTojn1hba", False]],
+        policy_file="glyph_data/runes/qsTea.yaml",
+        seam_rects=[
+            {
+                "pair": [1, 2],
+                "before": {"x_min": 0, "x_max": 5, "advance_total": 9},
+                "after": {"x_min": 1, "x_max": 6, "advance_total": 9},
+            }
+        ],
+        mismatches=[],
+        pair=(0, 1),
+        after_spans=((0, 1), (1, 2)),
+        after_cells=("c", "d"),
+        after_seams=("y5",),
+        before_spans=((0, 1), (1, 2)),
+        before_glyphs=("a", "b"),
+        before_seams=("break",),
+        seam_pairs=((1, 2),),
+    )
+
+
 def test_store_round_trip_and_invalidation(tmp_path):
     (tmp_path / "manifest.json").write_text("{}", encoding="utf-8")
     cached = _round_trip_unit()
     unit_cache.write_store(tmp_path, "env-a", [cached])
     loaded = unit_cache.load_store(tmp_path, "env-a")
-    assert loaded is not None and loaded["k1"] == cached
+    assert loaded is not None and loaded["k1"] == _round_trip_served()
     slim = replace(cached, key="k2", slim=True)
     unit_cache.write_store(tmp_path, "env-a", [cached, slim])
     loaded = unit_cache.load_store(tmp_path, "env-a")
@@ -832,11 +948,10 @@ def test_store_round_trip_and_invalidation(tmp_path):
 
 
 def test_a_store_line_and_its_record_are_inverses_down_to_the_bytes(tmp_path):
-    """What lets the build copy a previous store's line for a record it would write unchanged: parsing a line back and serializing the record again gives the same bytes, and a cursor over the store hands the lines back in file order, once each, and None past the end."""
+    """What lets the build copy a previous store's line for a record it would write unchanged: a cursor over the store hands the lines back in file order, once each, and None past the end, and a line written for a record loads as the served shape of that record."""
     first = _round_trip_unit()
     second = replace(first, key="k2", prior_id="u-8nacGTcgMRS", address=("units/small.json", 1, 5))
     line = unit_cache.record_line(first)
-    assert unit_cache.record_line(unit_cache.CachedUnit.from_record(json.loads(line))) == line
     (tmp_path / "manifest.json").write_text("{}", encoding="utf-8")
     unit_cache.write_store(tmp_path, "env-a", [first, second])
     cursor = unit_cache.StoreCursor(tmp_path)
@@ -849,7 +964,8 @@ def test_a_store_line_and_its_record_are_inverses_down_to_the_bytes(tmp_path):
     cursor.close()
     unit_cache.write_store(tmp_path, "env-a", [line, second], parts=["units/small.json"])
     loaded = unit_cache.load_store(tmp_path, "env-a")
-    assert loaded is not None and loaded["k1"] == first and loaded["k2"] == replace(second, address=None)
+    assert loaded is not None and loaded["k1"] == _round_trip_served()
+    assert loaded["k2"] == replace(_round_trip_served(), key="k2", prior_id="u-8nacGTcgMRS")
     assert unit_cache.StoreCursor(tmp_path / "missing").take("k1") is None
 
 
@@ -862,14 +978,15 @@ def test_a_record_keeps_its_address_only_while_its_part_is_the_size_the_store_re
     unaddressed = replace(_round_trip_unit(), key="k2", prior_id="u-0002")
     unit_cache.write_store(tmp_path, "env-a", [addressed, unaddressed])
     loaded = unit_cache.load_store(tmp_path, "env-a")
-    assert loaded is not None and loaded["k1"] == addressed and loaded["k2"].address is None
+    assert loaded is not None and loaded["k1"] == replace(_round_trip_served(), address=addressed.address)
+    assert loaded["k2"].address is None
     located = loaded["k1"].located()
     assert located is not None and (located.unit_id, located.content_key) == ("u-0001", "f" * 64)
     with unit_cache.PriorFragmentReader(tmp_path) as reader:
         assert reader.read(located) == fragments[1]
     (tmp_path / parts[0]).write_text(json.dumps(fragments), encoding="utf-8")
     loaded = unit_cache.load_store(tmp_path, "env-a")
-    assert loaded is not None and loaded["k1"] == replace(addressed, address=None)
+    assert loaded is not None and loaded["k1"] == _round_trip_served()
     assert loaded["k1"].located() is None
 
 
