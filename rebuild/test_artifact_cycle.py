@@ -320,10 +320,11 @@ def test_dry_run_plan_default():
 
 
 def test_dry_run_plan_conform_jobs_cap():
+    """gate:conform is handed the sweep width whole, past the acceptance-configuration count: the belt narrows itself to one process per configuration at its own `run_m1._spawn_pool` call site, so the plan caps nothing on its behalf."""
     plan = _plan(ncores=12)
     by_name = {step.name: step for step in plan.steps}
-    assert _argv(by_name["gate:conform"])[-2:] == ["--jobs", "6"]
-    assert plan.conform_jobs == 6
+    assert plan.conform_jobs == plan.sweep_jobs == ac.sweep_job_budget(12, total_bytes=BOX_44_GB) == 12
+    assert _argv(by_name["gate:conform"])[-2:] == ["--jobs", str(plan.conform_jobs)]
 
     small = _plan(ncores=4)
     small_by_name = {step.name: step for step in small.steps}
@@ -1953,13 +1954,35 @@ def test_a_step_environment_is_an_overlay_and_not_a_replacement():
     assert "AMS_PROBE_WIDTH" not in os.environ
 
 
-def test_sweep_job_budget_is_one_process_per_acceptance_configuration():
-    from rebuild.pipeline.conform import ACCEPTANCE_CONFIGS
+def test_sweep_job_budget_is_the_cores_under_the_oracle_shards_memory_clamp():
+    """The oracle's unit is a row range, so its width is the box: the cores, unless the box's memory divides by `ORACLE_SHARD_BYTES` to fewer. Both bounds get an assertion over invented boxes — a roomy one where the cores bind, a small one where the divisor binds and the floor holds at one."""
+    from rebuild.tools import memory_budget
 
-    assert ac.sweep_job_budget(12) == len(ACCEPTANCE_CONFIGS)
-    assert ac.sweep_job_budget(len(ACCEPTANCE_CONFIGS)) == len(ACCEPTANCE_CONFIGS)
-    assert ac.sweep_job_budget(3) == 3
-    assert ac.sweep_job_budget(1) == 1
+    roomy = 1_000_000_000_000
+    assert ac.sweep_job_budget(12, total_bytes=roomy) == 12
+    assert ac.sweep_job_budget(3, total_bytes=roomy) == 3
+    assert ac.sweep_job_budget(1, total_bytes=roomy) == 1
+    reserve = memory_budget.os_reserve_bytes(total_bytes=BOX_32_GIB)
+    fits = (BOX_32_GIB - reserve) // ac.ORACLE_SHARD_BYTES
+    assert 1 < fits < 64
+    assert ac.sweep_job_budget(64, total_bytes=BOX_32_GIB) == fits
+    assert ac.sweep_job_budget(64, total_bytes=ac.ORACLE_SHARD_BYTES) == 1
+    assert f"at {format_gb(ac.ORACLE_SHARD_BYTES)} GB each" in ac.sweep_job_derivation(
+        64, total_bytes=BOX_32_GIB
+    )
+    assert "capped at 64" in ac.sweep_job_derivation(64, total_bytes=roomy)
+
+
+def test_the_plan_prints_the_sweep_width_with_its_derivation():
+    plan = _plan(ncores=10, total_bytes=BOX_48_GIB)
+    assert plan.sweep_jobs == ac.sweep_job_budget(10, total_bytes=BOX_48_GIB) == 10
+    text = _plan_text(plan)
+    assert f"run_m1 sweeps --jobs             : {plan.sweep_jobs}  (the oracle's row-range workers, " in text
+    assert ac.sweep_job_derivation(10, total_bytes=BOX_48_GIB) in text
+    assert "the belt narrows itself to one process per acceptance configuration" in text
+    by_name = {step.name: step for step in plan.steps}
+    assert _argv(by_name["run_m1"])[-4:-2] == ["--jobs", str(plan.sweep_jobs)]
+    assert _argv(by_name["gate:conform"])[-2:] == ["--jobs", str(plan.sweep_jobs)]
 
 
 class TestTheSurfaceBuildWidth:
@@ -2074,9 +2097,9 @@ def test_both_job_budgets_answer_the_cgroup_allowance_rather_than_the_hosts_core
     allowed = probe(root)
     monkeypatch.setattr(memory_budget, "usable_cores", functools.partial(probe, root))
     assert allowed == min(host, 2) < min(len(ACCEPTANCE_CONFIGS), ac.SURFACE_JOBS_CAP)
-    assert ac.sweep_job_budget() == allowed
+    assert ac.sweep_job_budget(total_bytes=1_000_000_000_000) == allowed
     assert ac.surface_job_budget(skip_gates=True, total_bytes=1_000_000_000_000) == allowed
-    assert ac.sweep_job_budget(12) == len(ACCEPTANCE_CONFIGS)
+    assert ac.sweep_job_budget(12, total_bytes=1_000_000_000_000) == 12
     assert (
         ac.surface_job_budget(skip_gates=True, ncores=12, total_bytes=1_000_000_000_000)
         == ac.SURFACE_JOBS_CAP
@@ -2157,7 +2180,8 @@ def test_dry_run_renders_concurrency():
     assert "QUEUED behind gate:make-test (queue policy — one heavy pool at a time)" in text
     assert "Lane rebuild-contracts           : submitted once the surface build settles;" in text
     assert "QUEUED behind gate:conform (queue policy — one heavy pool at a time)" in text
-    assert "run_m1 sweeps --jobs             : 6" in text
+    assert f"run_m1 sweeps --jobs             : {plan.sweep_jobs}" in text
+    assert plan.sweep_jobs == ac.sweep_job_budget(12, total_bytes=BOX_44_GB)
     assert "run_m1 --kernel-threads          : " in text
     auto_skipped = _plan_text(_plan(skip_conform=True, conform_note=ac.CONFORM_SKIP_NOTE))
     assert f"Lane conform                     : SKIPPED ({ac.CONFORM_SKIP_NOTE})" in auto_skipped
@@ -2188,9 +2212,10 @@ def test_dry_run_skip_gates_appends_jobs_budgets():
     )
     by_name = {step.name: step for step in plan.steps}
     solo_width = ac.surface_job_budget(skip_gates=True, ncores=12, total_bytes=BOX_44_GB)
-    assert _argv(by_name["run_m1"])[5:7] == ["--jobs", "6"]
+    assert plan.sweep_jobs == ac.sweep_job_budget(12, total_bytes=BOX_44_GB)
+    assert _argv(by_name["run_m1"])[5:7] == ["--jobs", str(plan.sweep_jobs)]
     assert _argv(by_name["surface-build"])[-2:] == ["--jobs", str(solo_width)]
-    assert "run_m1 sweeps --jobs 6" in _plan_text(plan)
+    assert f"run_m1 sweeps --jobs {plan.sweep_jobs}" in _plan_text(plan)
     assert f"surface-build --jobs {solo_width}" in _plan_text(plan)
 
     default_plan = ac.build_plan(
@@ -2205,7 +2230,8 @@ def test_dry_run_skip_gates_appends_jobs_budgets():
     )
     default_by_name = {step.name: step for step in default_plan.steps}
     gated_width = ac.surface_job_budget(skip_gates=False, ncores=12, total_bytes=BOX_44_GB)
-    assert _argv(default_by_name["run_m1"])[5:7] == ["--jobs", "6"]
+    assert _argv(default_by_name["run_m1"])[5:7] == ["--jobs", str(default_plan.sweep_jobs)]
+    assert default_plan.sweep_jobs == plan.sweep_jobs
     assert _argv(default_by_name["surface-build"])[-2:] == ["--jobs", str(gated_width)]
 
 
@@ -2785,7 +2811,7 @@ def test_dry_run_plan_skip_make_test():
 
 
 def test_skip_make_test_frees_the_surface_build_budget():
-    """The sweeps' width is the configuration count either way — nothing about make-test bears on it — while the surface build is the stage that gives both cores and bytes back to a pytest pool that is actually running. On the 48 GiB box the pool's bytes sit inside a worker's worth of slack, so both arms answer the same width — the pair separating is the fit-terms seam's assertion — and what this checks is that the plan resolves each arm's own terms and its reason line says which one it resolved: the gated arm's derivation carries the pool's bytes in its co-resident clause, and the skip arm says the build takes the whole box. The widths are read off the budget rather than written here, so a re-seed of either surface constant never has to come back to this test."""
+    """The sweeps' width is the box's cores under the shard clamp either way — nothing about make-test bears on it — while the surface build is the stage that gives both cores and bytes back to a pytest pool that is actually running. On the 48 GiB box the pool's bytes sit inside a worker's worth of slack, so both arms answer the same width — the pair separating is the fit-terms seam's assertion — and what this checks is that the plan resolves each arm's own terms and its reason line says which one it resolved: the gated arm's derivation carries the pool's bytes in its co-resident clause, and the skip arm says the build takes the whole box. The widths are read off the budget rather than written here, so a re-seed of either surface constant never has to come back to this test."""
     plan = _plan(
         skip_make_test=True,
         make_test_note="closure unchanged since its last green run",
@@ -2796,7 +2822,7 @@ def test_skip_make_test_frees_the_surface_build_budget():
         skip_gates=False, skip_make_test=True, ncores=10, total_bytes=BOX_48_GIB
     )
     assert plan.surface_jobs == solo_width
-    assert plan.sweep_jobs == 6
+    assert plan.sweep_jobs == ac.sweep_job_budget(10, total_bytes=BOX_48_GIB)
     by_name = {step.name: step for step in plan.steps}
     assert _argv(by_name["surface-build"])[-2:] == ["--jobs", str(solo_width)]
     rendered = _plan_text(plan)
@@ -2807,7 +2833,7 @@ def test_skip_make_test_frees_the_surface_build_budget():
     gated = _plan(skip_make_test=False, ncores=10, total_bytes=BOX_48_GIB)
     gated_width = ac.surface_job_budget(skip_gates=False, ncores=10, total_bytes=BOX_48_GIB)
     assert gated.surface_jobs == gated_width
-    assert gated.sweep_jobs == 6
+    assert gated.sweep_jobs == ac.sweep_job_budget(10, total_bytes=BOX_48_GIB)
     gated_by_name = {step.name: step for step in gated.steps}
     assert _argv(gated_by_name["surface-build"])[-2:] == ["--jobs", str(gated_width)]
     _per_unit, gated_coresident, _cap = ac._surface_fit_terms(

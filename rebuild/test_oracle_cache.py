@@ -5,6 +5,7 @@ Every claim below is about a key or a store rather than about any glyph, so noth
 The stamp tests are the load-bearing ones. A per-family key can only decompose the routes that stay inside one rune file; every route that reaches across the registry — a predicate class gaining a member, a rune-local group, a ligature's declared sequence, a capability unlock, the registry's own families and heights, the engine's settlement flags — has to move the whole-store stamp instead, because `specificity::family_set` expands a `class:` reference to its full member set and `compare_axes` ranks by set size, so a rune joining or leaving a class can flip the settlement of a window naming no such rune. Each of those routes is asserted to move a *named* stamp line, not merely to move the value: a route that quietly stops being covered and a route covered twice over look identical from the value alone, and only the first is a cache that serves stale rows in silence.
 """
 
+import gzip
 import shutil
 from dataclasses import replace
 from pathlib import Path
@@ -526,6 +527,36 @@ def test_a_served_row_keeps_the_age_it_was_derived_at(repo, tmp_path):
     assert store is not None
     assert store.pass_ordinal == 1
     assert (store.age(0), store.age(1)) == (0, 1)
+
+
+def test_a_segment_writer_writes_records_only_and_the_join_puts_the_frame_around_them(repo, tmp_path):
+    """A row range of a cut configuration stages a segment: one gzip member of records, no header and no trailer, so the parent can put a header member ahead of every segment and a trailer member behind them without decompressing a byte. The joined payload is the single-member store's payload exactly, `load_store` reads it across the members, and two ranges opened against the same store agree on the ordinal the joined header records."""
+    spec = fixtures.mini_spec()
+    stamp = _stamp(repo, spec)
+    keys = _keys(repo, spec)
+    whole = tmp_path / "whole.tsv.gz"
+    with oracle_cache.RowWriter(whole, stamp, "subset-digest", 4, keys) as writer:
+        for index in range(6):
+            writer.append((PEA, PEA + index), None, 4)
+    scratch = tmp_path / "scratch"
+    for segment, rows in ((0, range(0, 2)), (1, range(2, 6))):
+        path = oracle_cache.scratch_store_path(scratch, "default", segment)
+        with oracle_cache.RowWriter(path, stamp, "subset-digest", 4, keys, segment=True) as writer:
+            for index in rows:
+                writer.append((PEA, PEA + index), None, 4)
+        payload = gzip.decompress(path.read_bytes())
+        assert not payload.startswith(b"{") and oracle_cache.ROW_COUNT_TRAILER.encode() not in payload
+        assert payload.count(b"\n") == len(rows)
+    joined = oracle_cache.join_store_segments(scratch, "default", 2, stamp, "subset-digest", 4, keys, 6)
+    assert joined is not None and joined == oracle_cache.scratch_store_path(scratch, "default")
+    assert gzip.decompress(joined.read_bytes()) == gzip.decompress(whole.read_bytes())
+    store = oracle_cache.load_store(joined, stamp, "subset-digest", spec, keys)
+    assert store is not None and store.rows == 6 and store.pass_ordinal == 4
+    assert oracle_cache.next_pass_ordinal(store) == 5
+    assert store.serve(5, (PEA, PEA + 5)) == oracle_cache.decode_record(
+        gzip.decompress(whole.read_bytes()).decode().splitlines()[6]
+    )
+    assert oracle_cache.join_store_segments(scratch, "default", 3, stamp, "subset-digest", 4, keys, 6) is None
 
 
 # --- the store is not an artifact --------------------------------------------------------

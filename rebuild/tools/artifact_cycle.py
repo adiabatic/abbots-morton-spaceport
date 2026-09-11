@@ -10,7 +10,7 @@ run_m1's exit status is its own gate's verdict, but this driver judges from the 
 
 That trap is also why this process, and not the children it spawns, is what files each check's verdict in the timings journal. Every judged check here — run_m1, conform, both rebuild lanes, make-test, js — appends one kind:"check" line tagged with this run, carrying the verdict the judge reached rather than the exit code the process returned; `make cycle-timings ARGS='--by-outcome'` is what reads them back. Two of those checks have interactive entry points that record their own line when a human runs them, so this driver puts its run id in the environment as AMS_CYCLE_RUN (cycle_timings.CYCLE_RUN_ENV) and every child inherits it, which is their signal to stand down. One invocation, one line, and the count in that report is a count of checks rather than of processes that happened to have an opinion.
 
-The two artifact-independent gates (js, make-test) run from t=0 in a small thread pool while the build chain runs inline-serial in the main thread. gate:conform (the exhaustive font-vs-settle sweep at the per-edit horizon, run_m1 --conform-only) starts after the run_m1 gate passes, queued behind make-test by default; its periodic deep form is `make conform-deep`, which the cycle never runs and only reports on — one line in the summary saying whether the emitted lookup has grown a shape the last deep run never shaped. The rebuild suite runs as one gate, gate:rebuild-contracts: every test under rebuild/, none of which reads a live build artifact (rebuild/conftest.py's audit guard is what holds that), at the box's full xdist width. It is submitted once the surface build settles, and only as a courtesy — the suite reads no artifact at all — because a full-width pool must not share the box with the M1 or surface build, and waiting costs it nothing, since it parks behind conform anyway and on the common gate pass every upstream stage auto-skips, so it starts at t=0. From there on it reads nothing the build lane writes, the census pins included, so nothing downstream has to land before it can start. Under the default queue policy the chain is make-test -> conform -> rebuild-contracts, so only one heavy gate pool is hot at a time — the build chain rides alongside whichever one that is rather than serial, at the widths sweep_job_budget and surface_job_budget resolve (the sweeps take one process per acceptance configuration; the surface build takes the box minus whatever make-test is holding). Co-resident, two heavy pools oversubscribe the cores roughly 2:1, and measured that contention roughly tripled the rebuild suite's wall time — a worse critical path than running the same work in sequence. --rebuild-pool overlap restores full co-residency.
+The two artifact-independent gates (js, make-test) run from t=0 in a small thread pool while the build chain runs inline-serial in the main thread. gate:conform (the exhaustive font-vs-settle sweep at the per-edit horizon, run_m1 --conform-only) starts after the run_m1 gate passes, queued behind make-test by default; its periodic deep form is `make conform-deep`, which the cycle never runs and only reports on — one line in the summary saying whether the emitted lookup has grown a shape the last deep run never shaped. The rebuild suite runs as one gate, gate:rebuild-contracts: every test under rebuild/, none of which reads a live build artifact (rebuild/conftest.py's audit guard is what holds that), at the box's full xdist width. It is submitted once the surface build settles, and only as a courtesy — the suite reads no artifact at all — because a full-width pool must not share the box with the M1 or surface build, and waiting costs it nothing, since it parks behind conform anyway and on the common gate pass every upstream stage auto-skips, so it starts at t=0. From there on it reads nothing the build lane writes, the census pins included, so nothing downstream has to land before it can start. Under the default queue policy the chain is make-test -> conform -> rebuild-contracts, so only one heavy gate pool is hot at a time — the build chain rides alongside whichever one that is rather than serial, at the widths sweep_job_budget and surface_job_budget resolve (the oracle cuts its tables into row ranges and takes the box's cores under the memory clamp ORACLE_SHARD_BYTES argues, the belt one process per acceptance configuration, and the surface build the box minus whatever make-test is holding). Co-resident, two heavy pools oversubscribe the cores roughly 2:1, and measured that contention roughly tripled the rebuild suite's wall time — a worse critical path than running the same work in sequence. --rebuild-pool overlap restores full co-residency.
 
 The cycle runs no cross-language check, because there is no second implementation to check against: the kernel crate is the only engine that enumerates and the only one that settles, so neither the tables nor a window's outcome can drift from a twin. What the cycle does prove about settlement is empirical — gate:conform shapes the compiled font through HarfBuzz and compares it against a re-settle of every swept text, window by window, through the crate's own settle-cases verb, with the memo keyed on the raw window so the sweep stays independent of the crate's enumeration and fold. `make kernel-gate` is the on-demand instrument to reach for around a kernel-semantics change: the crate's own gate, seconds once the crate is built. The spec-ingest parity is a contracts test now and rides gate:rebuild-contracts every cycle.
 
@@ -113,6 +113,8 @@ SURFACE_JOBS_CAP = 8
 STANDING_FILL_WORKER_BYTES = 300_000_000
 # What the plumbing step's parent holds while that pool is live, and so what comes off the box before the division rather than into it: the verdict chain holding the whole unit index and the fill's own rules, memo and decisions, flat in the width. The measurement is the `plumbing` step peak the cycle stamps on every pass, which is honest for this term exactly as the surface-build peak is for its parent — peak_rss.reap_peak_rss_bytes maxes over the tree, and the chain parent is the widest process under it by two orders — but only on a pass that refilled nothing serially: a plumbing row from a pass that refilled a dropped memo in the parent, with no pool, reads 13.7 GB to 16.5 GB, because the parent then evaluates the whole domain itself and grows its `SlideContext` memos across it, and that growth is what the pool moves into chunk-bounded workers. The seed sits above the served passes' band of 8.7 GB to 10.3 GB, which is the parent without that growth, and the standing-fill-parent row of `make job-costs` is where it stays honest.
 STANDING_FILL_PARENT_BYTES = 10_500_000_000
+# What one oracle row-range worker holds at its peak, and so the divisor of the post-build sweeps' width (`sweep_job_budget`). A worker is a spawn process holding its interpreter, a HarfBuzz shaper over M1.otf, its configuration's row store as one decompressed blob with two age arrays beside it, and — the largest term — its configuration's settle memo, loaded whole on the first wave that reaches the crate, which every pass reaches since the renewal slice re-derives one row in `oracle_cache.MAX_RECORD_AGE`: the window keys and shared outcome tuples of 1.8M windows (the `[t] settle_memo` lines count them). The seed is the first two cycle passes at width ten over fifteen ranges on the 32 GiB box (`doc/fleet.md`): store-cold, the widest range read 1.24 GB; store-warm, with every configuration's store loaded whole beside its memo, 1.72 GB, and the shortest ranges among the highest readings, since a worker's store and memo are its configuration's whole ones whatever its share of the rows. It rounds up past the warm reading by a quarter, for the reason every divisor here rounds up — a per-unit cost that errs low is what puts a box into swap — and because the memo grows with the alphabet, so a migration moves it. `make job-costs`' oracle-shard row is where it stays honest: `run_m1.run_oracle` files one kind:"pool" record per fan-out, one observation per row range that ran, so the constant is priced against the workers that actually ran. At this figure neither box in the fleet is memory-bound for this pool: the cores are.
+ORACLE_SHARD_BYTES = 2_200_000_000
 # How wide gate:make-test's pytest pool is allowed to be under a cycle, and the one number that makes the reservation beside it honest: surface_job_budget hands two cores to that pool and takes its bytes off the box beside them, so two workers is what the cycle hands the pool back. Left to itself the pool takes `-n auto`, which the root conftest.py answers for the font suite with the whole box — a pool sized as though nothing else were running, beside a build sized as though it were.
 MAKE_TEST_POOL_WORKERS = 2
 CONFORM_HORIZON_DEFAULT = 4
@@ -1087,6 +1089,7 @@ class Plan:
     standing_fill_jobs: int = 1
     standing_fill_reason: str = ""
     sweep_jobs: int = 1
+    sweep_reason: str = ""
     kernel_threads: int = 1
     make_test_workers: int = 1
     conform_jobs: int = 1
@@ -1172,12 +1175,20 @@ def kernel_threads_budget(
     return kernel_threads_default(coresident_bytes=coresident, total_bytes=total_bytes)
 
 
-def sweep_job_budget(ncores: int | None = None) -> int:
-    """The --jobs budget for the post-build sweeps — run_m1's Manual-pin/oracle shards and gate:conform's belt — which is one process per acceptance configuration and no more, because that is all `run_m1._spawn_pool` will start. This is a CPU budget, not a memory one: a sweep worker holds its shaper, its window memo, one config's rows and, for the oracle, one config's row store as a decompressed blob with two small age arrays beside it, a fraction of a gigabyte in all, so a whole `ACCEPTANCE_CONFIGS`-wide pool of them fits beside anything else the cycle runs. run_m1's memory ceiling lives entirely in the table build, whose width is --kernel-threads and which these jobs never reach."""
-    from rebuild.pipeline.conform import ACCEPTANCE_CONFIGS
+def sweep_job_budget(ncores: int | None = None, total_bytes: int | None = None) -> int:
+    """The --jobs budget for the post-build sweeps — run_m1's oracle and gate:conform's belt — sized for the oracle, whose unit is a row range of one configuration's table and whose pool is therefore as wide as the box allows: the box less its reserve, divided by what one range's worker holds (`ORACLE_SHARD_BYTES`), capped at the cores this process may run on. The belt takes the same number and narrows itself at its own `run_m1._spawn_pool` call site to one process per acceptance configuration, which is its unit. Nothing is subtracted for a co-resident pool: gate:make-test's pytest pool can still be hot when the oracle starts on a non-rehearsal pass, and at this divisor the pool that shares the box with it fits inside the reserve on either fleet box, where a reservation would narrow the phase every pass for a few seconds of overlap on some. run_m1's memory ceiling lives in the table build, whose width is --kernel-threads and which these jobs never reach. `ncores` and `total_bytes` are keywords for the reason every budget here takes its box as one — an assertion about a machine the suite is not running on has to be a pure function over an invented one."""
     from rebuild.tools import memory_budget
 
-    return max(1, min(len(ACCEPTANCE_CONFIGS), ncores or memory_budget.usable_cores()))
+    cores = ncores or memory_budget.usable_cores()
+    return memory_budget.how_many_fit(ORACLE_SHARD_BYTES, cap=cores, total_bytes=total_bytes)
+
+
+def sweep_job_derivation(ncores: int | None = None, total_bytes: int | None = None) -> str:
+    """The same width said out loud for the plan line — `memory_budget.describe_fit` over the terms `sweep_job_budget` divides."""
+    from rebuild.tools import memory_budget
+
+    cores = ncores or memory_budget.usable_cores()
+    return memory_budget.describe_fit(ORACLE_SHARD_BYTES, cap=cores, total_bytes=total_bytes)
 
 
 def _surface_fit_terms(*, skip_gates: bool, skip_make_test: bool, ncores: int | None) -> tuple[int, int, int]:
@@ -1347,7 +1358,12 @@ def build_plan(
             skip_gates=skip_gates, skip_make_test=skip_make_test, ncores=ncores, total_bytes=total_bytes
         )
     )
-    sweep_jobs = sweep_job_budget(ncores)
+    sweep_jobs = sweep_job_budget(ncores, total_bytes=total_bytes)
+    sweep_reason = (
+        "the oracle's row-range workers, "
+        + sweep_job_derivation(ncores, total_bytes=total_bytes)
+        + "; the belt narrows itself to one process per acceptance configuration"
+    )
     conform_jobs = sweep_jobs
     kernel_threads = kernel_threads_budget(
         skip_make_test=no_make_test, ncores=ncores, total_bytes=total_bytes
@@ -1394,6 +1410,7 @@ def build_plan(
         standing_fill_jobs=fill_jobs,
         standing_fill_reason=fill_reason,
         sweep_jobs=sweep_jobs,
+        sweep_reason=sweep_reason,
         kernel_threads=kernel_threads,
         make_test_workers=make_test_workers,
         conform_jobs=conform_jobs,
@@ -1703,7 +1720,7 @@ def _render_concurrency(plan: Plan) -> list[str]:
         return [
             "",
             "  Concurrency (--skip-gates):",
-            f"    Lane build only; no gates; run_m1 sweeps --jobs {plan.sweep_jobs} at --kernel-threads {'not passed (gates-only route)' if plan.reuse_run_m1 else plan.kernel_threads}, surface-build --jobs {plan.surface_jobs} ({plan.surface_reason}), plumbing --standing-fill-jobs {plan.standing_fill_jobs} ({plan.standing_fill_reason})",
+            f"    Lane build only; no gates; run_m1 sweeps --jobs {plan.sweep_jobs} ({plan.sweep_reason}) at --kernel-threads {'not passed (gates-only route)' if plan.reuse_run_m1 else plan.kernel_threads}, surface-build --jobs {plan.surface_jobs} ({plan.surface_reason}), plumbing --standing-fill-jobs {plan.standing_fill_jobs} ({plan.standing_fill_reason})",
         ]
     t0_lane = "gate:js" if plan.skip_make_test else "gate:js, gate:make-test"
     lines = [
@@ -1753,9 +1770,7 @@ def _render_concurrency(plan: Plan) -> list[str]:
         kernel_reason = "the table build's memory ceiling, the one width RAM binds"
     else:
         kernel_reason = f"the table build's memory ceiling, less gate:make-test's {workers}"
-    lines.append(
-        f"    run_m1 sweeps --jobs             : {plan.sweep_jobs}  (one process per acceptance configuration)"
-    )
+    lines.append(f"    run_m1 sweeps --jobs             : {plan.sweep_jobs}  ({plan.sweep_reason})")
     if plan.reuse_run_m1:
         lines.append(
             "    run_m1 --kernel-threads          : not passed (the gates-only route enumerates nothing, so there is no fan-out to size)"

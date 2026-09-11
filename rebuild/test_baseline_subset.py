@@ -201,6 +201,24 @@ class TestEnsureFresh:
         for name, digest in stamp["outputs"].items():
             assert hashlib.sha256((out / name).read_bytes()).hexdigest() == digest
 
+    def test_the_stamp_counts_each_tables_kept_rows_for_the_oracle_to_cut_by(self, tmp_path):
+        """The oracle cuts each subset table into row ranges before it streams one, so the count has to come off the stamp: `refresh` writes what the filter kept per configuration, `subset_row_counts` reads it back, and the count is the number of data lines the table actually holds. A stamp without counts — another format, a missing file, a hand-made directory — answers `{}`, which the oracle reads as one range per table rather than a guess."""
+        root = _seed_repo(tmp_path)
+        baseline_subset.refresh(root)
+        out = root / "rebuild" / "out" / "m1"
+        stamp = json.loads((out / baseline_subset.STAMP_NAME).read_text())
+        counts = baseline_subset.subset_row_counts(out)
+        assert counts == stamp["rows"] and counts
+        for config, count in counts.items():
+            with gzip.open(out / f"baseline-{config}.subset.tsv.gz", "rt", encoding="utf-8") as fh:
+                assert sum(1 for line in fh if not line.startswith("#") and line.strip()) == count
+        assert baseline_subset.subset_row_counts(tmp_path / "nowhere") == {}
+        del stamp["rows"]
+        (out / baseline_subset.STAMP_NAME).write_text(json.dumps(stamp))
+        assert baseline_subset.subset_row_counts(out) == {}
+        (out / baseline_subset.STAMP_NAME).write_text("{not json")
+        assert baseline_subset.subset_row_counts(out) == {}
+
     def test_a_malformed_stamp_reads_as_stale_without_crashing(self, tmp_path):
         root = _seed_repo(tmp_path)
         baseline_subset.ensure_fresh(root)

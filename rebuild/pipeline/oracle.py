@@ -4,13 +4,14 @@ This is the comparison side of the pipeline, split from conform.py so that it ca
 
 The producer of what the oracle classifies stays in conform.py: `_compare_row` and the memoized `_SettledWindowWalk` are the two entry points the oracle row cache's stamp is cut from (`oracle_cache.ORACLE_ROW_CODE_PATHS`), and the codec between a fresh `DivergentRow` and a stored record (`_cached_verdict`, `_served_verdict`) and the served-sample verification live beside them. This module imports those and is imported by nothing under that stamp, which is what lets a classifier edit serve every row from the store: `rebuild/test_oracle_code_closure.py` holds conform.py to that.
 
-`compare_against_baseline` streams the filtered sub-tables, settles every row through a walk of its own (or, when the caller hands down an `OracleRowCache`, takes the row's pre-position verdict off the previous pass's store and walks only what an edit can still reach — see rebuild/pipeline/oracle_cache.py for what that key does and does not cover), compares ligation, seams and cells against the alias map, classifies each divergent row through `_match_ledger`, and shapes the rows the ledger calls ink-identical against M1.otf to diff drawn positions — or takes that answer off the same store, under the position key that adds the font's per-family glyphs and the kern sidecar, and re-shapes only the rows an edit can still reach. The per-configuration form, `oracle_config_worker`, is what run_m1 fans out one process per acceptance configuration, each writing its own audit shard under `oracle_audit_scratch` for `join_oracle_audit` to concatenate. The overlay configuration (ss10) is compared against a stream no table produced: its rows walk through `conform.IsolatedOverlayWalk`, which answers every letter bare from the registry alone, and its position channel shapes through `conform.IsolatedOverlayShaper`, the twins' `hmtx` advances in place of HarfBuzz — both licensed by read-back's isolation proof and the belt's overlay arm — so the old font's ss10 rows are held against "all bare", a function of the baseline and the alphabet, with no settlement and no shaping spent on them.
+`compare_against_baseline` streams the filtered sub-tables, settles every row through a walk of its own (or, when the caller hands down an `OracleRowCache`, takes the row's pre-position verdict off the previous pass's store and walks only what an edit can still reach — see rebuild/pipeline/oracle_cache.py for what that key does and does not cover), compares ligation, seams and cells against the alias map, classifies each divergent row through `_match_ledger`, and shapes the rows the ledger calls ink-identical against M1.otf to diff drawn positions — or takes that answer off the same store, under the position key that adds the font's per-family glyphs and the kern sidecar, and re-shapes only the rows an edit can still reach. The unit run_m1 fans out is a row range of one configuration's table (`OracleShard`, planned by `oracle_shard_plan` over the box's width): `oracle_config_worker` runs `_compare_config` over that range in its own process, writing its own audit segment under `oracle_audit_scratch` for `join_oracle_audit` to concatenate in row order and its own store segment for `oracle_cache.join_store_segments` to join the same way, and `merge_config_shards` folds the ranges' tallies back into one configuration's result. The split changes no byte and no number, because `_compare_config` is addressed by absolute row index throughout — the store's records, the renewal slice and the verification draws all key on the row's ordinal in the table — so a range is a self-contained segment of the same store and the same audit. The overlay configuration (ss10) is compared against a stream no table produced: its rows walk through `conform.IsolatedOverlayWalk`, which answers every letter bare from the registry alone, and its position channel shapes through `conform.IsolatedOverlayShaper`, the twins' `hmtx` advances in place of HarfBuzz — both licensed by read-back's isolation proof and the belt's overlay arm — so the old font's ss10 rows are held against "all bare", a function of the baseline and the alphabet, with no settlement and no shaping spent on them.
 """
 
 from __future__ import annotations
 
 import functools
 import itertools
+import math
 import os
 import shutil
 import sys
@@ -18,7 +19,7 @@ import time
 from contextlib import ExitStack, contextmanager, suppress
 from dataclasses import dataclass, field, replace
 from pathlib import Path
-from typing import Callable, Iterable, Iterator, Mapping, TextIO
+from typing import Callable, Iterable, Iterator, Mapping, Sequence, TextIO
 
 import yaml
 
@@ -26,6 +27,7 @@ from rebuild.pipeline import baseline_subset, geometry, kernel_exec, oracle_cach
 from rebuild.pipeline.conform import (
     ACCEPTANCE_CONFIGS,
     BOUNDARY_GLYPH_NAMES,
+    OVERLAY_CONFIGS,
     DivergentRow,
     IsolatedOverlayShaper,
     IsolatedOverlayWalk,
@@ -41,12 +43,80 @@ from rebuild.pipeline.conform import (
 )
 from rebuild.pipeline.model import ResolvedSpec, isolated_overlay_active
 from rebuild.pipeline.spec_load import DEFAULT_REGISTRY_PATH
+from rebuild.tools.peak_rss import peak_rss_self_bytes
 from rebuild.validation.rowmodel import Row, format_codepoints, iter_rows
 
 # The same bound on the oracle's side, where the texts arrive as baseline rows rather than as a product.
 ORACLE_ROW_CHUNK = 65536
 # How many unmatched rows a configuration keeps whole. Every one of them is written to its audit shard regardless; this is only how many the summary can quote.
 ORACLE_UNMATCHED_EXEMPLARS = 20
+# What a row costs the oracle under the overlay configuration against one under a settlement configuration: the overlay's walk answers from the registry and its shaper from `hmtx`, so its worker walls at half a settlement configuration's over the same rows (`[t] oracle ss10` against `[t] oracle default` in the cycle journal), and `oracle_shard_plan` weighs the row counts by it.
+OVERLAY_ROW_COST = 0.5
+
+
+@dataclass(frozen=True)
+class OracleShard:
+    """One unit of the oracle's fan-out: rows `[first_row, stop_row)` of one configuration's subset table, the `index`-th of `of` ranges that configuration is cut into. `stop_row` None is the table's end. A configuration cut into one range is the unsharded shape, and every path it takes — the audit segment, the store, the `[t]` label — is byte-identical to the shape that predates the split."""
+
+    config: str
+    first_row: int = 0
+    stop_row: int | None = None
+    index: int = 0
+    of: int = 1
+
+    @property
+    def segment(self) -> int | None:
+        """The suffix this range's scratch files carry, or None for the one range of an uncut configuration."""
+        return None if self.of == 1 else self.index
+
+    @property
+    def label(self) -> str:
+        """What the range's `[t]` lines are labeled: the configuration alone when it is uncut, else the configuration and the range's ordinal, so a configuration's rows keep the same set of labels from pass to pass at the same width."""
+        return self.config if self.of == 1 else f"{self.config} {self.index + 1}/{self.of}"
+
+
+def oracle_shard_plan(
+    jobs: int, rows_by_config: Mapping[str, int | None], configs: Iterable[str] = ACCEPTANCE_CONFIGS
+) -> list[OracleShard]:
+    """How `jobs` workers divide the oracle's rows: every configuration with a known row count laid end to end, each row weighed at its configuration's cost, and the line cut at every multiple of a worker's share of the whole, so that the pieces sum to one share per worker whatever the configurations' own sizes are. The pieces come back heaviest first, which is the order a pool should start them: with dynamic assignment, the small pieces at the tail fill in behind whichever workers finish early, and the wall lands within one piece of the share. A configuration's last range is open-ended (`stop_row` None) rather than cut at the count, so a count that undershoots the table costs the balance and never a row. The plan is pure over its arguments, so a caller with an invented box and invented counts can hold it to that. A configuration whose row count is unknown (None or zero — a hand-made table directory, a caller that never refiltered) stays one range over the whole table rather than a guessed one, and comes first in the order as if it were the heaviest; `jobs` of one cuts nothing."""
+    configs = tuple(configs)
+
+    def cost(config: str) -> float:
+        return OVERLAY_ROW_COST if config in OVERLAY_CONFIGS else 1.0
+
+    counted = {config: rows for config in configs if (rows := rows_by_config.get(config))}
+    total = sum(rows * cost(config) for config, rows in counted.items())
+    share = total / jobs if jobs > 1 and total > 0 else None
+    ranges: dict[str, list[tuple[int, int | None]]] = {}
+    laid = 0.0
+    for config in configs:
+        rows = counted.get(config)
+        if rows is None or share is None:
+            ranges[config] = [(0, None)]
+            continue
+        weight = rows * cost(config)
+        bounds = [0]
+        cut = math.floor(laid / share) + 1
+        while cut * share < laid + weight:
+            bounds.append(round((cut * share - laid) / cost(config)))
+            cut += 1
+        bounds.append(rows)
+        laid += weight
+        pieces = [(first, stop) for first, stop in zip(bounds, bounds[1:]) if stop > first]
+        ranges[config] = [*pieces[:-1], (pieces[-1][0], None)]
+
+    def weight_of(shard: OracleShard) -> float:
+        rows = counted.get(shard.config)
+        if rows is None:
+            return math.inf
+        return ((rows if shard.stop_row is None else shard.stop_row) - shard.first_row) * cost(shard.config)
+
+    shards = [
+        OracleShard(config, first, stop, index, len(pieces))
+        for config, pieces in ranges.items()
+        for index, (first, stop) in enumerate(pieces)
+    ]
+    return sorted(shards, key=weight_of, reverse=True)
 
 
 @dataclass
@@ -67,7 +137,7 @@ class BaselineReport:
 
 @dataclass
 class OracleConfigResult:
-    """One configuration's oracle tally, which travels home from `oracle_config_worker` down a process pipe. The unmatched rows ride as a count plus the first `ORACLE_UNMATCHED_EXEMPLARS` of them rather than as the whole list: `oracle_summary.json` reads a length and quotes that many exemplars, so pickling every unmatched `DivergentRow` back to the parent spent an audit's worth of objects on a number. Nothing is lost by the cap — the worker has already written every unmatched row to its own audit shard, one line each, and `divergence-audit.tsv` is where they are read. `positions_served` counts the rows among `positions_compared` whose verdict came off the store rather than out of HarfBuzz."""
+    """One configuration's oracle tally — or one row range's of it, before `merge_config_shards` folds the ranges — which travels home from `oracle_config_worker` down a process pipe. The unmatched rows ride as a count plus the first `ORACLE_UNMATCHED_EXEMPLARS` of them rather than as the whole list: `oracle_summary.json` reads a length and quotes that many exemplars, so pickling every unmatched `DivergentRow` back to the parent spent an audit's worth of objects on a number. Nothing is lost by the cap — the worker has already written every unmatched row to its own audit shard, one line each, and `divergence-audit.tsv` is where they are read. `positions_served` counts the rows among `positions_compared` whose verdict came off the store rather than out of HarfBuzz. `pass_ordinal` is the ordinal the range's store segment was written under, None when no store was written, and is what the parent stamps a joined store's header with; `peak_rss_bytes` is the worker's own peak, filed as a pool observation so `make job-costs` can price a shard."""
 
     config: str
     rows_compared: int = 0
@@ -80,6 +150,8 @@ class OracleConfigResult:
     unmatched_exemplars: list[DivergentRow] = field(default_factory=list)
     multi_matched: list[tuple[DivergentRow, tuple[str, ...]]] = field(default_factory=list)
     notes: list[str] = field(default_factory=list)
+    pass_ordinal: int | None = None
+    peak_rss_bytes: int = 0
 
 
 @dataclass(frozen=True)
@@ -96,9 +168,9 @@ class OracleRowCache:
 
 
 def open_row_cache(
-    cache: "OracleRowCache | None", spec: ResolvedSpec, config: str
+    cache: "OracleRowCache | None", spec: ResolvedSpec, config: str, segment: int | None = None
 ) -> tuple["oracle_cache.RowStore | None", "oracle_cache.RowWriter | None"]:
-    """This configuration's loaded store and its staged successor, opened by whichever of the two oracle paths is running so the pair stays byte-equal between them. The subset digest is read off the stamp's own `subset` line rather than hashed a second time — the stamp already carries the bytes of the table this configuration is about to stream."""
+    """This configuration's loaded store and its staged successor, opened by whichever of the two oracle paths is running so the pair stays byte-equal between them. The subset digest is read off the stamp's own `subset` line rather than hashed a second time — the stamp already carries the bytes of the table this configuration is about to stream. A range of a cut configuration names its `segment`, and stages a segment writer (records only, no header and no trailer) for `oracle_cache.join_store_segments` to join; every range of one configuration loads the same store, so they agree on the ordinal the joined header records."""
     if cache is None:
         return None, None
     stamp = cache.environment[config]
@@ -118,13 +190,14 @@ def open_row_cache(
     writer = None
     if cache.write_dir is not None:
         writer = oracle_cache.RowWriter(
-            oracle_cache.scratch_store_path(cache.write_dir, config),
+            oracle_cache.scratch_store_path(cache.write_dir, config, segment),
             stamp,
             subset_digest,
             oracle_cache.next_pass_ordinal(store),
             cache.family_keys,
             cache.position_environment,
             cache.position_keys,
+            segment=segment is not None,
         )
     return store, writer
 
@@ -520,12 +593,14 @@ def _verify_served_positions(
     table_path: Path,
     store: "oracle_cache.RowStore",
     sample: "oracle_cache.VerificationSample",
+    first_row: int = 0,
+    stop_row: int | None = None,
 ) -> None:
-    """The position channel's half of `conform._verify_served_sample`: re-shape the pass's stratified sample of served positions through HarfBuzz and prove each against the record it was served from. The sample is drawn per family over the rows whose position was served, so a family whose glyphs moved under a key that failed to notice is caught with probability one; a mismatch is a hard stop for the same reason a row mismatch is — the audit is a fingerprinted artifact and a stale position in it reads as green forever."""
+    """The position channel's half of `conform._verify_served_sample`: re-shape the pass's stratified sample of served positions through HarfBuzz and prove each against the record it was served from. The sample is drawn per family over the rows whose position was served, so a family whose glyphs moved under a key that failed to notice is caught with probability one; a mismatch is a hard stop for the same reason a row mismatch is — the audit is a fingerprinted artifact and a stale position in it reads as green forever. The re-read streams only the rows of the range the sample was drawn over, so a range of a cut configuration never parses the rest of its table."""
     wanted = set(sample.indexes())
     if not wanted:
         return
-    for index, row in enumerate(iter_rows(table_path)):
+    for index, row in enumerate(iter_rows(table_path, first_row, stop_row), start=first_row):
         if index not in wanted:
             continue
         fresh = _cached_position(_position_drift(shaper, kern, features, row))
@@ -617,9 +692,15 @@ def oracle_audit_scratch(out_dir: Path) -> Path:
     return Path(out_dir) / f"divergence-audit.parts.{os.getpid()}"
 
 
-def oracle_audit_shard(scratch_dir: Path, config: str) -> Path:
-    """Where one configuration's header-free audit rows go while the oracle runs. The pool is spawned, so a configuration's rows reach the parent as a file rather than as a pickled list: the audit is much the largest thing this build writes and it grows with every migrated letter, so carrying it through the pipe stood the whole of it up in the parent right where the phase's own peak already sat. `+` is already at home in a filename here, beside `baseline-ss02+ss03.subset.tsv.gz`."""
-    return Path(scratch_dir) / f"{config}.part"
+def oracle_audit_shard(scratch_dir: Path, config: str, segment: int | None = None) -> Path:
+    """Where one configuration's header-free audit rows go while the oracle runs — or one row range's of them, when `segment` names which. The pool is spawned, so a configuration's rows reach the parent as a file rather than as a pickled list: the audit is much the largest thing this build writes and it grows with every migrated letter, so carrying it through the pipe stood the whole of it up in the parent right where the phase's own peak already sat. `+` is already at home in a filename here, beside `baseline-ss02+ss03.subset.tsv.gz`."""
+    name = f"{config}.part" if segment is None else f"{config}.{segment}.part"
+    return Path(scratch_dir) / name
+
+
+def settle_memo_part(scratch_dir: Path, config: str, segment: int) -> Path:
+    """Where one row range of a cut configuration files the settle memo windows it settled fresh, under the run's pid-named scratch beside its audit segment, so a killed run's parts are swept with everything else it staged and `conform.absorb_settle_memo_parts` finds every range's part in one directory."""
+    return Path(scratch_dir) / "settle-memo" / f"{config}.{segment}.gz"
 
 
 @contextmanager
@@ -638,11 +719,23 @@ def _staged_oracle_audit(out_dir: Path) -> Iterator[Path]:
             scratch.rmdir()
 
 
-def join_oracle_audit(out_dir: Path, scratch_dir: Path, configs: Iterable[str], expect_rows: int) -> None:
-    """Stream the shards into `divergence-audit.tsv` behind the header, in the caller's configuration order, and promote nothing the workers' own counts do not vouch for. Shard to target is binary, so nothing is decoded on the way through and the parent's high-water is a copy buffer rather than an audit; the bytes are the ones `_compare_config` writes when it writes the file directly — the header line, then each row's line, each closed by a newline. The two refusals are what keep a partial concatenation from reading as a complete audit: every shard is found before a byte is copied, so a missing one is named rather than skipped, and the rows that land are counted against the `divergent_rows` the same workers reported, which is the only cross-check the parent can make between the counts that came home through the pipe and the bytes that came home on disk. The trade for keeping an audit off the heap is a second copy of it on disk while the join runs. Sweeping the scratch directory back off disk is the caller's job rather than this function's, because the failure worth cleaning up after is usually a worker's rather than this concatenation's."""
+def join_oracle_audit(
+    out_dir: Path,
+    scratch_dir: Path,
+    configs: Iterable[str],
+    expect_rows: int,
+    segments: Mapping[str, int] | None = None,
+) -> None:
+    """Stream the shards into `divergence-audit.tsv` behind the header, in the caller's configuration order — and within a configuration `segments` says was cut into more than one row range, in row order — and promote nothing the workers' own counts do not vouch for. Shard to target is binary, so nothing is decoded on the way through and the parent's high-water is a copy buffer rather than an audit; the bytes are the ones `_compare_config` writes when it writes the file directly — the header line, then each row's line, each closed by a newline. The two refusals are what keep a partial concatenation from reading as a complete audit: every shard is found before a byte is copied, so a missing one is named rather than skipped, and the rows that land are counted against the `divergent_rows` the same workers reported, which is the only cross-check the parent can make between the counts that came home through the pipe and the bytes that came home on disk. The trade for keeping an audit off the heap is a second copy of it on disk while the join runs. Sweeping the scratch directory back off disk is the caller's job rather than this function's, because the failure worth cleaning up after is usually a worker's rather than this concatenation's."""
     scratch = Path(scratch_dir)
-    shards = [(config, oracle_audit_shard(scratch, config)) for config in configs]
-    missing = [config for config, path in shards if not path.is_file()]
+    shards: list[tuple[str, Path]] = []
+    for config in configs:
+        count = (segments or {}).get(config, 1)
+        if count <= 1:
+            shards.append((config, oracle_audit_shard(scratch, config)))
+        else:
+            shards.extend((config, oracle_audit_shard(scratch, config, segment)) for segment in range(count))
+    missing = sorted({config for config, path in shards if not path.is_file()})
     if missing:
         left = sorted(found.name for found in scratch.glob("*")) if scratch.is_dir() else []
         raise FileNotFoundError(
@@ -702,9 +795,14 @@ def _compare_config(
     store: "oracle_cache.RowStore | None" = None,
     writer: "oracle_cache.RowWriter | None" = None,
     settle_memo: SettleMemoFile | None = None,
+    first_row: int = 0,
+    stop_row: int | None = None,
+    label: str | None = None,
 ) -> OracleConfigResult:
-    """One configuration's rows compared, classified, audited and position-checked. `guard_verdicts` is the crate's formation surface the walk forms under, and `None` only for the overlay configuration, whose walk forms nothing; `shaper` is likewise the overlay's synthetic shaper there, and a real one everywhere else."""
-    result = OracleConfigResult(config=config)
+    """One configuration's rows compared, classified, audited and position-checked — the rows `[first_row, stop_row)` of its table, which is the whole table by default. `guard_verdicts` is the crate's formation surface the walk forms under, and `None` only for the overlay configuration, whose walk forms nothing; `shaper` is likewise the overlay's synthetic shaper there, and a real one everywhere else. `label` is what the `[t]` lines name, the configuration unless a range of a cut configuration says otherwise."""
+    result = OracleConfigResult(config=config, pass_ordinal=None if writer is None else writer.pass_ordinal)
+    label = config if label is None else label
+    start_row = first_row
     table_path = Path(subset_tables_dir) / f"baseline-{config}.subset.tsv.gz"
     if not table_path.exists():
         result.notes.append(f"{config}: subset table missing at {table_path}")
@@ -717,7 +815,7 @@ def _compare_config(
         assert guard_verdicts is not None
         walker = _SettledWindowWalk(spec, features, {}, guard_verdicts, memo=settle_memo)
     config_started = time.perf_counter()
-    rows = iter_rows(table_path)
+    rows = iter_rows(table_path, first_row, stop_row)
     # Only the stale rows are walked; a served row's pre-position verdict comes back off the store and enters `_match_ledger` in the same state a fresh one does, and the chunk is re-read in table order afterward so the audit's bytes cannot depend on the partition. The verification samples ride on serving rather than on writing, because a pass that may read the store and not write one (`--gates-only`) is exactly a pass whose verdicts all came out of it. The position verdict is served by the same record under its own key, and only where this pass's ledger still sends the row through the channel; a row the ledger excludes carries its stored verdict forward unread, so a later ledger edit that admits it again finds it.
     sample = (
         oracle_cache.VerificationSample(store.environment.value, store.coverage_ordinal)
@@ -730,7 +828,6 @@ def _compare_config(
         else None
     )
     this_pass = writer.pass_ordinal if writer is not None else 0
-    first_row = 0
     while True:
         chunk = list(itertools.islice(rows, ORACLE_ROW_CHUNK))
         if not chunk:
@@ -859,17 +956,22 @@ def _compare_config(
     served_rows = 0 if store is None else store.served
     result.positions_served = 0 if store is None else store.positions_served
     if store is not None and sample is not None:
-        _verify_served_sample(spec, aliases, config, features, walker, table_path, store, sample)
+        _verify_served_sample(
+            spec, aliases, config, features, walker, table_path, store, sample, start_row, stop_row
+        )
     if store is not None and position_sample is not None and shaper is not None:
-        _verify_served_positions(shaper, kern, features, table_path, store, position_sample)
-    memo_line = walker.memo_line(config, walker.save_memo())
+        _verify_served_positions(
+            shaper, kern, features, table_path, store, position_sample, start_row, stop_row
+        )
+    memo_line = walker.memo_line(label, walker.save_memo())
     if memo_line is not None:
         print(memo_line, file=sys.stderr, flush=True)
     print(
-        f"[t] oracle {config} {time.perf_counter() - config_started:.2f}s rows={result.rows_compared} positions={result.positions_compared} served={served_rows} positions_served={result.positions_served}",
+        f"[t] oracle {label} {time.perf_counter() - config_started:.2f}s rows={result.rows_compared} first={start_row} positions={result.positions_compared} served={served_rows} positions_served={result.positions_served}",
         file=sys.stderr,
         flush=True,
     )
+    result.peak_rss_bytes = peak_rss_self_bytes()
     return result
 
 
@@ -884,8 +986,11 @@ def oracle_config_worker(
     audit_dir: Path,
     row_cache: "OracleRowCache | None" = None,
     settle_memo: SettleMemoFile | None = None,
+    guard_verdicts: settle.FormationGuard | None = None,
+    shard: OracleShard | None = None,
 ) -> OracleConfigResult:
-    """One config's oracle compare in its own process, its audit rows written to this configuration's shard under `audit_dir` so only counts ride the result home. The section 5.7 verdict surface is swept here, once per worker, exactly as the belt's worker sweeps its own — except by the overlay configuration's worker, which forms nothing and shapes through `IsolatedOverlayShaper` instead of HarfBuzz. The row cache is opened here rather than handed in already open for the same reason the shard is: a spawned worker inherits no file handles, and opening it on this side of the pipe is what keeps this path and the serial one byte-equal. `settle_memo` is the belt's shared settle memo file for this configuration, read and written on this side of the pipe for the same reason."""
+    """One config's oracle compare in its own process — or one row range's of it, when `shard` names the range — its audit rows written to that range's segment under `audit_dir` so only counts ride the result home. The section 5.7 verdict surface is swept here when the caller has none to pass down, exactly as the belt's worker sweeps its own — except by the overlay configuration's worker, which forms nothing and shapes through `IsolatedOverlayShaper` instead of HarfBuzz; a caller fanning out several ranges hands the sweep it made once down every submission instead. The row cache is opened here rather than handed in already open for the same reason the segment is: a spawned worker inherits no file handles, and opening it on this side of the pipe is what keeps this path and the serial one byte-equal. `settle_memo` is the belt's shared settle memo file for this configuration, read and written on this side of the pipe for the same reason; a range of a cut configuration carries one whose `write_path` is its own part, which the parent absorbs into the shared file once every range has landed."""
+    shard = OracleShard(config) if shard is None else shard
     aliases = load_alias_map(alias_path)
     ledger = yaml.safe_load(Path(ledger_path).read_text()) or []
     ink_identical_ids = {entry.get("id") for entry in ledger if entry.get("ink_identical")}
@@ -893,11 +998,13 @@ def oracle_config_worker(
     overlay = isolated_overlay_active(spec, features)
     shaper = _shaper_for(spec, font_path, overlay)
     kern = KernEvaluator(Path(kern_sidecar_path)) if kern_sidecar_path is not None else None
-    shard = oracle_audit_shard(audit_dir, config)
-    shard.parent.mkdir(parents=True, exist_ok=True)
-    store, writer = open_row_cache(row_cache, spec, config)
+    segment_path = oracle_audit_shard(audit_dir, config, shard.segment)
+    segment_path.parent.mkdir(parents=True, exist_ok=True)
+    store, writer = open_row_cache(row_cache, spec, config, shard.segment)
+    if guard_verdicts is None and not overlay:
+        guard_verdicts = kernel_exec.guard_sweep(spec)
     with ExitStack() as stack:
-        audit = stack.enter_context(shard.open("w", encoding="utf-8", newline="\n"))
+        audit = stack.enter_context(segment_path.open("w", encoding="utf-8", newline="\n"))
         if writer is not None:
             stack.enter_context(writer)
         return _compare_config(
@@ -910,11 +1017,14 @@ def oracle_config_worker(
             ink_identical_ids,
             shaper,
             kern,
-            None if overlay else kernel_exec.guard_sweep(spec),
+            None if overlay else guard_verdicts,
             audit,
             store=store,
             writer=writer,
             settle_memo=settle_memo,
+            first_row=shard.first_row,
+            stop_row=shard.stop_row,
+            label=shard.label,
         )
 
 
@@ -927,6 +1037,40 @@ def _shaper_for(
     if overlay:
         return IsolatedOverlayShaper(Path(font_path), spec)
     return Shaper(Path(font_path))
+
+
+def merge_config_shards(results: Sequence[OracleConfigResult]) -> OracleConfigResult:
+    """One configuration's result folded back out of its row ranges' results, handed in row order: the counts sum, `counts_by_entry` sums per entry, `multi_matched` concatenates, `unmatched_exemplars` concatenates and then truncates to `ORACLE_UNMATCHED_EXEMPLARS` — which is the uncut result's first that many in table order exactly, since a range's own list is complete for its rows whenever it is shorter than the cap — and `notes` concatenate with repeats dropped, since a table missing from the directory would otherwise be noted once per range. The ranges of one configuration wrote their store segments under one ordinal, having loaded the same store; a disagreement there is a fault in the fan-out and refused rather than folded. `peak_rss_bytes` is the widest range's."""
+    if not results:
+        raise ValueError("merge_config_shards folds at least one range")
+    configs = {result.config for result in results}
+    if len(configs) != 1:
+        raise ValueError(f"merge_config_shards folds one configuration's ranges, not {sorted(configs)}")
+    ordinals = {result.pass_ordinal for result in results}
+    if len(ordinals) != 1:
+        raise ValueError(
+            f"the ranges of {results[0].config} wrote their store under different pass ordinals ({sorted(ordinals, key=str)}), so no joined store describes them"
+        )
+    merged = OracleConfigResult(config=results[0].config, pass_ordinal=results[0].pass_ordinal)
+    seen_notes: set[str] = set()
+    for result in results:
+        merged.rows_compared += result.rows_compared
+        merged.divergent_rows += result.divergent_rows
+        merged.positions_compared += result.positions_compared
+        merged.positions_excluded += result.positions_excluded
+        merged.positions_served += result.positions_served
+        for entry_id, count in result.counts_by_entry.items():
+            merged.counts_by_entry[entry_id] = merged.counts_by_entry.get(entry_id, 0) + count
+        merged.unmatched_count += result.unmatched_count
+        merged.unmatched_exemplars.extend(result.unmatched_exemplars)
+        merged.multi_matched.extend(result.multi_matched)
+        for note in result.notes:
+            if note not in seen_notes:
+                seen_notes.add(note)
+                merged.notes.append(note)
+        merged.peak_rss_bytes = max(merged.peak_rss_bytes, result.peak_rss_bytes)
+    del merged.unmatched_exemplars[ORACLE_UNMATCHED_EXEMPLARS:]
+    return merged
 
 
 def merge_oracle_results(results: Iterable[OracleConfigResult]) -> BaselineReport:

@@ -4,7 +4,7 @@ Streams each `rebuild/out/baseline-<config>.tsv.gz` once via `rebuild.validation
 
 Two claims about those tables are proven here rather than on every run that reads them, because a refilter is the only thing that can change either answer. The first is that every `DEFAULT_COVERED_CONFIGS` sub-table is row-identical to `IDENTITY_REFERENCE`'s: the acceptance gate covers ss06, ss07 and ss06+ss07 by running default alone, and that only holds while their filtered rows are the same rows. The digest each filter pass already folds over its kept data lines turns that proof into a comparison of hex strings — no second read of the three covered sub-tables — and a mismatch raises `SubsetIdentityError` before the stamp is written, so a diverged configuration is never stamped fresh and the next run refilters into the same refusal rather than adjudicating against tables nobody proved. The second is the roster of old glyph names the kept rows carry: `refresh` writes it to `subset-names.json`, sorted and distinct per configuration, off the tokens the filter already splits — so the oracle's alias-completeness guard answers from a short roster of names instead of streaming every subset row of every configuration, on the `--gates-only` path as cheaply as on a full build. A third claim rides the opposite schedule, proven on every `ensure_fresh` rather than once per refilter: that every source table was extracted from the site font on disk, its header's `font_sha256` weighed against the font the header itself names. `make all` rewrites that font outside every stamp this module keeps, so a rebuilt or re-extracted font moves no key a freshness check would notice, and only a proof that runs whether the tables read fresh or stale can keep the oracle from adjudicating against rows some other font shaped.
 
-run_m1 calls ensure_fresh() before its gates, so an M1_ALPHABET edit can never feed the oracle stale subset tables: subset_stamp.json records a key over the alphabet, the source tables, and this module, plus each output's content hash and the names sidecar's, and the refilter is skipped only when the key matches and the outputs on disk are exactly the stamped set with the stamped bytes — a truncated table, an edited table, a missing or edited sidecar, or an orphan left by a vanished source all read as stale, and refresh() prunes orphans. The alias map is deliberately outside the key even though the sidecar feeds the alias check: it is hand-edited far more often than the tables move, and folding it in would turn every alias edit into a full refilter of every configuration. Subset gzip members are written with mtime=0 so refiltering unchanged sources reproduces each table byte for byte.
+run_m1 calls ensure_fresh() before its gates, so an M1_ALPHABET edit can never feed the oracle stale subset tables: subset_stamp.json records a key over the alphabet, the source tables, and this module, plus each output's content hash, its kept-row count (`subset_row_counts` is the reader, and the oracle cuts each table into row ranges by it without streaming the table first) and the names sidecar's hash, and the refilter is skipped only when the key matches and the outputs on disk are exactly the stamped set with the stamped bytes — a truncated table, an edited table, a missing or edited sidecar, or an orphan left by a vanished source all read as stale, and refresh() prunes orphans. The alias map is deliberately outside the key even though the sidecar feeds the alias check: it is hand-edited far more often than the tables move, and folding it in would turn every alias edit into a full refilter of every configuration. Subset gzip members are written with mtime=0 so refiltering unchanged sources reproduces each table byte for byte.
 
 Run by hand (unconditional refilter) as: uv run python -m rebuild.pipeline.baseline_subset
 """
@@ -231,10 +231,28 @@ def refresh(repo_root: Path = REPO_ROOT) -> dict[str, str]:
         "format": STAMP_FORMAT,
         "key": key,
         "outputs": outputs,
+        "rows": {config: table.kept for config, table in sorted(filtered.items())},
         "sidecars": {NAMES_NAME: fingerprint.file_sha256(names_path)},
     }
     (out_dir / STAMP_NAME).write_text(json.dumps(payload, indent=2) + "\n")
     return outputs
+
+
+def subset_row_counts(out_dir: Path = OUT_DIR) -> dict[str, int]:
+    """The kept-row count of every subset table, as `{config: rows}` off the stamp, so a caller that needs a table's length ahead of streaming it — the oracle, cutting each table into row ranges — pays one JSON read. `{}` for a stamp that is missing, malformed, of another format or without counts, which is what a hand-made table directory answers, and what a caller then treats as one range over the whole table. Fresh tables carry the counts by construction: `stamp_key` folds this module's own bytes, so the first `ensure_fresh` under this code refilters and writes them, and every later stamp of this format is written by `refresh`."""
+    try:
+        stamp = json.loads((Path(out_dir) / STAMP_NAME).read_text())
+    except OSError, ValueError:
+        return {}
+    if not isinstance(stamp, dict) or stamp.get("format") != STAMP_FORMAT:
+        return {}
+    rows = stamp.get("rows")
+    if not isinstance(rows, dict):
+        return {}
+    try:
+        return {str(config): int(count) for config, count in rows.items()}
+    except TypeError, ValueError:
+        return {}
 
 
 def is_fresh(repo_root: Path = REPO_ROOT) -> bool:

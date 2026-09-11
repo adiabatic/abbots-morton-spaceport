@@ -30,6 +30,7 @@ import hashlib
 import heapq
 import json
 import os
+import shutil
 import zlib
 from array import array
 from dataclasses import dataclass
@@ -94,9 +95,10 @@ def store_path(out_dir: Path, config: str) -> Path:
     return Path(out_dir) / f"{STORE_STEM}-{config}.tsv.gz"
 
 
-def scratch_store_path(scratch_dir: Path, config: str) -> Path:
-    """Where a store is staged while the oracle runs: a subdirectory of this run's pid-named audit scratch, so `discard_oracle_audit_scratch` sweeps a killed run's stores the way it already sweeps its shards, and so `join_oracle_audit`'s missing-shard diagnostic lists one directory rather than a store per acceptance configuration."""
-    return Path(scratch_dir) / SCRATCH_SUBDIR / f"{config}.tsv.gz"
+def scratch_store_path(scratch_dir: Path, config: str, segment: int | None = None) -> Path:
+    """Where a store is staged while the oracle runs: a subdirectory of this run's pid-named audit scratch, so `discard_oracle_audit_scratch` sweeps a killed run's stores the way it already sweeps its shards, and so `join_oracle_audit`'s missing-shard diagnostic lists one directory rather than a store per acceptance configuration. A row range of a cut configuration stages its `segment` beside the whole store's path, for `join_store_segments` to join into it."""
+    name = f"{config}.tsv.gz" if segment is None else f"{config}.{segment}.tsv.gz"
+    return Path(scratch_dir) / SCRATCH_SUBDIR / name
 
 
 def _sha256_file(path: Path) -> str:
@@ -685,8 +687,36 @@ def next_pass_ordinal(store: RowStore | None) -> int:
     return 0 if store is None else store.pass_ordinal + 1
 
 
+def store_header(
+    environment: EnvironmentStamp,
+    subset_digest: str,
+    pass_ordinal: int,
+    family_keys: Mapping[str, str],
+    position_environment: EnvironmentStamp | None = None,
+    position_keys: Mapping[str, str] | None = None,
+) -> bytes:
+    """A store's first line: the format, the two stamps and the two key maps `load_store` compares, the pass ordinal and the subset digest, as one JSON object with sorted keys, so two writers over the same inputs put the same bytes first."""
+    header = {
+        "format": STORE_FORMAT,
+        "environment": list(environment.lines),
+        "family_keys": {name: family_keys[name] for name in sorted(family_keys)},
+        "pass_ordinal": pass_ordinal,
+        "position_environment": (None if position_environment is None else list(position_environment.lines)),
+        "position_keys": (
+            None if position_keys is None else {name: position_keys[name] for name in sorted(position_keys)}
+        ),
+        "subset_digest": subset_digest,
+    }
+    return (json.dumps(header, sort_keys=True) + "\n").encode()
+
+
+def _open_member(raw: IO[bytes]) -> gzip.GzipFile:
+    """One gzip member over `raw`, with the parameters every member of a store is written with: the mtime pinned so consecutive identical passes stay byte-identical, and level 1, because a store is written once and read once per run and level 9's seconds would come off every cycle."""
+    return gzip.GzipFile(filename="", fileobj=raw, mode="wb", mtime=0, compresslevel=1)
+
+
 class RowWriter:
-    """One configuration's store being written, one record per subset row in table order. The row count is a trailer rather than a header field, which is what lets the header go out before the count is known and, better, makes a truncated store fail to load instead of loading short: a store whose last bytes are missing has no trailer at all. The gzip mtime is pinned so consecutive identical passes stay byte-identical and the compression level with it — level 1, because this file is written once and read once per run and level 9's seconds would come off every cycle. The finished bytes land through a temporary file and `os.replace`, so a store on disk is always a whole one."""
+    """One configuration's store being written, one record per subset row in table order. The row count is a trailer rather than a header field, which is what lets the header go out before the count is known and, better, makes a truncated store fail to load instead of loading short: a store whose last bytes are missing has no trailer at all. The finished bytes land through a temporary file and `os.replace`, so a store on disk is always a whole one. A `segment` writer is one row range's share of a cut configuration's store: its own gzip member holding records and nothing else — no header, no trailer — for `join_store_segments` to put between a header member and a trailer member once every range has landed; a store over one range is written whole, and the bytes are the ones a store has always had."""
 
     def __init__(
         self,
@@ -697,30 +727,22 @@ class RowWriter:
         family_keys: Mapping[str, str],
         position_environment: EnvironmentStamp | None = None,
         position_keys: Mapping[str, str] | None = None,
+        segment: bool = False,
     ) -> None:
         self.path = Path(path)
         self.pass_ordinal = pass_ordinal
         self.rows = 0
+        self.segment = segment
         self._scratch = self.path.with_name(self.path.name + ".tmp")
         self.path.parent.mkdir(parents=True, exist_ok=True)
-        header = {
-            "format": STORE_FORMAT,
-            "environment": list(environment.lines),
-            "family_keys": {name: family_keys[name] for name in sorted(family_keys)},
-            "pass_ordinal": pass_ordinal,
-            "position_environment": (
-                None if position_environment is None else list(position_environment.lines)
-            ),
-            "position_keys": (
-                None
-                if position_keys is None
-                else {name: position_keys[name] for name in sorted(position_keys)}
-            ),
-            "subset_digest": subset_digest,
-        }
         self._raw: IO[bytes] = self._scratch.open("wb")
-        self._stream = gzip.GzipFile(filename="", fileobj=self._raw, mode="wb", mtime=0, compresslevel=1)
-        self._stream.write((json.dumps(header, sort_keys=True) + "\n").encode())
+        self._stream = _open_member(self._raw)
+        if not segment:
+            self._stream.write(
+                store_header(
+                    environment, subset_digest, pass_ordinal, family_keys, position_environment, position_keys
+                )
+            )
 
     def append(
         self,
@@ -737,7 +759,8 @@ class RowWriter:
         self.rows += 1
 
     def close(self) -> None:
-        self._stream.write(f"{ROW_COUNT_TRAILER}\t{self.rows}\n".encode())
+        if not self.segment:
+            self._stream.write(f"{ROW_COUNT_TRAILER}\t{self.rows}\n".encode())
         self._stream.close()
         self._raw.close()
         os.replace(self._scratch, self.path)
@@ -759,6 +782,40 @@ class RowWriter:
             self.close()
         else:
             self.abandon()
+
+
+def join_store_segments(
+    scratch_dir: Path,
+    config: str,
+    segments: int,
+    environment: EnvironmentStamp,
+    subset_digest: str,
+    pass_ordinal: int,
+    family_keys: Mapping[str, str],
+    rows: int,
+    position_environment: EnvironmentStamp | None = None,
+    position_keys: Mapping[str, str] | None = None,
+) -> Path | None:
+    """One cut configuration's staged store, assembled from the `segments` its row ranges wrote: a header member, then each segment's compressed bytes copied through verbatim in row order, then a trailer member counting `rows`, landed at `scratch_store_path(scratch_dir, config)` through a temporary file and `os.replace` so `promote_stores` finds it where an uncut configuration's writer would have left it. Nothing is decompressed on the way through, so the parent's cost is a copy. The joined file is a multi-member gzip stream and therefore not byte-identical to the single-member store the same records would make — its decompressed payload is, which is what `load_store` reads (`gzip.open(...).read()` spans members), so the trailer check, the anchor check and the ages all hold, and a store short a segment's tail still loads as None. That the framing differs is safe exactly because `store_path`'s docstring already records that nothing hashes this file. `None` when a segment is missing, which is a range that never wrote one, and then nothing is staged for the configuration."""
+    paths = [scratch_store_path(scratch_dir, config, segment) for segment in range(segments)]
+    if any(not path.is_file() for path in paths):
+        return None
+    target = scratch_store_path(scratch_dir, config)
+    staged = target.with_name(target.name + ".tmp")
+    with staged.open("wb") as raw:
+        with _open_member(raw) as head:
+            head.write(
+                store_header(
+                    environment, subset_digest, pass_ordinal, family_keys, position_environment, position_keys
+                )
+            )
+        for path in paths:
+            with path.open("rb") as segment_file:
+                shutil.copyfileobj(segment_file, raw, 1 << 20)
+        with _open_member(raw) as tail:
+            tail.write(f"{ROW_COUNT_TRAILER}\t{rows}\n".encode())
+    os.replace(staged, target)
+    return target
 
 
 def promote_stores(scratch_dir: Path, out_dir: Path, configs: Iterable[str]) -> list[str]:
