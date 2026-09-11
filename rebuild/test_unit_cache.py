@@ -557,21 +557,30 @@ SURFACE_UNREAD_CODE = (
     "rebuild/kernel-rs/src/fold.rs",
     "rebuild/kernel-rs/src/fanout.rs",
 )
-SURFACE_READ_CODE = (
+SURFACE_ONLY_CODE = (
     "rebuild/pipeline/kernel_exec.py",
     "rebuild/pipeline/labels.py",
-    "rebuild/validation/shaping.py",
+    "rebuild/validation/pins.py",
+    "rebuild/review/build.py",
+    "rebuild/review/unit_cache.py",
     "rebuild/review/enrich.py",
+    "rebuild/kernel-rs/src/main.rs",
     "rebuild/kernel-rs/src/engine.rs",
     "rebuild/kernel-rs/Cargo.lock",
+)
+COMPARATOR_CODE = (
+    "rebuild/review/ink.py",
+    "rebuild/validation/shaping.py",
+    "rebuild/validation/classify.py",
+    "rebuild/validation/rowmodel.py",
 )
 
 
 def test_both_store_stamps_survive_a_pipeline_or_crate_edit_the_surface_never_reads(tmp_path):
-    """The narrowing both stamps' code line makes (`unit_cache.surface_code_paths`), stated as the cost it avoids: an edit to the driver, the oracle, a gate, the font compile, the conformance sweep, the oracle's row cache, the GSUB emitter, the pixel geometry or the crate's enumeration and fold — code the surface build never executes — would drop both stores through a whole-tree `pipeline_code` component and cost the next build a cold units phase. It moves neither stamp, while an edit to a module the build does run — the kernel seam, the stream vocabulary the build shares with the sweep, the shaper, the enricher, the crate's engine, the crate's lock file — moves both. A hand-built root, so the edits are real files and the assertion is about the rosters rather than about this checkout; rebuild/test_review_code_closure.py is what holds those rosters to the walked closure. Each file is written as a statement on both sides of its edit, because the code line's digest is prose-blind (`fingerprint.code_file_digest`) and falls back to raw bytes only for a file that will not parse: a Python file spelled as bare prose would prove the fallback rather than the projection."""
+    """The narrowing each stamp's code line makes, stated as the cost it avoids. An edit to the driver, the oracle, a gate, the font compile, the conformance sweep, the oracle's row cache, the GSUB emitter, the pixel geometry or the crate's enumeration and fold — code the surface build never executes — moves neither stamp, where a whole-tree `pipeline_code` component would drop both stores and cost the next build a cold units phase (`unit_cache.surface_code_paths`). An edit to a module the build runs and no signature does — the kernel seam, the stream vocabulary the build shares with the sweep, the corpus-pin replay beside the shaper, the build driver, this cache, the enricher, the crate's dispatcher, engine and lock file — moves the unit store's stamp and leaves the signature store's exactly where it was, so the next build re-enriches and re-shapes nothing (`unit_cache.signature_code_paths`). An edit to the comparator or a module it imports moves both. A hand-built root, so the edits are real files and the assertion is about the rosters rather than about this checkout; rebuild/test_review_code_closure.py is what holds those rosters to the walked closure. Each file is written as a statement on both sides of its edit, because the code line's digest is prose-blind (`fingerprint.code_file_digest`) and falls back to raw bytes only for a file that will not parse: a Python file spelled as bare prose would prove the fallback rather than the projection."""
     spec = fixtures.mini_spec()
     root = tmp_path / "repo"
-    for relative in SURFACE_UNREAD_CODE + SURFACE_READ_CODE:
+    for relative in SURFACE_UNREAD_CODE + SURFACE_ONLY_CODE + COMPARATOR_CODE:
         (root / relative).parent.mkdir(parents=True, exist_ok=True)
         (root / relative).write_text(f"RELATIVE = {relative!r}\n", encoding="utf-8")
 
@@ -586,7 +595,13 @@ def test_both_store_stamps_survive_a_pipeline_or_crate_edit_the_surface_never_re
         (root / relative).write_text(f"RELATIVE = {relative!r}\nEDITED = 1\n", encoding="utf-8")
         assert stamps() == base, relative
     previous = base
-    for relative in SURFACE_READ_CODE:
+    for relative in SURFACE_ONLY_CODE:
+        (root / relative).write_text(f"RELATIVE = {relative!r}\nEDITED = 1\n", encoding="utf-8")
+        current = stamps()
+        assert current[0] != previous[0], relative
+        assert current[1] == base[1], relative
+        previous = current
+    for relative in COMPARATOR_CODE:
         (root / relative).write_text(f"RELATIVE = {relative!r}\nEDITED = 1\n", encoding="utf-8")
         current = stamps()
         assert current[0] != previous[0], relative
