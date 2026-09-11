@@ -40,6 +40,7 @@ def _no_stated_widths(monkeypatch):
     """Both knobs that outrank every derived width in the tree, cleared for the whole file. Every plan built here carries a kernel width and a pytest-pool width now, and a developer who has exported either variable would otherwise watch these assertions pass or fail for a reason that has nothing to do with the arrangement the test set up. That the knobs do outrank the arithmetic is asserted by the tests that set them deliberately."""
     monkeypatch.delenv("PYTEST_XDIST_AUTO_NUM_WORKERS", raising=False)
     monkeypatch.delenv("AMS_KERNEL_THREADS", raising=False)
+    monkeypatch.delenv("AMS_REPLAY_THREADS", raising=False)
 
 
 @pytest.fixture(autouse=True)
@@ -258,6 +259,8 @@ def test_dry_run_plan_default():
         "rebuild.pipeline.run_m1",
         "--kernel-threads",
         str(plan.kernel_threads),
+        "--replay-threads",
+        str(plan.replay_threads),
     ]
     assert by_name["surface-build"].argv == [
         "uv",
@@ -1983,7 +1986,7 @@ def test_the_plan_prints_the_sweep_width_with_its_derivation():
     assert ac.sweep_job_derivation(10, total_bytes=BOX_48_GIB) in text
     assert "the belt narrows itself to one process per acceptance configuration" in text
     by_name = {step.name: step for step in plan.steps}
-    assert _argv(by_name["run_m1"])[-4:-2] == ["--jobs", str(plan.sweep_jobs)]
+    assert _argv(by_name["run_m1"])[5:7] == ["--jobs", str(plan.sweep_jobs)]
     assert _argv(by_name["gate:conform"])[-2:] == ["--jobs", str(plan.sweep_jobs)]
 
 
@@ -2141,6 +2144,70 @@ def test_the_gated_arm_seats_the_whole_delta_wave_on_the_fleets_32_gib_box(monke
     assert ac.kernel_threads_budget(skip_make_test=True, ncores=10, total_bytes=BOX_32_GIB) == gated
 
 
+def test_replay_threads_budget_takes_the_pytest_pool_off_the_box_first():
+    """The same subtraction the kernel width makes, on the replay's own divisor: the gated arm prices gate:make-test's pool before dividing, so it is never wider than the skipped arm, and on a box the cap does not bind the pool is what separates the two. The cap is held here, unlike the kernel's, so both arms stop at the configuration count and the cores."""
+    from rebuild.pipeline.conform import SETTLEMENT_CONFIGS
+    from rebuild.pipeline.kernel_exec import REPLAY_PEAK_BYTES
+
+    solo = ac.replay_threads_budget(skip_make_test=True, ncores=8, total_bytes=BOX_33_GB)
+    beside = ac.replay_threads_budget(ncores=8, total_bytes=BOX_33_GB)
+    assert 1 <= beside <= solo <= len(SETTLEMENT_CONFIGS)
+    assert ac.replay_threads_budget(ncores=2, total_bytes=BOX_44_GB) == 2
+    narrow_box = 8_000_000_000 + 3 * REPLAY_PEAK_BYTES + 300_000_000
+    assert ac.replay_threads_budget(skip_make_test=True, ncores=8, total_bytes=narrow_box) == 3
+    assert ac.replay_threads_budget(ncores=8, total_bytes=narrow_box) == 2
+
+
+def test_the_gated_arm_replays_every_configuration_in_one_wave_on_the_fleets_32_gib_box():
+    """The half of the replay width's criterion only the cycle can assert: `REPLAY_PEAK_BYTES` is chosen so the whole universe still replays in one wave after gate:make-test's pytest pool has come off the box, so on the fleet's 32 GiB Mac the gated arm and the skipped-gate arm both answer the configuration count. A re-seed that keeps the solo wave and loses the gated one fails here."""
+    from rebuild.pipeline.conform import SETTLEMENT_CONFIGS
+
+    gated = ac.replay_threads_budget(ncores=10, total_bytes=BOX_32_GIB)
+    assert gated == len(SETTLEMENT_CONFIGS)
+    assert ac.replay_threads_budget(skip_make_test=True, ncores=10, total_bytes=BOX_32_GIB) == gated
+    assert ac.replay_threads_derivation(ncores=10, total_bytes=BOX_32_GIB).endswith(f"capped at {gated}")
+
+
+def test_replay_threads_budget_cuts_a_stated_width_only_to_the_cap(monkeypatch):
+    """AMS_REPLAY_THREADS outranks the division here as AMS_KERNEL_THREADS outranks the kernel's, and what this budget may still do to it is the non-memory cut the crate and `run_m1._replay_threads` would make anyway: a stated width past the configuration count is the configuration count, and one under it is passed through."""
+    from rebuild.pipeline.conform import SETTLEMENT_CONFIGS
+
+    monkeypatch.setenv("AMS_REPLAY_THREADS", "2")
+    assert ac.replay_threads_budget(ncores=8, total_bytes=BOX_44_GB) == 2
+    monkeypatch.setenv("AMS_REPLAY_THREADS", "99")
+    assert ac.replay_threads_budget(ncores=8, total_bytes=BOX_44_GB) == len(SETTLEMENT_CONFIGS)
+
+
+def test_the_replay_plan_line_explains_the_width_it_prints_on_every_route(monkeypatch):
+    """The clause beside the replay width is a reading of the width's own derivation on every route, never the arithmetic a stated width outranked: with nothing stated it is `describe_fit` over the budget's terms, under `AMS_REPLAY_THREADS` it names the variable and what the cap or the floor did to the value, and the wave clause counts the waves the width actually makes of the configuration count instead of asserting one on a box that seats fewer. The rendered line carries the same clause, so what a reader audits is what the argv states."""
+    from rebuild.pipeline.conform import SETTLEMENT_CONFIGS
+    from rebuild.pipeline.kernel_exec import REPLAY_PEAK_BYTES
+
+    count = len(SETTLEMENT_CONFIGS)
+    derived = ac.replay_threads_derivation(ncores=10, total_bytes=BOX_32_GIB)
+    assert derived.startswith(f"every settlement configuration in one wave; {count} at ")
+    assert "AMS_REPLAY_THREADS" not in derived
+    narrow_box = 8_000_000_000 + 3 * REPLAY_PEAK_BYTES + 300_000_000
+    narrow = ac.replay_threads_derivation(skip_make_test=True, ncores=8, total_bytes=narrow_box)
+    assert narrow.startswith(f"2 waves over {count} settlement configurations; 3 at ")
+    monkeypatch.setenv("AMS_REPLAY_THREADS", "2")
+    stated = ac.replay_threads_derivation(ncores=10, total_bytes=BOX_32_GIB)
+    assert stated == f"3 waves over {count} settlement configurations; AMS_REPLAY_THREADS states 2"
+    assert " at " not in stated
+    text = _plan_text(_plan(ncores=10, total_bytes=BOX_32_GIB))
+    assert f"run_m1 --replay-threads          : 2  (the string replay's own ceiling, {stated})" in text
+    monkeypatch.setenv("AMS_REPLAY_THREADS", "99")
+    assert (
+        ac.replay_threads_derivation(ncores=10, total_bytes=BOX_32_GIB)
+        == f"every settlement configuration in one wave; AMS_REPLAY_THREADS states 99, cut to the cap of {count}"
+    )
+    monkeypatch.setenv("AMS_REPLAY_THREADS", "0")
+    assert (
+        ac.replay_threads_derivation(ncores=10, total_bytes=BOX_32_GIB)
+        == f"{count} waves over {count} settlement configurations; AMS_REPLAY_THREADS states 0, floored at one"
+    )
+
+
 def test_kernel_threads_budget_never_narrows_a_stated_kernel_width(monkeypatch):
     """AMS_KERNEL_THREADS is what someone reaches for to keep a build out of swap, so it outranks every derivation here, this reservation included."""
     monkeypatch.setenv("AMS_KERNEL_THREADS", "5")
@@ -2185,6 +2252,11 @@ def test_dry_run_renders_concurrency():
     assert f"run_m1 sweeps --jobs             : {plan.sweep_jobs}" in text
     assert plan.sweep_jobs == ac.sweep_job_budget(12, total_bytes=BOX_44_GB)
     assert "run_m1 --kernel-threads          : " in text
+    assert (
+        f"run_m1 --replay-threads          : {plan.replay_threads}  (the string replay's own ceiling" in text
+    )
+    assert plan.replay_threads == ac.replay_threads_budget(ncores=12, total_bytes=BOX_44_GB)
+    assert ac.replay_threads_derivation(ncores=12, total_bytes=BOX_44_GB) in text
     auto_skipped = _plan_text(_plan(skip_conform=True, conform_note=ac.CONFORM_SKIP_NOTE))
     assert f"Lane conform                     : SKIPPED ({ac.CONFORM_SKIP_NOTE})" in auto_skipped
     assert "Lane conform                     : SKIPPED (--skip-conform)" in _plan_text(
@@ -2361,6 +2433,7 @@ def test_cycle_summary_payload_plan_block_and_argv():
         "do_merge": True,
         "conform_horizon": ac.CONFORM_HORIZON_DEFAULT,
         "kernel_threads": plan.kernel_threads,
+        "replay_threads": plan.replay_threads,
         "pool_policy": ac.REBUILD_POOL_POLICY_DEFAULT,
         "skip_gates": False,
         "skip_conform": False,
@@ -2396,6 +2469,7 @@ def test_cycle_summary_payload_names_the_reuse_route_and_passes_no_kernel_width_
     assert payload["plan"]["reuse_run_m1"] is True
     assert payload["plan"]["skip_run_m1"] is False
     assert payload["plan"]["kernel_threads"] is None
+    assert payload["plan"]["replay_threads"] is None
 
 
 def test_write_cycle_summary_reads_module_attr_at_call_time(monkeypatch, tmp_path):
@@ -4202,10 +4276,10 @@ def test_main_forces_the_rebuild_suite_under_fresh(tmp_path, monkeypatch, capsys
 
 
 def _full_build_step(out: str):
-    """The rendered run_m1 step of a plan that builds: the whole point of the negative cases is that this is what got planned instead of the gates-only argv. --jobs rides in front of --kernel-threads only on a box wide enough to want it, and --fresh-oracle-cache only when the caller asked for one."""
+    """The rendered run_m1 step of a plan that builds: the whole point of the negative cases is that this is what got planned instead of the gates-only argv. --jobs rides in front of --kernel-threads only on a box wide enough to want it, --replay-threads always follows --kernel-threads, and --fresh-oracle-cache only when the caller asked for one."""
     return re.search(
         r"^ +\$ uv run python -m rebuild\.pipeline\.run_m1"
-        r"( --jobs \d+)? --kernel-threads \d+( --fresh-oracle-cache)?$",
+        r"( --jobs \d+)? --kernel-threads \d+ --replay-threads \d+( --fresh-oracle-cache)?$",
         _step_lines(out, "run_m1"),
         re.MULTILINE,
     )
@@ -4234,6 +4308,7 @@ def test_main_re_adjudicates_when_only_comparison_side_inputs_moved(tmp_path, mo
         re.MULTILINE,
     )
     assert "run_m1 --kernel-threads          : not passed" in out
+    assert "run_m1 --replay-threads          : not passed" in out
     assert "inputs moved since its last green" not in row
 
 
@@ -4246,6 +4321,7 @@ def test_a_plan_that_skips_run_m1_never_also_reuses_it():
     assert reuse.runs("run_m1")
     assert "--gates-only" in reuse.argv("run_m1")
     assert "--kernel-threads" not in reuse.argv("run_m1")
+    assert "--replay-threads" not in reuse.argv("run_m1")
 
 
 def test_main_skips_the_surface_on_the_reuse_route_only_when_stage_a_already_stands(
