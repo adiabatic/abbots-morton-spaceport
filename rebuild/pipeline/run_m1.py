@@ -230,7 +230,7 @@ def memo_seed(out_dir: Path, stamp: str, scratch: Path) -> MemoSeed | None:
 
 
 def _table_build_threads(kernel_threads: int | None) -> int:
-    """The table build's width, which the window packing takes as well: `kernel_threads`, or the memory-derived `kernel_exec.KERNEL_THREADS_DEFAULT`, capped at the configuration count and the cores this process may actually run on. Factored out of `build_tables` so a caller opening the pack pool ahead of the build sizes it as the build would."""
+    """The table build's width, which the string replay takes as well: `kernel_threads`, or the memory-derived `kernel_exec.KERNEL_THREADS_DEFAULT`, capped at the configuration count and the cores this process may actually run on. Factored out of `build_tables` so `run` hands the replay the width the build ran at."""
     return max(
         1,
         min(
@@ -239,6 +239,11 @@ def _table_build_threads(kernel_threads: int | None) -> int:
             usable_cores(),
         ),
     )
+
+
+def _core_bound_threads(count: int) -> int:
+    """The width of a per-configuration pool whose task is core-bound and holds nothing the memory-derived width prices: one task per settlement configuration, capped at the cores this process may actually run on, floored at one. A window packer holds a zlib stream and `_pack_windows`'s copy buffer — `_pack_windows` over the plain `default` enumeration from a `ThreadPoolExecutor` measures 4.31s, 4.43s and 4.40s per task at widths 1, 3 and 5 with maxrss 0.090, 0.097 and 0.107 GB, so it scales flat and widening it costs nothing — and a shipped-order walk is one single-threaded crate process that holds the rules and the labels and streams the rows, 0.105 GB of child RSS against a table build whose peak is the crate's. `AMS_KERNEL_THREADS` and `--kernel-threads` deliberately do not reach a pool sized here: that knob exists to keep the table build out of swap, so a build stated one wide narrows the crate's delta wave and the string replay while the packing and the walks still run every configuration at once."""
+    return max(1, min(count, usable_cores()))
 
 
 class Packing:
@@ -312,7 +317,7 @@ def build_tables(
 ) -> tuple[dict[str, tuple], dict[str, str]]:
     """Every settlement configuration's decision and treaty tables: the resolved spec dumped once, then one `build-tables` process over every configuration, which enumerates `default`'s fixpoint, folds it in place, and enumerates each other configuration as a delta over `default`'s finished memo (`kernel_exec.build_table_files`), folding each as it lands. An overlay configuration gets none, and any table files a build once left under its name are removed first, so a directory globbed after a build holds this build's tables and nothing else. There is no stream and no fold on this side at all — the crate writes the settlement TSV, the treaty TSV and the window enumeration itself, so the several hundred megabytes a configuration's transitions cost to write, to read and to hold parsed are never spent.
 
-    What Python does per configuration is small and is what only Python can do: read the head back for the rules, the reachable cells and the fired provenance every downstream stage needs, parse the treaty TSV back for the defect gates, and pack the plain window payload into the `.gz` the artifact is (the compressor never crossed the boundary). The head reads run in a thread per configuration behind the one kernel process and are what this call waits for; the packing (`_pack_config`, the memo file included) runs on a `Packing` pool at the same width, since the compressor releases the interpreter lock. With a `packing` passed the tables come back as soon as the heads are read, each configuration's pack a future the caller waits on through `Packing.wait` and a pool the caller closes; with none, the packing is finished before the return.
+    What Python does per configuration is small and is what only Python can do: read the head back for the rules, the reachable cells and the fired provenance every downstream stage needs, parse the treaty TSV back for the defect gates, and pack the plain window payload into the `.gz` the artifact is (the compressor never crossed the boundary). The head reads run in a thread per configuration behind the one kernel process and are what this call waits for; the packing (`_pack_config`, the memo file included) runs on a `Packing` pool at the core-bound width (`_core_bound_threads`, one packer per configuration up to the cores, whatever the crate's width), since a packer holds a zlib stream and a copy buffer and nothing the memory width prices, and the compressor releases the interpreter lock. With a `packing` passed the tables come back as soon as the heads are read, each configuration's pack a future the caller waits on through `Packing.wait` and a pool the caller closes; with none, the packing is finished before the return.
 
     A build with an `out_dir` also carries its trace memos across builds: the previous build's `memo-<config>.tsv.gz` files under it are read through `memo_seed` — unpacked for the crate wherever their stamp still holds, with the runes whose content moved named as edited — so a window naming no edited rune settles as it settled last time, and this build's own memos are packed into the same names on the way out, under `memo_stamp` over the spec in hand. A caller with no `out_dir` reads and writes none.
 
@@ -328,7 +333,7 @@ def build_tables(
     built: dict[str, tuple] = {}
     digests: dict[str, str] = {}
     deferred = packing is not None
-    packers = packing if packing is not None else Packing(threads)
+    packers = packing if packing is not None else Packing(_core_bound_threads(len(configs)))
     with tempfile.TemporaryDirectory() as scratch:
         directory = Path(scratch)
         spec_path = directory / "spec.json"
@@ -512,11 +517,10 @@ def _emitted_order_stage(
     tables: Mapping[str, tuple],
     out_dir: Path,
     packing: Packing,
-    threads: int,
 ) -> None:
     console.phase("emitted_order")
     start = time.perf_counter()
-    emitted = run_emitted_order(spec, tables, out_dir, kernel_threads=threads, ready=packing.wait)
+    emitted = run_emitted_order(spec, tables, out_dir, ready=packing.wait)
     console.timing("emitted_order", time.perf_counter() - start)
     if not emitted["pass"]:
         raise SystemExit(
@@ -532,15 +536,12 @@ def _run_table_gates(
     packing: Packing,
     memo_inputs: oracle_cache.SettleMemoInputs | None,
     replay_threads: int,
-    walk_threads: int,
     state: _TableGateState,
 ) -> None:
-    """The table-only branch, on one background thread beside the glyph chain. The string replay runs first, at the table build's width (`replay_threads`), and the witness stage after it, in that order because the replay writes each configuration's settle memo file whole on a whole-universe walk (`conform.absorb_replay_memo`) and the witness stage loads that file and writes it back with its own windows added; `state.memo_ready` is set once the witness stage's files are on disk, or the moment that chain goes red, and `TableGates` sets it as well when this thread ends any other way, so a wait on it can never hang. Beside that chain the shipped-order walks run on a thread of their own at `walk_threads` (the build's width, which `run` passes through: the oracle's pool is the whole box, so narrowing the walks to the cores it leaves would serialize them onto one and put their whole length on the critical path; their residue shares the box with the pool's first seconds instead, the overlap `doc/parallelism.md` states), each configuration's walk waiting on its own pack (`Packing.wait`), and the packing closes here after the last of them. Nothing raises out of this thread: the exception each stage would have raised in the serial form lands in `state`, and `TableGates` raises the first red in that order."""
+    """The table-only branch, on one background thread beside the glyph chain. The string replay runs first, at the table build's width (`replay_threads`), and the witness stage after it, in that order because the replay writes each configuration's settle memo file whole on a whole-universe walk (`conform.absorb_replay_memo`) and the witness stage loads that file and writes it back with its own windows added; `state.memo_ready` is set once the witness stage's files are on disk, or the moment that chain goes red, and `TableGates` sets it as well when this thread ends any other way, so a wait on it can never hang. Beside that chain the shipped-order walks run on a thread of their own, one walk per configuration up to the cores (`_core_bound_threads`, sourced from the configuration count and the cores rather than from the build's width, and never from the oracle's: the oracle's pool is the whole box, so narrowing the walks to the cores it leaves would serialize them onto one and put their whole length on the critical path; their residue shares the box with the pool's first seconds instead, the overlap `doc/parallelism.md` states), each configuration's walk waiting on its own pack (`Packing.wait`), and the packing closes here after the last of them. Nothing raises out of this thread: the exception each stage would have raised in the serial form lands in `state`, and `TableGates` raises the first red in that order."""
     with ThreadPoolExecutor(max_workers=1, thread_name_prefix="emitted-order") as walks:
         emitted = (
-            walks.submit(_emitted_order_stage, spec, tables, out_dir, packing, walk_threads)
-            if inputs is not None
-            else None
+            walks.submit(_emitted_order_stage, spec, tables, out_dir, packing) if inputs is not None else None
         )
         try:
             console.phase("replay_strings")
@@ -631,7 +632,7 @@ def run(
 ) -> tuple[dict, TableGates]:
     """The build: the tables, then two branches over them. The table-only branch (`_run_table_gates`, on one background thread) runs the string replay, the witness stage and the shipped-order walks; the glyph chain — minting, the defect gates, the emission, the compile and the read-back — runs here on the calling thread, writes `pipeline_summary.json` and the Stage A record, and returns its summary with the branch's `TableGates` handle without joining it. The join is the caller's: `main` calls `wait_for_memo` before the oracle and `join` after it, so the gate is decided over both branches, and `close` in a `finally`. A chain complaint yields to the branch's: when anything here raises, the branch's first red is raised in its place if it has one, so a red replay is reported as the tables incomplete rather than as whatever the chain made of them.
 
-    `inputs` is `tables_inputs` over the sources `spec` was loaded from, snapshotted before the load so it can only ever name content the tables are at least as new as. Supplying it serializes the window enumeration under `out_dir` for the conformance sweep and the shipped-order walk; a caller running a spec of its own leaves it out, and the walk does not run. `memo_inputs` is `settle_memo_inputs` cut at the same moment, and names the settle memo files the string replay fills and the witness stage, the oracle and the belt then load; without it the replay files nothing, the witness stage settles every certificate and nothing is shared. `kernel_threads` reaches the table build, the packing and the string replay, and is the shipped-order walks' width too: the walks are the one stage of the table-only branch that can still be running when the oracle's pool starts, since the oracle waits only on the settle memos the witness stage writes after the replay crate has exited (`TableGates.wait_for_memo`), and the residue of a walk shares the box with that pool for its last seconds rather than being narrowed to the cores the pool leaves, which — the pool being the whole box — would serialize the walks and put their whole length on the run's critical path.
+    `inputs` is `tables_inputs` over the sources `spec` was loaded from, snapshotted before the load so it can only ever name content the tables are at least as new as. Supplying it serializes the window enumeration under `out_dir` for the conformance sweep and the shipped-order walk; a caller running a spec of its own leaves it out, and the walk does not run. `memo_inputs` is `settle_memo_inputs` cut at the same moment, and names the settle memo files the string replay fills and the witness stage, the oracle and the belt then load; without it the replay files nothing, the witness stage settles every certificate and nothing is shared. `kernel_threads` reaches the table build and the string replay, the two stages whose per-configuration cost is the memory that width was divided from; the packing and the shipped-order walks run one task per configuration up to the cores (`_core_bound_threads`) whatever the build's width. The walks are the one stage of the table-only branch that can still be running when the oracle's pool starts, since the oracle waits only on the settle memos the witness stage writes after the replay crate has exited (`TableGates.wait_for_memo`), and the residue of a walk shares the box with that pool for its last seconds rather than being narrowed to the cores the pool leaves, which — the pool being the whole box — would serialize the walks and put their whole length on the run's critical path.
     """
     out_dir.mkdir(parents=True, exist_ok=True)
     console.phase("spec_load")
@@ -643,7 +644,7 @@ def run(
     console.phase("build_tables_total")
     start = time.perf_counter()
     build_threads = _table_build_threads(kernel_threads)
-    packing = Packing(build_threads)
+    packing = Packing(_core_bound_threads(len(conform.SETTLEMENT_CONFIGS)))
     try:
         tables, _digests = build_tables(
             spec, out_dir, inputs=inputs, kernel_threads=kernel_threads, packing=packing
@@ -668,7 +669,6 @@ def run(
             inputs,
             packing,
             memo_inputs,
-            build_threads,
             build_threads,
             state,
         ),
@@ -942,20 +942,16 @@ def run_emitted_order(
     spec: ResolvedSpec,
     tables: Mapping[str, tuple],
     out_dir: Path,
-    kernel_threads: int | None = None,
     ready: Callable[[str], None] | None = None,
 ) -> dict:
     """The shipped-order stage: the settlement order the emitter ships — every configuration's table folded into one lookup and sorted by `emit_gsub._ordered_settle_rules` — replayed first-match against every row of every configuration's window enumeration by the crate's `replay-emitted` verb (`rebuild/kernel-rs/src/shipped_order.rs`), one process per configuration over the packed enumeration the build just wrote under `out_dir`. Each row, renamed into the stream its configuration's marker lookups produce, has to be answered by the first emitted rule of its input that admits it with the row's own outcome — member by member where an emitted look class admits the row's deep class in part, since a rule folded from another configuration's fiber partition can do that and still answer every member as the row does; a row answered differently is a red build naming the configuration, the row, the emitted rule that fired and the table's own rule.
 
-    This is the one proof of the shipped order that reads the tables: the fold's partition assertion, the string replay and the witness stage each walk a configuration's rules in that configuration's own order, and read-back compares the font to the plan rather than the plan to the tables, so without this stage the order the font ships was proven by the HarfBuzz belt alone — which keys on code and on behavior classes and skips a rune edit that mints no new shape. It runs on every build, on the tables the build just folded, so a rune edit that reorders the fold without minting a new rule shape is caught here rather than at the next code change. O(rows) per configuration, nothing settled, and the configurations run `kernel_threads` at a time behind one small process each: what a walk holds is the rules and the labels, never a memo or an engine. `ready`, when given, is called with the configuration's name on the walker thread before its enumeration is opened — `Packing.wait` in the build, so a walk starts the moment its own pack is on disk rather than after the whole build's.
+    This is the one proof of the shipped order that reads the tables: the fold's partition assertion, the string replay and the witness stage each walk a configuration's rules in that configuration's own order, and read-back compares the font to the plan rather than the plan to the tables, so without this stage the order the font ships was proven by the HarfBuzz belt alone — which keys on code and on behavior classes and skips a rune edit that mints no new shape. It runs on every build, on the tables the build just folded, so a rune edit that reorders the fold without minting a new rule shape is caught here rather than at the next code change. O(rows) per configuration, nothing settled, and every configuration walks at once up to the cores (`_core_bound_threads`) behind one small single-threaded process each: what a walk holds is the rules and the labels, never a memo or an engine, so the memory-derived width that paces the table build and the string replay prices nothing here and does not reach this pool. `ready`, when given, is called with the configuration's name on the walker thread before its enumeration is opened — `Packing.wait` in the build, so a walk starts the moment its own pack is on disk rather than after the whole build's.
     """
     from rebuild.pipeline import emit_gsub
 
     configs = [config for config in conform.SETTLEMENT_CONFIGS if config in tables]
-    threads = max(
-        1,
-        min(kernel_threads or kernel_exec.KERNEL_THREADS_DEFAULT, len(configs), usable_cores()),
-    )
+    threads = _core_bound_threads(len(configs))
     summary: dict = {"pass": True, "configs": {}, "complaint": None}
     with tempfile.TemporaryDirectory() as scratch:
         directory = Path(scratch)
@@ -986,7 +982,7 @@ def run_emitted_order(
             )
             return config, answer
 
-        with ThreadPoolExecutor(max_workers=threads) as walkers:
+        with ThreadPoolExecutor(max_workers=threads, thread_name_prefix="emitted-walk") as walkers:
             futures = [walkers.submit(walk_one, config) for config in configs]
             for finished in as_completed(futures):
                 try:

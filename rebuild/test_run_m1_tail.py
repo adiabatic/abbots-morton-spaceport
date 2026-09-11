@@ -91,7 +91,7 @@ def _stub_gates(
         events.append("witnesses:done")
         return dict(witnesses)
 
-    def run_emitted_order(spec, tables, out_dir, kernel_threads=None, ready=None):
+    def run_emitted_order(spec, tables, out_dir, ready=None):
         for config in tables:
             if ready is not None:
                 ready(config)
@@ -376,9 +376,7 @@ class TestThePacking:
 
         def walk():
             try:
-                run_m1.run_emitted_order(
-                    SPEC, tables, tmp_path, kernel_threads=len(CONFIGS), ready=packing.wait
-                )
+                run_m1.run_emitted_order(SPEC, tables, tmp_path, ready=packing.wait)
             except BaseException as error:
                 failures.append(error)
 
@@ -393,34 +391,98 @@ class TestThePacking:
         assert failures == []
         assert sorted(walked) == sorted(CONFIGS)
 
+    def test_every_walk_runs_in_one_wave_at_the_cores_not_the_builds_width(self, monkeypatch, tmp_path):
+        """With the memory-derived width narrowed to one and every pack already on disk, as many walkers as the cores allow reach the crate seam at the same moment: the walk stage is sized from the configuration count and the cores, so a build the memory width paces one configuration at a time still walks them in one wave. Each stub walker parks until the pool is full and passes once it has been, so a stage narrowed to the build's width fails on the count rather than hanging."""
+        width = run_m1._core_bound_threads(len(CONFIGS))
+        monkeypatch.setattr(kernel_exec, "KERNEL_THREADS_DEFAULT", 1)
+        packing = run_m1.Packing(len(CONFIGS))
+        tables, _digests = run_m1.build_tables(SPEC, tmp_path, inputs=STAMP, packing=packing)
+        for config in CONFIGS:
+            packing.wait(config)
+        lock = threading.Lock()
+        full = threading.Event()
+        inside = {"count": 0, "peak": 0}
+
+        def replay_emitted(windows, *, config, table, order, context, timings=False):
+            with lock:
+                inside["count"] += 1
+                inside["peak"] = max(inside["peak"], inside["count"])
+                if inside["count"] >= width:
+                    full.set()
+            assert full.wait(timeout=20), f"{config}'s walk never saw {width} walkers in flight at once"
+            with lock:
+                inside["count"] -= 1
+            return {"rows": 1, "expanded": 0}
+
+        monkeypatch.setattr(kernel_exec, "replay_emitted", replay_emitted)
+        try:
+            summary = run_m1.run_emitted_order(SPEC, tables, tmp_path, ready=packing.wait)
+        finally:
+            packing.close()
+        assert summary["pass"]
+        assert inside["peak"] == width
+
 
 class TestTheTailWidth:
-    def test_the_replay_and_the_walks_take_the_builds_width(self, monkeypatch, tmp_path):
-        """`kernel_threads` — the memory-derived width, or a stated `--kernel-threads` — reaches the replay and the walks unchanged: the oracle cannot start until the replay has exited, and the walks' residue past the memo wait shares the box with the oracle's pool rather than being narrowed to the cores that whole-box pool would leave, which would serialize the walks onto one core."""
+    def test_the_core_bound_width_is_the_count_capped_at_the_cores(self, monkeypatch):
+        """`_core_bound_threads` has two terms and no memory one: the configuration count and the cores this process may actually run on, floored at one. Narrowing the memory-derived default to one leaves it where it was, which is what says the knob that keeps the table build out of swap does not reach the pools sized here."""
+        monkeypatch.setattr(kernel_exec, "KERNEL_THREADS_DEFAULT", 1)
+        monkeypatch.setattr(run_m1, "usable_cores", lambda: 2)
+        assert run_m1._core_bound_threads(len(CONFIGS)) == 2
+        assert run_m1._core_bound_threads(99) == 2
+        assert run_m1._core_bound_threads(0) == 1
+        monkeypatch.setattr(run_m1, "usable_cores", lambda: 64)
+        assert run_m1._core_bound_threads(len(CONFIGS)) == len(CONFIGS)
+
+    def test_the_replay_takes_the_builds_width(self, monkeypatch, tmp_path):
+        """`kernel_threads` — the memory-derived width, or a stated `--kernel-threads` — reaches the replay unchanged: a replay's engine holds a trace memo over the windows its texts reach, which is what the division that width came from prices, and the oracle cannot start until the replay has exited."""
         events: list = []
         widths: dict[str, int | None] = {}
         _stub_chain(monkeypatch, events)
         _stub_gates(monkeypatch, events)
         replay = run_m1.run_replay_strings
-        walks = run_m1.run_emitted_order
 
         def recording_replay(spec, out_dir, inputs, kernel_threads=None, memo_inputs=None):
             widths["replay"] = kernel_threads
             return replay(spec, out_dir, inputs, kernel_threads=kernel_threads, memo_inputs=memo_inputs)
 
-        def recording_walks(spec, tables, out_dir, kernel_threads=None, ready=None):
-            widths["walks"] = kernel_threads
-            return walks(spec, tables, out_dir, kernel_threads=kernel_threads, ready=ready)
-
         monkeypatch.setattr(run_m1, "run_replay_strings", recording_replay)
-        monkeypatch.setattr(run_m1, "run_emitted_order", recording_walks)
         cores = usable_cores()
         _summary, gates = _run(tmp_path, kernel_threads=2)
         try:
             gates.join()
         finally:
             gates.close()
-        assert widths == {"replay": min(2, cores), "walks": min(2, cores)}
+        assert widths == {"replay": min(2, cores)}
+
+    def test_the_packing_and_the_walks_take_the_cores_not_the_builds_width(self, monkeypatch, tmp_path):
+        """A build stated one wide still packs every configuration at once up to the cores and hands the walk stage no width at all: the `Packing` pool is constructed at `_core_bound_threads`'s width and `run_emitted_order` is called with the tables and its pack wait alone, so neither `--kernel-threads` nor `KERNEL_THREADS_DEFAULT` reaches either pool."""
+        events: list = []
+        widths: dict[str, int] = {}
+        calls: list[set[str]] = []
+        _stub_chain(monkeypatch, events)
+        _stub_gates(monkeypatch, events)
+        packing_class = run_m1.Packing
+        walks = run_m1.run_emitted_order
+
+        class RecordingPacking(packing_class):
+            def __init__(self, threads: int) -> None:
+                widths["packing"] = threads
+                super().__init__(threads)
+
+        def recording_walks(spec, tables, out_dir, **rest):
+            calls.append(set(rest))
+            return walks(spec, tables, out_dir, **rest)
+
+        monkeypatch.setattr(run_m1, "Packing", RecordingPacking)
+        monkeypatch.setattr(run_m1, "run_emitted_order", recording_walks)
+        _summary, gates = _run(tmp_path, kernel_threads=1)
+        try:
+            gates.join()
+        finally:
+            gates.close()
+        assert widths == {"packing": run_m1._core_bound_threads(len(CONFIGS))}
+        assert calls == [{"ready"}]
 
 
 class TestTheMemoWait:
