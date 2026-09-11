@@ -333,6 +333,9 @@ _SCAFFOLD_TAIL = (
     "kinds",
     "exemplar",
 )
+_STAMPED_SCAFFOLD_KEYS = tuple(
+    key for key in _SCAFFOLD_HEAD + _SCAFFOLD_TAIL if key not in unit_cache.CARRY_PRESENTATION_KEYS
+)
 
 
 def unit_scaffold(unit, full_configs=ACCEPTANCE_CONFIGS) -> dict:
@@ -362,10 +365,19 @@ def unit_scaffold(unit, full_configs=ACCEPTANCE_CONFIGS) -> dict:
 
 
 def patch_fragment(
-    fragment: dict, unit, seams: list[dict], seam_assign, full_configs=ACCEPTANCE_CONFIGS
+    fragment: dict,
+    unit,
+    seams: list[dict],
+    seam_assign,
+    full_configs=ACCEPTANCE_CONFIGS,
+    *,
+    hold: bool = False,
 ) -> dict:
-    """The pass a fragment takes when its shard is written from the fragment rather than from its bytes on disk — every fresh fragment out of the spool, and a served one whose patched fields moved: re-stamp every scaffold field from the current workload and re-emit the secondary seams from the unit's rects — the projection's for a fresh unit, the store record's for a served one — under this build's home assignments. In-place key assignment keeps the fragment's key order, so a patched fragment writes the same bytes a from-scratch build writes for the unit, which is also what lets a served fragment whose patched fields did not move be copied byte for byte instead. `hold_stamp` then proves the stamp still describes the fragment."""
-    for key, value in unit_scaffold(unit, full_configs).items():
+    """The pass a fragment takes when its shard is written from the fragment rather than from its bytes on disk — every fresh fragment out of the spool, and a served one whose patched fields moved: re-stamp every scaffold field from the current workload and re-emit the secondary seams from the unit's rects — the projection's for a fresh unit, the store record's for a served one — under this build's home assignments. In-place key assignment keeps the fragment's key order, so a patched fragment writes the same bytes a from-scratch build writes for the unit, which is also what lets a served fragment whose patched fields did not move be copied byte for byte instead. The scaffold and the secondary seams are the whole of what the patch writes, and the seams sit outside the carry projection, so with `hold` set `hold_scaffold` proves the fragment's stamp survives the patch by comparing the scaffold's in-projection keys before they are written — the fresh fragment's proof, whose stamp a worker took moments before; a served fragment is patched without it, since its stamp is the prior build's, already proved once at that build's write, and this build proves it again on the verification sample (`_recompute_fragment`, `hold_stamp`) rather than per unit here."""
+    scaffold = unit_scaffold(unit, full_configs)
+    if hold:
+        hold_scaffold(fragment, scaffold)
+    for key, value in scaffold.items():
         fragment[key] = value
     entries = [
         {
@@ -381,8 +393,19 @@ def patch_fragment(
     return fragment
 
 
+def hold_scaffold(fragment: dict, scaffold: dict) -> None:
+    """Prove that a fresh fragment's `content_key` survives `patch_fragment`, by comparison rather than by hashing. The keys `unit_scaffold` writes inside the carry projection (`_STAMPED_SCAFFOLD_KEYS`) are the whole of what the patch can move under the stamp: the class the parent promotes, the group and the machine flags it copies onto the unit, the codepoints and the config badge derived from them. The fragment arrives from the spool stamped over every field the patch leaves alone, so equality over those keys says what re-hashing the patched fragment (`hold_stamp`) says, for one comparison per key instead of a sorted-key dump of the whole fragment, on every fresh unit of the parent's serial write. A difference means the parent's workload disagrees with what the worker stamped under, which is a bug in the build rather than a fragment to ship."""
+    moved = [key for key in _STAMPED_SCAFFOLD_KEYS if fragment[key] != scaffold[key]]
+    if moved:
+        raise SystemExit(
+            f"unit {fragment.get('id')}: the content key stamped at drafting was taken under other values of "
+            f"{', '.join(moved)} than the write patches onto the fragment; a field inside the carry "
+            f"projection moved between the two"
+        )
+
+
 def hold_stamp(fragment: dict) -> dict:
-    """Prove that a fragment's `content_key` is the hash of the fragment as it stands at the write, once `patch_fragment` has given it this build's scaffold. The stamp was taken at drafting (`unit_to_json`), over the same adjudicable fields the patch leaves where they were — the promoted class the draft already carried, and nothing the patch writes is inside the projection — so this is a check rather than a stamping: a difference means the id the fragment was drafted under names other content than the fragment carries, which is a bug in the projection's exclusions rather than a fragment to ship."""
+    """Prove that a fragment's `content_key` is the hash of the fragment as it stands at the write, once `patch_fragment` has given it this build's scaffold. The stamp was taken at drafting (`unit_to_json`), and it survives the patch because the parent's values for the scaffold keys inside the projection (`_STAMPED_SCAFFOLD_KEYS`) equal the worker's — the promoted class the draft already carried among them — while the rest of what the patch writes sits outside it; so this is a check rather than a stamping: a difference means the id the fragment was drafted under names other content than the fragment carries, which is a bug in the projection's exclusions or in the parent's workload rather than a fragment to ship. On the write path `hold_scaffold` proves the same claim by comparing those keys; this fuller proof is the served sample's (`_recompute_fragment`), where a unit recomputed from nothing is held against the stamp the store served."""
     stamp = fragment.get("content_key")
     recomputed = unit_cache.carry_content_hash(fragment)
     if stamp != recomputed:
@@ -400,7 +423,7 @@ def unit_to_json(
     *,
     final_class: str | None = None,
 ) -> dict:
-    """The shard fragment for one enriched unit as phase 1 drafts it, at the moment the unit is enriched and while its batch's shapes are still in the memo: everything the enrichment and the drafter say, under the unit's own identity. The fragment is laid down first without its drafts and with `final_class` — the verdict family an UNMATCHED unit is promoted to, which the runner knows the moment it assigns the family — as its class, then stamped: `content_key` is the hash of that projection and the unit's id is `unit_cache.unit_id_for` over it, written onto the unit as well as the fragment, so what the drafter says (the policy stub quotes the id) and what the seam-home projection carries are already under the final id. The ledger-derived fields carry whatever the unit holds now — no echo, no cluster, every secondary seam homeless — and those are placeholders: `patch_fragment` writes over them when the fragment is written, and every one of them sits outside the carry projection, so the stamp taken here is the stamp the written fragment carries (`hold_stamp` proves it), and nothing the drafter or the enricher produces may depend on them (the drafter reads the window, its configs, the spans, seams and trace, and nothing else). A slim unit (`audit.slim_fragment`: machine-approved or verdict-exempt) never visits the drafter — whose pin draft replays a shaping per unit — and its fragment omits `SLIM_OMITTED_KEYS` outright, keys absent rather than null, because nothing under them reaches a reviewer; the enricher already rendered it no explain. Both of the fields that decide the shape are settled before this runs: the machine flags by the comparator and oracle in the same phase-1 step, the exemption by the ledger at load."""
+    """The shard fragment for one enriched unit as phase 1 drafts it, at the moment the unit is enriched and while its batch's shapes are still in the memo: everything the enrichment and the drafter say, under the unit's own identity. The fragment is laid down first without its drafts and with `final_class` — the verdict family an UNMATCHED unit is promoted to, which the runner knows the moment it assigns the family — as its class, then stamped: `content_key` is the hash of that projection and the unit's id is `unit_cache.unit_id_for` over it, written onto the unit as well as the fragment, so what the drafter says (the policy stub quotes the id) and what the seam-home projection carries are already under the final id. The ledger-derived fields carry whatever the unit holds now — no echo, no cluster, every secondary seam homeless — and those are placeholders: `patch_fragment` writes over them when the fragment is written, and every one of them sits outside the carry projection; the scaffold keys inside it (`_STAMPED_SCAFFOLD_KEYS`) carry the parent's values already, which `hold_scaffold` proves at the write, and the two halves together are why the stamp taken here is the stamp the written fragment carries; nothing the drafter or the enricher produces may depend on them (the drafter reads the window, its configs, the spans, seams and trace, and nothing else). A slim unit (`audit.slim_fragment`: machine-approved or verdict-exempt) never visits the drafter — whose pin draft replays a shaping per unit — and its fragment omits `SLIM_OMITTED_KEYS` outright, keys absent rather than null, because nothing under them reaches a reviewer; the enricher already rendered it no explain. Both of the fields that decide the shape are settled before this runs: the machine flags by the comparator and oracle in the same phase-1 step, the exemption by the ledger at load."""
     unit = enriched.unit
     scaffold = unit_scaffold(unit, full_configs)
     if final_class is not None:
@@ -1999,9 +2022,7 @@ def build_m1(
                     raise SystemExit(
                         f"the fragment for {unit.unit_id} cannot be read back: {error}"
                     ) from None
-                fragment = patch_fragment(fragment, unit, seams, seam_assign)
-                if cached is None:
-                    hold_stamp(fragment)
+                fragment = patch_fragment(fragment, unit, seams, seam_assign, hold=cached is None)
                 yield _Emission(
                     unit.unit_id, fragment["content_key"], _policy_file(fragment), fragment=fragment
                 )

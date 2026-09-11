@@ -18,6 +18,7 @@ import yaml
 
 from rebuild.pipeline import fixtures, kernel_exec, spec_load
 from rebuild.review import unit_cache, unit_index
+from rebuild.review import build as review_build
 from rebuild.review.audit import SLIM_OMITTED_KEYS, AuditRow, Unit, slim_fragment
 from rebuild.review.build import (
     SITE_BEFORE_FONT,
@@ -303,6 +304,23 @@ def _walked(monkeypatch) -> list[dict[str, set[str]]]:
 
     monkeypatch.setattr(unit_cache, "locate_prior_fragments", spy)
     return calls
+
+
+def test_a_fresh_fragment_the_parent_would_patch_under_another_scaffold_fails_the_build(
+    mini_bundle, tmp_path, monkeypatch
+):
+    """The write's guard end to end: a cold build whose parent holds a different value for a stamped scaffold key than the worker drafted under fails with `hold_scaffold`'s `SystemExit` naming the key, instead of shipping a fragment whose id names other content. A fresh unit's id is empty until `unit_to_json` stamps it, so a scaffold taken over a unit that already carries one is the write's, and moving its group there is the parent disagreeing with the worker; `jobs=1` drafts in this process so the patched `unit_scaffold` reaches both calls."""
+    unit_scaffold = review_build.unit_scaffold
+
+    def moved_at_the_write(unit, *args, **kwargs):
+        scaffold = unit_scaffold(unit, *args, **kwargs)
+        if unit.unit_id:
+            scaffold["group"] = f"{scaffold['group']}-moved"
+        return scaffold
+
+    monkeypatch.setattr(review_build, "unit_scaffold", moved_at_the_write)
+    with pytest.raises(SystemExit, match=r"other values of group than the write patches"):
+        _build(tmp_path / "surface", mini_bundle, jobs=1)
 
 
 def test_a_served_build_places_every_unit_from_the_store_without_walking_the_shards(
