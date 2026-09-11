@@ -1093,6 +1093,8 @@ class Plan:
     sweep_jobs: int = 1
     sweep_reason: str = ""
     kernel_threads: int = 1
+    replay_threads: int = 1
+    replay_reason: str = ""
     make_test_workers: int = 1
     conform_jobs: int = 1
     conform_horizon: int = CONFORM_HORIZON_DEFAULT
@@ -1164,6 +1166,11 @@ def make_test_pool_width(*, ncores: int | None = None) -> int:
     return max(1, min(MAKE_TEST_POOL_WORKERS, ncores or memory_budget.usable_cores()))
 
 
+def _make_test_pool_bytes(*, skip_make_test: bool, ncores: int | None) -> float:
+    """What gate:make-test's pytest pool holds beside the run_m1 step, the co-resident term both the table build's width and the string replay's take off the box before dividing, priced once so the two cannot drift apart: FONT_SUITE_WORKER_BYTES apiece for as many workers as `make_test_pool_width` says the cycle will hand that child, and nothing on a pass whose gate is skipped."""
+    return 0 if skip_make_test else _font_suite_worker_bytes() * make_test_pool_width(ncores=ncores)
+
+
 def kernel_threads_budget(
     *, skip_make_test: bool = False, ncores: int | None = None, total_bytes: int | None = None
 ) -> int:
@@ -1173,8 +1180,57 @@ def kernel_threads_budget(
     """
     from rebuild.pipeline.kernel_exec import kernel_threads_default
 
-    coresident = 0 if skip_make_test else _font_suite_worker_bytes() * make_test_pool_width(ncores=ncores)
+    coresident = _make_test_pool_bytes(skip_make_test=skip_make_test, ncores=ncores)
     return kernel_threads_default(coresident_bytes=coresident, total_bytes=total_bytes)
+
+
+def _replay_fit_terms(*, skip_make_test: bool, ncores: int | None) -> tuple[float, int]:
+    """The co-resident term and the cap `replay_threads_budget` and `replay_threads_derivation` share, derived once so the width and the clause that explains it are two readings of one derivation. The term is gate:make-test's pytest pool, `_make_test_pool_bytes`, the one term `kernel_threads_budget` subtracts too, and nothing else, since the replay's own engines are built after the table build's process has exited and hold no memo of its. The cap is the configuration count and the cores this process may actually run on, the two non-memory bounds `run_m1._replay_threads` applies."""
+    from rebuild.pipeline.conform import SETTLEMENT_CONFIGS
+    from rebuild.tools import memory_budget
+
+    coresident = _make_test_pool_bytes(skip_make_test=skip_make_test, ncores=ncores)
+    return coresident, min(len(SETTLEMENT_CONFIGS), ncores or memory_budget.usable_cores())
+
+
+def replay_threads_budget(
+    *, skip_make_test: bool = False, ncores: int | None = None, total_bytes: int | None = None
+) -> int:
+    """The string replay's width for this cycle, the `--replay-threads` the plan hands run_m1: `kernel_exec.REPLAY_PEAK_BYTES` — one configuration's horizon-4 walk — divided into the box with gate:make-test's pytest pool taken off it first, exactly the pool `kernel_threads_budget` subtracts for the table build, since that pool is hot across the whole run_m1 step and the replay runs inside it; a pass whose gate is skipped subtracts nothing. The arithmetic underneath is `kernel_exec.replay_threads_default`'s, with `AMS_REPLAY_THREADS` short-circuiting ahead of it, so a stated width wins here as it does for a bare run_m1.
+
+    Where this parts company with `kernel_threads_budget` is the cap: the answer is held at the configuration count and the cores here rather than left to `run_m1._replay_threads` alone. On both fleet boxes the memory answer runs past the configuration count with or without the pool subtracted — the pool is insurance for a smaller box, not a number that moves the width here — so a plan line naming the bare memory answer would name a width the run never takes on any machine that runs it; the cap makes the line and the argv the wave's real width, and the child's own `min()` then only confirms it. A stated `AMS_REPLAY_THREADS` past the configuration count is cut to it here the way the crate and `run_m1._replay_threads` would cut it, which narrows nothing the box's memory decided. `ncores` and `total_bytes` are keywords for the reason every budget here takes its box as one — an assertion about a machine the suite is not running on has to be a pure function over an invented one.
+    """
+    from rebuild.pipeline.kernel_exec import replay_threads_default
+
+    coresident, cap = _replay_fit_terms(skip_make_test=skip_make_test, ncores=ncores)
+    return max(1, min(replay_threads_default(coresident_bytes=coresident, total_bytes=total_bytes), cap))
+
+
+def replay_threads_derivation(
+    *, skip_make_test: bool = False, ncores: int | None = None, total_bytes: int | None = None
+) -> str:
+    """`replay_threads_budget` said out loud for the plan line, a reading of the same derivation on every route so the clause can never explain a width other than the one printed beside it: how many waves the width makes of the configuration count, then either the `AMS_REPLAY_THREADS` the width came from — with the cap it was cut to or the floor it was raised to, when either moved it — or `memory_budget.describe_fit` over the terms the budget divides and the cap it holds the answer at. A stated width is described as stated rather than by the arithmetic it outranked, since a line explaining 2 with a division that answers 5 is the disagreement a derivation clause exists to prevent."""
+    from rebuild.pipeline.conform import SETTLEMENT_CONFIGS
+    from rebuild.pipeline.kernel_exec import REPLAY_PEAK_BYTES
+    from rebuild.tools import memory_budget
+
+    coresident, cap = _replay_fit_terms(skip_make_test=skip_make_test, ncores=ncores)
+    width = replay_threads_budget(skip_make_test=skip_make_test, ncores=ncores, total_bytes=total_bytes)
+    count = len(SETTLEMENT_CONFIGS)
+    waves = (
+        "every settlement configuration in one wave"
+        if width >= count
+        else f"{-(-count // width)} waves over {count} settlement configurations"
+    )
+    stated = os.environ.get("AMS_REPLAY_THREADS")
+    if stated is not None:
+        asked = int(stated)
+        moved = ", floored at one" if asked < 1 else f", cut to the cap of {cap}" if asked > width else ""
+        return f"{waves}; AMS_REPLAY_THREADS states {stated.strip()}{moved}"
+    fit = memory_budget.describe_fit(
+        REPLAY_PEAK_BYTES, coresident_bytes=coresident, cap=cap, total_bytes=total_bytes
+    )
+    return f"{waves}; {fit}"
 
 
 def sweep_job_budget(ncores: int | None = None, total_bytes: int | None = None) -> int:
@@ -1399,6 +1455,12 @@ def build_plan(
     kernel_threads = kernel_threads_budget(
         skip_make_test=no_make_test, ncores=ncores, total_bytes=total_bytes
     )
+    replay_threads = replay_threads_budget(
+        skip_make_test=no_make_test, ncores=ncores, total_bytes=total_bytes
+    )
+    replay_reason = replay_threads_derivation(
+        skip_make_test=no_make_test, ncores=ncores, total_bytes=total_bytes
+    )
     surface_dir = review_out if review_out is not None else REVIEW_OUT
     do_merge = (do_carry or store_only) and not no_merge and review_out is None
     do_retention = not keep_history and not first_run and review_out is None
@@ -1445,6 +1507,8 @@ def build_plan(
         sweep_jobs=sweep_jobs,
         sweep_reason=sweep_reason,
         kernel_threads=kernel_threads,
+        replay_threads=replay_threads,
+        replay_reason=replay_reason,
         make_test_workers=make_test_workers,
         conform_jobs=conform_jobs,
         conform_horizon=conform_horizon,
@@ -1481,7 +1545,7 @@ def build_plan(
         run_m1_argv = ["uv", "run", "python", "-m", "rebuild.pipeline.run_m1"]
         if sweep_jobs > 1:
             run_m1_argv += ["--jobs", str(sweep_jobs)]
-        run_m1_argv += ["--kernel-threads", str(kernel_threads)]
+        run_m1_argv += ["--kernel-threads", str(kernel_threads), "--replay-threads", str(replay_threads)]
         if fresh:
             run_m1_argv += ["--fresh-oracle-cache"]
         plan.steps.append(Step("run_m1", run_m1_argv, run_m1_note, lane="build"))
@@ -1763,7 +1827,7 @@ def _render_concurrency(plan: Plan) -> list[str]:
         return [
             "",
             "  Concurrency (--skip-gates):",
-            f"    Lane build only; no gates; run_m1 sweeps --jobs {plan.sweep_jobs} ({plan.sweep_reason}) at --kernel-threads {'not passed (gates-only route)' if plan.reuse_run_m1 else plan.kernel_threads}, surface-build --jobs {plan.surface_jobs} ({plan.surface_reason}), surface-build --signature-jobs {plan.signature_jobs} ({plan.signature_reason}), plumbing --standing-fill-jobs {plan.standing_fill_jobs} ({plan.standing_fill_reason})",
+            f"    Lane build only; no gates; run_m1 sweeps --jobs {plan.sweep_jobs} ({plan.sweep_reason}) at --kernel-threads {'not passed (gates-only route)' if plan.reuse_run_m1 else plan.kernel_threads} and --replay-threads {'not passed (gates-only route)' if plan.reuse_run_m1 else plan.replay_threads}, surface-build --jobs {plan.surface_jobs} ({plan.surface_reason}), surface-build --signature-jobs {plan.signature_jobs} ({plan.signature_reason}), plumbing --standing-fill-jobs {plan.standing_fill_jobs} ({plan.standing_fill_reason})",
         ]
     t0_lane = "gate:js" if plan.skip_make_test else "gate:js, gate:make-test"
     lines = [
@@ -1820,6 +1884,14 @@ def _render_concurrency(plan: Plan) -> list[str]:
         )
     else:
         lines.append(f"    run_m1 --kernel-threads          : {plan.kernel_threads}  ({kernel_reason})")
+    if plan.reuse_run_m1:
+        lines.append(
+            "    run_m1 --replay-threads          : not passed (the gates-only route replays nothing, so there is no wave to size)"
+        )
+    else:
+        lines.append(
+            f"    run_m1 --replay-threads          : {plan.replay_threads}  (the string replay's own ceiling, {plan.replay_reason})"
+        )
     lines.append(f"    surface-build --jobs             : {plan.surface_jobs}  ({plan.surface_reason})")
     lines.append(f"    surface-build --signature-jobs   : {plan.signature_jobs}  ({plan.signature_reason})")
     lines.append(
@@ -3295,6 +3367,7 @@ def cycle_summary_payload(report: CycleReport, failures: list[str], plan: Plan, 
             "do_merge": plan.do_merge,
             "conform_horizon": plan.conform_horizon,
             "kernel_threads": None if plan.reuse_run_m1 else plan.kernel_threads,
+            "replay_threads": None if plan.reuse_run_m1 else plan.replay_threads,
             "pool_policy": plan.pool_policy,
             "skip_gates": plan.skip_gates,
             "skip_conform": plan.skip_conform,

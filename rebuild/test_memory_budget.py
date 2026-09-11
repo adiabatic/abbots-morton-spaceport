@@ -164,6 +164,16 @@ class TestTheWidthsAlreadyOnRecord:
         monkeypatch.delenv("AMS_KERNEL_THREADS", raising=False)
         assert kernel_threads_default(total_bytes=total) >= len(SETTLEMENT_CONFIGS) - 1
 
+    @pytest.mark.parametrize("total", (BOX_32_GIB, BOX_48_GIB))
+    def test_the_replay_divisor_seats_every_configuration_on_both_fleet_boxes(self, total: int, monkeypatch):
+        """The criterion `REPLAY_PEAK_BYTES` is chosen against, as an assertion a re-seed cannot quietly drop: on both fleet machines the string replay's memory answer covers every settlement configuration, so the whole universe replays in one wave and the stage never waits out a second wave holding one configuration. The second assertion is the constant's relation to the build's divisor — a replay's engine holds a fraction of what a delta holds through enumeration, so a seed that prices it at a delta or more has stopped measuring the replay. The override is cleared first, as the delta-wave pin clears its own."""
+        from rebuild.pipeline.conform import SETTLEMENT_CONFIGS
+        from rebuild.pipeline.kernel_exec import REPLAY_PEAK_BYTES, replay_threads_default
+
+        monkeypatch.delenv("AMS_REPLAY_THREADS", raising=False)
+        assert replay_threads_default(total_bytes=total) >= len(SETTLEMENT_CONFIGS)
+        assert 0 < REPLAY_PEAK_BYTES < DELTA_PEAK_BYTES
+
     def test_the_memo_term_is_smaller_in_kind_than_the_divisor(self):
         """The memo `default` leaves alive for the wave is one hash map and its pools, while the divisor is a configuration enumerated from scratch and held through its memo write, so the co-resident term is strictly the smaller of the two. Seeding them equal charges the wave a whole configuration for a snapshot, and fails here."""
         assert 0 < DEFAULT_MEMO_BYTES < DELTA_PEAK_BYTES

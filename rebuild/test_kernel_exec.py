@@ -572,8 +572,17 @@ class TestTheKernelInvocation:
         assert seen["kernel_threads"] == 5
         assert "fold_jobs" not in seen
 
-    @pytest.mark.parametrize("argv, threads", [([], None), (["--kernel-threads", "5"], 5)])
-    def test_the_cli_carries_the_thread_width_into_run(self, monkeypatch, argv, threads):
+    @pytest.mark.parametrize(
+        "argv, kernel, replay",
+        [
+            ([], None, None),
+            (["--kernel-threads", "5"], 5, None),
+            (["--replay-threads", "3"], None, 3),
+            (["--kernel-threads", "5", "--replay-threads", "3"], 5, 3),
+        ],
+    )
+    def test_the_cli_carries_the_thread_width_into_run(self, monkeypatch, argv, kernel, replay):
+        """Each flag reaches `run` as its own keyword and neither fills in for the other: a `--replay-threads` that arrived as `kernel_threads`, or the reverse, would leave every seam past `run` green while the cycle's argv sized the wrong stage."""
         from rebuild.tools import artifact_cycle
 
         seen = {}
@@ -590,7 +599,7 @@ class TestTheKernelInvocation:
         monkeypatch.setattr(run_m1, "run", run)
         with pytest.raises(Reached):
             run_m1.main(argv)
-        assert seen["kernel_threads"] == threads
+        assert seen["kernel_threads"] == kernel and seen["replay_threads"] == replay
         assert "fold_jobs" not in seen
 
 
@@ -673,8 +682,9 @@ class TestTheMemoryDerivedThreadDefault:
 
     @pytest.fixture(autouse=True)
     def _no_inherited_override(self, monkeypatch):
-        """A shell that exported a width of its own must not decide what these assertions mean, so the variable is cleared before each of them and set back only by the tests whose subject it is."""
+        """A shell that exported a width of its own must not decide what these assertions mean, so both variables are cleared before each of them and set back only by the tests whose subject they are."""
         monkeypatch.delenv("AMS_KERNEL_THREADS", raising=False)
+        monkeypatch.delenv("AMS_REPLAY_THREADS", raising=False)
 
     def test_the_shipped_default_is_a_startable_width(self):
         """Whatever box resolved it, the constant is an integer a pool can start on: `how_many_fit` floors at one, because a build that refuses to start on a small machine is strictly worse than one that runs slowly. It also has to stay a plain module attribute rather than becoming a callable — `TestTheKernelInvocation` parametrizes on it by reference at import, and a function object there would be compared against a thread count on every box."""
@@ -693,6 +703,13 @@ class TestTheMemoryDerivedThreadDefault:
         monkeypatch.setenv("AMS_KERNEL_THREADS", junk)
         with pytest.raises(RuntimeError, match="AMS_KERNEL_THREADS"):
             kernel_exec.kernel_threads_default(total_bytes=34_359_738_368)
+
+    @pytest.mark.parametrize("junk", ["", "   ", "banana", "9GB", "2.5"])
+    def test_a_replay_value_that_is_not_a_width_is_refused_the_same_way(self, monkeypatch, junk):
+        """`AMS_REPLAY_THREADS` is the replay's twin of the kernel knob and is read the same way: a value that is not a bare count is refused with the variable named, never replaced by the derived width, and the kernel knob's own state has no say in it."""
+        monkeypatch.setenv("AMS_REPLAY_THREADS", junk)
+        with pytest.raises(RuntimeError, match="AMS_REPLAY_THREADS"):
+            kernel_exec.replay_threads_default(total_bytes=34_359_738_368)
 
     @pytest.mark.parametrize(
         "total, wanted", [(4_000_000_000, 1), (34_359_738_368, 4), (32_000_000_000, 3), (64_000_000_000, 9)]
@@ -858,21 +875,48 @@ class TestTheReplayStage:
         monkeypatch.setattr(run_m1, "replay_structure_stamp", lambda spec, root=None: "s1")
         digests = {name: f"d-{name}" for name in SPEC.runes}
         monkeypatch.setattr(run_m1.fingerprint, "rune_digests", lambda root: dict(digests))
-        first = run_m1.run_replay_strings(SPEC, tmp_path, "stamp", kernel_threads=2)
+        first = run_m1.run_replay_strings(SPEC, tmp_path, "stamp")
         assert first["pass"] and first["families"] is None and first["walked"]
-        assert asked == [(tuple(conform.SETTLEMENT_CONFIGS), run_m1.REPLAY_HORIZON, None, 2)]
+        assert asked == [
+            (tuple(conform.SETTLEMENT_CONFIGS), run_m1.REPLAY_HORIZON, None, run_m1._replay_threads(None))
+        ]
         assert run_m1.read_replay_record(tmp_path) == first
         assert first["runes"] == digests and first["structure"] == "s1"
 
-        again = run_m1.run_replay_strings(SPEC, tmp_path, "stamp", kernel_threads=2)
+        again = run_m1.run_replay_strings(SPEC, tmp_path, "stamp")
         assert again["families"] == [] and not again["walked"] and again["pass"]
         assert len(asked) == 1
         assert run_m1.read_replay_record(tmp_path) == again
 
         digests["qsPea"] = "d-qsPea-2"
-        third = run_m1.run_replay_strings(SPEC, tmp_path, "stamp", kernel_threads=2)
+        third = run_m1.run_replay_strings(SPEC, tmp_path, "stamp")
         assert third["families"] is not None and "qsPea" in third["families"] and third["walked"]
         assert asked[-1][2] == third["families"]
+
+    def test_the_stage_walks_at_its_own_width_and_a_stated_one_is_only_ever_narrowed(
+        self, monkeypatch, tmp_path
+    ):
+        """The width the crate is asked at is the replay's own derivation, not the table build's: with none stated it is `_replay_threads(None)` — `kernel_exec.replay_threads_default` capped at the configuration count and the cores — a stated one reaches the crate as stated, and a stated one past the configuration count is cut to it, since the `min()` narrows a width and never widens one. The override is cleared so the derived arm is the arithmetic's and not the shell's, and the cores are pinned wide so the configuration count is the cap that binds."""
+        asked: list = []
+
+        def replay_strings(
+            spec, out_dir, configs, *, horizon, families, threads, timings=False, memo_dir=None
+        ):
+            asked.append(threads)
+            return {config: {"texts": 1, "windows": 1, "skipped": 0} for config in configs}
+
+        monkeypatch.setattr(kernel_exec, "replay_strings", replay_strings)
+        monkeypatch.delenv("AMS_REPLAY_THREADS", raising=False)
+        monkeypatch.setattr(run_m1, "usable_cores", lambda: 64)
+        count = len(conform.SETTLEMENT_CONFIGS)
+        assert run_m1._replay_threads(None) == min(kernel_exec.replay_threads_default(), count)
+        run_m1.run_replay_strings(SPEC, tmp_path, None)
+        run_m1.run_replay_strings(SPEC, tmp_path, None, replay_threads=1)
+        run_m1.run_replay_strings(SPEC, tmp_path, None, replay_threads=count + 3)
+        assert asked == [run_m1._replay_threads(None), 1, count]
+        monkeypatch.setattr(run_m1, "usable_cores", lambda: 2)
+        assert run_m1._replay_threads(None) == min(kernel_exec.replay_threads_default(), count, 2)
+        assert run_m1._replay_threads(count) == min(count, 2)
 
     def test_a_memo_file_absent_or_restamped_widens_the_walk_and_asks_for_a_dump(self, monkeypatch, tmp_path):
         """The memo stamp covers modules the replay's own stamp does not, so a configuration's settle memo file that is absent or under another stamp makes a build that would otherwise walk nothing walk the whole universe and file the dumps that refill it; a rune edit walks its families and files none, and a pass where every file stands and nothing moved walks nothing. A dump the stub never filed is a warning, never a red stage."""

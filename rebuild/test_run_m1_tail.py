@@ -11,11 +11,11 @@ from rebuild.pipeline import conform, defects, fixtures, kernel_exec, run_m1
 from rebuild.pipeline import table as table_module
 from rebuild.tools import artifact_cycle as ac
 from rebuild.tools import console
-from rebuild.tools.memory_budget import usable_cores
 
 SPEC = fixtures.mini_spec()
 STAMP = "tail-test"
 CONFIGS = conform.SETTLEMENT_CONFIGS
+BOX_32_GIB = 34_359_738_368
 TABLES = {config: (SimpleNamespace(rules=()), SimpleNamespace(rows=())) for config in CONFIGS}
 GREEN_REPLAY = {"pass": True, "complaint": None, "horizon": run_m1.REPLAY_HORIZON, "families": None}
 GREEN_WITNESSES = {"pass": True, "failures": [], "configs": {}}
@@ -77,7 +77,7 @@ def _stub_gates(
         lambda spec, out_dir=None, inputs=None, kernel_threads=None, packing=None: (TABLES, {}),
     )
 
-    def run_replay_strings(spec, out_dir, inputs, kernel_threads=None, memo_inputs=None):
+    def run_replay_strings(spec, out_dir, inputs, replay_threads=None, memo_inputs=None):
         events.append("replay:start")
         if on_replay is not None:
             on_replay()
@@ -434,26 +434,34 @@ class TestTheTailWidth:
         monkeypatch.setattr(run_m1, "usable_cores", lambda: 64)
         assert run_m1._core_bound_threads(len(CONFIGS)) == len(CONFIGS)
 
-    def test_the_replay_takes_the_builds_width(self, monkeypatch, tmp_path):
-        """`kernel_threads` — the memory-derived width, or a stated `--kernel-threads` — reaches the replay unchanged: a replay's engine holds a trace memo over the windows its texts reach, which is what the division that width came from prices, and the oracle cannot start until the replay has exited."""
+    def test_the_replay_takes_its_own_width_not_the_builds(self, monkeypatch, tmp_path):
+        """A build stated `--kernel-threads 2` replays at the replay's own derived width, not at 2: the stage is priced by `kernel_exec.REPLAY_PEAK_BYTES` rather than at the table build's width, so `run` hands it `replay_threads` — None for the derived width, or a stated `--replay-threads`, which reaches the stage as stated — and never the build's. The crate is stubbed at the seam it is asked through, so what is recorded is the width the crate would have been asked at; the box is pinned at the fleet's 32 GiB Mac and the cores wide, so the derived width is the configuration count wherever the suite runs."""
         events: list = []
-        widths: dict[str, int | None] = {}
+        widths: list[int] = []
+        real_replay = run_m1.run_replay_strings
         _stub_chain(monkeypatch, events)
         _stub_gates(monkeypatch, events)
-        replay = run_m1.run_replay_strings
+        monkeypatch.setattr(run_m1, "run_replay_strings", real_replay)
+        monkeypatch.setattr(run_m1, "replay_structure_stamp", lambda spec, root=None: "s1")
+        monkeypatch.setattr(run_m1.fingerprint, "rune_digests", lambda root: {})
+        monkeypatch.delenv("AMS_REPLAY_THREADS", raising=False)
+        monkeypatch.setenv("AMS_TOTAL_MEMORY_BYTES", str(BOX_32_GIB))
+        monkeypatch.setattr(run_m1, "usable_cores", lambda: 64)
 
-        def recording_replay(spec, out_dir, inputs, kernel_threads=None, memo_inputs=None):
-            widths["replay"] = kernel_threads
-            return replay(spec, out_dir, inputs, kernel_threads=kernel_threads, memo_inputs=memo_inputs)
+        def replay_strings(
+            spec, out_dir, configs, *, horizon, families, threads, timings=False, memo_dir=None
+        ):
+            widths.append(threads)
+            return {config: {"texts": 1, "windows": 1, "skipped": 0} for config in configs}
 
-        monkeypatch.setattr(run_m1, "run_replay_strings", recording_replay)
-        cores = usable_cores()
-        _summary, gates = _run(tmp_path, kernel_threads=2)
-        try:
-            gates.join()
-        finally:
-            gates.close()
-        assert widths == {"replay": min(2, cores)}
+        monkeypatch.setattr(kernel_exec, "replay_strings", replay_strings)
+        for stated in (None, 1):
+            _summary, gates = _run(tmp_path / f"stated-{stated}", kernel_threads=2, replay_threads=stated)
+            try:
+                gates.join()
+            finally:
+                gates.close()
+        assert widths == [len(CONFIGS), 1] and len(CONFIGS) != 2
 
     def test_the_packing_and_the_walks_take_the_cores_not_the_builds_width(self, monkeypatch, tmp_path):
         """A build stated one wide still packs every configuration at once up to the cores and hands the walk stage no width at all: the `Packing` pool is constructed at `_core_bound_threads`'s width and `run_emitted_order` is called with the tables and its pack wait alone, so neither `--kernel-threads` nor `KERNEL_THREADS_DEFAULT` reaches either pool."""

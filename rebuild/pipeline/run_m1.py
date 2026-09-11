@@ -230,7 +230,7 @@ def memo_seed(out_dir: Path, stamp: str, scratch: Path) -> MemoSeed | None:
 
 
 def _table_build_threads(kernel_threads: int | None) -> int:
-    """The table build's width, which the string replay takes as well: `kernel_threads`, or the memory-derived `kernel_exec.KERNEL_THREADS_DEFAULT`, capped at the configuration count and the cores this process may actually run on. Factored out of `build_tables` so `run` hands the replay the width the build ran at."""
+    """The table build's width: `kernel_threads`, or the memory-derived `kernel_exec.KERNEL_THREADS_DEFAULT`, capped at the configuration count and the cores this process may actually run on. The string replay does not take it; `_replay_threads` is that stage's own."""
     return max(
         1,
         min(
@@ -241,8 +241,20 @@ def _table_build_threads(kernel_threads: int | None) -> int:
     )
 
 
+def _replay_threads(replay_threads: int | None) -> int:
+    """The string replay's width: `replay_threads`, or `kernel_exec.replay_threads_default()` — `REPLAY_PEAK_BYTES` divided into the box, with nothing co-resident taken off first — capped at the configuration count and the cores this process may actually run on, the same three-term shape as `_table_build_threads` over the replay's own divisor. The replay does not inherit the build's width because the two stages are priced differently: the build's division takes `default`'s live memo off the box before dividing by a delta held through enumeration, while a replay's engines are built after that process has exited and each holds a fraction of a delta, so the build's width is narrower than the box has room for here, and on a box where it falls short of the configuration count it costs the stage a second wave holding one configuration — one whole walk of wall for a stage the glyph chain waits on (`settle_memo_wait`). `AMS_REPLAY_THREADS` and `--replay-threads` narrow this stage; `AMS_KERNEL_THREADS` and `--kernel-threads` do not reach it. The `min()` only ever narrows a memory-derived width and never widens one."""
+    return max(
+        1,
+        min(
+            replay_threads or kernel_exec.replay_threads_default(),
+            len(conform.SETTLEMENT_CONFIGS),
+            usable_cores(),
+        ),
+    )
+
+
 def _core_bound_threads(count: int) -> int:
-    """The width of a per-configuration pool whose task is core-bound and holds nothing the memory-derived width prices: one task per settlement configuration, capped at the cores this process may actually run on, floored at one. A window packer holds a zlib stream and `_pack_windows`'s copy buffer — `_pack_windows` over the plain `default` enumeration from a `ThreadPoolExecutor` measures 1.26s, 1.22s and 1.30s per task at widths 1, 3 and 5 with maxrss 0.044, 0.054 and 0.062 GB, so it scales flat and widening it costs nothing — and a shipped-order walk is one single-threaded crate process that holds the rules and the labels and streams the rows, 0.105 GB of child RSS against a table build whose peak is the crate's. `AMS_KERNEL_THREADS` and `--kernel-threads` deliberately do not reach a pool sized here: that knob exists to keep the table build out of swap, so a build stated one wide narrows the crate's delta wave and the string replay while the packing and the walks still run every configuration at once."""
+    """The width of a per-configuration pool whose task is core-bound and holds nothing the memory-derived width prices: one task per settlement configuration, capped at the cores this process may actually run on, floored at one. A window packer holds a zlib stream and `_pack_windows`'s copy buffer — `_pack_windows` over the plain `default` enumeration from a `ThreadPoolExecutor` measures 1.26s, 1.22s and 1.30s per task at widths 1, 3 and 5 with maxrss 0.044, 0.054 and 0.062 GB, so it scales flat and widening it costs nothing — and a shipped-order walk is one single-threaded crate process that holds the rules and the labels and streams the rows, 0.105 GB of child RSS against a table build whose peak is the crate's. `AMS_KERNEL_THREADS` and `--kernel-threads` deliberately do not reach a pool sized here: that knob exists to keep the table build out of swap, so a build stated one wide narrows the crate's delta wave while the packing and the walks still run every configuration at once; the string replay has its own knob (`_replay_threads`) and reaches neither pool either."""
     return max(1, min(count, usable_cores()))
 
 
@@ -535,10 +547,10 @@ def _run_table_gates(
     inputs: str | None,
     packing: Packing,
     memo_inputs: oracle_cache.SettleMemoInputs | None,
-    replay_threads: int,
+    replay_threads: int | None,
     state: _TableGateState,
 ) -> None:
-    """The table-only branch, on one background thread beside the glyph chain. The string replay runs first, at the table build's width (`replay_threads`), and the witness stage after it, in that order because the replay writes each configuration's settle memo file whole on a whole-universe walk (`conform.absorb_replay_memo`) and the witness stage loads that file and writes it back with its own windows added; `state.memo_ready` is set once the witness stage's files are on disk, or the moment that chain goes red, and `TableGates` sets it as well when this thread ends any other way, so a wait on it can never hang. Beside that chain the shipped-order walks run on a thread of their own, one walk per configuration up to the cores (`_core_bound_threads`, sourced from the configuration count and the cores rather than from the build's width, and never from the oracle's: the oracle's pool is the whole box, so narrowing the walks to the cores it leaves would serialize them onto one and put their whole length on the critical path; their residue shares the box with the pool's first seconds instead, the overlap `doc/parallelism.md` states), each configuration's walk waiting on its own pack (`Packing.wait`), and the packing closes here after the last of them. Nothing raises out of this thread: the exception each stage would have raised in the serial form lands in `state`, and `TableGates` raises the first red in that order."""
+    """The table-only branch, on one background thread beside the glyph chain. The string replay runs first, at its own width (`replay_threads`, a stated `--replay-threads` or None for the width `_replay_threads` derives from `kernel_exec.REPLAY_PEAK_BYTES`), and the witness stage after it, in that order because the replay writes each configuration's settle memo file whole on a whole-universe walk (`conform.absorb_replay_memo`) and the witness stage loads that file and writes it back with its own windows added; `state.memo_ready` is set once the witness stage's files are on disk, or the moment that chain goes red, and `TableGates` sets it as well when this thread ends any other way, so a wait on it can never hang. Beside that chain the shipped-order walks run on a thread of their own, one walk per configuration up to the cores (`_core_bound_threads`, sourced from the configuration count and the cores rather than from the build's width, and never from the oracle's: the oracle's pool is the whole box, so narrowing the walks to the cores it leaves would serialize them onto one and put their whole length on the critical path; their residue shares the box with the pool's first seconds instead, the overlap `doc/parallelism.md` states), each configuration's walk waiting on its own pack (`Packing.wait`), and the packing closes here after the last of them. Nothing raises out of this thread: the exception each stage would have raised in the serial form lands in `state`, and `TableGates` raises the first red in that order."""
     with ThreadPoolExecutor(max_workers=1, thread_name_prefix="emitted-order") as walks:
         emitted = (
             walks.submit(_emitted_order_stage, spec, tables, out_dir, packing) if inputs is not None else None
@@ -547,7 +559,7 @@ def _run_table_gates(
             console.phase("replay_strings")
             start = time.perf_counter()
             replay = run_replay_strings(
-                spec, out_dir, inputs, kernel_threads=replay_threads, memo_inputs=memo_inputs
+                spec, out_dir, inputs, replay_threads=replay_threads, memo_inputs=memo_inputs
             )
             walked = "whole universe" if replay["families"] is None else f"{len(replay['families'])} families"
             console.timing("replay_strings", time.perf_counter() - start, rss_token(process_peak_rss_bytes()))
@@ -629,10 +641,11 @@ def run(
     inputs: str | None = None,
     kernel_threads: int | None = None,
     memo_inputs: oracle_cache.SettleMemoInputs | None = None,
+    replay_threads: int | None = None,
 ) -> tuple[dict, TableGates]:
     """The build: the tables, then two branches over them. The table-only branch (`_run_table_gates`, on one background thread) runs the string replay, the witness stage and the shipped-order walks; the glyph chain — minting, the defect gates, the emission, the compile and the read-back — runs here on the calling thread, writes `pipeline_summary.json` and the Stage A record, and returns its summary with the branch's `TableGates` handle without joining it. The join is the caller's: `main` calls `wait_for_memo` before the oracle and `join` after it, so the gate is decided over both branches, and `close` in a `finally`. A chain complaint yields to the branch's: when anything here raises, the branch's first red is raised in its place if it has one, so a red replay is reported as the tables incomplete rather than as whatever the chain made of them.
 
-    `inputs` is `tables_inputs` over the sources `spec` was loaded from, snapshotted before the load so it can only ever name content the tables are at least as new as. Supplying it serializes the window enumeration under `out_dir` for the conformance sweep and the shipped-order walk; a caller running a spec of its own leaves it out, and the walk does not run. `memo_inputs` is `settle_memo_inputs` cut at the same moment, and names the settle memo files the string replay fills and the witness stage, the oracle and the belt then load; without it the replay files nothing, the witness stage settles every certificate and nothing is shared. `kernel_threads` reaches the table build and the string replay, the two stages whose per-configuration cost is the memory that width was divided from; the packing and the shipped-order walks run one task per configuration up to the cores (`_core_bound_threads`) whatever the build's width. The walks are the one stage of the table-only branch that can still be running when the oracle's pool starts, since the oracle waits only on the settle memos the witness stage writes after the replay crate has exited (`TableGates.wait_for_memo`), and the residue of a walk shares the box with that pool for its last seconds rather than being narrowed to the cores the pool leaves, which — the pool being the whole box — would serialize the walks and put their whole length on the run's critical path.
+    `inputs` is `tables_inputs` over the sources `spec` was loaded from, snapshotted before the load so it can only ever name content the tables are at least as new as. Supplying it serializes the window enumeration under `out_dir` for the conformance sweep and the shipped-order walk; a caller running a spec of its own leaves it out, and the walk does not run. `memo_inputs` is `settle_memo_inputs` cut at the same moment, and names the settle memo files the string replay fills and the witness stage, the oracle and the belt then load; without it the replay files nothing, the witness stage settles every certificate and nothing is shared. `kernel_threads` reaches the table build alone, the stage whose per-configuration cost is the memory that width was divided from; `replay_threads` reaches the string replay alone, which is priced by `kernel_exec.REPLAY_PEAK_BYTES` and derives its own width (`_replay_threads`) when none is stated, so every settlement configuration replays in one wave on a box the build's width would have split it across two; the packing and the shipped-order walks run one task per configuration up to the cores (`_core_bound_threads`) whatever either width. The walks are the one stage of the table-only branch that can still be running when the oracle's pool starts, since the oracle waits only on the settle memos the witness stage writes after the replay crate has exited (`TableGates.wait_for_memo`), and the residue of a walk shares the box with that pool for its last seconds rather than being narrowed to the cores the pool leaves, which — the pool being the whole box — would serialize the walks and put their whole length on the run's critical path.
     """
     out_dir.mkdir(parents=True, exist_ok=True)
     console.phase("spec_load")
@@ -643,7 +656,6 @@ def run(
 
     console.phase("build_tables_total")
     start = time.perf_counter()
-    build_threads = _table_build_threads(kernel_threads)
     packing = Packing(_core_bound_threads(len(conform.SETTLEMENT_CONFIGS)))
     try:
         tables, _digests = build_tables(
@@ -669,7 +681,7 @@ def run(
             inputs,
             packing,
             memo_inputs,
-            build_threads,
+            replay_threads,
             state,
         ),
     )
@@ -814,20 +826,17 @@ def run_replay_strings(
     spec: ResolvedSpec,
     out_dir: Path,
     inputs: str | None,
-    kernel_threads: int | None = None,
+    replay_threads: int | None = None,
     memo_inputs: oracle_cache.SettleMemoInputs | None = None,
 ) -> dict:
     """The enumeration-completeness check every build runs right after its tables land: the crate's `replay-strings` verb over the settlement TSVs under `out_dir`, walking the string universe to `REPLAY_HORIZON` and holding every window's first-match rule outcome to the engine's own settlement (`rebuild/kernel-rs/src/replay.rs`). The universe is O(delta) on a rune edit: `replay_families` reads the last green record beside the tables, and while `replay_structure_stamp` holds, only the texts naming a moved rune or a rune whose records read one are walked; a build with no green record or a moved structure walks everything, and a build where nothing moved walks nothing and carries the record forward. A caller with no stamp — a spec of its own, whose rune files are not the repo's — walks the whole universe and records nothing.
 
     The walk is also the settle memo's producer. With `memo_inputs` (`settle_memo_inputs`, cut before the spec loaded), every whole-universe walk asks the crate to file its window memo per configuration beside the tables (`kernel_exec.replay_memo_dump`) and absorbs each one into the configuration's `conform.SettleMemoFile` under the stamp and family keys `conform.settle_memo_files` cuts, so the witness stage, the oracle and the belt load what the replay settled instead of settling it again; a dump is deleted in this phase whatever the walk or the absorb did, and a failed absorb is a warning rather than a red build, since every reader settles what the file lacks. That is what widens the walk past the structure stamp: the memo stamp covers the comparison-side modules the replay's own stamp does not, so when any configuration's file is absent or fails `conform.settle_memo_standing` the whole universe is walked to refill it, where the replay alone would have walked nothing. A narrowed walk — a rune edit — files nothing and leaves the standing files to retire their own stale entries.
 
-    The record written beside the tables is what the next build's delta is cut against, so it carries the structure stamp and every rune digest as well as the counts, and it is written green or red: a disagreement lands in it with the crate's sentence and raises `SystemExit` naming the text. The fan-out width is the table build's: a replay's engine holds a subset of what the enumeration's holds — the same trace memo over the windows the texts reach, with no liveness probe cascade beyond the prospect's own — so `kernel_exec.DELTA_PEAK_BYTES` bounds it from above and the division that width came from still answers; the `DEFAULT_MEMO_BYTES` that division also takes off the box is a memo the replay does not hold, so the width is conservative here. The window memo adds one inverse label map and a block buffer beside that memo, and the absorb runs in this process after the crate has exited.
+    The record written beside the tables is what the next build's delta is cut against, so it carries the structure stamp and every rune digest as well as the counts, and it is written green or red: a disagreement lands in it with the crate's sentence and raises `SystemExit` naming the text. The fan-out width is the stage's own (`_replay_threads`): `replay_threads` when stated, else `kernel_exec.REPLAY_PEAK_BYTES` — what one configuration's walk holds, the trace memo over the windows its texts reach plus the window memo's inverse label map and block buffer — divided into the box, capped at the configuration count and the cores, so the whole universe replays in one wave on both fleet boxes; the absorb runs in this process after the crate has exited.
     """
     configs = conform.SETTLEMENT_CONFIGS
-    threads = max(
-        1,
-        min(kernel_threads or kernel_exec.KERNEL_THREADS_DEFAULT, len(configs), usable_cores()),
-    )
+    threads = _replay_threads(replay_threads)
     recordable = inputs is not None
     structure = replay_structure_stamp(spec) if recordable else None
     runes = fingerprint.rune_digests(REPO_ROOT) if recordable else {}
@@ -1664,7 +1673,16 @@ def main(argv: list[str] | None = None) -> None:
         default=None,
         help=(
             "how many delta configurations the kernel enumerates and folds at once beside default's memo, capped at the configuration count and the cores this process may actually run on; the ceiling is memory rather than CPU, so the default is derived from the box in hand rather than checked in — on this one "
-            f"{describe_fit(kernel_exec.DELTA_PEAK_BYTES, coresident_bytes=kernel_exec.DEFAULT_MEMO_BYTES)}, the co-resident term being default's retained memo — which AMS_KERNEL_THREADS short-circuits and this flag beats in turn"
+            f"{describe_fit(kernel_exec.DELTA_PEAK_BYTES, coresident_bytes=kernel_exec.DEFAULT_MEMO_BYTES)}, the co-resident term being default's retained memo — which AMS_KERNEL_THREADS short-circuits and this flag beats in turn; the string replay after the build has its own width, --replay-threads"
+        ),
+    )
+    parser.add_argument(
+        "--replay-threads",
+        type=int,
+        default=None,
+        help=(
+            "how many settlement configurations the string replay after the build walks at once in its one crate process, capped at the configuration count and the cores this process may actually run on; a replay's engine is priced on its own rather than at the table build's width, so the default is derived from the box in hand — on this one "
+            f"{describe_fit(kernel_exec.REPLAY_PEAK_BYTES, cap=len(conform.SETTLEMENT_CONFIGS))}, nothing co-resident since the build's process has exited — which AMS_REPLAY_THREADS short-circuits and this flag beats in turn"
         ),
     )
     args = parser.parse_args(argv)
@@ -1733,6 +1751,7 @@ def main(argv: list[str] | None = None) -> None:
             inputs=inputs,
             kernel_threads=args.kernel_threads,
             memo_inputs=memo_inputs,
+            replay_threads=args.replay_threads,
         )
         console.timing("run_total", time.perf_counter() - start, rss_token(process_peak_rss_bytes()))
         console.say(json.dumps(summary, indent=2))
