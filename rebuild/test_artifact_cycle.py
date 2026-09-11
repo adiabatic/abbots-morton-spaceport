@@ -2011,6 +2011,57 @@ class TestTheSurfaceBuildWidth:
             assert derivation.startswith(f"{width} at ")
 
 
+class TestTheStandingFillWidth:
+    """The standing fill's refill pool is the cycle's to size, and the fill takes the number it is handed: the tool is in the memo's code stamp, so a width derived there would drop the memo on every edit to the arithmetic."""
+
+    def test_the_pytest_pool_comes_off_the_box_and_two_cores_off_the_cap(self):
+        solo = ac._standing_fill_terms(skip_gates=True, skip_make_test=False, ncores=9)
+        beside = ac._standing_fill_terms(skip_gates=False, skip_make_test=False, ncores=9)
+        assert solo == (ac.STANDING_FILL_WORKER_BYTES, ac.STANDING_FILL_PARENT_BYTES, 9)
+        assert beside == (
+            ac.STANDING_FILL_WORKER_BYTES,
+            ac.STANDING_FILL_PARENT_BYTES + ac._font_suite_worker_bytes() * ac.make_test_pool_width(ncores=9),
+            7,
+        )
+
+    def test_the_cores_bind_on_both_fleet_boxes(self):
+        """A refill worker holds a chunk and two shapers, so on either machine in the fleet the box has room for more of them than it has cores: gated, the ten-core 32 GiB box runs eight beside gate:make-test's two, and the twelve-core 48 GiB box alone runs twelve."""
+        assert ac.standing_fill_jobs(skip_gates=False, ncores=10, total_bytes=BOX_32_GIB) == 8
+        assert ac.standing_fill_jobs(skip_gates=True, ncores=12, total_bytes=BOX_48_GIB) == 12
+
+    def test_a_box_that_cannot_hold_the_parent_floors_at_one(self):
+        assert ac.standing_fill_jobs(skip_gates=True, ncores=12, total_bytes=8_000_000_000) == 1
+        assert ac.standing_fill_jobs(skip_gates=False, ncores=12, total_bytes=8_000_000_000) == 1
+
+    def test_the_printed_derivation_is_the_one_that_produced_the_width(self):
+        for skip_gates in (False, True):
+            width = ac.standing_fill_jobs(skip_gates=skip_gates, ncores=10, total_bytes=BOX_32_GIB)
+            derivation = ac.standing_fill_derivation(skip_gates=skip_gates, ncores=10, total_bytes=BOX_32_GIB)
+            assert derivation.startswith(f"{width} at ")
+        solo = ac.standing_fill_derivation(skip_gates=True, ncores=10, total_bytes=BOX_32_GIB)
+        assert f"less {format_gb(ac.STANDING_FILL_PARENT_BYTES)} GB co-resident" in solo
+
+    def test_the_plan_states_the_width_on_the_chains_argv_and_in_its_text(self):
+        """Every width is stated on the command line, one included, and the plan block says where it came from the way it does for the surface build."""
+        for skip_gates in (False, True):
+            plan = _plan(skip_gates=skip_gates, ncores=10, total_bytes=BOX_32_GIB)
+            width = ac.standing_fill_jobs(skip_gates=skip_gates, ncores=10, total_bytes=BOX_32_GIB)
+            by_name = {step.name: step for step in plan.steps}
+            argv = _argv(by_name["plumbing"])
+            assert argv[argv.index("--standing-fill-jobs") + 1] == str(width)
+            assert plan.standing_fill_jobs == width
+            text = _plan_text(plan)
+            assert "plumbing --standing-fill-jobs" in text
+            assert (
+                ac.standing_fill_derivation(skip_gates=skip_gates, ncores=10, total_bytes=BOX_32_GIB) in text
+            )
+        small = _plan(ncores=2)
+        assert _argv({step.name: step for step in small.steps}["plumbing"])[-2:] == [
+            "--standing-fill-jobs",
+            "1",
+        ]
+
+
 def test_both_job_budgets_answer_the_cgroup_allowance_rather_than_the_hosts_core_count(monkeypatch):
     """A CPU quota is invisible to `os.cpu_count()`, so a budget that read it would give a two-core allowance on a many-core host a sweep process per acceptance configuration and a surface build at the cap — every one of them a core the process may not run on. Both budgets probe through `usable_cores`, and what stands in for the box here is the real probe over an invented cgroup root, so the allowance is a fixture rather than a stub: two cores sits under both caps, so each budget answers the allowance itself. The surface budget also divides an invented terabyte box, so its memory arithmetic never binds and the core clamp is the whole assertion. A stated `ncores` still outranks the probe, which is what keeps `build_plan`'s explicit threading its own."""
     from rebuild.pipeline.conform import ACCEPTANCE_CONFIGS

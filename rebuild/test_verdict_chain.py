@@ -87,7 +87,16 @@ def test_the_chain_runs_the_standing_fill_in_its_open_only_form(tmp_path, monkey
     assert argv[argv.index("--out") + 1] == str(standing_out)
     assert argv[argv.index("--memo") + 1] == str(tmp_path / vc.standing_verdicts.MEMO_NAME)
     assert "--fresh-memo" not in argv
+    assert argv[argv.index("--jobs") + 1] == "1"
     assert units is index
+
+
+def test_the_chain_forwards_the_cycles_standing_fill_width(tmp_path, monkeypatch):
+    """`--standing-fill-jobs` is the cycle's width for the fill's refill pool, reaching the fill as its `--jobs`; the chain derives none of its own, and without one the fill is serial."""
+    code, _index, calls, _out = _chain(tmp_path, monkeypatch, ("--standing-fill-jobs", "6"))
+    assert code == 0
+    [(argv, _units)] = calls
+    assert argv[argv.index("--jobs") + 1] == "6"
 
 
 def test_the_chain_passes_a_named_memo_and_the_fresh_form_through(tmp_path, monkeypatch):

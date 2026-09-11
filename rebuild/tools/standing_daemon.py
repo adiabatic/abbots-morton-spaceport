@@ -109,7 +109,7 @@ def _exit_code(code: object, err: io.StringIO) -> int:
 
 
 def run_tool(tool: str, argv: list[str], cwd: str, units: list, context) -> tuple[int, str, str]:
-    """One request, run exactly as the tool's own `main` runs it: under the client's working directory, over the held units and context, with both streams captured. The context's memos are emptied afterwards, whatever happened, so the next request shapes what a fresh process would."""
+    """One request, run exactly as the tool's own `main` runs it: under the client's working directory, over the held units and context, with both streams captured. The context's memos and the fill's alignment cache are emptied afterwards, whatever happened, so the next request shapes what a fresh process would and the footprint stays bounded."""
     from rebuild.tools import standing_probe, standing_verdicts
 
     tool_main = standing_probe.main if tool == "probe" else standing_verdicts.main
@@ -128,6 +128,7 @@ def run_tool(tool: str, argv: list[str], cwd: str, units: list, context) -> tupl
         if context is not None:
             context.memo.clear()
             context.composed.clear()
+        standing_verdicts.release_alignment_cache()
     return code, out.getvalue(), err.getvalue()
 
 

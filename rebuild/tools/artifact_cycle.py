@@ -109,6 +109,10 @@ SURFACE_WORKER_BYTES = 5_500_000_000
 SURFACE_PARENT_BYTES = 9_500_000_000
 # The non-memory bound on the same width, and the half of this build's argument that arithmetic cannot supply: past eight workers the build stops scaling, so widening buys duplicated subset tables and nothing else.
 SURFACE_JOBS_CAP = 8
+# What one worker of the standing fill's refill pool holds at its peak, and so the divisor of that pool's width (`standing_fill_jobs`). A worker is a spawn process holding its interpreter, the rules, a `SlideContext` over the surface's font pair — two shapers — and one chunk of `_STANDING_POOL_CHUNK` units (rebuild/tools/standing_verdicts.py) with that chunk's shape and walk memos and its alignment cache, all three emptied behind every chunk, so the peak is chunk-shaped rather than slice-shaped and does not grow with the pool's share of the domain. The seed is a width-two pool over twenty-four live chunks of two thousand human units, whose two workers read 76 MB at their first chunk and 88 MB at their last, the allocator's high-water creeping by a dozen megabytes across the run; it rounds up past that by more than threefold for the reason every divisor here rounds up, and because no journal row prices this worker — `make job-costs` has no standing-fill-worker row, since filing pool records from the fill would put cycle_timings and peak_rss into the memo's code stamp (`MEMO_CODE_MODULES`) and drop the memo on every width edit — so a hand measurement at the chunk width is what to re-take when the chunk or what a decision holds moves. At this figure neither box in the fleet is memory-bound for this pool: the cores are.
+STANDING_FILL_WORKER_BYTES = 300_000_000
+# What the plumbing step's parent holds while that pool is live, and so what comes off the box before the division rather than into it: the verdict chain holding the whole unit index and the fill's own rules, memo and decisions, flat in the width. The measurement is the `plumbing` step peak the cycle stamps on every pass, which is honest for this term exactly as the surface-build peak is for its parent — peak_rss.reap_peak_rss_bytes maxes over the tree, and the chain parent is the widest process under it by two orders — but only on a pass that refilled nothing serially: a plumbing row from a pass that refilled a dropped memo in the parent, with no pool, reads 13.7 GB to 16.5 GB, because the parent then evaluates the whole domain itself and grows its `SlideContext` memos across it, and that growth is what the pool moves into chunk-bounded workers. The seed sits above the served passes' band of 8.7 GB to 10.3 GB, which is the parent without that growth, and the standing-fill-parent row of `make job-costs` is where it stays honest.
+STANDING_FILL_PARENT_BYTES = 10_500_000_000
 # How wide gate:make-test's pytest pool is allowed to be under a cycle, and the one number that makes the reservation beside it honest: surface_job_budget hands two cores to that pool and takes its bytes off the box beside them, so two workers is what the cycle hands the pool back. Left to itself the pool takes `-n auto`, which the root conftest.py answers for the font suite with the whole box — a pool sized as though nothing else were running, beside a build sized as though it were.
 MAKE_TEST_POOL_WORKERS = 2
 CONFORM_HORIZON_DEFAULT = 4
@@ -890,7 +894,7 @@ def recover_superseded_surface(live: Path | None = None) -> str | None:
     return f"Put {superseded} back as the live surface; the promotion it stepped aside for did not finish."
 
 
-# The chain's own code, named module by module rather than as the whole of rebuild/tools/: the closure of rebuild.tools.verdict_chain, which runs every step, held to the walked import graph by rebuild/test_plumbing_closure.py on every contracts run. This driver is not an entry point, because every argv it hands the chain names an input the key already hashes — the surface, the master, the store — or a flag that disables the skip outright, and the chain's own flag parsing lives in verdict_chain; the two width yardsticks the pipeline takes from this tree (memory_budget and peak_rss, reached only through kernel_exec) are the pipeline_code component's coverage question, which the key carries whole through its manifest line, so the walk stops at that component's boundary — fingerprint is where the chain meets it — rather than dragging a fan-out width and a cost reading into a verdict's closure.
+# The chain's own code, named module by module rather than as the whole of rebuild/tools/: the closure of rebuild.tools.verdict_chain, which runs every step, held to the walked import graph by rebuild/test_plumbing_closure.py on every contracts run. This driver is not an entry point, because every argv it hands the chain names an input the key already hashes — the surface, the master, the store — or a flag that disables the skip outright, or a width (`--standing-fill-jobs`) the chain's output cannot depend on, and the chain's own flag parsing lives in verdict_chain; the two width yardsticks the pipeline takes from this tree (memory_budget and peak_rss, reached only through kernel_exec) are the pipeline_code component's coverage question, which the key carries whole through its manifest line, so the walk stops at that component's boundary — fingerprint is where the chain meets it — rather than dragging a fan-out width and a cost reading into a verdict's closure.
 PLUMBING_ENTRY_POINTS = ("rebuild.tools.verdict_chain",)
 PLUMBING_TOOL_MODULES = (
     "carry_verdicts",
@@ -1080,6 +1084,8 @@ class Plan:
     pool_policy: str = REBUILD_POOL_POLICY_DEFAULT
     surface_jobs: int = 1
     surface_reason: str = ""
+    standing_fill_jobs: int = 1
+    standing_fill_reason: str = ""
     sweep_jobs: int = 1
     kernel_threads: int = 1
     make_test_workers: int = 1
@@ -1225,6 +1231,52 @@ def surface_job_derivation(
     return memory_budget.describe_fit(per_unit, coresident_bytes=coresident, cap=cap, total_bytes=total_bytes)
 
 
+def _standing_fill_terms(
+    *, skip_gates: bool, skip_make_test: bool, ncores: int | None
+) -> tuple[int, int, int]:
+    """The standing fill pool's three terms, derived once for `standing_fill_jobs` and `standing_fill_derivation` the way `_surface_fit_terms` derives the surface build's: STANDING_FILL_WORKER_BYTES divides, STANDING_FILL_PARENT_BYTES comes off the box first, and the cap is the cores — there is no width past which this pool stops paying that the arithmetic knows of. Under a gated cycle gate:make-test's pool comes off exactly as it does for the surface build, its bytes off the box and two cores off the cap. The plumbing step also opens beside gate:rebuild-contracts, whose pool nothing in the tree prices (`calibrate_budgets.UNITS` states that position), so that term is deliberately left out and a memo-drop pass oversubscribes the box for the pool's few tens of seconds rather than reserving for a worker no constant measures."""
+    from rebuild.tools import memory_budget
+
+    cores = ncores or memory_budget.usable_cores()
+    coresident = STANDING_FILL_PARENT_BYTES
+    if not (skip_gates or skip_make_test):
+        cores -= 2
+        coresident += _font_suite_worker_bytes() * make_test_pool_width(ncores=ncores)
+    return STANDING_FILL_WORKER_BYTES, coresident, cores
+
+
+def standing_fill_jobs(
+    *,
+    skip_gates: bool,
+    skip_make_test: bool = False,
+    ncores: int | None = None,
+    total_bytes: int | None = None,
+) -> int:
+    """The `--standing-fill-jobs` the cycle hands the verdict chain, which forwards it to the standing fill as `--jobs`: the box less its reserve less the chain parent, divided by one refill worker, capped by the cores. The width is stated here and derived nowhere else because the fill is in the memo's code stamp and a width derived inside it would drop the memo on every edit to the arithmetic, and because the cycle is what knows which gates are hot beside the plumbing step. A served pass starts no pool at any width — the fill's threshold is what holds that — so this number costs a warm pass nothing."""
+    from rebuild.tools import memory_budget
+
+    per_unit, coresident, cap = _standing_fill_terms(
+        skip_gates=skip_gates, skip_make_test=skip_make_test, ncores=ncores
+    )
+    return memory_budget.how_many_fit(per_unit, coresident_bytes=coresident, cap=cap, total_bytes=total_bytes)
+
+
+def standing_fill_derivation(
+    *,
+    skip_gates: bool,
+    skip_make_test: bool = False,
+    ncores: int | None = None,
+    total_bytes: int | None = None,
+) -> str:
+    """`standing_fill_jobs` said out loud for the plan, `memory_budget.describe_fit` over the same terms."""
+    from rebuild.tools import memory_budget
+
+    per_unit, coresident, cap = _standing_fill_terms(
+        skip_gates=skip_gates, skip_make_test=skip_make_test, ncores=ncores
+    )
+    return memory_budget.describe_fit(per_unit, coresident_bytes=coresident, cap=cap, total_bytes=total_bytes)
+
+
 def build_plan(
     *,
     verdicts: Path | None,
@@ -1287,6 +1339,14 @@ def build_plan(
     surface_reason = f"{surface_head}; " + surface_job_derivation(
         skip_gates=skip_gates, skip_make_test=skip_make_test, ncores=ncores, total_bytes=total_bytes
     )
+    fill_jobs = standing_fill_jobs(
+        skip_gates=skip_gates, skip_make_test=skip_make_test, ncores=ncores, total_bytes=total_bytes
+    )
+    fill_reason = "the standing fill's refill pool on a memo-drop pass, beside the chain parent; " + (
+        standing_fill_derivation(
+            skip_gates=skip_gates, skip_make_test=skip_make_test, ncores=ncores, total_bytes=total_bytes
+        )
+    )
     sweep_jobs = sweep_job_budget(ncores)
     conform_jobs = sweep_jobs
     kernel_threads = kernel_threads_budget(
@@ -1331,6 +1391,8 @@ def build_plan(
         pool_policy=pool_policy,
         surface_jobs=surface_jobs,
         surface_reason=surface_reason,
+        standing_fill_jobs=fill_jobs,
+        standing_fill_reason=fill_reason,
         sweep_jobs=sweep_jobs,
         kernel_threads=kernel_threads,
         make_test_workers=make_test_workers,
@@ -1444,6 +1506,7 @@ def build_plan(
             plumbing_argv += ["--no-complaints"]
         if fresh:
             plumbing_argv += ["--fresh-standing-memo"]
+        plumbing_argv += ["--standing-fill-jobs", str(fill_jobs)]
         if do_carry and not do_merge:
             note = (
                 "carry only (rehearsal: the live autosave is never written)"
@@ -1640,7 +1703,7 @@ def _render_concurrency(plan: Plan) -> list[str]:
         return [
             "",
             "  Concurrency (--skip-gates):",
-            f"    Lane build only; no gates; run_m1 sweeps --jobs {plan.sweep_jobs} at --kernel-threads {'not passed (gates-only route)' if plan.reuse_run_m1 else plan.kernel_threads}, surface-build --jobs {plan.surface_jobs} ({plan.surface_reason})",
+            f"    Lane build only; no gates; run_m1 sweeps --jobs {plan.sweep_jobs} at --kernel-threads {'not passed (gates-only route)' if plan.reuse_run_m1 else plan.kernel_threads}, surface-build --jobs {plan.surface_jobs} ({plan.surface_reason}), plumbing --standing-fill-jobs {plan.standing_fill_jobs} ({plan.standing_fill_reason})",
         ]
     t0_lane = "gate:js" if plan.skip_make_test else "gate:js, gate:make-test"
     lines = [
@@ -1700,6 +1763,9 @@ def _render_concurrency(plan: Plan) -> list[str]:
     else:
         lines.append(f"    run_m1 --kernel-threads          : {plan.kernel_threads}  ({kernel_reason})")
     lines.append(f"    surface-build --jobs             : {plan.surface_jobs}  ({plan.surface_reason})")
+    lines.append(
+        f"    plumbing --standing-fill-jobs    : {plan.standing_fill_jobs}  ({plan.standing_fill_reason})"
+    )
     return lines
 
 

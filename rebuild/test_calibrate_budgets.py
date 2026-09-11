@@ -98,6 +98,14 @@ def test_a_surface_pool_record_prices_the_worker_constant():
     assert parent == []
 
 
+def test_a_plumbing_step_peak_prices_the_standing_fill_parent():
+    """The plumbing step's peak is the chain parent, the widest process under it on every pass, so it lands on the standing-fill-parent row alone; the refill pool beside it files no record, so no worker row reads it."""
+    steps = {"r1": [_step("plumbing", 9_000_000_000)]}
+    observed, _, _ = cb.observations(_unit("standing-fill-parent"), [], steps, host=HOST, recent=20)
+    assert [(item.peak_bytes, item.source) for item in observed] == [(9_000_000_000, "step:plumbing")]
+    assert all("plumbing" not in unit.step_names for unit in cb.UNITS if unit.name != "standing-fill-parent")
+
+
 def test_a_named_step_peak_supplies_an_observation():
     steps = {"r1": [_step("run_m1", 9_000_000_000)]}
     observed, _, _ = cb.observations(_unit("kernel-build"), [], steps, host=HOST, recent=20)
@@ -331,7 +339,8 @@ def test_the_width_clauses_answer_for_the_box_and_the_tree_they_are_given(tmp_pa
     tree = tmp_path / "tree"
     (tree / "rebuild" / "tools").mkdir(parents=True)
     (tree / "rebuild" / "tools" / "artifact_cycle.py").write_text(
-        f"{cb.SURFACE_CAP_NAME} = 3\n{cb.SURFACE_PARENT_NAME} = 10_000_000_000\n{cb.SURFACE_WORKER_NAME} = 5_000_000_000\n",
+        f"{cb.SURFACE_CAP_NAME} = 3\n{cb.SURFACE_PARENT_NAME} = 10_000_000_000\n{cb.SURFACE_WORKER_NAME} = 5_000_000_000\n"
+        f"{cb.STANDING_FILL_PARENT_NAME} = 12_000_000_000\n{cb.STANDING_FILL_WORKER_NAME} = 2_000_000_000\n",
         encoding="utf-8",
     )
     (tree / "rebuild" / "pipeline").mkdir(parents=True)
@@ -345,6 +354,7 @@ def test_the_width_clauses_answer_for_the_box_and_the_tree_they_are_given(tmp_pa
     assert "its delta wave runs 4 at 8.00 GB each out of 48.00 GB total" in out
     assert "the font suite takes the cores this process may run on (12), not the division" in out
     assert "the surface build's parent is subtracted from the box rather than divided into it" in out
+    assert "the refill pool runs 12 at 2.00 GB each out of 48.00 GB total" in out
 
 
 def test_a_check_that_cannot_run_exits_apart_from_one_that_tripped(tmp_path, capsys, monkeypatch):
