@@ -1,6 +1,6 @@
 """The M1 integration driver (M1-PLAN Phase 5): the full pipeline run over the real rune files, writing every section 8 artifact under rebuild/out/m1/.
 
-Stages: load_default_spec -> per-configuration decision/treaty tables, one pair per settlement configuration (`conform.SETTLEMENT_CONFIGS`; enumerated and folded in the kernel crate in one process, `default` first and the rest as deltas over its memo: the first-match-wins replay asserted as each one folds, TSVs written, one realizing certificate per rule closed off the rows' own producer chains, and the window enumeration serialized under the fingerprint of the sources it came from, so `--conform-only` mints its glyph inventory from it and refuses to run against a stale or missing one) -> the string replay (`run_replay_strings`: every settlement configuration's persisted rules walked in the crate over the string universe against the crate's own settlement, whole-universe on a code or structure change and only over the texts naming an edited family on a rune edit, red naming the offending text; `rebuild/out/m1/replay_summary.json` is its record) -> the witness stage (`run_rule_witnesses`: every certificate settled through the crate and its rule asserted to fire, the realizability half of the dead-rule alarm, written to witness_summary.json) -> glyph inventory minting (settled cells named by the table's own cell labels, plus the raw cmap glyphs, marker twins, chokepoint twins, and the namer dot pair) -> defect gates (defects.run_gates under the reviewed allow-list) -> emit_gsub/emit_gpos (whose plan also enumerates the emitted lookup's HarfBuzz-facing shapes into behavior_classes.json, the arming key rebuild/tools/deep_sweep.py reads) -> build_mini_font -> read-back (the font just written, re-parsed from its own bytes and structurally proven against the plan the emitters held, with the GSUB's uint16 subtable-offset headroom read off the raw table bytes in that same parse and held to its floor, and that plan's settlement rows recorded beside the summary with their per-configuration sources for the witness gate to count coverage over; rebuild/pipeline/readback.py).
+Stages: load_default_spec -> per-configuration decision/treaty tables, one pair per settlement configuration (`conform.SETTLEMENT_CONFIGS`; enumerated and folded in the kernel crate in one process, `default` first and the rest as deltas over its memo: the first-match-wins replay asserted as each one folds, TSVs written, one realizing certificate per rule closed off the rows' own producer chains, and the window enumeration serialized under the fingerprint of the sources it came from, so `--conform-only` mints its glyph inventory from it and refuses to run against a stale or missing one; the payloads pack on a background pool once their heads are read) -> two branches over those tables. The table-only branch, on one background thread (`_run_table_gates`): the string replay (`run_replay_strings`: every settlement configuration's persisted rules walked in the crate over the string universe against the crate's own settlement, whole-universe on a code or structure change and only over the texts naming an edited family on a rune edit, red naming the offending text; `rebuild/out/m1/replay_summary.json` is its record), then the witness stage (`run_rule_witnesses`: every certificate settled through the crate and its rule asserted to fire, the realizability half of the dead-rule alarm, written to witness_summary.json), and beside those two the shipped-order walk (`run_emitted_order`, each configuration's walk waiting on its own pack). The glyph chain, on the calling thread: glyph inventory minting (settled cells named by the table's own cell labels, plus the raw cmap glyphs, marker twins, chokepoint twins, and the namer dot pair) -> defect gates (defects.run_gates under the reviewed allow-list) -> emit_gsub/emit_gpos (whose plan also enumerates the emitted lookup's HarfBuzz-facing shapes into behavior_classes.json, the arming key rebuild/tools/deep_sweep.py reads) -> build_mini_font -> read-back (the font just written, re-parsed from its own bytes and structurally proven against the plan the emitters held, with the GSUB's uint16 subtable-offset headroom read off the raw table bytes in that same parse and held to its floor, and that plan's settlement rows recorded beside the summary with their per-configuration sources for the witness gate to count coverage over; rebuild/pipeline/readback.py). `main` runs the Manual-pin gate and the oracle after the chain — the oracle only once the witness stage's settle memos are on disk — and joins the branch after the oracle, before the run_m1 gate is decided; the join raises the first red in the serial order (the packing, the replay, the witnesses, the shipped order), and a chain complaint yields to any of those, so a failing build reports what a serial build reports.
 
 The glyph-name contract this driver pins: settlement-lookup outcomes are `settle.cell_label` names, so the decision-table rules and the compiled glyph set agree by construction; the raw cmap glyph for each rune is the bare rune name drawn as the isolated cell but carrying no curs anchors; marker, chokepoint, and ss10 twins reuse the bare drawing (under ss10 the pre-empt lookup substitutes every letter's cmap glyph by its anchor-free `.ss10` twin before formation, so no ligature ever forms, nothing settles, each letter keeps its own cluster, and every seam is a break). That is why the overlay configuration (`conform.OVERLAY_CONFIGS`) has no table of its own: read-back proves the pre-empt covers every letter cmap glyph and keeps the twins out of every other stage, the belt sweeps it at `conform.OVERLAY_HORIZON`, and the oracle holds its rows against the bare stream with the twins' `hmtx` advances for positions.
 
@@ -12,6 +12,7 @@ Run as: uv run python -m rebuild.pipeline.run_m1 — or `--conform-only` for the
 from __future__ import annotations
 
 import argparse
+import functools
 import gc
 import gzip
 import hashlib
@@ -21,10 +22,11 @@ import os
 import shutil
 import sys
 import tempfile
+import threading
 import time
-from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor, as_completed
+from concurrent.futures import Future, ProcessPoolExecutor, ThreadPoolExecutor, as_completed
 from contextlib import suppress
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Callable, Mapping, NoReturn
 
@@ -226,15 +228,90 @@ def memo_seed(out_dir: Path, stamp: str, scratch: Path) -> MemoSeed | None:
     )
 
 
+def _table_build_threads(kernel_threads: int | None) -> int:
+    """The table build's width, which the window packing takes as well: `kernel_threads`, or the memory-derived `kernel_exec.KERNEL_THREADS_DEFAULT`, capped at the configuration count and the cores this process may actually run on. Factored out of `build_tables` so a caller opening the pack pool ahead of the build sizes it as the build would."""
+    return max(
+        1,
+        min(
+            kernel_threads or kernel_exec.KERNEL_THREADS_DEFAULT,
+            len(conform.SETTLEMENT_CONFIGS),
+            usable_cores(),
+        ),
+    )
+
+
+class Packing:
+    """One table build's window and memo packing, on a pool that can outlive `build_tables`: each configuration's pack is a future here under its configuration's name, so a stage that reads a packed enumeration — `run_emitted_order`'s walks — waits on its own configuration's pack through `wait` rather than on the whole build's. `build_tables` opens and closes one itself for a caller that passes none, which is the blocking form every other caller gets; `run` passes one and the table-only branch closes it after the last walk that reads a packed file. `close` waits for every pack, shuts the pool down, reports the packing's wall as `[t] pack_windows_total` — the first submit to the last pack's landing, since the pool itself is open across the kernel and the walks — and raises the first pack failure rather than swallowing it."""
+
+    def __init__(self, threads: int) -> None:
+        self._pool = ThreadPoolExecutor(max_workers=threads, thread_name_prefix="pack-windows")
+        self._futures: dict[str, Future[None]] = {}
+        self._lock = threading.Lock()
+        self._done = 0
+        self._started: float | None = None
+        self._finished: float | None = None
+        self._closed = False
+
+    def submit(self, config: str, task: Callable[[], None], total: int) -> None:
+        def packed() -> None:
+            task()
+            with self._lock:
+                self._done += 1
+                done = self._done
+                self._finished = time.perf_counter()
+            console.progress(done, total, "packed configurations")
+
+        if self._started is None:
+            self._started = time.perf_counter()
+        self._futures[config] = self._pool.submit(packed)
+
+    def wait(self, config: str) -> None:
+        future = self._futures.get(config)
+        if future is not None:
+            future.result()
+
+    def close(self) -> None:
+        if self._closed:
+            return
+        self._closed = True
+        failure: BaseException | None = None
+        for future in self._futures.values():
+            try:
+                future.result()
+            except BaseException as error:
+                if failure is None:
+                    failure = error
+        self._pool.shutdown(wait=True)
+        if self._started is not None and self._finished is not None:
+            console.timing("pack_windows_total", self._finished - self._started)
+        if failure is not None:
+            raise failure
+
+
+def _pack_config(tables_dir: Path, config: str, keep_windows: bool) -> None:
+    """One configuration's pack task: the plain window payload into the `.gz` the artifact is when the build is stamped, else deleted unread past its head, and the crate's memo file beside it into `kernel_exec.memo_path`. Each plain file is removed inside the task, once its pack is on disk, so a deferred pack can never race its own source away."""
+    started = time.perf_counter()
+    payload = tables_dir / f"windows-{config}.tsv"
+    if keep_windows:
+        _pack_windows(payload, table_module.windows_path(tables_dir, config))
+    payload.unlink()
+    memo = tables_dir / f"memo-{config}.tsv"
+    if memo.is_file():
+        _pack_windows(memo, kernel_exec.memo_path(tables_dir, config))
+        memo.unlink()
+    console.timing(f"pack_windows[{config}]", time.perf_counter() - started)
+
+
 def build_tables(
     spec: ResolvedSpec,
     out_dir: Path | None = None,
     inputs: str | None = None,
     kernel_threads: int | None = None,
+    packing: Packing | None = None,
 ) -> tuple[dict[str, tuple], dict[str, str]]:
     """Every settlement configuration's decision and treaty tables: the resolved spec dumped once, then one `build-tables` process over every configuration, which enumerates `default`'s fixpoint, folds it in place, and enumerates each other configuration as a delta over `default`'s finished memo (`kernel_exec.build_table_files`), folding each as it lands. An overlay configuration gets none, and any table files a build once left under its name are removed first, so a directory globbed after a build holds this build's tables and nothing else. There is no stream and no fold on this side at all — the crate writes the settlement TSV, the treaty TSV and the window enumeration itself, so the several hundred megabytes a configuration's transitions cost to write, to read and to hold parsed are never spent.
 
-    What Python does per configuration is small and is what only Python can do: pack the plain window payload into the `.gz` the artifact is (the compressor never crossed the boundary), read the head back for the rules, the reachable cells and the fired provenance every downstream stage needs, and parse the treaty TSV back for the defect gates. That runs in a thread per configuration behind the one kernel process, since the compressor releases the interpreter lock.
+    What Python does per configuration is small and is what only Python can do: read the head back for the rules, the reachable cells and the fired provenance every downstream stage needs, parse the treaty TSV back for the defect gates, and pack the plain window payload into the `.gz` the artifact is (the compressor never crossed the boundary). The head reads run in a thread per configuration behind the one kernel process and are what this call waits for; the packing (`_pack_config`, the memo file included) runs on a `Packing` pool at the same width, since the compressor releases the interpreter lock. With a `packing` passed the tables come back as soon as the heads are read, each configuration's pack a future the caller waits on through `Packing.wait` and a pool the caller closes; with none, the packing is finished before the return.
 
     A build with an `out_dir` also carries its trace memos across builds: the previous build's `memo-<config>.tsv.gz` files under it are read through `memo_seed` — unpacked for the crate wherever their stamp still holds, with the runes whose content moved named as edited — so a window naming no edited rune settles as it settled last time, and this build's own memos are packed into the same names on the way out, under `memo_stamp` over the spec in hand. A caller with no `out_dir` reads and writes none.
 
@@ -245,13 +322,12 @@ def build_tables(
     `kernel_threads` is how many delta configurations are in flight at once behind `default`, capped here at the configuration count and the cores this process may actually run on — neither of which is a memory bound — while the default it falls back to is the memory one: `kernel_exec.KERNEL_THREADS_DEFAULT` is this box's own memory, less what `default`'s finished memo holds, divided by what one delta costs while it holds its own working set. So this `min()` only ever narrows a memory-derived width and never widens one, and nothing about memory belongs inside it. The fold's own width went with the Python fold: it runs inside the enumerating process, and there is nothing left on this side to widen.
     """
     configs = conform.SETTLEMENT_CONFIGS
-    threads = max(
-        1,
-        min(kernel_threads or kernel_exec.KERNEL_THREADS_DEFAULT, len(configs), usable_cores()),
-    )
+    threads = _table_build_threads(kernel_threads)
     kernel_exec.ensure_built()
     built: dict[str, tuple] = {}
     digests: dict[str, str] = {}
+    deferred = packing is not None
+    packers = packing if packing is not None else Packing(threads)
     with tempfile.TemporaryDirectory() as scratch:
         directory = Path(scratch)
         spec_path = directory / "spec.json"
@@ -267,9 +343,10 @@ def build_tables(
         if out_dir is not None and stamp is not None:
             start = time.perf_counter()
             seed = memo_seed(out_dir, stamp, directory / "seed")
-            print(
-                f"[t] memo_seed {time.perf_counter() - start:.1f}s edited={','.join(seed.edited) if seed else '-'} classes={','.join(seed.moved_classes) if seed else '-'}",
-                flush=True,
+            console.timing(
+                "memo_seed",
+                time.perf_counter() - start,
+                f"edited={','.join(seed.edited) if seed else '-'} classes={','.join(seed.moved_classes) if seed else '-'}",
             )
         start = time.perf_counter()
         digests = kernel_exec.build_table_files(
@@ -284,29 +361,36 @@ def build_tables(
             moved_classes=seed.moved_classes if seed else (),
             memo_stamp=stamp,
         )
-        print(f"[t] kernel_build_tables {time.perf_counter() - start:.1f}s", flush=True)
+        console.timing("kernel_build_tables", time.perf_counter() - start)
 
         def read_one(config: str) -> tuple[str, tuple]:
-            start = time.perf_counter()
             payload = tables_dir / f"windows-{config}.tsv"
             with payload.open("rt", encoding="utf-8") as handle:
                 _stamp, decision = table_module.read_windows(handle, windows=False)
             treaty = table_module.read_treaty_tsv(tables_dir / f"treaties-{config}.tsv")
-            if inputs is not None and out_dir is not None:
-                _pack_windows(payload, table_module.windows_path(tables_dir, config))
-            payload.unlink()
-            memo = tables_dir / f"memo-{config}.tsv"
-            if memo.is_file():
-                _pack_windows(memo, kernel_exec.memo_path(tables_dir, config))
-                memo.unlink()
-            print(f"[t] pack_windows[{config}] {time.perf_counter() - start:.1f}s", flush=True)
+            if out_dir is None:
+                payload.unlink()
+            else:
+                packers.submit(
+                    config,
+                    functools.partial(_pack_config, tables_dir, config, inputs is not None),
+                    len(configs),
+                )
             return config, (decision, treaty)
 
-        with ThreadPoolExecutor(max_workers=threads) as packers:
-            for finished in as_completed([packers.submit(read_one, config) for config in configs]):
-                config, tables = finished.result()
-                built[config] = tables
-                console.progress(len(built), len(configs), "configurations")
+        try:
+            with ThreadPoolExecutor(max_workers=threads) as heads:
+                for finished in as_completed([heads.submit(read_one, config) for config in configs]):
+                    config, tables = finished.result()
+                    built[config] = tables
+                    console.progress(len(built), len(configs), "configurations")
+        except BaseException:
+            if not deferred:
+                with suppress(Exception):
+                    packers.close()
+            raise
+        if not deferred:
+            packers.close()
     return {config: built[config] for config in configs}, {config: digests[config] for config in configs}
 
 
@@ -412,71 +496,215 @@ def _defect_summary_fields(report: defects.DefectReport) -> dict:
     }
 
 
+def _tail_gate_threads(sweep_jobs: int | None, build_threads: int, ncores: int | None = None) -> int:
+    """The shipped-order walker pool's width: `build_threads` (the table build's memory-derived width, `_table_build_threads`, which already caps at the configuration count and the cores), narrowed to the cores the oracle pool leaves free (`usable_cores()` less `sweep_jobs`, floored at one), or not narrowed when nothing is co-resident (`sweep_jobs` None, a caller building a spec of its own). The walks are the one stage of the table-only branch that can still be running when the oracle starts: the oracle waits on the settle memos the witness stage writes after the string replay has exited (`TableGates.wait_for_memo`), so the replay crate — the branch's one heavy holder, priced at `kernel_exec.DELTA_PEAK_BYTES` a configuration — is never beside an oracle worker and keeps the build's width, while a walk holds the rules and the labels and streams its rows, far inside that price. Taking the walks' cores off the box before their width is taken is what keeps the oracle's per-configuration seconds where a solo oracle has them; the narrowing prices no memory, since nothing in the tree measures what an oracle worker holds (`sweep_job_budget` prices one in prose and `calibrate_budgets.UNITS` names none), and the walks need none priced."""
+    cores = ncores or usable_cores()
+    free = cores if sweep_jobs is None else max(1, cores - sweep_jobs)
+    return max(1, min(free, build_threads))
+
+
+@dataclass
+class _TableGateState:
+    """What the table-only branch leaves for `TableGates` to read: `memo_ready` set once the witness stage's settle memos are on disk or the replay-then-witness chain has gone red, and the exception each stage would have raised in the serial form; the summaries themselves reach their readers as the JSON files each stage writes."""
+
+    memo_ready: threading.Event = field(default_factory=threading.Event)
+    pack_red: BaseException | None = None
+    chain_red: BaseException | None = None
+    emitted_red: BaseException | None = None
+
+
+def _emitted_order_stage(
+    spec: ResolvedSpec,
+    tables: Mapping[str, tuple],
+    out_dir: Path,
+    packing: Packing,
+    threads: int,
+) -> None:
+    console.phase("emitted_order")
+    start = time.perf_counter()
+    emitted = run_emitted_order(spec, tables, out_dir, kernel_threads=threads, ready=packing.wait)
+    console.timing("emitted_order", time.perf_counter() - start)
+    if not emitted["pass"]:
+        raise SystemExit(
+            f"the shipped settlement order answers a row differently from its table: {emitted['complaint']}"
+        )
+
+
+def _run_table_gates(
+    spec: ResolvedSpec,
+    tables: Mapping[str, tuple],
+    out_dir: Path,
+    inputs: str | None,
+    packing: Packing,
+    memo_inputs: oracle_cache.SettleMemoInputs | None,
+    replay_threads: int,
+    walk_threads: int,
+    state: _TableGateState,
+) -> None:
+    """The table-only branch, on one background thread beside the glyph chain. The string replay runs first, at the table build's width (`replay_threads`), and the witness stage after it, in that order because the replay writes each configuration's settle memo file whole on a whole-universe walk (`conform.absorb_replay_memo`) and the witness stage loads that file and writes it back with its own windows added; `state.memo_ready` is set once the witness stage's files are on disk, or the moment that chain goes red, and `TableGates` sets it as well when this thread ends any other way, so a wait on it can never hang. Beside that chain the shipped-order walks run on a thread of their own at `walk_threads` (`_tail_gate_threads`, the width that leaves the oracle its cores), each configuration's walk waiting on its own pack (`Packing.wait`), and the packing closes here after the last of them. Nothing raises out of this thread: the exception each stage would have raised in the serial form lands in `state`, and `TableGates` raises the first red in that order."""
+    with ThreadPoolExecutor(max_workers=1, thread_name_prefix="emitted-order") as walks:
+        emitted = (
+            walks.submit(_emitted_order_stage, spec, tables, out_dir, packing, walk_threads)
+            if inputs is not None
+            else None
+        )
+        try:
+            console.phase("replay_strings")
+            start = time.perf_counter()
+            replay = run_replay_strings(
+                spec, out_dir, inputs, kernel_threads=replay_threads, memo_inputs=memo_inputs
+            )
+            walked = "whole universe" if replay["families"] is None else f"{len(replay['families'])} families"
+            console.timing("replay_strings", time.perf_counter() - start, rss_token(process_peak_rss_bytes()))
+            console.say(f"replay_strings: horizon {replay['horizon']}, {walked}")
+            if not replay["pass"]:
+                raise SystemExit(f"the string replay found the tables incomplete: {replay['complaint']}")
+
+            console.phase("rule_witnesses")
+            start = time.perf_counter()
+            witness_summary = run_rule_witnesses(spec, tables, out_dir, memo_inputs)
+            console.timing("rule_witnesses", time.perf_counter() - start)
+            if not witness_summary["pass"]:
+                raise conform.WitnessError(
+                    f"{len(witness_summary['failures'])} rule(s) whose certificate does not fire them; see {out_dir / 'witness_summary.json'}"
+                )
+        except BaseException as error:
+            state.chain_red = error
+        finally:
+            state.memo_ready.set()
+        if emitted is not None:
+            try:
+                emitted.result()
+            except BaseException as error:
+                state.emitted_red = error
+    try:
+        packing.close()
+    except BaseException as error:
+        state.pack_red = error
+
+
+class TableGates:
+    """The handle `run` returns for its table-only branch. `wait_for_memo` is the oracle's call site: it blocks until the witness stage's settle memos are on disk — the oracle loads them, and a worker that loaded before they landed could write a smaller file back over them — reports the wait as `[t] settle_memo_wait`, and raises the replay's or the witness stage's red if that is how the chain ended. `join` waits for the whole branch and raises the first red in the serial order (the packing, the replay, the witnesses, the shipped order); `first_red` returns it instead, for the paths where the glyph chain has a complaint of its own that yields to it; `close` belongs in a `finally`, so no thread or pool outlives the run on an interrupt."""
+
+    def __init__(
+        self, packing: Packing, state: _TableGateState, pool: ThreadPoolExecutor, future: Future[None]
+    ) -> None:
+        self._packing = packing
+        self._state = state
+        self._pool = pool
+        self._future = future
+        future.add_done_callback(lambda _: state.memo_ready.set())
+
+    def wait_for_memo(self) -> None:
+        if not self._state.memo_ready.is_set():
+            start = time.perf_counter()
+            self._state.memo_ready.wait()
+            console.timing("settle_memo_wait", time.perf_counter() - start)
+        if self._state.chain_red is not None:
+            raise self._state.chain_red
+        if self._future.done():
+            self._future.result()
+
+    def first_red(self) -> BaseException | None:
+        try:
+            self._future.result()
+        except BaseException as error:
+            return error
+        state = self._state
+        return next(
+            (red for red in (state.pack_red, state.chain_red, state.emitted_red) if red is not None), None
+        )
+
+    def join(self) -> None:
+        red = self.first_red()
+        if red is not None:
+            raise red
+
+    def close(self) -> None:
+        with suppress(Exception):
+            self._future.result()
+        self._pool.shutdown(wait=True)
+        with suppress(Exception):
+            self._packing.close()
+
+
 def run(
     out_dir: Path = OUT_DIR,
     spec: ResolvedSpec | None = None,
     inputs: str | None = None,
     kernel_threads: int | None = None,
     memo_inputs: oracle_cache.SettleMemoInputs | None = None,
-) -> dict:
-    """`inputs` is `tables_inputs` over the sources `spec` was loaded from, snapshotted before the load so it can only ever name content the tables are at least as new as. Supplying it serializes the window enumeration under `out_dir` for the conformance sweep; a caller running a spec of its own leaves it out. `memo_inputs` is `settle_memo_inputs` cut at the same moment, and names the settle memo files the string replay fills and the witness stage, the oracle and the belt then load; without it the replay files nothing, the witness stage settles every certificate and nothing is shared. `kernel_threads` reaches the table build and the string replay and nothing else."""
+    *,
+    sweep_jobs: int | None = None,
+) -> tuple[dict, TableGates]:
+    """The build: the tables, then two branches over them. The table-only branch (`_run_table_gates`, on one background thread) runs the string replay, the witness stage and the shipped-order walks; the glyph chain — minting, the defect gates, the emission, the compile and the read-back — runs here on the calling thread, writes `pipeline_summary.json` and the Stage A record, and returns its summary with the branch's `TableGates` handle without joining it. The join is the caller's: `main` calls `wait_for_memo` before the oracle and `join` after it, so the gate is decided over both branches, and `close` in a `finally`. A chain complaint yields to the branch's: when anything here raises, the branch's first red is raised in its place if it has one, so a red replay is reported as the tables incomplete rather than as whatever the chain made of them.
+
+    `inputs` is `tables_inputs` over the sources `spec` was loaded from, snapshotted before the load so it can only ever name content the tables are at least as new as. Supplying it serializes the window enumeration under `out_dir` for the conformance sweep and the shipped-order walk; a caller running a spec of its own leaves it out, and the walk does not run. `memo_inputs` is `settle_memo_inputs` cut at the same moment, and names the settle memo files the string replay fills and the witness stage, the oracle and the belt then load; without it the replay files nothing, the witness stage settles every certificate and nothing is shared. `kernel_threads` reaches the table build, the packing and the string replay, and bounds the shipped-order walks; `sweep_jobs` is the width of the oracle pool that can still be starting while the walks run, and narrows the walks through `_tail_gate_threads` — None means nothing co-resident.
+    """
     out_dir.mkdir(parents=True, exist_ok=True)
     console.phase("spec_load")
     start = time.perf_counter()
     if spec is None:
         spec = load_default_spec()
-    print(f"[t] spec_load {time.perf_counter() - start:.1f}s", flush=True)
+    console.timing("spec_load", time.perf_counter() - start)
 
     console.phase("build_tables_total")
     start = time.perf_counter()
-    tables, _digests = build_tables(spec, out_dir, inputs=inputs, kernel_threads=kernel_threads)
-    print(
-        f"[t] build_tables_total {time.perf_counter() - start:.1f}s {rss_token(process_peak_rss_bytes())}",
-        flush=True,
-    )
-
-    console.phase("replay_strings")
-    start = time.perf_counter()
-    replay = run_replay_strings(spec, out_dir, inputs, kernel_threads=kernel_threads, memo_inputs=memo_inputs)
-    walked = "whole universe" if replay["families"] is None else f"{len(replay['families'])} families"
-    print(
-        f"[t] replay_strings {time.perf_counter() - start:.1f}s {rss_token(process_peak_rss_bytes())}",
-        flush=True,
-    )
-    print(f"replay_strings: horizon {replay['horizon']}, {walked}", flush=True)
-    if not replay["pass"]:
-        raise SystemExit(f"the string replay found the tables incomplete: {replay['complaint']}")
-
-    console.phase("rule_witnesses")
-    start = time.perf_counter()
-    witness_summary = run_rule_witnesses(spec, tables, out_dir, memo_inputs)
-    print(f"[t] rule_witnesses {time.perf_counter() - start:.1f}s", flush=True)
-    if not witness_summary["pass"]:
-        raise conform.WitnessError(
-            f"{len(witness_summary['failures'])} rule(s) whose certificate does not fire them; see {out_dir / 'witness_summary.json'}"
+    build_threads = _table_build_threads(kernel_threads)
+    packing = Packing(build_threads)
+    try:
+        tables, _digests = build_tables(
+            spec, out_dir, inputs=inputs, kernel_threads=kernel_threads, packing=packing
         )
+    except BaseException:
+        with suppress(Exception):
+            packing.close()
+        raise
+    console.timing("build_tables_total", time.perf_counter() - start, rss_token(process_peak_rss_bytes()))
 
-    if inputs is not None:
-        console.phase("emitted_order")
-        start = time.perf_counter()
-        emitted = run_emitted_order(spec, tables, out_dir, kernel_threads=kernel_threads)
-        print(f"[t] emitted_order {time.perf_counter() - start:.1f}s", flush=True)
-        if not emitted["pass"]:
-            raise SystemExit(
-                f"the shipped settlement order answers a row differently from its table: {emitted['complaint']}"
-            )
+    state = _TableGateState()
+    pool = ThreadPoolExecutor(max_workers=1, thread_name_prefix="table-gates")
+    gates = TableGates(
+        packing,
+        state,
+        pool,
+        pool.submit(
+            _run_table_gates,
+            spec,
+            tables,
+            out_dir,
+            inputs,
+            packing,
+            memo_inputs,
+            build_threads,
+            _tail_gate_threads(sweep_jobs, build_threads),
+            state,
+        ),
+    )
+    try:
+        summary = _run_glyph_chain(spec, tables, out_dir)
+    except BaseException as error:
+        red = gates.first_red() if isinstance(error, (Exception, SystemExit)) else None
+        gates.close()
+        if red is not None:
+            raise red
+        raise
+    return summary, gates
 
+
+def _run_glyph_chain(spec: ResolvedSpec, tables: Mapping[str, tuple], out_dir: Path) -> dict:
+    """The glyph chain over one build's tables: minting, the defect gates, the feature emission, the compile and the read-back, with `pipeline_summary.json` and the Stage A record written at the end. Reads the spec and the tables and writes nothing the table-only branch reads."""
     console.phase("glyph_minting")
     start = time.perf_counter()
     cell_glyphs = mint_cell_glyphs(spec, tables)
     bare, twins, ss10_twins = mint_raw_glyphs(spec)
     dots = namer_dot_glyphs()
-    print(f"[t] glyph_minting {time.perf_counter() - start:.1f}s", flush=True)
+    console.timing("glyph_minting", time.perf_counter() - start)
 
     console.phase("defect_gates")
     start = time.perf_counter()
     defect_report = _run_defect_gates(spec, tables, cell_glyphs)
-    print(f"[t] defect_gates {time.perf_counter() - start:.1f}s", flush=True)
+    console.timing("defect_gates", time.perf_counter() - start)
 
     console.phase("emit_gsub_gpos")
     start = time.perf_counter()
@@ -492,13 +720,13 @@ def run(
     )
     gpos_fea = emit_gpos.emit_gpos(curs_glyphs, spec=spec)
     fea = gsub_plan.fea_text + "\n" + gpos_fea
-    print(f"[t] emit_gsub_gpos {time.perf_counter() - start:.1f}s", flush=True)
+    console.timing("emit_gsub_gpos", time.perf_counter() - start)
 
     console.phase("compile_font")
     start = time.perf_counter()
     all_glyphs = {**curs_glyphs, **dots}
     font_path = compile_font.build_mini_font(all_glyphs, fea, out_dir / "M1.otf")
-    print(f"[t] compile_font {time.perf_counter() - start:.1f}s", flush=True)
+    console.timing("compile_font", time.perf_counter() - start)
     (out_dir / "M1.generated.fea").write_text(fea)
 
     console.phase("readback")
@@ -507,7 +735,7 @@ def run(
         font_path, gsub_plan, emit_gpos.cursive_registrations(curs_glyphs, spec=spec)
     )
     (out_dir / "readback_summary.json").write_text(json.dumps(readback_report, indent=2) + "\n")
-    print(f"[t] readback {time.perf_counter() - start:.1f}s", flush=True)
+    console.timing("readback", time.perf_counter() - start)
     if not readback_report["pass"]:
         raise readback.ReadbackError(
             f"{len(readback_report['divergences'])} read-back divergence(s) between the compiled font and the plan; see {out_dir / 'readback_summary.json'}"
@@ -674,7 +902,7 @@ def _absorb_replay_memo(out_dir: Path, config: str, memo: conform.SettleMemoFile
     except (kernel_exec.KernelRunError, OSError) as error:
         console.warn(f"settle memo: {dump} not absorbed ({error}); the readers settle instead")
         return
-    print(f"[t] settle_memo_emit {config} {time.perf_counter() - started:.2f}s entries={entries}", flush=True)
+    console.timing(f"settle_memo_emit {config}", time.perf_counter() - started, f"entries={entries}")
 
 
 def run_rule_witnesses(
@@ -685,7 +913,7 @@ def run_rule_witnesses(
 ) -> dict:
     """The witness stage: every configuration's certificates settled through the crate and each rule asserted to fire in its own (`conform.check_rule_certificates`), which is the realizability half of the dead-rule alarm — the crate's fold refuses a rule no replayed row first-matches, and this refuses a rule whose replayed row no string reaches, which is what a wrong pin in the worklist would look like. It runs here, on the tables the build just folded, because the certificates are a fact about exactly those tables: nothing can check them against stale artifacts, and `--gates-only` reuses tables this stage already passed.
 
-    Each configuration's walk shares the settle memo the string replay fills and the oracle and the belt load (`conform.settle_memo_files`, keyed per family off `memo_inputs` the way the oracle row cache is), so a window any of them has settled since the runes it names last moved is settled once; on a whole-universe replay this stage serves every certificate's windows off the file the replay just filled and settles only what a narrowed replay left standing. That key is where the window-locality theorem reaches the certificates: a rune edit retires only the memo entries naming an edited family, so only the certificates naming one are re-settled. A caller building a spec of its own has no memo inputs and no memo, and settles everything. The summary is written beside the other gate summaries; a red one stops the build before a glyph is minted.
+    Each configuration's walk shares the settle memo the string replay fills and the oracle and the belt load (`conform.settle_memo_files`, keyed per family off `memo_inputs` the way the oracle row cache is), so a window any of them has settled since the runes it names last moved is settled once; on a whole-universe replay this stage serves every certificate's windows off the file the replay just filled and settles only what a narrowed replay left standing. That key is where the window-locality theorem reaches the certificates: a rune edit retires only the memo entries naming an edited family, so only the certificates naming one are re-settled. A caller building a spec of its own has no memo inputs and no memo, and settles everything. The summary is written beside the other gate summaries; a red one is raised at the join, ahead of any complaint the glyph chain makes. The stage runs after the string replay on the table-only branch (`_run_table_gates`), which is the ordering that lets it load the file the replay filled, and the oracle waits on its memos being written back (`TableGates.wait_for_memo`), so no later reader can write a smaller file over them.
     """
     guard_verdicts = kernel_exec.guard_sweep(spec)
     memos = conform.settle_memo_files(out_dir, spec, memo_inputs)
@@ -705,9 +933,10 @@ def run_rule_witnesses(
             "fresh_windows": report.fresh,
         }
         failures.extend(report.failures)
-        print(
-            f"[t] rule_witnesses[{config}] {time.perf_counter() - started:.1f}s\trules={report.rules} witnessed={len(report.witnessed)} served={report.served} fresh={report.fresh}",
-            flush=True,
+        console.timing(
+            f"rule_witnesses[{config}]",
+            time.perf_counter() - started,
+            f"rules={report.rules} witnessed={len(report.witnessed)} served={report.served} fresh={report.fresh}",
         )
     summary = {"pass": not failures, "configs": per_config, "failures": failures[:50]}
     (out_dir / "witness_summary.json").write_text(json.dumps(summary, indent=2) + "\n")
@@ -722,10 +951,11 @@ def run_emitted_order(
     tables: Mapping[str, tuple],
     out_dir: Path,
     kernel_threads: int | None = None,
+    ready: Callable[[str], None] | None = None,
 ) -> dict:
     """The shipped-order stage: the settlement order the emitter ships — every configuration's table folded into one lookup and sorted by `emit_gsub._ordered_settle_rules` — replayed first-match against every row of every configuration's window enumeration by the crate's `replay-emitted` verb (`rebuild/kernel-rs/src/shipped_order.rs`), one process per configuration over the packed enumeration the build just wrote under `out_dir`. Each row, renamed into the stream its configuration's marker lookups produce, has to be answered by the first emitted rule of its input that admits it with the row's own outcome — member by member where an emitted look class admits the row's deep class in part, since a rule folded from another configuration's fiber partition can do that and still answer every member as the row does; a row answered differently is a red build naming the configuration, the row, the emitted rule that fired and the table's own rule.
 
-    This is the one proof of the shipped order that reads the tables: the fold's partition assertion, the string replay and the witness stage each walk a configuration's rules in that configuration's own order, and read-back compares the font to the plan rather than the plan to the tables, so without this stage the order the font ships was proven by the HarfBuzz belt alone — which keys on code and on behavior classes and skips a rune edit that mints no new shape. It runs on every build, on the tables the build just folded, so a rune edit that reorders the fold without minting a new rule shape is caught here rather than at the next code change. O(rows) per configuration, nothing settled, and the configurations run `kernel_threads` at a time behind one small process each: what a walk holds is the rules and the labels, never a memo or an engine.
+    This is the one proof of the shipped order that reads the tables: the fold's partition assertion, the string replay and the witness stage each walk a configuration's rules in that configuration's own order, and read-back compares the font to the plan rather than the plan to the tables, so without this stage the order the font ships was proven by the HarfBuzz belt alone — which keys on code and on behavior classes and skips a rune edit that mints no new shape. It runs on every build, on the tables the build just folded, so a rune edit that reorders the fold without minting a new rule shape is caught here rather than at the next code change. O(rows) per configuration, nothing settled, and the configurations run `kernel_threads` at a time behind one small process each: what a walk holds is the rules and the labels, never a memo or an engine. `ready`, when given, is called with the configuration's name on the walker thread before its enumeration is opened — `Packing.wait` in the build, so a walk starts the moment its own pack is on disk rather than after the whole build's.
     """
     from rebuild.pipeline import emit_gsub
 
@@ -747,6 +977,8 @@ def run_emitted_order(
             decision = entry[0] if isinstance(entry, (tuple, list)) else entry
             context = directory / f"context-{config}.tsv"
             context.write_text(emit_gsub.emitted_context_tsv(spec, config, decision))
+            if ready is not None:
+                ready(config)
             answer = kernel_exec.replay_emitted(
                 table_module.windows_path(out_dir, config),
                 config=config,
@@ -755,9 +987,10 @@ def run_emitted_order(
                 context=context,
                 timings=True,
             )
-            print(
-                f"[t] emitted_order[{config}] {time.perf_counter() - started:.1f}s\trows={answer['rows']} expanded={answer['expanded']}",
-                flush=True,
+            console.timing(
+                f"emitted_order[{config}]",
+                time.perf_counter() - started,
+                f"rows={answer['rows']} expanded={answer['expanded']}",
             )
             return config, answer
 
@@ -948,7 +1181,7 @@ def _promote_oracle_row_cache(
         return
     promoted = oracle_cache.promote_stores(scratch, out_dir, conform.ACCEPTANCE_CONFIGS)
     if promoted:
-        print(f"oracle row cache: written for {', '.join(promoted)}", flush=True)
+        console.say(f"oracle row cache: written for {', '.join(promoted)}")
     else:
         console.warn("oracle row cache: not written — a configuration staged no store")
 
@@ -993,7 +1226,7 @@ def _report_oracle_cache(
     """Say, before the fan-out, what the stores on disk will and will not answer — because the hit rate here is bimodal and a whole-store drop looks exactly like a bug when nothing names the line that caused it. A stamp line that moved (a pipeline module, a predicate class gaining a member, the engine's semantics flags) drops every row of every configuration; a family key that moved re-derives only the rows that can reach it, which is the ordinary shape of a rune edit. The position store answers on its own second line: a position stamp line that moved (the oracle's module, the kern sidecar, the font's helpers) re-shapes every row while the rows are still served, and a position key that moved re-shapes only the rows that reach that family — the shape of a glyph edit."""
     recorded = oracle_cache.read_header(oracle_cache.store_path(out_dir, conform.ACCEPTANCE_CONFIGS[0]))
     if recorded is None:
-        print("oracle row cache: no store on disk — this pass derives every row and writes one", flush=True)
+        console.say("oracle row cache: no store on disk — this pass derives every row and writes one")
         return
     stamp = stamps[conform.ACCEPTANCE_CONFIGS[0]]
     stored_lines = {
@@ -1007,11 +1240,11 @@ def _report_oracle_cache(
     stored_keys = {str(name): str(value) for name, value in (recorded.get("family_keys") or {}).items()}
     moved_keys = oracle_cache.moved_note(stored_keys, dict(keys))
     if moved_keys is None:
-        print("oracle row cache: the stamp and every family key still stand", flush=True)
+        console.say("oracle row cache: the stamp and every family key still stand")
     else:
         console.warn(f"oracle row cache: re-deriving the rows that reach {moved_keys}")
     if position_keys is None or position_stamp is None:
-        print("oracle position store: no font to shape against — every position is shaped", flush=True)
+        console.say("oracle position store: no font to shape against — every position is shaped")
         return
     stored_position_lines = {
         label: digest
@@ -1030,7 +1263,7 @@ def _report_oracle_cache(
     }
     moved_position_keys = oracle_cache.moved_note(stored_position_keys, dict(position_keys))
     if moved_position_keys is None:
-        print("oracle position store: the position stamp and every glyph key still stand", flush=True)
+        console.say("oracle position store: the position stamp and every glyph key still stand")
     else:
         console.warn(f"oracle position store: re-shaping the rows that reach {moved_position_keys}")
 
@@ -1072,7 +1305,7 @@ def run_oracle(
         keys = stamps = None
     else:
         if fresh_cache:
-            print("oracle row cache: distrusted for this pass — every row is derived", flush=True)
+            console.say("oracle row cache: distrusted for this pass — every row is derived")
         else:
             _report_oracle_cache(out_dir, keys, stamps, position_keys, position_stamp)
         row_cache = oracle.OracleRowCache(
@@ -1432,25 +1665,30 @@ def main(argv: list[str] | None = None) -> None:
     memo_inputs = settle_memo_inputs()
     spec = load_default_spec()
     before = run_m1_key()
+    gates: TableGates | None = None
     try:
         console.phase("run_total")
         start = time.perf_counter()
-        summary = run(spec=spec, inputs=inputs, kernel_threads=args.kernel_threads, memo_inputs=memo_inputs)
-        print(
-            f"[t] run_total {time.perf_counter() - start:.1f}s {rss_token(process_peak_rss_bytes())}",
-            flush=True,
+        summary, gates = run(
+            spec=spec,
+            inputs=inputs,
+            kernel_threads=args.kernel_threads,
+            memo_inputs=memo_inputs,
+            sweep_jobs=jobs,
         )
-        print(json.dumps(summary, indent=2))
+        console.timing("run_total", time.perf_counter() - start, rss_token(process_peak_rss_bytes()))
+        console.say(json.dumps(summary, indent=2))
         if summary["defect_errors"]:
             raise SystemExit(f"{len(summary['defect_errors'])} defect-gate errors; see pipeline_summary.json")
         console.phase("run_manual_pin_gate")
         start = time.perf_counter()
         pin_gate = run_manual_pin_gate(spec=spec)
-        print(f"[t] run_manual_pin_gate {time.perf_counter() - start:.1f}s", flush=True)
-        print(json.dumps(pin_gate, indent=2))
+        console.timing("run_manual_pin_gate", time.perf_counter() - start)
+        console.say(json.dumps(pin_gate, indent=2))
         pin_failure = manual_pin_gate_failure(pin_gate)
         if pin_failure is not None:
             raise SystemExit(f"{pin_failure}; see manual_pins_summary.json")
+        gates.wait_for_memo()
         console.phase("run_oracle")
         start = time.perf_counter()
         oracle_summary = run_oracle(
@@ -1459,14 +1697,20 @@ def main(argv: list[str] | None = None) -> None:
             fresh_cache=args.fresh_oracle_cache,
             memo_inputs=memo_inputs,
         )
-        print(f"[t] run_oracle {time.perf_counter() - start:.1f}s", flush=True)
-        print(json.dumps(oracle_summary, indent=2))
+        console.timing("run_oracle", time.perf_counter() - start)
+        console.say(json.dumps(oracle_summary, indent=2))
+        gates.join()
     except (SystemExit, readback.ReadbackError, emit_gsub.EmitError, conform.WitnessError) as error:
+        red = gates.first_red() if gates is not None else None
+        complaint: BaseException = error if red is None else red
         _settle_green(RUN_M1_GREEN, before, False, run_m1_key, "run_m1")
-        _record_cli_check(_failed_check("run_m1", str(error)), started)
-        if isinstance(error, SystemExit):
-            raise
-        raise SystemExit(str(error))
+        _record_cli_check(_failed_check("run_m1", str(complaint)), started)
+        if isinstance(complaint, SystemExit):
+            raise complaint
+        raise SystemExit(str(complaint))
+    finally:
+        if gates is not None:
+            gates.close()
     gate = evaluate_run_m1_gate(summary, pin_gate, oracle_summary)
     _settle_green(
         RUN_M1_GREEN, before, gate.ok, run_m1_key, "run_m1", files_of=lambda: run_m1_skip_files(REPO_ROOT)

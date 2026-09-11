@@ -927,10 +927,15 @@ class TestTheReplayStage:
         assert run_m1.read_replay_record(tmp_path) is None
 
     def test_a_disagreement_is_recorded_red_and_stops_the_build(self, monkeypatch, tmp_path):
+        """The record is written red, the next build's delta cannot be cut against it, and the build reports the tables incomplete — ahead of whatever the glyph chain, which runs beside the replay, makes of them (rebuild/test_run_m1_tail.py holds the ordering across every combination)."""
+
         def replay_strings(spec, out_dir, configs, **rest):
             raise kernel_exec.ReplayDisagreement(
                 "default: 1 first-match-wins replay disagreement(s): (qsPea, …)"
             )
+
+        def minting_fails(spec, tables):
+            raise RuntimeError("the chain's own complaint")
 
         monkeypatch.setattr(kernel_exec, "replay_strings", replay_strings)
         monkeypatch.setattr(run_m1, "replay_structure_stamp", lambda spec, root=None: "s1")
@@ -942,5 +947,9 @@ class TestTheReplayStage:
         assert run_m1.replay_families(SPEC, summary, "s1", {}) is None
 
         monkeypatch.setattr(run_m1, "build_tables", lambda spec, out_dir, **rest: ({}, {}))
+        monkeypatch.setattr(
+            run_m1, "run_emitted_order", lambda *args, **rest: {"pass": True, "complaint": None}
+        )
+        monkeypatch.setattr(run_m1, "mint_cell_glyphs", minting_fails)
         with pytest.raises(SystemExit, match="tables incomplete"):
             run_m1.run(out_dir=tmp_path, spec=SPEC, inputs="stamp")

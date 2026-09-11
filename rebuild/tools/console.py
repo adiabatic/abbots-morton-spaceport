@@ -177,6 +177,11 @@ def _write(line: str, file: IO[str] | None) -> None:
     stream.flush()
 
 
+def say(text: str, *, file: IO[str] | None = None) -> None:
+    """A prose or JSON line from a producer whose threads print at once, written in one call like every protocol line here: `print` writes its text and its newline separately, so a line from another thread can land between the two and leave a `[t]` or `[phase]` mid-line, where neither `parse_line` nor `cycle_timings.parse_inner_timings` — both anchored at the start of a line — reads it."""
+    _write(text, file)
+
+
 def phase(name: str, *, file: IO[str] | None = None) -> None:
     _write(PHASE + name, file)
 

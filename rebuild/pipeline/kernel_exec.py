@@ -605,7 +605,8 @@ def _forward_stderr(
             f"the kernel wrote {len(stray)} non-timing lines to stderr on a clean {verb} exit: {stray[0]}"
         )
     for line in lines:
-        print(_tagged(line, tag) if tag else line, file=sys.stderr, flush=True)
+        sys.stderr.write((_tagged(line, tag) if tag else line) + "\n")
+    sys.stderr.flush()
 
 
 def _tagged(line: str, tag: str) -> str:
