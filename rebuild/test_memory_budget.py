@@ -148,7 +148,7 @@ class TestTheWidthsAlreadyOnRecord:
 
     @pytest.mark.parametrize("total, wanted", [(BOX_32_GIB, 4), (BOX_32_GB, 3)])
     def test_the_shipped_divisor_holds_the_32_gb_box_at_its_budgeted_width(self, total: int, wanted: int):
-        """The shipped pair takes `default`'s retained memo snapshot off the stated box before dividing the remaining budget by one delta. The two spellings of 32 GB part company here: the fleet's machine is the GiB one, and 34.36 GB seats every delta of the shipped alphabet in one round, while the decimal 32 GB is half a gigabyte short of the fourth delta — 32.5 GB is the smallest box that seats four — and seats three. Re-seeding either constant deliberately moves these pinned widths. The second assertion bounds the whole-process estimate by the memo plus one delta per seat of the widest wave the build can hold."""
+        """The shipped pair takes `default`'s retained memo snapshot off the stated box before dividing the remaining budget by one delta. The two spellings of 32 GB part company here: the fleet's machine is the GiB one, and 34.36 GB seats every delta of the shipped alphabet in one round, while the decimal 32 GB is half a gigabyte short of the fourth delta — 32.5 GB is the smallest box that seats four — and seats three. Re-seeding either constant deliberately moves these pinned widths. The second assertion bounds the whole-process estimate by the memo plus one delta-priced seat per delta — the seats a box whose width is the delta count holds; a box seating the configuration count holds default's memo write and fold at the extra one."""
         from rebuild.pipeline.conform import SETTLEMENT_CONFIGS
         from rebuild.pipeline.kernel_exec import TABLE_BUILD_PEAK_BYTES, kernel_threads_default
 
