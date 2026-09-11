@@ -604,7 +604,6 @@ pub struct Engine<'i> {
     /// The prospect memo: the term as the byte its zero-or-one range needs, beside the seat of its fired delta (issue #166). Under a trace memo in simulated-prospect mode it holds only the asks whose cascade raised: a settling cascade's answer is one field of a window the trace memo holds, so [`Engine::prospect`] declines the entry and reads it there on the next ask — or, for a probe's ask, whose window the trace memo declines in turn (issue #168), settles it again, which the probe arms' own memos make rare.
     prospect_cache: HashMap<ProspectKey, (i8, DeltaSeat, ReadsSeat)>,
     exit_sources_cache: HashMap<StanceId, (Vec<ExitSource<'i>>, Vec<Pointer>)>,
-    virtual_left_cache: HashMap<(Sym, Candidate), LeftContext>,
     pairing_sets: HashMap<StanceId, PairingSets>,
     explain_ladder: bool,
     /// The window memo, present in trace-memo mode alone. It is the engine's largest pile and the enumeration's high-water mark, which is why its entries are seats into the pools the [`TraceMemo`] carries beside them rather than whole traces (issue #165): a hit rebuilds the trace out of the pools, and everything a caller sees is what it saw when the entry held the trace by value.
@@ -646,7 +645,6 @@ impl<'i> Engine<'i> {
             candidates_cache: CandidatesMemo::default(),
             prospect_cache: HashMap::default(),
             exit_sources_cache: HashMap::default(),
-            virtual_left_cache: HashMap::default(),
             pairing_sets: HashMap::default(),
             explain_ladder: modes.explain_ladder,
             trace_cache: modes.trace_memo.then(TraceMemo::default),
@@ -807,11 +805,6 @@ impl<'i> Engine<'i> {
                 "exit_sources_cache",
                 self.exit_sources_cache.len(),
                 self.exit_sources_cache.capacity(),
-            ),
-            CacheSize::of(
-                "virtual_left_cache",
-                self.virtual_left_cache.len(),
-                self.virtual_left_cache.capacity(),
             ),
             CacheSize::of(
                 "pairing_sets",
@@ -1678,12 +1671,9 @@ impl<'i> Engine<'i> {
         Ok(out)
     }
 
-    /// The left a follower would settle against if this candidate won: the candidate's cell with no adjustments and no extension, which is everything the follower's own enumeration reads.
-    fn virtual_left(&mut self, rune_name: Sym, candidate: Candidate) -> LeftContext {
-        if let Some(cached) = self.virtual_left_cache.get(&(rune_name, candidate)) {
-            return cached.clone();
-        }
-        let built = LeftContext::letter(Settled {
+    /// The left a follower would settle against if this candidate won: the candidate's cell with no adjustments and no extension, which is everything the follower's own enumeration reads. It is built on every ask rather than memoized: the value is two moves of its arguments and an empty `Vec`, which allocates nothing, so a memo in front of it costs a key hash, a probe and a clone on the enumeration's hottest path to save a few instructions of construction.
+    fn virtual_left(rune_name: Sym, candidate: Candidate) -> LeftContext {
+        LeftContext::letter(Settled {
             cell: CellId {
                 rune: rune_name,
                 stance: candidate.stance,
@@ -1693,10 +1683,7 @@ impl<'i> Engine<'i> {
             },
             seam: candidate.seam,
             extension: 0,
-        });
-        self.virtual_left_cache
-            .insert((rune_name, candidate), built.clone());
-        built
+        })
     }
 
     /// Step 2's lookahead closure: whether some cell of the follower survives its own pairings, require, unlocks, row scopes and every window-decidable refusal, evaluated with this candidate as the follower's resolved left and the raw slot past it as the follower's right. Mutuality is definitional — an exit with no refusal-aware acceptor is never a candidate — and the slots past the window are optimistic by construction.
@@ -1730,7 +1717,7 @@ impl<'i> Engine<'i> {
             crate::index::journal_extend(self.reads.get(reads));
             return Ok(cached);
         }
-        let virtual_left = self.virtual_left(rune_name, *candidate);
+        let virtual_left = Self::virtual_left(rune_name, *candidate);
         if self.fired_log.is_none() {
             let result = !self
                 .candidates(&virtual_left, follower, right2, UNKNOWN, None)?
@@ -1867,7 +1854,7 @@ impl<'i> Engine<'i> {
         follower: Sym,
         recorded: bool,
     ) -> Result<(i64, ProspectTerm), SettleError> {
-        let virtual_left = self.virtual_left(rune_name, candidate);
+        let virtual_left = Self::virtual_left(rune_name, candidate);
         if !self.simulated_prospect {
             let estimate =
                 self.seam_bearing_follower_exists(&virtual_left, follower, slots.right2)?;
@@ -1947,7 +1934,7 @@ impl<'i> Engine<'i> {
         if slots.right1.rune() != Some(owner) {
             return Ok(None);
         }
-        let virtual_left = self.virtual_left(rune_name, candidate);
+        let virtual_left = Self::virtual_left(rune_name, candidate);
         let (vote_right2, vote_right3) = if self.vote_slots {
             (slots.right3, slots.right4)
         } else {
