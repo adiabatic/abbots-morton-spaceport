@@ -105,6 +105,15 @@ UNITS: tuple[Unit, ...] = (
         note="These pool records come from rebuild/review/build.py's own runner rather than from a pytest controller — cycle_timings.record_pool is deliberately not a pytest entry point — and each supplies one observation per worker that answered. The row is legitimately quiet on a box the arithmetic has already narrowed to a single worker, because a serial build starts no pool to measure; a deliberate `--jobs N` hand run is what puts an observation on the record there, and the row's unverified-here line is the honest reading until one does.",
     ),
     Unit(
+        name="signature-worker",
+        constant=None,
+        source=None,
+        pool_units=("signature",),
+        step_names=(),
+        step_caveat="",
+        note="The surface build's ink-signature pool is cores-bound rather than memory-bound — `artifact_cycle.signature_job_budget` hands it the box's cores, less gate:make-test's two under a gated cycle, and divides nothing — because a signature worker holds one comparator over the two fonts and a resident set flat in the pile it shapes, so no constant prices it and there is nothing here to calibrate. The observations are collected and reported anyway, one per worker per pooled pass, each the worker's own peak carried home on its last chunk's reply, so that a figure exists if a width ever needs one — the rebuild-contracts row's position. The surface-build step peak is deliberately not admitted: that max reads the parent, which the surface-parent row prices, and it would read a build's footprint as a comparator's.",
+    ),
+    Unit(
         name="oracle-shard",
         constant=ORACLE_SHARD_NAME,
         source=SURFACE_SOURCE,

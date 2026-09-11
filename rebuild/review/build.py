@@ -22,10 +22,10 @@ import sys
 import time
 import traceback
 import warnings
-from collections.abc import Callable, Collection, Iterator, Mapping, Sequence
+from collections.abc import Callable, Collection, Iterable, Iterator, Mapping, Sequence
 from dataclasses import dataclass, replace
 from functools import lru_cache
-from itertools import batched, combinations
+from itertools import batched, chain, combinations
 from pathlib import Path
 from typing import BinaryIO, cast
 
@@ -893,11 +893,21 @@ _signature_worker_state: dict = {}
 
 def _signature_pool_init(before_font: Path, after_font: Path) -> None:
     _signature_worker_state["comparator"] = InkComparator(before_font, after_font)
+    _signature_worker_state["label"] = multiprocessing.current_process().name
 
 
-def _signature_pair_digest(pair: tuple[str, str]) -> str:
-    text, config = pair
-    return signature_digest(_signature_worker_state["comparator"].signature(text, config))
+def _signature_chunk_digests(pairs: Sequence[tuple[str, str]]) -> tuple[list[str], str, int]:
+    """One chunk of the miss pile shaped through this worker's comparator, in the chunk's own order, with the worker's label and its peak RSS so far riding home on the reply. The peak travels inside the result because a `multiprocessing.Pool` has no other channel for it — the same shape `run_m1.run_oracle` uses for its shards — and the parent folds every chunk's reading under its label with `max`, so the record `_record_signature_pool` files prices one worker's whole life rather than one chunk of it."""
+    comparator = _signature_worker_state["comparator"]
+    digests = [signature_digest(comparator.signature(text, config)) for text, config in pairs]
+    return digests, _signature_worker_state["label"], peak_rss_self_bytes()
+
+
+def _record_signature_pool(width: int, peaks: dict[str, int]) -> None:
+    """File one kind:"pool" record for a finished signature pool, under a unit name of this pool's own, so `make job-costs` reports what a signature worker actually held beside the surface worker's figure. No constant divides the box by it — the width is cores-bound (`artifact_cycle.signature_job_budget`) because a worker holds one comparator over two fonts and its resident set is flat in the pile — so the row is the observation and never a check. It never raises, for the reason `_record_surface_pool` never does, and a serial pass files nothing, there being no worker to price."""
+    if not peaks:
+        return
+    record_pool("signature", width=width, worker_peaks=peaks, controller_peak_bytes=peak_rss_self_bytes())
 
 
 def _resolve_signature_digests(
@@ -908,10 +918,10 @@ def _resolve_signature_digests(
     after_font: Path,
     repo_root: Path,
     helpers_digest: str,
-    jobs: int,
+    signature_jobs: int,
     fresh: bool,
-) -> tuple[dict[tuple[str, str], str], dict[str, str], str, int]:
-    """The ink-duplicate merge's signature digests, one per row of `signature_rows`, served from the persisted store where the content key still holds and shaped live for the remainder — across a spawn pool when the miss pile is deep enough to amortize its startup, else serially through the parent's shared shapers, whose memo is released once the pass is done so the parent carries no shape from it into the units phase. Returns the digests keyed (codepoints, config), the store records to persist after the build, the store's environment stamp, and the count actually shaped."""
+) -> tuple[dict[tuple[str, str], str], dict[str, str], str, int, int]:
+    """The ink-duplicate merge's signature digests, one per row of `signature_rows`, served from the persisted store where the content key still holds and shaped live for the remainder — across a spawn pool when the miss pile is deep enough to amortize its startup, else serially through the parent's shared shapers, whose memo is released once the pass is done so the parent carries no shape from it into the units phase. The pool's width is `signature_jobs`, a width of this phase's own rather than the units runner's `jobs`: a signature worker is one comparator over the two fonts and nothing else, flat in the pile it shapes and pure CPU, so cores bind it where memory binds the units worker, and the cycle hands it the cores the box has (`artifact_cycle.signature_job_budget`). The pool maps chunks rather than pairs — eight per worker, the same arithmetic as a per-pair chunksize — so each reply can carry its worker's peak, and `pool.map` keeps the chunks in miss order, which is what makes the pooled pass byte-identical to the serial one. Returns the digests keyed (codepoints, config), the store records to persist after the build, the store's environment stamp, the count actually shaped, and the width the shaping ran at (one for a serial pass; the load line names the mode only when something was shaped, since a fully served store ran neither)."""
     environment = unit_cache.signature_environment(repo_root, before_font, helpers_digest)
     prior = None if fresh else unit_cache.load_signature_store(out_dir, environment)
     keys = {(row.codepoints, row.config): keyer.signature_key(row) for row in rows}
@@ -925,19 +935,24 @@ def _resolve_signature_digests(
         else:
             signatures[(row.codepoints, row.config)] = digest
             entries[keys[(row.codepoints, row.config)]] = digest
+    width = 1
     if misses:
         pairs = [
             ("".join(chr(value) for value in parse_codepoints(row.codepoints)), row.config) for row in misses
         ]
-        if jobs > 1 and len(misses) >= _SIGNATURE_POOL_THRESHOLD:
+        if signature_jobs > 1 and len(misses) >= _SIGNATURE_POOL_THRESHOLD:
             ctx = multiprocessing.get_context("spawn")
-            nworkers = min(jobs, len(misses))
+            width = min(signature_jobs, len(misses))
+            chunk_width = max(1, len(pairs) // (width * 8))
             with ctx.Pool(
-                nworkers, initializer=_signature_pool_init, initargs=(before_font, after_font)
+                width, initializer=_signature_pool_init, initargs=(before_font, after_font)
             ) as pool:
-                digests = pool.map(
-                    _signature_pair_digest, pairs, chunksize=max(1, len(pairs) // (nworkers * 8))
-                )
+                chunks = pool.map(_signature_chunk_digests, batched(pairs, chunk_width), chunksize=1)
+            peaks: dict[str, int] = {}
+            for _chunk, label, peak in chunks:
+                peaks[label] = max(peaks.get(label, 0), peak)
+            _record_signature_pool(width, peaks)
+            digests: Iterable[str] = chain.from_iterable(chunk for chunk, _label, _peak in chunks)
         else:
             comparator = InkComparator(before_font, after_font, shaper_for)
             digests = [signature_digest(comparator.signature(text, config)) for text, config in pairs]
@@ -945,7 +960,7 @@ def _resolve_signature_digests(
         for row, digest in zip(misses, digests):
             signatures[(row.codepoints, row.config)] = digest
             entries[keys[(row.codepoints, row.config)]] = digest
-    return signatures, entries, environment, len(misses)
+    return signatures, entries, environment, len(misses), width
 
 
 def _surface_worker(conn, init: dict) -> None:
@@ -1676,6 +1691,7 @@ def build_m1(
     batch_size: int = BATCH_SIZE,
     static_dir: Path = STATIC_DIR,
     jobs: int = 1,
+    signature_jobs: int = 1,
     fresh_unit_cache: bool = False,
     spec_root: Path | None = None,
 ) -> dict:
@@ -1715,16 +1731,18 @@ def build_m1(
     font_digests = {"before": _sha256(before_font), "after": _sha256(after_font)}
     family_keys, helpers_digest = unit_cache.family_content_keys(spec_root, spec, after_font)
     keyer = unit_cache.UnitKeyer(family_keys, dict(LETTERS))
-    signatures, signature_entries, signature_environment, signatures_shaped = _resolve_signature_digests(
-        signature_rows(workload.units),
-        keyer,
-        out_dir,
-        before_font,
-        after_font,
-        repo_root,
-        helpers_digest,
-        jobs,
-        fresh_unit_cache,
+    signatures, signature_entries, signature_environment, signatures_shaped, signature_width = (
+        _resolve_signature_digests(
+            signature_rows(workload.units),
+            keyer,
+            out_dir,
+            before_font,
+            after_font,
+            repo_root,
+            helpers_digest,
+            signature_jobs,
+            fresh_unit_cache,
+        )
     )
 
     def ink_sig(text: str, config: str) -> str:
@@ -1742,7 +1760,12 @@ def build_m1(
     _phase_timing(
         "review.build load",
         phase,
-        f"(signatures: {len(signatures) - signatures_shaped:,} cached, {signatures_shaped:,} shaped)",
+        f"(signatures: {len(signatures) - signatures_shaped:,} cached, {signatures_shaped:,} shaped"
+        + (
+            ")"
+            if not signatures_shaped
+            else " serially)" if signature_width == 1 else f" across {signature_width} workers)"
+        ),
     )
 
     # The incremental plan (issue 20; rebuild/review/unit_cache.py is the contract): key every unit over its content closure, serve what the previous surface already computed, and hand the runner only the remainder. The reduces below always run over the full universe, so every order- or ledger-derived field is this build's own.
@@ -3283,9 +3306,15 @@ def main(argv: list[str] | None = None) -> None:
         print(f"Wrote {args.to}", file=sys.stderr)
         return
 
-    from rebuild.tools.artifact_cycle import surface_job_budget, surface_job_derivation
+    from rebuild.tools.artifact_cycle import (
+        signature_job_budget,
+        signature_job_derivation,
+        surface_job_budget,
+        surface_job_derivation,
+    )
 
     surface_jobs = surface_job_budget(skip_gates=True)
+    signature_jobs = signature_job_budget(skip_gates=True)
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--mode", choices=("m1-audit", "table-diff"), default="m1-audit")
     parser.add_argument("--out", type=Path, default=DEFAULT_OUT)
@@ -3300,6 +3329,12 @@ def main(argv: list[str] | None = None) -> None:
         type=int,
         default=surface_jobs,
         help=f"per-unit worker budget for the surface build; the default is the same `surface_job_budget()` width the artifact cycle passes rather than a checked-in one, taken at its unreserved arm because a hand run has no co-resident `make test` pool to leave cores or bytes to — on this box {surface_job_derivation(skip_gates=True)}, where the per-unit figure is one worker's own peak and the co-resident one is the parent that holds the whole corpus beside it. `--jobs 1` is serial, and it is what a box floors at when the pooled shape does not fit; a deliberate `--jobs N` is also how a wider run gets measured, since a pooled build files its per-worker peaks for `make job-costs`.",
+    )
+    parser.add_argument(
+        "--signature-jobs",
+        type=int,
+        default=signature_jobs,
+        help=f"the width the ink-signature phase shapes its store misses at, independent of `--jobs`: a signature worker is one comparator over the two fonts, flat in the pile and pure CPU, so cores bind it where memory binds the unit worker, and `--jobs 1` on a small box still shapes signatures across the cores. The default is `signature_job_budget()` at its unreserved arm, a hand run having no co-resident `make test` pool to leave cores to — on this box {signature_job_derivation(skip_gates=True)}. A miss pile under the pool's threshold shapes serially at any width, and a pooled pass files its per-worker peaks for `make job-costs`.",
     )
     parser.add_argument(
         "--fresh-unit-cache",
@@ -3327,6 +3362,7 @@ def main(argv: list[str] | None = None) -> None:
             junior_font=args.junior_font,
             batch_size=args.batch_size,
             jobs=args.jobs if args.jobs and args.jobs > 1 else 1,
+            signature_jobs=args.signature_jobs if args.signature_jobs and args.signature_jobs > 1 else 1,
             fresh_unit_cache=args.fresh_unit_cache,
         )
     totals = manifest["totals"]

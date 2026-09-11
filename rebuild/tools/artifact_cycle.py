@@ -1086,6 +1086,8 @@ class Plan:
     pool_policy: str = REBUILD_POOL_POLICY_DEFAULT
     surface_jobs: int = 1
     surface_reason: str = ""
+    signature_jobs: int = 1
+    signature_reason: str = ""
     standing_fill_jobs: int = 1
     standing_fill_reason: str = ""
     sweep_jobs: int = 1
@@ -1210,7 +1212,7 @@ def surface_job_budget(
     ncores: int | None = None,
     total_bytes: int | None = None,
 ) -> int:
-    """The --jobs budget for the review-surface build, and the third memory-derived fan-out in this tree: the box less its reserve less what the build holds flat, divided by what one more worker costs, under a cap that is the box's cores and SURFACE_JOBS_CAP together. The two halves are separate constants because this build's flat half is of the same order as its divided half — SURFACE_PARENT_BYTES is the parent, which holds the whole workload and every projection and state, plus the one fragment in hand (the fragments are read back out of the spools by address and stream through it into the shards rather than piling up in it until manifest+check), and which is there at any width — so it is subtracted before the division exactly as gate:make-test's pool is, rather than smeared through a divisor. SURFACE_WORKER_BYTES is the divisor: a worker's own interpreter and shapers, a baseline subset table for every configuration its batches reach, and one batch's units, projections and spool addresses, which is flat in the width because the parent hands the corpus out a batch at a time and takes each batch's results back on the reply. The same number also sizes the signature pool `_resolve_signature_digests` starts, whose workers are one comparator apiece and an order of magnitude cheaper, so the surface worker is the binding unit and the one this prices.
+    """The --jobs budget for the review-surface build, and the third memory-derived fan-out in this tree: the box less its reserve less what the build holds flat, divided by what one more worker costs, under a cap that is the box's cores and SURFACE_JOBS_CAP together. The two halves are separate constants because this build's flat half is of the same order as its divided half — SURFACE_PARENT_BYTES is the parent, which holds the whole workload and every projection and state, plus the one fragment in hand (the fragments are read back out of the spools by address and stream through it into the shards rather than piling up in it until manifest+check), and which is there at any width — so it is subtracted before the division exactly as gate:make-test's pool is, rather than smeared through a divisor. SURFACE_WORKER_BYTES is the divisor: a worker's own interpreter and shapers, a baseline subset table for every configuration its batches reach, and one batch's units, projections and spool addresses, which is flat in the width because the parent hands the corpus out a batch at a time and takes each batch's results back on the reply. The signature pool `_resolve_signature_digests` starts ahead of the units phase takes none of this: its workers are one comparator apiece, flat in the pile they shape and under a tenth of a gigabyte against a surface worker's gigabytes, so memory binds the unit worker and not them, and that pool runs at `signature_job_budget`'s cores-bound width instead.
 
     What the core clamp this replaces got wrong is worth writing down, because the evidence for it is still in the journal and still reads the same way. That argument was that the peak "barely moves with the width", from two `surface-build` step peaks — 13.25 GB at ten jobs against 13.77 GB at two. Both figures are true and neither is the build's footprint: `peak_rss.reap_peak_rss_bytes` maxes over a child's process tree instead of summing it, so a step peak is the widest single process under that step, and under this step that is the parent. A reading that can only ever see one process was flat in the width because the process it saw is flat in the width, and the pool beside it was never in the number at all. The 2026-08-27 full-fresh pass is where the gap became visible — 17.76 GB read at eight workers, against a per-term measurement of the same tree that put parent and workers together at roughly twice a 34 GB box — and this arithmetic is the shape those terms actually decompose into.
 
@@ -1240,6 +1242,30 @@ def surface_job_derivation(
         skip_gates=skip_gates, skip_make_test=skip_make_test, ncores=ncores
     )
     return memory_budget.describe_fit(per_unit, coresident_bytes=coresident, cap=cap, total_bytes=total_bytes)
+
+
+def signature_job_budget(*, skip_gates: bool, skip_make_test: bool = False, ncores: int | None = None) -> int:
+    """The `--signature-jobs` the cycle hands the surface build: the width its ink-signature phase shapes the store's misses at, and the one fan-out here that memory does not bind. A signature worker is a spawn process holding one `InkComparator` over the two fonts with plain shapers and nothing else — no subset tables, no units, no projections — and its resident set is flat in the number of signatures it shapes, under a tenth of a gigabyte against the surface worker's gigabytes, so the box's memory is never the argument against one more of them and nothing is divided out of the box for it: the width is the cores `memory_budget.usable_cores` reports, less the two gate:make-test's pytest pool holds under a gated cycle (the same deduction `_surface_fit_terms` makes, because a pass that skips run_m1 starts this phase at t=0 beside that pool), floored at one. `SURFACE_JOBS_CAP` does not apply, since that cap is where the unit worker stops scaling and not this one. So a box the pooled surface build floors at one worker still shapes its signatures across every core, by design: the `--jobs` width says what the units phase can afford, and this one says what the cores can do. The pool's own threshold (`build._SIGNATURE_POOL_THRESHOLD`) keeps a shallow miss pile serial at any width, so a warm store costs nothing here."""
+    from rebuild.tools import memory_budget
+
+    cores = ncores or memory_budget.usable_cores()
+    if not (skip_gates or skip_make_test):
+        cores -= 2
+    return max(1, cores)
+
+
+def signature_job_derivation(
+    *, skip_gates: bool, skip_make_test: bool = False, ncores: int | None = None
+) -> str:
+    """`signature_job_budget` said out loud for the plan line and the `--signature-jobs` help. Worded here rather than through `memory_budget.describe_fit`, whose unmeasured-per-unit clause would call a measured worker unmeasured: the width is a count of cores, and the clause says which cores are left out."""
+    from rebuild.tools import memory_budget
+
+    cores = ncores or memory_budget.usable_cores()
+    width = signature_job_budget(skip_gates=skip_gates, skip_make_test=skip_make_test, ncores=cores)
+    if skip_gates or skip_make_test:
+        return f"{width} of {cores} cores, the whole box"
+    clause = f"{width} of {cores} cores, less gate:make-test's two"
+    return clause if cores - 2 >= 1 else clause + ", floored at one"
 
 
 def _standing_fill_terms(
@@ -1350,6 +1376,11 @@ def build_plan(
     surface_reason = f"{surface_head}; " + surface_job_derivation(
         skip_gates=skip_gates, skip_make_test=skip_make_test, ncores=ncores, total_bytes=total_bytes
     )
+    signature_jobs = signature_job_budget(skip_gates=skip_gates, skip_make_test=skip_make_test, ncores=ncores)
+    signature_reason = (
+        "the ink-signature phase's shaping pool, cores-bound since a signature worker holds one comparator and nothing memory prices; "
+        + signature_job_derivation(skip_gates=skip_gates, skip_make_test=skip_make_test, ncores=ncores)
+    )
     fill_jobs = standing_fill_jobs(
         skip_gates=skip_gates, skip_make_test=skip_make_test, ncores=ncores, total_bytes=total_bytes
     )
@@ -1407,6 +1438,8 @@ def build_plan(
         pool_policy=pool_policy,
         surface_jobs=surface_jobs,
         surface_reason=surface_reason,
+        signature_jobs=signature_jobs,
+        signature_reason=signature_reason,
         standing_fill_jobs=fill_jobs,
         standing_fill_reason=fill_reason,
         sweep_jobs=sweep_jobs,
@@ -1476,7 +1509,17 @@ def build_plan(
                 )
             )
     else:
-        surface_argv = ["uv", "run", "python", "-m", "rebuild.review.build", "--jobs", str(surface_jobs)]
+        surface_argv = [
+            "uv",
+            "run",
+            "python",
+            "-m",
+            "rebuild.review.build",
+            "--jobs",
+            str(surface_jobs),
+            "--signature-jobs",
+            str(signature_jobs),
+        ]
         if review_out is not None:
             surface_argv += ["--out", str(review_out)]
         if fresh:
@@ -1720,7 +1763,7 @@ def _render_concurrency(plan: Plan) -> list[str]:
         return [
             "",
             "  Concurrency (--skip-gates):",
-            f"    Lane build only; no gates; run_m1 sweeps --jobs {plan.sweep_jobs} ({plan.sweep_reason}) at --kernel-threads {'not passed (gates-only route)' if plan.reuse_run_m1 else plan.kernel_threads}, surface-build --jobs {plan.surface_jobs} ({plan.surface_reason}), plumbing --standing-fill-jobs {plan.standing_fill_jobs} ({plan.standing_fill_reason})",
+            f"    Lane build only; no gates; run_m1 sweeps --jobs {plan.sweep_jobs} ({plan.sweep_reason}) at --kernel-threads {'not passed (gates-only route)' if plan.reuse_run_m1 else plan.kernel_threads}, surface-build --jobs {plan.surface_jobs} ({plan.surface_reason}), surface-build --signature-jobs {plan.signature_jobs} ({plan.signature_reason}), plumbing --standing-fill-jobs {plan.standing_fill_jobs} ({plan.standing_fill_reason})",
         ]
     t0_lane = "gate:js" if plan.skip_make_test else "gate:js, gate:make-test"
     lines = [
@@ -1778,6 +1821,7 @@ def _render_concurrency(plan: Plan) -> list[str]:
     else:
         lines.append(f"    run_m1 --kernel-threads          : {plan.kernel_threads}  ({kernel_reason})")
     lines.append(f"    surface-build --jobs             : {plan.surface_jobs}  ({plan.surface_reason})")
+    lines.append(f"    surface-build --signature-jobs   : {plan.signature_jobs}  ({plan.signature_reason})")
     lines.append(
         f"    plumbing --standing-fill-jobs    : {plan.standing_fill_jobs}  ({plan.standing_fill_reason})"
     )

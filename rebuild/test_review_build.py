@@ -729,6 +729,27 @@ def test_a_serial_surface_build_files_no_pool_record(tmp_path, monkeypatch):
     assert not journal.exists()
 
 
+def test_a_pooled_signature_pass_files_its_per_worker_peaks(tmp_path, monkeypatch):
+    """The signature pool's workers are priced by no constant — cores bind that width — but the pool files the same kind:"pool" record the surface pool does, under a unit name of its own, so `make job-costs` can report what a comparator-only worker actually holds beside the surface worker's figure. The peaks arrive under the labels the workers answered with, each folded to that worker's own maximum before filing."""
+    journal = tmp_path / "cycle-timings.ndjson"
+    monkeypatch.setattr("rebuild.tools.cycle_timings.JOURNAL", journal)
+    review_build._record_signature_pool(2, {"SpawnPoolWorker-1": 60_000_000, "SpawnPoolWorker-2": 70_000_000})
+    lines = journal.read_text(encoding="utf-8").splitlines()
+    assert len(lines) == 1
+    record = json.loads(lines[0])
+    assert (record["kind"], record["unit"], record["width"]) == ("pool", "signature", 2)
+    assert list(record["worker_peak_rss_bytes"]) == ["SpawnPoolWorker-1", "SpawnPoolWorker-2"]
+    assert record["worker_peak_rss_bytes"]["SpawnPoolWorker-2"] == 70_000_000
+
+
+def test_a_serial_signature_pass_files_no_pool_record(tmp_path, monkeypatch):
+    """A miss pile under the threshold, or a width of one, shapes in the parent and has no worker to price, so nothing is filed."""
+    journal = tmp_path / "cycle-timings.ndjson"
+    monkeypatch.setattr("rebuild.tools.cycle_timings.JOURNAL", journal)
+    review_build._record_signature_pool(0, {})
+    assert not journal.exists()
+
+
 def test_a_pooled_build_counts_its_units_and_closes_every_phase_it_opens(
     tmp_path, mini_bundle, capfd, monkeypatch
 ):

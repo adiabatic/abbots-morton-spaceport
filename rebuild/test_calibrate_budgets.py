@@ -313,6 +313,21 @@ def test_the_unmeasured_lane_is_reported_and_never_checked(tmp_path, capsys):
     assert "40.00 GB" in out
 
 
+def test_a_signature_pool_record_lands_on_the_cores_bound_row(tmp_path, capsys):
+    """The surface build's signature pool files under a unit of its own, and only the `signature-worker` row reads it — the surface rows never do, since a comparator-only worker filed as a surface worker would read as headroom the unit worker does not have. The row has no constant, so `--check` stays green at any peak; what it does is report the figure."""
+    assert _unit("signature-worker").constant is None
+    readers = [unit.name for unit in cb.UNITS if "signature" in unit.pool_units]
+    assert readers == ["signature-worker"]
+    path = _journal(tmp_path, [_pool("signature", [60_000_000, 40_000_000_000])])
+    code, out = _run(capsys, path, "--check")
+    assert code == 0
+    assert "signature-worker  (no constant — deliberately unmeasured)" in out
+    assert _unit("signature-worker").note in out
+    assert "40.00 GB" in out
+    surface_block = out.split("surface-worker")[1].split("\n\n")[0]
+    assert "40.00 GB" not in surface_block
+
+
 def test_tolerance_admits_a_peak_that_only_just_exceeds_the_constant(tmp_path, capsys):
     peak = int(CONSTANTS["font-suite"] * 1.05)
     path = _journal(tmp_path, [_pool("font-suite", [peak])])
