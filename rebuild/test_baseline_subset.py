@@ -29,9 +29,9 @@ class TestFilterTable:
         source = tmp_path / "baseline-default.tsv.gz"
         rows = [
             "E670\tqsIt\t0\t\t0,0,150",
-            "E65C\tqsShe\t0\t\t0,0,250",
+            "E65E\tqsCheer\t0\t\t0,0,250",
             "E652:E670\tqsTea.half.ex-y5|qsIt.en-y5.ex-y0\t0,1\ty5\t0,0,100|0,0,100",
-            "E652:E65C\tqsTea|qsShe\t0,1\tbreak\t0,0,100|0,0,250",
+            "E652:E65E\tqsTea|qsCheer\t0,1\tbreak\t0,0,100|0,0,250",
         ]
         _write_table(source, rows)
         destination = tmp_path / "out" / "baseline-default.subset.tsv.gz"
@@ -42,7 +42,7 @@ class TestFilterTable:
         assert content.startswith(f"# baseline-extract v1.0.0\n# font: {FONT_RELATIVE_PATH}\n")
         assert "E670\t" in content
         assert "E652:E670\t" in content
-        assert "E65C" not in content
+        assert "E65E" not in content
 
     def test_canonical_order_preserved(self, tmp_path):
         source = tmp_path / "baseline-ss03.tsv.gz"
@@ -64,7 +64,7 @@ class TestFilterTable:
         assert not baseline_subset._codepoints_in_alphabet("garbage", baseline_subset.M1_ALPHABET)
 
 
-SEED_ROWS = ["E670\tqsIt\t0\t\t0,0,150", "E65C\tqsShe\t0\t\t0,0,250"]
+SEED_ROWS = ["E670\tqsIt\t0\t\t0,0,150", "E65E\tqsCheer\t0\t\t0,0,250"]
 
 
 def _write_sources(out, rows):
@@ -334,7 +334,7 @@ class TestDefaultCovered:
         root = _seed_repo(tmp_path)
         _write_table(
             root / "rebuild" / "out" / "baseline-ss06.tsv.gz",
-            ["E670\tqsIt.x\t0\t\t0,0,150", "E65C\tqsShe\t0\t\t0,0,250"],
+            ["E670\tqsIt.x\t0\t\t0,0,150", "E65E\tqsCheer\t0\t\t0,0,250"],
         )
         with pytest.raises(baseline_subset.SubsetIdentityError) as error:
             baseline_subset.refresh(root)
@@ -362,7 +362,7 @@ class TestSubsetNames:
         names = baseline_subset.read_subset_names(root / "rebuild" / "out" / "m1")
         assert names["default"] == ["qsIt"]
         assert names["ss06"] == ["qsIt"]
-        assert "qsShe" not in names["default"]
+        assert "qsCheer" not in names["default"]
 
     def test_ligation_grain_names_are_split_and_sorted(self, tmp_path):
         root = _seed_repo(tmp_path)

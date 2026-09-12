@@ -1,6 +1,6 @@
 # Curated sequence set for the M1 CoreText-vs-HarfBuzz smoke harness (M1-PLAN section 5, coretext_smoke).
 # One sequence per line as whitespace-separated hex codepoints; text after "#" is the label.
-# Codepoints: qsPea E650, qsBay E651, qsTea E652, qsDay E653, qsKey E654, qsGay E655, qsThaw E656, qsThey E657, qsFee E658, qsVie E659, qsSee E65A, qsZoo E65B, qsJai E65D, qsMay E665, qsNo E666, qsLow E667, qsRoe E668, qsIt E670, qsEt E672, qsEight E673, qsAt E674, qsI E675, qsAh E676, qsAwe E677, qsOx E678, qsOy E679, qsUtter E67A, qsOut E67B, qsOoze E67E, space 0020, namer dot 00B7, ZWNJ 200C.
+# Codepoints: qsPea E650, qsBay E651, qsTea E652, qsDay E653, qsKey E654, qsGay E655, qsThaw E656, qsThey E657, qsFee E658, qsVie E659, qsSee E65A, qsZoo E65B, qsShe E65C, qsJai E65D, qsMay E665, qsNo E666, qsLow E667, qsRoe E668, qsIt E670, qsEt E672, qsEight E673, qsAt E674, qsI E675, qsAh E676, qsAwe E677, qsOx E678, qsOy E679, qsUtter E67A, qsOut E67B, qsOoze E67E, space 0020, namer dot 00B7, ZWNJ 200C.
 # The driver runs every line under all eight acceptance configurations.
 #
 # The prototype probe rows, carried forward.
@@ -1231,3 +1231,98 @@ E65B 200C E665            # ZWNJ severs the exit into ·May
 200C E657 E65B            # Locked `·They+Zoo` twin
 00B7 E65B                 # Namer dot before Deep ·Zoo
 00B7 E657 E65B            # Namer dot before Deep `·They+Zoo`
+
+# ·She
+E65C                     # ·She in isolation
+E65C E652                 # ·She enters full ·Tea at the baseline
+E65C E653                 # ·She enters half-·Day at the baseline
+E65C E655                 # ·She enters ·Gay at the baseline
+E65C E659                 # ·She enters ·Vie at the baseline
+E65C E65A                 # ·She enters ·See at the baseline
+E65C E65B                 # ·She enters half-·Zoo at the baseline
+E65C E665                 # ·She enters ·May at the baseline
+E65C E666                 # ·She enters flipped ·No at the baseline
+E65C E667                 # ·She enters ·Low at the baseline
+E65C E668                 # ·She enters ·Roe at the baseline
+E65C E670                 # ·She enters ·It at the baseline
+E65C E674                 # ·She enters rising ·At at the baseline
+E65C E675                 # ·She enters ·I at the baseline
+E65C E676                 # ·She enters ·Ah at the baseline
+E65C E67A                 # ·She enters ·Utter at the baseline
+E65C E67B                 # ·She enters ·Out at the baseline
+E65C E67E                 # ·She enters ·Ooze at the baseline
+E65C E650                 # ·She and ·Pea break
+E65C E651                 # ·She and ·Bay break
+E65C E654                 # ·She and ·Key break
+E65C E656                 # ·She and ·Thaw break
+E65C E657                 # ·She and ·They break
+E65C E658                 # ·She and ·Fee break
+E65C E65C                 # Adjacent ·She letters break
+E65C E65D                 # ·She and ·J’ai break
+E65C E672                 # ·She and ·Et break
+E65C E673                 # ·She and ·Eight break
+E65C E677                 # ·She and ·Awe break
+E65C E678                 # ·She and ·Ox break
+E65C E679                 # ·She and ·Oy break
+E650 E65C                 # ·Pea and ·She break
+E651 E65C                 # ·Bay and ·She break
+E652 E65C                 # ·Tea and ·She break
+E653 E65C                 # ·Day and ·She break
+E654 E65C                 # ·Key and ·She break
+E655 E65C                 # ·Gay and ·She break
+E656 E65C                 # ·Thaw and ·She break
+E657 E65C                 # ·They and ·She break
+E658 E65C                 # ·Fee and ·She break
+E659 E65C                 # ·Vie and ·She break
+E65A E65C                 # ·See and ·She break
+E65B E65C                 # ·Zoo and ·She break
+E65D E65C                 # ·J’ai and ·She break
+E665 E65C                 # ·May and ·She break
+E666 E65C                 # ·No and ·She break
+E667 E65C                 # ·Low and ·She break
+E668 E65C                 # ·Roe and ·She break
+E670 E65C                 # ·It and ·She break
+E672 E65C                 # ·Et and ·She break
+E673 E65C                 # ·Eight and ·She break
+E674 E65C                 # ·At and ·She break
+E675 E65C                 # ·I and ·She break
+E676 E65C                 # ·Ah and ·She break
+E677 E65C                 # ·Awe and ·She break
+E678 E65C                 # ·Ox and ·She break
+E679 E65C                 # ·Oy and ·She break
+E67A E65C                 # ·Utter and ·She break
+E67B E65C                 # ·Out and ·She break
+E67E E65C                 # ·Ooze and ·She break
+E65C E652 E653            # ·She ·Tea ·Day yield window
+E65C E652 E650            # ·She ·Tea ·Pea window
+E65C E67A E652 E653       # ·She ·Utter ·Tea ·Day yield window
+E65C E666 E672            # ·She ·No ·Et yield window
+E65C E65B E666            # ·She ·Zoo ·No yield window
+E65C E674 E665            # ·She ·At ·May yield window
+E65C E670 E67A            # ·She ·It ·Utter yield window
+E65C E670 E653            # ·She ·It ·Day capability window
+E65C E670 E653 E67A       # ·She yields to the baseline entry into `·Day+Utter.half`; ss04 keeps both joins
+E65A E670 E666 E673       # The Manual's `·See | ·It ~b~ ·No.alt | ·Eight` grouping
+E658 E674 E65A E670 E666 E673 E65C E666 # The Manual's complete word containing ·She
+E65C E670 E667            # ·She ·It ·Low capability window
+E65C E655 E652            # ·She ·Gay ·Tea yield window
+E65C E653 E67A            # ·She enters `·Day+Utter.half` at the baseline
+E65C E659 E67A            # ·She enters `·Vie+Utter` at the baseline
+E65C E67B E652            # ·She enters `·Out+Tea` at the baseline
+E65C E652 E679            # ·She and `·Tea+Oy` break
+E65C E657 E67A            # ·She and `·They+Utter` break
+E65C E657 E65B            # ·She and `·They+Zoo` break
+E65C E65A E67A            # ·She and `·See+Utter` break
+E65C E65D E67A            # ·She and `·J’ai+Utter` break
+E652 E679 E65C            # `·Tea+Oy` and ·She break
+E653 E67A E65C            # `·Day+Utter` and ·She break
+E657 E67A E65C            # `·They+Utter` and ·She break
+E657 E65B E65C            # `·They+Zoo` and ·She break
+E659 E67A E65C            # `·Vie+Utter` and ·She break
+E65A E67A E65C            # `·See+Utter` and ·She break
+E65D E67A E65C            # `·J’ai+Utter` and ·She break
+E67B E652 E65C            # `·Out+Tea` and ·She break
+200C E65C                 # Locked ·She twin
+200C E65C E665            # Locked ·She keeps its baseline exit
+E65C 200C E665            # ZWNJ severs the exit into ·May
+00B7 E65C                 # Namer dot before Tall ·She
