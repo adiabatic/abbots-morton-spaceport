@@ -1003,6 +1003,15 @@
 - signature: dangle:qsShe.hapax.locked:exit:baseline
   why: The ZWNJ-locked twin retains ·She's curved foot, as in baseline row 200C:E65C; the diagonal upturned tip is the same intentional letterform ink.
 
+- signature: dangle:qsCheer.hapax:exit:baseline
+  why: ·Cheer's horizontal baseline foot is part of its shipped isolated drawing, as in baseline row E65E. A declined exit keeps that foot intact.
+- signature: dangle:qsCheer.hapax.en-y5:exit:baseline
+  why: The entered ·Cheer retains the same baseline foot as the isolated drawing, as in baseline row E665:E65E; its x-height entry changes no baseline ink.
+- signature: dangle:qsCheer.hapax.en-y5.en-ext-1:exit:baseline
+  why: The x-height entry extension shifts ·Cheer's drawing and exit anchor together and leaves its baseline foot intact. The same foot follows the shipped `·Day+Utter.half` ligature in baseline row E650:E653:E67A:E65E.
+- signature: dangle:qsCheer.hapax.locked:exit:baseline
+  why: The ZWNJ-locked twin keeps ·Cheer's shipped baseline foot, as in baseline row 200C:E65E.
+
 # The after-·Key entry extension reaches ·It's ss04 pass-through cell: en-ext-1 lengthens the ·Key connector on ·It's left at y0 and leaves ·It's bar — and so the right-side corner against each follower — exactly where the blessed un-extended pass-through twin draws it. A y2 signature where the twin's says y1 is the checker naming a different row of the same multi-row bar adjacency, not a moved corner.
 - signature: contact:qsIt.hapax.en-y0.ex-y0.en-ext-1:qsOoze.hapax.en-y0:y2
 - signature: contact:qsIt.hapax.en-y0.ex-y0.en-ext-1:qsOoze.hapax.en-y0.ex-y0:y2

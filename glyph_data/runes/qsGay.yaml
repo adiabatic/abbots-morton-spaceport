@@ -61,6 +61,7 @@ stances:
             - qsZoo
             - qsShe
             - qsJai
+            - qsCheer
             - qsMay
             - qsNo
             - qsEt
@@ -111,6 +112,7 @@ stances:
           - family:
             - qsJai
             - qsJai_qsUtter
+            - qsCheer
             - qsNo
             # ·Gay·Et should stay connected — there's no reason for them to not connect
             - qsEt
@@ -214,6 +216,10 @@ policy:
         - qsJai
         - qsJai_qsUtter
     why: I want another pixel of extension between ·Gay and ·J'ai
+  - exit: x-height
+    by: 2
+    when:
+      right: {family: qsCheer}
   - exit: x-height
     by: 1
     when:

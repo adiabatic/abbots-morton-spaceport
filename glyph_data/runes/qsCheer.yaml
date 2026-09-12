@@ -1,0 +1,110 @@
+rune: qsCheer
+codepoint: 0xE65E
+ductus:
+  hapax: | # DRAFT — pending author sign-off
+    Begun above the x-height on the right, the stroke descends and bends left at the x-height, where a previous letter may connect. It turns back to the right, descends toward the left, and curves rightward along the baseline, where it may connect to the next letter.
+mono:
+  bitmap:
+  - "     "
+  - "  #  "
+  - "  #  "
+  - "##   "  #
+  - " #   "
+  - " #   "
+  - "#    "
+  - "#    "
+  - " ### "  #
+stances:
+  hapax:
+    motion: hapax
+    traits: []
+    bitmap:
+    - "    "
+    - "  # "
+    - "  # "
+    - "##  "  #
+    - " #  "
+    - " #  "
+    - "#   "
+    - "#   "
+    - " ###"  #
+    surface:
+      entries:
+        x-height:
+          x: 0
+          stroke: horizontal
+          from:
+          - family:
+            - qsPea
+            - qsGay
+            - qsFee
+            - qsMay
+            - qsNo
+            - qsLow
+            - qsIt
+            - qsAt
+            - qsI
+            - qsAh
+            - qsUtter
+            - qsOut
+            - qsOwe
+            - qsFoot
+      exits:
+        baseline:
+          x: 4
+          stroke: horizontal
+          toward:
+          - family:
+            - qsTea
+            - qsDay
+            - qsDay_qsUtter
+            - qsGay
+            - qsVie
+            - qsVie_qsUtter
+            - qsSee
+            - qsZoo
+            - qsYe
+            - qsHe
+            - qsIng
+            - qsMay
+            - qsNo
+            - qsLow
+            - qsRoe
+            - qsExcite
+            - qsExam
+            - qsIt
+            - qsEat
+            - qsAt
+            - qsI
+            - qsAh
+            - qsUtter
+            - qsOut
+            - qsOut_qsTea
+            - qsOoze
+      cells: []
+      unlocks: []
+      require: []
+policy:
+  order:
+  - hapax
+  refuse: []
+  prefer:
+  - cell: {exit: none}
+    over: {exit: baseline}
+    when:
+      right:
+        family: qsTea
+        then:
+          except:
+          - {family: qsPea}
+  extend:
+  - entry: x-height
+    by: 1
+    when:
+      left:
+        class: halves-that-exit-at-x-height
+        except:
+        - {family: qsPea}
+  contract: []
+  resolve: []
+  groups: {}

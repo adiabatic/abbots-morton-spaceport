@@ -93,6 +93,8 @@ qsZoo.half.en-y0.ex-y0: {rune: qsZoo, stance: half, entry: baseline, exit: basel
 qsZoo.noentry: {rune: qsZoo, stance: full, adjustments: [locked]}
 qsShe: {rune: qsShe, stance: hapax}
 qsShe.ex-y0: {rune: qsShe, stance: hapax, exit: baseline}
+qsCheer: {rune: qsCheer, stance: hapax}
+qsCheer.noentry: {rune: qsCheer, stance: hapax, adjustments: [locked]}
 qsNo.alt.en-y0.ex-y0.after-zoo: {rune: qsNo, stance: flipped, entry: baseline, exit: baseline}
 qsFee.en-y5: {rune: qsFee, stance: reversed-loop, entry: x-height}
 qsFee.en-y8.ex-y5: {rune: qsFee, stance: loop, entry: top, exit: x-height}

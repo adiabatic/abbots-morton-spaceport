@@ -125,6 +125,43 @@ def packed_pair(tmp_path_factory):
 
 
 class TestPackGsub:
+    def test_larger_input_streams_pack_first_without_reordering_competing_rules(self):
+        ot = pack_gsub._ot()
+
+        first_class = frozenset({"C", "D"})
+        second_class = frozenset({"B", "C"})
+        rules = [
+            pack_gsub.LogicalRule((), frozenset({"A"}), (first_class,), ((0, 0),)),
+            pack_gsub.LogicalRule((), frozenset({"B"}), (second_class,), ((0, 1),)),
+            pack_gsub.LogicalRule((), frozenset({"B"}), (first_class,), ((0, 2),)),
+        ]
+
+        groups = pack_gsub._group_rules([(rule, None) for rule in rules])
+
+        assert len(groups) == 2
+        lookup = ot.Lookup()
+        lookup.LookupType = 6
+        order = {glyph: index for index, glyph in enumerate(GLYPHS)}
+        lookup.SubTable = [pack_gsub._format2_subtable(group, order) for group in groups]
+        assert pack_gsub.per_glyph_sequences(lookup) == {"A": rules[:1], "B": rules[1:]}
+
+    def test_overlapping_input_sets_keep_competing_rule_order(self):
+        ot = pack_gsub._ot()
+
+        rules = [
+            pack_gsub.LogicalRule((), frozenset({"A", "B"}), (frozenset({"C"}),), ((0, 0),)),
+            pack_gsub.LogicalRule((), frozenset({"A"}), (frozenset({"B", "C"}),), ((0, 1),)),
+            pack_gsub.LogicalRule((), frozenset({"A"}), (frozenset({"C", "D"}),), ((0, 2),)),
+        ]
+
+        groups = pack_gsub._group_rules([(rule, None) for rule in rules])
+
+        lookup = ot.Lookup()
+        lookup.LookupType = 6
+        order = {glyph: index for index, glyph in enumerate(GLYPHS)}
+        lookup.SubTable = [pack_gsub._format2_subtable(group, order) for group in groups]
+        assert pack_gsub.per_glyph_sequences(lookup) == {"A": rules, "B": rules[:1]}
+
     def test_pack_stats_and_compression(self, packed_pair):
         unpacked, packed, stats, _reference, _tmp_path = packed_pair
         assert len(stats["packed_lookups"]) == 1
