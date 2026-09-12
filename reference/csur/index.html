@@ -7,12 +7,13 @@
     <style>
         @font-face {
             font-family: Kingsley;
-            src: url("kingsley.eot?#iefix") format('embedded-opentype'),
-                 url("kingsley.woff");
+            src: url("kingsley.woff") format("woff");
+            src: url(Quintessence-Regular.woff2) format("woff2");
         }
         
         html {
-            font-family: Seravek, Corbel, "Avenir Next", sans-serif;
+            color-scheme: light dark;
+            font-family: Seravek, system-ui, sans-serif;
             font-weight: 400;
         }
         
@@ -33,7 +34,7 @@
         }
         
         .unused {
-            background: lightgray;
+            background: light-dark(lightgray, gray);
         }
     </style>
     <link rel='icon' href='data:;base64,='>
@@ -121,14 +122,14 @@ U+E659 QUIKSCRIPT LETTER VIE
 U+E65A QUIKSCRIPT LETTER SEE
 U+E65B QUIKSCRIPT LETTER ZOO
 U+E65C QUIKSCRIPT LETTER SHE
-U+E65D QUIKSCRIPT LETTER ZHIVAGO
+U+E65D QUIKSCRIPT LETTER JAI
 U+E65E QUIKSCRIPT LETTER CHEER
 U+E65F QUIKSCRIPT LETTER JAY
 U+E660 QUIKSCRIPT LETTER YE
 U+E661 QUIKSCRIPT LETTER WAY
 U+E662 QUIKSCRIPT LETTER HE
 U+E663 QUIKSCRIPT LETTER WHY
-U+E664 QUIKSCRIPT LETTER OOLONG
+U+E664 QUIKSCRIPT LETTER -ING
 U+E665 QUIKSCRIPT LETTER MAY
 U+E666 QUIKSCRIPT LETTER NO
 U+E667 QUIKSCRIPT LETTER LOW
@@ -205,14 +206,14 @@ E659;QUIKSCRIPT LETTER VIE;Lo;0;L;;;;;N;;;;;
 E65A;QUIKSCRIPT LETTER SEE;Lo;0;L;;;;;N;;;;;
 E65B;QUIKSCRIPT LETTER ZOO;Lo;0;L;;;;;N;;;;;
 E65C;QUIKSCRIPT LETTER SHE;Lo;0;L;;;;;N;;;;;
-E65D;QUIKSCRIPT LETTER ZHIVAGO;Lo;0;L;;;;;N;;;;;
+E65D;QUIKSCRIPT LETTER JAI;Lo;0;L;;;;;N;;;;;
 E65E;QUIKSCRIPT LETTER CHEER;Lo;0;L;;;;;N;;;;;
 E65F;QUIKSCRIPT LETTER JAY;Lo;0;L;;;;;N;;;;;
 E660;QUIKSCRIPT LETTER YE;Lo;0;L;;;;;N;;;;;
 E661;QUIKSCRIPT LETTER WAY;Lo;0;L;;;;;N;;;;;
 E662;QUIKSCRIPT LETTER HE;Lo;0;L;;;;;N;;;;;
 E663;QUIKSCRIPT LETTER WHY;Lo;0;L;;;;;N;;;;;
-E664;QUIKSCRIPT LETTER OOLONG;Lo;0;L;;;;;N;;;;;
+E664;QUIKSCRIPT LETTER -ING;Lo;0;L;;;;;N;;;;;
 E665;QUIKSCRIPT LETTER MAY;Lo;0;L;;;;;N;;;;;
 E666;QUIKSCRIPT LETTER NO;Lo;0;L;;;;;N;;;;;
 E667;QUIKSCRIPT LETTER LOW;Lo;0;L;;;;;N;;;;;
@@ -323,14 +324,13 @@ E67E;QUIKSCRIPT LETTER OOZE;Lo;0;L;;;;;N;;;;;
     <tr>
         <th>E
         <td>&#xE65E;
-        <td>(
+        <td>&#xE66E;
         <td>&#xE67E;
     <tr>
         <th>F
         <td>&#xE65F;
-        <td>)
+        <td>&#xE66F;
         <td class='unused'>
-        
 </table>
 
 
@@ -350,18 +350,23 @@ E67E;QUIKSCRIPT LETTER OOZE;Lo;0;L;;;;;N;;;;;
 
 <p>Some (all?) fonts have left and right angled parentheses for U+0028 LEFT PARENTHESIS and U+0029 RIGHT PARENTHESIS.</p>
 
-<p>The letter name of “J’ai” was replaced with “Zhivago” for the [ʒ] sound.</p>
-
-<p>The letter name of “-ing” was replaced with “oolong” for the [ŋ] sound.</p>
-
-<section hidden>
+<section>
     <h2 id='changelog'>Changelog</h2>
 
     <h3>2019-03-31</h3>
     <ul>
         <li>Clarified rationale for omission of code points for half letters and alternate letterforms.</li>
         <li>Grammar improvements.</li>
+    </ul>
 
+    <h3>2026-01-26</h3>
+    <ul>
+        <li>Switched the font in use to <a href='https://github.com/FriedOrange/Quintessence-font'>Quintessence</a>.</li>
+    </ul>
+
+    <h3>2026-08-23</h3>
+    <ul>
+        <li>Use Read’s own letter names (<code>JAI</code> and <code>-ING</code>) instead of someone else’s <code>ZHIVAGO</…code> and <code>OOLONG</code>.</li>
     </ul>
 </section>
 
