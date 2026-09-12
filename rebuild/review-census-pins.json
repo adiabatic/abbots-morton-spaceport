@@ -75,7 +75,7 @@
   "volatile": {
     "manifest": {
       "totals": {
-        "units": 1715561,
+        "units": 1715492,
         "rows": 5958877,
         "batches": 622,
         "echo_groups": 8313
@@ -101,7 +101,7 @@
         }
       },
       "class_unit_count": {
-        "boundary-echo": 243276,
+        "boundary-echo": 243272,
         "dangling-anchor-dropped": 268355,
         "bare-name-live-join": 496822
       },
@@ -113,12 +113,12 @@
       }
     },
     "built": {
-      "human_units": 186452,
+      "human_units": 186387,
       "worked_example_echo_siblings": 735,
       "config_note_distribution": [
         [
           null,
-          1029640
+          1029709
         ],
         [
           "only under ss10",
@@ -150,7 +150,7 @@
         ],
         [
           "only when ss04 is off",
-          18575
+          18506
         ],
         [
           "only when ss04 is off and ss05 is off",
@@ -158,7 +158,7 @@
         ],
         [
           "only when ss04 is on",
-          18920
+          18851
         ],
         [
           "only when ss05 is off",
@@ -176,11 +176,11 @@
     },
     "audit": {
       "row_count": 5958877,
-      "units": 1721454
+      "units": 1721385
     },
     "ink": {
       "machine_total": 865179,
-      "non_identical": 856275,
+      "non_identical": 856206,
       "by_class": {
         "boundary-echo": 141012,
         "zwnj-word-initial-unification": 123,
@@ -188,8 +188,8 @@
         "bare-name-live-join": 477748,
         "zoo-entry-contraction-respelled": 1123
       },
-      "boundary_echo_exempt": 115286,
-      "human_units": 740989,
+      "boundary_echo_exempt": 115282,
+      "human_units": 740924,
       "batches": 2470
     },
     "families": {
@@ -201,10 +201,10 @@
         "seam-loss-withdrawal": 12329,
         "extension-non-summing": 76826,
         "unmatched-misc": 13410,
-        "deferred-ss04": 9880,
+        "deferred-ss04": 9815,
         "deferred-ss03": 6589
       },
-      "total": 122794
+      "total": 122729
     }
   }
 }

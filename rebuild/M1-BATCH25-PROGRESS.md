@@ -17,7 +17,7 @@ The rune carries the old mono and proportional drawings, the baseline-proven x-h
 
 The yielding preference before ·Tea follows the existing qsJai record. The smoke block includes the ·Tea·Day chain and its ·Utter continuation.
 
-·It's yielding preference after ·Cheer chooses the forward baseline join when it competes with the backward join. Cells supporting both joins remain eligible. The follower exceptions keep the backward join available when ·At serves ·May or alternate ·Utter serves its own follower. The ss04 both-baseline pairing remains available and participates in the parked ·Utter trade.
+·It's yielding preference after ·Cheer chooses the forward baseline join when it competes with the backward join. Cells supporting both joins remain eligible. The follower exceptions keep the backward join available when ·At serves ·May or alternate ·Utter serves its own follower. The ss04 both-baseline pairing remains available and participates in the parked ·Utter trade, except before ·Thaw, where it is withheld after ·Cheer; the `why:` on that grant in `glyph_data/runes/qsIt.yaml` carries the reason.
 
 The absolute ·It preference before ·No·Cheer preserves the Manual's `·It ~b~ ·No.alt | ·Cheer` example when ·It has no incoming join. Its `why:` is copied verbatim from the author's existing Manual rationale with the author's explicit permission.
 
@@ -34,6 +34,7 @@ PYTHONPATH=. uv run python rebuild/tools/probe.py E655:E65E
 PYTHONPATH=. uv run python rebuild/tools/probe.py E65E:E652:E653
 PYTHONPATH=. uv run python rebuild/tools/probe.py E65E:E67A:E652:E653
 PYTHONPATH=. uv run python rebuild/tools/probe.py E65E:E670:E67A
+PYTHONPATH=. uv run python rebuild/tools/probe.py E65E:E670:E656
 make test-rebuild
 make test
 make artifact-cycle

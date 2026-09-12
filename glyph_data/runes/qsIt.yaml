@@ -61,6 +61,20 @@ stances:
           entry: baseline
           exit: baseline
         feature: ss04
+        when:
+          left:
+            except:
+            - {family: qsCheer}
+      - pairing:
+          entry: baseline
+          exit: baseline
+        feature: ss04
+        when:
+          left: {family: qsCheer}
+          right:
+            except:
+            - {family: qsThaw}
+        why: When ·It joins at the baseline on both sides after ·Cheer, the first and last letters touch, and that's confusing.
       require: []
 policy:
   refuse:
