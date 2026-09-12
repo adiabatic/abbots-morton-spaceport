@@ -1897,3 +1897,14 @@ rules:
         follower_advance: 0
         follower_reach: 0
       except_left: []
+  - id: gay-jai-xheight-extension-added-after-full-entry
+    verdict: approve
+    note: "·Gay reaches one pixel further into ·J’ai than the old font drew, carrying ·J’ai and everything past it one column right, on the ·Gay that enters at the baseline and keeps that entry at full length. The reach is qsGay's x-height extend record before qsJai and qsJai_qsUtter, at by-3, whose why: reads “I want another pixel of extension between ·Gay and ·J’ai”; the entry stands because qsGay's contract record names ·Bay, ·Day, ·Key, ·No, ·Et and ·Awe on the left and none of these windows' left letters is one of them. gay-jai-xheight-extension-added is the same gained pixel on the ·Gay the window leaves unentered, whose narrower frame puts it two columns earlier, and gay-entry-contracted-xheight-extension-added the same reach where the entry does pull in, the two cancelling there so the letter alone changes. What ·J’ai does under the longer reach is a change of its own — jai-entry-extension-dropped is the crown coming off — and what reaches ·Gay from the left is another, so a window where ·They+Zoo newly joins it is the composed reading's, with they-zoo-baseline-join-created. Every window that reached a sitting approved the longer reach"
+    match:
+      before:
+        pivots: [qsGay.en-y0.ex-y5.ex-ext-2]
+      after:
+        pivots: [qsGay.hapax.en-y0.ex-y5.ex-ext-3]
+        gained: [[6, 8]]
+        shift: 1
+      except_left: []
