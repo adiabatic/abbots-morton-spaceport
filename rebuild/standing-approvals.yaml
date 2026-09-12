@@ -1832,3 +1832,68 @@ rules:
         added: [[4, 8]]
         shift: 0
       except_left: []
+  - id: they-zoo-baseline-join-created
+    verdict: approve
+    note: "·They+Zoo joins on the baseline where the old font left a break, and the follower closes one column onto it — the ligature's hapax stance maps its outgoing stroke onto the half ·Zoo it ends in, which landed in “Let ligatures preserve their final letter's outgoing joins” together with the removal of the ligature's own baseline exit, whose toward-list named ·No alone, and of the prefer that withheld that exit before the ·No that leads to ·Et. So the reach is the half ·Zoo's own baseline exit and nothing narrower, and this rule's follower list is that stroke's toward-list letter for letter. qsZoo's refusal of that exit after ·They is an incoming constraint, which a preserved outgoing stroke projects away (doc/rebuild-design.md, “Preserved outgoing strokes”), so the formed ligature reaches what the unformed ·Zoo after ·They cannot; the ·They+Zoo that draws no exit at all is the window the surface leaves at break→break, a picture of its own and no business of this rule. Each follower is named in the cell it settles into word-finally beside the ones that carry an exit or a reach of their own, since the ligature draws the same stroke into all of them, and ·They+Zoo holds its own advance and its own placement across the change, so whatever follows the follower moves only by the column the follower closes. Every window that reached a sitting approved the join — ·No is the follower those sittings saw, on the flipped stance that carries the letter's only baseline entry"
+    match:
+      before:
+        pivot: qsThey_qsZoo
+        seam_out: break
+        follower: [qsTea, qsDay, qsDay_qsUtter, qsGay, qsThaw, qsVie, qsVie_qsUtter, qsSee, qsZoo, qsMay, qsNo, qsLow, qsRoe, qsIt, qsAt, qsI, qsAh, qsUtter, qsOut, qsOut_qsTea, qsOoze]
+      after:
+        joined: y0
+        pivot_cells:
+          - qsThey_qsZoo/hapax/None/baseline/
+        receiver_cells:
+          - qsTea/full/baseline/None/
+          - qsDay/half/baseline/None/
+          - qsDay/half/baseline/baseline/
+          - qsDay_qsUtter/half/baseline/None/
+          - qsGay/hapax/baseline/None/
+          - qsGay/hapax/baseline/x-height/
+          - qsGay/hapax/baseline/x-height/ex-ext-1
+          - qsGay/hapax/baseline/x-height/ex-ext-3
+          - qsThaw/hapax/baseline/None/
+          - qsVie/normal/baseline/None/
+          - qsVie/swept-out/baseline/baseline/
+          - qsVie_qsUtter/hapax/baseline/None/
+          - qsSee/curled-over/baseline/y6/
+          - qsSee/normal/baseline/None/
+          - qsSee/normal/baseline/top/
+          - qsZoo/half/baseline/None/
+          - qsZoo/half/baseline/baseline/
+          - qsMay/loop/baseline/None/
+          - qsMay/loop/baseline/x-height/ex-ext-1
+          - qsMay/loop/baseline/x-height/ex-ext-2
+          - qsNo/flipped/baseline/None/
+          - qsNo/flipped/baseline/baseline/
+          - qsLow/hapax/baseline/None/
+          - qsLow/hapax/baseline/x-height/
+          - qsLow/hapax/baseline/x-height/ex-ext-1
+          - qsRoe/hapax/baseline/None/
+          - qsRoe/hapax/baseline/x-height/
+          - qsIt/hapax/baseline/None/
+          - qsIt/hapax/baseline/baseline/
+          - qsIt/hapax/baseline/x-height/
+          - qsIt/hapax/baseline/x-height/ex-ext-1
+          - qsAt/rising/baseline/None/
+          - qsAt/rising/baseline/x-height/
+          - qsI/loop/baseline/None/
+          - qsI/loop/baseline/x-height/
+          - qsI/loop/baseline/x-height/ex-ext-1
+          - qsAh/hapax/baseline/None/
+          - qsAh/hapax/baseline/x-height/
+          - qsAh/hapax/baseline/x-height/ex-ext-1
+          - qsUtter/mono/baseline/None/
+          - qsUtter/mono/baseline/x-height/
+          - qsUtter/mono/baseline/x-height/ex-ext-1
+          - qsOut/normal/baseline/None/
+          - qsOut/swept-up/baseline/x-height/
+          - qsOut/swept-up/baseline/x-height/ex-ext-1
+          - qsOut_qsTea/hapax/baseline/None/
+          - qsOoze/hapax/baseline/None/
+          - qsOoze/hapax/baseline/baseline/
+        shift: -1
+        follower_advance: 0
+        follower_reach: 0
+      except_left: []
