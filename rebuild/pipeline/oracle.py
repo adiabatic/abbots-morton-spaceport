@@ -430,6 +430,7 @@ def _may_ligature_seam_loosened(row: DivergentRow) -> bool:
 # qsRoe is a member on the qsOut precedent, entry side only: both its entries ride the base cmap glyph (qsPea|qsRoe stays y0, qsMay|qsRoe stays y5), while every exit lives on a stance the overlay substitutes away (qsRoe|qsVie breaks under ss10).
 # qsVie is a member on the qsOut precedent, entry side only: its baseline entry rides the base cmap glyph (qsPea|qsVie and qsEt|qsVie stay y0), while its one exit lives on a stance the overlay substitutes away (qsVie|qsAh breaks under ss10).
 # Membership is every migrated letter whose bare old glyph carries a live anchor; the overlay's other surviving exits — bare qsPea, qsMay and qsOy — only ever land on a member's entry, so every join the old font draws under ss10 touches a member.
+# Bare qsCheer keeps its x-height entry and baseline exit under the old ss10 overlay: `·May ~x~ ·Cheer` and `·Cheer ~b~ ·Vie` retain their joins.
 SS10_UNCOVERED_BY_OLD_FONT = frozenset(
     {
         "qsAh",
@@ -454,6 +455,7 @@ SS10_UNCOVERED_BY_OLD_FONT = frozenset(
         "qsSee",
         "qsRoe",
         "qsVie",
+        "qsCheer",
     }
 )
 

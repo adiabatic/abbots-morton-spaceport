@@ -1,6 +1,6 @@
 # Curated sequence set for the M1 CoreText-vs-HarfBuzz smoke harness (M1-PLAN section 5, coretext_smoke).
 # One sequence per line as whitespace-separated hex codepoints; text after "#" is the label.
-# Codepoints: qsPea E650, qsBay E651, qsTea E652, qsDay E653, qsKey E654, qsGay E655, qsThaw E656, qsThey E657, qsFee E658, qsVie E659, qsSee E65A, qsZoo E65B, qsShe E65C, qsJai E65D, qsMay E665, qsNo E666, qsLow E667, qsRoe E668, qsIt E670, qsEt E672, qsEight E673, qsAt E674, qsI E675, qsAh E676, qsAwe E677, qsOx E678, qsOy E679, qsUtter E67A, qsOut E67B, qsOoze E67E, space 0020, namer dot 00B7, ZWNJ 200C.
+# Codepoints: qsPea E650, qsBay E651, qsTea E652, qsDay E653, qsKey E654, qsGay E655, qsThaw E656, qsThey E657, qsFee E658, qsVie E659, qsSee E65A, qsZoo E65B, qsShe E65C, qsJai E65D, qsCheer E65E, qsMay E665, qsNo E666, qsLow E667, qsRoe E668, qsIt E670, qsEt E672, qsEight E673, qsAt E674, qsI E675, qsAh E676, qsAwe E677, qsOx E678, qsOy E679, qsUtter E67A, qsOut E67B, qsOoze E67E, space 0020, namer dot 00B7, ZWNJ 200C.
 # The driver runs every line under all eight acceptance configurations.
 #
 # The prototype probe rows, carried forward.
@@ -1326,3 +1326,126 @@ E67B E652 E65C            # `·Out+Tea` and ·She break
 200C E65C E665            # Locked ·She keeps its baseline exit
 E65C 200C E665            # ZWNJ severs the exit into ·May
 00B7 E65C                 # Namer dot before Tall ·She
+
+# ·Cheer
+E65E                     # ·Cheer in isolation
+E650 E65E                # ·Pea before ·Cheer
+E65E E650                # ·Cheer before ·Pea
+E651 E65E                # ·Bay before ·Cheer
+E65E E651                # ·Cheer before ·Bay
+E652 E65E                # ·Tea before ·Cheer
+E65E E652                # ·Cheer before ·Tea
+E653 E65E                # ·Day before ·Cheer
+E65E E653                # ·Cheer before ·Day
+E654 E65E                # ·Key before ·Cheer
+E65E E654                # ·Cheer before ·Key
+E655 E65E                # ·Gay before ·Cheer
+E65E E655                # ·Cheer before ·Gay
+E656 E65E                # ·Thaw before ·Cheer
+E65E E656                # ·Cheer before ·Thaw
+E657 E65E                # ·They before ·Cheer
+E65E E657                # ·Cheer before ·They
+E658 E65E                # ·Fee before ·Cheer
+E65E E658                # ·Cheer before ·Fee
+E659 E65E                # ·Vie before ·Cheer
+E65E E659                # ·Cheer before ·Vie
+E65A E65E                # ·See before ·Cheer
+E65E E65A                # ·Cheer before ·See
+E65B E65E                # ·Zoo before ·Cheer
+E65E E65B                # ·Cheer before ·Zoo
+E65C E65E                # ·She before ·Cheer
+E65E E65C                # ·Cheer before ·She
+E65D E65E                # ·Jai before ·Cheer
+E65E E65D                # ·Cheer before ·Jai
+E65E E65E                # ·Cheer before ·Cheer
+E665 E65E                # ·May before ·Cheer
+E65E E665                # ·Cheer before ·May
+E666 E65E                # ·No before ·Cheer
+E65E E666                # ·Cheer before ·No
+E667 E65E                # ·Low before ·Cheer
+E65E E667                # ·Cheer before ·Low
+E668 E65E                # ·Roe before ·Cheer
+E65E E668                # ·Cheer before ·Roe
+E670 E65E                # ·It before ·Cheer
+E65E E670                # ·Cheer before ·It
+E672 E65E                # ·Et before ·Cheer
+E65E E672                # ·Cheer before ·Et
+E673 E65E                # ·Eight before ·Cheer
+E65E E673                # ·Cheer before ·Eight
+E674 E65E                # ·At before ·Cheer
+E65E E674                # ·Cheer before ·At
+E675 E65E                # ·I before ·Cheer
+E65E E675                # ·Cheer before ·I
+E676 E65E                # ·Ah before ·Cheer
+E65E E676                # ·Cheer before ·Ah
+E677 E65E                # ·Awe before ·Cheer
+E65E E677                # ·Cheer before ·Awe
+E678 E65E                # ·Ox before ·Cheer
+E65E E678                # ·Cheer before ·Ox
+E679 E65E                # ·Oy before ·Cheer
+E65E E679                # ·Cheer before ·Oy
+E67A E65E                # ·Utter before ·Cheer
+E65E E67A                # ·Cheer before ·Utter
+E67B E65E                # ·Out before ·Cheer
+E65E E67B                # ·Cheer before ·Out
+E67E E65E                # ·Ooze before ·Cheer
+E65E E67E                # ·Cheer before ·Ooze
+E652 E679 E65E           # qsTea_qsOy before ·Cheer
+E65E E652 E679           # ·Cheer before qsTea_qsOy
+E653 E67A E65E           # qsDay_qsUtter before ·Cheer
+E65E E653 E67A           # ·Cheer before qsDay_qsUtter
+E657 E65B E65E           # qsThey_qsZoo before ·Cheer
+E65E E657 E65B           # ·Cheer before qsThey_qsZoo
+E657 E67A E65E           # qsThey_qsUtter before ·Cheer
+E65E E657 E67A           # ·Cheer before qsThey_qsUtter
+E659 E67A E65E           # qsVie_qsUtter before ·Cheer
+E65E E659 E67A           # ·Cheer before qsVie_qsUtter
+E65A E67A E65E           # qsSee_qsUtter before ·Cheer
+E65E E65A E67A           # ·Cheer before qsSee_qsUtter
+E65D E67A E65E           # qsJai_qsUtter before ·Cheer
+E65E E65D E67A           # ·Cheer before qsJai_qsUtter
+E67B E652 E65E           # qsOut_qsTea before ·Cheer
+E65E E67B E652           # ·Cheer before qsOut_qsTea
+E65E E652 E653           # ·Cheer yields to the ·Tea·Day join
+E65E E67A E652 E653      # ·Utter preserves the ·Tea·Day join after ·Cheer
+E65E E670 E67A           # ·It·Utter continuation after ·Cheer
+E65E E670 E653           # ·It·Day continuation after ·Cheer
+E651 E670 E65E           # Entered ·It reaches ·Cheer at the x-height
+E651 E655 E65E           # Entered ·Gay reaches ·Cheer at the x-height
+E65E E666 E672           # ·No·Et continuation after ·Cheer
+200C E65E                # Locked ·Cheer twin
+200C E65E E665           # Locked ·Cheer retains its baseline exit
+E665 200C E65E           # ZWNJ severs the entry from ·May
+E65E 200C E665           # ZWNJ severs the exit into ·May
+00B7 E65E                # Namer dot before Tall ·Cheer
+E65E E670 E656           # ·It forward baseline join after ·Cheer
+E65E E670 E659           # ·It forward baseline join after ·Cheer
+E65E E670 E65A           # ·It forward baseline join after ·Cheer
+E65E E670 E65B           # ·It forward baseline join after ·Cheer
+E65E E670 E665           # ·It forward baseline join after ·Cheer
+E65E E670 E666           # ·It forward baseline join after ·Cheer
+E65E E670 E667           # ·It forward baseline join after ·Cheer
+E65E E670 E674           # ·It forward baseline join after ·Cheer
+E65E E670 E675           # ·It forward baseline join after ·Cheer
+E65E E670 E676           # ·It forward baseline join after ·Cheer
+E65E E670 E67B           # ·It forward baseline join after ·Cheer
+E65E E670 E67E           # ·It forward baseline join after ·Cheer
+E65E E670 E67A E656      # Alternate ·Utter continuation after ·Cheer·It
+E65E E670 E67A E659      # Alternate ·Utter continuation after ·Cheer·It
+E65E E670 E67A E65A      # Alternate ·Utter continuation after ·Cheer·It
+E65E E670 E67A E665      # Alternate ·Utter continuation after ·Cheer·It
+E65E E670 E67A E667      # Alternate ·Utter continuation after ·Cheer·It
+E65E E670 E67A E674      # Alternate ·Utter continuation after ·Cheer·It
+E65E E670 E67A E675      # Alternate ·Utter continuation after ·Cheer·It
+E65E E670 E67A E676      # Alternate ·Utter continuation after ·Cheer·It
+E65E E670 E67A E67B      # Alternate ·Utter continuation after ·Cheer·It
+E65E E670 E67A E67E      # Alternate ·Utter continuation after ·Cheer·It
+E65E E670 E674 E665      # ·At serves ·May after ·Cheer·It
+E65E E670 E653 E67A      # `·Day+Utter.half` receives ·It after ·Cheer
+E65E E670 E659 E67A      # ·Vie+Utter receives ·It after ·Cheer
+E65E E670 E67B E652      # ·Out+Tea receives ·It after ·Cheer
+E670 E666 E65E           # Manual: `·It ~b~ ·No.alt | ·Cheer`
+E651 E670 E666 E65E      # ·Bay enters ·It before ·No·Cheer
+E653 E670 E666 E65E      # ·Day enters ·It before ·No·Cheer
+E655 E670 E666 E65E      # ·Gay enters ·It before ·No·Cheer
+E65C E670 E666 E65E      # ·She enters ·It before ·No·Cheer

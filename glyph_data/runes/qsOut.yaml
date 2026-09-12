@@ -51,6 +51,7 @@ stances:
             - qsZoo
             - qsShe
             - qsJai
+            - qsCheer
             - qsMay
             - qsNo
             - qsIt
@@ -101,6 +102,7 @@ stances:
             - qsZoo
             - qsShe
             - qsJai
+            - qsCheer
             - qsMay
             - qsNo
             - qsIt
@@ -123,6 +125,7 @@ stances:
             - qsZoo
             - qsJai
             - qsJai_qsUtter
+            - qsCheer
             - qsNo
             - qsRoe
             - qsEt

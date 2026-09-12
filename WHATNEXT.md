@@ -4,7 +4,7 @@
 
 The rebuild is migrating the cursive-join engine rune by rune, validating each batch against the old shipped font via the oracle.
 
-**Current frontier: the qsShe batch is closed; picking the next letter is what is left.** `make verdict-ready` is the standing check, `glyph_data/runes/` is the roster of migrated runes, and `make novelty-order` is the way into the blanks that remain.
+**Current frontier: qsCheer is built and awaits its sitting.** `rebuild/M1-BATCH25-PROGRESS.md` holds its parked questions and verification recipe. `make verdict-ready` is the standing check, `glyph_data/runes/` is the roster of migrated runes, and `make novelty-order` is the way into the blanks that remain.
 
 **Where the state lives:** `make verdict-ready` — and the same status as a banner in the app — answers whether the surface, gates, and verdict store are ready: surface freshness by input fingerprint and against the M1 font under the served letters, gate greenness, verdict-store alignment, the frontier carry, blanks remaining, server. `rebuild/out/cycle_summary.json` is the last cycle’s own record (surface units and echo groups, unmatched oracle rows, each gate’s status, and the `verdicts-carried-<sha>.json` it wrote with how many verdicts rode it); the per-gate summaries under `rebuild/out/m1/` hold the rest (`conform_summary.json`, `manual_pins_summary.json`, `readback_summary.json`, `oracle_summary.json`); the store itself is `verdicts-autosave.json`, journaled in `verdicts-journal.ndjson`, which the newest verdicts ride until the next cycle’s carry; and `make complaint-docket` clusters the open reject/neither verdicts by the rune records that decided them. Read those; don’t copy their numbers back into this file, where they go stale the next time a cycle runs.
 

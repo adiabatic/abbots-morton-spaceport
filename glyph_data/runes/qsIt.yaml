@@ -310,6 +310,60 @@ policy:
         family: qsNo
         then: {family: qsEight}
     why: Required to match what The Manual does
+  - cell:
+      entry: none
+      exit: baseline
+    over:
+      entry: baseline
+      exit: none
+    when:
+      left: {family: qsCheer}
+      right:
+        family:
+        - qsDay
+        - qsDay_qsUtter
+        - qsThaw
+        - qsVie
+        - qsVie_qsUtter
+        - qsSee
+        - qsZoo
+        - qsMay
+        - qsNo
+        - qsLow
+        - qsAt
+        - qsI
+        - qsAh
+        - qsUtter
+        - qsOut
+        - qsOut_qsTea
+        - qsOoze
+        except:
+        - family: qsAt
+          then: {family: qsMay}
+        - family: qsUtter
+          then:
+            family:
+            - qsThaw
+            - qsVie
+            - qsVie_qsUtter
+            - qsSee
+            - qsMay
+            - qsLow
+            - qsAt
+            - qsI
+            - qsAh
+            - qsOut
+            - qsOut_qsTea
+            - qsOoze
+  - cell: {exit: baseline}
+    over: {exit: x-height}
+    mode: absolute
+    when:
+      self: {entry: none}
+      right:
+        family: qsNo
+        then: {family: qsCheer}
+    why: Required to match what The Manual does
   extend:
   - entry: baseline
     by: 1
@@ -335,7 +389,6 @@ policy:
     when:
       right:
         family:
-        - qsCheer
         - qsOwe
   - exit: x-height
     by: 1
