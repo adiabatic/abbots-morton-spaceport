@@ -12,6 +12,8 @@ import {
   docketTotals,
   queueCounts,
   nextDocketDecision,
+  decisionKey,
+  SINGLETON_DECISION,
   TRANCHE_SIZE,
   SINGLETON_CHUNK,
 } from '../static/docket.js';
@@ -427,6 +429,57 @@ test('nextDocketDecision returns null when every blank unit sits in a deferred g
     'u-0003': { unit: 'u-0003', verdict: 'skip', note: '', at: '2026-01-02' },
   };
   assert.equal(nextDocketDecision(units, (id) => records[id], new Set()), null);
+});
+
+const threeClusters = () => [
+  makeUnit('u-0001', { cluster: 'c-big', echo: 'e-0001' }),
+  makeUnit('u-0002', { cluster: 'c-big', echo: 'e-0001' }),
+  makeUnit('u-0003', { cluster: 'c-big', echo: 'e-0002' }),
+  makeUnit('u-0010', { cluster: 'c-mid', echo: 'e-0010' }),
+  makeUnit('u-0011', { cluster: 'c-mid', echo: 'e-0011' }),
+  makeUnit('u-0020', { cluster: 'c-small', echo: 'e-0020' }),
+  makeUnit('u-0021', { cluster: 'c-small', echo: 'e-0021' }),
+];
+
+test('nextDocketDecision steps past a cluster the sitting has already shown, however large, to one it never opened', () => {
+  const units = threeClusters();
+  const first = nextDocketDecision(units, blank, new Set(), new Set(['c-big']));
+  assert.equal(first.cluster.id, 'c-mid');
+  assert.equal(first.revisit, false);
+  const second = nextDocketDecision(units, blank, new Set(), new Set(['c-big', 'c-mid']));
+  assert.equal(second.cluster.id, 'c-small');
+  assert.equal(second.revisit, false);
+});
+
+test('nextDocketDecision comes back round to the decision shown longest ago once every open one has been shown', () => {
+  const units = threeClusters();
+  const rotated = nextDocketDecision(units, blank, new Set(), new Set(['c-big', 'c-mid', 'c-small']));
+  assert.equal(rotated.cluster.id, 'c-big');
+  assert.equal(rotated.revisit, true);
+  const next = nextDocketDecision(units, blank, new Set(), new Set(['c-mid', 'c-small', 'c-big']));
+  assert.equal(next.cluster.id, 'c-mid');
+  assert.equal(next.revisit, true);
+});
+
+test('nextDocketDecision reaches the singleton run as a fresh decision while every cluster is already shown', () => {
+  const units = [
+    ...threeClusters(),
+    makeUnit('u-0030', { cluster: 'c-one', echo: 'e-0030' }),
+    makeUnit('u-0031', { cluster: 'c-two', echo: 'e-0031' }),
+  ];
+  const shown = new Set(['c-big', 'c-mid', 'c-small']);
+  const decision = nextDocketDecision(units, blank, new Set(), shown);
+  assert.equal(decision.kind, 'singletons');
+  assert.equal(decision.revisit, false);
+  assert.deepEqual(decision.unitIds, ['u-0030', 'u-0031']);
+  shown.add(SINGLETON_DECISION);
+  assert.equal(nextDocketDecision(units, blank, new Set(), shown).cluster.id, 'c-big');
+});
+
+test('decisionKey names the cluster behind a rep worklist and the singleton run behind anything else', () => {
+  assert.equal(decisionKey([makeUnit('u-0001', { cluster: 'c-big' }), makeUnit('u-0003', { cluster: 'c-big' })]), 'c-big');
+  assert.equal(decisionKey([makeUnit('u-0030', { cluster: 'c-one' }), makeUnit('u-0031', { cluster: 'c-two' })]), SINGLETON_DECISION);
+  assert.equal(decisionKey([]), SINGLETON_DECISION);
 });
 
 test('docketResumeAction restacks a worklist stamped for another surface, stampless hashes included, before trusting any of its ids', () => {

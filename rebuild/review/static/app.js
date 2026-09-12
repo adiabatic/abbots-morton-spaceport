@@ -83,6 +83,7 @@ import {
 import {
   SINGLETON_CHUNK,
   buildClusters,
+  decisionKey,
   docketResumeAction,
   docketTotals,
   echoConflicts,
@@ -128,6 +129,7 @@ const locatorBlocks = createRecordCache(BLOCK_CACHE_CAP);
 let locatorReady = null;
 let familyOptions = [];
 let worklist = null;
+const docketShown = new Set();
 let indexReady = null;
 let indexLoaded = false;
 const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)');
@@ -1640,6 +1642,11 @@ async function applyHashState(resume = false) {
   }
   const units = await unitsForView(state.batch, state.class);
   if (token !== renderToken) return;
+  if (state.units && state.docket) {
+    const key = decisionKey(units);
+    docketShown.delete(key);
+    docketShown.add(key);
+  }
   const { human, machine } = partitionUnits(units, state, (unitId) => store.records.get(unitId));
   const plan = machineFoldPlan(manifest, state);
   if (transientMachineUnitId && state.unit !== transientMachineUnitId) {
@@ -1771,11 +1778,11 @@ async function advanceFrom(unitId) {
   updateTitle();
 }
 
-// The docket flow's analog of the cross-batch advance: when a docket worklist is fully judged, stack the next decision straight away — the queue recomputes from the live store, so "next" is always the docket view's own top card. Replaces (not pushes) history so Back still returns to the docket in one step.
+// The docket flow's analog of the cross-batch advance: when a docket worklist is fully judged, stack the next decision straight away — the queue recomputes from the live store, so "next" is the top card among the decisions this sitting has not already opened, and only once those run out does it come back round to a postponed one. Replaces (not pushes) history so Back still returns to the docket in one step.
 async function advanceDocket({ stale = false } = {}) {
   await indexReady;
   const recordOf = (id) => store.records.get(id);
-  const decision = nextDocketDecision(humanList, recordOf, ruledClassIds(manifest.classes));
+  const decision = nextDocketDecision(humanList, recordOf, ruledClassIds(manifest.classes), docketShown);
   const lead = stale ? 'That worklist was stacked for an earlier surface' : 'Decision done';
   if (!decision) {
     toast(`${stale ? `${lead}, and the` : 'The'} docket queue is clear`);
@@ -1787,7 +1794,7 @@ async function advanceDocket({ stale = false } = {}) {
     decision.kind === 'cluster'
       ? `${formatCount(decision.cluster.size)} lookalike unit${decision.cluster.size === 1 ? '' : 's'} in ${decision.cluster.class}`
       : `${decision.unitIds.length} singletons`;
-  toast(`${lead} — next: ${what} (${formatCount(queue.blankUnits)} blank left)`);
+  toast(`${lead} — ${decision.revisit ? 'back round to' : 'next'}: ${what} (${formatCount(queue.blankUnits)} blank left)`);
   setStateReplace({
     units: decision.unitIds.join(','),
     docket: '1',
