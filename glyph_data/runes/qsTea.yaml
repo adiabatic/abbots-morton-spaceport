@@ -62,7 +62,6 @@ stances:
         when:
           left:
             family:
-            - qsDay_qsUtter
             - qsFee
             - qsMay
             - qsLow
@@ -115,11 +114,6 @@ stances:
         when:
           left:
             family:
-            - qsDay_qsUtter
-            - qsThey_qsUtter
-            - qsVie_qsUtter
-            - qsSee_qsUtter
-            - qsJai_qsUtter
             - qsMay
             - qsLow
             - qsI

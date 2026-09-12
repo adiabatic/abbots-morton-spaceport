@@ -167,7 +167,13 @@ def test_group_resolution(spec):
         for group_name, group in raw_groups.items():
             members: set[str] = set()
             for atom in group.get("union") or ():
-                members.update(spec_load._as_tuple(atom.get("family")))
+                families = spec_load._as_tuple(atom.get("family"))
+                members.update(families)
+                members.update(
+                    name
+                    for name, rune in spec.runes.items()
+                    if rune.sequence and rune.sequence[-1] in families
+                )
                 for klass in spec_load._as_tuple(atom.get("class")):
                     members.update(spec.registry.predicate_classes[klass])
             for atom in group.get("minus") or ():
@@ -827,13 +833,14 @@ def test_every_chain_bearing_except_walks_its_parents_tail(spec, record_id, reac
 
 
 def test_the_qsday_depth_three_chains_both_hop_through_qsno(spec):
-    """Three live records read a third raw slot off a then: spine, and two of them are qsDay's ·No windows: ·Day withholds its baseline exit before ·Tea·No when a joinable letter follows, and again when the word simply stops there. ·Oy and ·Tea+Oy reach exactly as deep for the same orphaned-·Tea phenomenon, but every hop of theirs hangs off an except: entry, so their spines carry no then: at all."""
+    """The authored third-slot spines include qsDay's ·No windows and qsUtter's inherited outgoing preference. Provenance identifies the source when a ligature shares a record. ·Oy and ·Tea+Oy reach as deep through except: entries rather than a then: spine."""
     spines = {
-        name
-        for name, record in _policy_records(spec)
+        f"{Path(record.provenance.file).stem}.{record.provenance.path.removeprefix('policy.')}"
+        for _name, record in _policy_records(spec)
         if record.when.right is not None
         and record.when.right.then is not None
         and record.when.right.then.then is not None
+        and record.provenance is not None
     }
     assert spines == {"qsDay.prefer[3]", "qsDay.prefer[4]", "qsUtter.prefer[4]"}
     tails = []
@@ -927,8 +934,8 @@ class TestRuneClosure:
         record = PolicyRecord(kind="resolve", against=(target, None))
         patched = replace(rune, policy=replace(rune.policy, resolve=(record,)))
         spec = replace(MINI_SPEC, runes={**MINI_SPEC.runes, owner: patched})
-        assert spec_load.rune_closure(spec)[owner] == {owner, target}
-        assert spec_load.rune_closure(MINI_SPEC)[owner] == {owner}
+        baseline = spec_load.rune_closure(MINI_SPEC)
+        assert spec_load.rune_closure(spec)[owner] == baseline[owner] | baseline[target]
 
 
 def _unlocked(stance: model.Stance, features: frozenset[str]) -> model.Stance:

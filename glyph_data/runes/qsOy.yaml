@@ -39,11 +39,8 @@ stances:
           joined: open-on-the-left
           from:
           - family:
-            - qsDay_qsUtter
             - qsGay
             - qsFee
-            - qsVie_qsUtter
-            - qsSee_qsUtter
             - qsMay
             - qsNo
             - qsLow

@@ -124,6 +124,7 @@ PIPELINE_NON_SURFACE_MODULES = frozenset(
         "emit_gpos.py",
         "emit_gsub.py",
         "geometry.py",
+        "ligature_outgoing_check.py",
         "manual_pins.py",
         "oracle.py",
         "oracle_cache.py",

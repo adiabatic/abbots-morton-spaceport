@@ -8,6 +8,7 @@ ductus:
 stances:
   hapax:
     motion: hapax
+    outgoing: {stance: half}
     traits: []
     bitmap:
     - "  #      " #
@@ -28,8 +29,6 @@ stances:
           ink_y: -1
           stroke: diagonal
           withdrawal: safe
-          toward:
-          - {family: qsNo}
       cells: []
       unlocks: []
       require: []
@@ -37,13 +36,7 @@ policy:
   order:
   - hapax
   refuse: []
-  prefer:
-  - cell: {exit: none}
-    over: {exit: baseline}
-    when:
-      right:
-        family: qsNo
-        then: {family: qsEt}
+  prefer: []
   extend: []
   contract: []
   resolve: []

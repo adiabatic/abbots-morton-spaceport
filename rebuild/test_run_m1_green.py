@@ -148,6 +148,7 @@ def _stub_full_run(monkeypatch, *, defect_errors=(), pins=True, pins_in_scope=14
     monkeypatch.setattr(run_m1.oracle, "unaliased_subset_names", lambda subset_dir, alias_path: {})
     monkeypatch.setattr(run_m1.baseline_subset, "ensure_fresh", lambda repo_root: False)
     monkeypatch.setattr(run_m1, "load_default_spec", lambda: object())
+    monkeypatch.setattr(run_m1, "run_ligature_outgoing", lambda spec: {})
     monkeypatch.setattr(ac, "run_m1_skip_files", lambda root=None: {})
     monkeypatch.setattr(
         run_m1,
@@ -193,6 +194,7 @@ def test_main_refreshes_the_baseline_subset_before_anything_reads_it(monkeypatch
         return True
 
     monkeypatch.setattr(run_m1.baseline_subset, "ensure_fresh", ensure)
+    monkeypatch.setattr(run_m1, "run_ligature_outgoing", lambda spec: events.append("outgoing") or {})
     monkeypatch.setattr(
         run_m1,
         "run",
@@ -205,7 +207,7 @@ def test_main_refreshes_the_baseline_subset_before_anything_reads_it(monkeypatch
         lambda spec, jobs, **_cache: events.append("oracle") or {"unmatched": 0, "multi_matched": 0},
     )
     run_m1.main([])
-    assert events == ["subset", "run", "oracle"]
+    assert events == ["subset", "outgoing", "run", "oracle"]
     opened, closed = _phases(capsys.readouterr().out)
     assert opened == [
         "baseline_subset",
@@ -789,6 +791,7 @@ class TestGatesOnly:
         (tmp_path / "M1.otf").write_bytes(b"font")
         monkeypatch.setattr(run_m1, "OUT_DIR", tmp_path)
         monkeypatch.setattr(run_m1, "load_default_spec", lambda: object())
+        monkeypatch.setattr(run_m1, "run_ligature_outgoing", lambda spec: {})
         monkeypatch.setattr(run_m1.table_module, "read_treaty_tsv", lambda path: f"treaty {path.name}")
         monkeypatch.setattr(run_m1, "mint_cell_glyphs", lambda spec, tables: {})
         monkeypatch.setattr(

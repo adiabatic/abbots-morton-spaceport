@@ -10,6 +10,10 @@ notes: |
 stances:
   hapax:
     motion: hapax
+    outgoing:
+      stance: hapax
+      exceptions: {'policy.prefer[0]': The ligature's authored preference and resolve retain the grouping documented in their why fields.}
+      replacements: {'policy.prefer[0]': 'policy.prefer[0]'}
     traits: []
     bitmap:
     - "   #    "

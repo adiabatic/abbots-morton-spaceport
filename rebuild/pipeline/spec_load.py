@@ -989,6 +989,200 @@ def _expand_ligature_lefts(
     return expanded
 
 
+def outgoing_policy_record(record: PolicyRecord, source: Stance, target_stance: str) -> PolicyRecord | None:
+    """Project an exit-only policy onto a ligature stance. Incoming state, word position, stance selection, and mixed-side votes belong to the component's placement, not its preserved outgoing stroke. Bitmap bindings need an explicit exception and a ligature-local replacement at the caller."""
+    if record.stance not in (None, source.name) or record.entry is not None:
+        return None
+    when = record.when
+    if when.left is not None or when.word is not None or when.self_entry is not None:
+        return None
+    heights = set(source.surface.exits) | {
+        unlock.exit for unlock in source.surface.unlocks if unlock.exit is not None
+    }
+    if record.kind == "prefer":
+        if not record.cell or set(record.cell) != {"exit"}:
+            return None
+        if record.over is not None and set(record.over) != {"exit"}:
+            return None
+        if any(
+            pattern["exit"] not in heights | {"none"} for pattern in (record.cell, record.over) if pattern
+        ):
+            return None
+    elif record.kind not in ("refuse", "extend", "contract") or record.exit not in heights:
+        return None
+    return replace(record, stance=target_stance)
+
+
+def _inherit_ligature_outgoing(runes: dict[str, Rune], contexts: dict[str, _FileContext]) -> dict[str, Rune]:
+    """Resolve preserved outgoing strokes before left-family transparency. Local drawings stay local; missing geometry, unacknowledged scope overrides, stale exceptions, and unportable bitmap policies are errors, independent of the formation guard's unformed-component probe."""
+    resolved: dict[str, Rune] = {}
+    visiting: set[str] = set()
+
+    def inherit(name: str) -> Rune:
+        if name in resolved:
+            return resolved[name]
+        rune = runes[name]
+        context = contexts[name]
+        if name in visiting:
+            context.error("sequence", "cyclic outgoing inheritance")
+            return rune
+        visiting.add(name)
+        stances = dict(rune.stances)
+        records = {kind: list(getattr(rune.policy, kind)) for kind in _RECORD_KINDS}
+        groups = dict(rune.policy.groups)
+        source_rune = inherit(rune.sequence[-1]) if rune.sequence and rune.sequence[-1] in runes else None
+        for stance_name, stance in rune.stances.items():
+            raw = context.data["stances"][stance_name]
+            declaration = raw.get("outgoing", {})
+            path = f"stances.{stance_name}.outgoing"
+            if not rune.sequence:
+                if "outgoing" in raw:
+                    context.error(path, "outgoing is only valid on a ligature stance")
+                continue
+            if "exception" in declaration:
+                if not declaration["exception"].strip():
+                    context.error(path, "an outgoing exception needs a reason")
+                continue
+            if source_rune is None:
+                context.error(
+                    path,
+                    "the trailing component must be migrated or the stance must declare an outgoing exception",
+                )
+                continue
+            source_name = declaration.get("stance")
+            if source_name is None:
+                if len(source_rune.stances) == 1:
+                    source_name = next(iter(source_rune.stances))
+                else:
+                    context.error(
+                        path,
+                        "the trailing component has multiple stances; declare outgoing.stance explicitly",
+                    )
+                    continue
+            source = source_rune.stances.get(source_name)
+            if source is None:
+                context.error(path, f"unknown trailing stance {source_name!r} on {source_rune.name}")
+                continue
+            exceptions = declaration.get("exceptions", {})
+            used: set[str] = set()
+
+            def excepted(key: str) -> bool:
+                if key not in exceptions:
+                    return False
+                used.add(key)
+                if not exceptions[key].strip():
+                    context.error(f"{path}.exceptions", f"{key} needs an exception reason")
+                return True
+
+            def condition(cond: Condition) -> Condition:
+                renamed = []
+                for group in cond.klass:
+                    if group in source_rune.policy.groups:
+                        key = f"{source_rune.name}.{group}"
+                        groups[key] = source_rune.policy.groups[group]
+                        renamed.append(key)
+                    else:
+                        renamed.append(group)
+                return replace(
+                    cond,
+                    klass=tuple(renamed),
+                    except_=tuple(condition(item) for item in cond.except_),
+                    then=condition(cond.then) if cond.then else None,
+                )
+
+            def when(value: When) -> When:
+                return replace(value, right=condition(value.right) if value.right else None)
+
+            exits = dict(stance.surface.exits)
+            raw_exits = (raw.get("surface") or {}).get("exits") or {}
+            for height, row in source.surface.exits.items():
+                key = f"surface.exits.{height}"
+                if excepted(key):
+                    continue
+                local = exits.get(height)
+                if local is None:
+                    context.error(
+                        path,
+                        f"preserved outgoing join loses {key}; declare ligature-local geometry or an explicit exception",
+                    )
+                    continue
+                scope = tuple(condition(item) for item in row.scope)
+                if "toward" in raw_exits.get(height, {}) and local.scope != row.scope:
+                    context.error(
+                        path, f"{key}.toward overrides the trailing component; declare an explicit exception"
+                    )
+                exits[height] = replace(local, scope=scope)
+            unlocks = list(stance.surface.unlocks)
+            for index, unlock in enumerate(source.surface.unlocks):
+                if unlock.exit is None or unlock.entry is not None or unlock.pairing is not None:
+                    continue
+                if unlock.when and (
+                    unlock.when.left is not None
+                    or unlock.when.self_entry is not None
+                    or unlock.when.word is not None
+                ):
+                    continue
+                key = f"surface.unlocks[{index}]"
+                if not excepted(key):
+                    unlocks.append(replace(unlock, when=when(unlock.when) if unlock.when else None))
+            for kind in _RECORD_KINDS:
+                for index, record in enumerate(getattr(source_rune.policy, kind)):
+                    projected = outgoing_policy_record(record, source, stance_name)
+                    if projected is None:
+                        continue
+                    key = f"policy.{kind}[{index}]"
+                    if excepted(key):
+                        continue
+                    if projected.bind is not None:
+                        context.error(
+                            path,
+                            f"{key} binds a component bitmap; declare an exception and a ligature-local policy",
+                        )
+                        continue
+                    records[kind].append(replace(projected, when=when(projected.when)))
+            for key in exceptions.keys() - used:
+                context.error(
+                    f"{path}.exceptions",
+                    f"{key!r} does not name an applicable inherited exit, unlock, or policy",
+                )
+            for key, replacement in declaration.get("replacements", {}).items():
+                match = re.fullmatch(r"policy\.(refuse|prefer|extend|contract)\[(\d+)\]", replacement)
+                if key not in used or not key.startswith("policy.") or match is None:
+                    context.error(
+                        f"{path}.replacements",
+                        f"{key!r} must name an excepted source policy and point to a local policy record",
+                    )
+                    continue
+                kind, index_text = match.groups()
+                local_records = getattr(rune.policy, kind)
+                index = int(index_text)
+                if (
+                    not key.startswith(f"policy.{kind}[")
+                    or index >= len(local_records)
+                    or local_records[index].stance not in (None, stance_name)
+                ):
+                    context.error(
+                        f"{path}.replacements",
+                        f"{replacement!r} must name a local record of the same kind applicable to {stance_name}",
+                    )
+            stances[stance_name] = replace(
+                stance, surface=replace(stance.surface, exits=exits, unlocks=tuple(unlocks))
+            )
+        visiting.remove(name)
+        resolved[name] = replace(
+            rune,
+            stances=stances,
+            policy=replace(
+                rune.policy, groups=groups, **{kind: tuple(items) for kind, items in records.items()}
+            ),
+        )
+        return resolved[name]
+
+    for name in runes:
+        inherit(name)
+    return {name: resolved[name] for name in runes}
+
+
 def _resolve_groups(
     context: _FileContext,
     policy_raw: dict,
@@ -1203,8 +1397,11 @@ def load_spec(runes_dir: Path, registry_path: Path, schema_dir: Path) -> Resolve
     runes = {context.data["rune"]: _build_rune(context, classes, by_trailing) for context in contexts}
     if issues:
         raise SpecError.from_issues(issues)
-    runes = _expand_ligature_lefts(runes, by_trailing)
     context_by_rune = {context.data["rune"]: context for context in contexts}
+    runes = _inherit_ligature_outgoing(runes, context_by_rune)
+    if issues:
+        raise SpecError.from_issues(issues)
+    runes = _expand_ligature_lefts(runes, by_trailing)
     for rune in runes.values():
         for record in rune.policy.resolve:
             if record.against is None:
@@ -1267,10 +1464,12 @@ def capability_features(spec: ResolvedSpec) -> list[str]:
 
 
 def rune_closure(spec: ResolvedSpec) -> dict[str, frozenset[str]]:
-    """For each rune, the runes whose file content its records can read directly: itself, plus the transitive `resolve.against` targets — the one cross-file reference resolved into a rune's policy at load time. Every other cross-rune route rides the resolved spec structure and is stamped whole-store."""
+    """For each rune, itself, its trailing component and transitive `resolve.against` targets. Ligature outgoing inheritance reads the trailing component's policy and permissions even in windows containing only the formed glyph; opt-outs conservatively keep that dependency too. Other cross-rune routes ride the resolved spec structure and are stamped whole-store."""
     edges: dict[str, set[str]] = {}
     for name, rune in spec.runes.items():
         targets = set()
+        if rune.sequence and rune.sequence[-1] in spec.runes:
+            targets.add(rune.sequence[-1])
         for records in (
             rune.policy.refuse,
             rune.policy.prefer,

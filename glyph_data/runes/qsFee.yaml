@@ -94,10 +94,6 @@ stances:
           stroke: vertical
           from:
           - family:
-            - qsDay_qsUtter
-            - qsVie_qsUtter
-            - qsSee_qsUtter
-            - qsJai_qsUtter
             - qsJay_qsUtter
             - qsWay_qsUtter
             - qsWhy_qsUtter

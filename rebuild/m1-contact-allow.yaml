@@ -1215,3 +1215,17 @@
   why: The first ·Zoo's hook abuts half-·Zoo's left descender at y=-1, as in baseline row E65B:E65B; the entry, lock, and outgoing-anchor variants retain the same corner.
 - signature: contact:qsZoo.half.en-y0.ex-y0:qsZoo.half.en-y0.ex-y0:y-1
   why: The first ·Zoo's hook abuts half-·Zoo's left descender at y=-1, as in baseline row E65B:E65B; the entry, lock, and outgoing-anchor variants retain the same corner.
+- signature: contact:qsThey_qsZoo.hapax.ex-y0:qsDay.half.en-y0:y-1
+  why: The preserved half-·Zoo tail in `·They+Zoo ~b~ ·Day.half` has the same ink relative to the seam as the accepted half-·Zoo corner at y=-1.
+- signature: contact:qsThey_qsZoo.hapax.ex-y0:qsDay.half.en-y0.ex-y0:y-1
+  why: The preserved half-·Zoo tail in `·They+Zoo ~b~ ·Day.half` has the same accepted corner at y=-1; ·Day's outgoing anchor changes no ink there.
+- signature: contact:qsThey_qsZoo.hapax.ex-y0:qsDay_qsUtter.half.en-y0:y-1
+  why: The preserved half-·Zoo tail meets the half-·Day component's descender at the accepted y=-1 corner; both ligatures keep that ink fixed relative to the baseline seam.
+- signature: contact:qsThey_qsZoo.hapax.ex-y0:qsDay_qsUtter.half.en-y0.ex-y5:y-1
+  why: The preserved half-·Zoo tail meets the half-·Day component's descender at the accepted y=-1 corner; the outgoing x-height anchor changes no ink there.
+- signature: contact:qsThey_qsZoo.hapax.ex-y0:qsDay_qsUtter.half.en-y0.ex-y5.ex-ext-1:y-1
+  why: The preserved half-·Zoo tail meets the half-·Day component's descender at the accepted y=-1 corner; the outgoing x-height extension changes no below-baseline ink.
+- signature: contact:qsThey_qsZoo.hapax.ex-y0:qsZoo.half.en-y0:y-1
+  why: The preserved half-·Zoo tail in `·They+Zoo ~b~ ·Zoo.half` has the same ink relative to the seam as the accepted half-·Zoo corner at y=-1.
+- signature: contact:qsThey_qsZoo.hapax.ex-y0:qsZoo.half.en-y0.ex-y0:y-1
+  why: The preserved half-·Zoo tail in `·They+Zoo ~b~ ·Zoo.half` has the same accepted corner at y=-1; the follower's outgoing anchor changes no ink there.

@@ -9,6 +9,8 @@ import subprocess
 import tarfile
 from pathlib import Path
 
+import yaml
+
 HERE = Path(__file__).resolve().parent
 REPO_ROOT = HERE.parents[3]
 PIN_PATH = HERE / "pin.json"
@@ -54,8 +56,32 @@ def read_pin(pin_path: Path = PIN_PATH) -> dict:
     return json.loads(pin_path.read_text(encoding="utf-8"))
 
 
+def _preserve_authored_outgoing(dest: Path) -> None:
+    """A pinned schema without `outgoing` describes complete ligature-local policy. Declare that contract explicitly for the current loader, including single-stance trailing components, without borrowing policy or schema from the working tree. A pin whose schema supports inheritance already states its contract and passes through unchanged."""
+    schema_path = dest / "rebuild/schema/rune.schema.json"
+    schema = json.loads(schema_path.read_text(encoding="utf-8"))
+    properties = schema["$defs"]["stance"]["properties"]
+    if "outgoing" in properties:
+        return
+    reason = "This frozen snapshot authors the complete outgoing contract on the ligature."
+    properties["outgoing"] = {
+        "type": "object",
+        "additionalProperties": False,
+        "required": ["exception"],
+        "properties": {"exception": {"const": reason}},
+    }
+    for path in sorted((dest / "glyph_data/runes").glob("*.yaml")):
+        raw = yaml.safe_load(path.read_text(encoding="utf-8"))
+        if not raw.get("sequence"):
+            continue
+        for stance in raw["stances"].values():
+            stance["outgoing"] = {"exception": reason}
+        path.write_text(yaml.safe_dump(raw, sort_keys=False, allow_unicode=True), encoding="utf-8")
+    schema_path.write_text(json.dumps(schema, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+
+
 def materialize(dest: Path, pin_path: Path = PIN_PATH, repo_root: Path = REPO_ROOT) -> Path:
-    """Write the pinned objects under `dest` at the paths they live at in the repo — `<dest>/glyph_data/runes/`, `<dest>/rebuild/schema/`, `<dest>/rebuild/script.yaml`, `<dest>/rebuild/m1-divergences.yaml`, the two trees arriving whole rather than filtered down to the files a reader happens to want. That is the layout `rebuild.review.enrich.load_spec` and `rebuild.pipeline.fingerprint.rune_digests` read under a root, so `dest` is a spec root. Every pinned object is probed before any of them is written, so a repository missing one leaves no half-built spec root behind. Nothing is cached: the caller picks where the bytes land and how long they live."""
+    """Write the pinned objects under `dest` at the paths they live at in the repo — `<dest>/glyph_data/runes/`, `<dest>/rebuild/schema/`, `<dest>/rebuild/script.yaml`, `<dest>/rebuild/m1-divergences.yaml`, the two trees arriving whole rather than filtered down to the files a reader happens to want. That is the layout `rebuild.review.enrich.load_spec` and `rebuild.pipeline.fingerprint.rune_digests` read under a root, so `dest` is a spec root. Every pinned object is probed before any of them is written, so a repository missing one leaves no half-built spec root behind. `_preserve_authored_outgoing` makes complete ligature-local contracts explicit when the pinned schema needs that compatibility declaration. Nothing is cached: the caller picks where the bytes land and how long they live."""
     dest = Path(dest)
     objects = read_pin(pin_path)["objects"]
     missing = [
@@ -81,4 +107,5 @@ def materialize(dest: Path, pin_path: Path = PIN_PATH, repo_root: Path = REPO_RO
         else:
             target.parent.mkdir(parents=True, exist_ok=True)
             target.write_bytes(_git(["cat-file", "blob", sha], repo_root))
+    _preserve_authored_outgoing(dest)
     return dest

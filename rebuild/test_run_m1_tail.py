@@ -242,6 +242,7 @@ def _stub_main(monkeypatch, tmp_path, events, **gates):
     monkeypatch.setattr(run_m1, "tables_inputs", lambda: STAMP)
     monkeypatch.setattr(run_m1, "settle_memo_inputs", lambda: None)
     monkeypatch.setattr(run_m1, "load_default_spec", lambda: SPEC)
+    monkeypatch.setattr(run_m1, "run_ligature_outgoing", lambda spec: {})
     monkeypatch.setattr(ac, "run_m1_skip_fingerprint", lambda root=None: "fp-tail")
     monkeypatch.setattr(ac, "run_m1_skip_files", lambda root=None: {})
     monkeypatch.setattr(run_m1, "run", functools.partial(real_run, tmp_path))

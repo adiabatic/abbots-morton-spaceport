@@ -217,7 +217,6 @@ policy:
     when:
       left:
         family:
-        - qsThey_qsUtter
         - qsUtter
   resolve: []
   groups: {}
