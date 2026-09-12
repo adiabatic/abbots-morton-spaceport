@@ -1,9 +1,9 @@
 rune: qsZoo
 codepoint: 0xE65B
 ductus:
-  full: | # DRAFT — pending author sign-off
+  full: |
     Begun at the left of the crown at the x-height, the stroke runs right, curves downward, and descends to the left through the baseline. It curls right along the bottom of the descender and climbs up to the right, ending below the baseline.
-  half: | # DRAFT — pending author sign-off
+  half: |
     Begun at the baseline on the left, the stroke descends into the foot, curls right along the bottom of the descender, and climbs up to the right, ending below the baseline.
 mono:
   bitmap:

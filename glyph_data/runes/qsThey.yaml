@@ -1,7 +1,7 @@
 rune: qsThey
 codepoint: 0xE657
 ductus:
-  hapax: | # DRAFT — pending author sign-off
+  hapax: |
     - Begun at the top at the x-height, where a previous letter may connect coming from the left, the stroke runs down and slightly to the left, through the baseline and into the descender, then curls along the bottom to the right and back up, ending at the tip of the hook below the baseline. Where the letter connects to the next one, the hook keeps climbing up and to the right to meet it at the baseline.
     - Or the same path in reverse, begun at the tip of the hook below the baseline: the stroke curls down and to the left along the bottom of the descender, then climbs up and slightly to the right through the baseline, ending at the top at the x-height, where it may connect to the next letter.
 mono:
