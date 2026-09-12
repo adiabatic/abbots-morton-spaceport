@@ -15,7 +15,7 @@ The `zoo-entry-contraction-respelled` ledger class covers the ·Tea·Zoo contrac
 
 The yielding preference for `·Zoo | ·No ~x~ ·Et` transcribes the old alternate ·No's exclusion before ·Et. The `·Tea ~b~ ·May ~x~ ·Zoo` Manual example retains its pinned joins; compatibility modifiers are interpreted by `rebuild.pipeline.manual_pins`.
 
-The unformed ·Zoo declines its baseline exit after ·They so the formation guard preserves the shipped font's `·They+Zoo` ligature before every follower. The ligature itself has no external anchors.
+The unformed ·Zoo declines its baseline exit after ·They so the formation guard preserves the shipped font's `·They+Zoo` ligature before every follower. The ligature has no entry and offers a baseline exit to ·No; its preference before ·No·Et matches `qsZoo.policy.prefer`.
 
 The ·It preference after ·Zoo preserves the old `·Zoo | ·It ~b~ ·Utter` grouping and the old follower exceptions on ·Utter. Its scope is recorded in `qsIt.yaml`; the ss04 both-baseline pairing remains available under the existing ruling there.
 

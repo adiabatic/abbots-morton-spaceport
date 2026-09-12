@@ -22,7 +22,14 @@ stances:
     y_offset: -3
     surface:
       entries: {}
-      exits: {}
+      exits:
+        baseline:
+          x: 9
+          ink_y: -1
+          stroke: diagonal
+          withdrawal: safe
+          toward:
+          - {family: qsNo}
       cells: []
       unlocks: []
       require: []
@@ -30,7 +37,13 @@ policy:
   order:
   - hapax
   refuse: []
-  prefer: []
+  prefer:
+  - cell: {exit: none}
+    over: {exit: baseline}
+    when:
+      right:
+        family: qsNo
+        then: {family: qsEt}
   extend: []
   contract: []
   resolve: []
