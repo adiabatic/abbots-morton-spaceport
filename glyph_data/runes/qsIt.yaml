@@ -373,11 +373,18 @@ policy:
     over: {exit: x-height}
     mode: absolute
     when:
-      self: {entry: none}
+      left:
+        except:
+        - {family: qsBay}
+        - {family: qsDay}
+        - {family: qsGay}
+        - {family: qsShe}
       right:
         family: qsNo
         then: {family: qsCheer}
-    why: Required to match what The Manual does
+    why: |
+      Required to match what The Manual does
+      there's no reason why ·Low·It·No shouldn't all join here (like it does if the ·Cheer) weren't there (and I'm getting this for a bunch of other letters other than ·Low as well)
   extend:
   - entry: baseline
     by: 1
