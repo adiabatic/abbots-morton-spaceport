@@ -691,6 +691,7 @@ rules:
           - qsGay/hapax/baseline/None/en-con-1
           - qsGay/hapax/baseline/x-height/en-con-1
           - qsGay/hapax/baseline/x-height/en-con-1+ex-ext-1
+          - qsGay/hapax/baseline/x-height/en-con-1+ex-ext-2
           - qsGay/hapax/baseline/x-height/en-con-1+ex-ext-3
         shift: -2
         follower_advance: 0
@@ -1180,6 +1181,22 @@ rules:
         receiver_cells:
           - qsGay/hapax/None/None/
         follower_give_back: 1
+      except_left: []
+  - id: no-cheer-xheight-join-dropped
+    verdict: approve
+    note: "·No and ·Cheer no longer join once ·Pea or ·Tea has lowered the seam into ·No, and ·Cheer stands exactly where the old font drew it — the ·No a letter reaches at the baseline is the flipped stance, whose only exit is at the baseline, while qsCheer's only entry is at the x-height, carrying qsNo on its from-list since “Add ·Cheer”, so the flipped ·No has nothing left to reach ·Cheer with. pea-no-xheight-join-retargeted and tea-no-xheight-join-retargeted record the flip and name ·No's incoming seam, this rule its outgoing one, and the two explain each window between them; ·No redraws into the flipped stance as it takes the lowered seam, which is why the rule names the cells both letters settle into, and ·Cheer does not move, which is why the gap reads zero. no-thaw-baseline-join-dropped and no-gay-baseline-join-dropped are ·No's other lost reaches, behind a ·No raised the other way. The user asked for a standing approval of the ·{Pea,Tea} ~b~ ·No.alt flip and everything that follows from it, and every window that reached a sitting approved the break"
+    match:
+      before:
+        pivot: qsNo
+        seam_out: y5
+        follower: qsCheer
+      after:
+        gap: 0
+        pivot_cells:
+          - qsNo/flipped/baseline/None/
+        receiver_cells:
+          - qsCheer/hapax/None/None/
+          - qsCheer/hapax/None/baseline/
       except_left: []
   - id: no-jai-xheight-join-created
     verdict: approve

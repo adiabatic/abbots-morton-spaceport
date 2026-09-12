@@ -167,6 +167,21 @@ REDRAWN_JOIN_RULE = {
     },
 }
 
+UNMOVED_JOIN_RULE = {
+    "id": "fixture-join-dropped-with-its-follower-standing",
+    "verdict": "approve",
+    "note": "·F3 stands where it was as ·No redraws in place and the join goes away",
+    "match": {
+        "before": {"pivot": "qsNo", "seam_out": "y0", "follower": "qsF3"},
+        "after": {
+            "gap": 0,
+            "pivot_cells": ["qsNo/flipped/baseline/None/"],
+            "receiver_cells": ["qsF3/full/None/None/"],
+        },
+        "except_left": [],
+    },
+}
+
 GIVE_BACK_JOIN_RULE = {
     "id": "fixture-join-dropped-with-a-follower-handing-a-column-back",
     "verdict": "approve",
@@ -2018,6 +2033,10 @@ SLIDE_FONTS = {
     "after-join-unmoved": ({**AFTER_GLYPHS, "qsAt": (TWO_COLUMNS, 100)}, AFTER_CMAP),
     "after-join-redrawn-pivot": ({**AFTER_GLYPHS, "qsAt": (TUCKED_FOLLOWER, 150)}, AFTER_CMAP),
     "after-join-pivot-moved-origin": ({**AFTER_GLYPHS, "qsNo.gap-fixture": (GROUNDED_SEE, 150)}, AFTER_CMAP),
+    "after-join-pivot-keeping-its-advance": (
+        {**AFTER_GLYPHS, "qsNo.gap-fixture": (TRIMMED_PIVOT, 100)},
+        AFTER_CMAP,
+    ),
     "after-join-follower-keeping-its-pen": ({**AFTER_GLYPHS, "qsF2": (TWO_COLUMNS, 100)}, AFTER_CMAP),
     "after-join-redrawn-follower": ({**AFTER_GLYPHS, "qsIt": (TUCKED_FOLLOWER, 100)}, AFTER_CMAP),
     "after-join-regrouped": ({**AFTER_GLYPHS, "qsIt": (TWO_COLUMNS, 50)}, AFTER_CMAP),
@@ -2638,6 +2657,16 @@ def test_a_join_dropped_rule_naming_cells_lets_its_pivot_redraw(slide_context):
     assert sv._matches(REDRAWN_JOIN_RULE["match"], redrawn_join_window(), context=slide_context())
 
 
+def test_a_join_dropped_rule_naming_cells_may_leave_its_follower_standing(slide_context):
+    """A pivot freed to redraw can lose its join without moving the letter after it, so a zero gap is a change of its own there rather than the identity."""
+    context = slide_context("after-join-pivot-keeping-its-advance")
+    assert sv._matches(UNMOVED_JOIN_RULE["match"], redrawn_join_window(), context=context)
+
+
+def test_a_follower_sitting_further_defeats_the_zero_gap_match(slide_context):
+    assert not sv._matches(UNMOVED_JOIN_RULE["match"], redrawn_join_window(), context=slide_context())
+
+
 def test_a_pivot_settling_into_an_unnamed_cell_defeats_the_join_match(slide_context):
     window = redrawn_join_window(cell="qsNo/loop/x-height/None/")
     assert not sv._matches(REDRAWN_JOIN_RULE["match"], window, context=slide_context())
@@ -2806,6 +2835,11 @@ def test_a_gap_that_moves_nothing_is_refused_at_load(tmp_path):
     rule["match"]["after"]["gap"] = 0
     with pytest.raises(SystemExit, match="machine-approved already"):
         sv.load_rules(_write_rules(tmp_path / "rules.yaml", [rule]))
+
+
+def test_a_gap_that_moves_nothing_loads_where_the_pivot_may_redraw(tmp_path):
+    [rule] = sv.load_rules(_write_rules(tmp_path / "rules.yaml", [UNMOVED_JOIN_RULE]))
+    assert rule["match"]["after"]["gap"] == 0
 
 
 def test_a_negative_gap_is_refused_at_load(tmp_path):
@@ -5013,6 +5047,7 @@ REDRAWN_JOIN_CODEPOINTS = spell(LEAD, NO_GAP_REDRAWN, FOLLOWER_3)
 JOIN_BEHIND_RETARGET_GLYPHS = ["qsL", "qsTea.half.ex-y5", "qsNo.en-ext-1.gap-fixture", "qsF3"]
 JOIN_BEHIND_RETARGET_CODEPOINTS = spell(LEAD, TEA, NO_GAP_REDRAWN, FOLLOWER_3)
 JOIN_BEHIND_RETARGET_RULES = [RETARGET_RULE, REDRAWN_JOIN_RULE]
+UNMOVED_JOIN_BEHIND_RETARGET_RULES = [RETARGET_RULE, UNMOVED_JOIN_RULE]
 GIVE_BACK_JOIN_GLYPHS = ["qsL", "qsNo.en-ext-1.gap-fixture", "qsF2"]
 GIVE_BACK_JOIN_CODEPOINTS = spell(LEAD, NO_GAP_REDRAWN, FOLLOWER_2)
 GIVE_BACK_BEHIND_RETARGET_GLYPHS = ["qsL", "qsTea.half.ex-y5", "qsNo.en-ext-1.gap-fixture", "qsF2"]
@@ -6371,6 +6406,29 @@ def test_a_join_drop_chained_behind_a_retarget_still_needs_its_pivot_standing(sl
         join_behind_retarget_window(),
         slide_context("after-join-pivot-moved-origin"),
     )
+    assert events is None
+
+
+def test_a_join_drop_leaving_its_follower_standing_chains_behind_a_retarget(slide_context):
+    """What the flipped ·No does in front of ·Cheer once ·Pea or ·Tea lowers the seam into it: the retarget judges ·No's incoming seam, the zero gap its outgoing one, and the follower stands exactly where the old font drew it."""
+    events = sv._composed(
+        UNMOVED_JOIN_BEHIND_RETARGET_RULES,
+        join_behind_retarget_window(),
+        slide_context("after-join-pivot-keeping-its-advance"),
+    )
+    assert events == {RETARGET_RULE["id"]: [1], UNMOVED_JOIN_RULE["id"]: [2]}
+
+
+def test_neither_rule_alone_reads_a_zero_gap_behind_a_retarget(slide_context):
+    window = join_behind_retarget_window()
+    context = slide_context("after-join-pivot-keeping-its-advance")
+    for rule in UNMOVED_JOIN_BEHIND_RETARGET_RULES:
+        assert not sv._matches(rule["match"], window, context=context)
+        assert sv._composed_walk([rule], window, context) is None
+
+
+def test_a_zero_gap_chained_behind_a_retarget_refuses_a_follower_sitting_further(slide_context):
+    events = sv._composed(UNMOVED_JOIN_BEHIND_RETARGET_RULES, join_behind_retarget_window(), slide_context())
     assert events is None
 
 
