@@ -385,6 +385,24 @@ CONTRACTED_REDRAWN_CHAIN_RULE = {
     },
 }
 
+GAIN_BEHIND_CREATED_JOIN_RULE = {
+    "id": "fixture-join-created-before-an-ink-gain",
+    "verdict": "approve",
+    "note": "·No joins ·Roe at the baseline where the old font left a break",
+    "match": {
+        "before": {"pivot": "qsNo", "seam_out": "break", "follower": "qsRoe"},
+        "after": {
+            "joined": "y0",
+            "pivot_cells": ["qsNo/flipped/baseline/baseline/"],
+            "receiver_cells": ["qsRoe/hapax/None/None/"],
+            "shift": -1,
+            "follower_advance": 0,
+            "follower_reach": 0,
+        },
+        "except_left": [],
+    },
+}
+
 REDRAWN_BEHIND_CREATED_JOIN_RULE = {
     "id": "fixture-join-created-before-a-redraw",
     "verdict": "approve",
@@ -2075,6 +2093,10 @@ SLIDE_FONTS = {
     ),
     "after-redrawn-extra-cell": (
         {**AFTER_GLYPHS, "qsEight.smaller-loop": (EIGHTISH_SMALLER_AND_A_PIXEL, 100)},
+        AFTER_CMAP,
+    ),
+    "after-gain-behind-created-join-unmoved": (
+        {**AFTER_GLYPHS, "qsNo": (TRIMMED_PIVOT, 100)},
         AFTER_CMAP,
     ),
     "after-redrawn-unmoved-follower": (
@@ -4980,6 +5002,9 @@ CONTRACTED_REDRAWN_CHAIN_CODEPOINTS = spell(
     CONTRACTION_LEAD, CONTRACTED_JOINING_MAY, EIGHT_EXTENDED, FOLLOWER_3
 )
 CONTRACTED_REDRAWN_CHAIN_RULES = [CONTRACTED_ENTRY_RULE, REDRAWN_EXT_RULE, CONTRACTED_REDRAWN_CHAIN_RULE]
+GAIN_BEHIND_CREATED_JOIN_GLYPHS = ["qsL", "qsNo.en-ext-1", "qsRoe.en-ext-1-at-5", "qsF1"]
+GAIN_BEHIND_CREATED_JOIN_CODEPOINTS = spell(LEAD, NO, ROE_SHIFTED_GAIN, FOLLOWER_1)
+GAIN_BEHIND_CREATED_JOIN_RULES = [SHIFTED_GAIN_RULE, GAIN_BEHIND_CREATED_JOIN_RULE]
 REDRAWN_BEHIND_CREATED_JOIN_GLYPHS = ["qsL", "qsNo.en-ext-1", "qsEight.ex-ext-1", "qsF3"]
 REDRAWN_BEHIND_CREATED_JOIN_CODEPOINTS = spell(LEAD, NO, EIGHT_EXTENDED, FOLLOWER_3)
 REDRAWN_BEHIND_CREATED_JOIN_RULES = [REDRAWN_EXT_RULE, REDRAWN_BEHIND_CREATED_JOIN_RULE]
@@ -5535,6 +5560,25 @@ def redrawn_behind_retarget_window(uid="rdbr-1"):
         ],
         ["y0", "y0", "y0"],
         codepoints=REDRAWN_BEHIND_RETARGET_CODEPOINTS,
+        configs=("default",),
+        ink_deltas={"default": SLIDE_DELTA},
+        pair={"left": 1, "right": 2},
+    )
+
+
+def gain_behind_created_join_window(uid="gbcj-1"):
+    return unit(
+        uid,
+        list(GAIN_BEHIND_CREATED_JOIN_GLYPHS),
+        ["y0", "break", "y0"],
+        [
+            "qsL/full/None/None/",
+            "qsNo/flipped/baseline/baseline/",
+            "qsRoe/hapax/None/None/",
+            "qsF1/full/None/None/",
+        ],
+        ["y0", "y0", "y0"],
+        codepoints=GAIN_BEHIND_CREATED_JOIN_CODEPOINTS,
         configs=("default",),
         ink_deltas={"default": SLIDE_DELTA},
         pair={"left": 1, "right": 2},
@@ -6236,6 +6280,27 @@ def test_a_created_join_chained_behind_a_created_join_still_needs_both_shifts(sl
         CREATED_JOIN_BEHIND_CREATED_JOIN_RULES,
         created_join_behind_created_join_window(),
         slide_context("after-created-join-behind-created-join-unmoved"),
+    )
+    assert events is None
+
+
+def test_an_ink_gain_chains_behind_a_created_join_on_its_follower(slide_context):
+    events = sv._composed(GAIN_BEHIND_CREATED_JOIN_RULES, gain_behind_created_join_window(), slide_context())
+    assert events == {GAIN_BEHIND_CREATED_JOIN_RULE["id"]: [1], SHIFTED_GAIN_RULE["id"]: [2]}
+
+
+def test_neither_rule_alone_reads_an_ink_gain_behind_a_created_join(slide_context):
+    window = gain_behind_created_join_window()
+    for rule in GAIN_BEHIND_CREATED_JOIN_RULES:
+        assert not sv._matches(rule["match"], window, context=slide_context())
+        assert sv._composed_walk([rule], window, slide_context()) is None
+
+
+def test_an_ink_gain_chained_behind_a_created_join_still_needs_both_shifts(slide_context):
+    events = sv._composed(
+        GAIN_BEHIND_CREATED_JOIN_RULES,
+        gain_behind_created_join_window(),
+        slide_context("after-gain-behind-created-join-unmoved"),
     )
     assert events is None
 
