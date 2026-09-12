@@ -1832,3 +1832,26 @@ rules:
         added: [[4, 8]]
         shift: 0
       except_left: []
+  - id: fee-xheight-join-created
+    verdict: approve
+    note: "·Fee reaches forward at the x-height and joins ·Zoo, ·Awe and ·Ox where the old font left a break, and each of them closes one column onto it and holds its own advance, so whatever follows the pair moves with the follower. The join follows from open surfaces on both sides rather than from a pair ruling: the loop stance carries qsFee's only x-height exit, and its toward-list has carried qsZoo since “Add ·Zoo”, qsAwe since “Add ·Awe” and qsOx since “Add ·Ox” — the same commits that put qsFee on each follower's x-height entry from-list. ·Fee draws that exit rather than bending its loop backwards wherever it has something to reach: qsFee's prefer takes the forward exit over the x-height entry on the user's why at “Generally connecting to the next letter is easier to do than to bend ·Fee backwards”, generalized to every neighbor in “·Fee: Prefer connecting to the next letter, not the previous”, and the letter can never hold both, on qsFee's own note that it cannot join both to and from at the x-height on the same letter. qsFee's extend record names none of these three, so the exit reaches at its own length and the follower closes the column — which is what tells this rule from it-xheight-join-created-lengthened-reach, where the pixel the reach adds is the column the join would otherwise have closed. The rule names the word-final follower beside the one that goes on to a baseline exit, since each of these letters draws the same picture either way, and the cell it names on ·Fee's side is the one that takes no entry at all, the ·Fee that stands where the window leaves it: a ·Fee the old font bent backwards gives that reach up and moves a column right as it takes this one, which is the window fee-unjoined-loop's note parks. ·J’ai and ·Oy take the same new reach on counts of their own — ·J’ai closes two columns rather than one, and ·Oy opens its loop on the left to receive the join and draws that open form narrower — so each is a rule of its own. utter-xheight-join-created is this same exit into the ·Utter whose alternate form gives the column straight back, fee-tea-ss03-join-restored the one ss03 opens, and no-fee-xheight-join-created the seam running into ·Fee instead. ·They·Utter·Fee·Awe and ·They·Utter·Fee·Ox are this stroke one follower over, and every window of it that reached a sitting approved the join"
+    match:
+      before:
+        pivot: qsFee
+        seam_out: break
+        follower: [qsZoo, qsAwe, qsOx]
+      after:
+        joined: y5
+        pivot_cells:
+          - qsFee/loop/None/x-height/
+        receiver_cells:
+          - qsZoo/full/x-height/None/
+          - qsZoo/full/x-height/baseline/
+          - qsAwe/hapax/x-height/None/
+          - qsAwe/hapax/x-height/baseline/
+          - qsOx/hapax/x-height/None/
+          - qsOx/hapax/x-height/baseline/
+        shift: -1
+        follower_advance: 0
+        follower_reach: 0
+      except_left: []
