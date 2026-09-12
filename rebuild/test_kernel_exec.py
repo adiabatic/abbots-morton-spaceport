@@ -596,6 +596,7 @@ class TestTheKernelInvocation:
         monkeypatch.setattr(run_m1.baseline_subset, "ensure_fresh", lambda root: False)
         monkeypatch.setattr(run_m1, "tables_inputs", lambda: STAMP)
         monkeypatch.setattr(run_m1, "load_default_spec", lambda: SPEC)
+        monkeypatch.setattr(run_m1, "run_ligature_outgoing", lambda spec: {})
         monkeypatch.setattr(run_m1, "run", run)
         with pytest.raises(Reached):
             run_m1.main(argv)

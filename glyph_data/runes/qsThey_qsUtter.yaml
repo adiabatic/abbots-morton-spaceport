@@ -8,6 +8,12 @@ ductus:
 stances:
   hapax:
     motion: hapax
+    outgoing:
+      stance: mono
+      exceptions:
+        surface.exits.x-height: The ligature keeps its authored follower scope for its combined stroke.
+        policy.extend[0]: The ligature's outgoing arm uses its declared endpoint without a contextual extension.
+        policy.extend[1]: The ligature's outgoing arm uses its declared endpoint under ss03 without a contextual extension.
     traits: []
     bitmap:
     - "  #      ##"  #

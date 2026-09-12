@@ -10,6 +10,7 @@ ductus:
 stances:
   full:
     motion: full
+    outgoing: {stance: mono}
     traits: []
     bitmap:
     - "#    ##"  #
@@ -36,6 +37,7 @@ stances:
       require: []
   half:
     motion: half
+    outgoing: {stance: mono}
     traits:
     - half
     bitmap:
@@ -72,19 +74,7 @@ policy:
     exit: x-height
     by: 1
     when:
-      right:
-        family:
-        - qsBay
-        - qsGay
-        - qsThey
-        - qsThey_qsUtter
-        - qsFee
-  - stance: full
-    exit: x-height
-    by: 1
-    when:
-      right: {family: qsTea}
-      feature: ss03
+      right: {family: qsGay}
   - entry: baseline
     by: 1
     when:
@@ -109,19 +99,7 @@ policy:
     exit: x-height
     by: 1
     when:
-      right:
-        family:
-        - qsBay
-        - qsGay
-        - qsThey
-        - qsThey_qsUtter
-        - qsFee
-  - stance: half
-    exit: x-height
-    by: 1
-    when:
-      right: {family: qsTea}
-      feature: ss03
+      right: {family: qsGay}
   contract: []
   resolve: []
   groups: {}

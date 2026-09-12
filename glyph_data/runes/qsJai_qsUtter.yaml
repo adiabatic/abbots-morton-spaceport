@@ -8,6 +8,9 @@ ductus:
 stances:
   hapax:
     motion: hapax
+    outgoing:
+      stance: mono
+      exceptions: {surface.exits.x-height: The ligature keeps its authored follower scope for its combined stroke.}
     traits: []
     bitmap:
     - " ####   ##"  #
@@ -29,12 +32,8 @@ stances:
           - family:
             - qsPea
             - qsTea
-            - qsDay_qsUtter
             - qsGay
             - qsFee
-            - qsVie_qsUtter
-            - qsSee_qsUtter
-            - qsJai_qsUtter
             - qsMay
             - qsNo
             - qsLow
@@ -84,18 +83,7 @@ policy:
   - exit: x-height
     by: 1
     when:
-      right:
-        family:
-        - qsBay
-        - qsGay
-        - qsThey
-        - qsThey_qsUtter
-        - qsFee
-  - exit: x-height
-    by: 1
-    when:
-      right: {family: qsTea}
-      feature: ss03
+      right: {family: qsGay}
   contract:
   - entry: x-height
     by: 1

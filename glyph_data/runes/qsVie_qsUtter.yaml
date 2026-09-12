@@ -8,6 +8,7 @@ ductus:
 stances:
   hapax:
     motion: hapax
+    outgoing: {stance: mono}
     traits: []
     bitmap:
     - "  ###     ##"  #
@@ -41,18 +42,7 @@ policy:
   - exit: x-height
     by: 1
     when:
-      right:
-        family:
-        - qsBay
-        - qsGay
-        - qsThey
-        - qsThey_qsUtter
-        - qsFee
-  - exit: x-height
-    by: 1
-    when:
-      right: {family: qsTea}
-      feature: ss03
+      right: {family: qsGay}
   - entry: baseline
     by: 1
     when:

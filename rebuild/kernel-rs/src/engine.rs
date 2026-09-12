@@ -1893,7 +1893,7 @@ impl<'i> Engine<'i> {
 
     /// Whether one prefer record speaks for this candidate. `None` is the verdict "this record has nothing to say about this window at all", which is what keeps an irrelevant record out of the stage rather than counting it as a vote against.
     ///
-    /// Our own rune's record targets the candidate's stance or cell directly and reads the seat's raw deep slots as they are. A follower's record instead *votes*: it speaks for the candidates under which its own preferred continuation is admissible, evaluated one position over with `joined_at` bound to the candidate's seam. That reading is the stage-4b flag's whole subject — with `vote_slots` on the vote is handed the seat's slots shifted once, so a chained condition resolves inside the window; with it off everything past the vote's own `right1` is pinned to `vote_deep_slot`, whose unknown verdicts count as firing, which is the older optimism that forced a deep-chained fact to be restated on every possible left rune instead of living once on the rune that owns it.
+    /// Our own rune's record targets the candidate's stance or cell directly and reads the seat's raw deep slots as they are. A record with both a stance and a cell compares cells only within that stance; the stance scopes the preference rather than becoming its demand. A follower's record instead *votes*: it speaks for the candidates under which its own preferred continuation is admissible, evaluated one position over with `joined_at` bound to the candidate's seam. That reading is the stage-4b flag's whole subject — with `vote_slots` on the vote is handed the seat's slots shifted once, so a chained condition resolves inside the window; with it off everything past the vote's own `right1` is pinned to `vote_deep_slot`, whose unknown verdicts count as firing, which is the older optimism that forced a deep-chained fact to be restated on every possible left rune instead of living once on the rune that owns it.
     fn prefer_favors(
         &mut self,
         owner: Sym,
@@ -1917,7 +1917,12 @@ impl<'i> Engine<'i> {
                 return Ok(None);
             }
             if let Some(stance) = record.stance {
-                return Ok(Some(candidate.stance == stance));
+                if record.cell.is_none() {
+                    return Ok(Some(candidate.stance == stance));
+                }
+                if candidate.stance != stance {
+                    return Ok(None);
+                }
             }
             if let Some(pattern) = record.cell.as_ref() {
                 let favored = cell_pattern_matches(vocab, pattern, &candidate);
@@ -1945,6 +1950,9 @@ impl<'i> Engine<'i> {
         let vote_slots = Slots::new(slots.right2, vote_right2, vote_right3, UNKNOWN);
         let mut relevant = false;
         for cell in &follower_cells {
+            if record.cell.is_some() && record.stance.is_some_and(|stance| cell.stance != stance) {
+                continue;
+            }
             let verdict = self.when_matches(
                 Some(owner),
                 &record.when,
@@ -1956,8 +1964,19 @@ impl<'i> Engine<'i> {
             if verdict == Some(false) {
                 continue;
             }
+            if record.stance.is_some()
+                && let Some(pattern) = record.cell.as_ref()
+                && !cell_pattern_matches(vocab, pattern, cell)
+                && record
+                    .over
+                    .as_ref()
+                    .is_some_and(|over| !cell_pattern_matches(vocab, over, cell))
+            {
+                continue;
+            }
             relevant = true;
             if let Some(stance) = record.stance
+                && record.cell.is_none()
                 && cell.stance == stance
             {
                 return Ok(Some(true));
@@ -2039,19 +2058,22 @@ impl<'i> Engine<'i> {
         let mut applicable: Vec<Applicable<'i>> = Vec::new();
         for OwnedRecord { owner, record } in gathered {
             let mut favored: HashSet<Candidate> = HashSet::default();
-            let mut relevant = false;
+            let mut supported = false;
             for candidate in survivors {
                 let Some(vote) =
                     self.prefer_favors(owner, record, rune_name, *candidate, left, slots)?
                 else {
+                    if record.stance.is_some() && record.cell.is_some() {
+                        favored.insert(*candidate);
+                    }
                     continue;
                 };
-                relevant = true;
                 if vote {
+                    supported = true;
                     favored.insert(*candidate);
                 }
             }
-            if relevant && !favored.is_empty() && favored.len() < survivors.len() {
+            if supported && favored.len() < survivors.len() {
                 applicable.push(Applicable {
                     owner,
                     record,
@@ -5049,6 +5071,166 @@ mod tests {
             "the runner-up is the first candidate the stage displaced, in the order it read them"
         );
         assert_eq!(trace.notes, ["prefer applied: qsPea.yaml:policy.prefer[0]"]);
+    }
+
+    #[test]
+    fn per_stance_cell_preferences_do_not_choose_a_stance_or_conflict_with_each_other() {
+        let records: Vec<String> = ["full", "half"]
+            .into_iter()
+            .enumerate()
+            .map(|(seat, name)| {
+                pointed_record(
+                    "prefer",
+                    "qsPea",
+                    seat,
+                    &[
+                        ("stance", &quoted(name)),
+                        ("cell", r#"{"exit":"none"}"#),
+                        ("over", r#"{"exit":"baseline"}"#),
+                        ("mode", "\"absolute\""),
+                    ],
+                )
+            })
+            .collect();
+        let policy = fixtures::policy(&[(
+            "prefer",
+            &fixtures::seq(&records.iter().map(String::as_str).collect::<Vec<_>>()),
+        )]);
+        let outgoing = surface(
+            "{}",
+            &object(&[row("baseline", &[("withdrawal", "\"safe\"")])]),
+            &[],
+        );
+        for has_unmapped_stance in [false, true] {
+            let mut stances = vec![stance("full", &outgoing), stance("half", &outgoing)];
+            if has_unmapped_stance {
+                stances.push(stance("unmapped", &outgoing));
+            }
+            let index = spec_of(&[
+                letter("qsPea", &stances, &policy),
+                letter(
+                    "qsTea",
+                    &[stance(
+                        "hook",
+                        &surface(&object(&[row("baseline", &[])]), "{}", &[]),
+                    )],
+                    &plain_policy(),
+                ),
+            ]);
+            let mut engine = Engine::new(&index, no_features());
+            let trace = settle_pea(
+                &mut engine,
+                Slots::pair(letter_token(&index, "qsTea"), EDGE),
+            )
+            .expect("each record narrows only the cells of its mapped stance");
+            assert_eq!(
+                trace.settled.cell.stance,
+                fixtures::sym(
+                    &index,
+                    if has_unmapped_stance {
+                        "unmapped"
+                    } else {
+                        "full"
+                    }
+                )
+            );
+            assert_eq!(
+                trace.settled.seam,
+                has_unmapped_stance.then(|| fixtures::sym(&index, "baseline")),
+                "the unmapped stance keeps its join; mapped stances both yield without selecting between them"
+            );
+            assert_eq!(
+                trace.notes,
+                [
+                    "prefer applied: qsPea.yaml:policy.prefer[0]",
+                    "prefer applied: qsPea.yaml:policy.prefer[1]"
+                ]
+            );
+        }
+    }
+
+    #[test]
+    fn a_follower_cell_preference_reads_only_its_mapped_stance() {
+        let tea_policy = fixtures::policy(&[(
+            "prefer",
+            &fixtures::seq(&[&pointed_record(
+                "prefer",
+                "qsTea",
+                0,
+                &[
+                    ("stance", "\"full\""),
+                    ("cell", r#"{"exit":"baseline"}"#),
+                    ("over", r#"{"exit":"none"}"#),
+                ],
+            )]),
+        )]);
+        let incoming = object(&[row("x-height", &[])]);
+        let outgoing = object(&[row("baseline", &[("withdrawal", "\"safe\"")])]);
+        let index = spec_of(&[
+            letter(
+                "qsPea",
+                &[stance(
+                    "stroke",
+                    &surface(
+                        "{}",
+                        &object(&[row("x-height", &[("withdrawal", "\"safe\"")])]),
+                        &[],
+                    ),
+                )],
+                &plain_policy(),
+            ),
+            letter(
+                "qsTea",
+                &[
+                    stance(
+                        "full",
+                        &surface(
+                            &incoming,
+                            &outgoing,
+                            &[(
+                                "pairings",
+                                r#"{"never":[{"entry":"x-height","exit":"baseline"}],"only":null}"#,
+                            )],
+                        ),
+                    ),
+                    stance("half", &surface(&incoming, &outgoing, &[])),
+                ],
+                &tea_policy,
+            ),
+            letter(
+                "qsMay",
+                &[stance(
+                    "base",
+                    &surface(&object(&[row("baseline", &[])]), "{}", &[]),
+                )],
+                &plain_policy(),
+            ),
+        ]);
+        let pea = fixtures::sym(&index, "qsPea");
+        let tea = fixtures::sym(&index, "qsTea");
+        let record = &index.rune(tea).expect("qsTea is modeled").policy.prefer[0];
+        let stroke = fixtures::sym(&index, "stroke");
+        let mut engine = Engine::new(&index, no_features());
+        for (candidate, expected) in [
+            (Candidate::non_joining(stroke, None, 0), true),
+            (
+                Candidate::joining(stroke, None, fixtures::sym(&index, "x-height"), 0, 0),
+                false,
+            ),
+        ] {
+            assert_eq!(
+                engine.prefer_favors(
+                    tea,
+                    record,
+                    pea,
+                    candidate,
+                    &LeftContext::boundary(TokenKind::Edge),
+                    Slots::pair(letter_token(&index, "qsTea"), letter_token(&index, "qsMay")),
+                ),
+                Ok(Some(expected)),
+                "an entered full stance cannot exit; the half stance's available exit does not vote for this record"
+            );
+        }
     }
 
     #[test]

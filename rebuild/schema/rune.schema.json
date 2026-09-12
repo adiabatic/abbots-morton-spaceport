@@ -69,6 +69,7 @@
       "additionalProperties": false,
       "required": ["motion", "bitmap"],
       "properties": {
+        "outgoing": {"$ref": "#/$defs/outgoing"},
         "motion": {"$ref": "#/$defs/motionName", "description": "The pen-motion this stance is drawn with — must be one of the rune's `ductus` keys. Stances can share a motion."},
         "traits": {"type": "array", "items": {"enum": ["half", "alt"]}, "description": "The stance's design flags — a closed set: `half` (shortened to the x-height) and `alt` (an alternate form). Omit for neither. Anything else that distinguishes a stance lives in named bitmaps or policy groups, not here. Example: qsPea's half stance — `traits: [half]`."},
         "bitmap": {"type": "array", "items": {"type": "string"}, "minItems": 1, "description": "The letter's pixel grid: row strings top to bottom, `#` for ink and space for blank."},
@@ -81,6 +82,21 @@
         },
         "surface": {"$ref": "#/$defs/surface"}
       }
+    },
+    "outgoing": {
+      "description": "A ligature stance preserves the final sequence component's outgoing stroke. `stance` names that component's stance; it defaults only when the component has a single stance. Every source exit requires local anchor/bitmap geometry, and its toward permission inherits unless an exception names surface.exits.<height>. Eligible exit-only refuse/prefer/extend/contract policies and exit-only unlocks inherit, with stance gates remapped. Eligibility excludes entry state, left context, word position, stance-choice preferences, and mixed entry/exit preferences; bind policies require an explicit exception and local replacement. Inherited groups retain their source membership. Local records coexist under normal specificity; to replace a source record, name policy.<kind>[index] in exceptions and author the replacement locally. Exceptions require reasons and must name applicable source paths; surface.unlocks[index] exempts an exit unlock. A sole exception opts the entire stance out when its drawing does not preserve the trailing stroke. Entry surfaces, stance order, pairings, required sides, coordinates, and bitmap bindings never inherit. The loader validates outgoing preservation independently of the formation guard; the build checks the resulting capability. Component edits invalidate dependent ligature caches.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "stance": {"$ref": "#/$defs/motionName"},
+        "exceptions": {"type": "object", "additionalProperties": {"type": "string", "pattern": "\\S"}},
+        "replacements": {"description": "Maps an excepted source policy path to the local same-kind record that replaces it. Both paths use policy.<kind>[index]. The build checks this explicit replacement as the intended behavior, including a changed condition. An exception without a replacement removes the source record from the outgoing contract.", "type": "object", "additionalProperties": {"type": "string", "pattern": "^policy\\.(refuse|prefer|extend|contract)\\[[0-9]+\\]$"}},
+        "exception": {"type": "string", "pattern": "\\S"}
+      },
+      "oneOf": [
+        {"required": ["exception"], "not": {"anyOf": [{"required": ["stance"]}, {"required": ["exceptions"]}, {"required": ["replacements"]}]}},
+        {"not": {"required": ["exception"]}}
+      ]
     },
     "surface": {
       "description": "This stance's join surfaces — how it connects to neighbors. `entries` are the left side: where a predecessor may join in, by height. `exits` are the right side: how this stance reaches toward the successor, by height. The rest constrain those: `pairings`, `cells`, `unlocks`, `require`.",

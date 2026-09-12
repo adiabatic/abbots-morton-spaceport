@@ -57,12 +57,10 @@ stances:
             - qsPea
             - qsBay
             - qsTea
-            - qsTea_qsOy
             - qsDay
             - qsKey
             - qsGay
             - qsThey
-            - qsThey_qsZoo
             - qsVie
             - qsZoo
             - qsJai
@@ -119,7 +117,6 @@ policy:
     when:
       left:
         family:
-        - qsTea_qsOy
         - qsDay
         - qsIt
         - qsOy
