@@ -237,5 +237,15 @@ policy:
         - qsNo
         - qsEt
         - qsAwe
+  - entry: baseline
+    by: 1
+    when:
+      left: {family: qsShe}
+    why: An improvement but I'd like a 1-pixel contraction between ·She and ·Gay (regardless of what comes before or after)
+  - entry: baseline
+    by: 1
+    when:
+      left: {family: qsCheer}
+    why: An improvement but I'd like a 1-pixel contraction between ·Cheer and ·Gay (regardless of what comes before or after)
   resolve: []
   groups: {}
