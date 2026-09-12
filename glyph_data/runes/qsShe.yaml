@@ -1,0 +1,103 @@
+rune: qsShe
+codepoint: 0xE65C
+ductus:
+  hapax: | # DRAFT — pending author sign-off
+    Begun near the top on the right, the stroke slants down and to the left, descends to the baseline, and curves rightward into a foot. The foot curls upward at its tip in isolation and stays on the baseline when it connects to the next letter.
+mono:
+  bitmap:
+  - "     "
+  - "   # "
+  - "  #  "
+  - " #   "  #
+  - " #   "
+  - "#    "
+  - "#    "
+  - "#   #"
+  - " ### "  #
+stances:
+  hapax:
+    motion: hapax
+    traits: []
+    bitmap:
+    - "     "
+    - "   # "
+    - "  #  "
+    - " #   "  #
+    - " #   "
+    - "#    "
+    - "#    "
+    - "#   #"
+    - " ### "  #
+    bitmaps:
+      flattened-bottom:
+        bitmap:
+        - "     "
+        - "   # "
+        - "  #  "
+        - " #   "  #
+        - " #   "
+        - "#    "
+        - "#    "
+        - "#    "
+        - " ####"  #
+    surface:
+      entries: {}
+      exits:
+        baseline:
+          x: 5
+          stroke: horizontal
+          withdrawal: safe
+          toward:
+          - family:
+            - qsTea
+            - qsDay
+            - qsDay_qsUtter
+            - qsGay
+            - qsVie
+            - qsVie_qsUtter
+            - qsSee
+            - qsZoo
+            - qsMay
+            - qsNo
+            - qsLow
+            - qsRoe
+            - qsIt
+            - qsAt
+            - qsI
+            - qsAh
+            - qsUtter
+            - qsOut
+            - qsOut_qsTea
+            - qsOoze
+      cells:
+      - entry: none
+        exit: baseline
+        bitmap: flattened-bottom
+      unlocks: []
+      require: []
+policy:
+  order:
+  - hapax
+  refuse: []
+  prefer:
+  - cell: {exit: none}
+    over: {exit: baseline}
+    when:
+      right:
+        family: qsTea
+        then:
+          except:
+          - {family: qsPea}
+  - cell: {exit: none}
+    over: {exit: baseline}
+    when:
+      right:
+        family: qsIt
+        then:
+          family:
+          - qsDay
+          - qsDay_qsUtter
+  extend: []
+  contract: []
+  resolve: []
+  groups: {}

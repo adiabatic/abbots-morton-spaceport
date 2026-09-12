@@ -301,6 +301,15 @@ policy:
             - qsOut
             - qsOut_qsTea
             - qsOoze
+  - cell: {exit: baseline}
+    over: {exit: x-height}
+    mode: absolute
+    when:
+      left: {family: qsSee}
+      right:
+        family: qsNo
+        then: {family: qsEight}
+    why: Required to match what The Manual does
   extend:
   - entry: baseline
     by: 1

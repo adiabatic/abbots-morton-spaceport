@@ -49,6 +49,7 @@ stances:
             - qsThey
             - qsSee
             - qsZoo
+            - qsShe
             - qsJai
             - qsMay
             - qsNo
@@ -98,6 +99,7 @@ stances:
             - qsThey
             - qsSee
             - qsZoo
+            - qsShe
             - qsJai
             - qsMay
             - qsNo

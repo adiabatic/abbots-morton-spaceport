@@ -998,6 +998,11 @@
 - signature: dangle:qsKey.hapax.locked:exit:baseline
   why: The ZWNJ-locked twin of ·Key's foot terminal; identical drawing.
 
+- signature: dangle:qsShe.hapax:exit:baseline
+  why: ·She's curved foot is the shipped isolated drawing (baseline row E65C). Its rightmost baseline pixel continues diagonally into the upturned tip at y1, rather than vertically as the automatic withdrawal proof requires; the declined exit retains this letterform ink.
+- signature: dangle:qsShe.hapax.locked:exit:baseline
+  why: The ZWNJ-locked twin retains ·She's curved foot, as in baseline row 200C:E65C; the diagonal upturned tip is the same intentional letterform ink.
+
 # The after-·Key entry extension reaches ·It's ss04 pass-through cell: en-ext-1 lengthens the ·Key connector on ·It's left at y0 and leaves ·It's bar — and so the right-side corner against each follower — exactly where the blessed un-extended pass-through twin draws it. A y2 signature where the twin's says y1 is the checker naming a different row of the same multi-row bar adjacency, not a moved corner.
 - signature: contact:qsIt.hapax.en-y0.ex-y0.en-ext-1:qsOoze.hapax.en-y0:y2
 - signature: contact:qsIt.hapax.en-y0.ex-y0.en-ext-1:qsOoze.hapax.en-y0.ex-y0:y2

@@ -24,6 +24,8 @@ Never single-thread a broad run; `doc/parallelism.md` carries the width rules. D
 
 ## `make test-rebuild`
 
+The real-record grammar pins in `rebuild/test_spec_load.py` identify chain-bearing policy records by index, as their provenance paths do. Append new policy records when their semantics permit the existing order; an insertion changes those identities even when the older records' behavior stays the same.
+
 - Runs the rebuild suite as one lane, contracts, with one green record (`rebuild/out/rebuild-contracts-green.json`, shared with the artifact cycle's gate:rebuild-contracts).
 - No test under `rebuild/` reads live build output. `rebuild/conftest.py`'s audit guard fails one that reads a live tree (`rebuild/out/`, `tmp/`, `var/`, the root verdict stores) with `ContractsLaneViolation`, so a new test reads against a synthetic root or `tmp_path`, and a claim about a live artifact belongs in the build that makes it.
 - The suite reads only checked-in inputs, including the hermetic mini bundle under `rebuild/review/fixtures/mini/`, where the review surface's worked examples live, and runs at full width.
