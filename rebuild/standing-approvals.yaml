@@ -1931,3 +1931,14 @@ rules:
         follower_advance: 0
         follower_reach: 0
       except_left: []
+  - id: pea-half-xheight-dip-kept
+    verdict: approve
+    note: "The half ·Pea's right downstroke dips to the x-height to meet the letter it joins there, where the old font drew that dip only in its ex-dips variant — qsPea's half ductus says the downstroke dips down to the x-height to meet a next letter that joins there, and the stance draws it from the x-height exit stub rather than from a hand-maintained row (“Let ·Pea's both-sides dip fall out of its two stubs”). Nothing else in the letter moves and whatever follows stands where it was. Every window that reached a sitting approved the dip"
+    match:
+      before:
+        pivots: [qsPea.half.ex-y5]
+      after:
+        pivots: [qsPea.half.ex-y5]
+        gained: [[3, 0]]
+        shift: 0
+      except_left: []
