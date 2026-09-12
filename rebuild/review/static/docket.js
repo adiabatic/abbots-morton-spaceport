@@ -4,6 +4,7 @@ export const TRANCHE_SIZE = 25;
 export const SINGLETON_CHUNK = 40;
 export const RULED_STATUSES = ['intended', 'reviewed-approved', 'reviewed-rejected'];
 export const SINGLETON_DECISION = '#singletons';
+export const SHOWN_STORAGE_KEY = 'ams-review-docket-shown';
 
 export function isBlank(record) {
   return !record || record.verdict === 'skip';
@@ -158,6 +159,21 @@ export function queueCounts(units, recordOf, ruledIds = new Set()) {
     clusters.add(unit.cluster);
   }
   return { blankUnits, clusters: clusters.size };
+}
+
+export function readShownDecisions(raw, manifestStamp) {
+  let parsed = null;
+  try {
+    parsed = JSON.parse(raw ?? '');
+  } catch {
+    return new Set();
+  }
+  if (!parsed || parsed.stamp !== manifestStamp || !Array.isArray(parsed.keys)) return new Set();
+  return new Set(parsed.keys.filter((key) => typeof key === 'string'));
+}
+
+export function writeShownDecisions(shown, manifestStamp) {
+  return JSON.stringify({ stamp: manifestStamp, keys: [...shown] });
 }
 
 export function decisionKey(units) {

@@ -81,6 +81,7 @@ import {
   splitLines,
 } from './slim.js';
 import {
+  SHOWN_STORAGE_KEY,
   SINGLETON_CHUNK,
   buildClusters,
   decisionKey,
@@ -90,8 +91,10 @@ import {
   nextDocketDecision,
   partitionClusters,
   queueCounts,
+  readShownDecisions,
   ruledClassIds,
   singletonChunks,
+  writeShownDecisions,
 } from './docket.js';
 
 const FONT_SIZE = 88;
@@ -129,10 +132,25 @@ const locatorBlocks = createRecordCache(BLOCK_CACHE_CAP);
 let locatorReady = null;
 let familyOptions = [];
 let worklist = null;
-const docketShown = new Set();
+const docketShown = loadDocketShown();
+let lastDocketShownKey = null;
 let indexReady = null;
 let indexLoaded = false;
 const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)');
+
+function loadDocketShown() {
+  try {
+    return readShownDecisions(localStorage.getItem(SHOWN_STORAGE_KEY), manifest.generated_at);
+  } catch {
+    return new Set();
+  }
+}
+
+function saveDocketShown() {
+  try {
+    localStorage.setItem(SHOWN_STORAGE_KEY, writeShownDecisions(docketShown, manifest.generated_at));
+  } catch {}
+}
 
 const MACHINE_BADGE = 'ink-identical — machine approved';
 const MACHINE_TITLE =
@@ -1642,10 +1660,14 @@ async function applyHashState(resume = false) {
   }
   const units = await unitsForView(state.batch, state.class);
   if (token !== renderToken) return;
-  if (state.units && state.docket) {
-    const key = decisionKey(units);
-    docketShown.delete(key);
-    docketShown.add(key);
+  const docketKey = state.units && state.docket ? decisionKey(units) : null;
+  if (docketKey !== lastDocketShownKey) {
+    lastDocketShownKey = docketKey;
+    if (docketKey !== null) {
+      docketShown.delete(docketKey);
+      docketShown.add(docketKey);
+      saveDocketShown();
+    }
   }
   const { human, machine } = partitionUnits(units, state, (unitId) => store.records.get(unitId));
   const plan = machineFoldPlan(manifest, state);
