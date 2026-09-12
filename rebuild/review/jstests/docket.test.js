@@ -13,6 +13,8 @@ import {
   queueCounts,
   nextDocketDecision,
   decisionKey,
+  readShownDecisions,
+  writeShownDecisions,
   SINGLETON_DECISION,
   TRANCHE_SIZE,
   SINGLETON_CHUNK,
@@ -480,6 +482,23 @@ test('decisionKey names the cluster behind a rep worklist and the singleton run 
   assert.equal(decisionKey([makeUnit('u-0001', { cluster: 'c-big' }), makeUnit('u-0003', { cluster: 'c-big' })]), 'c-big');
   assert.equal(decisionKey([makeUnit('u-0030', { cluster: 'c-one' }), makeUnit('u-0031', { cluster: 'c-two' })]), SINGLETON_DECISION);
   assert.equal(decisionKey([]), SINGLETON_DECISION);
+});
+
+test('writeShownDecisions and readShownDecisions round-trip the rotation in the order it was stacked', () => {
+  const stamp = '2026-09-12T00:52:00Z';
+  const shown = new Set(['c-bbe6acfa', 'c-cdde37a0']);
+  const restored = readShownDecisions(writeShownDecisions(shown, stamp), stamp);
+  assert.deepEqual([...restored], ['c-bbe6acfa', 'c-cdde37a0']);
+});
+
+test('readShownDecisions starts a fresh rotation on a rebuilt surface, unreadable storage, or nothing stored at all', () => {
+  const stamp = '2026-09-12T00:52:00Z';
+  const stored = writeShownDecisions(new Set(['c-bbe6acfa']), '2026-09-01T00:00:00Z');
+  assert.deepEqual([...readShownDecisions(stored, stamp)], []);
+  assert.deepEqual([...readShownDecisions('not json', stamp)], []);
+  assert.deepEqual([...readShownDecisions(null, stamp)], []);
+  assert.deepEqual([...readShownDecisions(JSON.stringify({ stamp, keys: 'c-bbe6acfa' }), stamp)], []);
+  assert.deepEqual([...readShownDecisions(JSON.stringify({ stamp, keys: ['c-bbe6acfa', 7, null] }), stamp)], ['c-bbe6acfa']);
 });
 
 test('docketResumeAction restacks a worklist stamped for another surface, stampless hashes included, before trusting any of its ids', () => {
