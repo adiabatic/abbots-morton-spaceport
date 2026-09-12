@@ -3,8 +3,8 @@ sequence:
 - qsThey
 - qsUtter
 ductus:
-  hapax: | # DRAFT — pending author sign-off
-    The ·They stroke and the ·Utter stroke drawn as one motion: the ·They part as usual from the top down into its descender hook, but instead of ending at the hook's tip, the stroke keeps climbing diagonally up and to the right, out of the descender and past the baseline, and finishes with ·Utter's short rightward crown at the x-height, where it may connect to the next letter.
+  hapax: |
+    The ·They stroke and the ·Utter stroke drawn as one motion: the ·They part as usual from the top down into its descender hook, but instead of ending at the hook's tip, the stroke keeps climbing diagonally up and to the right, out of the descender and past the baseline, and finishes with ·Utter’s short rightward crown at the x-height, where it may connect to the next letter.
 stances:
   hapax:
     motion: hapax
