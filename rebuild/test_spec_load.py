@@ -231,11 +231,14 @@ def test_scope_condition_parsing(spec):
 
 def test_unlock_parsing(spec):
     unlocks = spec.runes["qsIt"].stances["hapax"].surface.unlocks
-    assert len(unlocks) == 1
-    (unlock,) = unlocks
-    assert unlock.feature == "ss04"
-    assert unlock.pairing.entry == "baseline" and unlock.pairing.exit == "baseline"
-    assert unlock.when is None
+    assert len(unlocks) == 2
+    broad, after_cheer = unlocks
+    for unlock in unlocks:
+        assert unlock.feature == "ss04"
+        assert unlock.pairing.entry == "baseline" and unlock.pairing.exit == "baseline"
+    assert broad.when.left.except_[0].family == ("qsCheer",)
+    assert after_cheer.when.left.family == ("qsCheer",)
+    assert after_cheer.when.right.except_[0].family == ("qsThaw",)
 
 
 def test_forbidden_stance_id(tmp_path):
