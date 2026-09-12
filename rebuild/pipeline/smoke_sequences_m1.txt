@@ -1114,7 +1114,7 @@ E676 200C E657            # Ah ZWNJ They (entry severed)
 E657 200C E666            # They ZWNJ No (exit severed)
 00B7 E657                 # namer dot before Deep They (stays)
 
-# qsZoo windows: the full motion receives at the x-height, the half motion at the baseline; both exit below the baseline into a baseline receiver. The qsThey_qsZoo ligature has no external joins.
+# qsZoo windows: the full motion receives at the x-height, the half motion at the baseline; both exit below the baseline into a baseline receiver. The qsThey_qsZoo ligature offers a baseline exit to flipped ·No.
 E65B                      # ·Zoo in isolation
 E651 E670 E65B            # Entered ·It reaches full ·Zoo at the x-height
 E651 E666 E65B            # Entered alternate ·No reaches half-·Zoo at the baseline
@@ -1218,7 +1218,9 @@ E676 E657 E65B            # ·Ah and `·They+Zoo` break
 E67A E657 E65B            # ·Utter and `·They+Zoo` break
 E65B E657 E65B            # ·Zoo and `·They+Zoo` break
 E657 E65B E652            # `·They+Zoo` and ·Tea break
-E657 E65B E666            # `·They+Zoo` and ·No break
+E657 E65B E666            # `·They+Zoo ~b~ ·No.alt`
+E657 E65B E666 E659       # `·They+Zoo ~b~ ·No.alt ~b~ ·Vie`
+E657 E65B E666 E672       # `·They+Zoo | ·No ~x~ ·Et`
 E657 E65B E65B            # `·They+Zoo` and ·Zoo break
 E657 E65B E657 E65B       # Adjacent `·They+Zoo` ligatures break
 E657 200C E65B            # ZWNJ severs `·They+Zoo` formation

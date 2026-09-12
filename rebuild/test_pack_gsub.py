@@ -1,6 +1,7 @@
-"""pack_gsub round-trip tests: a feaLib-compiled chained-context lookup (the per-rule format-3 shape m1_settle rides) is packed into format-2 groups, and the packed font must shape every probe string identically, reference no class 0, leave the inner lookups untouched, and compress deterministically. The FEA below deliberately exercises the shapes that constrain the packing: same-input rule order, overlapping-but-unequal lookahead classes (which force a second group), a backtracked rule, a ZWNJ-explicit row ordered ahead of the bare row it shadows, a no-lookahead fallback row, and a self-incompatible rule (its own lookahead sets overlap without being equal) that must pass through as format 3."""
+"""pack_gsub round-trip tests: a feaLib-compiled chained-context lookup (the per-rule format-3 shape m1_settle rides) is packed into format-2 groups, and the packed font must shape every probe string identically, reference no class 0, leave the inner lookups untouched, and compress deterministically. The FEA below deliberately exercises the shapes that constrain the packing: same-input rule order, overlapping-but-unequal lookahead classes (which force a second group), a backtracked rule, a ZWNJ-explicit row ordered ahead of the bare row it shadows, a no-lookahead fallback row, and a self-incompatible rule (its own lookahead sets overlap without being equal) that must pass through as format 3. A partially packed fixture holds an existing format-2 subtable between format-3 runs: it remains an ordered barrier through packing and serialization, and a multi-input rule disqualifies the lookup."""
 
 import io
+from copy import copy
 
 import pytest
 
@@ -90,6 +91,27 @@ def _shape_all(font, tmp_path):
 def _settle_lookup(font):
     lookups = font["GSUB"].table.LookupList.Lookup
     return max(lookups, key=lambda lookup: lookup.SubTableCount)
+
+
+def _lookup_part(lookup, subtables):
+    part = copy(lookup)
+    part.SubTable = subtables
+    part.SubTableCount = len(subtables)
+    return part
+
+
+def _mixed_font():
+    font = _build_font()
+    lookup = _settle_lookup(font)
+    original = list(lookup.SubTable)
+    middle = _lookup_part(lookup, original[3:4])
+    pack_gsub.pack_lookup(middle, font.getGlyphOrder())
+    assert len(middle.SubTable) == 1
+    barrier = middle.SubTable[0]
+    assert barrier.ExtSubTable.Format == 2
+    lookup.SubTable = original[:3] + [barrier] + original[4:]
+    lookup.SubTableCount = len(lookup.SubTable)
+    return font, barrier
 
 
 @pytest.fixture(scope="module")
@@ -187,3 +209,49 @@ class TestPackGsub:
         stats = pack_gsub.pack_font(font, min_subtables=64)
         assert stats == {"packed_lookups": []}
         assert _settle_lookup(font).SubTableCount == 7
+
+    def test_mixed_formats_preserve_barrier_rules_and_shaping(self, tmp_path):
+        from fontTools.ttLib import TTFont
+
+        font, barrier = _mixed_font()
+        lookup = _settle_lookup(font)
+        original = list(lookup.SubTable)
+        expected = pack_gsub.per_glyph_sequences(lookup)
+        expected_prefix = pack_gsub.per_glyph_sequences(_lookup_part(lookup, original[:3]))
+        expected_suffix = pack_gsub.per_glyph_sequences(_lookup_part(lookup, original[4:]))
+        reference = _shape_all(font, tmp_path)
+
+        stats = pack_gsub.pack_font(font, min_subtables=2)
+
+        assert len(stats["packed_lookups"]) == 1
+        assert lookup.SubTableCount < len(original)
+        barrier_index = next(index for index, subtable in enumerate(lookup.SubTable) if subtable is barrier)
+        assert 0 < barrier_index < lookup.SubTableCount - 1
+        assert (
+            pack_gsub.per_glyph_sequences(_lookup_part(lookup, lookup.SubTable[:barrier_index]))
+            == expected_prefix
+        )
+        assert (
+            pack_gsub.per_glyph_sequences(_lookup_part(lookup, lookup.SubTable[barrier_index + 1 :]))
+            == expected_suffix
+        )
+        assert pack_gsub.per_glyph_sequences(lookup) == expected
+        assert _shape_all(font, tmp_path) == reference
+        with TTFont(tmp_path / "pack-test.otf") as roundtrip:
+            assert pack_gsub.per_glyph_sequences(_settle_lookup(roundtrip)) == expected
+
+    def test_mixed_formats_with_multiple_inputs_are_untouched(self):
+        font, barrier = _mixed_font()
+        lookup = _settle_lookup(font)
+        original = list(lookup.SubTable)
+        subtable = barrier.ExtSubTable
+        class_set = next(class_set for class_set in subtable.ChainSubClassSet if class_set is not None)
+        rule = class_set.ChainSubClassRule[0]
+        rule.Input = [next(iter(subtable.InputClassDef.classDefs.values()))]
+        rule.InputGlyphCount = 2
+
+        stats = pack_gsub.pack_font(font, min_subtables=2)
+
+        assert stats == {"packed_lookups": []}
+        assert lookup.SubTableCount == len(original)
+        assert all(actual is expected for actual, expected in zip(lookup.SubTable, original, strict=True))
