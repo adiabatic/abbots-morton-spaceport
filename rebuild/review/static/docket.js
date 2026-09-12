@@ -3,6 +3,7 @@
 export const TRANCHE_SIZE = 25;
 export const SINGLETON_CHUNK = 40;
 export const RULED_STATUSES = ['intended', 'reviewed-approved', 'reviewed-rejected'];
+export const SINGLETON_DECISION = '#singletons';
 
 export function isBlank(record) {
   return !record || record.verdict === 'skip';
@@ -159,24 +160,42 @@ export function queueCounts(units, recordOf, ruledIds = new Set()) {
   return { blankUnits, clusters: clusters.size };
 }
 
-// The next unworked decision in queue order: the largest cluster with an echo group nobody has seen yet (a rep per such group), then the singletons the same way. A record on a still-blank member can only be a skip, so any recorded member marks its whole echo group as consciously deferred — the flow never re-stacks a deferral or its lookalike siblings. Returns null when every blank unit sits in a deferred group.
-export function nextDocketDecision(units, recordOf, ruledIds) {
+export function decisionKey(units) {
+  const signatures = new Set();
+  for (const unit of units) if (typeof unit?.cluster === 'string') signatures.add(unit.cluster);
+  return signatures.size === 1 ? [...signatures][0] : SINGLETON_DECISION;
+}
+
+// The next decision to put in front of the reviewer. The open decisions stand in queue order — the largest cluster first, a rep per echo group nobody has seen, then the singletons — and the flow takes the first it has never shown. A record on a still-blank member can only be a skip, so any recorded member marks its whole echo group as consciously deferred; `shown` (the keys a sitting has stacked, least recently stacked first) defers a whole decision the same way, so walking away from a cluster postpones it and the flow steps on to a card it has never opened rather than handing back the one just left. Once every open decision has been shown, it comes round to whichever was shown longest ago, flagged `revisit`. Returns null when every blank unit sits in a deferred group.
+export function nextDocketDecision(units, recordOf, ruledIds, shown = new Set()) {
   const clusters = buildClusters(units, recordOf);
   const { tranche, later, singletons } = partitionClusters(clusters, ruledIds);
+  const open = [];
   for (const cluster of [...tranche, ...later]) {
-    const open = [];
+    const reps = [];
     for (const group of cluster.echoGroups) {
       if (group.unitIds.some((id) => recordOf(id))) continue;
-      open.push(group.unitIds[0]);
+      reps.push(group.unitIds[0]);
     }
-    if (open.length > 0) return { kind: 'cluster', cluster, unitIds: open };
+    if (reps.length > 0) open.push({ key: cluster.id, decision: { kind: 'cluster', cluster, unitIds: reps } });
   }
   const openSingles = singletons.filter((cluster) => !recordOf(cluster.exemplar.id));
   if (openSingles.length > 0) {
     const [chunk] = singletonChunks(openSingles);
-    return { kind: 'singletons', unitIds: chunk.unitIds, remaining: openSingles.length };
+    open.push({
+      key: SINGLETON_DECISION,
+      decision: { kind: 'singletons', unitIds: chunk.unitIds, remaining: openSingles.length },
+    });
   }
-  return null;
+  if (open.length === 0) return null;
+  const fresh = open.find((candidate) => !shown.has(candidate.key));
+  if (fresh) return { ...fresh.decision, revisit: false };
+  const rotation = [...shown];
+  let oldest = open[0];
+  for (const candidate of open) {
+    if (rotation.indexOf(candidate.key) < rotation.indexOf(oldest.key)) oldest = candidate;
+  }
+  return { ...oldest.decision, revisit: true };
 }
 
 // A docket-launched worklist names units by id, and a unit whose content moved under a rebuild carries a new one — so a tab resuming an old worklist hash could otherwise show a queue that no longer holds those units, or holds them under other batches, a plausible-looking screenful that has nothing to do with the docket queue. The stamp pins the worklist to the surface it was stacked for: a mismatch (including the stampless hash of an older tab) means the id list is meaningless and the flow should restack from the live queue, and a current worklist whose every listed unit already carries a real verdict is a finished screenful being resumed, which advances exactly as finishing it live would have. A skip is a record but not a verdict: a skipped-through cluster keeps its docket card, and clicking that card means "show me the deferred reps again", never "teleport to a different decision" — so a worklist holding any skip renders. A current worklist with blanks left renders as-is.
