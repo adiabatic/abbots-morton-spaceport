@@ -20,7 +20,7 @@ Never single-thread a broad run; `doc/parallelism.md` carries the width rules. D
 
 - Self-skips in about a second when nothing it reads has changed since its last green run. `make_test_exempt` in `rebuild/tools/artifact_cycle.py` is the authority on what sits outside its closure; a change there cannot move it and is the rebuild suite's or the artifact cycle's to gate, so don't force a run for one.
 - `make test FORCE=1` overrides the skip.
-- Pyright runs inside the same invocation over the whole tree; `[tool.pyright] include` in `pyproject.toml` is the single authority on what it checks, so every invocation is a bare `uv run pyright` with no paths. It self-skips on its own green record (`rebuild/out/pyright-green.json`) when nothing it can read has changed since its last green run; `rebuild/tools/pyright_gate.py` is the authority on that closure — the sources under `[tool.pyright]`'s `include`, `extraPaths` and `stubPath`, plus `pyproject.toml` and `uv.lock` — and `FORCE=1` runs it along with the suite.
+- Pyright runs inside the same invocation over the whole tree; `[tool.pyright] include` in `pyproject.toml` is the single authority on what it checks, so every invocation is a bare `uv run pyright` with no paths. It self-skips on its own green record (`rebuild/out/pyright-green.json`) when nothing it can read has changed since its last green run; `rebuild/tools/pyright_gate.py` is the authority on that closure — the sources under `[tool.pyright]`'s `include`, `extraPaths` and `stubPath`, plus `pyproject.toml` and `uv.lock`, the lock by its dependency pins so a version bump alone leaves the record standing — and `FORCE=1` runs it along with the suite.
 
 ## `make test-rebuild`
 

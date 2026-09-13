@@ -335,3 +335,32 @@ def test_a_caller_that_injects_units_is_never_served(mini_surface, tmp_path, cap
         == 0
     )
     assert units[0]["id"] in capsys.readouterr().out
+
+
+_DAEMON_LOCK = (
+    "version = 1\n\n"
+    '[[package]]\nname = "abbots-morton-spaceport"\nversion = "16.0.0"\nsource = { virtual = "." }\n\n'
+    '[[package]]\nname = "uharfbuzz"\nversion = "0.50.2"\nsource = { registry = "https://pypi.org/simple" }\n'
+)
+
+
+def test_the_stamp_reads_the_lock_by_its_dependency_pins(tmp_path, monkeypatch):
+    """A holder survives a version bump — the project's own block of the lock is not in its stamp — and still exits on a moved uharfbuzz pin, `_moved` naming the lock. `ROOT` is pointed at a scratch repo so the checkout's lock is never edited; the code field over that root is empty, since nothing loaded lives there, and stays constant across the arms."""
+    root = tmp_path / "repo"
+    root.mkdir()
+    lock = root / "uv.lock"
+    lock.write_text(_DAEMON_LOCK, encoding="utf-8")
+    surface = tmp_path / "surface"
+    surface.mkdir()
+    (surface / "manifest.json").write_text(json.dumps({"generated_at": "2026-01-01T00:00:00Z"}))
+    monkeypatch.setattr(standing_daemon, "ROOT", root)
+    held = standing_daemon.stamp_of(surface)
+    assert held.lock not in ("-", "absent")
+    lock.write_text(_DAEMON_LOCK.replace('version = "16.0.0"', 'version = "16.1.0"'), encoding="utf-8")
+    assert standing_daemon.stamp_of(surface) == held
+    lock.write_text(_DAEMON_LOCK.replace('version = "0.50.2"', 'version = "0.51.0"'), encoding="utf-8")
+    fresh = standing_daemon.stamp_of(surface)
+    assert fresh != held
+    assert standing_daemon._moved(held, fresh) == "uv.lock moved"
+    lock.unlink()
+    assert standing_daemon.stamp_of(surface).lock == "-"

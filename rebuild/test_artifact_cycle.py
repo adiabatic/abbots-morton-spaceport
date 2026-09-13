@@ -6823,3 +6823,31 @@ def test_cycle_without_timings_writes_no_journal(monkeypatch, tmp_path):
 
     assert rc == 0
     assert not list(tmp_path.glob("*.ndjson"))
+
+
+_SKIP_LOCK = (
+    "version = 1\n\n"
+    '[[package]]\nname = "abbots-morton-spaceport"\nversion = "16.0.0"\nsource = { virtual = "." }\n\n'
+    '[[package]]\nname = "fonttools"\nversion = "4.61.1"\nsource = { registry = "https://pypi.org/simple" }\n'
+)
+
+
+def test_a_version_bump_of_the_lock_moves_no_run_m1_input_while_a_pin_bump_still_rebuilds(tmp_path):
+    """The run_m1 skip key's `uv.lock` line at its projected grain, over the fake root the other skip-key tests use. Editing the project's own block — what the bump-minor skill's `uv sync` writes — leaves the line and the key, so the green stands and `gates_only_reuse` sees nothing moved; a dependency-pin edit moves the line, and because the lock is not comparison-side the route is a rebuild rather than a re-adjudication. The `lock-1` skeletons elsewhere in this module keep their raw fallback, which the arms above them already prove."""
+    root = _fake_run_m1_root(tmp_path)
+    (root / "uv.lock").write_text(_SKIP_LOCK)
+    stored = ac.run_m1_skip_files(root)
+    key = ac.run_m1_skip_fingerprint(root)
+    record = {"fingerprint": key, "files": stored}
+    (root / "uv.lock").write_text(_SKIP_LOCK.replace('version = "16.0.0"', 'version = "16.1.0"'))
+    assert ac.run_m1_skip_files(root)["uv.lock"] == stored["uv.lock"]
+    assert ac.run_m1_skip_fingerprint(root) == key
+    assert ac.moved_input_labels(record, ac.run_m1_skip_files(root)) is None
+    assert ac.gates_only_reuse(record, ac.run_m1_skip_files(root)) is None
+    (root / "uv.lock").write_text(_SKIP_LOCK.replace('version = "4.61.1"', 'version = "4.62.0"'))
+    current = ac.run_m1_skip_files(root)
+    assert current["uv.lock"] != stored["uv.lock"]
+    assert ac.run_m1_skip_fingerprint(root) != key
+    assert ac.moved_input_labels(record, current) == ["uv.lock"]
+    assert ac.gates_only_reuse(record, current) is None
+    assert ac.moved_inputs_note(record, current) == "uv.lock (changed)"

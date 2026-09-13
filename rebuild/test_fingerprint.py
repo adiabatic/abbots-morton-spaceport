@@ -1,4 +1,4 @@
-"""Tests for the build-input fingerprint module: the streamed file digest and the sweep that keeps it the only way rebuild/ hashes a file, content sensitivity, order independence, missing-file tolerance, the stat-based baselines component, the Stage A record round trip, the serve.py exclusion, the four prose-blind digests — the rune files' and the three human-reviewed ledgers' — the code projection that makes a Python docstring or a whole-line Rust comment invisible to every key `path_lines` builds while the artifact cycle's two gate closures stay raw, and the explain-aware rune digest and `explain_prose` component that are where a refuse record's `why` and a divergence class's `why` live instead of in any key a table build reads.
+"""Tests for the build-input fingerprint module: the streamed file digest and the sweep that keeps it the only way rebuild/ hashes a file, content sensitivity, order independence, missing-file tolerance, the stat-based baselines component, the Stage A record round trip, the serve.py exclusion, the four prose-blind digests — the rune files' and the three human-reviewed ledgers' — the code projection that makes a Python docstring or a whole-line Rust comment invisible to every key `path_lines` builds while the artifact cycle's two gate closures stay raw, the two version-carrier projections — the lock without its project block and a font without its `head` and `name` tables — that keep a version bump from moving any stamp while a dependency pin, a glyph, an anchor or a table still moves every one, and the explain-aware rune digest and `explain_prose` component that are where a refuse record's `why` and a divergence class's `why` live instead of in any key a table build reads.
 
 The sweep is here rather than in prose because file_sha256 exists to stop a hash costing the file its size in RAM, and that claim only holds while every hash goes through it — which a roster of callers written into a docstring cannot keep, since nothing checks a roster and the next module to grow a file hash falsifies it in silence. The modules that cannot import fingerprint spell the same streamed read out inline instead; those are pinned against the helper by value here, so a copy cannot drift from the original unnoticed either.
 """
@@ -69,8 +69,11 @@ def test_file_sha256_matches_the_read_whole_digest(tmp_path):
         assert fingerprint.file_sha256(path) == hashlib.sha256(payload).hexdigest()
 
 
-READ_WHOLE_EXEMPT = {"rebuild/pipeline/fingerprint.py": frozenset({"code_file_digest"})}
-"""The functions the sweep lets read a file whole, by module: `code_file_digest` projects a source file before hashing it, and its dispatch on the suffix before the file is opened bounds what it reads to the `.py` and `.rs` sources, none of them large."""
+READ_WHOLE_EXEMPT = {
+    "rebuild/pipeline/fingerprint.py": frozenset({"code_file_digest"}),
+    "rebuild/tools/lock_digest.py": frozenset({"lock_digest"}),
+}
+"""The functions the sweep lets read a file whole, by module: `code_file_digest` projects a source file before hashing it, and its dispatch on the suffix before the file is opened bounds what it reads to the `.py` and `.rs` sources, none of them large; `lock_digest` projects the lock's text, and the lock is tens of kilobytes."""
 
 
 def _read_whole_hashes(path, exempt_functions=frozenset()):
@@ -1005,3 +1008,228 @@ def test_the_projection_is_memoized_and_reprojects_when_the_file_moves(tmp_path,
     assert fingerprint.hash_paths(root, paths) != first
     assert len(parsed) == cold + 1
     assert parsed.count(table.read_bytes()) == 1
+
+
+MINI_FONT = REPO_ROOT / "rebuild" / "review" / "fixtures" / "mini" / "M1.otf"
+
+LOCK = textwrap.dedent("""\
+    version = 1
+    revision = 3
+    requires-python = ">=3.14"
+
+    [[package]]
+    name = "abbots-morton-spaceport"
+    version = "16.0.0"
+    source = { virtual = "." }
+    dependencies = [
+        { name = "fonttools" },
+    ]
+
+    [package.dev-dependencies]
+    dev = [
+        { name = "uharfbuzz" },
+    ]
+
+    [package.metadata]
+    requires-dist = [
+        { name = "fonttools", specifier = ">=4.61.1" },
+    ]
+
+    [[package]]
+    name = "fonttools"
+    version = "4.61.1"
+    source = { registry = "https://pypi.org/simple" }
+
+    [[package]]
+    name = "uharfbuzz"
+    version = "0.50.2"
+    source = { registry = "https://pypi.org/simple" }
+    """)
+LOCK_BUMPED = LOCK.replace('version = "16.0.0"', 'version = "16.1.0"').replace(
+    'name = "fonttools", specifier = ">=4.61.1"', 'name = "fonttools", specifier = ">=4.61.2"'
+)
+LOCK_PIN_MOVED = LOCK.replace('version = "4.61.1"', 'version = "4.62.0"')
+LOCK_PACKAGE_ADDED = (
+    LOCK
+    + '\n[[package]]\nname = "pyyaml"\nversion = "6.0.3"\nsource = { registry = "https://pypi.org/simple" }\n'
+)
+LOCK_PACKAGE_REMOVED = LOCK[: LOCK.index('\n[[package]]\nname = "uharfbuzz"')] + "\n"
+
+
+def _lock_digest(path, text):
+    path.write_text(text, encoding="utf-8")
+    return fingerprint.lock_digest(path)
+
+
+def test_lock_digest_is_blind_to_the_projects_own_block_and_to_nothing_else(tmp_path):
+    """The lock half of the version-bump contract. A bump rewrites the project's own `[[package]]` block — its version, and the specifiers in the `[package.metadata]` sub-tables that sit inside it — and that block names nothing any stage or test runs under, so the digest stands; a dependency's pinned version, a package added and a package removed each move it, because each changes the interpreter the build and the tests run in."""
+    path = tmp_path / "uv.lock"
+    base = _lock_digest(path, LOCK)
+    assert _lock_digest(path, LOCK_BUMPED) == base
+    assert _lock_digest(path, LOCK_PIN_MOVED) != base
+    assert _lock_digest(path, LOCK_PACKAGE_ADDED) != base
+    assert _lock_digest(path, LOCK_PACKAGE_REMOVED) != base
+    assert len({base, _lock_digest(path, LOCK_PIN_MOVED), _lock_digest(path, LOCK_PACKAGE_ADDED)}) == 3
+    assert base != fingerprint.file_sha256(path)
+
+
+def test_lock_digest_falls_back_to_the_raw_bytes_without_a_project_block(tmp_path):
+    """The fallback the suite's fake repos lean on: a lock with no `source = { virtual = "." }` block — `lock-1`, `version = 1` — and one that will not decode each digest to their own bytes, so two fakes never collapse onto one value and a fake edited from `lock-1` to `lock-2` still reads as moved."""
+    path = tmp_path / "uv.lock"
+    for text in ("lock-1\n", "lock-2\n", "version = 1\n", ""):
+        assert _lock_digest(path, text) == hashlib.sha256(text.encode()).hexdigest()
+    assert _lock_digest(path, "lock-1\n") != _lock_digest(path, "lock-2\n")
+    path.write_bytes(b"\xff\xfe not text")
+    assert fingerprint.lock_digest(path) == fingerprint.file_sha256(path)
+    assert fingerprint.lock_digest(path) != _lock_digest(path, "lock-1\n")
+
+
+def _font(source, target, edit):
+    from fontTools.ttLib import TTFont
+
+    font = TTFont(str(source))
+    edit(font)
+    font.save(str(target))
+    return target
+
+
+def _bump_version(font):
+    font["head"].fontRevision = (
+        font["head"].fontRevision + 0.001
+    )  # pyright: ignore[reportAttributeAccessIssue]
+    for record in font["name"].names:  # pyright: ignore[reportAttributeAccessIssue]
+        record.string = record.toUnicode() + " bumped"
+
+
+def _widen_a_glyph(font):
+    metrics = font["hmtx"].metrics  # pyright: ignore[reportAttributeAccessIssue]
+    name = sorted(name for name in metrics if name.startswith("qs"))[0]
+    advance, lsb = metrics[name]
+    metrics[name] = (advance + 10, lsb)
+
+
+def _move_an_anchor(font):
+    for lookup in font["GPOS"].table.LookupList.Lookup:  # pyright: ignore[reportAttributeAccessIssue]
+        for subtable in lookup.SubTable:
+            if lookup.LookupType == 9:
+                subtable = subtable.ExtSubTable
+            if getattr(subtable, "LookupType", lookup.LookupType) != 3:
+                continue
+            for record in subtable.EntryExitRecord:
+                anchor = record.ExitAnchor or record.EntryAnchor
+                if anchor is not None:
+                    anchor.XCoordinate += 1
+                    return
+    raise AssertionError("the mini font carries no cursive anchor to move")
+
+
+def _drop_a_table(font):
+    del font["gasp"]
+
+
+def _add_a_table(font):
+    from fontTools.ttLib.tables.DefaultTable import DefaultTable
+
+    table = DefaultTable("ZZZZ")
+    table.data = b"\0\0\0\1"
+    font["ZZZZ"] = table
+
+
+def test_font_content_digest_is_blind_to_head_and_name_and_to_nothing_else(tmp_path):
+    """The font half of the version-bump contract, over the checked-in mini font. Rewriting `head.fontRevision` and every `name` record — what `make all` does to both site fonts on a bump, `head.modified` and the checksum adjustment moving with them — leaves the digest still, while each thing that can reach a shaped run moves it: a glyph's advance, a cursive anchor's coordinate, a table dropped, a table added. Every arm goes through a fontTools save, so the projection is proven over fonts the shaper would read rather than over patched bytes."""
+    base = fingerprint.font_content_digest(MINI_FONT)
+    bumped = _font(MINI_FONT, tmp_path / "bumped.otf", _bump_version)
+    assert fingerprint.file_sha256(bumped) != fingerprint.file_sha256(MINI_FONT)
+    assert fingerprint.font_content_digest(bumped) == base
+    moved = {
+        name: fingerprint.font_content_digest(_font(MINI_FONT, tmp_path / f"{name}.otf", edit))
+        for name, edit in (
+            ("widened", _widen_a_glyph),
+            ("anchor", _move_an_anchor),
+            ("dropped", _drop_a_table),
+            ("added", _add_a_table),
+        )
+    }
+    assert all(digest != base for digest in moved.values()), moved
+    assert len(set(moved.values())) == len(moved)
+
+
+def test_font_content_digest_falls_back_to_the_raw_bytes_for_a_file_that_is_no_sfnt(tmp_path):
+    """A fixture's fake font, an empty file and a truncated real one each digest to their own bytes rather than raising or collapsing onto one value — the bargain every other projection here strikes, and the one rebuild/test_baseline_subset.py's fake site font stands on."""
+    fake = tmp_path / "fake.otf"
+    fake.write_bytes(b"not really an otf")
+    empty = tmp_path / "empty.otf"
+    empty.write_bytes(b"")
+    truncated = tmp_path / "truncated.otf"
+    truncated.write_bytes(MINI_FONT.read_bytes()[:3000])
+    for path in (fake, empty, truncated):
+        assert fingerprint.font_content_digest(path) == fingerprint.file_sha256(path)
+    assert len({fingerprint.font_content_digest(path) for path in (fake, empty, truncated)}) == 3
+    assert fingerprint.font_content_digest(MINI_FONT) != fingerprint.file_sha256(MINI_FONT)
+
+
+def test_the_font_projection_is_memoized_on_the_bytes_and_reprojects_when_they_move(tmp_path, monkeypatch):
+    """The per-process memo, keyed on the raw digest the way `code_file_digest`'s is: the same bytes are projected once however many stamps ask, and a file rewritten in place to different bytes is projected again rather than served the old projection."""
+    projected: list[Path] = []
+    real = fingerprint._projected_font_lines
+
+    def counting(path):
+        projected.append(path)
+        return real(path)
+
+    monkeypatch.setattr(fingerprint, "_projected_font_lines", counting)
+    monkeypatch.setattr(fingerprint, "_FONT_DIGESTS", {})
+    font = tmp_path / "font.otf"
+    font.write_bytes(MINI_FONT.read_bytes())
+    first = fingerprint.font_content_digest(font)
+    assert fingerprint.font_content_digest(font) == first
+    assert fingerprint.font_content_digest(MINI_FONT) == first
+    assert len(projected) == 1
+    _font(MINI_FONT, font, _widen_a_glyph)
+    assert fingerprint.font_content_digest(font) != first
+    assert len(projected) == 2
+
+
+def _version_bump_keys(root):
+    before, junior = fingerprint.font_paths(root)
+    _key, labels = artifact_cycle.rebuild_lane_closure(root, artifact_cycle.REBUILD_LANES[0])
+    assert labels is not None, "the lane closure needs git"
+    return (
+        fingerprint.stage_b(root, before, junior)["fonts"],
+        labels["fonts"],
+        artifact_cycle.run_m1_skip_files(root)["uv.lock"],
+    )
+
+
+def test_a_version_bump_moves_no_key_while_a_glyph_an_anchor_and_a_pin_move_each(tmp_path):
+    """The cross-module roll-up: the Stage B `fonts` component, the contracts lane's `fonts` label and the run_m1 skip key's `uv.lock` line, side by side. A head/name-only rewrite of both site fonts and a project-version-only edit of the lock move none of the three; a glyph edit and a GPOS change each move both font keys, and a dependency-pin bump moves the lock line. A repo under git, since the lane closure is enumerated with `git ls-files`."""
+    root = _fake_repo(tmp_path)
+    subprocess.run(["git", "init", "-q", str(root)], check=True)
+    (root / "conftest.py").write_text("")
+    (root / "pyproject.toml").write_text("[project]\nname = 'fake'\n")
+    lock = root / "uv.lock"
+    lock.write_text(LOCK)
+    senior, junior = fingerprint.font_paths(root)
+    senior.write_bytes(MINI_FONT.read_bytes())
+    junior.write_bytes(MINI_FONT.read_bytes())
+    subprocess.run(["git", "-C", str(root), "add", "-A"], check=True)
+    base = _version_bump_keys(root)
+    assert all(value is not None for value in base)
+
+    _font(MINI_FONT, senior, _bump_version)
+    _font(MINI_FONT, junior, _bump_version)
+    lock.write_text(LOCK_BUMPED)
+    assert _version_bump_keys(root) == base
+
+    _font(MINI_FONT, senior, _widen_a_glyph)
+    glyph = _version_bump_keys(root)
+    assert glyph[0] != base[0] and glyph[1] != base[1] and glyph[2] == base[2]
+    _font(MINI_FONT, senior, _move_an_anchor)
+    anchor = _version_bump_keys(root)
+    assert anchor[0] != base[0] and anchor[1] != base[1] and anchor[2] == base[2]
+    assert anchor[:2] != glyph[:2]
+
+    senior.write_bytes(MINI_FONT.read_bytes())
+    lock.write_text(LOCK_PIN_MOVED)
+    pin = _version_bump_keys(root)
+    assert pin[:2] == base[:2] and pin[2] != base[2]

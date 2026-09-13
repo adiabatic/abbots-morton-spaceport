@@ -27,12 +27,13 @@ EXPANDED_DIRS = (REVIEW_DIR, PIPELINE_DIR, VALIDATION_DIR)
 
 BUILD_ENTRY_MODULES = ("rebuild.review.build",)
 SIGNATURE_ENTRY_MODULES = ("rebuild.review.ink",)
-# What the build reaches under rebuild/tools, and all it may: the fan-out width (`artifact_cycle.surface_job_budget`, and the `memory_budget` arithmetic under it and under kernel_exec's own width), the cost and progress readings (`peak_rss`, the `cycle_timings` pool record that files them, the `console` phase and progress lines the cycle reads back, and the `pile_tally` debug attribution a build prints only when its environment asks for one), and the two site font paths (`site_fonts`, the leaf `fingerprint.font_paths` is read from so the root conftest can name the fonts without importing the pipeline; the build shapes with its own `SITE_BEFORE_FONT` and `SITE_JUNIOR_FONT`, and the manifest's `fonts` component hashes the bytes at the named paths, so a path that resolved elsewhere moves the stamp rather than a served unit). None can move a byte of a unit's products — rebuild/test_unit_cache.py's serial-and-parallel byte identity holds the width half — so none rides `surface_code_paths`, and a new reach here is a claim to argue before the roster grows.
+# What the build reaches under rebuild/tools, and all it may: the fan-out width (`artifact_cycle.surface_job_budget`, and the `memory_budget` arithmetic under it and under kernel_exec's own width), the cost and progress readings (`peak_rss`, the `cycle_timings` pool record that files them, the `console` phase and progress lines the cycle reads back, and the `pile_tally` debug attribution a build prints only when its environment asks for one), and the two version-carrier leaves the fingerprints read through (`site_fonts`, the two site font paths, kept a leaf so the root conftest can name the fonts without importing the pipeline; the build shapes with its own `SITE_BEFORE_FONT` and `SITE_JUNIOR_FONT`, and the manifest's `fonts` component hashes the tables at the named paths, so a path that resolved elsewhere moves the stamp rather than a served unit; and `lock_digest`, the lock projection, kept a leaf for the pyright gate's sake, which no stamp of the surface's stores reads at all). None can move a byte of a unit's products — rebuild/test_unit_cache.py's serial-and-parallel byte identity holds the width half — so none rides `surface_code_paths`, and a new reach here is a claim to argue before the roster grows.
 WIDTH_AND_TELEMETRY_MODULES = frozenset(
     {
         "rebuild.tools.artifact_cycle",
         "rebuild.tools.console",
         "rebuild.tools.cycle_timings",
+        "rebuild.tools.lock_digest",
         "rebuild.tools.memory_budget",
         "rebuild.tools.peak_rss",
         "rebuild.tools.pile_tally",

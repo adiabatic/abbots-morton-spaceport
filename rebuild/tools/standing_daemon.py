@@ -2,7 +2,7 @@
 
 It is one process by design: the surface objects are shared, a second holder would be a second copy of the surface, and `serve` refuses to start beside a daemon that already answers at its socket. It answers one request at a time — a single thread, the listen backlog queuing the rest — because the held objects are not safe to share across requests and the win is memory and fan-out width, not per-request latency. The `SlideContext` memos are emptied after every request, so a served run shapes exactly the windows a fresh process would and the daemon's footprint stays bounded. The rules file and the verdicts file are not held: each request's tool reads them as its argv names them, so neither can go stale in here and a scratch `--rules` is served as readily as the checked-in one.
 
-Staleness is part of the contract. `stamp_of` is the surface manifest's `generated_at`, the repo code actually loaded in this process (`loaded_repo_files`, read off `sys.modules`, so no hand roster can drift from what decides), both fonts' bytes and `uv.lock` for the shaper; it is checked before every request and every `IDLE_CHECK_SECONDS` while idle, and any field moving makes the daemon decline the request and exit, because code cannot be reloaded into a running process and a holder that can no longer answer is the one footprint the memory policy forbids. A request for a surface other than the one it holds is declined without exiting. The socket is bound before the load, so a second `serve` started in the same instant fails its bind rather than unlinking the first's live socket, and a client that connects during the load waits for the answer; SIGTERM, SIGINT and the `stop` verb all remove the socket on the way out. It takes no port: never 7293 (the site) and never 7294 (the review server).
+Staleness is part of the contract. `stamp_of` is the surface manifest's `generated_at`, the repo code actually loaded in this process (`loaded_repo_files`, read off `sys.modules`, so no hand roster can drift from what decides), both fonts' bytes — the surface's own copies, which move only when the surface is rebuilt — and `uv.lock`'s dependency pins for the shaper (`fingerprint.lock_digest`, so a version bump alone leaves a holder standing); it is checked before every request and every `IDLE_CHECK_SECONDS` while idle, and any field moving makes the daemon decline the request and exit, because code cannot be reloaded into a running process and a holder that can no longer answer is the one footprint the memory policy forbids. A request for a surface other than the one it holds is declined without exiting. The socket is bound before the load, so a second `serve` started in the same instant fails its bind rather than unlinking the first's live socket, and a client that connects during the load waits for the answer; SIGTERM, SIGINT and the `stop` verb all remove the socket on the way out. It takes no port: never 7293 (the site) and never 7294 (the review server).
 
 `main` has three verbs — `serve`, `status`, `stop` — and `make standing-daemon` / `make standing-daemon-stop` wrap the first and the last, detaching `serve` under `nohup` with its log under `var/`.
 """
@@ -20,7 +20,7 @@ import sys
 import threading
 import time
 import traceback
-from typing import NamedTuple
+from typing import Callable, NamedTuple
 
 ROOT = pathlib.Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
@@ -66,9 +66,9 @@ def loaded_repo_files() -> list[pathlib.Path]:
     return sorted(files)
 
 
-def _digest(path: pathlib.Path) -> str:
+def _digest(path: pathlib.Path, digest: Callable[[pathlib.Path], str] = fingerprint.file_sha256) -> str:
     try:
-        return fingerprint.file_sha256(path)
+        return digest(path)
     except OSError:
         return "-"
 
@@ -83,7 +83,7 @@ def stamp_of(surface: pathlib.Path) -> Stamp:
         generated_at,
         fingerprint.hash_paths(ROOT, loaded_repo_files()),
         ":".join(_digest(surface / "fonts" / name) for name in FONT_NAMES),
-        _digest(ROOT / "uv.lock"),
+        _digest(ROOT / "uv.lock", fingerprint.lock_digest),
     )
 
 

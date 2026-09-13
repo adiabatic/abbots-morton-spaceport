@@ -1,6 +1,6 @@
 """Pyright's self-skip: the type check a `make test` or `make test-rebuild` run carries spawns only when a file pyright can read has changed since its last green run.
 
-The check's input closure is what `[tool.pyright]` in pyproject.toml points it at — every `.py` and `.pyi` under `include`, `extraPaths` and `stubPath`, tracked or untracked-unignored — plus pyproject.toml itself, which carries the checker's own settings, and uv.lock, which pins the checker and every package it resolves imports against. Nothing else pyright opens is content an edit in this tree can move. A rune edit, a glyph edit, a Markdown edit and a verdict all leave that closure where it was, so the suite they re-arm runs its tests without a type check standing ahead of them; the green record (`cycle_paths.PYRIGHT_GREEN`) is written only after a pass whose closure still matches what was checked, and a red pass whose closure matches its record deletes the record. `AMS_RUN_PYRIGHT=1` asks for the check under the skip; `AMS_RUN_PYRIGHT=force`, which the make targets spell as `FORCE=1`, runs it regardless. Without git there is no closure to key on, so the check runs and records nothing.
+The check's input closure is what `[tool.pyright]` in pyproject.toml points it at — every `.py` and `.pyi` under `include`, `extraPaths` and `stubPath`, tracked or untracked-unignored — plus pyproject.toml itself, which carries the checker's own settings, and uv.lock, which pins the checker and every package it resolves imports against — hashed by its dependency pins (`rebuild.tools.lock_digest`), since the project's own block names nothing pyright resolves, while every source and pyproject.toml hash raw, because a `# pyright: ignore` comment changes the answer being gated. Nothing else pyright opens is content an edit in this tree can move. A rune edit, a glyph edit, a Markdown edit and a verdict all leave that closure where it was, so the suite they re-arm runs its tests without a type check standing ahead of them; the green record (`cycle_paths.PYRIGHT_GREEN`) is written only after a pass whose closure still matches what was checked, and a red pass whose closure matches its record deletes the record. `AMS_RUN_PYRIGHT=1` asks for the check under the skip; `AMS_RUN_PYRIGHT=force`, which the make targets spell as `FORCE=1`, runs it regardless. Without git there is no closure to key on, so the check runs and records nothing.
 
 The root conftest is the caller, and its two hooks split the check between them. `pytest_configure` begins it before the workers spawn, whatever the run. A run that builds the fonts waits on it there, overlapping the build, so a type error fails the run before a test has started; a run that skips the build — a rebuild-only collection whose site fonts are present, which is what `make test-rebuild` spawns — parks it and `pytest_sessionfinish` joins it, so the check runs beside the xdist pool and a red lands as a nonzero exit after the suite, printed below the pytest summary; a run that reaches that hook interrupted abandons the check instead of judging it (`Check.abandon`), since the Ctrl-C that stopped the suite stopped pyright too and its exit says nothing about the tree. That caller is why this module's own imports stop at two leaves, `cycle_paths` for the record's place and `green_record` for its shape: the conftest's static import closure is folded into every rebuild test's closure, and a gate that imported the cycle driver would carry the whole pipeline in with it (`rebuild.tools.cycle_paths` has the argument).
 """
@@ -27,11 +27,13 @@ from rebuild.tools.green_record import (
     read_green_record,
     record_green,
 )
+from rebuild.tools.lock_digest import lock_digest
 
 PYRIGHT_ENV = "AMS_RUN_PYRIGHT"
 FORCE = "force"
 ARGV = ["uv", "run", "pyright"]
 CONFIG_PATHS = ("pyproject.toml", "uv.lock")
+LOCK_PATH = "uv.lock"
 SOURCE_SUFFIXES = (".py", ".pyi")
 
 
@@ -72,11 +74,20 @@ def closure_files(root: Path) -> list[str] | None:
 
 
 def closure_fingerprint(root: Path = ROOT) -> str | None:
-    """Content key over the closure, read from the worktree so uncommitted edits count; a deleted-but-tracked file hashes as absent. None without git."""
+    """Content key over the closure, read from the worktree so uncommitted edits count; a deleted-but-tracked file hashes as absent. Every file raw but the lock, which hashes by its dependency pins. None without git."""
     files = closure_files(root)
     if files is None:
         return None
-    return _digest_lines([f"{rel}\t{_sha256_path(Path(root) / rel)}" for rel in files])
+    return _digest_lines([f"{rel}\t{_closure_digest(Path(root) / rel, rel)}" for rel in files])
+
+
+def _closure_digest(path: Path, rel: str) -> str:
+    if rel != LOCK_PATH:
+        return _sha256_path(path)
+    try:
+        return lock_digest(path)
+    except OSError:
+        return "absent"
 
 
 def requested(environ: Mapping[str, str]) -> bool:
