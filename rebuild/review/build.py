@@ -19,6 +19,7 @@ import random
 import shutil
 import subprocess
 import sys
+import threading
 import time
 import traceback
 import warnings
@@ -1005,6 +1006,29 @@ def _resolve_signature_digests(
     return signatures, entries, environment, len(misses), width
 
 
+class _SignatureWrite:
+    """The ink-signature store's write, run on one thread through the units phase of a pooled build and joined in the cache phase. The entries are final when `_resolve_signature_digests` returns and nothing mutates them afterward, so the thread owns them for the length of the phase, and the store's stamp (`unit_cache.signature_environment`) reads neither the manifest nor the check, so the write depends on nothing the phases after it produce. What makes the overlap free is that zlib releases the GIL and a pooled build's parent is parked in `multiprocessing.connection.wait` for the phase, waking only to merge a batch reply and hand out the next — which is why the start belongs at the units-phase boundary and not where the entries go final, where the sort and the line formatting (the GIL-held halves) would compete with the load tail and the plan phase; the serial build has no idle parent to overlap with and writes in place in the cache phase instead. The thread is a daemon and is joined only on the success path, so an exception leaving the build abandons the write rather than waiting on it; a write that fails raises at the join, in the cache phase. The transient sorted-key list moves into the units phase with the write, where `tally.boundary("units")` reads it and `boundary("cache")` does not: tens of megabytes against `SURFACE_PARENT_BYTES`, inside its noise, so no constant moves. The runner and the signature pool spawn rather than fork, so a thread alive at process creation carries no fork hazard; anything here that moves to a fork context has to read this first."""
+
+    def __init__(self, out_dir: Path, environment: str, entries: Mapping[str, str]) -> None:
+        self._out_dir = out_dir
+        self._environment = environment
+        self._entries = entries
+        self._error: BaseException | None = None
+        self._thread = threading.Thread(target=self._write, name="ink-signature-store", daemon=True)
+        self._thread.start()
+
+    def _write(self) -> None:
+        try:
+            unit_cache.write_signature_store(self._out_dir, self._environment, self._entries)
+        except BaseException as error:
+            self._error = error
+
+    def join(self) -> None:
+        self._thread.join()
+        if self._error is not None:
+            raise self._error
+
+
 def _surface_worker(conn, init: dict) -> None:
     """A persistent, stateful surface worker (spawn-only: uharfbuzz/fontTools C objects are not fork-safe, and drafts._import_test_shaping mutates a module-global singleton). Each `phase1` message hands over one batch of units off the parent's queue, and the worker computes config_diff + enrich + draft + the drafting-time contract check over it with the shared shape memo released behind it (`_phase1_batches`), spooling every fragment to the build's fresh spool as it is drafted (`_FragmentSpool`, under the class name the message carries, opened on the first batch and kept across them) so that no EnrichedUnit outlives its batch here, and answers `batch` with that batch's slim projections, each fragment's spool address, and the check's complaints (`check_unit` at `DRAFTED`, capped at `CONTRACT_ERRORS_SHOWN` so a systemically broken build carries a page of them and not a corpus), holding nothing past the reply: what this process holds at any moment is one batch's units, projections and addresses, never a share of the corpus. `phase1-done` closes the spool and answers the `ok` that ends the phase, carrying nothing; the parent reads the fragments back by address itself as it writes the shards, so nothing is held in this process for it to pull and no phase-2 message exists. The other message, `verify`, recomputes phase 1 and the patch for a handful of units the cache served — units this worker never enriched — and answers with each one's content key and its freshly computed ink deltas, which is what makes the served fragments continuously checkable against a fresh computation of the same window.
 
@@ -1192,6 +1216,11 @@ class _FreshRunner:
                 self._count(len(projections))
             self._spooled.update(spool.close())
         return projections
+
+    @property
+    def pooled(self) -> bool:
+        """Whether this runner drives a worker fleet, which is when the parent spends the units phase parked in `wait` rather than shaping."""
+        return bool(self._conns)
 
     def fragment(self, unit_id: str) -> dict:
         """One fresh unit's fragment, read back out of the spool by the address phase 1 recorded for it — the same read, through the same reader, that serves a prior fragment out of the previous surface, so the write asks for fresh and served fragments alike in whatever order the shards take them and holds one at a time. What comes back is the fragment as it was drafted, placeholders and all; the caller patches and stamps it."""
@@ -1900,6 +1929,9 @@ def build_m1(
         out_dir=out_dir,
     )
     try:
+        signature_write = (
+            _SignatureWrite(out_dir, signature_environment, signature_entries) if runner.pooled else None
+        )
         projections = runner.phase1()
 
         # Every fresh unit's id arrives with its projection; the universe is then checked for a repeated id, which the 64-bit truncation makes vanishingly unlikely and which would put two windows under one fragment address, so it is a refusal rather than a merge.
@@ -2189,7 +2221,10 @@ def build_m1(
     finally:
         if prior_store is not None:
             prior_store.close()
-    unit_cache.write_signature_store(out_dir, signature_environment, signature_entries)
+    if signature_write is None:
+        unit_cache.write_signature_store(out_dir, signature_environment, signature_entries)
+    else:
+        signature_write.join()
     if tally:
         tally.boundary("cache")
     _phase_timing(

@@ -564,13 +564,21 @@ def signature_environment(repo_root: Path, before_font: Path, after_helpers_dige
 
 
 def write_signature_store(out_dir: Path, environment: str, entries: Mapping[str, str]) -> None:
-    """One JSON header line, then one `key\\tdigest` line per entry, sorted by key; the pinned gzip mtime and the sort are what keep consecutive builds of the same inputs byte-identical. Written fresh each build with exactly the entries the merge needed, so stale windows age out rather than accumulating. Level 1, like the unit store: this is a million lines of hex, which is incompressible, and level 9 was spending four seconds for well under a percent."""
+    """One JSON header line, then one `key\\tdigest` line per entry, sorted by key; the pinned gzip mtime and the sort are what keep consecutive builds of the same inputs byte-identical. Written fresh each build with exactly the entries the merge needed, so stale windows age out rather than accumulating. Level 1, like the unit store: this is a million lines of hex, which is incompressible, and level 9 was spending four seconds for well under a percent. The file is staged under a sibling name and renamed last, like the unit store, so a build killed while the write runs leaves the previous store whole rather than a truncated gzip that `load_signature_store` reads as absent and the next pass pays for with a full re-shaping pass; the gzip header names the final path, not the staging one, since `GzipFile` would otherwise stamp the handle's name into the bytes."""
     header = {"format": SIGNATURE_STORE_FORMAT, "environment": environment}
-    with open(signature_store_path(out_dir), "wb") as handle:
-        with gzip.GzipFile(fileobj=handle, mode="wb", mtime=0, compresslevel=1) as stream:
-            stream.write((json.dumps(header) + "\n").encode())
-            for key in sorted(entries):
-                stream.write(f"{key}\t{entries[key]}\n".encode())
+    path = signature_store_path(out_dir)
+    staging = path.with_name(path.name + ".partial")
+    try:
+        with open(staging, "wb") as handle:
+            with gzip.GzipFile(
+                filename=path.name, fileobj=handle, mode="wb", mtime=0, compresslevel=1
+            ) as stream:
+                stream.write((json.dumps(header) + "\n").encode())
+                for key in sorted(entries):
+                    stream.write(f"{key}\t{entries[key]}\n".encode())
+        staging.replace(path)
+    finally:
+        staging.unlink(missing_ok=True)
 
 
 def load_signature_store(out_dir: Path, environment: str) -> dict[str, str] | None:

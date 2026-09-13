@@ -9,6 +9,7 @@ import json
 import re
 import shutil
 import sys
+import threading
 from dataclasses import replace
 from pathlib import Path
 from types import SimpleNamespace
@@ -732,6 +733,138 @@ def test_signature_store_round_trip_and_invalidation(tmp_path):
     assert unit_cache.load_signature_store(tmp_path / "missing", "env-a") is None
     unit_cache.signature_store_path(tmp_path).write_bytes(b"not a gzip stream")
     assert unit_cache.load_signature_store(tmp_path, "env-a") is None
+
+
+def test_a_failed_signature_write_leaves_the_previous_store_whole(tmp_path):
+    """The write is staged under a sibling name and renamed last, so a write that dies partway — the stand-in here for a build killed while its thread runs — leaves the previous store readable rather than a truncated gzip at the final path, and no staging file behind it."""
+    entries = {"k1": "d1", "k2": "d2"}
+    unit_cache.write_signature_store(tmp_path, "env-a", entries)
+
+    class Failing(dict):
+        def __getitem__(self, key):
+            if key == "k2":
+                raise RuntimeError("the write stops here")
+            return super().__getitem__(key)
+
+    with pytest.raises(RuntimeError, match="stops here"):
+        unit_cache.write_signature_store(tmp_path, "env-a", Failing(k1="x1", k2="x2"))
+    assert unit_cache.load_signature_store(tmp_path, "env-a") == entries
+    path = unit_cache.signature_store_path(tmp_path)
+    assert not path.with_name(path.name + ".partial").exists()
+
+
+def test_the_staged_signature_store_is_byte_identical_to_one_written_at_the_final_path(tmp_path):
+    """`GzipFile` stamps the handle's basename into the gzip header when it is given none of its own, so writing through the staging handle would put `.partial` into every store's bytes; the header names the final path instead, and the bytes match a write straight to that path, which is what a pre-staging build produced."""
+    entries = {"k1": "d1", "k2": "d2"}
+    (tmp_path / "staged").mkdir()
+    unit_cache.write_signature_store(tmp_path / "staged", "env-a", entries)
+    direct = tmp_path / "direct" / unit_cache.signature_store_path(tmp_path).name
+    direct.parent.mkdir()
+    with open(direct, "wb") as handle:
+        with gzip.GzipFile(fileobj=handle, mode="wb", mtime=0, compresslevel=1) as stream:
+            stream.write(
+                (
+                    json.dumps({"format": unit_cache.SIGNATURE_STORE_FORMAT, "environment": "env-a"}) + "\n"
+                ).encode()
+            )
+            for key in sorted(entries):
+                stream.write(f"{key}\t{entries[key]}\n".encode())
+    staged = unit_cache.signature_store_path(tmp_path / "staged").read_bytes()
+    assert staged == direct.read_bytes()
+    assert b".partial" not in staged
+
+
+def _spy_signature_write(monkeypatch) -> list[tuple[bool, str]]:
+    """Record whether each signature-store write ran on the main thread, and the environment it was stamped with, then delegate; the build reaches the writer through the module attribute, so one patch covers the threaded and the inline path alike."""
+    calls: list[tuple[bool, str]] = []
+    real = unit_cache.write_signature_store
+
+    def spy(out_dir, environment, entries):
+        calls.append((threading.current_thread() is threading.main_thread(), environment))
+        real(out_dir, environment, entries)
+
+    monkeypatch.setattr(unit_cache, "write_signature_store", spy)
+    return calls
+
+
+def test_a_pooled_build_writes_its_signature_store_off_the_main_thread_and_joins_it(
+    mini_bundle, tmp_path, monkeypatch
+):
+    """At `jobs=2` the units phase is pooled and the parent is parked in `wait`, so the signature store is written on a thread through that phase, and the build waits on it in the cache phase before it returns. The mini bundle's store is a handful of lines, which the thread would finish long before the build returns whether or not the build waited, so the write here is held open until the build asks to wait on it: a build that returned without waiting would come back with the store still unwritten. The bytes the thread writes against the inline path's are `test_serial_and_parallel_builds_are_byte_identical` and `test_a_narrowed_hand_out_pool_is_byte_identical_to_the_serial_build`, which compare the whole tree, the store and any staging file included. The journal is the autouse redirect's, so the pool record this build files lands nowhere that matters."""
+    calls: list[tuple[bool, str]] = []
+    release, finished = threading.Event(), threading.Event()
+    writers: list[threading.Thread] = []
+    real = unit_cache.write_signature_store
+    join = review_build._SignatureWrite.join
+
+    def spy(out_dir, environment, entries):
+        writers.append(threading.current_thread())
+        calls.append((threading.current_thread() is threading.main_thread(), environment))
+        release.wait(120)
+        real(out_dir, environment, entries)
+        finished.set()
+
+    def joining(self):
+        release.set()
+        join(self)
+
+    monkeypatch.setattr(unit_cache, "write_signature_store", spy)
+    monkeypatch.setattr(review_build._SignatureWrite, "join", joining)
+    surface = tmp_path / "pooled"
+    try:
+        _build(surface, mini_bundle, jobs=2)
+        written_at_return = finished.is_set()
+    finally:
+        release.set()
+        for writer in writers:
+            writer.join(120)
+    assert written_at_return
+    assert len(calls) == 1
+    on_main_thread, environment = calls[0]
+    assert not on_main_thread
+    assert unit_cache.load_signature_store(surface, environment) is not None
+
+
+def test_a_serial_build_writes_its_signature_store_in_place_on_the_main_thread(
+    mini_bundle, tmp_path, monkeypatch
+):
+    """The serial build has no idle parent to overlap with — a CPU-bound parent would contend with the thread instead of overlapping it — so at `jobs=1` the store is written inline in the cache phase, on the main thread."""
+    calls = _spy_signature_write(monkeypatch)
+    _build(tmp_path / "serial", mini_bundle, jobs=1)
+    assert len(calls) == 1
+    on_main_thread, _environment = calls[0]
+    assert on_main_thread
+
+
+def test_a_failing_build_abandons_the_signature_write_rather_than_waiting_on_it(
+    mini_bundle, tmp_path, monkeypatch
+):
+    """The thread is joined only on the success path: a build that raises after starting it leaves through its `finally` without waiting for the write to finish. The spy holds the write open until the test releases it, so a build that waited on the join would hang here rather than raise; the write is released and its thread joined afterward so nothing outlives the test."""
+    started, release, finished = threading.Event(), threading.Event(), threading.Event()
+    writers: list[threading.Thread] = []
+    real = unit_cache.write_signature_store
+
+    def spy(out_dir, environment, entries):
+        writers.append(threading.current_thread())
+        started.set()
+        release.wait(120)
+        real(out_dir, environment, entries)
+        finished.set()
+
+    def fail(*_args, **_kwargs):
+        raise SystemExit("the surface write stops here")
+
+    monkeypatch.setattr(unit_cache, "write_signature_store", spy)
+    monkeypatch.setattr(review_build, "_write_surface", fail)
+    try:
+        with pytest.raises(SystemExit, match="stops here"):
+            _build(tmp_path / "failing", mini_bundle, jobs=2)
+        assert started.is_set()
+        assert not finished.is_set()
+    finally:
+        release.set()
+        for writer in writers:
+            writer.join(120)
 
 
 def test_cluster_id_from_repr_matches_the_tuple_recipe():
