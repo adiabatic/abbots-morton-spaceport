@@ -4,6 +4,8 @@ import hashlib
 import json
 from pathlib import Path
 
+import pytest
+
 from rebuild.review import unit_cache
 from rebuild.review.unit_cache import CARRY_PRESENTATION_KEYS as PRESENTATION_KEYS
 from rebuild.review.unit_cache import carry_content_hash as content_hash
@@ -83,8 +85,8 @@ def test_picture_identity_is_invisible_to_the_content_key_unlike_ink_identity():
     assert content_key({**unit, "picture_identical": not unit["picture_identical"]}) == content_key(unit)
 
 
-def _write_surface(root, stamp, units):
-    """A surface skeleton the carry reads: the manifest's stamp, its one class, and its triage index — every unit here is human, and the index is what says so, since a fragment carries no batch."""
+def _write_surface(root, stamp, units, machine=()):
+    """A surface skeleton the carry reads: the manifest's stamp, its one class, and its triage index — every unit in `units` is human and the index is what says so, since a fragment carries no batch; `machine` is the units on the surface the index leaves out."""
     (root / "units").mkdir(parents=True)
     (root / "manifest.json").write_text(
         json.dumps(
@@ -96,7 +98,7 @@ def _write_surface(root, stamp, units):
             }
         )
     )
-    (root / "units" / "units.json").write_text(json.dumps(units))
+    (root / "units" / "units.json").write_text(json.dumps([*units, *machine]))
 
 
 def _write_verdicts(path, stamp, verdicts):
@@ -117,14 +119,14 @@ def _record(unit, verdict, at="2026-07-01T01:00:00Z", note=""):
     return {"unit": unit["id"], "verdict": verdict, "note": note, "at": at}
 
 
-def _carry(tmp_path, current_units, *verdict_files):
+def _carry(tmp_path, surface_units, *verdict_files, machine=(), **held):
     current = tmp_path / "current"
-    _write_surface(current, "2026-07-02T00:00:00Z", current_units)
+    _write_surface(current, "2026-07-02T00:00:00Z", surface_units, machine)
     out = tmp_path / "out.json"
     argv = []
     for path in verdict_files:
         argv += ["--verdicts", str(path)]
-    main([*argv, "--out", str(out), "--current-surface", str(current)])
+    main([*argv, "--out", str(out), "--current-surface", str(current)], **held)
     return json.loads(out.read_text())
 
 
@@ -166,3 +168,27 @@ def test_the_carry_prints_its_four_figures_whatever_it_landed(tmp_path, capsys):
     _write_verdicts(verdicts, "S0", [_record(kept, "approve"), _record(gone, "reject")])
     _carry(tmp_path, [kept, fresh], verdicts)
     assert "carry figures: human=2 key_hits=1 unhit=1 stranded=1" in capsys.readouterr().out.splitlines()
+
+
+def test_a_prior_verdict_on_a_machine_unit_is_not_stranded(tmp_path, capsys):
+    """Stranded counts prior verdicts whose unit is absent from the surface, and a unit outside the human workload is on the surface — so the figure counts against every id, machine ones included, whether the tool loads the surface itself or is handed the human records with the id set beside them; the human records alone would count the machine unit's verdict as stranded."""
+    kept, machine = _content_unit("E650:E652"), _content_unit("E652:E653")
+    verdicts = tmp_path / "verdicts.json"
+    _write_verdicts(verdicts, "S0", [_record(kept, "approve"), _record(machine, "reject")])
+    _carry(tmp_path, [kept], verdicts, machine=[machine])
+    assert "carry figures: human=1 key_hits=1 unhit=0 stranded=0" in capsys.readouterr().out.splitlines()
+
+    held = [{"id": kept["id"], "batch": 0}]
+    _carry(tmp_path / "held", [kept], verdicts, current_units=held, current_ids={kept["id"], machine["id"]})
+    assert "carry figures: human=1 key_hits=1 unhit=0 stranded=0" in capsys.readouterr().out.splitlines()
+
+
+def test_the_human_records_without_the_id_set_are_refused(tmp_path):
+    """Handing over one half of the pair would run and count `stranded` short in silence, so the tool refuses it instead."""
+    kept = _content_unit("E650:E652")
+    verdicts = tmp_path / "verdicts.json"
+    _write_verdicts(verdicts, "S0", [_record(kept, "approve")])
+    with pytest.raises(SystemExit):
+        _carry(tmp_path / "records", [kept], verdicts, current_units=[{"id": kept["id"], "batch": 0}])
+    with pytest.raises(SystemExit):
+        _carry(tmp_path / "ids", [kept], verdicts, current_ids={kept["id"]})

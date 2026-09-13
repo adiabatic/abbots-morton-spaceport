@@ -7577,7 +7577,7 @@ def test_a_run_under_moved_rules_carries_no_entry_it_never_read(tmp_path):
 def _human_units(surface):
     return [
         unit
-        for unit in sv.load_units(surface)
+        for unit in sv.load_human_units(surface)[0]
         if not unit.get("no_verdict") and unit.get("batch") is not None and unit.get("render_groups") == 1
     ]
 

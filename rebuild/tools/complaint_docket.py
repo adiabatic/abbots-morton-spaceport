@@ -17,7 +17,7 @@ from rebuild.tools.review_docket import (  # noqa: E402
     ACCEPTING_VERDICTS,
     RULED_STATUSES,
     latest_verdicts,
-    load_units,
+    load_human_units,
 )
 from rebuild.tools.verdict_notes import strip_markers  # noqa: E402
 
@@ -29,7 +29,7 @@ CHURN_KINDS = tuple(sorted(ACCEPTING_VERDICTS))
 
 
 def _triage_position(unit):
-    """Where the unit sits in the surface's triage index (the index record's `order`), which is the order the docket lists lookalikes in; a unit outside the index sorts last."""
+    """Where the unit sits in the surface's triage index (the index record's `order`), which is the order the docket lists lookalikes in; a human record carrying no order (a surface written before the index) sorts last."""
     order = unit.get("order")
     return order if isinstance(order, int) else sys.maxsize
 
@@ -242,7 +242,8 @@ def emit_park(group, marker_target, *, stamp, park_dir, note_text):
     return path
 
 
-def main(argv=None, *, units=None):
+def main(argv=None, *, units: list[dict] | None = None, unit_ids: set[str] | None = None):
+    """`units` and `unit_ids` let the verdict chain hand over what it already holds — the human index records and the id of every unit on the surface, the pair `load_human_units` returns — and they come together or not at all: the absent-unit warning counts verdict records against every id, so the human records alone would warn about every verdict on a machine unit."""
     parser = argparse.ArgumentParser(description=(__doc__ or "").split(":")[0] + ".")
     parser.add_argument(
         "verdicts",
@@ -269,6 +270,8 @@ def main(argv=None, *, units=None):
         "--note", default="", help="verbatim reviewer text appended after the marker in every parked record"
     )
     args = parser.parse_args(argv)
+    if (units is None) != (unit_ids is None):
+        parser.error("units and unit_ids are handed over together or not at all")
 
     surface = pathlib.Path(args.surface)
     manifest = json.loads((surface / "manifest.json").read_text())
@@ -284,13 +287,14 @@ def main(argv=None, *, units=None):
         return 1
     records = latest_verdicts(verdicts_path)
 
-    units = load_units(surface) if units is None else units
+    if units is None or unit_ids is None:
+        units, unit_ids = load_human_units(surface)
     units_by_id = {unit["id"]: unit for unit in units}
-    unknown = sum(1 for unit_id in records if unit_id not in units_by_id)
+    unknown = sum(1 for unit_id in records if unit_id not in unit_ids)
     if unknown:
         print(f"warning: {unknown} verdict records name units absent from this surface", file=sys.stderr)
-    human = [unit for unit in units if unit.get("batch") is not None]
-    human_ids = {unit["id"] for unit in human}
+    human = units
+    human_ids = set(units_by_id)
     ruled_ids = {
         entry["id"] for entry in manifest.get("classes", []) if entry.get("status") in RULED_STATUSES
     }

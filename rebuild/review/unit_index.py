@@ -19,6 +19,10 @@ from typing import Any
 INDEX_NAME = "units-index.ndjson.gz"
 INDEX_FORMAT = "ams-review-unit-index/1"
 ASSET_COMPONENTS: tuple[str, ...] = ("static",)
+ID_OPEN = b'{"id": "'
+ORDER_SEAM = b'", "order": '
+CLASS_SEAM = b', "class": '
+MACHINE_TAIL = b'"batch": null'
 
 
 def index_path(surface: Path) -> Path:
@@ -54,7 +58,7 @@ def workload_slot(
 
 
 def index_record(fragment: dict, *, order: int | None = None, batch: int | None = None) -> dict:
-    """One shard fragment projected onto the fields the plumbing reads, with the unit's place in the manifest's triage index handed in beside it. Key order is fixed so two builds of the same surface write the same bytes."""
+    """One shard fragment projected onto the fields the plumbing reads, with the unit's place in the manifest's triage index handed in beside it. Key order is fixed so two builds of the same surface write the same bytes, and so that every line opens with `id`, `order` and `batch` at the seams `ID_OPEN`, `ORDER_SEAM` and `CLASS_SEAM` name, where `respool_index_line` splices a new head on and `load_human_units` reads the id and the unit's place in the queue off the head without parsing the line; `rebuild/test_unit_index.py` holds that opening."""
     before = fragment.get("before") or {}
     after = fragment.get("after") or {}
     policy = (fragment.get("drafts") or {}).get("policy")
@@ -139,7 +143,7 @@ def line_head(unit_id: str, order: int | None, batch: int | None) -> bytes:
 
 def respool_index_line(line: bytes, *, unit_id: str, order: int | None, batch: int | None) -> bytes:
     """A previous surface's index line for a served unit, rewritten to this surface's queue: only `order` and `batch` come from the queue, and every field after them is the fragment's own, which a unit served verbatim carries unchanged — so the line is the id and the new place spliced onto the old tail, byte for byte what `index_line` writes for the same fragment."""
-    return line_head(unit_id, order, batch) + line[line.index(b', "class": ') :]
+    return line_head(unit_id, order, batch) + line[line.index(CLASS_SEAM) :]
 
 
 class LineCursor:
@@ -269,7 +273,7 @@ def stream_shards(surface: Path) -> Iterator[dict]:
 
 
 def iter_units(surface: Path) -> Iterator[dict]:
-    """Every unit on a surface, projected, one at a time: the index when it is there and stamped for this manifest, the shards otherwise. A caller that keeps only a slice of the corpus should read it this way rather than through `load_units`, so the other four hundred thousand records never coexist with the ones it is keeping."""
+    """Every unit on a surface, projected, one at a time: the index when it is there and stamped for this manifest, the shards otherwise. A caller that keeps only a slice of the corpus reads it this way rather than through `load_units`, so the records it drops never coexist with the ones it keeps; `load_human_units` is that case for the plumbing's slice, and reads the index by a byte test on each line's head instead of parsing every record only to drop it."""
     if index_is_current(surface):
         with gzip.open(index_path(surface), "rt", encoding="utf-8") as stream:
             next(stream)
@@ -285,3 +289,28 @@ def load_units(surface: Path) -> list[dict]:
     if records is not None:
         return records
     return list(stream_shards(surface))
+
+
+def load_human_units(surface: Path) -> tuple[list[dict], set[str]]:
+    """The human records on a surface — the units the manifest's triage index holds, `batch` not None — parsed, beside the id of every unit on it, machine ones included. The plumbing's consumers read the human records and nothing of a machine record but its id: carry's stranded figure and the complaint docket's absent-unit warning both count prior verdicts against every id on the surface, and those two readers are the whole reason the id set rides beside the list. Over a current index the classification is a byte test rather than a parse: `index_record` opens every record with `id`, `order` and `batch` in that order (`rebuild/test_unit_index.py` holds the order), so a line's head cut at `CLASS_SEAM` ends with `MACHINE_TAIL` exactly when the unit is outside the index, and only the human lines go through `json.loads`. An index that fails partway through is refused whole and the shards answer instead, as `load_index` refuses rather than half-answers; that fallback parses every fragment to project it, so a stale index costs the whole parse whatever this drops."""
+    if index_is_current(surface):
+        human: list[dict] = []
+        ids: set[str] = set()
+        try:
+            with gzip.open(index_path(surface), "rb") as stream:
+                next(stream)
+                for line in stream:
+                    head = line[: line.index(CLASS_SEAM)]
+                    ids.add(head[len(ID_OPEN) : head.index(ORDER_SEAM)].decode())
+                    if not head.endswith(MACHINE_TAIL):
+                        human.append(json.loads(line))
+            return human, ids
+        except OSError, EOFError, ValueError, StopIteration:
+            pass
+    human = []
+    ids = set()
+    for record in stream_shards(surface):
+        ids.add(record["id"])
+        if record["batch"] is not None:
+            human.append(record)
+    return human, ids

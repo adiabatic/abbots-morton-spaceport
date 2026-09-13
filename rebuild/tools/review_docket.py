@@ -32,9 +32,9 @@ def triage_position(unit):
     return (order is None, order if isinstance(order, int) else 0, unit["id"])
 
 
-def load_units(surface):
-    """Every unit on the surface in the slim index shape (rebuild.review.unit_index owns the projection and the shard fallback). The tools that share this loader — the docket data, the novelty order, the standing fill, the complaint docket — between them read a couple of dozen fields per unit, and reading the shards for them meant parsing 1.9 GB to reach a few hundred bytes each."""
-    return unit_index.load_units(surface)
+def load_human_units(surface):
+    """The surface's human units in the slim index shape, beside the id of every unit on it (rebuild.review.unit_index owns the projection, the classification and the shard fallback). The tools that share this loader — the docket data, the novelty order, the echo fill, the standing fill, the standing probe and daemon, the complaint docket — between them read a couple of dozen fields per human unit and nothing of a machine unit but its id, and reading the shards for them meant parsing gigabytes to reach a few hundred bytes each."""
+    return unit_index.load_human_units(surface)
 
 
 def latest_verdicts(path):
@@ -46,7 +46,8 @@ def latest_verdicts(path):
     return best
 
 
-def main(argv=None, *, units=None):
+def main(argv=None, *, units: list[dict] | None = None):
+    """`units` lets a caller that already holds the surface's index records hand them over rather than have this tool read them again; only the human records — `batch` not None — enter the docket, whichever way they arrive."""
     parser = argparse.ArgumentParser(description=(__doc__ or "").split(":")[0] + ".")
     parser.add_argument(
         "verdicts", help="the verdicts file for the current frontier (an export or the autosave)"
@@ -66,7 +67,7 @@ def main(argv=None, *, units=None):
         )
     records = latest_verdicts(verdicts_path)
 
-    units = load_units(surface) if units is None else units
+    units = load_human_units(surface)[0] if units is None else units
     # In triage order — the index record's `order` — so an exemplar, a representative and an evidence sample are each the first in the order the app pages, which is what docket.js reads too.
     human = sorted((unit for unit in units if unit["batch"] is not None), key=triage_position)
     unclustered = [unit["id"] for unit in human if not unit.get("cluster")]

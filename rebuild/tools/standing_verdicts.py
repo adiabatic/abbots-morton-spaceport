@@ -85,7 +85,7 @@ from rebuild.pipeline import fingerprint  # noqa: E402
 from rebuild.review.ink import IDENTITY_DIFF, InkComparator, delta_digest, features_for  # noqa: E402
 from rebuild.validation.classify import PIXEL_SIZE  # noqa: E402
 from rebuild.tools import standing_client  # noqa: E402
-from rebuild.tools.review_docket import ACCEPTING_VERDICTS, latest_verdicts, load_units  # noqa: E402
+from rebuild.tools.review_docket import ACCEPTING_VERDICTS, latest_verdicts, load_human_units  # noqa: E402
 
 SURFACE = ROOT / "rebuild/out/review"
 RULES = ROOT / "rebuild/standing-approvals.yaml"
@@ -3257,7 +3257,7 @@ def main(argv=None, *, units=None, context=None):
     records = latest_verdicts(pathlib.Path(args.verdicts))
     units = [
         unit
-        for unit in (load_units(surface) if units is None else units)
+        for unit in (load_human_units(surface)[0] if units is None else units)
         if not unit.get("no_verdict") and unit.get("batch") is not None and unit.get("render_groups") == 1
     ]
     composable = _composable(rules)
