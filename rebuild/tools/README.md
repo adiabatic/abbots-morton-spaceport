@@ -1,6 +1,6 @@
 # Rebuild tools
 
-Scripts for the M1 rebuild. All run from the repo root (some import `rebuild.pipeline`, so use `PYTHONPATH=. uv run python rebuild/tools/<script>.py` where the docstring says so).
+Scripts for the M1 rebuild. All run from the repo root as `uv run python -m rebuild.tools.<script>`; a script whose docstring names the `uv run python rebuild/tools/<script>.py` form runs that way too.
 
 Each script's module docstring is the authority on what it does and how to run it — read the top of the file. No table here restates them: a second copy nothing checks can only drift out of agreement.
 
@@ -10,7 +10,7 @@ Start here:
 - `verdict_ready.py` (`make verdict-ready`) — the sitting-readiness checklist
 - `review_docket.py` — bakes the docket data for a review sitting; the live view is `#view=docket`
 - `standing_probe.py` — read-only explainer for why a unit still queues under the standing approvals
-- `probe.py` — probe one codepoint window: old-font baseline vs new settlement, all configs
+- `probe.py` — probe one or more codepoint windows in a single call: old-font baseline vs new settlement, all configs
 - `cycle_timings.py` (`make cycle-timings`, `make job-costs`) — summarize recorded step timings and check verdicts
 - `deep_sweep.py` (`make conform-deep`) — the periodic deep form of gate:conform
 

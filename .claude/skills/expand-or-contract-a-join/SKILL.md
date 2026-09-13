@@ -32,7 +32,7 @@ Do not add `self:` / `then:` / `feature:` guards unless the user scoped the chan
 
 ## 3 — probe
 
-`PYTHONPATH=. uv run python rebuild/tools/probe.py E6XX:E6XX` — one window per call, every acceptance config. Before the edit, capture the pair; after:
+`uv run python rebuild/tools/probe.py E6XX:E6XX E6XX:E6XX …` — every window in one call, every acceptance config, one block per window in argument order. Before the edit, capture the pair and its must-not-move neighbors in one invocation to a file; after the edit, run the same invocation and diff:
 
 - The pair itself: the adjusted cell gains or drops `en-ext-N` / `ex-ext-N` / `en-con-N` / `ex-con-N` and the seam height is unchanged. Dropping an extend of N is the contraction — the cell loses `ex-ext-N` / `en-ext-N`; it does not pick up a contract token.
 - A must-not-move neighbor on each side (a different left into Y, a different right out of X) stays byte-identical to the pre-edit probe.

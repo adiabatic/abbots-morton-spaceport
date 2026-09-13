@@ -58,7 +58,7 @@ The batch recipe, in order (each open batch file carries the same shape):
 ```zsh
 uv run pytest rebuild/test_spec_load.py -n auto --dist worksteal
 uv run python -m rebuild.pipeline.run_m1
-PYTHONPATH=. uv run python rebuild/tools/probe.py E6XX:E6XX
+uv run python rebuild/tools/probe.py E6XX:E6XX E6XX:E6XX:E6XX …
 make test-rebuild
 make test
 make artifact-cycle
@@ -66,7 +66,7 @@ make verdict-ready
 ```
 
 - `--jobs` defaults to the `sweep_job_budget()` width the artifact cycle already passes, so a bare run sizes itself to the box. Detach `make artifact-cycle`.
-- The probe battery is one window per invocation: every joining pair in both directions, the yield chains, and must-not-move neighbors — every divergence from the old font must be one the user designed.
+- The probe battery is one invocation carrying every window: every joining pair in both directions, the yield chains, and must-not-move neighbors, printed as one block per window in argument order — every divergence from the old font must be one the user designed.
 - Green looks like: defects 0/0, conform exact, read-back clean with its GSUB headroom inside the floor, Manual pins clean; the oracle-unmatched delta is the score — new rows either disappear with your records or land under existing ledger classes as designed divergences.
 - `make prettier` after any Python edit. Review `git diff -- rebuild/review-census-pins.json` at commit time — anything moving in its `invariant` block wants real attention.
 - Re-run the scaling ladder (`uv run python -m rebuild.tools.scaling_sweep | tee rebuild/scaling-ladder.txt`, which refreshes the checked-in record) and read the whole-ladder fit against the threshold in `scaling_sweep.py`'s docstring — a tripped threshold goes to the speed-up tracker, not this batch.
