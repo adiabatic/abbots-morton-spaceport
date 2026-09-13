@@ -1092,7 +1092,7 @@ mod tests {
                 let seat = (row[1] - labels) as usize;
                 let value: serde_json::Value =
                     serde_json::from_str(&filed.records[seat]).expect("a record line is JSON");
-                let record = crate::cases::parse_settled(&index, &value)
+                let record = crate::cases::parse_settled_json(&index, &value)
                     .expect("a record line reads back as a settled record");
                 assert_eq!(&record, walk.pool.get(SettledSeat::at(seat)));
                 assert_eq!(
@@ -1105,7 +1105,7 @@ mod tests {
         assert!(seated > 0 && boundaries > 0);
         for (seat, line) in filed.records.iter().enumerate() {
             let value: serde_json::Value = serde_json::from_str(line).expect("JSON");
-            let record = crate::cases::parse_settled(&index, &value).expect("reads back");
+            let record = crate::cases::parse_settled_json(&index, &value).expect("reads back");
             assert_eq!(&record, walk.pool.get(SettledSeat::at(seat)));
         }
     }

@@ -9,7 +9,7 @@
 //! The CLI is positional arguments and a hand-rolled flag scan, never an argument parser, and stdout carries the answer and nothing else, ever. Three flags name the world a verb answers in, and all three are spelled as negations of the shipping configuration — `--candidacy-prospect`, `--vote-slots-off`, `--deep-classes-off` — so a bare invocation is what ships and every departure from it is visible in the command line:
 //!
 //! - `ams-m1-kernel spec-echo <spec>` writes the canonical dump plus one newline.
-//! - `ams-m1-kernel settle-cases <spec> <cases> [--features=a,b,…] [--candidacy-prospect] [--vote-slots-off]` replays a plain-text `ams-m1-corpus/3` case file — one JSON case per line, which is what `kernel_exec.case_row` writes and `kernel_exec.trace_of` reads the answers of — through one engine in file order and writes one re-emitted case line per case. A window that raises a settlement error is a normal result line and never a nonzero exit.
+//! - `ams-m1-kernel settle-cases <spec> <cases> [--features=a,b,…] [--settled-only] [--candidacy-prospect] [--vote-slots-off]` replays a plain-text case file — one tab-separated question per line, which is what `kernel_exec.case_line` writes — through one engine in file order and writes one line per case: the question echoed verbatim, a tab, and the answer, the whole trace as JSON (`kernel_exec.trace_of` reads it) or, under `--settled-only`, the settled record as seven tab-separated fields (`kernel_exec._settled_of_fields` reads it). A window that raises a settlement error is a normal answer line, the same `{"raise":…,"message":…}` object under either shape, and never a nonzero exit.
 //! - `ams-m1-kernel guard-sweep <spec> [--config=<token>]` writes the whole section 5.7 late-formation surface, one tab-separated verdict per line: quantified over the capability-unlock powerset, which is the surface the font ships, or answered by the one configuration `--config=` names — a token spelled as `--configs=` spells one, `default` included, so the no-feature configuration is nameable where an empty `--features=` could not name it — which is what the rebuild suite holds against the quantified one per configuration. The guard pins its own engine modes, so the two mode flags are a usage error here rather than a world to answer in.
 //! - `ams-m1-kernel enumerate <spec> [--features=a,b,…] [--candidacy-prospect] [--vote-slots-off] [--deep-classes-off] [--timings]` runs one configuration's whole table-build fixpoint and writes the uncompressed `ams-m1-transitions/1` stream — the head line and one row per window. `--deep-classes-off` is Python's `AMS_DEEP_CLASSES=0`, the label-grain arm; in the pinned candidacy world enumeration is label-grain regardless, so the flag is accepted and does nothing there. The stream is written plain, which is what `kernel_exec.read_stream` parses back.
 //! - `ams-m1-kernel enumerate-configs <spec> <outdir> --configs=a,b,… [--threads=N] [--candidacy-prospect] [--vote-slots-off] [--deep-classes-off] [--timings]` runs several configurations' fixpoints in one process and writes each one's stream to `<outdir>/transitions-<config>.ndjson`, creating the directory with its parents and overwriting what it finds. stdout stays silent, because here the answer is the files — and they mean nothing except on exit 0, since a configuration that fails exits 1 naming itself and leaves whatever the other configurations had already written behind. A run that does reach exit 0 leaves that promise glob-safe: any `transitions-*.ndjson` already in the directory naming a configuration this run was not asked about is swept before the first one is written, so the whole set a consumer finds there is the set the command line named. `--configs=` is required and spells the configurations the way Python does, `conform.ACCEPTANCE_CONFIGS`'s own tokens: `default` for no features, anything else a `+`-joined feature list whose names are checked against the spec exactly as `--features=` checks them. A token that is not the canonical spelling of the features it names — out of order, repeated, empty, or empty between two `+` — is a usage error rather than a configuration, which is what keeps the filename, the stream head's `config` and the caller's own word for it in agreement by construction. The world flags name one world for the whole invocation, as they do for one `enumerate`.
@@ -45,7 +45,7 @@ use ams_m1_kernel::options::WindowOptions;
 use ams_m1_kernel::stream::feature_config_token;
 use ams_m1_kernel::{artifacts, cases, emit, fanout, guard, parse, shipped_order};
 
-const USAGE: &str = "usage: ams-m1-kernel spec-echo <spec>\n       ams-m1-kernel settle-cases <spec> <cases> [--features=a,b] [--candidacy-prospect] [--vote-slots-off]\n       ams-m1-kernel guard-sweep <spec> [--config=default|ss03+ss05]\n       ams-m1-kernel enumerate <spec> [--features=a,b] [--candidacy-prospect] [--vote-slots-off] [--deep-classes-off] [--timings] [--cache-census]\n       ams-m1-kernel enumerate-configs <spec> <outdir> --configs=default,ss03 [--threads=N] [--candidacy-prospect] [--vote-slots-off] [--deep-classes-off] [--timings] [--cache-census]\n       ams-m1-kernel build-tables <spec> <outdir> --configs=default,ss03 --inputs=<stamp> [--threads=N] [--config-seed-off] [--seed=<dir> [--edited=qsPea,qsTea] [--moved-classes=a,b]] [--memo-stamp=<text>] [--candidacy-prospect] [--vote-slots-off] [--deep-classes-off] [--timings] [--cache-census]\n       ams-m1-kernel replay-strings <spec> <outdir> --configs=default,ss03 --horizon=N [--families=qsPea,qsTea] [--memo-dir=<dir>] [--threads=N] [--candidacy-prospect] [--vote-slots-off] [--timings]\n       ams-m1-kernel replay-emitted <windows> --config=default --table=<settlement.tsv> --order=<order.tsv> --context=<context.tsv> [--timings]\n       ams-m1-kernel liveness-cases <spec> <keys> [--features=a,b] [--candidacy-prospect] [--vote-slots-off]";
+const USAGE: &str = "usage: ams-m1-kernel spec-echo <spec>\n       ams-m1-kernel settle-cases <spec> <cases> [--features=a,b] [--settled-only] [--candidacy-prospect] [--vote-slots-off]\n       ams-m1-kernel guard-sweep <spec> [--config=default|ss03+ss05]\n       ams-m1-kernel enumerate <spec> [--features=a,b] [--candidacy-prospect] [--vote-slots-off] [--deep-classes-off] [--timings] [--cache-census]\n       ams-m1-kernel enumerate-configs <spec> <outdir> --configs=default,ss03 [--threads=N] [--candidacy-prospect] [--vote-slots-off] [--deep-classes-off] [--timings] [--cache-census]\n       ams-m1-kernel build-tables <spec> <outdir> --configs=default,ss03 --inputs=<stamp> [--threads=N] [--config-seed-off] [--seed=<dir> [--edited=qsPea,qsTea] [--moved-classes=a,b]] [--memo-stamp=<text>] [--candidacy-prospect] [--vote-slots-off] [--deep-classes-off] [--timings] [--cache-census]\n       ams-m1-kernel replay-strings <spec> <outdir> --configs=default,ss03 --horizon=N [--families=qsPea,qsTea] [--memo-dir=<dir>] [--threads=N] [--candidacy-prospect] [--vote-slots-off] [--timings]\n       ams-m1-kernel replay-emitted <windows> --config=default --table=<settlement.tsv> --order=<order.tsv> --context=<context.tsv> [--timings]\n       ams-m1-kernel liveness-cases <spec> <keys> [--features=a,b] [--candidacy-prospect] [--vote-slots-off]";
 
 /// What a command line named, before any verb has said how many positionals it wants. The three mode flags are spelled as negations because all three modes ship on, so a plain invocation is the shipping configuration.
 struct Flags<'a> {
@@ -68,6 +68,7 @@ struct Flags<'a> {
     table: Option<&'a str>,
     order: Option<&'a str>,
     context: Option<&'a str>,
+    settled_only: bool,
     simulated_prospect: bool,
     vote_slots: bool,
     deep_classes: bool,
@@ -92,9 +93,11 @@ struct Vocabulary {
     emitted: bool,
     /// The table build's own five: `--config-seed-off` enumerates every configuration from scratch instead of reading `default`'s finished memo for the windows a configuration shares with it; `--seed=` names a previous build's memo files, and `--edited=` the runes and `--moved-classes=` the predicate classes that moved since, which only arrive beside it; `--memo-stamp=` is the stamp this build writes its own memo files under, and a build handed none writes none.
     seeding: bool,
+    /// `--settled-only`, the case replay's answer shape: the settled record as seven tab-separated fields instead of the whole trace. Only `settle-cases` has a trace to leave out.
+    settled: bool,
 }
 
-/// The flag sets the flag-bearing verbs spell. The two file-answering verbs share one, having the same vocabulary and no reason to drift apart.
+/// The flag sets the flag-bearing verbs spell. The two file-answering verbs share one vocabulary but for the answer shape, which `liveness-cases` has no trace to choose from.
 const CASES_FLAGS: Vocabulary = Vocabulary {
     grain: false,
     features: true,
@@ -105,6 +108,11 @@ const CASES_FLAGS: Vocabulary = Vocabulary {
     horizon: false,
     emitted: false,
     seeding: false,
+    settled: true,
+};
+const LIVENESS_FLAGS: Vocabulary = Vocabulary {
+    settled: false,
+    ..CASES_FLAGS
 };
 const ENUMERATE_FLAGS: Vocabulary = Vocabulary {
     grain: true,
@@ -116,6 +124,7 @@ const ENUMERATE_FLAGS: Vocabulary = Vocabulary {
     horizon: false,
     emitted: false,
     seeding: false,
+    settled: false,
 };
 const CONFIGS_FLAGS: Vocabulary = Vocabulary {
     grain: true,
@@ -127,6 +136,7 @@ const CONFIGS_FLAGS: Vocabulary = Vocabulary {
     horizon: false,
     emitted: false,
     seeding: false,
+    settled: false,
 };
 const TABLES_FLAGS: Vocabulary = Vocabulary {
     grain: true,
@@ -138,6 +148,7 @@ const TABLES_FLAGS: Vocabulary = Vocabulary {
     horizon: false,
     emitted: false,
     seeding: true,
+    settled: false,
 };
 /// The replay spells the fan-out's configuration flags and the timing diagnostic, plus its own three, and neither the grain nor the stamp: it settles single windows, and the one file it writes — the window memo, under `--memo-dir=` — is a build input rather than an artifact. `--cache-census` rides in with `--timings` by the vocabulary's shape and [`plan_replay`] refuses it, since the walk keeps no trace memo the census could read.
 const REPLAY_FLAGS: Vocabulary = Vocabulary {
@@ -150,6 +161,7 @@ const REPLAY_FLAGS: Vocabulary = Vocabulary {
     horizon: true,
     emitted: false,
     seeding: false,
+    settled: false,
 };
 /// `guard-sweep` names one configuration or none; its world is pinned in `guard.rs`, so [`plan_guard`] refuses the mode flags [`scan_flags`] accepts for every other verb.
 const GUARD_FLAGS: Vocabulary = Vocabulary {
@@ -162,6 +174,7 @@ const GUARD_FLAGS: Vocabulary = Vocabulary {
     horizon: false,
     emitted: false,
     seeding: false,
+    settled: false,
 };
 
 /// The shipped-order walk names one configuration, its three files and the timing diagnostic, and no world at all: it settles nothing, so the mode flags are refused in [`plan_emitted`] rather than read, as `--cache-census` is.
@@ -175,13 +188,15 @@ const EMITTED_FLAGS: Vocabulary = Vocabulary {
     horizon: false,
     emitted: true,
     seeding: false,
+    settled: false,
 };
 
-/// What a `settle-cases` invocation asked for.
+/// What a `settle-cases` invocation asked for: the two files, the world, and which answer shape to write after each echoed question.
 struct CasesPlan<'a> {
     spec: &'a str,
     cases: &'a str,
     features: Vec<&'a str>,
+    settled_only: bool,
     simulated_prospect: bool,
     vote_slots: bool,
 }
@@ -379,6 +394,7 @@ fn scan_flags(rest: &[String], vocabulary: Vocabulary) -> Option<Flags<'_>> {
     let mut table: Option<&str> = None;
     let mut order: Option<&str> = None;
     let mut context: Option<&str> = None;
+    let mut settled_only = false;
     let mut simulated_prospect = true;
     let mut vote_slots = true;
     let mut deep_classes = true;
@@ -440,6 +456,8 @@ fn scan_flags(rest: &[String], vocabulary: Vocabulary) -> Option<Flags<'_>> {
                 return None;
             }
             context = Some(path);
+        } else if vocabulary.settled && argument == "--settled-only" {
+            settled_only = true;
         } else if vocabulary.timings && argument == "--timings" {
             timings = true;
         } else if vocabulary.timings && argument == "--cache-census" {
@@ -528,6 +546,7 @@ fn scan_flags(rest: &[String], vocabulary: Vocabulary) -> Option<Flags<'_>> {
         table,
         order,
         context,
+        settled_only,
         simulated_prospect,
         vote_slots,
         deep_classes,
@@ -543,6 +562,7 @@ fn plan_cases(rest: &[String]) -> Option<CasesPlan<'_>> {
         spec,
         cases,
         features: flags.features,
+        settled_only: flags.settled_only,
         simulated_prospect: flags.simulated_prospect,
         vote_slots: flags.vote_slots,
     })
@@ -658,7 +678,7 @@ fn plan_tables(rest: &[String]) -> Option<TablesPlan<'_>> {
 }
 
 fn plan_liveness(rest: &[String]) -> Option<LivenessPlan<'_>> {
-    let flags = scan_flags(rest, CASES_FLAGS)?;
+    let flags = scan_flags(rest, LIVENESS_FLAGS)?;
     let [spec, keys] = flags.positionals.as_slice() else {
         return None;
     };
@@ -768,7 +788,12 @@ fn settle_cases(plan: &CasesPlan<'_>) -> Result<(), String> {
     let mut engine = engine_for(&index, features, plan.simulated_prospect, plan.vote_slots);
     let text =
         std::fs::read_to_string(plan.cases).map_err(|error| format!("{}: {error}", plan.cases))?;
-    let lines = cases::replay_cases(&mut engine, &text)
+    let answer = if plan.settled_only {
+        cases::Answer::SettledOnly
+    } else {
+        cases::Answer::Trace
+    };
+    let lines = cases::replay_cases(&mut engine, &text, answer)
         .map_err(|complaint| format!("{}: {complaint}", plan.cases))?;
     write_lines(&lines)
 }
@@ -1576,6 +1601,20 @@ mod tests {
         ])
         .expect("a fan-out names one world for the whole set");
         assert!(!fan_out.simulated_prospect && !fan_out.vote_slots);
+    }
+
+    /// The answer shape belongs to the case replay alone: a liveness question has no trace to leave out, so the flag is the unknown flag it is there.
+    #[test]
+    fn only_the_case_replay_spells_the_settled_only_flag() {
+        let bare = owned(&["spec.json", "cases.txt"]);
+        assert!(!plan_cases(&bare).expect("two positionals").settled_only);
+        let settled = owned(&["spec.json", "cases.txt", "--settled-only"]);
+        assert!(
+            plan_cases(&settled)
+                .expect("the flag is optional")
+                .settled_only
+        );
+        assert!(livened(&["spec.json", "keys.txt", "--settled-only"]).is_none());
     }
 
     /// The grain flag belongs to the two verbs that write rows: nothing else has a grain to name, and a verb that does not spell a flag treats it as the unknown flag it is.

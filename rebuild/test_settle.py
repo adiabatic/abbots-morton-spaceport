@@ -201,10 +201,9 @@ def test_entry_extension_suppressed_when_left_seam_already_extended(row_settled)
 def test_a_committed_seam_nothing_accepts_is_unreachable():
     """A left forged with an exit at the top — a height nothing in the mini alphabet enters at — is a window the lookahead closure would never have built, and the crate refuses it rather than settling something. The refusal crosses the seam as `settle.SettleError` carrying the corpus bucket beside the crate's own sentence, which `engine.rs`'s `a_left_that_committed_a_seam_nothing_accepts_is_stranded` states in the crate's vocabulary; `ex-y8` is the mini registry's `top`."""
     forged = LeftContext("letter", Settled(CellId("qsTea", "full", None, "top"), seam="top", extension=0))
-    case = kernel_exec.case_row(forged, RightToken("letter", "qsIt"), (EDGE, EDGE, EDGE, EDGE))
-    answer = kernel_exec.settle_cases(SPEC, [case], frozenset())[0]
+    case = kernel_exec.case_line(forged, RightToken("letter", "qsIt"), (EDGE, EDGE, EDGE, EDGE))
     with pytest.raises(SettleError) as caught:
-        kernel_exec.trace_of(answer["result"])
+        kernel_exec.settle_cases(SPEC, [case], frozenset(), decode=kernel_exec.trace_of)
     assert caught.value.bucket == "E-UNREACHABLE"
     assert str(caught.value) == (
         "E-STRANDED: qsTea.full.ex-y8 committed an exit at top but qsIt has no acceptor cell "

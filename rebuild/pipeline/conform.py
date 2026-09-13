@@ -461,7 +461,7 @@ _NA_LABEL = "#NA"
 
 
 def _window_rights(labels: list[str], index: int) -> tuple[str, str, str, str]:
-    """The raw settlement window at `index`, out to the fourth slot: each slot is the next label along, `#EDGE` past the end of the buffer, and `#NA` the moment the slot before it is a boundary, the edge, or itself `#NA` — the standing convention that no record peeks past a boundary. The table's deep-slot structure plays no part here, and needs none: a rule that dropped a slot matches any token at it (`_first_matching_rule`), so a raw token standing at a slot the enumeration never split matches exactly the slot-dropped rule HarfBuzz would match. Keying the settle memo this finely is sound with no relevance oracle at all, because one window's settlement is a function of exactly these slots and nothing beyond them — the crate reads the four raw slots a case row carries and no more — and it is also the faster of the two, measured on the live alphabet at the belt's horizon: the probes that decided which slots to blank cost far more than the answers the blanking saved. Shared by `_matched_windows` and `_SettledWindowWalk` so the replay and the memo key read one window."""
+    """The raw settlement window at `index`, out to the fourth slot: each slot is the next label along, `#EDGE` past the end of the buffer, and `#NA` the moment the slot before it is a boundary, the edge, or itself `#NA` — the standing convention that no record peeks past a boundary. The table's deep-slot structure plays no part here, and needs none: a rule that dropped a slot matches any token at it (`_first_matching_rule`), so a raw token standing at a slot the enumeration never split matches exactly the slot-dropped rule HarfBuzz would match. Keying the settle memo this finely is sound with no relevance oracle at all, because one window's settlement is a function of exactly these slots and nothing beyond them — the crate reads the four raw slots a case line carries and no more — and it is also the faster of the two, measured on the live alphabet at the belt's horizon: the probes that decided which slots to blank cost far more than the answers the blanking saved. Shared by `_matched_windows` and `_SettledWindowWalk` so the replay and the memo key read one window."""
     right1 = labels[index + 1] if index + 1 < len(labels) else _EDGE_LABEL
     right2 = (
         _NA_LABEL
@@ -927,17 +927,17 @@ def absorb_replay_memo(dump: Path, memo: SettleMemoFile, spec: ResolvedSpec, con
 
 
 class _SettledWindowWalk:
-    """The memoized settle walk one conformance config runs over every swept text: a left-to-right pass computes each letter slot's raw window key — exactly `_matched_windows`' slots, with the left read from the just-settled stream — and resolves it through `windows`, a window -> (Settled, glyph name, left label) memo; only a miss reaches the crate. The memo is a pure speed device and nothing else: it records no coverage, and the sweep's verdict is the same whether every window misses or every window hits. Sound because every memoized outcome is a pure function of the window as keyed: the left label is the settled cell's display name (`geometry.display_name`, injective over every CellId field), and the right slots are the raw tokens a case row carries, all of them and none beyond. The key never reads the glyph inventory: a walk with minted names and a walk with none key alike and differ only in the name each hands back, which is what lets the oracle and the belt share one memo file. That last point about the right slots is why the walk needs no liveness oracle at all: blanking the deep slots wherever the table's relevance filters prove nothing could read them costs more in probes than the blanking saves. `windows` is deliberately unbounded; the interned labels plus deduplicated outcome tuples keep the residual cost to the key tuples themselves. The walk-equivalence sweeps in rebuild/test_conform.py are the standing alarm on all of it.
+    """The memoized settle walk one conformance config runs over every swept text: a left-to-right pass computes each letter slot's raw window key — exactly `_matched_windows`' slots, with the left read from the just-settled stream — and resolves it through `windows`, a window -> (Settled, glyph name, left label) memo; only a miss reaches the crate. The memo is a pure speed device and nothing else: it records no coverage, and the sweep's verdict is the same whether every window misses or every window hits. Sound because every memoized outcome is a pure function of the window as keyed: the left label is the settled cell's display name (`geometry.display_name`, injective over every CellId field), and the right slots are the raw tokens a case line carries, all of them and none beyond. The key never reads the glyph inventory: a walk with minted names and a walk with none key alike and differ only in the name each hands back, which is what lets the oracle and the belt share one memo file. That last point about the right slots is why the walk needs no liveness oracle at all: blanking the deep slots wherever the table's relevance filters prove nothing could read them costs more in probes than the blanking saves. `windows` is deliberately unbounded; the interned labels plus deduplicated outcome tuples keep the residual cost to the key tuples themselves. The walk-equivalence sweeps in rebuild/test_conform.py are the standing alarm on all of it.
 
     `memo` names the file this walk shares with every other walk over the same texts: the string replay fills it from the crate's own window memo on a whole-universe walk (`absorb_replay_memo`), and the witness stage, the oracle and the belt each load it and settle what it lacks. It is read lazily, on the first wave that would otherwise reach the crate, so a walk that settles nothing — an oracle pass whose rows are all served — never pays to decode it; and `save_memo` writes it back only when this walk settled at least one window the file did not hold, so a walk over a complete file rewrites nothing. The file is a gzip stream of pickles (`_write_settle_memo`, the one writer): a header carrying the format, the stamp and the per-family keys, then blocks of `SETTLE_MEMO_BLOCK` windows, each block the labels and outcomes it introduces plus its keys as columns of indexes into them. Writer and reader both work one block at a time — the memo is never in memory twice — and the outcome objects are shared with the memo dict itself, so a loaded memo costs what the same windows would have cost to settle: the key tuples and nothing else. A family whose key moved since the file was written retires every entry whose window names it (`oracle_cache.StaleMask` at label grain, the ligature clause included), and the retirement is priced per block over the label columns rather than per key: a bit per label, six column folds in C, one comprehension over the masks.
 
     Loaded entries sit in `_cold` until a walk first reaches them, and move into `windows` on that first hit, so the two dicts together are the memo and their split is what this walk has touched. That split is what `save_memo(prune=True)` writes on: the belt walks the whole universe every pass, so an entry it never reached is a window no text produces any more — its left slot named a settlement an edit has since moved — and carrying it forward would grow the file by a slice per rune edit forever. The oracle prunes nothing, since a served row is a window it never reached.
 
-    Batching is what makes the crate affordable here. `settle-cases` answers independent windows, but a text's next left is the previous window's answer, so `_run` advances a whole pile of texts in waves: every state runs forward to its first memo miss, the misses contribute one case row each — deduplicated by memo key, since a key that two states reach in the same wave is one question — and one `kernel_exec.settle_windows` invocation answers up to `batch` of them before every state advances again. A wave collects at most `batch` new keys and parks the rest for the next one, so a caller's chunk size bounds its own resident cost rather than the invocation's. `walk` is the same loop over a single text, which means a miss there spends a whole kernel spawn on one window; `single_settles` counts those, so a caller that forgot to `prefill` can see what it is paying.
+    Batching is what makes the crate affordable here. `settle-cases` answers independent windows, but a text's next left is the previous window's answer, so `_run` advances a whole pile of texts in waves: every state runs forward to its first memo miss, the misses contribute one case line each — deduplicated by memo key, since a key that two states reach in the same wave is one question — and one `kernel_exec.settle_windows` invocation answers up to `batch` of them before every state advances again. A wave collects at most `batch` new keys and parks the rest for the next one, so a caller's chunk size bounds its own resident cost rather than the invocation's. `walk` is the same loop over a single text, which means a miss there spends a whole kernel spawn on one window; `single_settles` counts those, so a caller that forgot to `prefill` can see what it is paying.
 
     A refusal is the one thing the memo can hold that is not an outcome. `on_error="raise"`, the default, lets it out of the batch that met it, as every settlement caller has always done. `on_error="drop"` splits the timing instead: a refusal met during `prefill` is memoized as a `_RefusedWindow`, the text carrying it stops advancing, and the rest of the pile finishes — while `walk` and `walk_many` raise `settle.SettleError` the moment they reach such a key. That pairing is what lets a caller prefill a pile of strings and report each refusal against the string that carried it (the certificate check reads every certificate and names the rule whose certificate the crate refused) without one refusal aborting the whole pile.
 
-    `audit_dedupe` is the standing argument for the dedupe made checkable: with it on, every distinct raw case row a memo key carries beyond the representative is settled too and asserted equal to the memoized outcome, which is the claim `_window_rights`' `#NA` cascade makes — that two raw windows keyed alike settle alike.
+    `audit_dedupe` is the standing argument for the dedupe made checkable: with it on, every distinct raw case line a memo key carries beyond the representative is settled too and asserted equal to the memoized outcome, which is the claim `_window_rights`' `#NA` cascade makes — that two raw windows keyed alike settle alike.
     """
 
     def __init__(
@@ -978,7 +978,7 @@ class _SettledWindowWalk:
         self._audit_seen: set[tuple[settle.LeftContext, settle.RightToken, tuple[settle.RightToken, ...]]] = (
             set()
         )
-        self._audit_pending: list[tuple[_Window, dict]] = []
+        self._audit_pending: list[tuple[_Window, str]] = []
 
     def walk(self, text: str) -> tuple[list[Settled], list[str]]:
         """Settle one text through the memo. Returns (settled items, their glyph names). Every miss along the way is its own kernel invocation, counted in `single_settles` — `prefill` is what a caller with a pile of texts reaches for instead."""
@@ -1158,23 +1158,23 @@ class _SettledWindowWalk:
             return None
         return f"[t] settle_memo {config} {self.memo_seconds:.2f}s loaded={self.memo_windows} stale={self.stale_windows} fresh={self.fresh_windows} pruned={self.pruned_windows} written={'yes' if written else 'no'}"
 
-    def _settle(self, cases: list[dict]) -> list[Settled | None]:
+    def _settle(self, cases: list[str]) -> list[Settled | None]:
         self._settle_calls += 1
         return kernel_exec.settle_windows(
             self.spec, cases, self.features, batch=self.batch, on_error=self.on_error
         )
 
     def _note_raw(self, window: _Window, state: _WalkState) -> None:
-        """Queue a raw case row this memo key has not been asked under before. The first such row per key is the representative the wave already asked; every later one is a distinct question the dedupe claims has the same answer, and `_drain_audit` is where that claim is settled."""
+        """Queue a raw case line this memo key has not been asked under before. The first such line per key is the representative the wave already asked; every later one is a distinct question the dedupe claims has the same answer, and `_drain_audit` is where that claim is settled."""
         raw = (state.left, state.tokens[state.index], self._rights(state))
         if raw in self._audit_seen:
             return
         self._audit_seen.add(raw)
         self.audit_multi_keys.add(window)
-        self._audit_pending.append((window, kernel_exec.case_row(*raw)))
+        self._audit_pending.append((window, kernel_exec.case_line(*raw)))
 
     def _drain_audit(self) -> None:
-        """Settle the raw case rows a memo key carries beyond its representative and hold each to the memoized outcome — the dedupe's own premise, checked rather than assumed."""
+        """Settle the raw case lines a memo key carries beyond its representative and hold each to the memoized outcome — the dedupe's own premise, checked rather than assumed."""
         pending, self._audit_pending = self._audit_pending, []
         self.audit_extra_rows += len(pending)
         for start in range(0, len(pending), self.batch):
@@ -1194,7 +1194,7 @@ class _SettledWindowWalk:
         while pending:
             keys: list[_Window] = []
             reached_in: list[str] = []
-            cases: list[dict] = []
+            cases: list[str] = []
             asked: set[_Window] = set()
             for state in pending:
                 window = self._window(state)
@@ -1207,7 +1207,9 @@ class _SettledWindowWalk:
                 asked.add(window)
                 keys.append(window)
                 reached_in.append(state.text)
-                cases.append(kernel_exec.case_row(state.left, state.tokens[state.index], self._rights(state)))
+                cases.append(
+                    kernel_exec.case_line(state.left, state.tokens[state.index], self._rights(state))
+                )
                 if self.audit_dedupe:
                     self._audit_seen.add((state.left, state.tokens[state.index], self._rights(state)))
             for window, text, item in zip(keys, reached_in, self._settle(cases)):

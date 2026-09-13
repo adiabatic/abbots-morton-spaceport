@@ -8,9 +8,9 @@ The build is `cargo build --release` against the crate's own manifest and nothin
 
 `build_tables` and `enumerate_transitions` are the single-configuration forms in memory, each writing nothing that outlives the call: one spec dumped to a scratch directory, and then either the two tables — `build-tables` into that directory, read back through `table.read_windows` and `table.read_treaty_tsv` — or the raw product, enumerated as a stream and parsed into a `table.FixpointProduct`. The first is how a test, a tool or a hand-assembled spec reaches a table; the second is the raw product a fold consumes, which no build stage and no tool asks for any more, and `rebuild/test_kernel_exec.py` is what keeps that path exercised.
 
-`guard_sweep` is one other in-memory form: one crate invocation and one complete mapping from `(ligature, first raw slot, second raw slot)` to the config-blind formation verdict, memoized per spec identity so a process sweeps one spec once however many callers ask. `guard_sweep_under` is the same surface answered by one named configuration instead of the powerset — unmemoized, because nothing that ships reads it; it exists for the rebuild suite's pin of where each configuration's own surface stands against the quantified one. The settlement verbs sit beside it and share its spec dump, and so does `replay_strings`, the enumeration-completeness check `run_m1.run_replay_strings` runs after every table build: one `replay-strings` invocation over the settlement TSVs a build left, every text of the string universe — or only the texts naming the families the caller knows moved — walked in the crate against the crate's own settlement, and a disagreement is a `ReplayDisagreement` carrying the crate's sentence naming the configuration, the window and the text. `settle_cases` is the raw form — a file of independent `ams-m1-corpus/3` windows in, the full Rust trace objects out, with count and question echo checked, by the bytes, before anything decodes, and each distinct result decoded once for however many windows answered it. `settle_windows` decodes each answer straight to a `Settled`, for the conform walker, which wants outcomes by the tens of thousands rather than traces; like `settle_sequences` it takes an `on_error`, so a caller prefilling windows it may never read can take `None` for a refusal and leave the rest of the batch standing. `settle_sequences` is what explain, the probe and the review surface reach for: the verb takes independent windows, while a sequence's next left context is the previous window's answer, so a batch of whole sequences advances in waves — all first positions, then all second positions off the first wave's answers — with boundary positions answered locally because they are model constants. `settle_codepoints` is the one-line form over a text. The CLI spells boundary tokens as `edge`, `space`, `zwnj`, `namer-dot`, and `unknown`; the guard mapping converts them to Python's `RightToken` constants at the boundary so consumers never confuse those model tokens with glyph names such as `uni200C` or `periodcentered`.
+`guard_sweep` is one other in-memory form: one crate invocation and one complete mapping from `(ligature, first raw slot, second raw slot)` to the config-blind formation verdict, memoized per spec identity so a process sweeps one spec once however many callers ask. `guard_sweep_under` is the same surface answered by one named configuration instead of the powerset — unmemoized, because nothing that ships reads it; it exists for the rebuild suite's pin of where each configuration's own surface stands against the quantified one. The settlement verbs sit beside it and share its spec dump, and so does `replay_strings`, the enumeration-completeness check `run_m1.run_replay_strings` runs after every table build: one `replay-strings` invocation over the settlement TSVs a build left, every text of the string universe — or only the texts naming the families the caller knows moved — walked in the crate against the crate's own settlement, and a disagreement is a `ReplayDisagreement` carrying the crate's sentence naming the configuration, the window and the text. `settle_cases` is the raw form — a file of independent windows in, one tab-separated question line each (`case_line` spells one), the full Rust trace objects out, with count and question echo checked, by the bytes, before anything decodes, and each distinct result decoded once for however many windows answered it. `settle_windows` asks the crate for the settled record alone — seven tab-separated fields under `--settled-only`, rather than a trace — and decodes each straight to a `Settled`, for the conform walker, which wants outcomes by the tens of thousands rather than traces; like `settle_sequences` it takes an `on_error`, so a caller prefilling windows it may never read can take `None` for a refusal and leave the rest of the batch standing. `settle_sequences` is what explain, the probe and the review surface reach for: the verb takes independent windows, while a sequence's next left context is the previous window's answer, so a batch of whole sequences advances in waves — all first positions, then all second positions off the first wave's answers — with boundary positions answered locally because they are model constants. `settle_codepoints` is the one-line form over a text. The CLI spells boundary tokens as `edge`, `space`, `zwnj`, `namer-dot`, and `unknown`; the guard mapping converts them to Python's `RightToken` constants at the boundary so consumers never confuse those model tokens with glyph names such as `uni200C` or `periodcentered`.
 
-The codecs between the transport rows and the pipeline's model types live here as well — `case_row` and `settled_row` on the way out, `trace_of` on the way back — because every settlement caller needs them and none of them should be reaching into another consumer's module for one. A window the crate refuses answers `{raise, message}`, and that becomes a `settle.SettleError` carrying the crate's bucket and its sentence verbatim, so a caller can sort refusals without reading prose; an answer malformed in any other way is the boundary itself being wrong and stays a `KernelRunError`.
+The codecs between the transport lines and the pipeline's model types live here as well — `case_line` on the way out, `trace_of` and `_settled_of_fields` on the way back — because every settlement caller needs them and none of them should be reaching into another consumer's module for one. A window the crate refuses answers `{raise, message}`, and that becomes a `settle.SettleError` carrying the crate's bucket and its sentence verbatim, so a caller can sort refusals without reading prose; an answer malformed in any other way is the boundary itself being wrong and stays a `KernelRunError`.
 
 The invocation is read strictly, on the CLI contract's own terms: exit 2 is the usage check, which for a well-formed invocation can only mean the verb is absent or the two sides' flag sets have drifted apart; any other nonzero exit is the kernel complaining about its inputs; and stderr on a clean exit is a failure unless timings were asked for, in which case every `[t]` line is forwarded to this process's own stderr verbatim so the cycle journal reads the kernel's per-configuration walls the same way it reads Python's, and anything else on that stream is still a failure. Enumeration answers in files, so bytes on stdout there are a failure; `build-tables` answers in files too but reports its digests on stdout, one JSON object per line, and the set is checked against the configurations that were asked for; `guard-sweep` answers on stdout and its complete TSV surface is parsed strictly.
 """
@@ -637,37 +637,30 @@ def _tagged(line: str, tag: str) -> str:
     return f"{marker} {label}[{tag}] {tail}"
 
 
-def _identity(result):
-    return result
-
-
-_EMPTY_RESULT_TAIL = ',"result":null}'
-
-
-def _case_line(case: Mapping) -> tuple[str, str]:
-    """One case as the file spells it — the compact `json.dumps` the crate re-canonicalizes its echo to — beside its head, the line cut just before the result value, so an answer to this question is exactly that head, the crate's result, and the closing brace. The question's result field is its last and is empty, which `case_row` guarantees: that is what puts the whole question ahead of the one value the crate replaces, and it is what makes the head a fixed cut of the line rather than a second serialization."""
-    line = json.dumps(dict(case), separators=(",", ":"))
-    if not line.endswith(_EMPTY_RESULT_TAIL):
-        raise KernelRunError(
-            f"a settle-cases question ends in an empty result field, and this one ends {line[-40:]!r}"
-        )
-    return line, line[: -len("null}")]
+def _json_result(text: str):
+    """One answer's text as the JSON value it spells: the trace shape, and the default `_settle_cases` decode, so a caller with no `decode` of its own gets the parsed result."""
+    try:
+        return json.loads(text)
+    except json.JSONDecodeError as error:
+        raise KernelRunError(f"the answer is not JSON: {error.msg}") from None
 
 
 def _settle_cases(
     spec_path: Path,
     cases_path: Path,
-    cases: Sequence[Mapping],
+    cases: Sequence[str],
     features: frozenset[str],
     modes: SettlementModes | None = None,
-    decode=_identity,
+    decode=_json_result,
+    settled_only: bool = False,
 ):
-    """Write the case file, invoke `settle-cases` over it and the already-dumped spec, and prove that the kernel returned one answer per question without changing or reordering any question field — by the bytes: the crate echoes a question as the very canonical spelling this side wrote it in, so an answer line has to open with its own question's head and close on its result, and the question is never parsed back. `decode` is the per-result seam: it reads one result — the JSON value after the head — into whatever the caller keeps, the default being the result itself, and it runs once per distinct result text in the batch, since a window that answered identically to another decodes to the same value. That is what keeps a batch's Python cost proportional to what the crate actually said rather than to how many windows said it: the review surface's windows overlap heavily, so a good fraction of every batch is verbatim repeats of a trace already decoded."""
-    spelled = [_case_line(case) for case in cases]
-    cases_path.write_text("".join(line + "\n" for line, _head in spelled), encoding="utf-8")
+    """Write the case file, invoke `settle-cases` over it and the already-dumped spec, and prove that the kernel returned one answer per question without changing or reordering any question — by the bytes: the crate echoes a question line verbatim ahead of its answer, so an answer line has to open with its own question and a tab, and the question is never parsed back. What proves the question was understood is the crate's refusals, which stop the run rather than answering. `decode` is the per-result seam: it reads one answer's text — everything after that tab — into whatever the caller keeps, the parsed JSON by default, and it runs once per distinct answer text in the batch, since a window that answered identically to another decodes to the same value. That is what keeps a batch's Python cost proportional to what the crate actually said rather than to how many windows said it: the review surface's windows overlap heavily, so a good fraction of every batch is verbatim repeats of a trace already decoded. `settled_only` asks for the settled record's seven fields instead of the trace, which `settle_windows` reads through `_settled_of_fields`."""
+    cases_path.write_text("".join(line + "\n" for line in cases), encoding="utf-8")
     arguments = [str(BINARY), "settle-cases", str(spec_path), str(cases_path)]
     if features:
         arguments.append(f"--features={','.join(sorted(features))}")
+    if settled_only:
+        arguments.append("--settled-only")
     arguments.extend(settlement_flags(modes))
     finished = _run_kernel(arguments, "settle-cases")
     errors = finished.stderr.decode(errors="replace").strip()
@@ -687,68 +680,82 @@ def _settle_cases(
         raise KernelRunError(f"settle-cases returned {len(lines)} answers for {len(cases)} questions")
     answers = []
     decoded: dict[str, object] = {}
-    for line_number, (line, (_question, head)) in enumerate(zip(lines, spelled), 1):
-        if not line.startswith(head) or not line.endswith("}"):
+    for line_number, (line, question) in enumerate(zip(lines, cases), 1):
+        cut = len(question)
+        if not line.startswith(question) or len(line) <= cut or line[cut] != "\t":
             raise KernelRunError(f"settle-cases line {line_number} changed or reordered its question")
-        text = line[len(head) : -1]
+        text = line[cut + 1 :]
         try:
             value = decoded[text]
         except KeyError:
             try:
-                result = json.loads(text)
-            except json.JSONDecodeError as error:
-                raise KernelRunError(f"settle-cases line {line_number} is not JSON: {error.msg}") from None
-            value = decoded[text] = decode(result)
+                value = decoded[text] = decode(text)
+            except KernelRunError as error:
+                raise KernelRunError(f"settle-cases line {line_number}: {error}") from None
         answers.append(value)
     return answers
 
 
-def settle_cases(
+def _settle_batch(
     spec: ResolvedSpec,
-    cases: Sequence[Mapping],
+    cases: Sequence[str],
     features: frozenset[str],
-    modes: SettlementModes | None = None,
-    decode=None,
+    modes: SettlementModes | None,
+    decode,
+    settled_only: bool = False,
 ) -> list:
-    """Replay a batch of settlement windows through the crate, one invocation over one batch: the spec dump is the memoized one, so only the case file is written per call, and it goes with the frame. The case dictionaries use the `ams-m1-corpus/3` row shape — `case_row` builds one — and without a `decode` every answer comes back whole, the question with the crate's `result` in it, which `trace_of` reads back into a `TransitionTrace`. With one, the list holds what `decode` made of each window's result instead — `settle_windows` wants a `Settled` and `settle_sequences` a trace — decoded once per distinct result in the batch (`_settle_cases`), so a caller that wants one model value per window never builds a list of answer dictionaries it would immediately throw away. `modes` names the settlement world; without one the process's own defaults answer."""
+    """One batch through one invocation: the spec dump is the memoized one, so only the case file is written per call, and it goes with the frame."""
     if not cases:
         return []
     spec_path = _spec_dump(spec)
     with tempfile.TemporaryDirectory() as scratch:
-        cases_path = Path(scratch) / "cases.ndjson"
+        cases_path = Path(scratch) / "cases.tsv"
         ensure_built()
-        values = _settle_cases(spec_path, cases_path, cases, frozenset(features), modes, decode or _identity)
-    if decode is not None:
-        return values
-    return [{**case, "result": result} for case, result in zip(cases, values)]
+        return _settle_cases(spec_path, cases_path, cases, frozenset(features), modes, decode, settled_only)
 
 
-def token_row(token: settle.RightToken) -> dict:
-    """One raw lookahead slot in the transport shape."""
-    return {"kind": token.kind, "letter": token.rune}
+def settle_cases(
+    spec: ResolvedSpec,
+    cases: Sequence[str],
+    features: frozenset[str],
+    modes: SettlementModes | None = None,
+    decode=None,
+) -> list:
+    """Replay a batch of settlement windows through the crate, one invocation over one batch. The cases are question lines — `case_line` builds one — and every answer is the crate's whole trace: without a `decode` the list holds each window's parsed result, which `trace_of` reads into a `TransitionTrace`; with one, it holds what `decode` made of each parsed result instead — `settle_sequences` wants a trace or a refusal — decoded once per distinct result in the batch (`_settle_cases`), so a caller that wants one model value per window never builds a list of answer dictionaries it would immediately throw away. `settle_windows` is the verb for a caller that wants the settled record and nothing else: it asks the crate for that record rather than decoding a trace down to one. `modes` names the settlement world; without one the process's own defaults answer."""
+    if decode is None:
+        return _settle_batch(spec, cases, features, modes, _json_result)
+    return _settle_batch(spec, cases, features, modes, lambda text: decode(_json_result(text)))
 
 
-def settled_row(settled: Settled) -> dict:
-    """One settled cell in the transport shape, which is how a left context reaches the kernel."""
-    cell = settled.cell
-    return {
-        "cell": [cell.rune, cell.stance, cell.entry, cell.exit, list(cell.adjustments)],
-        "seam": settled.seam,
-        "extension": settled.extension,
-    }
+# The seat of the rune under settlement among a question line's tab-separated fields: the left's kind and its seven record fields come first, the four right slots after.
+CASE_INPUT_FIELD = 8
+_NO_RECORD = ("",) * 7
 
 
-def case_row(left: settle.LeftContext, token: settle.RightToken, rights: Sequence[settle.RightToken]) -> dict:
-    """One independent window as `settle-cases` reads it: the resolved left, the rune being settled, and the four raw slots after it. The whole row rides back on the answer line, which is what lines a batch's answers up with its questions."""
-    return {
-        "left": {
-            "kind": left.kind,
-            "settled": settled_row(left.settled) if left.settled is not None else None,
-        },
-        "input": token.rune,
-        "right": [token_row(right) for right in rights],
-        "result": None,
-    }
+def case_line(left: settle.LeftContext, token: settle.RightToken, rights: Sequence[settle.RightToken]) -> str:
+    """One independent window as `settle-cases` reads it, one tab-separated line: the left's kind and its record — rune, stance, entry, exit, comma-joined adjustments, seam, extension, all seven empty for a left with no record and a height or seam empty where there is none — then the rune being settled and the four raw slots after it, each a rune name or the kind spelling of a boundary or unknown slot. The crate echoes the line verbatim ahead of its answer, which is what lines a batch's answers up with its questions."""
+    settled = left.settled
+    if settled is None:
+        record = _NO_RECORD
+    else:
+        cell = settled.cell
+        record = (
+            cell.rune,
+            cell.stance,
+            cell.entry or "",
+            cell.exit or "",
+            ",".join(cell.adjustments),
+            settled.seam or "",
+            str(settled.extension),
+        )
+    return "\t".join(
+        (
+            left.kind,
+            *record,
+            token.letter,
+            *(right.letter if right.kind == "letter" else right.kind for right in rights),
+        )
+    )
 
 
 def _refusal(result: Mapping) -> None:
@@ -813,7 +820,7 @@ def _elimination_of(row) -> settle.Elimination:
 
 
 def settled_of_row(row) -> Settled:
-    """One `{"cell": [rune, stance, entry, exit, [adjustments]], "seam": …, "extension": …}` mapping as the crate spells a settled record (`types::settled_json`) decoded to an interned `Settled`: the shape a `settle-cases` answer carries under `settled` and the replay's window memo carries one record per line of, so both decode through this one codec."""
+    """One `{"cell": [rune, stance, entry, exit, [adjustments]], "seam": …, "extension": …}` mapping as the crate spells a settled record in JSON (`types::settled_json`) decoded to an interned `Settled`: the shape a `settle-cases` trace carries under `settled` and the replay's window memo carries one record per line of, so both decode through this one codec. The interning key is `(rune, stance, entry, exit, adjustments, seam, extension)` with each absent height `None`, and `_settled_of_fields` builds the very same key from the tab-separated spelling, so a record read off either answer shape is one shared object."""
     if not isinstance(row, Mapping) or set(row) != {"cell", "seam", "extension"}:
         raise KernelRunError(f"the kernel spelled a malformed settled record: {row!r}")
     cell_row = row["cell"]
@@ -834,11 +841,44 @@ def settled_of_row(row) -> Settled:
 
 
 def _settled_of(result) -> Settled:
-    """The settled cell alone, for a caller with no use for the ladder that chose it."""
+    """The settled cell alone off a trace, for a caller with no use for the ladder that chose it."""
     if not isinstance(result, Mapping):
         raise KernelRunError(f"settle-cases returned a malformed result: {result!r}")
     _refusal(result)
     return settled_of_row(result.get("settled"))
+
+
+# The fields a settled-only answer spells, in `types::settled_fields`' order: the seven a question spells its left record in.
+_SETTLED_FIELDS = 7
+
+
+def _settled_of_fields(text: str) -> Settled:
+    """One settled-only answer decoded to an interned `Settled`: seven tab-separated fields — rune, stance, entry, exit, comma-joined adjustments, seam, extension, a height empty where there is none — or, opening with `{`, the crate's refusal object, which `_refusal` raises exactly as it does off a trace. The interning key is the one `settled_of_row` builds, so a record read off either answer shape is one shared object."""
+    if text.startswith("{"):
+        result = _json_result(text)
+        if not isinstance(result, Mapping):
+            raise KernelRunError(f"settle-cases returned a malformed result: {result!r}")
+        _refusal(result)
+        raise KernelRunError(f"settle-cases answered a settled-only question with an object: {text!r}")
+    fields = text.split("\t")
+    if len(fields) != _SETTLED_FIELDS:
+        raise KernelRunError(f"the kernel spelled a malformed settled record: {text!r}")
+    rune, stance, entry, exit_height, adjustments, seam, extension = fields
+    try:
+        extension_value = int(extension)
+    except ValueError:
+        raise KernelRunError(f"the kernel spelled a malformed settled record: {text!r}") from None
+    entry_height = entry or None
+    exit_height = exit_height or None
+    adjustment_tokens = tuple(adjustments.split(",")) if adjustments else ()
+    seam_height = seam or None
+    return _interned(
+        _SETTLED,
+        (rune, stance, entry_height, exit_height, adjustment_tokens, seam_height, extension_value),
+        lambda: Settled(
+            CellId(rune, stance, entry_height, exit_height, adjustment_tokens), seam_height, extension_value
+        ),
+    )
 
 
 def _provenance_of(pointer) -> Provenance | None:
@@ -890,10 +930,10 @@ def trace_of(result) -> settle.TransitionTrace:
     )
 
 
-def _tolerated_settled(result) -> Settled | None:
-    """`_settled_of` with a refusal answered as `None` rather than raised. Only the crate's own refusal is swallowed: a malformed answer raises `KernelRunError` out of here exactly as it would in the raising mode, because that is the boundary being wrong rather than the window."""
+def _tolerated_settled_fields(text: str) -> Settled | None:
+    """`_settled_of_fields` with a refusal answered as `None` rather than raised. Only the crate's own refusal is swallowed: a malformed answer raises `KernelRunError` out of here exactly as it would in the raising mode, because that is the boundary being wrong rather than the window."""
     try:
-        return _settled_of(result)
+        return _settled_of_fields(text)
     except settle.SettleError:
         return None
 
@@ -908,20 +948,22 @@ def _trace_or_refusal(result) -> settle.TransitionTrace | settle.SettleError:
 
 def settle_windows(
     spec: ResolvedSpec,
-    cases: Sequence[Mapping],
+    cases: Sequence[str],
     features: frozenset[str],
     batch: int = SETTLE_WINDOW_BATCH,
     modes: SettlementModes | None = None,
     on_error: str = "raise",
 ) -> list[Settled | None]:
-    """One `Settled` per case, in the order the cases were asked, decoded straight off each answer line. This is the conform walker's verb: it settles distinct raw windows by the hundred thousand and keeps only the outcome, so a whole trace decoded into Python objects per window would be two orders of magnitude of memory spent on ladders nothing reads. `batch` bounds how many windows ride one invocation.
+    """One `Settled` per case, in the order the cases were asked, decoded straight off each answer line. This is the conform walker's verb: it settles distinct raw windows by the hundred thousand and keeps only the outcome, so it asks the crate for the settled record alone (`--settled-only`, seven tab-separated fields) rather than a trace that would be serialized, carried and decoded for a ladder nothing reads. `batch` bounds how many windows ride one invocation.
 
     `on_error="raise"` lets a refusal out of the batch that met it, which names the offending left and input in the crate's own sentence. `on_error="drop"` answers `None` in that one case's slot instead and decodes every other line as usual — a caller that settles windows it never chose to ask about (the witness gate, which prefills every candidate string it might read) wants the survivors, and wants a refusal to surface only where something actually reads that window. A malformed answer is the boundary being wrong rather than the window and stays a `KernelRunError` in either mode.
     """
-    decode = _tolerated_settled if on_error == "drop" else _settled_of
+    decode = _tolerated_settled_fields if on_error == "drop" else _settled_of_fields
     out: list[Settled | None] = []
     for start in range(0, len(cases), batch):
-        out.extend(settle_cases(spec, cases[start : start + batch], features, modes, decode))
+        out.extend(
+            _settle_batch(spec, cases[start : start + batch], features, modes, decode, settled_only=True)
+        )
     return out
 
 
@@ -950,7 +992,7 @@ def settle_sequences(
     ]
     max_positions = max((len(state.tokens) for state in states), default=0)
     for position in range(max_positions):
-        batches: dict[frozenset[str], list[tuple[_SequenceState, dict]]] = {}
+        batches: dict[frozenset[str], list[tuple[_SequenceState, str]]] = {}
         for state in states:
             if state.dropped or position >= len(state.tokens):
                 continue
@@ -967,7 +1009,7 @@ def settle_sequences(
                 state.tokens[index] if index < len(state.tokens) else settle.EDGE
                 for index in range(position + 1, position + 5)
             )
-            batches.setdefault(state.features, []).append((state, case_row(state.left, token, rights)))
+            batches.setdefault(state.features, []).append((state, case_line(state.left, token, rights)))
         for features, pending in batches.items():
             for start in range(0, len(pending), SETTLE_CASE_BATCH_SIZE):
                 chunk = pending[start : start + SETTLE_CASE_BATCH_SIZE]

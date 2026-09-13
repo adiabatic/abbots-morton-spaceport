@@ -229,7 +229,7 @@ def validate_ligature_outgoing(spec: ResolvedSpec, rune_raws: Mapping[str, dict]
             windows = ((left, right) for right in _right_windows(spec) for left in _BOUNDARIES)
             for batch in batched(windows, kernel_exec.SETTLE_CASE_BATCH_SIZE):
                 cases = [
-                    kernel_exec.case_row(LeftContext(left.kind), RightToken("letter", rune.name), right)
+                    kernel_exec.case_line(LeftContext(left.kind), RightToken("letter", rune.name), right)
                     for left, right in batch
                 ]
                 actual = kernel_exec.settle_cases(actual_spec, cases, features, decode=_capability_answer)

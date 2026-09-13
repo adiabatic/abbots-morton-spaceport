@@ -11,8 +11,18 @@ from dataclasses import replace
 
 import pytest
 
-from rebuild.pipeline import conform, fixtures, kernel_exec, kernel_io, oracle_cache, run_m1, spec_load
+from rebuild.pipeline import (
+    conform,
+    fixtures,
+    kernel_exec,
+    kernel_io,
+    oracle_cache,
+    run_m1,
+    settle,
+    spec_load,
+)
 from rebuild.pipeline import table as table_module
+from rebuild.pipeline.model import CellId, Settled
 from rebuild.pipeline.settle import (
     EDGE,
     NAMER_DOT,
@@ -61,23 +71,13 @@ class TestTheInvocationSeam:
         assert "--deep-classes-off" not in kernel_exec.settlement_flags()
 
     def test_settle_cases_batches_questions_with_canonical_features_and_modes(self, monkeypatch, tmp_path):
-        question = {
-            "left": {"kind": "edge", "settled": None},
-            "input": "qsMay",
-            "right": [
-                {"kind": "edge", "letter": None},
-                {"kind": "edge", "letter": None},
-                {"kind": "edge", "letter": None},
-                {"kind": "edge", "letter": None},
-            ],
-            "result": None,
-        }
-        answer = {**question, "result": {"settled": "trace"}}
+        """The file is the question lines and nothing else, one per line; the argv carries the canonical feature spelling and the world flags; and an answer line is its own question, a tab, and the answer, which decodes to the parsed result by default."""
+        question = kernel_exec.case_line(LeftContext("edge"), RightToken("letter", "qsMay"), (EDGE,) * 4)
         calls = []
 
         class Finished:
             returncode = 0
-            stdout = (json.dumps(answer, separators=(",", ":")) + "\n").encode()
+            stdout = (question + '\t{"settled":"trace"}\n').encode()
             stderr = b""
 
         def run(arguments, verb):
@@ -89,39 +89,47 @@ class TestTheInvocationSeam:
             monkeypatch.setattr(module, attribute, False)
         got = kernel_exec._settle_cases(
             tmp_path / "spec.json",
-            tmp_path / "cases.ndjson",
+            tmp_path / "cases.tsv",
             [question],
             frozenset({"ss05", "ss03"}),
         )
-        assert got == [answer["result"]]
+        assert got == [{"settled": "trace"}]
+        assert (tmp_path / "cases.tsv").read_text() == question + "\n"
         arguments = calls[0][0]
         assert arguments[1:4] == [
             "settle-cases",
             str(tmp_path / "spec.json"),
-            str(tmp_path / "cases.ndjson"),
+            str(tmp_path / "cases.tsv"),
         ]
         assert "--features=ss03,ss05" in arguments
         assert "--candidacy-prospect" in arguments
         assert "--vote-slots-off" in arguments
         assert "--deep-classes-off" not in arguments
+        assert "--settled-only" not in arguments
 
     def test_settle_cases_refuses_an_answer_to_a_different_question(self, monkeypatch, tmp_path):
-        question = {"left": {}, "input": "qsMay", "right": [], "result": None}
-        changed = {**question, "input": "qsIt", "result": {}}
+        """The echo check is byte-exact: an answer to another question is refused, and so is an answer glued to its question with no tab between, since the question's own bytes are then not the whole head."""
+        question = kernel_exec.case_line(LeftContext("edge"), RightToken("letter", "qsMay"), (EDGE,) * 4)
+        changed = kernel_exec.case_line(LeftContext("edge"), RightToken("letter", "qsIt"), (EDGE,) * 4)
+        for stdout in (changed + "\t{}\n", question + "{}\n", question + "\n"):
 
-        class Finished:
-            returncode = 0
-            stdout = (json.dumps(changed) + "\n").encode()
-            stderr = b""
+            class Finished:
+                returncode = 0
+                stderr = b""
 
-        monkeypatch.setattr(kernel_exec, "_run_kernel", lambda *args, **kwargs: Finished())
-        with pytest.raises(kernel_exec.KernelRunError, match="changed"):
-            kernel_exec._settle_cases(
-                tmp_path / "spec.json",
-                tmp_path / "cases.ndjson",
-                [question],
-                frozenset(),
+                def __init__(self, stdout: bytes) -> None:
+                    self.stdout = stdout
+
+            monkeypatch.setattr(
+                kernel_exec, "_run_kernel", lambda *args, out=stdout, **kwargs: Finished(out.encode())
             )
+            with pytest.raises(kernel_exec.KernelRunError, match="changed"):
+                kernel_exec._settle_cases(
+                    tmp_path / "spec.json",
+                    tmp_path / "cases.tsv",
+                    [question],
+                    frozenset(),
+                )
 
     def test_a_missing_binary_names_the_recipe_that_builds_one(self, monkeypatch, tmp_path):
         monkeypatch.setattr(kernel_exec, "BINARY", tmp_path / "ams-m1-kernel")
@@ -152,13 +160,12 @@ class TestTheInvocationSeam:
 
     def test_a_named_mode_overrides_the_processs_own_world(self, monkeypatch, tmp_path):
         """A `SettlementModes` is how a caller asks for a world other than its process's — the guard's pinned candidacy grain, a comparison replay, a test that has to state its own semantics — and it wins in both directions: it puts flags on an argv whose module defaults are all on, and leaves them off an argv whose defaults are all off."""
-        question = {"left": {"kind": "edge", "settled": None}, "input": "qsMay", "right": [], "result": None}
-        answer = {**question, "result": {"settled": "trace"}}
+        question = kernel_exec.case_line(LeftContext("edge"), RightToken("letter", "qsMay"), (EDGE,) * 4)
         calls = []
 
         class Finished:
             returncode = 0
-            stdout = (json.dumps(answer, separators=(",", ":")) + "\n").encode()
+            stdout = (question + '\t{"settled":"trace"}\n').encode()
             stderr = b""
 
         def run(arguments, verb):
@@ -170,7 +177,7 @@ class TestTheInvocationSeam:
             monkeypatch.setattr(module, attribute, True)
         kernel_exec._settle_cases(
             tmp_path / "spec.json",
-            tmp_path / "cases.ndjson",
+            tmp_path / "cases.tsv",
             [question],
             frozenset(),
             kernel_exec.SettlementModes(simulated_prospect=False, vote_slots=False),
@@ -180,7 +187,7 @@ class TestTheInvocationSeam:
             monkeypatch.setattr(module, attribute, False)
         kernel_exec._settle_cases(
             tmp_path / "spec.json",
-            tmp_path / "cases.ndjson",
+            tmp_path / "cases.tsv",
             [question],
             frozenset(),
             kernel_exec.SettlementModes(simulated_prospect=True, vote_slots=True),
@@ -189,13 +196,13 @@ class TestTheInvocationSeam:
 
     def test_a_refused_window_carries_the_crates_bucket_and_sentence(self, monkeypatch):
         """A window the crate refuses is not a broken boundary, and must not read as one: the answer is `{raise, message}`, and what a caller catches is a `SettleError` carrying the raise identity as its bucket and the crate's own sentence, verbatim, as its message."""
-        question = {"left": {"kind": "edge", "settled": None}, "input": "qsMay", "right": [], "result": None}
+        question = kernel_exec.case_line(LeftContext("edge"), RightToken("letter", "qsMay"), (EDGE,) * 4)
         message = "E-STRANDED: qsPea.half.ex-y5 committed an exit at x-height but qsTea has no acceptor cell"
-        answer = {**question, "result": {"raise": "E-UNREACHABLE", "message": message}}
+        refusal = json.dumps({"raise": "E-UNREACHABLE", "message": message}, separators=(",", ":"))
 
         class Finished:
             returncode = 0
-            stdout = (json.dumps(answer, separators=(",", ":")) + "\n").encode()
+            stdout = (question + "\t" + refusal + "\n").encode()
             stderr = b""
 
         monkeypatch.setattr(kernel_exec, "_run_kernel", lambda *arguments, **rest: Finished())
@@ -204,20 +211,137 @@ class TestTheInvocationSeam:
         assert complaint.value.bucket == "E-UNREACHABLE"
         assert str(complaint.value) == message
         assert not isinstance(complaint.value, kernel_exec.KernelRunError)
+        with pytest.raises(SettleError) as traced:
+            kernel_exec.settle_cases(SPEC, [question], frozenset(), decode=kernel_exec.trace_of)
+        assert traced.value.bucket == "E-UNREACHABLE"
+        assert str(traced.value) == message
+
+    def test_settled_only_rides_the_argv_settle_windows_builds_and_no_other(self, monkeypatch):
+        """`settle_windows` is the one caller that asks for the seven-field answer; `settle_cases` and the sequence verb over it keep the trace, since the ladder is what they are for."""
+        question = kernel_exec.case_line(LeftContext("edge"), RightToken("letter", "qsMay"), (EDGE,) * 4)
+        record = {"cell": ["qsMay", "full", None, None, []], "seam": None, "extension": 0}
+        trace = {
+            "settled": record,
+            "prospect": 0,
+            "joint_floor": False,
+            "notes": [],
+            "fired": [],
+            "decided_stage": "only-candidate",
+            "runner_up": None,
+            "ranked": [],
+            "eliminations": [],
+        }
+        calls = []
+
+        def run(arguments, verb):
+            calls.append(arguments)
+            answer = (
+                "qsMay\tfull\t\t\t\t\t0"
+                if "--settled-only" in arguments
+                else json.dumps(trace, separators=(",", ":"))
+            )
+
+            class Finished:
+                returncode = 0
+                stdout = (question + "\t" + answer + "\n").encode()
+                stderr = b""
+
+            return Finished()
+
+        monkeypatch.setattr(kernel_exec, "_run_kernel", run)
+        settled = kernel_exec.settle_windows(SPEC, [question], frozenset())[0]
+        assert settled is not None and settled.cell.rune == "qsMay"
+        assert kernel_exec.settle_cases(SPEC, [question], frozenset())[0] == trace
+        traces = kernel_exec.settle_sequences(SPEC, [((RightToken("letter", "qsMay"),), frozenset())])[0]
+        assert traces is not None and traces[0].settled is settled
+        assert ["--settled-only" in arguments for arguments in calls] == [True, False, False]
+
+    def test_the_settled_only_answer_is_the_traces_own_settled_record(self):
+        """The whole contract of the settled-only half, through the real binary over the mini alphabet: every window of every text to depth three settled through `settle_windows` is the very `Settled` object `settle_sequences` reads off the same window's trace — object-for-object, which is also the proof that the two decoders intern into one table rather than two equal-but-distinct records per cell."""
+        guard = kernel_exec.guard_sweep(SPEC)
+        alphabet = sorted(ch for ch in conform.spec_alphabet(SPEC) if ord(ch) >= 0xE650)
+        texts = [
+            "".join(combo) for length in (1, 2, 3) for combo in itertools.product(alphabet, repeat=length)
+        ]
+        requests = [
+            (
+                settle.form_ligatures(
+                    SPEC, settle.tokens_from_codepoints(SPEC, [ord(ch) for ch in text]), guard
+                ),
+                frozenset(),
+            )
+            for text in texts
+        ]
+        traced = kernel_exec.settle_sequences(SPEC, requests)
+        cases = []
+        expected = []
+        for (tokens, _features), traces in zip(requests, traced):
+            assert traces is not None
+            left = LeftContext("edge")
+            for position, (token, trace) in enumerate(zip(tokens, traces)):
+                rights = tuple(
+                    tokens[index] if index < len(tokens) else EDGE
+                    for index in range(position + 1, position + 5)
+                )
+                cases.append(kernel_exec.case_line(left, token, rights))
+                expected.append(trace.settled)
+                left = LeftContext("letter", trace.settled)
+        settled = kernel_exec.settle_windows(SPEC, cases, frozenset())
+        assert len(settled) == len(expected) > len(texts)
+        assert all(got is want for got, want in zip(settled, expected))
+
+    def test_a_forged_left_record_survives_the_question_line_both_ways(self):
+        """The six left-record fields cross the seam intact: a left forged with adjustments, a seam and a nonzero extension is read back into the same record under both answer shapes, and where the crate refuses it the E-STRANDED sentence — the one place a left's whole `cell_label`, adjustments included, is spelled back out — is the same sentence both ways, naming every adjustment the question carried."""
+        joined = LeftContext(
+            "letter",
+            Settled(
+                CellId("qsMay", "full", None, "x-height", ("locked", "en-ext-1")),
+                seam="x-height",
+                extension=1,
+            ),
+        )
+        case = kernel_exec.case_line(joined, RightToken("letter", "qsIt"), (EDGE,) * 4)
+        assert case.split("\t")[: kernel_exec.CASE_INPUT_FIELD] == [
+            "letter",
+            "qsMay",
+            "full",
+            "",
+            "x-height",
+            "locked,en-ext-1",
+            "x-height",
+            "1",
+        ]
+        assert case.split("\t")[kernel_exec.CASE_INPUT_FIELD] == "qsIt"
+        settled = kernel_exec.settle_windows(SPEC, [case], frozenset())[0]
+        traced = kernel_exec.settle_cases(SPEC, [case], frozenset(), decode=kernel_exec.trace_of)[0]
+        assert settled is traced.settled
+        stranded = LeftContext(
+            "letter",
+            Settled(CellId("qsTea", "full", None, "top", ("locked", "en-ext-1")), seam="top", extension=1),
+        )
+        case = kernel_exec.case_line(stranded, RightToken("letter", "qsIt"), (EDGE,) * 4)
+        with pytest.raises(SettleError) as fields:
+            kernel_exec.settle_windows(SPEC, [case], frozenset())
+        with pytest.raises(SettleError) as trace:
+            kernel_exec.settle_cases(SPEC, [case], frozenset(), decode=kernel_exec.trace_of)
+        assert str(fields.value) == str(trace.value)
+        assert fields.value.bucket == trace.value.bucket == "E-UNREACHABLE"
+        assert "locked" in str(fields.value) and "en-ext-1" in str(fields.value)
 
     def test_settle_windows_answers_one_settled_per_case_in_the_order_asked(self, monkeypatch):
-        """The walker's verb, whose whole contract is positional: it decodes an answer to a `Settled` and nothing more, and it chunks so a batch of any size costs a bounded pile of case rows — `SETTLE_WINDOW_BATCH` in the shipping form, whatever `batch` says here."""
+        """The walker's verb, whose whole contract is positional: it decodes an answer to a `Settled` and nothing more, and it chunks so a batch of any size costs a bounded pile of case lines — `SETTLE_WINDOW_BATCH` in the shipping form, whatever `batch` says here."""
         sizes = []
         original = kernel_exec._settle_cases
 
-        def recording(spec_path, cases_path, cases, features, modes=None, decode=kernel_exec._identity):
+        def recording(spec_path, cases_path, cases, features, modes=None, decode=None, settled_only=False):
             sizes.append(len(cases))
-            return original(spec_path, cases_path, cases, features, modes, decode)
+            assert settled_only
+            return original(spec_path, cases_path, cases, features, modes, decode, settled_only)
 
         monkeypatch.setattr(kernel_exec, "_settle_cases", recording)
         names = ("qsMay", "qsIt", "qsTea", "qsDay", "qsOy")
         cases = [
-            kernel_exec.case_row(LeftContext("edge"), RightToken("letter", name), (EDGE,) * 4)
+            kernel_exec.case_line(LeftContext("edge"), RightToken("letter", name), (EDGE,) * 4)
             for name in names
         ]
         settled = kernel_exec.settle_windows(SPEC, cases, frozenset(), batch=2)
@@ -225,26 +349,21 @@ class TestTheInvocationSeam:
         assert sizes == [2, 2, 1]
 
     def test_settle_windows_can_answer_none_for_a_refusal_and_keep_the_batch(self, monkeypatch):
-        """`on_error="drop"`: the refusing case's slot answers `None`, every other line decodes as usual, and the answers stay lined up with the questions — which is what lets a caller prefill windows it may never read without one refusal taking the batch down."""
+        """`on_error="drop"`: the refusing case's slot answers `None`, every other line decodes as usual, and the answers stay lined up with the questions — which is what lets a caller prefill windows it may never read without one refusal taking the batch down. The answers are the settled-only shape, tab records with one JSON refusal among them, which is the arm that pins how a refusal is told from a record: by its leading brace."""
         names = ("qsMay", "qsIt", "qsTea")
         cases = [
-            kernel_exec.case_row(LeftContext("edge"), RightToken("letter", name), (EDGE,) * 4)
+            kernel_exec.case_line(LeftContext("edge"), RightToken("letter", name), (EDGE,) * 4)
             for name in names
         ]
-        results: list[dict] = [
-            {"settled": {"cell": [name, "full", None, None, []], "seam": None, "extension": 0}}
-            for name in names
-        ]
-        results[1] = {"raise": "E-AMBIGUOUS", "message": "qsIt: two candidates tie at every stage"}
+        results = [f"{name}\tfull\t\t\t\t\t0" for name in names]
+        results[1] = json.dumps(
+            {"raise": "E-AMBIGUOUS", "message": "qsIt: two candidates tie at every stage"},
+            separators=(",", ":"),
+        )
 
         class Finished:
             returncode = 0
-            stdout = (
-                "".join(
-                    json.dumps({**case, "result": result}, separators=(",", ":")) + "\n"
-                    for case, result in zip(cases, results)
-                )
-            ).encode()
+            stdout = ("".join(f"{case}\t{result}\n" for case, result in zip(cases, results))).encode()
             stderr = b""
 
         monkeypatch.setattr(kernel_exec, "_run_kernel", lambda *arguments, **rest: Finished())
