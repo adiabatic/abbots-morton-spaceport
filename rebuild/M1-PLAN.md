@@ -29,7 +29,8 @@ rebuild/pipeline/
   compile_font.py     mini-font build via build_font(senior_fea=...) + budget gate
   readback.py         post-compile read-back: the written font re-parsed and structurally proven against the plan
   conform.py          HarfBuzz per-transition gate, exhaustive sweep, the per-row baseline comparison and its memoized walk
-  oracle.py           baseline-oracle driver, divergence classifier, ledger matching, position channel (outside the tables' stamp)
+  oracle.py           baseline-oracle driver, divergence classifier, ledger matching (outside the tables' stamp)
+  oracle_positions.py the position channel: kern normalization, the drift diff, the served-position codec and verifier, the sidecar evaluator and the shaper factory (outside the tables' stamp and the row stamp; the position stamp's one module)
   explain.py          the §6.3a CLI (python -m rebuild.pipeline.explain)
   baseline_subset.py  streaming filter of rebuild/out/baseline-*.tsv.gz to the migrated alphabet; re-run whenever the alphabet grows
   coretext_smoke.py   CoreText-vs-HarfBuzz driver (prototype recipe, extended sequence set)

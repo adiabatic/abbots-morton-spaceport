@@ -409,6 +409,7 @@ def test_the_store_stamp_is_strictly_narrower_than_the_run_record():
     for relative in (
         "rebuild/pipeline/run_m1.py",
         "rebuild/pipeline/oracle.py",
+        "rebuild/pipeline/oracle_positions.py",
         "rebuild/pipeline/compile_font.py",
         "tools/build_font.py",
         "rebuild/kernel-rs/src/fixpoint.rs",

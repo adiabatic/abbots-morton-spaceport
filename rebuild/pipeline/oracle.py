@@ -1,8 +1,8 @@
-"""The section 6 baseline oracle (M1-PLAN section 6, Group 3): the settlement function against the section 13.1 baseline, one configuration at a time, with every divergent row classified into the divergence ledger and the position channel diffed against the kern-normalized old positions.
+"""The section 6 baseline oracle (M1-PLAN section 6, Group 3): the settlement function against the section 13.1 baseline, one configuration at a time, with every divergent row classified into the divergence ledger and, for the rows the ledger calls ink-identical, the drawn positions diffed against the kern-normalized old positions through the position channel in rebuild/pipeline/oracle_positions.py.
 
-This is the comparison side of the pipeline, split from conform.py so that it can sit outside the stamp a serialized window enumeration carries (`fingerprint.tables_value`, keyed on `fingerprint.table_code_paths`): nothing here builds a decision table or a font, and everything here runs against tables and an M1.otf that are already built. What licenses that is `rebuild/test_build_code_closure.py`, which walks the import graph from every build-side module and from `run_m1.run` and fails the moment either reaches this module. The consequence is the workflow `run_m1 --gates-only` exists for: an edit to `classify_divergence`, a predicate, `SS10_UNCOVERED_BY_OLD_FONT`, `compile_ledger`, `_match_compiled` or the position channel leaves every enumeration on disk exactly as fresh as it was, so the oracle re-adjudicates against them rather than waiting on a rebuild that would return the same bytes. The whole-run record does not narrow: this file is still `fingerprint.pipeline_code_paths`, so the Stage A `pipeline_code` component, the artifact cycle's run_m1 green and the review surface's stamp all still move on an edit here.
+This is the comparison side of the pipeline, split from conform.py so that it can sit outside the stamp a serialized window enumeration carries (`fingerprint.tables_value`, keyed on `fingerprint.table_code_paths`): nothing here builds a decision table or a font, and everything here runs against tables and an M1.otf that are already built. What licenses that is `rebuild/test_build_code_closure.py`, which walks the import graph from every build-side module and from `run_m1.run` and fails the moment either reaches this module. The consequence is the workflow `run_m1 --gates-only` exists for: an edit to `classify_divergence`, a predicate, `SS10_UNCOVERED_BY_OLD_FONT`, `compile_ledger`, `_match_compiled`, or to the position channel in oracle_positions.py leaves every enumeration on disk exactly as fresh as it was, so the oracle re-adjudicates against them rather than waiting on a rebuild that would return the same bytes. The whole-run record does not narrow: both files are still in `fingerprint.pipeline_code_paths`, so the Stage A `pipeline_code` component, the artifact cycle's run_m1 green and the review surface's stamp all still move on an edit here.
 
-The producer of what the oracle classifies stays in conform.py: `_compare_row` and the memoized `_SettledWindowWalk` are the two entry points the oracle row cache's stamp is cut from (`oracle_cache.ORACLE_ROW_CODE_PATHS`), and the codec between a fresh `DivergentRow` and a stored record (`_cached_verdict`, `_served_verdict`) and the served-sample verification live beside them. This module imports those and is imported by nothing under that stamp, which is what lets a classifier edit serve every row from the store: `rebuild/test_oracle_code_closure.py` holds conform.py to that.
+The producer of what the oracle classifies stays in conform.py: `_compare_row` and the memoized `_SettledWindowWalk` are the two entry points the oracle row cache's stamp is cut from (`oracle_cache.ORACLE_ROW_CODE_PATHS`), and the codec between a fresh `DivergentRow` and a stored record (`_cached_verdict`, `_served_verdict`) and the served-sample verification live beside them. This module imports those and is imported by nothing under that stamp, which is what lets a classifier edit serve every row from the store: `rebuild/test_oracle_code_closure.py` holds conform.py to that. The position channel — `_position_drift`, `_kern_normalized_positions`, `KernEvaluator`, the position record codec and the served-position verifier — is rebuild/pipeline/oracle_positions.py, the one module `oracle_cache.POSITION_CODE_PATHS` names, and it never imports this file, so the same classifier edit serves every stored position too; the same test walks from it and holds that direction. `_compare_config` reaches the channel through the module name rather than through imported symbols, so a monkeypatch over `oracle_positions._position_drift` reaches the renewal slice and the verifier alike.
 
 `compare_against_baseline` streams the filtered sub-tables, settles every row through a walk of its own (or, when the caller hands down an `OracleRowCache`, takes the row's pre-position verdict off the previous pass's store and walks only what an edit can still reach — see rebuild/pipeline/oracle_cache.py for what that key does and does not cover), compares ligation, seams and cells against the alias map, classifies each divergent row through `_match_compiled` against the `CompiledLedger` each worker builds once from `rebuild/m1-divergences.yaml` (`compile_ledger`), and shapes the rows the ledger calls ink-identical against M1.otf to diff drawn positions — or takes that answer off the same store, under the position key that adds the font's per-family glyphs and the kern sidecar, and re-shapes only the rows an edit can still reach. The unit run_m1 fans out is a row range of one configuration's table (`OracleShard`, planned by `oracle_shard_plan` over the box's width): `oracle_config_worker` runs `_compare_config` over that range in its own process, writing its own audit segment under `oracle_audit_scratch` for `join_oracle_audit` to concatenate in row order and its own store segment for `oracle_cache.join_store_segments` to join the same way, and `merge_config_shards` folds the ranges' tallies back into one configuration's result. The split changes no byte and no number, because `_compare_config` is addressed by absolute row index throughout — the store's records, the renewal slice and the verification draws all key on the row's ordinal in the table — so a range is a self-contained segment of the same store and the same audit. The overlay configuration (ss10) is compared against a stream no table produced: its rows walk through `conform.IsolatedOverlayWalk`, which answers every letter bare from the registry alone, and its position channel shapes through `conform.IsolatedOverlayShaper`, the twins' `hmtx` advances in place of HarfBuzz — both licensed by read-back's isolation proof and the belt's overlay arm — so the old font's ss10 rows are held against "all bare", a function of the baseline and the alphabet, with no settlement and no shaping spent on them.
 """
@@ -23,7 +23,7 @@ from typing import Callable, Container, Iterable, Iterator, Mapping, Sequence, T
 
 import yaml
 
-from rebuild.pipeline import baseline_subset, geometry, kernel_exec, oracle_cache, settle
+from rebuild.pipeline import baseline_subset, kernel_exec, oracle_cache, oracle_positions, settle
 from rebuild.pipeline.conform import (
     ACCEPTANCE_CONFIGS,
     OVERLAY_CONFIGS,
@@ -42,7 +42,7 @@ from rebuild.pipeline.labels import BOUNDARY_GLYPH_NAMES, features_for_config, l
 from rebuild.pipeline.model import ResolvedSpec, isolated_overlay_active
 from rebuild.pipeline.spec_load import DEFAULT_REGISTRY_PATH
 from rebuild.tools.peak_rss import peak_rss_self_bytes
-from rebuild.validation.rowmodel import Row, format_codepoints, iter_rows
+from rebuild.validation.rowmodel import format_codepoints, iter_rows
 
 # The same bound on the oracle's side, where the texts arrive as baseline rows rather than as a product.
 ORACLE_ROW_CHUNK = 65536
@@ -565,168 +565,6 @@ def _match_ledger(ledger: Sequence[Mapping], row: DivergentRow) -> list[str]:
     return _match_compiled(compile_ledger(ledger), row)
 
 
-ZWNJ_CODEPOINT = 0x200C
-
-
-def _kern_normalized_positions(
-    kern: "KernEvaluator | None", row: Row, pixel: int
-) -> tuple[tuple[tuple[int, int, int], ...], tuple[bool, ...]]:
-    """The baseline row's per-slot position triples with sidecar kerns subtracted from the old advances (the new font emits no kerning), plus a per-slot kern-attribution mask: True where the slot's old advance carried a nonzero sidecar kern or sits on a ZWNJ adjacency. The kern partner of a slot is the next non-ZWNJ glyph: uni200C is default-ignorable, so HarfBuzz's GPOS pair matching skips it and the old font kerns straight across a ZWNJ (verified against the baseline — ·Oy ZWNJ ·Pea carries the ·Oy·Pea kern)."""
-
-    def slot_is_zwnj(index: int) -> bool:
-        return row.codepoints[row.clusters[index]] == ZWNJ_CODEPOINT
-
-    expected: list[tuple[int, int, int]] = []
-    attributable: list[bool] = []
-    for index, (glyph, (x, y, advance)) in enumerate(zip(row.glyphs, row.positions)):
-        kern_value = 0
-        zwnj_adjacent = False
-        if not slot_is_zwnj(index):
-            partner = index + 1
-            while partner < len(row.glyphs) and slot_is_zwnj(partner):
-                zwnj_adjacent = True
-                partner += 1
-            if kern is not None and partner < len(row.glyphs):
-                kern_value = kern.value_for(glyph, row.glyphs[partner]) * pixel
-        else:
-            zwnj_adjacent = True
-        expected.append((x, y, advance - kern_value))
-        attributable.append(bool(kern_value) or zwnj_adjacent)
-    return tuple(expected), tuple(attributable)
-
-
-def _position_drift(
-    shaper: "Shaper | IsolatedOverlayShaper", kern: "KernEvaluator | None", features: frozenset[str], row: Row
-) -> tuple[tuple[str, ...], bool] | None:
-    """Shape the row's positions against the new font through the shaper's position projection, the offsets and advances alone, and diff drawn positions against the kern-normalized baseline. The comparison is visual, not encoding-level: per-slot glyph origins (pen + x_offset, y_offset) plus the run's total advance, because the two fonts legitimately decompose a seam differently between the left glyph's advance and the right glyph's x_offset while drawing the identical join. Returns (drift descriptions, kern-attributable) or None when every slot and the total match."""
-    shaped = shaper.positions(row.text, features)
-    if len(shaped) != len(row.glyphs):
-        return ((f"slot-count {len(row.glyphs)} (old) vs {len(shaped)} (new)",), False)
-    expected, attributable = _kern_normalized_positions(kern, row, geometry.PIXEL)
-    drifts: list[str] = []
-    kern_attributable = True
-    pen_old = 0
-    pen_new = 0
-    upstream_attributable = False
-    for index, ((x, y, advance), (new_x_offset, new_y_offset, new_advance)) in enumerate(
-        zip(expected, shaped)
-    ):
-        want = (pen_old + x, y)
-        got = (pen_new + new_x_offset, new_y_offset)
-        if got != want:
-            drifts.append(f"slot {index} ({row.glyphs[index]}): origin want {want}, got {got}")
-            kern_attributable = kern_attributable and upstream_attributable
-        pen_old += advance
-        pen_new += new_advance
-        upstream_attributable = upstream_attributable or attributable[index]
-    if pen_old != pen_new:
-        drifts.append(f"total advance: want {pen_old}, got {pen_new}")
-        kern_attributable = kern_attributable and upstream_attributable
-    if not drifts:
-        return None
-    return (tuple(drifts), kern_attributable)
-
-
-def _cached_position(drift: tuple[tuple[str, ...], bool] | None) -> oracle_cache.CachedPosition | None:
-    """A fresh position answer as the store holds it — `None` for a row that matched, the drift descriptions and the kern flag otherwise."""
-    return None if drift is None else oracle_cache.CachedPosition(drifts=drift[0], kern_attributable=drift[1])
-
-
-def _served_position(cached: oracle_cache.CachedPosition | None) -> tuple[tuple[str, ...], bool] | None:
-    """A stored position verdict back in the shape `_position_drift` answers, so everything after the channel cannot tell a served row from a freshly shaped one."""
-    return None if cached is None else (cached.drifts, cached.kern_attributable)
-
-
-def _verify_served_positions(
-    shaper: "Shaper | IsolatedOverlayShaper",
-    kern: "KernEvaluator | None",
-    features: frozenset[str],
-    store: "oracle_cache.RowStore",
-    sample: "oracle_cache.VerificationSample",
-) -> None:
-    """The position channel's half of `conform._verify_served_sample`: re-shape the pass's stratified sample of served positions through HarfBuzz and prove each against the record it was served from. The sample is drawn per family over the rows whose position was served, so a family whose glyphs moved under a key that failed to notice is caught with probability one; a mismatch is a hard stop for the same reason a row mismatch is — the audit is a fingerprinted artifact and a stale position in it reads as green forever. The sampled rows ride the sample itself, each winner carrying the `Row` the main loop offered it with, so nothing here re-reads the table."""
-    for index, row in sample.sampled_rows():
-        fresh = _cached_position(_position_drift(shaper, kern, features, row))
-        recorded = store.serve(index, row.codepoints).position
-        if fresh != recorded:
-            raise SystemExit(
-                f"the oracle position store served a stale verdict for {format_codepoints(row.codepoints)}: it holds {recorded}, and shaping the row again gives {fresh} — nothing this store holds can be trusted, so rerun with --fresh-oracle-cache and treat the difference as a staleness bug in the position key"
-            )
-
-
-class KernEvaluator:
-    """Read-only evaluation of glyph_data/senior_quikscript_kerning.yaml over old-name glyph pairs, for adding sidecar kerns back before any baseline position diff. Family keys expand by name prefix against the supplied pair, mirroring the sidecar's documented expansion. Every answer is a pure function of the pair and the sidecar is read once, so pairs are memoized: the oracle asks about a few thousand distinct pairs across millions of slots, and the uncached scan over every sidecar rule was the bulk of the position channel."""
-
-    def __init__(self, sidecar_path: Path):
-        self._values: dict[tuple[str, str], int] = {}
-        documents = [
-            document
-            for document in yaml.safe_load_all(Path(sidecar_path).read_text())
-            if isinstance(document, dict)
-        ]
-        self.global_value = 0
-        self.rules: list[dict] = []
-        for document in documents:
-            if "global" in document:
-                self.global_value += document["global"].get("value", 0)
-            else:
-                self.rules.append(document)
-
-    @staticmethod
-    def _side_matches(glyph: str, names: list[str] | None, kind: str) -> bool:
-        if names is None:
-            return True
-        for name in names:
-            if kind == "exact" and glyph == name:
-                return True
-            if kind in ("family", "stance") and (glyph == name or glyph.startswith(name + ".")):
-                return True
-        return False
-
-    def value_for(self, left_glyph: str, right_glyph: str) -> int:
-        cached = self._values.get((left_glyph, right_glyph))
-        if cached is None:
-            cached = self._value_for(left_glyph, right_glyph)
-            self._values[(left_glyph, right_glyph)] = cached
-        return cached
-
-    def _value_for(self, left_glyph: str, right_glyph: str) -> int:
-        total = self.global_value
-        for rule in self.rules:
-            left_ok = (
-                self._side_matches(left_glyph, rule.get("left_family"), "family")
-                if "left_family" in rule
-                else (
-                    self._side_matches(left_glyph, rule.get("left_stance"), "stance")
-                    if "left_stance" in rule
-                    else self._side_matches(left_glyph, rule.get("left"), "exact") if "left" in rule else True
-                )
-            )
-            if not left_ok:
-                continue
-            for prefix in rule.get("except_left", ()):
-                if left_glyph == prefix or left_glyph.startswith(prefix + "."):
-                    left_ok = False
-            if not left_ok:
-                continue
-            if "right_group" in rule:
-                right_ok = rule["right_group"] == "noentry" and right_glyph.endswith(".noentry")
-            elif "right_family" in rule:
-                right_ok = self._side_matches(right_glyph, rule["right_family"], "family")
-            elif "right_stance" in rule:
-                right_ok = self._side_matches(right_glyph, rule["right_stance"], "stance")
-            elif "right" in rule:
-                right_ok = self._side_matches(right_glyph, rule["right"], "exact")
-            else:
-                right_ok = True
-            for prefix in rule.get("except_right", ()):
-                if right_glyph == prefix or right_glyph.startswith(prefix + "."):
-                    right_ok = False
-            if right_ok:
-                total += rule.get("value", 0)
-        return total
-
-
 ORACLE_AUDIT_HEADER = "config\tcodepoints\tkinds\tmatched_entry\tbaseline\tnew"
 
 
@@ -831,7 +669,7 @@ def _compare_config(
     ledger: CompiledLedger,
     ink_identical_ids,
     shaper: "Shaper | IsolatedOverlayShaper | None",
-    kern: "KernEvaluator | None",
+    kern: "oracle_positions.KernEvaluator | None",
     guard_verdicts: settle.FormationGuard | None,
     audit: TextIO | None,
     *,
@@ -926,12 +764,12 @@ def _compare_config(
                 if topology_clean and class_claims_ink_identity:
                     if carried is not None and store is not None and position_sample is not None:
                         assert not isinstance(position, oracle_cache._Unshaped)
-                        drift = _served_position(position)
+                        drift = oracle_positions._served_position(position)
                         store.positions_served += 1
                         position_sample.offer(index, row, carried[1])
                     else:
-                        drift = _position_drift(shaper, kern, features, row)
-                        position, position_at = _cached_position(drift), this_pass
+                        drift = oracle_positions._position_drift(shaper, kern, features, row)
+                        position, position_at = oracle_positions._cached_position(drift), this_pass
                     result.positions_compared += 1
                     if drift is not None:
                         drift_notes, kern_attributable = drift
@@ -1001,7 +839,7 @@ def _compare_config(
     if store is not None and sample is not None:
         _verify_served_sample(spec, aliases, config, features, walker, store, sample)
     if store is not None and position_sample is not None and shaper is not None:
-        _verify_served_positions(shaper, kern, features, store, position_sample)
+        oracle_positions._verify_served_positions(shaper, kern, features, store, position_sample)
     memo_line = walker.memo_line(label, walker.save_memo())
     if memo_line is not None:
         print(memo_line, file=sys.stderr, flush=True)
@@ -1036,8 +874,8 @@ def oracle_config_worker(
     ledger = compile_ledger(entries)
     features = features_for_config(config)
     overlay = isolated_overlay_active(spec, features)
-    shaper = _shaper_for(spec, font_path, overlay)
-    kern = KernEvaluator(Path(kern_sidecar_path)) if kern_sidecar_path is not None else None
+    shaper = oracle_positions._shaper_for(spec, font_path, overlay)
+    kern = oracle_positions.KernEvaluator(Path(kern_sidecar_path)) if kern_sidecar_path is not None else None
     segment_path = oracle_audit_shard(audit_dir, config, shard.segment)
     segment_path.parent.mkdir(parents=True, exist_ok=True)
     store, writer = open_row_cache(row_cache, spec, config, shard.segment)
@@ -1066,17 +904,6 @@ def oracle_config_worker(
             stop_row=shard.stop_row,
             label=shard.label,
         )
-
-
-def _shaper_for(
-    spec: ResolvedSpec, font_path: Path | None, overlay: bool
-) -> "Shaper | IsolatedOverlayShaper | None":
-    """The position channel's shaper for one configuration: none without a font, the synthetic overlay shaper under an isolated overlay, HarfBuzz otherwise."""
-    if font_path is None:
-        return None
-    if overlay:
-        return IsolatedOverlayShaper(Path(font_path), spec)
-    return Shaper(Path(font_path))
 
 
 def merge_config_shards(results: Sequence[OracleConfigResult]) -> OracleConfigResult:
@@ -1147,7 +974,7 @@ def compare_against_baseline(
     ink_identical_ids = {entry.get("id") for entry in entries if entry.get("ink_identical")}
     ledger = compile_ledger(entries)
     shapers: dict[bool, "Shaper | IsolatedOverlayShaper | None"] = {}
-    kern = KernEvaluator(Path(kern_sidecar_path)) if kern_sidecar_path is not None else None
+    kern = oracle_positions.KernEvaluator(Path(kern_sidecar_path)) if kern_sidecar_path is not None else None
     guard_verdicts: settle.FormationGuard | None = None
     started = time.perf_counter()
 
@@ -1162,7 +989,7 @@ def compare_against_baseline(
             features = features_for_config(config)
             overlay = isolated_overlay_active(spec, features)
             if overlay not in shapers:
-                shapers[overlay] = _shaper_for(spec, font_path, overlay)
+                shapers[overlay] = oracle_positions._shaper_for(spec, font_path, overlay)
             if not overlay and guard_verdicts is None:
                 guard_verdicts = kernel_exec.guard_sweep(spec)
             store, writer = open_row_cache(row_cache, spec, config)

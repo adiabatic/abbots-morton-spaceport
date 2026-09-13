@@ -3421,6 +3421,7 @@ def test_gates_only_reuse_licenses_only_a_diff_the_tables_stamp_cannot_see():
         "glyph_data/runes/qsX.yaml": "r1",
         "rebuild/m1-divergences.yaml": "d1",
         "rebuild/pipeline/oracle.py": "o1",
+        "rebuild/pipeline/oracle_positions.py": "p1",
         "uv.lock": "l1",
     }
     record = {"files": dict(stored)}
@@ -3440,6 +3441,9 @@ def test_gates_only_reuse_licenses_only_a_diff_the_tables_stamp_cannot_see():
     assert ac.moved_inputs_note(record, ledger) == (
         "rebuild/m1-divergences.yaml (changed), rebuild/pipeline/oracle.py (changed)"
     )
+    assert ac.gates_only_reuse(record, {**stored, "rebuild/pipeline/oracle_positions.py": "p2"}) == [
+        "rebuild/pipeline/oracle_positions.py"
+    ]
 
     assert ac.gates_only_reuse(record, {**stored, "baseline-default.subset.tsv.gz": "s1"}) == [
         "baseline-default.subset.tsv.gz"
@@ -3618,16 +3622,21 @@ def test_oracle_cache_note_speaks_the_labels_a_skip_miss_actually_reports():
     )
     note = ac.oracle_cache_note(f"{rune} (changed), {code} (changed)")
     assert note is not None and note.startswith("the oracle row cache drops whole")
-    for positional in ("rebuild/pipeline/oracle.py", "glyph_data/senior_quikscript_kerning.yaml", "uv.lock"):
+    for positional in (
+        "rebuild/pipeline/oracle_positions.py",
+        "glyph_data/senior_quikscript_kerning.yaml",
+        "uv.lock",
+    ):
         assert (
             ac.oracle_cache_note(f"{positional} (changed)")
             == f"the oracle row cache keeps its rows and re-shapes every position: {positional} is inside its position stamp"
         )
-    note = ac.oracle_cache_note(f"{rune} (changed), rebuild/pipeline/oracle.py (changed)")
+    note = ac.oracle_cache_note(f"{rune} (changed), rebuild/pipeline/oracle_positions.py (changed)")
     assert note is not None and note.startswith("the oracle row cache keeps its rows")
-    note = ac.oracle_cache_note(f"{code} (changed), rebuild/pipeline/oracle.py (changed)")
+    note = ac.oracle_cache_note(f"{code} (changed), rebuild/pipeline/oracle_positions.py (changed)")
     assert note is not None and note.startswith("the oracle row cache drops whole")
     assert ac.oracle_cache_note("rebuild/m1-divergences.yaml (changed)") is None
+    assert ac.oracle_cache_note("rebuild/pipeline/oracle.py (changed)") is None
     assert ac.oracle_cache_note(f"{rune} (changed) and 4 more") is None
     assert ac.oracle_cache_note(None) is None
 
