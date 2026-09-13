@@ -105,6 +105,10 @@ policy:
         class: halves-that-exit-at-x-height
         except:
         - {family: qsPea}
-  contract: []
+  contract:
+  - exit: baseline
+    by: 1
+    when:
+      right: {family: qsNo}
   resolve: []
   groups: {}
