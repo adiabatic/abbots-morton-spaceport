@@ -1,10 +1,10 @@
 """The section 6 baseline oracle (M1-PLAN section 6, Group 3): the settlement function against the section 13.1 baseline, one configuration at a time, with every divergent row classified into the divergence ledger and the position channel diffed against the kern-normalized old positions.
 
-This is the comparison side of the pipeline, split from conform.py so that it can sit outside the stamp a serialized window enumeration carries (`fingerprint.tables_value`, keyed on `fingerprint.table_code_paths`): nothing here builds a decision table or a font, and everything here runs against tables and an M1.otf that are already built. What licenses that is `rebuild/test_build_code_closure.py`, which walks the import graph from every build-side module and from `run_m1.run` and fails the moment either reaches this module. The consequence is the workflow `run_m1 --gates-only` exists for: an edit to `classify_divergence`, a predicate, `SS10_UNCOVERED_BY_OLD_FONT`, `_match_ledger` or the position channel leaves every enumeration on disk exactly as fresh as it was, so the oracle re-adjudicates against them rather than waiting on a rebuild that would return the same bytes. The whole-run record does not narrow: this file is still `fingerprint.pipeline_code_paths`, so the Stage A `pipeline_code` component, the artifact cycle's run_m1 green and the review surface's stamp all still move on an edit here.
+This is the comparison side of the pipeline, split from conform.py so that it can sit outside the stamp a serialized window enumeration carries (`fingerprint.tables_value`, keyed on `fingerprint.table_code_paths`): nothing here builds a decision table or a font, and everything here runs against tables and an M1.otf that are already built. What licenses that is `rebuild/test_build_code_closure.py`, which walks the import graph from every build-side module and from `run_m1.run` and fails the moment either reaches this module. The consequence is the workflow `run_m1 --gates-only` exists for: an edit to `classify_divergence`, a predicate, `SS10_UNCOVERED_BY_OLD_FONT`, `compile_ledger`, `_match_compiled` or the position channel leaves every enumeration on disk exactly as fresh as it was, so the oracle re-adjudicates against them rather than waiting on a rebuild that would return the same bytes. The whole-run record does not narrow: this file is still `fingerprint.pipeline_code_paths`, so the Stage A `pipeline_code` component, the artifact cycle's run_m1 green and the review surface's stamp all still move on an edit here.
 
 The producer of what the oracle classifies stays in conform.py: `_compare_row` and the memoized `_SettledWindowWalk` are the two entry points the oracle row cache's stamp is cut from (`oracle_cache.ORACLE_ROW_CODE_PATHS`), and the codec between a fresh `DivergentRow` and a stored record (`_cached_verdict`, `_served_verdict`) and the served-sample verification live beside them. This module imports those and is imported by nothing under that stamp, which is what lets a classifier edit serve every row from the store: `rebuild/test_oracle_code_closure.py` holds conform.py to that.
 
-`compare_against_baseline` streams the filtered sub-tables, settles every row through a walk of its own (or, when the caller hands down an `OracleRowCache`, takes the row's pre-position verdict off the previous pass's store and walks only what an edit can still reach — see rebuild/pipeline/oracle_cache.py for what that key does and does not cover), compares ligation, seams and cells against the alias map, classifies each divergent row through `_match_ledger`, and shapes the rows the ledger calls ink-identical against M1.otf to diff drawn positions — or takes that answer off the same store, under the position key that adds the font's per-family glyphs and the kern sidecar, and re-shapes only the rows an edit can still reach. The unit run_m1 fans out is a row range of one configuration's table (`OracleShard`, planned by `oracle_shard_plan` over the box's width): `oracle_config_worker` runs `_compare_config` over that range in its own process, writing its own audit segment under `oracle_audit_scratch` for `join_oracle_audit` to concatenate in row order and its own store segment for `oracle_cache.join_store_segments` to join the same way, and `merge_config_shards` folds the ranges' tallies back into one configuration's result. The split changes no byte and no number, because `_compare_config` is addressed by absolute row index throughout — the store's records, the renewal slice and the verification draws all key on the row's ordinal in the table — so a range is a self-contained segment of the same store and the same audit. The overlay configuration (ss10) is compared against a stream no table produced: its rows walk through `conform.IsolatedOverlayWalk`, which answers every letter bare from the registry alone, and its position channel shapes through `conform.IsolatedOverlayShaper`, the twins' `hmtx` advances in place of HarfBuzz — both licensed by read-back's isolation proof and the belt's overlay arm — so the old font's ss10 rows are held against "all bare", a function of the baseline and the alphabet, with no settlement and no shaping spent on them.
+`compare_against_baseline` streams the filtered sub-tables, settles every row through a walk of its own (or, when the caller hands down an `OracleRowCache`, takes the row's pre-position verdict off the previous pass's store and walks only what an edit can still reach — see rebuild/pipeline/oracle_cache.py for what that key does and does not cover), compares ligation, seams and cells against the alias map, classifies each divergent row through `_match_compiled` against the `CompiledLedger` each worker builds once from `rebuild/m1-divergences.yaml` (`compile_ledger`), and shapes the rows the ledger calls ink-identical against M1.otf to diff drawn positions — or takes that answer off the same store, under the position key that adds the font's per-family glyphs and the kern sidecar, and re-shapes only the rows an edit can still reach. The unit run_m1 fans out is a row range of one configuration's table (`OracleShard`, planned by `oracle_shard_plan` over the box's width): `oracle_config_worker` runs `_compare_config` over that range in its own process, writing its own audit segment under `oracle_audit_scratch` for `join_oracle_audit` to concatenate in row order and its own store segment for `oracle_cache.join_store_segments` to join the same way, and `merge_config_shards` folds the ranges' tallies back into one configuration's result. The split changes no byte and no number, because `_compare_config` is addressed by absolute row index throughout — the store's records, the renewal slice and the verification draws all key on the row's ordinal in the table — so a range is a self-contained segment of the same store and the same audit. The overlay configuration (ss10) is compared against a stream no table produced: its rows walk through `conform.IsolatedOverlayWalk`, which answers every letter bare from the registry alone, and its position channel shapes through `conform.IsolatedOverlayShaper`, the twins' `hmtx` advances in place of HarfBuzz — both licensed by read-back's isolation proof and the belt's overlay arm — so the old font's ss10 rows are held against "all bare", a function of the baseline and the alphabet, with no settlement and no shaping spent on them.
 """
 
 from __future__ import annotations
@@ -19,7 +19,7 @@ import time
 from contextlib import ExitStack, contextmanager, suppress
 from dataclasses import dataclass, field, replace
 from pathlib import Path
-from typing import Callable, Iterable, Iterator, Mapping, Sequence, TextIO
+from typing import Callable, Container, Iterable, Iterator, Mapping, Sequence, TextIO
 
 import yaml
 
@@ -351,7 +351,7 @@ def _class_predicate(class_id: str) -> Callable[[DivergentRow], bool]:
     return matches
 
 
-# The ledger entries whose predicate is nothing but "classify_divergence chose this class". `_match_ledger` reads the class id straight out of this map and classifies each row once, where letting every one of these closures re-classify cost the oracle its slowest microsecond per divergent row; the three predicates below, which ask something classification cannot, keep functions of their own.
+# The ledger entries whose predicate is nothing but "classify_divergence chose this class". `compile_ledger` files each such entry under its class id straight out of this map and `_match_compiled` classifies each row once and looks the class up, where letting every one of these closures re-classify cost the oracle its slowest microsecond per divergent row; the three predicates below, which ask something classification cannot, keep functions of their own.
 CLASS_PREDICATE_IDS: dict[str, str] = {}
 
 for _class_id in (
@@ -486,34 +486,83 @@ def _ss10_isolation_completed(row: DivergentRow) -> bool:
     return saw_loss
 
 
-def _match_ledger(ledger: list[dict], row: DivergentRow) -> list[str]:
-    """Every ledger entry this row matches, in ledger order — all of them, so the caller can still tell a single match from the two-plus that fail the ledger. The row is classified once here and each class-grain entry compares against that answer (CLASS_PREDICATE_IDS); the entries asking something else keep their own predicate."""
-    classified = classify_divergence(row)
-    matches: list[str] = []
-    for entry in ledger:
+@dataclass(frozen=True)
+class CompiledLedger:
+    """The divergence ledger read once and filed by what each entry's `match` asks, so the per-row match is a class lookup rather than a walk of every entry's dicts. Every filed entry carries its ledger index, because the match list is reported in ledger order and a two-plus match is filed as a multi-match from it, and the buckets are separate so a hit in two of them is put back in that order before it is returned. `by_class` is keyed on the class id a `CLASS_PREDICATE_IDS` entry names; `functions` holds the entries whose predicate is a function of the row; `unconditional` holds the entries with no predicate at all, which match every row their `window` and `seam_change` admit — an empty `match` matches every row, and `_compare_config`'s ink-identical fixture ledger in rebuild/test_conform.py is one. `configs` is `None` for an entry open to every configuration and otherwise the container `row.config` is tested against. The object holds bound functions, so it is built on the worker's side of the pipe (`oracle_config_worker`) and never pickled."""
+
+    by_class: Mapping[str, tuple[tuple[int, str, Container[str] | None], ...]]
+    functions: tuple[tuple[int, str, Container[str] | None, Callable[[DivergentRow], bool]], ...]
+    unconditional: tuple[tuple[int, str, Container[str] | None, str | None, bool], ...]
+
+
+def compile_ledger(entries: Sequence[Mapping]) -> CompiledLedger:
+    """The raw ledger (`yaml.safe_load` of rebuild/m1-divergences.yaml) as a `CompiledLedger`. An entry without an `id` is filed as `<unnamed>`. `configs: all` compiles to `None`; a list compiles to a frozenset; a bare string is kept as it is, so it keeps the `in` test the raw walk gives it; anything else (a `configs:` with no value) is refused here, when the ledger compiles, rather than matching every configuration in silence. An entry whose predicate is in neither `CLASS_PREDICATE_IDS` nor `PREDICATES` is filed nowhere: it can match no row, and dropping it here is the same answer the raw walk gives it, not a lost entry."""
+    by_class: dict[str, list[tuple[int, str, Container[str] | None]]] = {}
+    functions: list[tuple[int, str, Container[str] | None, Callable[[DivergentRow], bool]]] = []
+    unconditional: list[tuple[int, str, Container[str] | None, str | None, bool]] = []
+    for index, entry in enumerate(entries):
         match = entry.get("match", {})
-        entry_configs = match.get("configs", "all")
-        if entry_configs != "all" and row.config not in entry_configs:
-            continue
-        predicate_name = match.get("predicate")
-        if predicate_name is not None:
-            class_id = CLASS_PREDICATE_IDS.get(predicate_name)
-            if class_id is not None:
-                if classified != class_id:
-                    continue
-            else:
-                function = PREDICATES.get(predicate_name)
-                if function is None or not function(row):
-                    continue
+        entry_id = entry.get("id", "<unnamed>")
+        raw_configs = match.get("configs", "all")
+        configs: Container[str] | None
+        if raw_configs == "all":
+            configs = None
+        elif isinstance(raw_configs, (list, tuple, set, frozenset)):
+            configs = frozenset(raw_configs)
+        elif isinstance(raw_configs, str):
+            configs = raw_configs
         else:
-            window = match.get("window")
-            if window is not None and window not in row.codepoints:
-                continue
-            seam_change = match.get("seam_change")
-            if seam_change is not None and "seam" not in row.kinds:
-                continue
-        matches.append(entry.get("id", "<unnamed>"))
-    return matches
+            raise TypeError(
+                f"ledger entry {entry_id!r}: `configs` must be `all` or a list of configurations, not {raw_configs!r}"
+            )
+        predicate_name = match.get("predicate")
+        if predicate_name is None:
+            unconditional.append(
+                (index, entry_id, configs, match.get("window"), match.get("seam_change") is not None)
+            )
+            continue
+        class_id = CLASS_PREDICATE_IDS.get(predicate_name)
+        if class_id is not None:
+            by_class.setdefault(class_id, []).append((index, entry_id, configs))
+            continue
+        function = PREDICATES.get(predicate_name)
+        if function is not None:
+            functions.append((index, entry_id, configs, function))
+    return CompiledLedger(
+        by_class={class_id: tuple(filed) for class_id, filed in by_class.items()},
+        functions=tuple(functions),
+        unconditional=tuple(unconditional),
+    )
+
+
+def _match_compiled(compiled: CompiledLedger, row: DivergentRow) -> list[str]:
+    """Every ledger entry this row matches, in ledger order — all of them, so the caller can still tell a single match from the two-plus that fail the ledger. The row is classified once and the class looked up in `by_class`; the function-predicate entries run only where their `configs` admit the row's configuration; the unconditional entries apply their `window` and `seam_change` tests. Hits are sorted back into ledger order only when more than one bucket answered."""
+    classified = classify_divergence(row)
+    config = row.config
+    hits: list[tuple[int, str]] = []
+    if classified is not None:
+        for index, entry_id, configs in compiled.by_class.get(classified, ()):
+            if configs is None or config in configs:
+                hits.append((index, entry_id))
+    for index, entry_id, configs, function in compiled.functions:
+        if (configs is None or config in configs) and function(row):
+            hits.append((index, entry_id))
+    for index, entry_id, configs, window, needs_seam in compiled.unconditional:
+        if configs is not None and config not in configs:
+            continue
+        if window is not None and window not in row.codepoints:
+            continue
+        if needs_seam and "seam" not in row.kinds:
+            continue
+        hits.append((index, entry_id))
+    if len(hits) > 1:
+        hits.sort()
+    return [entry_id for _index, entry_id in hits]
+
+
+def _match_ledger(ledger: Sequence[Mapping], row: DivergentRow) -> list[str]:
+    """Every ledger entry this row matches, in ledger order, straight from the raw ledger: `compile_ledger` then `_match_compiled`, so the answer is the compiled matcher's by construction. This is the form for a test or a probe holding a raw list; `_compare_config` takes the `CompiledLedger` its caller built once and calls `_match_compiled` directly."""
+    return _match_compiled(compile_ledger(ledger), row)
 
 
 ZWNJ_CODEPOINT = 0x200C
@@ -777,7 +826,7 @@ def _compare_config(
     config: str,
     features: frozenset[str],
     aliases,
-    ledger,
+    ledger: CompiledLedger,
     ink_identical_ids,
     shaper: "Shaper | IsolatedOverlayShaper | None",
     kern: "KernEvaluator | None",
@@ -808,7 +857,7 @@ def _compare_config(
         walker = _SettledWindowWalk(spec, features, {}, guard_verdicts, memo=settle_memo)
     config_started = time.perf_counter()
     rows = iter_rows(table_path, first_row, stop_row)
-    # Only the stale rows are walked; a served row's pre-position verdict comes back off the store and enters `_match_ledger` in the same state a fresh one does, and the chunk is re-read in table order afterward so the audit's bytes cannot depend on the partition. The verification samples ride on serving rather than on writing, because a pass that may read the store and not write one (`--gates-only`) is exactly a pass whose verdicts all came out of it. The position verdict is served by the same record under its own key, and only where this pass's ledger still sends the row through the channel; a row the ledger excludes carries its stored verdict forward unread, so a later ledger edit that admits it again finds it.
+    # Only the stale rows are walked; a served row's pre-position verdict comes back off the store and enters `_match_compiled` in the same state a fresh one does, and the chunk is re-read in table order afterward so the audit's bytes cannot depend on the partition. The verification samples ride on serving rather than on writing, because a pass that may read the store and not write one (`--gates-only`) is exactly a pass whose verdicts all came out of it. The position verdict is served by the same record under its own key, and only where this pass's ledger still sends the row through the channel; a row the ledger excludes carries its stored verdict forward unread, so a later ledger edit that admits it again finds it.
     sample = (
         oracle_cache.VerificationSample(store.environment.value, store.coverage_ordinal)
         if store is not None
@@ -866,7 +915,7 @@ def _compare_config(
             position_at = this_pass
             if carried is not None:
                 position, position_at = carried[0].position, carried[0].position_age
-            matches = _match_ledger(ledger, divergent) if divergent is not None else []
+            matches = _match_compiled(ledger, divergent) if divergent is not None else []
             if shaper is not None:
                 topology_clean = divergent is None or not ({"ligation", "seam"} & set(divergent.kinds))
                 class_claims_ink_identity = divergent is None or (
@@ -904,7 +953,7 @@ def _compare_config(
                                 kinds=divergent.kinds + ("position",),
                                 phenomena=divergent.phenomena + phenomena + ("position-drift",),
                             )
-                        rematch = _match_ledger(ledger, divergent)
+                        rematch = _match_compiled(ledger, divergent)
                         # A kern-attributable position residue is out of scope (the kern channel), so it never demotes a cell-grain row that already matched a single ink-identical class — that row's ink-identity claim survives the kern bookkeeping. A non-kern-attributable drift is a genuine ink shift and is allowed to override the prior match (so the position channel can chase it to ground).
                         if not rematch and kern_attributable and prior_ink_match is not None:
                             matches = [prior_ink_match]
@@ -980,8 +1029,9 @@ def oracle_config_worker(
     """One config's oracle compare in its own process — or one row range's of it, when `shard` names the range — its audit rows written to that range's segment under `audit_dir` so only counts ride the result home. The section 5.7 verdict surface is swept here when the caller has none to pass down, exactly as the belt's worker sweeps its own — except by the overlay configuration's worker, which forms nothing and shapes through `IsolatedOverlayShaper` instead of HarfBuzz; a caller fanning out several ranges hands the sweep it made once down every submission instead. The row cache is opened here rather than handed in already open for the same reason the segment is: a spawned worker inherits no file handles, and opening it on this side of the pipe is what keeps this path and the serial one byte-equal. `settle_memo` is the belt's shared settle memo file for this configuration, read and written on this side of the pipe for the same reason; a range of a cut configuration carries one whose `write_path` is its own part, which the parent absorbs into the shared file once every range has landed."""
     shard = OracleShard(config) if shard is None else shard
     aliases = load_alias_map(alias_path)
-    ledger = yaml.safe_load(Path(ledger_path).read_text()) or []
-    ink_identical_ids = {entry.get("id") for entry in ledger if entry.get("ink_identical")}
+    entries = yaml.safe_load(Path(ledger_path).read_text()) or []
+    ink_identical_ids = {entry.get("id") for entry in entries if entry.get("ink_identical")}
+    ledger = compile_ledger(entries)
     features = features_for_config(config)
     overlay = isolated_overlay_active(spec, features)
     shaper = _shaper_for(spec, font_path, overlay)
@@ -1091,8 +1141,9 @@ def compare_against_baseline(
     settle_memos: Mapping[str, SettleMemoFile] | None = None,
 ) -> BaselineReport:
     aliases = load_alias_map(alias_path)
-    ledger = yaml.safe_load(Path(ledger_path).read_text()) or []
-    ink_identical_ids = {entry.get("id") for entry in ledger if entry.get("ink_identical")}
+    entries = yaml.safe_load(Path(ledger_path).read_text()) or []
+    ink_identical_ids = {entry.get("id") for entry in entries if entry.get("ink_identical")}
+    ledger = compile_ledger(entries)
     shapers: dict[bool, "Shaper | IsolatedOverlayShaper | None"] = {}
     kern = KernEvaluator(Path(kern_sidecar_path)) if kern_sidecar_path is not None else None
     guard_verdicts: settle.FormationGuard | None = None
