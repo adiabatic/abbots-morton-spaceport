@@ -39,6 +39,7 @@ def _fake_repo(tmp_path):
     (root / "rebuild" / "pipeline" / "table.py").write_text("TABLE = 1\n")
     (root / "rebuild" / "pipeline" / "conform.py").write_text("CONFORM = 1\n")
     (root / "rebuild" / "pipeline" / "oracle.py").write_text("ORACLE = 1\n")
+    (root / "rebuild" / "pipeline" / "oracle_positions.py").write_text("POSITIONS = 1\n")
     (root / "rebuild" / "kernel-rs" / "Cargo.toml").write_text("[package]\nname = 'kernel'\n")
     (root / "rebuild" / "kernel-rs" / "Cargo.lock").write_text("lock\n")
     (root / "rebuild" / "kernel-rs" / "src" / "guard.rs").write_text("const GUARD: bool = true;\n")
@@ -252,7 +253,7 @@ def test_table_data_lines_drop_exactly_the_comparison_side_inputs(tmp_path):
 def test_a_comparison_side_data_edit_moves_the_run_key_but_not_the_tables_stamp(tmp_path):
     """The whole point of the narrowing, and the line it must not cross. All three files are read by gates that consume a decision table — the oracle's naming and classification from the alias map and the divergence ledger, its position channel from the kern sidecar — so a serialized enumeration built before the edit still describes the sources on disk and `--gates-only` may re-adjudicate against it. They stay in `data_value` and so in the artifact cycle's run_m1 key, which is what decides whether the comparison re-runs at all, so narrowing the stamp cannot skip a gate.
 
-    The kern sidecar is the newest member and the one the roster has to keep honest: the font compile hands its builder an empty kerning map and never opens the file, so the only reader is `oracle.KernEvaluator`, and a sidecar edit that throws away an enumeration is spending a fixpoint on a table that would come back byte for byte.
+    The kern sidecar is the newest member and the one the roster has to keep honest: the font compile hands its builder an empty kerning map and never opens the file, so the only reader is `oracle_positions.KernEvaluator`, and a sidecar edit that throws away an enumeration is spending a fixpoint on a table that would come back byte for byte.
 
     The edit has to be structural rather than a comment, because one of the three hashes prose-blind now: a comment above the divergence ledger's entries moves nothing at all, which is the neighboring bargain and not a hole in this one.
     """
@@ -434,10 +435,11 @@ def test_the_tables_stamp_still_tracks_the_runes_and_the_pipeline_code(tmp_path)
 
 
 def test_an_oracle_code_edit_moves_the_run_key_but_not_the_tables_stamp(tmp_path):
-    """The code-side twin of the ledger narrowing above, and the line it must not cross either. rebuild/pipeline/oracle.py runs against tables and a font already built, so an edit there leaves the enumeration on disk describing the sources it came from and `--gates-only` may re-adjudicate against it; the file stays in `pipeline_code_paths`, so the Stage A record and the artifact cycle's run_m1 key still move and a full run still re-derives everything. conform.py holds the producer of what the oracle classifies and stays on the tables' side."""
+    """The code-side twin of the ledger narrowing above, and the line it must not cross either. rebuild/pipeline/oracle.py and rebuild/pipeline/oracle_positions.py run against tables and a font already built, so an edit to either leaves the enumeration on disk describing the sources it came from and `--gates-only` may re-adjudicate against it; both files stay in `pipeline_code_paths`, so the Stage A record and the artifact cycle's run_m1 key still move and a full run still re-derives everything. The position channel is asserted by name because `pipeline_code_paths` globs the whole of rebuild/pipeline/ and `COMPARISON_CODE_MODULES` is the only subtraction: a comparison-side module left off that roster rides the tables' stamp, and every edit to it forces a full build. conform.py holds the producer of what the oracle classifies and stays on the tables' side."""
     root = _fake_repo(tmp_path)
-    assert root / "rebuild" / "pipeline" / "oracle.py" not in fingerprint.table_code_paths(root)
-    assert root / "rebuild" / "pipeline" / "oracle.py" in fingerprint.pipeline_code_paths(root)
+    for name in ("oracle.py", "oracle_positions.py"):
+        assert root / "rebuild" / "pipeline" / name not in fingerprint.table_code_paths(root)
+        assert root / "rebuild" / "pipeline" / name in fingerprint.pipeline_code_paths(root)
     assert root / "rebuild" / "pipeline" / "conform.py" in fingerprint.table_code_paths(root)
     assert root / "rebuild" / "validation" / "shaping.py" in fingerprint.table_code_paths(root)
     assert root / "rebuild" / "kernel-rs" / "src" / "guard.rs" in fingerprint.table_code_paths(root)
@@ -450,6 +452,14 @@ def test_an_oracle_code_edit_moves_the_run_key_but_not_the_tables_stamp(tmp_path
     assert fingerprint.compute_all(root)["pipeline_code"] != before[0]
     assert fingerprint.tables_value(root) == before[1]
     assert artifact_cycle.run_m1_skip_fingerprint(root) != before[2]
+    moved_classifier = (
+        fingerprint.compute_all(root)["pipeline_code"],
+        artifact_cycle.run_m1_skip_fingerprint(root),
+    )
+    (root / "rebuild" / "pipeline" / "oracle_positions.py").write_text("POSITIONS = 2\n")
+    assert fingerprint.compute_all(root)["pipeline_code"] != moved_classifier[0]
+    assert fingerprint.tables_value(root) == before[1]
+    assert artifact_cycle.run_m1_skip_fingerprint(root) != moved_classifier[1]
     (root / "rebuild" / "pipeline" / "conform.py").write_text("CONFORM = 2\n")
     assert fingerprint.tables_value(root) != before[1]
 

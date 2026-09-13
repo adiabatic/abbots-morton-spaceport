@@ -25,6 +25,7 @@ from rebuild.pipeline import (
     labels,
     oracle,
     oracle_cache,
+    oracle_positions,
     run_m1,
     settle,
 )
@@ -573,7 +574,7 @@ class TestKernEvaluator:
             "right_group: noentry\n"
             "value: -3\n"
         )
-        evaluator = oracle.KernEvaluator(sidecar)
+        evaluator = oracle_positions.KernEvaluator(sidecar)
         assert evaluator.value_for("qsBay.en-y0", "qsTea") == -1
         assert evaluator.value_for("qsBay", "qsTea.half.ex-y5") == -1
         assert evaluator.value_for("qsNo.alt.en-y5", "qsPea") == -2
@@ -584,11 +585,11 @@ class TestKernEvaluator:
     def test_global_record(self, tmp_path):
         sidecar = tmp_path / "kern.yaml"
         sidecar.write_text("---\nglobal: {value: -1}\n")
-        evaluator = oracle.KernEvaluator(sidecar)
+        evaluator = oracle_positions.KernEvaluator(sidecar)
         assert evaluator.value_for("qsPea", "qsTea") == -1
 
     def test_real_sidecar_parses(self):
-        evaluator = oracle.KernEvaluator(
+        evaluator = oracle_positions.KernEvaluator(
             Path(__file__).resolve().parents[1] / "glyph_data" / "senior_quikscript_kerning.yaml"
         )
         assert isinstance(evaluator.value_for("qsBay", "qsTea"), int)
@@ -644,22 +645,22 @@ class TestPositionChannel:
     def test_kern_normalization_adds_sidecar_kerns_back(self, tmp_path):
         sidecar = tmp_path / "kern.yaml"
         sidecar.write_text("---\nleft_family: [qsOy]\nright_family: [qsPea]\nvalue: -3\n")
-        kern = oracle.KernEvaluator(sidecar)
+        kern = oracle_positions.KernEvaluator(sidecar)
         row = self._row([0xE679, 0xE650], ["qsOy", "qsPea"], [(0, 0, 300), (0, 0, 250)])
-        expected, attributable = oracle._kern_normalized_positions(kern, row, 50)
+        expected, attributable = oracle_positions._kern_normalized_positions(kern, row, 50)
         assert expected == ((0, 0, 450), (0, 0, 250))
         assert attributable == (True, False)
 
     def test_kern_partner_skips_the_zwnj_slot(self, tmp_path):
         sidecar = tmp_path / "kern.yaml"
         sidecar.write_text("---\nleft_family: [qsOy]\nright_family: [qsPea]\nvalue: -3\n")
-        kern = oracle.KernEvaluator(sidecar)
+        kern = oracle_positions.KernEvaluator(sidecar)
         row = self._row(
             [0xE679, 0x200C, 0xE650],
             ["qsOy", "space", "qsPea.noentry"],
             [(0, 0, 300), (0, 0, 0), (0, 0, 250)],
         )
-        expected, attributable = oracle._kern_normalized_positions(kern, row, 50)
+        expected, attributable = oracle_positions._kern_normalized_positions(kern, row, 50)
         assert expected == ((0, 0, 450), (0, 0, 0), (0, 0, 250))
         assert attributable == (True, True, False)
 
@@ -1504,7 +1505,7 @@ class TestOracleRowCache:
     def test_a_served_position_channel_that_disagrees_with_harfbuzz_is_a_hard_stop(
         self, spec, tmp_path, monkeypatch
     ):
-        """The position verifier's alarm, which nothing else in the suite trips: a served pass whose sampled positions re-shape to something other than what the store holds aborts rather than writing them into the audit. The drift is poisoned by name in the oracle's module, so the renewal slice's fresh shaping stores the same bogus answer — the abort pre-empts that store ever being promoted — and the sampled served rows, re-shaped through the same poisoned function, disagree with the record they were served from. A verifier that had nothing to re-shape would let this pass through green."""
+        """The position verifier's alarm, which nothing else in the suite trips: a served pass whose sampled positions re-shape to something other than what the store holds aborts rather than writing them into the audit. The drift is poisoned by name in the position channel's module, which `oracle._compare_config` calls through the module rather than through an imported symbol, so the renewal slice's fresh shaping stores the same bogus answer — the abort pre-empts that store ever being promoted — and the sampled served rows, re-shaped through the same poisoned function, disagree with the record they were served from. A verifier that had nothing to re-shape would let this pass through green."""
         tables, aliases, ledger, stamps, configs, _rows = self._position_bench(spec, tmp_path)
         keys = self._keys(spec)
         position = oracle_cache.position_keys(REPO_ROOT, keys, MINI / "M1.otf", None)
@@ -1514,13 +1515,13 @@ class TestOracleRowCache:
         shared.update(font=MINI / "M1.otf", position=position)
         _cold, _, cold_stores = self._pass(spec, tmp_path, "cold", **shared)
 
-        real = oracle._position_drift
+        real = oracle_positions._position_drift
 
         def poisoned(shaper, kern, features, row):
             drift = real(shaper, kern, features, row)
             return (("poisoned",), False) if drift is None else (drift[0] + ("poisoned",), drift[1])
 
-        monkeypatch.setattr(oracle, "_position_drift", poisoned)
+        monkeypatch.setattr(oracle_positions, "_position_drift", poisoned)
         with pytest.raises(SystemExit, match="the oracle position store served a stale verdict"):
             self._pass(spec, tmp_path, "served", read_dir=cold_stores, **shared)
 
@@ -2141,7 +2142,7 @@ class TestFontBlindComparison:
     def test_the_comparison_channel_takes_no_font_and_the_position_channel_takes_no_settlement(self):
         comparison = list(inspect.signature(conform._compare_row).parameters)
         assert comparison == ["spec", "aliases", "config", "features", "row", "settled"]
-        position = list(inspect.signature(oracle._position_drift).parameters)
+        position = list(inspect.signature(oracle_positions._position_drift).parameters)
         assert position == ["shaper", "kern", "features", "row"]
 
     def test_the_position_channel_only_appends_position_to_kinds(self, spec, tmp_path, monkeypatch):

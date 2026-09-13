@@ -600,6 +600,7 @@ def test_unit_store_environment_ignores_the_contact_allow_list(tmp_path):
 SURFACE_UNREAD_CODE = (
     "rebuild/pipeline/run_m1.py",
     "rebuild/pipeline/oracle.py",
+    "rebuild/pipeline/oracle_positions.py",
     "rebuild/pipeline/defects.py",
     "rebuild/pipeline/compile_font.py",
     "rebuild/pipeline/conform.py",
