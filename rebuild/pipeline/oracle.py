@@ -590,19 +590,11 @@ def _verify_served_positions(
     shaper: "Shaper | IsolatedOverlayShaper",
     kern: "KernEvaluator | None",
     features: frozenset[str],
-    table_path: Path,
     store: "oracle_cache.RowStore",
     sample: "oracle_cache.VerificationSample",
-    first_row: int = 0,
-    stop_row: int | None = None,
 ) -> None:
-    """The position channel's half of `conform._verify_served_sample`: re-shape the pass's stratified sample of served positions through HarfBuzz and prove each against the record it was served from. The sample is drawn per family over the rows whose position was served, so a family whose glyphs moved under a key that failed to notice is caught with probability one; a mismatch is a hard stop for the same reason a row mismatch is — the audit is a fingerprinted artifact and a stale position in it reads as green forever. The re-read streams only the rows of the range the sample was drawn over, so a range of a cut configuration never parses the rest of its table."""
-    wanted = set(sample.indexes())
-    if not wanted:
-        return
-    for index, row in enumerate(iter_rows(table_path, first_row, stop_row), start=first_row):
-        if index not in wanted:
-            continue
+    """The position channel's half of `conform._verify_served_sample`: re-shape the pass's stratified sample of served positions through HarfBuzz and prove each against the record it was served from. The sample is drawn per family over the rows whose position was served, so a family whose glyphs moved under a key that failed to notice is caught with probability one; a mismatch is a hard stop for the same reason a row mismatch is — the audit is a fingerprinted artifact and a stale position in it reads as green forever. The sampled rows ride the sample itself, each winner carrying the `Row` the main loop offered it with, so nothing here re-reads the table."""
+    for index, row in sample.sampled_rows():
         fresh = _cached_position(_position_drift(shaper, kern, features, row))
         recorded = store.serve(index, row.codepoints).position
         if fresh != recorded:
@@ -852,7 +844,7 @@ def _compare_config(
             record = store.serve(index, row.codepoints)
             served_at[offset] = record
             if sample is not None:
-                sample.offer(index, reachable)
+                sample.offer(index, row, reachable)
             if record.position is not oracle_cache.UNSHAPED and not store.position_stale(index, mask):
                 positions_at[offset] = (record, reachable)
         walked = dict(zip(fresh_at, walker.walk_many([chunk[offset].text for offset in fresh_at])))
@@ -885,7 +877,7 @@ def _compare_config(
                         assert not isinstance(position, oracle_cache._Unshaped)
                         drift = _served_position(position)
                         store.positions_served += 1
-                        position_sample.offer(index, carried[1])
+                        position_sample.offer(index, row, carried[1])
                     else:
                         drift = _position_drift(shaper, kern, features, row)
                         position, position_at = _cached_position(drift), this_pass
@@ -956,13 +948,9 @@ def _compare_config(
     served_rows = 0 if store is None else store.served
     result.positions_served = 0 if store is None else store.positions_served
     if store is not None and sample is not None:
-        _verify_served_sample(
-            spec, aliases, config, features, walker, table_path, store, sample, start_row, stop_row
-        )
+        _verify_served_sample(spec, aliases, config, features, walker, store, sample)
     if store is not None and position_sample is not None and shaper is not None:
-        _verify_served_positions(
-            shaper, kern, features, table_path, store, position_sample, start_row, stop_row
-        )
+        _verify_served_positions(shaper, kern, features, store, position_sample)
     memo_line = walker.memo_line(label, walker.save_memo())
     if memo_line is not None:
         print(memo_line, file=sys.stderr, flush=True)

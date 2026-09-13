@@ -42,7 +42,7 @@ from rebuild.pipeline.model import (
     raw_rename_map,
     ss10_twin_name,
 )
-from rebuild.validation.rowmodel import Row, format_codepoints, iter_rows
+from rebuild.validation.rowmodel import Row, format_codepoints
 
 if TYPE_CHECKING:
     from rebuild.pipeline.emit_gsub import _FoldedRule
@@ -1553,21 +1553,13 @@ def _verify_served_sample(
     config: str,
     features: frozenset[str],
     walker: "_SettledWindowWalk | IsolatedOverlayWalk",
-    table_path: Path,
     store: "oracle_cache.RowStore",
     sample: "oracle_cache.VerificationSample",
-    first_row: int = 0,
-    stop_row: int | None = None,
 ) -> None:
-    """Re-derive the pass's stratified sample of served rows and prove each against the record it was served from. Every family that served a row contributes rows here, so a family-wide poisoning — the shape a rune edited mid-run produces — is caught with probability one rather than with probability sample-over-served, and the seed carries the pass ordinal so the covered slice rotates instead of re-proving the same fraction of a percent every pass. The rows are re-read in a second streaming pass over the range the sample was drawn over — `[first_row, stop_row)`, the whole table by default — rather than held from the first: the draw is only final once the last row has been offered, and a couple of hundred rows are cheap to find again where tens of thousands of live `Row` objects would not be cheap to keep. A mismatch is a hard stop, not a miss — the store is describing verdicts this build does not produce, and `divergence-audit.tsv` is a fingerprinted artifact the surface build's manifest is stamped against."""
-    wanted = set(sample.indexes())
-    if not wanted:
+    """Re-derive the pass's stratified sample of served rows and prove each against the record it was served from. Every family that served a row contributes rows here, so a family-wide poisoning — the shape a rune edited mid-run produces — is caught with probability one rather than with probability sample-over-served, and the seed carries the pass ordinal so the covered slice rotates instead of re-proving the same fraction of a percent every pass. The rows come off the sample itself: each winner carries the `Row` the main loop offered it with, and the heaps hold at most `VERIFICATION_SAMPLE_PER_FAMILY` of them per family, so nothing here re-reads the table. A mismatch is a hard stop, not a miss — the store is describing verdicts this build does not produce, and `divergence-audit.tsv` is a fingerprinted artifact the surface build's manifest is stamped against."""
+    picked = sample.sampled_rows()
+    if not picked:
         return
-    picked = [
-        (index, row)
-        for index, row in enumerate(iter_rows(table_path, first_row, stop_row), start=first_row)
-        if index in wanted
-    ]
     walked = walker.walk_many([row.text for _, row in picked])
     for (index, row), (settled, _names) in zip(picked, walked):
         fresh = _cached_verdict(_compare_row(spec, aliases, config, features, row, settled))
