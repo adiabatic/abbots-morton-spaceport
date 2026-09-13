@@ -618,21 +618,20 @@ class TestDeepClasses:
             if members3 is not None:
                 for member in members3:
                     cases.append(
-                        kernel_exec.case_row(left, token, (r1tok, r2tok, RightToken("letter", member), rep4))
+                        kernel_exec.case_line(left, token, (r1tok, r2tok, RightToken("letter", member), rep4))
                     )
                     asked.append(((index, 3), row.key, member))
             if members4 is not None:
                 rep3 = right_token(representative(row.right3))
                 for member in members4:
                     cases.append(
-                        kernel_exec.case_row(left, token, (r1tok, r2tok, rep3, RightToken("letter", member)))
+                        kernel_exec.case_line(left, token, (r1tok, r2tok, rep3, RightToken("letter", member)))
                     )
                     asked.append(((index, 4), row.key, member))
 
-        answers = kernel_exec.settle_cases(spec, cases, frozenset())
+        answers = kernel_exec.settle_cases(spec, cases, frozenset(), decode=kernel_exec.trace_of)
         records: dict[tuple[int, int], tuple[tuple, dict[tuple, str]]] = {}
-        for (asked_at, key, member), answer in zip(asked, answers):
-            trace = kernel_exec.trace_of(answer["result"])
+        for (asked_at, key, member), trace in zip(asked, answers):
             probe = (trace.settled, trace.prospect, trace.joint_floor, trace.notes)
             records.setdefault(asked_at, (key, {}))[1][probe] = member
         checked3 = 0

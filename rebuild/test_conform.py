@@ -2168,8 +2168,8 @@ class TestSettledWindowWalk:
         assert prefilled.single_settles == 0
         assert lazy.single_settles > 0
 
-    def test_one_memo_key_settles_its_distinct_case_rows_alike(self, spec, guard):
-        """The dedupe's own premise, checked rather than argued: `_window_rights`' `#NA` cascade blanks slots the key does not carry, so several distinct raw case rows land on one memo key, and the walk asks the crate about only the first of them. Under `audit_dedupe` every later one is asked too and held to the memoized outcome — the mini alphabet at depth 4 is where those collisions are dense enough to be worth the extra invocations."""
+    def test_one_memo_key_settles_its_distinct_case_lines_alike(self, spec, guard):
+        """The dedupe's own premise, checked rather than argued: `_window_rights`' `#NA` cascade blanks slots the key does not carry, so several distinct raw case lines land on one memo key, and the walk asks the crate about only the first of them. Under `audit_dedupe` every later one is asked too and held to the memoized outcome — the mini alphabet at depth 4 is where those collisions are dense enough to be worth the extra invocations."""
         import itertools
 
         features = frozenset()
@@ -2191,7 +2191,11 @@ class TestSettledWindowWalk:
 
         def injecting(asked_spec, cases, features, **rest):
             answers = original(asked_spec, cases, features, **rest)
-            hits = [index for index, case in enumerate(cases) if case["input"] == refused]
+            hits = [
+                index
+                for index, case in enumerate(cases)
+                if case.split("\t")[kernel_exec.CASE_INPUT_FIELD] == refused
+            ]
             if not hits:
                 return answers
             if rest.get("on_error") != "drop":
@@ -2214,7 +2218,7 @@ class TestSettledWindowWalk:
             strict.prefill([clean, refusing_text])
 
     @pytest.mark.slow
-    def test_the_real_alphabet_keys_its_distinct_case_rows_alike(self):
+    def test_the_real_alphabet_keys_its_distinct_case_lines_alike(self):
         """The same audit over the live rune files at depth 3, where the alphabet is the shipping one and the collisions are the ones `gate:conform` actually rides on. Marked slow: it settles every distinct raw window the depth-3 sweep reaches, not merely one per memo key."""
         import itertools
         import warnings
@@ -2729,7 +2733,7 @@ class TestSettleMemoFile:
         def injecting(asked_spec, cases, features, **rest):
             answers = original(asked_spec, cases, features, **rest)
             for index, case in enumerate(cases):
-                if case["input"] == "qsTea":
+                if case.split("\t")[kernel_exec.CASE_INPUT_FIELD] == "qsTea":
                     answers[index] = None
             return answers
 

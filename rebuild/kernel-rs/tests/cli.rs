@@ -193,6 +193,37 @@ fn a_malformed_command_line_is_a_two_and_an_unanswerable_one_is_a_one() {
     );
 }
 
+/// The case replay echoes each question ahead of its answer under both shapes — the whole trace bare, the settled record's seven fields under `--settled-only` — and the liveness verb, which has no trace to leave out, refuses the flag as the usage error it is there.
+#[test]
+fn a_case_replay_answers_in_either_shape_and_the_liveness_verb_refuses_the_flag() {
+    let root = scratch("cli-cases");
+    let spec = spec_at(&root);
+    let question = "edge\t\t\t\t\t\t\t\tqsPea\tqsTea\tedge\tunknown\tunknown";
+    let cases = root.join("cases.tsv");
+    std::fs::write(&cases, format!("{question}\n"))
+        .expect("the scratch directory takes a case file");
+    let traced = run(&["settle-cases", word(&spec), word(&cases)]);
+    assert_eq!(traced.status.code(), Some(0), "{}", complaint(&traced));
+    let stdout = String::from_utf8_lossy(&traced.stdout);
+    assert!(
+        stdout.starts_with(&format!("{question}\t{{\"settled\":")),
+        "{stdout}"
+    );
+    let settled = run(&["settle-cases", word(&spec), word(&cases), "--settled-only"]);
+    assert_eq!(settled.status.code(), Some(0), "{}", complaint(&settled));
+    assert_eq!(
+        String::from_utf8_lossy(&settled.stdout),
+        format!("{question}\tqsPea\thalf\t\t\t\t\t0\n")
+    );
+    let refused = run(&[
+        "liveness-cases",
+        word(&spec),
+        word(&cases),
+        "--settled-only",
+    ]);
+    assert_eq!(refused.status.code(), Some(2), "{}", complaint(&refused));
+}
+
 /// The guard answers one named configuration through the same verb that answers the powerset, in the same shape, `default` among the names so the no-feature configuration is askable, and refuses what its pinned world cannot honor: a token that is not a configuration's canonical spelling is the usage error `--configs=` makes of it, `--features=` is outside this verb's vocabulary, and a mode flag is a usage error too, because the guard's modes are `guard.rs`'s to pin. A feature the spec never mentions is a refused run rather than a quiet default, exactly as `settle-cases` refuses it.
 #[test]
 fn a_guard_sweep_answers_one_configuration_and_refuses_a_world_flag() {

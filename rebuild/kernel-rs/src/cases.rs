@@ -1,12 +1,12 @@
-//! Case replay: one `ams-m1-corpus/3` case line in, the same line back out with this kernel's answer in it. The shape is this crate's own on both halves — `rebuild/pipeline/kernel_exec.py`'s `case_row` writes a question and its `trace_of` reads an answer's `result` back into a `settle.TransitionTrace` — and the whole re-emitted line is what lines a batch's answers up with its questions, which `kernel_exec._settle_cases` checks before a caller decodes any of them.
+//! Case replay: one tab-separated question line in, the same line back out with this kernel's answer after a tab. The shape is this crate's own on both halves — `rebuild/pipeline/kernel_exec.py`'s `case_line` writes a question, and its `trace_of` reads the JSON answer or its `_settled_of_fields` the tab-separated one — and the echoed question is what lines a batch's answers up with its questions, which `kernel_exec._settle_cases` checks before a caller decodes any of them.
 //!
-//! Re-emitting the *whole* line rather than only the answer is what makes that check possible: an output line carries the question it answers, so a line the reader skipped, reordered or answered out of turn cannot pass as an answer to the question that was asked. The echo is a re-canonicalization of the input's own bytes rather than a spelling of the parsed model — key order is the input line's and a key this build does not know about rides through in its own place — so what proves the inputs were *understood* is not the echo but the reader's refusals: a name the spec never interned, a slot count that is not four, an adjustments token outside the grammar, and a missing `result` are all refusals rather than answers, so a misread case stops the run instead of diverging on the answer alone.
+//! Re-emitting the question rather than only the answer is what makes that check possible: an output line carries the question it answers, so a line the reader skipped, reordered or answered out of turn cannot pass as an answer to the question that was asked. The echo is the input line's own bytes, verbatim, so what proves the inputs were *understood* is not the echo but the reader's refusals: a field count other than [`CASE_FIELDS`], a name the spec never interned, a kind spelling outside the six, and an adjustments token outside the grammar are all refusals rather than answers, so a misread case stops the run instead of diverging on the answer alone, and a field this build cannot place is a refusal rather than a value riding through.
 //!
-//! What the result carries is the whole trace, not only the row-visible record: the settled cell, the prospect, the joint-floor flag, the notes and the fired delta, then the deciding stage, the runner-up, the ranked ladder and the eliminations. The last four are the route rather than the outcome, and they are what the explain panel and the review surface's explain view read — a window can land on the right cell by the wrong route, and the ladder is where that shows.
+//! A question is thirteen fields: the left's kind and its record — rune, stance, entry, exit, comma-joined adjustments, seam, extension, all seven empty for a left with no record and a height or seam empty where there is none — then the rune under settlement and the four raw slots after it, each a rune name or the kind spelling of a boundary or unknown slot. Nothing in that vocabulary can carry a tab or a newline.
 //!
-//! The fired delta is the field no downstream artifact re-derives: a port that settles onto the right cell by the wrong route builds a table whose dead-policy gate reads live records as dead. It comes from the trace memo's journaled delta for this case's own key, which means a *missing* delta is not an empty one — it says this replay's key shape and the memo's have drifted apart, and it stops the run rather than answering.
-
-use serde_json::{Map, Value};
+//! The answer comes in one of two shapes, which the command line chooses. The trace ([`Answer::Trace`]) is one JSON object carrying the whole route, not only the row-visible record: the settled cell, the prospect, the joint-floor flag, the notes and the fired delta, then the deciding stage, the runner-up, the ranked ladder and the eliminations. The last four are the route rather than the outcome, and they are what the explain panel and the review surface's explain view read — a window can land on the right cell by the wrong route, and the ladder is where that shows. The settled-only answer ([`Answer::SettledOnly`]) is the record alone as seven tab-separated fields, [`settled_fields`]' spelling, for the conform walker that settles windows by the hundred thousand and keeps only the outcome. A refusal is the same `{"raise":…,"message":…}` object in both shapes, so a reader tells one from a settled record by its first byte.
+//!
+//! The fired delta is the field no downstream artifact re-derives: a port that settles onto the right cell by the wrong route builds a table whose dead-policy gate reads live records as dead. It comes from the trace memo's journaled delta for this case's own key, which means a *missing* delta is not an empty one — it says this replay's key shape and the memo's have drifted apart, and it stops the run rather than answering. The settled-only answer looks the delta up too and reports none of it, so the drift alarm is the same in both shapes.
 
 use crate::emit::json_string;
 use crate::engine::{Engine, Slots};
@@ -15,7 +15,7 @@ use crate::index::SpecIndex;
 use crate::model::Sym;
 use crate::types::{
     AdjustmentToken, Candidate, CellId, LeftContext, RightToken, Settled, Side, TokenKind,
-    TransitionTrace, height_json, provenance_pointer, settled_json,
+    TransitionTrace, height_json, provenance_pointer, settled_fields, settled_json,
 };
 
 /// The corpus's three raise buckets. `E-UNREACHABLE` takes the stranded window and every plain settle error alike, which is why the message rides beside it — an identity alone cannot tell a stranded exit from a rune that is not modeled.
@@ -23,63 +23,89 @@ const RAISE_INCOMPARABLE: &str = "E-INCOMPARABLE";
 const RAISE_AMBIGUOUS: &str = "E-AMBIGUOUS";
 const RAISE_UNREACHABLE: &str = "E-UNREACHABLE";
 
-/// The one key whose value this kernel replaces. Every other key rides through untouched.
-const RESULT_KEY: &str = "result";
+/// How many tab-separated fields a question line is: the left's kind, its seven record fields, the input rune, and the four right slots.
+pub const CASE_FIELDS: usize = 13;
 
-/// One corpus case: the window to settle, beside the raw object the answer is re-emitted into. The raw object is kept rather than reconstructed so that a key this build does not know about still lands in the output in its own place.
+/// Which answer a replay writes after the echoed question.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Answer {
+    /// The whole trace as one JSON object, the shape `kernel_exec.trace_of` reads.
+    Trace,
+    /// The settled record alone as seven tab-separated fields, the shape `kernel_exec._settled_of_fields` reads.
+    SettledOnly,
+}
+
+/// One case: the window to settle, beside the question line its answer is written after. The line is kept rather than re-spelled so that the echo is the caller's own bytes.
 #[derive(Clone, Debug)]
-pub struct Case {
+pub struct Case<'l> {
     pub left: LeftContext,
     pub token: RightToken,
     pub slots: Slots,
-    raw: Map<String, Value>,
+    line: &'l str,
 }
 
-/// Read one case line, `kernel_exec.case_row`'s inverse. A name the spec never interned is a hard error rather than a settlement outcome: the case was cut against some other spec, and answering it would compare two different questions.
-pub fn parse_case(index: &SpecIndex, line: &str) -> Result<Case, String> {
-    let value: Value =
-        serde_json::from_str(line).map_err(|error| format!("not a case object: {error}"))?;
-    let Value::Object(raw) = value else {
-        return Err("not a case object: the line is not a JSON object".to_owned());
+/// Read one question line, `kernel_exec.case_line`'s inverse. A name the spec never interned is a hard error rather than a settlement outcome: the case was cut against some other spec, and answering it would compare two different questions.
+pub fn parse_case<'l>(index: &SpecIndex, line: &'l str) -> Result<Case<'l>, String> {
+    let fields: Vec<&str> = line.split('\t').collect();
+    let [
+        kind,
+        rune,
+        stance,
+        entry,
+        exit,
+        adjustments,
+        seam,
+        extension,
+        input,
+        right1,
+        right2,
+        right3,
+        right4,
+    ] = fields[..]
+    else {
+        return Err(format!(
+            "a case is {CASE_FIELDS} tab-separated fields, and this line has {}",
+            fields.len()
+        ));
     };
-    if !raw.contains_key(RESULT_KEY) {
-        return Err("no result field to replace".to_owned());
-    }
-    let left = parse_left(index, field(&raw, "left")?)?;
-    let token = RightToken::Letter(symbol(index, field(&raw, "input")?, "the input rune")?);
-    let slots = parse_slots(index, field(&raw, "right")?)?;
+    let left = parse_left(
+        index,
+        kind,
+        [rune, stance, entry, exit, adjustments, seam, extension],
+    )?;
+    let token = RightToken::Letter(symbol(index, input, "the input rune")?);
+    let slots = Slots::new(
+        parse_token(index, right1)?,
+        parse_token(index, right2)?,
+        parse_token(index, right3)?,
+        parse_token(index, right4)?,
+    );
     Ok(Case {
         left,
         token,
         slots,
-        raw,
+        line,
     })
 }
 
-/// One case's whole output line: the case as it arrived, with this kernel's answer in the `result` field.
-pub fn replay_case(engine: &mut Engine<'_>, case: &Case) -> Result<String, String> {
-    let result = result_text(engine, case)?;
-    let mut out = String::from("{");
-    for (key, value) in &case.raw {
-        if out.len() > 1 {
-            out.push(',');
-        }
-        out.push_str(&json_string(key));
-        out.push(':');
-        if key == RESULT_KEY {
-            out.push_str(&result);
-        } else {
-            emit_value(&mut out, value)?;
-        }
-    }
-    out.push('}');
-    Ok(out)
+/// One case's whole output line: the question as it arrived, a tab, and this kernel's answer in the shape asked for.
+pub fn replay_case(
+    engine: &mut Engine<'_>,
+    case: &Case<'_>,
+    answer: Answer,
+) -> Result<String, String> {
+    let result = result_text(engine, case, answer)?;
+    Ok(format!("{}\t{result}", case.line))
 }
 
-/// A whole case file replayed through one engine in file order — the `settle-cases` verb's body. An optional leading `# ` marker line is the corpus head and is skipped rather than parsed: the modes a file was cut under reach this kernel as CLI flags, so the world a batch is answered in is the caller's word and never the file's.
+/// A whole case file replayed through one engine in file order — the `settle-cases` verb's body. An optional leading `# ` marker line is a head and is skipped rather than parsed: the modes a file was cut under reach this kernel as CLI flags, so the world a batch is answered in is the caller's word and never the file's.
 ///
 /// The engine is shared across the file, so a batch settles warm. That costs the answers nothing: each memoized evaluation replays its journaled delta on every hit, precisely so a warm answer and a cold one agree down to the fired set.
-pub fn replay_cases(engine: &mut Engine<'_>, text: &str) -> Result<Vec<String>, String> {
+pub fn replay_cases(
+    engine: &mut Engine<'_>,
+    text: &str,
+    answer: Answer,
+) -> Result<Vec<String>, String> {
     let mut lines = Vec::new();
     for (seat, line) in text.lines().enumerate() {
         if seat == 0 && line.starts_with("# ") {
@@ -87,13 +113,13 @@ pub fn replay_cases(engine: &mut Engine<'_>, text: &str) -> Result<Vec<String>, 
         }
         let numbered = |complaint: String| format!("line {}: {complaint}", seat + 1);
         let case = parse_case(engine.index(), line).map_err(numbered)?;
-        lines.push(replay_case(engine, &case).map_err(numbered)?);
+        lines.push(replay_case(engine, &case, answer).map_err(numbered)?);
     }
     Ok(lines)
 }
 
-/// This case's `result` value, in the shape `kernel_exec.trace_of` reads: the row-visible record with its fired delta, or the raise bucket with the message that came with it, which `settle.SettleError` carries as its `.bucket` and its own text.
-fn result_text(engine: &mut Engine<'_>, case: &Case) -> Result<String, String> {
+/// This case's answer: the row-visible record with its fired delta and the ladder under the trace shape, the record's seven fields under the settled-only one, or in either shape the raise bucket with the message that came with it, which `settle.SettleError` carries as its `.bucket` and its own text. The delta is looked up in both shapes, because a missing one is the drift alarm and not an empty field.
+fn result_text(engine: &mut Engine<'_>, case: &Case<'_>, answer: Answer) -> Result<String, String> {
     let index = engine.index();
     let trace = match engine.transition_trace(&case.left, case.token, case.slots) {
         Ok(trace) => trace,
@@ -102,8 +128,13 @@ fn result_text(engine: &mut Engine<'_>, case: &Case) -> Result<String, String> {
     let Some(delta) = engine.trace_delta(&case.left, case.token, case.slots) else {
         return Err("the settled case left no journaled fired delta — the trace memo's key shape has moved and this replay's key must follow".to_owned());
     };
-    let fired: Vec<String> = delta.iter().map(|pointer| pointer.text(index)).collect();
-    Ok(settled_text(index, &trace, &fired))
+    match answer {
+        Answer::SettledOnly => Ok(settled_fields(index, &trace.settled)),
+        Answer::Trace => {
+            let fired: Vec<String> = delta.iter().map(|pointer| pointer.text(index)).collect();
+            Ok(settled_text(index, &trace, &fired))
+        }
+    }
 }
 
 fn raise_text(error: &SettleError) -> String {
@@ -119,7 +150,7 @@ fn raise_text(error: &SettleError) -> String {
     )
 }
 
-/// The settled result, in the key order an answer is read in: the row-visible record and its fired delta first, then the four trace fields the corpus/3 bump added.
+/// The settled trace, in the key order an answer is read in: the row-visible record and its fired delta first, then the deciding stage, the runner-up, the ranked ladder and the eliminations.
 fn settled_text(index: &SpecIndex, trace: &TransitionTrace, fired: &[String]) -> String {
     let ladder = trace.ladder();
     let runner_up = match &ladder.runner_up {
@@ -166,7 +197,7 @@ fn settled_text(index: &SpecIndex, trace: &TransitionTrace, fired: &[String]) ->
     )
 }
 
-/// One candidate as the corpus spells it, and as `kernel_exec._candidate_of` reads it back into a `settle.Candidate`: the stance, its two heights, and the two indices the ranking and the floor sort on. A non-joining candidate carries the sentinel exit index's own value rather than a null, because what a reader wants is the sort key the ranking used — `settle._NO_EXIT_INDEX` is that value's Python spelling.
+/// One candidate as the trace spells it, and as `kernel_exec._candidate_of` reads it back into a `settle.Candidate`: the stance, its two heights, and the two indices the ranking and the floor sort on. A non-joining candidate carries the sentinel exit index's own value rather than a null, because what a reader wants is the sort key the ranking used — `settle._NO_EXIT_INDEX` is that value's Python spelling.
 fn candidate_json(index: &SpecIndex, candidate: &Candidate) -> String {
     format!(
         "[{},{},{},{},{}]",
@@ -183,80 +214,32 @@ fn strings_json(values: &[String]) -> String {
     format!("[{}]", quoted.join(","))
 }
 
-/// One already-parsed JSON value in the canonical spelling — `json.dumps(value, separators=(",", ":"))`, which for the fields this re-emits means the bytes the question arrived in. Only integers occur: the corpus carries extensions, prospects and code points and no floats anywhere, so a number that is not one is a corpus this build does not understand rather than something to round-trip approximately.
-fn emit_value(out: &mut String, value: &Value) -> Result<(), String> {
-    match value {
-        Value::Null => out.push_str("null"),
-        Value::Bool(flag) => out.push_str(if *flag { "true" } else { "false" }),
-        Value::Number(number) => {
-            let Some(integer) = number.as_i64() else {
-                return Err(format!("{number} is not an integer within i64"));
-            };
-            out.push_str(&integer.to_string());
-        }
-        Value::String(text) => out.push_str(&json_string(text)),
-        Value::Array(items) => {
-            out.push('[');
-            for (seat, item) in items.iter().enumerate() {
-                if seat > 0 {
-                    out.push(',');
-                }
-                emit_value(out, item)?;
-            }
-            out.push(']');
-        }
-        Value::Object(entries) => {
-            out.push('{');
-            for (seat, (key, item)) in entries.iter().enumerate() {
-                if seat > 0 {
-                    out.push(',');
-                }
-                out.push_str(&json_string(key));
-                out.push(':');
-                emit_value(out, item)?;
-            }
-            out.push('}');
-        }
-    }
-    Ok(())
-}
-
-fn field<'v>(raw: &'v Map<String, Value>, key: &str) -> Result<&'v Value, String> {
-    raw.get(key).ok_or_else(|| format!("no {key} field"))
-}
-
-fn text<'v>(value: &'v Value, what: &str) -> Result<&'v str, String> {
-    value
-        .as_str()
-        .ok_or_else(|| format!("{what} is not a string"))
-}
-
-fn symbol(index: &SpecIndex, value: &Value, what: &str) -> Result<Sym, String> {
-    let name = text(value, what)?;
+fn symbol(index: &SpecIndex, name: &str, what: &str) -> Result<Sym, String> {
     index
         .sym_of(name)
         .ok_or_else(|| format!("{what} names {name}, which this spec never mentions"))
 }
 
-fn optional_symbol(index: &SpecIndex, value: &Value, what: &str) -> Result<Option<Sym>, String> {
-    if value.is_null() {
+fn optional_symbol(index: &SpecIndex, name: &str, what: &str) -> Result<Option<Sym>, String> {
+    if name.is_empty() {
         return Ok(None);
     }
-    symbol(index, value, what).map(Some)
+    symbol(index, name, what).map(Some)
 }
 
-fn kind_of(value: &Value, what: &str) -> Result<TokenKind, String> {
-    let name = text(value, what)?;
+fn kind_of(name: &str, what: &str) -> Result<TokenKind, String> {
     TokenKind::from_text(name).ok_or_else(|| format!("{what} names no known kind: {name}"))
 }
 
-fn parse_left(index: &SpecIndex, value: &Value) -> Result<LeftContext, String> {
-    let Value::Object(raw) = value else {
-        return Err("the left is not an object".to_owned());
-    };
-    let kind = kind_of(field(raw, "kind")?, "the left's kind")?;
-    let settled = field(raw, "settled")?;
-    if settled.is_null() {
+/// The left's kind and its seven record fields. A left with no record spells all seven empty; a rune field that is empty beside a record field that is not is a line this reader cannot place, and is refused rather than read as either.
+fn parse_left(index: &SpecIndex, kind: &str, record: [&str; 7]) -> Result<LeftContext, String> {
+    let kind = kind_of(kind, "the left's kind")?;
+    if record[0].is_empty() {
+        if record.iter().any(|field| !field.is_empty()) {
+            return Err(
+                "a left with no rune carries no record, and this one spells one".to_owned(),
+            );
+        }
         return Ok(LeftContext {
             kind,
             settled: None,
@@ -264,33 +247,26 @@ fn parse_left(index: &SpecIndex, value: &Value) -> Result<LeftContext, String> {
     }
     Ok(LeftContext {
         kind,
-        settled: Some(parse_settled(index, settled)?),
+        settled: Some(parse_settled(index, record)?),
     })
 }
 
-pub(crate) fn parse_settled(index: &SpecIndex, value: &Value) -> Result<Settled, String> {
-    let Value::Object(raw) = value else {
-        return Err("the left's settled triple is not an object".to_owned());
+/// The seven record fields — rune, stance, entry, exit, comma-joined adjustments, seam, extension — read back into a settled record: a question's left, in the spelling [`settled_fields`] answers in.
+pub(crate) fn parse_settled(
+    index: &SpecIndex,
+    [rune, stance, entry, exit, adjustments, seam, extension]: [&str; 7],
+) -> Result<Settled, String> {
+    let adjustments: Result<Vec<AdjustmentToken>, String> = if adjustments.is_empty() {
+        Ok(Vec::new())
+    } else {
+        adjustments
+            .split(',')
+            .map(|token| parse_adjustment(index, token))
+            .collect()
     };
-    let cell = field(raw, "cell")?
-        .as_array()
-        .ok_or("the left's cell is not an array")?;
-    let [rune, stance, entry, exit, adjustments] = cell.as_slice() else {
-        return Err(format!(
-            "a cell is five fields, and this one has {}",
-            cell.len()
-        ));
-    };
-    let adjustments = adjustments
-        .as_array()
-        .ok_or("the left cell's adjustments are not an array")?;
-    let adjustments: Result<Vec<AdjustmentToken>, String> = adjustments
-        .iter()
-        .map(|token| parse_adjustment(index, text(token, "an adjustments token")?))
-        .collect();
-    let extension = field(raw, "extension")?
-        .as_i64()
-        .ok_or("the left's extension is not an integer")?;
+    let extension: i64 = extension
+        .parse()
+        .map_err(|_| format!("the left's extension is not an integer: {extension:?}"))?;
     Ok(Settled {
         cell: CellId {
             rune: symbol(index, rune, "the left cell's rune")?,
@@ -299,9 +275,62 @@ pub(crate) fn parse_settled(index: &SpecIndex, value: &Value) -> Result<Settled,
             exit: optional_symbol(index, exit, "the left cell's exit")?,
             adjustments: adjustments?,
         },
-        seam: optional_symbol(index, field(raw, "seam")?, "the left's seam")?,
+        seam: optional_symbol(index, seam, "the left's seam")?,
         extension,
     })
+}
+
+/// The JSON record spelling — [`settled_json`], which the replay's window memo files one record per line of — read back through [`parse_settled`], for the tests that hold a filed memo to the walk that wrote it. Nothing shipped reads that spelling here: its reader is `kernel_exec.settled_of_row`, on the Python side of the seam.
+#[cfg(test)]
+pub(crate) fn parse_settled_json(
+    index: &SpecIndex,
+    value: &serde_json::Value,
+) -> Result<Settled, String> {
+    let text = |value: &serde_json::Value, what: &str| -> Result<String, String> {
+        if value.is_null() {
+            return Ok(String::new());
+        }
+        value
+            .as_str()
+            .map(str::to_owned)
+            .ok_or_else(|| format!("{what} is not a string"))
+    };
+    let raw = value
+        .as_object()
+        .ok_or("the settled record is not an object")?;
+    let cell = raw
+        .get("cell")
+        .and_then(serde_json::Value::as_array)
+        .ok_or("the record's cell is not an array")?;
+    let [rune, stance, entry, exit, adjustments] = cell.as_slice() else {
+        return Err(format!(
+            "a cell is five fields, and this one has {}",
+            cell.len()
+        ));
+    };
+    let adjustments: Vec<String> = adjustments
+        .as_array()
+        .ok_or("the cell's adjustments are not an array")?
+        .iter()
+        .map(|token| text(token, "an adjustments token"))
+        .collect::<Result<_, _>>()?;
+    let seam = text(raw.get("seam").ok_or("no seam field")?, "the seam")?;
+    let extension = raw
+        .get("extension")
+        .and_then(serde_json::Value::as_i64)
+        .ok_or("the record's extension is not an integer")?;
+    parse_settled(
+        index,
+        [
+            &text(rune, "the cell's rune")?,
+            &text(stance, "the cell's stance")?,
+            &text(entry, "the cell's entry")?,
+            &text(exit, "the cell's exit")?,
+            &adjustments.join(","),
+            &seam,
+            &extension.to_string(),
+        ],
+    )
 }
 
 /// One adjustments token read back into the closed grammar, `model.parse_adjustment`'s refusals included. A left cell's adjustments are load-bearing in exactly one place: the trace memo collapses them away, but a stranded window's E-STRANDED sentence reads the left's whole `cell_label`, which spells every adjustment back out — so a token misread here would surface as a diverging message and nowhere else.
@@ -337,35 +366,17 @@ fn parse_adjustment(index: &SpecIndex, token: &str) -> Result<AdjustmentToken, S
     }
 }
 
-fn parse_slots(index: &SpecIndex, value: &Value) -> Result<Slots, String> {
-    let slots = value.as_array().ok_or("the right slots are not an array")?;
-    let [right1, right2, right3, right4] = slots.as_slice() else {
-        return Err(format!(
-            "a window reads four right slots, and this one names {}",
-            slots.len()
-        ));
-    };
-    Ok(Slots::new(
-        parse_token(index, right1)?,
-        parse_token(index, right2)?,
-        parse_token(index, right3)?,
-        parse_token(index, right4)?,
-    ))
-}
-
-fn parse_token(index: &SpecIndex, value: &Value) -> Result<RightToken, String> {
-    let Value::Object(raw) = value else {
-        return Err("a right slot is not an object".to_owned());
-    };
-    let kind = kind_of(field(raw, "kind")?, "a right slot's kind")?;
-    if kind == TokenKind::Letter {
-        return Ok(RightToken::Letter(symbol(
-            index,
-            field(raw, "letter")?,
-            "a right slot's letter",
-        )?));
+/// One raw slot: the kind spelling of a boundary or unknown slot, or else a rune name. The kind spellings are read first, so `letter` itself is refused — a letter slot spells its rune — and a name that is neither is a refusal rather than a slot.
+fn parse_token(index: &SpecIndex, field: &str) -> Result<RightToken, String> {
+    match TokenKind::from_text(field) {
+        Some(TokenKind::Letter) => {
+            Err("a right slot spells its rune name, not the kind `letter`".to_owned())
+        }
+        Some(kind) => {
+            Ok(RightToken::of_kind(kind).expect("every kind but letter has a token of its own"))
+        }
+        None => Ok(RightToken::Letter(symbol(index, field, "a right slot")?)),
     }
-    Ok(RightToken::of_kind(kind).expect("every kind but letter has a token of its own"))
 }
 
 #[cfg(test)]
@@ -386,55 +397,71 @@ mod tests {
     }
 
     /// One window over `fixtures::mini()`: the run edge on the left, `qsPea` under settlement, and a `qsTea` follower whose only entry at the height `qsPea` exits is unselectable — so the x-height exit is closed out and the cell settles unjoined.
-    const UNJOINED: &str = r#"{"left":{"kind":"edge","settled":null},"input":"qsPea","right":[{"kind":"letter","letter":"qsTea"},{"kind":"edge","letter":null},{"kind":"unknown","letter":null},{"kind":"unknown","letter":null}],"result":{"replace":"me"}}"#;
+    const UNJOINED: &str = "edge\t\t\t\t\t\t\t\tqsPea\tqsTea\tedge\tunknown\tunknown";
 
     /// The window that fills the ladder in: `qsTea` under settlement toward `qsPea`, where the x-height exit has no acceptor and the baseline one is refused by an authored record, so two stances survive exitless and the declared order settles it. Both flavors of elimination are here — one that names no record and one that names the refusal — and the surviving loser is the runner-up.
-    const ORDERED: &str = r#"{"left":{"kind":"edge","settled":null},"input":"qsTea","right":[{"kind":"letter","letter":"qsPea"},{"kind":"edge","letter":null},{"kind":"unknown","letter":null},{"kind":"unknown","letter":null}],"result":null}"#;
+    const ORDERED: &str = "edge\t\t\t\t\t\t\t\tqsTea\tqsPea\tedge\tunknown\tunknown";
 
     /// The same follower behind a left that committed an x-height exit `qsTea` cannot accept — the stranded window, which the corpus buckets as `E-UNREACHABLE` and tells apart by its message.
-    const STRANDED: &str = r#"{"left":{"kind":"letter","settled":{"cell":["qsPea","half",null,"x-height",[]],"seam":"x-height","extension":0}},"input":"qsTea","right":[{"kind":"letter","letter":"qsMay"},{"kind":"edge","letter":null},{"kind":"unknown","letter":null},{"kind":"unknown","letter":null}],"result":{"replace":"me"}}"#;
+    const STRANDED: &str =
+        "letter\tqsPea\thalf\t\tx-height\t\tx-height\t0\tqsTea\tqsMay\tedge\tunknown\tunknown";
 
-    fn answer(line: &str) -> String {
+    fn answer(line: &str, shape: Answer) -> String {
         let index = fixtures::mini();
         let mut engine = replaying_engine(&index);
         let case = parse_case(&index, line).expect("the case parses");
-        replay_case(&mut engine, &case).expect("the case replays")
+        replay_case(&mut engine, &case, shape).expect("the case replays")
     }
 
-    fn result_of(line: &str) -> String {
-        let answered = answer(line);
-        let (_, result) = answered
-            .split_once(r#","result":"#)
-            .expect("the result field is last");
-        result
-            .strip_suffix('}')
-            .expect("the line closes")
+    /// The answer alone: what follows the echoed question and its tab.
+    fn result_of(line: &str, shape: Answer) -> String {
+        let answered = answer(line, shape);
+        answered
+            .strip_prefix(line)
+            .and_then(|rest| rest.strip_prefix('\t'))
+            .expect("the question is echoed ahead of the answer")
             .to_owned()
     }
 
-    /// The whole corpus/3 result: the row-visible record and its delta, then the ladder that chose it — the deciding stage, the runner-up, every ranked survivor with its two scores, and the eliminations with their provenance. This window has one survivor, so the stage is `only-candidate` and there is no runner-up; the exit it did not get to keep is the elimination.
+    /// The whole trace: the row-visible record and its delta, then the ladder that chose it — the deciding stage, the runner-up, every ranked survivor with its two scores, and the eliminations with their provenance. This window has one survivor, so the stage is `only-candidate` and there is no runner-up; the exit it did not get to keep is the elimination.
     #[test]
     fn a_settled_case_carries_the_record_the_delta_and_the_ladder_that_chose_it() {
         assert_eq!(
-            result_of(UNJOINED),
+            result_of(UNJOINED, Answer::Trace),
             r#"{"settled":{"cell":["qsPea","half",null,null,[]],"seam":null,"extension":0},"prospect":0,"joint_floor":false,"notes":[],"fired":[],"decided_stage":"only-candidate","runner_up":null,"ranked":[[["half",null,null,0,9999],0,0]],"eliminations":[["lookahead-closure","qsPea.half: exit x-height has no refusal-aware acceptor cell on qsTea",null]]}"#
         );
     }
 
-    /// The four corpus/3 fields on a window that exercises all of them: the stage that decided, the survivor that lost to it, both ranked rungs with their join count and prospect, and the two eliminations in enumeration order — the second carrying the refusal's pointer, which is also what the delta and the notes report.
+    /// The four ladder fields on a window that exercises all of them: the stage that decided, the survivor that lost to it, both ranked rungs with their join count and prospect, and the two eliminations in enumeration order — the second carrying the refusal's pointer, which is also what the delta and the notes report.
     #[test]
     fn the_ladder_carries_the_stage_the_runner_up_both_rungs_and_each_eliminations_provenance() {
         assert_eq!(
-            result_of(ORDERED),
+            result_of(ORDERED, Answer::Trace),
             r#"{"settled":{"cell":["qsTea","full",null,null,[]],"seam":null,"extension":0},"prospect":0,"joint_floor":false,"notes":["qsTea.yaml:policy.refuse[0]"],"fired":["qsTea.yaml:policy.refuse[0]"],"decided_stage":"order","runner_up":["half",null,null,2,9999],"ranked":[[["full",null,null,1,9999],0,0],[["half",null,null,2,9999],0,0]],"eliminations":[["lookahead-closure","qsTea.half: exit x-height has no refusal-aware acceptor cell on qsPea",null],["refuse","qsTea.half: exit baseline refused","qsTea.yaml:policy.refuse[0]"]]}"#
+        );
+    }
+
+    /// The settled-only answer is the trace's own settled record as seven fields, a height empty where the trace spells `null`, and nothing of the ladder.
+    #[test]
+    fn a_settled_only_answer_is_the_records_seven_fields() {
+        assert_eq!(
+            result_of(UNJOINED, Answer::SettledOnly),
+            "qsPea\thalf\t\t\t\t\t0"
+        );
+        assert_eq!(
+            result_of(ORDERED, Answer::SettledOnly),
+            "qsTea\tfull\t\t\t\t\t0"
         );
     }
 
     #[test]
     fn a_raising_case_carries_its_bucket_and_the_message_byte_for_byte() {
+        let refusal = r#"{"raise":"E-UNREACHABLE","message":"E-STRANDED: qsPea.half.ex-y5 committed an exit at x-height but qsTea has no acceptor cell (the lookahead closure should have prevented this commitment)"}"#;
+        assert_eq!(result_of(STRANDED, Answer::Trace), refusal);
         assert_eq!(
-            result_of(STRANDED),
-            r#"{"raise":"E-UNREACHABLE","message":"E-STRANDED: qsPea.half.ex-y5 committed an exit at x-height but qsTea has no acceptor cell (the lookahead closure should have prevented this commitment)"}"#
+            result_of(STRANDED, Answer::SettledOnly),
+            refusal,
+            "a refusal is the same object under either answer shape"
         );
     }
 
@@ -459,54 +486,57 @@ mod tests {
         );
     }
 
-    /// `json.dumps` under its default `ensure_ascii`, which is what the corpus was written with.
+    /// `json.dumps` under its default `ensure_ascii`, which is what the Python reader expects — and a tab or newline inside a message is escaped, so a refusal after the tab separator cannot desynchronize the batch.
     #[test]
     fn a_message_is_escaped_the_way_python_writes_it() {
         assert_eq!(
             raise_text(&SettleError::Plain(
-                "\u{b7}Pea said \"no\"\tand \\left".to_owned()
+                "\u{b7}Pea said \"no\"\tand \\left\n".to_owned()
             )),
-            r#"{"raise":"E-UNREACHABLE","message":"\u00b7Pea said \"no\"\tand \\left"}"#
+            r#"{"raise":"E-UNREACHABLE","message":"\u00b7Pea said \"no\"\tand \\left\n"}"#
         );
     }
 
     #[test]
-    fn everything_but_the_result_is_re_emitted_byte_for_byte() {
-        for line in [UNJOINED, STRANDED] {
-            let answered = answer(line);
-            let (want, _) = line
-                .split_once(r#","result":"#)
-                .expect("the result field is last");
-            let (got, _) = answered
-                .split_once(r#","result":"#)
-                .expect("the result field is last");
-            assert_eq!(got, want);
+    fn the_question_is_echoed_byte_for_byte_ahead_of_the_answer() {
+        for line in [UNJOINED, ORDERED, STRANDED] {
+            for shape in [Answer::Trace, Answer::SettledOnly] {
+                let answered = answer(line, shape);
+                assert!(answered.starts_with(&format!("{line}\t")), "{answered}");
+            }
         }
     }
 
+    /// A field count other than thirteen is a line this reader cannot place: one short of a slot, and one with a field past the last slot, are both refused rather than read as far as they go.
     #[test]
-    fn the_keys_ride_in_the_order_the_case_spelled_them() {
+    fn a_field_count_other_than_thirteen_is_refused() {
         let index = fixtures::mini();
-        let mut engine = replaying_engine(&index);
-        let reordered = r#"{"input":"qsPea","right":[{"letter":null,"kind":"edge"},{"kind":"unknown","letter":null},{"kind":"unknown","letter":null},{"kind":"unknown","letter":null}],"result":null,"left":{"settled":null,"kind":"edge"}}"#;
-        let case = parse_case(&index, reordered).expect("the case parses");
-        let answered = replay_case(&mut engine, &case).expect("the case replays");
-        assert!(
-            answered.starts_with(r#"{"input":"qsPea","right":[{"letter":null,"kind":"edge"},"#)
+        let short = "edge\t\t\t\t\t\t\t\tqsPea\tqsTea\tedge\tunknown";
+        assert_eq!(
+            parse_case(&index, short).expect_err("a window is four slots"),
+            "a case is 13 tab-separated fields, and this line has 12"
         );
-        assert!(answered.ends_with(r#","left":{"settled":null,"kind":"edge"}}"#));
-        assert!(answered.contains(r#","result":{"settled":"#));
+        let long = format!("{UNJOINED}\textra");
+        assert_eq!(
+            parse_case(&index, &long).expect_err("nothing rides past the last slot"),
+            "a case is 13 tab-separated fields, and this line has 14"
+        );
+        assert_eq!(
+            parse_case(&index, "").expect_err("an empty line is one empty field"),
+            "a case is 13 tab-separated fields, and this line has 1"
+        );
     }
 
     #[test]
     fn a_left_cells_adjustments_survive_the_round_trip() {
         let index = fixtures::mini();
         let mut engine = replaying_engine(&index);
-        let line = r#"{"left":{"kind":"letter","settled":{"cell":["qsTea","half","baseline","x-height",["locked","en-ext-1","ex-bind-pulled-back","ex-trim-2","en-con-3"]],"seam":"x-height","extension":1}},"input":"qsPea","right":[{"kind":"edge","letter":null},{"kind":"unknown","letter":null},{"kind":"unknown","letter":null},{"kind":"unknown","letter":null}],"result":null}"#;
+        let line = "letter\tqsTea\thalf\tbaseline\tx-height\tlocked,en-ext-1,ex-bind-pulled-back,ex-trim-2,en-con-3\tx-height\t1\tqsPea\tedge\tunknown\tunknown\tunknown";
         let case = parse_case(&index, line).expect("the case parses");
-        let cell = &case.left.settled.as_ref().expect("a letter left").cell;
+        let left = case.left.settled.as_ref().expect("a letter left");
         assert_eq!(
-            cell.adjustments
+            left.cell
+                .adjustments
                 .iter()
                 .map(|token| crate::types::adjustment_text(&index, *token))
                 .collect::<Vec<String>>(),
@@ -518,33 +548,58 @@ mod tests {
                 "en-con-3"
             ]
         );
-        let answered = replay_case(&mut engine, &case).expect("the case replays");
-        let (prefix, _) = line.split_once(r#","result":"#).expect("a result field");
-        assert!(answered.starts_with(prefix));
+        assert_eq!(
+            index.resolve(left.cell.entry.expect("an entry")),
+            "baseline"
+        );
+        assert_eq!(index.resolve(left.seam.expect("a seam")), "x-height");
+        assert_eq!(left.extension, 1);
+        let answered = replay_case(&mut engine, &case, Answer::Trace).expect("the case replays");
+        assert!(answered.starts_with(&format!("{line}\t")));
+    }
+
+    /// The left's record is spelled in the same seven fields the settled-only answer is, so a settled-only answer can be pasted back in as the next question's left and read as the record it was.
+    #[test]
+    fn a_settled_only_answer_reads_back_as_a_lefts_record() {
+        let index = fixtures::mini();
+        let mut engine = replaying_engine(&index);
+        let case = parse_case(&index, UNJOINED).expect("the case parses");
+        let answered = result_text(&mut engine, &case, Answer::SettledOnly).expect("an answer");
+        let fields: Vec<&str> = answered.split('\t').collect();
+        let record: [&str; 7] = fields.as_slice().try_into().expect("seven fields");
+        let settled = parse_settled(&index, record).expect("reads back");
+        let trace = engine
+            .transition_trace(&case.left, case.token, case.slots)
+            .expect("settles");
+        assert_eq!(settled, trace.settled);
     }
 
     #[test]
     fn a_head_line_is_skipped_and_every_case_after_it_is_answered() {
         let index = fixtures::mini();
         let mut engine = replaying_engine(&index);
-        let text =
-            format!("# ams-m1-corpus/3\t{{\"config\":\"default\"}}\n{UNJOINED}\n{STRANDED}\n");
-        let lines = replay_cases(&mut engine, &text).expect("the file replays");
+        let text = format!("# ams-m1-cases\tdefault\n{UNJOINED}\n{STRANDED}\n");
+        let lines =
+            replay_cases(&mut engine, &text, Answer::SettledOnly).expect("the file replays");
         assert_eq!(lines.len(), 2);
-        assert!(lines[0].contains(r#""result":{"settled":"#));
-        assert!(lines[1].contains(r#""result":{"raise":"E-UNREACHABLE""#));
+        assert_eq!(lines[0], format!("{UNJOINED}\tqsPea\thalf\t\t\t\t\t0"));
+        assert!(lines[1].starts_with(&format!("{STRANDED}\t{{\"raise\":\"E-UNREACHABLE\"")));
     }
 
+    /// Both shapes look the delta up, so the drift alarm survives the shape that reports no delta.
     #[test]
     fn a_missing_delta_says_the_memo_key_shapes_have_drifted() {
         let index = fixtures::mini();
         let mut engine = Engine::new(&index, Vec::new());
         let case = parse_case(&index, UNJOINED).expect("the case parses");
-        let complaint = replay_case(&mut engine, &case).expect_err("no journal, no delta");
-        assert!(
-            complaint.contains("left no journaled fired delta"),
-            "{complaint}"
-        );
+        for shape in [Answer::Trace, Answer::SettledOnly] {
+            let complaint =
+                replay_case(&mut engine, &case, shape).expect_err("no journal, no delta");
+            assert!(
+                complaint.contains("left no journaled fired delta"),
+                "{complaint}"
+            );
+        }
     }
 
     #[test]
@@ -556,15 +611,27 @@ mod tests {
             complaint,
             "the input rune names qsZoo, which this spec never mentions"
         );
+        let slot = UNJOINED.replace("qsTea", "qsZoo");
+        assert_eq!(
+            parse_case(&index, &slot).expect_err("a slot naming qsZoo is refused too"),
+            "a right slot names qsZoo, which this spec never mentions"
+        );
     }
 
+    /// A slot spells its rune name or the kind of a boundary; the word `letter` is neither, and a left with no rune but a stance is a record this reader cannot place.
     #[test]
-    fn a_case_with_no_result_field_is_refused_rather_than_answered() {
+    fn a_slot_spelled_letter_and_a_half_spelled_left_are_refused() {
         let index = fixtures::mini();
-        let line = r#"{"left":{"kind":"edge","settled":null},"input":"qsPea","right":[]}"#;
+        let slot = UNJOINED.replace("qsTea", "letter");
+        assert!(
+            parse_case(&index, &slot)
+                .expect_err("letter names no rune")
+                .contains("not the kind `letter`")
+        );
+        let half = "edge\t\thalf\t\t\t\t\t0\tqsPea\tqsTea\tedge\tunknown\tunknown";
         assert_eq!(
-            parse_case(&index, line).expect_err("nothing to replace"),
-            "no result field to replace"
+            parse_case(&index, half).expect_err("a stance without a rune"),
+            "a left with no rune carries no record, and this one spells one"
         );
     }
 
@@ -593,16 +660,6 @@ mod tests {
         assert_eq!(
             parse_adjustment(&index, "ex-con-2"),
             Ok(AdjustmentToken::Contract(Side::Exit, 2))
-        );
-    }
-
-    #[test]
-    fn a_slot_count_other_than_four_is_refused() {
-        let index = fixtures::mini();
-        let line = r#"{"left":{"kind":"edge","settled":null},"input":"qsPea","right":[{"kind":"edge","letter":null}],"result":null}"#;
-        assert_eq!(
-            parse_case(&index, line).expect_err("a window is four slots"),
-            "a window reads four right slots, and this one names 1"
         );
     }
 }

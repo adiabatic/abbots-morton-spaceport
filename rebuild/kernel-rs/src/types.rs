@@ -58,7 +58,7 @@ impl TokenKind {
         }
     }
 
-    /// The kind a spelling names, or `None` for text that is not one of the six. The reader half of [`TokenKind::as_str`], for the corpus replay that meets these as JSON strings.
+    /// The kind a spelling names, or `None` for text that is not one of the six. The reader half of [`TokenKind::as_str`], for the case replay that meets these as tab-separated fields and the window memo that meets them as interned names.
     pub fn from_text(text: &str) -> Option<Self> {
         match text {
             "edge" => Some(Self::Edge),
@@ -135,7 +135,7 @@ impl RightToken {
         }
     }
 
-    /// The boundary or unknown token for a kind, or `None` for [`TokenKind::Letter`], which needs a rune. The reader half of [`RightToken::kind`], for the corpus replay that rebuilds tokens from their JSON.
+    /// The boundary or unknown token for a kind, or `None` for [`TokenKind::Letter`], which needs a rune. The reader half of [`RightToken::kind`], for the case replay and the window memo that rebuild boundary tokens from a kind's name.
     pub fn of_kind(kind: TokenKind) -> Option<Self> {
         match kind {
             TokenKind::Edge => Some(Self::Edge),
@@ -719,7 +719,7 @@ pub fn provenance_pointer(index: &SpecIndex, provenance: &Provenance) -> String 
     )
 }
 
-/// One settled record as the seam transports it and `kernel_exec.settled_of_row` reads it back: `{"cell":[rune,stance,entry,exit,[adjustments]],"seam":…,"extension":…}`, a height as its name or `null`. The `settle-cases` answer and the replay's window memo both spell a record through this one function, so the reader on the other side decodes one shape.
+/// One settled record as JSON, `kernel_exec.settled_of_row`'s shape: `{"cell":[rune,stance,entry,exit,[adjustments]],"seam":…,"extension":…}`, a height as its name or `null`. The `settle-cases` trace answer carries a record under its `settled` key through this function and the replay's window memo files one record per line through it, so the Python reader decodes one JSON shape; [`settled_fields`] is the tab-separated spelling the settled-only answer takes instead.
 pub(crate) fn settled_json(index: &SpecIndex, settled: &Settled) -> String {
     let adjustments: Vec<String> = settled
         .cell
@@ -737,6 +737,31 @@ pub(crate) fn settled_json(index: &SpecIndex, settled: &Settled) -> String {
         height_json(index, settled.seam),
         settled.extension
     )
+}
+
+/// One settled record as seven tab-separated fields, `kernel_exec._settled_of_fields`' shape: rune, stance, entry, exit, comma-joined adjustments, seam, extension, a height empty where there is none. These are the seven fields a `settle-cases` question spells its left record in (`cases::parse_settled` reads them), so the settled-only answer and the next question's left share one vocabulary.
+pub(crate) fn settled_fields(index: &SpecIndex, settled: &Settled) -> String {
+    let adjustments: Vec<String> = settled
+        .cell
+        .adjustments
+        .iter()
+        .map(|token| adjustment_text(index, *token))
+        .collect();
+    format!(
+        "{}\t{}\t{}\t{}\t{}\t{}\t{}",
+        index.resolve(settled.cell.rune),
+        index.resolve(settled.cell.stance),
+        height_text(index, settled.cell.entry),
+        height_text(index, settled.cell.exit),
+        adjustments.join(","),
+        height_text(index, settled.seam),
+        settled.extension
+    )
+}
+
+/// A height as its name or nothing: [`height_json`]'s counterpart for the tab-separated spellings.
+pub(crate) fn height_text(index: &SpecIndex, height: Option<Sym>) -> &str {
+    height.map_or("", |height| index.resolve(height))
 }
 
 /// A height as its name or `null`: the spelling every JSON record with a height column shares.
