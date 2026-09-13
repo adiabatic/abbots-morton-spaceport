@@ -895,10 +895,10 @@ def _seam_records(seam_rects) -> list[dict]:
 
 
 def _recompute_fragment(
-    unit, injection, comparator, oracle, enricher, drafter: Drafter
+    unit, injection, comparator, oracle, enricher, drafter: Drafter, report
 ) -> tuple[str, tuple[tuple[str, str], ...]]:
-    """One sampled served unit recomputed from nothing and carried through the same patch the write gives a fresh fragment, with the parent's global fields — echo, cluster, promoted class, seam homes — injected onto the unit copy first, since the copy was taken before the reduces ran. Answers with the content key the recomputation stamps and the ink deltas it found, which is what the caller holds against what the cache served; the id follows from the key."""
-    projection, fragment, _complaints = _phase1_unit(unit, comparator, oracle, enricher, drafter, None)
+    """One sampled served unit recomputed from nothing and carried through the same patch the write gives a fresh fragment, with the parent's global fields — echo, cluster, promoted class, seam homes — injected onto the unit copy first, since the copy was taken before the reduces ran. The settlement `report` is the unit's slot in its chunk's one `Enricher.explain_units` pass (`_released_batches`), settled from the unit's own codepoints and configuration and never read back from the cache, so the recomputation still comes from the unit; handing it in is what keeps a sampled unit from costing a kernel process per letter, since a one-window settlement spends one `settle-cases` spawn per position. Answers with the content key the recomputation stamps and the ink deltas it found, which is what the caller holds against what the cache served; the id follows from the key."""
+    projection, fragment, _complaints = _phase1_unit(unit, comparator, oracle, enricher, drafter, report)
     unit.echo, unit.cluster, unit.class_id, seam_assign = injection
     hold_stamp(patch_fragment(fragment, unit, _seam_records(projection.seam_rects), seam_assign))
     return fragment["content_key"], projection.ink_deltas
@@ -912,7 +912,7 @@ def _phase1_batches(enricher: Enricher, units):
 
 
 def _released_batches(items):
-    """The same boundary for the one loop that settles nothing and so has no enricher batch to ride: the verification sample, which recomputes each served unit's phase 1 and patch in hand. Chunked at the enricher's own batch width so the memo has one bound across the whole build."""
+    """The same boundary for the verification sample, which recomputes each served unit's phase 1 and patch in hand: each chunk is both the settlement batch the sample's units are explained in — one `Enricher.explain_units` pass per chunk, zipped back to the units by position — and the bound the shape memo is released behind. Chunked at the enricher's own batch width so the memo has one bound across the whole build, and kept apart from `_phase1_batches` because the pooled sample's items are `(unit, injection)` pairs rather than bare units. The release stays at this chunk boundary: it is the per-process bound `SURFACE_WORKER_BYTES` prices."""
     for chunk in batched(items, EXPLAIN_UNIT_BATCH_SIZE):
         yield chunk
         release_shape_memos()
@@ -1092,9 +1092,10 @@ def _surface_worker(conn, init: dict) -> None:
             elif message[0] == "verify":
                 keys: dict[str, tuple] = {}
                 for chunk in _released_batches(message[1]):
-                    for unit, injection in chunk:
+                    reports = enricher.explain_units([unit for unit, _injection in chunk])
+                    for (unit, injection), report in zip(chunk, reports, strict=True):
                         keys[unit.unit_id] = _recompute_fragment(
-                            unit, injection, comparator, oracle, enricher, drafter
+                            unit, injection, comparator, oracle, enricher, drafter, report
                         )
                 conn.send(("ok", keys))
     except Exception:
@@ -1286,7 +1287,7 @@ class _FreshRunner:
         return self._local
 
     def verify(self, injections: dict[str, tuple]) -> dict[str, tuple[str, tuple[tuple[str, str], ...]]]:
-        """Recompute phase 1 and the patch for the sampled units the cache served, and answer with each one's content key beside the ink deltas the same recomputation produced. The units are recomputed from nothing — a fresh explain, a fresh config_diff, a fresh enrichment, fresh drafts — so what comes back is what this build would have written had the unit missed the cache, and the caller holds both halves against what the cache served: the key against the stamp on the served fragment, the deltas against the store record they were served from, since `ink_deltas` sits outside the key's projection."""
+        """Recompute phase 1 and the patch for the sampled units the cache served, and answer with each one's content key beside the ink deltas the same recomputation produced. The units are recomputed from nothing — each chunk settled in one fresh explain pass over the units' own codepoints, then a fresh config_diff, a fresh enrichment and fresh drafts per unit off that settlement, nothing read back from the cache — so what comes back is what this build would have written had the unit missed the cache, and the caller holds both halves against what the cache served: the key against the stamp on the served fragment, the deltas against the store record they were served from, since `ink_deltas` sits outside the key's projection."""
         keys: dict[str, tuple[str, tuple[tuple[str, str], ...]]] = {}
         if not self._verify:
             return keys
@@ -1309,9 +1310,10 @@ class _FreshRunner:
         else:
             comparator, oracle, enricher, drafter = self._in_process()
             for chunk in _released_batches(self._verify):
-                for unit in chunk:
+                reports = enricher.explain_units(chunk)
+                for unit, report in zip(chunk, reports, strict=True):
                     keys[unit.unit_id] = _recompute_fragment(
-                        unit, injections[unit.unit_id], comparator, oracle, enricher, drafter
+                        unit, injections[unit.unit_id], comparator, oracle, enricher, drafter, report
                     )
         return keys
 

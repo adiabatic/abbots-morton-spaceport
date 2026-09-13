@@ -20,6 +20,7 @@ import yaml
 from rebuild.pipeline import fixtures, kernel_exec, spec_load
 from rebuild.review import unit_cache, unit_index
 from rebuild.review import build as review_build
+from rebuild.review import enrich as review_enrich
 from rebuild.review.audit import SLIM_OMITTED_KEYS, AuditRow, Unit, slim_fragment
 from rebuild.review.build import (
     SITE_BEFORE_FONT,
@@ -344,6 +345,32 @@ def _environment(surface: Path) -> str:
         return json.loads(next(stream))["environment"]
 
 
+def _settled(monkeypatch) -> list[int]:
+    """The width of every settlement batch the build's enrichers ask for, so a test can say how many kernel passes a build's enrichment took."""
+    widths: list[int] = []
+    real = review_enrich.Enricher.explain_units
+
+    def spy(self, units):
+        widths.append(len(units))
+        return real(self, units)
+
+    monkeypatch.setattr(review_enrich.Enricher, "explain_units", spy)
+    return widths
+
+
+def test_a_served_build_settles_its_verification_sample_in_one_pass(
+    base_surface, mini_bundle, tmp_path, capfd, monkeypatch
+):
+    """A build that serves every unit has one piece of enrichment left to do, the verification sample, and it settles that sample in one pass per chunk rather than one per unit: a one-window settlement spends a kernel process per position, so a per-unit sample costs hundreds of spawns where the fresh path costs a handful. The sample is smaller than a chunk, so the whole of it is one `explain_units` call. `jobs=1` keeps the enricher in this process, where the spy can see it."""
+    surface = _copy(base_surface, tmp_path)
+    widths = _settled(monkeypatch)
+    _build(surface, mini_bundle, jobs=1)
+    served, total = _served(capfd)
+    assert served == total
+    assert widths == [min(review_build.VERIFICATION_SAMPLE, total)]
+    assert _tree(surface) == _tree(base_surface)
+
+
 def test_a_store_without_addresses_still_serves_every_unit_through_the_walk(
     base_surface, mini_bundle, tmp_path, capfd, monkeypatch
 ):
@@ -445,6 +472,17 @@ def test_a_narrowed_hand_out_pool_is_byte_identical_to_the_serial_build(
     parallel = tmp_path / "narrowed"
     _build(parallel, mini_bundle, jobs=2)
     assert _tree(parallel) == _tree(base_surface)
+
+
+def test_a_pooled_served_rebuild_is_byte_identical_to_the_serial_one(
+    base_surface, mini_bundle, tmp_path, capfd
+):
+    """The pooled verify branch settles each worker's share of the sample as one chunk and zips the reports back to `(unit, injection)` pairs by position; a report zipped onto its neighbor's unit recomputes that unit under another window, misses its content key, and fails the build from inside the worker. A served rebuild at two jobs is the only build that runs that branch, and its output is the serial one byte for byte."""
+    surface = _copy(base_surface, tmp_path)
+    _build(surface, mini_bundle, jobs=2)
+    served, total = _served(capfd)
+    assert served == total
+    assert _tree(surface) == _tree(base_surface)
 
 
 def _signatures(capfd) -> tuple[int, int]:
