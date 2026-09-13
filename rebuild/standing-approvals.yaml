@@ -1959,3 +1959,31 @@ rules:
         gained: [[3, 0]]
         shift: 0
       except_left: []
+  - id: she-exit-contracted
+    verdict: approve
+    note: "·No sits a pixel closer to ·She — the extra pixel of baseline exit the old font drew came off as a contraction on ·She’s contract record, authored as “Contract ·{She,Cheer} ~b~ ·No.alt by a pixel”, and every window that reached a sitting approved the shorter reach"
+    match:
+      before:
+        pivots: [qsShe.ex-y0]
+      after:
+        pivots: [qsShe.hapax.ex-y0.ex-con-1]
+        dropped: [[4, 0]]
+        added: []
+        shift: -1
+      except_left: []
+  - id: cheer-exit-contracted
+    verdict: approve
+    note: "·No sits a pixel closer to ·Cheer, with or without the x-height entry — the extra pixel of baseline exit the old font drew came off as a contraction on ·Cheer’s contract record, authored as “Contract ·{She,Cheer} ~b~ ·No.alt by a pixel”, and every window that reached a sitting approved the shorter reach"
+    match:
+      before:
+        pivots: [qsCheer]
+      after:
+        pivots:
+          - qsCheer.hapax.ex-y0.ex-con-1
+          - qsCheer.hapax.ex-y0.locked.ex-con-1
+          - qsCheer.hapax.en-y5.ex-y0.ex-con-1
+          - qsCheer.hapax.en-y5.ex-y0.en-ext-1.ex-con-1
+        dropped: [[3, 0]]
+        added: []
+        shift: -1
+      except_left: []
