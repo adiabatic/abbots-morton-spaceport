@@ -125,6 +125,35 @@ def test_incoming_and_placement_policy_does_not_inherit(tmp_path, runes, kind, r
     assert getattr(spec.runes["qsDay_qsIt"].policy, kind) == ()
 
 
+def test_a_refusal_naming_neither_side_inherits_as_an_outgoing_veto(tmp_path, runes):
+    runes["qsIt"]["policy"] = {"refuse": [{"when": {"right": {"family": "qsDay"}}}]}
+    spec = _load(tmp_path, runes)
+    assert spec.runes["qsDay_qsIt"].policy.refuse == (
+        replace(spec.runes["qsIt"].policy.refuse[0], stance="hapax"),
+    )
+    runes["qsDay_qsIt"]["stances"]["hapax"]["outgoing"] = {
+        "exceptions": {"policy.refuse[0]": "The combined stroke still reaches this follower."}
+    }
+    assert _load(tmp_path, runes).runes["qsDay_qsIt"].policy.refuse == ()
+
+
+def test_every_ligature_stance_inherits_the_exit_yield_scoped_to_itself(tmp_path, runes):
+    runes["qsIt"]["policy"] = {
+        "prefer": [
+            {"cell": {"exit": "none"}, "over": {"exit": "baseline"}, "when": {"right": {"family": "qsDay"}}}
+        ]
+    }
+    stance = runes["qsDay_qsIt"]["stances"].pop("hapax")
+    runes["qsDay_qsIt"]["stances"] = {name: {**deepcopy(stance), "motion": name} for name in ("full", "half")}
+    runes["qsDay_qsIt"]["ductus"] = {"full": "A full stroke.", "half": "A half stroke."}
+    spec = _load(tmp_path, runes)
+    source = spec.runes["qsIt"].policy.prefer[0]
+    assert spec.runes["qsDay_qsIt"].policy.prefer == (
+        replace(source, stance="full"),
+        replace(source, stance="half"),
+    )
+
+
 def test_exit_yield_inherits_its_right_chain_and_mode(tmp_path, runes):
     runes["qsIt"]["policy"] = {
         "prefer": [
@@ -215,6 +244,8 @@ def test_bitmap_policy_requires_exception_and_local_binding(tmp_path, runes):
     }
     local["stances"]["hapax"]["bitmaps"] = {"shortened": {"bitmap": ["## "] * 6}}
     local["policy"] = deepcopy(source["policy"])
+    _error(tmp_path, runes, "needs a replacements entry")
+    local["stances"]["hapax"]["outgoing"]["replacements"] = {"policy.contract[0]": "policy.contract[0]"}
     spec = _load(tmp_path, runes)
     assert len(spec.runes["qsDay_qsIt"].policy.contract) == 1
     assert spec.runes["qsDay_qsIt"].stances["hapax"].bitmaps["shortened"].rows == ("## ",) * 6

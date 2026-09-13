@@ -21,25 +21,37 @@ from rebuild.pipeline.model import (
     Rune,
     Stance,
     Surface,
+    SurfaceRow,
     When,
 )
 from rebuild.pipeline.settle import EDGE, RightToken, SettleError
 
 
 def _world(
-    *, outgoing=None, source_refuse=(), source_prefer=(), local_refuse=(), local_prefer=(), missing=False
+    *,
+    outgoing=None,
+    source_refuse=(),
+    source_prefer=(),
+    local_refuse=(),
+    local_prefer=(),
+    missing=False,
+    stances=("joined",),
+    source_exits=None,
 ):
     spec = fixtures.synthetic_spec()
     source = spec.runes["B"]
     source = replace(source, policy=replace(source.policy, refuse=source_refuse, prefer=source_prefer))
-    stance = Stance(
-        "joined", "joined", surface=Surface(exits={} if missing else source.stances["hook"].surface.exits)
-    )
+    if source_exits is not None:
+        hook = source.stances["hook"]
+        source = replace(
+            source, stances={"hook": replace(hook, surface=replace(hook.surface, exits=source_exits))}
+        )
+    exits = {} if missing else source.stances["hook"].surface.exits
     ligature = Rune(
         "AB",
         sequence=("A", "B"),
-        stances={"joined": stance},
-        policy=Policy(order=("joined",), refuse=local_refuse, prefer=local_prefer),
+        stances={name: Stance(name, name, surface=Surface(exits=exits)) for name in stances},
+        policy=Policy(order=stances, refuse=local_refuse, prefer=local_prefer),
     )
     spec = replace(
         spec,
@@ -49,7 +61,32 @@ def _world(
         ),
     )
     declaration = {"stance": "hook"} if outgoing is None else outgoing
-    return spec, {"AB": {"stances": {"joined": {"outgoing": declaration}}}}
+    return spec, {"AB": {"stances": {name: {"outgoing": declaration} for name in stances}}}
+
+
+def _with_two_height_follower(spec):
+    follower = Rune(
+        "D",
+        codepoint=0xE004,
+        ductus={"base": "synthetic"},
+        stances={
+            "base": Stance(
+                "base",
+                "base",
+                surface=Surface(
+                    entries={"baseline": SurfaceRow("baseline", x=0), "x-height": SurfaceRow("x-height", x=0)}
+                ),
+            )
+        },
+        policy=Policy(order=("base",)),
+    )
+    return replace(
+        spec,
+        runes={**spec.runes, "D": follower},
+        registry=replace(
+            spec.registry, families={**spec.registry.families, "D": FamilyInfo(codepoint=0xE004)}
+        ),
+    )
 
 
 def _refusal(**when):
@@ -228,3 +265,43 @@ def test_ranking_errors_cannot_pass_as_missing_capability(bucket):
     with pytest.raises(SettleError) as error:
         _capability_answer({"raise": bucket, "message": "Synthetic ranking fault"})
     assert error.value.bucket == bucket
+
+
+def test_a_join_that_survives_at_another_height_is_reported_as_moved():
+    exits = {
+        "baseline": SurfaceRow("baseline", x=1, withdrawal="safe"),
+        "x-height": SurfaceRow("x-height", x=1, withdrawal="safe"),
+    }
+    preference = PolicyRecord(
+        "prefer",
+        cell={"exit": "x-height"},
+        over={"exit": "baseline"},
+        mode="absolute",
+        when=When(right=Condition(family=("D",))),
+    )
+    local_refusal = PolicyRecord("refuse", exit="x-height", when=When(right=Condition(family=("D",))))
+    spec, raw = _world(
+        source_exits=exits,
+        source_prefer=(preference,),
+        local_prefer=(replace(preference, stance="joined"),),
+        local_refuse=(local_refusal,),
+    )
+    spec = _with_two_height_follower(spec)
+    with pytest.raises(LigatureOutgoingError, match=r"moved x-height seam to baseline.*right=\[D"):
+        validate_ligature_outgoing(spec, raw)
+
+
+def test_every_ligature_stance_is_held_to_its_own_inherited_records():
+    preference = PolicyRecord(
+        "prefer",
+        cell={"exit": "none"},
+        over={"exit": "baseline"},
+        mode="absolute",
+        when=When(right=Condition(family=("C",))),
+    )
+    both = tuple(replace(preference, stance=name) for name in ("joined", "second"))
+    spec, raw = _world(stances=("joined", "second"), source_prefer=(preference,), local_prefer=both)
+    assert validate_ligature_outgoing(spec, raw)["mappings"] == 2
+    spec, raw = _world(stances=("joined", "second"), source_prefer=(preference,), local_prefer=both[:1])
+    with pytest.raises(LigatureOutgoingError, match=r"AB.stances.second.outgoing: lost outgoing yield"):
+        validate_ligature_outgoing(spec, raw)
