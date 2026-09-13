@@ -2195,7 +2195,7 @@ def _composed_verdict(rules, unit, events, context):
 
 
 class SlideContext:
-    """The font-backed state the slide shape and the composed reading match with: one InkComparator over the surface's shipped font pair, a per-run memo of each rule's geometric verdict per unit so the guarded and unguarded passes over one rule shape a window once, and a second memo of each composed walk per unit, keyed on the composable rules' ids and matches so a window is shaped once however many times the same rules ask about it and a caller holding a second rule set against the same context is never served the first set's reading. `fonts` keeps the pair it was built over, so a pooled worker (`_standing_pool_init`) builds its own context over provably the parent's fonts. Every key in both memos names the unit it was computed for and `Decider._decided` answers any repeat ask, so a pooled worker empties both behind every chunk at no cost, which is what makes its peak chunk-shaped rather than slice-shaped."""
+    """The font-backed state the slide shape and the composed reading match with: one InkComparator over the surface's shipped font pair, a per-run memo of each rule's geometric verdict per unit so the guarded and unguarded passes over one rule shape a window once, and a second memo of each composed walk per unit, keyed on the composable rules' ids and matches so a window is shaped once however many times the same rules ask about it and a caller holding a second rule set against the same context is never served the first set's reading. `fonts` keeps the pair it was built over, so a pooled worker (`_standing_pool_init`) builds its own context over provably the parent's fonts. Every key in both memos names the unit it was computed for and `Decider._decided` answers any repeat ask, so `Decider.decide` empties both behind every unit at no cost, and a pooled worker, which asks `evaluate` directly and never passes through `decide`, empties them behind every chunk (`_standing_pool_chunk`), which is what makes its peak chunk-shaped rather than slice-shaped."""
 
     def __init__(self, before_font, after_font) -> None:
         self.fonts = (before_font, after_font)
@@ -2885,18 +2885,24 @@ class Decider:
         return decision
 
     def decide(self, unit) -> Decision:
+        """The unit boundary: the decision, served or computed, answered from `_decided` on a repeat ask, and the context's shape and walk memos emptied behind every unit it serves or computes, because every key in them names the unit it was computed for and `_decided` answers any repeat ask, so a run's context holds one unit's windows rather than the domain's. `misses` asks `_serving` outside this boundary, so a repair it runs stays in the shape memo until the next `decide` that serves or computes."""
         decision = self._decided.get(unit["id"])
         if decision is not None:
             return decision
-        serving = self._serving(unit)
-        if serving is None:
-            return self.take(unit, self.evaluate(unit))
-        decision, repaired = serving
-        if repaired:
-            return self.take(unit, decision)
-        self.served += 1
-        self._decided[unit["id"]] = decision
-        return decision
+        try:
+            serving = self._serving(unit)
+            if serving is None:
+                return self.take(unit, self.evaluate(unit))
+            decision, repaired = serving
+            if repaired:
+                return self.take(unit, decision)
+            self.served += 1
+            self._decided[unit["id"]] = decision
+            return decision
+        finally:
+            if self.context is not None:
+                self.context.memo.clear()
+                self.context.composed.clear()
 
     def misses(self, units) -> list:
         """The units among `units` this run would have to evaluate itself: not decided yet, and not servable from the memo — no entry under their key, or an entry `_serve` refuses. An entry `_serve` repairs is not a miss: the repair is a matcher or two, run serially. A dropped memo misses everything; a rules commit misses the units the moved rules can reach, which a broad rule can carry past `_STANDING_POOL_THRESHOLD`, so a rule-landing pass can open the pool over a memo it mostly served."""
