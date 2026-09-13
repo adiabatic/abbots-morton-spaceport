@@ -710,8 +710,8 @@ def test_the_stamped_scaffold_keys_are_the_projections_share_of_the_scaffold(min
 
 
 @pytest.mark.parametrize("key", review_build._SCAFFOLD_HEAD + review_build._SCAFFOLD_TAIL)
-def test_hold_scaffold_raises_exactly_when_the_parent_moves_a_stamped_field(key):
-    """Over pure dicts: a fragment and a scaffold that agree pass in silence, one that differs at a stamped key raises the `SystemExit` naming the unit and the key, and one that differs only at a key outside the projection passes, since the patch may write those freely under the stamp."""
+def test_hold_scaffold_raises_exactly_when_the_parent_moves_a_held_field(key):
+    """Over pure dicts: a fragment and a scaffold that agree pass in silence, one that differs at a held key (`_HELD_SCAFFOLD_KEYS`) raises the `SystemExit` naming the unit and the key and saying which side of the carry projection the key sits on — inside, the stamp names other content; outside, the drafting-time check answered for other bytes — and one that differs only at `echo` or `cluster` passes, since the patch assigns those after drafting and the write-time check answers for them."""
     fragment = {
         "id": "u-3mJ7kPq2Xw9",
         **{name: f"value of {name}" for name in review_build._STAMPED_SCAFFOLD_KEYS},
@@ -724,13 +724,17 @@ def test_hold_scaffold_raises_exactly_when_the_parent_moves_a_stamped_field(key)
     )
     review_build.hold_scaffold(fragment, dict(fragment))
     scaffold = {**fragment, key: "moved"}
-    if key not in review_build._STAMPED_SCAFFOLD_KEYS:
+    if key not in review_build._HELD_SCAFFOLD_KEYS:
+        assert key in ("echo", "cluster")
         review_build.hold_scaffold(fragment, scaffold)
         return
     with pytest.raises(SystemExit) as caught:
         review_build.hold_scaffold(fragment, scaffold)
     assert f"unit {fragment['id']}:" in str(caught.value)
     assert f"other values of {key} than" in str(caught.value)
+    inside = key in review_build._STAMPED_SCAFFOLD_KEYS
+    assert ("the stamp names other content" in str(caught.value)) == inside
+    assert ("the drafting-time check answered for other bytes" in str(caught.value)) == (not inside)
 
 
 def test_prune_orphan_shards_removes_only_unreferenced_json(tmp_path):
@@ -1052,6 +1056,52 @@ def _drive_worker_in_thread(mini_bundle, out_dir: Path, chunks: list[list]) -> l
         worker.join(timeout=60)
     assert not worker.is_alive()
     return replies
+
+
+def _refuting_every_pin(monkeypatch) -> None:
+    """Corrupt what the drafting lays down, on the drafting side of the split: every human fragment leaves `unit_to_json` with a pin the after font refuted, which `check_unit`'s `DRAFTED` subset refuses and nothing the parent patches touches. The drafts sit outside the carry projection, so the stamp the fragment carries stays the stamp of the fragment as written."""
+    unit_to_json = review_build.unit_to_json
+
+    def refuted(*args, **kwargs):
+        fragment = unit_to_json(*args, **kwargs)
+        if fragment.get("drafts"):
+            fragment["drafts"]["pin"]["syntax"] = "fail: refuted for the test"
+        return fragment
+
+    monkeypatch.setattr(review_build, "unit_to_json", refuted)
+
+
+def test_a_pool_worker_answers_with_the_complaints_of_the_fragments_it_drafted(
+    mini_bundle, monkeypatch, tmp_path
+):
+    """The worker runs the drafting-time contract check over every fragment it drafts and carries what it found on the `batch` reply, beside the projections and addresses, so a drafting-side violation reaches the parent as data in the `contract check failed` list rather than as a traceback: over the bundle as shipped the reply's complaints are empty, and with every human fragment's pin refuted they name `drafts.pin.syntax` once per human unit of the batch, up to the `CONTRACT_ERRORS_SHOWN` the write prints. In-thread rather than pooled, because the pool is spawn-only and a monkeypatch never reaches a real worker. A unit's `input_key` is the cache plan's handle and empty off `load_workload`, and the projections are joined back to their units by it, so each unit is handed one first."""
+    chunks = _two_chunks(mini_bundle)
+    for index, unit in enumerate(unit for chunk in chunks for unit in chunk):
+        unit.input_key = f"k{index}"
+    clean = _drive_worker_in_thread(mini_bundle, tmp_path / "clean", chunks)
+    assert [reply[0] for reply in clean] == ["batch", "batch", "ok", "peak"]
+    assert all(reply[3] == [] for reply in clean[:2])
+    no_verdict = {unit.input_key: unit.no_verdict for chunk in chunks for unit in chunk}
+    humans = [
+        sum(
+            1
+            for projection in reply[1]
+            if not (
+                projection.ink_identical
+                or projection.picture_identical
+                or projection.junior_equivalent
+                or no_verdict[projection.input_key]
+            )
+        )
+        for reply in clean[:2]
+    ]
+    assert sum(humans) > 0
+    _refuting_every_pin(monkeypatch)
+    refuted = _drive_worker_in_thread(mini_bundle, tmp_path / "refuted", chunks)
+    for human, reply in zip(humans, refuted[:2], strict=True):
+        assert len(reply[3]) == min(human, review_build.CONTRACT_ERRORS_SHOWN)
+        assert all("drafts.pin.syntax is 'fail: refuted for the test'" in line for line in reply[3])
+        assert sorted(reply[2]) == sorted(projection.unit_id for projection in reply[1])
 
 
 def _two_chunks(mini_bundle) -> list[list]:
