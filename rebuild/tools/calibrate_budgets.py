@@ -75,7 +75,7 @@ UNITS: tuple[Unit, ...] = (
         pool_units=("rebuild-contracts",),
         step_names=(),
         step_caveat="",
-        note="The rebuild suite's width is the cores this process may actually run on, and nothing divides the box by a per-worker cost to reach it — no test in it reads a live build artifact, so no worker holds a working set worth bounding — and there is nothing here to calibrate. The observations are collected and reported anyway, so that if the suite ever grows a memory-derived width the figure to seed it with is already on the record rather than a measurement someone still has to go and take.",
+        note="The rebuild suite's width is a count of cores — a hand run takes every core this process may actually run on, and the cycle hands it the cores the surface build's parent and pool leave (`artifact_cycle.contracts_pool_width`) — and nothing divides the box by a per-worker cost to reach either: no test in it reads a live build artifact, so no worker holds a working set worth bounding, and there is nothing here to calibrate. The observations are collected and reported anyway, so that if the suite ever grows a memory-derived width the figure to seed it with is already on the record rather than a measurement someone still has to go and take.",
     ),
     Unit(
         name="kernel-build",

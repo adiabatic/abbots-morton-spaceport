@@ -698,7 +698,7 @@ def test_the_plan_block_counts_its_steps_and_leaves_the_sweep_undecided():
     certain_rows = ac.plan_rows(certain)
     certain_by_name = {row.name: row for row in certain_rows}
     assert certain_by_name["gate:conform"].status == console.STATUS_RUN
-    assert certain_by_name["gate:rebuild-contracts"].note == "submitted once the surface build settles"
+    assert certain_by_name["gate:rebuild-contracts"].note == "submitted beside the surface build"
     assert "–" not in console.counts_line(certain_rows)
 
     fresh = _plan(fresh=True)
@@ -2245,9 +2245,12 @@ def test_dry_run_renders_concurrency():
     assert "Lane rebuild-contracts" in text
     assert "Lane conform" in text
     assert "Lane kernel" not in text
-    assert "surface-build -> submit gate:rebuild-contracts -> plumbing -> census" in text
+    assert "run_m1 -> submit gate:rebuild-contracts -> surface-build -> plumbing -> census" in text
     assert "QUEUED behind gate:make-test (queue policy — one heavy pool at a time)" in text
-    assert "Lane rebuild-contracts           : submitted once the surface build settles;" in text
+    assert (
+        f"Lane rebuild-contracts           : submitted beside the surface build, -n {plan.contracts_workers} ({plan.contracts_reason});"
+        in text
+    )
     assert "QUEUED behind gate:conform (queue policy — one heavy pool at a time)" in text
     assert f"run_m1 sweeps --jobs             : {plan.sweep_jobs}" in text
     assert plan.sweep_jobs == ac.sweep_job_budget(12, total_bytes=BOX_44_GB)
@@ -2918,6 +2921,108 @@ def test_the_signature_pool_takes_the_cores_the_surface_width_cannot():
     assert ac.signature_job_derivation(skip_gates=False, ncores=2).endswith("floored at one")
 
 
+def test_the_contracts_pool_is_the_cores_the_surface_build_leaves():
+    """The rebuild suite's width under a cycle is the second fan-out memory does not derive: it runs beside the surface build, so on a ten-core box it takes the cores less the build's parent and its `surface_job_budget` workers, less gate:make-test's pool only under the overlap policy (under queue the suite parks until that pool has finished, so those cores are already its own), the whole box when no surface build runs, and never below one. Every width is read off the budget rather than written here, so a re-seed of either surface constant never has to come back to this test."""
+    surface = ac.surface_job_budget(skip_gates=False, ncores=10, total_bytes=BOX_32_GIB)
+    queue = ac.contracts_pool_width(skip_gates=False, ncores=10, total_bytes=BOX_32_GIB)
+    assert queue == 10 - 1 - surface >= 1
+    assert f"{queue} of 10 cores, less the surface build's parent and its {surface} workers" == (
+        ac.contracts_pool_derivation(skip_gates=False, ncores=10, total_bytes=BOX_32_GIB)
+    )
+
+    overlap = ac.contracts_pool_width(
+        skip_gates=False, pool_policy="overlap", ncores=10, total_bytes=BOX_32_GIB
+    )
+    assert overlap == max(1, queue - ac.make_test_pool_width(ncores=10))
+    assert (
+        f"less gate:make-test's {ac.make_test_pool_width(ncores=10)} (overlap policy)"
+        in ac.contracts_pool_derivation(
+            skip_gates=False, pool_policy="overlap", ncores=10, total_bytes=BOX_32_GIB
+        )
+    )
+
+    solo = ac.contracts_pool_width(skip_gates=False, skip_make_test=True, ncores=10, total_bytes=BOX_32_GIB)
+    assert solo == 10 - 1 - ac.surface_job_budget(
+        skip_gates=False, skip_make_test=True, ncores=10, total_bytes=BOX_32_GIB
+    )
+
+    assert (
+        ac.contracts_pool_width(skip_gates=False, skip_surface=True, ncores=10, total_bytes=BOX_32_GIB) == 10
+    )
+    assert (
+        ac.contracts_pool_derivation(skip_gates=False, skip_surface=True, ncores=10, total_bytes=BOX_32_GIB)
+        == "10 of 10 cores, the whole box (no surface build to share it with)"
+    )
+    solo_overlap = ac.contracts_pool_width(
+        skip_gates=False, skip_surface=True, pool_policy="overlap", ncores=10, total_bytes=BOX_32_GIB
+    )
+    assert solo_overlap == 10 - ac.make_test_pool_width(ncores=10)
+    assert ac.contracts_pool_derivation(
+        skip_gates=False, skip_surface=True, pool_policy="overlap", ncores=10, total_bytes=BOX_32_GIB
+    ) == (
+        f"{solo_overlap} of 10 cores, the box (no surface build to share it with), "
+        f"less gate:make-test's {ac.make_test_pool_width(ncores=10)} (overlap policy)"
+    )
+
+    assert ac.contracts_pool_width(skip_gates=False, ncores=2, total_bytes=BOX_32_GIB) == 1
+    assert ac.contracts_pool_derivation(skip_gates=False, ncores=2, total_bytes=BOX_32_GIB).endswith(
+        "floored at one"
+    )
+
+
+def test_a_stated_contracts_width_is_the_width_the_cycle_hands_the_child(monkeypatch):
+    """PYTEST_XDIST_AUTO_NUM_WORKERS is not something the cycle may narrow for the rebuild suite any more than for gate:make-test — the child inherits this process's environment, so a width already stated here is what that pool is going to take, and the plan says so rather than printing arithmetic the pool will ignore."""
+    monkeypatch.setenv("PYTEST_XDIST_AUTO_NUM_WORKERS", "9")
+    assert ac.contracts_pool_width(skip_gates=False, ncores=2, total_bytes=BOX_32_GIB) == 9
+    assert (
+        ac.contracts_pool_derivation(skip_gates=False, ncores=2, total_bytes=BOX_32_GIB)
+        == "PYTEST_XDIST_AUTO_NUM_WORKERS states 9"
+    )
+    plan = _plan(ncores=2, total_bytes=BOX_32_GIB)
+    assert plan.contracts_workers == 9
+
+
+def test_the_plan_states_the_contracts_pool_width_on_its_lane_line():
+    """The lane line carries the width and its derivation, and the build lane reads the new order, so a reader can see the suite is submitted ahead of the build and how many cores it was handed; the overlap arm prints its narrower width rather than implying it, which is where the collapse toward one worker on a ten-core box becomes visible; and a pass whose surface build is skipped says the suite is submitted once the run_m1 gate passes, never that it runs beside a build the plan's own row reads SKIPPED."""
+    gated = _plan(ncores=10, total_bytes=BOX_32_GIB)
+    text = _plan_text(gated)
+    assert (
+        "Lane build[serial, main thread]  : run_m1 -> submit gate:rebuild-contracts -> surface-build -> plumbing -> census"
+        in text
+    )
+    assert (
+        f"Lane rebuild-contracts           : submitted beside the surface build, -n {gated.contracts_workers} ({gated.contracts_reason});"
+        in text
+    )
+    assert gated.contracts_workers == ac.contracts_pool_width(
+        skip_gates=False, ncores=10, total_bytes=BOX_32_GIB
+    )
+    assert {step.name: step for step in gated.steps}["gate:rebuild-contracts"].note == (
+        "submitted beside the surface build"
+    )
+
+    overlap = _plan(pool_policy="overlap", ncores=10, total_bytes=BOX_32_GIB)
+    assert overlap.contracts_workers < gated.contracts_workers
+    assert f"-n {overlap.contracts_workers} (" in _plan_text(overlap)
+    assert "CO-RESIDENT with the other pools (overlap policy)" in _plan_text(overlap)
+
+    solo = _plan(skip_surface=True, surface_note="unchanged", ncores=10, total_bytes=BOX_32_GIB)
+    solo_text = _plan_text(solo)
+    assert solo.contracts_workers == 10
+    assert (
+        f"Lane rebuild-contracts           : submitted once the run_m1 gate passes (no surface build this pass), -n 10 ({solo.contracts_reason});"
+        in solo_text
+    )
+    assert "submitted beside the surface build" not in solo_text
+    assert {step.name: step for step in solo.steps}["gate:rebuild-contracts"].note == (
+        "submitted once the run_m1 gate passes (no surface build this pass)"
+    )
+
+    assert "Lane rebuild-contracts" not in _plan_text(
+        _plan(skip_gates=True, ncores=10, total_bytes=BOX_32_GIB)
+    )
+
+
 def test_skip_make_test_frees_the_surface_build_budget():
     """The sweeps' width is the box's cores under the shard clamp either way — nothing about make-test bears on it — while the surface build is the stage that gives both cores and bytes back to a pytest pool that is actually running. On the 48 GiB box the pool's bytes sit inside a worker's worth of slack, so both arms answer the same width — the pair separating is the fit-terms seam's assertion — and what this checks is that the plan resolves each arm's own terms and its reason line says which one it resolved: the gated arm's derivation carries the pool's bytes in its co-resident clause, and the skip arm says the build takes the whole box. The widths are read off the budget rather than written here, so a re-seed of either surface constant never has to come back to this test."""
     plan = _plan(
@@ -3009,7 +3114,7 @@ def test_run_cycle_never_spawns_make_test_when_skipped(monkeypatch):
 
 
 def test_the_pool_width_is_handed_to_the_make_test_child_and_to_no_other(monkeypatch):
-    """The width the plan reserved for reaches the pool it reserved for, and reaches nothing else. It rides on that one child's environment because run_m1, the surface build and the rebuild suite are spawned from this same process: a width set on os.environ would pin their `-n auto` pools too, and the suite's is not make-test's to choose."""
+    """The width the plan reserved for reaches the pool it reserved for, and reaches nothing else. It rides on that one child's environment because run_m1, the surface build and the rebuild suite are spawned from this same process: a width set on os.environ would pin their `-n auto` pools too, and os.environ stays clean, so make-test's number reaches make-test's child and no other, and the two pytest pools state two widths rather than one leaking to both."""
     seen: dict[str, dict[str, str] | None] = {}
 
     def fake_spawn(name, argv, *, emit, registry, stream, env=None):
@@ -3032,7 +3137,7 @@ def test_the_pool_width_is_handed_to_the_make_test_child_and_to_no_other(monkeyp
 
 
 def test_the_rebuild_suite_names_its_pool_to_its_own_child(monkeypatch):
-    """The suite's pytest controller stamps its per-worker peaks into the timings journal under the name of the pool it ran, which is the join key `make job-costs` reports the suite's observations under. The cycle spawns the suite as bare pytest rather than through rebuild_gate.py, so the name has to be added here — on the suite's own child, never on os.environ, or every other child would inherit it and file its measurements under the wrong pool."""
+    """The suite's pytest controller stamps its per-worker peaks into the timings journal under the name of the pool it ran, which is the join key `make job-costs` reports the suite's observations under. The cycle spawns the suite as bare pytest rather than through rebuild_gate.py, so the name has to be added here — on the suite's own child, never on os.environ, or every other child would inherit it and file its measurements under the wrong pool. The same child carries its width beside its name: the cores the surface build leaves it, which is what the pool record's `width` then reads."""
     # Deleted first because this very suite runs inside a pool that named itself whenever the cycle's contracts gate is what spawned it: what is being pinned is that the drive writes only the children's env dicts, so the check on os.environ below has to start from a known absence.
     monkeypatch.delenv("AMS_POOL_UNIT", raising=False)
     seen: dict[str, dict[str, str] | None] = {}
@@ -3051,8 +3156,12 @@ def test_the_rebuild_suite_names_its_pool_to_its_own_child(monkeypatch):
     rc = ac._run_cycle(plan, ac.CycleReport(), ac._Emitter(), ac._ChildRegistry(), spawn=fake_spawn)
 
     assert rc == 0
-    assert seen["gate:rebuild-contracts"] == {"AMS_POOL_UNIT": "rebuild-contracts"}
+    assert seen["gate:rebuild-contracts"] == {
+        "AMS_POOL_UNIT": "rebuild-contracts",
+        "PYTEST_XDIST_AUTO_NUM_WORKERS": str(plan.contracts_workers),
+    }
     assert "AMS_POOL_UNIT" not in os.environ
+    assert "PYTEST_XDIST_AUTO_NUM_WORKERS" not in os.environ
     # Both the variable and the unit name are spelled literally here, matching the neighboring width variable rather than importing one word — so the drift that spelling invites is what this pins instead. A name this side writes that the registry does not read is a pool filed under nothing: no row claims it, the unit it was meant to price reports itself unmeasured here, and that reads exactly like a box that has simply not run the suite yet.
     known = {name for unit in cb.UNITS for name in unit.pool_units}
     assert "rebuild-contracts" in known
@@ -5197,46 +5306,46 @@ def test_the_plan_checks_job_costs_even_when_the_gates_are_skipped():
     assert _plan(skip_gates=True).runs("job-costs") is True
 
 
-def test_the_rebuild_suite_is_submitted_once_the_surface_build_settles(monkeypatch):
-    """The submission window: after the surface build and before everything else in the build lane. The suite reads no artifact but must not put a full-width pool beside the build. It waits for nothing further, because the carry, the merge and the census are not inputs to it."""
-    spawned = {"gate:rebuild-contracts": threading.Event()}
+def test_the_contracts_suite_is_submitted_before_the_surface_build_starts(monkeypatch):
+    """The submission window: after the run_m1 gate has passed and before the surface build starts, so the suite runs beside the build rather than after it. The surface fake waits for the suite's task to have been invoked before it returns, which a submission placed after the build could never satisfy; the suite waits for nothing further, because the surface, the carry, the merge and the census are not inputs to it, and `test_the_rebuild_suite_is_skipped_when_run_m1_fails` holds the lower bound from the other side."""
+    contracts_invoked = threading.Event()
     order: list[str] = []
 
-    def fake_spawn(name, argv, *, emit, registry, stream, env=None):
-        if name in spawned:
-            spawned[name].set()
-        return _step(name, 0)
+    def fake_run_m1(report, *, spawn, emit, registry, **_):
+        assert not contracts_invoked.is_set()
+        order.append("run_m1")
+        return _run_m1_green()
 
-    def surface_first(report, *, spawn, emit, registry, review_out, **_):
-        assert not any(event.is_set() for event in spawned.values())
+    def fake_contracts(pool_policy, conform_fut, make_fut, spawn, emit, registry, argv):
+        order.append("contracts")
+        contracts_invoked.set()
+        return _lane_verdict("rebuild-contracts")
+
+    def surface_after(report, *, spawn, emit, registry, review_out, **_):
+        assert contracts_invoked.wait(timeout=30)
         order.append("surface")
         report.surface_units = 1
         return True
 
-    def census_after(report, *, spawn, emit, registry, plan):
-        assert all(event.wait(timeout=30) for event in spawned.values())
-        order.append("census")
-        report.census_status = "updated (matches the last accepted census)"
-
-    monkeypatch.setattr(ac, "_do_run_m1", _pass_run_m1)
+    monkeypatch.setattr(ac, "_do_run_m1", fake_run_m1)
+    monkeypatch.setattr(ac, "_gate_contracts_task", fake_contracts)
     monkeypatch.setattr(ac, "_gate_js_task", _js_ok)
     monkeypatch.setattr(ac, "_gate_make_test_task", _make_ok)
     monkeypatch.setattr(ac, "_gate_conform_task", _conform_green)
     _patch_build_chain(monkeypatch)
-    monkeypatch.setattr(ac, "_do_surface_build", surface_first)
-    monkeypatch.setattr(ac, "_do_census", census_after)
+    monkeypatch.setattr(ac, "_do_surface_build", surface_after)
 
     plan = _plan(pool_policy="overlap")
     report = ac.CycleReport()
-    rc = ac._run_cycle(plan, report, ac._Emitter(), ac._ChildRegistry(), spawn=fake_spawn)
+    rc = ac._run_cycle(plan, report, ac._Emitter(), ac._ChildRegistry(), spawn=lambda *a, **k: _step())
 
     assert rc == 0
-    assert order == ["surface", "census"]
+    assert order == ["run_m1", "contracts", "surface"]
     assert report.gate_contracts == "green"
 
 
-def test_surface_build_failure_leaves_the_rebuild_suite_not_run(monkeypatch, capsys):
-    """A failed surface build stops the build lane before the submission, so there is no future to join — the gate reports why it never ran."""
+def test_surface_build_failure_still_joins_the_rebuild_suite_it_started(monkeypatch, capsys):
+    """A failed surface build stops the build lane, but the suite was submitted ahead of the build and is running on a pool worker, so the pass joins it and files its real verdict rather than claiming it never ran — which would both lie in the summary and abandon the worker."""
     calls = {"contracts": 0}
 
     def fake_contracts(pool_policy, conform_fut, make_fut, spawn, emit, registry, argv):
@@ -5258,8 +5367,8 @@ def test_surface_build_failure_leaves_the_rebuild_suite_not_run(monkeypatch, cap
     rc = ac._run_cycle(plan, report, ac._Emitter(), ac._ChildRegistry(), spawn=lambda *a, **k: _step())
 
     assert rc == 1
-    assert calls == {"contracts": 0}
-    assert report.gate_contracts == "not run (surface build failed)"
+    assert calls == {"contracts": 1}
+    assert report.gate_contracts == "green"
     assert "surface rebuild failed" in capsys.readouterr().out
 
 
@@ -6239,8 +6348,8 @@ def test_an_assets_refresh_journals_under_its_own_name(monkeypatch, tmp_path):
     assert report.assets_status.startswith("refreshed in place")
 
 
-def test_a_failed_assets_refresh_stops_the_pass_before_the_lanes(monkeypatch, capsys):
-    """A refresh that cannot land leaves a surface whose manifest may say one thing and whose shell says another, so the pass stops there and neither rebuild lane is claimed to have run."""
+def test_a_failed_assets_refresh_stops_the_pass_and_joins_the_suite_it_started(monkeypatch, capsys):
+    """A refresh that cannot land leaves a surface whose manifest may say one thing and whose shell says another, so the pass stops at that step; the rebuild suite was submitted ahead of it and is joined, its verdict landing beside the refresh's FAILED row."""
     _patch_timing_cycle(monkeypatch)
 
     report = ac.CycleReport()
@@ -6254,7 +6363,7 @@ def test_a_failed_assets_refresh_stops_the_pass_before_the_lanes(monkeypatch, ca
 
     assert rc == 1
     assert report.assets_status.startswith("FAILED")
-    assert report.gate_contracts == "not run (assets refresh failed)"
+    assert report.gate_contracts == "green"
     assert "assets refresh failed" in capsys.readouterr().out
 
 
@@ -6298,8 +6407,8 @@ def test_run_cycle_promotes_before_it_reports_the_surface_skipped(monkeypatch, t
     assert outcomes["surface-build"] == "skipped"
 
 
-def test_a_failed_promotion_stops_the_pass_before_the_lanes(monkeypatch, capsys):
-    """A move that fails leaves the outgoing tree in place, and the pass stops there with one summary: neither rebuild lane is claimed to have run, and the promotion's own row reads FAILED."""
+def test_a_failed_promotion_stops_the_pass_and_joins_the_suite_it_started(monkeypatch, capsys):
+    """A move that fails leaves the outgoing tree in place, and the pass stops there with one summary: the promotion's own row reads FAILED, and the rebuild suite, submitted ahead of the move, is joined and reports its real verdict."""
     _patch_timing_cycle(monkeypatch)
 
     def refuse(source, live=None):
@@ -6316,7 +6425,7 @@ def test_a_failed_promotion_stops_the_pass_before_the_lanes(monkeypatch, capsys)
 
     assert rc == 1
     assert report.promote_status.startswith("FAILED")
-    assert report.gate_contracts == "not run (surface promotion failed)"
+    assert report.gate_contracts == "green"
     outcomes = {row.name: row.outcome for row in ac.summary_rows(report, plan, retention_ran=False)}
     assert outcomes["surface-promote"] == "FAILED"
     assert "surface promotion failed" in capsys.readouterr().out
