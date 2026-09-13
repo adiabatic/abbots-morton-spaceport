@@ -98,13 +98,6 @@ def spec(mini_bundle):
     return load_spec(mini_bundle.spec_root)
 
 
-@pytest.fixture(scope="module")
-def base_surface(tmp_path_factory, mini_bundle):
-    out = tmp_path_factory.mktemp("environment-base") / "surface"
-    _mini_build(out, MINI_FONT, mini_bundle)
-    return out
-
-
 def test_a_gsub_only_recompile_leaves_every_cache_key_alone(tmp_path, spec, mini_bundle):
     """The finding this module exists for, stated at the grain it is decided at: appending a GSUB lookup moves nothing the cache stamps. Before this, it moved `after_helpers`, which both whole-store stamps carry, so the whole store went."""
     root = mini_bundle.spec_root
@@ -133,11 +126,11 @@ def test_a_widened_family_moves_that_family_key_and_leaves_the_environment(tmp_p
 
 
 def test_a_recompiled_font_serves_the_untouched_units_and_lands_on_a_from_scratch_build(
-    base_surface, mini_bundle, tmp_path, capfd
+    mini_surface, mini_bundle, tmp_path, capfd
 ):
-    """The end-to-end claim, at the only scale a test can afford: rebuild the mini surface over a font recompiled the way a rune edit recompiles one, and the store must serve the windows the moved family cannot reach — some, not all, and not none — while the tree it writes stays byte-for-byte what a cache-blind build of the same inputs writes. The content keys are asserted first and on their own, because they are what carry a recorded verdict across the cycle: a served fragment whose key drifted would strand every verdict recorded against it, and `patch_fragment` re-stamps twelve fields over a served fragment without recomputing that key."""
+    """The end-to-end claim, at the only scale a test can afford: rebuild the mini surface over a font recompiled the way a rune edit recompiles one, and the store must serve the windows the moved family cannot reach — some, not all, and not none — while the tree it writes stays byte-for-byte what a cache-blind build of the same inputs writes. The content keys are asserted first and on their own, because they are what carry a recorded verdict across the cycle: a served fragment whose key drifted would strand every verdict recorded against it, and `patch_fragment` re-stamps twelve fields over a served fragment without recomputing that key. The base copied here is conftest's `mini_surface`, a build over the unmodified `MINI/M1.otf`; the recompile belongs to the fonts handed to `_mini_build`, never to that base."""
     incremental = tmp_path / "surface"
-    shutil.copytree(base_surface, incremental)
+    shutil.copytree(mini_surface, incremental)
     recompiled = _recompiled(MINI_FONT, tmp_path / "recompiled.otf")
 
     capfd.readouterr()
