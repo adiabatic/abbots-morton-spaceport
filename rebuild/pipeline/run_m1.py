@@ -28,7 +28,7 @@ from concurrent.futures import Future, ProcessPoolExecutor, ThreadPoolExecutor, 
 from contextlib import suppress
 from dataclasses import dataclass, field, replace
 from pathlib import Path
-from typing import Callable, Mapping, NoReturn
+from typing import Callable, Mapping, NoReturn, Sequence
 
 import yaml
 
@@ -327,20 +327,21 @@ def build_tables(
     inputs: str | None = None,
     kernel_threads: int | None = None,
     packing: Packing | None = None,
+    configs: Sequence[str] = conform.SETTLEMENT_CONFIGS,
 ) -> tuple[dict[str, tuple], dict[str, str]]:
-    """Every settlement configuration's decision and treaty tables: the resolved spec dumped once, then one `build-tables` process over every configuration, which enumerates `default`'s fixpoint, folds it in place, and enumerates each other configuration as a delta over `default`'s finished memo (`kernel_exec.build_table_files`), folding each as it lands. An overlay configuration gets none, and any table files a build once left under its name are removed first, so a directory globbed after a build holds this build's tables and nothing else. There is no stream and no fold on this side at all — the crate writes the settlement TSV, the treaty TSV and the window enumeration itself, so the several hundred megabytes a configuration's transitions cost to write, to read and to hold parsed are never spent.
+    """The named settlement configurations' decision and treaty tables — the whole settlement set unless `configs` narrows it: the resolved spec dumped once, then one `build-tables` process over the named configurations, which enumerates `default`'s fixpoint, folds it in place, and enumerates each other configuration as a delta over `default`'s finished memo (`kernel_exec.build_table_files`), folding each as it lands. A narrowed set is a lever hunt's (`rebuild/tools/scratch_build.py`): the crate writes the configurations it is asked for and sweeps nothing, so a narrowed build into a directory another build wrote leaves that build's files for the other configurations standing beside its own — `scratch_build.scratch_out_dir` is what keeps such a build out of `rebuild/out/m1` — and a set that does not name `default` enumerates each member from scratch, since there is no finished memo to delta over. The build and the artifact cycle ask for the whole set. An overlay configuration gets none, and any table files a build once left under its name are removed first, so a whole-set build leaves a directory holding its tables and nothing else. There is no stream and no fold on this side at all — the crate writes the settlement TSV, the treaty TSV and the window enumeration itself, so the several hundred megabytes a configuration's transitions cost to write, to read and to hold parsed are never spent.
 
     What Python does per configuration is small and is what only Python can do: read the head back for the rules, the reachable cells and the fired provenance every downstream stage needs, parse the treaty TSV back for the defect gates, and pack the plain window payload into the `.gz` the artifact is (the compressor never crossed the boundary). The head reads run in a thread per configuration behind the one kernel process and are what this call waits for; the packing (`_pack_config`, the memo file included) runs on a `Packing` pool at the core-bound width (`_core_bound_threads`, one packer per configuration up to the cores, whatever the crate's width), since a packer holds a zlib stream and a copy buffer and nothing the memory width prices, and the compressor releases the interpreter lock. With a `packing` passed the tables come back as soon as the heads are read, each configuration's pack a future the caller waits on through `Packing.wait` and a pool the caller closes; with none, the packing is finished before the return.
 
     A build with an `out_dir` also carries its trace memos across builds: the previous build's `memo-<config>.tsv.gz` files under it are read through `memo_seed` — unpacked for the crate wherever their stamp still holds, with the runes whose content moved named as edited — so a window naming no edited rune settles as it settled last time, and this build's own memos are packed into the same names on the way out, under `memo_stamp` over the spec in hand. A caller with no `out_dir` reads and writes none.
 
-    `out_dir`, when given, gets the section 8 TSVs. The second returned mapping is each configuration's `table.table_digest` as the crate reported it — taken in the crate while the window rows are still in hand, which is the grain the rest of the rebuild states table identity at and the only moment it can be taken without re-costing the fixpoint; the crate also prints it on stdout, which is where `rebuild/tools/scaling_sweep.py` reads it. Both returned mappings are rebuilt in `conform.SETTLEMENT_CONFIGS` order however the configurations finish, so completion order can never reach an artifact.
+    `out_dir`, when given, gets the section 8 TSVs. The second returned mapping is each configuration's `table.table_digest` as the crate reported it — taken in the crate while the window rows are still in hand, which is the grain the rest of the rebuild states table identity at and the only moment it can be taken without re-costing the fixpoint; the crate also prints it on stdout, which is where `rebuild/tools/scaling_sweep.py` reads it. Both returned mappings are rebuilt in `configs` order however the configurations finish, so completion order can never reach an artifact.
 
     `inputs` is `tables_inputs` over the sources this spec was loaded from. Supplying it alongside `out_dir` keeps each configuration's window enumeration next to the TSVs — where `run_font_conformance` picks it up rather than rebuilding anything — under the stamp that names those sources; omit it and the payload is read for its head and deleted, which is what a caller building a spec of its own must have, since the fingerprint names the repo's rune files and cannot vouch for tables they did not produce.
 
     `kernel_threads` is how many delta configurations are in flight at once behind `default`, capped here at the configuration count and the cores this process may actually run on — neither of which is a memory bound — while the default it falls back to is the memory one: `kernel_exec.KERNEL_THREADS_DEFAULT` is this box's own memory, less what `default`'s finished memo holds, divided by what one delta costs while it holds its own working set. So this `min()` only ever narrows a memory-derived width and never widens one, and nothing about memory belongs inside it. The fold's own width went with the Python fold: it runs inside the enumerating process, and there is nothing left on this side to widen.
     """
-    configs = conform.SETTLEMENT_CONFIGS
+    configs = tuple(configs)
     threads = _table_build_threads(kernel_threads)
     kernel_exec.ensure_built()
     built: dict[str, tuple] = {}
@@ -846,14 +847,19 @@ def run_replay_strings(
     inputs: str | None,
     replay_threads: int | None = None,
     memo_inputs: oracle_cache.SettleMemoInputs | None = None,
+    configs: Sequence[str] = conform.SETTLEMENT_CONFIGS,
 ) -> dict:
-    """The enumeration-completeness check every build runs right after its tables land: the crate's `replay-strings` verb over the settlement TSVs under `out_dir`, walking the string universe to `REPLAY_HORIZON` and holding every window's first-match rule outcome to the engine's own settlement (`rebuild/kernel-rs/src/replay.rs`). The universe is O(delta) on a rune edit: `replay_families` reads the last green record beside the tables, and while `replay_structure_stamp` holds, only the texts naming a moved rune or a rune whose records read one are walked; a build with no green record or a moved structure walks everything, and a build where nothing moved walks nothing and carries the record forward. A caller with no stamp — a spec of its own, whose rune files are not the repo's — walks the whole universe and records nothing.
+    """The enumeration-completeness check every build runs right after its tables land: the crate's `replay-strings` verb over the named configurations' settlement TSVs under `out_dir` (the whole settlement set unless `configs` narrows it, which only an unstamped caller that narrowed its tables the same way may do: a narrowed walk with `inputs` is refused before it starts, since the record it would write reads back as a green whole-universe base for the configurations it never walked), walking the string universe to `REPLAY_HORIZON` and holding every window's first-match rule outcome to the engine's own settlement (`rebuild/kernel-rs/src/replay.rs`). The universe is O(delta) on a rune edit: `replay_families` reads the last green record beside the tables, and while `replay_structure_stamp` holds, only the texts naming a moved rune or a rune whose records read one are walked; a build with no green record or a moved structure walks everything, and a build where nothing moved walks nothing and carries the record forward. A caller with no stamp — a spec of its own, whose rune files are not the repo's — walks the whole universe and records nothing.
 
-    The walk is also the settle memo's producer. With `memo_inputs` (`settle_memo_inputs`, cut before the spec loaded), every whole-universe walk asks the crate to file its window memo per configuration beside the tables (`kernel_exec.replay_memo_dump`) and absorbs each one into the configuration's `conform.SettleMemoFile` under the stamp and family keys `conform.settle_memo_files` cuts, so the witness stage, the oracle and the belt load what the replay settled instead of settling it again; a dump is deleted in this phase whatever the walk or the absorb did, and a failed absorb is a warning rather than a red build, since every reader settles what the file lacks. That is what widens the walk past the structure stamp: the memo stamp covers the comparison-side modules the replay's own stamp does not, so when any configuration's file is absent or fails `conform.settle_memo_standing` the whole universe is walked to refill it, where the replay alone would have walked nothing. A narrowed walk — a rune edit — files nothing and leaves the standing files to retire their own stale entries.
+    The walk is also the settle memo's producer. With `memo_inputs` (`settle_memo_inputs`, cut before the spec loaded), every whole-universe walk asks the crate to file its window memo per walked configuration beside the tables (`kernel_exec.replay_memo_dump`) and absorbs each one into the configuration's `conform.SettleMemoFile` under the stamp and family keys `conform.settle_memo_files` cuts — the files of the walked configurations alone, so a narrowed walk never dumps, questions, absorbs or unlinks a configuration it did not walk — so the witness stage, the oracle and the belt load what the replay settled instead of settling it again; a dump is deleted in this phase whatever the walk or the absorb did, and a failed absorb is a warning rather than a red build, since every reader settles what the file lacks. That is what widens the walk past the structure stamp: the memo stamp covers the comparison-side modules the replay's own stamp does not, so when any configuration's file is absent or fails `conform.settle_memo_standing` the whole universe is walked to refill it, where the replay alone would have walked nothing. A narrowed walk — a rune edit — files nothing and leaves the standing files to retire their own stale entries.
 
     The record written beside the tables is what the next build's delta is cut against, so it carries the structure stamp and every rune digest as well as the counts, and it is written green or red: a disagreement lands in it with the crate's sentence and raises `SystemExit` naming the text. The fan-out width is the stage's own (`_replay_threads`): `replay_threads` when stated, else `kernel_exec.REPLAY_PEAK_BYTES` — what one configuration's walk holds, the trace memo over the windows its texts reach plus the window memo's inverse label map and block buffer — divided into the box, capped at the configuration count and the cores, so the whole universe replays in one wave on both fleet boxes; the absorb runs in this process after the crate has exited.
     """
-    configs = conform.SETTLEMENT_CONFIGS
+    configs = tuple(configs)
+    if inputs is not None and set(configs) != set(conform.SETTLEMENT_CONFIGS):
+        raise ValueError(
+            f"a narrowed replay ({', '.join(configs)}) cannot record: the record beside the tables is read back as a green whole-universe base for every settlement configuration"
+        )
     threads = _replay_threads(replay_threads)
     recordable = inputs is not None
     structure = replay_structure_stamp(spec) if recordable else None
@@ -863,7 +869,11 @@ def run_replay_strings(
         if recordable and structure is not None
         else None
     )
-    memos = conform.settle_memo_files(out_dir, spec, memo_inputs)
+    memos = {
+        config: memo
+        for config, memo in conform.settle_memo_files(out_dir, spec, memo_inputs).items()
+        if config in configs
+    }
     for config in memos:
         with suppress(FileNotFoundError):
             kernel_exec.replay_memo_dump(out_dir, config).unlink()

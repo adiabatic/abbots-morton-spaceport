@@ -539,7 +539,28 @@ class TestTheKernelInvocation:
         assert all(decision.rules and treaty.rows for decision, treaty in tables.values())
         assert not sorted(tmp_path.iterdir())
 
-    def _observe_build(self, monkeypatch, tmp_path, asked):
+    def test_a_narrowed_build_answers_for_the_configurations_it_was_asked_for(self, tmp_path):
+        """A `configs` of one answers for that one: both mappings carry the one key with a full decision head and treaty rows, the settlement and treaty TSVs under the out dir are its, and nothing under the out dir names a configuration nobody asked for — the narrowing reaches the crate rather than filtering its whole-set answer."""
+        out_dir = tmp_path / "one"
+        tables, digests = run_m1.build_tables(SPEC, out_dir, inputs=STAMP, configs=["default"])
+        assert list(tables) == ["default"] and list(digests) == ["default"]
+        decision, treaty = tables["default"]
+        assert decision.rules and treaty.rows
+        assert (out_dir / "settlement-default.tsv").is_file()
+        assert (out_dir / "treaties-default.tsv").is_file()
+        others = [config for config in conform.ACCEPTANCE_CONFIGS if config != "default"]
+        assert not [path.name for path in out_dir.iterdir() if any(other in path.name for other in others)]
+
+    def test_a_narrowed_build_files_the_bytes_the_whole_set_files(self, tmp_path):
+        """Narrowing changes what is answered and never the answer: `default` built alone files the same settlement TSV and treaty TSV, byte for byte, and reports the same digest, as `default` built at the head of the whole settlement set — the claim a lever hunt that reads `default`'s rows alone rests on."""
+        one, every = tmp_path / "one", tmp_path / "every"
+        _tables, narrowed = run_m1.build_tables(SPEC, one, inputs=STAMP, configs=["default"])
+        _tables, whole = run_m1.build_tables(SPEC, every, inputs=STAMP)
+        assert narrowed["default"] == whole["default"]
+        for name in ("settlement-default.tsv", "treaties-default.tsv"):
+            assert (one / name).read_bytes() == (every / name).read_bytes(), name
+
+    def _observe_build(self, monkeypatch, tmp_path, asked, configs=None):
         """Everything `build_tables` asks of the kernel: the one invocation, with the configurations it named, the width it handed over, the tag and the stamp. The stub raises, so a run ends as soon as the invocation has been observed."""
         seen = []
 
@@ -560,9 +581,15 @@ class TestTheKernelInvocation:
 
         monkeypatch.setattr(kernel_exec, "ensure_built", lambda: None)
         monkeypatch.setattr(kernel_exec, "build_table_files", build_table_files)
+        narrowing = {} if configs is None else {"configs": configs}
         with pytest.raises(Reached):
-            run_m1.build_tables(SPEC, tmp_path, inputs=STAMP, kernel_threads=asked)
+            run_m1.build_tables(SPEC, tmp_path, inputs=STAMP, kernel_threads=asked, **narrowing)
         return seen
+
+    def test_the_crate_is_asked_for_the_configurations_the_caller_named(self, monkeypatch, tmp_path):
+        """A caller's `configs` reaches the crate as named, in the order named; the unnarrowed call beside it (`test_the_thread_width_is_how_many_configurations_run_at_once`) stays the whole settlement set."""
+        seen = self._observe_build(monkeypatch, tmp_path, None, configs=["ss03", "default"])
+        assert [configs for configs, *_rest in seen] == [("ss03", "default")]
 
     @pytest.mark.parametrize(
         "asked, wanted",
@@ -1074,6 +1101,49 @@ class TestTheReplayStage:
         widened = run_m1.run_replay_strings(SPEC, tmp_path, "stamp", memo_inputs=inputs)
         assert widened["families"] is None and asked[-1] == (None, tmp_path)
         assert not list(tmp_path.glob("replay-windows-*.bin"))
+
+    def test_a_narrowed_replay_walks_and_keys_only_the_configurations_it_names(self, monkeypatch, tmp_path):
+        """A `configs` of one asks the crate for that one and keeps the settle memo dict to it — the dump path for `default` alone is named, questioned, absorbed and unlinked — where the same call with no `configs` asks for every settlement configuration and names every configuration's dump; `conform.settle_memo_files` answers the whole set either way, so the narrowing is this stage's own."""
+        asked: list = []
+        dumps: list = []
+
+        def replay_strings(
+            spec, out_dir, configs, *, horizon, families, threads, timings=False, memo_dir=None
+        ):
+            asked.append((tuple(configs), memo_dir))
+            return {config: {"texts": 1, "windows": 1, "skipped": 0} for config in configs}
+
+        def replay_memo_dump(out_dir, config):
+            dumps.append(config)
+            return tmp_path / f"replay-windows-{config}.bin"
+
+        monkeypatch.setattr(kernel_exec, "replay_strings", replay_strings)
+        monkeypatch.setattr(kernel_exec, "replay_memo_dump", replay_memo_dump)
+        digests = {name: f"d-{name}" for name in SPEC.runes}
+        inputs = oracle_cache.SettleMemoInputs(rune_digests=dict(digests), oracle_code="code", data="data")
+        assert set(conform.settle_memo_files(tmp_path, SPEC, inputs)) == set(conform.SETTLEMENT_CONFIGS)
+
+        narrowed = run_m1.run_replay_strings(SPEC, tmp_path, None, memo_inputs=inputs, configs=["default"])
+        assert asked == [(("default",), tmp_path)]
+        assert list(narrowed["configs"]) == ["default"]
+        assert set(dumps) == {"default"}
+
+        dumps.clear()
+        whole = run_m1.run_replay_strings(SPEC, tmp_path, None, memo_inputs=inputs)
+        assert asked[-1] == (tuple(conform.SETTLEMENT_CONFIGS), tmp_path)
+        assert list(whole["configs"]) == list(conform.SETTLEMENT_CONFIGS)
+        assert set(dumps) == set(conform.SETTLEMENT_CONFIGS)
+
+    def test_a_narrowed_replay_with_a_stamp_is_refused_before_it_walks(self, monkeypatch, tmp_path):
+        """A `configs` short of the settlement set together with an `inputs` stamp is refused before the crate is reached and before any record is written: the record a stamped walk leaves is read back (`replay_families`) as a green whole-universe base for every settlement configuration, which a narrowed walk cannot vouch for."""
+
+        def never(*args, **rest):
+            raise AssertionError("the crate was reached")
+
+        monkeypatch.setattr(kernel_exec, "replay_strings", never)
+        with pytest.raises(ValueError, match="narrowed replay"):
+            run_m1.run_replay_strings(SPEC, tmp_path, STAMP, configs=["default"])
+        assert not (tmp_path / run_m1.REPLAY_SUMMARY).exists()
 
     def test_a_caller_with_no_stamp_walks_everything_and_records_nothing(self, monkeypatch, tmp_path):
         asked: list = []
