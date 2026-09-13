@@ -8,6 +8,7 @@ import pytest
 from rebuild.pipeline import conform, defects, fixtures, oracle, oracle_cache, run_m1
 from rebuild.tools import artifact_cycle as ac
 from rebuild.tools import console
+from rebuild.tools import cycle_paths
 from rebuild.tools import cycle_timings as ct
 
 
@@ -178,7 +179,7 @@ def _stub_full_run(monkeypatch, *, defect_errors=(), pins=True, pins_in_scope=14
 def test_main_refreshes_the_baseline_subset_before_anything_reads_it(monkeypatch, tmp_path, capsys):
     """The five-hand-updates trap, closed: run_m1 ensures the subset tables are current before the pipeline and its oracle run, so an M1_ALPHABET edit can no longer feed the oracle stale tables. The fingerprint stub is order-sensitive — it answers differently before and after the ensure — so the green below records only because the key snapshot happened after the refilter; moving the ensure below the snapshot mismatches the keys and fails this test."""
     store = tmp_path / "run-m1-green.json"
-    monkeypatch.setattr(ac, "RUN_M1_GREEN", store)
+    monkeypatch.setattr(cycle_paths, "RUN_M1_GREEN", store)
     state = {"ensured": False}
     monkeypatch.setattr(
         ac,
@@ -263,7 +264,7 @@ def test_a_font_provenance_refusal_stops_the_run_before_the_alias_check(monkeypa
 def test_unmatched_oracle_rows_record_a_green_and_exit_zero(monkeypatch, tmp_path):
     """Unmatched oracle rows are the mid-migration steady state: they are verdict-gated on the review surface, never a failure of the build, so a run that holds them records its green and exits the way its gate judged."""
     store = tmp_path / "run-m1-green.json"
-    monkeypatch.setattr(ac, "RUN_M1_GREEN", store)
+    monkeypatch.setattr(cycle_paths, "RUN_M1_GREEN", store)
     monkeypatch.setattr(ac, "run_m1_skip_fingerprint", lambda root=None: "fp-live")
     _stub_full_run(monkeypatch)
     run_m1.main([])
@@ -275,7 +276,7 @@ def test_unmatched_oracle_rows_record_a_green_and_exit_zero(monkeypatch, tmp_pat
 def test_a_multi_matched_oracle_row_fails_the_run_and_clears_the_record(monkeypatch, tmp_path):
     """The oracle's one gate: a row matching two ledger entries is a ledger defect, and the exit status is the judge's verdict."""
     store = tmp_path / "run-m1-green.json"
-    monkeypatch.setattr(ac, "RUN_M1_GREEN", store)
+    monkeypatch.setattr(cycle_paths, "RUN_M1_GREEN", store)
     monkeypatch.setattr(ac, "run_m1_skip_fingerprint", lambda root=None: "fp-live")
     ac.record_green(store, "fp-live")
     _stub_full_run(monkeypatch, multi_matched=2)
@@ -322,7 +323,7 @@ def test_a_cycle_spawned_run_files_nothing(monkeypatch):
 
 def test_a_defect_gate_failure_clears_the_record(monkeypatch, tmp_path):
     store = tmp_path / "run-m1-green.json"
-    monkeypatch.setattr(ac, "RUN_M1_GREEN", store)
+    monkeypatch.setattr(cycle_paths, "RUN_M1_GREEN", store)
     monkeypatch.setattr(ac, "run_m1_skip_fingerprint", lambda root=None: "fp-live")
     ac.record_green(store, "fp-live")
     _stub_full_run(monkeypatch, defect_errors=["qsAh: contact"])
@@ -333,7 +334,7 @@ def test_a_defect_gate_failure_clears_the_record(monkeypatch, tmp_path):
 
 def test_a_failed_manual_pin_gate_clears_the_record(monkeypatch, tmp_path):
     store = tmp_path / "run-m1-green.json"
-    monkeypatch.setattr(ac, "RUN_M1_GREEN", store)
+    monkeypatch.setattr(cycle_paths, "RUN_M1_GREEN", store)
     monkeypatch.setattr(ac, "run_m1_skip_fingerprint", lambda root=None: "fp-live")
     ac.record_green(store, "fp-live")
     _stub_full_run(monkeypatch, pins=False)
@@ -345,7 +346,7 @@ def test_a_failed_manual_pin_gate_clears_the_record(monkeypatch, tmp_path):
 def test_a_manual_pin_gate_with_nothing_in_scope_clears_the_record(monkeypatch, tmp_path):
     """The vacuous pass: `pass` is `not disagreements`, so a gate that replayed no pin at all reports green. run_m1 requires the scope too, so an empty replay fails the build rather than certifying it."""
     store = tmp_path / "run-m1-green.json"
-    monkeypatch.setattr(ac, "RUN_M1_GREEN", store)
+    monkeypatch.setattr(cycle_paths, "RUN_M1_GREEN", store)
     monkeypatch.setattr(ac, "run_m1_skip_fingerprint", lambda root=None: "fp-live")
     ac.record_green(store, "fp-live")
     _stub_full_run(monkeypatch, pins_in_scope=0)
@@ -357,7 +358,7 @@ def test_a_manual_pin_gate_with_nothing_in_scope_clears_the_record(monkeypatch, 
 
 def test_conform_only_records_its_own_green(monkeypatch, tmp_path):
     store = tmp_path / "conform-green.json"
-    monkeypatch.setattr(ac, "CONFORM_GREEN", store)
+    monkeypatch.setattr(cycle_paths, "CONFORM_GREEN", store)
     monkeypatch.setattr(ac, "conform_skip_fingerprint", lambda root=None, horizon=4: "fp-conform")
     monkeypatch.setattr(ac, "conform_skip_files", lambda root=None, horizon=4: {})
     monkeypatch.setattr(
@@ -371,7 +372,7 @@ def test_conform_only_records_its_own_green(monkeypatch, tmp_path):
 
 def test_conform_only_divergences_record_no_green(monkeypatch, tmp_path):
     store = tmp_path / "conform-green.json"
-    monkeypatch.setattr(ac, "CONFORM_GREEN", store)
+    monkeypatch.setattr(cycle_paths, "CONFORM_GREEN", store)
     monkeypatch.setattr(ac, "conform_skip_fingerprint", lambda root=None, horizon=4: "fp-conform")
     monkeypatch.setattr(
         run_m1, "run_font_conformance", lambda max_length, jobs: {"pass": False, "divergences": 3}
@@ -403,7 +404,7 @@ def test_the_conform_horizon_default_matches_the_cycle_driver(monkeypatch, tmp_p
     """The horizon is part of the conform green's key, so if run_m1's own default ever drifts from the driver's, an interactive sweep would record a green no cycle can ever match."""
     store = tmp_path / "conform-green.json"
     swept = []
-    monkeypatch.setattr(ac, "CONFORM_GREEN", store)
+    monkeypatch.setattr(cycle_paths, "CONFORM_GREEN", store)
     monkeypatch.setattr(ac, "conform_skip_fingerprint", lambda root=None, horizon=4: "fp-conform")
     monkeypatch.setattr(ac, "conform_skip_files", lambda root=None, horizon=4: {})
 
@@ -807,7 +808,7 @@ class TestGatesOnly:
     def _green(self, monkeypatch, tmp_path, *, files=None, prior=None, prior_key="fp-prior"):
         """run_m1's green record homed under tmp_path, the key this pass computes over its inputs, and the per-file map it compares against the one the last green build stored. Every path past the summary check reads that record, so a test that omits this reaches rebuild/out and trips the lane guard rather than failing on its own assertion."""
         store = tmp_path / "run-m1-green.json"
-        monkeypatch.setattr(ac, "RUN_M1_GREEN", store)
+        monkeypatch.setattr(cycle_paths, "RUN_M1_GREEN", store)
         monkeypatch.setattr(ac, "run_m1_skip_fingerprint", lambda root=None: "fp-now")
         monkeypatch.setattr(ac, "run_m1_skip_files", lambda root=None: dict(files or {}))
         if prior is not None:

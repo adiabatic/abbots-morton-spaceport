@@ -20,8 +20,8 @@ ROOT = Path(__file__).resolve().parents[2]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
+from rebuild.tools import cycle_paths
 from rebuild.tools.artifact_cycle import (
-    MAKE_TEST_GREEN,
     make_test_closure_fingerprint,
     read_make_test_green,
     record_make_test_green,
@@ -87,7 +87,7 @@ def main(argv: list[str] | None = None) -> int:
     _record(judge_make_test(returncode), argv=PYTEST_ARGV, elapsed_s=time.perf_counter() - started)
     if returncode != 0:
         if recorded is not None and before is not None and before == recorded["fingerprint"]:
-            MAKE_TEST_GREEN.unlink(missing_ok=True)
+            cycle_paths.MAKE_TEST_GREEN.unlink(missing_ok=True)
         return returncode
     if before is None:
         print("make test: green (closure fingerprint unavailable without git — not recorded)")
@@ -96,7 +96,11 @@ def main(argv: list[str] | None = None) -> int:
         print("make test: green, but the input closure changed while the suite ran — green not recorded")
         return 0
     record_make_test_green(before)
-    where = MAKE_TEST_GREEN.relative_to(ROOT) if MAKE_TEST_GREEN.is_relative_to(ROOT) else MAKE_TEST_GREEN
+    where = (
+        cycle_paths.MAKE_TEST_GREEN.relative_to(ROOT)
+        if cycle_paths.MAKE_TEST_GREEN.is_relative_to(ROOT)
+        else cycle_paths.MAKE_TEST_GREEN
+    )
     print(f"make test: green — closure fingerprint recorded in {where}")
     return 0
 

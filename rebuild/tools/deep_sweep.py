@@ -21,11 +21,10 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from rebuild.pipeline import conform, run_m1
+from rebuild.tools import cycle_paths
 from rebuild.tools.artifact_cycle import (
-    CONFORM_GREEN,
     CONFORM_HORIZON_DEFAULT,
     DEEP_REPLAY_HORIZON_DEFAULT,
-    DEEP_SWEEP_GREEN,
     DEEP_SWEEP_HORIZON_DEFAULT,
     clear_contradicted_green,
     conform_skip_files,
@@ -114,7 +113,7 @@ def main(argv: list[str] | None = None) -> int:
     print(json.dumps(summary, indent=2))
 
     if not summary["pass"] or summary["divergences"]:
-        clear_contradicted_green(DEEP_SWEEP_GREEN, deep_key)
+        clear_contradicted_green(cycle_paths.DEEP_SWEEP_GREEN, deep_key)
         print(
             f"deep sweep: {summary['divergences']} font-vs-settle divergence(s) at horizon {args.horizon}; see {SUMMARY_NAME}",
             file=sys.stderr,
@@ -125,7 +124,10 @@ def main(argv: list[str] | None = None) -> int:
         print("deep sweep: green, but its inputs changed while it ran — green not recorded", flush=True)
         return 0
     record_deep_sweep_green(deep_key, args.horizon, files=deep_sweep_skip_files(ROOT))
-    print(f"deep sweep: green at horizon {args.horizon} — recorded in {DEEP_SWEEP_GREEN.name}", flush=True)
+    print(
+        f"deep sweep: green at horizon {args.horizon} — recorded in {cycle_paths.DEEP_SWEEP_GREEN.name}",
+        flush=True,
+    )
     if args.horizon >= DEEP_REPLAY_HORIZON_DEFAULT:
         refresh_deep_replay(args.horizon)
         print(
@@ -136,7 +138,9 @@ def main(argv: list[str] | None = None) -> int:
         args.horizon >= CONFORM_HORIZON_DEFAULT
         and conform_skip_fingerprint(ROOT, CONFORM_HORIZON_DEFAULT) == belt_key
     ):
-        record_green(CONFORM_GREEN, belt_key, files=conform_skip_files(ROOT, CONFORM_HORIZON_DEFAULT))
+        record_green(
+            cycle_paths.CONFORM_GREEN, belt_key, files=conform_skip_files(ROOT, CONFORM_HORIZON_DEFAULT)
+        )
         print(
             f"gate:conform: green too — every belt text at horizon {CONFORM_HORIZON_DEFAULT} was swept here, so the next cycle skips it",
             flush=True,

@@ -1,8 +1,8 @@
 """Pyright's self-skip: the type check a `make test` or `make test-rebuild` run carries spawns only when a file pyright can read has changed since its last green run.
 
-The check's input closure is what `[tool.pyright]` in pyproject.toml points it at — every `.py` and `.pyi` under `include`, `extraPaths` and `stubPath`, tracked or untracked-unignored — plus pyproject.toml itself, which carries the checker's own settings, and uv.lock, which pins the checker and every package it resolves imports against. Nothing else pyright opens is content an edit in this tree can move. A rune edit, a glyph edit, a Markdown edit and a verdict all leave that closure where it was, so the suite they re-arm runs its tests without a type check standing ahead of them; the green record (`artifact_cycle.PYRIGHT_GREEN`) is written only after a pass whose closure still matches what was checked, and a red pass whose closure matches its record deletes the record. `AMS_RUN_PYRIGHT=1` asks for the check under the skip; `AMS_RUN_PYRIGHT=force`, which the make targets spell as `FORCE=1`, runs it regardless. Without git there is no closure to key on, so the check runs and records nothing.
+The check's input closure is what `[tool.pyright]` in pyproject.toml points it at — every `.py` and `.pyi` under `include`, `extraPaths` and `stubPath`, tracked or untracked-unignored — plus pyproject.toml itself, which carries the checker's own settings, and uv.lock, which pins the checker and every package it resolves imports against. Nothing else pyright opens is content an edit in this tree can move. A rune edit, a glyph edit, a Markdown edit and a verdict all leave that closure where it was, so the suite they re-arm runs its tests without a type check standing ahead of them; the green record (`cycle_paths.PYRIGHT_GREEN`) is written only after a pass whose closure still matches what was checked, and a red pass whose closure matches its record deletes the record. `AMS_RUN_PYRIGHT=1` asks for the check under the skip; `AMS_RUN_PYRIGHT=force`, which the make targets spell as `FORCE=1`, runs it regardless. Without git there is no closure to key on, so the check runs and records nothing.
 
-The root conftest's `pytest_configure` is the caller: it begins the check before the workers spawn, overlapping the font build where there is one, and waits on it there so a type error still fails the run before a test has started.
+The root conftest's `pytest_configure` is the caller: it begins the check before the workers spawn, overlapping the font build where there is one, and waits on it there so a type error still fails the run before a test has started. That caller is why this module's own imports stop at two leaves, `cycle_paths` for the record's place and `green_record` for its shape: the conftest's static import closure is folded into every rebuild test's closure, and a gate that imported the cycle driver would carry the whole pipeline in with it (`rebuild.tools.cycle_paths` has the argument).
 """
 
 from __future__ import annotations
@@ -19,8 +19,8 @@ ROOT = Path(__file__).resolve().parents[2]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from rebuild.tools import artifact_cycle
-from rebuild.tools.artifact_cycle import (
+from rebuild.tools import cycle_paths
+from rebuild.tools.green_record import (
     _digest_lines,
     _sha256_path,
     clear_contradicted_green,
@@ -107,7 +107,7 @@ def begin(
     if not requested(environ):
         return None
     before = closure_fingerprint(root)
-    recorded = read_green_record(artifact_cycle.PYRIGHT_GREEN)
+    recorded = read_green_record(cycle_paths.PYRIGHT_GREEN)
     if (
         environ.get(PYRIGHT_ENV) != FORCE
         and before is not None
@@ -126,7 +126,7 @@ def begin(
 
 def conclude(root: Path, before: str | None, returncode: int) -> str:
     """What a finished check leaves behind: a green whose closure still matches records it, a red over a recorded closure deletes the record, and either way the line that says so."""
-    record = artifact_cycle.PYRIGHT_GREEN
+    record = cycle_paths.PYRIGHT_GREEN
     if returncode != 0:
         clear_contradicted_green(record, before)
         return f"pyright: FAILED (exit {returncode})"

@@ -4,6 +4,7 @@ import pytest
 
 from rebuild.pipeline import conform
 from rebuild.tools import artifact_cycle as ac
+from rebuild.tools import cycle_paths
 from rebuild.tools import deep_replay, deep_sweep
 
 RUNES = {"qsPea": "p1", "qsTea": "t1", "qsIt": "i1"}
@@ -19,8 +20,7 @@ def bench(tmp_path, monkeypatch):
     """A repo root the tool believes in: the runes' digests answered from a table rather than the tree, a tables stamp treated as current, a resolved spec whose closure is the identity, and every record redirected into tmp_path."""
     store = tmp_path / "rebuild" / "out" / "deep-replay-green.json"
     monkeypatch.setattr(deep_replay, "ROOT", tmp_path)
-    monkeypatch.setattr(ac, "DEEP_REPLAY_GREEN", store)
-    monkeypatch.setattr(deep_replay, "DEEP_REPLAY_GREEN", store)
+    monkeypatch.setattr(cycle_paths, "DEEP_REPLAY_GREEN", store)
     monkeypatch.setattr(deep_replay, "tables_stamped", lambda: True)
     JOURNAL.clear()
     monkeypatch.setattr(
@@ -161,7 +161,9 @@ def test_the_width_is_the_boxs_memory_or_the_stated_knob(monkeypatch):
 
 def test_a_green_deep_sweep_refreshes_the_replays_record(tmp_path, monkeypatch):
     """The whole-universe HarfBuzz sweep settles every text it shapes, so a green one at the replay's depth leaves nothing for the replay to walk: its refresh records every rune on disk at its current digest."""
-    monkeypatch.setattr(ac, "DEEP_REPLAY_GREEN", tmp_path / "rebuild" / "out" / "deep-replay-green.json")
+    monkeypatch.setattr(
+        cycle_paths, "DEEP_REPLAY_GREEN", tmp_path / "rebuild" / "out" / "deep-replay-green.json"
+    )
     monkeypatch.setattr(deep_sweep.run_m1, "replay_structure_stamp", lambda spec: "structure-1")
     monkeypatch.setattr("rebuild.pipeline.fingerprint.rune_digests", lambda root: dict(RUNES))
     monkeypatch.setattr("rebuild.pipeline.spec_load.load_default_spec", lambda: Spec())

@@ -5,6 +5,7 @@ import json
 import pytest
 
 from rebuild.tools import artifact_cycle as ac
+from rebuild.tools import cycle_paths
 from rebuild.tools import deep_sweep
 
 
@@ -23,12 +24,10 @@ def bench(tmp_path, monkeypatch):
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(f"# {rel}\n")
     monkeypatch.setattr(deep_sweep, "ROOT", tmp_path)
-    monkeypatch.setattr(ac, "DEEP_SWEEP_GREEN", tmp_path / "deep-sweep-green.json")
-    monkeypatch.setattr(deep_sweep, "DEEP_SWEEP_GREEN", tmp_path / "deep-sweep-green.json")
-    monkeypatch.setattr(ac, "CONFORM_GREEN", tmp_path / "conform-green.json")
-    monkeypatch.setattr(deep_sweep, "CONFORM_GREEN", tmp_path / "conform-green.json")
+    monkeypatch.setattr(cycle_paths, "DEEP_SWEEP_GREEN", tmp_path / "deep-sweep-green.json")
+    monkeypatch.setattr(cycle_paths, "CONFORM_GREEN", tmp_path / "conform-green.json")
     monkeypatch.setattr(deep_sweep, "tables_stamped", lambda: True)
-    monkeypatch.setattr(ac, "DEEP_REPLAY_GREEN", tmp_path / "deep-replay-green.json")
+    monkeypatch.setattr(cycle_paths, "DEEP_REPLAY_GREEN", tmp_path / "deep-replay-green.json")
     monkeypatch.setattr(deep_sweep, "refresh_deep_replay", lambda horizon: None)
     return tmp_path
 

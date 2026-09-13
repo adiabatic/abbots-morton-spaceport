@@ -61,7 +61,15 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 from rebuild.review import app_index, census, unit_index  # noqa: E402
 from rebuild.review.audit import load_ledger  # noqa: E402
-from rebuild.tools import console  # noqa: E402
+from rebuild.tools import console, cycle_paths  # noqa: E402
+from rebuild.tools.green_record import (  # noqa: E402
+    _digest_lines,
+    _record_outcome,
+    _sha256_path,
+    clear_contradicted_green,
+    read_green_record,
+    record_green,
+)
 from rebuild.tools.cycle_timings import CYCLE_RUN_ENV, CheckVerdict  # noqa: E402
 from rebuild.tools.peak_rss import reap_peak_rss_bytes  # noqa: E402
 from rebuild.tools.review_server import REVIEW_PORT, server_listening  # noqa: E402
@@ -70,22 +78,12 @@ if TYPE_CHECKING:
     from rebuild.tools.cycle_timings import CycleTimings
 REVIEW_OUT = ROOT / "rebuild" / "out" / "review"
 AUTOSAVE = ROOT / "verdicts-autosave.json"
-M1_OUT = ROOT / "rebuild" / "out" / "m1"
 ECHO_FILL = ROOT / "verdicts-echo-fill.json"
 STANDING_FILL = ROOT / "verdicts-standing-fill.json"
-CYCLE_SUMMARY = ROOT / "rebuild" / "out" / "cycle_summary.json"
 CENSUS_PINS = ROOT / "rebuild" / "review-census-pins.json"
 DIVERGENCE_LEDGER = ROOT / "rebuild" / "m1-divergences.yaml"
 CYCLE_TIMINGS = ROOT / "rebuild" / "out" / "cycle-timings.ndjson"
-MAKE_TEST_GREEN = ROOT / "rebuild" / "out" / "make-test-green.json"
-PYRIGHT_GREEN = ROOT / "rebuild" / "out" / "pyright-green.json"
-RUN_M1_GREEN = ROOT / "rebuild" / "out" / "run-m1-green.json"
-CONFORM_GREEN = ROOT / "rebuild" / "out" / "conform-green.json"
-DEEP_SWEEP_GREEN = ROOT / "rebuild" / "out" / "deep-sweep-green.json"
-DEEP_REPLAY_GREEN = ROOT / "rebuild" / "out" / "deep-replay-green.json"
-BEHAVIOR_CLASSES = M1_OUT / "behavior_classes.json"
-REBUILD_CONTRACTS_GREEN = ROOT / "rebuild" / "out" / "rebuild-contracts-green.json"
-PLUMBING_GREEN = ROOT / "rebuild" / "out" / "plumbing-green.json"
+BEHAVIOR_CLASSES = cycle_paths.M1_OUT / "behavior_classes.json"
 JSTEST_DIR = ROOT / "rebuild" / "review" / "jstests"
 
 POOL_POLICIES = ("queue", "overlap")
@@ -128,23 +126,12 @@ COMPILE_CODE_FILES = (
     "rebuild/pipeline/compile_font.py",
 )
 RETENTION_WINDOW_DAYS = 7
-# Where a pass keeps everything the terminal did not show, and how many such runs survive the green-finish retention pass. The root is a module constant so the rebuild suite can point it under a temp root — every other cycle write is redirected that way, and a run directory minted into the live repo by a test that drives main is the same kind of litter. Ten is a working week of passes: enough that a question about "the run before last" is still answerable, few enough that the pile stays a pile rather than an archive, and the whole of any one run is regenerable by running it again.
-BUILD_LOGS_ROOT = ROOT / "var" / "build-logs"
-BUILD_LOGS_KEEP = 10
-
-M1_SUMMARY_FILES = {
-    "pipeline": M1_OUT / "pipeline_summary.json",
-    "manual_pins": M1_OUT / "manual_pins_summary.json",
-    "oracle": M1_OUT / "oracle_summary.json",
-}
-CONFORM_SUMMARY = M1_OUT / "conform_summary.json"
-
 REBUILD_LANES = ("contracts",)
 
 
 def rebuild_lane_green(lane: str) -> Path:
-    """Where the lane's green record lives, read off the module at call time rather than captured, because the rebuild suite's own conftest redirects the constant under tmp_path so a test driving the cycle cannot leave a record in rebuild/out that the next real pass reads as proof."""
-    return {"contracts": REBUILD_CONTRACTS_GREEN}[lane]
+    """Where the lane's green record lives, read off `cycle_paths` at call time rather than captured, because the rebuild suite's own conftest redirects the constant under tmp_path so a test driving the cycle cannot leave a record in rebuild/out that the next real pass reads as proof."""
+    return {"contracts": cycle_paths.REBUILD_CONTRACTS_GREEN}[lane]
 
 
 def rebuild_lane_argv(lane: str) -> list[str]:
@@ -271,47 +258,9 @@ def make_test_closure_fingerprint(root: Path = ROOT) -> str | None:
     return digest.hexdigest()
 
 
-def read_green_record(path: Path) -> dict | None:
-    """A gate's last-green record ({fingerprint, finished_at}); None when absent or malformed."""
-    try:
-        record = json.loads(path.read_text())
-    except OSError, ValueError:
-        return None
-    if isinstance(record, dict) and isinstance(record.get("fingerprint"), str):
-        return record
-    return None
-
-
-def _record_outcome(path: Path, payload: dict) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    stamp = datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
-    tmp = path.with_suffix(path.suffix + ".tmp")
-    tmp.write_text(json.dumps({"format": f"ams-{path.stem}/1", **payload, "finished_at": stamp}) + "\n")
-    os.replace(tmp, path)
-
-
-def record_green(
-    path: Path, fingerprint: str, files: dict[str, str] | None = None, closures: dict | None = None
-) -> None:
-    """`files` is the per-file `label -> digest` map behind the fingerprint, when the caller has it: stored beside the key so a later skip miss can name exactly which input moved instead of reporting only that some digest did. `closures` is the contracts lane's per-test input closure over those same labels (`rebuild.tools.contracts_closure`), which is what lets a skip miss run only the tests the moved inputs can reach."""
-    payload: dict = {"fingerprint": fingerprint}
-    if files is not None:
-        payload["files"] = files
-    if closures is not None:
-        payload["closures"] = closures
-    _record_outcome(path, payload)
-
-
-def clear_contradicted_green(path: Path, fingerprint: str | None) -> None:
-    """A red result over content whose fingerprint still matches the recorded green contradicts the record; delete it so no later cycle can skip on a falsified green."""
-    record = read_green_record(path)
-    if fingerprint is not None and record is not None and record["fingerprint"] == fingerprint:
-        path.unlink(missing_ok=True)
-
-
 def record_plumbing_green(fingerprint: str, path: Path | None = None) -> None:
     """The verdict plumbing's last-green record: the key alone, like every sibling record read_green_record parses. A pass that wants to name the live frontier derives it from disk (frontier_carry_out) instead of reading a remembered copy here, which a later export could silently outrank."""
-    record_green(path if path is not None else PLUMBING_GREEN, fingerprint)
+    record_green(path if path is not None else cycle_paths.PLUMBING_GREEN, fingerprint)
 
 
 def frontier_carry_out() -> Path | None:
@@ -330,11 +279,11 @@ def frontier_carry_out() -> Path | None:
 
 def read_make_test_green(path: Path | None = None) -> dict | None:
     """The shared last-green record for `make test`, written by rebuild.tools.make_test_gate on every green run — interactive or as gate:make-test."""
-    return read_green_record(path if path is not None else MAKE_TEST_GREEN)
+    return read_green_record(path if path is not None else cycle_paths.MAKE_TEST_GREEN)
 
 
 def record_make_test_green(fingerprint: str, path: Path | None = None) -> None:
-    record_green(path if path is not None else MAKE_TEST_GREEN, fingerprint)
+    record_green(path if path is not None else cycle_paths.MAKE_TEST_GREEN, fingerprint)
 
 
 def prior_make_test_fingerprint(green_path: Path | None = None) -> str | None:
@@ -344,12 +293,6 @@ def prior_make_test_fingerprint(green_path: Path | None = None) -> str | None:
 
 
 M1_ARTIFACT_NAMES = ("M1.otf", "divergence-audit.tsv", "inputs_fingerprint.json")
-REBUILD_GATE_EXEMPT_PREFIXES = (
-    "rebuild/evidence/",
-    "rebuild/review/jstests/",
-    "rebuild/review-census-pins.json",
-    "rebuild/m1-contact-allow.yaml",
-)
 REBUILD_GATE_HARNESS_PATHS = (
     "README.md",
     "doc/glyph-names.md",
@@ -385,15 +328,6 @@ REBUILD_GATE_HARNESS_PATHS = (
 )
 
 
-def _sha256_path(path: Path) -> str:
-    """The streamed read matters here: the oracle's subset tables and M1.otf are large and ride keys a driver pass recomputes more than once. Spelled out rather than borrowing fingerprint.file_sha256 because this module defers every rebuild.pipeline import into the function that needs it, and this one is called per file in a loop."""
-    try:
-        with open(path, "rb") as handle:
-            return hashlib.file_digest(handle, "sha256").hexdigest()
-    except OSError:
-        return "absent"
-
-
 def _closure_digest(root: Path, rel: str) -> str:
     """Rune YAMLs, the divergence ledger and the standing approvals hash by their prose-blind digests (`fingerprint.rune_file_digest`, `divergence_ledger_digest`, `standing_approvals_digest`) so a documentation edit does not re-run the gate. What keeps the exclusion sound is what the lanes actually read out of those files: the contracts tests that load the live runes assert structure, settlement outcomes and round-trip identity, and the ones that load the live ledgers take ids, `no_verdict`, `match` and the exemplar keys — never a `why` or a `note`, whose only live readers are the surface's explain panel and the standing fill. Both of those are keyed elsewhere: the ledger's `why` on the Stage B `explain_prose` component, and the fill's quoting of a rule's `note` on `plumbing_skip_fingerprint`, which stays raw for exactly that reason."""
     from rebuild.pipeline import fingerprint
@@ -411,13 +345,6 @@ def _closure_digest(root: Path, rel: str) -> str:
         return digest(root / rel)
     except OSError:
         return "absent"
-
-
-def _digest_lines(lines: list[str]) -> str:
-    digest = hashlib.sha256()
-    for line in lines:
-        digest.update(line.encode() + b"\n")
-    return digest.hexdigest()
 
 
 def _subset_tables(root: Path) -> list[Path]:
@@ -546,7 +473,7 @@ def oracle_cache_note(moved: str | None, root: Path = ROOT) -> str | None:
 def m1_artifacts_present(root: Path = ROOT) -> bool:
     """Whether rebuild/out/m1 still holds everything a skipped run_m1 must leave behind: the three gate summaries and the artifacts the surface build consumes."""
     m1 = root / "rebuild" / "out" / "m1"
-    names = [path.name for path in M1_SUMMARY_FILES.values()] + list(M1_ARTIFACT_NAMES)
+    names = [path.name for path in cycle_paths.M1_SUMMARY_FILES.values()] + list(M1_ARTIFACT_NAMES)
     return all((m1 / name).exists() for name in names)
 
 
@@ -631,7 +558,7 @@ def record_deep_sweep_green(
 ) -> None:
     """The deep sweep's last-green record. It carries the horizon the recorded run actually swept as well as the key, because the arming key is depth-blind on purpose: a green is a claim about a depth, and `deep_sweep_status` reads it back to answer whether an already-proved run went deep enough for the depth being asked about."""
     _record_outcome(
-        path if path is not None else DEEP_SWEEP_GREEN,
+        path if path is not None else cycle_paths.DEEP_SWEEP_GREEN,
         {"fingerprint": fingerprint, "horizon": horizon, "files": files},
     )
 
@@ -642,7 +569,7 @@ def record_deep_replay_green(
     """The deep replay's last-green record (`rebuild.tools.deep_replay`): the horizon the recorded walk reached, every rune's prose-blind digest as the walk covered it — under `files`, so `moved_inputs_note` can name what moved since — the replay structure stamp for the record, and a fingerprint over the rune lines so `read_green_record` reads it like every sibling record. A rune the record does not carry counts as moved."""
     lines = [f"{name}\t{digest}" for name, digest in sorted(runes.items())]
     _record_outcome(
-        path if path is not None else DEEP_REPLAY_GREEN,
+        path if path is not None else cycle_paths.DEEP_REPLAY_GREEN,
         {"fingerprint": _digest_lines(lines), "horizon": horizon, "structure": structure, "files": runes},
     )
 
@@ -656,9 +583,9 @@ def deep_replay_moved(record: dict | None, runes: dict[str, str]) -> list[str]:
 
 
 def deep_replay_green_path(root: Path | None = None) -> Path:
-    """Where a tree keeps the deep replay's record: `DEEP_REPLAY_GREEN` for the live repo, and the same place under any other root, so a status asked of an invented tree never opens the live record. The root defaults at call time rather than at definition, so a test that re-roots the module re-roots this too."""
+    """Where a tree keeps the deep replay's record: `cycle_paths.DEEP_REPLAY_GREEN` for the live repo, and the same place under any other root, so a status asked of an invented tree never opens the live record. The root defaults at call time rather than at definition, so a test that re-roots the module re-roots this too."""
     if root is None or Path(root).resolve() == ROOT.resolve():
-        return DEEP_REPLAY_GREEN
+        return cycle_paths.DEEP_REPLAY_GREEN
     return Path(root) / "rebuild" / "out" / "deep-replay-green.json"
 
 
@@ -695,7 +622,7 @@ def deep_sweep_status(root: Path = ROOT, horizon: int = DEEP_SWEEP_HORIZON_DEFAU
     fingerprint = deep_sweep_skip_fingerprint(root)
     if fingerprint is None:
         return "unknown", "no behavior-class sidecar yet; it lands with the next M1 build"
-    record = read_green_record(DEEP_SWEEP_GREEN)
+    record = read_green_record(cycle_paths.DEEP_SWEEP_GREEN)
     if record is None:
         return "never-run", "no deep sweep has been recorded; run `make conform-deep`"
     if record["fingerprint"] != fingerprint:
@@ -716,7 +643,7 @@ def deep_sweep_status(root: Path = ROOT, horizon: int = DEEP_SWEEP_HORIZON_DEFAU
 
 
 def rebuild_gate_closure_files(root: Path) -> list[str] | None:
-    """Every tracked or untracked-unignored file the rebuild pytest suite can read from the repo, and the base of the suite's input closure: rebuild/ and glyph_data/ (minus Markdown and the exempt paths in REBUILD_GATE_EXEMPT_PREFIXES: the carried-verdict evidence, the JS-only jstests, the census pins, and the contact allow-list), the root conftest.py, pyproject.toml and uv.lock, and the harness roster REBUILD_GATE_HARNESS_PATHS, which is what the suite reads outside those trees and why the Markdown filter has an exception: that filter is there for prose no test opens, and doc/glyph-names.md is a fixture rebuild/test_review_enrich.py holds the surface's letter table against. The roster is measured rather than inferred from the tree — issue #127 audited every file both lanes actually open over a green run of each — and every entry has a named reader: rebuild/validation/pins.py collects its pin runs from the three site corpora and puts test/ on sys.path to import test/test_shaping.py, which reads postscript_glyph_names.yaml at the repo root and pulls the tools/ compile modules in with it; rebuild/review/drafts.build_corpus_index reads the same three corpora; the unit-cache environment stamp hashes tools/*.py whole, which is why the roster is the tree rather than the compile modules alone; and rebuild/test_review_build.py pins the review surface's feature descriptions to README.md's stylistic-set list. Until they were keyed, editing any of them left both lanes' greens standing over code and data the suite had just been reading. The pins are out because the suite no longer reads them and the census step rewrites them mid-pass — they are the cycle's own diff artifact, so leaving them in would invalidate the key of every pass that refreshes them. The allow-list is out because no test in either lane reads the live file — only a fake repo writes one — so a bless would re-run the whole suite to prove nothing. The other two human-reviewed ledgers stay in, since tests in both lanes do read them, and buy the same saving a different way: `_closure_digest` hashes them prose-blind, so rewording a `why` or a `note` moves neither key while a structural edit still moves both. None when git is unavailable, in which case the caller must run the gate unconditionally."""
+    """Every tracked or untracked-unignored file the rebuild pytest suite can read from the repo, and the base of the suite's input closure: rebuild/ and glyph_data/ (minus Markdown and the exempt paths in `cycle_paths.REBUILD_GATE_EXEMPT_PREFIXES`: the carried-verdict evidence, the JS-only jstests, the census pins, and the contact allow-list), the root conftest.py, pyproject.toml and uv.lock, and the harness roster REBUILD_GATE_HARNESS_PATHS, which is what the suite reads outside those trees and why the Markdown filter has an exception: that filter is there for prose no test opens, and doc/glyph-names.md is a fixture rebuild/test_review_enrich.py holds the surface's letter table against. The roster is measured rather than inferred from the tree — issue #127 audited every file both lanes actually open over a green run of each — and every entry has a named reader: rebuild/validation/pins.py collects its pin runs from the three site corpora and puts test/ on sys.path to import test/test_shaping.py, which reads postscript_glyph_names.yaml at the repo root and pulls the tools/ compile modules in with it; rebuild/review/drafts.build_corpus_index reads the same three corpora; the unit-cache environment stamp hashes tools/*.py whole, which is why the roster is the tree rather than the compile modules alone; and rebuild/test_review_build.py pins the review surface's feature descriptions to README.md's stylistic-set list. Until they were keyed, editing any of them left both lanes' greens standing over code and data the suite had just been reading. The pins are out because the suite no longer reads them and the census step rewrites them mid-pass — they are the cycle's own diff artifact, so leaving them in would invalidate the key of every pass that refreshes them. The allow-list is out because no test in either lane reads the live file — only a fake repo writes one — so a bless would re-run the whole suite to prove nothing. The other two human-reviewed ledgers stay in, since tests in both lanes do read them, and buy the same saving a different way: `_closure_digest` hashes them prose-blind, so rewording a `why` or a `note` moves neither key while a structural edit still moves both. None when git is unavailable, in which case the caller must run the gate unconditionally."""
     try:
         result = subprocess.run(
             [
@@ -747,7 +674,7 @@ def rebuild_gate_closure_files(root: Path) -> list[str] | None:
         path
         for path in paths
         if (path in harness or not path.endswith(".md"))
-        and not any(path.startswith(prefix) for prefix in REBUILD_GATE_EXEMPT_PREFIXES)
+        and not any(path.startswith(prefix) for prefix in cycle_paths.REBUILD_GATE_EXEMPT_PREFIXES)
     )
 
 
@@ -2322,17 +2249,17 @@ def _do_run_m1(
     if skip:
         emit.step_skipped("run_m1", f"{skip_note}; evaluating the gate from the recorded summaries")
     else:
-        for name, path in M1_SUMMARY_FILES.items():
+        for name, path in cycle_paths.M1_SUMMARY_FILES.items():
             if reuse and name == "pipeline":
                 continue
             path.unlink(missing_ok=True)
         result = spawn(step, argv, emit=emit, registry=registry, stream=False)
-    missing = [name for name, path in M1_SUMMARY_FILES.items() if not path.exists()]
+    missing = [name for name, path in cycle_paths.M1_SUMMARY_FILES.items() if not path.exists()]
     if missing:
         for name in missing:
             emit.note(
                 "run_m1",
-                f"run_m1 gate failure: missing {name} summary ({M1_SUMMARY_FILES[name]}) — run_m1 did not complete",
+                f"run_m1 gate failure: missing {name} summary ({cycle_paths.M1_SUMMARY_FILES[name]}) — run_m1 did not complete",
             )
         if result is not None:
             _close_step(emit, report, step, result, "FAILED (no summaries)")
@@ -2347,7 +2274,7 @@ def _do_run_m1(
                 )
             )
         return None
-    summaries = {name: _load_summary(path) for name, path in M1_SUMMARY_FILES.items()}
+    summaries = {name: _load_summary(path) for name, path in cycle_paths.M1_SUMMARY_FILES.items()}
     gate = evaluate_run_m1_gate(summaries["pipeline"], summaries["manual_pins"], summaries["oracle"])
     if timings is not None:
         timings.record_check(gate)
@@ -2358,10 +2285,10 @@ def _do_run_m1(
         _close_step(emit, report, step, result, "ok" if gate.ok else "FAILED")
     if record and fingerprint is not None:
         if not gate.ok:
-            clear_contradicted_green(RUN_M1_GREEN, fingerprint)
+            clear_contradicted_green(cycle_paths.RUN_M1_GREEN, fingerprint)
         elif not skip:
             if run_m1_skip_fingerprint(ROOT) == fingerprint:
-                record_green(RUN_M1_GREEN, fingerprint, files=run_m1_skip_files(ROOT))
+                record_green(cycle_paths.RUN_M1_GREEN, fingerprint, files=run_m1_skip_files(ROOT))
             else:
                 emit.note("run_m1", "run_m1 green, but its inputs changed while it ran — green not recorded")
     return gate
@@ -2749,14 +2676,14 @@ def _gate_conform_task(
     argv: list[str],
 ) -> CheckVerdict:
     """gate:conform shapes the exhaustive font-vs-settle sweep against the fresh M1.otf via run_m1 --conform-only. Under the queue policy it queues behind gate:make-test, and the rebuild suite in turn parks behind this sweep, so only one heavy pool is ever hot: co-resident, two heavy pools oversubscribe the box roughly 2:1, and measured that contention roughly tripled the rebuild suite's wall time — a worse critical path than the same work in sequence. Conform is submitted first and the suite right after it, both once the run_m1 gate has passed, and the suite's own queue-policy wait is what puts it behind this sweep. The stale conform_summary.json is unlinked here, just before the sweep spawns, so the verdict can only come from this cycle's subprocess (an auto-skipped gate never runs this task and never reads the file)."""
-    CONFORM_SUMMARY.unlink(missing_ok=True)
+    cycle_paths.CONFORM_SUMMARY.unlink(missing_ok=True)
     if pool_policy == "queue":
         _await_gate_futures(make_fut)
     result = spawn("gate:conform", argv, emit=emit, registry=registry, stream=False)
     summary = None
-    if CONFORM_SUMMARY.exists():
+    if cycle_paths.CONFORM_SUMMARY.exists():
         try:
-            summary = json.loads(CONFORM_SUMMARY.read_text())
+            summary = json.loads(cycle_paths.CONFORM_SUMMARY.read_text())
         except ValueError:
             summary = None
     verdict = evaluate_conform_gate(summary)
@@ -2910,14 +2837,16 @@ def _record_gate_greens(
     if key:
         if report.gate_conform_green is True:
             if conform_skip_fingerprint(ROOT, plan.conform_horizon) == key:
-                record_green(CONFORM_GREEN, key, files=conform_skip_files(ROOT, plan.conform_horizon))
+                record_green(
+                    cycle_paths.CONFORM_GREEN, key, files=conform_skip_files(ROOT, plan.conform_horizon)
+                )
             else:
                 emit.note(
                     "gate:conform",
                     "gate:conform green, but its inputs changed while the cycle ran — green not recorded",
                 )
         elif report.gate_conform_green is False:
-            clear_contradicted_green(CONFORM_GREEN, key)
+            clear_contradicted_green(cycle_paths.CONFORM_GREEN, key)
     for lane, recordable, green in (("contracts", report.contracts_recordable, report.gate_contracts_green),):
         key = gate_keys.get(lane)
         if not key:
@@ -3051,7 +2980,7 @@ def _run_cycle(
 
         if not plan.skip_gates and not plan.skip_conform:
             conform_key = conform_skip_fingerprint(ROOT, plan.conform_horizon)
-            green = None if plan.fresh else read_green_record(CONFORM_GREEN)
+            green = None if plan.fresh else read_green_record(cycle_paths.CONFORM_GREEN)
             if green is not None and green["fingerprint"] == conform_key:
                 report.conform_proven = True
                 report.gate_conform = f"skipped ({CONFORM_SKIP_NOTE})"
@@ -3377,8 +3306,8 @@ def summary_cycle_lines(report: CycleReport, plan: Plan, retention_lines: list[s
         f"  deep sweep       : {deep_status} ({deep_note})",
         f"  deep replay      : {replay_status} ({replay_note})",
         "  run_m1 summaries :",
-        *(f"      {path}" for path in M1_SUMMARY_FILES.values()),
-        f"      {CONFORM_SUMMARY}",
+        *(f"      {path}" for path in cycle_paths.M1_SUMMARY_FILES.values()),
+        f"      {cycle_paths.CONFORM_SUMMARY}",
     ]
     if plan.log_dir is not None:
         lines.append(f"  logs             : {plan.log_dir}")
@@ -3507,7 +3436,7 @@ def cycle_summary_payload(report: CycleReport, failures: list[str], plan: Plan, 
 
 
 def write_cycle_summary(payload: dict) -> None:
-    target = CYCLE_SUMMARY
+    target = cycle_paths.CYCLE_SUMMARY
     target.parent.mkdir(parents=True, exist_ok=True)
     tmp = target.with_suffix(target.suffix + ".tmp")
     tmp.write_text(json.dumps(payload, indent=2) + "\n")
@@ -3525,7 +3454,7 @@ def _emit_cycle_summary(
     try:
         write_cycle_summary(payload)
     except Exception as exc:
-        print(f"warning: failed to write {CYCLE_SUMMARY}: {exc!r}", file=sys.stderr)
+        print(f"warning: failed to write {cycle_paths.CYCLE_SUMMARY}: {exc!r}", file=sys.stderr)
     if timings is not None:
         timings.finish(payload)
 
@@ -3693,10 +3622,10 @@ def run_retention(plan: Plan) -> RetentionResult:
         for path in unreadable:
             lines.append(f"              kept {rel(path)} (unreadable, not pruning it)")
 
-    dropped_logs = prune_build_logs(BUILD_LOGS_ROOT, BUILD_LOGS_KEEP)
+    dropped_logs = prune_build_logs(cycle_paths.BUILD_LOGS_ROOT, cycle_paths.BUILD_LOGS_KEEP)
     removed_counts.append(swept(len(dropped_logs), "build log", "build logs"))
     lines.append(
-        f"  build logs: removed {console.fmt_count(len(dropped_logs))}; kept the last {BUILD_LOGS_KEEP} runs under {rel(BUILD_LOGS_ROOT)}"
+        f"  build logs: removed {console.fmt_count(len(dropped_logs))}; kept the last {cycle_paths.BUILD_LOGS_KEEP} runs under {rel(cycle_paths.BUILD_LOGS_ROOT)}"
     )
 
     journal_path = ROOT / journal.JOURNAL_NAME
@@ -3845,7 +3774,7 @@ def main(argv: list[str] | None = None) -> int:
         from rebuild.tools import contracts_closure
 
         contracts_key, contracts_roster = rebuild_lane_closure(ROOT, "contracts")
-        green = read_green_record(REBUILD_CONTRACTS_GREEN)
+        green = read_green_record(cycle_paths.REBUILD_CONTRACTS_GREEN)
         if contracts_key is not None and green is not None and green["fingerprint"] == contracts_key:
             skip_contracts = True
             contracts_note = "input closure unchanged since its last green run; --fresh overrides"
@@ -3855,7 +3784,7 @@ def main(argv: list[str] | None = None) -> int:
             contracts_skip = sorted(selection.skip)
             contracts_note = selection.describe()
     if not args.fresh:
-        green = read_green_record(RUN_M1_GREEN)
+        green = read_green_record(cycle_paths.RUN_M1_GREEN)
         if green is not None and green["fingerprint"] == run_m1_fp and m1_artifacts_present(ROOT):
             skip_run_m1 = True
             run_m1_note = "build inputs unchanged since the last green M1 build; --fresh overrides"
@@ -3891,7 +3820,7 @@ def main(argv: list[str] | None = None) -> int:
                     surface_note = SURFACE_PROMOTE_NOTE
     if skip_run_m1:
         if not args.skip_gates and not args.skip_conform:
-            green = read_green_record(CONFORM_GREEN)
+            green = read_green_record(cycle_paths.CONFORM_GREEN)
             if green is not None and green["fingerprint"] == conform_skip_fingerprint(
                 ROOT, args.conform_horizon
             ):
@@ -3933,7 +3862,7 @@ def main(argv: list[str] | None = None) -> int:
         and args.carry_out is None
     ):
         plumbing_key = plumbing_skip_fingerprint(ROOT, REVIEW_OUT, args.verdicts)
-        record = read_green_record(PLUMBING_GREEN)
+        record = read_green_record(cycle_paths.PLUMBING_GREEN)
         if plumbing_key is not None and record is not None and record["fingerprint"] == plumbing_key:
             skip_plumbing = True
             plumbing_note = PLUMBING_SKIP_NOTE
@@ -3984,7 +3913,7 @@ def main(argv: list[str] | None = None) -> int:
         return 0
 
     plan.stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
-    plan.log_dir = BUILD_LOGS_ROOT / f"{plan.stamp}-{plan.short_id}"
+    plan.log_dir = cycle_paths.BUILD_LOGS_ROOT / f"{plan.stamp}-{plan.short_id}"
     digest = console.Digest(
         steps=[step.name for step in plan.steps], log_dir=plan.log_dir, aliases=STEP_ALIASES
     )
@@ -4016,7 +3945,7 @@ def main(argv: list[str] | None = None) -> int:
 
 
 def readiness_block(plan: Plan) -> list[str]:
-    """The checklist `make verdict-ready` prints, computed here so a green pass ends on the answer rather than on an instruction to go and ask for it. It reads the cycle summary this pass has just written, so it runs after `_emit_cycle_summary`. A rehearsal pass prints nothing, since its surface is never the one served. Under `make review-cycle` the server row is left out: the recipe stops the server ahead of a pass that writes under it and answers for it on the line after this one — restarting it, or saying it was left down — so a row read here would call a server the recipe is about to start absent. The suite stubs this to nothing beside `run_retention`, because the real thing reads the live surface, which a contracts-lane test may not."""
+    """The checklist `make verdict-ready` prints, computed here so a green pass ends on the answer rather than on an instruction to go and ask for it. It reads the cycle summary this pass has just written, so it runs after `_emit_cycle_summary`. A rehearsal pass prints nothing, since its surface is never the one served. Under `make review-cycle` the server row is left out: the recipe stops the server ahead of a pass that writes under it and answers for it on the line after this one — restarting it, or saying it was left down — so a row read here would call a server the recipe is about to start absent. The suite switches it off beside `run_retention` (`cycle_paths.READINESS_ENABLED`), because the real thing reads the live surface, which a contracts-lane test may not."""
     if plan.review_out is not None:
         return []
     from rebuild.tools import verdict_ready
@@ -4026,9 +3955,9 @@ def readiness_block(plan: Plan) -> list[str]:
             with_server=not plan.recipe_serves,
             repo_root=ROOT,
             review_dir=plan.surface_dir,
-            m1_out=M1_OUT,
+            m1_out=cycle_paths.M1_OUT,
             autosave_path=AUTOSAVE,
-            cycle_summary_path=CYCLE_SUMMARY,
+            cycle_summary_path=cycle_paths.CYCLE_SUMMARY,
         )
     except Exception as exc:
         return [f"readiness: the checklist could not be computed ({exc!r})"]
@@ -4042,7 +3971,7 @@ def _finish(
     timings: CycleTimings | None = None,
     emit: console.Digest | None = None,
 ) -> int:
-    """Close the pass: run retention when a green finish has earned it, then write the one summary block. Retention goes first so its row has an outcome, a figure and lines with somewhere to land — printing them after the table would put the pass's last word below the verdict it belongs to. A retention pass that answers with nothing still leaves the row an outcome: that is the suite's stub, which is what keeps a test reaching a green finish from sweeping the live repo. A green pass closes on the readiness checklist, read after the cycle summary it reads has landed."""
+    """Close the pass: run retention when a green finish has earned it, then write the one summary block. Retention goes first so its row has an outcome, a figure and lines with somewhere to land — printing them after the table would put the pass's last word below the verdict it belongs to. A retention pass that answers with nothing still leaves the row an outcome: that is what a switched-off pass answers (`cycle_paths.RETENTION_ENABLED`, which the rebuild suite sets False), and it is what keeps a test reaching a green finish from sweeping the live repo. A green pass closes on the readiness checklist, read after the cycle summary it reads has landed, under the same kind of switch (`cycle_paths.READINESS_ENABLED`)."""
     digest = console.Digest() if emit is None else emit
     retention_lines: list[str] = []
     retention_ran = False
@@ -4050,7 +3979,7 @@ def _finish(
         digest.step_start("retention", None, plan.describe("retention"))
         started = time.perf_counter()
         try:
-            pruned = run_retention(plan) or RetentionResult([], "")
+            pruned = run_retention(plan) if cycle_paths.RETENTION_ENABLED else RetentionResult([], "")
             retention_lines = list(pruned.lines)
             report.retention_figure = pruned.figure
             retention_ran = True
@@ -4059,7 +3988,7 @@ def _finish(
         report.step_seconds["retention"] = time.perf_counter() - started
         digest.step_end("retention", None, "ok" if retention_ran else "FAILED", report.retention_figure)
     _emit_cycle_summary(report, failures, plan, "failed" if failures else "ok", timings)
-    readiness = [] if failures else readiness_block(plan)
+    readiness = [] if failures or not cycle_paths.READINESS_ENABLED else readiness_block(plan)
     digest.summary(
         summary_rows(report, plan, retention_ran=retention_ran),
         summary_cycle_lines(report, plan, retention_lines) + (["", *readiness] if readiness else []),

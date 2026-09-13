@@ -5,6 +5,7 @@ import json
 import pytest
 
 from rebuild.tools import artifact_cycle as ac
+from rebuild.tools import cycle_paths
 from rebuild.tools import cycle_timings as ct
 from rebuild.tools import rebuild_gate as rg
 
@@ -21,7 +22,7 @@ def _checks():
 def green_store(tmp_path, monkeypatch):
     """The lane's record under tmp_path. rebuild_lane_green resolves the module constant at call time, so redirecting it here is enough for both modules."""
     store = tmp_path / "rebuild-contracts-green.json"
-    monkeypatch.setattr(ac, "REBUILD_CONTRACTS_GREEN", store)
+    monkeypatch.setattr(cycle_paths, "REBUILD_CONTRACTS_GREEN", store)
     return store
 
 
