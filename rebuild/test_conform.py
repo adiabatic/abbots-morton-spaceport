@@ -277,6 +277,166 @@ class TestAliasAndLedger:
         )
         assert oracle._match_ledger(ledger, namer_dot_row) == ["zwnj-word-initial-unification"]
 
+    @staticmethod
+    def _walk_raw_ledger(ledger, row):
+        """The reference answer: every entry's `match` re-read for this row, in ledger order, with no bucketing — the walk the compiled form has to reproduce id for id."""
+        classified = oracle.classify_divergence(row)
+        matches = []
+        for entry in ledger:
+            match = entry.get("match", {})
+            entry_configs = match.get("configs", "all")
+            if entry_configs != "all" and row.config not in entry_configs:
+                continue
+            predicate_name = match.get("predicate")
+            if predicate_name is not None:
+                class_id = oracle.CLASS_PREDICATE_IDS.get(predicate_name)
+                if class_id is not None:
+                    if classified != class_id:
+                        continue
+                else:
+                    function = oracle.PREDICATES.get(predicate_name)
+                    if function is None or not function(row):
+                        continue
+            else:
+                window = match.get("window")
+                if window is not None and window not in row.codepoints:
+                    continue
+                seam_change = match.get("seam_change")
+                if seam_change is not None and "seam" not in row.kinds:
+                    continue
+            matches.append(entry.get("id", "<unnamed>"))
+        return matches
+
+    @staticmethod
+    def _rows_for_every_arm():
+        def row(
+            config,
+            codepoints,
+            kinds,
+            phenomena,
+            baseline_glyphs=(),
+            baseline_seams=(),
+            new_cells=(),
+            new_seams=(),
+        ):
+            return conform.DivergentRow(
+                config=config,
+                codepoints=codepoints,
+                kinds=kinds,
+                position=0,
+                baseline_glyphs=baseline_glyphs,
+                baseline_seams=baseline_seams,
+                new_cells=new_cells,
+                new_seams=new_seams,
+                phenomena=phenomena,
+            )
+
+        boundary_echo = row("default", "200C:E652:E670", ("cell",), ("+locked", "old-noentry"))
+        ss10_seam_loss = row(
+            "ss10",
+            "E650:E659",
+            ("seam",),
+            ("seam-loss",),
+            baseline_glyphs=("qsPea", "qsVie"),
+            baseline_seams=("y0",),
+            new_cells=("qsPea/full/None/None/", "qsVie/normal/None/None/"),
+            new_seams=("break",),
+        )
+        position_kern = row(
+            "ss04", "E650:E652", ("position",), ("position-kern-attributable", "position-drift")
+        )
+        unclassified = row("default", "E650:E652", ("cell",), ("+ex-bind-1",))
+        scoped_out = row("ss05", "E650:E665:E652", ("cell",), ("exit-dropped",))
+        seamed_scoped = row("ss03", "E652:E679", ("cell", "seam"), ("seam-gain:qsTea",))
+        return [boundary_echo, ss10_seam_loss, position_kern, unclassified, scoped_out, seamed_scoped]
+
+    _LEDGER_FOR_EVERY_ARM = [
+        {"id": "boundary-echo", "match": {"predicate": "boundary_echo", "configs": "all"}},
+        {"id": "kern-out-of-scope", "match": {"predicate": "kern_channel_out_of_scope", "configs": "all"}},
+        {"id": "ss10-isolation", "match": {"predicate": "ss10_isolation_completed", "configs": ["ss10"]}},
+        {"id": "dangling-on-ss04", "match": {"predicate": "dangling_anchor_dropped", "configs": ["ss04"]}},
+        {"id": "nobody-knows-this", "match": {"predicate": "no_such_predicate", "configs": "all"}},
+        {"id": "everything", "match": {}},
+        {"id": "pre-ligature-window", "match": {"window": "E652:E679"}},
+        {"id": "seams-only", "match": {"seam_change": True}},
+        {"match": {"predicate": "dangling_anchor_dropped", "configs": "all"}},
+        {
+            "id": "cleanup-on-ss03",
+            "match": {"predicate": "pre_ligature_cleanup_regularized", "configs": ["ss03"]},
+        },
+    ]
+
+    def test_the_compiled_ledger_answers_what_a_walk_of_the_raw_ledger_answers(self):
+        """The compiled form against the raw walk over a ledger that exercises every arm — a class-grain entry open to every configuration and one scoped to a single configuration, a function predicate, a predicate in neither map, an empty `match`, a `window` test, a `seam_change` test and an entry with no `id` — crossed with rows that reach each of them. List equality pins the ids and their order at once."""
+        ledger = self._LEDGER_FOR_EVERY_ARM
+        compiled = oracle.compile_ledger(ledger)
+        answers = {}
+        for row in self._rows_for_every_arm():
+            expected = self._walk_raw_ledger(ledger, row)
+            assert oracle._match_compiled(compiled, row) == expected, row
+            assert oracle._match_ledger(ledger, row) == expected, row
+            answers[(row.config, row.codepoints)] = expected
+        assert answers == {
+            ("default", "200C:E652:E670"): ["boundary-echo", "everything"],
+            ("ss10", "E650:E659"): ["ss10-isolation", "everything", "seams-only"],
+            ("ss04", "E650:E652"): ["kern-out-of-scope", "everything"],
+            ("default", "E650:E652"): ["everything"],
+            ("ss05", "E650:E665:E652"): ["everything", "<unnamed>"],
+            ("ss03", "E652:E679"): ["everything", "pre-ligature-window", "seams-only", "cleanup-on-ss03"],
+        }
+
+    def test_a_two_plus_match_comes_back_in_ledger_order_from_either_end(self):
+        """A row that matches a class-grain entry and an unconditional entry at once takes its two hits out of two buckets, and the list still reads in ledger order whichever entry the ledger writes first. `rebuild/out/m1/oracle_summary.json` reports no multi-match on the live ledger, so nothing but this pins the order."""
+        row = conform.DivergentRow(
+            config="default",
+            codepoints="E650:E665",
+            kinds=("cell",),
+            position=0,
+            baseline_glyphs=(),
+            baseline_seams=(),
+            new_cells=(),
+            new_seams=(),
+            phenomena=("exit-dropped",),
+        )
+        classed = {"id": "dangling-anchor-dropped", "match": {"predicate": "dangling_anchor_dropped"}}
+        blanket = {"id": "blanket", "match": {}}
+        kern = {"id": "kern", "match": {"predicate": "kern_channel_out_of_scope"}}
+        for ledger, expected in (
+            ([blanket, classed], ["blanket", "dangling-anchor-dropped"]),
+            ([classed, blanket], ["dangling-anchor-dropped", "blanket"]),
+            ([kern, blanket, classed], ["blanket", "dangling-anchor-dropped"]),
+        ):
+            assert oracle._match_compiled(oracle.compile_ledger(ledger), row) == expected
+            assert oracle._match_ledger(ledger, row) == expected
+
+    def test_an_empty_match_takes_every_row_and_an_unknown_predicate_takes_none(self):
+        """An entry whose `match` is empty matches every row, the unclassified one included; an entry naming a predicate in neither `CLASS_PREDICATE_IDS` nor `PREDICATES` matches no row and is filed in no bucket, which is the raw walk's answer and not a lost entry."""
+        ledger = [
+            {"id": "unknown", "match": {"predicate": "no_such_predicate"}},
+            {"id": "everything", "match": {}},
+        ]
+        compiled = oracle.compile_ledger(ledger)
+        assert compiled.by_class == {}
+        assert compiled.functions == ()
+        assert compiled.unconditional == ((1, "everything", None, None, False),)
+        for row in self._rows_for_every_arm():
+            assert oracle._match_compiled(compiled, row) == ["everything"], row
+        unclassified = self._rows_for_every_arm()[3]
+        assert oracle.classify_divergence(unclassified) is None
+        assert oracle._match_compiled(compiled, unclassified) == ["everything"]
+
+    def test_a_bare_string_configs_keeps_the_raw_walk_s_test_and_a_missing_value_is_refused(self):
+        """A bare-string `configs` keeps the substring `in` test the raw walk gives it — the ss05 row matches `ss03+ss05` under that test and would not under an exact one — and a `configs:` with no value is refused when the ledger compiles instead of matching every configuration in silence."""
+        bare = [{"id": "bare", "match": {"predicate": "dangling_anchor_dropped", "configs": "ss03+ss05"}}]
+        compiled = oracle.compile_ledger(bare)
+        for row in self._rows_for_every_arm():
+            assert oracle._match_compiled(compiled, row) == self._walk_raw_ledger(bare, row), row
+        scoped_out = self._rows_for_every_arm()[4]
+        assert scoped_out.config == "ss05"
+        assert oracle._match_compiled(compiled, scoped_out) == ["bare"]
+        with pytest.raises(TypeError):
+            oracle.compile_ledger([{"id": "null", "match": {"predicate": "boundary_echo", "configs": None}}])
+
     def test_classifier_assigns_each_phenomenon_set_one_class(self):
         base = conform.DivergentRow(
             config="default",
@@ -1586,7 +1746,7 @@ class TestOracleRowCache:
         assert fresh_audit.read_bytes() != cold_audit.read_bytes(), "the rune edit moved no row"
 
     def test_a_ledger_edit_serves_every_row_and_still_rewrites_the_matches(self, spec, tmp_path):
-        """The workflow the cache exists for. `rebuild/m1-divergences.yaml` is outside the key by construction — `_match_ledger` runs on every row on every pass, served or not — so replacing the ledger re-derives nothing beyond the pass's own renewal, and every `matched_entry` in the audit still moves exactly as it moves for a pass that compared every row from scratch."""
+        """The workflow the cache exists for. `rebuild/m1-divergences.yaml` is outside the key by construction — `_match_compiled` runs on every row on every pass, served or not — so replacing the ledger re-derives nothing beyond the pass's own renewal, and every `matched_entry` in the audit still moves exactly as it moves for a pass that compared every row from scratch."""
         tables, aliases, stamps, configs = self._bench(tmp_path)
         empty = tmp_path / "empty-ledger.yaml"
         empty.write_text("[]\n")
@@ -1943,20 +2103,20 @@ class TestFontBlindComparison:
         ledger = [{"id": "ink-identical", "ink_identical": True, "match": {}}]
 
         seen: list[conform.DivergentRow] = []
-        real = oracle._match_ledger
+        real = oracle._match_compiled
 
-        def spy(entries, row):
+        def spy(compiled, row):
             seen.append(row)
-            return real(entries, row)
+            return real(compiled, row)
 
-        monkeypatch.setattr(oracle, "_match_ledger", spy)
+        monkeypatch.setattr(oracle, "_match_compiled", spy)
         result = oracle._compare_config(
             spec,
             tables,
             "default",
             frozenset(),
             labels.load_alias_map(aliases),
-            ledger,
+            oracle.compile_ledger(ledger),
             {"ink-identical"},
             _SilentShaper(),  # pyright: ignore[reportArgumentType]
             None,
@@ -2841,7 +3001,18 @@ class TestSettleMemoFile:
 
         monkeypatch.setattr(conform.kernel_exec, "settle_windows", crate_is_gone)
         result = oracle._compare_config(
-            spec, tables, "default", frozenset(), {}, [], set(), None, None, guard, None, settle_memo=memo
+            spec,
+            tables,
+            "default",
+            frozenset(),
+            {},
+            oracle.compile_ledger([]),
+            set(),
+            None,
+            None,
+            guard,
+            None,
+            settle_memo=memo,
         )
         assert result.rows_compared == len(rows)
         oracle_line = [

@@ -1355,7 +1355,7 @@ def _cached_verdict(divergent: DivergentRow | None) -> oracle_cache.CachedRow | 
 
 
 def _served_verdict(config: str, row: Row, cached: oracle_cache.CachedRow) -> DivergentRow:
-    """A stored verdict back in the shape everything downstream reads, with `config` and the three baseline fields taken from the table the row was just streamed out of rather than from the store. Everything from `_match_ledger` on cannot tell this row from a freshly compared one, which is the byte-identity claim `rebuild/test_conform.py` pins."""
+    """A stored verdict back in the shape everything downstream reads, with `config` and the three baseline fields taken from the table the row was just streamed out of rather than from the store. Everything from `_match_compiled` on cannot tell this row from a freshly compared one, which is the byte-identity claim `rebuild/test_conform.py` pins."""
     return DivergentRow(
         config=config,
         codepoints=format_codepoints(row.codepoints),
