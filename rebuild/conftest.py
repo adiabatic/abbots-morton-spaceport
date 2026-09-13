@@ -4,30 +4,31 @@ The suite is one lane, **contracts**: every test reads only checked-in inputs an
 
 The contract needs a check that it holds, so a `sys.addaudithook` guard makes it structural rather than aspirational. It is installed once per process, sits inactive, and is switched on only for the setup, call, and teardown of an item this conftest governs; while active, any read or write whose path falls under the live-artifact trees (`rebuild/out/`, the whole of `tmp/` and `var/`, the gate's own exempt prefixes, the root `verdicts-*` stores) raises `ContractsLaneViolation` naming the test and the path, and a phase that swallows that exception still fails through `pytest_runtest_makereport`. What the guard does not cover is documented at the hook: subprocess children run unaudited, and `Path.exists()`/stat never reach it — it is the content reads that are caught, which is the leak that matters.
 
-The same hook, in the same window, is the recorder behind the lane's per-test input closure (`rebuild.tools.contracts_closure` is the reader and the authority on what a closure means and when it may keep a test off a run). Every repo file a contracts item opens goes into that item's sink — a font `uharfbuzz` maps included, since `_wrap_blob_reads` announces that C-level read as the `open` event the hook handles — every module it imports for the first time into its module list, a file a module opens while its own body is being imported is credited to that module (`_attribute_import_read`) so every test whose closure holds the module inherits the read, and every child an item spawns marks it unclosable — a multiprocessing worker raises no audit event, so `BaseProcess.start` is wrapped to say so — with the two exceptions `contracts_closure.hermetic_child` and `contracts_closure.kernel_child` argue, the second flagging the item so the crate's sources join its closure. Reads a fixture makes during its own setup are credited to the fixture and folded into every item that requests it, since a session fixture sets up once and the hook sees that once under one item. `--closure-record PATH` has the controller write the sink of every worker to a sidecar at session end, and `--closure-skip PATH` deselects the contracts items a selection file names; both are the gate's to pass, and a bare `uv run pytest rebuild/` neither records nor skips.
+The same hook, in the same window, is the recorder behind the lane's per-test input closure (`rebuild.tools.contracts_closure` is the reader and the authority on what a closure means and when it may keep a test off a run). Every repo file a contracts item opens goes into that item's sink — a font `uharfbuzz` maps included, since `_wrap_blob_reads` announces that C-level read as the `open` event the hook handles — every module it imports for the first time into its module list, a file a module opens while its own body is being imported is credited to that module (`_attribute_import_read`) so every test whose closure holds the module inherits the read, and every child an item spawns marks it unclosable — a multiprocessing worker raises no audit event, so `BaseProcess.start` is wrapped to say so — with the two exceptions `closure_record.hermetic_child` and `closure_record.kernel_child` argue, the second flagging the item so the crate's sources join its closure. Reads a fixture makes during its own setup are credited to the fixture and folded into every item that requests it, since a session fixture sets up once and the hook sees that once under one item. `--closure-record PATH` has the controller write the sink of every worker to a sidecar at session end, and `--closure-skip PATH` deselects the contracts items a selection file names; both are the gate's to pass, and a bare `uv run pytest rebuild/` neither records nor skips.
 
 `_redirect_cycle_writes` is the standing guarantee that running the suite never costs the working repo a file; it is autouse, so every module in rebuild/ gets it whether or not its author thought about the cycle.
+
+This file's imports are leaves on purpose, and stay that way. `closure_of` folds this file's static import closure into every test's, so a module-scope import here of the cycle driver — or of anything that reaches rebuild/pipeline/ or rebuild/review/ at any nesting — puts the whole tree into every closure and leaves a pipeline edit unable to keep a single test off the lane. So the redirect patches `rebuild.tools.cycle_paths`, the leaf the driver reads its paths off at call time, the recorder's vocabulary comes from `rebuild.tools.closure_record` rather than the selection module that needs the driver, and what the fixtures below want from the review tree they load through `announced_import`, which imports the module at fixture time and tells the recorder, so the module lands in the closure of every test that requests the fixture. `rebuild/test_contracts_closure.py` pins the edge set of both conftests.
 
 Everything that is a claim about the review surface's code rather than about today's corpus reads the frozen mini bundle under `rebuild/review/fixtures/mini/` — the enrich and drafts worked examples through `example_units` below, the ink comparisons, the table-diff witnesses, the manual-pins teeth. What that buys is not only width: a dissolved exemplar fails the bundle regeneration, which names the window, rather than a suite a rune edit later.
 """
 
+import importlib
 import multiprocessing.process
 import os
 import sys
 from collections.abc import Iterable
 from dataclasses import dataclass, field
 from pathlib import Path
+from types import ModuleType
 
 import pytest
 
-from rebuild.review.fixtures.mini import pin
-from rebuild.tools import artifact_cycle, contracts_closure, cycle_timings, memory_budget, standing_client
+from rebuild.tools import closure_record, cycle_paths, cycle_timings, memory_budget, standing_client
 
-REAL_RUN_RETENTION = artifact_cycle.run_retention
-REAL_READINESS_BLOCK = artifact_cycle.readiness_block
 LIVE_DELETION_TARGETS = (
-    *artifact_cycle.M1_SUMMARY_FILES.values(),
-    artifact_cycle.CONFORM_SUMMARY,
+    *cycle_paths.M1_SUMMARY_FILES.values(),
+    cycle_paths.CONFORM_SUMMARY,
 )
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
@@ -54,7 +55,7 @@ _FORBIDDEN = tuple(
         "tmp/",
         "var/",
         "verdicts-",
-        *(rel for rel in artifact_cycle.REBUILD_GATE_EXEMPT_PREFIXES if rel not in _EXEMPT_SOURCE),
+        *(rel for rel in cycle_paths.REBUILD_GATE_EXEMPT_PREFIXES if rel not in _EXEMPT_SOURCE),
     )
 )
 _FORBIDDEN_TREES = frozenset(prefix.rstrip(os.sep) for prefix in _FORBIDDEN if prefix.endswith(os.sep))
@@ -107,12 +108,12 @@ def is_live_artifact_path(candidate: object) -> bool:
 
 
 def repo_relative_read(candidate: object) -> str | None:
-    """The repo-relative source a read names, for the closure, or None when the read is outside the repo or inside a tree no closure should hold: the interpreter's own packages under `.venv/`, the caches, the crate's build output, and bytecode, which `contracts_closure.source_of` maps back to the module it was compiled from."""
+    """The repo-relative source a read names, for the closure, or None when the read is outside the repo or inside a tree no closure should hold: the interpreter's own packages under `.venv/`, the caches, the crate's build output, and bytecode, which `closure_record.source_of` maps back to the module it was compiled from."""
     path = _normalized(candidate)
     if path is None or not path.startswith(_ROOT_PREFIX):
         return None
-    rel = contracts_closure.source_of(path[len(_ROOT_PREFIX) :].replace(os.sep, "/"))
-    return rel if contracts_closure.recordable(rel) else None
+    rel = closure_record.source_of(path[len(_ROOT_PREFIX) :].replace(os.sep, "/"))
+    return rel if closure_record.recordable(rel) else None
 
 
 class ContractsLaneViolation(RuntimeError):
@@ -211,9 +212,9 @@ def _audit(event: str, args: tuple[object, ...]) -> None:
                     _attribute_import_read(rel)
     elif event in _SPAWN_EVENTS:
         argv = args[1] if event == "subprocess.Popen" and len(args) > 1 else None
-        if contracts_closure.hermetic_child(argv):
+        if closure_record.hermetic_child(argv):
             return
-        if contracts_closure.kernel_child(argv):
+        if closure_record.kernel_child(argv):
             _guard.kernel()
         else:
             _guard.spawn()
@@ -293,6 +294,14 @@ def _wrap_blob_reads() -> None:
     hb.Blob.from_file_path = classmethod(from_file_path)  # pyright: ignore[reportAttributeAccessIssue]
 
 
+def announced_import(name: str) -> ModuleType:
+    """A module a fixture loads at its own setup rather than at this file's import, announced to the recorder as if an import statement had loaded it. `importlib.import_module` raises no `import` audit event, and a module some test module already imported at collection raises none on any later import either, so without the announcement the fixture's dependency on it would be recorded in whichever worker happened to load the module first and nowhere else. Announcing it puts the module — and, through `merge_closures`, its whole static import closure — in the closure of every test that requests the fixture, in every worker, on every run. It exists so this file can keep its own static import closure to leaves; the module docstring says why that matters."""
+    module = importlib.import_module(name)
+    if _guard.active:
+        _guard.module(name)
+    return module
+
+
 def pytest_addoption(parser: pytest.Parser) -> None:
     parser.addoption(
         "--lane",
@@ -342,7 +351,7 @@ def _governed(item: pytest.Item) -> bool:
 def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item]) -> None:
     """One deselection, the selection file, after the governed ids are noted, because the sidecar has to name every test the suite holds — an id the selection kept off keeps its previous closure in the merge only by being listed as collected. `--lane` deselects nothing: the one lane there is holds every governed item."""
     skip_path = config.getoption("closure_skip", default=None)
-    skip = contracts_closure.read_selection(Path(skip_path)) if skip_path else frozenset()
+    skip = closure_record.read_selection(Path(skip_path)) if skip_path else frozenset()
     kept: list[pytest.Item] = []
     dropped: list[pytest.Item] = []
     for item in items:
@@ -431,7 +440,7 @@ def pytest_sessionfinish(session: pytest.Session) -> None:
         tests.update(payload["tests"])
         for module, reads in payload.get("module_reads", {}).items():
             module_reads.setdefault(module, set()).update(reads)
-    contracts_closure.write_sidecar(Path(record), collected, tests, module_reads)
+    closure_record.write_sidecar(Path(record), collected, tests, module_reads)
 
 
 def pytest_testnodedown(node, error) -> None:
@@ -471,36 +480,26 @@ def _redirect_cycle_writes(monkeypatch, tmp_path):
 
     The standing tools' default socket sits under `var/`, which no test may touch, and a live daemon on the box would otherwise be asked by every test that drives either tool, so the default is pointed at a socket under tmp_path that nothing binds: the auto mode falls back silently, and a daemon test binds its own socket under tmp_path and names it.
 
-    The deletes are the three stages that clear stale artifacts before rebuilding them: run_m1's four gate summaries and the summary gate:conform writes, each unlinked just before its subprocess spawns so the verdict can only come from this cycle, and the retention pass. Redirecting a constant is enough for the first two; retention takes one and resolves every other target from ROOT at call time, so it is stubbed out instead — with the empty line list a green finish now folds into its summary. Any test reaching a green finish with record_greens set would otherwise sweep the repo: the root's verdicts-carried-*.json exports, the autosave stashes, and a compaction of the verdict journal. That is destructive against a cycle running in another terminal — it once swept a live pass's piles out from under its carry — and doubly so now that the rebuild gate is meant to run beside a live review server. A test that wants the real retention takes the `real_run_retention` fixture and points ROOT somewhere disposable; a test asserting that _finish reaches retention patches run_retention itself. The readiness checklist a green finish closes on is stubbed to nothing on the same standard, since the real one reads the served surface and the root autosave, which no contracts-lane test may; a test asserting that _finish prints it patches readiness_block itself.
+    The deletes are the three stages that clear stale artifacts before rebuilding them: run_m1's four gate summaries and the summary gate:conform writes, each unlinked just before its subprocess spawns so the verdict can only come from this cycle, and the retention pass. Redirecting a constant is enough for the first two; retention takes one and resolves every other target from `artifact_cycle.ROOT` at call time, so it is switched off instead (`cycle_paths.RETENTION_ENABLED`), and `_finish` then files the empty line list a green finish folds into its summary. Any test reaching a green finish with record_greens set would otherwise sweep the repo: the root's verdicts-carried-*.json exports, the autosave stashes, and a compaction of the verdict journal. That is destructive against a cycle running in another terminal — it once swept a live pass's piles out from under its carry — and doubly so with the rebuild gate meant to run beside a live review server. A test that wants the real retention calls `artifact_cycle.run_retention` itself, over a plan whose `artifact_cycle.ROOT` points somewhere disposable; a test asserting that _finish reaches retention flips the switch back on and patches run_retention itself. The readiness checklist a green finish closes on is switched off on the same standard (`cycle_paths.READINESS_ENABLED`), since the real one reads the served surface and the root autosave, which no contracts-lane test may; a test asserting that _finish prints it flips that switch and patches readiness_block itself.
+
+    Every constant is patched on `cycle_paths` and not on the cycle driver, because the driver is what this file must never import: the module docstring says why, and every driver read of one of these goes through `cycle_paths.<NAME>` at call time so the patch reaches it.
     """
-    monkeypatch.setattr(artifact_cycle, "CYCLE_SUMMARY", tmp_path / "cycle_summary.json")
+    monkeypatch.setattr(cycle_paths, "CYCLE_SUMMARY", tmp_path / "cycle_summary.json")
     for name in GREEN_RECORDS:
-        monkeypatch.setattr(artifact_cycle, name, tmp_path / f"{name.lower().replace('_', '-')}.json")
+        monkeypatch.setattr(cycle_paths, name, tmp_path / f"{name.lower().replace('_', '-')}.json")
     monkeypatch.setattr(
-        artifact_cycle,
+        cycle_paths,
         "M1_SUMMARY_FILES",
-        {name: tmp_path / path.name for name, path in artifact_cycle.M1_SUMMARY_FILES.items()},
+        {name: tmp_path / path.name for name, path in cycle_paths.M1_SUMMARY_FILES.items()},
     )
-    monkeypatch.setattr(artifact_cycle, "CONFORM_SUMMARY", tmp_path / artifact_cycle.CONFORM_SUMMARY.name)
-    monkeypatch.setattr(artifact_cycle, "BUILD_LOGS_ROOT", tmp_path / "build-logs")
-    monkeypatch.setattr(artifact_cycle, "run_retention", lambda plan: [])
-    monkeypatch.setattr(artifact_cycle, "readiness_block", lambda plan: [])
+    monkeypatch.setattr(cycle_paths, "CONFORM_SUMMARY", tmp_path / cycle_paths.CONFORM_SUMMARY.name)
+    monkeypatch.setattr(cycle_paths, "BUILD_LOGS_ROOT", tmp_path / "build-logs")
+    monkeypatch.setattr(cycle_paths, "RETENTION_ENABLED", False)
+    monkeypatch.setattr(cycle_paths, "READINESS_ENABLED", False)
     monkeypatch.setattr(cycle_timings, "JOURNAL", tmp_path / "cycle-timings.ndjson")
     monkeypatch.setattr(standing_client, "SOCKET", tmp_path / "standing-daemon.sock")
     monkeypatch.setenv(cycle_timings.CYCLE_RUN_ENV, "")
     monkeypatch.delenv(cycle_timings.CYCLE_RUN_ENV)
-
-
-@pytest.fixture
-def real_run_retention():
-    """The unstubbed retention pass, for the three tests that are about retention itself. Captured at import, before the autouse stub can land."""
-    return REAL_RUN_RETENTION
-
-
-@pytest.fixture
-def real_readiness_block():
-    """The unstubbed readiness checklist, for the tests that are about the checklist itself. Captured at import, before the autouse stub can land."""
-    return REAL_READINESS_BLOCK
 
 
 @pytest.fixture
@@ -521,8 +520,9 @@ class MiniBundle:
 def mini_bundle(tmp_path_factory) -> MiniBundle:
     """The mini bundle and the spec its rows settled under, the latter materialized out of git — from the tree and blob shas `rebuild/review/fixtures/mini/pin.json` records — once per session per worker, tens of milliseconds, into pytest's temp root. Hand `spec_root` to `build_m1` or `load_spec` and `ledger` to `load_workload` or `load_ledger`, and the settlement the enricher re-derives is the one the frozen rows were written under, whatever the working tree's runes say today.
 
-    It reads `.git` through git subprocesses and writes only under pytest's temp root, never `rebuild/out` and never the repo's `tmp/` or `var/`, which is the standard every fixture here is held to. Those subprocesses are `git cat-file` and `git archive` by sha, which `contracts_closure.hermetic_child` lets through the closure recorder: the bytes they read are content-addressed and the pin file that names them is read in this process, so every test built on this fixture stays closable.
+    It reads `.git` through git subprocesses and writes only under pytest's temp root, never `rebuild/out` and never the repo's `tmp/` or `var/`, which is the standard every fixture here is held to. Those subprocesses are `git cat-file` and `git archive` by sha, which `closure_record.hermetic_child` lets through the closure recorder: the bytes they read are content-addressed and the pin file that names them is read in this process, so every test built on this fixture stays closable.
     """
+    pin = announced_import("rebuild.review.fixtures.mini.pin")
     spec_root = pin.materialize(tmp_path_factory.mktemp("mini-spec"))
     return MiniBundle(spec_root=spec_root, ledger=spec_root / "rebuild" / "m1-divergences.yaml")
 
@@ -530,10 +530,10 @@ def mini_bundle(tmp_path_factory) -> MiniBundle:
 @pytest.fixture(scope="session")
 def mini_surface(tmp_path_factory, mini_bundle: MiniBundle) -> Path:
     """One real build of the frozen mini bundle under pytest's temp root — fonts, index, sidecars and every unit's content-key stamp — for every test that drives a tool over a surface rather than over a synthetic one: the standing dry run's memo and targeted-run identities, and the standing daemon's served-versus-in-process identity, which spawns a process over it. Built once per session per worker at one job, so the build files no pool record."""
-    from rebuild.review.build import build_m1
+    build = announced_import("rebuild.review.build")
 
     out = tmp_path_factory.mktemp("mini-surface") / "surface"
-    build_m1(
+    build.build_m1(
         out,
         audit_path=MINI / "audit.tsv",
         ledger_path=mini_bundle.ledger,
@@ -551,11 +551,11 @@ def example_units(mini_bundle: MiniBundle):
 
     Deliberately a contracts fixture, and it must stay one: the mini audit's rows settled under the pinned spec `mini_bundle` materializes, so the enricher re-derives the settlement they were written under, and nothing here may reach the live audit.
     """
-    from rebuild.review.audit import load_workload
-    from rebuild.review.enrich import LETTERS
-    from rebuild.review.fixtures.mini import regenerate
+    audit = announced_import("rebuild.review.audit")
+    enrich = announced_import("rebuild.review.enrich")
+    regenerate = announced_import("rebuild.review.fixtures.mini.regenerate")
 
-    workload = load_workload(MINI / "audit.tsv", mini_bundle.ledger, dict(LETTERS))
+    workload = audit.load_workload(MINI / "audit.tsv", mini_bundle.ledger, dict(enrich.LETTERS))
     units = {
         (unit.codepoints, unit.configs[0]): unit
         for unit in workload.units

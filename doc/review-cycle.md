@@ -76,7 +76,7 @@ A green pass ends with a retention pass over the regenerable piles; `--keep-hist
 
 - Only the stamp-aligned `verdicts-carried-<sha>.json` survives among the root carried files.
 - `verdicts-autosave-*` stashes older than the journal's last base event go; the journal replays them.
-- The journal is compacted to the restore floor `RETENTION_WINDOW_DAYS` states, and run directories under `var/build-logs/` beyond `BUILD_LOGS_KEEP` go (both in `rebuild/tools/artifact_cycle.py`).
+- The journal is compacted to the restore floor `RETENTION_WINDOW_DAYS` states (`rebuild/tools/artifact_cycle.py`), and run directories under `var/build-logs/` beyond `BUILD_LOGS_KEEP` go (`rebuild/tools/cycle_paths.py`, where every path the cycle writes to lives).
 
 ## Logs and timings
 

@@ -1,4 +1,4 @@
-"""The contracts lane's per-test closure, pinned at every seam: the static import walk over a synthetic tree, the selection rule over a hand-written record, the merge of a run's sidecar into the record it narrows against, the wrapper's narrowing and recording through the gate, and — end to end, in a child pytest under `-p rebuild.conftest` — that the audit guard records reads, imports, fixture setups and spawns the way the selection assumes, and honors a selection file. The child runs as a subprocess for the reason test_lanes gives: the guard is a `sys.addaudithook`, which cannot be uninstalled."""
+"""The contracts lane's per-test closure, pinned at every seam: the static import walk over a synthetic tree, the selection rule over a hand-written record, the merge of a run's sidecar into the record it narrows against, the wrapper's narrowing and recording through the gate, the leaf-only import surface of both conftests, and — end to end, in a child pytest under `-p rebuild.conftest` — that the audit guard records reads, imports, fixture setups, spawns and a fixture's announced import the way the selection assumes, and honors a selection file. The child runs as a subprocess for the reason test_lanes gives: the guard is a `sys.addaudithook`, which cannot be uninstalled."""
 
 from __future__ import annotations
 
@@ -11,6 +11,7 @@ import pytest
 from rebuild.pipeline import kernel_exec
 from rebuild.tools import artifact_cycle as ac
 from rebuild.tools import contracts_closure as cc
+from rebuild.tools import cycle_paths
 from rebuild.tools import rebuild_gate as rg
 
 pytest_plugins = ("pytester",)
@@ -353,7 +354,7 @@ class TestTheGateNarrows:
     @pytest.fixture
     def contracts_store(self, tmp_path, monkeypatch):
         store = tmp_path / "out" / "rebuild-contracts-green.json"
-        monkeypatch.setattr(ac, "REBUILD_CONTRACTS_GREEN", store)
+        monkeypatch.setattr(cycle_paths, "REBUILD_CONTRACTS_GREEN", store)
         return store
 
     def _closures(self, monkeypatch, files_before, files_after):
@@ -449,7 +450,7 @@ class TestTheGateNarrows:
 
 def test_the_lane_argv_names_the_closure_files_beside_the_record(tmp_path, monkeypatch):
     store = tmp_path / "rebuild-contracts-green.json"
-    monkeypatch.setattr(ac, "REBUILD_CONTRACTS_GREEN", store)
+    monkeypatch.setattr(cycle_paths, "REBUILD_CONTRACTS_GREEN", store)
     argv = ac.rebuild_lane_argv("contracts")
     assert argv[argv.index("--closure-skip") + 1] == str(tmp_path / "rebuild-contracts-selection.json")
     assert argv[argv.index("--closure-record") + 1] == str(tmp_path / "rebuild-contracts-closures.json")
@@ -469,7 +470,7 @@ def test_the_lane_key_is_the_digest_of_its_labels(tmp_path):
 
 def test_the_cycle_plan_names_the_narrowing(tmp_path, monkeypatch):
     store = tmp_path / "rebuild-contracts-green.json"
-    monkeypatch.setattr(ac, "REBUILD_CONTRACTS_GREEN", store)
+    monkeypatch.setattr(cycle_paths, "REBUILD_CONTRACTS_GREEN", store)
     stale = _record(BASE_FILES, TESTS, dict(STATIC))
     ac.record_green(store, "old", files=stale["files"], closures=stale["closures"])
     before = {**BASE_FILES, "a.yaml": "9"}
@@ -627,3 +628,115 @@ class TestTheRecorderEndToEnd:
         result = _child(pytester, monkeypatch, "--lane", "contracts", "-n", "0")
         result.assert_outcomes(passed=9)
         assert not list(tmp_path.glob("*.json"))
+
+
+# Every repo file each conftest imports directly, as checked in. Both conftests are global inputs of every test's closure, so an import added here is an input added to every test; the set is a literal so that growth is a diff a reader has to accept.
+CONFTEST_EDGES = {
+    "conftest.py": {
+        "rebuild/tools/cycle_timings.py",
+        "rebuild/tools/memory_budget.py",
+        "rebuild/tools/peak_rss.py",
+        "rebuild/tools/pyright_gate.py",
+        "rebuild/tools/site_fonts.py",
+        "test/test_shaping.py",
+    },
+    "rebuild/conftest.py": {
+        "rebuild/tools/closure_record.py",
+        "rebuild/tools/cycle_paths.py",
+        "rebuild/tools/cycle_timings.py",
+        "rebuild/tools/memory_budget.py",
+        "rebuild/tools/standing_client.py",
+    },
+}
+
+
+class TestTheConftestsStayLeaves:
+    """`closure_of` unions both conftests' static import closures into every test's, so a conftest that reaches rebuild/pipeline/ or rebuild/review/ through any nesting puts the whole tree into every closure and a pipeline edit keeps nothing off the lane. The two leaves the suite patches and records through (`cycle_paths`, `closure_record`) and the font-path leaf the root conftest asks about are what the conftests may import from the rebuild; everything the fixtures need from the review tree, the mini bundle's pin included, goes through `announced_import`."""
+
+    @pytest.mark.parametrize("conftest", cc.CONFTEST_PATHS)
+    def test_neither_conftest_reaches_the_pipeline(self, conftest):
+        closure = cc.ImportGraph(REPO_ROOT).closure(conftest)
+        assert sorted(rel for rel in closure if rel.startswith("rebuild/pipeline/")) == []
+
+    @pytest.mark.parametrize("conftest", cc.CONFTEST_PATHS)
+    def test_neither_conftest_reaches_the_review_tree(self, conftest):
+        closure = cc.ImportGraph(REPO_ROOT).closure(conftest)
+        assert sorted(rel for rel in closure if rel.startswith("rebuild/review/")) == []
+
+    @pytest.mark.parametrize("conftest", cc.CONFTEST_PATHS)
+    def test_each_conftests_edge_set_is_the_checked_in_one(self, conftest):
+        assert set(cc.ImportGraph(REPO_ROOT).edges(conftest)) == CONFTEST_EDGES[conftest]
+
+
+ANNOUNCE_CONFTEST = """
+import importlib
+
+import pytest
+
+from rebuild import conftest as lane
+
+
+@pytest.fixture(scope="session")
+def announced():
+    return lane.announced_import("rebuild.tools.site_fonts")
+
+
+@pytest.fixture(scope="session")
+def silent():
+    return importlib.import_module("rebuild.tools.site_fonts")
+"""
+
+ANNOUNCE_TESTS = """
+def test_uses_announced(announced):
+    assert announced.font_paths
+
+
+def test_uses_silent(silent):
+    assert silent.font_paths
+"""
+
+IMPORTER_TESTS = """
+import rebuild.tools.site_fonts
+
+
+def test_imports_it_at_collection():
+    assert rebuild.tools.site_fonts.font_paths
+"""
+
+
+class TestTheAnnouncedImport:
+    """A session fixture that loads a module at its own setup puts that module in a requesting test's closure only by announcing it. Two orders, both pinned: the module first loaded by the fixture itself, where the source read would already land in the fixture's sink, and the module loaded at collection by another test module, where no import event and no read is left for the fixture's window — the order the real suite runs in, since collection imports every test module before any fixture sets up. The silent fixture beside it is the control: in both orders the test that requests it records neither a module nor a read, which is the unsound skip the announcement exists to prevent."""
+
+    @pytest.mark.parametrize("loaded_at_collection", [False, True])
+    def test_the_announced_module_lands_in_every_requesters_closure(
+        self, pytester, monkeypatch, tmp_path, loaded_at_collection
+    ):
+        monkeypatch.setenv("PYTHONPATH", str(REPO_ROOT))
+        pytester.makeconftest(ANNOUNCE_CONFTEST)
+        files = {"test_announced": ANNOUNCE_TESTS}
+        if loaded_at_collection:
+            files["test_importer"] = IMPORTER_TESTS
+        pytester.makepyfile(**files)
+        sidecar = tmp_path / "closures.json"
+        result = pytester.runpytest_subprocess(
+            "-p",
+            "rebuild.conftest",
+            "-p",
+            "no:cacheprovider",
+            "--rootdir",
+            str(pytester.path),
+            "--lane",
+            "contracts",
+            "-n",
+            "0",
+            "--closure-record",
+            str(sidecar),
+        )
+        result.assert_outcomes(passed=3 if loaded_at_collection else 2)
+        payload = cc.read_sidecar(sidecar)
+        assert payload is not None
+        tests = payload["tests"]
+        assert "rebuild/tools/site_fonts.py" in tests["test_announced.py::test_uses_announced"]["modules"]
+        silent = tests["test_announced.py::test_uses_silent"]
+        assert "rebuild/tools/site_fonts.py" not in silent["modules"]
+        assert "rebuild/tools/site_fonts.py" not in silent["reads"]

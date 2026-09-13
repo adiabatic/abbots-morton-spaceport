@@ -4,6 +4,7 @@ import subprocess
 from pathlib import Path
 
 from rebuild.tools import artifact_cycle as ac
+from rebuild.tools import cycle_paths
 from rebuild.tools import pyright_gate as pg
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -88,7 +89,7 @@ def test_the_closure_follows_pyproject_and_git_rather_than_a_hand_list(tmp_path)
 
 def test_an_unrequested_check_neither_spawns_nor_consults_the_record(monkeypatch):
     _spawn_stub(monkeypatch, None)
-    ac.record_green(ac.PYRIGHT_GREEN, "p-1")
+    ac.record_green(cycle_paths.PYRIGHT_GREEN, "p-1")
     _fingerprints(monkeypatch, [])
     assert pg.begin({}, ROOT) is None
     assert pg.begin({pg.PYRIGHT_ENV: "0"}, ROOT) is None
@@ -101,14 +102,14 @@ def test_a_green_check_records_the_closure_it_was_spawned_over(monkeypatch, caps
     assert check is not None
     assert spawned == [(pg.ARGV, {"PATH": "/bin"})]
     assert check.wait() == 0
-    record = ac.read_green_record(ac.PYRIGHT_GREEN)
+    record = ac.read_green_record(cycle_paths.PYRIGHT_GREEN)
     assert record is not None
     assert record["fingerprint"] == "p-1"
     assert "pyright: green — closure fingerprint recorded in" in capsys.readouterr().out
 
 
 def test_a_matching_record_answers_before_anything_spawns(monkeypatch, capsys):
-    ac.record_green(ac.PYRIGHT_GREEN, "p-1")
+    ac.record_green(cycle_paths.PYRIGHT_GREEN, "p-1")
     _fingerprints(monkeypatch, ["p-1"])
     _spawn_stub(monkeypatch, None)
     check = pg.begin({pg.PYRIGHT_ENV: "1"}, ROOT)
@@ -122,7 +123,7 @@ def test_a_matching_record_answers_before_anything_spawns(monkeypatch, capsys):
 
 
 def test_force_spawns_over_a_matching_record(monkeypatch):
-    ac.record_green(ac.PYRIGHT_GREEN, "p-1")
+    ac.record_green(cycle_paths.PYRIGHT_GREEN, "p-1")
     _fingerprints(monkeypatch, ["p-1", "p-1"])
     spawned = _spawn_stub(monkeypatch, 0)
     check = pg.begin({pg.PYRIGHT_ENV: pg.FORCE}, ROOT)
@@ -132,12 +133,12 @@ def test_force_spawns_over_a_matching_record(monkeypatch):
 
 def test_a_red_check_over_its_recorded_closure_deletes_the_record(monkeypatch, capsys):
     """A forced red over content the record calls green contradicts the record, so the record goes; the exit code is the caller's to fail the run on."""
-    ac.record_green(ac.PYRIGHT_GREEN, "p-1")
+    ac.record_green(cycle_paths.PYRIGHT_GREEN, "p-1")
     _fingerprints(monkeypatch, ["p-1"])
     _spawn_stub(monkeypatch, 1)
     check = pg.begin({pg.PYRIGHT_ENV: pg.FORCE}, ROOT)
     assert check is not None and check.wait() == 1
-    assert ac.read_green_record(ac.PYRIGHT_GREEN) is None
+    assert ac.read_green_record(cycle_paths.PYRIGHT_GREEN) is None
     assert "pyright: FAILED (exit 1)" in capsys.readouterr().out
 
 
@@ -146,17 +147,17 @@ def test_a_closure_that_moved_during_the_check_records_nothing(monkeypatch, caps
     _spawn_stub(monkeypatch, 0)
     check = pg.begin({pg.PYRIGHT_ENV: "1"}, ROOT)
     assert check is not None and check.wait() == 0
-    assert ac.read_green_record(ac.PYRIGHT_GREEN) is None
+    assert ac.read_green_record(cycle_paths.PYRIGHT_GREEN) is None
     assert "green not recorded" in capsys.readouterr().out
 
 
 def test_without_git_the_check_runs_and_records_nothing(monkeypatch, capsys):
-    ac.record_green(ac.PYRIGHT_GREEN, "p-1")
+    ac.record_green(cycle_paths.PYRIGHT_GREEN, "p-1")
     _fingerprints(monkeypatch, [None])
     spawned = _spawn_stub(monkeypatch, 0)
     check = pg.begin({pg.PYRIGHT_ENV: "1"}, ROOT)
     assert check is not None and check.wait() == 0
     assert len(spawned) == 1
-    record = ac.read_green_record(ac.PYRIGHT_GREEN)
+    record = ac.read_green_record(cycle_paths.PYRIGHT_GREEN)
     assert record is not None and record["fingerprint"] == "p-1"
     assert "not recorded" in capsys.readouterr().out

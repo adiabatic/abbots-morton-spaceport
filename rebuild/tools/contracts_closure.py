@@ -5,88 +5,44 @@ A test's closure is the union of four things. Its **reads**: every repo file the
 Selection is sound by construction or it is nothing, so every doubt resolves to running the test. A test with no recorded closure runs, which covers a new or renamed test id. A test that spawned a child runs — the hook sees nothing a subprocess or a multiprocessing worker reads — with two argued exceptions: a `git` command that reads the object store or a ref and never the working tree (`hermetic_child`), since nothing in the diff can reach those bytes, and the M1 kernel or the `cargo build` that makes it (`kernel_child`), whose reads outside the scratch files its parent wrote are the crate's own sources, so every tracked file under `KERNEL_PREFIX` joins that test's closure instead. A diff that adds or removes any input runs the whole lane rather than reasoning about which directory listings or existence checks might have noticed, because `Path.exists()` and `os.stat` raise no audit event. A diff that touches a global label runs the whole lane. What is left is a test whose recorded closure misses every changed file, and that test's outcome is a function of inputs whose bytes are the ones it already passed against.
 
 The record lives in the lane's green record beside the key (`rebuild_gate` and the artifact cycle both write it through `record_payload`): `files` is the per-label digest map the selection diffs against, widened past the lane's roster by any path a test read outside it, and `closures` holds `static` (module file to its import closure), `module_reads` (module file to what its body reads when imported) and `tests` (test id to its reads, dynamic modules, whether it spawned the kernel, and the unclosable flag). A narrowed run merges its sidecar into the previous record: tests that ran replace their entries, tests the selection kept off keep theirs — their inputs did not move, so neither did what they read — and ids the run no longer collected are dropped.
+
+The recorder's own vocabulary — the read normalization, the two spawn judgments, the selection and sidecar files — lives in `rebuild.tools.closure_record` and is re-exported here, because both conftests are global inputs of every test's closure: `closure_of` folds their static import closures into each test, so a conftest that imported this module would carry its function-local `artifact_cycle` imports, and through them the whole of rebuild/pipeline/ and rebuild/review/, into every closure, and a pipeline edit would keep no test off the lane. Both conftests are therefore held to leaf imports — `rebuild/test_contracts_closure.py` pins their edge sets and that neither reaches a pipeline or review module — and the selection half here, which needs the driver's digests and labels, is what the conftest never imports.
 """
 
 from __future__ import annotations
 
 import ast
-import json
-import os
-from collections.abc import Iterable, Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
 
-SIDECAR_FORMAT = "ams-contracts-closures/1"
-SELECTION_FORMAT = "ams-contracts-selection/1"
+from rebuild.tools.closure_record import (
+    HERMETIC_GIT_SUBCOMMANDS,
+    IGNORED_PREFIXES,
+    KERNEL_BINARY,
+    KERNEL_MANIFEST,
+    KERNEL_PREFIX,
+    SELECTION_FORMAT,
+    SIDECAR_FORMAT,
+    hermetic_child,
+    kernel_child,
+    read_selection,
+    read_sidecar,
+    recordable,
+    selection_path,
+    sidecar_path,
+    source_of,
+    write_selection,
+    write_sidecar,
+)
+
 CONFTEST_PATHS = ("conftest.py", "rebuild/conftest.py")
 GLOBAL_LABELS = frozenset((*CONFTEST_PATHS, "pyproject.toml", "uv.lock", "fonts"))
 SIBLING_ROOTS = ("test", "tools")
-IGNORED_PREFIXES = (
-    ".git/",
-    ".venv/",
-    ".uv-cache/",
-    ".pytest_cache/",
-    "node_modules/",
-    "rebuild/kernel-rs/target/",
-)
-HERMETIC_GIT_SUBCOMMANDS = frozenset(("rev-parse", "cat-file", "archive"))
-KERNEL_PREFIX = "rebuild/kernel-rs/"
-KERNEL_BINARY = "ams-m1-kernel"
-KERNEL_MANIFEST = KERNEL_PREFIX + "Cargo.toml"
-
-
-def hermetic_child(argv: object) -> bool:
-    """Whether a spawned command can read nothing the working tree holds. The three `git` subcommands here answer from the object store and the refs — `cat-file` and `archive` by sha, `rev-parse` by ref or `HEAD:<path>` — which no edit to a tracked or untracked file can reach, so a test that spawns one (the mini bundle materializing its pinned spec, the surface build stamping its manifest with HEAD) stays closable. Anything else that forks is unclosable: `git status`, `git ls-files` and `git diff` read the index and the working tree, and a non-git child can read anything at all."""
-    if not isinstance(argv, (list, tuple)) or len(argv) < 2:
-        return False
-    try:
-        head = os.path.basename(os.fsdecode(argv[0]))  # pyright: ignore[reportArgumentType]
-        subcommand = os.fsdecode(argv[1])  # pyright: ignore[reportArgumentType]
-    except TypeError, ValueError:
-        return False
-    return head == "git" and subcommand in HERMETIC_GIT_SUBCOMMANDS
 
 
 def kernel_files(files: dict[str, str]) -> frozenset[str]:
     """The crate's tracked files among a record's labels: what a test that spawned the kernel depends on beyond its own reads. A crate file added since the record is an input added, which runs the whole lane before this set is consulted."""
     return frozenset(label for label in files if label.startswith(KERNEL_PREFIX))
-
-
-def _argv_strings(argv: object) -> list[str] | None:
-    if not isinstance(argv, (list, tuple)) or not argv:
-        return None
-    try:
-        return [os.fsdecode(arg) for arg in argv]  # pyright: ignore[reportArgumentType]
-    except TypeError, ValueError:
-        return None
-
-
-def kernel_child(argv: object) -> bool:
-    """Whether a spawned command is the M1 kernel, or the `cargo build` of it that `kernel_exec.ensure_built` runs before a process's first invocation. The kernel reads what its argv names — a spec dump and a cases file its parent wrote to a scratch directory out of what the parent had already read — and its own binary, which is a function of the crate's tracked sources and is rebuilt from them before it answers; cargo reads the same sources and the registry the lockfile pins by hash. So a test that spawns either is closable once the crate's files are folded into its closure, which `closure_of` does for every entry flagged `kernel`."""
-    strings = _argv_strings(argv)
-    if strings is None:
-        return False
-    head = os.path.basename(strings[0])
-    if head == KERNEL_BINARY:
-        return True
-    if head != "cargo" or len(strings) < 2 or strings[1] != "build":
-        return False
-    manifests = [arg for flag, arg in zip(strings, strings[1:]) if flag == "--manifest-path"]
-    return bool(manifests) and all(
-        manifest.replace(os.sep, "/").endswith("/" + KERNEL_MANIFEST) for manifest in manifests
-    )
-
-
-def source_of(rel: str) -> str:
-    """The repo-relative source a read names: a bytecode file under `__pycache__` stands for the module it was compiled from, since a valid cache is what the import system opens instead of the `.py`."""
-    parent, name = os.path.split(rel)
-    if os.path.basename(parent) == "__pycache__" and name.endswith(".pyc"):
-        return os.path.join(os.path.dirname(parent), name.split(".", 1)[0] + ".py").replace(os.sep, "/")
-    return rel
-
-
-def recordable(rel: str) -> bool:
-    return not rel.startswith(IGNORED_PREFIXES) and "/__pycache__/" not in f"/{rel}"
 
 
 def _module_files(name: str, importer: Path, root: Path, level: int) -> list[Path]:
@@ -245,60 +201,6 @@ def select(record: dict | None, current: dict[str, str]) -> Selection:
         if (closure := closure_of(closures, nodeid, kernel)) is not None and not (closure & changed)
     }
     return Selection(skip=frozenset(skip), changed=tuple(sorted(changed)), known=known)
-
-
-def selection_path(record_path: Path) -> Path:
-    return record_path.with_name("rebuild-contracts-selection.json")
-
-
-def sidecar_path(record_path: Path) -> Path:
-    return record_path.with_name("rebuild-contracts-closures.json")
-
-
-def write_selection(path: Path, skip: Iterable[str]) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps({"format": SELECTION_FORMAT, "skip": sorted(set(skip))}) + "\n")
-
-
-def read_selection(path: Path) -> frozenset[str]:
-    """The ids a selection file keeps off a run; empty for an absent or malformed file, so a run nobody narrowed runs everything."""
-    try:
-        payload = json.loads(path.read_text())
-    except OSError, ValueError:
-        return frozenset()
-    if not isinstance(payload, dict) or payload.get("format") != SELECTION_FORMAT:
-        return frozenset()
-    return frozenset(item for item in payload.get("skip", ()) if isinstance(item, str))
-
-
-def read_sidecar(path: Path) -> dict | None:
-    try:
-        payload = json.loads(path.read_text())
-    except OSError, ValueError:
-        return None
-    if not isinstance(payload, dict) or payload.get("format") != SIDECAR_FORMAT:
-        return None
-    if not isinstance(payload.get("collected"), list) or not isinstance(payload.get("tests"), dict):
-        return None
-    if not isinstance(payload.get("module_reads", {}), dict):
-        return None
-    return payload
-
-
-def write_sidecar(
-    path: Path,
-    collected: list[str],
-    tests: dict[str, dict],
-    module_reads: Mapping[str, Iterable[str]] | None = None,
-) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    payload = {
-        "format": SIDECAR_FORMAT,
-        "collected": sorted(set(collected)),
-        "tests": tests,
-        "module_reads": {module: sorted(reads) for module, reads in (module_reads or {}).items()},
-    }
-    path.write_text(json.dumps(payload, sort_keys=True) + "\n")
 
 
 def merge_closures(root: Path, previous: dict | None, sidecar: dict | None) -> dict | None:

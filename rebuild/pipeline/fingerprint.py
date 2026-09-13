@@ -29,6 +29,8 @@ from typing import Callable
 
 import yaml
 
+from rebuild.tools.site_fonts import font_paths
+
 FORMAT = "ams-inputs-fingerprint/2"
 _SAFE_LOADER = getattr(yaml, "CSafeLoader", yaml.SafeLoader)
 STAGE_A_COMPONENTS = ("data", "baselines", "pipeline_code")
@@ -114,14 +116,6 @@ def static_paths(repo_root: Path) -> list[Path]:
     return sorted(
         path for path in (Path(repo_root) / "rebuild" / "review" / "static").rglob("*") if path.is_file()
     )
-
-
-def font_paths(repo_root: Path) -> list[Path]:
-    root = Path(repo_root)
-    return [
-        root / "site" / "AbbotsMortonSpaceportSansSenior-Regular.otf",
-        root / "site" / "AbbotsMortonSpaceportSansJunior-Regular.otf",
-    ]
 
 
 def _label(repo_root: Path, path: Path) -> str:

@@ -1514,7 +1514,6 @@ def run_gates_only(out_dir: Path = OUT_DIR, jobs: int = 1, fresh_cache: bool = F
     It opens the oracle row cache read-only all the same (`write_cache=False`): a ledger or alias edit moves no family key and no stamp line, so every row verdict and every position verdict is served and the re-adjudication costs seconds, while the store one of these passes would write is a store no build ever produced. Recording no ordinal has one consequence worth naming: the store's renewal slice and its verification sample both advance on the pass a store records, so these passes rotate them on the clock instead — a re-adjudication loop that re-proved one frozen twentieth of the table every time would be no guard at all. `--fresh-oracle-cache` here declines the read rather than taking the stores off disk, since deleting a build input is a write like any other.
     """
     from rebuild.tools.artifact_cycle import (
-        RUN_M1_GREEN,
         comparison_side_label,
         evaluate_run_m1_gate,
         gates_only_reuse,
@@ -1523,6 +1522,7 @@ def run_gates_only(out_dir: Path = OUT_DIR, jobs: int = 1, fresh_cache: bool = F
         run_m1_skip_files,
         run_m1_skip_fingerprint,
     )
+    from rebuild.tools.cycle_paths import RUN_M1_GREEN
 
     def run_m1_key() -> str:
         return run_m1_skip_fingerprint(REPO_ROOT)
@@ -1713,11 +1713,11 @@ def main(argv: list[str] | None = None) -> None:
 
     if args.conform_only:
         from rebuild.tools.artifact_cycle import (
-            CONFORM_GREEN,
             conform_skip_fingerprint,
             conform_skip_files,
             evaluate_conform_gate,
         )
+        from rebuild.tools.cycle_paths import CONFORM_GREEN
 
         def conform_key() -> str:
             return conform_skip_fingerprint(REPO_ROOT, args.conform_horizon)
@@ -1746,11 +1746,11 @@ def main(argv: list[str] | None = None) -> None:
         return
 
     from rebuild.tools.artifact_cycle import (
-        RUN_M1_GREEN,
         evaluate_run_m1_gate,
         run_m1_skip_files,
         run_m1_skip_fingerprint,
     )
+    from rebuild.tools.cycle_paths import RUN_M1_GREEN
 
     def run_m1_key() -> str:
         return run_m1_skip_fingerprint(REPO_ROOT)

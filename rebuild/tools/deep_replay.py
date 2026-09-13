@@ -1,6 +1,6 @@
 """The deep sweep's cheap form (issue #189): the crate's `replay-strings` walk one letter past the belt's horizon, over the texts naming the runes whose content moved since the last walk, keyed on rune content the way the settle memo and the oracle row cache are. Every per-edit gate walks at horizon 4, where a text exercises a letter third slot only behind a boundary left and a letter fourth slot never, so a fault confined to the deep slots behind a letter left — §10's fault table, row 4 — is invisible to all of them together; `make conform-deep` sees it, at the hours a whole-universe HarfBuzz sweep costs, and this tool sees it at the minutes a per-family replay costs, because it settles nothing a shaper would add and walks only what an edit could have moved.
 
-It stays out of the per-edit path on purpose. Priced on the live alphabet (`make cycle-timings ARGS='--by-step'` carries every run of this tool under `replay-deep`, the check it files itself as), a walk over the texts naming one family costs each configuration many times what the build's own horizon-4 replay costs and holds a memo over ten gigabytes wide, so the configurations walk one or two at a time on this box and riding `run_m1` would lengthen every rune-edit build by most of itself; the cycle arms this walk instead and reports it beside the deep sweep (`artifact_cycle.deep_replay_status`), and `make replay-deep` is the remedy. A walk is a claim about the runes as they stood, so the green record (`artifact_cycle.DEEP_REPLAY_GREEN`) carries every rune's prose-blind digest and the horizon it walked at, and the next walk covers the runes whose digest moved since, closed under `spec_load.rune_closure` — every rune whose records read a moved rune's content — which is the O(delta) form the window-locality theorem licenses. The structure stamp rides along for the record and never widens the walk: a code or structure change is the whole-universe deep sweep's question, not this tool's, and the cycle's deep-sweep line is where that shows.
+It stays out of the per-edit path on purpose. Priced on the live alphabet (`make cycle-timings ARGS='--by-step'` carries every run of this tool under `replay-deep`, the check it files itself as), a walk over the texts naming one family costs each configuration many times what the build's own horizon-4 replay costs and holds a memo over ten gigabytes wide, so the configurations walk one or two at a time on this box and riding `run_m1` would lengthen every rune-edit build by most of itself; the cycle arms this walk instead and reports it beside the deep sweep (`artifact_cycle.deep_replay_status`), and `make replay-deep` is the remedy. A walk is a claim about the runes as they stood, so the green record (`cycle_paths.DEEP_REPLAY_GREEN`) carries every rune's prose-blind digest and the horizon it walked at, and the next walk covers the runes whose digest moved since, closed under `spec_load.rune_closure` — every rune whose records read a moved rune's content — which is the O(delta) form the window-locality theorem licenses. The structure stamp rides along for the record and never widens the walk: a code or structure change is the whole-universe deep sweep's question, not this tool's, and the cycle's deep-sweep line is where that shows.
 
 Run as: uv run python -m rebuild.tools.deep_replay, or through `make replay-deep`. `--families` names the runes to walk instead of asking the record; `--all` walks the whole universe, which on the live alphabet is an overnight run.
 """
@@ -19,10 +19,9 @@ if str(ROOT) not in sys.path:
 
 from rebuild.pipeline import conform, fingerprint, kernel_exec, run_m1, spec_load
 from rebuild.pipeline.spec_load import load_default_spec
-from rebuild.tools import memory_budget
+from rebuild.tools import cycle_paths, memory_budget
 from rebuild.tools.artifact_cycle import (
     CONFORM_HORIZON_DEFAULT,
-    DEEP_REPLAY_GREEN,
     DEEP_REPLAY_HORIZON_DEFAULT,
     deep_replay_moved,
     deep_replay_status,
@@ -112,7 +111,7 @@ def main(argv: list[str] | None = None) -> int:
     spec = load_default_spec()
     runes = fingerprint.rune_digests(ROOT)
     structure = run_m1.replay_structure_stamp(spec)
-    record = read_green_record(DEEP_REPLAY_GREEN)
+    record = read_green_record(cycle_paths.DEEP_REPLAY_GREEN)
     if args.all:
         families = None
     elif args.families:
@@ -176,7 +175,10 @@ def main(argv: list[str] | None = None) -> int:
         }
         covered = {**carried, **covered}
     record_deep_replay_green(covered, args.horizon, structure)
-    print(f"deep replay: green at horizon {args.horizon} — recorded in {DEEP_REPLAY_GREEN.name}", flush=True)
+    print(
+        f"deep replay: green at horizon {args.horizon} — recorded in {cycle_paths.DEEP_REPLAY_GREEN.name}",
+        flush=True,
+    )
     return 0
 
 

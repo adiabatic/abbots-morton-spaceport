@@ -7,6 +7,7 @@ from types import SimpleNamespace
 import pytest
 
 from rebuild.tools import artifact_cycle as ac
+from rebuild.tools import cycle_paths
 from rebuild.tools import cycle_timings as ct
 from rebuild.tools import make_test_gate as mtg
 
@@ -14,8 +15,7 @@ from rebuild.tools import make_test_gate as mtg
 @pytest.fixture
 def green_store(tmp_path, monkeypatch):
     store = tmp_path / "make-test-green.json"
-    monkeypatch.setattr(ac, "MAKE_TEST_GREEN", store)
-    monkeypatch.setattr(mtg, "MAKE_TEST_GREEN", store)
+    monkeypatch.setattr(cycle_paths, "MAKE_TEST_GREEN", store)
     return store
 
 

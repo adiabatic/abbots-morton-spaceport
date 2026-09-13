@@ -21,6 +21,7 @@ from rebuild.review import journal
 from rebuild.tools import artifact_cycle as ac
 from rebuild.tools import calibrate_budgets as cb
 from rebuild.tools import console
+from rebuild.tools import cycle_paths
 from rebuild.tools import cycle_timings as ct
 from rebuild.tools.peak_rss import format_gb
 from rebuild.tools.cycle_timings import CycleTimings
@@ -56,7 +57,7 @@ def _redirect_contracts_lane_reads(monkeypatch, tmp_path):
     real_subsets = ac._subset_tables
     real_sha = ac._sha256_path
     monkeypatch.setattr(ac, "REVIEW_OUT", tmp_path / "review")
-    monkeypatch.setattr(ac, "DEEP_REPLAY_GREEN", tmp_path / "deep-replay-green.json")
+    monkeypatch.setattr(cycle_paths, "DEEP_REPLAY_GREEN", tmp_path / "deep-replay-green.json")
     monkeypatch.setattr(
         ac,
         "_sha256_path",
@@ -2477,7 +2478,7 @@ def test_cycle_summary_payload_names_the_reuse_route_and_passes_no_kernel_width_
 
 def test_write_cycle_summary_reads_module_attr_at_call_time(monkeypatch, tmp_path):
     target = tmp_path / "elsewhere" / "cycle_summary.json"
-    monkeypatch.setattr(ac, "CYCLE_SUMMARY", target)
+    monkeypatch.setattr(cycle_paths, "CYCLE_SUMMARY", target)
     ac.write_cycle_summary({"format": "ams-cycle-summary/1"})
     assert json.loads(target.read_text()) == {"format": "ams-cycle-summary/1"}
     assert not list(target.parent.glob("*.tmp"))
@@ -2502,7 +2503,7 @@ def test_cycle_writes_green_summary_with_surface(monkeypatch, tmp_path):
     rc = ac._run_cycle(plan, report, ac._Emitter(), ac._ChildRegistry(), spawn=lambda *a, **k: _step())
 
     assert rc == 0
-    summary = json.loads(ac.CYCLE_SUMMARY.read_text())
+    summary = json.loads(cycle_paths.CYCLE_SUMMARY.read_text())
     assert summary["format"] == "ams-cycle-summary/1"
     assert summary["exit"] == "ok"
     assert all(gate["green"] is True for gate in summary["gates"].values())
@@ -2526,7 +2527,7 @@ def test_cycle_writes_failed_summary_on_run_m1_failure(monkeypatch, tmp_path):
     rc = ac._run_cycle(plan, report, ac._Emitter(), ac._ChildRegistry(), spawn=lambda *a, **k: _step())
 
     assert rc == 1
-    summary = json.loads(ac.CYCLE_SUMMARY.read_text())
+    summary = json.loads(cycle_paths.CYCLE_SUMMARY.read_text())
     assert summary["exit"] == "failed"
     assert summary["failures"]
 
@@ -2542,7 +2543,7 @@ def test_cycle_writes_interrupted_summary(monkeypatch, tmp_path):
     rc = ac._run_cycle(plan, report, ac._Emitter(), ac._ChildRegistry())
 
     assert rc == 130
-    summary = json.loads(ac.CYCLE_SUMMARY.read_text())
+    summary = json.loads(cycle_paths.CYCLE_SUMMARY.read_text())
     assert summary["exit"] == "interrupted"
     assert summary["interrupted"] is True
 
@@ -2563,7 +2564,7 @@ def test_cycle_summary_surface_nulls_when_manifest_missing(monkeypatch, tmp_path
     rc = ac._run_cycle(plan, report, ac._Emitter(), ac._ChildRegistry(), spawn=lambda *a, **k: _step())
 
     assert rc == 0
-    summary = json.loads(ac.CYCLE_SUMMARY.read_text())
+    summary = json.loads(cycle_paths.CYCLE_SUMMARY.read_text())
     assert summary["surface"]["dir"] == str(surface_dir)
     assert summary["surface"]["generated_at"] is None
     assert summary["surface"]["inputs_fingerprint"] is None
@@ -2588,10 +2589,10 @@ def _seed_auto_repo(tmp_path, monkeypatch, *, stamp="2026-07-17T20:24:44Z"):
     monkeypatch.setattr(ac, "REVIEW_OUT", review_out)
     monkeypatch.setattr(ac, "AUTOSAVE", tmp_path / "verdicts-autosave.json")
     monkeypatch.setattr(ac, "JSTEST_DIR", tmp_path / "rebuild" / "review" / "jstests")
-    monkeypatch.setattr(ac, "RUN_M1_GREEN", tmp_path / "rebuild" / "out" / "run-m1-green.json")
-    monkeypatch.setattr(ac, "CONFORM_GREEN", tmp_path / "rebuild" / "out" / "conform-green.json")
+    monkeypatch.setattr(cycle_paths, "RUN_M1_GREEN", tmp_path / "rebuild" / "out" / "run-m1-green.json")
+    monkeypatch.setattr(cycle_paths, "CONFORM_GREEN", tmp_path / "rebuild" / "out" / "conform-green.json")
     monkeypatch.setattr(
-        ac, "REBUILD_CONTRACTS_GREEN", tmp_path / "rebuild" / "out" / "rebuild-contracts-green.json"
+        cycle_paths, "REBUILD_CONTRACTS_GREEN", tmp_path / "rebuild" / "out" / "rebuild-contracts-green.json"
     )
 
 
@@ -3514,7 +3515,7 @@ def test_deep_sweep_fingerprint_moves_with_a_class_or_the_compile_code(tmp_path)
 
 def test_deep_sweep_status_walks_unknown_never_run_armed_and_current(tmp_path, monkeypatch):
     store = tmp_path / "deep-sweep-green.json"
-    monkeypatch.setattr(ac, "DEEP_SWEEP_GREEN", store)
+    monkeypatch.setattr(cycle_paths, "DEEP_SWEEP_GREEN", store)
     status, note = ac.deep_sweep_status(tmp_path)
     assert status == "unknown"
     assert "behavior-class sidecar" in note
@@ -3634,7 +3635,7 @@ def test_oracle_cache_note_speaks_the_labels_a_skip_miss_actually_reports():
 def test_m1_artifacts_present(tmp_path):
     m1 = tmp_path / "rebuild" / "out" / "m1"
     m1.mkdir(parents=True)
-    names = [path.name for path in ac.M1_SUMMARY_FILES.values()] + list(ac.M1_ARTIFACT_NAMES)
+    names = [path.name for path in cycle_paths.M1_SUMMARY_FILES.values()] + list(ac.M1_ARTIFACT_NAMES)
     assert not ac.m1_artifacts_present(tmp_path)
     for name in names:
         (m1 / name).write_text("{}")
@@ -3645,7 +3646,7 @@ def test_m1_artifacts_present(tmp_path):
 
 def test_rebuild_gate_closure_scope_and_exemptions(tmp_path):
     """Both edges of the closure at once. The exempt paths are the ones no test in the suite reads: the carried-verdict evidence, the JS-only jstests, the census pins the cycle itself rewrites mid-pass, and the contact allow-list, whose only reader is the defect gate — so blessing a contact signature must not re-run the whole suite to prove nothing. The harness roster is the opposite edge: files the suite reads from outside rebuild/ and glyph_data/, named one at a time, so a tools/ script no test opens stays out while doc/glyph-names.md comes in despite the Markdown filter."""
-    assert "rebuild/m1-contact-allow.yaml" in ac.REBUILD_GATE_EXEMPT_PREFIXES
+    assert "rebuild/m1-contact-allow.yaml" in cycle_paths.REBUILD_GATE_EXEMPT_PREFIXES
     subprocess.run(["git", "init", "-q"], cwd=tmp_path, check=True)
     (tmp_path / "rebuild" / "evidence").mkdir(parents=True)
     (tmp_path / "rebuild" / "review" / "jstests").mkdir(parents=True)
@@ -4287,6 +4288,7 @@ def test_a_green_finish_closes_on_the_readiness_checklist_instead_of_naming_the_
         seen.append(plan)
         return ["Review surface: here", "  ✓ gates: green", "", "READY - adjudicate at the docket"]
 
+    monkeypatch.setattr(cycle_paths, "READINESS_ENABLED", True)
     monkeypatch.setattr(ac, "readiness_block", block)
     plan = _plan()
     assert ac._finish(_green_report(), [], plan) == 0
@@ -4302,9 +4304,7 @@ def test_a_green_finish_closes_on_the_readiness_checklist_instead_of_naming_the_
     assert "READY" not in out and "make verdict-ready" not in out
 
 
-def test_the_readiness_block_leaves_the_server_row_to_the_recipe_that_serves(
-    monkeypatch, real_readiness_block
-):
+def test_the_readiness_block_leaves_the_server_row_to_the_recipe_that_serves(monkeypatch):
     """`--stop-server` is `make review-cycle` saying it owns the server after the pass, so the checklist the pass closes on must not call a server the recipe is about to start absent. A bare `make artifact-cycle` has no recipe behind it, and its checklist carries the row."""
     from rebuild.tools import verdict_ready
 
@@ -4316,21 +4316,21 @@ def test_the_readiness_block_leaves_the_server_row_to_the_recipe_that_serves(
 
     monkeypatch.setattr(verdict_ready, "readiness", fake_readiness)
 
-    assert real_readiness_block(_plan(recipe_serves=True))[-1].startswith("READY")
-    assert real_readiness_block(_plan())[-1].startswith("READY")
+    assert ac.readiness_block(_plan(recipe_serves=True))[-1].startswith("READY")
+    assert ac.readiness_block(_plan())[-1].startswith("READY")
     assert asked == [False, True]
-    assert real_readiness_block(_plan(review_out=Path("/tmp/rehearsal"))) == []
+    assert ac.readiness_block(_plan(review_out=Path("/tmp/rehearsal"))) == []
     assert asked == [False, True]
 
 
-def test_the_readiness_block_reports_a_checklist_it_could_not_compute(monkeypatch, real_readiness_block):
+def test_the_readiness_block_reports_a_checklist_it_could_not_compute(monkeypatch):
     from rebuild.tools import verdict_ready
 
     def boom(**kwargs):
         raise RuntimeError("no manifest")
 
     monkeypatch.setattr(verdict_ready, "readiness", boom)
-    lines = real_readiness_block(_plan())
+    lines = ac.readiness_block(_plan())
     assert lines == ["readiness: the checklist could not be computed (RuntimeError('no manifest'))"]
 
 
@@ -4364,7 +4364,7 @@ def test_main_auto_skips_the_rebuild_suite_even_when_run_m1_runs_live(tmp_path, 
     monkeypatch.setattr(
         ac, "rebuild_lane_closure", lambda root, lane: (f"key-{lane}", {"key": f"key-{lane}"})
     )
-    ac.record_green(ac.REBUILD_CONTRACTS_GREEN, "key-contracts")
+    ac.record_green(cycle_paths.REBUILD_CONTRACTS_GREEN, "key-contracts")
     assert ac.main(["--dry-run"]) == 0
     out = capsys.readouterr().out
     assert "SKIPPED (build inputs unchanged" not in out
@@ -4377,7 +4377,7 @@ def test_main_forces_the_rebuild_suite_under_fresh(tmp_path, monkeypatch, capsys
     monkeypatch.setattr(
         ac, "rebuild_lane_closure", lambda root, lane: (f"key-{lane}", {"key": f"key-{lane}"})
     )
-    ac.record_green(ac.REBUILD_CONTRACTS_GREEN, "key-contracts")
+    ac.record_green(cycle_paths.REBUILD_CONTRACTS_GREEN, "key-contracts")
     assert ac.main(["--dry-run", "--fresh"]) == 0
     out = capsys.readouterr().out
     assert "SKIPPED" not in out
@@ -4397,7 +4397,7 @@ def _full_build_step(out: str):
 def _comparison_side_drift(tmp_path, monkeypatch, moved="rebuild/m1-divergences.yaml"):
     """A repo whose last green M1 build differs from now by one named input and nothing else, with both halves of the route's licence answered true. Every test here varies one of those three things and reads the route back out of the plan."""
     _unsettled_repo(tmp_path, monkeypatch)
-    ac.record_green(ac.RUN_M1_GREEN, "green-key", files={moved: "before", "uv.lock": "lock-1"})
+    ac.record_green(cycle_paths.RUN_M1_GREEN, "green-key", files={moved: "before", "uv.lock": "lock-1"})
     monkeypatch.setattr(ac, "run_m1_skip_files", lambda root=None: {moved: "after", "uv.lock": "lock-1"})
     monkeypatch.setattr(ac, "m1_artifacts_present", lambda root=None: True)
     monkeypatch.setattr(ac, "m1_tables_stamped", lambda root=None: True)
@@ -4506,13 +4506,13 @@ def test_run_cycle_skips_the_sweep_after_run_m1_on_the_key_the_finished_artifact
     monkeypatch, tmp_path, capsys
 ):
     """The sweep's skip is decided after run_m1 rather than in the plan, because only a finished build knows what the font came out as — and the three routes into it (skipped, re-adjudicated, rebuilt) all land on this one key. A skip taken over the artifacts the pass is leaving is proved rather than forced, which is what `review/status.py` reads to call a surface sitting-ready."""
-    monkeypatch.setattr(ac, "CONFORM_GREEN", tmp_path / "conform-green.json")
+    monkeypatch.setattr(cycle_paths, "CONFORM_GREEN", tmp_path / "conform-green.json")
     monkeypatch.setattr(ac, "conform_skip_fingerprint", lambda root=None, horizon=None: "cfp")
     monkeypatch.setattr(ac, "rebuild_lane_fingerprint", lambda root, lane: f"rfp-{lane}")
     monkeypatch.setattr(
         ac, "rebuild_lane_closure", lambda root, lane: (f"rfp-{lane}", {"key": f"rfp-{lane}"})
     )
-    ac.record_green(ac.CONFORM_GREEN, "cfp")
+    ac.record_green(cycle_paths.CONFORM_GREEN, "cfp")
     swept: list[list[str]] = []
 
     def conform_spy(pool_policy, make_fut, spawn, emit, registry, argv):
@@ -4541,13 +4541,13 @@ def test_run_cycle_skips_the_sweep_after_run_m1_on_the_key_the_finished_artifact
 
 def test_run_cycle_sweeps_when_the_finished_artifacts_carry_no_green(monkeypatch, tmp_path, capsys):
     """The same decision the other way, and the reason the skip cannot ride the plan: a pass whose run_m1 moved the font has to sweep it, and the plan was resolved before anything knew that."""
-    monkeypatch.setattr(ac, "CONFORM_GREEN", tmp_path / "conform-green.json")
+    monkeypatch.setattr(cycle_paths, "CONFORM_GREEN", tmp_path / "conform-green.json")
     monkeypatch.setattr(ac, "conform_skip_fingerprint", lambda root=None, horizon=None: "cfp")
     monkeypatch.setattr(ac, "rebuild_lane_fingerprint", lambda root, lane: f"rfp-{lane}")
     monkeypatch.setattr(
         ac, "rebuild_lane_closure", lambda root, lane: (f"rfp-{lane}", {"key": f"rfp-{lane}"})
     )
-    ac.record_green(ac.CONFORM_GREEN, "a-font-ago")
+    ac.record_green(cycle_paths.CONFORM_GREEN, "a-font-ago")
     swept: list[list[str]] = []
 
     def conform_spy(pool_policy, make_fut, spawn, emit, registry, argv):
@@ -4572,8 +4572,8 @@ def test_run_cycle_sweeps_when_the_finished_artifacts_carry_no_green(monkeypatch
 
 
 def test_do_run_m1_skip_reads_recorded_summaries(monkeypatch, tmp_path):
-    files = {name: tmp_path / f"{name}.json" for name in ac.M1_SUMMARY_FILES}
-    monkeypatch.setattr(ac, "M1_SUMMARY_FILES", files)
+    files = {name: tmp_path / f"{name}.json" for name in cycle_paths.M1_SUMMARY_FILES}
+    monkeypatch.setattr(cycle_paths, "M1_SUMMARY_FILES", files)
     files["pipeline"].write_text(json.dumps({"defect_errors": []}))
     files["manual_pins"].write_text(json.dumps({"pass": True, "pins_in_scope": 143, "replayed": 143}))
     files["oracle"].write_text(json.dumps({"unmatched": 7, "multi_matched": 0}))
@@ -4597,10 +4597,10 @@ def test_do_run_m1_skip_reads_recorded_summaries(monkeypatch, tmp_path):
 
 def test_do_run_m1_records_green_only_when_fingerprint_stable(monkeypatch, tmp_path):
     """A green is recorded only when the inputs held still for the whole build. The record's file list is stubbed for the same reason its fingerprint is: `run_m1_skip_files(ROOT)` opens the live contact allow-list, and the closure exempts that file on the grounds that no test in the suite reads it."""
-    files = {name: tmp_path / f"{name}.json" for name in ac.M1_SUMMARY_FILES}
-    monkeypatch.setattr(ac, "M1_SUMMARY_FILES", files)
+    files = {name: tmp_path / f"{name}.json" for name in cycle_paths.M1_SUMMARY_FILES}
+    monkeypatch.setattr(cycle_paths, "M1_SUMMARY_FILES", files)
     green = tmp_path / "run-m1-green.json"
-    monkeypatch.setattr(ac, "RUN_M1_GREEN", green)
+    monkeypatch.setattr(cycle_paths, "RUN_M1_GREEN", green)
     monkeypatch.setattr(ac, "run_m1_skip_fingerprint", lambda root=None: "fp-live")
     monkeypatch.setattr(ac, "run_m1_skip_files", lambda root=None: {"rebuild/m1-divergences.yaml": "d1"})
 
@@ -4641,10 +4641,10 @@ def test_do_run_m1_records_green_only_when_fingerprint_stable(monkeypatch, tmp_p
 
 def test_do_run_m1_reuse_spares_the_summary_the_gates_only_pass_rewrites(monkeypatch, tmp_path):
     """The one asymmetry of the middle route. `--gates-only` rewrites the defect fields of the build's own pipeline_summary.json in place and refuses outright without one, so clearing it before the spawn would take down the pass that was supposed to be cheap; the two gate summaries are the child's own output and are cleared exactly as a full build clears them, so a child that dies mid-pass cannot leave last pass's verdicts to be judged as this one's. Everything after the spawn is the full build's path, the green included."""
-    files = {name: tmp_path / f"{name}.json" for name in ac.M1_SUMMARY_FILES}
-    monkeypatch.setattr(ac, "M1_SUMMARY_FILES", files)
+    files = {name: tmp_path / f"{name}.json" for name in cycle_paths.M1_SUMMARY_FILES}
+    monkeypatch.setattr(cycle_paths, "M1_SUMMARY_FILES", files)
     green = tmp_path / "run-m1-green.json"
-    monkeypatch.setattr(ac, "RUN_M1_GREEN", green)
+    monkeypatch.setattr(cycle_paths, "RUN_M1_GREEN", green)
     monkeypatch.setattr(ac, "run_m1_skip_fingerprint", lambda root=None: "fp-live")
     monkeypatch.setattr(ac, "run_m1_skip_files", lambda root=None: {"rebuild/m1-divergences.yaml": "d2"})
     for path in files.values():
@@ -4684,8 +4684,8 @@ def test_do_run_m1_reuse_spares_the_summary_the_gates_only_pass_rewrites(monkeyp
 
 def test_do_run_m1_a_full_build_clears_the_summary_the_reuse_route_keeps(monkeypatch, tmp_path):
     """The other side of the same rule, so the exemption cannot quietly widen: a build that makes its own tables makes its own pipeline summary too, and a stale one left in place would be judged as this build's if the child died before writing one."""
-    files = {name: tmp_path / f"{name}.json" for name in ac.M1_SUMMARY_FILES}
-    monkeypatch.setattr(ac, "M1_SUMMARY_FILES", files)
+    files = {name: tmp_path / f"{name}.json" for name in cycle_paths.M1_SUMMARY_FILES}
+    monkeypatch.setattr(cycle_paths, "M1_SUMMARY_FILES", files)
     for path in files.values():
         path.write_text(json.dumps({"stale": True}))
     survivors: list[str] = []
@@ -4709,10 +4709,10 @@ def test_do_run_m1_a_full_build_clears_the_summary_the_reuse_route_keeps(monkeyp
 
 
 def test_do_run_m1_red_deletes_matching_green(monkeypatch, tmp_path):
-    files = {name: tmp_path / f"{name}.json" for name in ac.M1_SUMMARY_FILES}
-    monkeypatch.setattr(ac, "M1_SUMMARY_FILES", files)
+    files = {name: tmp_path / f"{name}.json" for name in cycle_paths.M1_SUMMARY_FILES}
+    monkeypatch.setattr(cycle_paths, "M1_SUMMARY_FILES", files)
     green = tmp_path / "run-m1-green.json"
-    monkeypatch.setattr(ac, "RUN_M1_GREEN", green)
+    monkeypatch.setattr(cycle_paths, "RUN_M1_GREEN", green)
     ac.record_green(green, "fp-1")
 
     def write_red(*a, **k):
@@ -4786,8 +4786,8 @@ def test_do_surface_build_skip_reads_manifest_totals(monkeypatch, tmp_path):
 def test_record_gate_greens_records_refuses_and_clears(monkeypatch, tmp_path):
     conform_green = tmp_path / "conform-green.json"
     contracts_green = tmp_path / "rebuild-contracts-green.json"
-    monkeypatch.setattr(ac, "CONFORM_GREEN", conform_green)
-    monkeypatch.setattr(ac, "REBUILD_CONTRACTS_GREEN", contracts_green)
+    monkeypatch.setattr(cycle_paths, "CONFORM_GREEN", conform_green)
+    monkeypatch.setattr(cycle_paths, "REBUILD_CONTRACTS_GREEN", contracts_green)
     monkeypatch.setattr(ac, "conform_skip_fingerprint", lambda root=None, horizon=None: "cfp")
     _patch_gate_fingerprints(monkeypatch)
     keys = {"conform": "cfp", "contracts": "rfp-contracts"}
@@ -4995,7 +4995,7 @@ def test_every_spawned_step_closes_with_its_own_figure_and_peak(capsys, tmp_path
     def spawn(name, argv, *, emit, registry, stream, **passthrough):
         if name == "run_m1":
             for key, payload in _pass_summaries().items():
-                ac.M1_SUMMARY_FILES[key].write_text(json.dumps(payload))
+                cycle_paths.M1_SUMMARY_FILES[key].write_text(json.dumps(payload))
             return ac._StepResult(name, 0, "", "", 1988.0, 19_600_000_000)
         return ac._StepResult(name, 0, "", "", 1.0, 1_000_000_000)
 
@@ -5130,7 +5130,7 @@ def test_a_failed_census_refresh_never_fails_the_cycle(monkeypatch):
 
     assert rc == 0
     assert report.census_status == "update FAILED (exit 2) — informational"
-    assert json.loads(ac.CYCLE_SUMMARY.read_text())["failures"] == []
+    assert json.loads(cycle_paths.CYCLE_SUMMARY.read_text())["failures"] == []
 
 
 def test_a_rehearsal_never_runs_the_census(monkeypatch, tmp_path):
@@ -5248,7 +5248,7 @@ def test_a_tripped_job_costs_check_never_fails_the_cycle(monkeypatch):
     rc = ac._run_cycle(plan, report, ac._Emitter(), ac._ChildRegistry(), spawn=lambda *a, **k: _step())
 
     assert rc == 0
-    summary = json.loads(ac.CYCLE_SUMMARY.read_text())
+    summary = json.loads(cycle_paths.CYCLE_SUMMARY.read_text())
     assert summary["failures"] == []
     assert summary["job_costs_status"].startswith("OVERRUN")
     assert summary["job_costs_ok"] is False
@@ -5590,7 +5590,7 @@ def test_run_cycle_never_spawns_the_plumbing_when_skipped(monkeypatch, tmp_path)
     _patch_build_chain(monkeypatch)
     _patch_gate_fingerprints(monkeypatch)
     monkeypatch.setattr(ac, "_do_plumbing", must_not_run)
-    monkeypatch.setattr(ac, "PLUMBING_GREEN", tmp_path / "plumbing-green.json")
+    monkeypatch.setattr(cycle_paths, "PLUMBING_GREEN", tmp_path / "plumbing-green.json")
 
     carried = tmp_path / "verdicts-carried-abc.json"
     carried.write_text("{}")
@@ -5621,7 +5621,7 @@ def test_run_cycle_records_the_plumbing_green_only_after_a_complete_chain(monkey
     _patch_build_chain(monkeypatch)
     _patch_gate_fingerprints(monkeypatch)
     green = tmp_path / "plumbing-green.json"
-    monkeypatch.setattr(ac, "PLUMBING_GREEN", green)
+    monkeypatch.setattr(cycle_paths, "PLUMBING_GREEN", green)
     monkeypatch.setattr(ac, "plumbing_skip_fingerprint", lambda root=None, surface=None, master=None: "plu")
 
     plan = _plan(record_greens=True)
@@ -5686,7 +5686,7 @@ def test_run_cycle_records_no_plumbing_green_until_the_chain_witnesses_its_fixpo
     _patch_gate_fingerprints(monkeypatch)
     monkeypatch.setattr(ac, "plumbing_skip_fingerprint", lambda root=None, surface=None, master=None: "plu")
     green = tmp_path / "plumbing-green.json"
-    monkeypatch.setattr(ac, "PLUMBING_GREEN", green)
+    monkeypatch.setattr(cycle_paths, "PLUMBING_GREEN", green)
 
     monkeypatch.setattr(ac, "_do_plumbing", unsettled)
     rc = ac._run_cycle(
@@ -5723,11 +5723,11 @@ def test_plumbing_settled_reads_the_chains_own_witness():
 def _settled_repo(tmp_path, monkeypatch):
     """A repo whose run_m1 and surface build both auto-skip — the converged pass, the only shape the plumbing skip is offered on."""
     _unsettled_repo(tmp_path, monkeypatch)
-    ac.record_green(ac.RUN_M1_GREEN, "key")
+    ac.record_green(cycle_paths.RUN_M1_GREEN, "key")
     monkeypatch.setattr(ac, "m1_artifacts_present", lambda root=None: True)
     monkeypatch.setattr(ac, "surface_build_skippable", lambda root=None: True)
     monkeypatch.setattr(ac, "conform_skip_fingerprint", lambda root=None, horizon=None: "no-match")
-    monkeypatch.setattr(ac, "PLUMBING_GREEN", tmp_path / "rebuild" / "out" / "plumbing-green.json")
+    monkeypatch.setattr(cycle_paths, "PLUMBING_GREEN", tmp_path / "rebuild" / "out" / "plumbing-green.json")
     monkeypatch.setattr(ac, "plumbing_skip_fingerprint", lambda root=None, surface=None, master=None: "plu")
 
 
@@ -5759,7 +5759,7 @@ def test_main_runs_the_census_on_the_pass_that_skips_the_plumbing(tmp_path, monk
 def test_main_never_skips_the_plumbing_on_a_pass_that_writes_the_surface(tmp_path, monkeypatch, capsys):
     """The skip rides the surface build's own skip: only then is the stamp the chain keys on known not to move mid-pass."""
     _unsettled_repo(tmp_path, monkeypatch)
-    monkeypatch.setattr(ac, "PLUMBING_GREEN", tmp_path / "rebuild" / "out" / "plumbing-green.json")
+    monkeypatch.setattr(cycle_paths, "PLUMBING_GREEN", tmp_path / "rebuild" / "out" / "plumbing-green.json")
     monkeypatch.setattr(ac, "plumbing_skip_fingerprint", lambda root=None, surface=None, master=None: "plu")
     ac.record_plumbing_green("plu")
     assert ac.main(["--dry-run"]) == 0
@@ -6169,21 +6169,65 @@ def test_build_plan_retention_off_on_rehearsal(tmp_path):
     assert "rehearsal" in by_name["retention"].note
 
 
-def test_retention_never_runs_for_real_during_the_suite(real_run_retention):
-    """The tripwire on the autouse stub. Retention resolves its targets from ac.ROOT at call time — no fixture redirects that — so a real run from inside the suite deletes the live repo's carried exports and compacts its verdict journal. Any test reaching a green finish with record_greens set would do it, and one did: a suite run swept a live cycle's piles between its build and its carry."""
-    assert ac.run_retention is not real_run_retention
-    assert ac.run_retention(_plan(record_greens=True)) == []
+def test_retention_never_runs_for_real_during_the_suite(monkeypatch):
+    """The tripwire on the autouse switch. Retention resolves its targets from ac.ROOT at call time — no fixture redirects that — so a real run from inside the suite deletes the live repo's carried exports and compacts its verdict journal. Any test reaching a green finish with record_greens set would do it, and one did: a suite run swept a live cycle's piles between its build and its carry. The readiness checklist reads the served surface and the root autosave, and is off on the same standard."""
+    assert cycle_paths.RETENTION_ENABLED is False
+    assert cycle_paths.READINESS_ENABLED is False
+    calls = {"retention": 0, "readiness": 0}
+    monkeypatch.setattr(
+        ac, "run_retention", lambda plan: calls.__setitem__("retention", calls["retention"] + 1)
+    )
+    monkeypatch.setattr(
+        ac, "readiness_block", lambda plan: calls.__setitem__("readiness", calls["readiness"] + 1)
+    )
+    report = _green_report()
+    assert ac._finish(report, [], _plan(record_greens=True)) == 0
+    assert calls == {"retention": 0, "readiness": 0}
+    assert "retention" in report.step_seconds
+
+
+def test_finish_honors_the_two_green_finish_switches(monkeypatch, capsys):
+    """The two green-finish switches, pinned from both sides: off, `_finish` reaches neither stage and the retention row still closes with an outcome; on, it reaches both once. A test that wants either stage flips its switch and patches the callable, which is what every test below that asserts a reach does."""
+    calls = {"retention": 0, "readiness": 0}
+
+    def retention(plan):
+        calls["retention"] += 1
+        return ac.RetentionResult(["Retention (skip with --keep-history):"], "swept")
+
+    def readiness(plan):
+        calls["readiness"] += 1
+        return ["READY - adjudicate at the docket"]
+
+    monkeypatch.setattr(ac, "run_retention", retention)
+    monkeypatch.setattr(ac, "readiness_block", readiness)
+    plan = _plan(record_greens=True)
+
+    monkeypatch.setattr(cycle_paths, "RETENTION_ENABLED", False)
+    monkeypatch.setattr(cycle_paths, "READINESS_ENABLED", False)
+    assert ac._finish(_green_report(), [], plan) == 0
+    out = capsys.readouterr().out
+    assert calls == {"retention": 0, "readiness": 0}
+    assert "READY" not in out and "swept" not in out
+    assert "Cycle complete." in out
+
+    monkeypatch.setattr(cycle_paths, "RETENTION_ENABLED", True)
+    monkeypatch.setattr(cycle_paths, "READINESS_ENABLED", True)
+    assert ac._finish(_green_report(), [], plan) == 0
+    out = capsys.readouterr().out
+    assert calls == {"retention": 1, "readiness": 1}
+    assert "READY - adjudicate at the docket" in out
+    assert "swept" in out
 
 
 def test_the_gate_summaries_a_pass_clears_are_never_the_live_ones(tmp_path, live_deletion_targets):
     """The same tripwire for the other stages that delete before they rebuild. run_m1 unlinks its four summaries and gate:conform unlinks its own, all before spawning and all from constants resolved against the live rebuild/out/m1 — so a test that drives any of those stages without stubbing it empties the directory the surface build consumes and the cycle's auto-skip keys on, at the price of a full rebuild to get it back. None would fail: the missing summaries read as a failed gate, which is what most such tests are asserting anyway."""
     redirected = [
-        *ac.M1_SUMMARY_FILES.values(),
-        ac.CONFORM_SUMMARY,
+        *cycle_paths.M1_SUMMARY_FILES.values(),
+        cycle_paths.CONFORM_SUMMARY,
     ]
     assert [path.parent for path in redirected] == [tmp_path] * len(redirected)
     assert [path.name for path in redirected] == [path.name for path in live_deletion_targets]
-    assert all(path.parent == ac.M1_OUT for path in live_deletion_targets)
+    assert all(path.parent == cycle_paths.M1_OUT for path in live_deletion_targets)
 
 
 def test_finish_runs_retention_on_a_real_green_finish(monkeypatch):
@@ -6192,6 +6236,7 @@ def test_finish_runs_retention_on_a_real_green_finish(monkeypatch):
     def stub(plan):
         calls["n"] += 1
 
+    monkeypatch.setattr(cycle_paths, "RETENTION_ENABLED", True)
     monkeypatch.setattr(ac, "run_retention", stub)
     plan = _plan(record_greens=True)
     assert plan.retention is True and plan.record_greens is True
@@ -6200,14 +6245,12 @@ def test_finish_runs_retention_on_a_real_green_finish(monkeypatch):
     assert calls["n"] == 1
 
 
-def test_retention_leaves_the_journal_and_stashes_alone_while_the_server_is_up(
-    tmp_path, monkeypatch, capsys, real_run_retention
-):
+def test_retention_leaves_the_journal_and_stashes_alone_while_the_server_is_up(tmp_path, monkeypatch, capsys):
     """The app appends to the journal as the reviewer verdicts, and compact() rewrites the whole file around a read — an append landing in between is gone. The stash sweep reads that same journal for its reference index, so it waits too; the carried sweep, which the app never writes, still runs."""
     plan = _plan(skip_plumbing=True, plumbing_note=ac.PLUMBING_SKIP_NOTE)
     monkeypatch.setattr(ac, "ROOT", tmp_path)
     monkeypatch.setattr(ac, "REVIEW_OUT", tmp_path / "review")
-    monkeypatch.setattr(ac, "DEEP_REPLAY_GREEN", tmp_path / "deep-replay-green.json")
+    monkeypatch.setattr(cycle_paths, "DEEP_REPLAY_GREEN", tmp_path / "deep-replay-green.json")
     (tmp_path / "review").mkdir()
     (tmp_path / "review" / "manifest.json").write_text(json.dumps({"generated_at": "2026-08-07T00:00:00Z"}))
     (tmp_path / "var").mkdir()
@@ -6220,7 +6263,7 @@ def test_retention_leaves_the_journal_and_stashes_alone_while_the_server_is_up(
     monkeypatch.setattr(ac, "prune_stashes", lambda root, journal_path: swept.append(root) or [])
     monkeypatch.setattr(ac, "server_listening", lambda port=ac.REVIEW_PORT: True)
 
-    swept_up = real_run_retention(plan)
+    swept_up = ac.run_retention(plan)
     out = "\n".join(swept_up.lines)
 
     assert compacted == [] and swept == []
@@ -6232,6 +6275,7 @@ def test_retention_leaves_the_journal_and_stashes_alone_while_the_server_is_up(
 
 def test_finish_skips_retention_when_failures(monkeypatch):
     calls = {"n": 0}
+    monkeypatch.setattr(cycle_paths, "RETENTION_ENABLED", True)
     monkeypatch.setattr(ac, "run_retention", lambda plan: calls.__setitem__("n", calls["n"] + 1))
     plan = _plan(record_greens=True)
     rc = ac._finish(ac.CycleReport(), ["boom"], plan)
@@ -6241,6 +6285,7 @@ def test_finish_skips_retention_when_failures(monkeypatch):
 
 def test_finish_skips_retention_when_plan_opts_out(monkeypatch):
     calls = {"n": 0}
+    monkeypatch.setattr(cycle_paths, "RETENTION_ENABLED", True)
     monkeypatch.setattr(ac, "run_retention", lambda plan: calls.__setitem__("n", calls["n"] + 1))
     plan = _plan(keep_history=True, record_greens=True)
     assert plan.retention is False
@@ -6251,6 +6296,7 @@ def test_finish_skips_retention_when_plan_opts_out(monkeypatch):
 
 def test_finish_never_prunes_a_mocked_green_cycle(monkeypatch):
     calls = {"n": 0}
+    monkeypatch.setattr(cycle_paths, "RETENTION_ENABLED", True)
     monkeypatch.setattr(ac, "run_retention", lambda plan: calls.__setitem__("n", calls["n"] + 1))
     plan = _plan()
     assert plan.retention is True and plan.record_greens is False
@@ -6263,6 +6309,7 @@ def test_finish_survives_a_retention_error(monkeypatch):
     def boom(plan):
         raise RuntimeError("retention blew up")
 
+    monkeypatch.setattr(cycle_paths, "RETENTION_ENABLED", True)
     monkeypatch.setattr(ac, "run_retention", boom)
     plan = _plan(record_greens=True)
     rc = ac._finish(ac.CycleReport(), [], plan)
@@ -6555,8 +6602,8 @@ def test_a_failing_make_test_files_its_exit_code_as_a_red_verdict(tmp_path):
 
 def test_do_run_m1_files_a_check_line_on_the_skip_path(monkeypatch, tmp_path):
     """A skip is a judgment the cycle reached over this build's own summaries, not a check that never happened, so it belongs on run_m1's record beside the passes that did the work."""
-    files = {name: tmp_path / f"{name}.json" for name in ac.M1_SUMMARY_FILES}
-    monkeypatch.setattr(ac, "M1_SUMMARY_FILES", files)
+    files = {name: tmp_path / f"{name}.json" for name in cycle_paths.M1_SUMMARY_FILES}
+    monkeypatch.setattr(cycle_paths, "M1_SUMMARY_FILES", files)
     files["pipeline"].write_text(json.dumps({"defect_errors": []}))
     files["manual_pins"].write_text(json.dumps({"pass": True, "pins_in_scope": 143, "replayed": 143}))
     files["oracle"].write_text(json.dumps({"unmatched": 7, "multi_matched": 0}))
@@ -6583,7 +6630,9 @@ def test_do_run_m1_files_a_check_line_on_the_skip_path(monkeypatch, tmp_path):
 def test_do_run_m1_files_a_red_when_no_summaries_landed(monkeypatch, tmp_path):
     """A build that wrote no summaries never reached the judge, and the red recorded for it carries the same sentence the cycle's own failure list rolls up."""
     monkeypatch.setattr(
-        ac, "M1_SUMMARY_FILES", {name: tmp_path / f"{name}.json" for name in ac.M1_SUMMARY_FILES}
+        cycle_paths,
+        "M1_SUMMARY_FILES",
+        {name: tmp_path / f"{name}.json" for name in cycle_paths.M1_SUMMARY_FILES},
     )
     timings = CycleTimings(tmp_path / "timings.ndjson")
 
@@ -6649,11 +6698,11 @@ def test_main_mints_one_run_directory_and_points_latest_at_it(tmp_path, monkeypa
 
     plan = seen["plan"]
     assert plan.log_dir is not None
-    assert plan.log_dir.parent == ac.BUILD_LOGS_ROOT
+    assert plan.log_dir.parent == cycle_paths.BUILD_LOGS_ROOT
     assert plan.log_dir.name == f"{plan.stamp}-{plan.short_id}"
     assert (plan.log_dir / console.PLAN_TXT).exists()
     assert (plan.log_dir / console.TERMINAL_LOG).exists()
-    assert (ac.BUILD_LOGS_ROOT / console.LATEST_LINK).resolve() == plan.log_dir.resolve()
+    assert (cycle_paths.BUILD_LOGS_ROOT / console.LATEST_LINK).resolve() == plan.log_dir.resolve()
     payload = ac.cycle_summary_payload(ac.CycleReport(), [], plan, "ok")
     assert payload["log_dir"] == str(plan.log_dir)
 
@@ -6705,25 +6754,26 @@ def test_prune_build_logs_keeps_the_newest_runs_and_never_the_pointer(tmp_path):
     assert ac.prune_build_logs(tmp_path / "never-ran", 10) == []
 
 
-def test_retention_prunes_the_build_logs_under_a_live_server_too(tmp_path, monkeypatch, real_run_retention):
+def test_retention_prunes_the_build_logs_under_a_live_server_too(tmp_path, monkeypatch):
     """The build logs sit beside the journal in the retention block but answer to nothing the app writes, so a listening review server — which parks the stash sweep and the compaction — leaves them prunable."""
     plan = _plan(skip_plumbing=True, plumbing_note=ac.PLUMBING_SKIP_NOTE)
     monkeypatch.setattr(ac, "ROOT", tmp_path)
     monkeypatch.setattr(ac, "REVIEW_OUT", tmp_path / "review")
-    monkeypatch.setattr(ac, "DEEP_REPLAY_GREEN", tmp_path / "deep-replay-green.json")
-    monkeypatch.setattr(ac, "BUILD_LOGS_ROOT", tmp_path / "var" / "build-logs")
+    monkeypatch.setattr(cycle_paths, "DEEP_REPLAY_GREEN", tmp_path / "deep-replay-green.json")
+    monkeypatch.setattr(cycle_paths, "BUILD_LOGS_ROOT", tmp_path / "var" / "build-logs")
     (tmp_path / "var" / "build-logs").mkdir(parents=True)
-    for index in range(ac.BUILD_LOGS_KEEP + 3):
+    for index in range(cycle_paths.BUILD_LOGS_KEEP + 3):
         (tmp_path / "var" / "build-logs" / f"2026010{index // 9}T00000{index % 9}Z-abc").mkdir()
     monkeypatch.setattr(ac, "server_listening", lambda port=ac.REVIEW_PORT: True)
 
-    pruned = real_run_retention(plan)
+    pruned = ac.run_retention(plan)
 
     assert any(
-        f"build logs: removed 3; kept the last {ac.BUILD_LOGS_KEEP} runs" in line for line in pruned.lines
+        f"build logs: removed 3; kept the last {cycle_paths.BUILD_LOGS_KEEP} runs" in line
+        for line in pruned.lines
     )
     assert "3 build logs" in pruned.figure
-    assert len(list((tmp_path / "var" / "build-logs").iterdir())) == ac.BUILD_LOGS_KEEP
+    assert len(list((tmp_path / "var" / "build-logs").iterdir())) == cycle_paths.BUILD_LOGS_KEEP
 
 
 def test_failing_cycle_still_journals_a_run_line(monkeypatch, tmp_path):
