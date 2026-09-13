@@ -990,7 +990,7 @@ def _expand_ligature_lefts(
 
 
 def outgoing_policy_record(record: PolicyRecord, source: Stance, target_stance: str) -> PolicyRecord | None:
-    """Project an exit-only policy onto a ligature stance. Incoming state, word position, stance selection, and mixed-side votes belong to the component's placement, not its preserved outgoing stroke. Bitmap bindings need an explicit exception and a ligature-local replacement at the caller."""
+    """Project an exit-side policy onto a ligature stance: a record naming one of the source's exits, an exit-only preference, or a refusal naming neither side, which vetoes the only seam an entryless ligature has. Incoming state, word position, stance selection, and mixed-side votes belong to the component's placement, not its preserved outgoing stroke. Bitmap bindings need an explicit exception and a ligature-local replacement at the caller."""
     if record.stance not in (None, source.name) or record.entry is not None:
         return None
     when = record.when
@@ -1008,7 +1008,10 @@ def outgoing_policy_record(record: PolicyRecord, source: Stance, target_stance: 
             pattern["exit"] not in heights | {"none"} for pattern in (record.cell, record.over) if pattern
         ):
             return None
-    elif record.kind not in ("refuse", "extend", "contract") or record.exit not in heights:
+    elif record.kind == "refuse":
+        if record.exit is not None and record.exit not in heights:
+            return None
+    elif record.kind not in ("extend", "contract") or record.exit not in heights:
         return None
     return replace(record, stance=target_stance)
 
@@ -1132,6 +1135,11 @@ def _inherit_ligature_outgoing(runes: dict[str, Rune], contexts: dict[str, _File
                         continue
                     key = f"policy.{kind}[{index}]"
                     if excepted(key):
+                        if projected.bind is not None and key not in declaration.get("replacements", {}):
+                            context.error(
+                                f"{path}.replacements",
+                                f"{key} binds a component bitmap; its exception needs a replacements entry naming the ligature-local policy",
+                            )
                         continue
                     if projected.bind is not None:
                         context.error(

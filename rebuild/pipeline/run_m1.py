@@ -636,7 +636,7 @@ class TableGates:
             self._packing.close()
 
 
-def run_ligature_outgoing(spec: ResolvedSpec, out_dir: Path = OUT_DIR, runes_dir: Path | None = None) -> dict:
+def run_ligature_outgoing(spec: ResolvedSpec, out_dir: Path = OUT_DIR) -> dict:
     """Verify authored outgoing mappings over the loaded spec and keep the result with this build's tables."""
     from rebuild.pipeline.ligature_outgoing_check import validate_ligature_outgoing
     from rebuild.pipeline.spec_load import DEFAULT_RUNES_DIR
@@ -644,8 +644,7 @@ def run_ligature_outgoing(spec: ResolvedSpec, out_dir: Path = OUT_DIR, runes_dir
     console.phase("ligature_outgoing")
     start = time.perf_counter()
     rune_raws = {
-        path.stem: yaml.safe_load(path.read_text())
-        for path in sorted((runes_dir if runes_dir is not None else DEFAULT_RUNES_DIR).glob("*.yaml"))
+        path.stem: yaml.safe_load(path.read_text()) for path in sorted(DEFAULT_RUNES_DIR.glob("*.yaml"))
     }
     summary = validate_ligature_outgoing(spec, rune_raws)
     out_dir.mkdir(parents=True, exist_ok=True)

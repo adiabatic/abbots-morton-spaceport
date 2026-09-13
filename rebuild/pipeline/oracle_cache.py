@@ -151,7 +151,7 @@ def _reach_lines(name: str, digests: Mapping[str, str], closure: Mapping[str, fr
 
 
 def family_keys(repo_root: Path, spec: ResolvedSpec, alias_path: Path) -> dict[str, str]:
-    """Per rune family, the digest a row's staleness test cites for it: the family's prose-blind rune digest joined with the digests of its static `resolve.against` closure — the one route by which its records read another rune file's content directly — and with the alias map's entries for that family, which are what the comparison reads to turn an old compiled name into a cell. A family with no alias entries records `-` rather than being omitted, so the key still moves the day entries appear for it. Every other cross-rune route rides the whole-store stamp."""
+    """Per rune family, the digest a row's staleness test cites for it: the family's prose-blind rune digest joined with the digests of its `spec_load.rune_closure` — the trailing component whose outgoing stroke a ligature preserves and the static `resolve.against` targets, the routes by which its records read another rune file's content directly — and with the alias map's entries for that family, which are what the comparison reads to turn an old compiled name into a cell. A family with no alias entries records `-` rather than being omitted, so the key still moves the day entries appear for it. Every other cross-rune route rides the whole-store stamp."""
     digests = fingerprint.rune_digests(Path(repo_root))
     closure = spec_load.rune_closure(spec)
     aliases = alias_family_digests(Path(alias_path), digests.keys())

@@ -2,7 +2,7 @@
 
 The check asks the Rust settlement engine about the formed rune's outgoing capability, independently of its incoming requirements and of the unformed trailing component's internal left neighbor. Each mapped stance is compared with the same ligature carrying its source stance's outgoing scopes and applicable policy. A formation guard rescuing an omitted exit does not discharge this contract. The ordinary conformance sweep proves the realized, fully contextual stream; this check proves the author's per-stance outgoing declaration before tables are built.
 
-The domain contains every modeled follower and second token, the splitting boundaries and namer dot, and witnesses for authored deeper condition chains, including the follower's chains shifted one position into the window. Both joining and yielding must agree. Windows stream through the existing settlement batch bound, with one projection pair resident at a time. The isolated overlay preempts formation and is reported separately.
+The domain contains every modeled follower and second token, the splitting boundaries and namer dot, and witnesses for authored deeper condition chains, including the follower's chains shifted one position into the window. The seam, its height included, and yielding must agree, so a local record that drops a join, moves it to another height, or joins where the source yields is refused. Windows stream through the existing settlement batch bound, with one projection pair resident at a time. The isolated overlay preempts formation and is reported separately.
 """
 
 from __future__ import annotations
@@ -30,7 +30,7 @@ _BOUNDARIES = (EDGE, SPACE, ZWNJ, NAMER_DOT)
 
 
 class LigatureOutgoingError(ValueError):
-    """A formed ligature loses a join or yield from its declared outgoing source."""
+    """A formed ligature loses or moves a join, or loses a yield, from its declared outgoing source."""
 
 
 def _records(policy: Policy) -> Iterable[PolicyRecord]:
@@ -238,12 +238,16 @@ def validate_ligature_outgoing(spec: ResolvedSpec, rune_raws: Mapping[str, dict]
                     checked += 1
                     if wanted is None:
                         continue
-                    expected_join = wanted.seam is not None
-                    actual_join = got is not None and got.seam is not None
-                    if expected_join == actual_join:
+                    actual_seam = None if got is None else got.seam
+                    if wanted.seam == actual_seam:
                         continue
                     following = " ".join(token.rune or token.kind for token in right)
-                    mismatch = f"lost {wanted.seam} seam" if expected_join else "lost outgoing yield"
+                    if wanted.seam is None:
+                        mismatch = "lost outgoing yield"
+                    elif actual_seam is None:
+                        mismatch = f"lost {wanted.seam} seam"
+                    else:
+                        mismatch = f"moved {wanted.seam} seam to {actual_seam}"
                     raise LigatureOutgoingError(
                         f"{rune.name}.stances.{stance.name}.outgoing: {mismatch} from {rune.sequence[-1]}.{declaration['stance']} under {config}; left={left.kind}, right=[{following}]"
                     )
