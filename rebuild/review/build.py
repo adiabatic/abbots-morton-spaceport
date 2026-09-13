@@ -963,10 +963,14 @@ def _resolve_signature_digests(
     helpers_digest: str,
     signature_jobs: int,
     fresh: bool,
-) -> tuple[dict[tuple[str, str], str], dict[str, str], str, int, int]:
+) -> tuple[dict[tuple[str, str], str], dict[str, str], fingerprint.EnvironmentStamp, int, int]:
     """The ink-duplicate merge's signature digests, one per row of `signature_rows`, served from the persisted store where the content key still holds and shaped live for the remainder — across a spawn pool when the miss pile is deep enough to amortize its startup, else serially through the parent's shared shapers, whose memo is released once the pass is done so the parent carries no shape from it into the units phase. The pool's width is `signature_jobs`, a width of this phase's own rather than the units runner's `jobs`: a signature worker is one comparator over the two fonts and nothing else, flat in the pile it shapes and pure CPU, so cores bind it where memory binds the units worker, and the cycle hands it the cores the box has (`artifact_cycle.signature_job_budget`). The pool maps chunks rather than pairs — eight per worker, the same arithmetic as a per-pair chunksize — so each reply can carry its worker's peak, and `pool.map` keeps the chunks in miss order, which is what makes the pooled pass byte-identical to the serial one. Returns the digests keyed (codepoints, config), the store records to persist after the build, the store's environment stamp, the count actually shaped, and the width the shaping ran at (one for a serial pass; the load line names the mode only when something was shaped, since a fully served store ran neither)."""
     environment = unit_cache.signature_environment(repo_root, before_font, helpers_digest)
     prior = None if fresh else unit_cache.load_signature_store(out_dir, environment)
+    if not fresh and prior is None:
+        note = unit_cache.signature_miss_note(out_dir, environment) or unit_cache.UNREADABLE_NOTE
+        report = console.say if note == unit_cache.NO_STORE_NOTE else console.warn
+        report(f"ink-signature store: {note}", file=sys.stderr)
     keys = {(row.codepoints, row.config): keyer.signature_key(row) for row in rows}
     signatures: dict[tuple[str, str], str] = {}
     entries: dict[str, str] = {}
@@ -1009,7 +1013,9 @@ def _resolve_signature_digests(
 class _SignatureWrite:
     """The ink-signature store's write, run on one thread through the units phase of a pooled build and joined in the cache phase. The entries are final when `_resolve_signature_digests` returns and nothing mutates them afterward, so the thread owns them for the length of the phase, and the store's stamp (`unit_cache.signature_environment`) reads neither the manifest nor the check, so the write depends on nothing the phases after it produce. What makes the overlap free is that zlib releases the GIL and a pooled build's parent is parked in `multiprocessing.connection.wait` for the phase, waking only to merge a batch reply and hand out the next — which is why the start belongs at the units-phase boundary and not where the entries go final, where the sort and the line formatting (the GIL-held halves) would compete with the load tail and the plan phase; the serial build has no idle parent to overlap with and writes in place in the cache phase instead. The thread is a daemon and is joined only on the success path, so an exception leaving the build abandons the write rather than waiting on it; a write that fails raises at the join, in the cache phase. The transient sorted-key list moves into the units phase with the write, where `tally.boundary("units")` reads it and `boundary("cache")` does not: tens of megabytes against `SURFACE_PARENT_BYTES`, inside its noise, so no constant moves. The runner and the signature pool spawn rather than fork, so a thread alive at process creation carries no fork hazard; anything here that moves to a fork context has to read this first."""
 
-    def __init__(self, out_dir: Path, environment: str, entries: Mapping[str, str]) -> None:
+    def __init__(
+        self, out_dir: Path, environment: fingerprint.EnvironmentStamp, entries: Mapping[str, str]
+    ) -> None:
         self._out_dir = out_dir
         self._environment = environment
         self._entries = entries
@@ -1871,6 +1877,10 @@ def build_m1(
         named = {unit.input_key for unit in workload.units}
         store = unit_cache.load_store(out_dir, environment, wanted=named, pool=pool)
         del named
+        if store is None:
+            note = unit_cache.store_miss_note(out_dir, environment) or unit_cache.UNREADABLE_NOTE
+            report = console.say if note == unit_cache.NO_STORE_NOTE else console.warn
+            report(f"unit cache: {note}", file=sys.stderr)
     served: dict[str, unit_cache.ServedUnit] = {}
     located: dict[str, unit_cache.PriorFragment] = {}
     if store:
@@ -1900,7 +1910,9 @@ def build_m1(
             assert unit.unit_id == cached.prior_id, (unit.unit_id, cached.prior_id)
     fresh = [unit for unit in workload.units if unit.input_key not in served]
     sampled = set(
-        _verification_sample(sorted(unit.unit_id for unit in workload.units if unit.unit_id), environment)
+        _verification_sample(
+            sorted(unit.unit_id for unit in workload.units if unit.unit_id), environment.value
+        )
     )
     # Copies, because recomputing a unit's phase 1 writes the ink flags onto it and the verification patch writes the injected echo and class; the originals are the ones the reduces and the store read.
     verify_units = [replace(unit) for unit in workload.units if unit.unit_id in sampled]

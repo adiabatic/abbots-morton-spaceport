@@ -40,6 +40,7 @@ from typing import IO, Collection, Iterable, Mapping, Sequence
 import yaml
 
 from rebuild.pipeline import fingerprint, kernel_exec, spec_load
+from rebuild.pipeline.fingerprint import EnvironmentStamp, moved_note
 from rebuild.pipeline.model import ResolvedSpec
 from rebuild.validation.rowmodel import Row, format_codepoints
 
@@ -109,10 +110,6 @@ def _sha256_file(path: Path) -> str:
         return "missing"
 
 
-def _digest_lines(lines: Iterable[str]) -> str:
-    return hashlib.sha256("\n".join(lines).encode()).hexdigest()
-
-
 def stamped_data_paths(repo_root: Path) -> list[Path]:
     """The data inputs the whole-store stamp folds: `fingerprint.data_paths` less the rune files, which invalidate at family grain through the keys instead, and less the three the comparison never consults — the alias map, whose family heads are stamped per family and whose two boundary heads ride their own line; the divergence ledger, since classification re-reads it over every row on every pass; and the kern sidecar, which the position stamp carries so that an edit to it re-shapes every position and re-derives nothing. The contact-allow list needs no exclusion: it left `fingerprint.data_paths` with the defect gate's own key, so nothing here has to name a path that set no longer contains. It is exported because `artifact_cycle.oracle_cache_note` has to say what a moved input will cost the store before the oracle has run, and a second hand-kept copy of this list is precisely the thing that would drift out of agreement with the stamp it is describing."""
     root = Path(repo_root)
@@ -141,7 +138,7 @@ def alias_family_digests(alias_path: Path, family_names: Collection[str]) -> dic
                 f"{Path(alias_path).name} entry {key!r} buckets to {head!r}, which has no family key — a family the alias map names but the rune digests do not can never be reported moved"
             )
         buckets.setdefault(head, []).append(f"{key}\t{json.dumps(raw[key], sort_keys=True)}")
-    return {head: _digest_lines(lines) for head, lines in buckets.items()}
+    return {head: fingerprint.digest_lines(lines) for head, lines in buckets.items()}
 
 
 def _reach_lines(name: str, digests: Mapping[str, str], closure: Mapping[str, frozenset[str]]) -> list[str]:
@@ -159,14 +156,16 @@ def family_keys(repo_root: Path, spec: ResolvedSpec, alias_path: Path) -> dict[s
     for name in sorted(digests):
         lines = _reach_lines(name, digests, closure)
         lines.append(f"alias\t{aliases.get(name, '-')}")
-        keys[name] = _digest_lines(lines)
+        keys[name] = fingerprint.digest_lines(lines)
     return keys
 
 
 def position_family_keys(row_keys: Mapping[str, str], glyph_digests: Mapping[str, str]) -> dict[str, str]:
     """Per family, the digest a row's position verdict cites for it: the family's row key — so a position is stale wherever the row verdict is — joined with the after font's compiled-glyph digest for that family (`fingerprint.after_font_glyph_digests`). Cut over the union of the two rosters, so a family the font holds glyphs for and the rune tree holds no key for, or the reverse, still carries a key that can be reported moved; a name absent from one side records `-` on that side."""
     return {
-        name: _digest_lines((f"row\t{row_keys.get(name, '-')}", f"glyphs\t{glyph_digests.get(name, '-')}"))
+        name: fingerprint.digest_lines(
+            (f"row\t{row_keys.get(name, '-')}", f"glyphs\t{glyph_digests.get(name, '-')}")
+        )
         for name in sorted(set(row_keys) | set(glyph_digests))
     }
 
@@ -209,7 +208,7 @@ def settle_family_keys(inputs: SettleMemoInputs, spec: ResolvedSpec) -> dict[str
     """Per rune family, the digest a memo entry's staleness test cites for it: `family_keys` without the alias line, because the walk that fills the memo never reads the alias map — a settlement is a function of the rune files a window names and of their `resolve.against` closure, and of nothing the comparison adds on top."""
     closure = spec_load.rune_closure(spec)
     return {
-        name: _digest_lines(_reach_lines(name, inputs.rune_digests, closure))
+        name: fingerprint.digest_lines(_reach_lines(name, inputs.rune_digests, closure))
         for name in sorted(inputs.rune_digests)
     }
 
@@ -228,26 +227,6 @@ def settle_memo_stamp(
         "settlement_flags\t" + json.dumps(kernel_exec.settlement_flags()),
     )
     return EnvironmentStamp(lines=lines)
-
-
-@dataclass(frozen=True)
-class EnvironmentStamp:
-    """The whole-store stamp as its own `label\\tdigest` lines rather than only as a hash, in the `fingerprint.path_lines` idiom: a store that records the lines it was written under lets a miss name which input moved, and the hit rate here is bimodal enough that a legitimate class-membership invalidation would otherwise read as a bug."""
-
-    lines: tuple[str, ...]
-
-    @property
-    def value(self) -> str:
-        return _digest_lines(self.lines)
-
-    @property
-    def labels(self) -> dict[str, str]:
-        """The same lines as a `label -> digest` map, which is the shape `moved_note` compares."""
-        labels: dict[str, str] = {}
-        for line in self.lines:
-            label, _, digest = line.partition("\t")
-            labels[label] = digest
-        return labels
 
 
 def environment_stamp(
@@ -272,7 +251,7 @@ def environment_stamp(
         "capability_features\t" + json.dumps(spec_load.capability_features(spec)),
         "settlement_flags\t" + json.dumps(kernel_exec.settlement_flags()),
         "alias_boundary\t"
-        + _digest_lines(
+        + fingerprint.digest_lines(
             f"{head}\t{boundary[head]}" for head in sorted(boundary) if head in BOUNDARY_ALIAS_HEADS
         ),
         f"subset\t{_sha256_file(Path(subset_path))}",
@@ -287,21 +266,6 @@ def moved_families(recorded: Mapping[str, str], current: Mapping[str, str]) -> f
         if current[name] != recorded[name]:
             moved.add(name)
     return frozenset(moved)
-
-
-def moved_note(recorded: Mapping[str, str], current: Mapping[str, str], limit: int = 8) -> str | None:
-    """Which labels moved between two `label -> digest` maps — the miss diagnostic, over the stamp's own lines or over the family keys. `None` when nothing differs. Mirrors `artifact_cycle.moved_inputs_note`, which is the house idiom for this."""
-    moved = [
-        f"{name} (changed)"
-        for name in sorted(recorded.keys() & current.keys())
-        if recorded[name] != current[name]
-    ]
-    moved += [f"{name} (new)" for name in sorted(current.keys() - recorded.keys())]
-    moved += [f"{name} (gone)" for name in sorted(recorded.keys() - current.keys())]
-    if not moved:
-        return None
-    shown = ", ".join(moved[:limit])
-    return f"{shown} and {len(moved) - limit} more" if len(moved) > limit else shown
 
 
 class StaleMask:

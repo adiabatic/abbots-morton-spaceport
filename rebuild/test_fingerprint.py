@@ -891,6 +891,43 @@ def test_path_lines_hash_everything_but_code_raw(tmp_path):
         assert digests[fingerprint._label(root, path)] != fingerprint.file_sha256(path)
 
 
+def test_moved_note_expands_a_changed_label_through_its_sub_diff():
+    """A label handed a sub-note reads `label: sub-note` in place of `label (changed)`, and only a changed label does: a label whose sub-note is `None`, a new or gone label, and every label the caller did not name render as they do without `expand`, and the cap still counts labels."""
+    recorded = {"code": "a", "data": "x", "old": "1"}
+    current = {"code": "b", "data": "y", "new": "2"}
+    assert (
+        fingerprint.moved_note(recorded, current) == "code (changed), data (changed), new (new), old (gone)"
+    )
+    assert (
+        fingerprint.moved_note(recorded, current, expand={"code": "rebuild/review/ink.py (changed)"})
+        == "code: rebuild/review/ink.py (changed), data (changed), new (new), old (gone)"
+    )
+    assert fingerprint.moved_note(
+        recorded, current, expand={"code": None, "new": "never", "old": "never"}
+    ) == ("code (changed), data (changed), new (new), old (gone)")
+    assert (
+        fingerprint.moved_note(recorded, current, limit=2, expand={"code": "ink.py (changed)"})
+        == "code: ink.py (changed), data (changed) and 2 more"
+    )
+    assert fingerprint.moved_note(recorded, recorded, expand={"code": "ink.py (changed)"}) is None
+
+
+def test_an_environment_stamp_hashes_its_lines_and_carries_its_detail_outside_them():
+    """`value` and `labels` read `lines` alone, so a stamp that carries per-file detail for a label hashes exactly as one that does not — which is what keeps a store's recorded hex where it was when its writer starts recording detail — while `detail_labels` answers the label's own map and an empty one for a label carrying none."""
+    lines = ("format\tf/1", "surface_code\tabc", "data\tddd")
+    bare = fingerprint.EnvironmentStamp(lines=lines)
+    detailed = fingerprint.EnvironmentStamp(
+        lines=lines, detail=(("surface_code", ("rebuild/review/ink.py\t1", "rebuild/review/build.py\t2")),)
+    )
+    assert detailed.value == bare.value == hashlib.sha256("\n".join(lines).encode()).hexdigest()
+    assert detailed.labels == bare.labels == {"format": "f/1", "surface_code": "abc", "data": "ddd"}
+    assert detailed.detail_labels("surface_code") == {
+        "rebuild/review/ink.py": "1",
+        "rebuild/review/build.py": "2",
+    }
+    assert detailed.detail_labels("data") == {} == bare.detail_labels("surface_code")
+
+
 def _code_keyed(root):
     return (
         fingerprint.compute_all(root)["pipeline_code"],

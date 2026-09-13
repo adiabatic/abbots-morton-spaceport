@@ -24,8 +24,9 @@ from __future__ import annotations
 import ast
 import hashlib
 import json
+from dataclasses import dataclass
 from pathlib import Path
-from typing import Callable
+from typing import Callable, Iterable, Mapping
 
 import yaml
 
@@ -178,8 +179,68 @@ def path_lines(repo_root: Path, paths: list[Path]) -> list[str]:
     return sorted(f"{_label(repo_root, path)}\t{code_file_digest(path)}" for path in paths if path.is_file())
 
 
+def digest_lines(lines: Iterable[str]) -> str:
+    return hashlib.sha256("\n".join(lines).encode()).hexdigest()
+
+
 def hash_paths(repo_root: Path, paths: list[Path]) -> str:
-    return hashlib.sha256("\n".join(path_lines(repo_root, paths)).encode()).hexdigest()
+    return digest_lines(path_lines(repo_root, paths))
+
+
+def _labels_of(lines: Iterable[str]) -> dict[str, str]:
+    labels: dict[str, str] = {}
+    for line in lines:
+        label, _, digest = line.partition("\t")
+        labels[label] = digest
+    return labels
+
+
+@dataclass(frozen=True)
+class EnvironmentStamp:
+    """A whole-store stamp as its own `label\\tdigest` lines rather than only as a hash, in the `path_lines` idiom: a store that records the lines it was written under lets a miss name which input moved, where a store recording only the hex can say that some 64-hex value did. `value` is the digest over `lines` and nothing else, so a caller that compares hex compares exactly what a lines-blind stamp held. `detail` carries, per label, the lines a label's own digest folds — the `path_lines` of a code closure — so a miss can name the file inside a closure and not just the closure; it sits outside `value` and `labels`, so a stamp with detail and one without agree on both.
+
+    The type is here rather than beside the oracle row cache because both trees that stamp a store import this module and neither may import the other's: the review surface's stores may not reach `rebuild/pipeline/oracle_cache.py`, which sits outside `unit_cache.surface_code_paths` and would drag an unstamped pipeline module into the surface build's closure (rebuild/test_review_code_closure.py holds that roster), and the pipeline never imports `rebuild/review/`.
+    """
+
+    lines: tuple[str, ...]
+    detail: tuple[tuple[str, tuple[str, ...]], ...] = ()
+
+    @property
+    def value(self) -> str:
+        return digest_lines(self.lines)
+
+    @property
+    def labels(self) -> dict[str, str]:
+        """The same lines as a `label -> digest` map, which is the shape `moved_note` compares."""
+        return _labels_of(self.lines)
+
+    def detail_labels(self, label: str) -> dict[str, str]:
+        """One label's expansion as a `label -> digest` map, for the sub-diff `moved_note` renders through `expand`; empty for a label carrying no detail."""
+        for name, lines in self.detail:
+            if name == label:
+                return _labels_of(lines)
+        return {}
+
+
+def moved_note(
+    recorded: Mapping[str, str],
+    current: Mapping[str, str],
+    limit: int = 8,
+    expand: Mapping[str, str | None] | None = None,
+) -> str | None:
+    """Which labels moved between two `label -> digest` maps — the miss diagnostic, over a stamp's own lines, over a code closure's per-file lines, or over a store's family keys. `None` when nothing differs. A changed label that `expand` hands a sub-note reads `label: sub-note` in place of `label (changed)`, which is how a closure label names the files that moved inside it; a new or gone label has no sub-diff and is never expanded, and a label whose sub-note is `None` reads as plainly changed. Mirrors `artifact_cycle.moved_inputs_note`, which is the house idiom for this."""
+    moved: list[str] = []
+    for name in sorted(recorded.keys() & current.keys()):
+        if recorded[name] == current[name]:
+            continue
+        inner = expand.get(name) if expand else None
+        moved.append(f"{name}: {inner}" if inner else f"{name} (changed)")
+    moved += [f"{name} (new)" for name in sorted(current.keys() - recorded.keys())]
+    moved += [f"{name} (gone)" for name in sorted(recorded.keys() - current.keys())]
+    if not moved:
+        return None
+    shown = ", ".join(moved[:limit])
+    return f"{shown} and {len(moved) - limit} more" if len(moved) > limit else shown
 
 
 def cursive_anchor_map(font) -> dict[str, list]:
