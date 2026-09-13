@@ -17,7 +17,7 @@ from types import SimpleNamespace
 import pytest
 import yaml
 
-from rebuild.pipeline import fixtures, kernel_exec, spec_load
+from rebuild.pipeline import fingerprint, fixtures, kernel_exec, spec_load
 from rebuild.review import unit_cache, unit_index
 from rebuild.review import build as review_build
 from rebuild.review import enrich as review_enrich
@@ -67,6 +67,7 @@ def _counts(text: str, pattern: str) -> tuple[int, ...]:
 SERVED = r"served (\d[\d,]*) of (\d[\d,]*) units from cache"
 VERBATIM = r"verbatim (\d[\d,]*) of (\d[\d,]*) fragments, respooled (\d[\d,]*) sidecar rows"
 CARRIED = r"carried (\d[\d,]*) of (\d[\d,]*) store records"
+MISS_NOTE = re.compile(r"(unit cache|ink-signature store): .*")
 
 
 def _served(capfd) -> tuple[int, int]:
@@ -94,6 +95,7 @@ def test_no_change_rebuild_serves_every_unit_and_is_byte_stable(mini_surface, mi
     report = capfd.readouterr().err
     served, total = _counts(report, SERVED)
     assert served == total
+    assert MISS_NOTE.search(report) is None, report
     verbatim, written, respooled = _counts(report, VERBATIM)
     assert (verbatim, written, respooled) == (total, total, total)
     assert _counts(report, CARRIED) == (total, total)
@@ -437,8 +439,10 @@ def test_corrupt_store_degrades_to_a_full_build(mini_surface, mini_bundle, tmp_p
     surface = _copy(mini_surface, tmp_path)
     unit_cache.store_path(surface).write_bytes(b"not a gzip stream")
     _build(surface, mini_bundle, jobs=1)
-    served, _total = _served(capfd)
+    report = capfd.readouterr().err
+    served, _total = _counts(report, SERVED)
     assert served == 0
+    assert f"unit cache: {unit_cache.UNREADABLE_NOTE}" in report
     assert _tree(surface) == _tree(mini_surface)
 
 
@@ -478,10 +482,12 @@ def test_a_pooled_served_rebuild_is_byte_identical_to_the_serial_one(
     assert _tree(surface) == _tree(mini_surface)
 
 
+SIGNATURES = r"signatures: (\d[\d,]*) cached, (\d[\d,]*) shaped"
+
+
 def _signatures(capfd) -> tuple[int, int]:
-    match = re.search(r"signatures: (\d[\d,]*) cached, (\d[\d,]*) shaped", capfd.readouterr().err)
-    assert match, "the build did not report its signature plan"
-    return int(match.group(1).replace(",", "")), int(match.group(2).replace(",", ""))
+    cached, shaped = _counts(capfd.readouterr().err, SIGNATURES)
+    return cached, shaped
 
 
 def test_a_pooled_signature_pass_is_byte_identical_to_the_serial_one(
@@ -536,9 +542,11 @@ def test_corrupt_signature_store_reshapes_and_degrades_to_the_same_bytes(
     surface = _copy(mini_surface, tmp_path)
     unit_cache.signature_store_path(surface).write_bytes(b"not a gzip stream")
     _build(surface, mini_bundle, jobs=1)
-    cached, shaped = _signatures(capfd)
+    report = capfd.readouterr().err
+    cached, shaped = _counts(report, SIGNATURES)
     assert cached == 0
     assert shaped > 0
+    assert f"ink-signature store: {unit_cache.UNREADABLE_NOTE}" in report
     assert _tree(surface) == _tree(mini_surface)
 
 
@@ -630,37 +638,174 @@ COMPARATOR_CODE = (
 )
 
 
-def test_both_store_stamps_survive_a_pipeline_or_crate_edit_the_surface_never_reads(tmp_path):
-    """The narrowing each stamp's code line makes, stated as the cost it avoids. An edit to the driver, the oracle, a gate, the font compile, the conformance sweep, the oracle's row cache, the GSUB emitter, the pixel geometry or the crate's enumeration and fold — code the surface build never executes — moves neither stamp, where a whole-tree `pipeline_code` component would drop both stores and cost the next build a cold units phase (`unit_cache.surface_code_paths`). An edit to a module the build runs and no signature does — the kernel seam, the stream vocabulary the build shares with the sweep, the corpus-pin replay beside the shaper, the build driver, this cache, the enricher, the crate's dispatcher, engine and lock file — moves the unit store's stamp and leaves the signature store's exactly where it was, so the next build re-enriches and re-shapes nothing (`unit_cache.signature_code_paths`). An edit to the comparator or a module it imports moves both. A hand-built root, so the edits are real files and the assertion is about the rosters rather than about this checkout; rebuild/test_review_code_closure.py is what holds those rosters to the walked closure. Each file is written as a statement on both sides of its edit, because the code line's digest is prose-blind (`fingerprint.code_file_digest`) and falls back to raw bytes only for a file that will not parse: a Python file spelled as bare prose would prove the fallback rather than the projection."""
-    spec = fixtures.mini_spec()
+def _stamped_root(tmp_path: Path) -> Path:
+    """A hand-built root holding every file the three code rosters name, each written as a statement so the code line's prose-blind digest reads a real edit; the stamp tests below edit it through `_edit` so the assertions are about the rosters rather than about this checkout."""
     root = tmp_path / "repo"
     for relative in SURFACE_UNREAD_CODE + SURFACE_ONLY_CODE + COMPARATOR_CODE:
         (root / relative).parent.mkdir(parents=True, exist_ok=True)
         (root / relative).write_text(f"RELATIVE = {relative!r}\n", encoding="utf-8")
+    return root
+
+
+def _edit(root: Path, relative: str) -> None:
+    (root / relative).write_text(f"RELATIVE = {relative!r}\nEDITED = 1\n", encoding="utf-8")
+
+
+def test_both_store_stamps_survive_a_pipeline_or_crate_edit_the_surface_never_reads(tmp_path):
+    """The narrowing each stamp's code line makes, stated as the cost it avoids. An edit to the driver, the oracle, a gate, the font compile, the conformance sweep, the oracle's row cache, the GSUB emitter, the pixel geometry or the crate's enumeration and fold — code the surface build never executes — moves neither stamp, where a whole-tree `pipeline_code` component would drop both stores and cost the next build a cold units phase (`unit_cache.surface_code_paths`). An edit to a module the build runs and no signature does — the kernel seam, the stream vocabulary the build shares with the sweep, the corpus-pin replay beside the shaper, the build driver, this cache, the enricher, the crate's dispatcher, engine and lock file — moves the unit store's stamp and leaves the signature store's exactly where it was, so the next build re-enriches and re-shapes nothing (`unit_cache.signature_code_paths`). An edit to the comparator or a module it imports moves both. A hand-built root, so the edits are real files and the assertion is about the rosters rather than about this checkout; rebuild/test_review_code_closure.py is what holds those rosters to the walked closure. Each file is written as a statement on both sides of its edit, because the code line's digest is prose-blind (`fingerprint.code_file_digest`) and falls back to raw bytes only for a file that will not parse: a Python file spelled as bare prose would prove the fallback rather than the projection."""
+    spec = fixtures.mini_spec()
+    root = _stamped_root(tmp_path)
 
     def stamps() -> tuple[str, str]:
         return (
-            unit_cache.environment_stamp(root, spec, MINI, MINI_FONT, MINI_FONT, "after-helpers"),
-            unit_cache.signature_environment(root, MINI_FONT, "after-helpers"),
+            unit_cache.environment_stamp(root, spec, MINI, MINI_FONT, MINI_FONT, "after-helpers").value,
+            unit_cache.signature_environment(root, MINI_FONT, "after-helpers").value,
         )
 
     base = stamps()
     for relative in SURFACE_UNREAD_CODE:
-        (root / relative).write_text(f"RELATIVE = {relative!r}\nEDITED = 1\n", encoding="utf-8")
+        _edit(root, relative)
         assert stamps() == base, relative
     previous = base
     for relative in SURFACE_ONLY_CODE:
-        (root / relative).write_text(f"RELATIVE = {relative!r}\nEDITED = 1\n", encoding="utf-8")
+        _edit(root, relative)
         current = stamps()
         assert current[0] != previous[0], relative
         assert current[1] == base[1], relative
         previous = current
     for relative in COMPARATOR_CODE:
-        (root / relative).write_text(f"RELATIVE = {relative!r}\nEDITED = 1\n", encoding="utf-8")
+        _edit(root, relative)
         current = stamps()
         assert current[0] != previous[0], relative
         assert current[1] != previous[1], relative
         previous = current
+
+
+def _both_stamps(root: Path, spec) -> tuple[fingerprint.EnvironmentStamp, fingerprint.EnvironmentStamp]:
+    return (
+        unit_cache.environment_stamp(root, spec, MINI, MINI_FONT, MINI_FONT, "after-helpers"),
+        unit_cache.signature_environment(root, MINI_FONT, "after-helpers"),
+    )
+
+
+def test_a_miss_note_names_the_closure_file_that_moved(tmp_path):
+    """The diagnostic the stores exist to give: a store written under one stamp and asked for its miss note under a stamp whose comparator module moved names the file, not the closure digest — for the unit store under `surface_code`, for the ink-signature store under `comparator_code`. An edit to a module only the build runs names it for the unit store and leaves the signature store with nothing to say, which is the narrowing `signature_code_paths` makes read back off the stores themselves."""
+    spec = fixtures.mini_spec()
+    root = _stamped_root(tmp_path)
+    out = tmp_path / "surface"
+    out.mkdir()
+    unit_stamp, signature_stamp = _both_stamps(root, spec)
+    unit_cache.write_store(out, unit_stamp, [], parts=())
+    unit_cache.write_signature_store(out, signature_stamp, {})
+    assert unit_cache.store_miss_note(out, unit_stamp) is None
+    assert unit_cache.signature_miss_note(out, signature_stamp) is None
+
+    _edit(root, "rebuild/review/ink.py")
+    unit_stamp, signature_stamp = _both_stamps(root, spec)
+    assert unit_cache.load_store(out, unit_stamp) is None
+    assert unit_cache.load_signature_store(out, signature_stamp) is None
+    assert (
+        unit_cache.store_miss_note(out, unit_stamp)
+        == "the stamp moved at surface_code: rebuild/review/ink.py (changed)"
+    )
+    assert (
+        unit_cache.signature_miss_note(out, signature_stamp)
+        == "the stamp moved at comparator_code: rebuild/review/ink.py (changed)"
+    )
+
+    unit_cache.write_store(out, unit_stamp, [], parts=())
+    unit_cache.write_signature_store(out, signature_stamp, {})
+    _edit(root, "rebuild/review/build.py")
+    unit_stamp, signature_stamp = _both_stamps(root, spec)
+    assert (
+        unit_cache.store_miss_note(out, unit_stamp)
+        == "the stamp moved at surface_code: rebuild/review/build.py (changed)"
+    )
+    assert unit_cache.signature_miss_note(out, signature_stamp) is None
+    assert unit_cache.load_signature_store(out, signature_stamp) == {}
+
+
+def test_the_other_ways_to_miss_each_read_differently(tmp_path):
+    """No store, a store that will not read, and a store stamped for a manifest that is not the one beside it are three different remedies, so each gets its own line, and a store still under its stamp answers nothing at all. The manifest case is the unit store's alone: the signature store describes no shard."""
+    spec = fixtures.mini_spec()
+    root = _stamped_root(tmp_path)
+    out = tmp_path / "surface"
+    out.mkdir()
+    unit_stamp, signature_stamp = _both_stamps(root, spec)
+    assert unit_cache.store_miss_note(out, unit_stamp) == unit_cache.NO_STORE_NOTE
+    assert unit_cache.signature_miss_note(out, signature_stamp) == unit_cache.NO_STORE_NOTE
+
+    unit_cache.store_path(out).write_bytes(b"not a gzip stream")
+    unit_cache.signature_store_path(out).write_bytes(b"not a gzip stream")
+    assert unit_cache.store_miss_note(out, unit_stamp) == unit_cache.UNREADABLE_NOTE
+    assert unit_cache.signature_miss_note(out, signature_stamp) == unit_cache.UNREADABLE_NOTE
+
+    (out / "manifest.json").write_text(json.dumps({"classes": []}), encoding="utf-8")
+    unit_cache.write_store(out, unit_stamp, [], parts=())
+    assert unit_cache.store_miss_note(out, unit_stamp) is None
+    (out / "manifest.json").write_text(json.dumps({"classes": [{"id": "moved"}]}), encoding="utf-8")
+    assert unit_cache.load_store(out, unit_stamp) is None
+    assert unit_cache.store_miss_note(out, unit_stamp) == unit_cache.MANIFEST_MOVED_NOTE
+
+
+def test_a_broad_closure_move_names_a_handful_of_files_and_a_count(tmp_path):
+    """The expanded code label takes the same cap `moved_note` puts on its label list, so a closure-wide move — a formatter pass, a rename that touches every module — prints `CODE_FILES_SHOWN` files and a count rather than the whole closure on one line."""
+    spec = fixtures.mini_spec()
+    root = _stamped_root(tmp_path)
+    out = tmp_path / "surface"
+    out.mkdir()
+    unit_stamp, _ = _both_stamps(root, spec)
+    unit_cache.write_store(out, unit_stamp, [], parts=())
+    moved = sorted(SURFACE_ONLY_CODE + COMPARATOR_CODE)
+    assert len(moved) > unit_cache.CODE_FILES_SHOWN
+    for relative in moved:
+        _edit(root, relative)
+    unit_stamp, _ = _both_stamps(root, spec)
+    note = unit_cache.store_miss_note(out, unit_stamp)
+    shown = ", ".join(f"{relative} (changed)" for relative in moved[: unit_cache.CODE_FILES_SHOWN])
+    remainder = len(moved) - unit_cache.CODE_FILES_SHOWN
+    assert note == f"the stamp moved at surface_code: {shown} and {remainder} more"
+
+
+def test_the_store_header_records_the_stamp_lines_beside_the_hex_it_compares(tmp_path):
+    """The header's contract, in both directions. `environment` stays the hex a load compares and is exactly `sha256` over the stamp's lines joined by newlines — the formula a reader reconstructing a stamp from the recorded lines depends on — and `environment_lines` and `environment_detail` sit beside it as the lines themselves. A caller holding only the recorded hex still loads either store, which is how the artifact cycle's surface promotion reads the stores it carries. A store written under a bare hex records no lines, and a miss against it says the stamp moved and names no label, rather than reading absence as every label gone."""
+    spec = fixtures.mini_spec()
+    root = _stamped_root(tmp_path)
+    out = tmp_path / "surface"
+    out.mkdir()
+    unit_stamp, signature_stamp = _both_stamps(root, spec)
+    unit_cache.write_store(out, unit_stamp, [], parts=())
+    unit_cache.write_signature_store(out, signature_stamp, {"k1": "d1"})
+    for stamp, path, code_label in (
+        (unit_stamp, unit_cache.store_path(out), "surface_code"),
+        (signature_stamp, unit_cache.signature_store_path(out), "comparator_code"),
+    ):
+        header = unit_cache.read_header(path)
+        assert header is not None
+        assert header["environment"] == stamp.value
+        assert stamp.value == hashlib.sha256("\n".join(stamp.lines).encode()).hexdigest()
+        assert header["environment_lines"] == list(stamp.lines)
+        assert header["environment_detail"] == {code_label: list(dict(stamp.detail)[code_label])}
+        assert (
+            stamp.labels[code_label]
+            == hashlib.sha256("\n".join(dict(stamp.detail)[code_label]).encode()).hexdigest()
+        )
+    assert unit_cache.load_store(out, unit_stamp.value) == {}
+    assert unit_cache.load_signature_store(out, signature_stamp.value) == {"k1": "d1"}
+
+    bare = tmp_path / "bare"
+    bare.mkdir()
+    unit_cache.write_store(bare, unit_stamp.value, [], parts=())
+    unit_cache.write_signature_store(bare, signature_stamp.value, {})
+    for path in (unit_cache.store_path(bare), unit_cache.signature_store_path(bare)):
+        header = unit_cache.read_header(path)
+        assert header is not None
+        assert "environment_lines" not in header and "environment_detail" not in header
+    assert unit_cache.load_store(bare, unit_stamp) == {}
+    _edit(root, "rebuild/review/ink.py")
+    unit_stamp, signature_stamp = _both_stamps(root, spec)
+    assert unit_cache.store_miss_note(bare, unit_stamp) == "the stamp moved"
+    assert unit_cache.signature_miss_note(bare, signature_stamp) == "the stamp moved"
 
 
 REFUSE_RUNE = """\

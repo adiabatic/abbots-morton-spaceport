@@ -4,6 +4,8 @@ A unit's expensive products — the ink diffs and machine-approval flags, the en
 
 What the store serves is the previous build's emitted fragment (read back from the shard it lives in, at the address the record carries — the part, byte offset and length the shard writer handed back as it wrote the fragment, so the plan trusts an address rather than parsing the previous surface to find one) plus the slim projection the parent's global reduces need: the machine flags and ink deltas, the verdict family, the judged pair, the ink-diff digest for echo grouping, the seam-home projection and per-seam rects, and the unit's mismatch lines — whether the fragment was written slim, because the shape a build writes turns on the exemption, a ledger fact outside the key — and the fields the fragment was written with from outside the key: its echo group, its class after family promotion, the ledger's exemplar and exemption flags, its secondary-seam homes, and the rune file its policy draft names. So a unit that crosses from machine-approved-or-exempt into the human workload on a ledger edit (no_verdict flipping) is a miss and is re-enriched in full rather than served the slim fragment it earned before the edit, and one crossing the other way is a miss too, so a served surface stays byte-identical to a from-scratch one. Everything ledger-derived or reduce-derived — echo, class, no_verdict, exemplar, the secondary-seam homes — is recomputed over the full universe every build; a unit's id is its content key's and moves with nothing else. A served fragment every one of whose recomputed fields equals what the store says it was written with is copied into the new surface by address as bytes, never parsed (`build._served_as_is`; `PriorFragmentReader.read_bytes` holds the bytes to the record's id and stamp as substrings), and the shard writer leaves a part whose every fragment lands that way where it lies; one with a moved field is parsed once, patched and serialized again, exactly as a fresh fragment is read out of the build's own spool, so no cache hit ever freezes a global field. The cluster id alone is trusted from the served record, because its inputs (configs, final class, ink diffs) are all under the key. `load_store` parses a store line once, and only a line whose key the workload names, into a `ServedUnit`: the one shape the parent holds per served unit for the rest of the build, its projection already the pooled tuples the secondary-home reduce reads. The byte-identity gate (rebuild/test_unit_cache.py::test_incremental_rebuild_matches_a_from_scratch_build_after_an_edit) is the standing proof: an incrementally rebuilt live surface must match a from-scratch build byte for byte, and the no-change rebuild beside it proves the served path writes no shard part at all.
 
+Both stores record their whole-store stamp twice over: as the hex `load_store` and `load_signature_store` compare, and as the `fingerprint.EnvironmentStamp` lines it folds, with the code label's per-file lines beside them, so that when a load declines a store `store_miss_note` and `signature_miss_note` can say which of the four ways it missed — no store, a store that will not read, a manifest that moved, or a stamp line that moved — and for a code line name the file inside the closure (`surface_code: rebuild/review/ink.py (changed)`) rather than the closure's digest. The note is as fine as the lines are: `after_helpers` is one digest over the after font's non-family glyphs, cmap and layout wiring and a move there is named no closer, and a rehearsal pass writes its surface elsewhere, so a live pass after one reads the last live store's lines and reports whatever moved since that store was written, code moves included.
+
 This module also owns the carry content key (the render identity rebuild/tools/carry_verdicts.py resolves prior verdicts against), so the build can stamp each unit's `content_key` at emission time and carry can probe stamped hashes instead of re-serializing every unit — one definition, shared by both sides, with the stamp itself excluded from the projection it hashes.
 
 Beside the per-unit store lives the ink-signature store (issue 18), which does for the ink-duplicate merge what the unit store does for enrichment: the merge needs one rendered-outcome signature per (window, config) over every relabel-split window — the one per-unit product computed before the unit universe exists, so the unit store can never serve it — and re-shaping those serially was the load phase's floor. Each entry's key follows the unit key's two-grained soundness argument exactly: the audit row pins the window, the config, the before font's rendered names, and the settled cells the after font is compiled to reproduce, and the per-family digests pin the after font's outlines, advances, and cursive anchors for every family the window can touch. The whole-store stamp carries what signatures depend on beyond that: the comparator's own code (`signature_code_paths` — rebuild/review/ink.py and the three rebuild/validation modules it imports, the import closure rebuild/test_review_code_closure.py walks from `rebuild.review.ink` in both directions) and the before font wholesale, plus the after font's non-family glyphs, cmap, and GPOS wiring. Deliberately absent: the rest of `surface_code_paths` — the build driver, this cache, the enricher, the drafts, the kernel seam, the crate, none of which a signature executes — and the ledger, the subsets, the Junior font, the corpus, and the draft harness. Signatures read none of them, so this store survives edits that drop the unit store: a build that re-enriches everything can still skip re-shaping the merge.
@@ -202,9 +204,10 @@ def environment_stamp(
     before_font: Path,
     junior_font: Path,
     after_helpers_digest: str,
-) -> str:
-    """The whole-store stamp: any of these moving drops the cache entirely, and over-invalidation is the safe direction. The code line is `surface_code_paths`, the code the build runs and nothing more, so a pipeline or crate edit outside that closure — the driver, a gate, the oracle, the conformance sweep, the oracle's row cache, the GSUB emitter, the pixel geometry, the font compile, the crate's enumeration and fold — leaves the stamp where it was and the store serving. The rune files are absent on purpose — they invalidate at per-unit grain through the family keys — and so is the divergence ledger (see the module docstring for why its reach is already covered)."""
+) -> fingerprint.EnvironmentStamp:
+    """The whole-store stamp: any of these moving drops the cache entirely, and over-invalidation is the safe direction. The code line is `surface_code_paths`, the code the build runs and nothing more, so a pipeline or crate edit outside that closure — the driver, a gate, the oracle, the conformance sweep, the oracle's row cache, the GSUB emitter, the pixel geometry, the font compile, the crate's enumeration and fold — leaves the stamp where it was and the store serving. The rune files are absent on purpose — they invalidate at per-unit grain through the family keys — and so is the divergence ledger (see the module docstring for why its reach is already covered). The stamp carries the code closure's per-file lines as its `surface_code` detail, taken from the one `path_lines` read the code digest is folded from, so the file a miss note names is the file the digest saw."""
     root = Path(repo_root)
+    code_lines = fingerprint.path_lines(root, surface_code_paths(root))
     runes = set(fingerprint.rune_paths(root))
     ledger = root / "rebuild" / "m1-divergences.yaml"
     data_lines = sorted(
@@ -216,7 +219,7 @@ def environment_stamp(
     harness_paths += sorted((root / "tools").glob("*.py"))
     lines = [
         f"format\t{STORE_FORMAT}",
-        f"surface_code\t{fingerprint.hash_paths(root, surface_code_paths(root))}",
+        f"surface_code\t{fingerprint.digest_lines(code_lines)}",
         "data\t" + hashlib.sha256("\n".join(data_lines).encode()).hexdigest(),
         "settlement_flags\t" + json.dumps(kernel_exec.settlement_flags()),
         f"spec_structure\t{spec_load.spec_structure_digest(spec)}",
@@ -232,7 +235,7 @@ def environment_stamp(
         f"draft_harness\t{fingerprint.hash_paths(root, harness_paths)}",
         f"after_helpers\t{after_helpers_digest}",
     ]
-    return hashlib.sha256("\n".join(lines).encode()).hexdigest()
+    return fingerprint.EnvironmentStamp(lines=tuple(lines), detail=(("surface_code", tuple(code_lines)),))
 
 
 def family_content_keys(repo_root: Path, spec: ResolvedSpec, after_font: Path) -> tuple[dict[str, str], str]:
@@ -478,9 +481,22 @@ class StoreCursor(unit_index.LineCursor):
         super().__init__(store_path(out_dir), field="key")
 
 
+def _stamp_value(environment: fingerprint.EnvironmentStamp | str) -> str:
+    return environment if isinstance(environment, str) else environment.value
+
+
+def _stamp_header(environment: fingerprint.EnvironmentStamp | str) -> dict:
+    """The header fields a stamp writes: `environment`, the hex a load compares, and for a stamp handed over as lines, `environment_lines` (its own labeled lines) and `environment_detail` (per label, the lines that label folds), which is what a miss note reads. A caller holding only the hex records the hex alone."""
+    fields: dict = {"environment": _stamp_value(environment)}
+    if not isinstance(environment, str):
+        fields["environment_lines"] = list(environment.lines)
+        fields["environment_detail"] = {label: list(lines) for label, lines in environment.detail}
+    return fields
+
+
 def write_store(
     out_dir: Path,
-    environment: str,
+    environment: fingerprint.EnvironmentStamp | str,
     records: Iterable[CachedUnit | bytes],
     parts: Iterable[str] | None = None,
 ) -> None:
@@ -490,7 +506,7 @@ def write_store(
         parts = (record.address[0] for record in records if isinstance(record, CachedUnit) and record.address)
     header = {
         "format": STORE_FORMAT,
-        "environment": environment,
+        **_stamp_header(environment),
         "manifest_sha256": _manifest_stamp(out_dir),
         "parts": _part_sizes(out_dir, parts),
     }
@@ -509,7 +525,7 @@ def write_store(
 
 def load_store(
     out_dir: Path,
-    environment: str,
+    environment: fingerprint.EnvironmentStamp | str,
     wanted: Container[str] | None = None,
     pool: dict | None = None,
 ) -> dict[str, ServedUnit] | None:
@@ -522,7 +538,7 @@ def load_store(
     try:
         with gzip.open(path, "rb") as stream:
             header = json.loads(next(stream))
-            if header.get("format") != STORE_FORMAT or header.get("environment") != environment:
+            if header.get("format") != STORE_FORMAT or header.get("environment") != _stamp_value(environment):
                 return None
             if header.get("manifest_sha256") != _manifest_stamp(out_dir):
                 return None
@@ -553,21 +569,26 @@ def signature_store_path(out_dir: Path) -> Path:
     return Path(out_dir) / SIGNATURE_STORE_NAME
 
 
-def signature_environment(repo_root: Path, before_font: Path, after_helpers_digest: str) -> str:
-    """The ink-signature store's whole-store stamp: only what a signature reads that the per-entry keys do not cover — the comparator's code (`signature_code_paths`, the import closure of `rebuild.review.ink`), the before font wholesale, and the after font's non-family glyphs, cmap, and layout wiring. The code line is the comparator's closure and not the build's, so an edit to the driver, the census, the drafts, the kernel seam or the crate leaves this store serving while `environment_stamp` drops the unit store; the module docstring names the rest of what is left out."""
+def signature_environment(
+    repo_root: Path, before_font: Path, after_helpers_digest: str
+) -> fingerprint.EnvironmentStamp:
+    """The ink-signature store's whole-store stamp: only what a signature reads that the per-entry keys do not cover — the comparator's code (`signature_code_paths`, the import closure of `rebuild.review.ink`), the before font wholesale, and the after font's non-family glyphs, cmap, and layout wiring. The code line is the comparator's closure and not the build's, so an edit to the driver, the census, the drafts, the kernel seam or the crate leaves this store serving while `environment_stamp` drops the unit store; the module docstring names the rest of what is left out. The comparator closure's per-file lines ride as the `comparator_code` detail, from the same read the digest folds."""
     root = Path(repo_root)
-    lines = [
+    code_lines = fingerprint.path_lines(root, signature_code_paths(root))
+    lines = (
         f"format\t{SIGNATURE_STORE_FORMAT}",
-        f"comparator_code\t{fingerprint.hash_paths(root, signature_code_paths(root))}",
+        f"comparator_code\t{fingerprint.digest_lines(code_lines)}",
         f"before_font\t{_sha256_file(Path(before_font))}",
         f"after_helpers\t{after_helpers_digest}",
-    ]
-    return hashlib.sha256("\n".join(lines).encode()).hexdigest()
+    )
+    return fingerprint.EnvironmentStamp(lines=lines, detail=(("comparator_code", tuple(code_lines)),))
 
 
-def write_signature_store(out_dir: Path, environment: str, entries: Mapping[str, str]) -> None:
+def write_signature_store(
+    out_dir: Path, environment: fingerprint.EnvironmentStamp | str, entries: Mapping[str, str]
+) -> None:
     """One JSON header line, then one `key\\tdigest` line per entry, sorted by key; the pinned gzip mtime and the sort are what keep consecutive builds of the same inputs byte-identical. Written fresh each build with exactly the entries the merge needed, so stale windows age out rather than accumulating. Level 1, like the unit store: this is a million lines of hex, which is incompressible, and level 9 was spending four seconds for well under a percent. The file is staged under a sibling name and renamed last, like the unit store, so a build killed while the write runs leaves the previous store whole rather than a truncated gzip that `load_signature_store` reads as absent and the next pass pays for with a full re-shaping pass; the gzip header names the final path, not the staging one, since `GzipFile` would otherwise stamp the handle's name into the bytes."""
-    header = {"format": SIGNATURE_STORE_FORMAT, "environment": environment}
+    header = {"format": SIGNATURE_STORE_FORMAT, **_stamp_header(environment)}
     path = signature_store_path(out_dir)
     staging = path.with_name(path.name + ".partial")
     try:
@@ -583,7 +604,9 @@ def write_signature_store(out_dir: Path, environment: str, entries: Mapping[str,
         staging.unlink(missing_ok=True)
 
 
-def load_signature_store(out_dir: Path, environment: str) -> dict[str, str] | None:
+def load_signature_store(
+    out_dir: Path, environment: fingerprint.EnvironmentStamp | str
+) -> dict[str, str] | None:
     """The prior build's signature digests keyed by content key, or None when there is no usable store — absent, unreadable, or format- or environment-mismatched; a None costs one parallel re-shaping pass, so over-invalidation stays the safe direction here too."""
     path = signature_store_path(out_dir)
     if not path.is_file():
@@ -591,7 +614,9 @@ def load_signature_store(out_dir: Path, environment: str) -> dict[str, str] | No
     try:
         with gzip.open(path, "rt", encoding="utf-8") as stream:
             header = json.loads(next(stream))
-            if header.get("format") != SIGNATURE_STORE_FORMAT or header.get("environment") != environment:
+            if header.get("format") != SIGNATURE_STORE_FORMAT or header.get("environment") != _stamp_value(
+                environment
+            ):
                 return None
             entries: dict[str, str] = {}
             for line in stream:
@@ -600,6 +625,76 @@ def load_signature_store(out_dir: Path, environment: str) -> dict[str, str] | No
             return entries
     except OSError, EOFError, ValueError, KeyError, TypeError, StopIteration:
         return None
+
+
+CODE_FILES_SHOWN = 4
+NO_STORE_NOTE = "no store on disk"
+UNREADABLE_NOTE = "the store will not read"
+MANIFEST_MOVED_NOTE = "the manifest it describes moved"
+
+
+def read_header(path: Path) -> dict | None:
+    """A store's header line alone, for the caller that wants to name what moved after a load has declined it; both stores open on one JSON line. `None` when there is nothing readable there."""
+    try:
+        with gzip.open(Path(path), "rb") as stream:
+            header = json.loads(next(stream))
+    except OSError, EOFError, ValueError, StopIteration:
+        return None
+    return header if isinstance(header, dict) else None
+
+
+def _recorded_labels(lines: object) -> dict[str, str] | None:
+    if not isinstance(lines, list):
+        return None
+    labels: dict[str, str] = {}
+    for line in lines:
+        label, _, digest = str(line).partition("\t")
+        labels[label] = digest
+    return labels
+
+
+def _miss_note(
+    path: Path,
+    environment: fingerprint.EnvironmentStamp,
+    code_label: str,
+    manifest_stamp: str | None = None,
+) -> str | None:
+    """Why a load of the store at `path` under `environment` declines, as one line in the order the loader checks: no file, a header that will not read, a stamp that moved — naming the labels through `fingerprint.moved_note`, with the code label expanded to the files that moved inside its closure, capped at `CODE_FILES_SHOWN` so a broad closure move names a handful and a count — and, for the unit store, a manifest whose identity is not the one recorded. `None` when the header agrees with everything asked of it, which leaves the loader's remaining refusal: a body that will not parse. A store written under the hex alone, with no `environment_lines`, reports the stamp moved and names no label."""
+    if not path.is_file():
+        return NO_STORE_NOTE
+    header = read_header(path)
+    if header is None:
+        return UNREADABLE_NOTE
+    if header.get("environment") != environment.value:
+        recorded = _recorded_labels(header.get("environment_lines"))
+        if recorded is None:
+            return "the stamp moved"
+        detail = header.get("environment_detail")
+        recorded_code = _recorded_labels(detail.get(code_label)) if isinstance(detail, dict) else None
+        expand = (
+            {}
+            if recorded_code is None
+            else {
+                code_label: fingerprint.moved_note(
+                    recorded_code, environment.detail_labels(code_label), limit=CODE_FILES_SHOWN
+                )
+            }
+        )
+        moved = fingerprint.moved_note(recorded, environment.labels, expand=expand)
+        return f"the stamp moved at {moved}" if moved else "the stamp moved"
+    if manifest_stamp is not None and header.get("manifest_sha256") != manifest_stamp:
+        return MANIFEST_MOVED_NOTE
+    return None
+
+
+def store_miss_note(out_dir: Path, environment: fingerprint.EnvironmentStamp) -> str | None:
+    """Why `load_store` declines the unit store under `out_dir`, or `None` when its header agrees with `environment` and the manifest beside it (`_miss_note`)."""
+    return _miss_note(store_path(out_dir), environment, "surface_code", _manifest_stamp(out_dir))
+
+
+def signature_miss_note(out_dir: Path, environment: fingerprint.EnvironmentStamp) -> str | None:
+    """Why `load_signature_store` declines the ink-signature store under `out_dir`, or `None` when its header agrees with `environment` (`_miss_note`)."""
+    return _miss_note(signature_store_path(out_dir), environment, "comparator_code")
 
 
 @dataclass(frozen=True)
