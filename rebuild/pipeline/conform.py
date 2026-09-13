@@ -1,10 +1,10 @@
 """Conformance gates (M1-PLAN sections 5 and 6, Group 3): HarfBuzz vs the settlement function, and the settlement function vs the section 13.1 baseline oracle.
 
-`run_conformance` promotes prototype/conform.py: the Shaper (MONOTONE_CHARACTERS cluster level; names via TTFont, never HarfBuzz's truncating API), the exhaustive length-1..horizon enumeration per settlement configuration (the per-edit belt, horizon 4 by default), split-buffer equivalence, gap-0 pen positions, and the font-vs-settle oracle diff, which takes no ledger: any divergence is a compiler defect by definition. The isolated-overlay configuration (ss10, `OVERLAY_CONFIGS`) has no settlement to compare against and takes a shorter arm of its own at `OVERLAY_HORIZON`: read-back proves per build that the pre-empt covers every letter cmap glyph and that no twin sits in any formation sequence, marker line, chokepoint class or settlement input, so the expected rendering of any text is per-letter twins at their `hmtx` advances with nothing formed and nothing attached, and one letter (each maps to its twin) plus every pair (no pair forms, joins or moves) is the whole of what HarfBuzz can still be asked. Coverage is deliberately not this sweep's job: read-back (rebuild/pipeline/readback.py) proves per build that the compiled font holds every emitted rule at its planned position, and the dead-rule alarm is split between the crate's fold, which refuses at table-build time any rule no replayed row first-matches (`fold::assert_outcome_partition`), and the build's witness stage (`check_rule_certificates`, run by `run_m1` over the certificates the crate wrote beside the rules), which keeps the realizability half — a string that fires the rule, settled rather than searched for. Enumeration completeness — whether a live raw window a string reaches is one the fixpoint enumerated with its pins satisfied, or one it left at `#NA` or never reached so the font answers it with a wildcard or a default rule — is the crate's `replay-strings` verb's (`rebuild/kernel-rs/src/replay.rs`, `run_m1.run_replay_strings`): `_SettledWindowWalk` and `_first_matching_rule` transcribed over the persisted rules instead of the font, run on every build at `run_m1.REPLAY_HORIZON`, whole-universe on a code or structure change and only over the texts naming an edited family on a rune edit. So the sweep's remaining unique charter is what only shaping the real binary can test — HarfBuzz's application semantics (lookup interaction across features, backtrack-sees-settled across subtable breaks, default-ignorable skipping, class matching, Extension indirection) and the sufficiency of the 6-slot window abstraction itself, which witness-constructed strings structurally cannot probe because witnesses are built from that abstraction. The deep form of the same sweep runs at horizon 5 or deeper on demand (`make conform-deep`, rebuild/tools/deep_sweep.py), armed by the behavior-class enumeration `emit_gsub.behavior_classes` plus the font-compilation code and the uharfbuzz version, so a rune edit that introduces no novel rule shape never stales it. The split-buffer check rides the belt itself, on the texts it can say anything about, which is where the standalone horizon-5 boundary gate's charter now lives: proven per build at the belt's horizon and periodically deeper by `make conform-deep`. The ZWNJ slot's own structure — zero advance, no ink — is read-back's static boundary-glyphs stage now, proven off the font bytes once per build rather than at every shaped slot. Settlement rides `_SettledWindowWalk`'s per-config window memo, so a distinct raw window costs one batched crate answer and every recurrence across the sweep's texts costs a dict probe; the oracle's rows are these same texts, and the two phases share that memo through one file per configuration under rebuild/out/m1 (`SettleMemoFile`), keyed per family the way the oracle row cache is, which the string replay seeds on every whole-universe walk (`absorb_replay_memo`, over the window memo the crate's `replay-strings` verb files), so a window is settled once per configuration until a rune it names moves and a cold pass is cold in the replay rather than in the oracle.
+`run_conformance` promotes prototype/conform.py: the Shaper (MONOTONE_CHARACTERS cluster level; names via TTFont, never HarfBuzz's truncating API), the exhaustive length-1..horizon enumeration per settlement configuration (the per-edit belt, horizon 4 by default), split-buffer equivalence, gap-0 pen positions, and the font-vs-settle oracle diff, which takes no ledger: any divergence is a compiler defect by definition. The isolated-overlay configuration (ss10, `OVERLAY_CONFIGS`) has no settlement to compare against and takes a shorter arm of its own at `OVERLAY_HORIZON`: read-back proves per build that the pre-empt covers every letter cmap glyph and that no twin sits in any formation sequence, marker line, chokepoint class or settlement input, so the expected rendering of any text is per-letter twins at their `hmtx` advances with nothing formed and nothing attached, and one letter (each maps to its twin) plus every pair (no pair forms, joins or moves) is the whole of what HarfBuzz can still be asked. Coverage is deliberately not this sweep's job: read-back (rebuild/pipeline/readback.py) proves per build that the compiled font holds every emitted rule at its planned position, and the dead-rule alarm is split between the crate's fold, which refuses at table-build time any rule no replayed row first-matches (`fold::assert_outcome_partition`), and the build's witness stage (`belt.check_rule_certificates`, run by `run_m1` over the certificates the crate wrote beside the rules), which keeps the realizability half — a string that fires the rule, settled rather than searched for. Enumeration completeness — whether a live raw window a string reaches is one the fixpoint enumerated with its pins satisfied, or one it left at `#NA` or never reached so the font answers it with a wildcard or a default rule — is the crate's `replay-strings` verb's (`rebuild/kernel-rs/src/replay.rs`, `run_m1.run_replay_strings`): `_SettledWindowWalk` and `belt._first_matching_rule` transcribed over the persisted rules instead of the font, run on every build at `run_m1.REPLAY_HORIZON`, whole-universe on a code or structure change and only over the texts naming an edited family on a rune edit. So the sweep's remaining unique charter is what only shaping the real binary can test — HarfBuzz's application semantics (lookup interaction across features, backtrack-sees-settled across subtable breaks, default-ignorable skipping, class matching, Extension indirection) and the sufficiency of the 6-slot window abstraction itself, which witness-constructed strings structurally cannot probe because witnesses are built from that abstraction. The deep form of the same sweep runs at horizon 5 or deeper on demand (`make conform-deep`, rebuild/tools/deep_sweep.py), armed by the behavior-class enumeration `emit_gsub.behavior_classes` plus the font-compilation code and the uharfbuzz version, so a rune edit that introduces no novel rule shape never stales it. The split-buffer check rides the belt itself, on the texts it can say anything about, which is where the standalone horizon-5 boundary gate's charter now lives: proven per build at the belt's horizon and periodically deeper by `make conform-deep`. The ZWNJ slot's own structure — zero advance, no ink — is read-back's static boundary-glyphs stage now, proven off the font bytes once per build rather than at every shaped slot. Settlement rides `_SettledWindowWalk`'s per-config window memo, so a distinct raw window costs one batched crate answer and every recurrence across the sweep's texts costs a dict probe; the oracle's rows are these same texts, and the two phases share that memo through one file per configuration under rebuild/out/m1 (`SettleMemoFile`), keyed per family the way the oracle row cache is, which the string replay seeds on every whole-universe walk (`absorb_replay_memo`, over the window memo the crate's `replay-strings` verb files), so a window is settled once per configuration until a rune it names moves and a cold pass is cold in the replay rather than in the oracle.
 
 The section 6 oracle gate itself lives in rebuild/pipeline/oracle.py (`compare_against_baseline`, the ledger classifier, the position channel), which is the comparison side the enumeration's stamp leaves out. What stays here is its producer: `_compare_row` compares one baseline row's ligation (clusters), per-seam classification, and cell identity against the settled stream through the hand-written alias map and answers the `DivergentRow` the oracle classifies; `_cached_verdict` and `_served_verdict` are the codec between that answer and the oracle row cache's record, and `_verify_served_sample` re-derives a pass's served sample against the store. Those, with the walk, are the two entry points `oracle_cache.ORACLE_ROW_CODE_PATHS` is cut from, which is why they and not the classifier live in this file.
 
-Settlement itself is the crate's, reached through `kernel_exec`: `_SettledWindowWalk` batches whole waves of distinct raw windows into `kernel_exec.settle_windows`, the certificate check and the sweep each hoist one `kernel_exec.guard_sweep` and thread its verdict surface through every formation call below it, and nothing here re-derives a settled cell. The lazy `table` imports inside the entry points that read a decision table no longer keep it out of the shaping half — importing this module imports `kernel_exec`, which imports `table` — and what they still buy is locality: each entry point names the label constants it reads where it reads them.
+Settlement itself is the crate's, reached through `kernel_exec`: `_SettledWindowWalk` batches whole waves of distinct raw windows into `kernel_exec.settle_windows`, the certificate check (`belt.check_rule_certificates`) and the sweep each hoist one `kernel_exec.guard_sweep` and thread its verdict surface through every formation call below it, and nothing here re-derives a settled cell. The lazy `table` imports inside the entry points that read a decision table no longer keep it out of the shaping half — importing this module imports `kernel_exec`, which imports `table` — and what they still buy is locality: each entry point names the label constants it reads where it reads them.
 """
 
 from __future__ import annotations
@@ -22,7 +22,7 @@ from array import array
 from contextlib import suppress
 from dataclasses import dataclass, field, replace
 from pathlib import Path
-from typing import TYPE_CHECKING, Callable, Iterable, Iterator, Mapping, Sequence, cast
+from typing import Callable, Iterable, Iterator, Mapping, Sequence, cast
 
 from rebuild.pipeline import geometry, kernel_exec, oracle_cache, settle
 from rebuild.pipeline.labels import (
@@ -43,10 +43,6 @@ from rebuild.pipeline.model import (
     ss10_twin_name,
 )
 from rebuild.validation.rowmodel import Row, format_codepoints
-
-if TYPE_CHECKING:
-    from rebuild.pipeline.emit_gsub import _FoldedRule
-    from rebuild.pipeline.table import Rule
 
 ZWNJ = "\u200c"
 ZWNJ_SENTINEL = "<zwnj>"
@@ -461,7 +457,7 @@ _NA_LABEL = "#NA"
 
 
 def _window_rights(labels: list[str], index: int) -> tuple[str, str, str, str]:
-    """The raw settlement window at `index`, out to the fourth slot: each slot is the next label along, `#EDGE` past the end of the buffer, and `#NA` the moment the slot before it is a boundary, the edge, or itself `#NA` — the standing convention that no record peeks past a boundary. The table's deep-slot structure plays no part here, and needs none: a rule that dropped a slot matches any token at it (`_first_matching_rule`), so a raw token standing at a slot the enumeration never split matches exactly the slot-dropped rule HarfBuzz would match. Keying the settle memo this finely is sound with no relevance oracle at all, because one window's settlement is a function of exactly these slots and nothing beyond them — the crate reads the four raw slots a case line carries and no more — and it is also the faster of the two, measured on the live alphabet at the belt's horizon: the probes that decided which slots to blank cost far more than the answers the blanking saved. Shared by `_matched_windows` and `_SettledWindowWalk` so the replay and the memo key read one window."""
+    """The raw settlement window at `index`, out to the fourth slot: each slot is the next label along, `#EDGE` past the end of the buffer, and `#NA` the moment the slot before it is a boundary, the edge, or itself `#NA` — the standing convention that no record peeks past a boundary. The table's deep-slot structure plays no part here, and needs none: a rule that dropped a slot matches any token at it (`belt._first_matching_rule`), so a raw token standing at a slot the enumeration never split matches exactly the slot-dropped rule HarfBuzz would match. Keying the settle memo this finely is sound with no relevance oracle at all, because one window's settlement is a function of exactly these slots and nothing beyond them — the crate reads the four raw slots a case line carries and no more — and it is also the faster of the two, measured on the live alphabet at the belt's horizon: the probes that decided which slots to blank cost far more than the answers the blanking saved. Shared by `belt._matched_windows` and `_SettledWindowWalk` so the replay and the memo key read one window."""
     right1 = labels[index + 1] if index + 1 < len(labels) else _EDGE_LABEL
     right2 = (
         _NA_LABEL
@@ -479,82 +475,6 @@ def _window_rights(labels: list[str], index: int) -> tuple[str, str, str, str]:
         else (labels[index + 4] if index + 4 < len(labels) else _EDGE_LABEL)
     )
     return right1, right2, right3, right4
-
-
-def _first_matching_rule(
-    rules_by_input: Mapping[str, list[tuple[int, Rule | _FoldedRule]]],
-    label: str,
-    left: str,
-    right1: str,
-    right2: str,
-    right3: str,
-    right4: str,
-    representatives: Mapping[str, str] | None = None,
-) -> int | None:
-    """First-match-wins over the config's renamed rules for one window — the exact semantics the emitted FEA compiles to. A deep slot holding a class token is tested through its renamed representative member (`representatives`, from the table's `_DeepTokenIndex`): exact, not heuristic, because the build asserts every emitted look class holds a token's members all-in or all-out."""
-    if representatives:
-        right3 = representatives.get(right3, right3)
-        right4 = representatives.get(right4, right4)
-    for rule_index, rule in rules_by_input.get(label, ()):
-        if rule.backtrack is not None and left not in rule.backtrack:
-            continue
-        if rule.look1 is not None and right1 not in rule.look1:
-            continue
-        if rule.look2 is not None and right2 not in rule.look2:
-            continue
-        look3 = getattr(rule, "look3", None)
-        if look3 is not None and right3 not in look3:
-            continue
-        look4 = getattr(rule, "look4", None)
-        if look4 is not None and right4 not in look4:
-            continue
-        return rule_index
-    return None
-
-
-def _matched_windows(spec, text, features, guard_verdicts, expected, rules_by_input, deep_index=None):
-    """Replay the settlement lookup's view of one string: yield (position, window key, first-matching rule index or None) per letter slot, with labels and rules in the config's renamed (marker-folded) space and the left slot read from the settled stream — the exact first-match-wins semantics the emitted FEA compiles to. The window slots are the raw ones `_window_rights` reads; nothing here consults which slots the table chose to split, because a rule that dropped one matches whatever stands at it. `deep_index` is the table's `_DeepTokenIndex`; token resolution is a separate step strictly after `_window_rights`, which reads raw labels, and needs the settled left this loop holds — with no index the deep slots stay raw labels, which on a class-grain table realize no row."""
-    try:
-        labels = raw_labels(spec, text, features, guard_verdicts)
-    except ValueError:
-        return
-    settled = normalize_expected(list(expected))
-    if len(labels) != len(settled):
-        return
-    for index, label in enumerate(labels):
-        if label in _WINDOW_BOUNDARIES:
-            continue
-        if index == 0:
-            left = _EDGE_LABEL
-        elif labels[index - 1] in _WINDOW_BOUNDARIES:
-            left = labels[index - 1]
-        else:
-            left = settled[index - 1]
-        right1, right2, right3, right4 = _window_rights(labels, index)
-        if deep_index is not None:
-            right3, right4 = deep_index.resolve(label, left, right1, right2, right3, right4)
-        matched = _first_matching_rule(
-            rules_by_input,
-            label,
-            left,
-            right1,
-            right2,
-            right3,
-            right4,
-            representatives=deep_index.representatives if deep_index is not None else None,
-        )
-        yield index, (label, left, right1, right2, right3, right4), matched
-
-
-def _renamed_rules_by_input(spec, features, decision) -> dict[str, list[tuple[int, Rule | _FoldedRule]]]:
-    from rebuild.pipeline.emit_gsub import _renamed
-
-    renames = raw_rename_map(spec, frozenset(features))
-    rules_by_input: dict[str, list[tuple[int, Rule | _FoldedRule]]] = {}
-    for index, rule in enumerate(getattr(decision, "rules", ())):
-        renamed = _renamed(rule, renames)
-        rules_by_input.setdefault(renamed.input_glyph, []).append((index, renamed))
-    return rules_by_input
 
 
 def _label_family(label: str) -> str:
@@ -927,7 +847,7 @@ def absorb_replay_memo(dump: Path, memo: SettleMemoFile, spec: ResolvedSpec, con
 
 
 class _SettledWindowWalk:
-    """The memoized settle walk one conformance config runs over every swept text: a left-to-right pass computes each letter slot's raw window key — exactly `_matched_windows`' slots, with the left read from the just-settled stream — and resolves it through `windows`, a window -> (Settled, glyph name, left label) memo; only a miss reaches the crate. The memo is a pure speed device and nothing else: it records no coverage, and the sweep's verdict is the same whether every window misses or every window hits. Sound because every memoized outcome is a pure function of the window as keyed: the left label is the settled cell's display name (`geometry.display_name`, injective over every CellId field), and the right slots are the raw tokens a case line carries, all of them and none beyond. The key never reads the glyph inventory: a walk with minted names and a walk with none key alike and differ only in the name each hands back, which is what lets the oracle and the belt share one memo file. That last point about the right slots is why the walk needs no liveness oracle at all: blanking the deep slots wherever the table's relevance filters prove nothing could read them costs more in probes than the blanking saves. `windows` is deliberately unbounded; the interned labels plus deduplicated outcome tuples keep the residual cost to the key tuples themselves. The walk-equivalence sweeps in rebuild/test_conform.py are the standing alarm on all of it.
+    """The memoized settle walk one conformance config runs over every swept text: a left-to-right pass computes each letter slot's raw window key — exactly `belt._matched_windows`' slots, with the left read from the just-settled stream — and resolves it through `windows`, a window -> (Settled, glyph name, left label) memo; only a miss reaches the crate. The memo is a pure speed device and nothing else: it records no coverage, and the sweep's verdict is the same whether every window misses or every window hits. Sound because every memoized outcome is a pure function of the window as keyed: the left label is the settled cell's display name (`geometry.display_name`, injective over every CellId field), and the right slots are the raw tokens a case line carries, all of them and none beyond. The key never reads the glyph inventory: a walk with minted names and a walk with none key alike and differ only in the name each hands back, which is what lets the oracle and the belt share one memo file. That last point about the right slots is why the walk needs no liveness oracle at all: blanking the deep slots wherever the table's relevance filters prove nothing could read them costs more in probes than the blanking saves. `windows` is deliberately unbounded; the interned labels plus deduplicated outcome tuples keep the residual cost to the key tuples themselves. The walk-equivalence sweeps in rebuild/test_conform.py are the standing alarm on all of it.
 
     `memo` names the file this walk shares with every other walk over the same texts: the string replay fills it from the crate's own window memo on a whole-universe walk (`absorb_replay_memo`), and the witness stage, the oracle and the belt each load it and settle what it lacks. It is read lazily, on the first wave that would otherwise reach the crate, so a walk that settles nothing — an oracle pass whose rows are all served — never pays to decode it; and `save_memo` writes it back only when this walk settled at least one window the file did not hold, so a walk over a complete file rewrites nothing. The file is a gzip stream of pickles (`_write_settle_memo`, the one writer): a header carrying the format, the stamp and the per-family keys, then blocks of `SETTLE_MEMO_BLOCK` windows, each block the labels and outcomes it introduces plus its keys as columns of indexes into them. Writer and reader both work one block at a time — the memo is never in memory twice — and the outcome objects are shared with the memo dict itself, so a loaded memo costs what the same windows would have cost to settle: the key tuples and nothing else. A family whose key moved since the file was written retires every entry whose window names it (`oracle_cache.StaleMask` at label grain, the ligature clause included), and the retirement is priced per block over the label columns rather than per key: a bit per label, six column folds in C, one comprehension over the masks.
 
@@ -1222,42 +1142,6 @@ class _SettledWindowWalk:
         return [(state.settled, state.names) for state in states] if collect else []
 
 
-def _token_text(spec: ResolvedSpec, tokens: Iterable[str]) -> str:
-    """Render a certificate's token stream (rune family, ligature-rune, or boundary-label tokens) back to codepoints; ligature runes expand to their component sequence, so raw_labels' greedy formation re-folds them to the intended labels."""
-    boundary_codepoints = {
-        {"space": "space", "zwnj": "uni200C", "namer-dot": "periodcentered"}[name]: token.codepoint
-        for name, token in spec.registry.boundary_tokens.items()
-    }
-    chars: list[str] = []
-    for token in tokens:
-        if token in boundary_codepoints:
-            chars.append(chr(boundary_codepoints[token]))
-            continue
-        rune = spec.runes[token]
-        for part in rune.sequence or (token,):
-            codepoint = spec.runes[part].codepoint
-            if codepoint is None:
-                raise ValueError(
-                    f"ligature rune {token} names {part}, which carries no codepoint — this expansion is one level deep only"
-                )
-            chars.append(chr(codepoint))
-    return "".join(chars)
-
-
-def rule_signature(rule) -> str:
-    slots = ", ".join(
-        f"{name}={list(value) if value is not None else 'any'}"
-        for name, value in (
-            ("backtrack", rule.backtrack),
-            ("look1", rule.look1),
-            ("look2", rule.look2),
-            ("look3", getattr(rule, "look3", None)),
-            ("look4", getattr(rule, "look4", None)),
-        )
-    )
-    return f"{rule.input_glyph} [{slots}] -> {rule.outcome}"
-
-
 class WitnessError(Exception):
     """A settlement rule whose certificate does not realize it: the build's own realizing string, settled through the crate, fires some other rule or none at the input it names, which means either the fold's pins or the fold's ordering is wrong."""
 
@@ -1276,68 +1160,6 @@ class WitnessReport:
     @property
     def passed(self) -> bool:
         return not self.failures and len(self.witnessed) == self.rules
-
-
-def check_rule_certificates(
-    spec, features, decision, guard_verdicts=None, memo: SettleMemoFile | None = None
-) -> WitnessReport:
-    """The realizability half of rule coverage, settled rather than searched: every rule the table carries arrived with a certificate — the token stream the crate closed off the shortest producer chain of a row the rule first-matches (`certificate.rs`) — and this settles each certificate's text through the crate and asserts the rule first-matches at some position of it, under the exact first-match-wins the emitted lookup compiles to (`_matched_windows`). The sibling claim, that no rule sits behind another and can never win a window, is the crate's fold: `fold::assert_outcome_partition` refuses a table with a never-first rule before any certificate is closed.
-
-    What the settle proves is the pins. A certificate's prefix is the chain of rows whose outcomes put the rule's left state in place, and the fixpoint only ever pinned those rows' slots — a settled left is reachable alongside the right1 that was the producing window's right2, and the deeper slots ride the allowed-sets. Settling the text from the run edge re-derives that left from nothing, so a pin the worklist got wrong settles the certificate to some other left, which first-matches some other rule, and the rule is reported. A table whose certificates do not cover its rules — a count that differs from the rule count — fails every rule, since nothing vouches for them.
-
-    O(rules) settles and no search: the texts prefill one `_SettledWindowWalk` in waves, and `memo` is the configuration's shared settle memo (`settle_memo_files`), keyed per family the way the oracle row cache is, so a window the belt or the oracle has already settled since the runes it names last moved costs a dict probe and the windows this check settles are handed on to them. That key is where the window-locality theorem reaches the certificates: a certificate names a handful of families, its windows survive exactly as long as those families' keys do, and a rune edit re-settles only the certificates naming an edited family.
-    """
-    if guard_verdicts is None:
-        guard_verdicts = kernel_exec.guard_sweep(spec)
-    features = frozenset(features)
-    report = WitnessReport(config=decision.config, rules=len(decision.rules))
-    certificates = tuple(getattr(decision, "certificates", ()))
-    if len(certificates) != len(decision.rules):
-        report.failures.append(
-            f"{decision.config}: the table carries {len(certificates)} certificate(s) for {len(decision.rules)} rule(s), so nothing vouches for its rules — a build-tables run that folded the rules writes one certificate per rule beside them"
-        )
-        return report
-    glyph_names = {cell: settle.cell_label(spec, cell) for cell in decision.reachable_cells()}
-    rules_by_input = _renamed_rules_by_input(spec, features, decision)
-    walker = _SettledWindowWalk(spec, features, glyph_names, guard_verdicts, on_error="drop", memo=memo)
-    texts: list[str | None] = []
-    for index, tokens in enumerate(certificates):
-        try:
-            texts.append(_token_text(spec, tokens))
-        except (KeyError, ValueError) as error:
-            texts.append(None)
-            report.failures.append(
-                f"{decision.config} rule {index} ({rule_signature(decision.rules[index])}): its certificate {list(tokens)} does not render as text ({error})"
-            )
-    with suppress(settle.SettleError):
-        walker.prefill(sorted({text for text in texts if text}))
-    for index, text in enumerate(texts):
-        if text is None:
-            continue
-        try:
-            _settled, names = walker.walk(text)
-        except settle.SettleError as error:
-            report.failures.append(
-                f"{decision.config} rule {index} ({rule_signature(decision.rules[index])}): the crate refused its certificate {text!r} ({error})"
-            )
-            continue
-        fired = [
-            matched
-            for _position, _window, matched in _matched_windows(
-                spec, text, features, guard_verdicts, names, rules_by_input
-            )
-        ]
-        if index in fired:
-            report.witnessed[index] = text
-        else:
-            report.failures.append(
-                f"{decision.config} rule {index} ({rule_signature(decision.rules[index])}): its certificate {text!r} fires rules {fired} and never this one"
-            )
-    if memo is not None:
-        walker.save_memo()
-    report.served = walker.memo_windows
-    report.fresh = walker.fresh_windows
-    return report
 
 
 def run_conformance(

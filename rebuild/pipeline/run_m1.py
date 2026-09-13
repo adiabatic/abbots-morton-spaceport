@@ -34,6 +34,7 @@ import yaml
 
 from rebuild.pipeline import (
     baseline_subset,
+    belt,
     compile_font,
     conform,
     defects,
@@ -930,7 +931,7 @@ def run_rule_witnesses(
     out_dir: Path,
     memo_inputs: oracle_cache.SettleMemoInputs | None,
 ) -> dict:
-    """The witness stage: every configuration's certificates settled through the crate and each rule asserted to fire in its own (`conform.check_rule_certificates`), which is the realizability half of the dead-rule alarm — the crate's fold refuses a rule no replayed row first-matches, and this refuses a rule whose replayed row no string reaches, which is what a wrong pin in the worklist would look like. It runs here, on the tables the build just folded, because the certificates are a fact about exactly those tables: nothing can check them against stale artifacts, and `--gates-only` reuses tables this stage already passed.
+    """The witness stage: every configuration's certificates settled through the crate and each rule asserted to fire in its own (`belt.check_rule_certificates`), which is the realizability half of the dead-rule alarm — the crate's fold refuses a rule no replayed row first-matches, and this refuses a rule whose replayed row no string reaches, which is what a wrong pin in the worklist would look like. It runs here, on the tables the build just folded, because the certificates are a fact about exactly those tables: nothing can check them against stale artifacts, and `--gates-only` reuses tables this stage already passed.
 
     Each configuration's walk shares the settle memo the string replay fills and the oracle and the belt load (`conform.settle_memo_files`, keyed per family off `memo_inputs` the way the oracle row cache is), so a window any of them has settled since the runes it names last moved is settled once; on a whole-universe replay this stage serves every certificate's windows off the file the replay just filled and settles only what a narrowed replay left standing. That key is where the window-locality theorem reaches the certificates: a rune edit retires only the memo entries naming an edited family, so only the certificates naming one are re-settled. A caller building a spec of its own has no memo inputs and no memo, and settles everything. The summary is written beside the other gate summaries; a red one is raised at the join, ahead of any complaint the glyph chain makes. The stage runs after the string replay on the table-only branch (`_run_table_gates`), which is the ordering that lets it load the file the replay filled, and the oracle waits on its memos being written back (`TableGates.wait_for_memo`), so no later reader can write a smaller file over them.
     """
@@ -941,7 +942,7 @@ def run_rule_witnesses(
     for config, entry in tables.items():
         started = time.perf_counter()
         decision = entry[0] if isinstance(entry, (tuple, list)) else entry
-        report = conform.check_rule_certificates(
+        report = belt.check_rule_certificates(
             spec, conform.features_for_config(config), decision, guard_verdicts, memo=memos.get(config)
         )
         per_config[config] = {
