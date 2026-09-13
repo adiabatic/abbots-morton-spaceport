@@ -14,8 +14,14 @@ from pathlib import Path
 import pytest
 
 from rebuild.review import app_index, census, drafts, unit_index
+from rebuild.review import build as review_build
 from rebuild.review.audit import AUDIT_HEADER, SLIM_OMITTED_KEYS, UNMATCHED_CLASS, Unit, load_workload
 from rebuild.review.build import (
+    _HELD_SCAFFOLD_KEYS,
+    _SCAFFOLD_HEAD,
+    _SCAFFOLD_TAIL,
+    DRAFTED,
+    PATCHED,
     _check_output_files,
     _copy_font,
     _sha256,
@@ -690,3 +696,89 @@ def test_the_premerge_projection_answers_one_ink_flag_per_captured_unit():
     facts = census.derive_premerge(capture, units)
     assert len(facts.ink_flags) == facts.units == len(units)
     assert [index for index, _family in facts.families] == [0, 1]
+
+
+# --- the two moments a build checks a fresh fragment at ----------------------------------------
+
+
+def _fixture_units() -> list[dict]:
+    _manifest, shards = _surface()
+    return [unit for shard in shards.values() for unit in shard]
+
+
+def _broken(unit: dict, key: str) -> list[dict]:
+    """The unit with one key deleted and with the same key set to a value of a type no field carries: the two corruptions every predicate in `check_unit` has an answer to, with nothing that could raise out of the checker instead of being reported by it."""
+    without = copy.deepcopy(unit)
+    without.pop(key, None)
+    wrong = copy.deepcopy(unit)
+    wrong[key] = "wrong"
+    return [without, wrong]
+
+
+@pytest.mark.parametrize("mode", ("m1-audit", "table-diff"))
+def test_the_two_check_moments_partition_the_whole_contract(mode):
+    """`check_unit` is one function with two named subsets, and calling it at `DRAFTED` and then at `PATCHED` is calling it whole: over every fixture unit as shipped, and over each one with every key deleted and every key wrongly typed in turn, the two subsets' complaints concatenate to the full check's list, in its order, and never overlap. A predicate that answered at both moments or at neither would fail here, which is what makes the split a partition rather than two lists that happen to cover the contract today."""
+    for unit in _fixture_units():
+        variants = [unit] + [broken for key in list(unit) for broken in _broken(unit, key)]
+        for variant in variants:
+            whole = check_unit(variant, mode)
+            drafted = check_unit(variant, mode, at=(DRAFTED,))
+            patched = check_unit(variant, mode, at=(PATCHED,))
+            assert whole == drafted + patched
+            assert not set(drafted) & set(patched)
+
+
+def test_every_scaffold_key_is_either_held_at_the_write_or_checked_there():
+    """Where a scaffold key is classified: every key `unit_scaffold` writes is either held by `hold_scaffold` at the write (`_HELD_SCAFFOLD_KEYS`, so the drafting-time check's reading of it is the reading of the bytes that ship) or is one of the two the parent's reduces assign after drafting, `echo` and `cluster`, and no key is both. The unheld keys, with the secondary seams the patch re-emits beside them, are then exactly what the write-time subset answers for: corrupting any of them draws no complaint from `DRAFTED` and a complaint from `PATCHED`. A key added to the scaffold fails here until it is placed on one side or the other."""
+    scaffold_keys = _SCAFFOLD_HEAD + _SCAFFOLD_TAIL
+    unheld = {"echo", "cluster"}
+    assert set(_HELD_SCAFFOLD_KEYS) | unheld == set(scaffold_keys)
+    assert not set(_HELD_SCAFFOLD_KEYS) & unheld
+    assert len(set(_HELD_SCAFFOLD_KEYS)) == len(_HELD_SCAFFOLD_KEYS)
+    for unit in _fixture_units():
+        assert check_unit(unit) == []
+        for key in sorted(unheld | {"secondary_seams"}):
+            without, wrong = _broken(unit, key)
+            assert check_unit(without, at=(DRAFTED,)) == []
+            assert check_unit(wrong, at=(DRAFTED,)) == []
+            _complaint(check_unit(wrong, at=(PATCHED,)), key)
+            if key in unheld:
+                _complaint(check_unit(without, at=(PATCHED,)), f"{key} must be present")
+
+
+def _build_mini(out: Path, mini_bundle) -> None:
+    build_m1(
+        out,
+        audit_path=MINI_AUDIT,
+        ledger_path=mini_bundle.ledger,
+        subset_dir=MINI,
+        after_font=MINI_FONT,
+        spec_root=mini_bundle.spec_root,
+        jobs=1,
+    )
+
+
+def test_a_fragment_the_worker_drafts_wrong_fails_the_build(mini_bundle, monkeypatch, tmp_path):
+    """The drafting side of the split, through a real serial build: a pin the after font refuted, written onto every human fragment as `unit_to_json` lays it down, is refused by the `DRAFTED` subset where the fragment is drafted and fails the build at the write, in the parent's own `contract check failed` list with the predicate's wording. Serial, because a spawned worker never sees the monkeypatch; the pooled path runs the same `_phase1_unit`."""
+    unit_to_json = review_build.unit_to_json
+
+    def refuted(*args, **kwargs):
+        fragment = unit_to_json(*args, **kwargs)
+        if fragment.get("drafts"):
+            fragment["drafts"]["pin"]["syntax"] = "fail: refuted for the test"
+        return fragment
+
+    monkeypatch.setattr(review_build, "unit_to_json", refuted)
+    with pytest.raises(SystemExit) as raised:
+        _build_mini(tmp_path / "surface", mini_bundle)
+    assert "contract check failed" in str(raised.value)
+    assert "drafts.pin.syntax is 'fail: refuted for the test'" in str(raised.value)
+
+
+def test_an_echo_the_parent_nulls_still_fails_the_build(mini_bundle, monkeypatch, tmp_path):
+    """The write side of the split, through the same serial build: an echo the parent's reduce leaves null on every human unit — a field settled after drafting, which no drafting-time check could have seen — is refused by the `PATCHED` subset at the write and fails the build with the predicate's wording."""
+    monkeypatch.setattr(review_build.unit_cache, "echo_id_for", lambda key: None)
+    with pytest.raises(SystemExit) as raised:
+        _build_mini(tmp_path / "surface", mini_bundle)
+    assert "contract check failed" in str(raised.value)
+    assert "human-workload units must carry an echo group id" in str(raised.value)
