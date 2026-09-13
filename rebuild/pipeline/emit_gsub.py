@@ -1,6 +1,6 @@
 """GSUB emission in the prototype-proven section 7 shape (M1-PLAN section 5, Group 3).
 
-Stage order, fixed by lookup definition order (which fixes LookupList indices and hence cross-feature application order on both shapers): the ss10 isolated-input pre-empt (single substitutions replacing every letter's raw cmap glyph by its anchor-free `.ss10` twin; defined first so that under ss10 it applies before formation can see the buffer — the twins appear in no formation sequence, marker line, chokepoint class, or settlement input, so under ss10 no ligature ever forms, nothing settles, and each letter keeps its own cluster) → formation (type-4 over the registry's ligature sequences; a ligature the section 5.7 late-formation guard ever blocks moves into its own chaining-context lookup `m1_formation_guarded`, staged first, whose generated `ignore sub` rows realize the guard over the two raw lookahead slots — with ZWNJ-explicit forming rows ordered ahead of them so a skipped ZWNJ can never satisfy a guard class, per the table builder's boundary-row discipline — and whose verdicts come from one `guard-sweep` invocation against the kernel crate, config-blind by that verb's construction, so the pre-marker staging loses nothing) → ss marker substitutions (unconditional, per set, staged after formation so enabling a set cannot un-form a ligature; composite markers render multi-set union states) → the ZWNJ chokepoint (`sub uni200C @entry-live' by @entry-locked`) → ONE settlement lookup of chained-context single substitutions with per-family `subtable;` breaks, positive rules only, `useExtension` so its per-rule format-3 subtables ride 32-bit Extension offsets (the depth-4 rules pushed the uint16 subtable-offset headroom under the floor read-back holds it to, `readback.SUBTABLE_OFFSET_HEADROOM_FLOOR`) — then, post-settlement, the namer-dot mini-calt (supplied here because `_namer_dot_calt_fea` is a no-op on the `senior_fea` path; its follower class includes the ss10 twins of the Short letters so the dot still lowers under ss10).
+Stage order, fixed by lookup definition order (which fixes LookupList indices and hence cross-feature application order on both shapers): the ss10 isolated-input pre-empt (single substitutions replacing every letter's raw cmap glyph by its anchor-free `.ss10` twin; defined first so that under ss10 it applies before formation can see the buffer — the twins appear in no formation sequence, marker line, chokepoint class, or settlement input, so under ss10 no ligature ever forms, nothing settles, and each letter keeps its own cluster) → formation (type-4 over the registry's ligature sequences; a ligature the section 5.7 late-formation guard ever blocks moves into its own chaining-context lookup `m1_formation_guarded`, staged first, whose generated `ignore sub` rows realize the guard over the two raw lookahead slots — with ZWNJ-explicit forming rows ordered ahead of them so a skipped ZWNJ can never satisfy a guard class, per the table builder's boundary-row discipline — and whose verdicts come from one `guard-sweep` invocation against the kernel crate, config-blind by that verb's construction, so the pre-marker staging loses nothing) → ss marker substitutions (unconditional, per set, staged after formation so enabling a set cannot un-form a ligature; composite markers render multi-set union states) → the ZWNJ chokepoint (`sub uni200C @entry-live' by @entry-locked`) → one plain single-substitution lookup per distinct (input glyph, outcome) pair the settlement rows carry, registered in no feature and reached only by name from those rows (feaLib resolves a `lookup NAME` reference at parse time through a dict, where an inline `by` costs it a rescan of every rule since the last `subtable;` for a compatible inner lookup, quadratic in the rows per family) → ONE settlement lookup of chained-context rows, each `sub <backtrack> X' lookup NAME <lookahead>;`, with per-family `subtable;` breaks, positive rules only, `useExtension` so its per-rule format-3 subtables ride 32-bit Extension offsets (the depth-4 rules pushed the uint16 subtable-offset headroom under the floor read-back holds it to, `readback.SUBTABLE_OFFSET_HEADROOM_FLOOR`) — then, post-settlement, the namer-dot mini-calt (supplied here because `_namer_dot_calt_fea` is a no-op on the `senior_fea` path; its follower class includes the ss10 twins of the Short letters so the dot still lowers under ss10).
 
 Rule consumption is duck-typed against Group 2's `table.DecisionTable`: each rule exposes `input_glyph`, `backtrack` / `look1` / `look2` / `look3` / `look4` (tuples of glyph labels or None; `look3` and `look4` are read via getattr so pre-depth duck-typed tables keep working), `outcome`, `joint`, `provenance`. A rule with a live `look3` compiles to one further lookahead class after `look2` — the raw third slot a depth-3 prefer record reads — and a live `look4` to one more after that, the raw fourth slot a depth-4 record reads. When `tables_by_config` carries several configurations, their rule lists are folded by exact-duplicate union with a conflict assertion — sound exactly when the table builder already disambiguates inputs by marker labels per configuration (the prototype's feature-fold invariant); a same-window different-outcome collision raises.
 
@@ -459,8 +459,28 @@ def _ordered_settle_rules(rules: Iterable, marker_names: frozenset[str] = frozen
     return [rule for family_rules in by_family.values() for rule in family_rules]
 
 
-def _settle_lines(grouped: Iterable, registry: _ClassRegistry) -> list[str]:
-    """One FEA line per rule over an already-ordered rule list, with a `subtable;` break wherever the input family changes. Emission only: which rule ships where is settled upstream in `_ordered_settle_rules`, so the lines and the rows the plan carries are read off one list and cannot drift apart."""
+def _settle_outcome_lookups(grouped: Iterable) -> tuple[dict[tuple[str, str], str], list[str]]:
+    """One single-substitution lookup per distinct (input glyph, outcome) pair the ordered rules carry, in first-seen order so the emitted text is byte-deterministic: the name each settlement row references, keyed by pair, beside the FEA blocks that define them. The names are unique by construction, which `Builder.start_lookup_block` demands: the per-glyph counter is keyed on the `_fea_safe` base the name carries, not on the raw glyph name, because that fold is lossy."""
+    names: dict[tuple[str, str], str] = {}
+    counters: dict[str, int] = {}
+    blocks: list[str] = []
+    for rule in grouped:
+        pair = (rule.input_glyph, rule.outcome)
+        if pair in names:
+            continue
+        base = _fea_safe(rule.input_glyph)
+        index = counters.get(base, 0)
+        counters[base] = index + 1
+        name = f"m1_settle_{base}_{index}"
+        names[pair] = name
+        blocks.append(f"lookup {name} {{\n    sub {rule.input_glyph} by {rule.outcome};\n}} {name};")
+    return names, blocks
+
+
+def _settle_lines(
+    grouped: Iterable, registry: _ClassRegistry, outcome_lookups: Mapping[tuple[str, str], str]
+) -> list[str]:
+    """One FEA line per rule over an already-ordered rule list, with a `subtable;` break wherever the input family changes. Each row names its outcome through `outcome_lookups`, the single-substitution lookup `_settle_outcome_lookups` minted for its (input glyph, outcome) pair, placed right after the marked input glyph as FEA requires. Emission only: which rule ships where is settled upstream in `_ordered_settle_rules`, so the lines and the rows the plan carries are read off one list and cannot drift apart."""
     lines: list[str] = []
     counters: dict[str, int] = {}
     current_family: str | None = None
@@ -476,6 +496,7 @@ def _settle_lines(grouped: Iterable, registry: _ClassRegistry) -> list[str]:
         if rule.backtrack:
             parts.append(registry.ref(tuple(rule.backtrack), f"s_{base}_bk{index}"))
         parts.append(f"{rule.input_glyph}'")
+        parts.append(f"lookup {outcome_lookups[(rule.input_glyph, rule.outcome)]}")
         if rule.look1:
             parts.append(registry.ref(tuple(rule.look1), f"s_{base}_la1_{index}"))
         if rule.look2:
@@ -484,13 +505,12 @@ def _settle_lines(grouped: Iterable, registry: _ClassRegistry) -> list[str]:
             parts.append(registry.ref(tuple(rule.look3), f"s_{base}_la3_{index}"))
         if getattr(rule, "look4", None):
             parts.append(registry.ref(tuple(rule.look4), f"s_{base}_la4_{index}"))
-        parts.append(f"by {rule.outcome};")
         provenance = "; ".join(dict.fromkeys(str(p) for p in (rule.provenance or ()) if p))
         comment_bits = [
             bit for bit in ("joint row" if getattr(rule, "joint", False) else "", provenance) if bit
         ]
         comment = f"  # {' | '.join(comment_bits)}" if comment_bits else ""
-        lines.append("    " + " ".join(parts) + comment)
+        lines.append("    " + " ".join(parts) + ";" + comment)
     return lines
 
 
@@ -664,7 +684,8 @@ def emit_gsub(
         spec, registry, guard_verdicts
     )
     grouped_rules = _ordered_settle_rules(rules, marker_names)
-    settle_lines = _settle_lines(grouped_rules, registry)
+    outcome_lookups, outcome_blocks = _settle_outcome_lookups(grouped_rules)
+    settle_lines = _settle_lines(grouped_rules, registry, outcome_lookups)
     rule_count = len(grouped_rules)
 
     live_members = _entry_live_members(spec)
@@ -710,6 +731,8 @@ def emit_gsub(
         )
 
     parts.append("\nlookup m1_zwnj {\n    sub uni200C @m1_entry_live' by @m1_entry_locked;\n} m1_zwnj;")
+    if outcome_blocks:
+        parts.append("\n" + "\n".join(outcome_blocks))
     parts.append("\nlookup m1_settle useExtension {\n" + "\n".join(settle_lines) + "\n} m1_settle;")
 
     namer_lines: list[str] = []
