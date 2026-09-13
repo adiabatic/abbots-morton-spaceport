@@ -529,7 +529,7 @@ def mini_bundle(tmp_path_factory) -> MiniBundle:
 
 @pytest.fixture(scope="session")
 def mini_surface(tmp_path_factory, mini_bundle: MiniBundle) -> Path:
-    """One real build of the frozen mini bundle under pytest's temp root — fonts, index, sidecars and every unit's content-key stamp — for every test that drives a tool over a surface rather than over a synthetic one: the standing dry run's memo and targeted-run identities, and the standing daemon's served-versus-in-process identity, which spawns a process over it. Built once per session per worker at one job, so the build files no pool record."""
+    """One real build of the frozen mini bundle under pytest's temp root — fonts, index, sidecars and every unit's content-key stamp — and the base surface for every test that wants the bundle as it lies: the surface cache's byte-identity module compares its own rebuilds against it, the environment module copies it as the unmodified-font base it recompiles over, the app-index sidecar arm reads it, and the standing dry run and the standing daemon drive their tools over it. `build_m1` over these inputs is byte-stable, which those modules assert, so one build stands for all of them. A test that perturbs a surface copies this one first and never writes into it. Built once per session per worker at one job, so the build files no pool record."""
     build = announced_import("rebuild.review.build")
 
     out = tmp_path_factory.mktemp("mini-surface") / "surface"

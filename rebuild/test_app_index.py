@@ -15,11 +15,10 @@ import pytest
 
 from rebuild.review import app_index, unit_index
 from rebuild.review.audit import MACHINE_CHANNELS
-from rebuild.review.build import _check_output_files, _write_shard, build_m1, check_output_dir
+from rebuild.review.build import _check_output_files, _write_shard, check_output_dir
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 FIXTURES = REPO_ROOT / "rebuild" / "review" / "fixtures"
-MINI = FIXTURES / "mini"
 
 # Named rather than derived, for the reason `rebuild/test_unit_index.py` names its own: adding a field to what the app carries should be a deliberate act, and dropping one the app draws should fail here rather than as a blank line on a card.
 APP_ROW_KEYS = {
@@ -107,22 +106,6 @@ def _rewrite_fragments(tmp_path: Path, fragments: dict[str, list[dict]]) -> Path
 @pytest.fixture
 def fixture_surface(tmp_path) -> Path:
     return _rewrite_fixture_surface(tmp_path)
-
-
-@pytest.fixture(scope="module")
-def mini_surface(tmp_path_factory, mini_bundle) -> Path:
-    """One real build of the frozen mini bundle, so the sidecars under test are the ones `_write_surface` emits rather than ones a test assembled."""
-    out = tmp_path_factory.mktemp("app-index") / "surface"
-    build_m1(
-        out,
-        audit_path=MINI / "audit.tsv",
-        ledger_path=mini_bundle.ledger,
-        subset_dir=MINI,
-        after_font=MINI / "M1.otf",
-        spec_root=mini_bundle.spec_root,
-        jobs=1,
-    )
-    return out
 
 
 def _addressed(surface: Path, manifest: dict, row: dict) -> dict:
