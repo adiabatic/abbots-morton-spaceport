@@ -2,13 +2,14 @@ import os
 import re
 import subprocess
 import sys
-from collections.abc import Iterator
+from collections.abc import Generator, Iterator
 from pathlib import Path
 from typing import Any, TYPE_CHECKING
 
 import pytest
 
 if TYPE_CHECKING:
+    from rebuild.tools.pyright_gate import Check
     from test_shaping import Run
 
 ROOT = Path(__file__).resolve().parent
@@ -20,6 +21,19 @@ for _p in (str(ROOT / "tools"), str(ROOT / "test")):
 
 
 _shaping_cache: dict[str, Any] = {}
+
+# Where pytest_configure parks the check a rebuild-only run does not wait on, for pytest_sessionfinish to join; popped rather than read so nothing is waited on twice.
+_deferred_pyright: list["Check"] = []
+
+
+def _join_deferred_pyright(interrupted: bool) -> int:
+    if not _deferred_pyright:
+        return 0
+    check = _deferred_pyright.pop()
+    if interrupted:
+        check.abandon()
+        return 0
+    return check.wait()
 
 
 def _make_env() -> dict[str, str]:
@@ -50,15 +64,17 @@ def pytest_configure(config: pytest.Config) -> None:
         return
     if config.getoption("dist", "no") == "no":
         return
-    # `make test` / `make test-slowly` / `make test-rebuild` set AMS_RUN_PYRIGHT so the pyright gate overlaps the ≈18s font build instead of running back-to-back as a serial prelude; both finish before the workers spawn, so a type error still fast-fails the whole run. The gate is `rebuild.tools.pyright_gate`, which spawns nothing when its own green record already vouches for every file pyright can read, so a run re-armed by a rune or glyph edit pays no type check; `AMS_RUN_PYRIGHT=force` (`FORCE=1` on the make target) runs it regardless. A run that collects only under rebuild/ skips the font build — that suite shapes against the site fonts exactly as its input-closure fingerprint already hashed them, so rebuilding at suite head would either churn mtimes the review-surface fixture cache depends on or test bytes nobody fingerprinted — while pyright still starts here and still fast-fails before the workers spawn. The one exception: when the closure's fonts (rebuild.tools.site_fonts, the leaf fingerprint.font_paths is read from, so that this file's import closure — a global input of every rebuild test's closure — stays clear of rebuild/pipeline) are absent, as after `make clean`, the build runs anyway, since a missing input the suite cannot shape against beats every mtime concern. Direct `uv run pytest -n …` invocations leave it unset and skip pyright, so iterating on a subset isn't aborted by an unrelated type error elsewhere in the tree. The argv carries no paths: `[tool.pyright] include` in pyproject.toml is the single authority for what gets checked, which is how rebuild/ gets covered from test-rebuild without a second path list to keep in sync.
+    # `make test` / `make test-slowly` / `make test-rebuild` set AMS_RUN_PYRIGHT so the pyright gate starts here, before anything else the controller does. The gate is `rebuild.tools.pyright_gate`, which spawns nothing when its own green record already vouches for every file pyright can read, so a run re-armed by a rune or glyph edit pays no type check; `AMS_RUN_PYRIGHT=force` (`FORCE=1` on the make target) runs it regardless. On a run that builds the fonts the check overlaps the ≈18s `make all` and is waited on before the workers spawn, so a type error fast-fails the whole run at no cost in wall. A run that collects only under rebuild/ skips the font build — that suite shapes against the site fonts exactly as its input-closure fingerprint already hashed them, so rebuilding at suite head would either churn mtimes the review-surface fixture cache depends on or test bytes nobody fingerprinted — and there nothing stands beside the check to hide its wall behind, so it is parked in `_deferred_pyright` and joined in pytest_sessionfinish instead: it runs beside the xdist pool, and a type error reddens the run after the suite rather than ahead of it. The one exception: when the closure's fonts (rebuild.tools.site_fonts, the leaf fingerprint.font_paths is read from, so that this file's import closure — a global input of every rebuild test's closure — stays clear of rebuild/pipeline) are absent, as after `make clean`, the build runs anyway, since a missing input the suite cannot shape against beats every mtime concern, and the check is waited on beside it like any other font-building run. Direct `uv run pytest -n …` invocations leave it unset and skip pyright, so iterating on a subset isn't aborted by an unrelated type error elsewhere in the tree. The argv carries no paths: `[tool.pyright] include` in pyproject.toml is the single authority for what gets checked, which is how rebuild/ gets covered from test-rebuild without a second path list to keep in sync.
     from rebuild.tools import pyright_gate
 
     pyright = pyright_gate.begin(os.environ, ROOT, env=_make_env())
     if not _is_rebuild_only(config) or not _rebuild_suite_fonts_present():
         subprocess.run(["make", "all"], cwd=ROOT, check=True, env=_make_env())
         _shaping_cache["_built"] = True
-    if pyright is not None and pyright.wait() != 0:
-        raise pytest.UsageError("pyright type check failed (see output above)")
+        if pyright is not None and pyright.wait() != 0:
+            raise pytest.UsageError("pyright type check failed (see output above)")
+    elif pyright is not None:
+        _deferred_pyright.append(pyright)
 
 
 # What one font-suite worker holds at its peak. Nothing here divides by it — the branch below takes the core count, because a worker this small cannot bind a pool before the cores do — but it is what prices `make test` as a co-resident pool when something else wants the same box, so it is named rather than left in prose. Seeded from the peak-RSS summary line below (issue #51), which has these workers at 0.11–0.28 GB apiece across runs, and rounded up past the top of that range for the same reason kernel_exec.DELTA_PEAK_BYTES rounds up past its own measurement: a per-unit cost that errs low is what puts a box into swap, while one that errs high only narrows a pool.
@@ -79,12 +95,24 @@ def pytest_xdist_auto_num_workers(config: pytest.Config) -> int:
 _worker_peak_rss: dict[str, int] = {}
 
 
-def pytest_sessionfinish(session: pytest.Session) -> None:
+# A wrapper marked tryfirst so the controller's half is the outermost and runs after every other sessionfinish impl — the terminal reporter's (registered after the conftests, so plain wrapper order alone would put this one inside it), xdist's node teardown — which is what lands the `pyright:` line below the pytest summary and keeps the check's remaining wait out of the summary's clock; test_pyright_gate pins the flag. The worker's half writes its peak before yielding, so xdist's own wrapper ships it back whichever way the two nest. The join sits in a `finally` so an inner impl that raises still reaps the parked check, and a session that reaches this hook interrupted — a Ctrl-C arrives here as exitstatus INTERRUPTED with nothing in flight, pytest having caught it — abandons the check rather than judging it: the same SIGINT hit pyright, so its nonzero exit is not a red and must not clear a green record that still holds.
+@pytest.hookimpl(wrapper=True, tryfirst=True)
+def pytest_sessionfinish(session: pytest.Session, exitstatus: int) -> Generator[None, object, object]:
     if hasattr(session.config, "workerinput"):
         from rebuild.tools.peak_rss import peak_rss_self_bytes
 
         workeroutput = session.config.workeroutput  # pyright: ignore[reportAttributeAccessIssue]
         workeroutput["peak_rss_bytes"] = peak_rss_self_bytes()
+        return (yield)
+    interrupted = True
+    try:
+        result = yield
+        interrupted = exitstatus == pytest.ExitCode.INTERRUPTED
+    finally:
+        returncode = _join_deferred_pyright(interrupted)
+    if returncode != 0:
+        pytest.exit("pyright type check failed (see output above)", returncode=pytest.ExitCode.USAGE_ERROR)
+    return result
 
 
 def pytest_testnodedown(node, error) -> None:
