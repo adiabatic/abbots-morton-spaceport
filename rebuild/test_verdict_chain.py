@@ -1,4 +1,4 @@
-"""Tests for the verdict chain's contract with the steps it drives, which is thinner than it looks: the chain loads the surface's unit index once and hands every step the whole of it, and each step decides for itself what part of that list it has any business reading. The standing fill is the one step that decides visibly — the chain asks for its `--open-only --require-reach` form, narrowing what it writes from to the units that can move a fill while keeping the reach check over the whole domain, where a rule that has run out of windows fails the step — so what is asserted here is that the chain passes both flags and still hands the index over entire."""
+"""Tests for the verdict chain's contract with the steps it drives, which is thinner than it looks: the chain loads the surface's human index records once, beside the id of every unit on the surface, and hands every step the human records — the carry and the docket take the id set too, since their stranded and absent-unit figures count prior verdicts against every id — and each step decides for itself what part of that list it has any business reading. The standing fill is the one step that decides visibly — the chain asks for its `--open-only --require-reach` form, narrowing what it writes from to the units that can move a fill while keeping the reach check over the whole domain, where a rule that has run out of windows fails the step — so what is asserted here is that the chain passes both flags and still hands the human records over entire."""
 
 import json
 import pathlib
@@ -33,8 +33,11 @@ def test_a_step_opens_a_phase_and_the_timing_that_follows_closes_it(capsys):
     assert lines[-1] == f"{console.FAILED_LINE}merge (exit 3)"
 
 
-def _chain(tmp_path, monkeypatch, extra=()):
-    """The chain over a stub surface with every step but the standing fill stubbed out, returning its exit code, the index it loaded, the standing fill's calls, and where the fill was told to write."""
+IDS = frozenset({"u-1", "u-2", "u-machine"})
+
+
+def _chain(tmp_path, monkeypatch, extra=(), complaints=False):
+    """The chain over a stub surface with every step but the standing fill stubbed out, returning its exit code, the human records it loaded, the standing fill's calls, where the fill was told to write, the docket's calls (none unless `complaints` asks for the step) and what each echo round was handed."""
     surface = tmp_path / "review"
     surface.mkdir()
     (surface / "manifest.json").write_text(json.dumps({"generated_at": STAMP}))
@@ -42,16 +45,28 @@ def _chain(tmp_path, monkeypatch, extra=()):
     master.write_text(json.dumps(_payload()))
     index = [{"id": "u-1"}, {"id": "u-2"}]
     calls = []
+    dockets = []
+    echoes = []
 
-    monkeypatch.setattr(vc.unit_index, "load_units", lambda _surface: index)
+    monkeypatch.setattr(vc.unit_index, "load_human_units", lambda _surface: (index, set(IDS)))
     monkeypatch.setattr(vc.merge_verdicts, "main", lambda _argv: 0)
-    monkeypatch.setattr(vc.echo_verdicts, "main", lambda argv, units=None: _write_out(argv))
+
+    def echo(argv, units=None):
+        echoes.append(units)
+        return _write_out(argv)
+
+    monkeypatch.setattr(vc.echo_verdicts, "main", echo)
 
     def standing(argv, units=None):
         calls.append((argv, units))
         return _write_out(argv)
 
     monkeypatch.setattr(vc.standing_verdicts, "main", standing)
+    monkeypatch.setattr(
+        vc.complaint_docket,
+        "main",
+        lambda argv, units=None, unit_ids=None: dockets.append((argv, units, unit_ids)) or 0,
+    )
 
     standing_out = tmp_path / "verdicts-standing-fill.json"
     code = vc.main(
@@ -70,17 +85,18 @@ def _chain(tmp_path, monkeypatch, extra=()):
             str(standing_out),
             "--rules",
             str(tmp_path / "standing-approvals.yaml"),
-            "--no-complaints",
+            *([] if complaints else ["--no-complaints"]),
             *extra,
         ]
     )
-    return code, index, calls, standing_out
+    return code, index, calls, standing_out, dockets, echoes
 
 
 def test_the_chain_runs_the_standing_fill_in_its_open_only_form(tmp_path, monkeypatch):
-    """The narrowing and the refusal are both the tool's, so the chain still hands over the whole index and merely names the form — and hands it the memo beside the surface directory, outside it, so a surface rebuild never clears it."""
-    code, index, calls, standing_out = _chain(tmp_path, monkeypatch)
+    """The narrowing and the refusal are both the tool's, so the chain still hands over the human records entire and merely names the form — and hands it the memo beside the surface directory, outside it, so a surface rebuild never clears it."""
+    code, index, calls, standing_out, dockets, _echoes = _chain(tmp_path, monkeypatch)
     assert code == 0
+    assert dockets == []
     [(argv, units)] = calls
     assert "--open-only" in argv
     assert "--require-reach" in argv
@@ -91,9 +107,24 @@ def test_the_chain_runs_the_standing_fill_in_its_open_only_form(tmp_path, monkey
     assert units is index
 
 
+def test_the_echo_fill_takes_the_human_records_and_the_docket_takes_the_id_set_beside_them(
+    tmp_path, monkeypatch
+):
+    """Echo fill reads nothing a machine record could carry, so it gets the human records alone; the docket's absent-unit warning counts verdict records against every id on the surface, so it gets the id set beside them."""
+    code, index, _calls, _out, dockets, echoes = _chain(tmp_path, monkeypatch, complaints=True)
+    assert code == 0
+    assert echoes and all(units is index for units in echoes)
+    [(argv, units, unit_ids)] = dockets
+    assert argv[argv.index("--surface") + 1] == str(tmp_path / "review")
+    assert units is index
+    assert unit_ids == IDS
+
+
 def test_the_chain_forwards_the_cycles_standing_fill_width(tmp_path, monkeypatch):
     """`--standing-fill-jobs` is the cycle's width for the fill's refill pool, reaching the fill as its `--jobs`; the chain derives none of its own, and without one the fill is serial."""
-    code, _index, calls, _out = _chain(tmp_path, monkeypatch, ("--standing-fill-jobs", "6"))
+    code, _index, calls, _out, _dockets, _echoes = _chain(
+        tmp_path, monkeypatch, ("--standing-fill-jobs", "6")
+    )
     assert code == 0
     [(argv, _units)] = calls
     assert argv[argv.index("--jobs") + 1] == "6"
@@ -102,7 +133,7 @@ def test_the_chain_forwards_the_cycles_standing_fill_width(tmp_path, monkeypatch
 def test_the_chain_passes_a_named_memo_and_the_fresh_form_through(tmp_path, monkeypatch):
     """`--standing-memo` names where the fill keeps its decisions and `--fresh-standing-memo` — the cycle's `--fresh` — has it evaluate everything and rewrite the file."""
     memo = tmp_path / "elsewhere" / "memo.ndjson.gz"
-    code, _index, calls, _out = _chain(
+    code, _index, calls, _out, _dockets, _echoes = _chain(
         tmp_path, monkeypatch, ("--standing-memo", str(memo), "--fresh-standing-memo")
     )
     assert code == 0
@@ -121,9 +152,12 @@ def _carrying_chain(tmp_path, monkeypatch, extra=()):
     index = [{"id": "u-DdcTojn1hba"}]
     carries = []
     merges = []
-    monkeypatch.setattr(vc.unit_index, "load_units", lambda _surface: index)
+    monkeypatch.setattr(vc.unit_index, "load_human_units", lambda _surface: (index, set(IDS)))
     monkeypatch.setattr(
-        vc.carry_verdicts, "main", lambda argv, current_units=None: carries.append((argv, current_units)) or 0
+        vc.carry_verdicts,
+        "main",
+        lambda argv, current_units=None, current_ids=None: carries.append((argv, current_units, current_ids))
+        or 0,
     )
     monkeypatch.setattr(vc.merge_verdicts, "main", lambda argv: merges.append(argv) or 0)
     monkeypatch.setattr(vc.echo_verdicts, "main", lambda argv, units=None: _write_out(argv))
@@ -154,14 +188,15 @@ def _carrying_chain(tmp_path, monkeypatch, extra=()):
 
 
 def test_the_carry_step_hands_the_verdicts_file_and_the_loaded_index_to_the_carry(tmp_path, monkeypatch):
-    """The carry lands verdicts by unit id, so the chain hands it the verdicts file and the index it already loaded — no surface beyond the live one is named — and merges what it wrote."""
+    """The carry lands verdicts by unit id, so the chain hands it the verdicts file, the human records it already loaded and every id on the surface beside them — its stranded figure counts against the machine ids too, and no surface beyond the live one is named — and merges what it wrote."""
     code, index, carries, merges = _carrying_chain(tmp_path, monkeypatch)
     assert code == 0
-    [(argv, units)] = carries
+    [(argv, units, unit_ids)] = carries
     assert argv[: argv.index("--out")] == ["--verdicts", str(tmp_path / "verdicts.json")]
     assert argv[argv.index("--out") + 1] == str(tmp_path / "carried.json")
     assert argv[argv.index("--current-surface") + 1] == str(tmp_path / "review")
     assert units is index
+    assert unit_ids == IDS
     assert merges[0][0] == str(tmp_path / "carried.json")
 
 

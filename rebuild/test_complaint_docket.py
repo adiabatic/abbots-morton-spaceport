@@ -100,7 +100,7 @@ def write_verdicts(repo, verdicts, stamp=STAMP):
     )
 
 
-def run(repo, *args):
+def run(repo, *args, **held):
     return cd.main(
         [
             str(repo["verdicts"]),
@@ -111,7 +111,8 @@ def run(repo, *args):
             "--park-dir",
             str(repo["root"]),
             *args,
-        ]
+        ],
+        **held,
     )
 
 
@@ -298,6 +299,27 @@ def test_exempt_units_never_complain_and_never_park(repo):
     payload = data(repo)
     assert payload["totals"]["complaints"] == 1
     assert payload["groups"][0]["park_candidates"]["unit_ids"] == []
+
+
+def test_the_absent_unit_warning_counts_against_every_id_on_the_surface(repo, capsys):
+    """A verdict record naming a unit outside the human workload names a unit the surface holds, so it is not absent; only an id the surface does not hold at all is. The fixture ships shards with no index, so this runs the loader's shard fallback through the tool."""
+    write_surface(repo, [unit("u-0001", [P_EXTEND_1]), unit("u-0002", [P_EXTEND_1], batch=None)])
+    write_verdicts(repo, [v("u-0001", "reject"), v("u-0002", "reject")])
+    assert run(repo) == 0
+    assert "absent from this surface" not in capsys.readouterr().err
+    write_verdicts(repo, [v("u-0001", "reject"), v("u-0002", "reject"), v("u-0009", "reject")])
+    assert run(repo) == 0
+    assert "warning: 1 verdict records name units absent from this surface" in capsys.readouterr().err
+
+
+def test_the_human_records_without_the_id_set_are_refused(repo):
+    """The pair the verdict chain hands over comes whole or not at all: the human records alone would warn about every verdict on a machine unit."""
+    write_surface(repo, [unit("u-0001", [P_EXTEND_1])])
+    write_verdicts(repo, [v("u-0001", "reject")])
+    with pytest.raises(SystemExit):
+        run(repo, units=[unit("u-0001", [P_EXTEND_1])])
+    with pytest.raises(SystemExit):
+        run(repo, unit_ids={"u-0001"})
 
 
 def test_conflicting_mechanical_drafts_on_one_fix_site_are_flagged(repo):

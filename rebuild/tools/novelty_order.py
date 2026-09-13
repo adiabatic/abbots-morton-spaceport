@@ -12,7 +12,7 @@ ROOT = pathlib.Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
 
 from rebuild.review.serve import PORT  # noqa: E402
-from rebuild.tools.review_docket import latest_verdicts, load_units  # noqa: E402
+from rebuild.tools.review_docket import latest_verdicts, load_human_units  # noqa: E402
 
 SURFACE = ROOT / "rebuild/out/review"
 AUTOSAVE = ROOT / "verdicts-autosave.json"
@@ -144,7 +144,7 @@ def main(clipboard_write: Callable[[str], None] | None = None, *, units=None):
         )
     records = latest_verdicts(verdicts_path)
 
-    reps, blank_count = blank_reps(units if units is not None else load_units(surface), records)
+    reps, blank_count = blank_reps(units if units is not None else load_human_units(surface)[0], records)
     if not reps:
         print("No blank units — nothing to order.")
         return

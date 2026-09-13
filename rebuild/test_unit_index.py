@@ -233,6 +233,84 @@ def test_iter_units_and_load_units_agree(tmp_path):
     assert list(unit_index.iter_units(surface)) == unit_index.load_units(surface)
 
 
+def _human_and_ids(units: list[dict]) -> tuple[list[dict], set[str]]:
+    return [unit for unit in units if unit["batch"] is not None], {unit["id"] for unit in units}
+
+
+def test_load_human_units_is_load_units_filtered_to_the_human_records(tmp_path):
+    """The byte test over the index and the parse agree: the human records are exactly the records whose `batch` is not None, in the same order, and the id set is every record's. The fixture surface holds both kinds, so both branches of the classification run."""
+    surface = _fixture_surface(tmp_path)
+    _write(surface)
+    every = unit_index.load_units(surface)
+    human, ids = _human_and_ids(every)
+    assert human and len(human) < len(every)
+    assert unit_index.load_human_units(surface) == (human, ids)
+
+
+def test_an_index_line_opens_with_the_id_order_and_batch(tmp_path):
+    """`load_human_units` reads a line's id and its place in the queue off the head cut at `CLASS_SEAM` without parsing it, which rests on `index_record` opening every record with `id`, `order`, `batch` in that order. A key added before `batch` or a moved `class` would reclassify every record on the surface with no error, so the order is held here: the head closes as a record of exactly those three keys, the id slices out of it, and the tail names a machine record exactly when the batch is null."""
+    fragment = _shard_units(_fixture_surface(tmp_path))[0]
+    assert list(unit_index.index_record(fragment))[:3] == ["id", "order", "batch"]
+    for order, batch in ((7, 0), (None, None)):
+        line = unit_index.index_line(fragment, order=order, batch=batch)
+        head = line[: line.index(unit_index.CLASS_SEAM)]
+        assert head.startswith(unit_index.ID_OPEN)
+        assert json.loads(head + b"}") == {"id": fragment["id"], "order": order, "batch": batch}
+        assert head[len(unit_index.ID_OPEN) : head.index(unit_index.ORDER_SEAM)].decode() == fragment["id"]
+        assert head.endswith(unit_index.MACHINE_TAIL) is (batch is None)
+
+
+def test_a_fragment_carrying_its_own_batch_reads_as_human():
+    """`workload_slot`'s old-surface branch — no `order`, a `batch` off the fragment itself — writes a head ending in a number rather than `null`, so the record classifies as human, the one shape where `batch` is non-null without an `order`."""
+    fragment = {"id": "u-0001", "batch": 2}
+    slot = unit_index.workload_slot({}, 300, fragment)
+    assert slot == {"order": None, "batch": 2}
+    line = unit_index.index_line(fragment, **slot)
+    head = line[: line.index(unit_index.CLASS_SEAM)]
+    assert not head.endswith(unit_index.MACHINE_TAIL)
+    assert json.loads(head + b"}")["batch"] == 2
+
+
+def test_load_human_units_falls_back_to_the_shards(tmp_path):
+    surface = _fixture_surface(tmp_path)
+    assert unit_index.load_index(surface) is None
+    fallback = _human_and_ids(unit_index.load_units(surface))
+    assert unit_index.load_human_units(surface) == fallback
+    _write(surface)
+    assert unit_index.load_human_units(surface) == fallback
+
+    manifest = json.loads((surface / "manifest.json").read_text(encoding="utf-8"))
+    manifest["generated_at"] = "2099-01-01T00:00:00Z"
+    (surface / "manifest.json").write_text(json.dumps(manifest, indent=1) + "\n", encoding="utf-8")
+    assert unit_index.index_is_current(surface) is False
+    assert unit_index.load_human_units(surface) == fallback
+
+
+def test_a_truncated_or_foreign_index_refuses_the_human_load_too(tmp_path):
+    surface = _fixture_surface(tmp_path)
+    fallback = _human_and_ids(unit_index.load_units(surface))
+    path = _write(surface)
+    path.write_bytes(b"")
+    assert unit_index.load_human_units(surface) == fallback
+    with gzip.open(path, "wb") as stream:
+        stream.write((json.dumps({"format": "something-else"}) + "\n").encode())
+    assert unit_index.load_human_units(surface) == fallback
+    with gzip.open(path, "wb") as stream:
+        stream.write(
+            (
+                json.dumps(
+                    {
+                        "format": unit_index.INDEX_FORMAT,
+                        "manifest_sha256": unit_index.manifest_sha256(surface),
+                    }
+                )
+                + "\n"
+            ).encode()
+        )
+        stream.write(b'{"id": "u-torn", "order": 0, "bat')
+    assert unit_index.load_human_units(surface) == fallback
+
+
 def _output_manifest(surface: Path) -> dict:
     return {"classes": [], "fonts": {}}
 

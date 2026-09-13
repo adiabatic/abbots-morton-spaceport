@@ -17,7 +17,7 @@ from rebuild.pipeline.geometry import HEIGHT_Y  # noqa: E402
 from rebuild.review.ink import features_for  # noqa: E402
 from rebuild.tools import standing_client  # noqa: E402
 from rebuild.tools import standing_verdicts as sv  # noqa: E402
-from rebuild.tools.review_docket import latest_verdicts, load_units  # noqa: E402
+from rebuild.tools.review_docket import latest_verdicts, load_human_units  # noqa: E402
 from rebuild.validation.classify import PIXEL_SIZE  # noqa: E402
 
 SURFACE = ROOT / "rebuild/out/review"
@@ -600,7 +600,7 @@ def main(argv=None, *, units=None, context=None):
             )
     blankness = Blankness(records, stale)
     rules = sv.load_rules(pathlib.Path(args.rules))
-    human = _human(load_units(surface) if units is None else units)
+    human = _human(load_human_units(surface)[0] if units is None else units)
     listed = False
     if args.extension_cells:
         _extension_cells(human, blankness, *args.extension_cells)

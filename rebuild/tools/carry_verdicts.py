@@ -43,8 +43,8 @@ def resolve_prior(verdict_files):
     return prior
 
 
-def main(argv=None, *, current_units=None):
-    """`current_units` lets a caller that already holds the live surface's index hand it over rather than have this tool read it again; rebuild.tools.verdict_chain is the one caller that does."""
+def main(argv=None, *, current_units: list[dict] | None = None, current_ids: set[str] | None = None):
+    """`current_units` and `current_ids` let a caller that already holds the live surface hand it over rather than have this tool read it again: the human index records, which the carry lands verdicts on, and the id of every unit on the surface, machine ones included, which the stranded figure counts prior verdicts against — the pair `unit_index.load_human_units` returns, and rebuild.tools.verdict_chain is the one caller that hands it over. They come together or not at all: the human records alone would land every verdict correctly and count `stranded` short, since a prior verdict on a unit that is on the surface but outside the human workload is not stranded."""
     parser = argparse.ArgumentParser(
         description="Carry prior verdicts onto the live surface, landing each on the unit of the id it names."
     )
@@ -64,12 +64,15 @@ def main(argv=None, *, current_units=None):
         help="the freshly built surface to carry onto (default: the live review surface)",
     )
     args = parser.parse_args(argv)
+    if (current_units is None) != (current_ids is None):
+        parser.error("current_units and current_ids are handed over together or not at all")
 
     prior = resolve_prior(args.verdicts)
 
     manifest = json.loads((args.current_surface / "manifest.json").read_text())
-    current = current_units if current_units is not None else unit_index.load_units(args.current_surface)
-    human = [u for u in current if u.get("batch") is not None]
+    if current_units is None or current_ids is None:
+        current_units, current_ids = unit_index.load_human_units(args.current_surface)
+    human = current_units
 
     carried = []
     kinds = collections.Counter()
@@ -87,7 +90,6 @@ def main(argv=None, *, current_units=None):
         carried.append({"unit": unit["id"], "verdict": record["verdict"], "note": note, "at": record["at"]})
         kinds[record["verdict"]] += 1
 
-    current_ids = {u["id"] for u in current}
     stranded = sum(
         1
         for unit_id, (record, _source) in prior.items()
