@@ -10,7 +10,7 @@ run_m1's exit status is its own gate's verdict, but this driver judges from the 
 
 That trap is also why this process, and not the children it spawns, is what files each check's verdict in the timings journal. Every judged check here — run_m1, conform, both rebuild lanes, make-test, js — appends one kind:"check" line tagged with this run, carrying the verdict the judge reached rather than the exit code the process returned; `make cycle-timings ARGS='--by-outcome'` is what reads them back. Two of those checks have interactive entry points that record their own line when a human runs them, so this driver puts its run id in the environment as AMS_CYCLE_RUN (cycle_timings.CYCLE_RUN_ENV) and every child inherits it, which is their signal to stand down. One invocation, one line, and the count in that report is a count of checks rather than of processes that happened to have an opinion.
 
-The two artifact-independent gates (js, make-test) run from t=0 in a small thread pool while the build chain runs inline-serial in the main thread. gate:conform (the exhaustive font-vs-settle sweep at the per-edit horizon, run_m1 --conform-only) starts after the run_m1 gate passes, queued behind make-test by default; its periodic deep form is `make conform-deep`, which the cycle never runs and only reports on — one line in the summary saying whether the emitted lookup has grown a shape the last deep run never shaped. The rebuild suite runs as one gate, gate:rebuild-contracts: every test under rebuild/, none of which reads a live build artifact (rebuild/conftest.py's audit guard is what holds that), at the box's full xdist width. It is submitted once the surface build settles, and only as a courtesy — the suite reads no artifact at all — because a full-width pool must not share the box with the M1 or surface build, and waiting costs it nothing, since it parks behind conform anyway and on the common gate pass every upstream stage auto-skips, so it starts at t=0. From there on it reads nothing the build lane writes, the census pins included, so nothing downstream has to land before it can start. Under the default queue policy the chain is make-test -> conform -> rebuild-contracts, so only one heavy gate pool is hot at a time — the build chain rides alongside whichever one that is rather than serial, at the widths sweep_job_budget and surface_job_budget resolve (the oracle cuts its tables into row ranges and takes the box's cores under the memory clamp ORACLE_SHARD_BYTES argues, the belt one process per acceptance configuration, and the surface build the box minus whatever make-test is holding). Co-resident, two heavy pools oversubscribe the cores roughly 2:1, and measured that contention roughly tripled the rebuild suite's wall time — a worse critical path than running the same work in sequence. --rebuild-pool overlap restores full co-residency.
+The two artifact-independent gates (js, make-test) run from t=0 in a small thread pool while the build chain runs inline-serial in the main thread. gate:conform (the exhaustive font-vs-settle sweep at the per-edit horizon, run_m1 --conform-only) starts after the run_m1 gate passes, queued behind make-test by default; its periodic deep form is `make conform-deep`, which the cycle never runs and only reports on — one line in the summary saying whether the emitted lookup has grown a shape the last deep run never shaped. The rebuild suite runs as one gate, gate:rebuild-contracts: every test under rebuild/, none of which reads a live build artifact (rebuild/conftest.py's audit guard is what holds that). A hand run takes the box's full xdist width; under a cycle the suite is submitted as soon as the conform lane is, right after the run_m1 gate passes, and runs beside the surface build at the width the build's own arithmetic leaves — the cores less the build's parent and its surface_job_budget workers (contracts_pool_width), stated on that one child's environment as PYTEST_XDIST_AUTO_NUM_WORKERS — so the pool and the build together hold about one box's worth of processes. It reads nothing the build lane writes, the census pins included, so nothing downstream has to land before it can start, and on the common gate pass every upstream stage auto-skips, so it starts at t=0. Under the default queue policy the chain is make-test -> conform -> rebuild-contracts, so only one heavy gate pool is hot at a time — the build chain rides alongside whichever one that is rather than serial, at the widths sweep_job_budget and surface_job_budget resolve (the oracle cuts its tables into row ranges and takes the box's cores under the memory clamp ORACLE_SHARD_BYTES argues, the belt one process per acceptance configuration, and the surface build the box minus whatever make-test is holding). Co-resident, two heavy pools oversubscribe the cores roughly 2:1, and measured that contention roughly tripled the rebuild suite's wall time — a worse critical path than running the same work in sequence. --rebuild-pool overlap runs the pools co-resident anyway, and the suite's cap then takes gate:make-test's pool off the box as well, so under it the suite runs narrower than under the queue policy — one worker on a ten-core box.
 
 The cycle runs no cross-language check, because there is no second implementation to check against: the kernel crate is the only engine that enumerates and the only one that settles, so neither the tables nor a window's outcome can drift from a twin. What the cycle does prove about settlement is empirical — gate:conform shapes the compiled font through HarfBuzz and compares it against a re-settle of every swept text, window by window, through the crate's own settle-cases verb, with the memo keyed on the raw window so the sweep stays independent of the crate's enumeration and fold. `make kernel-gate` is the on-demand instrument to reach for around a kernel-semantics change: the crate's own gate, seconds once the crate is built. The spec-ingest parity is a contracts test now and rides gate:rebuild-contracts every cycle.
 
@@ -148,7 +148,7 @@ def rebuild_lane_green(lane: str) -> Path:
 
 
 def rebuild_lane_argv(lane: str) -> list[str]:
-    """The rebuild suite's one lane. `--lane` is the rebuild conftest's own option, and it also decides the pool width: the contracts lane's `-n auto` resolves to the cores this process may actually run on, since none of its workers holds a live build artifact. Every run prints its twenty-five slowest tests, so the lane's own record says where its minutes went and a cost survey needs no special invocation. The lane also names the two closure files beside its green record: the selection file the caller writes just before the spawn, naming the tests the record proves unaffected, and the sidecar the suite writes at session end with every test's recorded closure — both resolved at call time off `rebuild_lane_green`, so a test that redirects the record redirects them with it."""
+    """The rebuild suite's one lane. `--lane` is the rebuild conftest's own option, and it also decides the pool width: the contracts lane's `-n auto` resolves to the cores this process may actually run on, since none of its workers holds a live build artifact, and under a cycle the width the plan states on the child's environment (`contracts_pool_width`) narrows that to the cores the surface build leaves. Every run prints its twenty-five slowest tests, so the lane's own record says where its minutes went and a cost survey needs no special invocation. The lane also names the two closure files beside its green record: the selection file the caller writes just before the spawn, naming the tests the record proves unaffected, and the sidecar the suite writes at session end with every test's recorded closure — both resolved at call time off `rebuild_lane_green`, so a test that redirects the record redirects them with it."""
     argv = [
         "uv",
         "run",
@@ -1096,6 +1096,8 @@ class Plan:
     replay_threads: int = 1
     replay_reason: str = ""
     make_test_workers: int = 1
+    contracts_workers: int = 1
+    contracts_reason: str = ""
     conform_jobs: int = 1
     conform_horizon: int = CONFORM_HORIZON_DEFAULT
     review_out: Path | None = None
@@ -1324,6 +1326,106 @@ def signature_job_derivation(
     return clause if cores - 2 >= 1 else clause + ", floored at one"
 
 
+def _contracts_pool_terms(
+    *,
+    skip_gates: bool,
+    skip_make_test: bool,
+    skip_surface: bool,
+    pool_policy: str,
+    ncores: int | None,
+    total_bytes: int | None,
+) -> tuple[int, int, int]:
+    """The three terms `contracts_pool_width` and `contracts_pool_derivation` share, derived once so the width and the clause that explains it are two readings of one derivation: the cores this process may actually run on, the surface build's processes — its parent plus the workers `surface_job_budget` resolves, read off that budget rather than restated so the cap and the build's own width can never drift apart, and nothing on a pass whose surface build does not run — and gate:make-test's pool under the overlap policy, where that pool is hot beside the suite from t=0; under the queue policy the suite parks until make-test has finished, so its cores are the suite's by then and nothing is subtracted for it."""
+    from rebuild.tools import memory_budget
+
+    cores = ncores or memory_budget.usable_cores()
+    surface = (
+        0
+        if skip_surface
+        else 1
+        + surface_job_budget(
+            skip_gates=skip_gates, skip_make_test=skip_make_test, ncores=ncores, total_bytes=total_bytes
+        )
+    )
+    make_test = (
+        make_test_pool_width(ncores=ncores)
+        if pool_policy == "overlap" and not (skip_gates or skip_make_test)
+        else 0
+    )
+    return cores, surface, make_test
+
+
+def contracts_pool_width(
+    *,
+    skip_gates: bool,
+    skip_make_test: bool = False,
+    skip_surface: bool = False,
+    pool_policy: str = REBUILD_POOL_POLICY_DEFAULT,
+    ncores: int | None = None,
+    total_bytes: int | None = None,
+) -> int:
+    """How wide gate:rebuild-contracts' pytest pool runs under a cycle — the number the cycle states on that child's environment as PYTEST_XDIST_AUTO_NUM_WORKERS, and the second fan-out here that memory does not bind: no contracts worker holds a live artifact, so nothing prices one and the width is a count of cores. The suite is submitted beside the surface build, so the cores are the box's less the build's parent and its `surface_job_budget` workers, and less gate:make-test's pool under the overlap policy (`_contracts_pool_terms`), floored at one; a pass whose surface build does not run — skipped, promoted, or assets-refreshed — hands the suite the whole box, since there is nothing to share it with. The cap is what makes co-residency affordable: `doc/parallelism.md` records two full-width pools oversubscribing the box roughly 2:1 tripling the suite's wall, and holding the suite to the cores the build leaves keeps the process sum near the core count instead. The suite's controller is deliberately not in the subtraction — it idles while its workers run, and a seat taken off for it would cost the suite a worker on every pass for a process that holds no core — so the sum overshoots the cores by that one process. The bytes the pool holds come out of the reserve `memory_budget` keeps back rather than off `surface_job_budget`'s co-resident term, the position `_standing_fill_terms` already takes for this same pool: pricing it there would narrow the build every pass to insure against a worker no constant measures (`calibrate_budgets.UNITS` states that too). Under the overlap policy on a ten-core box the arithmetic reaches one, which is the serial suite, and the plan line prints that rather than hiding it: overlap is the policy that accepts contention, and a reader who wants the suite wider under it states PYTEST_XDIST_AUTO_NUM_WORKERS, which wins ahead of all of this and not as a courtesy — the child inherits this process's environment, so a width already stated here is the width that pool is going to take, exactly as `make_test_pool_width` reads it. `ncores` and `total_bytes` are keywords for the reason every budget here takes its box as one — an assertion about a machine the suite is not running on has to be a pure function over an invented one."""
+    stated = os.environ.get("PYTEST_XDIST_AUTO_NUM_WORKERS")
+    if stated:
+        return max(1, int(stated))
+    cores, surface, make_test = _contracts_pool_terms(
+        skip_gates=skip_gates,
+        skip_make_test=skip_make_test,
+        skip_surface=skip_surface,
+        pool_policy=pool_policy,
+        ncores=ncores,
+        total_bytes=total_bytes,
+    )
+    return max(1, cores - surface - make_test)
+
+
+def contracts_pool_derivation(
+    *,
+    skip_gates: bool,
+    skip_make_test: bool = False,
+    skip_surface: bool = False,
+    pool_policy: str = REBUILD_POOL_POLICY_DEFAULT,
+    ncores: int | None = None,
+    total_bytes: int | None = None,
+) -> str:
+    """`contracts_pool_width` said out loud for the plan's lane line, worded the way `signature_job_derivation` is rather than through `memory_budget.describe_fit`: the width is a count of cores, and the clause says which cores are left out. A stated width is described as stated rather than by the arithmetic it outranked."""
+    stated = os.environ.get("PYTEST_XDIST_AUTO_NUM_WORKERS")
+    if stated:
+        return f"PYTEST_XDIST_AUTO_NUM_WORKERS states {stated.strip()}"
+    cores, surface, make_test = _contracts_pool_terms(
+        skip_gates=skip_gates,
+        skip_make_test=skip_make_test,
+        skip_surface=skip_surface,
+        pool_policy=pool_policy,
+        ncores=ncores,
+        total_bytes=total_bytes,
+    )
+    width = contracts_pool_width(
+        skip_gates=skip_gates,
+        skip_make_test=skip_make_test,
+        skip_surface=skip_surface,
+        pool_policy=pool_policy,
+        ncores=ncores,
+        total_bytes=total_bytes,
+    )
+    if surface == 0:
+        box = "the box" if make_test else "the whole box"
+        clause = f"{width} of {cores} cores, {box} (no surface build to share it with)"
+    else:
+        workers = f"{surface - 1} worker" + ("" if surface - 1 == 1 else "s")
+        clause = f"{width} of {cores} cores, less the surface build's parent and its {workers}"
+    if make_test:
+        clause += f", less gate:make-test's {make_test} (overlap policy)"
+    return clause if cores - surface - make_test >= 1 else clause + ", floored at one"
+
+
+def contracts_submission_note(*, skip_surface: bool) -> str:
+    """Where in the build lane the rebuild suite is submitted, for the plan's step note and its lane line: beside the surface build when one runs, and otherwise at the same point — once the run_m1 gate has passed — with the plan saying that no build shares the box with it, so a pass whose surface-build row reads SKIPPED never claims the suite runs beside it."""
+    if skip_surface:
+        return "submitted once the run_m1 gate passes (no surface build this pass)"
+    return "submitted beside the surface build"
+
+
 def _standing_fill_terms(
     *, skip_gates: bool, skip_make_test: bool, ncores: int | None
 ) -> tuple[int, int, int]:
@@ -1445,6 +1547,22 @@ def build_plan(
             skip_gates=skip_gates, skip_make_test=skip_make_test, ncores=ncores, total_bytes=total_bytes
         )
     )
+    contracts_workers = contracts_pool_width(
+        skip_gates=skip_gates,
+        skip_make_test=skip_make_test,
+        skip_surface=skip_surface,
+        pool_policy=pool_policy,
+        ncores=ncores,
+        total_bytes=total_bytes,
+    )
+    contracts_reason = contracts_pool_derivation(
+        skip_gates=skip_gates,
+        skip_make_test=skip_make_test,
+        skip_surface=skip_surface,
+        pool_policy=pool_policy,
+        ncores=ncores,
+        total_bytes=total_bytes,
+    )
     sweep_jobs = sweep_job_budget(ncores, total_bytes=total_bytes)
     sweep_reason = (
         "the oracle's row-range workers, "
@@ -1510,6 +1628,8 @@ def build_plan(
         replay_threads=replay_threads,
         replay_reason=replay_reason,
         make_test_workers=make_test_workers,
+        contracts_workers=contracts_workers,
+        contracts_reason=contracts_reason,
         conform_jobs=conform_jobs,
         conform_horizon=conform_horizon,
         review_out=review_out,
@@ -1708,7 +1828,7 @@ def build_plan(
                 Step(
                     "gate:rebuild-contracts",
                     rebuild_lane_argv("contracts"),
-                    "submitted once the surface build settles"
+                    contracts_submission_note(skip_surface=skip_surface)
                     + (f"; {contracts_note}" if contracts_note else ""),
                     lane="contracts",
                 )
@@ -1834,7 +1954,7 @@ def _render_concurrency(plan: Plan) -> list[str]:
         "",
         f"  Concurrency (pool policy: {plan.pool_policy}):",
         f"    Lane t0   [from t=0, background]  : {t0_lane}",
-        "    Lane build[serial, main thread]  : run_m1 -> surface-build -> submit gate:rebuild-contracts -> plumbing -> census",
+        "    Lane build[serial, main thread]  : run_m1 -> submit gate:rebuild-contracts -> surface-build -> plumbing -> census",
     ]
     if plan.skip_conform:
         lines.append(
@@ -1857,7 +1977,9 @@ def _render_concurrency(plan: Plan) -> list[str]:
             "    Lane rebuild-contracts           : SKIPPED (inputs unchanged since its last green run)"
         )
     else:
-        lines.append("    Lane rebuild-contracts           : submitted once the surface build settles;")
+        lines.append(
+            f"    Lane rebuild-contracts           : {contracts_submission_note(skip_surface=plan.skip_surface)}, -n {plan.contracts_workers} ({plan.contracts_reason});"
+        )
         if plan.pool_policy == "overlap":
             lines.append(
                 "                                       CO-RESIDENT with the other pools (overlap policy)"
@@ -2610,7 +2732,7 @@ def _gate_make_test_task(
 
 
 def _spawn_with_env(spawn, env: dict[str, str]):
-    """One child's environment, carried on that child's own spawn callable rather than added to the argument list every gate task shares. The alternative is os.environ, and it is the wrong one: run_m1, the surface build and the rebuild suite spawn from this same process, so a width set there for gate:make-test would pin their `-n auto` pools to it too — the rebuild suite wants the whole box. Wrapping instead of widening the protocol also leaves the task signature alone, which is what keeps the plan the only writer of what a child runs: this adds to the child's environment, never to its argv."""
+    """One child's environment, carried on that child's own spawn callable rather than added to the argument list every gate task shares. The alternative is os.environ, and it is the wrong one: run_m1, the surface build and the rebuild suite spawn from this same process, so a width set there for gate:make-test would pin their `-n auto` pools to it too, where each child states its own width on its own spawn — make-test's pool one number, the rebuild suite's another. Wrapping instead of widening the protocol also leaves the task signature alone, which is what keeps the plan the only writer of what a child runs: this adds to the child's environment, never to its argv."""
 
     def spawn_with_env(name, argv, *, emit, registry, stream):
         return spawn(name, argv, emit=emit, registry=registry, stream=stream, env=env)
@@ -2626,7 +2748,7 @@ def _gate_conform_task(
     registry: _ChildRegistry,
     argv: list[str],
 ) -> CheckVerdict:
-    """gate:conform shapes the exhaustive font-vs-settle sweep against the fresh M1.otf via run_m1 --conform-only. Under the queue policy it queues behind gate:make-test, and both rebuild lanes in turn park behind this sweep, so only one heavy pool is ever hot: co-resident, two heavy pools oversubscribe the box roughly 2:1, and measured that contention roughly tripled the rebuild suite's wall time — a worse critical path than the same work in sequence. Conform runs ahead of the rebuild lanes in the chain because the sweep needs only the fresh M1.otf, while their submission waits on the surface build settling. The stale conform_summary.json is unlinked here, just before the sweep spawns, so the verdict can only come from this cycle's subprocess (an auto-skipped gate never runs this task and never reads the file)."""
+    """gate:conform shapes the exhaustive font-vs-settle sweep against the fresh M1.otf via run_m1 --conform-only. Under the queue policy it queues behind gate:make-test, and the rebuild suite in turn parks behind this sweep, so only one heavy pool is ever hot: co-resident, two heavy pools oversubscribe the box roughly 2:1, and measured that contention roughly tripled the rebuild suite's wall time — a worse critical path than the same work in sequence. Conform is submitted first and the suite right after it, both once the run_m1 gate has passed, and the suite's own queue-policy wait is what puts it behind this sweep. The stale conform_summary.json is unlinked here, just before the sweep spawns, so the verdict can only come from this cycle's subprocess (an auto-skipped gate never runs this task and never reads the file)."""
     CONFORM_SUMMARY.unlink(missing_ok=True)
     if pool_policy == "queue":
         _await_gate_futures(make_fut)
@@ -2670,7 +2792,7 @@ def _gate_contracts_task(
     registry: _ChildRegistry,
     argv: list[str],
 ) -> CheckVerdict:
-    """The rebuild suite — every test under rebuild/, none of which reads a live build artifact, run at the box's full xdist width. It reads nothing the build lane writes, yet it is still submitted once the surface build settles, for two reasons that have nothing to do with correctness: a full-width pool must not share the box with the M1 build or the surface build, whose peaks are what the repo's parallelism defaults are sized against, and waiting costs it nothing, since under the queue policy it parks behind conform anyway and on the common gate pass every stage upstream auto-skips, so it starts at t=0 regardless. Under the queue policy it parks at the tail of the make-test -> conform chain so only one heavy pool is hot at a time."""
+    """The rebuild suite — every test under rebuild/, none of which reads a live build artifact. It reads nothing the build lane writes, so it is submitted the moment the conform lane is, once the run_m1 gate has passed, and runs beside the surface build at the width `contracts_pool_width` states on its child — the cores the build's parent and its workers leave — which is what keeps one box's worth of processes on the box while the two share it. Under the queue policy it parks at the tail of the make-test -> conform chain so only one heavy gate pool is hot at a time; that wait is what keeps two heavy pools apart, and the cap is what keeps this pool and the build apart."""
     if pool_policy == "queue":
         _await_gate_futures(conform_fut, make_fut)
     result = spawn("gate:rebuild-contracts", argv, emit=emit, registry=registry, stream=False)
@@ -2783,7 +2905,7 @@ def _plumbing_settled(report: CycleReport) -> bool:
 def _record_gate_greens(
     report: CycleReport, plan: Plan, gate_keys: dict[str, str], emit: console.Digest
 ) -> None:
-    """Persist the concurrent gates' green records after they joined. gate:conform's key is snapshotted right after run_m1 finished, where its skip is decided, and the rebuild suite's right after the surface build settles, which is where the suite is submitted — the surface build writes only under rebuild/out/review, which the suite's closure does not hold, and the census pins are exempt from the rebuild closure, so neither the build between a snapshot and its submission nor the refresh later in the pass can invalidate a key. Each is recomputed here before recording, so a source file edited while the gates ran — content the gates never tested — can never be recorded green. A red gate whose key still matches its record deletes the falsified record."""
+    """Persist the concurrent gates' green records after they joined. gate:conform's key is snapshotted right after run_m1 finished, where its skip is decided, and the rebuild suite's right after it, before the surface build runs, which is where the suite is submitted — the surface build writes only under rebuild/out/review, which the suite's closure does not hold, and the census pins are exempt from the rebuild closure, so neither the build running beside the suite nor the refresh later in the pass can invalidate a key. Each is recomputed here before recording, so a source file edited while the gates ran — content the gates never tested — can never be recorded green. A red gate whose key still matches its record deletes the falsified record."""
     key = gate_keys.get("conform")
     if key:
         if report.gate_conform_green is True:
@@ -2950,12 +3072,30 @@ def _run_cycle(
                     plan.argv("gate:conform"),
                 )
 
+        if not plan.skip_gates and not plan.skip_contracts:
+            if plan.record_greens:
+                gate_keys["contracts"] = rebuild_lane_fingerprint(ROOT, "contracts") or ""
+            _write_contracts_selection(plan)
+            contracts_fut = pool.submit(
+                _gate_contracts_task,
+                plan.pool_policy,
+                conform_fut,
+                make_fut,
+                _spawn_with_env(
+                    spawn,
+                    {
+                        "AMS_POOL_UNIT": "rebuild-contracts",
+                        "PYTEST_XDIST_AUTO_NUM_WORKERS": str(plan.contracts_workers),
+                    },
+                ),
+                emit,
+                registry,
+                plan.argv("gate:rebuild-contracts"),
+            )
+
         if plan.promote_surface is not None and not _do_promote_surface(report, emit=emit, plan=plan):
             failures.append("surface promotion failed")
-            if not plan.skip_gates and not plan.skip_contracts:
-                report.gate_contracts = "not run (surface promotion failed)"
-                emit.step_not_run("gate:rebuild-contracts", "surface promotion failed")
-            _join_gates(report, failures, js_fut, None, conform_fut, make_fut, emit, timings)
+            _join_gates(report, failures, js_fut, contracts_fut, conform_fut, make_fut, emit, timings)
             _record_gate_greens(report, plan, gate_keys, emit)
             return _finish(report, failures, plan, timings, emit)
 
@@ -2963,10 +3103,7 @@ def _run_cycle(
             report, spawn=spawn, emit=emit, registry=registry, plan=plan
         ):
             failures.append("assets refresh failed")
-            if not plan.skip_gates and not plan.skip_contracts:
-                report.gate_contracts = "not run (assets refresh failed)"
-                emit.step_not_run("gate:rebuild-contracts", "assets refresh failed")
-            _join_gates(report, failures, js_fut, None, conform_fut, make_fut, emit, timings)
+            _join_gates(report, failures, js_fut, contracts_fut, conform_fut, make_fut, emit, timings)
             _record_gate_greens(report, plan, gate_keys, emit)
             return _finish(report, failures, plan, timings, emit)
 
@@ -2981,27 +3118,9 @@ def _run_cycle(
             skip_note=plan.surface_note,
         ):
             failures.append("surface rebuild failed")
-            if not plan.skip_gates and not plan.skip_contracts:
-                report.gate_contracts = "not run (surface build failed)"
-                emit.step_not_run("gate:rebuild-contracts", "surface build failed")
-            _join_gates(report, failures, js_fut, None, conform_fut, make_fut, emit, timings)
+            _join_gates(report, failures, js_fut, contracts_fut, conform_fut, make_fut, emit, timings)
             _record_gate_greens(report, plan, gate_keys, emit)
             return _finish(report, failures, plan, timings, emit)
-
-        if not plan.skip_gates and not plan.skip_contracts:
-            if plan.record_greens:
-                gate_keys["contracts"] = rebuild_lane_fingerprint(ROOT, "contracts") or ""
-            _write_contracts_selection(plan)
-            contracts_fut = pool.submit(
-                _gate_contracts_task,
-                plan.pool_policy,
-                conform_fut,
-                make_fut,
-                _spawn_with_env(spawn, {"AMS_POOL_UNIT": "rebuild-contracts"}),
-                emit,
-                registry,
-                plan.argv("gate:rebuild-contracts"),
-            )
 
         plumbing_key: str | None = None
         if plan.skip_plumbing:
@@ -3664,7 +3783,7 @@ def main(argv: list[str] | None = None) -> int:
         "--rebuild-pool",
         choices=POOL_POLICIES,
         default=REBUILD_POOL_POLICY_DEFAULT,
-        help="how the heavy gates share cores: 'queue' (one pool at a time — make-test, then conform, then the rebuild suite; default) or 'overlap' (co-resident)",
+        help="how the heavy gates share cores: 'queue' (one pool at a time — make-test, then conform, then the rebuild suite; default) or 'overlap' (co-resident, the rebuild suite narrowed by make-test's pool as well as the surface build's)",
     )
     parser.add_argument(
         "--review-out",
