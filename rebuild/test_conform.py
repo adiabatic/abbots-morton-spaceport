@@ -1290,6 +1290,29 @@ class TestOracleRowCache:
         assert {index for index, age in enumerate(_cache_ages(store)) if age == 1} == renewed
         assert {index for index, tag in enumerate(_cache_position_tags(store)) if tag == "?"} == excluded
 
+    def test_a_served_position_channel_that_disagrees_with_harfbuzz_is_a_hard_stop(
+        self, spec, tmp_path, monkeypatch
+    ):
+        """The position verifier's alarm, which nothing else in the suite trips: a served pass whose sampled positions re-shape to something other than what the store holds aborts rather than writing them into the audit. The drift is poisoned by name in the oracle's module, so the renewal slice's fresh shaping stores the same bogus answer — the abort pre-empts that store ever being promoted — and the sampled served rows, re-shaped through the same poisoned function, disagree with the record they were served from. A verifier that had nothing to re-shape would let this pass through green."""
+        tables, aliases, ledger, stamps, configs, _rows = self._position_bench(spec, tmp_path)
+        keys = self._keys(spec)
+        position = oracle_cache.position_keys(REPO_ROOT, keys, MINI / "M1.otf", None)
+        shared: dict[str, Any] = dict(
+            tables=tables, aliases=aliases, ledger=ledger, stamps=stamps, keys=keys, configs=configs
+        )
+        shared.update(font=MINI / "M1.otf", position=position)
+        _cold, _, cold_stores = self._pass(spec, tmp_path, "cold", **shared)
+
+        real = oracle._position_drift
+
+        def poisoned(shaper, kern, features, row):
+            drift = real(shaper, kern, features, row)
+            return (("poisoned",), False) if drift is None else (drift[0] + ("poisoned",), drift[1])
+
+        monkeypatch.setattr(oracle, "_position_drift", poisoned)
+        with pytest.raises(SystemExit, match="the oracle position store served a stale verdict"):
+            self._pass(spec, tmp_path, "served", read_dir=cold_stores, **shared)
+
     def test_a_glyph_edit_re_shapes_exactly_the_rows_that_reach_its_family(self, spec, tmp_path):
         """The position key's grain end to end: the after font's ·Tea glyphs gain an advance, so every row that shapes one draws its followers elsewhere. A pass carrying the previous store across that font has to write the audit a pass that never saw a store writes over the edited font, and the store it leaves shows exactly the rows naming ·Tea re-shaped — every other position served, every row verdict served, so a font edit costs the shaping it moved and nothing settled."""
         tables, aliases, ledger, stamps, configs, rows = self._position_bench(spec, tmp_path)
@@ -1474,6 +1497,31 @@ class TestOracleRowCache:
             assert len(ages) == len(self.LETTER_ROWS)
             assert set(ages) == {0, 1}
             assert {index for index, age in enumerate(ages) if age == 1} == _cache_renewed(len(ages), 0)
+
+    def test_a_served_verdict_that_disagrees_with_a_fresh_comparison_is_a_hard_stop(
+        self, spec, tmp_path, monkeypatch
+    ):
+        """The row verifier's alarm, which nothing else in the suite trips: a served pass whose sampled rows compare to something other than what the store holds aborts rather than writing them into the audit. `oracle.py` binds `_compare_row` by name at import, so poisoning it in `conform` reaches `_verify_served_sample` alone and never the main loop's fresh rows — the store is right about every row it holds, and only the re-derivation disagrees, which is exactly the shape a stale record has from the verifier's side. A verifier that had nothing to re-derive would let this pass through green."""
+        tables, aliases, stamps, configs = self._bench(tmp_path)
+        ledger = tmp_path / "ledger.yaml"
+        ledger.write_text("[]\n")
+        keys = self._keys(spec)
+        shared: dict[str, Any] = dict(
+            tables=tables, aliases=aliases, ledger=ledger, stamps=stamps, keys=keys, configs=configs
+        )
+        cold_report, _, cold_stores = self._pass(spec, tmp_path, "cold", **shared)
+        assert cold_report.unmatched_count == len(self.LETTER_ROWS) * len(configs)
+
+        real = conform._compare_row
+
+        def poisoned(spec, aliases, config, features, row, settled):
+            verdict = real(spec, aliases, config, features, row, settled)
+            assert verdict is not None
+            return replace(verdict, phenomena=verdict.phenomena + ("poisoned",))
+
+        monkeypatch.setattr(conform, "_compare_row", poisoned)
+        with pytest.raises(SystemExit, match="the oracle row cache served a stale verdict"):
+            self._pass(spec, tmp_path, "served", read_dir=cold_stores, **shared)
 
     @pytest.mark.parametrize("k", (1, 2, 3, 4))
     def test_an_edit_to_k_runes_re_derives_exactly_the_rows_that_name_them(self, spec, tmp_path, k):

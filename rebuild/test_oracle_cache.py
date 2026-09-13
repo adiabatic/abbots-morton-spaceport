@@ -15,6 +15,7 @@ import yaml
 
 from rebuild.pipeline import conform, fingerprint, fixtures, kernel_exec, oracle_cache, run_m1
 from rebuild.tools import artifact_cycle
+from rebuild.validation.rowmodel import Row
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 
@@ -408,7 +409,7 @@ def test_the_verification_sample_covers_every_serving_family_and_rotates():
 
     sample = oracle_cache.VerificationSample(stamp, 0)
     for index, families in served.items():
-        sample.offer(index, families)
+        sample.offer(index, _row(index), families)
     drawn = sample.by_family()
     assert set(drawn) == {"qsPea", "qsTea", "qsSee"}
     assert len(drawn["qsPea"]) == len(drawn["qsTea"]) == cap
@@ -417,12 +418,12 @@ def test_the_verification_sample_covers_every_serving_family_and_rotates():
 
     shuffled = oracle_cache.VerificationSample(stamp, 0)
     for index in sorted(served, reverse=True):
-        shuffled.offer(index, served[index])
+        shuffled.offer(index, _row(index), served[index])
     assert shuffled.by_family() == drawn
 
     later = oracle_cache.VerificationSample(stamp, 1)
     for index, families in served.items():
-        later.offer(index, families)
+        later.offer(index, _row(index), families)
     rotated = later.by_family()
     assert set(rotated) == set(drawn)
     assert rotated["qsPea"] != drawn["qsPea"]
@@ -433,14 +434,48 @@ def test_the_verification_sample_covers_every_serving_family_and_rotates():
     for ordinal in range(2, 12):
         pass_sample = oracle_cache.VerificationSample(stamp, ordinal)
         for index, families in served.items():
-            pass_sample.offer(index, families)
+            pass_sample.offer(index, _row(index), families)
         covered |= set(pass_sample.by_family()["qsPea"])
     assert len(covered) > 4 * cap
 
     elsewhere = oracle_cache.VerificationSample("another-stamp", 0)
     for index, families in served.items():
-        elsewhere.offer(index, families)
+        elsewhere.offer(index, _row(index), families)
     assert elsewhere.by_family()["qsPea"] != drawn["qsPea"]
+
+
+def _row(index: int, glyph: str = "g") -> Row:
+    return Row(
+        codepoints=(0xE650 + index,), glyphs=(glyph,), clusters=(0,), seams=(), positions=((0, 0, 100),)
+    )
+
+
+def test_the_verification_sample_hands_back_the_rows_it_drew():
+    """The winners carry the parsed rows the main loop offered them with, so neither verifier re-reads the table: `sampled_rows()` answers the very objects offered, once per index however many families drew it, in the index order `indexes()` answers in. The row stays out of the draw — two samples fed the same indexes under different rows draw the same families — and stays out of the heap's comparison too: `Row` has no ordering, so the distinct index in every `(score, index, row)` entry is what keeps a tuple comparison from ever reaching it."""
+    stamp = "stamp-value"
+    served: dict[int, tuple[str, ...]] = {index: ("qsPea", "qsTea") for index in range(100)}
+    served.update({100: ("qsSee", "qsZoo"), 101: ("qsSee", "qsZoo"), 102: ("qsSee", "qsZoo")})
+    rows = {index: _row(index) for index in served}
+
+    sample = oracle_cache.VerificationSample(stamp, 0)
+    for index, families in served.items():
+        sample.offer(index, rows[index], families)
+    picked = sample.sampled_rows()
+    assert [index for index, _row in picked] == list(sample.indexes())
+    assert all(row is rows[index] for index, row in picked)
+    drawn = sample.by_family()
+    assert drawn["qsSee"] == drawn["qsZoo"] == (100, 101, 102)
+    assert [index for index, _row in picked if index >= 100] == [100, 101, 102]
+
+    relabeled = oracle_cache.VerificationSample(stamp, 0)
+    for index, families in served.items():
+        relabeled.offer(index, _row(index, glyph="other"), families)
+    assert relabeled.by_family() == sample.by_family()
+    assert all(row is not rows[index] for index, row in relabeled.sampled_rows())
+
+    with pytest.raises(TypeError):
+        _ = (0, 0, rows[0]) < (0, 0, rows[1])
+    assert (0, 0, rows[0]) < (0, 1, rows[1])
 
 
 def _store_at(tmp_path: Path, repo: Path, spec, pass_ordinal: int, ages, name: str) -> oracle_cache.RowStore:

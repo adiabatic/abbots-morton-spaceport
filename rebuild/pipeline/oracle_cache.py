@@ -41,7 +41,7 @@ import yaml
 
 from rebuild.pipeline import fingerprint, kernel_exec, spec_load
 from rebuild.pipeline.model import ResolvedSpec
-from rebuild.validation.rowmodel import format_codepoints
+from rebuild.validation.rowmodel import Row, format_codepoints
 
 STORE_FORMAT = "ams-m1-oracle-rows/2"
 STORE_STEM = "oracle-rows"
@@ -843,7 +843,7 @@ def _mix64(value: int) -> int:
 
 
 class VerificationSample:
-    """The stratified served-vs-recomputed sample, drawn while the pass runs. Every family that served at least one row contributes up to `per_family` of them, chosen by the smallest mixes of a per-family seed with the row's ordinal — so the draw is a pure function of the store's stamp, the family and the pass ordinal, independent of the order rows are offered in and of how many there turn out to be. Seeding on the pass ordinal is what makes coverage accumulate instead of re-proving the same fraction of a percent forever, and stratifying by family is what catches a family-wide poisoning with probability one rather than with probability sample-over-served: a rune edited while the oracle runs poisons a whole family at once, which is the failure this sample exists for. The caller re-walks `indexes()` through the live walker and compares each served `CachedRow` with the one a fresh `_compare_row` returns; the record holds the verdict alone, so `==` is the whole check."""
+    """The stratified served-vs-recomputed sample, drawn while the pass runs. Every family that served at least one row contributes up to `per_family` of them, chosen by the smallest mixes of a per-family seed with the row's ordinal — so the draw is a pure function of the store's stamp, the family and the pass ordinal, independent of the order rows are offered in and of how many there turn out to be. Seeding on the pass ordinal is what makes coverage accumulate instead of re-proving the same fraction of a percent forever, and stratifying by family is what catches a family-wide poisoning with probability one rather than with probability sample-over-served: a rune edited while the oracle runs poisons a whole family at once, which is the failure this sample exists for. Every winner carries the `Row` it was offered with, so `sampled_rows()` hands the caller the parsed rows in index order and no verifier re-parses the table to find them; the caller re-walks those through the live walker and compares each served `CachedRow` with the one a fresh `_compare_row` returns, and the record holds the verdict alone, so `==` is the whole check. A heap entry is `(score, index, row)`, and `Row` has no ordering: an index is offered once per family per pass, so no two entries tie on the first two fields and a tuple comparison never reaches the row."""
 
     def __init__(
         self, stamp: str, pass_ordinal: int, per_family: int = VERIFICATION_SAMPLE_PER_FAMILY
@@ -852,7 +852,7 @@ class VerificationSample:
         self.pass_ordinal = pass_ordinal
         self.per_family = per_family
         self._seeds: dict[str, int] = {}
-        self._kept: dict[str, list[tuple[int, int]]] = {}
+        self._kept: dict[str, list[tuple[int, int, Row]]] = {}
 
     def _seed(self, family: str) -> int:
         seed = self._seeds.get(family)
@@ -862,19 +862,26 @@ class VerificationSample:
             self._seeds[family] = seed
         return seed
 
-    def offer(self, index: int, families: Iterable[str]) -> None:
+    def offer(self, index: int, row: Row, families: Iterable[str]) -> None:
         if self.per_family <= 0:
             return
         for family in families:
             kept = self._kept.setdefault(family, [])
             score = -_mix64(self._seed(family) ^ (index * 0x9E3779B97F4A7C15 & 0xFFFFFFFFFFFFFFFF))
             if len(kept) < self.per_family:
-                heapq.heappush(kept, (score, index))
+                heapq.heappush(kept, (score, index, row))
             elif score > kept[0][0]:
-                heapq.heapreplace(kept, (score, index))
+                heapq.heapreplace(kept, (score, index, row))
 
     def by_family(self) -> dict[str, tuple[int, ...]]:
-        return {family: tuple(sorted(index for _, index in kept)) for family, kept in self._kept.items()}
+        return {
+            family: tuple(sorted(index for _score, index, _row in kept))
+            for family, kept in self._kept.items()
+        }
 
     def indexes(self) -> tuple[int, ...]:
-        return tuple(sorted({index for kept in self._kept.values() for _, index in kept}))
+        return tuple(sorted({index for kept in self._kept.values() for _score, index, _row in kept}))
+
+    def sampled_rows(self) -> tuple[tuple[int, Row], ...]:
+        rows = {index: row for kept in self._kept.values() for _score, index, row in kept}
+        return tuple(sorted(rows.items()))
