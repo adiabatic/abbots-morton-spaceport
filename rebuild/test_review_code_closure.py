@@ -331,9 +331,9 @@ def test_the_enumeration_and_the_fold_stay_outside_the_store_stamp():
 
 
 def test_the_sweep_the_row_cache_the_emitter_and_the_geometry_stay_outside_the_store_stamp():
-    """The narrowing stated at the grain a pipeline lever lands at: the conformance sweep, the oracle's row cache, the GSUB emitter and the pixel geometry are where a sweep or oracle change goes, and an edit there must not cost the review surface a cold units phase — while the leaf that carries the vocabulary the build shares with the sweep stays in, since it spells the labels a served unit was keyed under."""
+    """The narrowing stated at the grain a pipeline lever lands at: the conformance sweep, the witness stage's rule replay, the oracle's row cache, the GSUB emitter and the pixel geometry are where a sweep or oracle change goes, and an edit there must not cost the review surface a cold units phase — while the leaf that carries the vocabulary the build shares with the sweep stays in, since it spells the labels a served unit was keyed under."""
     stamped = {path.name for path in unit_cache.surface_code_paths(REPO_ROOT)}
-    outside = {"conform.py", "emit_gsub.py", "geometry.py", "oracle_cache.py"}
+    outside = {"belt.py", "conform.py", "emit_gsub.py", "geometry.py", "oracle_cache.py"}
     assert outside <= unit_cache.PIPELINE_NON_SURFACE_MODULES
     assert not (outside & stamped)
     assert "labels.py" in stamped

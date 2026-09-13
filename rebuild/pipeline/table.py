@@ -130,7 +130,7 @@ class DecisionTable:
     deep_classes: Mapping[str, tuple[str, ...]] = field(default_factory=dict)
     certificates: tuple[tuple[str, ...], ...] = (
         ()
-    )  # one realizing token stream per rule, in rule order, closed by the crate off the shortest chain of rows that produces a row the rule first-matches (certificate.rs); `conform.check_rule_certificates` settles each and asserts its rule fires
+    )  # one realizing token stream per rule, in rule order, closed by the crate off the shortest chain of rows that produces a row the rule first-matches (certificate.rs); `belt.check_rule_certificates` settles each and asserts its rule fires
     _cells: frozenset[CellId] = field(default_factory=frozenset)
 
     def reachable_cells(self) -> frozenset[CellId]:

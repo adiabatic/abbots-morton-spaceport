@@ -1,6 +1,6 @@
 """`oracle_cache.ORACLE_ROW_CODE_PATHS` is an enumerated roster rather than a glob over `rebuild/pipeline/`, and every served row rests on the claim that the roster is the comparison's whole code closure — a module that runs in `_compare_row` or `_SettledWindowWalk` but sits outside the stamp is a module whose fix a served run would skip, handing back the pre-fix verdict as fresh. A hand-written roster is only safe while something checks the name, and this is that check: it walks the import graph from the module those two entry points live in and requires everything reachable to be named, then walks the other direction so the roster stays the closure instead of drifting back into "everything under `rebuild/pipeline/`", which would collapse the store on every unrelated pipeline commit.
 
-The walk is at module grain, not function grain, which is the same approximation `rebuild/test_plumbing_closure.py` makes and is conservative in the safe direction: a module conform imports for a purpose the comparison never exercises is still stamped, and the reverse — a module the comparison reaches that the import graph does not — cannot happen without a dynamic import, which this tree does not use. It follows `if TYPE_CHECKING:` imports too, because `ast.walk` does not care about the guard and because a type-only import is still a file whose contents shape the comparison's behavior; `rebuild/pipeline/emit_gsub.py` is on the roster for exactly that reason and would read as a stray under a walk that skipped them.
+The walk is at module grain, not function grain, which is the same approximation `rebuild/test_plumbing_closure.py` makes and is conservative in the safe direction: a module conform imports for a purpose the comparison never exercises is still stamped, and the reverse — a module the comparison reaches that the import graph does not — cannot happen without a dynamic import, which this tree does not use. It follows `if TYPE_CHECKING:` imports too, because `ast.walk` does not care about the guard and because a type-only import is still a file whose contents shape the comparison's behavior, so a module conform.py names only for a type is stamped like any other. That is what keeps the witness stage's rule replay in `rebuild/pipeline/belt.py` rather than in conform.py: it is the code that reads the GSUB emitter's rule fold, and beside the comparison it would force the roster to name `rebuild/pipeline/emit_gsub.py` for a type-only import the comparison never exercises.
 """
 
 from __future__ import annotations
@@ -67,6 +67,23 @@ def test_both_comparison_entry_points_live_in_the_walked_module():
         f"so ORACLE_ENTRY_MODULES names the wrong graph; conform.py defines {sorted(defined & {'_compare_row', '_SettledWindowWalk'})}"
     )
     assert hasattr(conform, "_compare_row") and hasattr(conform, "_SettledWindowWalk")
+
+
+def test_the_rule_replay_lives_outside_the_comparisons_closure():
+    """The win the split buys, stated by name: the witness stage's rule replay — the one code that reads the GSUB emitter's rule fold — is defined in rebuild/pipeline/belt.py, the comparison's walk reaches no `emit_gsub`, and the roster names no emit_gsub.py, so an edit to the emitter alone leaves every stored row verdict standing. The generic pair below holds the two halves together whichever way they drift; this one says which module carries the replay, so moving it back into conform.py reads as the regression it is rather than as a roster growing by one."""
+    source = ast.parse((REPO_ROOT / "rebuild" / "pipeline" / "belt.py").read_text(encoding="utf-8"))
+    defined = {node.name for node in source.body if isinstance(node, ast.FunctionDef)}
+    replay = {
+        "_first_matching_rule",
+        "_matched_windows",
+        "_renamed_rules_by_input",
+        "check_rule_certificates",
+    }
+    assert replay <= defined, f"belt.py defines {sorted(defined & replay)} of the replay's four functions"
+    assert "rebuild.pipeline.emit_gsub" not in reachable_modules(
+        ORACLE_ENTRY_MODULES
+    ), "the comparison's import closure reaches emit_gsub again, so an emitter edit drops the oracle row store whole"
+    assert "rebuild/pipeline/emit_gsub.py" not in oracle_cache.ORACLE_ROW_CODE_PATHS
 
 
 def test_oracle_row_code_paths_covers_the_comparison_import_graph():
