@@ -1,4 +1,4 @@
-"""pack_gsub round-trip tests: a feaLib-compiled chained-context lookup (the per-rule format-3 shape m1_settle rides) is packed into format-2 groups, and the packed font must shape every probe string identically, reference no class 0, leave the inner lookups untouched, and compress deterministically. The FEA below deliberately exercises the shapes that constrain the packing: same-input rule order, overlapping-but-unequal lookahead classes (which force a second group), a backtracked rule, a ZWNJ-explicit row ordered ahead of the bare row it shadows, a no-lookahead fallback row, and a self-incompatible rule (its own lookahead sets overlap without being equal) that must pass through as format 3. A partially packed fixture holds an existing format-2 subtable between format-3 runs: it remains an ordered barrier through packing and serialization, and a multi-input rule disqualifies the lookup."""
+"""pack_gsub round-trip tests: a feaLib-compiled chained-context lookup (the per-rule format-3 shape m1_settle rides) is packed into format-2 groups, and the packed font must shape every probe string identically, reference no class 0, leave the inner lookups untouched, and compress deterministically. The FEA below deliberately exercises the shapes that constrain the packing: same-input rule order, overlapping-but-unequal lookahead classes (which force a second group), a backtracked rule, a ZWNJ-explicit row ordered ahead of the bare row it shadows, a no-lookahead fallback row, and a self-incompatible rule (its own lookahead sets overlap without being equal) that must pass through as format 3. A partially packed fixture holds an existing format-2 subtable between format-3 runs: it remains an ordered barrier through packing and serialization, and a multi-input rule disqualifies the lookup. A third fixture spells the first fixture's seven rules with each outcome as a `lookup NAME` reference over standalone single substitutions, the shape m1_settle ships, and must pack and shape exactly as the inline spelling does."""
 
 import io
 from copy import copy
@@ -19,6 +19,33 @@ lookup t_settle useExtension {
     sub A' [B D] by A.alt3;
     sub B' [C] by B.alt1;
     sub B' by B.alt1;
+} t_settle;
+feature calt {
+    lookup t_settle;
+} calt;
+"""
+
+FEA_NAMED = """
+lookup t_out_0 {
+    sub A by A.alt3;
+} t_out_0;
+lookup t_out_1 {
+    sub A by A.alt1;
+} t_out_1;
+lookup t_out_2 {
+    sub A by A.alt2;
+} t_out_2;
+lookup t_out_3 {
+    sub B by B.alt1;
+} t_out_3;
+lookup t_settle useExtension {
+    sub A' lookup t_out_0 uni200C;
+    sub B A' lookup t_out_1 [B C];
+    sub A' lookup t_out_1 [B D] [B];
+    sub A' lookup t_out_2 [B C];
+    sub A' lookup t_out_0 [B D];
+    sub B' lookup t_out_3 [C];
+    sub B' lookup t_out_3;
 } t_settle;
 feature calt {
     lookup t_settle;
@@ -47,7 +74,7 @@ PROBES = [
 ]
 
 
-def _build_font():
+def _build_font(fea=FEA):
     from fontTools.feaLib.builder import addOpenTypeFeaturesFromString
     from fontTools.fontBuilder import FontBuilder
     from fontTools.pens.ttGlyphPen import TTGlyphPen
@@ -64,7 +91,7 @@ def _build_font():
     builder.setupNameTable({"familyName": "PackTest", "styleName": "Regular"})
     builder.setupOS2()
     builder.setupPost()
-    addOpenTypeFeaturesFromString(builder.font, FEA)
+    addOpenTypeFeaturesFromString(builder.font, fea)
     builder.font.recalcTimestamp = False
     builder.font["head"].created = 0  # pyright: ignore[reportAttributeAccessIssue]
     builder.font["head"].modified = 0
@@ -91,6 +118,21 @@ def _shape_all(font, tmp_path):
 def _settle_lookup(font):
     lookups = font["GSUB"].table.LookupList.Lookup
     return max(lookups, key=lambda lookup: lookup.SubTableCount)
+
+
+def _resolved_sequences(font):
+    """`per_glyph_sequences` with each record replaced by the outcome glyph its inner lookup substitutes, so two fonts whose LookupLists differ in numbering compare on what they shape."""
+    lookups = font["GSUB"].table.LookupList.Lookup
+    resolved = {}
+    for glyph, rules in pack_gsub.per_glyph_sequences(_settle_lookup(font)).items():
+        resolved[glyph] = []
+        for rule in rules:
+            outcomes = []
+            for _sequence_index, lookup_index in rule.records:
+                subtable = lookups[lookup_index].SubTable[0]
+                outcomes.append(getattr(subtable, "ExtSubTable", subtable).mapping[glyph])
+            resolved[glyph].append((rule.backtrack, rule.input, rule.lookahead, tuple(outcomes)))
+    return resolved
 
 
 def _lookup_part(lookup, subtables):
@@ -222,6 +264,20 @@ class TestPackGsub:
         _packed.save(first)
         again.save(second)
         assert first.getvalue() == second.getvalue()
+
+    def test_named_outcome_lookups_pack_exactly_as_inline_outcomes_do(self, packed_pair, tmp_path):
+        """The same rules with each outcome spelled as a `lookup NAME` reference over standalone single substitutions, the shape m1_settle ships, pack to the same groups and shape every probe identically: the packer reuses the SubstLookupRecords verbatim and is indifferent to how they got there."""
+        _unpacked, packed, stats, reference, _tmp_path = packed_pair
+        named = _build_font(FEA_NAMED)
+        assert _resolved_sequences(named) == _resolved_sequences(_unpacked)
+        named_stats = pack_gsub.pack_font(named, min_subtables=2)
+        assert (
+            named_stats["packed_lookups"][0]["format2_subtables"]
+            == stats["packed_lookups"][0]["format2_subtables"]
+        )
+        assert named_stats["packed_lookups"][0]["kept_format3"] == stats["packed_lookups"][0]["kept_format3"]
+        assert _resolved_sequences(named) == _resolved_sequences(packed)
+        assert _shape_all(named, tmp_path) == reference
 
     def test_a_rule_over_a_glyphless_class_refuses_to_decompile(self):
         font = _build_font()

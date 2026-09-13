@@ -1,5 +1,6 @@
 """emit_gsub / emit_gpos tests over the fixture spec with duck-typed decision tables."""
 
+import re
 from collections import Counter
 from dataclasses import dataclass, replace
 
@@ -64,6 +65,19 @@ def glyphs(spec):
 @pytest.fixture(scope="module")
 def guard_verdicts(spec):
     return kernel_exec.guard_sweep(spec)
+
+
+_OUTCOME_BLOCK = re.compile(r"lookup (\S+) \{\n    sub (\S+) by (\S+);\n\} \1;")
+
+
+def _outcome_lookups(fea):
+    """The settlement outcome lookups as {(input glyph, outcome): name}, read off the text between the chokepoint and the settlement lookup in the order they are defined."""
+    region = fea.split("} m1_zwnj;")[1].split("lookup m1_settle useExtension {")[0]
+    return {(glyph, outcome): name for name, glyph, outcome in _OUTCOME_BLOCK.findall(region)}
+
+
+def _settle_block(fea):
+    return fea.split("lookup m1_settle useExtension {")[1].split("} m1_settle;")[0]
 
 
 def _rules(spec, glyphs):
@@ -139,9 +153,9 @@ class TestEmitGsub:
             FakeRule("qsIt", None, ("qsMay",), ("qsTea",), "qsIt", provenance=("p9",)),
         ]
         plan = emit_gsub.emit_gsub(spec, {frozenset(): FakeDecision(rules)}, glyphs=glyphs)
-        settle_block = plan.fea_text.split("lookup m1_settle useExtension {")[1].split("} m1_settle;")[0]
-        three_slot_line = next(line for line in settle_block.splitlines() if it_ex in line)
-        assert f"sub qsIt' qsMay qsTea @s_qsIt_la3_0 by {it_ex};" in three_slot_line
+        name = _outcome_lookups(plan.fea_text)[("qsIt", it_ex)]
+        three_slot_line = next(line for line in _settle_block(plan.fea_text).splitlines() if name in line)
+        assert f"sub qsIt' lookup {name} qsMay qsTea @s_qsIt_la3_0;" in three_slot_line
         assert "@s_qsIt_la3_0 = [qsOy qsPea];" in plan.class_definitions
 
     def test_four_slot_rule_emits_a_fourth_lookahead_class(self, spec, glyphs):
@@ -161,11 +175,66 @@ class TestEmitGsub:
             FakeRule("qsIt", None, ("qsMay",), ("qsTea",), "qsIt", provenance=("p9",)),
         ]
         plan = emit_gsub.emit_gsub(spec, {frozenset(): FakeDecision(rules)}, glyphs=glyphs)
-        settle_block = plan.fea_text.split("lookup m1_settle useExtension {")[1].split("} m1_settle;")[0]
-        four_slot_line = next(line for line in settle_block.splitlines() if it_ex in line)
-        assert f"sub qsIt' qsMay qsTea @s_qsIt_la3_0 @s_qsIt_la4_0 by {it_ex};" in four_slot_line
+        name = _outcome_lookups(plan.fea_text)[("qsIt", it_ex)]
+        four_slot_line = next(line for line in _settle_block(plan.fea_text).splitlines() if name in line)
+        assert f"sub qsIt' lookup {name} qsMay qsTea @s_qsIt_la3_0 @s_qsIt_la4_0;" in four_slot_line
         assert "@s_qsIt_la4_0 = [qsPea qsTea];" in plan.class_definitions
         assert four_slot_line.index("@s_qsIt_la3_0") < four_slot_line.index("@s_qsIt_la4_0")
+
+    def test_every_settlement_outcome_rides_a_named_lookup_defined_before_the_settle_lookup(
+        self, spec, glyphs
+    ):
+        plan = emit_gsub.emit_gsub(spec, {frozenset(): FakeDecision(_rules(spec, glyphs))}, glyphs=glyphs)
+        fea = plan.fea_text
+        lookups = _outcome_lookups(fea)
+        assert lookups
+        rows = [line.split("#")[0].strip() for line in _settle_block(fea).splitlines()]
+        rows = [row for row in rows if row and row != "subtable;"]
+        assert len(rows) == plan.rule_count
+        row_shape = re.compile(r"^sub (?:\S+ )?(\S+)' lookup (\S+)(?: \S+)*;$")
+        for row, rule in zip(rows, plan.settle_rules):
+            assert " by " not in row
+            match = row_shape.match(row)
+            assert match, row
+            assert match.groups() == (rule.input_glyph, lookups[(rule.input_glyph, rule.outcome)])
+        chokepoint = fea.index("lookup m1_zwnj {")
+        settlement = fea.index("lookup m1_settle useExtension {")
+        for (glyph, outcome), name in lookups.items():
+            block = f"lookup {name} {{\n    sub {glyph} by {outcome};\n}} {name};"
+            assert fea.count(block) == 1
+            assert chokepoint < fea.index(block) < settlement
+
+    def test_one_lookup_per_input_and_outcome_pair(self, spec, glyphs):
+        plan = emit_gsub.emit_gsub(spec, {frozenset(): FakeDecision(_rules(spec, glyphs))}, glyphs=glyphs)
+        pairs = {(rule.input_glyph, rule.outcome) for rule in plan.settle_rules}
+        assert len(pairs) < len(plan.settle_rules)
+        lookups = _outcome_lookups(plan.fea_text)
+        assert set(lookups) == pairs
+        assert len(set(lookups.values())) == len(pairs)
+        assert sum(line.startswith("lookup m1_settle_") for line in plan.fea_text.splitlines()) == len(pairs)
+        it_rules = [rule for rule in plan.settle_rules if rule.input_glyph == "qsIt"]
+        assert len(it_rules) == 2 and len({rule.outcome for rule in it_rules}) == 1
+        it_rows = [line for line in _settle_block(plan.fea_text).splitlines() if "sub qsIt' " in line]
+        assert len(it_rows) == 2
+        assert {line.split("lookup ")[1].split()[0] for line in it_rows} == {
+            lookups[("qsIt", it_rules[0].outcome)]
+        }
+
+    def test_the_outcome_lookups_are_not_calt_stages(self, spec, glyphs):
+        plan = emit_gsub.emit_gsub(spec, {frozenset(): FakeDecision(_rules(spec, glyphs))}, glyphs=glyphs)
+        assert plan.calt_stages == (
+            "m1_formation_guarded",
+            "m1_formation",
+            "m1_zwnj",
+            "m1_settle",
+            "m1_namer_dot_word_start",
+        )
+        calt = plan.fea_text.split("feature calt {")[1].split("} calt;")[0]
+        assert [line.strip() for line in calt.strip().splitlines()] == [
+            f"lookup {name};" for name in plan.calt_stages
+        ]
+        assert "m1_settle_" not in calt
+        assert set(emit_gsub.behavior_classes(plan)) == TestBehaviorClasses.FIXTURE_TOKENS
 
     def test_locked_twin_in_look3_raises(self, spec, glyphs):
         bad = [FakeRule("qsIt", None, ("qsMay",), None, "qsIt", provenance=(), look3=("qsTea.noentry",))]
@@ -260,8 +329,8 @@ class TestEmitGsub:
         formation = fea.split("lookup m1_formation {")[1].split("} m1_formation;")[0]
         assert ".ss10" not in formation
         assert ".ss10" not in fea.split("@m1_entry_live = [")[1].split("]")[0]
-        settle_block = fea.split("lookup m1_settle useExtension {")[1].split("} m1_settle;")[0]
-        assert ".ss10" not in settle_block
+        assert ".ss10" not in _settle_block(fea)
+        assert ".ss10" not in fea.split("} m1_zwnj;")[1].split("lookup m1_settle useExtension {")[0]
         followers = fea.split("@m1_namer_short_followers = [")[1].split("]")[0].split()
         assert "qsIt.ss10" in followers  # the namer dot still lowers before a Short letter under ss10
 

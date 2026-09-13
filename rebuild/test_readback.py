@@ -163,6 +163,43 @@ class TestReadback:
         assert plan.formation_plain == ((("qsTea", "qsOy"), "qsTea_qsOy"),)
         assert plan.namer_dot_stage is not None and plan.namer_dot_stage[0] == "periodcentered"
 
+    def test_settlement_resolves_through_lookups_between_the_chokepoint_and_settlement(self, built):
+        """Every settlement row's outcome is one plain single-substitution lookup that the emitter defines after the chokepoint and before the settlement lookup, and each one maps its row's input glyph alone. The region between those two stages holds exactly those lookups plus the one feaLib mints for the chokepoint's own inline `by`, which sits right after the chokepoint."""
+        from fontTools.ttLib import TTFont
+
+        from rebuild.pipeline import pack_gsub
+
+        font_path, plan, _cursive, _twins = built
+        font = TTFont(str(font_path))
+        try:
+            lookups = font["GSUB"].table.LookupList.Lookup
+            chokepoint = _stage_index(font, plan, "m1_zwnj")
+            settlement = _stage_index(font, plan, "m1_settle")
+            assert chokepoint + 1 < settlement
+            sequences = pack_gsub.per_glyph_sequences(lookups[settlement])
+            assert sequences
+            reached: set[int] = set()
+            for glyph, rules in sequences.items():
+                for rule in rules:
+                    assert len(rule.records) == 1 and rule.records[0][0] == 0
+                    index = rule.records[0][1]
+                    assert chokepoint < index < settlement
+                    reached.add(index)
+                    inner = lookups[index]
+                    assert inner.LookupType == 1 and inner.SubTableCount == 1
+                    assert list(readback._single_mapping(inner) or {}) == [glyph]
+            assert reached == set(range(chokepoint + 2, settlement))
+            assert readback._single_mapping(lookups[chokepoint + 1]) is not None
+            outcomes = {
+                (glyph, (readback._single_mapping(lookups[rule.records[0][1]]) or {})[glyph])
+                for glyph, rules in sequences.items()
+                for rule in rules
+            }
+            assert outcomes == {(rule.input_glyph, rule.outcome) for rule in plan.settle_rules}
+            assert len(reached) == len(outcomes)
+        finally:
+            font.close()
+
     def test_the_offset_budget_is_read_off_the_raw_table(self, built):
         """The byte walk over the raw GSUB against the decoded table's own counts, which is the independent witness that it lands on the uint16 fields it means to; the settlement lookup's format census rides the same parse, so the packed reality stays legible in the summary."""
         from fontTools.ttLib import TTFont
