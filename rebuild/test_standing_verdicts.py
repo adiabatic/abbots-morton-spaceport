@@ -7879,6 +7879,20 @@ def test_the_decider_holds_the_composable_digest_for_the_run(slide_context):
     assert len(context.composed) == 2
 
 
+def test_the_decider_empties_the_context_memos_behind_every_unit(slide_context):
+    """`decide` owns the unit boundary: behind every unit it empties the context's shape memo and its walk memo, and the answer is the one a fresh context computes through `evaluate`, because every key in both memos names the unit it was computed for — so a second, differently shaped unit through the same Decider is decided on its own terms and leaves the memos as empty as the first did."""
+    context = slide_context()
+    decider = sv.Decider(COMPOSABLE_RULES, context)
+    for window in (composed_window(), founding_window()):
+        decision = decider.decide(window)
+        assert (context.memo, context.composed) == ({}, {})
+        assert decision == sv.Decider(COMPOSABLE_RULES, slide_context()).evaluate(window)
+        assert decider.decide(window) == decision
+    assert composed_window() != founding_window()
+    assert decider.decide(composed_window()).composed is not None
+    assert decider.decide(founding_window()).composed is None
+
+
 def test_the_alignment_cache_answers_per_unit_object_and_releases():
     """Two distinct unit dicts under one id — the suite builds them constantly — get their own answers, because the cache is keyed on the object and keeps it alive so no other object can take its address; a repeat ask answers what a fresh computation answers; and `release_alignment_cache` empties it."""
     sv.release_alignment_cache()
