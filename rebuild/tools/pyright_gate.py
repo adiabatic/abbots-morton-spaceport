@@ -2,7 +2,7 @@
 
 The check's input closure is what `[tool.pyright]` in pyproject.toml points it at — every `.py` and `.pyi` under `include`, `extraPaths` and `stubPath`, tracked or untracked-unignored — plus pyproject.toml itself, which carries the checker's own settings, and uv.lock, which pins the checker and every package it resolves imports against. Nothing else pyright opens is content an edit in this tree can move. A rune edit, a glyph edit, a Markdown edit and a verdict all leave that closure where it was, so the suite they re-arm runs its tests without a type check standing ahead of them; the green record (`cycle_paths.PYRIGHT_GREEN`) is written only after a pass whose closure still matches what was checked, and a red pass whose closure matches its record deletes the record. `AMS_RUN_PYRIGHT=1` asks for the check under the skip; `AMS_RUN_PYRIGHT=force`, which the make targets spell as `FORCE=1`, runs it regardless. Without git there is no closure to key on, so the check runs and records nothing.
 
-The root conftest's `pytest_configure` is the caller: it begins the check before the workers spawn, overlapping the font build where there is one, and waits on it there so a type error still fails the run before a test has started. That caller is why this module's own imports stop at two leaves, `cycle_paths` for the record's place and `green_record` for its shape: the conftest's static import closure is folded into every rebuild test's closure, and a gate that imported the cycle driver would carry the whole pipeline in with it (`rebuild.tools.cycle_paths` has the argument).
+The root conftest is the caller, and its two hooks split the check between them. `pytest_configure` begins it before the workers spawn, whatever the run. A run that builds the fonts waits on it there, overlapping the build, so a type error fails the run before a test has started; a run that skips the build — a rebuild-only collection whose site fonts are present, which is what `make test-rebuild` spawns — parks it and `pytest_sessionfinish` joins it, so the check runs beside the xdist pool and a red lands as a nonzero exit after the suite, printed below the pytest summary; a run that reaches that hook interrupted abandons the check instead of judging it (`Check.abandon`), since the Ctrl-C that stopped the suite stopped pyright too and its exit says nothing about the tree. That caller is why this module's own imports stop at two leaves, `cycle_paths` for the record's place and `green_record` for its shape: the conftest's static import closure is folded into every rebuild test's closure, and a gate that imported the cycle driver would carry the whole pipeline in with it (`rebuild.tools.cycle_paths` has the argument).
 """
 
 from __future__ import annotations
@@ -98,6 +98,14 @@ class Check:
         returncode = self.process.wait()
         print(conclude(self.root, self.before, returncode), flush=True)
         return returncode
+
+    def abandon(self) -> None:
+        """Reap a check the run stopped waiting for: the process is ended and joined, nothing is judged, and the record stays where it was. A Ctrl-C reaches pyright and the suite alike, and a check killed that way is not a red."""
+        if self.process is None:
+            return
+        self.process.terminate()
+        self.process.wait()
+        print("pyright: abandoned — the run was interrupted, so nothing was judged or recorded", flush=True)
 
 
 def begin(
