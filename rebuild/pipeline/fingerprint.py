@@ -16,7 +16,9 @@ Rune files are hashed by `rune_file_digest`, a prose-blind digest over the parse
 
 One rationale is read after all, and it has two homes of its own rather than a place in that digest. `policy.refuse[].why` is what the kernel crate's engine appends to a refusal's elimination sentence when it is asked for an explain ladder — a request the table fixpoint never makes and the review surface's explain panel is the whole audience for. So it rides `rune_explain_digest`, which the review unit cache's family keys are built from, and the Stage B `explain_prose` component, which the surface's manifest stamps: rewording one re-enriches the windows whose explain text quotes it and re-stamps the surface, and costs nothing else. The tables' stamp, the conformance sweep's key, the rebuild suite's key, the artifact cycle's run_m1 green, the oracle row cache's family keys, and `unit_cache.environment_stamp` all read `rune_file_digest` and cannot see it.
 
-Code files hash through a projection of their own, for the runes' reason. `code_file_digest` parses a `.py` file and hashes its syntax tree with every docstring's text set to `None`, and hashes a `.rs` file with its whole-line `//` comments dropped, so rewording either moves no key `path_lines` builds: the tables' stamp, the run_m1 skip key, the trace-memo and replay stamps, the oracle row cache and the settle memo, both surface stores, the standing-fill memo and the standing daemon's stamp among them. What stays is everything the interpreter or the compiler can see — every identifier, every non-docstring string constant (matchers compare against literal error text), every annotation and default, every decorator, every Rust code line with its trailing comment — and the presence of each docstring, the way the rune projection keeps the presence of each prose field. A file that does not parse or decode falls back to its raw bytes, as `_projected_digest` does, so a stopping edit stays visible; every other suffix — the site fonts, the app shell, the crate's manifest and lock — hashes raw through `file_sha256`. Two closures stay raw on purpose, and both are the artifact cycle's rather than this module's: `artifact_cycle._closure_digest` with `make_test_closure_fingerprint`, because test fixtures and the closure tests read source text, and `pyright_gate`'s own, where a `# pyright: ignore` comment changes the answer being gated — so `gate:rebuild-contracts` and `gate:make-test` still run on a prose-only edit. `baseline_subset.stamp_key` reads `code_file_digest` directly for the same reason. rebuild/test_fingerprint.py is the authority on what the projection sees and pins the keys this module builds (`pipeline_code`, the tables' stamp, the run_m1 skip key) and the two raw closures; each memo or store pins its own stamp beside itself (rebuild/test_standing_verdicts.py for the standing-fill memo, rebuild/test_unit_cache.py for the surface stores, rebuild/test_baseline_subset.py for the subset key).
+Code files hash through a projection of their own, for the runes' reason. `code_file_digest` parses a `.py` file and hashes its syntax tree with every docstring's text set to `None`, and hashes a `.rs` file with its whole-line `//` comments dropped, so rewording either moves no key `path_lines` builds: the tables' stamp, the run_m1 skip key, the trace-memo and replay stamps, the oracle row cache and the settle memo, both surface stores, the standing-fill memo and the standing daemon's stamp among them. What stays is everything the interpreter or the compiler can see — every identifier, every non-docstring string constant (matchers compare against literal error text), every annotation and default, every decorator, every Rust code line with its trailing comment — and the presence of each docstring, the way the rune projection keeps the presence of each prose field. A file that does not parse or decode falls back to its raw bytes, as `_projected_digest` does, so a stopping edit stays visible; every other suffix `path_lines` reaches — the app shell, the crate's manifest and lock — hashes raw through `file_sha256`. Two closures stay raw on purpose, and both are the artifact cycle's rather than this module's: `artifact_cycle._closure_digest` with `make_test_closure_fingerprint`, because test fixtures and the closure tests read source text, and `pyright_gate`'s own, where a `# pyright: ignore` comment changes the answer being gated — so `gate:rebuild-contracts` and `gate:make-test` still run on a prose-only edit. `baseline_subset.stamp_key` reads `code_file_digest` directly for the same reason. rebuild/test_fingerprint.py is the authority on what the projection sees and pins the keys this module builds (`pipeline_code`, the tables' stamp, the run_m1 skip key) and the two raw closures; each memo or store pins its own stamp beside itself (rebuild/test_standing_verdicts.py for the standing-fill memo, rebuild/test_unit_cache.py for the surface stores, rebuild/test_baseline_subset.py for the subset key).
+
+The two version carriers hash through projections of their own, so a version bump moves no key. `make all` rewrites both site fonts with the new version in their `name` table and `head.fontRevision`, and the bump-minor skill refreshes `uv.lock`, where the one block that moves is the project's own `[[package]]` entry; neither can move a shaped byte, since the M1 after font takes its metadata from a constant in compile_font.py and the interpreter the tests run under is decided by the pinned packages, each in a lock block of its own. `font_content_digest` digests a font table by table off its `sfnt` reader — the sorted tag roster, then each table's length and bytes — and drops exactly `head` and `name`: `head` holds the revision, the checksum adjustment and the modification stamp beside `unitsPerEm`, `name` the version strings; a shaper places a glyph in font units off `hmtx` and `GPOS` and reads neither table for a position, and `unitsPerEm` (authored in glyph_data/metadata.yaml apart from the pixel size the outlines are drawn at) reaches the pipeline only as the `fonts.<side>.upem` field of the surface manifest, which is compared as a whole rather than through this projection. Everything that can reach a shaped run stays — every outline and advance (`CFF `, `hmtx`), every cursive anchor and kern (`GPOS`), the substitutions (`GSUB`), the `cmap`, and a table added or dropped — and a file fontTools cannot open, or a truncated table it cannot read, digests to its raw bytes. `lock_digest` (`rebuild.tools.lock_digest`, a leaf because the pyright gate hashes the lock too) cuts the project's block out of the lock text and hashes the rest, so a dependency's pinned version, a package added or removed, and a changed pin of anything still move it. `fonts_value` is the `fonts` roll-up over the font projection, read by the Stage B `fonts` component and the contracts lane's `fonts` label; both surface stores and the standing memo take their `before_font` line through `font_content_digest` directly, and `baseline_subset.prove_font_provenance` weighs the same projection against the one its sidecar recorded when a header's raw digest no longer matches the font on disk. The daemon's font pair stays raw: it holds the surface's own copies, which move only when the surface is rebuilt and its `generated_at` with it.
 """
 
 from __future__ import annotations
@@ -24,12 +26,14 @@ from __future__ import annotations
 import ast
 import hashlib
 import json
+import struct
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable, Iterable, Mapping
 
 import yaml
 
+from rebuild.tools.lock_digest import lock_digest
 from rebuild.tools.site_fonts import font_paths
 
 FORMAT = "ams-inputs-fingerprint/2"
@@ -185,6 +189,54 @@ def digest_lines(lines: Iterable[str]) -> str:
 
 def hash_paths(repo_root: Path, paths: list[Path]) -> str:
     return digest_lines(path_lines(repo_root, paths))
+
+
+FONT_VERSION_TABLES = frozenset({"head", "name"})
+_FONT_DIGESTS: dict[str, str] = {}
+
+
+def _projected_font_lines(path: Path) -> list[str] | None:
+    """The `sfnt` view of one font: its sorted tag roster, then the length and digest of every table outside `FONT_VERSION_TABLES`, each read off the reader as the bytes the file holds — never decompiled, never recompiled, so a table fontTools would normalize on a save is still the table on disk. None for a file that is not an `sfnt`, holds no tables, or cuts a table short, which the caller digests raw."""
+    from fontTools.ttLib import TTFont, TTLibError
+
+    try:
+        font = TTFont(str(path), lazy=True)
+    except TTLibError, OSError, ValueError, struct.error:
+        return None
+    try:
+        reader = font.reader
+        tags = sorted(reader.keys()) if reader is not None else []
+        if not tags or reader is None:
+            return None
+        lines = ["tables\t" + " ".join(tags)]
+        for tag in tags:
+            if tag in FONT_VERSION_TABLES:
+                continue
+            data = reader[tag]
+            lines.append(f"{tag}\t{len(data)}\t{hashlib.sha256(data).hexdigest()}")
+    except TTLibError, OSError, ValueError, AssertionError, struct.error:
+        return None
+    finally:
+        font.close()
+    return lines
+
+
+def font_content_digest(path: Path) -> str:
+    """One font's head- and name-blind digest (the module docstring holds the contract for what the projection drops), and the raw `file_sha256` for a file fontTools cannot read as an `sfnt`, so a fake font in a fixture and a truncated one on disk each keep a digest of their own. Memoized per process on the raw content digest, for `code_file_digest`'s reason: the stamps ask for the same two fonts many times in one cycle, and the raw hash the key costs is the cheap part of what the memo saves."""
+    raw_digest = file_sha256(path)
+    digest = _FONT_DIGESTS.get(raw_digest)
+    if digest is None:
+        lines = _projected_font_lines(path)
+        digest = raw_digest if lines is None else digest_lines(lines)
+        _FONT_DIGESTS[raw_digest] = digest
+    return digest
+
+
+def fonts_value(repo_root: Path, paths: list[Path]) -> str:
+    """The `fonts` roll-up: one `label\\tfont_content_digest` line per font on disk, sorted and hashed — `hash_paths` with the font projection in place of the raw digest, which is what lets a version bump's `make all` leave the Stage B `fonts` component and the contracts lane's `fonts` label where they were."""
+    return digest_lines(
+        sorted(f"{_label(repo_root, path)}\t{font_content_digest(path)}" for path in paths if path.is_file())
+    )
 
 
 def _labels_of(lines: Iterable[str]) -> dict[str, str]:
@@ -599,12 +651,12 @@ def stage_a(repo_root: Path) -> dict:
 
 
 def stage_b(repo_root: Path, before_font: Path, junior_font: Path, spec_root: Path | None = None) -> dict:
-    """The review-side components. `explain_prose` is taken over `spec_root` when a build names one, because the rationales the surface quotes are read from the spec it settles under — a workload bundled with its own frozen spec serves that spec's `why`s, not this checkout's — and over the checkout otherwise, where the two are the same tree."""
+    """The review-side components. `explain_prose` is taken over `spec_root` when a build names one, because the rationales the surface quotes are read from the spec it settles under — a workload bundled with its own frozen spec serves that spec's `why`s, not this checkout's — and over the checkout otherwise, where the two are the same tree. `fonts` is `fonts_value` over the two site fonts, blind to their `head` and `name` tables, so the surface skip survives the `make all` a version bump runs."""
     root = Path(repo_root)
     return {
         "review_code": hash_paths(root, review_code_paths(root)),
         "static": hash_paths(root, static_paths(root)),
-        "fonts": hash_paths(root, [Path(before_font), Path(junior_font)]),
+        "fonts": fonts_value(root, [Path(before_font), Path(junior_font)]),
         "explain_prose": explain_prose_value(Path(spec_root) if spec_root is not None else root),
     }
 

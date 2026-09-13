@@ -143,3 +143,30 @@ def test_a_recompiled_font_serves_the_untouched_units_and_lands_on_a_from_scratc
 
     assert _content_keys(incremental) == _content_keys(scratch)
     assert _tree(incremental) == _tree(scratch)
+
+
+def _with_a_version_bump(source: Path, target: Path) -> Path:
+    """The font again, with `head.fontRevision` and every `name` record rewritten — what `make all` does to both site fonts on a version bump, and the one recompile that must move neither whole-store stamp."""
+    font = TTFont(str(source))
+    head = font["head"]
+    head.fontRevision = head.fontRevision + 0.001  # pyright: ignore[reportAttributeAccessIssue]
+    for record in font["name"].names:  # pyright: ignore[reportAttributeAccessIssue]
+        record.string = record.toUnicode() + " bumped"  # pyright: ignore[reportAttributeAccessIssue]
+    font.save(str(target))
+    return target
+
+
+def test_a_version_bump_of_the_before_font_leaves_both_whole_store_stamps(tmp_path, spec, mini_bundle):
+    """The site fonts reach both stamps table by table outside `head` and `name`, so the fonts a bump's `make all` rewrites leave the unit store and the ink-signature store serving, while a widened glyph in the same font — an outline the before side renders — drops both. The bumped font differs from the fixture byte for byte, which is what a digest over the whole file would see."""
+    root = mini_bundle.spec_root
+    _families, helpers = unit_cache.family_content_keys(root, spec, MINI_FONT)
+    bumped = _with_a_version_bump(MINI_FONT, tmp_path / "bumped.otf")
+    widened = _with_a_widened_family(MINI_FONT, tmp_path / "widened.otf")
+    assert bumped.read_bytes() != MINI_FONT.read_bytes()
+    for stamp in (
+        lambda font: unit_cache.environment_stamp(root, spec, MINI, font, font, helpers),
+        lambda font: unit_cache.signature_environment(root, font, helpers),
+    ):
+        base = stamp(MINI_FONT)
+        assert stamp(bumped) == base
+        assert stamp(widened) != base

@@ -879,3 +879,36 @@ def test_the_settle_memo_stamp_moves_with_the_walk_s_routes_and_not_the_comparis
     _rewrite_script(repo, lambda document: document["heights"].update({"x-height": 4}))
     data = oracle_cache.settle_memo_stamp(oracle_cache.settle_memo_inputs(repo), spec, "default", frozenset())
     assert oracle_cache.moved_note(base.labels, data.labels) == "data (changed)"
+
+
+_POSITION_LOCK = (
+    "version = 1\n\n"
+    '[[package]]\nname = "abbots-morton-spaceport"\nversion = "16.0.0"\nsource = { virtual = "." }\n\n'
+    '[[package]]\nname = "uharfbuzz"\nversion = "0.50.2"\nsource = { registry = "https://pypi.org/simple" }\n'
+)
+
+
+def test_the_position_stamps_toolchain_line_reads_the_lock_by_its_dependency_pins(repo, tmp_path):
+    """The lock's project block pins no shaper, so a version bump leaves the position stamp — and every stored position — where it was; a moved uharfbuzz pin moves the `toolchain` line alone, and the per-family keys are untouched either way, since neither edit reaches a rune or a glyph."""
+    spec = fixtures.mini_spec()
+    kern = tmp_path / "kern.yaml"
+    kern.write_text("global:\n  value: 0\n", encoding="utf-8")
+    module = repo / "rebuild" / "pipeline" / "oracle_positions.py"
+    module.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copyfile(REPO_ROOT / "rebuild" / "pipeline" / "oracle_positions.py", module)
+    lock = repo / oracle_cache.TOOLCHAIN_LOCK
+    lock.write_text(_POSITION_LOCK, encoding="utf-8")
+    row_keys = _keys(repo, spec)
+
+    def position():
+        return oracle_cache.position_keys(repo, row_keys, MINI_FONT, kern)
+
+    base_keys, base = position()
+    lock.write_text(_POSITION_LOCK.replace('version = "16.0.0"', 'version = "16.1.0"'), encoding="utf-8")
+    keys, stamp = position()
+    assert keys == base_keys
+    assert stamp.lines == base.lines
+    lock.write_text(_POSITION_LOCK.replace('version = "0.50.2"', 'version = "0.51.0"'), encoding="utf-8")
+    keys, stamp = position()
+    assert keys == base_keys
+    assert oracle_cache.moved_note(base.labels, stamp.labels) == "toolchain (changed)"

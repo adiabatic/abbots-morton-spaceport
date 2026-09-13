@@ -396,3 +396,31 @@ class TestWhenTheCheckIsJoined:
         """The flag the saving hinges on: the TerminalReporter registers its own sessionfinish wrapper after the conftests, so without `tryfirst` this one would run inside the summary and pyright's remaining wait would land inside the summary's clock and above its line. Pluggy stores the hookimpl options on the function, so the pin reads them there."""
         opts = root.pytest_sessionfinish.pytest_impl
         assert opts["wrapper"] and opts["tryfirst"]
+
+
+_GATE_LOCK = (
+    "version = 1\n\n"
+    '[[package]]\nname = "abbots-morton-spaceport"\nversion = "16.0.0"\nsource = { virtual = "." }\n\n'
+    '[[package]]\nname = "pyright"\nversion = "1.1.411"\nsource = { registry = "https://pypi.org/simple" }\n'
+)
+
+
+def test_the_closure_reads_the_lock_by_its_dependency_pins_and_every_source_raw(tmp_path):
+    """A version bump edits the lock's project block and leaves the key standing; a moved pin — the checker's own, say — moves it; and a `# pyright: ignore` comment in a source still moves it, because the source files stay raw. The roster of files is the same in every arm."""
+    root = tmp_path / "repo"
+    (root / "src").mkdir(parents=True)
+    (root / "pyproject.toml").write_text('[tool.pyright]\ninclude = ["src"]\n')
+    (root / "src" / "a.py").write_text("a = 1\n")
+    (root / "uv.lock").write_text(_GATE_LOCK)
+    subprocess.run(["git", "init", "-q"], cwd=root, check=True)
+    subprocess.run(["git", "add", "-A"], cwd=root, check=True)
+    files = pg.closure_files(root)
+    key = pg.closure_fingerprint(root)
+    (root / "uv.lock").write_text(_GATE_LOCK.replace('version = "16.0.0"', 'version = "16.1.0"'))
+    assert pg.closure_files(root) == files
+    assert pg.closure_fingerprint(root) == key
+    (root / "uv.lock").write_text(_GATE_LOCK.replace('version = "1.1.411"', 'version = "1.1.414"'))
+    assert pg.closure_fingerprint(root) != key
+    (root / "uv.lock").write_text(_GATE_LOCK)
+    (root / "src" / "a.py").write_text("a = 1  # pyright: ignore[reportUnknownRule]\n")
+    assert pg.closure_fingerprint(root) != key

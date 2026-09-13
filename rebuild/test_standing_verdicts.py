@@ -8083,3 +8083,55 @@ def test_a_listed_composed_window_names_its_credit(tmp_path, monkeypatch, capsys
     assert (
         f"  listed c-1 (blank): a candidate of {rule_id}; composed {rule_id} + {COMPOSED_EXT_RULE['id']} (approve)"
     ) in lines
+
+
+def _stamp_root(tmp_path, lock_text):
+    root = tmp_path / "repo"
+    for relative in sv.MEMO_CODE_MODULES:
+        (root / relative).parent.mkdir(parents=True, exist_ok=True)
+        (root / relative).write_text(f'"""{relative}"""\n\nMODULE = {relative!r}\n', encoding="utf-8")
+    (root / "uv.lock").write_text(lock_text, encoding="utf-8")
+    return root
+
+
+_MEMO_LOCK = (
+    "version = 1\n\n"
+    '[[package]]\nname = "abbots-morton-spaceport"\nversion = "16.0.0"\nsource = { virtual = "." }\n\n'
+    '[[package]]\nname = "uharfbuzz"\nversion = "0.50.2"\nsource = { registry = "https://pypi.org/simple" }\n'
+)
+
+
+def test_the_memo_stamp_holds_still_across_a_version_bump(tmp_path, slide_fonts):
+    """The two version carriers the memo's stamp reads, each at its projected grain: rewriting the before font's `head.fontRevision` and `name` records and editing the project's own block of the lock leave the stamp where it stands and the memo served, while a widened glyph in the before font and a moved uharfbuzz pin each drop it."""
+    from fontTools.ttLib import TTFont
+
+    root = _stamp_root(tmp_path, _MEMO_LOCK)
+    surface = _surface(tmp_path / "surface", [founding_window()], fonts=slide_fonts)
+    stamp, digests = sv.memo_environment(surface, root)
+    assert "qsSee" in digests
+    before = surface / "fonts" / "before.otf"
+    original = before.read_bytes()
+
+    font = TTFont(str(before))
+    font["head"].fontRevision = 2.0  # pyright: ignore[reportAttributeAccessIssue]
+    for record in font["name"].names:  # pyright: ignore[reportAttributeAccessIssue]
+        record.string = record.toUnicode() + " bumped"  # pyright: ignore[reportAttributeAccessIssue]
+    font.save(str(before))
+    assert before.read_bytes() != original
+    (root / "uv.lock").write_text(
+        _MEMO_LOCK.replace('version = "16.0.0"', 'version = "16.1.0"'), encoding="utf-8"
+    )
+    assert sv.memo_environment(surface, root) == (stamp, digests)
+
+    (root / "uv.lock").write_text(
+        _MEMO_LOCK.replace('version = "0.50.2"', 'version = "0.51.0"'), encoding="utf-8"
+    )
+    assert sv.memo_environment(surface, root)[0] != stamp
+    (root / "uv.lock").write_text(_MEMO_LOCK, encoding="utf-8")
+
+    font = TTFont(str(before))
+    metrics = font["hmtx"].metrics  # pyright: ignore[reportAttributeAccessIssue]
+    name = sorted(metrics)[0]
+    metrics[name] = (metrics[name][0] + 10, metrics[name][1])
+    font.save(str(before))
+    assert sv.memo_environment(surface, root)[0] != stamp

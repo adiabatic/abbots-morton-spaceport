@@ -35,7 +35,7 @@ import zlib
 from array import array
 from dataclasses import dataclass
 from pathlib import Path
-from typing import IO, Collection, Iterable, Mapping, Sequence
+from typing import IO, Callable, Collection, Iterable, Mapping, Sequence
 
 import yaml
 
@@ -55,13 +55,13 @@ VERIFICATION_SAMPLE_PER_FAMILY = 8
 
 # The code the position channel runs that the row closure does not already stamp: `_position_drift`, `_kern_normalized_positions`, the record codec, `_verify_served_positions`, `KernEvaluator` and `_shaper_for`, which picks the shaper every stored position comes from, in a module of their own at the module grain `ORACLE_ROW_CODE_PATHS` already uses, held by the import walk in rebuild/test_oracle_code_closure.py rather than by a function-grain digest nothing checks. The classifier in oracle.py is outside this stamp, so a classifier edit serves every position beside every row verdict, and only an edit to the channel itself re-shapes them. `Shaper` and `geometry.PIXEL` are already inside `ORACLE_ROW_CODE_PATHS`, so the row stamp covers them for both verdicts.
 POSITION_CODE_PATHS = ("rebuild/pipeline/oracle_positions.py",)
-# The lock that pins uharfbuzz and fontTools, which is what turns the same font bytes into the same positions; `artifact_cycle.comparison_side_label` refuses it for the same reason, and a bump here rebuilds anyway.
+# The lock that pins uharfbuzz and fontTools, which is what turns the same font bytes into the same positions; `artifact_cycle.comparison_side_label` refuses it for the same reason, and a bump here rebuilds anyway. It rides the stamp by its dependency pins (`fingerprint.lock_digest`), blind to the project's own version block, which pins no shaper.
 TOOLCHAIN_LOCK = "uv.lock"
 
 # The two alias heads that name a boundary glyph rather than a family. Their entries can never reach a verdict — `_compare_row` skips every name in `labels.BOUNDARY_GLYPH_NAMES` before it consults the map — so they ride the whole-store stamp instead of a family key, and `alias_family_digests` refuses any other head that has no rune digest beside it.
 BOUNDARY_ALIAS_HEADS = frozenset({"space", "periodcentered"})
 
-# The closure of what `_compare_row` and `_SettledWindowWalk` read, module by module rather than as the whole of rebuild/pipeline/: the comparison and its settlement, the stream vocabulary both spell their windows in (`labels`), the crate that decides the settlement, the spec loader that resolves what both read, the fingerprints the keys are cut from, and this module. rebuild/test_oracle_code_closure.py walks the import graph from those two entry points on every contracts run and fails when anything reachable is outside this list, so it cannot go stale the way a hand-written roster otherwise would. conform.py is here permanently: it holds the producer this cache serves — `_compare_row`, the walk, and the codec between a verdict and a record. The classifier that re-runs over every served row is not: it lives in oracle.py, and the sibling test's stray check is what keeps it out — conform.py must never import oracle.py. The position channel in oracle_positions.py is not either: it is `POSITION_CODE_PATHS`, stamped on top of this roster, and the sibling test walks from it too and holds the other direction — oracle_positions.py must never reach oracle.py, or the classifier would ride the position stamp. The witness stage's rule replay is not either: it lives in belt.py, which imports conform.py and the GSUB emitter's rule fold, so emit_gsub.py sits outside this closure and an edit to it alone leaves the store standing. The two tools files are here because `kernel_exec` derives its fan-out width from them (issue #63, sub-issue #86), which the comparison never consults and which cannot move a verdict at all — the streams are byte-identical at any width — so they buy the store nothing and cost it a drop whenever either moves. They stay anyway: the walk is at module grain, the sibling test forbids naming a module the comparison cannot reach, and between them the two have a couple of commits against `kernel_exec.py`'s many, so the churn this admits is close to none. The third tools file, `site_fonts`, is here on the same terms: it is the two-path leaf `fingerprint.font_paths` is read from, reached through the fingerprints the keys are cut from, and nothing the comparison consults.
+# The closure of what `_compare_row` and `_SettledWindowWalk` read, module by module rather than as the whole of rebuild/pipeline/: the comparison and its settlement, the stream vocabulary both spell their windows in (`labels`), the crate that decides the settlement, the spec loader that resolves what both read, the fingerprints the keys are cut from, and this module. rebuild/test_oracle_code_closure.py walks the import graph from those two entry points on every contracts run and fails when anything reachable is outside this list, so it cannot go stale the way a hand-written roster otherwise would. conform.py is here permanently: it holds the producer this cache serves — `_compare_row`, the walk, and the codec between a verdict and a record. The classifier that re-runs over every served row is not: it lives in oracle.py, and the sibling test's stray check is what keeps it out — conform.py must never import oracle.py. The position channel in oracle_positions.py is not either: it is `POSITION_CODE_PATHS`, stamped on top of this roster, and the sibling test walks from it too and holds the other direction — oracle_positions.py must never reach oracle.py, or the classifier would ride the position stamp. The witness stage's rule replay is not either: it lives in belt.py, which imports conform.py and the GSUB emitter's rule fold, so emit_gsub.py sits outside this closure and an edit to it alone leaves the store standing. The two tools files are here because `kernel_exec` derives its fan-out width from them (issue #63, sub-issue #86), which the comparison never consults and which cannot move a verdict at all — the streams are byte-identical at any width — so they buy the store nothing and cost it a drop whenever either moves. They stay anyway: the walk is at module grain, the sibling test forbids naming a module the comparison cannot reach, and between them the two have a couple of commits against `kernel_exec.py`'s many, so the churn this admits is close to none. The third and fourth tools files, `site_fonts` and `lock_digest`, are here on the same terms: the two-path leaf `fingerprint.font_paths` is read from and the lock projection `fingerprint.lock_digest` is, both reached through the fingerprints the keys are cut from, and neither anything the comparison consults.
 ORACLE_ROW_CODE_PATHS = (
     "rebuild/pipeline/conform.py",
     "rebuild/pipeline/fingerprint.py",
@@ -74,6 +74,7 @@ ORACLE_ROW_CODE_PATHS = (
     "rebuild/pipeline/settle.py",
     "rebuild/pipeline/spec_load.py",
     "rebuild/pipeline/table.py",
+    "rebuild/tools/lock_digest.py",
     "rebuild/tools/memory_budget.py",
     "rebuild/tools/peak_rss.py",
     "rebuild/tools/site_fonts.py",
@@ -103,9 +104,9 @@ def scratch_store_path(scratch_dir: Path, config: str, segment: int | None = Non
     return Path(scratch_dir) / SCRATCH_SUBDIR / name
 
 
-def _sha256_file(path: Path) -> str:
+def _sha256_file(path: Path, digest: Callable[[Path], str] = fingerprint.file_sha256) -> str:
     try:
-        return fingerprint.file_sha256(Path(path))
+        return digest(Path(path))
     except OSError:
         return "missing"
 
@@ -173,13 +174,13 @@ def position_family_keys(row_keys: Mapping[str, str], glyph_digests: Mapping[str
 def position_keys(
     repo_root: Path, row_keys: Mapping[str, str], font_path: Path, kern_sidecar_path: Path | None
 ) -> tuple[dict[str, str], EnvironmentStamp]:
-    """The position store's two keys as one read of the font: the per-family keys over `position_family_keys`, and the whole-store position stamp — the position channel's own module (`POSITION_CODE_PATHS`), the toolchain lock, the font's non-family glyphs, cmap and GPOS wiring (`fingerprint.after_font_glyph_digests`' helpers digest) and the kern sidecar's bytes. The row stamp is not repeated here: a store is loaded at all only when that one matches, so the position stamp rides on top of it rather than beside it. A caller with no kern sidecar records `-` for it."""
+    """The position store's two keys as one read of the font: the per-family keys over `position_family_keys`, and the whole-store position stamp — the position channel's own module (`POSITION_CODE_PATHS`), the toolchain lock's dependency pins, the font's non-family glyphs, cmap and GPOS wiring (`fingerprint.after_font_glyph_digests`' helpers digest) and the kern sidecar's bytes. The row stamp is not repeated here: a store is loaded at all only when that one matches, so the position stamp rides on top of it rather than beside it. A caller with no kern sidecar records `-` for it."""
     root = Path(repo_root)
     glyph_digests, helpers = fingerprint.after_font_glyph_digests(Path(font_path))
     lines = (
         f"format\t{STORE_FORMAT}",
         f"position_code\t{fingerprint.hash_paths(root, [root / relative for relative in POSITION_CODE_PATHS])}",
-        f"toolchain\t{_sha256_file(root / TOOLCHAIN_LOCK)}",
+        f"toolchain\t{_sha256_file(root / TOOLCHAIN_LOCK, fingerprint.lock_digest)}",
         f"font_helpers\t{helpers}",
         f"kern\t{'-' if kern_sidecar_path is None else _sha256_file(Path(kern_sidecar_path))}",
     )

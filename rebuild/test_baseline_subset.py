@@ -413,3 +413,151 @@ class TestSubsetNames:
         sidecar.write_text('{"format": "ams-baseline-subset-names/1", "names": []}\n')
         with pytest.raises(ValueError):
             baseline_subset.read_subset_names(sidecar.parent)
+
+
+MINI_FONT = Path(__file__).resolve().parent / "review" / "fixtures" / "mini" / "M1.otf"
+
+
+def _sfnt_font(source, target, edit=None):
+    from fontTools.ttLib import TTFont
+
+    font = TTFont(str(source))
+    if edit is not None:
+        edit(font)
+    font.save(str(target))
+    return target
+
+
+def _bump_version(font):
+    font["head"].fontRevision = (
+        font["head"].fontRevision + 0.001
+    )  # pyright: ignore[reportAttributeAccessIssue]
+    for record in font["name"].names:  # pyright: ignore[reportAttributeAccessIssue]
+        record.string = record.toUnicode() + " bumped"
+
+
+def _widen_a_glyph(font):
+    metrics = font["hmtx"].metrics  # pyright: ignore[reportAttributeAccessIssue]
+    name = sorted(metrics)[0]
+    advance, lsb = metrics[name]
+    metrics[name] = (advance + 10, lsb)
+
+
+def _seed_sfnt_repo(tmp_path):
+    """`_seed_repo` with a real font at the site path — the mini fixture's — and every header recording that font's raw digest, which is the shape the head/name-blind proof exists for."""
+    root = _seed_repo(tmp_path)
+    font = root / FONT_RELATIVE_PATH
+    font.write_bytes(MINI_FONT.read_bytes())
+    digest = hashlib.sha256(font.read_bytes()).hexdigest()
+    for config in (baseline_subset.IDENTITY_REFERENCE,) + baseline_subset.DEFAULT_COVERED_CONFIGS:
+        _write_table(root / "rebuild" / "out" / f"baseline-{config}.tsv.gz", SEED_ROWS, font_sha256=digest)
+    return root, font, digest
+
+
+def _sidecar(root):
+    return root / "rebuild" / "out" / baseline_subset.FONT_PROJECTION_SIDECAR
+
+
+class TestFontProvenanceThroughAVersionBump:
+    """The second step of the proof, over a real `sfnt`: a header whose raw digest no longer matches the font on disk is proven when the sidecar holds the extraction font's head- and name-blind projection and the font on disk projects to the same value, and refused in every other state — a glyph that moved, a sidecar that is gone or corrupt, a font never proven before it moved. The sidecar is written by a fully proven call and never by a refusal."""
+
+    def test_a_proven_pass_records_the_extraction_fonts_projection(self, tmp_path):
+        from rebuild.pipeline import fingerprint
+
+        root, font, digest = _seed_sfnt_repo(tmp_path)
+        assert not _sidecar(root).exists()
+        proven = baseline_subset.prove_font_provenance(root)
+        assert set(proven.values()) == {digest}
+        recorded = baseline_subset.read_font_projections(root / "rebuild" / "out")
+        assert recorded == {FONT_RELATIVE_PATH: {digest: fingerprint.font_content_digest(font)}}
+        assert recorded[FONT_RELATIVE_PATH][digest] != digest
+        payload = json.loads(_sidecar(root).read_text())
+        assert payload["format"] == baseline_subset.FONT_PROJECTION_FORMAT
+        first = _sidecar(root).read_bytes()
+        baseline_subset.prove_font_provenance(root)
+        assert _sidecar(root).read_bytes() == first
+
+    def test_a_head_and_name_only_rewrite_proves_without_a_refilter(self, tmp_path):
+        """The bump itself: `make all` rewrote the font's `head` and `name`, the tables still name the old raw digest, and the pass proves, refilters nothing and leaves the subset stamp byte for byte — no re-extraction, and no key a downstream reader could see move."""
+        root, font, digest = _seed_sfnt_repo(tmp_path)
+        assert baseline_subset.ensure_fresh(root) is True
+        stamp = root / "rebuild" / "out" / "m1" / baseline_subset.STAMP_NAME
+        before_stamp = stamp.read_bytes()
+        before_sidecar = _sidecar(root).read_bytes()
+        _sfnt_font(MINI_FONT, font, _bump_version)
+        assert hashlib.sha256(font.read_bytes()).hexdigest() != digest
+        proven = baseline_subset.prove_font_provenance(root)
+        assert set(proven.values()) == {digest}
+        assert baseline_subset.ensure_fresh(root) is False
+        assert stamp.read_bytes() == before_stamp
+        assert _sidecar(root).read_bytes() == before_sidecar
+        _sfnt_font(font, font, _bump_version)
+        assert baseline_subset.ensure_fresh(root) is False
+
+    def test_a_glyph_edit_still_refuses_naming_both_digests(self, tmp_path):
+        root, font, digest = _seed_sfnt_repo(tmp_path)
+        baseline_subset.ensure_fresh(root)
+        before_sidecar = _sidecar(root).read_bytes()
+        _sfnt_font(MINI_FONT, font, _widen_a_glyph)
+        live = hashlib.sha256(font.read_bytes()).hexdigest()
+        with pytest.raises(baseline_subset.BaselineProvenanceError) as error:
+            baseline_subset.ensure_fresh(root)
+        message = str(error.value)
+        assert digest in message and live in message
+        assert "outside the head and name tables" in message
+        assert "rebuild.baseline.cli extract" in message
+        assert _sidecar(root).read_bytes() == before_sidecar
+
+    @pytest.mark.parametrize("state", ["deleted", "corrupt", "other-format", "never-written"])
+    def test_a_bump_without_a_usable_recorded_projection_refuses(self, tmp_path, state):
+        """The safe direction: without the extraction font's projection nothing can say a head/name-only rewrite is what happened, so the pass refuses with the re-extract remedy and names the sidecar as what is missing."""
+        root, font, digest = _seed_sfnt_repo(tmp_path)
+        if state != "never-written":
+            baseline_subset.ensure_fresh(root)
+            if state == "deleted":
+                _sidecar(root).unlink()
+            elif state == "corrupt":
+                _sidecar(root).write_text("{not json")
+            else:
+                _sidecar(root).write_text(
+                    json.dumps({"format": "ams-baseline-font-projections/0", "fonts": {}})
+                )
+        _sfnt_font(MINI_FONT, font, _bump_version)
+        live = hashlib.sha256(font.read_bytes()).hexdigest()
+        with pytest.raises(baseline_subset.BaselineProvenanceError) as error:
+            baseline_subset.prove_font_provenance(root)
+        message = str(error.value)
+        assert digest in message and live in message
+        assert baseline_subset.FONT_PROJECTION_SIDECAR in message
+        assert "rebuild.baseline.cli extract" in message
+
+    def test_a_refusal_never_writes_the_sidecar(self, tmp_path):
+        root, _font, _digest = _seed_sfnt_repo(tmp_path)
+        _write_table(root / "rebuild" / "out" / "baseline-ss04.tsv.gz", SEED_ROWS, font_sha256="f" * 64)
+        with pytest.raises(baseline_subset.BaselineProvenanceError):
+            baseline_subset.prove_font_provenance(root)
+        assert not _sidecar(root).exists()
+
+    def test_the_sidecar_holds_only_the_pairs_the_headers_name(self, tmp_path):
+        """One entry per `(font, raw digest)` pair a header records, so a re-extraction retires the old font's entry instead of accumulating one per release."""
+        root, font, digest = _seed_sfnt_repo(tmp_path)
+        baseline_subset.prove_font_provenance(root)
+        _sfnt_font(MINI_FONT, font, _widen_a_glyph)
+        moved = hashlib.sha256(font.read_bytes()).hexdigest()
+        for config in (baseline_subset.IDENTITY_REFERENCE,) + baseline_subset.DEFAULT_COVERED_CONFIGS:
+            _write_table(root / "rebuild" / "out" / f"baseline-{config}.tsv.gz", SEED_ROWS, font_sha256=moved)
+        baseline_subset.prove_font_provenance(root)
+        recorded = baseline_subset.read_font_projections(root / "rebuild" / "out")
+        assert set(recorded[FONT_RELATIVE_PATH]) == {moved}
+        assert digest not in recorded[FONT_RELATIVE_PATH]
+
+    def test_a_fake_font_falls_back_to_its_raw_digest(self, tmp_path):
+        """The four arms above this class stand on the fallback: `_seed_repo`'s font is not an `sfnt`, so its projection is its raw digest, a rewrite of it is a refusal, and nothing here has to know which kind of font a repo holds."""
+        from rebuild.pipeline import fingerprint
+
+        root = _seed_repo(tmp_path)
+        baseline_subset.prove_font_provenance(root)
+        assert baseline_subset.read_font_projections(root / "rebuild" / "out") == {
+            FONT_RELATIVE_PATH: {FONT_SHA256: FONT_SHA256}
+        }
+        assert fingerprint.font_content_digest(root / FONT_RELATIVE_PATH) == FONT_SHA256
