@@ -121,15 +121,22 @@ class Shaper:
         self.hb_font = hb.Font(hb.Face(hb.Blob.from_file_path(str(font_path))))
         self.glyph_set = self.tt.getGlyphSet()
         self._outline_cache: dict[str, tuple] = {}
+        self._buffer = hb.Buffer()
 
-    def shape(self, text: str, features: frozenset[str]) -> list[dict]:
+    def _shaped(self, text: str, features: frozenset[str]):
+        """The one HarfBuzz run behind both projections, into the buffer this shaper keeps for its whole life: cleared, filled, its properties guessed and shaped per call, so `shape` and `positions` read the same slots and cannot drift apart. The buffer is per shaper, not per call, so a shaper is not shared across threads, and each projection materializes its answer before the next call clears it."""
         hb = self._hb
-        buf = hb.Buffer()
+        buf = self._buffer
+        buf.clear_contents()
         # MONOTONE_CHARACTERS keeps each input character in its own cluster, so the ZWNJ slot stays identifiable.
         buf.cluster_level = hb.BufferClusterLevel.MONOTONE_CHARACTERS
         buf.add_str(text)
         buf.guess_segment_properties()
         hb.shape(self.hb_font, buf, {tag: True for tag in features})
+        return buf
+
+    def shape(self, text: str, features: frozenset[str]) -> list[dict]:
+        buf = self._shaped(text, features)
         return [
             {
                 "name": self.tt.getGlyphName(info.codepoint),
@@ -141,6 +148,11 @@ class Shaper:
             }
             for info, pos in zip(buf.glyph_infos, buf.glyph_positions)
         ]
+
+    def positions(self, text: str, features: frozenset[str]) -> list[tuple[int, int, int]]:
+        """The position channel's projection of the same shaping `shape` performs: each slot's `(x_offset, y_offset, x_advance)` and nothing else, since the channel reads no glyph name, gid or cluster and a fontTools name lookup per slot is the projection's whole cost."""
+        buf = self._shaped(text, features)
+        return [(pos.x_offset, pos.y_offset, pos.x_advance) for pos in buf.glyph_positions]
 
     def advance(self, glyph_name: str) -> int:
         """The glyph's `hmtx` advance, which is where a slot's pen moves when nothing positions it — the overlay arm's whole expectation for every slot."""
@@ -396,8 +408,12 @@ class IsolatedOverlayShaper:
                 f"{font_path}: {dot} advances {self._advances.get(dot)} but {lowered} advances {self._advances[lowered]}, so the overlay's pen positions are not a function of the text alone"
             )
 
+    def _labels(self, text: str) -> list[str]:
+        """The glyph label per slot of the text under the overlay, the one computation behind both projections."""
+        return isolated_overlay_labels(self.spec, isolated_overlay_tokens(self.spec, text))
+
     def shape(self, text: str, features: frozenset[str]) -> list[dict]:
-        labels = isolated_overlay_labels(self.spec, isolated_overlay_tokens(self.spec, text))
+        labels = self._labels(text)
         return [
             {
                 "name": name,
@@ -409,6 +425,10 @@ class IsolatedOverlayShaper:
             }
             for cluster, name in enumerate(labels)
         ]
+
+    def positions(self, text: str, features: frozenset[str]) -> list[tuple[int, int, int]]:
+        """The position channel's projection of `shape`, answered from the same labels: every slot at zero offset with its twin's `hmtx` advance."""
+        return [(0, 0, self._advances[name]) for name in self._labels(text)]
 
 
 def check_isolated_positions(text, config, shaper: Shaper, shaped, divergences) -> None:

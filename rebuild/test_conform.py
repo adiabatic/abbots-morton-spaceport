@@ -664,6 +664,56 @@ class TestPositionChannel:
         assert attributable == (True, True, False)
 
 
+class TestPositionProjection:
+    """`Shaper.positions` against the triple projection of `Shaper.shape` over the frozen mini bundle's rows and the checked-in smoke set, under every acceptance configuration's features. The shaper keeps one HarfBuzz buffer for its whole life, so the corpus is shaped interleaved through both projections: a kept buffer that carried anything between calls, or a projection returning zeros of the right length, reads red here."""
+
+    @pytest.fixture(scope="class")
+    def corpus(self) -> list[tuple[frozenset[str], str]]:
+        from rebuild.pipeline import coretext_smoke
+        from rebuild.validation.rowmodel import iter_rows
+
+        with coretext_smoke.DEFAULT_SEQUENCES.open(encoding="utf-8") as handle:
+            smoke = [
+                "".join(map(chr, codepoints)) for _label, codepoints in coretext_smoke.parse_sequences(handle)
+            ]
+        assert smoke
+        corpus: list[tuple[frozenset[str], str]] = []
+        for config in conform.ACCEPTANCE_CONFIGS:
+            features = conform.features_for_config(config)
+            texts = [row.text for row in iter_rows(MINI / f"baseline-{config}.subset.tsv.gz", 0, 400)]
+            assert texts, config
+            corpus.extend((features, text) for text in texts + smoke)
+        return corpus
+
+    @staticmethod
+    def _triples(shaped: list[dict]) -> list[tuple[int, int, int]]:
+        return [(g["x_offset"], g["y_offset"], g["x_advance"]) for g in shaped]
+
+    def test_positions_is_the_triple_projection_of_shape(self, corpus):
+        shaper = conform.Shaper(MINI / "M1.otf")
+        offsets = 0
+        advances: set[int] = set()
+        for features, text in corpus:
+            full = self._triples(shaper.shape(text, features))
+            assert shaper.positions(text, features) == full, (sorted(features), text)
+            offsets += sum(1 for x, y, _advance in full if x or y)
+            advances.update(advance for _x, _y, advance in full)
+        assert offsets > 0
+        assert len(advances) > 1
+
+    def test_the_kept_buffer_carries_nothing_between_calls(self):
+        shaper = conform.Shaper(MINI / "M1.otf")
+        features = conform.features_for_config("default")
+        first = "\ue650\ue652\ue665"
+        second = "\ue665\ue652"
+        before = shaper.shape(first, features)
+        other = shaper.positions(second, features)
+        after = shaper.shape(first, features)
+        assert before == after
+        assert shaper.positions(first, features) == self._triples(after)
+        assert len(other) == 2
+
+
 class TestClassifierRouting:
     def _row(self, config, phenomena, codepoints="E670:E665:E652"):
         return conform.DivergentRow(
@@ -2165,6 +2215,10 @@ class _SilentShaper:
         self.shaped: list[str] = []
 
     def shape(self, text: str, features: frozenset[str]) -> list[dict]:
+        self.shaped.append(text)
+        return []
+
+    def positions(self, text: str, features: frozenset[str]) -> list[tuple[int, int, int]]:
         self.shaped.append(text)
         return []
 

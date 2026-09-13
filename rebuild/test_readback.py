@@ -77,6 +77,10 @@ class TestOverlayArm:
             assert [(g["x_advance"], g["x_offset"], g["y_offset"]) for g in shaped] == [
                 (g["x_advance"], 0, 0) for g in expected
             ], text
+            assert synthetic.positions(text, features) == [(0, 0, g["x_advance"]) for g in expected], text
+            assert real.positions(text, features) == [
+                (g["x_offset"], g["y_offset"], g["x_advance"]) for g in shaped
+            ], text
 
 
 def _feature_record(font, table_tag, feature_tag):

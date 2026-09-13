@@ -598,8 +598,8 @@ def _kern_normalized_positions(
 def _position_drift(
     shaper: "Shaper | IsolatedOverlayShaper", kern: "KernEvaluator | None", features: frozenset[str], row: Row
 ) -> tuple[tuple[str, ...], bool] | None:
-    """Shape the row against the new font and diff drawn positions against the kern-normalized baseline. The comparison is visual, not encoding-level: per-slot glyph origins (pen + x_offset, y_offset) plus the run's total advance, because the two fonts legitimately decompose a seam differently between the left glyph's advance and the right glyph's x_offset while drawing the identical join. Returns (drift descriptions, kern-attributable) or None when every slot and the total match."""
-    shaped = shaper.shape(row.text, features)
+    """Shape the row's positions against the new font through the shaper's position projection, the offsets and advances alone, and diff drawn positions against the kern-normalized baseline. The comparison is visual, not encoding-level: per-slot glyph origins (pen + x_offset, y_offset) plus the run's total advance, because the two fonts legitimately decompose a seam differently between the left glyph's advance and the right glyph's x_offset while drawing the identical join. Returns (drift descriptions, kern-attributable) or None when every slot and the total match."""
+    shaped = shaper.positions(row.text, features)
     if len(shaped) != len(row.glyphs):
         return ((f"slot-count {len(row.glyphs)} (old) vs {len(shaped)} (new)",), False)
     expected, attributable = _kern_normalized_positions(kern, row, geometry.PIXEL)
@@ -608,14 +608,16 @@ def _position_drift(
     pen_old = 0
     pen_new = 0
     upstream_attributable = False
-    for index, ((x, y, advance), glyph) in enumerate(zip(expected, shaped)):
+    for index, ((x, y, advance), (new_x_offset, new_y_offset, new_advance)) in enumerate(
+        zip(expected, shaped)
+    ):
         want = (pen_old + x, y)
-        got = (pen_new + glyph["x_offset"], glyph["y_offset"])
+        got = (pen_new + new_x_offset, new_y_offset)
         if got != want:
             drifts.append(f"slot {index} ({row.glyphs[index]}): origin want {want}, got {got}")
             kern_attributable = kern_attributable and upstream_attributable
         pen_old += advance
-        pen_new += glyph["x_advance"]
+        pen_new += new_advance
         upstream_attributable = upstream_attributable or attributable[index]
     if pen_old != pen_new:
         drifts.append(f"total advance: want {pen_old}, got {pen_new}")
