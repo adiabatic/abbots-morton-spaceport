@@ -1,0 +1,141 @@
+rune: qsJay
+codepoint: 0xE65F
+ductus:
+  hapax: | # DRAFT — pending author sign-off
+    Begun at the left end of the crown bar at the x-height, where a previous letter may connect, the stroke runs rightward along the crown, turns down the right side, and descends, slanting leftward, through the baseline into the descender, ending at the bottom left. A short rightward tick on the baseline, to the right of the downstroke, carries the join to the next letter.
+mono:
+  bitmap:
+  - "#### "  #
+  - "    #"
+  - "    #"
+  - "   # "
+  - "  #  "
+  - " # ##"  #
+  - " ##  "
+  - "##   "
+  - "#    "
+  y_offset: -3
+stances:
+  hapax:
+    motion: hapax
+    traits: []
+    bitmap:
+    - "#### "  #
+    - "    #"
+    - "    #"
+    - "   # "
+    - "  #  "
+    - " # ##"  #
+    - " ##  "
+    - "##   "
+    - "#    "
+    y_offset: -3
+    surface:
+      entries:
+        x-height:
+          x: 0
+          stroke: horizontal
+          from:
+          - family:
+            - qsPea
+            - qsTea
+            - qsGay
+            - qsFee
+            - qsWay
+            - qsHe
+            - qsWhy
+            - qsMay
+            - qsNo
+            - qsLow
+            - qsIt
+            - qsAt
+            - qsI
+            - qsAh
+            - qsUtter
+            - qsOut
+            - qsOwe
+            - qsFoot
+      exits:
+        baseline:
+          x: 5
+          stroke: horizontal
+          toward:
+          - family:
+            - qsTea
+            - qsDay
+            - qsDay_qsUtter
+            - qsGay
+            - qsThaw
+            - qsVie
+            - qsVie_qsUtter
+            - qsSee
+            - qsZoo
+            - qsYe
+            - qsIng
+            - qsMay
+            - qsNo
+            - qsLow
+            - qsRoe
+            - qsExcite
+            - qsExam
+            - qsIt
+            - qsEat
+            - qsAt
+            - qsI
+            - qsAh
+            - qsOut
+            - qsOut_qsTea
+            - qsOoze
+      cells: []
+      unlocks: []
+      require: []
+policy:
+  order:
+  - hapax
+  refuse: []
+  prefer:
+  - cell: {exit: none}
+    over: {exit: baseline}
+    when:
+      right:
+        family: qsTea
+        then:
+          except:
+          - {family: qsPea}
+  extend:
+  - entry: x-height
+    by: 1
+    when:
+      left: {family: qsIt}
+      right:
+        except:
+        - {family: qsYe}
+        - {family: qsExam}
+        - {family: qsI}
+  - exit: baseline
+    by: 1
+    when:
+      right:
+        family:
+        - qsYe
+        - qsExam
+        - qsI
+  contract:
+  - entry: x-height
+    by: 1
+    when:
+      left:
+        family:
+        - qsPea
+        - qsHe
+      right:
+        except:
+        - {family: qsYe}
+        - {family: qsExam}
+        - {family: qsI}
+  - entry: x-height
+    by: 1
+    when:
+      left: {family: qsTea}
+  resolve: []
+  groups: {}

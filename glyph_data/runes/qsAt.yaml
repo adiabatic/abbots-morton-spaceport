@@ -43,6 +43,7 @@ stances:
             - qsShe
             - qsJai
             - qsCheer
+            - qsJay
             - qsMay
             - qsNo
             - qsRoe
@@ -67,6 +68,8 @@ stances:
             - qsJai
             - qsJai_qsUtter
             - qsCheer
+            - qsJay
+            - qsJay_qsUtter
             - qsNo
             - qsRoe
             - qsIt

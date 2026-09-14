@@ -1,6 +1,6 @@
 # Curated sequence set for the M1 CoreText-vs-HarfBuzz smoke harness (M1-PLAN section 5, coretext_smoke).
 # One sequence per line as whitespace-separated hex codepoints; text after "#" is the label.
-# Codepoints: qsPea E650, qsBay E651, qsTea E652, qsDay E653, qsKey E654, qsGay E655, qsThaw E656, qsThey E657, qsFee E658, qsVie E659, qsSee E65A, qsZoo E65B, qsShe E65C, qsJai E65D, qsCheer E65E, qsMay E665, qsNo E666, qsLow E667, qsRoe E668, qsIt E670, qsEt E672, qsEight E673, qsAt E674, qsI E675, qsAh E676, qsAwe E677, qsOx E678, qsOy E679, qsUtter E67A, qsOut E67B, qsOoze E67E, space 0020, namer dot 00B7, ZWNJ 200C.
+# Codepoints: qsPea E650, qsBay E651, qsTea E652, qsDay E653, qsKey E654, qsGay E655, qsThaw E656, qsThey E657, qsFee E658, qsVie E659, qsSee E65A, qsZoo E65B, qsShe E65C, qsJai E65D, qsCheer E65E, qsJay E65F, qsMay E665, qsNo E666, qsLow E667, qsRoe E668, qsIt E670, qsEt E672, qsEight E673, qsAt E674, qsI E675, qsAh E676, qsAwe E677, qsOx E678, qsOy E679, qsUtter E67A, qsOut E67B, qsOoze E67E, space 0020, namer dot 00B7, ZWNJ 200C.
 # The driver runs every line under all eight acceptance configurations.
 #
 # The prototype probe rows, carried forward.
@@ -1449,3 +1449,152 @@ E651 E670 E666 E65E      # ·Bay enters ·It before ·No·Cheer
 E653 E670 E666 E65E      # ·Day enters ·It before ·No·Cheer
 E655 E670 E666 E65E      # ·Gay enters ·It before ·No·Cheer
 E65C E670 E666 E65E      # ·She enters ·It before ·No·Cheer
+
+# ·Jay
+E65F                     # ·Jay in isolation
+E650 E65F                # ·Pea before ·Jay
+E65F E650                # ·Jay before ·Pea
+E651 E65F                # ·Bay before ·Jay
+E65F E651                # ·Jay before ·Bay
+E652 E65F                # ·Tea before ·Jay
+E65F E652                # ·Jay before ·Tea
+E653 E65F                # ·Day before ·Jay
+E65F E653                # ·Jay before ·Day
+E654 E65F                # ·Key before ·Jay
+E65F E654                # ·Jay before ·Key
+E655 E65F                # ·Gay before ·Jay
+E65F E655                # ·Jay before ·Gay
+E656 E65F                # ·Thaw before ·Jay
+E65F E656                # ·Jay before ·Thaw
+E657 E65F                # ·They before ·Jay
+E65F E657                # ·Jay before ·They
+E658 E65F                # ·Fee before ·Jay
+E65F E658                # ·Jay before ·Fee
+E659 E65F                # ·Vie before ·Jay
+E65F E659                # ·Jay before ·Vie
+E65A E65F                # ·See before ·Jay
+E65F E65A                # ·Jay before ·See
+E65B E65F                # ·Zoo before ·Jay
+E65F E65B                # ·Jay before ·Zoo
+E65C E65F                # ·She before ·Jay
+E65F E65C                # ·Jay before ·She
+E65D E65F                # ·Jai before ·Jay
+E65F E65D                # ·Jay before ·Jai
+E65E E65F                # ·Cheer before ·Jay
+E65F E65E                # ·Jay before ·Cheer
+E665 E65F                # ·May before ·Jay
+E65F E665                # ·Jay before ·May
+E666 E65F                # ·No before ·Jay
+E65F E666                # ·Jay before ·No
+E667 E65F                # ·Low before ·Jay
+E65F E667                # ·Jay before ·Low
+E668 E65F                # ·Roe before ·Jay
+E65F E668                # ·Jay before ·Roe
+E670 E65F                # ·It before ·Jay
+E65F E670                # ·Jay before ·It
+E672 E65F                # ·Et before ·Jay
+E65F E672                # ·Jay before ·Et
+E673 E65F                # ·Eight before ·Jay
+E65F E673                # ·Jay before ·Eight
+E674 E65F                # ·At before ·Jay
+E65F E674                # ·Jay before ·At
+E675 E65F                # ·I before ·Jay
+E65F E675                # ·Jay before ·I
+E676 E65F                # ·Ah before ·Jay
+E65F E676                # ·Jay before ·Ah
+E677 E65F                # ·Awe before ·Jay
+E65F E677                # ·Jay before ·Awe
+E678 E65F                # ·Ox before ·Jay
+E65F E678                # ·Jay before ·Ox
+E679 E65F                # ·Oy before ·Jay
+E65F E679                # ·Jay before ·Oy
+E67A E65F                # ·Utter before ·Jay
+E65F E67A                # ·Jay+Utter (the ligature; forms under every set)
+E67B E65F                # ·Out before ·Jay
+E65F E67B                # ·Jay before ·Out
+E67E E65F                # ·Ooze before ·Jay
+E65F E67E                # ·Jay before ·Ooze
+E652 E679 E65F           # qsTea_qsOy before ·Jay
+E65F E652 E679           # ·Jay before qsTea_qsOy
+E653 E67A E65F           # qsDay_qsUtter before ·Jay
+E65F E653 E67A           # ·Jay before qsDay_qsUtter
+E657 E65B E65F           # qsThey_qsZoo before ·Jay
+E65F E657 E65B           # ·Jay before qsThey_qsZoo
+E657 E67A E65F           # qsThey_qsUtter before ·Jay
+E65F E657 E67A           # ·Jay before qsThey_qsUtter
+E659 E67A E65F           # qsVie_qsUtter before ·Jay
+E65F E659 E67A           # ·Jay before qsVie_qsUtter
+E65A E67A E65F           # qsSee_qsUtter before ·Jay
+E65F E65A E67A           # ·Jay before qsSee_qsUtter
+E65D E67A E65F           # qsJai_qsUtter before ·Jay
+E65F E65D E67A           # ·Jay before qsJai_qsUtter
+E67B E652 E65F           # qsOut_qsTea before ·Jay
+E65F E67B E652           # ·Jay before qsOut_qsTea
+E65F E652 E653           # ·Jay yields to the ·Tea·Day join
+E65F E67A E652 E653      # ·Utter preserves the ·Tea·Day join after ·Jay
+E65F E652 E650           # ·Jay·Tea holds; ·Tea gains nothing forward
+E650 E65F                # Half-·Pea's dipped exit; ·Jay's entry contracts by one
+E652 E65F                # Half-·Tea's x-height exit; ·Jay's entry contracts by one
+E65A E652 E65F           # Entered half-·Tea still tucks into ·Jay
+E670 E65F                # ·It's x-height exit; ·Jay's entry extends by one
+E651 E670 E65F           # Entered ·It reaches ·Jay at the x-height
+E655 E670 E65F           # ·Gay·It·Jay: ·It enters at the baseline and exits at the x-height
+E650 E65F E675           # ·Jay's exit extension before ·I supersedes its entry contraction after ·Pea
+E652 E65F E675           # ·Jay's entry contraction after ·Tea persists before ·I
+E670 E65F E675           # ·Jay's exit extension before ·I supersedes its entry extension after ·It
+E665 E65F                # ·May's one-pixel exit extension into ·Jay
+E651 E665 E65F           # Entered ·May keeps the one-pixel reach into ·Jay
+E65F E652                # The extended ·Tea baseline entry after ·Jay
+E65F E668                # ·Roe's extended baseline entry after ·Jay
+E65F E670 E653           # ·It after ·Jay breaks at default; ss04 passes through at the baseline
+E65F E670 E67A           # ·It after ·Jay before ·Utter: break at default, ss04 pass-through
+E65F E670 E667           # ·It after ·Jay before ·Low
+E65F E67A E656           # ·Jay·Utter un-forms: alternate ·Utter takes the baseline join into ·Thaw
+E65F E67A E659           # ·Jay·Utter un-forms before ·Vie
+E65F E67A E667           # ·Jay·Utter un-forms before ·Low
+E65F E67A E676           # ·Jay·Utter un-forms before ·Ah
+E65F E67A E67A           # ·Jay+Utter before ·Utter (break)
+E65F E67A E650           # ·Jay+Utter's x-height exit into ·Pea
+E65F E67A E651           # ·Jay+Utter's extended exit into ·Bay
+E65F E67A E652           # ·Jay+Utter before ·Tea: break at default; ss03 reaches half-·Tea
+E65F E67A E653           # ·Jay+Utter's x-height exit into ·Day
+E65F E67A E653 E67A      # ·Jay+Utter before ·Day+Utter
+E65F E67A E655           # ·Jay+Utter's extended exit into ·Gay
+E65F E67A E657           # ·Jay+Utter's extended exit into ·They
+E65F E67A E657 E67A      # ·Jay+Utter before ·They+Utter
+E65F E67A E658           # ·Jay+Utter's extended exit into the reversed loop ·Fee
+E65F E67A E65B           # ·Jay+Utter's x-height exit into ·Zoo
+E65F E67A E65D           # ·Jay+Utter before ·Jai: the follower's entry contracts by two
+E65F E67A E65D E67A      # ·Jay+Utter before ·Jai+Utter
+E65F E67A E65E           # ·Jay+Utter's x-height exit into ·Cheer
+E65F E67A E65F           # ·Jay+Utter before ·Jay
+E65F E67A E65F E67A      # ·Jay+Utter before ·Jay+Utter
+E65F E67A E665           # ·Jay+Utter's x-height exit into ·May
+E65F E67A E666           # ·Jay+Utter's x-height exit into ·No
+E65F E67A E668           # ·Jay+Utter's x-height exit into ·Roe
+E65F E67A E670           # ·Jay+Utter's x-height exit into ·It
+E65F E67A E672           # ·Jay+Utter's x-height exit into ·Et
+E65F E67A E673           # ·Jay+Utter's x-height exit into ·Eight
+E65F E67A E674           # ·Jay+Utter before ·At (break)
+E65F E67A E677           # ·Jay+Utter's x-height exit into ·Awe
+E65F E67A E678           # ·Jay+Utter's x-height exit into ·Ox
+E65F E67A E679           # ·Jay+Utter's x-height exit into ·Oy
+E65F E67A E65A           # ·Jay+Utter before ·See (break)
+E65F E67A E67E           # ·Jay+Utter before ·Ooze
+E650 E65F E67A           # ·Pea before ·Jay+Utter: the ligature's entry contracts by one
+E652 E65F E67A           # ·Tea before ·Jay+Utter: the ligature's entry contracts by one
+E670 E65F E67A           # ·It before ·Jay+Utter: the ligature's entry extends by one
+E650 E65F E67A E651      # ·Pea·Jay+Utter·Bay: the ligature keeps its entry contraction under its exit extension
+E670 E65F E67A E651      # ·It·Jay+Utter·Bay: the ligature keeps its entry extension under its exit extension
+E665 E65F E67A           # ·May before ·Jay+Utter: the one-pixel reach
+E676 E65F E67A           # ·Ah before ·Jay+Utter
+E67A E65F E67A           # ·Utter before ·Jay+Utter
+E653 E67A E65F E67A      # ·Day+Utter before ·Jay+Utter
+200C E65F                # Locked ·Jay twin
+200C E65F E675           # Locked ·Jay keeps its extended baseline exit into ·I
+200C E65F E67A           # ·Jay+Utter after ZWNJ
+E65F 200C E67A           # ZWNJ severs the ligature
+E665 200C E65F           # ZWNJ severs the entry from ·May
+E65F 200C E665           # ZWNJ severs the exit into ·May
+00B7 E65F                # Namer dot before Deep ·Jay
+00B7 E65F E67A           # Namer dot before ·Jay+Utter

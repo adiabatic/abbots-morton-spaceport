@@ -175,6 +175,7 @@ policy:
         - qsDay_qsUtter
         - qsFee
         - qsJay
+        - qsJay_qsUtter
         - qsRoe
         - qsIt
   - exit: x-height
