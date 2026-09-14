@@ -295,8 +295,12 @@ def classify_divergence(row: DivergentRow) -> str | None:
     ):
         # The ·May·J'ai seam replaces the old split extension with qsMay's single by-2 exit record in every follower context; the rune's why records the binding one-pixel spacing choice. The -en-ext-2 token is the ·J'ai side of the same consolidation now that its alias spells the old name faithfully. The subset guard keeps any row where unrelated ink moved elsewhere out of the class.
         return "may-jai-extension-consolidated"
-    if phenomena and phenomena <= {"+en-con-1", "+en-con-2"} and "E65D" in row.codepoints:
-        # The old pipeline's exit contractions before ·J'ai are tucks — the left keeps its ink and only the anchor moves in, overlapping the follower — which M1 re-spells as ·J'ai's own entry contraction: the crown gives up the overlapped columns and abuts instead, so the placed composite, every origin, and every advance are unchanged and only ·J'ai's cell name gains the con token. The subset guard keeps any row where real ink moved elsewhere out of the class.
+    if (
+        phenomena
+        and phenomena <= {"+en-con-1", "+en-con-2"}
+        and ("E65D" in row.codepoints or "E65F" in row.codepoints)
+    ):
+        # The old pipeline's exit contractions before ·J'ai are tucks — the left keeps its ink and only the anchor moves in, overlapping the follower — which M1 re-spells as ·J'ai's own entry contraction: the crown gives up the overlapped columns and abuts instead, so the placed composite, every origin, and every advance are unchanged and only ·J'ai's cell name gains the con token. The unentered half-·Tea exit tuck before ·Jay is the same phenomenon on the same crown shape, re-spelled as ·Jay's entry contraction. The subset guard keeps any row where real ink moved elsewhere out of the class.
         return "jai-entry-contraction-respelled"
     if (
         phenomena == {"+en-con-1", "-en-trim-1"}
@@ -431,6 +435,7 @@ def _may_ligature_seam_loosened(row: DivergentRow) -> bool:
 # qsVie is a member on the qsOut precedent, entry side only: its baseline entry rides the base cmap glyph (qsPea|qsVie and qsEt|qsVie stay y0), while its one exit lives on a stance the overlay substitutes away (qsVie|qsAh breaks under ss10).
 # Membership is every migrated letter whose bare old glyph carries a live anchor; the overlay's other surviving exits — bare qsPea, qsMay and qsOy — only ever land on a member's entry, so every join the old font draws under ss10 touches a member.
 # Bare qsCheer keeps its x-height entry and baseline exit under the old ss10 overlay: `·May ~x~ ·Cheer` and `·Cheer ~b~ ·Vie` retain their joins.
+# qsJay joined on the qsBay shape, exit side only: its baseline exit rides the bare cmap glyph and survives the old overlay (`·Jay ~b~ ·Vie` stays joined under ss10), while its x-height entry lives on the en-y5 stance the overlay substitutes away (`·Pea | ·Jay` under ss10).
 SS10_UNCOVERED_BY_OLD_FONT = frozenset(
     {
         "qsAh",
@@ -456,6 +461,7 @@ SS10_UNCOVERED_BY_OLD_FONT = frozenset(
         "qsRoe",
         "qsVie",
         "qsCheer",
+        "qsJay",
     }
 )
 

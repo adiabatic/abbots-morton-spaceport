@@ -115,6 +115,10 @@ policy:
         - qsYe
         - qsIt
         - qsEat
+  - entry: baseline
+    when:
+      self: {exit: none}
+      left: {family: qsJay}
   - exit: baseline
     when:
       self: {entry: none}
@@ -385,6 +389,13 @@ policy:
     why: |
       Required to match what The Manual does
       there's no reason why ·Low·It·No shouldn't all join here (like it does if the ·Cheer) weren't there (and I'm getting this for a bunch of other letters other than ·Low as well)
+  - cell: {entry: x-height}
+    over: {exit: x-height}
+    when:
+      right:
+        family:
+        - qsJay
+        - qsJay_qsUtter
   extend:
   - entry: baseline
     by: 1

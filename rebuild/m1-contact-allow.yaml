@@ -1012,6 +1012,61 @@
 - signature: dangle:qsCheer.hapax.locked:exit:baseline
   why: The ZWNJ-locked twin keeps ·Cheer's shipped baseline foot, as in baseline row 200C:E65E.
 
+# ·Jay's baseline tick and the ·Jay·Utter ligature's crown are unconditional letterform ink, the same shape whether or not the exit joins: the shipped font draws bare qsJay and bare qsJay_qsUtter with the full tick and crown at every word edge and before every non-joining follower, and no withdrawn form exists in quikscript.yaml. The tick's last pixel (and the crown's) does not continue vertically, so neither can earn the automatic `withdrawal: safe` proof. One signature per entry/adjustment/lock variant the gate inspects separately; all are the same terminal.
+- signature: dangle:qsJay.hapax:exit:baseline
+  why: ·Jay's baseline tick terminal, drawn unconditionally in the shipped font (baseline row E65F); the declined exit keeps it.
+- signature: dangle:qsJay.hapax.en-y5:exit:baseline
+  why: ·Jay entered at the crown keeps the same tick terminal on a declined exit (baseline row E665:E65F).
+- signature: dangle:qsJay.hapax.en-y5.en-con-1:exit:baseline
+  why: The entry-contracted-by-one variant keeps the same tick terminal; the contraction touches the crown only (baseline row E650:E65F).
+- signature: dangle:qsJay.hapax.en-y5.en-ext-1:exit:baseline
+  why: The entry-extended-by-one variant keeps the same tick terminal; the extension touches the crown only (baseline row E670:E65F).
+- signature: dangle:qsJay.hapax.locked:exit:baseline
+  why: The ZWNJ-locked twin of ·Jay's tick terminal; identical drawing (baseline row 200C:E65F).
+- signature: dangle:qsJay_qsUtter.hapax:exit:x-height
+  why: The ·Jay·Utter ligature's crown terminal (·Utter's nub at y5), drawn unconditionally in the shipped font (baseline row E65F:E67A); the declined exit keeps it.
+- signature: dangle:qsJay_qsUtter.hapax.en-y5:exit:x-height
+  why: The ligature entered at the crown keeps the same terminal on a declined exit (baseline row E665:E65F:E67A).
+- signature: dangle:qsJay_qsUtter.hapax.en-y5.en-con-1:exit:x-height
+  why: The entry-contracted-by-one ligature keeps the same crown terminal (baseline row E650:E65F:E67A).
+- signature: dangle:qsJay_qsUtter.hapax.en-y5.en-ext-1:exit:x-height
+  why: The entry-extended-by-one ligature keeps the same crown terminal (baseline row E670:E65F:E67A).
+- signature: dangle:qsJay_qsUtter.hapax.locked:exit:x-height
+  why: The ZWNJ-locked twin of the ligature's crown terminal; identical drawing (baseline row 200C:E65F:E67A).
+
+# ·Gay's x-height exit lands ·Jay's crown one column past ·Gay's stroke, and the two Deep descenders then share the pixel at ·Gay's column 4 two rows below the baseline: ·Gay's loop wall and ·Jay's (or the ligature's) descender meet there. The shipped font places the same anchors with no adjustment (baseline rows E655:E65F and E655:E65F:E67A), so the shared pixel is the old drawing. One signature per ·Gay entry/contraction/lock variant and per ·Jay exit variant; the seam is identical in all of them.
+- signature: contact:qsGay.hapax.en-y0.ex-y5:qsJay.hapax.en-y5:overlap
+- signature: contact:qsGay.hapax.en-y0.ex-y5:qsJay.hapax.en-y5.ex-y0:overlap
+- signature: contact:qsGay.hapax.en-y0.ex-y5:qsJay.hapax.en-y5.ex-y0.ex-ext-1:overlap
+- signature: contact:qsGay.hapax.en-y0.ex-y5:qsJay_qsUtter.hapax.en-y5:overlap
+- signature: contact:qsGay.hapax.en-y0.ex-y5:qsJay_qsUtter.hapax.en-y5.ex-y5:overlap
+- signature: contact:qsGay.hapax.en-y0.ex-y5:qsJay_qsUtter.hapax.en-y5.ex-y5.ex-ext-1:overlap
+- signature: contact:qsGay.hapax.en-y0.ex-y5.en-con-1:qsJay.hapax.en-y5:overlap
+- signature: contact:qsGay.hapax.en-y0.ex-y5.en-con-1:qsJay.hapax.en-y5.ex-y0:overlap
+- signature: contact:qsGay.hapax.en-y0.ex-y5.en-con-1:qsJay.hapax.en-y5.ex-y0.ex-ext-1:overlap
+- signature: contact:qsGay.hapax.en-y0.ex-y5.en-con-1:qsJay_qsUtter.hapax.en-y5:overlap
+- signature: contact:qsGay.hapax.en-y0.ex-y5.en-con-1:qsJay_qsUtter.hapax.en-y5.ex-y5:overlap
+- signature: contact:qsGay.hapax.en-y0.ex-y5.en-con-1:qsJay_qsUtter.hapax.en-y5.ex-y5.ex-ext-1:overlap
+- signature: contact:qsGay.hapax.ex-y5:qsJay.hapax.en-y5:overlap
+- signature: contact:qsGay.hapax.ex-y5:qsJay.hapax.en-y5.ex-y0:overlap
+- signature: contact:qsGay.hapax.ex-y5:qsJay.hapax.en-y5.ex-y0.ex-ext-1:overlap
+- signature: contact:qsGay.hapax.ex-y5:qsJay_qsUtter.hapax.en-y5:overlap
+- signature: contact:qsGay.hapax.ex-y5:qsJay_qsUtter.hapax.en-y5.ex-y5:overlap
+- signature: contact:qsGay.hapax.ex-y5:qsJay_qsUtter.hapax.en-y5.ex-y5.ex-ext-1:overlap
+- signature: contact:qsGay.hapax.ex-y5.locked:qsJay.hapax.en-y5:overlap
+- signature: contact:qsGay.hapax.ex-y5.locked:qsJay.hapax.en-y5.ex-y0:overlap
+- signature: contact:qsGay.hapax.ex-y5.locked:qsJay.hapax.en-y5.ex-y0.ex-ext-1:overlap
+- signature: contact:qsGay.hapax.ex-y5.locked:qsJay_qsUtter.hapax.en-y5:overlap
+- signature: contact:qsGay.hapax.ex-y5.locked:qsJay_qsUtter.hapax.en-y5.ex-y5:overlap
+- signature: contact:qsGay.hapax.ex-y5.locked:qsJay_qsUtter.hapax.en-y5.ex-y5.ex-ext-1:overlap
+
+# The ss04 baseline pass-through after ·Jay: ·It enters at the baseline off ·Jay's tick and its bar stands beside ·Jay's slanted right side, so the checker names a mid-height row of that adjacency (y3 on the plain and locked forms, y4 where an entry adjustment shifts the crown), never a moved corner. The shipped font draws the same pass-through under ss04 (baseline rows E65F:E670:E653 and E65F:E670:E67A under ss04); at default the pair breaks and no contact arises.
+- signature: contact:qsJay.hapax.en-y5.ex-y0:qsIt.hapax.en-y0.ex-y0:y3
+- signature: contact:qsJay.hapax.en-y5.ex-y0.en-con-1:qsIt.hapax.en-y0.ex-y0:y4
+- signature: contact:qsJay.hapax.en-y5.ex-y0.en-ext-1:qsIt.hapax.en-y0.ex-y0:y4
+- signature: contact:qsJay.hapax.ex-y0:qsIt.hapax.en-y0.ex-y0:y3
+- signature: contact:qsJay.hapax.ex-y0.locked:qsIt.hapax.en-y0.ex-y0:y3
+
 # The after-·Key entry extension reaches ·It's ss04 pass-through cell: en-ext-1 lengthens the ·Key connector on ·It's left at y0 and leaves ·It's bar — and so the right-side corner against each follower — exactly where the blessed un-extended pass-through twin draws it. A y2 signature where the twin's says y1 is the checker naming a different row of the same multi-row bar adjacency, not a moved corner.
 - signature: contact:qsIt.hapax.en-y0.ex-y0.en-ext-1:qsOoze.hapax.en-y0:y2
 - signature: contact:qsIt.hapax.en-y0.ex-y0.en-ext-1:qsOoze.hapax.en-y0.ex-y0:y2

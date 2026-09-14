@@ -95,6 +95,22 @@ qsShe: {rune: qsShe, stance: hapax}
 qsShe.ex-y0: {rune: qsShe, stance: hapax, exit: baseline}
 qsCheer: {rune: qsCheer, stance: hapax}
 qsCheer.noentry: {rune: qsCheer, stance: hapax, adjustments: [locked]}
+qsJay: {rune: qsJay, stance: hapax}
+qsJay.en-y5.ex-y0: {rune: qsJay, stance: hapax, entry: x-height, exit: baseline}
+qsJay.en-y5.ex-y0.en-con-1: {rune: qsJay, stance: hapax, entry: x-height, exit: baseline, adjustments: [en-con-1]}
+qsJay.en-y5.ex-y0.en-ext-1: {rune: qsJay, stance: hapax, entry: x-height, exit: baseline, adjustments: [en-ext-1]}
+qsJay.en-y5.ex-y0.ex-ext-1: {rune: qsJay, stance: hapax, entry: x-height, exit: baseline, adjustments: [ex-ext-1]}
+qsJay.en-y5.ex-y0.noentry.ex-ext-1: {rune: qsJay, stance: hapax, exit: baseline, adjustments: [locked, ex-ext-1]}
+qsJay.noentry: {rune: qsJay, stance: hapax, adjustments: [locked]}
+qsJay_qsUtter: {rune: qsJay_qsUtter, stance: hapax}
+qsJay_qsUtter.en-con-1: {rune: qsJay_qsUtter, stance: hapax, entry: x-height, adjustments: [en-con-1]}
+qsJay_qsUtter.en-con-1.ex-con-2: {rune: qsJay_qsUtter, stance: hapax, entry: x-height, exit: x-height, adjustments: [en-con-1]}
+qsJay_qsUtter.en-ext-1: {rune: qsJay_qsUtter, stance: hapax, entry: x-height, adjustments: [en-ext-1]}
+qsJay_qsUtter.en-ext-1.ex-con-2: {rune: qsJay_qsUtter, stance: hapax, entry: x-height, exit: x-height, adjustments: [en-ext-1]}
+qsJay_qsUtter.en-ext-1.ex-ext-1: {rune: qsJay_qsUtter, stance: hapax, entry: x-height, exit: x-height, adjustments: [en-ext-1, ex-ext-1]}
+qsJay_qsUtter.ex-con-2: {rune: qsJay_qsUtter, stance: hapax, exit: x-height}
+qsJay_qsUtter.ex-ext-1: {rune: qsJay_qsUtter, stance: hapax, exit: x-height, adjustments: [ex-ext-1]}
+qsJay_qsUtter.ex-ext-1.en-con-1: {rune: qsJay_qsUtter, stance: hapax, entry: x-height, exit: x-height, adjustments: [en-con-1, ex-ext-1]}
 qsNo.alt.en-y0.ex-y0.after-zoo: {rune: qsNo, stance: flipped, entry: baseline, exit: baseline}
 qsFee.en-y5: {rune: qsFee, stance: reversed-loop, entry: x-height}
 qsFee.en-y8.ex-y5: {rune: qsFee, stance: loop, entry: top, exit: x-height}
