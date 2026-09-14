@@ -1,8 +1,8 @@
 rune: qsCheer
 codepoint: 0xE65E
 ductus:
-  hapax: | # DRAFT — pending author sign-off
-    Begun above the x-height on the right, the stroke descends and bends left at the x-height, where a previous letter may connect. It turns back to the right, descends toward the left, and curves rightward along the baseline, where it may connect to the next letter.
+  hapax: |
+    Begun at the x-height on the left, the stroke rises almost to the top. Then it goes down and to the left, and then curves back to the right and then travels along the baseline where it may connect to the next letter.
 mono:
   bitmap:
   - "     "
