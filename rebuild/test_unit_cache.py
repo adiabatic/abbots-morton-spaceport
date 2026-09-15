@@ -456,6 +456,7 @@ def test_fresh_unit_cache_bypasses_a_warm_store(mini_surface, mini_bundle, tmp_p
 
 
 def test_serial_and_parallel_builds_are_byte_identical(mini_surface, mini_bundle, tmp_path):
+    """A pooled build drafts the configuration-sorted pile (`_configuration_order`) across two workers, and the serial `mini_surface` drafts the same pile in load order in one process: the two orders reach the same bytes because every order-sensitive reduce runs in the parent over the whole projection set, so the surface a worker's hand-out order could leak into is exactly this comparison."""
     parallel = tmp_path / "parallel"
     _build(parallel, mini_bundle, jobs=2)
     assert _tree(parallel) == _tree(mini_surface)
@@ -464,9 +465,25 @@ def test_serial_and_parallel_builds_are_byte_identical(mini_surface, mini_bundle
 def test_a_narrowed_hand_out_pool_is_byte_identical_to_the_serial_build(
     mini_surface, mini_bundle, tmp_path, monkeypatch
 ):
-    """The pool hands the fresh pile out a batch at a time, so which worker drafts which unit is decided by timing; narrowing the hand-out makes the mini pile a few dozen batches over two workers, which is where any per-worker state leaking into the output would show as a byte that moved. At the checked-in ceiling `_handout_width` spreads the mini pile into a handful of batches, which is little interleaving to prove it on."""
+    """The pool hands the configuration-sorted fresh pile out a batch at a time, so which worker drafts which unit is decided by timing; narrowing the hand-out makes the mini pile a few dozen batches over two workers, which is where any per-worker state leaking into the output would show as a byte that moved against the load-ordered serial build. At the checked-in ceiling `_handout_width` spreads the mini pile into a handful of batches, which is little interleaving to prove it on."""
     monkeypatch.setattr("rebuild.review.build.PHASE1_HANDOUT_UNITS", 37)
     parallel = tmp_path / "narrowed"
+    _build(parallel, mini_bundle, jobs=2)
+    assert _tree(parallel) == _tree(mini_surface)
+
+
+def test_a_pool_handed_the_pile_in_any_configuration_order_is_byte_identical_to_the_serial_build(
+    mini_surface, mini_bundle, tmp_path, monkeypatch
+):
+    """The configuration sort is a memory argument and not a correctness one: the identity above must hold under any hand-out order, not the one checked in. With the helper reversed — the last acceptance configuration first, load order within each — a two-worker pool over the narrowed hand-out still builds the load-ordered serial surface byte for byte, which is what shows the sort moved no bytes rather than happening to land on the same ones."""
+    from rebuild.review.audit import _config_index
+
+    monkeypatch.setattr("rebuild.review.build.PHASE1_HANDOUT_UNITS", 37)
+    monkeypatch.setattr(
+        "rebuild.review.build._configuration_order",
+        lambda units: sorted(units, key=lambda unit: -_config_index(unit.configs[0])),
+    )
+    parallel = tmp_path / "reversed"
     _build(parallel, mini_bundle, jobs=2)
     assert _tree(parallel) == _tree(mini_surface)
 
@@ -480,6 +497,32 @@ def test_a_pooled_served_rebuild_is_byte_identical_to_the_serial_one(
     served, total = _served(capfd)
     assert served == total
     assert _tree(surface) == _tree(mini_surface)
+
+
+def test_both_pooled_hand_outs_go_through_the_configuration_sort_and_cover_their_piles(
+    mini_bundle, tmp_path, capfd, monkeypatch
+):
+    """The configuration sort is the parent's, at two call sites — the fresh pile behind `_drive_phase1` and the verification sample behind `verify` — and neither identity test above can see either: the surface is the same bytes under any hand-out order, and a sampled unit no worker is handed is silently unverified rather than a byte that moved. So the helper is spied on rather than replaced. A cold two-worker build hands it the whole fresh pile once; a served rebuild over that surface hands it the empty fresh pile and then the whole sample, every served unit up to `VERIFICATION_SAMPLE`; and the units phase's `verified=` count is the size of that sample, which holds the contiguous shares `verify` cuts to partitioning the sample rather than dropping a tail past the last worker."""
+    handed: list[list] = []
+    original = review_build._configuration_order
+
+    def spy(units):
+        handed.append(list(units))
+        return original(units)
+
+    monkeypatch.setattr("rebuild.review.build._configuration_order", spy)
+    surface = tmp_path / "surface"
+    _build(surface, mini_bundle, jobs=2)
+    served, total = _served(capfd)
+    assert served == 0 and total > 0
+    assert [len(pile) for pile in handed] == [total]
+    _build(surface, mini_bundle, jobs=2)
+    err = capfd.readouterr().err
+    served, total = _counts(err, SERVED)
+    (verified,) = _counts(err, r"verified=(\d[\d,]*) served")
+    assert served == total
+    assert [len(pile) for pile in handed] == [total, 0, min(review_build.VERIFICATION_SAMPLE, total)]
+    assert verified == len(handed[2]) == len({unit.unit_id for unit in handed[2]})
 
 
 SIGNATURES = r"signatures: (\d[\d,]*) cached, (\d[\d,]*) shaped"

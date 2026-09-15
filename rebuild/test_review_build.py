@@ -27,6 +27,7 @@ from rebuild.review import unit_index
 from rebuild.review.audit import (
     ACCEPTANCE_CONFIGS,
     SLIM_OMITTED_KEYS,
+    _config_index,
     load_workload,
     machine_approved,
     slim_fragment,
@@ -869,6 +870,20 @@ def test_a_pooled_build_counts_its_units_and_closes_every_phase_it_opens(
     assert parent_only["units"]["runner.spooled"] == total and parent_only["units"]["runner.subset_rows"] == 0
     assert parent_only["manifest+check"]["runner.spooled"] == total
     assert parent_only["census-facts"]["runner.spooled"] == 0 and parent_only["cache"]["runner.spooled"] == 0
+
+
+def test_the_pool_is_handed_the_pile_in_configuration_order(mini_bundle):
+    """The queue a pooled build's workers draw from is the fresh pile sorted by the configuration each unit settles under, so consecutive batches share a subset table: over the mini workload, whose units lead with four of the six acceptance configurations — `default` and `ss10` many units deep, `ss03` and `ss04` once each, so the stability arm below is exercised at depth on two of them and is vacuous for the two the fixture never leads with — `_configuration_order` answers every unit exactly once, its `audit._config_index` never decreasing along the list, and within one configuration the units in the order the pile came in — a stable sort, so the only term the hand-out adds is the configuration. The order is a property of the parent's hand-out and not of any worker, which is why the pile is ordered here rather than in the worker."""
+    units = load_workload(MINI / "audit.tsv", mini_bundle.ledger, dict(LETTERS)).units
+    ordered = review_build._configuration_order(units)
+    assert len(ordered) == len(units) > 1
+    assert {id(unit) for unit in ordered} == {id(unit) for unit in units}
+    indices = [_config_index(unit.configs[0]) for unit in ordered]
+    assert indices == sorted(indices)
+    assert len(indices) > len(set(indices)) > 1
+    for config in ACCEPTANCE_CONFIGS:
+        within = [unit for unit in ordered if unit.configs[0] == config]
+        assert within == [unit for unit in units if unit.configs[0] == config]
 
 
 _TALLY_PILE = re.compile(r"^\[tally\] (\S+) (\S+) count=(\d+) est_bytes=(\d+) est_gb=\d+\.\d\d$")

@@ -2006,10 +2006,21 @@ class TestTheSurfaceBuildWidth:
         assert ac.surface_job_budget(skip_gates=True, ncores=5, total_bytes=1_000_000_000_000) == 5
         assert ac.surface_job_budget(skip_gates=False, ncores=5, total_bytes=1_000_000_000_000) == 3
 
-    def test_memory_binds_before_the_cap_once_the_box_is_small_enough(self):
-        """The direction that makes deriving this width worth doing: the 32 GiB box has ten cores' worth of permission, and what it runs is the pool that fits beside the parent's own pile rather than the eight a core clamp handed every box alike. Both bounds are inequalities because both surface constants are readings to keep current: a re-seed may move the width, but it must neither floor this box nor hand it the cap."""
-        width = ac.surface_job_budget(skip_gates=True, ncores=10, total_bytes=BOX_32_GIB)
-        assert 1 < width < ac.SURFACE_JOBS_CAP
+    def test_both_fleet_boxes_keep_a_pooled_build_under_a_gated_cycle(self):
+        """The fleet-wide claim this width has to keep (`doc/fleet.md` names the two boxes): beside gate:make-test's pool the 48 GiB box runs the build at the cap, since past it widening buys nothing, and the 32 GiB box runs the pool its budget sizes — wider than the serial build and narrower than the cap, gated and alone — asserted as inequalities because the worker constant is a reading to keep current and the corpus it prices grows with the alphabet, so the exact width there is the constant's to move, while a re-seed must neither floor that box nor hand it the cap. Both are read through the derivation as well, since the plan line quotes it and a clause that disagreed with the width beside it would be worse than none. The regression the upper bound answers for: on the ten-core 32 GiB Mac that ran the 2026-08-27 full-fresh pass, the core clamp this arithmetic replaces answered eight — ten cores less the pool's two, which met the cap exactly — while that pass read 17.76 GB as the widest single process under the step, a figure that could only ever see the parent and never the eight workers beside it; the division is what keeps that box's width a fact about its budget, and a constant seeded high enough narrows it below the cap where the clamp never would."""
+        roomy = ac.surface_job_budget(skip_gates=False, ncores=12, total_bytes=BOX_48_GIB)
+        assert roomy == ac.SURFACE_JOBS_CAP
+        assert ac.surface_job_derivation(skip_gates=False, ncores=12, total_bytes=BOX_48_GIB).startswith(
+            f"{ac.SURFACE_JOBS_CAP} at "
+        )
+        narrow = ac.surface_job_budget(skip_gates=False, ncores=10, total_bytes=BOX_32_GIB)
+        assert 1 < narrow < ac.SURFACE_JOBS_CAP
+        assert narrow < 10 - 2
+        assert ac.surface_job_derivation(skip_gates=False, ncores=10, total_bytes=BOX_32_GIB).startswith(
+            f"{narrow} at "
+        )
+        alone = ac.surface_job_budget(skip_gates=True, ncores=10, total_bytes=BOX_32_GIB)
+        assert 1 < alone < ac.SURFACE_JOBS_CAP
 
     def test_the_pytest_pool_comes_off_the_box_before_the_division(self):
         """A cycle runs this build beside gate:make-test's pool rather than alone, so the pool's bytes join the co-resident term and its two cores come off the cap before anything divides. Asserted at the fit-terms seam rather than over an invented box: with a worker priced at its width-two peak, no machine in the fleet is roomy enough for the subtraction to move the resulting width, and a box invented to sit exactly where it would is a magic number every re-seed has to re-tune."""
@@ -2026,12 +2037,6 @@ class TestTheSurfaceBuildWidth:
         """A box with no budget left after its reserve floors at one in both arms, and that is the serial build rather than a refusal: at width one there is no pool, every fragment exists once instead of twice, and the build is the cheapest it can be on a box that has outgrown the pooled shape."""
         assert ac.surface_job_budget(skip_gates=True, ncores=12, total_bytes=8_000_000_000) == 1
         assert ac.surface_job_budget(skip_gates=False, ncores=12, total_bytes=8_000_000_000) == 1
-
-    def test_this_box_no_longer_takes_eight_surface_workers(self):
-        """The regression this width was rewritten for. On the ten-core 32 GiB Mac that ran the 2026-08-27 full-fresh pass the old core clamp answered eight — ten cores less the pool's two, which met the cap exactly — and that pass read 17.76 GB as the widest single process under the step, a figure that could only ever see the parent and never the eight workers beside it. Both bounds are asserted as inequalities rather than as today's figure, because both surface constants are readings to keep current and re-seeding either must not have to come back here."""
-        width = ac.surface_job_budget(skip_gates=False, ncores=10, total_bytes=BOX_32_GIB)
-        assert width < ac.SURFACE_JOBS_CAP
-        assert width < 10 - 2
 
     def test_the_printed_derivation_is_the_one_that_produced_the_width(self):
         """The plan line and the `--jobs` help quote a sentence, and a sentence that disagreed with the number beside it would be worse than none: both come from one resolution of the same three terms, so the clause opens with the width it explains."""
