@@ -1133,6 +1133,11 @@ PHASE1_UNITS = "units enriched"
 PHASE1_HANDOUT_UNITS = EXPLAIN_UNIT_BATCH_SIZE
 
 
+def _configuration_order(units: Sequence[Unit]) -> list[Unit]:
+    """The units a pool is handed, stably sorted by the configuration each one settles under — `audit._config_index` over `unit.configs[0]`, the one configuration `Enricher.subset_row` reads a unit's baseline row from — so consecutive batches off the queue share a configuration and a worker holds that configuration's subset table rather than one per configuration its batches happen to reach. The sort is stable, so within a configuration the pile keeps the order it came in, and a configuration outside `ACCEPTANCE_CONFIGS` sorts last. Only the pooled paths take this order; the serial path drafts the pile as loaded, which is the reference the byte-identity tests hold a pooled build against."""
+    return sorted(units, key=lambda unit: _config_index(unit.configs[0]))
+
+
 def _handout_width(fresh: int, nworkers: int) -> int:
     """How many units one `phase1` message carries: `PHASE1_HANDOUT_UNITS`, or fewer when the fresh pile would not otherwise reach every worker twice over. The ceiling bounds what a worker holds; the spread is what keeps a small pile pooled — a dev-loop build of a few thousand fresh units at eight jobs is eight workers drawing a few hundred at a time rather than one drawing the lot while seven idle behind the end marker — and two draws per worker is what lets the queue even out batches of unequal cost. On the full corpus the ceiling binds, so the settlement batch is the hand-out there."""
     return max(1, min(PHASE1_HANDOUT_UNITS, math.ceil(fresh / (2 * nworkers))))
@@ -1147,7 +1152,7 @@ def _phase_timing(label: str, started: float, note: str = "") -> None:
 
 
 class _FreshRunner:
-    """Phase 1 over the units the cache could not serve — in-process when `jobs` is 1, across persistent spawn workers otherwise, with identical per-unit semantics either way, which is what lets the serial and parallel builds share every reduce and stay byte-identical. The parent keeps the triage order and every order-sensitive reduce (the index and its batches, family promotion, echo grouping, secondary-home resolution) and takes each fresh unit's id off the projection its drafting stamped; the runner enriches, drafts and runs the drafting-time contract check (`_phase1_unit`), spooling each fragment to disk as it is drafted (`_FragmentSpool`, under `out_dir`) so that no EnrichedUnit outlives the batch that produced it in either path, keeping the check's complaints in `contract_errors` for the write to fail the build with, and hands the fragments back one at a time through `fragment`, read by address out of the spool exactly as a served fragment is read out of the previous surface. Pooled, each worker draws batches off one queue over the fresh pile (`_handout_width` units at a time, one batch in flight per worker) rather than owning a contiguous share of it, so which worker drafts which unit is decided by timing and moves no bytes: `OutlineIntern` keys by shape rather than by first-seen order, the parent joins each projection back to its unit by `input_key`, and every reduce that reads order runs here over the whole projection set. The spool is swept at `close`, whichever way the build ends."""
+    """Phase 1 over the units the cache could not serve — in-process when `jobs` is 1, across persistent spawn workers otherwise, with identical per-unit semantics either way, which is what lets the serial and parallel builds share every reduce and stay byte-identical. The parent keeps the triage order and every order-sensitive reduce (the index and its batches, family promotion, echo grouping, secondary-home resolution) and takes each fresh unit's id off the projection its drafting stamped; the runner enriches, drafts and runs the drafting-time contract check (`_phase1_unit`), spooling each fragment to disk as it is drafted (`_FragmentSpool`, under `out_dir`) so that no EnrichedUnit outlives the batch that produced it in either path, keeping the check's complaints in `contract_errors` for the write to fail the build with, and hands the fragments back one at a time through `fragment`, read by address out of the spool exactly as a served fragment is read out of the previous surface. Pooled, each worker draws batches off one queue over the fresh pile (`_handout_width` units at a time, one batch in flight per worker) rather than owning a contiguous share of it, so which worker drafts which unit is decided by timing and moves no bytes: `OutlineIntern` keys by shape rather than by first-seen order, the parent joins each projection back to its unit by `input_key`, and every reduce that reads order runs here over the whole projection set. The queue itself is the pile in configuration order (`_configuration_order`), so a worker's consecutive batches share a settling configuration and it holds one baseline subset table for most of its life and adds one at each configuration boundary its draws cross — three by the end of the live corpus for most workers, and every table for the worker whose draws span the run of small configurations, which is the worker `SURFACE_WORKER_BYTES` in rebuild/tools/artifact_cycle.py prices; the verification sample is split into contiguous slices of the same order for the same reason. The spool is swept at `close`, whichever way the build ends."""
 
     def __init__(
         self,
@@ -1245,7 +1250,7 @@ class _FreshRunner:
 
     def _drive_phase1(self, projections: dict[str, _UnitProjection]) -> None:
         """Hand the fresh pile out to the pool one batch at a time and merge each reply as it arrives, rather than one worker at a time — which is what lets a counter reach the terminal while the phase is still running, since a parent blocked on `recv` in submission order says nothing until its first worker has finished. Every worker starts with one batch and at most one is ever in flight per worker, so a worker holds one batch of units; `wait` hands back whichever connections have something, a `batch` reply is merged into `projections`, the spool addresses and `contract_errors` and hands that worker the next batch, or the end marker once the pile is drawn down, and the phase is over once every worker has answered the marker with its `ok`. The count printed is the sum of the batches merged, so it is a true running total. An error raises here as it would from a `recv` in turn, and the replies queued behind it are drained by `close()`."""
-        handouts = batched(self._fresh, self._handout)
+        handouts = batched(_configuration_order(self._fresh), self._handout)
         names = {conn: f"w{index}" for index, conn in enumerate(self._conns)}
 
         def hand(conn) -> None:
@@ -1298,16 +1303,12 @@ class _FreshRunner:
         if not self._verify:
             return keys
         if self._conns:
-            for index, conn in enumerate(self._conns):
-                conn.send(
-                    (
-                        "verify",
-                        [
-                            (unit, injections[unit.unit_id])
-                            for unit in self._verify[index :: len(self._conns)]
-                        ],
-                    )
-                )
+            shares = batched(
+                _configuration_order(self._verify), math.ceil(len(self._verify) / len(self._conns))
+            )
+            for conn in self._conns:
+                share = next(shares, ())
+                conn.send(("verify", [(unit, injections[unit.unit_id]) for unit in share]))
             for conn in self._conns:
                 reply = conn.recv()
                 if reply[0] == "error":
