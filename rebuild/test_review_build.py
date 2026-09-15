@@ -657,6 +657,7 @@ def test_the_serial_runner_spools_every_fragment_and_keeps_no_enrichment(tmp_pat
         REPO_ROOT,
         spec_root=mini_bundle.spec_root,
         out_dir=tmp_path,
+        subset_pack=mini_bundle.subset_pack,
     )
     try:
         projections = runner.phase1()
@@ -811,7 +812,7 @@ def test_a_pooled_build_counts_its_units_and_closes_every_phase_it_opens(
 ):
     """The two things a watcher gets from a build that runs for minutes, over the one workload small enough to prove them on: which phase it is in, and how far through the corpus its pool has got. Every phase pairs — the `[t] review.build <phase>` line the timings journal has always read is what closes the `[phase]` line the terminal opens — and the counter is a running sum over the batches the workers answer with, one line per batch as it lands rather than one after the last worker finishes. The mini pile spreads into several batches across the two workers (`_handout_width`), each answered as it lands. That the total is reached at all is the claim worth having, since a batch left unread or a worker the parent stopped draining shows up here as a count that stops short of the units the manifest says this build wrote.
 
-    Every phase line also carries the parent's peak RSS as the `rss_gb=` token `parse_inner_timings` reads, ahead of the phase's own note, so `make cycle-timings ARGS='--inner'` can say which phase reached the step's high-water mark. And with `AMS_SURFACE_PILE_TALLY=1` in the environment the workers inherit, each worker tallies its own piles at every batch boundary onto stdout — the projections it is about to answer with and the spool address beside each, bounded by the hand-out width rather than by any share of the corpus, its subset tables and the shape memo, and no enrichment among them, since a fresh unit's fragment went to the spool as it was drafted — which is why this test captures at the file-descriptor grain: a spawn child writes past `sys.stdout`. The parent's own boundaries show the other half of that: the spool addresses the workers answered with are held per fresh unit from the units phase until the runner closes, and no pile of enrichments exists anywhere.
+    Every phase line also carries the parent's peak RSS as the `rss_gb=` token `parse_inner_timings` reads, ahead of the phase's own note, so `make cycle-timings ARGS='--inner'` can say which phase reached the step's high-water mark. And with `AMS_SURFACE_PILE_TALLY=1` in the environment the workers inherit, each worker tallies its own piles at every batch boundary onto stdout — the projections it is about to answer with and the spool address beside each, bounded by the hand-out width rather than by any share of the corpus, the mapped subset pack and the shape memo, and no enrichment among them, since a fresh unit's fragment went to the spool as it was drafted — which is why this test captures at the file-descriptor grain: a spawn child writes past `sys.stdout`. The parent's own boundaries show the other half of that: the spool addresses the workers answered with are held per fresh unit from the units phase until the runner closes, and no pile of enrichments exists anywhere.
     """
     monkeypatch.setenv(pile_tally.TALLY_ENV, "1")
     out = tmp_path / "surface"
@@ -822,6 +823,7 @@ def test_a_pooled_build_counts_its_units_and_closes_every_phase_it_opens(
         subset_dir=MINI,
         after_font=MINI / "M1.otf",
         spec_root=mini_bundle.spec_root,
+        subset_pack=mini_bundle.subset_pack,
         jobs=2,
     )
     captured = capfd.readouterr()
@@ -862,18 +864,18 @@ def test_a_pooled_build_counts_its_units_and_closes_every_phase_it_opens(
         after_batch = tallies[name]
         assert 0 < after_batch["worker.projections"] <= width
         assert after_batch["worker.spooled"] == after_batch["worker.projections"]
-        assert "worker.subset_rows" in after_batch and "ink.shape_memo" in after_batch
+        assert after_batch["worker.subset_pack"] > 0 and "ink.shape_memo" in after_batch
     assert sum(tallies[name]["worker.spooled"] for name in boundaries) == total
     assert not _enrichment_piles(tallies)
     parent_only = _tally_lines(captured.out, parent=True)
     assert list(parent_only) == ["load", "plan", "units", "manifest+check", "census-facts", "cache"]
-    assert parent_only["units"]["runner.spooled"] == total and parent_only["units"]["runner.subset_rows"] == 0
+    assert parent_only["units"]["runner.spooled"] == total and parent_only["units"]["runner.subset_pack"] == 0
     assert parent_only["manifest+check"]["runner.spooled"] == total
     assert parent_only["census-facts"]["runner.spooled"] == 0 and parent_only["cache"]["runner.spooled"] == 0
 
 
 def test_the_pool_is_handed_the_pile_in_configuration_order(mini_bundle):
-    """The queue a pooled build's workers draw from is the fresh pile sorted by the configuration each unit settles under, so consecutive batches share a subset table: over the mini workload, whose units lead with four of the six acceptance configurations — `default` and `ss10` many units deep, `ss03` and `ss04` once each, so the stability arm below is exercised at depth on two of them and is vacuous for the two the fixture never leads with — `_configuration_order` answers every unit exactly once, its `audit._config_index` never decreasing along the list, and within one configuration the units in the order the pile came in — a stable sort, so the only term the hand-out adds is the configuration. The order is a property of the parent's hand-out and not of any worker, which is why the pile is ordered here rather than in the worker."""
+    """The queue a pooled build's workers draw from is the fresh pile sorted by the configuration each unit settles under, so consecutive batches walk one configuration's key range of the mapped subset pack: over the mini workload, whose units lead with four of the six acceptance configurations — `default` and `ss10` many units deep, `ss03` and `ss04` once each, so the stability arm below is exercised at depth on two of them and is vacuous for the two the fixture never leads with — `_configuration_order` answers every unit exactly once, its `audit._config_index` never decreasing along the list, and within one configuration the units in the order the pile came in — a stable sort, so the only term the hand-out adds is the configuration. The order is a property of the parent's hand-out and not of any worker, which is why the pile is ordered here rather than in the worker."""
     units = load_workload(MINI / "audit.tsv", mini_bundle.ledger, dict(LETTERS)).units
     ordered = review_build._configuration_order(units)
     assert len(ordered) == len(units) > 1
@@ -936,6 +938,7 @@ def test_a_serial_build_tallies_its_piles_at_every_phase_boundary_and_writes_the
             subset_dir=MINI,
             after_font=MINI / "M1.otf",
             spec_root=mini_bundle.spec_root,
+            subset_pack=mini_bundle.subset_pack,
             fresh_unit_cache=True,
         )
 
@@ -957,7 +960,7 @@ def test_a_serial_build_tallies_its_piles_at_every_phase_boundary_and_writes_the
     assert "ink.shape_memo" in tallies["load"] and "signatures" in tallies["load"]
     assert tallies["plan"]["unit_cache.keys"] == total and tallies["plan"]["unit_cache.served"] == 0
     assert tallies["units"]["states"] == total and tallies["units"]["runner.spooled"] == total
-    assert tallies["units"]["runner.subset_rows"] > 0
+    assert tallies["units"]["runner.subset_pack"] > 0
     assert tallies["manifest+check"]["runner.spooled"] == total
     assert tallies["census-facts"]["runner.spooled"] == 0 and tallies["cache"]["runner.spooled"] == 0
     assert tallies["manifest+check"]["checker.identity"] == total
@@ -996,6 +999,7 @@ def test_close_finds_the_peak_behind_an_unconsumed_phase_reply(tmp_path, monkeyp
         tmp_path / "junior.otf",
         tmp_path,
         out_dir=tmp_path,
+        subset_pack=tmp_path / "subsets.pack",
     )
     parent, child = multiprocessing.Pipe()
     child.send(("batch", ["projection-a", "projection-b"], {}))
@@ -1036,6 +1040,7 @@ def test_an_in_process_build_releases_the_shape_memo_behind_each_batch(mini_bund
         subset_dir=MINI,
         after_font=MINI / "M1.otf",
         spec_root=mini_bundle.spec_root,
+        subset_pack=mini_bundle.subset_pack,
         jobs=1,
     )
     assert seen and max(seen) > 0
@@ -1049,6 +1054,7 @@ def _drive_worker_in_thread(mini_bundle, out_dir: Path, chunks: list[list]) -> l
         "after_font": MINI / "M1.otf",
         "junior_font": review_build.SITE_JUNIOR_FONT,
         "subset_dir": MINI,
+        "subset_pack": mini_bundle.subset_pack,
         "repo_root": REPO_ROOT,
         "spec_root": mini_bundle.spec_root,
         "out_dir": out_dir,
@@ -1146,7 +1152,7 @@ def test_a_pool_worker_releases_the_shape_memo_behind_each_batch(mini_bundle, mo
 def test_a_pool_worker_holds_one_batch_of_projections_and_addresses(
     mini_bundle, monkeypatch, tmp_path, capfd
 ):
-    """The pile-tally claim behind `SURFACE_WORKER_BYTES`, proved on the fixture rather than on a live pass: with `AMS_SURFACE_PILE_TALLY=1` the worker tallies a `w0/phase1-<n>` boundary per batch, and at each one `worker.projections` and `worker.spooled` count exactly the batch it was handed — released behind the reply rather than accumulated, so the second boundary reads the second chunk and not the sum — with the subset tables and the shape memo beside them and no enrichment anywhere."""
+    """The pile-tally claim behind `SURFACE_WORKER_BYTES`, proved on the fixture rather than on a live pass: with `AMS_SURFACE_PILE_TALLY=1` the worker tallies a `w0/phase1-<n>` boundary per batch, and at each one `worker.projections` and `worker.spooled` count exactly the batch it was handed — released behind the reply rather than accumulated, so the second boundary reads the second chunk and not the sum — with the mapped subset pack and the shape memo beside them and no enrichment anywhere."""
     monkeypatch.setenv(pile_tally.TALLY_ENV, "1")
     chunks = _two_chunks(mini_bundle)
     replies = _drive_worker_in_thread(mini_bundle, tmp_path, chunks)
@@ -1156,7 +1162,7 @@ def test_a_pool_worker_holds_one_batch_of_projections_and_addresses(
     for chunk, name in zip(chunks, tallies, strict=True):
         assert tallies[name]["worker.projections"] == len(chunk)
         assert tallies[name]["worker.spooled"] == len(chunk)
-        assert "worker.subset_rows" in tallies[name] and "ink.shape_memo" in tallies[name]
+        assert tallies[name]["worker.subset_pack"] > 0 and "ink.shape_memo" in tallies[name]
     assert not _enrichment_piles(tallies)
 
 

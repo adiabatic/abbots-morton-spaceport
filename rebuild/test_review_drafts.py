@@ -28,7 +28,7 @@ def enricher(mini_bundle):
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
         spec = load_spec(mini_bundle.spec_root)
-    return Enricher(spec, MINI, MINI_FONT, repo_root=REPO_ROOT)
+    return Enricher(spec, MINI, MINI_FONT, repo_root=REPO_ROOT, subset_pack=mini_bundle.subset_pack)
 
 
 @pytest.fixture(scope="module")

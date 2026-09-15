@@ -1995,7 +1995,7 @@ class TestTheSurfaceBuildWidth:
     """Both bounds get an assertion, because which of them binds is the whole design: the cap is what holds the fan-out where widening stops paying on a box with room to spare, and the division is what protects the box that has none."""
 
     def test_the_cap_binds_where_the_box_has_room_to_spare(self):
-        """A box that could hold dozens of these workers is given eight, because the argument against the ninth is not memory at all — past that width the build stops scaling and a further worker buys a duplicated subset table and nothing else."""
+        """A box that could hold dozens of these workers is given eight, because the argument against the ninth is not memory at all: the parent that hands the pile out and merges the replies is one process, and eight is the width the pool is measured to (the comment beside `SURFACE_JOBS_CAP` in rebuild/tools/artifact_cycle.py), so a further worker is an unmeasured width rather than a cheaper one."""
         assert (
             ac.surface_job_budget(skip_gates=True, ncores=12, total_bytes=1_000_000_000_000)
             == ac.SURFACE_JOBS_CAP
@@ -2007,20 +2007,19 @@ class TestTheSurfaceBuildWidth:
         assert ac.surface_job_budget(skip_gates=False, ncores=5, total_bytes=1_000_000_000_000) == 3
 
     def test_both_fleet_boxes_keep_a_pooled_build_under_a_gated_cycle(self):
-        """The fleet-wide claim this width has to keep (`doc/fleet.md` names the two boxes): beside gate:make-test's pool the 48 GiB box runs the build at the cap, since past it widening buys nothing, and the 32 GiB box runs the pool its budget sizes — wider than the serial build and narrower than the cap, gated and alone — asserted as inequalities because the worker constant is a reading to keep current and the corpus it prices grows with the alphabet, so the exact width there is the constant's to move, while a re-seed must neither floor that box nor hand it the cap. Both are read through the derivation as well, since the plan line quotes it and a clause that disagreed with the width beside it would be worse than none. The regression the upper bound answers for: on the ten-core 32 GiB Mac that ran the 2026-08-27 full-fresh pass, the core clamp this arithmetic replaces answered eight — ten cores less the pool's two, which met the cap exactly — while that pass read 17.76 GB as the widest single process under the step, a figure that could only ever see the parent and never the eight workers beside it; the division is what keeps that box's width a fact about its budget, and a constant seeded high enough narrows it below the cap where the clamp never would."""
+        """The fleet-wide claim this width has to keep (`doc/fleet.md` names the two boxes), which is the tracker's criterion for the surface build: beside gate:make-test's pool the 48 GiB box runs the build at the cap, since past it widening buys nothing, and the 32 GiB box runs a pool wider than the serial build, gated and alone. The lower bound is what a re-seed of the worker constant must never cross, since a box floored at one is the serial build; there is no upper bound on the smaller box because a worker priced off the alphabet — its baseline rows come out of a mapped pack shared through the page cache — leaves both boxes cap-bound (`test_the_shipped_surface_divisor_holds_the_32_gib_box_at_the_cap_by_division` in rebuild/test_memory_budget.py asserts the smaller box's cap-bound width), and a re-seed that narrows the smaller one below the cap is the constant's to make. Both are read through the derivation as well, since the plan line quotes it and a clause that disagreed with the width beside it would be worse than none. The regression the division answers for: on the ten-core 32 GiB Mac that ran the 2026-08-27 full-fresh pass, the core clamp this arithmetic replaces answered eight — ten cores less the pool's two, which met the cap exactly — while that pass read 17.76 GB as the widest single process under the step, a figure that could only ever see the parent and never the eight workers beside it; the division is what keeps that box's width a fact about its budget."""
         roomy = ac.surface_job_budget(skip_gates=False, ncores=12, total_bytes=BOX_48_GIB)
         assert roomy == ac.SURFACE_JOBS_CAP
         assert ac.surface_job_derivation(skip_gates=False, ncores=12, total_bytes=BOX_48_GIB).startswith(
             f"{ac.SURFACE_JOBS_CAP} at "
         )
         narrow = ac.surface_job_budget(skip_gates=False, ncores=10, total_bytes=BOX_32_GIB)
-        assert 1 < narrow < ac.SURFACE_JOBS_CAP
-        assert narrow < 10 - 2
+        assert 1 < narrow <= ac.SURFACE_JOBS_CAP
         assert ac.surface_job_derivation(skip_gates=False, ncores=10, total_bytes=BOX_32_GIB).startswith(
             f"{narrow} at "
         )
         alone = ac.surface_job_budget(skip_gates=True, ncores=10, total_bytes=BOX_32_GIB)
-        assert 1 < alone < ac.SURFACE_JOBS_CAP
+        assert 1 < alone <= ac.SURFACE_JOBS_CAP
 
     def test_the_pytest_pool_comes_off_the_box_before_the_division(self):
         """A cycle runs this build beside gate:make-test's pool rather than alone, so the pool's bytes join the co-resident term and its two cores come off the cap before anything divides. Asserted at the fit-terms seam rather than over an invented box: with a worker priced at its width-two peak, no machine in the fleet is roomy enough for the subtraction to move the resulting width, and a box invented to sit exactly where it would is a magic number every re-seed has to re-tune."""
@@ -2896,10 +2895,12 @@ def test_dry_run_plan_skip_make_test():
 
 
 def test_the_signature_pool_takes_the_cores_the_surface_width_cannot():
-    """The ink-signature phase's width is the one fan-out in the plan that memory does not derive: a signature worker holds one comparator and nothing a `*_BYTES` constant prices, so on a ten-core box the gated arm answers the cores less gate:make-test's two and the skip arm the whole box — both above the surface width memory holds the same box to, and neither clamped by `SURFACE_JOBS_CAP`, which is where the unit worker stops scaling and not this one. The argv carries the width beside `--jobs`, and the plan block states it on a row of its own with its derivation, so a reader can see the two widths differ and why. The widths are read off the budget rather than written here."""
+    """The ink-signature phase's width is the one fan-out in the plan that memory does not derive: a signature worker holds one comparator and nothing a `*_BYTES` constant prices, so on a ten-core box the gated arm answers the cores less gate:make-test's two and the skip arm the whole box — never below the surface width, which memory derives and `SURFACE_JOBS_CAP` clamps, and unmoved on a box half the size, where the reserve and the parent's co-resident pile outrun the budget before anything divides and that width floors at one, since the cap is where the unit worker stops scaling and not this one. The argv carries the width beside `--jobs`, and the plan block states it on a row of its own with its derivation, so a reader can see the two widths differ and why. The widths are read off the budget rather than written here."""
     gated = _plan(skip_make_test=False, ncores=10, total_bytes=BOX_32_GIB)
     assert gated.signature_jobs == ac.signature_job_budget(skip_gates=False, ncores=10) == 8
-    assert gated.signature_jobs > gated.surface_jobs
+    assert gated.signature_jobs >= gated.surface_jobs == ac.SURFACE_JOBS_CAP
+    narrow = _plan(skip_make_test=False, ncores=10, total_bytes=BOX_32_GIB // 2)
+    assert narrow.signature_jobs == 8 > narrow.surface_jobs == 1
     gated_by_name = {step.name: step for step in gated.steps}
     assert _argv(gated_by_name["surface-build"])[-4:] == [
         "--jobs",
@@ -2915,7 +2916,7 @@ def test_the_signature_pool_takes_the_cores_the_surface_width_cannot():
     assert (
         solo.signature_jobs == ac.signature_job_budget(skip_gates=False, skip_make_test=True, ncores=10) == 10
     )
-    assert solo.signature_jobs > ac.SURFACE_JOBS_CAP > solo.surface_jobs
+    assert solo.signature_jobs > ac.SURFACE_JOBS_CAP >= solo.surface_jobs
     assert _argv({step.name: step for step in solo.steps}["surface-build"])[-2:] == ["--signature-jobs", "10"]
     assert "10 of 10 cores, the whole box" in _plan_text(solo)
 
@@ -2989,7 +2990,7 @@ def test_a_stated_contracts_width_is_the_width_the_cycle_hands_the_child(monkeyp
 
 
 def test_the_plan_states_the_contracts_pool_width_on_its_lane_line():
-    """The lane line carries the width and its derivation, and the build lane reads the new order, so a reader can see the suite is submitted ahead of the build and how many cores it was handed; the overlap arm prints its narrower width rather than implying it, which is where the collapse toward one worker on a ten-core box becomes visible; and a pass whose surface build is skipped says the suite is submitted once the run_m1 gate passes, never that it runs beside a build the plan's own row reads SKIPPED."""
+    """The lane line carries the width and its derivation, and the build lane reads the new order, so a reader can see the suite is submitted ahead of the build and how many cores it was handed; a ten-core box beside a cap-width build reaches one worker under either policy, and the twelve-core box is where the overlap arm prints its narrower width rather than implying it; and a pass whose surface build is skipped says the suite is submitted once the run_m1 gate passes, never that it runs beside a build the plan's own row reads SKIPPED."""
     gated = _plan(ncores=10, total_bytes=BOX_32_GIB)
     text = _plan_text(gated)
     assert (
@@ -3008,9 +3009,13 @@ def test_the_plan_states_the_contracts_pool_width_on_its_lane_line():
     )
 
     overlap = _plan(pool_policy="overlap", ncores=10, total_bytes=BOX_32_GIB)
-    assert overlap.contracts_workers < gated.contracts_workers
+    assert overlap.contracts_workers == gated.contracts_workers == 1
     assert f"-n {overlap.contracts_workers} (" in _plan_text(overlap)
     assert "CO-RESIDENT with the other pools (overlap policy)" in _plan_text(overlap)
+    roomy = _plan(ncores=12, total_bytes=BOX_48_GIB)
+    roomy_overlap = _plan(pool_policy="overlap", ncores=12, total_bytes=BOX_48_GIB)
+    assert 1 <= roomy_overlap.contracts_workers < roomy.contracts_workers
+    assert f"-n {roomy_overlap.contracts_workers} (" in _plan_text(roomy_overlap)
 
     solo = _plan(skip_surface=True, surface_note="unchanged", ncores=10, total_bytes=BOX_32_GIB)
     solo_text = _plan_text(solo)

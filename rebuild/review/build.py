@@ -78,7 +78,6 @@ from rebuild.review.enrich import (
     EnrichedUnit,
     Enricher,
     SeamHomeUnit,
-    is_seam_token,
     load_spec,
     notation,
     notation_tokens,
@@ -86,6 +85,7 @@ from rebuild.review.enrich import (
     seam_home_projection,
     text_entities,
 )
+from rebuild.review.subset_pack import ensure_pack, is_seam_token, table_digests
 from rebuild.tools import console, pile_tally
 from rebuild.tools.cycle_timings import record_pool
 from rebuild.tools.peak_rss import peak_rss_self_bytes, rss_token
@@ -1053,11 +1053,12 @@ def _surface_worker(conn, init: dict) -> None:
             repo_root=init["repo_root"],
             before_font=init["before_font"],
             shaper_factory=shaper_for,
+            subset_pack=init["subset_pack"],
         )
         drafter = Drafter(init["after_font"], repo_root=init["repo_root"], shaper_factory=shaper_for)
         tally = pile_tally.from_environment()
         if tally:
-            tally.hold("worker.subset_rows", enricher._subset_rows, nested=True)
+            tally.hold_reading("worker.subset_pack", enricher.subset_pack_census)
             tally.hold_reading("ink.shape_memo", shape_memo_census)
         spool: _FragmentSpool | None = None
         batches = 0
@@ -1134,7 +1135,7 @@ PHASE1_HANDOUT_UNITS = EXPLAIN_UNIT_BATCH_SIZE
 
 
 def _configuration_order(units: Sequence[Unit]) -> list[Unit]:
-    """The units a pool is handed, stably sorted by the configuration each one settles under — `audit._config_index` over `unit.configs[0]`, the one configuration `Enricher.subset_row` reads a unit's baseline row from — so consecutive batches off the queue share a configuration and a worker holds that configuration's subset table rather than one per configuration its batches happen to reach. The sort is stable, so within a configuration the pile keeps the order it came in, and a configuration outside `ACCEPTANCE_CONFIGS` sorts last. Only the pooled paths take this order; the serial path drafts the pile as loaded, which is the reference the byte-identity tests hold a pooled build against."""
+    """The units a pool is handed, stably sorted by the configuration each one settles under — `audit._config_index` over `unit.configs[0]`, the one configuration `Enricher.subset_row` reads a unit's baseline row from — so consecutive batches off the queue share a configuration: a worker's lookups then walk one configuration's key range of the mapped subset pack, which keeps its resident share of the mapping to that range's pages, and a batch settles under one feature configuration, so `settle_sequences` spends one invocation on it rather than one per configuration it spans. The sort is stable, so within a configuration the pile keeps the order it came in, and a configuration outside `ACCEPTANCE_CONFIGS` sorts last. Only the pooled paths take this order; the serial path drafts the pile as loaded, which is the reference the byte-identity tests hold a pooled build against."""
     return sorted(units, key=lambda unit: _config_index(unit.configs[0]))
 
 
@@ -1152,7 +1153,7 @@ def _phase_timing(label: str, started: float, note: str = "") -> None:
 
 
 class _FreshRunner:
-    """Phase 1 over the units the cache could not serve — in-process when `jobs` is 1, across persistent spawn workers otherwise, with identical per-unit semantics either way, which is what lets the serial and parallel builds share every reduce and stay byte-identical. The parent keeps the triage order and every order-sensitive reduce (the index and its batches, family promotion, echo grouping, secondary-home resolution) and takes each fresh unit's id off the projection its drafting stamped; the runner enriches, drafts and runs the drafting-time contract check (`_phase1_unit`), spooling each fragment to disk as it is drafted (`_FragmentSpool`, under `out_dir`) so that no EnrichedUnit outlives the batch that produced it in either path, keeping the check's complaints in `contract_errors` for the write to fail the build with, and hands the fragments back one at a time through `fragment`, read by address out of the spool exactly as a served fragment is read out of the previous surface. Pooled, each worker draws batches off one queue over the fresh pile (`_handout_width` units at a time, one batch in flight per worker) rather than owning a contiguous share of it, so which worker drafts which unit is decided by timing and moves no bytes: `OutlineIntern` keys by shape rather than by first-seen order, the parent joins each projection back to its unit by `input_key`, and every reduce that reads order runs here over the whole projection set. The queue itself is the pile in configuration order (`_configuration_order`), so a worker's consecutive batches share a settling configuration and it holds one baseline subset table for most of its life and adds one at each configuration boundary its draws cross — three by the end of the live corpus for most workers, and every table for the worker whose draws span the run of small configurations, which is the worker `SURFACE_WORKER_BYTES` in rebuild/tools/artifact_cycle.py prices; the verification sample is split into contiguous slices of the same order for the same reason. The spool is swept at `close`, whichever way the build ends."""
+    """Phase 1 over the units the cache could not serve — in-process when `jobs` is 1, across persistent spawn workers otherwise, with identical per-unit semantics either way, which is what lets the serial and parallel builds share every reduce and stay byte-identical. The parent keeps the triage order and every order-sensitive reduce (the index and its batches, family promotion, echo grouping, secondary-home resolution) and takes each fresh unit's id off the projection its drafting stamped; the runner enriches, drafts and runs the drafting-time contract check (`_phase1_unit`), spooling each fragment to disk as it is drafted (`_FragmentSpool`, under `out_dir`) so that no EnrichedUnit outlives the batch that produced it in either path, keeping the check's complaints in `contract_errors` for the write to fail the build with, and hands the fragments back one at a time through `fragment`, read by address out of the spool exactly as a served fragment is read out of the previous surface. Pooled, each worker draws batches off one queue over the fresh pile (`_handout_width` units at a time, one batch in flight per worker) rather than owning a contiguous share of it, so which worker drafts which unit is decided by timing and moves no bytes: `OutlineIntern` keys by shape rather than by first-seen order, the parent joins each projection back to its unit by `input_key`, and every reduce that reads order runs here over the whole projection set. The queue itself is the pile in configuration order (`_configuration_order`), so a worker's consecutive batches share a settling configuration: its baseline rows come out of the subset pack the parent wrote before the pool started (`subset_pack`, mapped read-only by every worker and shared through the page cache), its lookups stay within one configuration's key range for most of its life, and each batch settles under one configuration; the verification sample is split into contiguous slices of the same order for the same reason. What a worker holds is its interpreter and shapers, one batch's units, projections and addresses, the rows materialized for one batch, and the pages of the mapping it has touched, which is the worker `SURFACE_WORKER_BYTES` in rebuild/tools/artifact_cycle.py prices. The spool is swept at `close`, whichever way the build ends."""
 
     def __init__(
         self,
@@ -1167,6 +1168,7 @@ class _FreshRunner:
         spec_root: Path | None = None,
         *,
         out_dir: Path,
+        subset_pack: Path,
     ) -> None:
         self._fresh = fresh
         self._verify = list(verify or ())
@@ -1174,6 +1176,7 @@ class _FreshRunner:
         self._after_font = after_font
         self._junior_font = junior_font
         self._subset_dir = subset_dir
+        self._subset_pack = Path(subset_pack)
         self._repo_root = repo_root
         self._spec_root = Path(spec_root) if spec_root is not None else Path(repo_root)
         self._out_dir = Path(out_dir)
@@ -1185,7 +1188,7 @@ class _FreshRunner:
         self._local: tuple | None = None
         self._procs: list = []
         self._conns: list = []
-        # The verification sample is worker work too, and it is the whole of the work when the cache served every unit: a pool sized on the fresh pile alone leaves a no-change rebuild recomputing its sample in the parent, which is both slower (200 units serially against eight workers' worth of them: measured 55.6 s against 42.4 s for the units phase of a fully-served build) and much heavier, since the parent that already holds every served fragment then builds an enricher and its per-config subset tables on top (18.9 GB peak against 8.8 GB, where a worker's copy would have been its own process's).
+        # The verification sample is worker work too, and it is the whole of the work when the cache served every unit: a pool sized on the fresh pile alone leaves a no-change rebuild recomputing its sample in the parent, which is both slower (200 units serially against eight workers' worth of them: measured 55.6 s against 42.4 s for the units phase of a fully-served build) and heavier, since the parent that already holds every served fragment then builds an enricher, its shapers and their memos on top, where a worker's copy would have been its own process's.
         workload_size = max(len(fresh), len(self._verify))
         if jobs > 1 and workload_size > 1:
             nworkers = min(jobs, workload_size)
@@ -1195,6 +1198,7 @@ class _FreshRunner:
                 "after_font": after_font,
                 "junior_font": junior_font,
                 "subset_dir": subset_dir,
+                "subset_pack": self._subset_pack,
                 "repo_root": repo_root,
                 "spec_root": self._spec_root,
                 "out_dir": self._out_dir,
@@ -1244,9 +1248,11 @@ class _FreshRunner:
         console.progress(done, len(self._fresh), PHASE1_UNITS, file=sys.stderr)
 
     def hold_piles(self, tally: pile_tally.PileTally) -> None:
-        """Hand the debug tally the piles this runner holds in the parent: the spool address kept per fresh unit from phase 1 until `close` sweeps the spool — pooled, the addresses the workers answered with batch by batch; serial, the one spool's — and, once the serial path has built its enricher, that enricher's projected subset tables. Pooled, the tables live in the workers, which tally their own at their own batch boundaries; the parent's hold then reads as empty, which is the honest reading rather than a gap."""
+        """Hand the debug tally the piles this runner holds in the parent: the spool address kept per fresh unit from phase 1 until `close` sweeps the spool — pooled, the addresses the workers answered with batch by batch; serial, the one spool's — and, once the serial path has built its enricher and it has mapped the subset pack, that mapping's census. Pooled, the workers map the pack and tally their own mapping at their own batch boundaries; the parent's reading then stays at zero, which is the honest reading rather than a gap."""
         tally.hold("runner.spooled", self._spooled)
-        tally.hold("runner.subset_rows", self._local[2]._subset_rows if self._local else {}, nested=True)
+        tally.hold_reading(
+            "runner.subset_pack", lambda: self._local[2].subset_pack_census() if self._local else (0, 0)
+        )
 
     def _drive_phase1(self, projections: dict[str, _UnitProjection]) -> None:
         """Hand the fresh pile out to the pool one batch at a time and merge each reply as it arrives, rather than one worker at a time — which is what lets a counter reach the terminal while the phase is still running, since a parent blocked on `recv` in submission order says nothing until its first worker has finished. Every worker starts with one batch and at most one is ever in flight per worker, so a worker holds one batch of units; `wait` hands back whichever connections have something, a `batch` reply is merged into `projections`, the spool addresses and `contract_errors` and hands that worker the next batch, or the end marker once the pile is drawn down, and the phase is over once every worker has answered the marker with its `ok`. The count printed is the sum of the batches merged, so it is a true running total. An error raises here as it would from a `recv` in turn, and the replies queued behind it are drained by `close()`."""
@@ -1292,6 +1298,7 @@ class _FreshRunner:
                 repo_root=self._repo_root,
                 before_font=self._before_font,
                 shaper_factory=shaper_for,
+                subset_pack=self._subset_pack,
             )
             drafter = Drafter(self._after_font, repo_root=self._repo_root, shaper_factory=shaper_for)
             self._local = (comparator, oracle, enricher, drafter)
@@ -1789,6 +1796,7 @@ def build_m1(
     signature_jobs: int = 1,
     fresh_unit_cache: bool = False,
     spec_root: Path | None = None,
+    subset_pack: Path | None = None,
 ) -> dict:
     # The spec is the one input a frozen workload cannot carry in its tables: the enricher re-settles every window from it, so a bundle of audit rows, subsets and a font describes a rebuild that only still happens while the runes agree with them. `spec_root` lets such a bundle name its own frozen copy (the objects rebuild/review/fixtures/mini/pin.json names, materialized out of git by the rebuild suite's mini_bundle fixture) and stay hermetic across rune edits; everything else — the fingerprints, the git head, the relative paths in the manifest, the corpus pins — stays on `repo_root`, because those are facts about this checkout rather than about the workload; the one fingerprint component that follows the spec is `explain_prose`, since the refuse and ledger rationales the surface quotes are the spec root's, which is also what keeps a bundled build's manifest from reading the live runes.
     spec_root = Path(spec_root) if spec_root is not None else Path(repo_root)
@@ -1800,11 +1808,14 @@ def build_m1(
         if not (subset_dir / f"baseline-{config}.subset.tsv.gz").is_file()
         or (subset_dir / f"baseline-{config}.subset.tsv.gz").stat().st_size == 0
     ]
-    # The enricher reads these lazily, one config at a time, deep inside the units phase — where a missing table would surface as a per-unit ValueError several hundred seconds in. Every acceptance config needs one, and the cheapest moment to say so is before any of it starts.
+    # Every acceptance config's table goes into the pack, and the cheapest moment to say one is missing is before any of it starts.
     if missing_subsets:
         raise SystemExit(
             f"missing or empty baseline subset tables under {subset_dir}: {', '.join(missing_subsets)}"
         )
+    # The pack is written here, before the pool starts, so no worker races the write; the digests it records are the ones the store's environment stamp carries on its `subsets` line, hashed once for both.
+    subset_digests = table_digests(subset_dir, ACCEPTANCE_CONFIGS)
+    subset_pack = ensure_pack(subset_dir, ACCEPTANCE_CONFIGS, subset_digests, subset_pack)
 
     tally = pile_tally.from_environment()
     console.phase("review.build load", file=sys.stderr)
@@ -1867,7 +1878,7 @@ def build_m1(
     console.phase("review.build plan", file=sys.stderr)
     phase = time.perf_counter()
     environment = unit_cache.environment_stamp(
-        repo_root, spec, subset_dir, before_font, junior_font, helpers_digest
+        repo_root, spec, subset_dir, before_font, junior_font, helpers_digest, subset_digests=subset_digests
     )
     for unit in workload.units:
         unit.input_key = keyer.key(unit)
@@ -1942,6 +1953,7 @@ def build_m1(
         verify_units,
         spec_root=spec_root,
         out_dir=out_dir,
+        subset_pack=subset_pack,
     )
     try:
         signature_write = (

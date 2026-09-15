@@ -41,8 +41,8 @@ def spec(mini_bundle):
 
 
 @pytest.fixture(scope="module")
-def enricher(spec):
-    return Enricher(spec, MINI, MINI_FONT, repo_root=REPO_ROOT)
+def enricher(spec, mini_bundle):
+    return Enricher(spec, MINI, MINI_FONT, repo_root=REPO_ROOT, subset_pack=mini_bundle.subset_pack)
 
 
 @pytest.fixture(scope="module")
@@ -178,9 +178,11 @@ def _geometry_segment(outlines, shaped, pens, spans, cp_start: int, cp_end: int)
     return tuple(sorted(translate_outline(value, dx - x0, dy) for value, dx, dy in placed))
 
 
-def test_segment_pieces_materialize_to_the_geometry_they_stand_in_for(spec, mini_units, monkeypatch):
+def test_segment_pieces_materialize_to_the_geometry_they_stand_in_for(
+    spec, mini_units, mini_bundle, monkeypatch
+):
     """`_segment_pieces` compares (shape key, x, y) triples from the intern both fonts share rather than building every covering outline through `translate_outline` and comparing the sorted geometry, and `_ink_visible_positions` reads nothing but `before != after` over the result. What makes the triple a spelling of the geometry rather than an approximation of it: materializing each piece through the intern gives back exactly the sorted geometry the geometry-first form builds, for every segment the enricher compares over the frozen workload — the same shaped runs, pens and spans, both fonts, every divergent position — so the ink-visible positions, the judged pair they anchor and the shard bytes rebuild/test_unit_cache.py pins are the same under either form. The reference is the geometry-first form kept beside the test, and the comparison it feeds is witnessed reaching both answers, so a segment that compared equal to everything would not pass unnoticed."""
-    enricher = Enricher(spec, MINI, MINI_FONT, repo_root=REPO_ROOT)
+    enricher = Enricher(spec, MINI, MINI_FONT, repo_root=REPO_ROOT, subset_pack=mini_bundle.subset_pack)
     recorded: list[tuple] = []
     original = enricher._segment_pieces
 

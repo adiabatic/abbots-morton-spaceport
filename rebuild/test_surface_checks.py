@@ -7,6 +7,7 @@ import copy
 import gzip
 import json
 import shutil
+import sys
 import warnings
 from dataclasses import replace
 from pathlib import Path
@@ -15,7 +16,14 @@ import pytest
 
 from rebuild.review import app_index, census, drafts, unit_index
 from rebuild.review import build as review_build
-from rebuild.review.audit import AUDIT_HEADER, SLIM_OMITTED_KEYS, UNMATCHED_CLASS, Unit, load_workload
+from rebuild.review.audit import (
+    ACCEPTANCE_CONFIGS,
+    AUDIT_HEADER,
+    SLIM_OMITTED_KEYS,
+    UNMATCHED_CLASS,
+    Unit,
+    load_workload,
+)
 from rebuild.review.build import (
     _HELD_SCAFFOLD_KEYS,
     _SCAFFOLD_HEAD,
@@ -35,7 +43,8 @@ from rebuild.review.build import (
     check_unit,
 )
 from rebuild.review.drafts import DraftError, Drafter
-from rebuild.review.enrich import LETTERS, Enricher, SubsetRow, _highlight, load_spec, load_subset_rows
+from rebuild.review.enrich import LETTERS, Enricher, _highlight, load_spec
+from rebuild.review.subset_pack import SubsetPack, SubsetRow, pack_key, table_digests, write_pack
 from rebuild.validation.rowmodel import Row, iter_rows
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
@@ -102,7 +111,7 @@ def mini_enriched(mini_bundle):
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
         spec = load_spec(mini_bundle.spec_root)
-    enricher = Enricher(spec, MINI, MINI_FONT, repo_root=REPO_ROOT)
+    enricher = Enricher(spec, MINI, MINI_FONT, repo_root=REPO_ROOT, subset_pack=mini_bundle.subset_pack)
     workload = load_workload(MINI_AUDIT, mini_bundle.ledger, dict(LETTERS))
     return enricher.enrich_many(workload.units[:MINI_SLICE])
 
@@ -498,6 +507,7 @@ def test_an_empty_audit_refuses_before_any_unit_is_built(tmp_path, mini_bundle):
             subset_dir=MINI,
             after_font=MINI_FONT,
             spec_root=mini_bundle.spec_root,
+            subset_pack=mini_bundle.subset_pack,
             jobs=1,
         )
     assert str(audit_path) in str(raised.value)
@@ -589,28 +599,41 @@ def _subset_table(path: Path, *rows: Row) -> Path:
     return path
 
 
-def test_a_baseline_row_outside_the_seam_vocabulary_is_refused_at_load(tmp_path):
-    """`SeamClassifier.classify` can name two heights at once, and a shard's `before.seams` cannot say that. The refusal belongs where the table is read — a compound token there is a bad input, and one config's table is read once per process rather than once per unit — and it is a refusal of the table, not of a row the enricher happened to ask for: a compound token on any row fails the load before anything is looked up."""
+def _pack(tmp_path: Path, *configs: str) -> SubsetPack:
+    """The named configurations' tables under `tmp_path` packed and opened, with the digests the reader holds the header to hashed off the same tables."""
+    digests = table_digests(tmp_path, configs)
+    return SubsetPack.open(write_pack(tmp_path, configs, digests, tmp_path / "subsets.pack"), digests)
+
+
+def test_a_baseline_row_outside_the_seam_vocabulary_is_refused_by_the_packer(tmp_path):
+    """`SeamClassifier.classify` can name two heights at once, and a shard's `before.seams` cannot say that. The refusal belongs where the table is read, which is the packer: it sweeps every row of every table it packs, so a compound token on any row refuses the table before a pack exists, and no worker's lookups decide which rows were checked. Nothing is renamed into place on a refusal, so a build that reaches the pack finds no torn one."""
     pair = (0xE650, 0xE652)
-    clean = _subset_table(tmp_path / "baseline-clean.subset.tsv.gz", _subset_row(pair, ("y0",)))
-    assert list(load_subset_rows(clean)) == ["E650:E652"]
-    compound = _subset_table(
+    _subset_table(tmp_path / "baseline-clean.subset.tsv.gz", _subset_row(pair, ("y0",)))
+    clean = _pack(tmp_path, "clean")
+    assert [codepoints for codepoints, _row in clean.rows("clean")] == ["E650:E652"]
+    clean.close()
+    _subset_table(
         tmp_path / "baseline-compound.subset.tsv.gz",
         _subset_row(pair, ("y0",)),
         _subset_row((0xE650, 0xE652, 0xE650), ("y0", "y0+y5")),
     )
+    digests = table_digests(tmp_path, ("clean", "compound"))
     with pytest.raises(ValueError) as raised:
-        load_subset_rows(compound)
+        write_pack(tmp_path, ("clean", "compound"), digests, tmp_path / "refused.pack")
     assert "'y0+y5'" in str(raised.value)
     assert "E650:E652:E650" in str(raised.value)
+    assert str(tmp_path / "baseline-compound.subset.tsv.gz") in str(raised.value)
+    assert not (tmp_path / "refused.pack").exists()
+    assert not list(tmp_path.glob("refused.pack.tmp-*"))
 
 
-def test_a_loaded_subset_row_is_the_projection_the_enricher_reads(tmp_path):
-    """What `load_subset_rows` hands back is a `SubsetRow` — the glyphs, clusters and seams of the parsed `Row` and nothing else, since `positions` is dead on this path and `codepoints` is the key — and a table's worth of them shares its strings: a glyph name or a seam token is one object however many rows carry it, and so are the cluster and seam tuples that recur row after row. The identity assertions are what pin the interning, because two equal strings parsed from two lines are two objects until something makes them one."""
+def test_a_packed_row_is_the_projection_the_enricher_reads(tmp_path):
+    """What a lookup hands back is a `SubsetRow` — the glyphs, clusters and seams of the parsed `Row` and nothing else, since `positions` is dead on this path and `codepoints` is the key — materialized from the mapped record with its strings drawn from the pack's one interned string table: a glyph name or a seam token is one object however many rows carry it, and the same object `sys.intern` answers anywhere else in the process. A window the table does not hold, or a configuration the pack does not, answers None."""
     first = _subset_row((0xE650, 0xE652), ("y0",))
     second = _subset_row((0xE652, 0xE650), ("y0",))
-    table = load_subset_rows(_subset_table(tmp_path / "baseline-two.subset.tsv.gz", first, second))
-    projected = table["E650:E652"]
+    _subset_table(tmp_path / "baseline-two.subset.tsv.gz", first, second)
+    pack = _pack(tmp_path, "two")
+    projected = pack.row("two", "E650:E652")
     assert isinstance(projected, SubsetRow)
     assert (projected.glyphs, projected.clusters, projected.seams) == (
         first.glyphs,
@@ -619,49 +642,128 @@ def test_a_loaded_subset_row_is_the_projection_the_enricher_reads(tmp_path):
     )
     assert not hasattr(projected, "positions")
     assert not hasattr(projected, "codepoints")
-    other = table["E652:E650"]
+    other = pack.row("two", "E652:E650")
+    assert other is not None
     assert other.glyphs[0] is projected.glyphs[1]
     assert other.seams[0] is projected.seams[0]
-    assert other.seams is projected.seams
-    assert other.clusters is projected.clusters
+    assert projected.glyphs[0] is sys.intern("qsPea") and projected.seams[0] is sys.intern("y0")
+    assert pack.row("two", "E650:E650") is None
+    assert pack.row("default", "E650:E652") is None
+    assert pack.row("two", "E650:E652:E650:E652:E650") is None
+    assert pack.row("two", "10000:E652") is None
+    assert pack.census() == (2, pack.census()[1]) and pack.census()[1] > 0
+    pack.close()
+
+
+def test_a_window_no_key_can_spell_is_refused_at_the_packer(tmp_path):
+    """A key is four 16-bit slots, and both bounds are checked: a fifth codepoint outruns the slots, and a codepoint past the Basic Multilingual Plane would shift into its neighbor's slot and pack two windows under one key, so `pack_key` refuses it rather than masking it — `10000:0020` and `0001:0000:0020` are different windows and get no shared key. A table holding either never becomes a pack."""
+    with pytest.raises(ValueError) as wide:
+        pack_key("E650:E652:E650:E652:E650")
+    assert "5 codepoints" in str(wide.value)
+    with pytest.raises(ValueError) as tall:
+        pack_key("10000:0020")
+    assert "10000" in str(tall.value)
+    assert pack_key("0001:0000:0020") == 0x100000020
+    with gzip.open(tmp_path / "baseline-astral.subset.tsv.gz", "wt", encoding="utf-8") as stream:
+        stream.write("# config: default\n")
+        stream.write("10000:E652\tqsPea|qsTea\t0,1\ty0\t0,0,10|0,0,12\n")
+    digests = table_digests(tmp_path, ("astral",))
+    with pytest.raises(ValueError):
+        write_pack(tmp_path, ("astral",), digests, tmp_path / "astral.pack")
+    assert not (tmp_path / "astral.pack").exists()
 
 
 @pytest.mark.parametrize(
     "path", sorted(MINI.glob("baseline-*.subset.tsv.gz")), ids=lambda path: path.name.split(".")[0]
 )
-def test_the_projection_drops_nothing_the_enricher_reads_from_a_real_table(path: Path):
-    """Over every table the frozen bundle ships, the projection is row for row what `rowmodel.Row` would have parsed: the same codepoint keys in file order, and under each the same glyphs, clusters and seams. `iter_rows` is the oracle here on purpose — `load_subset_rows` never builds a `Row`, it splits a line once and reads three of its fields, so the row model's parse is the independent reading this holds it to. A synthetic two-row table pins the shape; this pins it against tables the extractor actually wrote, ligature rows and boundary tokens included."""
-    table = load_subset_rows(path)
-    parsed = list(iter_rows(path))
-    assert list(table) == [":".join(f"{value:04X}" for value in row.codepoints) for row in parsed]
-    for row in parsed:
-        projected = table[":".join(f"{value:04X}" for value in row.codepoints)]
+def test_the_pack_drops_nothing_the_enricher_reads_from_a_real_table(path: Path, mini_bundle):
+    """Over every table the frozen bundle ships, packed six at a time into the bundle's pack, the rows read back are row for row what `rowmodel.Row` would have parsed: the pack's keys in its sorted order are exactly the table's keys, and under each the same glyphs, clusters and seams. `iter_rows` is the oracle here on purpose — the packer never builds a `Row`, it splits a line once and reads three of its fields, so the row model's parse is the independent reading this holds it to. A synthetic two-row table pins the shape; this pins it against tables the extractor actually wrote, ligature rows and boundary tokens included."""
+    config = path.name.split(".")[0].removeprefix("baseline-")
+    pack = SubsetPack.open(mini_bundle.subset_pack, table_digests(MINI, ACCEPTANCE_CONFIGS))
+    packed = list(pack.rows(config))
+    parsed = {":".join(f"{value:04X}" for value in row.codepoints): row for row in iter_rows(path)}
+    keys = [codepoints for codepoints, _row in packed]
+    assert keys == sorted(keys, key=pack_key) and set(keys) == set(parsed) and len(keys) == len(parsed)
+    for codepoints, projected in packed:
+        row = parsed[codepoints]
         assert (projected.glyphs, projected.clusters, projected.seams) == (
             row.glyphs,
             row.clusters,
             row.seams,
         )
+        assert pack.row(config, codepoints) == projected
+    pack.close()
 
 
 def test_a_subset_key_is_spelled_the_way_the_row_model_spells_it(tmp_path):
-    """The key is the codepoint field's own text only when that text already has the uppercase four-digit spelling `Row.to_tsv` writes; any other spelling `int` accepts — lowercase, unpadded — lands under the same normalized key the row model would have produced, so a table's provenance never decides which key a window is found under. Header and blank lines are skipped the way `iter_rows` skips them."""
+    """A window is found under the codepoints the row model would parse whatever the table's spelling of them — lowercase, unpadded — since the packer re-derives every key through `int`; the pack's own spelling of a key is the uppercase four-digit one `Row.to_tsv` writes. Header and blank lines are skipped the way `iter_rows` skips them, and a table written out of key order is sorted on the way in."""
     path = tmp_path / "baseline-spelled.subset.tsv.gz"
     with gzip.open(path, "wt", encoding="utf-8") as stream:
         stream.write("# config: default\n")
         stream.write("# rows: 2\n")
         stream.write("\n")
-        stream.write("e650:e652\tqsPea|qsTea\t0,1\ty0\t0,0,10|0,0,12\n")
         stream.write("E650:E652:E650\tqsPea|qsTea|qsPea\t0,1,2\ty0,y0\t0,0,10|0,0,12|0,0,14\n")
-    table = load_subset_rows(path)
-    assert list(table) == ["E650:E652", "E650:E652:E650"]
+        stream.write("e650:e652\tqsPea|qsTea\t0,1\ty0\t0,0,10|0,0,12\n")
+    pack = _pack(tmp_path, "spelled")
+    assert [codepoints for codepoints, _row in pack.rows("spelled")] == ["E650:E652", "E650:E652:E650"]
     parsed = {":".join(f"{value:04X}" for value in row.codepoints): row for row in iter_rows(path)}
-    assert list(parsed) == list(table)
     for key, row in parsed.items():
-        assert (table[key].glyphs, table[key].clusters, table[key].seams) == (
+        projected = pack.row("spelled", key)
+        assert projected is not None
+        assert (projected.glyphs, projected.clusters, projected.seams) == (
             row.glyphs,
             row.clusters,
             row.seams,
         )
+    assert pack.row("spelled", "e650:e652") == pack.row("spelled", "E650:E652")
+    pack.close()
+
+
+def test_a_pack_is_written_once_and_rewritten_only_when_a_table_moves(tmp_path, monkeypatch):
+    """`ensure_pack` is what every reader goes through, and it writes only when it must: a pack whose header records the tables' digests and this packer's code digest is reused as it lies, a table whose digest has moved gets the pack rewritten over it, and so does a pack written by other packer code — the whole-table seam sweep and the projection live in the packer, so a tightening of either reaches every pack on the next build rather than being outlived by one — and the reader refuses a pack whose header disagrees with either rather than serving rows of some other table or some other reading of it."""
+    pair = (0xE650, 0xE652)
+    _subset_table(tmp_path / "baseline-default.subset.tsv.gz", _subset_row(pair, ("y0",)))
+    _subset_table(tmp_path / "baseline-ss10.subset.tsv.gz", _subset_row(pair, ("break",)))
+    configs = ("default", "ss10")
+    writes: list[Path] = []
+    real_write = write_pack
+
+    def counted(subset_dir, config_names, digests, destination):
+        writes.append(Path(destination))
+        return real_write(subset_dir, config_names, digests, destination)
+
+    monkeypatch.setattr("rebuild.review.subset_pack.write_pack", counted)
+    from rebuild.review import subset_pack as module
+
+    first = module.ensure_pack(tmp_path, configs)
+    assert first == tmp_path / module.PACK_NAME and writes == [first]
+    assert module.ensure_pack(tmp_path, configs) == first and len(writes) == 1
+    assert (
+        module.ensure_pack(tmp_path, configs, table_digests(tmp_path, configs)) == first and len(writes) == 1
+    )
+    stale = table_digests(tmp_path, configs)
+    _subset_table(tmp_path / "baseline-ss10.subset.tsv.gz", _subset_row(pair, ("y5",)))
+    with pytest.raises(ValueError) as raised:
+        SubsetPack.open(first, table_digests(tmp_path, configs))
+    assert "other tables" in str(raised.value)
+    assert module.ensure_pack(tmp_path, configs) == first and len(writes) == 2
+    pack = SubsetPack.open(first, table_digests(tmp_path, configs))
+    row = pack.row("ss10", "E650:E652")
+    assert row is not None and row.seams == ("y5",)
+    pack.close()
+    with pytest.raises(ValueError):
+        SubsetPack.open(first, stale)
+    assert (
+        module.ensure_pack(tmp_path, configs, pack=tmp_path / "elsewhere.pack") == tmp_path / "elsewhere.pack"
+    )
+    assert len(writes) == 3
+    assert module.ensure_pack(tmp_path, ("default",)) == first and len(writes) == 4
+    monkeypatch.setattr(module, "PACKER_DIGEST", "0" * 64)
+    with pytest.raises(ValueError) as other_code:
+        SubsetPack.open(first, table_digests(tmp_path, ("default",)))
+    assert "other packer code" in str(other_code.value)
+    assert module.ensure_pack(tmp_path, ("default",)) == first and len(writes) == 5
+    module.SubsetPack.open(first, table_digests(tmp_path, ("default",))).close()
 
 
 def test_a_served_unit_skips_check_unit_but_not_the_cross_unit_grain():
@@ -754,6 +856,7 @@ def _build_mini(out: Path, mini_bundle) -> None:
         subset_dir=MINI,
         after_font=MINI_FONT,
         spec_root=mini_bundle.spec_root,
+        subset_pack=mini_bundle.subset_pack,
         jobs=1,
     )
 

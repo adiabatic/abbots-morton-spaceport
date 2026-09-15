@@ -212,8 +212,9 @@ def environment_stamp(
     before_font: Path,
     junior_font: Path,
     after_helpers_digest: str,
+    subset_digests: Mapping[str, str] | None = None,
 ) -> fingerprint.EnvironmentStamp:
-    """The whole-store stamp: any of these moving drops the cache entirely, and over-invalidation is the safe direction. The code line is `surface_code_paths`, the code the build runs and nothing more, so a pipeline or crate edit outside that closure — the driver, a gate, the oracle, the conformance sweep, the oracle's row cache, the GSUB emitter, the pixel geometry, the font compile, the crate's enumeration and fold — leaves the stamp where it was and the store serving. The two site fonts ride through `_font_digest`, blind to their `head` and `name` tables, so a version bump's rebuilt fonts leave it too. The rune files are absent on purpose — they invalidate at per-unit grain through the family keys — and so is the divergence ledger (see the module docstring for why its reach is already covered). The stamp carries the code closure's per-file lines as its `surface_code` detail, taken from the one `path_lines` read the code digest is folded from, so the file a miss note names is the file the digest saw."""
+    """The whole-store stamp: any of these moving drops the cache entirely, and over-invalidation is the safe direction. The code line is `surface_code_paths`, the code the build runs and nothing more, so a pipeline or crate edit outside that closure — the driver, a gate, the oracle, the conformance sweep, the oracle's row cache, the GSUB emitter, the pixel geometry, the font compile, the crate's enumeration and fold — leaves the stamp where it was and the store serving. The two site fonts ride through `_font_digest`, blind to their `head` and `name` tables, so a version bump's rebuilt fonts leave it too. The rune files are absent on purpose — they invalidate at per-unit grain through the family keys — and so is the divergence ledger (see the module docstring for why its reach is already covered). The stamp carries the code closure's per-file lines as its `surface_code` detail, taken from the one `path_lines` read the code digest is folded from, so the file a miss note names is the file the digest saw. `subset_digests` is each acceptance configuration's table already hashed by the caller — the build hashes them once, for this line and for the subset pack's header alike — and left out, the tables are hashed here."""
     root = Path(repo_root)
     code_lines = fingerprint.path_lines(root, surface_code_paths(root))
     runes = set(fingerprint.rune_paths(root))
@@ -225,6 +226,11 @@ def environment_stamp(
     )
     harness_paths = [root / "test" / "test_shaping.py", root / "postscript_glyph_names.yaml"]
     harness_paths += sorted((root / "tools").glob("*.py"))
+    if subset_digests is None:
+        subset_digests = {
+            config: _sha256_file(Path(subset_dir) / f"baseline-{config}.subset.tsv.gz")
+            for config in ACCEPTANCE_CONFIGS
+        }
     lines = [
         f"format\t{STORE_FORMAT}",
         f"surface_code\t{fingerprint.digest_lines(code_lines)}",
@@ -234,11 +240,7 @@ def environment_stamp(
         "capability_features\t" + json.dumps(spec_load.capability_features(spec)),
         f"before_font\t{_font_digest(Path(before_font))}",
         f"junior_font\t{_font_digest(Path(junior_font))}",
-        "subsets\t"
-        + " ".join(
-            f"{config}={_sha256_file(Path(subset_dir) / f'baseline-{config}.subset.tsv.gz')}"
-            for config in ACCEPTANCE_CONFIGS
-        ),
+        "subsets\t" + " ".join(f"{config}={subset_digests[config]}" for config in ACCEPTANCE_CONFIGS),
         "corpus\t" + " ".join(f"{name}={_sha256_file(root / name)}" for name in CORPUS_FILES),
         f"draft_harness\t{fingerprint.hash_paths(root, harness_paths)}",
         f"after_helpers\t{after_helpers_digest}",
