@@ -178,12 +178,12 @@ class TestTheWidthsAlreadyOnRecord:
         """The memo `default` leaves alive for the wave is one hash map and its pools, while the divisor is a configuration enumerated from scratch and held through its memo write, so the co-resident term is strictly the smaller of the two. Seeding them equal charges the wave a whole configuration for a snapshot, and fails here."""
         assert 0 < DEFAULT_MEMO_BYTES < DELTA_PEAK_BYTES
 
-    def test_the_shipped_surface_divisor_narrows_the_32_gib_box_below_its_core_clamp(self):
-        """The forward direction for the third width, against the box that reported it. The ten-core 32 GiB Mac that ran the 2026-08-27 full-fresh surface build got eight workers out of the core clamp this replaced — ten cores less gate:make-test's two, which met `SURFACE_JOBS_CAP` exactly — and the only reading anyone had of that build's footprint was a step peak, which maxes over the process tree instead of summing it and so could see the parent alone. Deriving the width instead is what puts the workers in the number. The assertion is an inequality because both surface constants are readings to keep current: re-seeding either is free as long as it does not hand this box back its eight."""
+    def test_the_shipped_surface_divisor_holds_the_32_gib_box_at_the_cap_by_division(self):
+        """The forward direction for the third width, against the box that reported it. The ten-core 32 GiB Mac that ran the 2026-08-27 full-fresh surface build got eight workers out of the core clamp this replaced — ten cores less gate:make-test's two, which met `SURFACE_JOBS_CAP` exactly — and the only reading anyone had of that build's footprint was a step peak, which maxes over the process tree instead of summing it and so could see the parent alone. Deriving the width instead is what puts the workers in the number: with a worker priced off the alphabet (its baseline rows come out of a mapped pack) the division hands this box the cap because eight workers fit its budget, and the assertion is the equality, since the cap-bound width on this box is the fleet claim the worker constant's comment makes. What this holds is an upper bound on the two surface constants: a re-seed that prices eight workers past this box's budget narrows it below the cap and fails here. The lower bound is not a width test's to hold — a box invented to divide exactly under eight workers is a magic number every re-seed re-tunes, and a box half this size floors at one under the reserve and the parent's co-resident pile before anything divides — so a worker priced under what a worker reads is `make job-costs`' surface-worker row's to catch, against the pool records rebuild/review/build.py files."""
         import rebuild.tools.artifact_cycle as ac
 
         assert (
-            ac.surface_job_budget(skip_gates=False, ncores=10, total_bytes=BOX_32_GIB) < ac.SURFACE_JOBS_CAP
+            ac.surface_job_budget(skip_gates=False, ncores=10, total_bytes=BOX_32_GIB) == ac.SURFACE_JOBS_CAP
         )
 
 

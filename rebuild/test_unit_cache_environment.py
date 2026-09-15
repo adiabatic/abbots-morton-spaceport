@@ -32,6 +32,7 @@ def _mini_build(out: Path, after_font: Path, bundle, **kwargs) -> dict:
         subset_dir=MINI,
         after_font=after_font,
         spec_root=bundle.spec_root,
+        subset_pack=bundle.subset_pack,
         jobs=1,
         **kwargs,
     )

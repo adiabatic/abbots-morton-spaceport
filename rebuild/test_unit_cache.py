@@ -48,6 +48,7 @@ def _build(out, bundle, audit_path=MINI_AUDIT, ledger_path=None, **kwargs):
         subset_dir=MINI,
         after_font=MINI_FONT,
         spec_root=bundle.spec_root,
+        subset_pack=bundle.subset_pack,
         **kwargs,
     )
 

@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import re
-import sys
 from collections.abc import Iterator, Sequence
 from dataclasses import dataclass, field
 from itertools import batched
@@ -15,9 +13,9 @@ from rebuild.pipeline.explain import ExplainReport, explain_many
 from rebuild.pipeline.labels import BOUNDARY_GLYPH_NAMES, features_for_config, load_alias_map
 from rebuild.pipeline.model import CellId, ResolvedSpec, Settled, isolated_overlay_active
 from rebuild.pipeline.settle import form_ligatures, is_boundary_settled, tokens_from_codepoints
-from rebuild.review.audit import Unit
+from rebuild.review.audit import ACCEPTANCE_CONFIGS, Unit
 from rebuild.review.ink import OutlineCache, OutlineIntern, kern_neutral
-from rebuild.validation.rowmodel import open_table
+from rebuild.review.subset_pack import SubsetPack, SubsetRow, ensure_pack, table_digests
 from rebuild.validation.shaping import SENIOR_FONT, Shaper
 
 REPO_ROOT = Path(__file__).resolve().parent.parent.parent
@@ -233,65 +231,6 @@ class EnrichedUnit:
     notation_tokens: tuple[str, ...] = ()
 
 
-_SEAM_TOKENS = ("break", "lig", "absent")
-
-
-def is_seam_token(token) -> bool:
-    """Whether a token is one the seam vocabulary admits: `break`, `lig`, `absent`, or `y` followed by a height. The compound tokens `SeamClassifier.classify` can emit when two heights join at once (`y0+y5`) are deliberately outside it — a shard's seams are single-height, and a baseline row carrying a compound one is a table the surface cannot describe."""
-    return isinstance(token, str) and (
-        token in _SEAM_TOKENS or (token.startswith("y") and token[1:].isdigit())
-    )
-
-
-@dataclass(frozen=True, slots=True)
-class SubsetRow:
-    """What the enricher reads off one baseline subset row, and nothing else: the old font's glyph names, which the kern-neutral re-shape is checked against; the cluster starts, which are the before spans; and the seams, which are the before seams and the seam-grain half of the divergence. The full `rowmodel.Row` carries two fields more, and this path reads neither — `positions` is dead here by design, since the subset was extracted with the old font's kerning on and the before pens come from a live kern-neutral re-shape instead, and `codepoints` is the key the table is looked up by. The narrowing is priced per configuration per worker: a surface worker holds one configuration's whole table for most of its life and adds one at each configuration boundary its draws cross, up to every table for the worker whose draws span the run of small configurations, since the pool hands units out in configuration order (`_configuration_order` in rebuild/review/build.py; `SURFACE_WORKER_BYTES` in rebuild/tools/artifact_cycle.py is where that shows up), so a field a row does not carry is a field no worker holds a table's worth of."""
-
-    glyphs: tuple[str, ...]
-    clusters: tuple[int, ...]
-    seams: tuple[str, ...]
-
-
-_CANONICAL_CODEPOINTS = re.compile(r"[0-9A-F]{4}(?::[0-9A-F]{4})*\Z")
-
-
-def load_subset_rows(path: Path) -> dict[str, SubsetRow]:
-    """One baseline subset table keyed by colon-joined uppercase codepoints, each row projected to a `SubsetRow` straight off its line, with every row's seams held to `is_seam_token` on the way. The vocabulary check belongs here rather than downstream on the emitted fragment: these rows are the sole source of a unit's `before.seams`, they are read once per config per process, and a table the classifier wrote a compound token into is a bad input rather than a bad fragment. It is also why the table is projected rather than parsed lazily off the raw lines — a check that ran only on the rows the enricher happened to look up would say nothing about the table. No `rowmodel.Row` is built on the way: a line is split once into the five fields `Row.to_tsv` writes and only the three the projection carries are read, so the pen positions — dead on this path by design, see `SubsetRow` — are never parsed at all, and the codepoint key is the field's own text whenever it already has the uppercase four-digit spelling `Row.to_tsv` writes, re-derived through `int` only when it does not. That is where the load's cost is: building a `Row` per line, pens included, would be most of it, and a worker pays the load once per configuration its batches reach. A table repeats the same few dozen glyph names and the same handful of seam tokens across every row, and nearly every row's cluster starts are the plain run `0, 1, …` and its seams one of a few short tuples, so glyph and seam strings are interned and the cluster and seam tuples memoized on their field's text: a repeat costs a pointer rather than a copy, and a seam field is checked the first time it is seen rather than on every row that repeats it — which still refuses the table at its first bad row, since a field that fails is never memoized. The codepoint key is interned too, through the same `sys.intern` table `audit.load_audit` puts the audit's window strings in, so every configuration's table keys one window on the one string the unit already holds rather than on a copy per table."""
-    table: dict[str, SubsetRow] = {}
-    clusters_by_field: dict[str, tuple[int, ...]] = {}
-    seams_by_field: dict[str, tuple[str, ...]] = {}
-    intern = sys.intern
-    canonical = _CANONICAL_CODEPOINTS.match
-    with open_table(path) as handle:
-        for line in handle:
-            if line.startswith("#") or not line.strip():
-                continue
-            codepoint_field, glyph_field, cluster_field, seam_field, _positions = line.split("\t")
-            if canonical(codepoint_field):
-                codepoints = intern(codepoint_field)
-            else:
-                codepoints = intern(":".join(f"{int(cp, 16):04X}" for cp in codepoint_field.split(":")))
-            seams = seams_by_field.get(seam_field)
-            if seams is None:
-                seams = tuple(seam_field.split(",")) if seam_field else ()
-                for token in seams:
-                    if not is_seam_token(token):
-                        raise ValueError(
-                            f"{path}: the baseline row for {codepoints} carries the seam token {token!r}, which is "
-                            "not one of break/lig/absent/yN"
-                        )
-                seams = seams_by_field[seam_field] = tuple(map(intern, seams))
-            clusters = clusters_by_field.get(cluster_field)
-            if clusters is None:
-                clusters = clusters_by_field[cluster_field] = tuple(map(int, cluster_field.split(",")))
-            table[codepoints] = SubsetRow(
-                glyphs=tuple(map(intern, glyph_field.split("|"))),
-                clusters=clusters,
-                seams=seams,
-            )
-    return table
-
-
 def _pen_positions(positions: tuple[tuple[int, int, int], ...]) -> list[int]:
     pens = [0]
     for _x, _y, advance in positions:
@@ -337,7 +276,7 @@ def _advance_drift_cell(before_pens: list[int], after_pens: list[int], cell_coun
 
 
 class Enricher:
-    """Holds the loaded spec, the per-config baseline subset tables, a kern-neutral shaper per font, and the alias map; `enrich` computes every precomputed shard field for one unit under its first config."""
+    """Holds the loaded spec, the packed baseline subset tables, a kern-neutral shaper per font, and the alias map; `enrich` computes every precomputed shard field for one unit under its first config. The pack is `subset_pack` — the build passes the one it wrote before its pool started, and a caller that names none gets the one `ensure_pack` keeps beside the tables under `subset_dir` over `ACCEPTANCE_CONFIGS`, written on demand. Both are deferred to the first `subset_row` call in whichever process makes it: construction hashes and writes nothing, and a spawn worker opens its own read-only mapping of the file the parent wrote and holds no table of its own."""
 
     def __init__(
         self,
@@ -348,9 +287,11 @@ class Enricher:
         repo_root: Path = REPO_ROOT,
         before_font: Path = SENIOR_FONT,
         shaper_factory: Callable = Shaper,
+        subset_pack: Path | None = None,
     ):
         self.spec = spec
         self.subset_dir = Path(subset_dir)
+        self.subset_pack = Path(subset_pack) if subset_pack is not None else None
         self.after_shaper = shaper_factory(after_font)
         self.before_shaper = shaper_factory(before_font)
         self._intern = OutlineIntern()
@@ -359,15 +300,22 @@ class Enricher:
             "after": OutlineCache(after_font, self._intern),
         }
         self.aliases = load_alias_map(alias_path or repo_root / "rebuild" / "m1-aliases.yaml")
-        self._subset_rows: dict[str, dict[str, SubsetRow]] = {}
+        self._pack: SubsetPack | None = None
         self._guard_verdicts: kernel_exec.FormationGuard | None = None
         self.mismatches: list[str] = []
 
     def subset_row(self, config: str, codepoints: str) -> SubsetRow | None:
-        if config not in self._subset_rows:
-            path = self.subset_dir / f"baseline-{config}.subset.tsv.gz"
-            self._subset_rows[config] = load_subset_rows(path) if path.exists() else {}
-        return self._subset_rows[config].get(codepoints)
+        """One window's baseline row under `config`, materialized out of the pack, which is mapped on the first call and held to the tables on disk as they are hashed then; a pack no caller named is ensured beside the tables on that same call."""
+        if self._pack is None:
+            digests = table_digests(self.subset_dir, ACCEPTANCE_CONFIGS)
+            if self.subset_pack is None:
+                self.subset_pack = ensure_pack(self.subset_dir, ACCEPTANCE_CONFIGS, digests)
+            self._pack = SubsetPack.open(self.subset_pack, digests)
+        return self._pack.row(config, codepoints)
+
+    def subset_pack_census(self) -> tuple[int, int]:
+        """The pile tally's reading of the pack: the rows it holds and the bytes it maps once opened, and nothing before."""
+        return self._pack.census() if self._pack is not None else (0, 0)
 
     def formed_spans(self, codepoint_values: tuple[int, ...]) -> list[tuple[int, int]]:
         tokens = tokens_from_codepoints(self.spec, codepoint_values)

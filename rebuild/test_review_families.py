@@ -129,6 +129,7 @@ def test_assignment_is_deterministic(mini_bundle):
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
         spec = load_spec(mini_bundle.spec_root)
-    a = Enricher(spec, mini, mini / "M1.otf", repo_root=REPO_ROOT, before_font=BEFORE_FONT)
-    b = Enricher(spec, mini, mini / "M1.otf", repo_root=REPO_ROOT, before_font=BEFORE_FONT)
+    pack = mini_bundle.subset_pack
+    a = Enricher(spec, mini, mini / "M1.otf", repo_root=REPO_ROOT, before_font=BEFORE_FONT, subset_pack=pack)
+    b = Enricher(spec, mini, mini / "M1.otf", repo_root=REPO_ROOT, before_font=BEFORE_FONT, subset_pack=pack)
     assert assign_family(a.enrich(unit)) == assign_family(b.enrich(unit))

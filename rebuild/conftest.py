@@ -510,21 +510,27 @@ def live_deletion_targets():
 
 @dataclass(frozen=True)
 class MiniBundle:
-    """The spec root materialized from the frozen mini-M1 bundle's pin, and that spec root's ledger."""
+    """The spec root materialized from the frozen mini-M1 bundle's pin, that spec root's ledger, and the bundle's subset tables packed under the temp root — the pack the enricher would otherwise write beside the checked-in tables, which no test may write to."""
 
     spec_root: Path
     ledger: Path
+    subset_pack: Path
 
 
 @pytest.fixture(scope="session")
 def mini_bundle(tmp_path_factory) -> MiniBundle:
-    """The mini bundle and the spec its rows settled under, the latter materialized out of git — from the tree and blob shas `rebuild/review/fixtures/mini/pin.json` records — once per session per worker, tens of milliseconds, into pytest's temp root. Hand `spec_root` to `build_m1` or `load_spec` and `ledger` to `load_workload` or `load_ledger`, and the settlement the enricher re-derives is the one the frozen rows were written under, whatever the working tree's runes say today.
+    """The mini bundle and the spec its rows settled under, the latter materialized out of git — from the tree and blob shas `rebuild/review/fixtures/mini/pin.json` records — once per session per worker, tens of milliseconds, into pytest's temp root, with the bundle's subset tables packed beside that spec (`subset_pack`, handed to `build_m1` and `Enricher` so neither writes the pack beside the checked-in tables). Hand `spec_root` to `build_m1` or `load_spec` and `ledger` to `load_workload` or `load_ledger`, and the settlement the enricher re-derives is the one the frozen rows were written under, whatever the working tree's runes say today.
 
     It reads `.git` through git subprocesses and writes only under pytest's temp root, never `rebuild/out` and never the repo's `tmp/` or `var/`, which is the standard every fixture here is held to. Those subprocesses are `git cat-file` and `git archive` by sha, which `closure_record.hermetic_child` lets through the closure recorder: the bytes they read are content-addressed and the pin file that names them is read in this process, so every test built on this fixture stays closable.
     """
     pin = announced_import("rebuild.review.fixtures.mini.pin")
+    subset_pack = announced_import("rebuild.review.subset_pack")
+    audit = announced_import("rebuild.review.audit")
     spec_root = pin.materialize(tmp_path_factory.mktemp("mini-spec"))
-    return MiniBundle(spec_root=spec_root, ledger=spec_root / "rebuild" / "m1-divergences.yaml")
+    pack = subset_pack.ensure_pack(MINI, audit.ACCEPTANCE_CONFIGS, pack=spec_root / subset_pack.PACK_NAME)
+    return MiniBundle(
+        spec_root=spec_root, ledger=spec_root / "rebuild" / "m1-divergences.yaml", subset_pack=pack
+    )
 
 
 @pytest.fixture(scope="session")
@@ -540,6 +546,7 @@ def mini_surface(tmp_path_factory, mini_bundle: MiniBundle) -> Path:
         subset_dir=MINI,
         after_font=MINI / "M1.otf",
         spec_root=mini_bundle.spec_root,
+        subset_pack=mini_bundle.subset_pack,
         jobs=1,
     )
     return out
