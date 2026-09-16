@@ -166,9 +166,15 @@ class OracleRowCache:
 
 
 def open_row_cache(
-    cache: "OracleRowCache | None", spec: ResolvedSpec, config: str, segment: int | None = None
+    cache: "OracleRowCache | None",
+    spec: ResolvedSpec,
+    config: str,
+    segment: int | None = None,
+    *,
+    first_row: int = 0,
+    stop_row: int | None = None,
 ) -> tuple["oracle_cache.RowStore | None", "oracle_cache.RowWriter | None"]:
-    """This configuration's loaded store and its staged successor, opened by whichever of the two oracle paths is running so the pair stays byte-equal between them. The subset digest is read off the stamp's own `subset` line rather than hashed a second time — the stamp already carries the bytes of the table this configuration is about to stream. A range of a cut configuration names its `segment`, and stages a segment writer (records only, no header and no trailer) for `oracle_cache.join_store_segments` to join; every range of one configuration loads the same store, so they agree on the ordinal the joined header records."""
+    """This configuration's loaded store, holding the records of the rows `[first_row, stop_row)`, and its staged successor, opened by whichever of the two oracle paths is running so the pair stays byte-equal between them. The subset digest is read off the stamp's own `subset` line rather than hashed a second time — the stamp already carries the bytes of the table this configuration is about to stream. A range of a cut configuration names its `segment` and its row bounds: it stages a segment writer (records only, no header and no trailer) for `oracle_cache.join_store_segments` to join, and loads its own rows of the store and no others, under the one header every range reads whole, so the ranges agree on the ordinal the joined header records."""
     if cache is None:
         return None, None
     stamp = cache.environment[config]
@@ -184,6 +190,8 @@ def open_row_cache(
             cache.rotation,
             cache.position_environment,
             cache.position_keys,
+            first_row=first_row,
+            stop_row=stop_row,
         )
     writer = None
     if cache.write_dir is not None:
@@ -884,7 +892,9 @@ def oracle_config_worker(
     kern = oracle_positions.KernEvaluator(Path(kern_sidecar_path)) if kern_sidecar_path is not None else None
     segment_path = oracle_audit_shard(audit_dir, config, shard.segment)
     segment_path.parent.mkdir(parents=True, exist_ok=True)
-    store, writer = open_row_cache(row_cache, spec, config, shard.segment)
+    store, writer = open_row_cache(
+        row_cache, spec, config, shard.segment, first_row=shard.first_row, stop_row=shard.stop_row
+    )
     if guard_verdicts is None and not overlay:
         guard_verdicts = kernel_exec.guard_sweep(spec)
     with ExitStack() as stack:
@@ -913,7 +923,7 @@ def oracle_config_worker(
 
 
 def merge_config_shards(results: Sequence[OracleConfigResult]) -> OracleConfigResult:
-    """One configuration's result folded back out of its row ranges' results, handed in row order: the counts sum, `counts_by_entry` sums per entry, `multi_matched` concatenates, `unmatched_exemplars` concatenates and then truncates to `ORACLE_UNMATCHED_EXEMPLARS` — which is the uncut result's first that many in table order exactly, since a range's own list is complete for its rows whenever it is shorter than the cap — and `notes` concatenate with repeats dropped, since a table missing from the directory would otherwise be noted once per range. The ranges of one configuration wrote their store segments under one ordinal, having loaded the same store; a disagreement there is a fault in the fan-out and refused rather than folded. `peak_rss_bytes` is the widest range's."""
+    """One configuration's result folded back out of its row ranges' results, handed in row order: the counts sum, `counts_by_entry` sums per entry, `multi_matched` concatenates, `unmatched_exemplars` concatenates and then truncates to `ORACLE_UNMATCHED_EXEMPLARS` — which is the uncut result's first that many in table order exactly, since a range's own list is complete for its rows whenever it is shorter than the cap — and `notes` concatenate with repeats dropped, since a table missing from the directory would otherwise be noted once per range. The ranges of one configuration wrote their store segments under one ordinal, having read the same store's header; a disagreement there is a fault in the fan-out and refused rather than folded. `peak_rss_bytes` is the widest range's."""
     if not results:
         raise ValueError("merge_config_shards folds at least one range")
     configs = {result.config for result in results}

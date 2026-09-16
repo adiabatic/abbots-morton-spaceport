@@ -452,7 +452,7 @@ def decode_record(line: str) -> StoredRecord:
 
 
 class RowStore:
-    """One configuration's loaded store. The body is held as a single decompressed blob plus an offsets array rather than as a third of a million parsed records: only the rows a pass actually serves are ever decoded, and the ages — which every row's staleness test reads — ride a parallel int array so the partition scan never touches the blob at all.
+    """One row range's share of a configuration's loaded store: the records of the rows in `[first_row, first_row + len(ages))`, held as one buffer and three packed arrays — a record's offset into the buffer and the two ages its staleness tests read — indexed by `index - first_row`, so a worker holds its own range's records and nothing else of the store. Every method still takes the row's absolute ordinal in the table, which is what keeps a cut configuration's ranges self-contained segments of one store (rebuild/pipeline/oracle.py): an index outside the range raises rather than serving a neighbor's record, since a misaddressed serve is the anchor check's kind of fault and Python's arrays would otherwise read a negative index from the end. `rows` is the table's count, never the slice's — given none, it is the range's own end, the count of a store whose range runs to the table's end — because the oracle classifies an index at or above it as fresh (`oracle._compare_config`), and a slice whose count shrank to its own length would re-derive every row above its range and write a store an uncut pass never writes. Only the rows a pass actually serves are ever decoded, and the ages ride the parallel arrays so the partition scan never touches the buffer at all.
 
     `rotation` is what a pass that will never write one of these declares about itself. Both anti-laundering mechanisms advance on the pass ordinal, and the ordinal only advances when a store is written — so a read-only pass, repeated, would retire the same twentieth of the table and re-prove the same sample every time, forever, which is the shape `--gates-only` takes in the re-adjudication loop it exists for. A writing pass leaves this at zero and rides its own ordinal; a read-only one rotates on the clock, and the coverage moves whether or not anything on disk does.
     """
@@ -465,12 +465,14 @@ class RowStore:
         subset_digest: str,
         pass_ordinal: int,
         mask: StaleMask,
-        blob: bytes,
+        blob: bytes | bytearray,
         offsets: "array[int]",
         ages: "array[int]",
         rotation: int = 0,
         position_mask: StaleMask | None = None,
         position_ages: "array[int] | None" = None,
+        first_row: int = 0,
+        rows: int | None = None,
     ) -> None:
         self.environment = environment
         self.recorded_lines = recorded_lines
@@ -484,6 +486,8 @@ class RowStore:
         self._blob = blob
         self._offsets = offsets
         self._ages = ages
+        self.first_row = first_row
+        self._rows = first_row + len(ages) if rows is None else rows
         if position_mask is None:
             position_mask = StaleMask(mask.spec, mask.moved)
             position_mask.everything = True
@@ -492,18 +496,33 @@ class RowStore:
 
     @property
     def rows(self) -> int:
-        return len(self._ages)
+        """The table's row count, as the store's trailer vouches for it, whatever range this store holds."""
+        return self._rows
+
+    @property
+    def stop_row(self) -> int:
+        """One past the last row this store holds a record for."""
+        return self.first_row + len(self._ages)
 
     @property
     def moved(self) -> frozenset[str]:
         return self.mask.moved
 
+    def _at(self, index: int) -> int:
+        """The arrays' position for the table's row `index`, refused loudly for a row outside this store's range."""
+        at = index - self.first_row
+        if at < 0 or at >= len(self._ages):
+            raise IndexError(
+                f"row {index} is outside the range [{self.first_row}, {self.stop_row}) this oracle row store holds"
+            )
+        return at
+
     def age(self, index: int) -> int:
         """The pass this row's verdict was derived at — carried forward verbatim by every pass that only served it, so it measures how long the verdict has stood rather than how long the file has."""
-        return self._ages[index]
+        return self._ages[self._at(index)]
 
     def position_age(self, index: int) -> int:
-        return self._position_ages[index]
+        return self._position_ages[self._at(index)]
 
     @property
     def coverage_ordinal(self) -> int:
@@ -517,11 +536,11 @@ class RowStore:
 
     def due(self, index: int) -> bool:
         """Whether this row's verdict must re-derive regardless of its families. The ordinal clause retires one row in `MAX_RECORD_AGE` every pass, so no verdict can stand that many passes without being recomputed and the renewal is spread across passes rather than arriving all at once on the pass the cap comes due; the age clause is the belt to those braces, and catches a store whose pass ordinals skipped. Only the slice rotates for a read-only pass — the age arithmetic stays on the true ordinal, because a rotated `current` would read every record as older than the cap and retire the whole table."""
-        return self._due(index, self._ages[index])
+        return self._due(index, self._ages[self._at(index)])
 
     def position_due(self, index: int) -> bool:
         """`due` over the position verdict's own age: the same slice retires both verdicts of a row on the same pass, and the age clause reads the pass the position was shaped at."""
-        return self._due(index, self._position_ages[index])
+        return self._due(index, self._position_ages[self._at(index)])
 
     def stale(self, index: int, mask: int) -> bool:
         return self.mask.stale(mask) or self.due(index)
@@ -532,8 +551,9 @@ class RowStore:
 
     def serve(self, index: int, codepoints: Sequence[int]) -> StoredRecord:
         """This row's whole record, after proving it is this row's; the caller decides which of its two verdicts the keys allow it to use and counts the position under `positions_served` itself. A mismatched anchor is not a miss and must not be treated as one — it means the table under this store was replaced or reordered, and every other record is wrong the same way."""
-        start = self._offsets[index]
-        end = self._offsets[index + 1] - 1
+        at = self._at(index)
+        start = self._offsets[at]
+        end = self._offsets[at + 1] - 1
         anchor = self._blob[start : start + ANCHOR_WIDTH].decode("ascii")
         if anchor != row_anchor(codepoints):
             raise SystemExit(
@@ -587,50 +607,55 @@ def load_store(
     rotation: int = 0,
     position_environment: EnvironmentStamp | None = None,
     current_position_keys: Mapping[str, str] | None = None,
+    *,
+    first_row: int = 0,
+    stop_row: int | None = None,
 ) -> RowStore | None:
-    """The previous pass's records for one configuration, or `None` when there is no store this run may trust: absent, unreadable, format- or stamp-mismatched, written against another subset table, or missing the trailer that vouches for its own length. Over-invalidation is the only safe direction here — a `None` costs one cold oracle and nothing else — so every parse failure lands in the same place, `zlib`'s own included: a corrupt deflate body raises out of the compression layer rather than as an `OSError`, and would otherwise take the build down for a file whose only job is to save time. The position stamp and keys decide less: a store that loads serves its row verdicts whatever they say, and `position_stale_mask` decides whether any of its position verdicts may be served beside them. `rotation` is handed to the store unread; see `RowStore` for what a pass that may not write declares with it."""
+    """The previous pass's records for the rows `[first_row, stop_row)` of one configuration — `stop_row` None is the table's end — or `None` when there is no store this run may trust: absent, unreadable, format- or stamp-mismatched, written against another subset table, or missing the trailer that vouches for its own length. Over-invalidation is the only safe direction here — a `None` costs one cold oracle and nothing else — so every parse failure lands in the same place, `zlib`'s own included: a corrupt deflate body raises out of the compression layer rather than as an `OSError`, and would otherwise take the build down for a file whose only job is to save time. The member is read line by line and scanned to its end whatever the range asks for: the trailer is its last line and the count the store is held to, and every record's two age fields are parsed, in range or out, so that the ranges of one configuration agree on whether the store loads at all — two that disagreed would write ages an uncut pass never writes. What the range decides is what is kept: one buffer of its own records and three packed arrays over them, the record bytes of the rows outside it never kept; a range whose kept bytes outrun the packed offsets' width is refused the same way as any other parse failure. The position stamp and keys decide less: a store that loads serves its row verdicts whatever they say, and `position_stale_mask` decides whether any of its position verdicts may be served beside them. `rotation` is handed to the store unread; see `RowStore` for what a pass that may not write declares with it."""
     store_file = Path(path)
     if not store_file.is_file():
         return None
     try:
         with gzip.open(store_file, "rb") as stream:
-            payload = stream.read()
-        head, _, rest = payload.partition(b"\n")
-        header = json.loads(head)
-        if header["format"] != STORE_FORMAT:
-            return None
-        recorded_lines = tuple(header["environment"])
-        if recorded_lines != environment.lines:
-            return None
-        if header["subset_digest"] != subset_digest:
-            return None
-        recorded_keys = {str(name): str(value) for name, value in header["family_keys"].items()}
-        pass_ordinal = int(header["pass_ordinal"])
+            header = json.loads(stream.readline())
+            if header["format"] != STORE_FORMAT:
+                return None
+            recorded_lines = tuple(header["environment"])
+            if recorded_lines != environment.lines:
+                return None
+            if header["subset_digest"] != subset_digest:
+                return None
+            recorded_keys = {str(name): str(value) for name, value in header["family_keys"].items()}
+            pass_ordinal = int(header["pass_ordinal"])
 
-        if not rest.endswith(b"\n"):
-            return None
-        trailer_at = rest.rfind(b"\n", 0, len(rest) - 1)
-        trailer = rest[trailer_at + 1 : -1].decode("utf-8").split("\t")
-        if trailer[0] != ROW_COUNT_TRAILER:
-            return None
-        expected = int(trailer[1])
-        blob = rest[: trailer_at + 1]
-
-        offsets: array[int] = array("q", [0])
-        ages: array[int] = array("i")
-        position_ages: array[int] = array("i")
-        cursor = 0
-        limit = len(blob)
-        while cursor < limit:
-            end = blob.index(b"\n", cursor)
-            last_tab = blob.rindex(b"\t", cursor, end)
-            position_ages.append(int(blob[last_tab + 1 : end]))
-            ages.append(int(blob[blob.rindex(b"\t", cursor, last_tab) + 1 : last_tab]))
-            cursor = end + 1
-            offsets.append(cursor)
-        if len(ages) != expected:
-            return None
-    except OSError, EOFError, ValueError, KeyError, IndexError, TypeError, zlib.error:
+            blob = bytearray()
+            offsets: array[int] = array("I", [0])
+            ages: array[int] = array("i")
+            position_ages: array[int] = array("i")
+            seen = 0
+            pending = stream.readline()
+            if not pending:
+                return None
+            for line in stream:
+                end = len(pending) - 1
+                last_tab = pending.rindex(b"\t", 0, end)
+                position_age = int(pending[last_tab + 1 : end])
+                age = int(pending[pending.rindex(b"\t", 0, last_tab) + 1 : last_tab])
+                if seen >= first_row and (stop_row is None or seen < stop_row):
+                    blob += pending
+                    offsets.append(len(blob))
+                    ages.append(age)
+                    position_ages.append(position_age)
+                seen += 1
+                pending = line
+            if not pending.endswith(b"\n"):
+                return None
+            trailer = pending[:-1].decode("utf-8").split("\t")
+            if trailer[0] != ROW_COUNT_TRAILER:
+                return None
+            if seen != int(trailer[1]):
+                return None
+    except OSError, EOFError, ValueError, KeyError, IndexError, TypeError, OverflowError, zlib.error:
         return None
     moved = moved_families(recorded_keys, current_keys)
     return RowStore(
@@ -646,6 +671,8 @@ def load_store(
         rotation=rotation,
         position_mask=position_stale_mask(spec, moved, header, position_environment, current_position_keys),
         position_ages=position_ages,
+        first_row=first_row,
+        rows=seen,
     )
 
 
@@ -762,7 +789,7 @@ def join_store_segments(
     position_environment: EnvironmentStamp | None = None,
     position_keys: Mapping[str, str] | None = None,
 ) -> Path | None:
-    """One cut configuration's staged store, assembled from the `segments` its row ranges wrote: a header member, then each segment's compressed bytes copied through verbatim in row order, then a trailer member counting `rows`, landed at `scratch_store_path(scratch_dir, config)` through a temporary file and `os.replace` so `promote_stores` finds it where an uncut configuration's writer would have left it. Nothing is decompressed on the way through, so the parent's cost is a copy. The joined file is a multi-member gzip stream and therefore not byte-identical to the single-member store the same records would make — its decompressed payload is, which is what `load_store` reads (`gzip.open(...).read()` spans members), so the trailer check, the anchor check and the ages all hold, and a store short a segment's tail still loads as None. That the framing differs is safe exactly because `store_path`'s docstring already records that nothing hashes this file. `None` when a segment is missing, which is a range that never wrote one, and then nothing is staged for the configuration."""
+    """One cut configuration's staged store, assembled from the `segments` its row ranges wrote: a header member, then each segment's compressed bytes copied through verbatim in row order, then a trailer member counting `rows`, landed at `scratch_store_path(scratch_dir, config)` through a temporary file and `os.replace` so `promote_stores` finds it where an uncut configuration's writer would have left it. Nothing is decompressed on the way through, so the parent's cost is a copy. The joined file is a multi-member gzip stream and therefore not byte-identical to the single-member store the same records would make — its decompressed payload is, which is what `load_store` reads (a `gzip.open(...)` stream's `readline` and iteration span members, an empty member included), so the trailer check, the anchor check and the ages all hold, and a store short a segment's tail still loads as None. That the framing differs is safe exactly because `store_path`'s docstring already records that nothing hashes this file. `None` when a segment is missing, which is a range that never wrote one, and then nothing is staged for the configuration."""
     paths = [scratch_store_path(scratch_dir, config, segment) for segment in range(segments)]
     if any(not path.is_file() for path in paths):
         return None

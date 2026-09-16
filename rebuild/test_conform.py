@@ -2091,6 +2091,23 @@ class TestOracleRowRanges:
         assert reference is not None
         for index, codepoints in enumerate(rows):
             assert loaded.serve(index, codepoints) == reference.serve(index, codepoints)
+        middle = sorted(shards, key=lambda shard: shard.first_row)[1]
+        sliced = oracle_cache.load_store(
+            cut_path,
+            stamp,
+            stamp.labels["subset"],
+            spec,
+            shared["keys"],
+            0,
+            *reversed(shared["position"]),
+            first_row=middle.first_row,
+            stop_row=middle.stop_row,
+        )
+        assert sliced is not None and sliced.rows == len(rows) and middle.stop_row is not None
+        assert (sliced.first_row, sliced.stop_row) == (middle.first_row, middle.stop_row)
+        assert 0 < middle.first_row < middle.stop_row < len(rows)
+        for index in range(middle.first_row, middle.stop_row):
+            assert sliced.serve(index, rows[index]) == reference.serve(index, rows[index])
         payload = gzip.decompress(cut_path.read_bytes())
         short = cut_path.with_name("short.tsv.gz")
         short.write_bytes(gzip.compress(payload[: len(payload) - 40]))
