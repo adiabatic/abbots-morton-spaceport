@@ -135,7 +135,7 @@ def check_rule_certificates(
 
     What the settle proves is the pins. A certificate's prefix is the chain of rows whose outcomes put the rule's left state in place, and the fixpoint only ever pinned those rows' slots — a settled left is reachable alongside the right1 that was the producing window's right2, and the deeper slots ride the allowed-sets. Settling the text from the run edge re-derives that left from nothing, so a pin the worklist got wrong settles the certificate to some other left, which first-matches some other rule, and the rule is reported. A table whose certificates do not cover its rules — a count that differs from the rule count — fails every rule, since nothing vouches for them.
 
-    O(rules) settles and no search: the texts prefill one `conform._SettledWindowWalk` in waves, and `memo` is the configuration's shared settle memo (`conform.settle_memo_files`), keyed per family the way the oracle row cache is, so a window the belt or the oracle has already settled since the runes it names last moved costs a dict probe and the windows this check settles are handed on to them. That key is where the window-locality theorem reaches the certificates: a certificate names a handful of families, its windows survive exactly as long as those families' keys do, and a rune edit re-settles only the certificates naming an edited family.
+    O(rules) settles and no search: the texts prefill one `conform._SettledWindowWalk` in waves, and `memo` is the configuration's shared settle memo (`conform.settle_memo_files`), keyed per family the way the oracle row cache is, so a window the belt or the oracle has already settled since the runes it names last moved costs a dict probe and the windows this check settles are handed on to them. That key is where the window-locality theorem reaches the certificates: a certificate names a handful of families, its windows survive exactly as long as those families' keys do, and a rune edit re-settles only the certificates naming an edited family. The file holds the horizon-4 universe and the certificates ask a fraction of it, so the walk loads only the rows its texts can ask (`load_only_asked_by`, whose ask set is fixed by the certificate texts before the first wave) and files the windows it settled fresh as a part at the memo's `write_path`, which the caller absorbs into the file; a memo handed here therefore names a `write_path`, and `served` on the report counts the rows the load kept. A certificate text the registry refuses to tokenize is reported against its own rule by the per-text walk below, and the restriction and the prefill sit under the same `suppress` so that refusal reaches the walk rather than the caller; a walk whose restriction was cut short that way loads the file whole, which costs it memory and never an answer.
     """
     if guard_verdicts is None:
         guard_verdicts = kernel_exec.guard_sweep(spec)
@@ -161,8 +161,11 @@ def check_rule_certificates(
             report.failures.append(
                 f"{decision.config} rule {index} ({rule_signature(decision.rules[index])}): its certificate {list(tokens)} does not render as text ({error})"
             )
+    pile = sorted({text for text in texts if text})
     with suppress(settle.SettleError):
-        walker.prefill(sorted({text for text in texts if text}))
+        if memo is not None:
+            walker.load_only_asked_by(pile)
+        walker.prefill(pile)
     for index, text in enumerate(texts):
         if text is None:
             continue
@@ -188,5 +191,6 @@ def check_rule_certificates(
     if memo is not None:
         walker.save_memo()
     report.served = walker.memo_windows
+    report.unasked = walker.unasked_windows
     report.fresh = walker.fresh_windows
     return report

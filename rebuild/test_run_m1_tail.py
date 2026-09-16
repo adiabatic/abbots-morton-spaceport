@@ -234,8 +234,8 @@ class TestTheFirstRed:
             gates.close()
 
 
-def _stub_main(monkeypatch, tmp_path, events, **gates):
-    """Everything `main` reaches around `run`: the pre-gate guards, the keys, the spec, the pin gate and the oracle, with `run` itself real and pointed at `tmp_path`."""
+def _stub_main(monkeypatch, tmp_path, events, *, on_oracle=None, **gates):
+    """Everything `main` reaches around `run`: the pre-gate guards, the keys, the spec, the pin gate and the oracle, with `run` itself real and pointed at `tmp_path`. The oracle stub calls `on_oracle` the moment it starts, before recording its event."""
     real_run = run_m1.run
     monkeypatch.setattr(run_m1.oracle, "unaliased_subset_names", lambda subset_dir, alias_path: {})
     monkeypatch.setattr(run_m1.baseline_subset, "ensure_fresh", lambda repo_root: False)
@@ -253,6 +253,8 @@ def _stub_main(monkeypatch, tmp_path, events, **gates):
     )
 
     def run_oracle(spec, jobs, **rest):
+        if on_oracle is not None:
+            on_oracle()
         events.append("oracle")
         return {"unmatched": 0, "multi_matched": 0}
 
@@ -263,11 +265,27 @@ def _stub_main(monkeypatch, tmp_path, events, **gates):
 
 class TestMain:
     def test_the_oracle_starts_only_after_the_witness_memos_are_written(self, monkeypatch, tmp_path, capsys):
-        """The guard on the memo clobber: an oracle worker loads `settle-memo-<config>.gz` lazily and writes back what it settled, so one that started before the witness stage wrote its file could replace that file with a smaller one, and the next belt would settle cold. The witness stub parks long enough that an oracle started at the chain's end would land first."""
+        """The guard on the memo clobber: an oracle worker loads `settle-memo-<config>.gz` lazily and writes back what it settled, so one that started before the witness stage's file landed could replace that file with a smaller one, and the next belt would settle cold. The witness stub takes the stage's own shape — a part filed beside the file and folded into it through `conform.absorb_settle_memo_parts` — and parks long enough that an oracle started at the chain's end would land first; the oracle stub reads whether the file stands at the moment it starts."""
         events: list = []
-        _stub_main(monkeypatch, tmp_path, events, on_witnesses=lambda: time.sleep(0.3))
+        memo = conform.SettleMemoFile(tmp_path / "settle-memo-default.gz", "stamp")
+        part = tmp_path / "witness-part.gz"
+        standing: list[bool] = []
+
+        def witness():
+            time.sleep(0.3)
+            assert conform._write_settle_memo(memo, [], part)
+            assert conform.absorb_settle_memo_parts(memo, [part], SPEC)
+
+        _stub_main(
+            monkeypatch,
+            tmp_path,
+            events,
+            on_witnesses=witness,
+            on_oracle=lambda: standing.append(conform.settle_memo_standing(memo)),
+        )
         run_m1.main([])
         assert events.index("witnesses:done") < events.index("oracle")
+        assert standing == [True]
         labels = [
             event.label
             for event in map(console.parse_line, capsys.readouterr().out.splitlines())
