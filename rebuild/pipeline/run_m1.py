@@ -552,7 +552,7 @@ def _run_table_gates(
     replay_threads: int | None,
     state: _TableGateState,
 ) -> None:
-    """The table-only branch, on one background thread beside the glyph chain. The string replay runs first, at its own width (`replay_threads`, a stated `--replay-threads` or None for the width `_replay_threads` derives from `kernel_exec.REPLAY_PEAK_BYTES`), and the witness stage after it, in that order because the replay writes each configuration's settle memo file whole on a whole-universe walk (`conform.absorb_replay_memo`) and the witness stage loads that file and writes it back with its own windows added; `state.memo_ready` is set once the witness stage's files are on disk, or the moment that chain goes red, and `TableGates` sets it as well when this thread ends any other way, so a wait on it can never hang. Beside that chain the shipped-order walks run on a thread of their own, one walk per configuration up to the cores (`_core_bound_threads`, sourced from the configuration count and the cores rather than from the build's width, and never from the oracle's: the oracle's pool is the whole box, so narrowing the walks to the cores it leaves would serialize them onto one and put their whole length on the critical path; their residue shares the box with the pool's first seconds instead, the overlap `doc/parallelism.md` states), each configuration's walk waiting on its own pack (`Packing.wait`), and the packing closes here after the last of them. Nothing raises out of this thread: the exception each stage would have raised in the serial form lands in `state`, and `TableGates` raises the first red in that order."""
+    """The table-only branch, on one background thread beside the glyph chain. The string replay runs first, at its own width (`replay_threads`, a stated `--replay-threads` or None for the width `_replay_threads` derives from `kernel_exec.REPLAY_PEAK_BYTES`), and the witness stage after it, in that order because the replay writes each configuration's settle memo file whole on a whole-universe walk (`conform.absorb_replay_memo`) and the witness stage loads the rows of that file its certificates can ask, files the windows it settled fresh as a part, and absorbs the part into the file before it returns; `state.memo_ready` is set once the witness stage's files are on disk, or the moment that chain goes red, and `TableGates` sets it as well when this thread ends any other way, so a wait on it can never hang. Beside that chain the shipped-order walks run on a thread of their own, one walk per configuration up to the cores (`_core_bound_threads`, sourced from the configuration count and the cores rather than from the build's width, and never from the oracle's: the oracle's pool is the whole box, so narrowing the walks to the cores it leaves would serialize them onto one and put their whole length on the critical path; their residue shares the box with the pool's first seconds instead, the overlap `doc/parallelism.md` states), each configuration's walk waiting on its own pack (`Packing.wait`), and the packing closes here after the last of them. Nothing raises out of this thread: the exception each stage would have raised in the serial form lands in `state`, and `TableGates` raises the first red in that order."""
     with ThreadPoolExecutor(max_workers=1, thread_name_prefix="emitted-order") as walks:
         emitted = (
             walks.submit(_emitted_order_stage, spec, tables, out_dir, packing) if inputs is not None else None
@@ -942,31 +942,41 @@ def run_rule_witnesses(
 ) -> dict:
     """The witness stage: every configuration's certificates settled through the crate and each rule asserted to fire in its own (`belt.check_rule_certificates`), which is the realizability half of the dead-rule alarm — the crate's fold refuses a rule no replayed row first-matches, and this refuses a rule whose replayed row no string reaches, which is what a wrong pin in the worklist would look like. It runs here, on the tables the build just folded, because the certificates are a fact about exactly those tables: nothing can check them against stale artifacts, and `--gates-only` reuses tables this stage already passed.
 
-    Each configuration's walk shares the settle memo the string replay fills and the oracle and the belt load (`conform.settle_memo_files`, keyed per family off `memo_inputs` the way the oracle row cache is), so a window any of them has settled since the runes it names last moved is settled once; on a whole-universe replay this stage serves every certificate's windows off the file the replay just filled and settles only what a narrowed replay left standing. That key is where the window-locality theorem reaches the certificates: a rune edit retires only the memo entries naming an edited family, so only the certificates naming one are re-settled. A caller building a spec of its own has no memo inputs and no memo, and settles everything. The summary is written beside the other gate summaries; a red one is raised at the join, ahead of any complaint the glyph chain makes. The stage runs after the string replay on the table-only branch (`_run_table_gates`), which is the ordering that lets it load the file the replay filled, and the oracle waits on its memos being written back (`TableGates.wait_for_memo`), so no later reader can write a smaller file over them.
+    Each configuration's walk shares the settle memo the string replay fills and the oracle and the belt load (`conform.settle_memo_files`, keyed per family off `memo_inputs` the way the oracle row cache is), so a window any of them has settled since the runes it names last moved is settled once; on a whole-universe replay this stage serves every certificate's windows off the file the replay just filled and settles only what a narrowed replay left standing. The file holds the horizon-4 universe and the certificates ask a fraction of it, so the walk loads only the rows its certificate texts can ask (`conform._SettledWindowWalk.load_only_asked_by`) and holds nothing else, files the windows it settled fresh as a part under a scratch directory (`SettleMemoFile.write_path`, the shape one range of a cut oracle configuration takes), and this stage folds the part into the shared file (`conform.absorb_settle_memo_parts`) inside the configuration's timed span: the file then carries every standing window plus the fresh ones, exactly what a walk that loaded and replaced it whole would have filed, and a walk that settled nothing writes no part and leaves the file untouched. That key is where the window-locality theorem reaches the certificates: a rune edit retires only the memo entries naming an edited family, so only the certificates naming one are re-settled. A caller building a spec of its own has no memo inputs and no memo, and settles everything. The summary is written beside the other gate summaries; a red one is raised at the join, ahead of any complaint the glyph chain makes. The stage runs after the string replay on the table-only branch (`_run_table_gates`), which is the ordering that lets it load the file the replay filled, and the oracle waits on its memos being absorbed (`TableGates.wait_for_memo`), so no later reader can write a smaller file over them.
     """
     guard_verdicts = kernel_exec.guard_sweep(spec)
     memos = conform.settle_memo_files(out_dir, spec, memo_inputs)
     per_config: dict[str, dict] = {}
     failures: list[str] = []
-    for config, entry in tables.items():
-        started = time.perf_counter()
-        decision = entry[0] if isinstance(entry, (tuple, list)) else entry
-        report = belt.check_rule_certificates(
-            spec, conform.features_for_config(config), decision, guard_verdicts, memo=memos.get(config)
-        )
-        per_config[config] = {
-            "rules": report.rules,
-            "witnessed": len(report.witnessed),
-            "failures": list(report.failures),
-            "served_windows": report.served,
-            "fresh_windows": report.fresh,
-        }
-        failures.extend(report.failures)
-        console.timing(
-            f"rule_witnesses[{config}]",
-            time.perf_counter() - started,
-            f"rules={report.rules} witnessed={len(report.witnessed)} served={report.served} fresh={report.fresh}",
-        )
+    with tempfile.TemporaryDirectory() as scratch:
+        for config, entry in tables.items():
+            started = time.perf_counter()
+            decision = entry[0] if isinstance(entry, (tuple, list)) else entry
+            memo = memos.get(config)
+            part = Path(scratch) / f"{config}.gz"
+            report = belt.check_rule_certificates(
+                spec,
+                conform.features_for_config(config),
+                decision,
+                guard_verdicts,
+                memo=None if memo is None else replace(memo, write_path=part),
+            )
+            if memo is not None:
+                conform.absorb_settle_memo_parts(memo, [part], spec)
+            per_config[config] = {
+                "rules": report.rules,
+                "witnessed": len(report.witnessed),
+                "failures": list(report.failures),
+                "served_windows": report.served,
+                "unasked_windows": report.unasked,
+                "fresh_windows": report.fresh,
+            }
+            failures.extend(report.failures)
+            console.timing(
+                f"rule_witnesses[{config}]",
+                time.perf_counter() - started,
+                f"rules={report.rules} witnessed={len(report.witnessed)} served={report.served} unasked={report.unasked} fresh={report.fresh}",
+            )
     summary = {"pass": not failures, "configs": per_config, "failures": failures[:50]}
     (out_dir / "witness_summary.json").write_text(json.dumps(summary, indent=2) + "\n")
     return summary

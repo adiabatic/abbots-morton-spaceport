@@ -3,6 +3,7 @@
 import gzip
 import hashlib
 import inspect
+import itertools
 import json
 import os
 import struct
@@ -2989,8 +2990,20 @@ class TestSettleMemoFile:
         assert third.memo_windows == len(first.windows)
         assert third._settle_calls == 0
 
-    def test_a_refusal_is_not_written_and_is_asked_again(self, spec, guard, tmp_path, monkeypatch):
-        """A refusal is memoized for the tolerant walk that met it and for nobody else: the file holds outcomes only, so the next walk to reach that window asks the crate and gets whatever the crate says then."""
+    def _rows(self, memo, spec) -> set[tuple[str, ...]]:
+        """Every window the file at `memo.path` holds, as the six-tuples a walk keys on."""
+        rows: set[tuple[str, ...]] = set()
+        labels: list[str] = []
+        for (new_labels, _items, columns, _values), _retired in conform._read_settle_memo(memo, spec):
+            labels.extend(new_labels)
+            rows.update(tuple(labels[label_id] for label_id in row) for row in zip(*columns))
+        return rows
+
+    @pytest.mark.parametrize("restricted", [False, True])
+    def test_a_refusal_is_not_written_and_is_asked_again(
+        self, spec, guard, tmp_path, monkeypatch, restricted
+    ):
+        """A refusal is memoized for the tolerant walk that met it and for nobody else: the file holds outcomes only, so the next walk to reach that window asks the crate and gets whatever the crate says then. A walk restricted to its texts' asks memoizes the refusal exactly as the unrestricted one does and raises at that key on its own walk too, since a refusal lives in `windows` and never in the file the restriction filters."""
         clean, refusing_text = chr(0xE665) + chr(0xE670), chr(0xE665) + chr(0xE652)
         original = kernel_exec.settle_windows
 
@@ -3003,11 +3016,25 @@ class TestSettleMemoFile:
 
         monkeypatch.setattr(kernel_exec, "settle_windows", injecting)
         memo = self._memo(tmp_path)
-        walker = conform._SettledWindowWalk(spec, frozenset(), {}, guard, on_error="drop", memo=memo)
+        part = tmp_path / "part.gz"
+        walker = conform._SettledWindowWalk(
+            spec,
+            frozenset(),
+            {},
+            guard,
+            on_error="drop",
+            memo=replace(memo, write_path=part) if restricted else memo,
+        )
+        if restricted:
+            walker.load_only_asked_by([clean, refusing_text])
         walker.prefill([clean, refusing_text])
         refused = [key for key, value in walker.windows.items() if isinstance(value, conform._RefusedWindow)]
         assert refused
+        with pytest.raises(settle.SettleError):
+            walker.walk(refusing_text)
         assert walker.save_memo()
+        if restricted:
+            assert conform.absorb_settle_memo_parts(memo, [part], spec)
 
         monkeypatch.setattr(kernel_exec, "settle_windows", original)
         again = conform._SettledWindowWalk(spec, frozenset(), {}, guard, memo=memo)
@@ -3111,6 +3138,96 @@ class TestSettleMemoFile:
         assert third.walk_many(texts) == reference.walk_many(texts)
         assert third._settle_calls == 0 and third.fresh_windows == 0
         assert set(third.windows) >= only_one | only_two | set(seed.windows)
+
+    def test_a_restricted_walk_files_only_its_fresh_windows_and_the_absorb_keeps_the_standing_ones(
+        self, spec, guard, tmp_path
+    ):
+        """The witness stage's shape: a walk that loads only the rows its texts can ask cannot tell a dropped row from an unreached one, so it files a part of exactly the windows it settled fresh, leaves the shared file alone, and the absorb lands standing plus fresh — where a whole-file save from such a walk would have dropped every row the load did."""
+        texts = self._texts(spec, 2)
+        memo = self._memo(tmp_path)
+        half = len(texts) // 2
+        seed = conform._SettledWindowWalk(spec, frozenset(), {}, guard, memo=memo)
+        seed.walk_many(texts[:half])
+        assert seed.save_memo()
+        standing = memo.path.read_bytes()
+
+        rest = texts[half:]
+        part = tmp_path / "part.gz"
+        restricted = conform._SettledWindowWalk(
+            spec, frozenset(), {}, guard, memo=replace(memo, write_path=part)
+        )
+        asks = restricted.load_only_asked_by(rest)
+        restricted.walk_many(rest)
+        kept = {window for window in seed.windows if (window[0],) + tuple(window[2:]) in asks}
+        assert 0 < len(kept) < len(seed.windows)
+        assert restricted.memo_windows == len(kept)
+        assert restricted.unasked_windows == len(seed.windows) - len(kept)
+        fresh = set(restricted.windows) - set(seed.windows)
+        assert fresh and restricted.fresh_windows == len(fresh)
+        assert restricted.save_memo()
+        assert memo.path.read_bytes() == standing
+        assert self._rows(replace(memo, path=part), spec) == fresh
+
+        assert conform.absorb_settle_memo_parts(memo, [part], spec)
+        assert self._rows(memo, spec) == set(seed.windows) | fresh
+        third = conform._SettledWindowWalk(spec, frozenset(), {}, guard, memo=memo)
+        reference = conform._SettledWindowWalk(spec, frozenset(), {}, guard)
+        assert third.walk_many(texts) == reference.walk_many(texts)
+        assert third._settle_calls == 0 and third.fresh_windows == 0
+
+    def test_a_restricted_load_serves_a_spelling_the_absorb_re_introduced_under_a_second_id(
+        self, spec, guard, tmp_path
+    ):
+        """The steady state of the file the witness stage reads: a part files its labels afresh, so the absorb re-introduces spellings the standing file already holds under second ids, and a restricted load has to test rows in spelling space rather than id space. Seeded whole, extended by one restricted walk's part, and read by a second restricted walk over the same texts, the file serves every row that walk asks — the standing rows and the absorbed rows alike — and the walk settles nothing; a load that matched ids would drop the absorbed rows and settle them again."""
+        texts = self._texts(spec, 2)
+        memo = self._memo(tmp_path)
+        half = len(texts) // 2
+        seed = conform._SettledWindowWalk(spec, frozenset(), {}, guard, memo=memo)
+        seed.walk_many(texts[:half])
+        assert seed.save_memo()
+
+        rest = texts[half:]
+        part = tmp_path / "part.gz"
+        first = conform._SettledWindowWalk(spec, frozenset(), {}, guard, memo=replace(memo, write_path=part))
+        asks = first.load_only_asked_by(rest)
+        first.walk_many(rest)
+        assert first.fresh_windows and first.save_memo()
+        assert conform.absorb_settle_memo_parts(memo, [part], spec)
+        spellings = [
+            label
+            for (new_labels, *_rest), _retired in conform._read_settle_memo(memo, spec)
+            for label in new_labels
+        ]
+        repeated = {label for label in spellings if spellings.count(label) > 1}
+        assert repeated and repeated & set(itertools.chain.from_iterable(asks))
+
+        rows = self._rows(memo, spec)
+        kept = {window for window in rows if (window[0],) + tuple(window[2:]) in asks}
+        assert len(kept) > first.fresh_windows
+        again = conform._SettledWindowWalk(
+            spec, frozenset(), {}, guard, memo=replace(memo, write_path=tmp_path / "again.gz")
+        )
+        assert again.load_only_asked_by(rest) == asks
+        reference = conform._SettledWindowWalk(spec, frozenset(), {}, guard)
+        assert again.walk_many(rest) == reference.walk_many(rest)
+        assert again.memo_windows == len(kept)
+        assert again.unasked_windows == len(rows) - len(kept)
+        assert again._settle_calls == 0 and again.fresh_windows == 0
+        assert not again.save_memo()
+
+    def test_a_restriction_needs_a_part_and_never_prunes(self, spec, guard, tmp_path):
+        """The two guards that tie the load half to the write half: a walk whose memo would replace the shared file whole may not restrict its load, and a restricted walk may not prune, since after a restricted load a dropped row and an unreached window look the same."""
+        texts = self._texts(spec, 1)
+        memo = self._memo(tmp_path)
+        whole = conform._SettledWindowWalk(spec, frozenset(), {}, guard, memo=memo)
+        with pytest.raises(AssertionError):
+            whole.load_only_asked_by(texts)
+        restricted = conform._SettledWindowWalk(
+            spec, frozenset(), {}, guard, memo=replace(memo, write_path=tmp_path / "part.gz")
+        )
+        restricted.load_only_asked_by(texts)
+        with pytest.raises(AssertionError):
+            restricted.save_memo(prune=True)
 
     def test_a_part_alone_becomes_the_file_and_a_restamped_file_contributes_nothing(
         self, spec, guard, tmp_path
