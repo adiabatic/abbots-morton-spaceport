@@ -583,6 +583,111 @@ class _RefusedWindow:
     message: str
 
 
+_MEMO_ROW_DEAD = 2
+
+
+class _MemoStore:
+    """One configuration's loaded settle memo held as the columns its file stores rather than as a dict of key tuples: `labels` is the file's label table, interned, in file order; `label_ids` maps a spelling to its first id, the fold every id in the columns is run through, since a part absorbed into the file can re-introduce a spelling under a second id; `outcomes` holds the file's outcomes in file order, each through the walk's `_outcome`, so an outcome object here is the same object `windows` holds and `_memo_blocks` dedupes by identity; `columns` are the six key columns and `values` the value column, `array("I")` each, concatenated across blocks; `reached` carries one byte per row — 0 unreached, 1 reached, `_MEMO_ROW_DEAD` for a row a later row of the same key superseded; and `index` is an open-addressed table of 2^k >= 2N slots holding row + 1, 0 for empty, probed linearly from `hash` of the six ids as a tuple. Int and tuple hashes are unsalted, so the index is a pure function of the columns, and two processes that load one file build one index. `seal` builds it once over everything appended, in file order, and a row whose key an earlier row already holds keeps the earlier row's slot, hands that row its value and dies — a dict's later-entry-wins-at-first-position — so `items` over the live rows in file order is the order a dict of the same file iterates in, and `len` is the live count. A window costs its seven column entries, its reached byte and its share of the index, 38 bytes at 2N slots, where a dict of six-tuples costs the tuple, its slot and the dict's own overhead."""
+
+    __slots__ = ("labels", "label_ids", "outcomes", "columns", "values", "reached", "live", "index", "_mask")
+
+    def __init__(self) -> None:
+        self.labels: list[str] = []
+        self.label_ids: dict[str, int] = {}
+        self.outcomes: list[_Outcome] = []
+        self.columns: list[array] = [array("I") for _ in range(6)]
+        self.values: array = array("I")
+        self.reached = bytearray()
+        self.live = 0
+        self.index: array = array("I")
+        self._mask = 0
+
+    def append(self, columns: Sequence[array], values: array) -> None:
+        """One block's rows, every id already folded through `label_ids`, behind the rows appended so far."""
+        for column, block in zip(self.columns, columns):
+            column.extend(block)
+        self.values.extend(values if values.typecode == "I" else array("I", values))
+        self.reached.extend(bytes(len(values)))
+
+    def seal(self) -> None:
+        """Build the index over every row appended, in file order, folding a repeated key onto its first row."""
+        rows = len(self.values)
+        if not rows:
+            return
+        slots = 1 << (2 * rows - 1).bit_length()
+        mask = slots - 1
+        index = array("I", [0]) * slots
+        hashed = array("I", map(mask.__and__, map(hash, zip(*self.columns))))
+        c0, c1, c2, c3, c4, c5 = self.columns
+        values = self.values
+        reached = self.reached
+        live = 0
+        for row, slot in enumerate(hashed):
+            while True:
+                other = index[slot]
+                if not other:
+                    index[slot] = row + 1
+                    live += 1
+                    break
+                other -= 1
+                if (
+                    c0[other] == c0[row]
+                    and c1[other] == c1[row]
+                    and c2[other] == c2[row]
+                    and c3[other] == c3[row]
+                    and c4[other] == c4[row]
+                    and c5[other] == c5[row]
+                ):
+                    values[other] = values[row]
+                    reached[row] = _MEMO_ROW_DEAD
+                    break
+                slot = (slot + 1) & mask
+        self.index = index
+        self._mask = mask
+        self.live = live
+
+    def probe(self, window: _Window) -> _Outcome | None:
+        """The outcome the store holds for `window`, marking its row reached, or None: a label the file never introduced is a miss before any hash."""
+        if not self.live:
+            return None
+        try:
+            key = tuple(map(self.label_ids.__getitem__, window))
+        except KeyError:
+            return None
+        mask = self._mask
+        slot = hash(key) & mask
+        index = self.index
+        c0, c1, c2, c3, c4, c5 = self.columns
+        while True:
+            row = index[slot]
+            if not row:
+                return None
+            row -= 1
+            if (c0[row], c1[row], c2[row], c3[row], c4[row], c5[row]) == key:
+                self.reached[row] = 1
+                return self.outcomes[self.values[row]]
+            slot = (slot + 1) & mask
+
+    def __len__(self) -> int:
+        return self.live
+
+    def reached_count(self) -> int:
+        return self.reached.count(1)
+
+    def items(self, reached: bool | None = None) -> Iterator[tuple[_Window, _Outcome]]:
+        """The live rows as (window, outcome) pairs in file order: every one, only the reached ones, or only the unreached ones."""
+        labels = self.labels
+        pairs = zip(
+            zip(*(map(labels.__getitem__, column) for column in self.columns)),
+            map(self.outcomes.__getitem__, self.values),
+        )
+        if reached is None:
+            selector = map(_MEMO_ROW_DEAD.__ne__, self.reached)
+        else:
+            selector = map((1 if reached else 0).__eq__, self.reached)
+        return cast(Iterator[tuple[_Window, _Outcome]], itertools.compress(pairs, selector))
+
+
 @dataclass(frozen=True)
 class SettleMemoFile:
     """Where one configuration's settle memo lives between phases and what it must be keyed with to be read. The string replay, the witness stage, the oracle and the belt each walk the same texts: the replay fills the file on every whole-universe walk from the window memo the crate already holds (`absorb_replay_memo`), and each later walk loads it and settles only what it lacks, writing back whatever it added. `stamp` is the whole-memo stamp (`oracle_cache.settle_memo_stamp`: the walk's code closure, the non-rune data, the resolved spec structure and capability-feature universe, the engine's settlement flags, the configuration) and `family_keys` the per-family rune keys (`oracle_cache.settle_family_keys`), on the oracle row cache's own two-grained argument: a window's settlement is a function of the rune files its six slots name — a formed ligature label naming its rune directly, and every ligature rune whose components all appear among them included — and of nothing another rune file holds, so a file that carries another stamp is treated as absent, and a file under the same stamp serves every entry naming no moved family and drops the rest."""
@@ -737,7 +842,7 @@ def _read_settle_memo(memo: SettleMemoFile, spec: ResolvedSpec) -> Iterator[tupl
 
 
 def absorb_settle_memo_parts(memo: SettleMemoFile, parts: Sequence[Path], spec: ResolvedSpec) -> bool:
-    """The parts the row ranges of one cut configuration filed beside the shared file, folded into it: the standing file's blocks re-filed as `_read_settle_memo` yields them — under the stamp, less the entries naming a moved family, exactly what a walk that replaced the file whole would have carried forward — then each part's blocks with every index shifted past the labels and records the file has introduced ahead of it, since a block indexes into the tables accumulated so far in its file, and a part's blocks were indexed within the part. The result lands under the current family keys, staged and replaced through `_write_settle_memo`, so a retired entry never rides a header that vouches for it (the issue 202 shape) and a reader in another process sees the old file or the new one. No parts on disk is a no-op and False; a standing file that is absent or restamped contributes nothing, and the parts become the file. Two ranges that both settled one window both filed it, and the later entry wins on load exactly as it does in the walk's own dict; the belt's prune pass is where the file loses the repeat. True when a file was written."""
+    """The parts the row ranges of one cut configuration filed beside the shared file, folded into it: the standing file's blocks re-filed as `_read_settle_memo` yields them — under the stamp, less the entries naming a moved family, exactly what a walk that replaced the file whole would have carried forward — then each part's blocks with every index shifted past the labels and records the file has introduced ahead of it, since a block indexes into the tables accumulated so far in its file, and a part's blocks were indexed within the part. The result lands under the current family keys, staged and replaced through `_write_settle_memo`, so a retired entry never rides a header that vouches for it (the issue 202 shape) and a reader in another process sees the old file or the new one. No parts on disk is a no-op and False; a standing file that is absent or restamped contributes nothing, and the parts become the file. Two ranges that both settled one window both filed it, and the later entry wins on load exactly as it does in the walk's own store (`_MemoStore.seal`); the belt's prune pass is where the file loses the repeat. True when a file was written."""
     present = [Path(part) for part in parts if Path(part).is_file()]
     if not present:
         return False
@@ -870,9 +975,9 @@ def absorb_replay_memo(dump: Path, memo: SettleMemoFile, spec: ResolvedSpec, con
 class _SettledWindowWalk:
     """The memoized settle walk one conformance config runs over every swept text: a left-to-right pass computes each letter slot's raw window key — exactly `belt._matched_windows`' slots, with the left read from the just-settled stream — and resolves it through `windows`, a window -> (Settled, glyph name, left label) memo; only a miss reaches the crate. The memo is a pure speed device and nothing else: it records no coverage, and the sweep's verdict is the same whether every window misses or every window hits. Sound because every memoized outcome is a pure function of the window as keyed: the left label is the settled cell's display name (`geometry.display_name`, injective over every CellId field), and the right slots are the raw tokens a case line carries, all of them and none beyond. The key never reads the glyph inventory: a walk with minted names and a walk with none key alike and differ only in the name each hands back, which is what lets the oracle and the belt share one memo file. That last point about the right slots is why the walk needs no liveness oracle at all: blanking the deep slots wherever the table's relevance filters prove nothing could read them costs more in probes than the blanking saves. `windows` is deliberately unbounded; the interned labels plus deduplicated outcome tuples keep the residual cost to the key tuples themselves. The walk-equivalence sweeps in rebuild/test_conform.py are the standing alarm on all of it.
 
-    `memo` names the file this walk shares with every other walk over the same texts: the string replay fills it from the crate's own window memo on a whole-universe walk (`absorb_replay_memo`), and the witness stage, the oracle and the belt each load it and settle what it lacks. It is read lazily, on the first wave that would otherwise reach the crate, so a walk that settles nothing — an oracle pass whose rows are all served — never pays to decode it; and `save_memo` writes it back only when this walk settled at least one window the file did not hold, so a walk over a complete file rewrites nothing. The file is a gzip stream of pickles (`_write_settle_memo`, the one writer): a header carrying the format, the stamp and the per-family keys, then blocks of `SETTLE_MEMO_BLOCK` windows, each block the labels and outcomes it introduces plus its keys as columns of indexes into them. Writer and reader both work one block at a time — the memo is never in memory twice — and the outcome objects are shared with the memo dict itself, so a loaded memo costs what the same windows would have cost to settle: the key tuples and nothing else. A family whose key moved since the file was written retires every entry whose window names it (`oracle_cache.StaleMask` at label grain, the ligature clause included), and the retirement is priced per block over the label columns rather than per key: a bit per label, six column folds in C, one comprehension over the masks.
+    `memo` names the file this walk shares with every other walk over the same texts: the string replay fills it from the crate's own window memo on a whole-universe walk (`absorb_replay_memo`), and the witness stage, the oracle and the belt each load it and settle what it lacks. It is read lazily, on the first wave that would otherwise reach the crate, so a walk that settles nothing — an oracle pass whose rows are all served — never pays to decode it; and `save_memo` writes it back only when this walk settled at least one window the file did not hold, so a walk over a complete file rewrites nothing. The file is a gzip stream of pickles (`_write_settle_memo`, the one writer): a header carrying the format, the stamp and the per-family keys, then blocks of `SETTLE_MEMO_BLOCK` windows, each block the labels and outcomes it introduces plus its keys as columns of indexes into them. Writer and reader both work one block at a time — the memo is never in memory twice — and the loaded rows stay the columns the file stores (`_MemoStore`), their outcome objects shared with `windows` itself, so a loaded window costs its seven column entries, a reached byte and its share of the probe index rather than a key tuple. A family whose key moved since the file was written retires every entry whose window names it (`oracle_cache.StaleMask` at label grain, the ligature clause included), and the retirement is priced per block over the label columns rather than per key: a bit per label, six column folds in C, one comprehension over the masks.
 
-    Loaded entries sit in `_cold` until a walk first reaches them, and move into `windows` on that first hit, so the two dicts together are the memo and their split is what this walk has touched. That split is what `save_memo(prune=True)` writes on: the belt walks the whole universe every pass, so an entry it never reached is a window no text produces any more — its left slot named a settlement an edit has since moved — and carrying it forward would grow the file by a slice per rune edit forever. The oracle prunes nothing, since a served row is a window it never reached. A walk over a pile of texts fixed before it runs may restrict the load to the windows those texts can ask (`load_only_asked_by`): only the left slot of a window is settlement-dependent, so the five other slots of every window the pile reaches are computable up front, and a file row outside that set is dropped at decode time, counted in `unasked_windows`, and never held. Such a walk cannot tell a dropped row from a window no text reaches, so it never prunes and never replaces the shared file whole: its memo names a `write_path`, it files only the windows it settled fresh, and `absorb_settle_memo_parts` folds the part into the file.
+    Loaded entries sit in `_cold`, the `_MemoStore` over the file's columns, and a window the walk reaches there is marked reached in the store; under `promote` (a constructor keyword, on by default) the hit also enters `windows`, so the oracle and the witness stage pay the store's probe — six label-id lookups, a tuple hash and a linear probe over the index — once per window and a dict lookup after it. The belt runs with `promote=False` and answers every window out of the columns: it reaches nearly every loaded window, so a promoted copy of each would cost the key tuples the columns exist to avoid. The reached bytes are what `save_memo(prune=True)` writes on: the belt walks the whole universe every pass, so an entry it never reached is a window no text produces any more — its left slot named a settlement an edit has since moved — and carrying it forward would grow the file by a slice per rune edit forever. A pruning save files the fresh windows first and the reached rows after them in file order, so the belt's file is a permutation of what a promoting walk would file, which no reader can tell apart, since a load is order-independent and the later entry of a repeated key wins. The oracle prunes nothing, since a served row is a window it never reached, and its whole-file save files `windows` and then, in file order, every live row `windows` does not hold. A walk over a pile of texts fixed before it runs may restrict the load to the windows those texts can ask (`load_only_asked_by`): only the left slot of a window is settlement-dependent, so the five other slots of every window the pile reaches are computable up front, and a file row outside that set is dropped at decode time, counted in `unasked_windows`, and never held. Such a walk cannot tell a dropped row from a window no text reaches, so it never prunes and never replaces the shared file whole: its memo names a `write_path`, it files only the windows it settled fresh, and `absorb_settle_memo_parts` folds the part into the file.
 
     Batching is what makes the crate affordable here. `settle-cases` answers independent windows, but a text's next left is the previous window's answer, so `_run` advances a whole pile of texts in waves: every state runs forward to its first memo miss, the misses contribute one case line each — deduplicated by memo key, since a key that two states reach in the same wave is one question — and one `kernel_exec.settle_windows` invocation answers up to `batch` of them before every state advances again. A wave collects at most `batch` new keys and parks the rest for the next one, so a caller's chunk size bounds its own resident cost rather than the invocation's. `walk` is the same loop over a single text, which means a miss there spends a whole kernel spawn on one window; `single_settles` counts those, so a caller that forgot to `prefill` can see what it is paying.
 
@@ -892,6 +997,7 @@ class _SettledWindowWalk:
         audit_dedupe: bool = False,
         on_error: str = "raise",
         memo: SettleMemoFile | None = None,
+        promote: bool = True,
     ):
         self.spec = spec
         self.features = features
@@ -901,8 +1007,9 @@ class _SettledWindowWalk:
         self.audit_dedupe = audit_dedupe
         self.on_error = on_error
         self.memo = memo
+        self._promote = promote
         self.windows: dict[_Window, _Outcome | _RefusedWindow] = {}
-        self._cold: dict[_Window, _Outcome] = {}
+        self._cold = _MemoStore()
         self.single_settles = 0
         self.audit_extra_rows = 0
         self.audit_multi_keys: set[_Window] = set()
@@ -1007,10 +1114,10 @@ class _SettledWindowWalk:
             window = self._window(state)
             outcome = self.windows.get(window)
             if outcome is None:
-                cold = self._cold
-                if cold:
-                    outcome = cold.pop(window, None)
-                    if outcome is not None:
+                store = self._cold
+                if store.live:
+                    outcome = store.probe(window)
+                    if outcome is not None and self._promote:
                         self.windows[window] = outcome
                 if outcome is None:
                     return True
@@ -1046,51 +1153,50 @@ class _SettledWindowWalk:
         return outcome
 
     def _load_memo(self) -> None:
-        """Read the shared memo file into `_cold`, once, on the first wave that would otherwise reach the crate. A file that is missing, carries another stamp, or will not decode loads nothing — or as many whole blocks as decoded before it broke, every one of which is a valid memo entry on its own — and the walk settles the rest as it always has. A file under this stamp whose family keys moved loads every block minus the entries naming a moved family — by a letter's label, by a formed ligature's label, or by both components of a moved ligature rune — counted in `stale_windows`; a moved family the registry cannot place stales the whole file. A walk restricted by `load_only_asked_by` keeps of every block only the rows whose five settlement-independent slots are in its ask set and counts the rest in `unasked_windows`, so `memo_windows` counts the rows kept and retired. The test runs in the file's own label-id space rather than over strings: every id is folded to the first id of its spelling, since a part absorbed into the file can re-introduce a spelling under a second id, the asks are translated into those ids again only on a block that introduces a spelling an ask names, and the five key columns are folded through that map the way the retirement folds them through the stale mask."""
+        """Read the shared memo file into `_cold`, the walk's `_MemoStore`, once, on the first wave that would otherwise reach the crate. A file that is missing, carries another stamp, or will not decode loads nothing — or as many whole blocks as decoded before it broke, every one of which is a valid memo entry on its own — and the walk settles the rest as it always has. A file under this stamp whose family keys moved loads every block minus the entries naming a moved family — by a letter's label, by a formed ligature's label, or by both components of a moved ligature rune — counted in `stale_windows`; a moved family the registry cannot place stales the whole file. A walk restricted by `load_only_asked_by` keeps of every block only the rows whose five settlement-independent slots are in its ask set and counts the rest in `unasked_windows`, so `memo_windows` counts the rows kept and retired. Every id is folded to the first id of its spelling as its block is read, since a part absorbed into the file can re-introduce a spelling under a second id, so the store keys in one id space and a restricted walk's test runs in it rather than over strings, the asks translated into those ids again only on a block that introduces a spelling an ask names; the fold is the identity on a file whose label table names every spelling once, and such a block's columns are appended as the file stores them. The retirement and the restriction each compress a block's columns before the block is appended, and the store's index is built once over everything appended."""
         self._memo_loaded = True
         if self.memo is None:
             return
         started = time.perf_counter()
-        labels: list[str] = []
-        outcomes: list[_Outcome] = []
+        store = self._cold
+        labels = store.labels
+        outcomes = store.outcomes
+        first_ids = store.label_ids
         loaded = 0
         stale = 0
         unasked = 0
         asks = self._asks
         asked_labels = set(itertools.chain.from_iterable(asks)) if asks is not None else set()
-        first_ids: dict[str, int] = {}
         canon: list[int] = []
         allowed: set[tuple[int, ...]] = set()
         try:
             for (new_labels, new_items, columns, values), retired in _read_settle_memo(self.memo, self.spec):
-                labels.extend(map(sys.intern, new_labels))
                 outcomes.extend(self._outcome(item) for item in new_items)
+                introduced = False
+                for label in map(sys.intern, new_labels):
+                    labels.append(label)
+                    label_id = first_ids.setdefault(label, len(canon))
+                    introduced |= label_id == len(canon) and label in asked_labels
+                    canon.append(label_id)
+                if len(first_ids) < len(canon):
+                    columns = [array("I", map(canon.__getitem__, column)) for column in columns]
                 if asks is not None:
-                    introduced = False
-                    for label in new_labels:
-                        label_id = first_ids.setdefault(label, len(canon))
-                        introduced |= label_id == len(canon) and label in asked_labels
-                        canon.append(label_id)
                     if introduced:
                         allowed = set()
                         for ask in asks:
                             with suppress(KeyError):
                                 allowed.add(tuple(map(first_ids.__getitem__, ask)))
-                    keys = [map(canon.__getitem__, columns[slot]) for slot in (0, 2, 3, 4, 5)]
+                    keys = [columns[slot] for slot in (0, 2, 3, 4, 5)]
                     keep = [key in allowed for key in zip(*keys)]
                     dropped = len(keep) - sum(keep)
                     if dropped:
                         unasked += dropped
                         columns = [array("I", itertools.compress(column, keep)) for column in columns]
                         values = array("I", itertools.compress(values, keep))
-                self._cold.update(
-                    zip(
-                        zip(*(map(labels.__getitem__, column) for column in columns)),
-                        map(outcomes.__getitem__, values),
-                    )
-                )
+                store.append(columns, values)
                 loaded += len(values) + retired
                 stale += retired
+            store.seal()
         finally:
             self.memo_windows = loaded
             self.stale_windows = stale
@@ -1098,7 +1204,7 @@ class _SettledWindowWalk:
             self.memo_seconds += time.perf_counter() - started
 
     def save_memo(self, prune: bool = False) -> bool:
-        """Write the memo to the shared file when this walk settled a window the file did not hold, through `_write_settle_memo`, which replaces the file atomically so a reader in another process sees either the old file or the new one. Refusals are not outcomes and are not written; a walk that reaches one of those windows asks the crate again. `prune` drops the loaded entries this walk never reached instead of carrying them forward, counted in `pruned_windows`, and is only honest for a walk over the whole universe — the belt's. A walk whose memo names a `write_path` files only the windows it settled fresh, as a part at that path, and leaves the shared file to `absorb_settle_memo_parts`; a walk that restricted its load (`load_only_asked_by`) is always of that kind, and never prunes, since a row its load dropped is indistinguishable from a window it never reached. True when a file was written."""
+        """Write the memo to the shared file when this walk settled a window the file did not hold, through `_write_settle_memo`, which replaces the file atomically so a reader in another process sees either the old file or the new one. Refusals are not outcomes and are not written; a walk that reaches one of those windows asks the crate again. `prune` drops the loaded entries this walk never reached instead of carrying them forward, counted in `pruned_windows`, and is only honest for a walk over the whole universe — the belt's; it files the fresh windows and then, for a walk that promotes nothing, the reached rows in file order. A walk whose memo names a `write_path` files only the windows it settled fresh, as a part at that path, and leaves the shared file to `absorb_settle_memo_parts`; a walk that restricted its load (`load_only_asked_by`) is always of that kind, and never prunes, since a row its load dropped is indistinguishable from a window it never reached. True when a file was written."""
         if prune:
             assert self._asks is None, "a restricted walk never prunes"
         if self.memo is None:
@@ -1116,9 +1222,10 @@ class _SettledWindowWalk:
                 return _write_settle_memo(self.memo, _memo_blocks(fresh), self.memo.write_path)
             finally:
                 self.memo_seconds += time.perf_counter() - started
+        store = self._cold
         if prune:
-            self.pruned_windows = len(self._cold)
-        if not self.fresh_windows and not (prune and self._cold):
+            self.pruned_windows = len(store) - store.reached_count()
+        if not self.fresh_windows and not (prune and self.pruned_windows):
             return False
         started = time.perf_counter()
         entries = self.windows.items()
@@ -1129,8 +1236,11 @@ class _SettledWindowWalk:
             )
         else:
             items = cast(Iterable[tuple[_Window, _Outcome]], entries)
-        if not prune:
-            items = itertools.chain(items, self._cold.items())
+        if prune:
+            if not self._promote:
+                items = itertools.chain(items, store.items(reached=True))
+        else:
+            items = itertools.chain(items, store.items(reached=False if self._promote else None))
         try:
             return _write_settle_memo(self.memo, _memo_blocks(items))
         finally:
@@ -1164,8 +1274,10 @@ class _SettledWindowWalk:
         for start in range(0, len(pending), self.batch):
             chunk = pending[start : start + self.batch]
             for (window, _case), item in zip(chunk, self._settle([case for _window, case in chunk])):
-                memoized = self.windows[window]
-                assert not isinstance(memoized, _RefusedWindow), (window, memoized)
+                memoized = self.windows.get(window)
+                if memoized is None:
+                    memoized = self._cold.probe(window)
+                assert memoized is not None and not isinstance(memoized, _RefusedWindow), (window, memoized)
                 assert item == memoized[0], (window, item, memoized[0])
 
     def _run(self, texts: Sequence[str], collect: bool) -> list[tuple[list[Settled], list[str]]]:
@@ -1310,7 +1422,7 @@ def _conformance_config(
 
     if guard_verdicts is None:
         guard_verdicts = kernel_exec.guard_sweep(spec)
-    walker = _SettledWindowWalk(spec, features, glyph_names, guard_verdicts, memo=settle_memo)
+    walker = _SettledWindowWalk(spec, features, glyph_names, guard_verdicts, memo=settle_memo, promote=False)
 
     def sweep_text(text: str, names: list[str]) -> None:
         shaped = shaper.shape(text, features)
