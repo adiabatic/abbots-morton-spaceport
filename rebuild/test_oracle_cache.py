@@ -1,4 +1,4 @@
-"""Tests for the persisted per-row oracle cache's keys (issue 24; rebuild/pipeline/oracle_cache.py is the contract). What is pinned here is the half of the design that decides *whether* a row may be served — the whole-store stamp, the per-family key, the staleness mask, the anti-laundering clauses and the promotion refusal — while rebuild/test_conform.py owns the half that decides what a served row then writes.
+"""Tests for the persisted per-row oracle cache's keys (issue 24; rebuild/pipeline/oracle_cache.py is the contract). What is pinned here is the half of the design that decides *whether* a row may be served — the whole-store stamp, the per-family key, the staleness mask, the anti-laundering clauses, the promotion refusal and the reader's refusal of any store it cannot parse whole — while rebuild/test_conform.py owns the half that decides what a served row then writes.
 
 Every claim below is about a key or a store rather than about any glyph, so nothing here needs the live build: the rune tree, schema, and registry come from the frozen mini bundle's pin, materialized into a tmp root that each test may edit, and the spec is the hand-built mini one. This is the contracts lane and must stay in it.
 
@@ -592,6 +592,120 @@ def test_a_segment_writer_writes_records_only_and_the_join_puts_the_frame_around
         gzip.decompress(whole.read_bytes()).decode().splitlines()[6]
     )
     assert oracle_cache.join_store_segments(scratch, "default", 3, stamp, "subset-digest", 4, keys, 6) is None
+
+
+# --- the reader's over-invalidation contract ---------------------------------------------
+
+
+def _whole_store(tmp_path: Path, repo: Path, spec, rows: int = 2):
+    """A well-formed store of `rows` records plus what `load_store` needs to read it, the fixture every malformation below is cut from."""
+    stamp = _stamp(repo, spec)
+    keys = _keys(repo, spec)
+    path = tmp_path / "store.tsv.gz"
+    with oracle_cache.RowWriter(path, stamp, "subset-digest", 0, keys) as writer:
+        for index in range(rows):
+            writer.append((PEA, PEA + index), None, 0)
+    return path, stamp, keys
+
+
+def _rewrite_payload(path: Path, edit) -> None:
+    """Recompress `path` around `edit` applied to its decompressed bytes; the member's mtime is not pinned because nothing here compares the compressed bytes."""
+    rewritten = edit(gzip.decompress(path.read_bytes()))
+    with gzip.open(path, "wb") as stream:
+        stream.write(rewritten)
+
+
+def _lines(payload: bytes) -> list[bytes]:
+    return payload.split(b"\n")
+
+
+@pytest.mark.parametrize("recompressed", [False, True], ids=["as-written", "recompressed-unedited"])
+def test_a_whole_two_record_store_loads_and_serves(repo, tmp_path, recompressed):
+    """The positive control for the refusal tests beside it: the store loads as written and again after `_rewrite_payload` puts it back unedited, so each refusal fails only on its malformation and never on the helper that applies it. These tests together pin the over-invalidation contract `load_store`'s docstring states, so the #261 reader rewrite can be held to it."""
+    spec = fixtures.mini_spec()
+    path, stamp, keys = _whole_store(tmp_path, repo, spec)
+    if recompressed:
+        _rewrite_payload(path, lambda payload: payload)
+    payload = gzip.decompress(path.read_bytes())
+    assert _lines(payload)[-2] == f"{oracle_cache.ROW_COUNT_TRAILER}\t2".encode()
+    store = oracle_cache.load_store(path, stamp, "subset-digest", spec, keys)
+    assert store is not None
+    assert store.rows == 2
+    for index in range(2):
+        assert store.serve(index, (PEA, PEA + index)) == oracle_cache.decode_record(
+            _lines(payload)[1 + index].decode("utf-8")
+        )
+
+
+def test_a_whole_zero_record_store_loads_empty(repo, tmp_path):
+    """A header line and the `#rows\t0` trailer with nothing between them, the store a writer that appended no row leaves: whole, so it loads, holding no row. This is the one legitimate body with no newline ahead of the trailer, so a reader that guards the trailer search by its index alone refuses it."""
+    spec = fixtures.mini_spec()
+    path, stamp, keys = _whole_store(tmp_path, repo, spec, rows=0)
+    payload = gzip.decompress(path.read_bytes())
+    assert _lines(payload)[1:] == [f"{oracle_cache.ROW_COUNT_TRAILER}\t0".encode(), b""]
+    store = oracle_cache.load_store(path, stamp, "subset-digest", spec, keys)
+    assert store is not None
+    assert store.rows == 0
+
+
+def test_a_store_with_no_body_loads_as_none(repo, tmp_path):
+    """A header line and nothing after it."""
+    spec = fixtures.mini_spec()
+    path, stamp, keys = _whole_store(tmp_path, repo, spec)
+    _rewrite_payload(path, lambda _: oracle_cache.store_header(stamp, "subset-digest", 0, keys))
+    assert oracle_cache.load_store(path, stamp, "subset-digest", spec, keys) is None
+
+
+def test_a_store_whose_header_is_the_whole_file_loads_as_none(repo, tmp_path):
+    """The header line with no newline after it, so the file has no body to partition off."""
+    spec = fixtures.mini_spec()
+    path, stamp, keys = _whole_store(tmp_path, repo, spec)
+    header = oracle_cache.store_header(stamp, "subset-digest", 0, keys)
+    assert header.endswith(b"\n")
+    _rewrite_payload(path, lambda _: header[:-1])
+    assert oracle_cache.load_store(path, stamp, "subset-digest", spec, keys) is None
+
+
+def test_a_store_missing_its_trailer_loads_as_none(repo, tmp_path):
+    """Two whole records with the row-count trailer line dropped: the last line is a record, not the trailer that vouches for the length."""
+    spec = fixtures.mini_spec()
+    path, stamp, keys = _whole_store(tmp_path, repo, spec)
+
+    def drop_trailer(payload: bytes) -> bytes:
+        lines = _lines(payload)
+        assert lines[-2].startswith(oracle_cache.ROW_COUNT_TRAILER.encode())
+        return b"\n".join(lines[:-2] + [b""])
+
+    _rewrite_payload(path, drop_trailer)
+    assert oracle_cache.load_store(path, stamp, "subset-digest", spec, keys) is None
+
+
+def test_a_truncated_store_loads_as_none(repo, tmp_path):
+    """A store cut mid-record with no trailer after it, the shape a write that died leaves."""
+    spec = fixtures.mini_spec()
+    path, stamp, keys = _whole_store(tmp_path, repo, spec)
+
+    def cut_tail(payload: bytes) -> bytes:
+        cut = payload[:-12]
+        assert not cut.endswith(b"\n") and oracle_cache.ROW_COUNT_TRAILER.encode() not in cut
+        return cut
+
+    _rewrite_payload(path, cut_tail)
+    assert oracle_cache.load_store(path, stamp, "subset-digest", spec, keys) is None
+
+
+def test_a_store_short_a_record_under_its_trailer_loads_as_none(repo, tmp_path):
+    """The trailer still counts two records over a body holding one: a store whose records and count disagree."""
+    spec = fixtures.mini_spec()
+    path, stamp, keys = _whole_store(tmp_path, repo, spec)
+
+    def drop_record(payload: bytes) -> bytes:
+        lines = _lines(payload)
+        assert lines[-2] == f"{oracle_cache.ROW_COUNT_TRAILER}\t2".encode()
+        return b"\n".join(lines[:1] + lines[2:])
+
+    _rewrite_payload(path, drop_record)
+    assert oracle_cache.load_store(path, stamp, "subset-digest", spec, keys) is None
 
 
 # --- the store is not an artifact --------------------------------------------------------
