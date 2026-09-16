@@ -64,7 +64,10 @@ pub fn alphabet(index: &SpecIndex) -> Result<Vec<RightToken>, String> {
     let mut seated: Vec<(i64, RightToken)> = Vec::new();
     for (name, _) in index.runes() {
         if let Some(codepoint) = codepoint_of(index, *name) {
-            seated.push((codepoint, RightToken::Letter(*name)));
+            seated.push((
+                codepoint,
+                index.letter(*name).expect("a modeled rune has a token"),
+            ));
         }
     }
     for (name, token) in &index.registry().boundary_tokens {
@@ -102,10 +105,7 @@ fn codepoint_of(index: &SpecIndex, name: Sym) -> Option<i64> {
 fn wanted_seats(index: &SpecIndex, alphabet: &[RightToken], families: &[Sym]) -> Vec<bool> {
     let mut wanted = vec![false; alphabet.len()];
     let mut mark = |rune: Sym| {
-        if let Some(seat) = alphabet
-            .iter()
-            .position(|token| *token == RightToken::Letter(rune))
-        {
+        if let Some(seat) = alphabet.iter().position(|token| token.rune() == Some(rune)) {
             wanted[seat] = true;
         }
     };
@@ -162,7 +162,7 @@ impl<'i> Formation<'i> {
         let mut at = 0;
         while at < tokens.len() {
             let mut matched: Option<(Sym, usize)> = None;
-            if let RightToken::Letter(lead) = tokens[at]
+            if let RightToken::Letter(lead, _) = tokens[at]
                 && let Some(candidates) = self.by_lead.get(&lead)
             {
                 for (sequence, name) in candidates {
@@ -171,7 +171,7 @@ impl<'i> Formation<'i> {
                         || !sequence
                             .iter()
                             .zip(&tokens[at..end])
-                            .all(|(part, token)| *token == RightToken::Letter(*part))
+                            .all(|(part, token)| token.rune() == Some(*part))
                     {
                         continue;
                     }
@@ -190,7 +190,12 @@ impl<'i> Formation<'i> {
             }
             match matched {
                 Some((name, width)) => {
-                    formed.push(RightToken::Letter(name));
+                    formed.push(
+                        self.guard
+                            .index()
+                            .letter(name)
+                            .expect("a ligature is a modeled rune"),
+                    );
                     at += width;
                 }
                 None => {
@@ -451,7 +456,7 @@ impl<'i> Replay<'i> {
         }
         let mut previous: Option<Outcome> = None;
         for (at, token) in formed.iter().enumerate() {
-            let RightToken::Letter(rune) = *token else {
+            let RightToken::Letter(rune, _) = *token else {
                 previous = None;
                 continue;
             };
@@ -471,7 +476,7 @@ impl<'i> Replay<'i> {
                         0 => LeftContext::boundary(TokenKind::Edge),
                         _ => match previous {
                             Some(outcome) => {
-                                LeftContext::letter(self.pool.get(outcome.seat).clone())
+                                LeftContext::letter(self.index, self.pool.get(outcome.seat).clone())
                             }
                             None => LeftContext::boundary(formed[at - 1].kind()),
                         },
@@ -522,13 +527,13 @@ impl<'i> Replay<'i> {
     }
 
     fn token_label(&mut self, token: RightToken) -> u32 {
-        if let RightToken::Letter(rune) = token
+        if let RightToken::Letter(rune, _) = token
             && let Some(&label) = self.input_labels.get(&rune)
         {
             return label;
         }
         let label = self.labels.intern(&right_token_label(self.index, token));
-        if let RightToken::Letter(rune) = token {
+        if let RightToken::Letter(rune, _) = token {
             self.input_labels.insert(rune, label);
         }
         label
@@ -727,7 +732,7 @@ fn spell_text(index: &SpecIndex, raw: &[RightToken]) -> String {
     let words: Vec<String> = raw
         .iter()
         .map(|token| match token {
-            RightToken::Letter(rune) => index.resolve(*rune).to_owned(),
+            RightToken::Letter(rune, _) => index.resolve(*rune).to_owned(),
             other => other.kind().as_str().to_owned(),
         })
         .collect();
@@ -762,11 +767,8 @@ mod tests {
         assert_eq!(tokens.len(), 6);
         assert_eq!(tokens[0], RightToken::Space);
         assert_eq!(tokens[1], RightToken::Zwnj);
-        assert_eq!(
-            tokens[2],
-            RightToken::Letter(fixtures::sym(&index, "qsPea"))
-        );
-        assert_eq!(tokens[5], RightToken::Letter(fixtures::sym(&index, "qsIt")));
+        assert_eq!(tokens[2], fixtures::letter(&index, "qsPea"));
+        assert_eq!(tokens[5], fixtures::letter(&index, "qsIt"));
     }
 
     /// The fixture's own table agrees with its engine over every string to the belt's horizon and one past it, which is the green the build states on every pass.
@@ -881,11 +883,11 @@ mod tests {
         let wanted = wanted_seats(&index, &tokens, &[liga]);
         let pea = tokens
             .iter()
-            .position(|token| *token == RightToken::Letter(fixtures::sym(&index, "qsPea")))
+            .position(|token| *token == fixtures::letter(&index, "qsPea"))
             .expect("qsPea is in the alphabet");
         let tea = tokens
             .iter()
-            .position(|token| *token == RightToken::Letter(fixtures::sym(&index, "qsTea")))
+            .position(|token| *token == fixtures::letter(&index, "qsTea"))
             .expect("qsTea is in the alphabet");
         assert!(wanted[pea] && wanted[tea]);
         assert_eq!(wanted.iter().filter(|seat| **seat).count(), 2);
@@ -998,13 +1000,19 @@ mod tests {
         let mut report = Report::default();
         let mut formed = Vec::new();
         for raw in [
-            vec![RightToken::Zwnj, RightToken::Letter(pea)],
-            vec![RightToken::Zwnj, RightToken::Letter(it)],
             vec![
-                RightToken::Letter(pea),
+                RightToken::Zwnj,
+                index.letter(pea).expect("the fixture models it"),
+            ],
+            vec![
+                RightToken::Zwnj,
+                index.letter(it).expect("the fixture models it"),
+            ],
+            vec![
+                index.letter(pea).expect("the fixture models it"),
                 RightToken::Space,
-                RightToken::Letter(pea),
-                RightToken::Letter(pea),
+                index.letter(pea).expect("the fixture models it"),
+                index.letter(pea).expect("the fixture models it"),
             ],
         ] {
             walk.walk_text(&raw, &mut formed, &mut report)
@@ -1116,7 +1124,7 @@ mod tests {
         let index = fixtures::mini();
         let rules = folded_rules(&index);
         let mut walk = replay(&index, &rules);
-        let pea = walk.token_label(RightToken::Letter(fixtures::sym(&index, "qsPea")));
+        let pea = walk.token_label(fixtures::letter(&index, "qsPea"));
         let space = walk.token_label(RightToken::Space);
         let na = walk.labels.na;
         let edge = walk.labels.edge;

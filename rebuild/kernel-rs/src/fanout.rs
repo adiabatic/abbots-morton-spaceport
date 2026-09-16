@@ -363,7 +363,7 @@ pub fn run_configs_tables(
 ) -> Result<Vec<TableAnswer>, String> {
     std::fs::create_dir_all(outdir).map_err(|error| format!("{}: {error}", outdir.display()))?;
     let world = modes.world_token();
-    let edited = Exclusion::of(seeding.edited.iter().copied())
+    let edited = Exclusion::of(index, seeding.edited.iter().copied())
         .with_classes(seeding.moved_classes.iter().copied());
     let default_seat = seeding
         .config_seed
@@ -427,16 +427,17 @@ pub fn run_configs_tables(
         claim_all_leading(&rest, workers, finish_default, |work: &DeltaWork<'_>| {
             let config = work.config;
             let unlocking = &work.unlocking;
+            let behind_unlocking = Exclusion::of(index, unlocking.iter().copied());
             let previous_own = load_seed(index, &seeding, config.token, &world, |key| {
-                key.runes_named().any(|rune| unlocking.contains(&rune))
+                behind_unlocking.names(key)
             })?;
             let mut bases = vec![MemoBase {
                 memo: Arc::clone(&memo),
-                excluded: Exclusion::of(unlocking.iter().copied()),
+                excluded: behind_unlocking,
             }];
             bases.extend(base_over(
                 previous_default.as_ref(),
-                Exclusion::of(unlocking.iter().chain(edited.runes()).copied())
+                Exclusion::of(index, unlocking.iter().chain(edited.runes()).copied())
                     .with_classes(edited.classes().iter().copied()),
             ));
             bases.extend(base_over(previous_own.as_ref(), edited.clone()));

@@ -14,8 +14,8 @@ use crate::error::{SettleError, SettleErrorKind};
 use crate::index::SpecIndex;
 use crate::model::Sym;
 use crate::types::{
-    AdjustmentToken, Candidate, CellId, LeftContext, RightToken, Settled, Side, TokenKind,
-    TransitionTrace, height_json, provenance_pointer, settled_fields, settled_json,
+    AdjustmentToken, Candidate, CellId, LeftContext, LeftOrdinals, RightToken, Settled, Side,
+    TokenKind, TransitionTrace, height_json, provenance_pointer, settled_fields, settled_json,
 };
 
 /// The corpus's three raise buckets. `E-UNREACHABLE` takes the stranded window and every plain settle error alike, which is why the message rides beside it — an identity alone cannot tell a stranded exit from a rune that is not modeled.
@@ -73,7 +73,7 @@ pub fn parse_case<'l>(index: &SpecIndex, line: &'l str) -> Result<Case<'l>, Stri
         kind,
         [rune, stance, entry, exit, adjustments, seam, extension],
     )?;
-    let token = RightToken::Letter(symbol(index, input, "the input rune")?);
+    let token = letter_of(index, input, "the input rune")?;
     let slots = Slots::new(
         parse_token(index, right1)?,
         parse_token(index, right2)?,
@@ -240,15 +240,37 @@ fn parse_left(index: &SpecIndex, kind: &str, record: [&str; 7]) -> Result<LeftCo
                 "a left with no rune carries no record, and this one spells one".to_owned(),
             );
         }
+        return Ok(LeftContext::boundary(kind));
+    }
+    let settled = parse_settled(index, record)?;
+    if kind != TokenKind::Letter {
         return Ok(LeftContext {
             kind,
-            settled: None,
+            settled: Some(settled),
+            ordinals: LeftOrdinals::default(),
         });
     }
+    let Some(ordinals) = LeftOrdinals::of(index, &settled) else {
+        return Err(format!(
+            "a letter left settles into a cell of a registered family in a declared stance at a height the spec offers, and {}.{} at {} does not",
+            index.resolve(settled.cell.rune),
+            index.resolve(settled.cell.stance),
+            settled.seam.map_or("none", |seam| index.resolve(seam))
+        ));
+    };
     Ok(LeftContext {
         kind,
-        settled: Some(parse_settled(index, record)?),
+        settled: Some(settled),
+        ordinals,
     })
+}
+
+/// The letter token a field names, or a refusal for a name the spec never interned or the registry knows no family by: a question names its runes out of the registry, as `settle.tokens_from_codepoints` refuses anything else before a line is cut.
+fn letter_of(index: &SpecIndex, field: &str, what: &str) -> Result<RightToken, String> {
+    let name = symbol(index, field, what)?;
+    index
+        .letter(name)
+        .ok_or_else(|| format!("{what} names no registered family: {field}"))
 }
 
 /// The seven record fields — rune, stance, entry, exit, comma-joined adjustments, seam, extension — read back into a settled record: a question's left, in the spelling [`settled_fields`] answers in.
@@ -375,7 +397,7 @@ fn parse_token(index: &SpecIndex, field: &str) -> Result<RightToken, String> {
         Some(kind) => {
             Ok(RightToken::of_kind(kind).expect("every kind but letter has a token of its own"))
         }
-        None => Ok(RightToken::Letter(symbol(index, field, "a right slot")?)),
+        None => letter_of(index, field, "a right slot"),
     }
 }
 

@@ -300,7 +300,7 @@ fn letter_of(index: &SpecIndex, name: &str) -> Result<RightToken, String> {
     index
         .sym_of(name)
         .filter(|rune| index.is_modeled(*rune))
-        .map(RightToken::Letter)
+        .and_then(|rune| index.letter(rune))
         .ok_or_else(|| format!("certificate: {name} names no rune the spec models"))
 }
 
@@ -388,8 +388,14 @@ fn open_constraint(
                 return Ok(Verdict::Dead);
             };
             if at + 2 >= count {
-                let mut followers: Vec<RightToken> =
-                    map.keys().copied().map(RightToken::Letter).collect();
+                let mut followers: Vec<RightToken> = map
+                    .keys()
+                    .map(|rune| {
+                        index
+                            .letter(*rune)
+                            .expect("a follower map keys modeled runes")
+                    })
+                    .collect();
                 followers.sort_by(|left, right| {
                     index
                         .resolve(left.letter())

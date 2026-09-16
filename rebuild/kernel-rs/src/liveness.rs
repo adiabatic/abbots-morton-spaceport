@@ -20,8 +20,8 @@ use crate::hash::{HashMap, HashSet};
 use crate::index::SpecIndex;
 use crate::model::{Condition, PolicyRecord, Sym};
 use crate::types::{
-    Candidate, CellId, EDGE, LeftContext, NAMER_DOT, NO_EXIT_INDEX, RightToken, SPACE, Settled,
-    TokenKind, UNKNOWN, ZWNJ,
+    Candidate, CandidateOrdinals, CellId, EDGE, LeftContext, NAMER_DOT, NO_EXIT_INDEX, RightToken,
+    SPACE, Settled, TokenKind, UNKNOWN, ZWNJ,
 };
 
 /// One shape the input frame can commit: a stance of the input's own rune and the seam it offers there, `None` for the shape that offers none.
@@ -82,6 +82,13 @@ impl<'i> ProspectLiveness<'i> {
         }
     }
 
+    /// The letter token for one of the modeled runes every probe is asked about.
+    fn letter(&self, rune: Sym) -> RightToken {
+        self.index
+            .letter(rune)
+            .expect("the probes are asked about registered runes")
+    }
+
     /// Whether the raw third slot can move some reachable window at `(family, right1, right2)`.
     ///
     /// Stage one is `(simulated_prospect and _prospect_varies_third) or (vote_slots and _vote_varies_third)`, short-circuiting exactly there; where it fires, the seat replay at `("seat3", family, right1, right2)` answers and a true verdict returns immediately. Where that path did not return — stage one dead, or the seat replay saw nothing move — the joint34 belt at `("joint34", family, right1, right2)` is the verdict: [`ProspectLiveness::fourth_live`] over every letter probe token, in [`ProspectLiveness::probe_tokens`] order, early-exiting on the first live one.
@@ -94,8 +101,8 @@ impl<'i> ProspectLiveness<'i> {
         right1: Sym,
         right2: Sym,
     ) -> Result<bool, SettleError> {
-        let r1tok = RightToken::Letter(right1);
-        let r2tok = RightToken::Letter(right2);
+        let r1tok = self.letter(right1);
+        let r2tok = self.letter(right2);
         let mut stage_one = false;
         if engine.simulated_prospect() {
             stage_one = self.prospect_varies_third(engine, family, right1, right2, r1tok, r2tok)?;
@@ -124,7 +131,7 @@ impl<'i> ProspectLiveness<'i> {
         let tokens = self.probe_tokens();
         let mut verdict = false;
         for token in tokens.iter() {
-            if let RightToken::Letter(third) = *token
+            if let RightToken::Letter(third, _) = *token
                 && self.fourth_live(engine, family, right1, right2, third)?
             {
                 verdict = true;
@@ -146,9 +153,9 @@ impl<'i> ProspectLiveness<'i> {
         right2: Sym,
         right3: Sym,
     ) -> Result<bool, SettleError> {
-        let r1tok = RightToken::Letter(right1);
-        let r2tok = RightToken::Letter(right2);
-        let r3tok = RightToken::Letter(right3);
+        let r1tok = self.letter(right1);
+        let r2tok = self.letter(right2);
+        let r3tok = self.letter(right3);
         let mut stage_one = false;
         if engine.simulated_prospect() {
             stage_one = self.prospect_varies_fourth(
@@ -198,7 +205,7 @@ impl<'i> ProspectLiveness<'i> {
                 if !seen.insert(signature) {
                     continue;
                 }
-                out.push(virtual_left(left_family, stance, seam));
+                out.push(virtual_left(self.index, left_family, stance, seam));
             }
         }
         let classes = Rc::new(out);
@@ -215,7 +222,7 @@ impl<'i> ProspectLiveness<'i> {
             let mut letters: Vec<Sym> = self.index.runes().iter().map(|(name, _)| *name).collect();
             letters
                 .sort_by(|left, right| self.index.resolve(*left).cmp(self.index.resolve(*right)));
-            tokens.extend(letters.into_iter().map(RightToken::Letter));
+            tokens.extend(letters.into_iter().map(|rune| self.letter(rune)));
             self.tokens = Some(Rc::new(tokens));
         }
         Rc::clone(self.tokens.as_ref().expect("the token list was just built"))
@@ -326,7 +333,7 @@ impl<'i> ProspectLiveness<'i> {
         if let Some(cached) = self.sigs.get(&key) {
             return Ok(cached.clone());
         }
-        let left = virtual_left(family, stance, seam);
+        let left = virtual_left(self.index, family, stance, seam);
         let conds = self.left_conditions(follower);
         let mut verdicts: Vec<bool> = Vec::with_capacity(conds.len());
         for cond in conds.iter() {
@@ -376,7 +383,7 @@ impl<'i> ProspectLiveness<'i> {
         r1tok: RightToken,
         r2tok: RightToken,
     ) -> Result<bool, SettleError> {
-        let candidate = frame_candidate(stance, seam);
+        let candidate = frame_candidate(self.index, family, stance, seam);
         let baseline =
             engine.probe_prospect(family, candidate, Slots::new(r1tok, r2tok, EDGE, EDGE))?;
         let tokens = self.probe_tokens();
@@ -439,7 +446,7 @@ impl<'i> ProspectLiveness<'i> {
         r2tok: RightToken,
         r3tok: RightToken,
     ) -> Result<bool, SettleError> {
-        let candidate = frame_candidate(stance, seam);
+        let candidate = frame_candidate(self.index, family, stance, seam);
         let baseline =
             engine.probe_prospect(family, candidate, Slots::new(r1tok, r2tok, r3tok, EDGE))?;
         let tokens = self.probe_tokens();
@@ -541,7 +548,7 @@ impl<'i> ProspectLiveness<'i> {
         r2tok: RightToken,
         r3tok: Option<RightToken>,
     ) -> Result<bool, SettleError> {
-        let candidate = frame_candidate(stance, seam);
+        let candidate = frame_candidate(self.index, family, stance, seam);
         let owner = r1tok.letter();
         let edge_left = LeftContext::boundary(TokenKind::Edge);
         let records = self.vote_records(owner);
@@ -621,7 +628,7 @@ impl<'i> ProspectLiveness<'i> {
         r2tok: RightToken,
         r3tok: Option<RightToken>,
     ) -> Result<bool, SettleError> {
-        let token = RightToken::Letter(family);
+        let token = self.letter(family);
         let lefts = self.seat_left_classes(engine, family)?;
         let tokens = self.probe_tokens();
         for left in lefts.iter() {
@@ -682,28 +689,32 @@ impl<'i> ProspectLiveness<'i> {
 }
 
 /// The virtual left one `(family, stance, seam)` shape stands for: the cell with no entry and no adjustments, settled at that seam with no extension. The entry is never read by anything a deep token can reach, which is what lets the whole entry axis collapse.
-fn virtual_left(family: Sym, stance: Sym, seam: Option<Sym>) -> LeftContext {
-    LeftContext::letter(Settled {
-        cell: CellId {
-            rune: family,
-            stance,
-            entry: None,
-            exit: seam,
-            adjustments: Vec::new(),
+fn virtual_left(index: &SpecIndex, family: Sym, stance: Sym, seam: Option<Sym>) -> LeftContext {
+    LeftContext::letter(
+        index,
+        Settled {
+            cell: CellId {
+                rune: family,
+                stance,
+                entry: None,
+                exit: seam,
+                adjustments: Vec::new(),
+            },
+            seam,
+            extension: 0,
         },
-        seam,
-        extension: 0,
-    })
+    )
 }
 
 /// The bare input-frame candidate every stage-one probe is run for, Python's `Candidate(stance, None, seam, 0)`: no entry, the shape's own seam, the first order index, and the sentinel exit seat, because the frame is a shape the input can commit rather than a candidate the enumeration produced.
-fn frame_candidate(stance: Sym, seam: Option<Sym>) -> Candidate {
+fn frame_candidate(index: &SpecIndex, family: Sym, stance: Sym, seam: Option<Sym>) -> Candidate {
     Candidate {
         stance,
         entry: None,
         seam,
         order_index: 0,
         exit_index: NO_EXIT_INDEX,
+        ordinals: CandidateOrdinals::of(index, family, stance, None, seam),
     }
 }
 
@@ -833,7 +844,7 @@ pub(crate) mod tests {
         let spelled: Vec<String> = tokens
             .iter()
             .map(|token| match token {
-                RightToken::Letter(rune) => index.resolve(*rune).to_owned(),
+                RightToken::Letter(rune, _) => index.resolve(*rune).to_owned(),
                 other => other.kind().as_str().to_owned(),
             })
             .collect();
@@ -1263,8 +1274,8 @@ pub(crate) mod tests {
 
         let mut engine = engine_in(&index, true, true);
         let mut liveness = ProspectLiveness::new(&index);
-        let r1tok = RightToken::Letter(tea);
-        let r2tok = RightToken::Letter(may);
+        let r1tok = index.letter(tea).expect("the fixture models it");
+        let r2tok = index.letter(may).expect("the fixture models it");
         assert_eq!(
             liveness.prospect_varies_third(&mut engine, pea, tea, may, r1tok, r2tok),
             Ok(false),
@@ -1310,8 +1321,8 @@ pub(crate) mod tests {
         let tea = fixtures::sym(&index, "qsTea");
         let may = fixtures::sym(&index, "qsMay");
         let it = fixtures::sym(&index, "qsIt");
-        let r1tok = RightToken::Letter(tea);
-        let r2tok = RightToken::Letter(may);
+        let r1tok = index.letter(tea).expect("the fixture models it");
+        let r2tok = index.letter(may).expect("the fixture models it");
         let mut engine = engine_in(&index, true, true);
         let mut liveness = ProspectLiveness::new(&index);
 
@@ -1381,8 +1392,13 @@ pub(crate) mod tests {
                 engine
                     .transition_trace(
                         left,
-                        RightToken::Letter(pea),
-                        Slots::new(RightToken::Letter(tea), RightToken::Letter(may), EDGE, EDGE),
+                        index.letter(pea).expect("the fixture models it"),
+                        Slots::new(
+                            index.letter(tea).expect("the fixture models it"),
+                            index.letter(may).expect("the fixture models it"),
+                            EDGE,
+                            EDGE,
+                        ),
                     )
                     .err()
                     .map(|error| error.kind())
@@ -1401,8 +1417,8 @@ pub(crate) mod tests {
             liveness.seat_varies(
                 &mut engine,
                 pea,
-                RightToken::Letter(tea),
-                RightToken::Letter(may),
+                index.letter(tea).expect("the fixture models it"),
+                index.letter(may).expect("the fixture models it"),
                 None
             ),
             Ok(false),
@@ -1423,8 +1439,13 @@ pub(crate) mod tests {
             engine
                 .transition_trace(
                     &LeftContext::boundary(TokenKind::Edge),
-                    RightToken::Letter(pea),
-                    Slots::new(RightToken::Letter(tea), RightToken::Letter(may), EDGE, EDGE),
+                    index.letter(pea).expect("the fixture models it"),
+                    Slots::new(
+                        index.letter(tea).expect("the fixture models it"),
+                        index.letter(may).expect("the fixture models it"),
+                        EDGE,
+                        EDGE
+                    ),
                 )
                 .map(|trace| trace.settled)
                 .map_err(|error| error.kind()),
@@ -1434,8 +1455,8 @@ pub(crate) mod tests {
             liveness.seat_varies(
                 &mut engine,
                 pea,
-                RightToken::Letter(tea),
-                RightToken::Letter(may),
+                index.letter(tea).expect("the fixture models it"),
+                index.letter(may).expect("the fixture models it"),
                 None
             ),
             Ok(true),
@@ -1451,8 +1472,8 @@ pub(crate) mod tests {
         let tea = fixtures::sym(&index, "qsTea");
         let mut engine = engine_in(&index, true, true);
         let mut liveness = ProspectLiveness::new(&index);
-        let r1tok = RightToken::Letter(tea);
-        let r2tok = RightToken::Letter(pea);
+        let r1tok = index.letter(tea).expect("the fixture models it");
+        let r2tok = index.letter(pea).expect("the fixture models it");
 
         assert_eq!(
             liveness.prospect_varies_third(&mut engine, pea, tea, pea, r1tok, r2tok),

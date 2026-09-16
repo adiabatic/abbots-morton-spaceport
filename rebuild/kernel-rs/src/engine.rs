@@ -12,17 +12,17 @@
 
 use crate::error::SettleError;
 use crate::hash::{HashMap, HashSet};
-use crate::index::{Read, SpecIndex, StanceId};
+use crate::index::{Ordinal, Read, SpecIndex, StanceId};
 use crate::memo::{MemoBase, MemoSnapshot};
 use crate::model::{
     Condition, PolicyRecord, Provenance, Rune, Stance, SurfaceRow, Sym, Table, When,
 };
 use crate::specificity;
 use crate::types::{
-    AdjustmentToken, Candidate, CellId, DecidedStage, Elimination, EliminationStage, LeftContext,
-    NotesPool, NotesSeat, RankedCandidate, RightToken, Settled, SettledPool, SettledSeat, Side,
-    TokenKind, TraceLadder, TransitionTrace, UNKNOWN, Vocab, boundary_settled, cell_label,
-    provenance_pointer, word_position,
+    AdjustmentToken, Candidate, CandidateOrdinals, CellId, DecidedStage, Elimination,
+    EliminationStage, LeftContext, NotesPool, NotesSeat, PackedKinds, RankedCandidate, RightToken,
+    Settled, SettledPool, SettledSeat, Side, TokenKind, TraceLadder, TransitionTrace, UNKNOWN,
+    Vocab, boundary_settled, cell_label, provenance_pointer, word_position,
 };
 
 /// Where a candidate enumeration's eliminations go, together with whether their sentences are wanted at all. Separating the two is what lets the table fixpoint keep every elimination's stage and pointer — the notes on a row are built from those — while formatting none of the prose that names them.
@@ -299,16 +299,16 @@ struct CandidatesMemo {
 
 /// The candidate memo's key, which collapses the left exactly as Python's does: the kind, and the settled cell's rune, stance and seam. The left's entry, its adjustments and its extension are deliberately absent — enumeration reads none of them, so two settled lefts differing only there enumerate identically and share one entry. The trace memo's key keeps the extension, because the commit's same-seam suppression does read it.
 ///
-/// It is packed to twenty-eight bytes the way [`TraceKey`] is (issue #167): the two slots ride as their kinds beside their `Option<Sym>` runes, which spells each token exactly once, so two windows collide exactly when their slots are equal and the pair costs four bytes a slot instead of the eight a tagged enum pads to. Nothing reads a key back: it is compared and hashed and never resolved.
+/// It is packed to fourteen bytes the way [`TraceKey`] is (issues #167 and #266): every rune, stance and seam rides as its field's [`Ordinal`], the two slots as their runes' ordinals beside their kinds, which spells each token exactly once, so two windows collide exactly when their slots are equal, and the left's kind and the two slot kinds share one [`PackedKinds`] word. Nothing reads a key back: it is compared and hashed and never resolved.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 struct CandidatesKey {
-    left_kind: TokenKind,
-    left_rune: Option<Sym>,
-    left_stance: Option<Sym>,
-    left_seam: Option<Sym>,
-    rune: Sym,
-    kinds: [TokenKind; 2],
-    runes: [Option<Sym>; 2],
+    left_rune: Option<Ordinal>,
+    left_stance: Option<Ordinal>,
+    left_seam: Option<Ordinal>,
+    rune: Ordinal,
+    runes: [Option<Ordinal>; 2],
+    /// The left's kind at slot zero, then the two slots' kinds.
+    kinds: PackedKinds,
 }
 
 /// The lookahead closure's key: the candidate we are proposing, spelled out, plus the follower and the raw slot past it.
@@ -324,65 +324,80 @@ struct ClosureKey {
 
 /// The trace memo's key: the collapsed left with its extension, the input rune, and all four raw slots. Every window read the kernel makes goes through these fields, which is why lefts differing only in their cell's entry or adjustments may share one entry.
 ///
-/// It is packed to forty bytes because the memo holds one per window over a million and more windows a configuration (issue #165). The four slots ride as their kinds beside their `Option<Sym>` runes, which is what a [`RightToken`] is — a letter is its kind with a rune, and every other kind carries none — so the pair spells each token exactly once and two windows collide exactly when their slots are equal, in four bytes a slot instead of the eight a tagged enum pads to. The extension is an `i16` because it is a count of connector pixels. Nothing reads a key back: it is compared and hashed and never resolved.
+/// It is packed to twenty bytes because the memo holds one per window over a million and more windows a configuration (issues #165 and #266). Every rune, stance and seam field is its field's [`Ordinal`] — two bytes naming a symbol out of the handful the spec offers for that position, where a `Sym` into the whole pool takes four — and the four slots ride as their runes' ordinals beside their kinds, which is what a [`RightToken`] is: a letter is its kind with a rune, and every other kind carries none, so the pair spells each token exactly once and two windows collide exactly when their slots are equal. The left's kind and the four slot kinds share one [`PackedKinds`] word, and the extension is an `i16` because it is a count of connector pixels; eight ordinals, the word and the count sit at alignment two with no padding. A key is compared, hashed and sorted, and read back only by the memo writer, which resolves each ordinal through the index that minted it.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub(crate) struct TraceKey {
-    pub(crate) left_kind: TokenKind,
-    pub(crate) left_rune: Option<Sym>,
-    pub(crate) left_stance: Option<Sym>,
-    pub(crate) left_seam: Option<Sym>,
+    pub(crate) left_rune: Option<Ordinal>,
+    pub(crate) left_stance: Option<Ordinal>,
+    pub(crate) left_seam: Option<Ordinal>,
     pub(crate) left_extension: i16,
-    pub(crate) token: Sym,
-    pub(crate) kinds: [TokenKind; 4],
-    pub(crate) runes: [Option<Sym>; 4],
+    pub(crate) token: Ordinal,
+    pub(crate) runes: [Option<Ordinal>; 4],
+    /// The left's kind at slot zero, then the four raw slots' kinds.
+    pub(crate) kinds: PackedKinds,
 }
 
 impl TraceKey {
-    /// Every rune this key names — the left cell's, the input, and each letter slot's — which is every rune file the engine reads while settling the window, and so the whole of what a [`crate::memo::Exclusion`] tests.
-    pub(crate) fn runes_named(&self) -> impl Iterator<Item = Sym> + '_ {
+    /// Every rune this key names, as rune-field ordinals — the left cell's, the input, and each letter slot's — which is every rune file the engine reads while settling the window, and so the whole of what a [`crate::memo::Exclusion`] tests.
+    pub(crate) fn runes_named(&self) -> impl Iterator<Item = Ordinal> + '_ {
         self.left_rune
             .into_iter()
             .chain(std::iter::once(self.token))
             .chain(self.runes.iter().flatten().copied())
     }
 
+    /// The left's kind.
+    pub(crate) fn left_kind(&self) -> TokenKind {
+        self.kinds.get(0)
+    }
+
+    /// The kind of raw slot `slot`, zero through three.
+    pub(crate) fn slot_kind(&self, slot: usize) -> TokenKind {
+        self.kinds.get(slot + 1)
+    }
+
     /// A key over a boundary left and the given slots, for a test that wants one without an engine.
     #[cfg(test)]
-    pub(crate) fn for_test(token: Sym, runes: [Option<Sym>; 4]) -> Self {
+    pub(crate) fn for_test(index: &SpecIndex, token: Sym, runes: [Option<Sym>; 4]) -> Self {
+        let ordinal = |rune: Sym| {
+            index
+                .rune_ordinal(rune)
+                .expect("a test key names modeled runes")
+        };
+        let kinds = runes.map(|rune| rune.map_or(TokenKind::Edge, |_| TokenKind::Letter));
         Self {
-            left_kind: TokenKind::Edge,
             left_rune: None,
             left_stance: None,
             left_seam: None,
             left_extension: 0,
-            token,
-            kinds: runes.map(|rune| rune.map_or(TokenKind::Edge, |_| TokenKind::Letter)),
-            runes,
+            token: ordinal(token),
+            runes: runes.map(|rune| rune.map(ordinal)),
+            kinds: PackedKinds::of(&[TokenKind::Edge, kinds[0], kinds[1], kinds[2], kinds[3]]),
         }
     }
 }
 
-/// The prospect memo's key, in the two shapes the two candidacy worlds need. An engine's mode is fixed at construction, so only one of them ever occurs on any given engine, and one map holds both; the asymmetry between them is the terms' own — the candidacy key ends in `right2.letter`, because the estimate reads nothing past the follower's own right, while the simulated key carries the whole token and the two slots behind it, because the cascade it runs does.
+/// The prospect memo's key, in the two shapes the two candidacy worlds need. An engine's mode is fixed at construction, so only one of them ever occurs on any given engine, and one map holds both; the asymmetry between them is the terms' own — the candidacy key ends in `right2`'s rune, because the estimate reads nothing past the follower's own right, while the simulated key carries the whole token and the two slots behind it, because the cascade it runs does.
 ///
-/// The simulated key's three slots ride as their kinds beside their `Option<Sym>` runes, the way [`TraceKey`] carries its four (issue #166): the pair spells each token exactly once, so two asks collide exactly when their slots are equal, in four bytes a slot instead of the eight a tagged enum pads to, which is what brings the key down to thirty-six bytes. Nothing reads a key back: it is compared and hashed and never resolved.
+/// Every field is its key field's [`Ordinal`], as [`TraceKey`]'s are (issues #166 and #266), and the simulated key's three slots ride as their runes' ordinals beside one [`PackedKinds`] word of their kinds: the pair spells each token exactly once, so two asks collide exactly when their slots are equal, and the wider arm is eight ordinals and the word, eighteen bytes, with the discriminant riding in the forbidden zero of one of the bare `Ordinal` fields, since an `Option<Ordinal>` has spent that value on its own `None` and offers no niche. Nothing reads a key back: it is compared and hashed and never resolved.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 enum ProspectKey {
     Candidacy {
-        rune: Sym,
-        stance: Sym,
-        entry: Option<Sym>,
-        seam: Option<Sym>,
-        right1: Sym,
-        right2: Sym,
+        rune: Ordinal,
+        stance: Ordinal,
+        entry: Option<Ordinal>,
+        seam: Option<Ordinal>,
+        right1: Ordinal,
+        right2: Ordinal,
     },
     Simulated {
-        rune: Sym,
-        stance: Sym,
-        entry: Option<Sym>,
-        seam: Option<Sym>,
-        right1: Sym,
-        kinds: [TokenKind; 3],
-        runes: [Option<Sym>; 3],
+        rune: Ordinal,
+        stance: Ordinal,
+        entry: Option<Ordinal>,
+        seam: Option<Ordinal>,
+        right1: Ordinal,
+        runes: [Option<Ordinal>; 3],
+        kinds: PackedKinds,
     },
 }
 
@@ -534,7 +549,7 @@ pub(crate) struct TraceEntry {
     pub(crate) decided_stage: DecidedStage,
 }
 
-/// The window memo and its fired journal in one table, with the settled and notes pools its entries seat into beside it. The delta rides in the entry as a seat rather than in a shadow map on the same forty-byte key, which would cost the key and its hashbrown slack a second time for a value that is only ever read alongside the trace it belongs to; it resolves through [`Engine::deltas`] rather than a pool of this memo's own because the candidate and closure memos seat their deltas in the same table (issue #167). The two pools here are the memo's own rather than a fixpoint's because the memo outlives no fixpoint and is released as one piece. The ladders map is keyed on the same key and is populated only in explain-ladder mode, so a fixpoint's memo carries no ladder slot per entry and an explain-mode hit still answers with the ladder its miss recorded.
+/// The window memo and its fired journal in one table, with the settled and notes pools its entries seat into beside it. The delta rides in the entry as a seat rather than in a shadow map on the same twenty-byte key, which would cost the key and its hashbrown slack a second time for a value that is only ever read alongside the trace it belongs to; it resolves through [`Engine::deltas`] rather than a pool of this memo's own because the candidate and closure memos seat their deltas in the same table (issue #167). The two pools here are the memo's own rather than a fixpoint's because the memo outlives no fixpoint and is released as one piece. The ladders map is keyed on the same key and is populated only in explain-ladder mode, so a fixpoint's memo carries no ladder slot per entry and an explain-mode hit still answers with the ladder its miss recorded.
 #[derive(Clone, Debug, Default)]
 struct TraceMemo {
     entries: HashMap<TraceKey, TraceEntry>,
@@ -752,7 +767,7 @@ impl<'i> Engine<'i> {
         let memo = self.trace_cache.as_ref()?;
         let entry = memo
             .entries
-            .get(&Self::trace_key(left, token.rune()?, slots))?;
+            .get(&Self::trace_key(left, token.ordinal()?, slots))?;
         Some(self.deltas.get(entry.delta))
     }
 
@@ -766,7 +781,7 @@ impl<'i> Engine<'i> {
         let memo = self.trace_cache.as_ref()?;
         let entry = memo
             .entries
-            .get(&Self::trace_key(left, token.rune()?, slots))?;
+            .get(&Self::trace_key(left, token.ordinal()?, slots))?;
         Some(self.reads.get(entry.reads))
     }
 
@@ -1393,7 +1408,7 @@ impl<'i> Engine<'i> {
         if self.fired_log.is_none() {
             return self.candidates_uncached(left, rune_name, right1, right2, eliminations);
         }
-        let key = Self::candidates_key(left, rune_name, right1, right2);
+        let key = Self::candidates_key(self.index, left, rune_name, right1, right2);
         let entry = match self.candidates_cache.entries.get(&key) {
             Some(&cached) => {
                 replay_into(
@@ -1439,21 +1454,27 @@ impl<'i> Engine<'i> {
         Ok(memo.candidates.get(entry.candidates).to_vec())
     }
 
+    /// The candidate memo's key. The rune's ordinal is the one lookup here, made on the memo's own path rather than the trace memo's; the rune field seats every registered family, so it fails only for a name the registry knows no family by, and a registered but unmodeled rune fails at the enumeration itself, as `spec.runes[…]` does.
     fn candidates_key(
+        index: &SpecIndex,
         left: &LeftContext,
         rune_name: Sym,
         right1: RightToken,
         right2: RightToken,
     ) -> CandidatesKey {
-        let tokens = [right1, right2];
+        let rune = index.rune_ordinal(rune_name).unwrap_or_else(|| {
+            panic!(
+                "{} is no registered family, so it holds no seat in the memo's rune field",
+                index.resolve(rune_name)
+            )
+        });
         CandidatesKey {
-            left_kind: left.kind,
-            left_rune: left.settled.as_ref().map(|settled| settled.cell.rune),
-            left_stance: left.settled.as_ref().map(|settled| settled.cell.stance),
-            left_seam: left.settled.as_ref().and_then(|settled| settled.seam),
-            rune: rune_name,
-            kinds: tokens.map(RightToken::kind),
-            runes: tokens.map(RightToken::rune),
+            left_rune: left.ordinals.rune,
+            left_stance: left.ordinals.stance,
+            left_seam: left.ordinals.seam,
+            rune,
+            runes: [right1.ordinal(), right2.ordinal()],
+            kinds: PackedKinds::of(&[left.kind, right1.kind(), right2.kind()]),
         }
     }
 
@@ -1534,8 +1555,15 @@ impl<'i> Engine<'i> {
             if right1.kind() == TokenKind::Letter {
                 for source in self.exit_sources(id) {
                     let height = source.height;
-                    let candidate =
-                        Candidate::joining(*stance_name, entry, height, order_index, source.index);
+                    let candidate = Candidate::joining(
+                        index,
+                        rune_name,
+                        *stance_name,
+                        entry,
+                        height,
+                        order_index,
+                        source.index,
+                    );
                     if !self.pairing_allowed(id, entry_state, height, &unlocked) {
                         record_elimination(
                             &mut eliminations,
@@ -1634,7 +1662,8 @@ impl<'i> Engine<'i> {
             if stance.surface.require.contains(&vocab.exit) {
                 continue;
             }
-            let non_joining = Candidate::non_joining(*stance_name, entry, order_index);
+            let non_joining =
+                Candidate::non_joining(index, rune_name, *stance_name, entry, order_index);
             if !self.pairing_allowed(id, entry_state, vocab.none, &unlocked) {
                 record_elimination(
                     &mut eliminations,
@@ -1671,19 +1700,22 @@ impl<'i> Engine<'i> {
         Ok(out)
     }
 
-    /// The left a follower would settle against if this candidate won: the candidate's cell with no adjustments and no extension, which is everything the follower's own enumeration reads. It is built on every ask rather than memoized: the value is two moves of its arguments and an empty `Vec`, which allocates nothing, so a memo in front of it costs a key hash, a probe and a clone on the enumeration's hottest path to save a few instructions of construction.
+    /// The left a follower would settle against if this candidate won: the candidate's cell with no adjustments and no extension, which is everything the follower's own enumeration reads. It is built on every ask rather than memoized: the value is two moves of its arguments, an empty `Vec`, which allocates nothing, and the candidate's own ordinals as the left's, so a memo in front of it costs a key hash, a probe and a clone on the enumeration's hottest path to save a few instructions of construction.
     fn virtual_left(rune_name: Sym, candidate: Candidate) -> LeftContext {
-        LeftContext::letter(Settled {
-            cell: CellId {
-                rune: rune_name,
-                stance: candidate.stance,
-                entry: candidate.entry,
-                exit: candidate.seam,
-                adjustments: Vec::new(),
+        LeftContext::seated(
+            Settled {
+                cell: CellId {
+                    rune: rune_name,
+                    stance: candidate.stance,
+                    entry: candidate.entry,
+                    exit: candidate.seam,
+                    adjustments: Vec::new(),
+                },
+                seam: candidate.seam,
+                extension: 0,
             },
-            seam: candidate.seam,
-            extension: 0,
-        })
+            candidate.ordinals.as_left(),
+        )
     }
 
     /// Step 2's lookahead closure: whether some cell of the follower survives its own pairings, require, unlocks, row scopes and every window-decidable refusal, evaluated with this candidate as the follower's resolved left and the raw slot past it as the follower's right. Mutuality is definitional — an exit with no refusal-aware acceptor is never a candidate — and the slots past the window are optimistic by construction.
@@ -1742,21 +1774,26 @@ impl<'i> Engine<'i> {
         Ok(result)
     }
 
-    /// The trace memo's key. `token` is the input rune rather than the whole token, because a non-letter input short-circuits to the boundary trace before any key is built and therefore has no memo entry to name.
-    fn trace_key(left: &LeftContext, token: Sym, slots: Slots) -> TraceKey {
+    /// The trace memo's key. `token` is the input rune's ordinal rather than the whole token, because a non-letter input short-circuits to the boundary trace before any key is built and therefore has no memo entry to name. Nothing is looked up: the left carries its ordinals and each letter token its rune's.
+    fn trace_key(left: &LeftContext, token: Ordinal, slots: Slots) -> TraceKey {
         let tokens = slots.as_array();
         TraceKey {
-            left_kind: left.kind,
-            left_rune: left.settled.as_ref().map(|settled| settled.cell.rune),
-            left_stance: left.settled.as_ref().map(|settled| settled.cell.stance),
-            left_seam: left.settled.as_ref().and_then(|settled| settled.seam),
+            left_rune: left.ordinals.rune,
+            left_stance: left.ordinals.stance,
+            left_seam: left.ordinals.seam,
             left_extension: i16::try_from(
                 left.settled.as_ref().map_or(0, |settled| settled.extension),
             )
             .expect("an extension is a count of connector pixels"),
             token,
-            kinds: tokens.map(RightToken::kind),
-            runes: tokens.map(RightToken::rune),
+            runes: tokens.map(RightToken::ordinal),
+            kinds: PackedKinds::of(&[
+                left.kind,
+                tokens[0].kind(),
+                tokens[1].kind(),
+                tokens[2].kind(),
+                tokens[3].kind(),
+            ]),
         }
     }
 
@@ -1783,25 +1820,32 @@ impl<'i> Engine<'i> {
         if slots.right2.kind() != TokenKind::Letter {
             return Ok(0);
         }
+        let CandidateOrdinals {
+            rune,
+            stance,
+            entry,
+            seam,
+        } = candidate.ordinals;
+        let right1 = slots.right1.letter_ordinal();
         let key = if self.simulated_prospect {
             let deep = [slots.right2, slots.right3, slots.right4];
             ProspectKey::Simulated {
-                rune: rune_name,
-                stance: candidate.stance,
-                entry: candidate.entry,
-                seam: candidate.seam,
-                right1: follower,
-                kinds: deep.map(RightToken::kind),
-                runes: deep.map(RightToken::rune),
+                rune,
+                stance,
+                entry,
+                seam,
+                right1,
+                runes: deep.map(RightToken::ordinal),
+                kinds: PackedKinds::of(&[deep[0].kind(), deep[1].kind(), deep[2].kind()]),
             }
         } else {
             ProspectKey::Candidacy {
-                rune: rune_name,
-                stance: candidate.stance,
-                entry: candidate.entry,
-                seam: candidate.seam,
-                right1: follower,
-                right2: slots.right2.letter(),
+                rune,
+                stance,
+                entry,
+                seam,
+                right1,
+                right2: slots.right2.letter_ordinal(),
             }
         };
         if let Some(&(cached, seat, reads)) = self.prospect_cache.get(&key) {
@@ -2565,7 +2609,7 @@ impl<'i> Engine<'i> {
         if self.trace_cache.is_none() {
             return self.transition_trace_uncached(left, token, slots);
         }
-        let key = Self::trace_key(left, token.letter(), slots);
+        let key = Self::trace_key(left, token.letter_ordinal(), slots);
         if let Some(memo) = self.trace_cache.as_ref()
             && let Some(&entry) = memo.entries.get(&key)
         {
@@ -2654,7 +2698,7 @@ impl<'i> Engine<'i> {
             return None;
         }
         let memo = self.trace_cache.as_ref()?;
-        let key = Self::trace_key(left, token.letter(), slots);
+        let key = Self::trace_key(left, token.letter_ordinal(), slots);
         if let Some(&entry) = memo.entries.get(&key) {
             let answer = read(memo.settled.get(entry.settled));
             replay_into(
@@ -3155,7 +3199,7 @@ mod tests {
     }
 
     fn letter_token(index: &SpecIndex, name: &str) -> RightToken {
-        RightToken::Letter(fixtures::sym(index, name))
+        fixtures::letter(index, name)
     }
 
     /// A settled letter left carrying `seam`, spelled through a real (rune, stance) pair the way every left the kernel meets is.
@@ -3166,17 +3210,20 @@ mod tests {
         seam: Option<&str>,
     ) -> LeftContext {
         let seam = seam.map(|height| fixtures::sym(index, height));
-        LeftContext::letter(Settled {
-            cell: CellId {
-                rune: fixtures::sym(index, rune),
-                stance: fixtures::sym(index, stance),
-                entry: None,
-                exit: seam,
-                adjustments: Vec::new(),
+        LeftContext::letter(
+            index,
+            Settled {
+                cell: CellId {
+                    rune: fixtures::sym(index, rune),
+                    stance: fixtures::sym(index, stance),
+                    entry: None,
+                    exit: seam,
+                    adjustments: Vec::new(),
+                },
+                seam,
+                extension: 0,
             },
-            seam,
-            extension: 0,
-        })
+        )
     }
 
     fn descriptions(eliminations: &[Elimination]) -> Vec<&str> {
@@ -3206,10 +3253,26 @@ mod tests {
         assert_eq!(
             out,
             vec![
-                Candidate::joining(half, None, baseline, 0, 0),
-                Candidate::non_joining(half, None, 0),
-                Candidate::joining(full, None, baseline, 1, 0),
-                Candidate::non_joining(full, None, 1),
+                Candidate::joining(
+                    &index,
+                    fixtures::sym(&index, "qsPea"),
+                    half,
+                    None,
+                    baseline,
+                    0,
+                    0
+                ),
+                Candidate::non_joining(&index, fixtures::sym(&index, "qsPea"), half, None, 0),
+                Candidate::joining(
+                    &index,
+                    fixtures::sym(&index, "qsPea"),
+                    full,
+                    None,
+                    baseline,
+                    1,
+                    0
+                ),
+                Candidate::non_joining(&index, fixtures::sym(&index, "qsPea"), full, None, 1),
             ]
         );
         assert_eq!(
@@ -3239,6 +3302,8 @@ mod tests {
         assert_eq!(
             out,
             vec![Candidate::non_joining(
+                &index,
+                tea,
                 fixtures::sym(&index, "plain"),
                 Some(baseline),
                 0
@@ -3289,6 +3354,8 @@ mod tests {
         assert_eq!(
             out,
             vec![Candidate::non_joining(
+                &index,
+                may,
                 fixtures::sym(&index, "alt"),
                 Some(fixtures::sym(&index, "baseline")),
                 0
@@ -3378,8 +3445,22 @@ mod tests {
         assert_eq!(
             out,
             vec![
-                Candidate::joining(half, Some(baseline), baseline, 0, 0),
-                Candidate::non_joining(half, Some(baseline), 0),
+                Candidate::joining(
+                    &index,
+                    fixtures::sym(&index, "qsPea"),
+                    half,
+                    Some(baseline),
+                    baseline,
+                    0,
+                    0
+                ),
+                Candidate::non_joining(
+                    &index,
+                    fixtures::sym(&index, "qsPea"),
+                    half,
+                    Some(baseline),
+                    0
+                ),
             ]
         );
         assert_eq!(
@@ -3406,6 +3487,8 @@ mod tests {
         assert_eq!(
             out,
             vec![Candidate::joining(
+                &index,
+                fixtures::sym(&index, "qsPea"),
                 fixtures::sym(&index, "half"),
                 Some(fixtures::sym(&index, "baseline")),
                 fixtures::sym(&index, "baseline"),
@@ -3479,7 +3562,7 @@ mod tests {
             .expect("the fixture raises nothing");
         assert_eq!(
             out,
-            vec![Candidate::non_joining(half, None, 0)],
+            vec![Candidate::non_joining(&index, pea, half, None, 0)],
             "a whole-join refusal never speaks to the non-joining cell"
         );
         assert_eq!(
@@ -3512,8 +3595,8 @@ mod tests {
         assert_eq!(
             out,
             vec![
-                Candidate::joining(half, None, baseline, 0, 0),
-                Candidate::non_joining(half, None, 0),
+                Candidate::joining(&index, pea, half, None, baseline, 0, 0),
+                Candidate::non_joining(&index, pea, half, None, 0),
             ]
         );
         assert!(eliminations.is_empty());
@@ -3573,6 +3656,8 @@ mod tests {
         assert_eq!(
             out,
             vec![Candidate::non_joining(
+                &index,
+                pea,
                 fixtures::sym(&index, "half"),
                 None,
                 0
@@ -3649,6 +3734,8 @@ mod tests {
         assert_eq!(
             out,
             vec![Candidate::joining(
+                &index,
+                fixtures::sym(&index, "qsPea"),
                 fixtures::sym(&index, "full"),
                 None,
                 fixtures::sym(&index, "baseline"),
@@ -3717,8 +3804,8 @@ mod tests {
         assert_eq!(
             out,
             vec![
-                Candidate::joining(half, None, baseline, 0, 0),
-                Candidate::non_joining(half, None, 0),
+                Candidate::joining(&index, pea, half, None, baseline, 0, 0),
+                Candidate::non_joining(&index, pea, half, None, 0),
             ]
         );
 
@@ -3735,9 +3822,9 @@ mod tests {
         assert_eq!(
             out,
             vec![
-                Candidate::joining(half, None, baseline, 0, 0),
-                Candidate::joining(half, None, x_height, 0, 1),
-                Candidate::non_joining(half, None, 0),
+                Candidate::joining(&index, pea, half, None, baseline, 0, 0),
+                Candidate::joining(&index, pea, half, None, x_height, 0, 1),
+                Candidate::non_joining(&index, pea, half, None, 0),
             ],
             "the granted x-height sits past the declared row; the baseline unlock is shadowed"
         );
@@ -4469,7 +4556,7 @@ mod tests {
         let entry = *memoized
             .candidates_cache
             .entries
-            .get(&Engine::candidates_key(&left, may, EDGE, EDGE))
+            .get(&Engine::candidates_key(&index, &left, may, EDGE, EDGE))
             .expect("the window this test enumerated is memoized");
         assert_eq!(memoized.deltas.get(entry.delta), [unlock]);
         assert!(
@@ -4577,8 +4664,24 @@ mod tests {
         assert_eq!(
             out,
             vec![
-                Candidate::joining(half, Some(baseline), baseline, 0, 0),
-                Candidate::joining(half, Some(baseline), x_height, 0, 1),
+                Candidate::joining(
+                    &index,
+                    fixtures::sym(&index, "qsPea"),
+                    half,
+                    Some(baseline),
+                    baseline,
+                    0,
+                    0
+                ),
+                Candidate::joining(
+                    &index,
+                    fixtures::sym(&index, "qsPea"),
+                    half,
+                    Some(baseline),
+                    x_height,
+                    0,
+                    1
+                ),
             ]
         );
         assert_eq!(
@@ -4589,6 +4692,7 @@ mod tests {
             .candidates_cache
             .entries
             .get(&Engine::candidates_key(
+                &index,
                 &settled_left(&index, "qsTea", "plain", Some("baseline")),
                 fixtures::sym(&index, "qsPea"),
                 letter_token(&index, "qsTea"),
@@ -4677,19 +4781,56 @@ mod tests {
         assert!(!Engine::new(&index, no_features()).trace_memo());
     }
 
-    /// The memo's whole point (issues #165 and #184): an entry is its four seats, the prospect byte, the joint flag and the stage in twenty bytes with nothing on the heap, under a key packed to forty.
+    /// The memo's whole point (issues #165, #184 and #266): an entry is its four seats, the prospect byte, the joint flag and the stage in twenty bytes with nothing on the heap, under a key packed to twenty.
     #[test]
-    fn a_memoized_window_is_twenty_bytes_under_a_forty_byte_key() {
+    fn a_memoized_window_is_twenty_bytes_under_a_twenty_byte_key() {
         assert_eq!(std::mem::size_of::<TraceEntry>(), 20);
-        assert_eq!(std::mem::size_of::<TraceKey>(), 40);
+        assert_eq!(std::mem::size_of::<TraceKey>(), 20);
     }
 
-    /// The candidate memo's whole point (issues #167 and #184): an entry is its four seats in sixteen bytes with nothing on the heap, under a key packed to twenty-eight, and the closure memo's verdict rides beside its two seats in twelve.
+    /// The candidate memo's whole point (issues #167, #184 and #266): an entry is its four seats in sixteen bytes with nothing on the heap, under a key packed to fourteen, and the closure memo's verdict rides beside its two seats in twelve.
     #[test]
-    fn a_memoized_enumeration_is_sixteen_bytes_under_a_twenty_eight_byte_key() {
+    fn a_memoized_enumeration_is_sixteen_bytes_under_a_fourteen_byte_key() {
         assert_eq!(std::mem::size_of::<CandidatesEntry>(), 16);
-        assert_eq!(std::mem::size_of::<CandidatesKey>(), 28);
+        assert_eq!(std::mem::size_of::<CandidatesKey>(), 14);
         assert_eq!(std::mem::size_of::<(bool, DeltaSeat, ReadsSeat)>(), 12);
+    }
+
+    /// The packed kinds (issue #266): two keys alike in every ordinal and differing in one slot's kind, or in the left's kind alone, are distinct keys and hash apart.
+    #[test]
+    fn two_keys_differing_in_one_packed_kind_stay_distinct_and_hash_apart() {
+        use std::hash::BuildHasher as _;
+        let index = fixtures::mini();
+        let pea = fixtures::sym(&index, "qsPea");
+        let tea = fixtures::sym(&index, "qsTea");
+        let hasher = std::hash::BuildHasherDefault::<crate::hash::FastHasher>::default();
+        let base = TraceKey::for_test(&index, pea, [Some(tea), None, None, None]);
+        let mut third_space = base;
+        third_space.kinds = PackedKinds::of(&[
+            TokenKind::Edge,
+            TokenKind::Letter,
+            TokenKind::Edge,
+            TokenKind::Space,
+            TokenKind::Edge,
+        ]);
+        let mut left_space = base;
+        left_space.kinds = PackedKinds::of(&[
+            TokenKind::Space,
+            TokenKind::Letter,
+            TokenKind::Edge,
+            TokenKind::Edge,
+            TokenKind::Edge,
+        ]);
+        assert_eq!(base.left_kind(), TokenKind::Edge);
+        assert_eq!(base.slot_kind(0), TokenKind::Letter);
+        assert_eq!(third_space.slot_kind(2), TokenKind::Space);
+        assert_eq!(left_space.left_kind(), TokenKind::Space);
+        assert_ne!(base, third_space);
+        assert_ne!(base, left_space);
+        assert_ne!(third_space, left_space);
+        assert_ne!(hasher.hash_one(base), hasher.hash_one(third_space));
+        assert_ne!(hasher.hash_one(base), hasher.hash_one(left_space));
+        assert_eq!(base.runes_named().count(), 2);
     }
 
     /// The read journal (issue #184): a traced window's entry names the runes its evaluation read — the input's and the follower's at least, and never one the window does not name — and a hit replays those reads into an open capture exactly as it replays its delta.
@@ -4759,7 +4900,7 @@ mod tests {
         let entry = |right2| {
             *memo
                 .entries
-                .get(&Engine::candidates_key(&left, pea, tea, right2))
+                .get(&Engine::candidates_key(&index, &left, pea, tea, right2))
                 .expect("the window this test enumerated is memoized")
         };
         let (narrow_entry, wide_entry) = (entry(EDGE), entry(UNKNOWN));
@@ -4920,17 +5061,20 @@ mod tests {
     /// A `qsPea.stroke` left that committed the x-height seam, carrying `extension` connector pixels on it.
     fn committed_left(index: &SpecIndex, extension: i64) -> LeftContext {
         let x_height = fixtures::sym(index, "x-height");
-        LeftContext::letter(Settled {
-            cell: CellId {
-                rune: fixtures::sym(index, "qsPea"),
-                stance: fixtures::sym(index, "stroke"),
-                entry: None,
-                exit: Some(x_height),
-                adjustments: Vec::new(),
+        LeftContext::letter(
+            index,
+            Settled {
+                cell: CellId {
+                    rune: fixtures::sym(index, "qsPea"),
+                    stance: fixtures::sym(index, "stroke"),
+                    entry: None,
+                    exit: Some(x_height),
+                    adjustments: Vec::new(),
+                },
+                seam: Some(x_height),
+                extension,
             },
-            seam: Some(x_height),
-            extension,
-        })
+        )
     }
 
     #[test]
@@ -4979,7 +5123,13 @@ mod tests {
         assert_eq!(trace.settled.seam, Some(x_height));
         assert_eq!(
             trace.ladder().runner_up,
-            Some(Candidate::non_joining(stroke, None, 0))
+            Some(Candidate::non_joining(
+                &index,
+                fixtures::sym(&index, "qsPea"),
+                stroke,
+                None,
+                0
+            ))
         );
         assert_eq!(trace.prospect, 0);
         assert_eq!(
@@ -4990,9 +5140,32 @@ mod tests {
                 .map(|entry| (entry.candidate, entry.join_count))
                 .collect::<Vec<_>>(),
             [
-                (Candidate::joining(stroke, None, x_height, 0, 0), 1),
-                (Candidate::non_joining(stroke, None, 0), 1),
-                (Candidate::non_joining(flourish, None, 1), 1),
+                (
+                    Candidate::joining(
+                        &index,
+                        fixtures::sym(&index, "qsPea"),
+                        stroke,
+                        None,
+                        x_height,
+                        0,
+                        0
+                    ),
+                    1
+                ),
+                (
+                    Candidate::non_joining(&index, fixtures::sym(&index, "qsPea"), stroke, None, 0),
+                    1
+                ),
+                (
+                    Candidate::non_joining(
+                        &index,
+                        fixtures::sym(&index, "qsPea"),
+                        flourish,
+                        None,
+                        1
+                    ),
+                    1
+                ),
             ],
             "every candidate is worth one join, so the ranked list falls back to declared order"
         );
@@ -5015,7 +5188,13 @@ mod tests {
         );
         assert_eq!(
             trace.ladder().runner_up,
-            Some(Candidate::non_joining(stroke_of(&plain), None, 0))
+            Some(Candidate::non_joining(
+                &plain,
+                fixtures::sym(&plain, "qsPea"),
+                stroke_of(&plain),
+                None,
+                0
+            ))
         );
 
         let yielding = ranking_spec(&flourish_policy("null"), &plain_policy());
@@ -5062,6 +5241,8 @@ mod tests {
         assert_eq!(
             trace.ladder().runner_up,
             Some(Candidate::joining(
+                &index,
+                fixtures::sym(&index, "qsPea"),
                 fixtures::sym(&index, "stroke"),
                 None,
                 fixtures::sym(&index, "x-height"),
@@ -5212,9 +5393,17 @@ mod tests {
         let stroke = fixtures::sym(&index, "stroke");
         let mut engine = Engine::new(&index, no_features());
         for (candidate, expected) in [
-            (Candidate::non_joining(stroke, None, 0), true),
+            (Candidate::non_joining(&index, pea, stroke, None, 0), true),
             (
-                Candidate::joining(stroke, None, fixtures::sym(&index, "x-height"), 0, 0),
+                Candidate::joining(
+                    &index,
+                    pea,
+                    stroke,
+                    None,
+                    fixtures::sym(&index, "x-height"),
+                    0,
+                    0,
+                ),
                 false,
             ),
         ] {
@@ -5243,6 +5432,8 @@ mod tests {
         assert_eq!(
             trace.ladder().runner_up,
             Some(Candidate::non_joining(
+                &index,
+                fixtures::sym(&index, "qsPea"),
                 fixtures::sym(&index, "flourish"),
                 None,
                 1
@@ -5334,6 +5525,8 @@ mod tests {
         let own = &index.rune(pea).expect("qsPea is modeled").policy.prefer[0];
         let follower = &index.rune(tea).expect("qsTea is modeled").policy.prefer[0];
         let candidate = Candidate::joining(
+            &index,
+            pea,
             fixtures::sym(&index, "stroke"),
             None,
             fixtures::sym(&index, "x-height"),
@@ -5535,27 +5728,43 @@ mod tests {
                 .prefer[0],
         };
         let survivors = [
-            Candidate::non_joining(bare, Some(empty), 0),
-            Candidate::joining(bare, None, fixtures::sym(&index, "x-height"), 0, 0),
+            Candidate::non_joining(&index, pea, bare, Some(empty), 0),
+            Candidate::joining(
+                &index,
+                pea,
+                bare,
+                None,
+                fixtures::sym(&index, "x-height"),
+                0,
+                0,
+            ),
         ];
-        let left = LeftContext::letter(Settled {
-            cell: CellId {
-                rune: empty,
-                stance: bare,
-                entry: None,
-                exit: None,
-                adjustments: Vec::new(),
+        let left = LeftContext::letter(
+            &index,
+            Settled {
+                cell: CellId {
+                    rune: empty,
+                    stance: bare,
+                    entry: None,
+                    exit: None,
+                    adjustments: Vec::new(),
+                },
+                seam: None,
+                extension: 0,
             },
-            seam: None,
-            extension: 0,
-        });
+        );
         let message = engine.incomparable_message(
             prefer_of(pea),
             prefer_of(empty),
             pea,
             &survivors,
             &left,
-            Slots::pair(letter_token(&index, "qsPea"), RightToken::Letter(empty)),
+            Slots::pair(
+                letter_token(&index, "qsPea"),
+                index
+                    .letter(empty)
+                    .expect("the fixture models the empty rune"),
+            ),
         );
         assert_eq!(
             message,
@@ -6144,10 +6353,10 @@ mod tests {
         assert_eq!(estimating.simulated_prospect_fallbacks(), 0);
     }
 
-    /// The prospect memo's whole point (issue #166): a key packed to thirty-six bytes, the simulated shape's slots as kinds beside runes, over a value that is the term's byte and a seat.
+    /// The prospect memo's whole point (issues #166 and #266): a key packed to eighteen bytes, the simulated shape's slots as ordinals beside one packed word of kinds, over a value that is the term's byte and a seat.
     #[test]
-    fn a_memoized_prospect_is_eight_bytes_under_a_thirty_six_byte_key() {
-        assert_eq!(std::mem::size_of::<ProspectKey>(), 36);
+    fn a_memoized_prospect_is_eight_bytes_under_an_eighteen_byte_key() {
+        assert_eq!(std::mem::size_of::<ProspectKey>(), 18);
         assert_eq!(std::mem::size_of::<(i8, DeltaSeat)>(), 8);
     }
 
@@ -6297,7 +6506,7 @@ mod tests {
         );
         let key = Engine::trace_key(
             &LeftContext::boundary(TokenKind::Edge),
-            fixtures::sym(&index, "qsPea"),
+            fixtures::letter(&index, "qsPea").letter_ordinal(),
             slots,
         );
         assert!(

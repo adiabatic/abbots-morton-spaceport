@@ -18,8 +18,9 @@ use crate::hash::{HashMap, HashSet};
 use crate::index::{Read, SpecIndex};
 use crate::model::{PolicyRecord, Provenance, Sym, When};
 use crate::types::{
-    AdjustmentToken, CellId, DecidedStage, NotesSeat, Settled, SettledSeat, TokenKind,
-    TransitionTrace, adjustment_from_text, adjustment_text, boundary_settled,
+    AdjustmentToken, CellId, DecidedStage, LeftOrdinals, NotesSeat, PackedKinds, Settled,
+    SettledSeat, TokenKind, TransitionTrace, adjustment_from_text, adjustment_text,
+    boundary_settled,
 };
 
 /// One engine's finished trace memo: the entries with the three tables their seats index. The tables are the memo's own pools flattened, so an entry read through the snapshot resolves exactly as it resolved through the engine that recorded it.
@@ -75,14 +76,28 @@ impl MemoSnapshot {
 pub struct Exclusion {
     runes: HashSet<Sym>,
     classes: HashSet<Sym>,
+    /// The runes as the keys name them: one flag per rune-field [`crate::index::Ordinal`], indexed by the ordinal and running to the highest one named, resolved once here so that [`Exclusion::admits`] tests a key's six ordinals against a slice on every base probe rather than resolving or hashing anything. A name the registry knows no family by has no ordinal and no flag; no key can name it.
+    named: Box<[bool]>,
 }
 
 impl Exclusion {
     /// An exclusion over exactly these runes and no classes.
-    pub fn of(runes: impl IntoIterator<Item = Sym>) -> Self {
+    pub fn of(index: &SpecIndex, runes: impl IntoIterator<Item = Sym>) -> Self {
+        let runes: HashSet<Sym> = runes.into_iter().collect();
+        let mut named: Vec<bool> = Vec::new();
+        for rune in &runes {
+            if let Some(ordinal) = index.rune_ordinal(*rune) {
+                let at = usize::from(ordinal.get());
+                if named.len() <= at {
+                    named.resize(at + 1, false);
+                }
+                named[at] = true;
+            }
+        }
         Self {
-            runes: runes.into_iter().collect(),
+            runes,
             classes: HashSet::default(),
+            named: named.into_boxed_slice(),
         }
     }
 
@@ -97,12 +112,18 @@ impl Exclusion {
         Self::default()
     }
 
+    /// Whether `key` names any of this exclusion's runes, on its left or in any slot.
+    pub(crate) fn names(&self, key: &TraceKey) -> bool {
+        key.runes_named()
+            .any(|ordinal| self.named.get(usize::from(ordinal.get())).copied() == Some(true))
+    }
+
     /// Whether this base may answer for `key` given what its entry read: no named rune among the key's, and no excluded rune or class among the reads.
     pub(crate) fn admits(&self, key: &TraceKey, reads: &[Read]) -> bool {
         if self.runes.is_empty() && self.classes.is_empty() {
             return true;
         }
-        !key.runes_named().any(|rune| self.runes.contains(&rune))
+        !self.names(key)
             && !reads.iter().any(|read| match read {
                 Read::Rune(rune) => self.runes.contains(rune),
                 Read::Class(class) => self.classes.contains(class),
@@ -408,14 +429,14 @@ pub fn write_memo(
     for row in &mut rows {
         let (memo, _) = sources[usize::from(row.source)];
         let key = row.key;
-        for symbol in key.runes_named() {
-            symbols.seat(index, symbol);
+        for ordinal in key.runes_named() {
+            symbols.seat(index, index.rune_at_ordinal(ordinal));
         }
         if let Some(stance) = key.left_stance {
-            symbols.seat(index, stance);
+            symbols.seat(index, index.stance_at_ordinal(stance));
         }
         if let Some(seam) = key.left_seam {
-            symbols.seat(index, seam);
+            symbols.seat(index, index.seam_at_ordinal(seam));
         }
         let settled_seat = settled.seat(&memo.settled[row.seats[0] as usize], |record| {
             Ok(settled_line(index, &mut symbols, record))
@@ -457,18 +478,26 @@ pub fn write_memo(
         let _ = write!(
             line,
             "E\t{}\t{}\t{}\t{}\t{}\t{}",
-            kind_letter(key.left_kind),
-            symbols.optional(index, key.left_rune),
-            symbols.optional(index, key.left_stance),
-            symbols.optional(index, key.left_seam),
+            kind_letter(key.left_kind()),
+            symbols.optional(index, key.left_rune.map(|rune| index.rune_at_ordinal(rune))),
+            symbols.optional(
+                index,
+                key.left_stance
+                    .map(|stance| index.stance_at_ordinal(stance))
+            ),
+            symbols.optional(index, key.left_seam.map(|seam| index.seam_at_ordinal(seam))),
             key.left_extension,
-            symbols.seat(index, key.token)
+            symbols.seat(index, index.rune_at_ordinal(key.token))
         );
         for slot in 0..4 {
             let _ = write!(
                 line,
                 "\t{}",
-                symbols.slot(index, key.kinds[slot], key.runes[slot])
+                symbols.slot(
+                    index,
+                    key.slot_kind(slot),
+                    key.runes[slot].map(|rune| index.rune_at_ordinal(rune))
+                )
             );
         }
         let [settled_seat, notes_seat, delta_seat, reads_seat] = row.seats;
@@ -525,7 +554,7 @@ fn seat_at(text: &str) -> Option<usize> {
     text.parse().ok()
 }
 
-/// One memo file read back as a snapshot over this spec, holding only the windows `keep` admits. The configuration and the world are held to `expected`'s (its stamp is not read, being the caller's business); a window naming a symbol this spec never interned — a rune, a stance or a height that left the spec, or a pointer whose record did — is dropped rather than refused, because such a window names something that moved and would be excluded by the caller's rule in any case, and a line the format does not spell is a refusal naming it.
+/// One memo file read back as a snapshot over this spec, holding only the windows `keep` admits. The configuration and the world are held to `expected`'s (its stamp is not read, being the caller's business); a window naming a symbol this spec never interned — a rune, a stance or a height that left the spec, or a pointer whose record did — is dropped rather than refused, because such a window names something that moved and would be excluded by the caller's rule in any case, and so is a window naming a rune the spec no longer models, a stance its rune no longer declares or a height no key field holds, since the file spells each as text and the key is its field's [`crate::index::Ordinal`], which this spec's index may no longer mint for it, and so is a window seated on a settled record whose cell no left of this spec keys ([`LeftOrdinals::of`]), since a stale record would otherwise reach a left. A line the format does not spell is a refusal naming it.
 pub(crate) fn read_memo(
     index: &SpecIndex,
     path: &Path,
@@ -599,7 +628,8 @@ pub(crate) fn read_memo(
                         seam: symbol_at(&symbols, seam).ok()?,
                         extension,
                     })
-                })();
+                })()
+                .filter(|settled| LeftOrdinals::of(index, settled).is_some());
                 settled_usable.push(parsed.is_some());
                 memo.settled
                     .push(parsed.unwrap_or_else(|| placeholder.clone()));
@@ -733,19 +763,33 @@ pub(crate) fn read_memo(
                             }
                             None => {
                                 kinds[slot] = TokenKind::Letter;
-                                runes[slot] = Some(symbol_at(&symbols, text).ok()??);
+                                runes[slot] =
+                                    Some(index.rune_ordinal(symbol_at(&symbols, text).ok()??)?);
                             }
                         }
                     }
+                    let left_rune = match symbol_at(&symbols, left_rune).ok()? {
+                        Some(rune) => Some(index.rune_ordinal(rune)?),
+                        None => None,
+                    };
+                    let left_stance = match symbol_at(&symbols, left_stance).ok()? {
+                        Some(stance) => Some(index.stance_ordinal(stance)?),
+                        None => None,
+                    };
+                    let left_seam = match symbol_at(&symbols, left_seam).ok()? {
+                        Some(seam) => Some(index.seam_ordinal(seam)?),
+                        None => None,
+                    };
                     Some(TraceKey {
-                        left_kind,
-                        left_rune: symbol_at(&symbols, left_rune).ok()?,
-                        left_stance: symbol_at(&symbols, left_stance).ok()?,
-                        left_seam: symbol_at(&symbols, left_seam).ok()?,
+                        left_rune,
+                        left_stance,
+                        left_seam,
                         left_extension,
-                        token: symbol_at(&symbols, token).ok()??,
-                        kinds,
+                        token: index.rune_ordinal(symbol_at(&symbols, token).ok()??)?,
                         runes,
+                        kinds: PackedKinds::of(&[
+                            left_kind, kinds[0], kinds[1], kinds[2], kinds[3],
+                        ]),
                     })
                 })();
                 let Some(key) = key else {
@@ -927,12 +971,13 @@ mod tests {
         let previous = read_memo(&after, &path, &head("default"), |_| true)
             .expect("reads over the edited spec");
         let tea = fixtures::sym(&after, "qsTea");
+        let tea_ordinal = after.rune_ordinal(tea).expect("qsTea is modeled");
         let (seeded, own) = enumerate_keeping(
             &after,
             &[],
             vec![MemoBase {
                 memo: Arc::new(previous),
-                excluded: Exclusion::of([tea]),
+                excluded: Exclusion::of(&after, [tea]),
             }],
         );
         assert_eq!(
@@ -944,10 +989,10 @@ mod tests {
             "the windows that read qsTea were traced afresh"
         );
         assert!(
-            own.entries
-                .iter()
-                .all(|(key, entry)| key.runes_named().any(|rune| rune == tea)
-                    || own.reads(*entry).contains(&Read::Rune(tea))),
+            own.entries.iter().all(|(key, entry)| key
+                .runes_named()
+                .any(|rune| rune == tea_ordinal)
+                || own.reads(*entry).contains(&Read::Rune(tea))),
             "and nothing else was"
         );
     }
@@ -969,6 +1014,7 @@ mod tests {
         let (_, memo_after) = enumerate_keeping(&after, &[], Vec::new());
         let memo_after = Arc::new(memo_after);
         let tea = fixtures::sym(&after, "qsTea");
+        let tea_ordinal = after.rune_ordinal(tea).expect("qsTea is modeled");
         let base = |memo: &Arc<MemoSnapshot>, excluded: Exclusion| MemoBase {
             memo: Arc::clone(memo),
             excluded,
@@ -992,7 +1038,7 @@ mod tests {
             "memo-edited-first.tsv",
             vec![
                 base(&memo_after, Exclusion::none()),
-                base(&previous, Exclusion::of([tea])),
+                base(&previous, Exclusion::of(&after, [tea])),
             ],
         );
         assert_eq!(
@@ -1003,7 +1049,7 @@ mod tests {
         let previous_behind_tea = union(
             "memo-previous-behind-tea.tsv",
             vec![
-                base(&previous, Exclusion::of([tea])),
+                base(&previous, Exclusion::of(&after, [tea])),
                 base(&memo_after, Exclusion::none()),
             ],
         );
@@ -1041,7 +1087,7 @@ mod tests {
             &own_behind_a_base,
             &head("default"),
             &memo_after,
-            &[base(&previous, Exclusion::of([tea]))],
+            &[base(&previous, Exclusion::of(&after, [tea]))],
         )
         .expect("writes");
         assert_eq!(
@@ -1072,7 +1118,7 @@ mod tests {
         for (key, again) in &back.entries {
             let held_before = previous.entries.get(key).copied();
             let held_after = memo_after.entries.get(key).copied();
-            let names_tea = key.runes_named().any(|rune| rune == tea)
+            let names_tea = key.runes_named().any(|rune| rune == tea_ordinal)
                 || held_before
                     .is_some_and(|entry| previous.reads(entry).contains(&Read::Rune(tea)));
             if let Some(entry) = held_before.filter(|_| names_tea) {
@@ -1115,6 +1161,41 @@ mod tests {
         assert!(!back.is_empty());
     }
 
+    /// A settled record naming a cell no left of this spec keys — here its stance seat pointed at a rune's name, a symbol the spec interns but no stance field mints — drops the windows seated on it while the rest read, so no such record reaches a left.
+    #[test]
+    fn a_window_seated_on_a_record_no_left_keys_is_dropped() {
+        let index = fixtures::mini();
+        let (_, memo) = enumerate_keeping(&index, &[], Vec::new());
+        let path = scratch("memo-stale-record").join("memo-default.tsv");
+        write_memo(&index, &path, &head("default"), &memo, &[]).expect("the file writes");
+        let text = std::fs::read_to_string(&path).expect("the file is text");
+        let seat_of = |name: &str| {
+            text.lines()
+                .filter_map(|line| line.strip_prefix("Y\t"))
+                .position(|symbol| symbol == name)
+                .expect("the memo names it")
+                .to_string()
+        };
+        let (half, pea) = (seat_of("half"), seat_of("qsPea"));
+        let mut moved = 0;
+        let stale: Vec<String> = text
+            .lines()
+            .map(|line| {
+                let mut fields: Vec<&str> = line.split('\t').collect();
+                if fields[0] == "S" && fields[2] == half {
+                    fields[2] = &pea;
+                    moved += 1;
+                }
+                fields.join("\t")
+            })
+            .collect();
+        assert!(moved > 0, "the memo seats a record in the half stance");
+        std::fs::write(&path, stale.join("\n") + "\n").expect("rewritten");
+        let back = read_memo(&index, &path, &head("default"), |_| true).expect("still reads");
+        assert!(back.len() < memo.len());
+        assert!(!back.is_empty());
+    }
+
     /// The mini fixture unlocks a `qsMay` entry under `ss03` and nothing else under anything, so `ss03` names `qsMay` alone and a feature nothing unlocks names no rune.
     #[test]
     fn the_unlocking_runes_of_a_configuration_are_the_ones_reading_its_features() {
@@ -1137,18 +1218,25 @@ mod tests {
         let may = fixtures::sym(&index, "qsMay");
         let pea = fixtures::sym(&index, "qsPea");
         let tea = fixtures::sym(&index, "qsTea");
-        let excluded = Exclusion::of([may]);
-        let mut key = TraceKey::for_test(pea, [Some(tea), None, None, None]);
+        let may_ordinal = index.rune_ordinal(may).expect("qsMay is modeled");
+        let excluded = Exclusion::of(&index, [may]);
+        let mut key = TraceKey::for_test(&index, pea, [Some(tea), None, None, None]);
         assert!(excluded.admits(&key, &[]));
+        assert!(!excluded.names(&key));
         assert!(Exclusion::none().admits(&key, &[Read::Rune(may)]));
-        key.runes[2] = Some(may);
+        key.runes[2] = Some(may_ordinal);
         assert!(!excluded.admits(&key, &[]));
+        assert!(excluded.names(&key));
         key.runes[2] = None;
-        key.left_rune = Some(may);
+        key.left_rune = Some(may_ordinal);
         assert!(!excluded.admits(&key, &[]));
         key.left_rune = None;
-        key.token = may;
+        key.token = may_ordinal;
         assert!(!excluded.admits(&key, &[]));
+        assert!(
+            Exclusion::of(&index, [fixtures::sym(&index, "half")]).admits(&key, &[]),
+            "a name that is no rune flags no ordinal"
+        );
     }
 
     /// The journal is what the exclusion reads (issue #184): an entry whose evaluation read an excluded rune or class is refused whatever its key names, and one that read neither is admitted though its deep slots name the rune.
@@ -1159,13 +1247,13 @@ mod tests {
         let pea = fixtures::sym(&index, "qsPea");
         let tea = fixtures::sym(&index, "qsTea");
         let class = fixtures::sym(&index, "halves-that-exit-at-x-height");
-        let key = TraceKey::for_test(pea, [Some(tea), None, None, None]);
-        let by_reads = Exclusion::of([may]).with_classes([class]);
+        let key = TraceKey::for_test(&index, pea, [Some(tea), None, None, None]);
+        let by_reads = Exclusion::of(&index, [may]).with_classes([class]);
         assert!(by_reads.admits(&key, &[Read::Rune(pea), Read::Rune(tea)]));
         assert!(!by_reads.admits(&key, &[Read::Rune(pea), Read::Rune(may)]));
         assert!(!by_reads.admits(&key, &[Read::Class(class)]));
         assert!(
-            Exclusion::of([])
+            Exclusion::of(&index, [])
                 .with_classes([class])
                 .admits(&key, &[Read::Rune(may)])
         );

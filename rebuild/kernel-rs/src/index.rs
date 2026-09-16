@@ -10,13 +10,57 @@
 
 use std::cell::{Cell, RefCell};
 use std::collections::BTreeSet;
+use std::num::NonZeroU16;
 
 use crate::error::SettleError;
 use crate::hash::HashMap;
 use crate::model::{
     BoundaryToken, ResolvedSpec, Rune, ScriptRegistry, Spec, Stance, SurfaceRow, Sym, Table,
 };
-use crate::types::{Vocab, WITHDRAWN_SUFFIX};
+use crate::types::{RightToken, Vocab, WITHDRAWN_SUFFIX};
+
+/// One memo-key field's value: a symbol's seat, counted from one, in the table this index mints for that field — the modeled runes in declaration order and then the registry's other families for a rune field, the stance names the runes declare in first-declaration order for a stance field, and the heights the spec ever puts in an entry or a seam field for those two. A key names a rune, a stance or a height out of the handful the spec offers for that position, so two bytes hold the field where a [`Sym`] into the whole pool takes four, and `NonZeroU16` keeps zero free so that `Option<Ordinal>` is two bytes as well (issue #266). An ordinal means nothing without the index that minted it, and the inverses here are the one way back to the symbol. Each table is a mint over its own field alone, so a stance ordinal is injective without the rune beside it and a question may spell a left of one rune in another rune's stance, as a forged case does.
+pub type Ordinal = NonZeroU16;
+
+/// The ordinal for a table's `seat`-th entry. The seat's successor is the integer, which keeps zero free for the niche, and the narrowing is checked at every mint.
+fn ordinal_at(seat: usize) -> Ordinal {
+    let raw = u16::try_from(seat)
+        .ok()
+        .and_then(|seat| seat.checked_add(1))
+        .expect("a memo key field names at most 65,535 distinct symbols");
+    Ordinal::new(raw).expect("a seat's successor is never zero")
+}
+
+/// A height's ordinal in one of the two height tables. A scan rather than a map, because the table is the registry's few heights and a compare per entry costs less than one hash.
+fn height_ordinal(table: &[Sym], height: Sym) -> Option<Ordinal> {
+    table
+        .iter()
+        .position(|seated| *seated == height)
+        .map(ordinal_at)
+}
+
+/// Append to `table` every height the surface names on the entry side, or on the exit side when `entry` is false, that the registry did not declare, in declaration order, so the table holds every symbol the field can ever carry.
+fn gather_heights(table: &mut Vec<Sym>, runes: &Table<Rune>, entry: bool) {
+    for (_, rune) in runes.iter() {
+        for (_, stance) in rune.stances.iter() {
+            let rows = if entry {
+                &stance.surface.entries
+            } else {
+                &stance.surface.exits
+            };
+            let unlocked = stance
+                .surface
+                .unlocks
+                .iter()
+                .filter_map(|unlock| if entry { unlock.entry } else { unlock.exit });
+            for height in rows.iter().map(|(height, _)| *height).chain(unlocked) {
+                if !table.contains(&height) {
+                    table.push(height);
+                }
+            }
+        }
+    }
+}
 
 /// One stance's identity within a spec: the rune's declaration seat and the stance's seat inside it. This is what the exit-sources and pairing-set caches key on, in place of a stance's address: a seat pair is `Copy`, hashes on two integers, and cannot be recycled the way an address can, which is why an address-keyed cache needs identity re-checks and a small cap and this needs neither.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -111,6 +155,16 @@ pub struct SpecIndex {
     group_owner: HashMap<Sym, u32>,
     boundary_tokens: HashMap<Sym, u32>,
     empty: BTreeSet<Sym>,
+    /// The rune-field ordinal table: the modeled runes in declaration order, so a modeled rune's ordinal is its seat counted from one, then every registry family the spec does not model, in registry order — a slot may name a registered letter the spec has yet to model, and the engine reads such a slot as the unmodeled family it is. [`SpecIndex::rune_ordinals`] is the mint over it.
+    rune_field: Vec<Sym>,
+    rune_ordinals: HashMap<Sym, Ordinal>,
+    /// The stance-field ordinal table: every stance name some rune declares, in the order the runes first declare them. [`SpecIndex::stance_ordinals`] is the mint over it.
+    stance_field: Vec<Sym>,
+    stance_ordinals: HashMap<Sym, Ordinal>,
+    /// The entry-field ordinal table: the registry's heights in declaration order, then any entry row or entry unlock height the registry left undeclared. [`SpecIndex::entry_ordinal`] scans it.
+    entry_heights: Vec<Sym>,
+    /// The seam-field ordinal table, over the exit side the same way.
+    seam_heights: Vec<Sym>,
 }
 
 impl SpecIndex {
@@ -173,11 +227,46 @@ impl SpecIndex {
             });
         }
         let registry = &spec.root.registry;
+        let mut rune_field: Vec<Sym> = spec.root.runes.iter().map(|(name, _)| *name).collect();
+        for (family, _) in registry.families.iter() {
+            if !runes.contains_key(family) {
+                rune_field.push(*family);
+            }
+        }
+        let rune_ordinals: HashMap<Sym, Ordinal> = rune_field
+            .iter()
+            .enumerate()
+            .map(|(seat, name)| (*name, ordinal_at(seat)))
+            .collect();
+        let mut stance_field: Vec<Sym> = Vec::new();
+        for (_, rune) in spec.root.runes.iter() {
+            for (stance, _) in rune.stances.iter() {
+                if !stance_field.contains(stance) {
+                    stance_field.push(*stance);
+                }
+            }
+        }
+        let stance_ordinals: HashMap<Sym, Ordinal> = stance_field
+            .iter()
+            .enumerate()
+            .map(|(seat, name)| (*name, ordinal_at(seat)))
+            .collect();
+        let declared: Vec<Sym> = registry.heights.iter().map(|(height, _)| *height).collect();
+        let mut entry_heights = declared.clone();
+        gather_heights(&mut entry_heights, &spec.root.runes, true);
+        let mut seam_heights = declared;
+        gather_heights(&mut seam_heights, &spec.root.runes, false);
         Self {
             ids,
             vocab,
             runes,
             rune_index,
+            rune_field,
+            rune_ordinals,
+            stance_field,
+            stance_ordinals,
+            entry_heights,
+            seam_heights,
             heights: registry
                 .heights
                 .iter()
@@ -277,6 +366,52 @@ impl SpecIndex {
     /// Whether this spec models the rune — `name in spec.runes` as `model.ResolvedSpec` spells it, the check that guards every letter-token read.
     pub fn is_modeled(&self, name: Sym) -> bool {
         self.runes.contains_key(&name)
+    }
+
+    /// A rune's ordinal in the rune field of a memo key — a modeled rune's declaration seat counted from one, an unmodeled family's seat past the modeled runes — or `None` for a name the registry knows no family by.
+    pub fn rune_ordinal(&self, name: Sym) -> Option<Ordinal> {
+        self.rune_ordinals.get(&name).copied()
+    }
+
+    /// The family name one rune-field ordinal stands for.
+    pub fn rune_at_ordinal(&self, ordinal: Ordinal) -> Sym {
+        self.rune_field[usize::from(ordinal.get()) - 1]
+    }
+
+    /// The letter token for a registered family, carrying its rune-field ordinal, or `None` for a name that is no family. This is the one place a letter token is minted: a token names a family out of the registry, and the ordinal it carries is what every memo key it reaches is spelled in.
+    pub fn letter(&self, name: Sym) -> Option<RightToken> {
+        self.rune_ordinal(name)
+            .map(|ordinal| RightToken::Letter(name, ordinal))
+    }
+
+    /// A stance name's ordinal in the stance field of a memo key, or `None` for a name no rune declares a stance by. A structural read: which names are stances is not any rune's content, so nothing is journaled.
+    pub fn stance_ordinal(&self, stance: Sym) -> Option<Ordinal> {
+        self.stance_ordinals.get(&stance).copied()
+    }
+
+    /// The stance name one stance-field ordinal stands for.
+    pub fn stance_at_ordinal(&self, ordinal: Ordinal) -> Sym {
+        self.stance_field[usize::from(ordinal.get()) - 1]
+    }
+
+    /// A height's ordinal in the entry field of a memo key, or `None` for a symbol no entry field ever holds.
+    pub fn entry_ordinal(&self, height: Sym) -> Option<Ordinal> {
+        height_ordinal(&self.entry_heights, height)
+    }
+
+    /// The height one entry-field ordinal stands for.
+    pub fn entry_at_ordinal(&self, ordinal: Ordinal) -> Sym {
+        self.entry_heights[usize::from(ordinal.get()) - 1]
+    }
+
+    /// A height's ordinal in the seam field of a memo key, or `None` for a symbol no seam field ever holds.
+    pub fn seam_ordinal(&self, height: Sym) -> Option<Ordinal> {
+        height_ordinal(&self.seam_heights, height)
+    }
+
+    /// The height one seam-field ordinal stands for.
+    pub fn seam_at_ordinal(&self, ordinal: Ordinal) -> Sym {
+        self.seam_heights[usize::from(ordinal.get()) - 1]
     }
 
     /// One stance's identity, or `None` when the rune or the stance is absent.
@@ -750,6 +885,13 @@ pub mod fixtures {
             .unwrap_or_else(|| panic!("the fixture mentions {text}"))
     }
 
+    /// One modeled rune's letter token, panicking when the fixture does not model it.
+    pub fn letter(index: &SpecIndex, text: &str) -> crate::types::RightToken {
+        index
+            .letter(sym(index, text))
+            .unwrap_or_else(|| panic!("the fixture models {text}"))
+    }
+
     /// The `extend` record a fixture gave this id, panicking when there is none.
     pub fn extend<'a>(index: &'a SpecIndex, rune: &str, id: &str) -> &'a PolicyRecord {
         by_id(index, rune, id, |policy| &policy.extend)
@@ -1211,6 +1353,108 @@ mod tests {
                 .entry_strokes(fixtures::sym(&index, "half"))
                 .is_empty()
         );
+    }
+
+    /// The memo keys' ordinals (issue #266): each field's mint is injective over every symbol the field can hold — every registered family, every stance name a rune declares, every height the registry declares and the surfaces name — every ordinal reads back as the symbol it was minted for, and a symbol outside the field's table has none.
+    #[test]
+    fn each_key_field_mints_an_injective_ordinal_that_reads_back() {
+        let index = fixtures::mini();
+        let mut rune_ordinals = BTreeSet::new();
+        for (seat, (name, _)) in index.runes().iter().enumerate() {
+            let ordinal = index
+                .rune_ordinal(*name)
+                .expect("a modeled rune has an ordinal");
+            assert_eq!(usize::from(ordinal.get()), seat + 1);
+            assert_eq!(index.rune_at_ordinal(ordinal), *name);
+            assert_eq!(
+                index.letter(*name),
+                Some(RightToken::Letter(*name, ordinal))
+            );
+            assert!(rune_ordinals.insert(ordinal));
+        }
+        assert_eq!(rune_ordinals.len(), index.rune_count());
+        let mut stance_names = BTreeSet::new();
+        let mut stance_ordinals = BTreeSet::new();
+        for (_, rune) in index.runes() {
+            for (stance, _) in rune.stances.iter() {
+                let stance_ordinal = index
+                    .stance_ordinal(*stance)
+                    .expect("a declared stance has an ordinal");
+                assert_eq!(index.stance_at_ordinal(stance_ordinal), *stance);
+                stance_names.insert(*stance);
+                stance_ordinals.insert(stance_ordinal);
+            }
+        }
+        assert_eq!(stance_ordinals.len(), stance_names.len());
+        assert!(
+            stance_ordinals.len()
+                < index
+                    .runes()
+                    .iter()
+                    .map(|(_, rune)| rune.stances.len())
+                    .sum()
+        );
+        let mut heights: Vec<Sym> = index
+            .registry()
+            .heights
+            .iter()
+            .map(|(height, _)| *height)
+            .collect();
+        for (_, rune) in index.runes() {
+            for (_, stance) in rune.stances.iter() {
+                heights.extend(stance.surface.entries.iter().map(|(height, _)| *height));
+                heights.extend(stance.surface.exits.iter().map(|(height, _)| *height));
+                for unlock in &stance.surface.unlocks {
+                    heights.extend(unlock.entry.into_iter().chain(unlock.exit));
+                }
+            }
+        }
+        let mut entry_ordinals = BTreeSet::new();
+        let mut seam_ordinals = BTreeSet::new();
+        for height in &heights {
+            let entry = index
+                .entry_ordinal(*height)
+                .expect("every height has an entry ordinal");
+            let seam = index
+                .seam_ordinal(*height)
+                .expect("every height has a seam ordinal");
+            assert_eq!(index.entry_at_ordinal(entry), *height);
+            assert_eq!(index.seam_at_ordinal(seam), *height);
+            entry_ordinals.insert(entry);
+            seam_ordinals.insert(seam);
+        }
+        let distinct: BTreeSet<Sym> = heights.iter().copied().collect();
+        assert_eq!(entry_ordinals.len(), distinct.len());
+        assert_eq!(seam_ordinals.len(), distinct.len());
+        let half = fixtures::sym(&index, "half");
+        let tea = fixtures::sym(&index, "qsTea");
+        assert_eq!(index.rune_ordinal(half), None);
+        assert_eq!(index.letter(half), None);
+        let pea_alone = fixtures::index_of(&fixtures::dump(
+            &fixtures::map(&[("qsPea", &fixtures::rune("qsPea", &[]))]),
+            &fixtures::four_family_registry(),
+        ));
+        let tea_there = fixtures::sym(&pea_alone, "qsTea");
+        let tea_ordinal = pea_alone
+            .rune_ordinal(tea_there)
+            .expect("a registered family the spec does not model has an ordinal");
+        assert!(usize::from(tea_ordinal.get()) > pea_alone.rune_count());
+        assert_eq!(pea_alone.rune_at_ordinal(tea_ordinal), tea_there);
+        assert_eq!(
+            pea_alone.letter(tea_there),
+            Some(RightToken::Letter(tea_there, tea_ordinal))
+        );
+        assert_eq!(pea_alone.stance_ordinal(tea_there), None);
+        let registered: BTreeSet<Ordinal> = pea_alone
+            .families()
+            .iter()
+            .map(|family| pea_alone.rune_ordinal(*family).expect("every family"))
+            .collect();
+        assert_eq!(registered.len(), pea_alone.families().len());
+        assert_eq!(index.stance_ordinal(tea), None);
+        assert!(index.stance_ordinal(half).is_some());
+        assert_eq!(index.entry_ordinal(half), None);
+        assert_eq!(index.seam_ordinal(tea), None);
     }
 
     #[test]

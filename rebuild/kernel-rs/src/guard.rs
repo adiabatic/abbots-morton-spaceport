@@ -71,6 +71,11 @@ impl<'i> GuardState<'i> {
         self.engines.len()
     }
 
+    /// The spec this guard answers over.
+    pub fn index(&self) -> &'i SpecIndex {
+        self.index
+    }
+
     /// Whether this ligature yields to its components in this window. A non-letter first slot is free without consulting an engine, and every computed verdict is remembered because the sweep asks for each one many times over.
     pub fn formation_blocked(
         &mut self,
@@ -86,7 +91,12 @@ impl<'i> GuardState<'i> {
             return Ok(verdict);
         }
         let (right1, right2) = match self.follower_formation(right1, right2)? {
-            Some(formed) => (RightToken::Letter(formed), UNKNOWN),
+            Some(formed) => (
+                self.index
+                    .letter(formed)
+                    .expect("a formed ligature is a modeled rune"),
+                UNKNOWN,
+            ),
             None => (right1, right2),
         };
         let mut verdict = true;
@@ -148,22 +158,25 @@ impl<'i> GuardState<'i> {
         );
         let lead = sequence[sequence.len() - 2];
         let trail = sequence[sequence.len() - 1];
-        let virtual_left = LeftContext::letter(Settled {
-            cell: CellId {
-                rune: lead,
-                stance: index.default_stance(lead).unwrap_or_else(|| {
-                    panic!(
-                        "{} is not modeled, exactly as spec.runes[…] raises KeyError",
-                        index.resolve(lead)
-                    )
-                }),
-                entry: None,
-                exit: None,
-                adjustments: Vec::new(),
+        let virtual_left = LeftContext::letter(
+            index,
+            Settled {
+                cell: CellId {
+                    rune: lead,
+                    stance: index.default_stance(lead).unwrap_or_else(|| {
+                        panic!(
+                            "{} is not modeled, exactly as spec.runes[…] raises KeyError",
+                            index.resolve(lead)
+                        )
+                    }),
+                    entry: None,
+                    exit: None,
+                    adjustments: Vec::new(),
+                },
+                seam: None,
+                extension: 0,
             },
-            seam: None,
-            extension: 0,
-        });
+        );
         if !engine
             .candidates(&virtual_left, trail, right1, right2, None)?
             .iter()
@@ -174,7 +187,9 @@ impl<'i> GuardState<'i> {
         if engine
             .transition_trace(
                 &virtual_left,
-                RightToken::Letter(trail),
+                index
+                    .letter(trail)
+                    .expect("a ligature's trail is a modeled rune"),
                 Slots::new(right1, right2, EDGE, EDGE),
             )?
             .settled
@@ -261,7 +276,12 @@ fn sweep_with(state: &mut GuardState<'_>) -> Result<Vec<String>, SettleError> {
         .collect();
     let mut right2_tokens: Vec<(String, RightToken)> = letters
         .iter()
-        .map(|name| (index.resolve(*name).to_owned(), RightToken::Letter(*name)))
+        .map(|name| {
+            (
+                index.resolve(*name).to_owned(),
+                index.letter(*name).expect("a modeled rune has a token"),
+            )
+        })
         .collect();
     right2_tokens.extend(
         TAIL_TOKENS
@@ -274,8 +294,11 @@ fn sweep_with(state: &mut GuardState<'_>) -> Result<Vec<String>, SettleError> {
         for right1 in &letters {
             let right1_name = index.resolve(*right1);
             for (label, right2) in &right2_tokens {
-                let blocked =
-                    state.formation_blocked(*liga, RightToken::Letter(*right1), *right2)?;
+                let blocked = state.formation_blocked(
+                    *liga,
+                    index.letter(*right1).expect("a modeled rune has a token"),
+                    *right2,
+                )?;
                 let verdict = if blocked { "blocked" } else { "free" };
                 lines.push(format!("{liga_name}\t{right1_name}\t{label}\t{verdict}"));
             }
@@ -400,7 +423,7 @@ mod tests {
     }
 
     fn letter(index: &SpecIndex, name: &str) -> RightToken {
-        RightToken::Letter(fixtures::sym(index, name))
+        fixtures::letter(index, name)
     }
 
     /// One printed surface as `(key, blocked)` pairs, the key being everything before the verdict.
