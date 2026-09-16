@@ -27,7 +27,7 @@ from rebuild.tools.peak_rss import format_gb
 from rebuild.tools.cycle_timings import CycleTimings
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-# Width assertions use stated machines rather than the host running the suite. At the 5.4 GB per-delta bound beside default's 2.5 GB memo snapshot, 32.5 GB fits four deltas alone and three beside the normal pytest pool; 38 GB exercises larger stated pool widths; 44 GB is the surface width's box. Re-seeding DELTA_PEAK_BYTES or DEFAULT_MEMO_BYTES moves these expectations and can require a different box to keep the reservation observable.
+# Width assertions use stated machines rather than the host running the suite. At the 5.5 GB per-delta bound beside default's 2.5 GB memo snapshot, 32.5 GB fits four deltas alone and three beside the normal pytest pool; 38 GB exercises larger stated pool widths; 44 GB is the surface width's box. Re-seeding DELTA_PEAK_BYTES or DEFAULT_MEMO_BYTES moves these expectations and can require a different box to keep the reservation observable.
 BOX_44_GB = 44_000_000_000
 BOX_38_GB = 38_000_000_000
 BOX_32_5_GB = 32_500_000_000
@@ -2145,7 +2145,7 @@ def test_a_stated_pool_width_is_the_width_the_cycle_reserves_by(monkeypatch):
 
 
 def test_kernel_threads_budget_takes_the_pytest_pool_off_the_box_first():
-    """The pytest pool comes off the box beside default's retained memo before division. At the 5.4 GB per-delta bound beside the 2.5 GB memo snapshot, the 32.5 GB box fits four deltas alone; subtracting the normal 0.6 GB pytest pool leaves room for three. This boundary makes a missing reservation change the answer."""
+    """The pytest pool comes off the box beside default's retained memo before division. At the 5.5 GB per-delta bound beside the 2.5 GB memo snapshot, the 32.5 GB box fits four deltas alone; subtracting the normal 0.6 GB pytest pool leaves room for three. This boundary makes a missing reservation change the answer."""
     solo = ac.kernel_threads_budget(skip_make_test=True, ncores=8, total_bytes=BOX_32_5_GB)
     beside = ac.kernel_threads_budget(ncores=8, total_bytes=BOX_32_5_GB)
     assert (solo, beside) == (4, 3)
