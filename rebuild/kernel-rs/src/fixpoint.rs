@@ -175,7 +175,7 @@ impl LabelPool {
     /// One right slot's label, interned — [`right_token_label`] without minting the `String` that function returns.
     fn token(&mut self, index: &SpecIndex, token: RightToken) -> Label {
         match token {
-            RightToken::Letter(rune) => {
+            RightToken::Letter(rune, _) => {
                 let name = index.resolve(rune);
                 self.intern(name)
             }
@@ -406,7 +406,9 @@ fn enumerate_seeded<'i>(
         let left_seat: Option<SettledSeat> =
             left.settled.as_ref().map(|settled| seats.seat(settled));
         // The trace reads the raw letter whatever the label says: locking is a fact about the glyph the emitted lookup substitutes, not about what settles.
-        let token = RightToken::Letter(rune);
+        let token = index
+            .letter(rune)
+            .expect("a worklist item's input is a modeled rune");
         let right1_options: Vec<RightToken> = match right1_constraint {
             Some(constraint) => vec![constraint],
             None => boundaries_then_letters(&options),
@@ -597,7 +599,7 @@ fn enumerate_seeded<'i>(
                                 }
                             };
                             worklist.push(Item {
-                                left: LeftContext::letter(settled),
+                                left: LeftContext::letter(index, settled),
                                 rune: right1.letter(),
                                 right1: Some(right2),
                                 right2_allowed: Some(Rc::new(admitted3.iter().copied().collect())),
@@ -722,7 +724,7 @@ fn enumerate_seeded<'i>(
                                 }
                             };
                             worklist.push(Item {
-                                left: LeftContext::letter(settled),
+                                left: LeftContext::letter(index, settled),
                                 rune: right1.letter(),
                                 right1: Some(right2),
                                 right2_allowed: successor_allowed,
@@ -1076,7 +1078,7 @@ pub fn locked_glyph_name(raw_name: &str) -> String {
 /// One right slot's label: a letter is its rune's name and every boundary its own spelling. Public because the `liveness-cases` verb answers in the same vocabulary.
 pub fn right_token_label(index: &SpecIndex, token: RightToken) -> String {
     match token {
-        RightToken::Letter(rune) => index.resolve(rune).to_owned(),
+        RightToken::Letter(rune, _) => index.resolve(rune).to_owned(),
         other => boundary_left_label(other.kind()).to_owned(),
     }
 }
@@ -1506,13 +1508,10 @@ impl DeepPartitionCheck<'_, '_> {
             return Ok(());
         }
         let index = self.engine.index();
+        let letter = |rune: Sym| index.letter(rune).expect("the deriver names modeled runes");
         let options = self
             .options
-            .right4_options(
-                RightToken::Letter(right1),
-                RightToken::Letter(right2),
-                RightToken::Letter(third),
-            )
+            .right4_options(letter(right1), letter(right2), letter(third))
             .map_err(complaint)?;
         let labels: Vec<String> = options
             .into_iter()
@@ -2143,7 +2142,7 @@ mod tests {
     fn the_echo_member_is_the_last_admitted_unless_that_is_the_representative() {
         let index = deep_alphabet();
         let [pea, tea, may] =
-            ["qsPea", "qsTea", "qsMay"].map(|name| RightToken::Letter(fixtures::sym(&index, name)));
+            ["qsPea", "qsTea", "qsMay"].map(|name| fixtures::letter(&index, name));
         assert_eq!(echo_member(&[pea, tea, may], pea), may);
         assert_eq!(echo_member(&[pea, tea, may], may), pea);
         assert_eq!(echo_member(&[pea, tea], tea), pea);
@@ -2514,7 +2513,7 @@ mod tests {
                 .expect("as a count");
             (product, hits)
         };
-        let (seeded, hits) = seeded_with(Exclusion::of(unlocking_runes(&index, &[ss03])));
+        let (seeded, hits) = seeded_with(Exclusion::of(&index, unlocking_runes(&index, &[ss03])));
         assert!(hits > 0, "the base answered windows");
         assert_eq!(
             emit_transitions(&index, &scratch),
@@ -2553,7 +2552,7 @@ mod tests {
         let bases = || {
             vec![MemoBase {
                 memo: Arc::clone(&base),
-                excluded: Exclusion::of(unlocking_runes(&index, &[ss03])),
+                excluded: Exclusion::of(&index, unlocking_runes(&index, &[ss03])),
             }]
         };
         let kept = enumerate_seeded(

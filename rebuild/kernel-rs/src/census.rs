@@ -12,7 +12,7 @@ use crate::hash::{HashMap, HashSet};
 use crate::index::SpecIndex;
 use crate::liveness::ProspectLiveness;
 use crate::model::{Condition, Sym};
-use crate::types::{RightToken, UNKNOWN};
+use crate::types::UNKNOWN;
 
 /// How many raw slots past its own a right condition's `then:` chains read: a `then:` hop advances one slot, an `except:` entry tests its parent's slot so its own hops count from there rather than from one deeper, and the reach is the deepest either arm gets to.
 pub fn right_chain_reach(cond: &Condition) -> usize {
@@ -120,7 +120,13 @@ impl<'i> ThirdSlotFilter<'i> {
         if let Some(&cached) = self.verdicts.get(&key) {
             return Ok(cached);
         }
-        let window = Slots::pair(RightToken::Letter(right1), RightToken::Letter(right2)).as_array();
+        let letter = |rune: Sym| {
+            engine
+                .index()
+                .letter(rune)
+                .expect("the filter is asked about registered runes")
+        };
+        let window = Slots::pair(letter(right1), letter(right2)).as_array();
         let mut verdict = false;
         if let Some(chains) = self.chains.get(&input) {
             for chain in chains {
@@ -177,13 +183,13 @@ impl<'i> FourthSlotFilter<'i> {
         if let Some(&cached) = self.verdicts.get(&key) {
             return Ok(cached);
         }
-        let window = Slots::new(
-            RightToken::Letter(right1),
-            RightToken::Letter(right2),
-            RightToken::Letter(right3),
-            UNKNOWN,
-        )
-        .as_array();
+        let letter = |rune: Sym| {
+            engine
+                .index()
+                .letter(rune)
+                .expect("the filter is asked about registered runes")
+        };
+        let window = Slots::new(letter(right1), letter(right2), letter(right3), UNKNOWN).as_array();
         let mut verdict = false;
         if let Some(chains) = self.chains.get(&input) {
             for chain in chains {

@@ -10,7 +10,7 @@ use std::num::NonZeroU32;
 
 use crate::emit::json_string;
 use crate::hash::HashMap;
-use crate::index::SpecIndex;
+use crate::index::{Ordinal, SpecIndex};
 use crate::model::{Provenance, Sym};
 
 /// The boundary kinds that split a run, and therefore the ones word position is derived from. `settle.SPLITTING_KINDS`; [`TokenKind::splits_runs`] is the form the code actually asks, and a test pins the two in agreement.
@@ -80,9 +80,62 @@ impl TokenKind {
     pub fn is_boundary(self) -> bool {
         matches!(self, Self::Edge | Self::Space | Self::Zwnj | Self::NamerDot)
     }
+
+    /// The kind as the three bits a [`PackedKinds`] word holds it in: declaration order, `Edge` at zero through `Unknown` at five.
+    fn code(self) -> u16 {
+        self as u16
+    }
+
+    /// The kind three bits name, the reader half of [`TokenKind::code`]. A code past five is a word no packing wrote, and a kernel bug rather than a value.
+    fn of_code(code: u16) -> Self {
+        match code {
+            0 => Self::Edge,
+            1 => Self::Space,
+            2 => Self::Zwnj,
+            3 => Self::NamerDot,
+            4 => Self::Letter,
+            5 => Self::Unknown,
+            _ => panic!("a packed kind is one of the six"),
+        }
+    }
+}
+
+/// Up to five [`TokenKind`]s in one `u16`, three bits a kind (issue #266). A memo key carries a kind per slot beside the slot's rune, and a six-valued kind holds three bits of content, so a [`crate::engine::TraceKey`]'s five kinds ride in the two bytes the key's alignment would otherwise pad rather than in a byte apiece. Slot zero is the low three bits, and the derived ordering and hash are the word's, which is all a key asks of them.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct PackedKinds(u16);
+
+impl PackedKinds {
+    /// How many kinds one word holds.
+    pub const CAPACITY: usize = 5;
+    const WIDTH: u32 = 3;
+    const MASK: u16 = 0b111;
+
+    /// The word holding these kinds, slot by slot.
+    pub fn of(kinds: &[TokenKind]) -> Self {
+        assert!(
+            kinds.len() <= Self::CAPACITY,
+            "a packed kinds word holds at most five kinds"
+        );
+        let mut word = 0u16;
+        for (slot, kind) in kinds.iter().enumerate() {
+            word |= kind.code() << (slot as u32 * Self::WIDTH);
+        }
+        Self(word)
+    }
+
+    /// The kind at `slot`.
+    pub fn get(self, slot: usize) -> TokenKind {
+        assert!(
+            slot < Self::CAPACITY,
+            "a packed kinds word holds five slots"
+        );
+        TokenKind::of_code((self.0 >> (slot as u32 * Self::WIDTH)) & Self::MASK)
+    }
 }
 
 /// One raw window slot: a boundary, an unknown, or a letter naming its rune. `settle.RightToken`, whose equality this reproduces exactly — the kind is part of the value, so UNKNOWN and EDGE are different tokens rather than two spellings of "nothing useful", and two letter tokens are equal exactly when their runes are.
+///
+/// A letter carries its rune's [`Ordinal`] beside the name (issue #266): the memo keys are spelled in ordinals, and a token minted once through [`SpecIndex::letter`] hands its ordinal to every key it reaches, so no key construction looks a rune up. The ordinal is a function of the name under the one index that minted both, which is what keeps the derived equality the equality of runes.
 ///
 /// The derived ordering exists so a token can key a `BTreeMap` and compares on interning order, which is the order the dump happened to mention names in and nothing else. Anywhere an *output* order depends on a token — the guard sweep's rows, for one — sort by the resolved name instead.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -92,7 +145,7 @@ pub enum RightToken {
     Zwnj,
     NamerDot,
     Unknown,
-    Letter(Sym),
+    Letter(Sym, Ordinal),
 }
 
 /// The run edge, `settle.EDGE`.
@@ -115,14 +168,14 @@ impl RightToken {
             Self::Zwnj => TokenKind::Zwnj,
             Self::NamerDot => TokenKind::NamerDot,
             Self::Unknown => TokenKind::Unknown,
-            Self::Letter(_) => TokenKind::Letter,
+            Self::Letter(_, _) => TokenKind::Letter,
         }
     }
 
     /// The rune this slot names, or `None` when it is not a letter — `RightToken.rune`, the field reads that have not yet established there is one.
     pub fn rune(self) -> Option<Sym> {
         match self {
-            Self::Letter(rune) => Some(rune),
+            Self::Letter(rune, _) => Some(rune),
             _ => None,
         }
     }
@@ -130,7 +183,23 @@ impl RightToken {
     /// The rune this slot names, for the reads that have already established there is one. Panics on any other kind, exactly as `RightToken.letter` raises `ValueError`: reaching it means a caller skipped the kind check, which is a kernel bug and not a settlement outcome.
     pub fn letter(self) -> Sym {
         match self {
-            Self::Letter(rune) => rune,
+            Self::Letter(rune, _) => rune,
+            other => panic!("{} token has no rune", other.kind().as_str()),
+        }
+    }
+
+    /// The rune-field ordinal of the rune this slot names, or `None` when it is not a letter — [`RightToken::rune`] as the memo keys spell it.
+    pub fn ordinal(self) -> Option<Ordinal> {
+        match self {
+            Self::Letter(_, ordinal) => Some(ordinal),
+            _ => None,
+        }
+    }
+
+    /// The rune-field ordinal, for the reads that have already established there is a letter; panics on any other kind as [`RightToken::letter`] does.
+    pub fn letter_ordinal(self) -> Ordinal {
+        match self {
+            Self::Letter(_, ordinal) => ordinal,
             other => panic!("{} token has no rune", other.kind().as_str()),
         }
     }
@@ -405,11 +474,37 @@ impl NotesPool {
     }
 }
 
-/// The resolved left neighbor a window is settled against, `settle.LeftContext`. The kind is never [`TokenKind::Unknown`] — a left is always already settled or already known to be a boundary — and `settled` is present exactly for a letter left and for the boundary cells the fold records.
+/// The collapsed left as the memo keys spell it (issue #266): the settled cell's rune and stance and the committed seam, each as the [`Ordinal`] of its key field, resolved once when the left is built so that no key construction looks anything up. All three are absent for a boundary left: every read the kernel makes of a left's rune, stance or seam is gated on the left being a letter, and the one read of a settled record that is not — the commit's same-seam check of the extension — keys through `TraceKey`'s own `left_extension` field, so a boundary left keys the same whether or not a case question spelled a record beside its kind.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+pub struct LeftOrdinals {
+    pub rune: Option<Ordinal>,
+    pub stance: Option<Ordinal>,
+    pub seam: Option<Ordinal>,
+}
+
+impl LeftOrdinals {
+    /// The three ordinals a settled record's collapsed left carries, or `None` where its rune is no registered family, its stance is no stance any rune declares, or its seam is no height the spec offers — a cell no settlement of this spec produces and no question can spell.
+    pub fn of(index: &SpecIndex, settled: &Settled) -> Option<Self> {
+        let rune = index.rune_ordinal(settled.cell.rune)?;
+        let stance = index.stance_ordinal(settled.cell.stance)?;
+        let seam = match settled.seam {
+            Some(seam) => Some(index.seam_ordinal(seam)?),
+            None => None,
+        };
+        Some(Self {
+            rune: Some(rune),
+            stance: Some(stance),
+            seam,
+        })
+    }
+}
+
+/// The resolved left neighbor a window is settled against, `settle.LeftContext`. The kind is never [`TokenKind::Unknown`] — a left is always already settled or already known to be a boundary — and `settled` is present exactly for a letter left and for the boundary cells the fold records. The ordinals are the settled record's, as [`LeftOrdinals`] says, and ride beside it so the keys read them off the left rather than resolving them per window.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct LeftContext {
     pub kind: TokenKind,
     pub settled: Option<Settled>,
+    pub ordinals: LeftOrdinals,
 }
 
 impl LeftContext {
@@ -418,19 +513,82 @@ impl LeftContext {
         Self {
             kind,
             settled: None,
+            ordinals: LeftOrdinals::default(),
         }
     }
 
-    /// A letter left, carrying the cell it settled into.
-    pub fn letter(settled: Settled) -> Self {
+    /// A letter left whose ordinals the caller already holds — a candidate's, for the virtual left a follower is settled against.
+    pub fn seated(settled: Settled, ordinals: LeftOrdinals) -> Self {
         Self {
             kind: TokenKind::Letter,
             settled: Some(settled),
+            ordinals,
+        }
+    }
+
+    /// A letter left, carrying the cell it settled into and that cell's key ordinals. Panics on a cell no settlement of this spec produces, since a letter left is always the settled record of a window this same spec answered; a reader that meets a spelled-out record checks [`LeftOrdinals::of`] first.
+    pub fn letter(index: &SpecIndex, settled: Settled) -> Self {
+        let ordinals = LeftOrdinals::of(index, &settled).unwrap_or_else(|| {
+            panic!(
+                "a letter left settles into a cell of a registered family in a declared stance at a height the spec offers, and {} at {} does not",
+                cell_label(index, &settled.cell),
+                height_text(index, settled.seam)
+            )
+        });
+        Self {
+            kind: TokenKind::Letter,
+            settled: Some(settled),
+            ordinals,
         }
     }
 }
 
-/// One pair candidate, `settle.Candidate`: a cell of this rune together with the seam state it offers toward the next position. `order_index` is the stance's rank in the rune's declared order and `exit_index` its exit row's declaration seat, both of which the ranking's later stages read; a non-joining candidate carries [`NO_EXIT_INDEX`].
+/// A candidate's cell as the memo keys spell it (issue #266): the rune it is a cell of, its stance, its entry and its seam, each as the [`Ordinal`] of its key field, resolved once when the candidate is enumerated. The prospect memo keys on these and the follower's virtual left carries them, so an ask looks nothing up.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct CandidateOrdinals {
+    pub rune: Ordinal,
+    pub stance: Ordinal,
+    pub entry: Option<Ordinal>,
+    pub seam: Option<Ordinal>,
+}
+
+impl CandidateOrdinals {
+    /// The ordinals of a cell of `rune`'s `stance` at these heights. Panics on a cell the enumeration never produces — a rune the registry does not know, a stance no rune declares, or a height no key field holds.
+    pub fn of(
+        index: &SpecIndex,
+        rune: Sym,
+        stance: Sym,
+        entry: Option<Sym>,
+        seam: Option<Sym>,
+    ) -> Self {
+        let missing = || {
+            panic!(
+                "a candidate is a stance of a modeled rune at heights the spec offers, and {}.{} entering at {} toward {} is not",
+                index.resolve(rune),
+                index.resolve(stance),
+                height_text(index, entry),
+                height_text(index, seam)
+            )
+        };
+        Self {
+            rune: index.rune_ordinal(rune).unwrap_or_else(missing),
+            stance: index.stance_ordinal(stance).unwrap_or_else(missing),
+            entry: entry.map(|height| index.entry_ordinal(height).unwrap_or_else(missing)),
+            seam: seam.map(|height| index.seam_ordinal(height).unwrap_or_else(missing)),
+        }
+    }
+
+    /// The collapsed left a follower settles against if this candidate wins: the cell's rune and stance at its seam.
+    pub fn as_left(self) -> LeftOrdinals {
+        LeftOrdinals {
+            rune: Some(self.rune),
+            stance: Some(self.stance),
+            seam: self.seam,
+        }
+    }
+}
+
+/// One pair candidate, `settle.Candidate`: a cell of this rune together with the seam state it offers toward the next position. `order_index` is the stance's rank in the rune's declared order and `exit_index` its exit row's declaration seat, both of which the ranking's later stages read; a non-joining candidate carries [`NO_EXIT_INDEX`]. The ordinals ride last, so the derived ordering is the one the five fields before them give.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct Candidate {
     pub stance: Sym,
@@ -438,11 +596,14 @@ pub struct Candidate {
     pub seam: Option<Sym>,
     pub order_index: usize,
     pub exit_index: usize,
+    pub ordinals: CandidateOrdinals,
 }
 
 impl Candidate {
     /// A candidate that offers a seam, at the exit row seat it was enumerated from.
     pub fn joining(
+        index: &SpecIndex,
+        rune: Sym,
         stance: Sym,
         entry: Option<Sym>,
         seam: Sym,
@@ -455,17 +616,25 @@ impl Candidate {
             seam: Some(seam),
             order_index,
             exit_index,
+            ordinals: CandidateOrdinals::of(index, rune, stance, entry, Some(seam)),
         }
     }
 
     /// The stance's non-joining candidate — no seam, and the sentinel exit index that sorts after every real row.
-    pub fn non_joining(stance: Sym, entry: Option<Sym>, order_index: usize) -> Self {
+    pub fn non_joining(
+        index: &SpecIndex,
+        rune: Sym,
+        stance: Sym,
+        entry: Option<Sym>,
+        order_index: usize,
+    ) -> Self {
         Self {
             stance,
             entry,
             seam: None,
             order_index,
             exit_index: NO_EXIT_INDEX,
+            ordinals: CandidateOrdinals::of(index, rune, stance, entry, None),
         }
     }
 }
@@ -854,15 +1023,58 @@ mod tests {
     fn a_token_compares_on_its_kind_and_its_rune() {
         let index = fixtures::mini();
         let tea = fixtures::sym(&index, "qsTea");
-        let pea = fixtures::sym(&index, "qsPea");
+        let tea_token = fixtures::letter(&index, "qsTea");
+        let pea_token = fixtures::letter(&index, "qsPea");
         assert_ne!(UNKNOWN, EDGE);
-        assert_ne!(RightToken::Letter(tea), RightToken::Letter(pea));
-        assert_eq!(RightToken::Letter(tea), RightToken::Letter(tea));
-        assert_eq!(RightToken::Letter(tea).kind(), TokenKind::Letter);
-        assert_eq!(RightToken::Letter(tea).letter(), tea);
+        assert_ne!(tea_token, pea_token);
+        assert_eq!(tea_token, fixtures::letter(&index, "qsTea"));
+        assert_eq!(tea_token.kind(), TokenKind::Letter);
+        assert_eq!(tea_token.letter(), tea);
+        assert_eq!(tea_token.ordinal(), index.rune_ordinal(tea));
+        assert_eq!(Some(tea_token.letter_ordinal()), index.rune_ordinal(tea));
         assert_eq!(EDGE.rune(), None);
+        assert_eq!(EDGE.ordinal(), None);
         assert_eq!(RightToken::of_kind(TokenKind::Zwnj), Some(ZWNJ));
         assert_eq!(RightToken::of_kind(TokenKind::Letter), None);
+        assert_eq!(std::mem::size_of::<RightToken>(), 8);
+    }
+
+    /// Five kinds in one word (issue #266): every slot reads back what was packed into it, and every kind and every slot moves the word.
+    #[test]
+    fn packed_kinds_read_back_slot_by_slot() {
+        let all = [
+            TokenKind::Edge,
+            TokenKind::Space,
+            TokenKind::Zwnj,
+            TokenKind::NamerDot,
+            TokenKind::Letter,
+            TokenKind::Unknown,
+        ];
+        let packed = PackedKinds::of(&[
+            TokenKind::Unknown,
+            TokenKind::Letter,
+            TokenKind::Edge,
+            TokenKind::NamerDot,
+            TokenKind::Space,
+        ]);
+        assert_eq!(packed.get(0), TokenKind::Unknown);
+        assert_eq!(packed.get(1), TokenKind::Letter);
+        assert_eq!(packed.get(2), TokenKind::Edge);
+        assert_eq!(packed.get(3), TokenKind::NamerDot);
+        assert_eq!(packed.get(4), TokenKind::Space);
+        assert_eq!(PackedKinds::of(&[]).get(4), TokenKind::Edge);
+        let mut words = std::collections::BTreeSet::new();
+        for slot in 0..PackedKinds::CAPACITY {
+            for kind in all {
+                let mut kinds = [TokenKind::Edge; PackedKinds::CAPACITY];
+                kinds[slot] = kind;
+                let word = PackedKinds::of(&kinds);
+                assert_eq!(word.get(slot), kind);
+                words.insert(word);
+            }
+        }
+        assert_eq!(words.len(), 1 + PackedKinds::CAPACITY * (all.len() - 1));
+        assert_eq!(std::mem::size_of::<PackedKinds>(), 2);
     }
 
     #[test]
@@ -945,10 +1157,22 @@ mod tests {
     #[test]
     fn a_non_joining_candidate_sorts_after_every_real_exit_row() {
         let index = fixtures::mini();
+        let pea = fixtures::sym(&index, "qsPea");
         let stance = fixtures::sym(&index, "half");
         let seam = fixtures::sym(&index, "baseline");
-        let joining = Candidate::joining(stance, None, seam, 0, 3);
-        let non_joining = Candidate::non_joining(stance, None, 0);
+        let joining = Candidate::joining(&index, pea, stance, None, seam, 0, 3);
+        let non_joining = Candidate::non_joining(&index, pea, stance, None, 0);
+        assert_eq!(
+            joining.ordinals.rune,
+            index.rune_ordinal(pea).expect("modeled")
+        );
+        assert_eq!(
+            joining.ordinals.stance,
+            index.stance_ordinal(stance).expect("declared")
+        );
+        assert_eq!(joining.ordinals.seam, index.seam_ordinal(seam));
+        assert_eq!(non_joining.ordinals.seam, None);
+        assert_eq!(non_joining.ordinals.entry, None);
         assert_eq!(non_joining.exit_index, NO_EXIT_INDEX);
         assert!(joining.exit_index < non_joining.exit_index);
         assert_eq!(non_joining.seam, None);

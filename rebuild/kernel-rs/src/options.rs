@@ -66,8 +66,8 @@ pub fn survivable_formation_windows(
         let mut follower_map = FollowerMap::default();
         for follower in right_letters {
             if let Some(follower_sequence) = sequence_of(index, follower.letter()) {
-                let lead = RightToken::Letter(follower_sequence[follower_sequence.len() - 2]);
-                let trail = RightToken::Letter(follower_sequence[follower_sequence.len() - 1]);
+                let lead = component_token(index, follower_sequence[follower_sequence.len() - 2]);
+                let trail = component_token(index, follower_sequence[follower_sequence.len() - 1]);
                 if guard.formation_blocked(*name, lead, trail)? {
                     follower_map.insert(follower.letter(), None);
                 }
@@ -94,7 +94,7 @@ pub fn survivable_formation_windows(
             if liga_sequence[0] != pair.1 || *liga_name == *name {
                 continue;
             }
-            let second = RightToken::Letter(liga_sequence[1]);
+            let second = component_token(index, liga_sequence[1]);
             let mut via_map = FollowerMap::default();
             for follower in right_letters {
                 if guard.formation_blocked(*name, second, raw_of(index, *follower))? {
@@ -115,13 +115,23 @@ pub fn survivable_formation_windows(
     Ok(out)
 }
 
+/// The letter token for one component of a ligature's sequence, which the spec models — `spec_load` refuses a ligature whose sequence names a rune it does not — so the enumeration reads the component the way it reads any modeled rune.
+fn component_token(index: &SpecIndex, component: Sym) -> RightToken {
+    index.letter(component).unwrap_or_else(|| {
+        panic!(
+            "{} is a ligature component the spec does not model",
+            index.resolve(component)
+        )
+    })
+}
+
 /// The raw token a post-formation label stands for at the guard's second slot: a ligature label is queried through the lead of its own sequence, because the guard reads the raw stream and a formed ligature is not in it. Everything else is already raw and passes through.
 pub fn raw_of(index: &SpecIndex, token: RightToken) -> RightToken {
     if token.kind() != TokenKind::Letter {
         return token;
     }
     match sequence_of(index, token.letter()) {
-        Some(sequence) => RightToken::Letter(sequence[0]),
+        Some(sequence) => component_token(index, sequence[0]),
         None => token,
     }
 }
@@ -151,8 +161,10 @@ impl<'i> WindowOptions<'i> {
         let mut guard = GuardState::new(index);
         let mut letters: Vec<Sym> = index.runes().iter().map(|(name, _)| *name).collect();
         letters.sort_by(|left, right| index.resolve(*left).cmp(index.resolve(*right)));
-        let right_letters: Vec<RightToken> =
-            letters.iter().copied().map(RightToken::Letter).collect();
+        let right_letters: Vec<RightToken> = letters
+            .iter()
+            .map(|rune| index.letter(*rune).expect("a modeled rune has a token"))
+            .collect();
         let right_boundaries = RIGHT_BOUNDARIES.to_vec();
         let formation_pairs = formation_pairs(index);
         let survivable =
@@ -196,15 +208,17 @@ impl<'i> WindowOptions<'i> {
         }
         let (first, second) = match self.liga_sequences.get(&next1.letter()) {
             Some(sequence) => (
-                RightToken::Letter(sequence[0]),
-                Some(RightToken::Letter(sequence[1])),
+                component_token(self.guard.index(), sequence[0]),
+                Some(component_token(self.guard.index(), sequence[1])),
             ),
             None => {
                 let second = match next2 {
                     None => None,
                     Some(token) if token.kind() == TokenKind::Letter => {
                         match self.liga_sequences.get(&token.letter()) {
-                            Some(sequence) => Some(RightToken::Letter(sequence[0])),
+                            Some(sequence) => {
+                                Some(component_token(self.guard.index(), sequence[0]))
+                            }
                             None => Some(token),
                         }
                     }
@@ -430,13 +444,13 @@ mod tests {
     }
 
     fn letter(index: &SpecIndex, name: &str) -> RightToken {
-        RightToken::Letter(fixtures::sym(index, name))
+        fixtures::letter(index, name)
     }
 
     /// A token as the tests spell it: a letter by its rune name, a boundary by its kind.
     fn label(index: &SpecIndex, token: RightToken) -> String {
         match token {
-            RightToken::Letter(rune) => index.resolve(rune).to_owned(),
+            RightToken::Letter(rune, _) => index.resolve(rune).to_owned(),
             other => other.kind().as_str().to_owned(),
         }
     }

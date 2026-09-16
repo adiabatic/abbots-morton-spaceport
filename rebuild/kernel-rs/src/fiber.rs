@@ -98,9 +98,15 @@ impl DeepFiberDeriver {
         if let Some(cached) = self.contexts.get(&(family, right1, right2)) {
             return Ok(Rc::clone(cached));
         }
-        let token = RightToken::Letter(family);
-        let r1tok = RightToken::Letter(right1);
-        let r2tok = RightToken::Letter(right2);
+        let letter = |rune: Sym| {
+            engine
+                .index()
+                .letter(rune)
+                .expect("a context names modeled runes")
+        };
+        let token = letter(family);
+        let r1tok = letter(right1);
+        let r2tok = letter(right2);
         let follower_map = options.context_follower_map(family, right1);
         let static_options = options.right3_options(r1tok, r2tok, follower_map.as_deref())?;
         let boundary_options: Vec<RightToken> = static_options
@@ -780,10 +786,10 @@ mod tests {
                 .engine
                 .trace_delta(
                     &edge_left,
-                    RightToken::Letter(pea),
+                    index.letter(pea).expect("the fixture models it"),
                     Slots::new(
-                        RightToken::Letter(tea),
-                        RightToken::Letter(may),
+                        index.letter(tea).expect("the fixture models it"),
+                        index.letter(may).expect("the fixture models it"),
                         third,
                         coord,
                     ),
@@ -813,11 +819,11 @@ mod tests {
                     .engine
                     .transition_trace(
                         &LeftContext::boundary(TokenKind::Edge),
-                        RightToken::Letter(fixtures::sym(&index, "qsPea")),
+                        fixtures::letter(&index, "qsPea"),
                         Slots::new(
-                            RightToken::Letter(fixtures::sym(&index, "qsTea")),
-                            RightToken::Letter(fixtures::sym(&index, "qsMay")),
-                            RightToken::Letter(fixtures::sym(&index, third)),
+                            fixtures::letter(&index, "qsTea"),
+                            fixtures::letter(&index, "qsMay"),
+                            fixtures::letter(&index, third),
                             EDGE,
                         ),
                     )
@@ -855,27 +861,30 @@ mod tests {
     fn a_probed_window_records_four_outcomes_that_never_collapse() {
         let index = raising_spec();
         let mut engine = engine_in(&index);
-        let seat = RightToken::Letter(fixtures::sym(&index, "qsPea"));
+        let seat = fixtures::letter(&index, "qsPea");
         let window = |third: &str| {
             Slots::new(
-                RightToken::Letter(fixtures::sym(&index, "qsTea")),
-                RightToken::Letter(fixtures::sym(&index, "qsMay")),
-                RightToken::Letter(fixtures::sym(&index, third)),
+                fixtures::letter(&index, "qsTea"),
+                fixtures::letter(&index, "qsMay"),
+                fixtures::letter(&index, third),
                 EDGE,
             )
         };
         let edge = LeftContext::boundary(TokenKind::Edge);
-        let committed = LeftContext::letter(Settled {
-            cell: CellId {
-                rune: fixtures::sym(&index, "qsTea"),
-                stance: fixtures::sym(&index, "hook"),
-                entry: None,
-                exit: Some(fixtures::sym(&index, "baseline")),
-                adjustments: Vec::new(),
+        let committed = LeftContext::letter(
+            &index,
+            Settled {
+                cell: CellId {
+                    rune: fixtures::sym(&index, "qsTea"),
+                    stance: fixtures::sym(&index, "hook"),
+                    entry: None,
+                    exit: Some(fixtures::sym(&index, "baseline")),
+                    adjustments: Vec::new(),
+                },
+                seam: Some(fixtures::sym(&index, "baseline")),
+                extension: 0,
             },
-            seam: Some(fixtures::sym(&index, "baseline")),
-            extension: 0,
-        });
+        );
         assert_eq!(
             engine
                 .transition_trace(&committed, seat, window("qsPea"))
@@ -922,12 +931,12 @@ mod tests {
     fn a_settled_record_carries_the_whole_row_visible_trace() {
         let index = raising_spec();
         let mut engine = engine_in(&index);
-        let seat = RightToken::Letter(fixtures::sym(&index, "qsPea"));
+        let seat = fixtures::letter(&index, "qsPea");
         let edge = LeftContext::boundary(TokenKind::Edge);
         let slots = Slots::new(
-            RightToken::Letter(fixtures::sym(&index, "qsTea")),
-            RightToken::Letter(fixtures::sym(&index, "qsMay")),
-            RightToken::Letter(fixtures::sym(&index, "qsPea")),
+            fixtures::letter(&index, "qsTea"),
+            fixtures::letter(&index, "qsMay"),
+            fixtures::letter(&index, "qsPea"),
             EDGE,
         );
         let trace = engine
