@@ -7,6 +7,7 @@ The stamp tests are the load-bearing ones. A per-family key can only decompose t
 
 import gzip
 import shutil
+from array import array
 from dataclasses import replace
 from pathlib import Path
 
@@ -619,6 +620,10 @@ def _lines(payload: bytes) -> list[bytes]:
     return payload.split(b"\n")
 
 
+SLICES = ({}, {"first_row": 0, "stop_row": 1}, {"first_row": 1}, {"first_row": 5})
+SLICE_IDS = ("whole", "head", "tail", "past-the-end")
+
+
 @pytest.mark.parametrize("recompressed", [False, True], ids=["as-written", "recompressed-unedited"])
 def test_a_whole_two_record_store_loads_and_serves(repo, tmp_path, recompressed):
     """The positive control for the refusal tests beside it: the store loads as written and again after `_rewrite_payload` puts it back unedited, so each refusal fails only on its malformation and never on the helper that applies it. These tests together pin the over-invalidation contract `load_store`'s docstring states, so the #261 reader rewrite can be held to it."""
@@ -637,36 +642,40 @@ def test_a_whole_two_record_store_loads_and_serves(repo, tmp_path, recompressed)
         )
 
 
-def test_a_whole_zero_record_store_loads_empty(repo, tmp_path):
+@pytest.mark.parametrize("bounds", SLICES, ids=SLICE_IDS)
+def test_a_whole_zero_record_store_loads_empty(repo, tmp_path, bounds):
     """A header line and the `#rows\t0` trailer with nothing between them, the store a writer that appended no row leaves: whole, so it loads, holding no row. This is the one legitimate body with no newline ahead of the trailer, so a reader that guards the trailer search by its index alone refuses it."""
     spec = fixtures.mini_spec()
     path, stamp, keys = _whole_store(tmp_path, repo, spec, rows=0)
     payload = gzip.decompress(path.read_bytes())
     assert _lines(payload)[1:] == [f"{oracle_cache.ROW_COUNT_TRAILER}\t0".encode(), b""]
-    store = oracle_cache.load_store(path, stamp, "subset-digest", spec, keys)
+    store = oracle_cache.load_store(path, stamp, "subset-digest", spec, keys, **bounds)
     assert store is not None
     assert store.rows == 0
 
 
-def test_a_store_with_no_body_loads_as_none(repo, tmp_path):
+@pytest.mark.parametrize("bounds", SLICES, ids=SLICE_IDS)
+def test_a_store_with_no_body_loads_as_none(repo, tmp_path, bounds):
     """A header line and nothing after it."""
     spec = fixtures.mini_spec()
     path, stamp, keys = _whole_store(tmp_path, repo, spec)
     _rewrite_payload(path, lambda _: oracle_cache.store_header(stamp, "subset-digest", 0, keys))
-    assert oracle_cache.load_store(path, stamp, "subset-digest", spec, keys) is None
+    assert oracle_cache.load_store(path, stamp, "subset-digest", spec, keys, **bounds) is None
 
 
-def test_a_store_whose_header_is_the_whole_file_loads_as_none(repo, tmp_path):
+@pytest.mark.parametrize("bounds", SLICES, ids=SLICE_IDS)
+def test_a_store_whose_header_is_the_whole_file_loads_as_none(repo, tmp_path, bounds):
     """The header line with no newline after it, so the file has no body to partition off."""
     spec = fixtures.mini_spec()
     path, stamp, keys = _whole_store(tmp_path, repo, spec)
     header = oracle_cache.store_header(stamp, "subset-digest", 0, keys)
     assert header.endswith(b"\n")
     _rewrite_payload(path, lambda _: header[:-1])
-    assert oracle_cache.load_store(path, stamp, "subset-digest", spec, keys) is None
+    assert oracle_cache.load_store(path, stamp, "subset-digest", spec, keys, **bounds) is None
 
 
-def test_a_store_missing_its_trailer_loads_as_none(repo, tmp_path):
+@pytest.mark.parametrize("bounds", SLICES, ids=SLICE_IDS)
+def test_a_store_missing_its_trailer_loads_as_none(repo, tmp_path, bounds):
     """Two whole records with the row-count trailer line dropped: the last line is a record, not the trailer that vouches for the length."""
     spec = fixtures.mini_spec()
     path, stamp, keys = _whole_store(tmp_path, repo, spec)
@@ -677,10 +686,11 @@ def test_a_store_missing_its_trailer_loads_as_none(repo, tmp_path):
         return b"\n".join(lines[:-2] + [b""])
 
     _rewrite_payload(path, drop_trailer)
-    assert oracle_cache.load_store(path, stamp, "subset-digest", spec, keys) is None
+    assert oracle_cache.load_store(path, stamp, "subset-digest", spec, keys, **bounds) is None
 
 
-def test_a_truncated_store_loads_as_none(repo, tmp_path):
+@pytest.mark.parametrize("bounds", SLICES, ids=SLICE_IDS)
+def test_a_truncated_store_loads_as_none(repo, tmp_path, bounds):
     """A store cut mid-record with no trailer after it, the shape a write that died leaves."""
     spec = fixtures.mini_spec()
     path, stamp, keys = _whole_store(tmp_path, repo, spec)
@@ -691,10 +701,11 @@ def test_a_truncated_store_loads_as_none(repo, tmp_path):
         return cut
 
     _rewrite_payload(path, cut_tail)
-    assert oracle_cache.load_store(path, stamp, "subset-digest", spec, keys) is None
+    assert oracle_cache.load_store(path, stamp, "subset-digest", spec, keys, **bounds) is None
 
 
-def test_a_store_short_a_record_under_its_trailer_loads_as_none(repo, tmp_path):
+@pytest.mark.parametrize("bounds", SLICES, ids=SLICE_IDS)
+def test_a_store_short_a_record_under_its_trailer_loads_as_none(repo, tmp_path, bounds):
     """The trailer still counts two records over a body holding one: a store whose records and count disagree."""
     spec = fixtures.mini_spec()
     path, stamp, keys = _whole_store(tmp_path, repo, spec)
@@ -705,7 +716,142 @@ def test_a_store_short_a_record_under_its_trailer_loads_as_none(repo, tmp_path):
         return b"\n".join(lines[:1] + lines[2:])
 
     _rewrite_payload(path, drop_record)
+    assert oracle_cache.load_store(path, stamp, "subset-digest", spec, keys, **bounds) is None
+
+
+# --- the ranged read ---------------------------------------------------------------------
+
+
+def _aged_store(tmp_path: Path, repo: Path, spec, rows: int = 7):
+    """A store of `rows` records under pass ordinal 3 whose row ages and position ages differ from row to row, so a record served off the wrong offset or an age read off the wrong slot answers differently from the right one."""
+    stamp = _stamp(repo, spec)
+    keys = _keys(repo, spec)
+    path = tmp_path / "aged.tsv.gz"
+    with oracle_cache.RowWriter(path, stamp, "subset-digest", 3, keys) as writer:
+        for index in range(rows):
+            writer.append((PEA, PEA + index), None, 3 - index % 3, None, 3 - index % 2)
+    return path, stamp, keys
+
+
+RANGES = ({"first_row": 0, "stop_row": 3}, {"first_row": 2, "stop_row": 5}, {"first_row": 4})
+RANGE_IDS = ("start", "middle", "open-ended-tail")
+
+
+@pytest.mark.parametrize("bounds", RANGES, ids=RANGE_IDS)
+def test_a_sliced_load_serves_its_range_as_a_whole_load_does(repo, tmp_path, bounds):
+    """The refusal tests above load under `SLICES` beside the whole because the ranges of one configuration have to agree on whether the store loads at all, so a malformation outside a range refuses its load exactly as one inside it does; this is the other half, that what a range keeps is served exactly as the whole load serves it, under the row's absolute ordinal, for a range at the table's start, one in its middle and the open-ended last one."""
+    spec = fixtures.mini_spec()
+    path, stamp, keys = _aged_store(tmp_path, repo, spec)
+    whole = oracle_cache.load_store(path, stamp, "subset-digest", spec, keys)
+    sliced = oracle_cache.load_store(path, stamp, "subset-digest", spec, keys, **bounds)
+    assert whole is not None and sliced is not None
+    first_row = bounds["first_row"]
+    stop_row = bounds.get("stop_row") or whole.rows
+    assert (sliced.first_row, sliced.stop_row) == (first_row, stop_row)
+    assert (whole.first_row, whole.stop_row) == (0, whole.rows)
+    for index in range(first_row, stop_row):
+        codepoints = (PEA, PEA + index)
+        assert sliced.serve(index, codepoints) == whole.serve(index, codepoints)
+        assert sliced.age(index) == whole.age(index)
+        assert sliced.position_age(index) == whole.position_age(index)
+        assert sliced.due(index) == whole.due(index)
+        assert sliced.position_due(index) == whole.position_due(index)
+    assert sliced.served == stop_row - first_row
+    assert {whole.age(index) for index in range(whole.rows)} == {1, 2, 3}
+    assert {whole.position_age(index) for index in range(whole.rows)} == {2, 3}
+
+
+@pytest.mark.parametrize(
+    "bounds", RANGES + ({"first_row": 7}, {"first_row": 9}), ids=RANGE_IDS + ("empty", "past-the-end")
+)
+def test_a_sliced_store_answers_the_tables_count_and_refuses_rows_outside_its_range(repo, tmp_path, bounds):
+    """`rows` is the table's count under every slice, because the oracle classifies an index at or above it as fresh and never asks the store about it: an index the whole load calls fresh is fresh under the slice, and no in-table index the slice calls fresh is served by the whole load. An in-table index outside the slice raises rather than serving another row's record — a negative relative index would otherwise read a Python array from its end."""
+    spec = fixtures.mini_spec()
+    path, stamp, keys = _aged_store(tmp_path, repo, spec)
+    whole = oracle_cache.load_store(path, stamp, "subset-digest", spec, keys)
+    sliced = oracle_cache.load_store(path, stamp, "subset-digest", spec, keys, **bounds)
+    assert whole is not None and sliced is not None
+    assert sliced.rows == whole.rows == 7
+    for index in (7, 8, 1_000):
+        assert (index >= sliced.rows) is (index >= whole.rows) is True
+    outside = [index for index in range(whole.rows) if not bounds["first_row"] <= index < sliced.stop_row]
+    assert outside and all(index < sliced.rows for index in outside)
+    for index in outside:
+        whole.serve(index, (PEA, PEA + index))
+        for reader in (sliced.age, sliced.position_age, sliced.due, sliced.position_due):
+            with pytest.raises(IndexError):
+                reader(index)
+        with pytest.raises(IndexError):
+            sliced.serve(index, (PEA, PEA + index))
+    assert sliced.served == 0
+
+
+def test_a_wrong_anchor_inside_the_range_still_aborts_the_serve(repo, tmp_path):
+    """A misaligned anchor inside a slice is the same loud abort it is in a whole store, not a miss: the range changes which rows a store holds, never what a mismatched record means about the table under it."""
+    spec = fixtures.mini_spec()
+    path, stamp, keys = _aged_store(tmp_path, repo, spec)
+    sliced = oracle_cache.load_store(path, stamp, "subset-digest", spec, keys, first_row=2, stop_row=4)
+    assert sliced is not None
+    assert sliced.serve(3, (PEA, PEA + 3)).row_age == 3
+    with pytest.raises(SystemExit, match="misaligned at row 3"):
+        sliced.serve(3, (PEA, PEA + 4))
+
+
+def test_a_store_given_no_count_holds_a_range_that_runs_to_the_tables_end(repo, tmp_path):
+    """`rows` defaults to the range's own end, never to the slice's length: a store built at `first_row` with no count is one whose range reaches the table's end, so every row it holds is below `rows` and none of them is classified fresh."""
+    spec = fixtures.mini_spec()
+    path, stamp, keys = _aged_store(tmp_path, repo, spec)
+    sliced = oracle_cache.load_store(path, stamp, "subset-digest", spec, keys, first_row=4)
+    assert sliced is not None
+    rebuilt = oracle_cache.RowStore(
+        sliced.environment,
+        sliced.recorded_lines,
+        sliced.recorded_keys,
+        sliced.subset_digest,
+        sliced.pass_ordinal,
+        sliced.mask,
+        sliced._blob,
+        sliced._offsets,
+        sliced._ages,
+        position_ages=sliced._position_ages,
+        first_row=4,
+    )
+    assert (rebuilt.first_row, rebuilt.stop_row, rebuilt.rows) == (4, 7, 7)
+    assert rebuilt.serve(6, (PEA, PEA + 6)) == sliced.serve(6, (PEA, PEA + 6))
+
+
+def test_a_range_whose_kept_bytes_outrun_the_offsets_width_refuses_the_load(repo, tmp_path, monkeypatch):
+    """The packed offsets are unsigned 32-bit, so a range keeping more record bytes than they address raises out of the array rather than out of a parse; it lands in the same place as every other refusal, a `None` and one cold oracle, never a build taken down by its own cache."""
+
+    class Narrow(array):
+        def append(self, value: int) -> None:
+            if self.typecode == "I" and value > 100:
+                raise OverflowError("unsigned int is greater than maximum")
+            super().append(value)
+
+    spec = fixtures.mini_spec()
+    path, stamp, keys = _aged_store(tmp_path, repo, spec)
+    assert oracle_cache.load_store(path, stamp, "subset-digest", spec, keys, first_row=6) is not None
+    monkeypatch.setattr(oracle_cache, "array", Narrow)
+    assert oracle_cache.load_store(path, stamp, "subset-digest", spec, keys, first_row=6) is not None
     assert oracle_cache.load_store(path, stamp, "subset-digest", spec, keys) is None
+
+
+@pytest.mark.parametrize("bounds", SLICES, ids=SLICE_IDS)
+def test_a_record_whose_age_will_not_parse_refuses_the_load_from_any_range(repo, tmp_path, bounds):
+    """The age fields are the reader's validation of every record, in range or out: a record whose age is not an integer refuses the load whether the range holds it, holds only rows ahead of it, or starts past the table's end."""
+    spec = fixtures.mini_spec()
+    path, stamp, keys = _whole_store(tmp_path, repo, spec, rows=3)
+
+    def corrupt_last_record(payload: bytes) -> bytes:
+        lines = _lines(payload)
+        assert lines[-2] == f"{oracle_cache.ROW_COUNT_TRAILER}\t3".encode()
+        fields = lines[-3].split(b"\t")
+        fields[-2] = b"x"
+        return b"\n".join(lines[:-3] + [b"\t".join(fields)] + lines[-2:])
+
+    _rewrite_payload(path, corrupt_last_record)
+    assert oracle_cache.load_store(path, stamp, "subset-digest", spec, keys, **bounds) is None
 
 
 # --- the store is not an artifact --------------------------------------------------------
