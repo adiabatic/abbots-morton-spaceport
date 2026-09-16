@@ -536,9 +536,9 @@ class TestOracleFanIn:
         ]
 
     def test_a_cut_configurations_audit_follows_row_order_within_acceptance_order(
-        self, monkeypatch, tmp_path
+        self, monkeypatch, tmp_path, capsys
     ):
-        """Above one range per configuration the audit's order has two levels — acceptance order across configurations, row order within one — and neither may depend on which future resolved first; the ranges of one configuration also read and write the settle memo through their own parts rather than the shared file."""
+        """Above one range per configuration the audit's order has two levels — acceptance order across configurations, row order within one — and neither may depend on which future resolved first; the ranges of one configuration also read and write the settle memo through their own parts rather than the shared file, and a configuration whose parts the parent folded back in is reported with the fold's own `[t] settle_memo_absorb` line."""
         seen: list = []
         rows = {config: 1000 for config in conform.ACCEPTANCE_CONFIGS}
         self._pool(monkeypatch, self._worker(shards=seen), rows=rows)
@@ -547,12 +547,20 @@ class TestOracleFanIn:
             run_m1.conform,
             "settle_memo_files",
             lambda out_dir, spec, inputs: {
-                config: conform.SettleMemoFile(out_dir / f"settle-memo-{config}.gz", "stamp")
+                config: conform.SettleMemoFile(out_dir / f"settle-memo-{config}.bin", "stamp")
                 for config in conform.SETTLEMENT_CONFIGS
             },
         )
-        monkeypatch.setattr(run_m1.conform, "absorb_settle_memo_parts", lambda memo, parts, spec: False)
+        monkeypatch.setattr(
+            run_m1.conform,
+            "absorb_settle_memo_parts",
+            lambda memo, parts, spec: memo.path.name == "settle-memo-default.bin",
+        )
         run_m1.run_oracle(out_dir=tmp_path, jobs=10, memo_inputs=memo_inputs)
+        printed = capsys.readouterr().out
+        assert "settle memo: absorbed the ranges' parts for default\n" in printed
+        assert len([line for line in printed.splitlines() if line.startswith("[t] settle_memo_absorb ")]) == 1
+        assert any(line.startswith("[t] settle_memo_absorb default ") for line in printed.splitlines())
         lines = (tmp_path / "divergence-audit.tsv").read_text(encoding="utf-8").splitlines()
         assert lines[0] == oracle.ORACLE_AUDIT_HEADER
         planned = sorted(
