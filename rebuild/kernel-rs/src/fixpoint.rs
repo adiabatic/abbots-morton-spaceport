@@ -2616,8 +2616,8 @@ mod tests {
             assert_eq!(back.delta(again), kept.delta(*entry));
             assert_eq!(back.reads(again), kept.reads(*entry));
             assert_eq!(
-                (again.prospect, again.joint_floor, again.decided_stage),
-                (entry.prospect, entry.joint_floor, entry.decided_stage)
+                (again.prospect(), again.joint_floor(), again.decided_stage()),
+                (entry.prospect(), entry.joint_floor(), entry.decided_stage())
             );
         }
         std::fs::remove_dir_all(&dir).expect("the scratch directory is removable");
