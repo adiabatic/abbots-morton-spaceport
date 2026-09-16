@@ -897,7 +897,7 @@ def test_the_pool_is_handed_the_pile_in_configuration_order(mini_bundle):
 def test_the_window_keyed_signatures_die_where_the_ink_duplicate_merge_returns(
     tmp_path, mini_bundle, monkeypatch
 ):
-    """The window-keyed digest table `_resolve_signature_digests` returns is read by the ink-duplicate merge and by nothing after it, so it is alive when the merge is called and collected before the plan phase keys a unit — under a tallied build, whose load boundary reports the pile from a reading taken before the merge, so the tally holds no reference that could outlive the release it reports. The store's entries share the digest strings and ride to the cache phase; what dies here is the keyed table, its tuple keys and its container."""
+    """The window-keyed digest table `_resolve_signature_digests` returns is read by the ink-duplicate merge and by nothing after it, so it is alive when the merge is called and collected before the plan phase keys a unit — under a tallied build, whose load boundary reports the pile from a reading taken before the merge, so the tally holds no reference that could outlive the release it reports. The store's records share the digest strings and die with the store write that opens the units phase (`test_the_signature_store_records_die_where_the_store_is_written` below pins that on both paths, and `test_the_signature_write_holds_no_entries_once_the_store_is_written` in rebuild/test_unit_cache.py pins the thread's own drop); what dies here is the keyed table, its tuple keys and its container."""
     monkeypatch.setenv(pile_tally.TALLY_ENV, "1")
     resolve = review_build._resolve_signature_digests
     merge = review_build.merge_ink_duplicate_units
@@ -937,6 +937,60 @@ def test_the_window_keyed_signatures_die_where_the_ink_duplicate_merge_returns(
         fresh_unit_cache=True,
     )
     assert alive == {"merge": True, "plan": False}
+
+
+@pytest.mark.parametrize("jobs", [1, 2])
+def test_the_signature_store_records_die_where_the_store_is_written(tmp_path, mini_bundle, monkeypatch, jobs):
+    """The store records `_resolve_signature_digests` returns are held through the plan phase and die with the store write that opens the units phase: a serial build writes inline and has dropped them before `_FreshRunner.phase1` drafts a unit, and a pooled build's `_SignatureWrite` thread has dropped them by the time its `join` returns. The reading is a weakref over the returned dict rather than a `_SignatureWrite` attribute, so it fails if `build_m1` keeps its own name for the records on either path, or if a tallied build holds them — the tally is on for that reason, as in the sibling test above."""
+    monkeypatch.setenv(pile_tally.TALLY_ENV, "1")
+    resolve = review_build._resolve_signature_digests
+    release = review_build.release_rows
+    phase1 = review_build._FreshRunner.phase1
+    join = review_build._SignatureWrite.join
+    table: list[weakref.ref] = []
+    alive: dict[str, bool] = {}
+
+    class Tracked(dict):
+        pass
+
+    def tracking_resolve(*args, **kwargs):
+        signatures, entries, *rest = resolve(*args, **kwargs)
+        tracked = Tracked(entries)
+        table.append(weakref.ref(tracked))
+        return (signatures, tracked, *rest)
+
+    def watching_release_rows(units):
+        gc.collect()
+        alive["load"] = table[0]() is not None
+        release(units)
+
+    def watching_phase1(self):
+        gc.collect()
+        alive["units"] = table[0]() is not None
+        return phase1(self)
+
+    def watching_join(self):
+        join(self)
+        gc.collect()
+        alive["cache"] = table[0]() is not None
+
+    monkeypatch.setattr(review_build, "_resolve_signature_digests", tracking_resolve)
+    monkeypatch.setattr(review_build, "release_rows", watching_release_rows)
+    if jobs == 1:
+        monkeypatch.setattr(review_build._FreshRunner, "phase1", watching_phase1)
+    monkeypatch.setattr(review_build._SignatureWrite, "join", watching_join)
+    review_build.build_m1(
+        tmp_path / "surface",
+        audit_path=MINI / "audit.tsv",
+        ledger_path=mini_bundle.ledger,
+        subset_dir=MINI,
+        after_font=MINI / "M1.otf",
+        spec_root=mini_bundle.spec_root,
+        subset_pack=mini_bundle.subset_pack,
+        jobs=jobs,
+        fresh_unit_cache=True,
+    )
+    assert alive == ({"load": True, "units": False} if jobs == 1 else {"load": True, "cache": False})
 
 
 _SIGNATURE_NOTE = r"\(signatures: \d[\d,]* cached, \d[\d,]* shaped(?: serially| across \d+ workers)?\)"

@@ -964,7 +964,7 @@ def _resolve_signature_digests(
     signature_jobs: int,
     fresh: bool,
 ) -> tuple[dict[tuple[str, str], str], dict[str, str], fingerprint.EnvironmentStamp, int, int]:
-    """The ink-duplicate merge's signature digests, one per row of `signature_rows`, served from the persisted store where the content key still holds and shaped live for the remainder — across a spawn pool when the miss pile is deep enough to amortize its startup, else serially through the parent's shared shapers, whose memo is released once the pass is done so the parent carries no shape from it into the units phase. The pool's width is `signature_jobs`, a width of this phase's own rather than the units runner's `jobs`: a signature worker is one comparator over the two fonts and nothing else, flat in the pile it shapes and pure CPU, so cores bind it where memory binds the units worker, and the cycle hands it the cores the box has (`artifact_cycle.signature_job_budget`). The pool maps chunks rather than pairs — eight per worker, the same arithmetic as a per-pair chunksize — so each reply can carry its worker's peak, and `pool.map` keeps the chunks in miss order, which is what makes the pooled pass byte-identical to the serial one. Returns the digests keyed (codepoints, config), the store records to persist after the build, the store's environment stamp, the count actually shaped, and the width the shaping ran at (one for a serial pass; the load line names the mode only when something was shaped, since a fully served store ran neither)."""
+    """The ink-duplicate merge's signature digests, one per row of `signature_rows`, served from the persisted store where the content key still holds and shaped live for the remainder — across a spawn pool when the miss pile is deep enough to amortize its startup, else serially through the parent's shared shapers, whose memo is released once the pass is done so the parent carries no shape from it into the units phase. The pool's width is `signature_jobs`, a width of this phase's own rather than the units runner's `jobs`: a signature worker is one comparator over the two fonts and nothing else, flat in the pile it shapes and pure CPU, so cores bind it where memory binds the units worker, and the cycle hands it the cores the box has (`artifact_cycle.signature_job_budget`). The pool maps chunks rather than pairs — eight per worker, the same arithmetic as a per-pair chunksize — so each reply can carry its worker's peak, and `pool.map` keeps the chunks in miss order, which is what makes the pooled pass byte-identical to the serial one. Returns the digests keyed (codepoints, config), the store records `build_m1` persists where the units phase opens, the store's environment stamp, the count actually shaped, and the width the shaping ran at (one for a serial pass; the load line names the mode only when something was shaped, since a fully served store ran neither)."""
     environment = unit_cache.signature_environment(repo_root, before_font, helpers_digest)
     prior = None if fresh else unit_cache.load_signature_store(out_dir, environment)
     if not fresh and prior is None:
@@ -1011,23 +1011,26 @@ def _resolve_signature_digests(
 
 
 class _SignatureWrite:
-    """The ink-signature store's write, run on one thread through the units phase of a pooled build and joined in the cache phase. The entries are final when `_resolve_signature_digests` returns and nothing mutates them afterward, so the thread owns them for the length of the phase, and the store's stamp (`unit_cache.signature_environment`) reads neither the manifest nor the check, so the write depends on nothing the phases after it produce. What makes the overlap free is that zlib releases the GIL and a pooled build's parent is parked in `multiprocessing.connection.wait` for the phase, waking only to merge a batch reply and hand out the next — which is why the start belongs at the units-phase boundary and not where the entries go final, where the sort and the line formatting (the GIL-held halves) would compete with the load tail and the plan phase; the serial build has no idle parent to overlap with and writes in place in the cache phase instead. The thread is a daemon and is joined only on the success path, so an exception leaving the build abandons the write rather than waiting on it; a write that fails raises at the join, in the cache phase. The transient sorted-key list moves into the units phase with the write, where `tally.boundary("units")` reads it and `boundary("cache")` does not: tens of megabytes against `SURFACE_PARENT_BYTES`, inside its noise, so no constant moves. The runner and the signature pool spawn rather than fork, so a thread alive at process creation carries no fork hazard; anything here that moves to a fork context has to read this first."""
+    """The ink-signature store's write, run on one thread through the units phase of a pooled build and joined in the cache phase. The entries are final when `_resolve_signature_digests` returns and nothing mutates them afterward, and the store's stamp (`unit_cache.signature_environment`) reads neither the manifest nor the check, so the write depends on nothing the phases after it produce. The thread owns the entries only until the write lands: `_write` drops them the moment `unit_cache.write_signature_store` returns, and `build_m1` deletes its own name for them in the statement group that starts the thread, so the dict dies with the write rather than riding the units-through-cache plateau that `SURFACE_PARENT_BYTES` prices. A write that fails clears the same attribute, but the captured error's traceback keeps the write's frames and the entries with them until `join` re-raises it; nothing prices that path, since a build on it is dying. What makes the overlap free is that zlib releases the GIL and a pooled build's parent is parked in `multiprocessing.connection.wait` for the phase, waking only to merge a batch reply and hand out the next — which is why the start belongs at the units-phase boundary and not where the entries go final, where the sort and the line formatting (the GIL-held halves) would compete with the load tail and the plan phase; the serial build has no idle parent to overlap with and writes inline at the same units-phase boundary, where the write's few seconds move earlier and its entries die just as early. The thread is a daemon and is joined only on the success path, so an exception leaving the build abandons the write rather than waiting on it; a write that fails raises at the join, in the cache phase. The transient sorted-key list lives in the units phase with the write, where `tally.boundary("units")` reads it and `boundary("cache")` does not: tens of megabytes against `SURFACE_PARENT_BYTES`, inside its noise. The runner and the signature pool spawn rather than fork, so a thread alive at process creation carries no fork hazard; anything here that moves to a fork context has to read this first."""
 
     def __init__(
-        self, out_dir: Path, environment: fingerprint.EnvironmentStamp, entries: Mapping[str, str]
+        self, out_dir: Path, environment: fingerprint.EnvironmentStamp | str, entries: Mapping[str, str]
     ) -> None:
         self._out_dir = out_dir
         self._environment = environment
-        self._entries = entries
+        self._entries: Mapping[str, str] | None = entries
         self._error: BaseException | None = None
         self._thread = threading.Thread(target=self._write, name="ink-signature-store", daemon=True)
         self._thread.start()
 
     def _write(self) -> None:
         try:
+            assert self._entries is not None
             unit_cache.write_signature_store(self._out_dir, self._environment, self._entries)
         except BaseException as error:
             self._error = error
+        finally:
+            self._entries = None
 
     def join(self) -> None:
         self._thread.join()
@@ -1961,9 +1964,12 @@ def build_m1(
         subset_pack=subset_pack,
     )
     try:
-        signature_write = (
-            _SignatureWrite(out_dir, signature_environment, signature_entries) if runner.pooled else None
-        )
+        if runner.pooled:
+            signature_write = _SignatureWrite(out_dir, signature_environment, signature_entries)
+        else:
+            unit_cache.write_signature_store(out_dir, signature_environment, signature_entries)
+            signature_write = None
+        del signature_entries
         projections = runner.phase1()
 
         # Every fresh unit's id arrives with its projection; the universe is then checked for a repeated id, which the 64-bit truncation makes vanishingly unlikely and which would put two windows under one fragment address, so it is a refusal rather than a merge.
@@ -2253,9 +2259,7 @@ def build_m1(
     finally:
         if prior_store is not None:
             prior_store.close()
-    if signature_write is None:
-        unit_cache.write_signature_store(out_dir, signature_environment, signature_entries)
-    else:
+    if signature_write is not None:
         signature_write.join()
     if tally:
         tally.boundary("cache")
