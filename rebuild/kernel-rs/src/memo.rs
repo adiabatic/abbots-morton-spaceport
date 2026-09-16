@@ -13,14 +13,15 @@ use std::io::{BufRead, Write as _};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-use crate::engine::{DeltaSeat, Pointer, ReadsSeat, TraceEntry, TraceKey};
+use crate::engine::{
+    DeltaSeat, Pointer, ReadsSeat, TraceEntry, TraceKey, TraceNotesSeat, TraceSettledSeat,
+};
 use crate::hash::{HashMap, HashSet};
 use crate::index::{Read, SpecIndex};
 use crate::model::{PolicyRecord, Provenance, Sym, When};
 use crate::types::{
-    AdjustmentToken, CellId, DecidedStage, LeftOrdinals, NotesSeat, PackedKinds, Settled,
-    SettledSeat, TokenKind, TransitionTrace, adjustment_from_text, adjustment_text,
-    boundary_settled,
+    AdjustmentToken, CellId, DecidedStage, LeftOrdinals, PackedKinds, Settled, TokenKind,
+    TransitionTrace, adjustment_from_text, adjustment_text, boundary_settled,
 };
 
 /// One engine's finished trace memo: the entries with the three tables their seats index. The tables are the memo's own pools flattened, so an entry read through the snapshot resolves exactly as it resolved through the engine that recorded it.
@@ -47,9 +48,9 @@ impl MemoSnapshot {
     pub(crate) fn trace(&self, entry: TraceEntry) -> TransitionTrace {
         TransitionTrace {
             settled: self.settled[entry.settled.index()].clone(),
-            joint_floor: entry.joint_floor,
-            prospect: i64::from(entry.prospect),
-            decided_stage: entry.decided_stage,
+            joint_floor: entry.joint_floor(),
+            prospect: i64::from(entry.prospect()),
+            decided_stage: entry.decided_stage(),
             notes: self.notes[entry.notes.index()].to_vec(),
             ladder: None,
         }
@@ -412,9 +413,9 @@ pub fn write_memo(
                     pool_seat(entry.delta.index()),
                     pool_seat(entry.reads.index()),
                 ],
-                prospect: entry.prospect,
-                joint_floor: entry.joint_floor,
-                decided_stage: entry.decided_stage,
+                prospect: entry.prospect(),
+                joint_floor: entry.joint_floor(),
+                decided_stage: entry.decided_stage(),
                 source,
             });
         }
@@ -441,7 +442,19 @@ pub fn write_memo(
         let settled_seat = settled.seat(&memo.settled[row.seats[0] as usize], |record| {
             Ok(settled_line(index, &mut symbols, record))
         })?;
+        if TraceSettledSeat::try_at(settled_seat as usize).is_none() {
+            return Err(format!(
+                "{}: a memo seats fewer than 65,536 settled records",
+                path.display()
+            ));
+        }
         let notes_seat = notes.seat(&memo.notes[row.seats[1] as usize], |list| notes_line(list))?;
+        if TraceNotesSeat::try_at(notes_seat as usize).is_none() {
+            return Err(format!(
+                "{}: a memo seats fewer than 65,536 notes lists",
+                path.display()
+            ));
+        }
         let delta_seat = deltas.seat(&memo.deltas[row.seats[2] as usize], |delta| {
             Ok(delta_line(index, &mut symbols, delta))
         })?;
@@ -600,6 +613,12 @@ pub(crate) fn read_memo(
                 symbols.push(index.sym_of(text));
             }
             Some("S") => {
+                if memo.settled.len() == TraceSettledSeat::CAPACITY {
+                    return Err(complain(
+                        number,
+                        "a memo seats fewer than 65,536 settled records",
+                    ));
+                }
                 let fields: Vec<&str> = fields.collect();
                 let [rune, stance, entry, exit, adjustments, seam, extension] = fields.as_slice()
                 else {
@@ -635,6 +654,12 @@ pub(crate) fn read_memo(
                     .push(parsed.unwrap_or_else(|| placeholder.clone()));
             }
             Some("N") => {
+                if memo.notes.len() == TraceNotesSeat::CAPACITY {
+                    return Err(complain(
+                        number,
+                        "a memo seats fewer than 65,536 notes lists",
+                    ));
+                }
                 let text = fields.next().unwrap_or_default();
                 if fields.next().is_some() {
                     return Err(complain(number, "a notes list is one field"));
@@ -727,9 +752,11 @@ pub(crate) fn read_memo(
                 ) else {
                     return Err(complain(number, "a seat is a count"));
                 };
-                let prospect: i8 = prospect
+                let prospect: i64 = prospect
                     .parse()
-                    .map_err(|_| complain(number, "a prospect is a seam count"))?;
+                    .ok()
+                    .filter(|term| (0..=1).contains(term))
+                    .ok_or_else(|| complain(number, "a prospect is a seam count, zero or one"))?;
                 let joint_floor = match *joint {
                     "0" => false,
                     "1" => true,
@@ -800,15 +827,15 @@ pub(crate) fn read_memo(
                 }
                 memo.entries.insert(
                     key,
-                    TraceEntry {
-                        settled: SettledSeat::at(settled_seat),
-                        notes: NotesSeat::at(notes_seat),
-                        delta: DeltaSeat::at(delta_seat),
-                        reads: ReadsSeat::at(reads_seat),
+                    TraceEntry::new(
+                        TraceSettledSeat::at(settled_seat),
+                        TraceNotesSeat::at(notes_seat),
+                        DeltaSeat::at(delta_seat),
+                        ReadsSeat::at(reads_seat),
                         prospect,
                         joint_floor,
                         decided_stage,
-                    },
+                    ),
                 );
             }
             Some(other) => {
@@ -913,8 +940,8 @@ mod tests {
             assert_eq!(back.delta(again), memo.delta(*entry));
             assert_eq!(back.reads(again), memo.reads(*entry));
             assert_eq!(
-                (again.prospect, again.joint_floor, again.decided_stage),
-                (entry.prospect, entry.joint_floor, entry.decided_stage)
+                (again.prospect(), again.joint_floor(), again.decided_stage()),
+                (entry.prospect(), entry.joint_floor(), entry.decided_stage())
             );
         }
         let back = Arc::new(back);
@@ -1109,9 +1136,9 @@ mod tests {
                 memo.notes[entry.notes.index()].clone(),
                 memo.delta(entry).to_vec(),
                 memo.reads(entry).to_vec(),
-                entry.prospect,
-                entry.joint_floor,
-                entry.decided_stage,
+                entry.prospect(),
+                entry.joint_floor(),
+                entry.decided_stage(),
             )
         };
         let mut moved = 0;
@@ -1159,6 +1186,164 @@ mod tests {
         let back = read_memo(&index, &path, &head("default"), |_| true).expect("still reads");
         assert!(back.len() < memo.len());
         assert!(!back.is_empty());
+    }
+
+    /// A file seating more records or lists than a trace entry's two-byte seat can name is refused at the first line past the range, naming it, rather than read into a seat that wrapped (issue #266); a file seating exactly the range reads.
+    #[test]
+    fn a_memo_seating_more_than_a_trace_seat_names_is_refused() {
+        let index = fixtures::mini();
+        let path = scratch("memo-seat-range").join("memo-default.tsv");
+        let head_line = format!(
+            "# {MEMO_FORMAT}\tdefault\t{}\t{}\n",
+            head("default").world,
+            head("default").stamp
+        );
+        for (line, capacity, complaint) in [
+            (
+                "S\t0\t0\t-\t-\t-\t-\t0\n",
+                TraceSettledSeat::CAPACITY,
+                "line 65537: a memo seats fewer than 65,536 settled records",
+            ),
+            (
+                "N\t\n",
+                TraceNotesSeat::CAPACITY,
+                "line 65537: a memo seats fewer than 65,536 notes lists",
+            ),
+        ] {
+            let mut text = head_line.clone();
+            for _ in 0..capacity {
+                text.push_str(line);
+            }
+            std::fs::write(&path, &text).expect("written");
+            read_memo(&index, &path, &head("default"), |_| true)
+                .expect("a table at the range reads");
+            text.push_str(line);
+            std::fs::write(&path, &text).expect("rewritten");
+            let refusal =
+                read_memo(&index, &path, &head("default"), |_| true).expect_err("refused");
+            assert!(refusal.contains(complaint), "{refusal}");
+        }
+    }
+
+    /// A window whose prospect is not a seam count of zero or one is refused at its line (issue #266), since the entry folds the term into one bit.
+    #[test]
+    fn a_window_with_a_prospect_past_one_is_refused() {
+        let index = fixtures::mini();
+        let (_, memo) = enumerate_keeping(&index, &[], Vec::new());
+        let path = scratch("memo-prospect-range").join("memo-default.tsv");
+        write_memo(&index, &path, &head("default"), &memo, &[]).expect("the file writes");
+        let text = std::fs::read_to_string(&path).expect("the file is text");
+        let first_window = text
+            .lines()
+            .position(|line| line.starts_with("E\t"))
+            .expect("the memo holds a window");
+        for bad in ["2", "-1"] {
+            let edited: Vec<String> = text
+                .lines()
+                .enumerate()
+                .map(|(number, line)| {
+                    if number != first_window {
+                        return line.to_owned();
+                    }
+                    let mut fields: Vec<&str> = line.split('\t').collect();
+                    assert!(matches!(fields[15], "0" | "1"), "the field is the prospect");
+                    fields[15] = bad;
+                    fields.join("\t")
+                })
+                .collect();
+            std::fs::write(&path, edited.join("\n") + "\n").expect("rewritten");
+            let refusal =
+                read_memo(&index, &path, &head("default"), |_| true).expect_err("refused");
+            assert!(
+                refusal.contains(&format!(
+                    "line {}: a prospect is a seam count, zero or one",
+                    first_window + 1
+                )),
+                "{refusal}"
+            );
+        }
+    }
+
+    /// The writer's crossing to the same range (issue #266): a union whose distinct settled records or notes lists outrun a trace entry's two-byte seat is refused at the write, naming the file, rather than written as a file the next build refuses at the read, while a union at exactly the range writes and reads back whole. Each source here sits inside the range on its own, so the crossing is the union's alone.
+    #[test]
+    fn a_union_seating_more_than_a_trace_seat_names_is_refused_at_the_write() {
+        let index = fixtures::mini();
+        let (_, memo) = enumerate_keeping(&index, &[], Vec::new());
+        let (key, entry) = memo
+            .entries
+            .iter()
+            .next()
+            .map(|(key, entry)| (*key, *entry))
+            .expect("the memo holds a window");
+        let record = memo.settled(entry).clone();
+        let list = memo.notes[entry.notes.index()].clone();
+        let delta = memo.delta(entry).to_vec().into_boxed_slice();
+        let reads = memo.reads(entry).to_vec().into_boxed_slice();
+        let path = scratch("memo-union-range").join("memo-default.tsv");
+        for (distinct_records, complaint) in [
+            (true, "a memo seats fewer than 65,536 settled records"),
+            (false, "a memo seats fewer than 65,536 notes lists"),
+        ] {
+            let build = |extensions: std::ops::RangeInclusive<i16>| {
+                let mut built = MemoSnapshot::default();
+                built.deltas.push(delta.clone());
+                built.reads.push(reads.clone());
+                if distinct_records {
+                    built.notes.push(list.clone());
+                } else {
+                    built.settled.push(record.clone());
+                }
+                for (seat, extension) in extensions.enumerate() {
+                    if distinct_records {
+                        built.settled.push(Settled {
+                            extension: i64::from(extension),
+                            ..record.clone()
+                        });
+                    } else {
+                        built.notes.push(vec![extension.to_string()]);
+                    }
+                    let mut window = key;
+                    window.left_extension = extension;
+                    let (settled_seat, notes_seat) = if distinct_records {
+                        (seat, 0)
+                    } else {
+                        (0, seat)
+                    };
+                    built.entries.insert(
+                        window,
+                        TraceEntry::new(
+                            TraceSettledSeat::at(settled_seat),
+                            TraceNotesSeat::at(notes_seat),
+                            DeltaSeat::at(0),
+                            ReadsSeat::at(0),
+                            0,
+                            false,
+                            DecidedStage::Order,
+                        ),
+                    );
+                }
+                built
+            };
+            let own = build(i16::MIN..=-1);
+            let carried = |last: i16| MemoBase {
+                memo: Arc::new(build(0..=last)),
+                excluded: Exclusion::none(),
+            };
+            write_memo(
+                &index,
+                &path,
+                &head("default"),
+                &own,
+                &[carried(i16::MAX - 1)],
+            )
+            .expect("a union at the range writes");
+            let back = read_memo(&index, &path, &head("default"), |_| true)
+                .expect("a file at the range reads");
+            assert_eq!(back.len(), TraceSettledSeat::CAPACITY);
+            let refusal = write_memo(&index, &path, &head("default"), &own, &[carried(i16::MAX)])
+                .expect_err("a union past the range is refused");
+            assert!(refusal.contains(complaint), "{refusal}");
+        }
     }
 
     /// A settled record naming a cell no left of this spec keys — here its stance seat pointed at a rune's name, a symbol the spec interns but no stance field mints — drops the windows seated on it while the rest read, so no such record reaches a left.

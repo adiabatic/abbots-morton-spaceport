@@ -693,19 +693,47 @@ pub enum DecidedStage {
 }
 
 impl DecidedStage {
+    /// The seven in the order the pipeline runs them, each at the index [`DecidedStage::ordinal`] answers for it; [`DecidedStage::from_text`] and the tests walk the stages through this table.
+    pub const ALL: [Self; 7] = [
+        Self::Boundary,
+        Self::OnlyCandidate,
+        Self::AbsolutePrefer,
+        Self::JoinCount,
+        Self::YieldingPrefer,
+        Self::Order,
+        Self::Floor,
+    ];
+
+    /// The stage's place in the pipeline's order, zero through six, which is what the trace memo's packed entry holds a stage as (issue #266): three bits of the entry's one byte. An exhaustive match rather than `as u8`, so a stage added to the enum is a compile error here and in [`DecidedStage::from_ordinal`] rather than an ordinal no table seats.
+    pub fn ordinal(self) -> u8 {
+        match self {
+            Self::Boundary => 0,
+            Self::OnlyCandidate => 1,
+            Self::AbsolutePrefer => 2,
+            Self::JoinCount => 3,
+            Self::YieldingPrefer => 4,
+            Self::Order => 5,
+            Self::Floor => 6,
+        }
+    }
+
+    /// The stage at one ordinal, or `None` past the seven — the reader half of [`DecidedStage::ordinal`], for the packed entry.
+    pub fn from_ordinal(ordinal: u8) -> Option<Self> {
+        match ordinal {
+            0 => Some(Self::Boundary),
+            1 => Some(Self::OnlyCandidate),
+            2 => Some(Self::AbsolutePrefer),
+            3 => Some(Self::JoinCount),
+            4 => Some(Self::YieldingPrefer),
+            5 => Some(Self::Order),
+            6 => Some(Self::Floor),
+            _ => None,
+        }
+    }
+
     /// The stage one spelling names, or `None` for text that is not one of the seven — the reader half of [`DecidedStage::as_str`], for the memo file that carries a stage per entry.
     pub fn from_text(text: &str) -> Option<Self> {
-        [
-            Self::Boundary,
-            Self::OnlyCandidate,
-            Self::AbsolutePrefer,
-            Self::JoinCount,
-            Self::YieldingPrefer,
-            Self::Order,
-            Self::Floor,
-        ]
-        .into_iter()
-        .find(|stage| stage.as_str() == text)
+        Self::ALL.into_iter().find(|stage| stage.as_str() == text)
     }
 
     /// The stage's spelling, as the trace carries it.
@@ -988,6 +1016,22 @@ fn height_y(index: &SpecIndex, height: Sym) -> i64 {
 mod tests {
     use super::*;
     use crate::index::fixtures;
+
+    /// The ordinal table and the enum agree (issue #266): every stage sits in `ALL` at its own ordinal, every ordinal reads back the stage that answers it, the first ordinal past the seven reads nothing, and the seven fit the three bits the packed entry gives them.
+    #[test]
+    fn a_stage_round_trips_through_its_ordinal() {
+        for (index, stage) in DecidedStage::ALL.into_iter().enumerate() {
+            let ordinal = u8::try_from(index).expect("seven ordinals");
+            assert_eq!(stage.ordinal(), ordinal);
+            assert_eq!(DecidedStage::from_ordinal(ordinal), Some(stage));
+            assert_eq!(DecidedStage::from_text(stage.as_str()), Some(stage));
+        }
+        assert_eq!(
+            DecidedStage::from_ordinal(u8::try_from(DecidedStage::ALL.len()).expect("seven")),
+            None
+        );
+        assert!(DecidedStage::ALL.len() <= 8);
+    }
 
     #[test]
     fn word_position_reads_only_the_splitting_boundaries() {

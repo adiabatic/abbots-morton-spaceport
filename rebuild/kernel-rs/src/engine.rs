@@ -10,6 +10,8 @@
 //!
 //! Three raises live in this half, all of them spec defects rather than settlement outcomes, and all three keep Python's sentence: a left condition carrying `then:`, a right condition carrying a left-only axis, and an unresolvable class name (which [`SpecIndex::class_members`] raises). Everything else here answers rather than raises — an unavailable entry, a forbidden pairing, a closed-out exit, and a refusal are all eliminations, and a window with no candidates at all is the ranking's problem, not enumeration's.
 
+use std::num::NonZeroU16;
+
 use crate::error::SettleError;
 use crate::hash::{HashMap, HashSet};
 use crate::index::{Ordinal, Read, SpecIndex, StanceId};
@@ -537,16 +539,116 @@ struct Captured {
     reads: Box<[Read]>,
 }
 
-/// What the trace memo holds per window: seats into the memo's two pools for the settled record and the notes, into [`Engine::deltas`] for the fired delta and into the engine's reads pool for the runes and classes the evaluation read, the prospect as the byte its zero-or-one range needs, the joint flag and the stage — twenty bytes and no heap. An entry holding the whole [`TransitionTrace`] by value beside a boxed delta is what an instrumented run of that layout measured: over a million entries a configuration naming a couple of hundred distinct settled records, about a hundred distinct notes lists and a few tens of thousands of distinct deltas, so nearly every entry held by value what hundreds of its neighbors held too (issue #165). The ladder is not here at all: it exists only where the engine was built with [`EngineModes::explain_ladder`], which the fixpoint never is, so it lives in [`TraceMemo::ladders`] rather than as an empty slot on every entry the fixpoint records.
+/// The seat one of the trace memo's settled records holds as a [`TraceEntry`] carries it: the memo pool's [`SettledSeat`] narrowed to two bytes, minted at the crossing from the pool and raising rather than wrapping past the range (issue #266). It is a type of its own rather than the shared seat narrowed because the shared seat's `NonZeroU32` niche is what folds a product row's absent left seat into four bytes (`Option<SettledSeat>` in [`crate::fixpoint`]), and a product seats what a whole fixpoint reaches where this memo seats what one engine traced: `default`'s memo file names a few hundred distinct settled records. The integer is the index's successor, as the wide seat's is, so the range is [`TraceSettledSeat::CAPACITY`] records; [`TraceSettledSeat::at`] and [`TraceSettledSeat::index`] are the two crossings, and [`TraceSettledSeat::widen`] hands the pool's own seat back.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub(crate) struct TraceSettledSeat(NonZeroU16);
+
+impl TraceSettledSeat {
+    /// How many records a trace memo can seat: every index whose successor fits in a `u16`.
+    pub(crate) const CAPACITY: usize = u16::MAX as usize;
+
+    /// The seat for the pool's `index`-th record, or `None` past the range — the reader's crossing, where a file past the range is a refusal rather than a raise.
+    pub(crate) fn try_at(index: usize) -> Option<Self> {
+        let raw = u16::try_from(index.checked_add(1)?).ok()?;
+        NonZeroU16::new(raw).map(Self)
+    }
+
+    /// The seat for the pool's `index`-th record, raising past the range rather than wrapping.
+    pub(crate) fn at(index: usize) -> Self {
+        Self::try_at(index).expect("a trace memo seats fewer than 65,536 distinct settled records")
+    }
+
+    /// The seat as the pool's index.
+    pub(crate) fn index(self) -> usize {
+        usize::from(self.0.get()) - 1
+    }
+
+    /// The pool's own seat for the record this one names.
+    pub(crate) fn widen(self) -> SettledSeat {
+        SettledSeat::at(self.index())
+    }
+}
+
+/// The seat one of the trace memo's notes lists holds as a [`TraceEntry`] carries it: the memo pool's [`NotesSeat`] narrowed to two bytes by the same argument as [`TraceSettledSeat`], with the same crossings and the same raise past [`TraceNotesSeat::CAPACITY`] lists.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub(crate) struct TraceNotesSeat(NonZeroU16);
+
+impl TraceNotesSeat {
+    /// How many lists a trace memo can seat: every index whose successor fits in a `u16`.
+    pub(crate) const CAPACITY: usize = u16::MAX as usize;
+
+    /// The seat for the pool's `index`-th list, or `None` past the range.
+    pub(crate) fn try_at(index: usize) -> Option<Self> {
+        let raw = u16::try_from(index.checked_add(1)?).ok()?;
+        NonZeroU16::new(raw).map(Self)
+    }
+
+    /// The seat for the pool's `index`-th list, raising past the range rather than wrapping.
+    pub(crate) fn at(index: usize) -> Self {
+        Self::try_at(index).expect("a trace memo seats fewer than 65,536 distinct notes lists")
+    }
+
+    /// The seat as the pool's index.
+    pub(crate) fn index(self) -> usize {
+        usize::from(self.0.get()) - 1
+    }
+
+    /// The pool's own seat for the list this one names.
+    pub(crate) fn widen(self) -> NotesSeat {
+        NotesSeat::at(self.index())
+    }
+}
+
+/// What the trace memo holds per window: two-byte seats into the memo's two pools for the settled record and the notes, four-byte seats into [`Engine::deltas`] for the fired delta and into the engine's reads pool for the runes and classes the evaluation read, and one byte holding the prospect, the joint flag and the stage together — sixteen bytes at the wide seats' alignment and no heap (issue #266). Folding the three into a byte buys nothing on its own, since the four-byte alignment absorbs it; it is the narrow seats beside it that take the entry from twenty bytes to sixteen. An entry holding the whole [`TransitionTrace`] by value beside a boxed delta is what an instrumented run of that layout measured: over a million entries a configuration naming a couple of hundred distinct settled records, about a hundred distinct notes lists and a few tens of thousands of distinct deltas, so nearly every entry held by value what hundreds of its neighbors held too (issue #165). The ladder is not here at all: it exists only where the engine was built with [`EngineModes::explain_ladder`], which the fixpoint never is, so it lives in [`TraceMemo::ladders`] rather than as an empty slot on every entry the fixpoint records.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) struct TraceEntry {
-    pub(crate) settled: SettledSeat,
-    pub(crate) notes: NotesSeat,
+    pub(crate) settled: TraceSettledSeat,
+    pub(crate) notes: TraceNotesSeat,
     pub(crate) delta: DeltaSeat,
     pub(crate) reads: ReadsSeat,
-    pub(crate) prospect: i8,
-    pub(crate) joint_floor: bool,
-    pub(crate) decided_stage: DecidedStage,
+    /// The prospect's bit at the bottom, since the term is a seam count of zero or one, the joint flag above it and the stage's ordinal in the three bits above that; [`TraceEntry::prospect`], [`TraceEntry::joint_floor`] and [`TraceEntry::decided_stage`] read them back.
+    packed: u8,
+}
+
+impl TraceEntry {
+    /// One entry over its four seats and the three fields the byte packs, taking the prospect as the `i64` the ranking sums and raising on one outside zero or one rather than folding it into the bit.
+    pub(crate) fn new(
+        settled: TraceSettledSeat,
+        notes: TraceNotesSeat,
+        delta: DeltaSeat,
+        reads: ReadsSeat,
+        prospect: i64,
+        joint_floor: bool,
+        decided_stage: DecidedStage,
+    ) -> Self {
+        let prospect = u8::try_from(prospect)
+            .ok()
+            .filter(|term| *term <= 1)
+            .expect("a prospect is a seam count, zero or one");
+        Self {
+            settled,
+            notes,
+            delta,
+            reads,
+            packed: prospect | (u8::from(joint_floor) << 1) | (decided_stage.ordinal() << 2),
+        }
+    }
+
+    /// The prospect the ranking summed for this window, zero or one.
+    pub(crate) fn prospect(self) -> i8 {
+        (self.packed & 1) as i8
+    }
+
+    /// Whether the floor decided between a joining and a non-joining candidate.
+    pub(crate) fn joint_floor(self) -> bool {
+        self.packed & 2 != 0
+    }
+
+    /// The stage that decided the window.
+    pub(crate) fn decided_stage(self) -> DecidedStage {
+        DecidedStage::from_ordinal(self.packed >> 2)
+            .expect("a packed entry holds one of the seven stages")
+    }
 }
 
 /// The window memo and its fired journal in one table, with the settled and notes pools its entries seat into beside it. The delta rides in the entry as a seat rather than in a shadow map on the same twenty-byte key, which would cost the key and its hashbrown slack a second time for a value that is only ever read alongside the trace it belongs to; it resolves through [`Engine::deltas`] rather than a pool of this memo's own because the candidate and closure memos seat their deltas in the same table (issue #167). The two pools here are the memo's own rather than a fixpoint's because the memo outlives no fixpoint and is released as one piece. The ladders map is keyed on the same key and is populated only in explain-ladder mode, so a fixpoint's memo carries no ladder slot per entry and an explain-mode hit still answers with the ladder its miss recorded.
@@ -567,16 +669,15 @@ impl TraceMemo {
         delta: DeltaSeat,
         reads: ReadsSeat,
     ) {
-        let entry = TraceEntry {
-            settled: self.settled.seat(&trace.settled),
-            notes: self.notes.seat(trace.notes.clone()),
+        let entry = TraceEntry::new(
+            TraceSettledSeat::at(self.settled.seat(&trace.settled).index()),
+            TraceNotesSeat::at(self.notes.seat(trace.notes.clone()).index()),
             delta,
             reads,
-            prospect: i8::try_from(trace.prospect)
-                .expect("a prospect is a seam count, zero or one"),
-            joint_floor: trace.joint_floor,
-            decided_stage: trace.decided_stage,
-        };
+            trace.prospect,
+            trace.joint_floor,
+            trace.decided_stage,
+        );
         self.entries.insert(key, entry);
         if let Some(ladder) = &trace.ladder {
             self.ladders.insert(key, ladder.clone());
@@ -586,11 +687,11 @@ impl TraceMemo {
     /// The trace one entry stands for, rebuilt out of the pools exactly as its miss returned it — the settled record and the notes cloned out, the prospect widened back to the `i64` the ranking sums, and the ladder read back from the side map where one was recorded.
     fn trace(&self, key: &TraceKey, entry: TraceEntry) -> TransitionTrace {
         TransitionTrace {
-            settled: self.settled.get(entry.settled).clone(),
-            joint_floor: entry.joint_floor,
-            prospect: i64::from(entry.prospect),
-            decided_stage: entry.decided_stage,
-            notes: self.notes.get(entry.notes).to_vec(),
+            settled: self.settled.get(entry.settled.widen()).clone(),
+            joint_floor: entry.joint_floor(),
+            prospect: i64::from(entry.prospect()),
+            decided_stage: entry.decided_stage(),
+            notes: self.notes.get(entry.notes.widen()).to_vec(),
             ladder: self.ladders.get(key).cloned(),
         }
     }
@@ -2700,7 +2801,7 @@ impl<'i> Engine<'i> {
         let memo = self.trace_cache.as_ref()?;
         let key = Self::trace_key(left, token.letter_ordinal(), slots);
         if let Some(&entry) = memo.entries.get(&key) {
-            let answer = read(memo.settled.get(entry.settled));
+            let answer = read(memo.settled.get(entry.settled.widen()));
             replay_into(
                 &mut self.fired_log,
                 &self.capture_starts,
@@ -4781,11 +4882,83 @@ mod tests {
         assert!(!Engine::new(&index, no_features()).trace_memo());
     }
 
-    /// The memo's whole point (issues #165, #184 and #266): an entry is its four seats, the prospect byte, the joint flag and the stage in twenty bytes with nothing on the heap, under a key packed to twenty.
+    /// The memo's whole point (issues #165, #184 and #266): an entry is its two narrow seats, its two wide ones and the byte packing the prospect, the joint flag and the stage in sixteen bytes with nothing on the heap, under a key packed to twenty.
     #[test]
-    fn a_memoized_window_is_twenty_bytes_under_a_twenty_byte_key() {
-        assert_eq!(std::mem::size_of::<TraceEntry>(), 20);
+    fn a_memoized_window_is_sixteen_bytes_under_a_twenty_byte_key() {
+        assert_eq!(std::mem::size_of::<TraceEntry>(), 16);
         assert_eq!(std::mem::size_of::<TraceKey>(), 20);
+    }
+
+    /// The packed byte (issue #266) reads back every prospect, joint flag and stage it can hold, each combination through an entry of its own.
+    #[test]
+    fn a_packed_entry_reads_back_every_prospect_joint_flag_and_stage() {
+        for prospect in [0i64, 1] {
+            for joint_floor in [false, true] {
+                for stage in DecidedStage::ALL {
+                    let entry = TraceEntry::new(
+                        TraceSettledSeat::at(3),
+                        TraceNotesSeat::at(5),
+                        DeltaSeat::at(7),
+                        ReadsSeat::at(11),
+                        prospect,
+                        joint_floor,
+                        stage,
+                    );
+                    assert_eq!(
+                        (
+                            entry.settled.index(),
+                            entry.notes.index(),
+                            i64::from(entry.prospect()),
+                            entry.joint_floor(),
+                            entry.decided_stage()
+                        ),
+                        (3, 5, prospect, joint_floor, stage)
+                    );
+                }
+            }
+        }
+    }
+
+    /// A narrow seat covers every index up to its capacity and none past it (issue #266): the last seat widens back to the pool's own, and the first index past the range mints nothing rather than wrapping to a low seat.
+    #[test]
+    fn a_trace_seat_covers_its_range_and_wraps_past_none_of_it() {
+        let last = TraceSettledSeat::CAPACITY - 1;
+        assert_eq!(TraceSettledSeat::at(last).widen(), SettledSeat::at(last));
+        assert_eq!(TraceNotesSeat::at(last).widen(), NotesSeat::at(last));
+        assert_eq!(TraceSettledSeat::at(0).index(), 0);
+        assert_eq!(TraceNotesSeat::at(0).index(), 0);
+        assert!(TraceSettledSeat::try_at(TraceSettledSeat::CAPACITY).is_none());
+        assert!(TraceNotesSeat::try_at(TraceNotesSeat::CAPACITY).is_none());
+        assert!(TraceSettledSeat::try_at(usize::MAX).is_none());
+    }
+
+    /// A settled table past the `u16` range raises at the mint rather than wrapping (issue #266).
+    #[test]
+    #[should_panic(expected = "fewer than 65,536 distinct settled records")]
+    fn a_settled_table_past_the_range_raises_at_the_mint() {
+        let _ = TraceSettledSeat::at(TraceSettledSeat::CAPACITY);
+    }
+
+    /// A notes table past the `u16` range raises at the mint rather than wrapping (issue #266).
+    #[test]
+    #[should_panic(expected = "fewer than 65,536 distinct notes lists")]
+    fn a_notes_table_past_the_range_raises_at_the_mint() {
+        let _ = TraceNotesSeat::at(TraceNotesSeat::CAPACITY);
+    }
+
+    /// A prospect outside zero or one raises at the entry rather than folding into the bit.
+    #[test]
+    #[should_panic(expected = "a prospect is a seam count, zero or one")]
+    fn a_prospect_past_one_raises_at_the_entry() {
+        let _ = TraceEntry::new(
+            TraceSettledSeat::at(0),
+            TraceNotesSeat::at(0),
+            DeltaSeat::at(0),
+            ReadsSeat::at(0),
+            2,
+            false,
+            DecidedStage::Order,
+        );
     }
 
     /// The candidate memo's whole point (issues #167, #184 and #266): an entry is its four seats in sixteen bytes with nothing on the heap, under a key packed to fourteen, and the closure memo's verdict rides beside its two seats in twelve.
