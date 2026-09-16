@@ -13,6 +13,7 @@ import shutil
 import subprocess
 import sys
 import threading
+import weakref
 from dataclasses import replace
 from html.parser import HTMLParser
 from pathlib import Path
@@ -843,6 +844,8 @@ def test_a_pooled_build_counts_its_units_and_closes_every_phase_it_opens(
     token, note = timings["review.build units"].tail.split("\t")
     assert token.startswith("rss_gb=") and float(token.removeprefix("rss_gb=")) > 0
     assert note == f"(jobs=2, fresh={total:,}, verified=0 served)"
+    _token, note = timings["review.build load"].tail.split("\t")
+    assert re.fullmatch(_SIGNATURE_NOTE, note), note
     inner = {entry["label"]: entry for entry in parse_inner_timings(captured.err)}
     assert list(inner) == phases
     assert all(inner[phase]["rss_gb"] > 0 for phase in phases)
@@ -869,6 +872,9 @@ def test_a_pooled_build_counts_its_units_and_closes_every_phase_it_opens(
     assert not _enrichment_piles(tallies)
     parent_only = _tally_lines(captured.out, parent=True)
     assert list(parent_only) == ["load", "plan", "units", "manifest+check", "census-facts", "cache"]
+    assert parent_only["load"]["signatures"] > 0
+    for boundary in ("plan", "units", "manifest+check", "census-facts", "cache"):
+        assert "signatures" not in parent_only[boundary]
     assert parent_only["units"]["runner.spooled"] == total and parent_only["units"]["runner.subset_pack"] == 0
     assert parent_only["manifest+check"]["runner.spooled"] == total
     assert parent_only["census-facts"]["runner.spooled"] == 0 and parent_only["cache"]["runner.spooled"] == 0
@@ -888,6 +894,52 @@ def test_the_pool_is_handed_the_pile_in_configuration_order(mini_bundle):
         assert within == [unit for unit in units if unit.configs[0] == config]
 
 
+def test_the_window_keyed_signatures_die_where_the_ink_duplicate_merge_returns(
+    tmp_path, mini_bundle, monkeypatch
+):
+    """The window-keyed digest table `_resolve_signature_digests` returns is read by the ink-duplicate merge and by nothing after it, so it is alive when the merge is called and collected before the plan phase keys a unit — under a tallied build, whose load boundary reports the pile from a reading taken before the merge, so the tally holds no reference that could outlive the release it reports. The store's entries share the digest strings and ride to the cache phase; what dies here is the keyed table, its tuple keys and its container."""
+    monkeypatch.setenv(pile_tally.TALLY_ENV, "1")
+    resolve = review_build._resolve_signature_digests
+    merge = review_build.merge_ink_duplicate_units
+    release = review_build.release_rows
+    table: list[weakref.ref] = []
+    alive: dict[str, bool] = {}
+
+    class Tracked(dict):
+        pass
+
+    def tracking_resolve(*args, **kwargs):
+        signatures, *rest = resolve(*args, **kwargs)
+        tracked = Tracked(signatures)
+        table.append(weakref.ref(tracked))
+        return (tracked, *rest)
+
+    def watching_merge(units, ink_sig, exempt_classes=frozenset()):
+        alive["merge"] = table[0]() is not None
+        return merge(units, ink_sig, exempt_classes)
+
+    def watching_release_rows(units):
+        gc.collect()
+        alive["plan"] = table[0]() is not None
+        release(units)
+
+    monkeypatch.setattr(review_build, "_resolve_signature_digests", tracking_resolve)
+    monkeypatch.setattr(review_build, "merge_ink_duplicate_units", watching_merge)
+    monkeypatch.setattr(review_build, "release_rows", watching_release_rows)
+    review_build.build_m1(
+        tmp_path / "surface",
+        audit_path=MINI / "audit.tsv",
+        ledger_path=mini_bundle.ledger,
+        subset_dir=MINI,
+        after_font=MINI / "M1.otf",
+        spec_root=mini_bundle.spec_root,
+        subset_pack=mini_bundle.subset_pack,
+        fresh_unit_cache=True,
+    )
+    assert alive == {"merge": True, "plan": False}
+
+
+_SIGNATURE_NOTE = r"\(signatures: \d[\d,]* cached, \d[\d,]* shaped(?: serially| across \d+ workers)?\)"
 _TALLY_PILE = re.compile(r"^\[tally\] (\S+) (\S+) count=(\d+) est_bytes=(\d+) est_gb=\d+\.\d\d$")
 _TALLY_LARGEST = re.compile(r"^\[tally\] (\S+) largest=(\S+)$")
 
@@ -958,6 +1010,10 @@ def test_a_serial_build_tallies_its_piles_at_every_phase_boundary_and_writes_the
     assert tallies["load"]["workload.rows"] == manifest["totals"]["rows"]
     assert tallies["plan"]["workload.rows"] == 0
     assert "ink.shape_memo" in tallies["load"] and "signatures" in tallies["load"]
+    assert tallies["load"]["signatures"] > 0
+    for boundary in ("plan", "units", "manifest+check", "census-facts", "cache"):
+        assert "signatures" not in tallies[boundary]
+    assert re.search(_SIGNATURE_NOTE, captured.err)
     assert tallies["plan"]["unit_cache.keys"] == total and tallies["plan"]["unit_cache.served"] == 0
     assert tallies["units"]["states"] == total and tallies["units"]["runner.spooled"] == total
     assert tallies["units"]["runner.subset_pack"] > 0

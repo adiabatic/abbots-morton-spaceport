@@ -1856,17 +1856,22 @@ def build_m1(
 
     exempt_classes = {entry.id for entry in workload.ledger if entry.no_verdict}
     premerge_capture = census.capture_premerge(workload.units)
+    signature_count = len(signatures)
+    if tally:
+        signature_reading = pile_tally.estimate(signatures)
+        tally.hold_reading("signatures", lambda: signature_reading)
     merge_ink_duplicate_units(workload.units, ink_sig, exempt_classes)
+    del signatures, ink_sig
     present = {unit.class_id for unit in workload.units}
     workload.classes_present = [entry for entry in workload.ledger if entry.id in present]
     if tally:
-        tally.hold("signatures", signatures)
         tally.hold_reading("ink.shape_memo", shape_memo_census)
         tally.boundary("load")
+        tally.release("signatures")
     _phase_timing(
         "review.build load",
         phase,
-        f"(signatures: {len(signatures) - signatures_shaped:,} cached, {signatures_shaped:,} shaped"
+        f"(signatures: {signature_count - signatures_shaped:,} cached, {signatures_shaped:,} shaped"
         + (
             ")"
             if not signatures_shaped
