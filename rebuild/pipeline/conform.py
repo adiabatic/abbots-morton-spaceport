@@ -13,16 +13,18 @@ import functools
 import gzip
 import itertools
 import json
+import mmap
 import operator
 import os
 import pickle
+import struct
 import sys
 import time
 from array import array
 from contextlib import suppress
 from dataclasses import dataclass, field, replace
 from pathlib import Path
-from typing import Callable, Iterable, Iterator, Mapping, Sequence, cast
+from typing import IO, Callable, Iterable, Iterator, Literal, Mapping, Sequence, cast
 
 from rebuild.pipeline import geometry, kernel_exec, oracle_cache, settle
 from rebuild.pipeline.labels import (
@@ -57,11 +59,13 @@ TEXT_CHUNK = 65536
 BELT_HORIZON = 4
 # The overlay arm's horizon, whatever the belt's: one letter proves each cmap glyph maps to its twin, and every pair proves no pair forms, joins or moves, which with read-back's isolation proof is the whole claim.
 OVERLAY_HORIZON = 2
-SETTLE_MEMO_FORMAT = "ams-settle-memo/2"
-# Windows per block of the settle memo file; each block is its own pickle, so a writer streams the memo out and a reader decodes it in with this many entries in flight rather than the whole memo twice over.
+SETTLE_MEMO_FORMAT = "ams-settle-memo/3"
+SETTLE_MEMO_PART_FORMAT = "ams-settle-memo-part/1"
+# Windows per block of a settle memo part and per block of a whole-file save's encoding; each part block is its own pickle, so a walk streams its fresh windows out and the absorb decodes them in with this many entries in flight rather than the whole part twice over.
 SETTLE_MEMO_BLOCK = 65536
 _SETTLE_MEMO_READ_ERRORS = (
     OSError,
+    struct.error,
     EOFError,
     pickle.UnpicklingError,
     ValueError,
@@ -583,90 +587,375 @@ class _RefusedWindow:
     message: str
 
 
-_MEMO_ROW_DEAD = 2
+_MEMO_PREFIX = struct.Struct("<Q")
+_MEMO_MIX = (
+    0x9E3779B97F4A7C15,
+    0xBF58476D1CE4E5B9,
+    0x94D049BB133111EB,
+    0xD6E8FEB86659FD93,
+    0xA0761D6478BD642F,
+    0xE7037ED1A0B428DB,
+)
+_MEMO_HASH_BITS = 64
+_MEMO_HEADER_CAP = 1 << 26
+_MemoTypecode = Literal["H", "I"]
+
+
+def _memo_typecode(count: int) -> _MemoTypecode:
+    """The array typecode an id column takes: `H` while the table it indexes fits in sixteen bits, `I` past that."""
+    return "H" if count <= 1 << 16 else "I"
+
+
+def _memo_aligned(offset: int) -> int:
+    """The next eight-byte boundary at or past `offset`: every section of a settle memo file starts on one, so a mapped column casts in place whatever its typecode."""
+    return (offset + 7) & ~7
+
+
+def _memo_slots(columns: Sequence[Sequence[int]], slots: int) -> Iterator[int]:
+    """The index slot of every row of `columns`, in row order, by the hash `_MemoStore` states: each id times its column's constant in `_MEMO_MIX`, summed modulo 2^64, keeping the top bits that address `slots`. Six column multiplies, five adds and a shift, all C-level maps, so the pass over millions of rows runs no Python-level loop."""
+    mask = (1 << _MEMO_HASH_BITS) - 1
+    shift = _MEMO_HASH_BITS - (slots.bit_length() - 1)
+    total = map(operator.mul, columns[0], itertools.repeat(_MEMO_MIX[0]))
+    for column, mix in zip(columns[1:], _MEMO_MIX[1:]):
+        total = map(operator.add, total, map(operator.mul, column, itertools.repeat(mix)))
+    return map(operator.rshift, map(mask.__and__, total), itertools.repeat(shift))
+
+
+def _memo_index(
+    columns: Sequence[array], values: array, index: array | None = None, indexed: int = 0
+) -> tuple[array, bytearray | None]:
+    """The open-addressed index over `columns` — 2^k >= 2N slots holding row + 1, 0 for empty, probed linearly from `_memo_slots` — beside the live mask: a row whose key an earlier row already holds hands that row its value and is dropped, a dict's later-entry-wins-at-first-position, so the mask is None when every key is distinct and otherwise flags the rows that survive. `index` with `indexed` starts from an index that already holds the first `indexed` rows at these row numbers — a standing file's, when nothing ahead of the new rows moved — and inserts only the rows after them, while it still has room for every row at no more than half full."""
+    rows = len(values)
+    if index is None or len(index) < 2 * rows:
+        slots = 1 << (2 * rows - 1).bit_length() if rows else 0
+        index = array("I", [0]) * slots
+        indexed = 0
+    slots = len(index)
+    keep: bytearray | None = None
+    if not rows:
+        return index, keep
+    mask = slots - 1
+    c0, c1, c2, c3, c4, c5 = columns
+    fresh = [column[indexed:] for column in columns] if indexed else columns
+    for row, slot in enumerate(_memo_slots(fresh, slots), start=indexed):
+        while True:
+            other = index[slot]
+            if not other:
+                index[slot] = row + 1
+                break
+            other -= 1
+            if (
+                c0[other] == c0[row]
+                and c1[other] == c1[row]
+                and c2[other] == c2[row]
+                and c3[other] == c3[row]
+                and c4[other] == c4[row]
+                and c5[other] == c5[row]
+            ):
+                values[other] = values[row]
+                if keep is None:
+                    keep = bytearray(b"\x01") * rows
+                keep[row] = 0
+                break
+            slot = (slot + 1) & mask
+    return index, keep
+
+
+def _memo_column(view: memoryview, start: int, length: int, typecode: _MemoTypecode) -> Sequence[int]:
+    """`length` bytes of the mapping at `start` as a column of `typecode`: a cast over the mapping itself on a little-endian host, and a byteswapped copy on a big-endian one, since the file's columns are little-endian whatever wrote them."""
+    section = view[start : start + length]
+    if sys.byteorder == "little":
+        return section.cast(typecode)
+    copied = array(typecode)
+    copied.frombytes(section)
+    copied.byteswap()
+    return copied
+
+
+def _memo_copy(column: array, source: Sequence[int]) -> bool:
+    """`source`, a column as `_memo_column` returns it, appended to `column` whole in one C-level copy when the two share a typecode, and False untouched when they do not."""
+    if isinstance(source, memoryview):
+        if source.format != column.typecode:
+            return False
+        column.frombytes(source.cast("B"))
+        return True
+    if not isinstance(source, array) or source.typecode != column.typecode:
+        return False
+    column.extend(source)
+    return True
+
+
+def _memo_bytes(column: array) -> bytes:
+    """`column` as the little-endian bytes the file stores."""
+    if sys.byteorder == "little":
+        return column.tobytes()
+    copied = array(column.typecode, column)
+    copied.byteswap()
+    return copied.tobytes()
 
 
 class _MemoStore:
-    """One configuration's loaded settle memo held as the columns its file stores rather than as a dict of key tuples: `labels` is the file's label table, interned, in file order; `label_ids` maps a spelling to its first id, the fold every id in the columns is run through, since a part absorbed into the file can re-introduce a spelling under a second id; `outcomes` holds the file's outcomes in file order, each through the walk's `_outcome`, so an outcome object here is the same object `windows` holds and `_memo_blocks` dedupes by identity; `columns` are the six key columns and `values` the value column, `array("I")` each, concatenated across blocks; `reached` carries one byte per row — 0 unreached, 1 reached, `_MEMO_ROW_DEAD` for a row a later row of the same key superseded; and `index` is an open-addressed table of 2^k >= 2N slots holding row + 1, 0 for empty, probed linearly from `hash` of the six ids as a tuple. Int and tuple hashes are unsalted, so the index is a pure function of the columns, and two processes that load one file build one index. `seal` builds it once over everything appended, in file order, and a row whose key an earlier row already holds keeps the earlier row's slot, hands that row its value and dies — a dict's later-entry-wins-at-first-position — so `items` over the live rows in file order is the order a dict of the same file iterates in, and `len` is the live count. A window costs its seven column entries, its reached byte and its share of the index, 38 bytes at 2N slots, where a dict of six-tuples costs the tuple, its slot and the dict's own overhead."""
+    """One configuration's settle memo file mapped read-only, the walk's cold half. `load` maps the file at `memo.path` (`mmap`, the mapping and its file object held here until `close`), reads its two tables into Python — `labels`, the file's label table interned in file order, `label_ids` its inverse, and `outcomes` the file's outcomes each through the walk's `_outcome`, so an outcome object here is the same object `windows` holds — and takes `columns`, the six id columns, `values`, the value column, and `index`, the probe index, as `memoryview.cast` slices over the mapping, so the rows and the index cost the worker nothing on its heap: they are pages of one file, resident once a box in the page cache and evictable under pressure, however many walks map it. What is per walk is `dead`, one byte per row flagging a row this walk does not serve — a row naming a family whose key moved since the file was written (`oracle_cache.StaleMask` at label grain, folded over the six columns in C: a bit per label, six column maps, one reduce), or, for a walk restricted by `load_only_asked_by`, a row whose five settlement-independent slots are outside its asks — and `reached`, one byte per row a probe has answered; `live` counts the rows `dead` does not flag, `loaded` the rows kept and retired (the `loaded=` of the `[t] settle_memo` line), `stale` the retired rows and `unasked` the restricted-out ones.
 
-    __slots__ = ("labels", "label_ids", "outcomes", "columns", "values", "reached", "live", "index", "_mask")
+    A probe maps the window's six labels through `label_ids` — a label the table lacks is a miss before any hash — and hashes the six ids the way the writer did: each id times its slot's odd 64-bit constant in `_MEMO_MIX`, summed modulo 2^64, shifted right by `64 - k` for `2^k` slots, then linear probing from there. The arithmetic is stated so the file depends on no interpreter's tuple hash, and `_memo_slots` is the writer's vectorized form of the same function; the multiply-shift over the six ids packed into one word clusters on the live ids, which are small and structured, where the column-wise sum keeps the chains near the one-probe floor at the writer's half-full sizing. The file's keys are distinct (`_write_settle_memo` folds a repeated key onto its first row before writing), so a probe that finds its ids stops there: a dead row is a miss, a live one marks itself reached and answers. The load reads the header and the two tables and touches a column page only for the stale fold or the ask restriction, each one pass over the columns: an id past a table or a chain past the row count, which only a corrupt file holds, is found by the probe that reaches it, and that probe retires every row (`_retire`) so the walk settles what it asks from there on. `items` yields the live rows as (window, outcome) pairs in file order — every one, only the reached, or only the unreached — and `selector` is the same choice as one flag per row, which is how `save_memo` carries the store's rows into a new file straight out of the columns without building a key tuple per row. `close` drops the views and the mapping; a walk that replaced the file keeps answering off the old inode until then, since a mapping outlives the directory entry it was opened through, and a mapping an `items` iterator still reads stays until that iterator dies.
+    """
+
+    __slots__ = (
+        "labels",
+        "label_ids",
+        "outcomes",
+        "columns",
+        "values",
+        "index",
+        "dead",
+        "reached",
+        "live",
+        "loaded",
+        "stale",
+        "unasked",
+        "_shift",
+        "_mask",
+        "_mapping",
+        "_handle",
+        "_path",
+    )
 
     def __init__(self) -> None:
         self.labels: list[str] = []
         self.label_ids: dict[str, int] = {}
         self.outcomes: list[_Outcome] = []
-        self.columns: list[array] = [array("I") for _ in range(6)]
-        self.values: array = array("I")
+        self.columns: list[Sequence[int]] = []
+        self.values: Sequence[int] = array("I")
+        self.index: Sequence[int] = array("I")
+        self.dead = bytearray()
         self.reached = bytearray()
         self.live = 0
-        self.index: array = array("I")
+        self.loaded = 0
+        self.stale = 0
+        self.unasked = 0
+        self._shift = _MEMO_HASH_BITS
         self._mask = 0
+        self._mapping: mmap.mmap | None = None
+        self._handle: IO[bytes] | None = None
+        self._path: Path | None = None
 
-    def append(self, columns: Sequence[array], values: array) -> None:
-        """One block's rows, every id already folded through `label_ids`, behind the rows appended so far."""
-        for column, block in zip(self.columns, columns):
-            column.extend(block)
-        self.values.extend(values if values.typecode == "I" else array("I", values))
-        self.reached.extend(bytes(len(values)))
-
-    def seal(self) -> None:
-        """Build the index over every row appended, in file order, folding a repeated key onto its first row."""
-        rows = len(self.values)
-        if not rows:
+    def load(
+        self,
+        memo: SettleMemoFile,
+        spec: ResolvedSpec,
+        asks: set[_Ask] | None,
+        outcome_of: Callable[[Settled], _Outcome],
+    ) -> None:
+        """Map the file at `memo.path` and hold what a walk keyed with `memo` may serve. A file that is missing, carries another stamp, or whose moved families the registry cannot place loads nothing silently; one that will not read — a short or torn file, a header or table that will not unpickle, a layout the header lays out past the file's end — loads nothing and warns, since the memo is a speed device and the walk settles what it lacks; an id past a table or an index chain past the row count is left for the probe that reaches it, which retires every row, rather than found by a scan of every page at load. A file under this stamp whose family keys moved loads every row minus the ones naming a moved family, counted in `stale`; a load restricted to `asks` drops the rows outside them, counted in `unasked`."""
+        assert self._mapping is None, "the store is already loaded"
+        try:
+            handle = open(memo.path, "rb")
+        except FileNotFoundError:
             return
-        slots = 1 << (2 * rows - 1).bit_length()
-        mask = slots - 1
-        index = array("I", [0]) * slots
-        hashed = array("I", map(mask.__and__, map(hash, zip(*self.columns))))
-        c0, c1, c2, c3, c4, c5 = self.columns
-        values = self.values
-        reached = self.reached
-        live = 0
-        for row, slot in enumerate(hashed):
-            while True:
-                other = index[slot]
-                if not other:
-                    index[slot] = row + 1
-                    live += 1
-                    break
-                other -= 1
-                if (
-                    c0[other] == c0[row]
-                    and c1[other] == c1[row]
-                    and c2[other] == c2[row]
-                    and c3[other] == c3[row]
-                    and c4[other] == c4[row]
-                    and c5[other] == c5[row]
-                ):
-                    values[other] = values[row]
-                    reached[row] = _MEMO_ROW_DEAD
-                    break
-                slot = (slot + 1) & mask
+        except OSError as error:
+            self._refuse(memo, error)
+            return
+        mapping: mmap.mmap | None = None
+        problem: str | None = None
+        mapped = False
+        try:
+            mapping = mmap.mmap(handle.fileno(), 0, access=mmap.ACCESS_READ)
+            mapped = self._map(mapping, memo, spec, asks, outcome_of)
+        except _SETTLE_MEMO_READ_ERRORS as error:
+            problem = f"{error}" or type(error).__name__
+        if mapped:
+            self._mapping, self._handle, self._path = mapping, handle, memo.path
+            return
+        if mapping is not None:
+            mapping.close()
+        handle.close()
+        if problem is not None:
+            self._refuse(memo, problem)
+
+    @staticmethod
+    def _refuse(memo: SettleMemoFile, problem: object) -> None:
+        print(
+            f"[warn] settle memo: {memo.path} not loaded ({problem}); every window is settled again",
+            file=sys.stderr,
+            flush=True,
+        )
+
+    def _map(
+        self,
+        mapping: mmap.mmap,
+        memo: SettleMemoFile,
+        spec: ResolvedSpec,
+        asks: set[_Ask] | None,
+        outcome_of: Callable[[Settled], _Outcome],
+    ) -> bool:
+        view = memoryview(mapping)
+        size = len(view)
+        if size < _MEMO_PREFIX.size:
+            raise ValueError("shorter than its header prefix")
+        (header_length,) = _MEMO_PREFIX.unpack_from(view)
+        if header_length > _MEMO_HEADER_CAP or _MEMO_PREFIX.size + header_length > size:
+            raise ValueError("header prefix out of range")
+        header = pickle.loads(view[_MEMO_PREFIX.size : _MEMO_PREFIX.size + header_length])
+        if (
+            not isinstance(header, dict)
+            or header.get("format") != SETTLE_MEMO_FORMAT
+            or header.get("stamp") != memo.stamp
+        ):
+            return False
+        recorded = header.get("family_keys")
+        if not isinstance(recorded, dict):
+            return False
+        rows, label_count, outcome_count, slots, tables_length = (
+            int(header[key]) for key in ("rows", "labels", "outcomes", "slots", "tables")
+        )
+        typecode, value_typecode = header["typecode"], header["value_typecode"]
+        if (
+            typecode not in ("H", "I")
+            or value_typecode not in ("H", "I")
+            or min(rows, label_count, outcome_count, slots, tables_length) < 0
+            or (rows and (slots & (slots - 1) or slots < 2 * rows))
+            or (not rows and slots)
+        ):
+            raise ValueError("malformed header")
+        offset = _memo_aligned(_MEMO_PREFIX.size + header_length)
+        if offset + tables_length > size:
+            raise ValueError("truncated before its tables")
+        labels, items = pickle.loads(view[offset : offset + tables_length])
+        if (
+            not isinstance(labels, list)
+            or not isinstance(items, list)
+            or len(labels) != label_count
+            or len(items) != outcome_count
+        ):
+            raise ValueError("tables disagree with the header")
+        offset = _memo_aligned(offset + tables_length)
+        itemsize = array(typecode).itemsize
+        spans = [rows * itemsize] * 6 + [rows * array(value_typecode).itemsize, slots * 4]
+        starts: list[int] = []
+        for span in spans:
+            starts.append(offset)
+            offset = _memo_aligned(offset + span)
+        if offset > size:
+            raise ValueError(f"{size} bytes where its header lays out {offset}")
+        columns = [_memo_column(view, start, span, typecode) for start, span in zip(starts[:6], spans[:6])]
+        values = _memo_column(view, starts[6], spans[6], value_typecode)
+        index = _memo_column(view, starts[7], spans[7], "I")
+        mask = oracle_cache.StaleMask(spec, oracle_cache.moved_families(recorded, memo.family_keys))
+        if mask.everything:
+            return False
+        interned = list(map(sys.intern, labels))
+        label_ids: dict[str, int] = {}
+        for label_id, label in enumerate(interned):
+            label_ids.setdefault(label, label_id)
+        if len(label_ids) != len(interned):
+            raise ValueError("names a spelling twice")
+        outcomes = [outcome_of(item) for item in items]
+        dead = bytearray(rows)
+        stale = 0
+        if mask.moved:
+            bits = [mask.bit_of(_label_family(label)) for label in interned]
+            masks = functools.reduce(
+                lambda left, right: map(operator.or_, left, right),
+                (map(bits.__getitem__, column) for column in columns),
+            )
+            dead = bytearray(map(mask.stale, masks))
+            stale = dead.count(1)
+        unasked = 0
+        if asks is not None:
+            allowed: set[tuple[int, ...]] = set()
+            for ask in asks:
+                with suppress(KeyError):
+                    allowed.add(tuple(map(label_ids.__getitem__, ask)))
+            kept = map(allowed.__contains__, zip(columns[0], columns[2], columns[3], columns[4], columns[5]))
+            dropped = bytearray(map(operator.not_, kept))
+            dead = bytearray(map(operator.or_, dead, dropped)) if stale else dropped
+            unasked = dead.count(1) - stale
+        self.labels = interned
+        self.label_ids = label_ids
+        self.outcomes = outcomes
+        self.columns = columns
+        self.values = values
         self.index = index
-        self._mask = mask
-        self.live = live
+        self.dead = dead
+        self.reached = bytearray(rows)
+        self.live = rows - dead.count(1)
+        self.loaded = rows - unasked
+        self.stale = stale
+        self.unasked = unasked
+        self._shift = _MEMO_HASH_BITS - (slots.bit_length() - 1)
+        self._mask = slots - 1
+        return True
+
+    def index_copy(self) -> array:
+        """The probe index as a heap array of its own, for a writer that carries every row of this store forward unmoved (`_write_settle_memo`'s `standing`)."""
+        index = array("I")
+        if isinstance(self.index, memoryview):
+            index.frombytes(self.index.cast("B"))
+        else:
+            index.extend(self.index)
+        return index
+
+    def close(self) -> None:
+        """Drop the views and the mapping. A walk closes its store once it has written the file back, so the old inode is released as soon as nothing reads it; a store never loaded, or closed already, has nothing to drop. A view an `items` iterator still holds keeps the mapping open (`mmap.close` refuses while a buffer is exported), and then the mapping goes when that iterator does."""
+        self.columns = []
+        self.values = array("I")
+        self.index = array("I")
+        self.dead = bytearray()
+        self.reached = bytearray()
+        self.live = 0
+        mapping, handle = self._mapping, self._handle
+        self._mapping = self._handle = None
+        if mapping is not None:
+            with suppress(BufferError):
+                mapping.close()
+        if handle is not None:
+            handle.close()
+
+    def _retire(self, problem: str) -> None:
+        """Retire every row and warn, the store's answer to a file that proves corrupt under a probe: from here every probe is a miss, `selector` chooses nothing, and the walk settles what it asks, as it would have over a file that never loaded."""
+        rows = len(self.dead)
+        self.dead = bytearray(b"\x01") * rows
+        self.reached = bytearray(rows)
+        self.live = 0
+        print(
+            f"[warn] settle memo: {self._path} retired ({problem}); every window is settled again from here",
+            file=sys.stderr,
+            flush=True,
+        )
 
     def probe(self, window: _Window) -> _Outcome | None:
-        """The outcome the store holds for `window`, marking its row reached, or None: a label the file never introduced is a miss before any hash."""
+        """The outcome the store holds for `window`, marking its row reached, or None: a label the file never introduced is a miss before any hash, and a row this walk retired or restricted out is a miss at its row. The chain is bounded by the row count, since a valid index holds one occupied slot per row, and a chain that walks past it, a slot naming a row past the columns or a value past the outcome table retires the store."""
         if not self.live:
             return None
         try:
             key = tuple(map(self.label_ids.__getitem__, window))
         except KeyError:
             return None
-        mask = self._mask
-        slot = hash(key) & mask
+        m0, m1, m2, m3, m4, m5 = _MEMO_MIX
+        total = key[0] * m0 + key[1] * m1 + key[2] * m2 + key[3] * m3 + key[4] * m4 + key[5] * m5
+        slot = (total & ((1 << _MEMO_HASH_BITS) - 1)) >> self._shift
         index = self.index
+        mask = self._mask
         c0, c1, c2, c3, c4, c5 = self.columns
-        while True:
-            row = index[slot]
-            if not row:
-                return None
-            row -= 1
-            if (c0[row], c1[row], c2[row], c3[row], c4[row], c5[row]) == key:
-                self.reached[row] = 1
-                return self.outcomes[self.values[row]]
-            slot = (slot + 1) & mask
+        left = len(self.dead)
+        try:
+            while left:
+                row = index[slot]
+                if not row:
+                    return None
+                row -= 1
+                if (c0[row], c1[row], c2[row], c3[row], c4[row], c5[row]) == key:
+                    if self.dead[row]:
+                        return None
+                    self.reached[row] = 1
+                    return self.outcomes[self.values[row]]
+                slot = (slot + 1) & mask
+                left -= 1
+        except IndexError:
+            self._retire("an id past its tables")
+            return None
+        self._retire("a probe chain past its rows")
+        return None
 
     def __len__(self) -> int:
         return self.live
@@ -674,23 +963,47 @@ class _MemoStore:
     def reached_count(self) -> int:
         return self.reached.count(1)
 
+    def selector(self, reached: bool | None = None) -> bytearray:
+        """One flag per row over the live rows: every one, only the reached ones, or only the unreached ones. A reached row is never dead, since a probe refuses a dead row before marking it."""
+        if reached is None:
+            return bytearray(map(operator.not_, self.dead))
+        if reached:
+            return bytearray(self.reached)
+        return bytearray(map(operator.not_, map(operator.or_, self.reached, self.dead)))
+
+    def carry_into(
+        self,
+        labels: list[str],
+        outcomes: list[Settled],
+        columns: Sequence[array],
+        values: array,
+        reached: bool | None = None,
+    ) -> None:
+        """Append the rows `selector(reached)` chooses to `columns` and `values`, in file order, with this store's tables appended to `labels` and `outcomes` and every id shifted past what those tables held before — straight out of the mapped columns, without a key tuple per row. A carry of every live row into empty tables and columns of the file's own typecodes is one C-level copy a column (`_memo_copy`), the shape `absorb_settle_memo_parts` takes; any other carry shifts and filters the ids element by element. The ids are copied as the file holds them, so a corrupt id rides into the new file and is found by the probe that reaches it there, as it would have been here; `_write_settle_memo` folds the spellings the two tables share."""
+        base_labels, base_outcomes = len(labels), len(outcomes)
+        labels.extend(self.labels)
+        outcomes.extend(outcome[0] for outcome in self.outcomes)
+        carried = self.selector(reached)
+        whole = not base_labels and not base_outcomes and carried.count(0) == 0
+        for column, source in zip(columns, self.columns):
+            if not (whole and _memo_copy(column, source)):
+                column.extend(map(base_labels.__add__, itertools.compress(source, carried)))
+        if not (whole and _memo_copy(values, self.values)):
+            values.extend(map(base_outcomes.__add__, itertools.compress(self.values, carried)))
+
     def items(self, reached: bool | None = None) -> Iterator[tuple[_Window, _Outcome]]:
-        """The live rows as (window, outcome) pairs in file order: every one, only the reached ones, or only the unreached ones."""
+        """The live rows as (window, outcome) pairs in file order, chosen as `selector` chooses them."""
         labels = self.labels
         pairs = zip(
             zip(*(map(labels.__getitem__, column) for column in self.columns)),
             map(self.outcomes.__getitem__, self.values),
         )
-        if reached is None:
-            selector = map(_MEMO_ROW_DEAD.__ne__, self.reached)
-        else:
-            selector = map((1 if reached else 0).__eq__, self.reached)
-        return cast(Iterator[tuple[_Window, _Outcome]], itertools.compress(pairs, selector))
+        return cast(Iterator[tuple[_Window, _Outcome]], itertools.compress(pairs, self.selector(reached)))
 
 
 @dataclass(frozen=True)
 class SettleMemoFile:
-    """Where one configuration's settle memo lives between phases and what it must be keyed with to be read. The string replay, the witness stage, the oracle and the belt each walk the same texts: the replay fills the file on every whole-universe walk from the window memo the crate already holds (`absorb_replay_memo`), and each later walk loads it and settles only what it lacks, writing back whatever it added. `stamp` is the whole-memo stamp (`oracle_cache.settle_memo_stamp`: the walk's code closure, the non-rune data, the resolved spec structure and capability-feature universe, the engine's settlement flags, the configuration) and `family_keys` the per-family rune keys (`oracle_cache.settle_family_keys`), on the oracle row cache's own two-grained argument: a window's settlement is a function of the rune files its six slots name — a formed ligature label naming its rune directly, and every ligature rune whose components all appear among them included — and of nothing another rune file holds, so a file that carries another stamp is treated as absent, and a file under the same stamp serves every entry naming no moved family and drops the rest."""
+    """Where one configuration's settle memo lives between phases and what it must be keyed with to be read. The string replay, the witness stage, the oracle and the belt each walk the same texts: the replay fills the file on every whole-universe walk from the window memo the crate already holds (`absorb_replay_memo`), and each later walk maps it and settles only what it lacks, writing back whatever it added. `stamp` is the whole-memo stamp (`oracle_cache.settle_memo_stamp`: the walk's code closure, the non-rune data, the resolved spec structure and capability-feature universe, the engine's settlement flags, the configuration) and `family_keys` the per-family rune keys (`oracle_cache.settle_family_keys`), on the oracle row cache's own two-grained argument: a window's settlement is a function of the rune files its six slots name — a formed ligature label naming its rune directly, and every ligature rune whose components all appear among them included — and of nothing another rune file holds, so a file that carries another stamp is treated as absent, and a file under the same stamp serves every entry naming no moved family and drops the rest."""
 
     path: Path
     stamp: str
@@ -712,7 +1025,7 @@ def settle_memo_files(
     keys = oracle_cache.settle_family_keys(inputs, spec)
     return {
         config: SettleMemoFile(
-            Path(out_dir) / f"settle-memo-{config}.gz",
+            Path(out_dir) / f"settle-memo-{config}.bin",
             oracle_cache.settle_memo_stamp(inputs, spec, config, features_for_config(config)).value,
             keys,
         )
@@ -721,10 +1034,16 @@ def settle_memo_files(
 
 
 def settle_memo_standing(memo: SettleMemoFile) -> bool:
-    """Whether the file at `memo.path` is one a walk keyed with `memo` would read: present, this format, and under this stamp — the header alone, so the question costs one pickle and never a block. Family keys are not the question: a file whose keys moved still stands and serves every entry naming no moved family (`_SettledWindowWalk._load_memo`), and only a rune edit moves them. `run_m1.run_replay_strings` asks it to decide whether the replay has to walk the whole universe to refill the file."""
+    """Whether the file at `memo.path` is one a walk keyed with `memo` would read: present, this format, and under this stamp — the header bytes alone, so the question costs one small read and never a table or a column. Family keys are not the question: a file whose keys moved still stands and serves every entry naming no moved family (`_MemoStore.load`), and only a rune edit moves them. `run_m1.run_replay_strings` asks it to decide whether the replay has to walk the whole universe to refill the file."""
     try:
-        with gzip.open(memo.path, "rb") as handle:
-            header = pickle.load(handle)
+        with open(memo.path, "rb") as handle:
+            prefix = handle.read(_MEMO_PREFIX.size)
+            if len(prefix) < _MEMO_PREFIX.size:
+                return False
+            (header_length,) = _MEMO_PREFIX.unpack(prefix)
+            if header_length > _MEMO_HEADER_CAP:
+                return False
+            header = pickle.loads(handle.read(header_length))
     except _SETTLE_MEMO_READ_ERRORS:
         return False
     return (
@@ -735,20 +1054,116 @@ def settle_memo_standing(memo: SettleMemoFile) -> bool:
     )
 
 
+def _write_settle_memo(
+    memo: SettleMemoFile,
+    labels: Sequence[str],
+    outcomes: Sequence[Settled],
+    columns: Sequence[array],
+    values: array,
+    path: Path | None = None,
+    standing: tuple[array, int, int, int] | None = None,
+) -> bool:
+    """The one writer of a settle memo file, the shape `_MemoStore` maps: an eight-byte little-endian length and then the header pickle — the format, `memo.stamp`, `memo.family_keys`, the row count `rows`, the table sizes `labels` and `outcomes`, the index size `slots`, the column typecodes `typecode` and `value_typecode`, and the byte length `tables` of the pickle after it — then the label table and outcome table as one pickle, then the six id columns, the value column and the probe index as fixed-width little-endian arrays, every section starting on an eight-byte boundary. `labels` and `outcomes` are the tables the caller's `columns` and `values` index, and they may repeat: a spelling is folded onto its first id and an outcome onto its first equal, the columns remapped through the folds, so the file's tables name each once and an id column takes `H` while its table fits in sixteen bits and `I` past that; then `_memo_index` builds the index and folds a repeated key onto its first row, the later entry's outcome winning, so the file holds one row per window and the index one slot per row. At `H` columns a window costs its twelve key bytes, two value bytes and four bytes a slot over the index's 2^k >= 2N slots, 22 to 30 bytes uncompressed on disk depending on where the row count falls under its power of two; the `[t] settle_memo` lines count the windows, `du` on `rebuild/out/m1/settle-memo-*.bin` reports the files, and both grow with the alphabet. The writer holds the caller's columns, the folded copies it makes of them and the index on the heap at once, roughly the file's size plus the columns' — the belt's whole-file save, an uncut oracle range's, the replay's absorb and the parent's part absorb each pay it once per configuration.
+
+    `standing` — a standing file's index with its row, label and outcome counts — says that the first rows of `columns`, up to that row count, are that file's live rows in its own id space with nothing dropped ahead of them, so the index is copied and only the rows after them are inserted (`absorb_settle_memo_parts` folding a part into a file none of whose rows a key retired); the writer checks that its folds leave those ids in place and that the index has room, and builds afresh otherwise.
+
+    The file is staged as `<path>.<pid>.tmp` and moved into place with `os.replace`, and that is the whole of the contract a mapped reader gets: a reader that mapped the old inode keeps it, unchanged, until it closes, and a reader that opens after the replace maps the new file whole — no reader ever sees a torn file. `path` is where the file lands, `memo.path` unless a caller is writing elsewhere. A file the filesystem refuses is a warning and False, never a red build: the memo is a speed device and every reader settles what it lacks.
+    """
+    path = memo.path if path is None else Path(path)
+    label_ids: dict[str, int] = {}
+    table: list[str] = []
+    canon: list[int] = []
+    for label in labels:
+        label_id = label_ids.setdefault(label, len(table))
+        if label_id == len(table):
+            table.append(label)
+        canon.append(label_id)
+    outcome_ids: dict[Settled, int] = {}
+    items: list[Settled] = []
+    canon_outcomes: list[int] = []
+    for outcome in outcomes:
+        outcome_id = outcome_ids.setdefault(outcome, len(items))
+        if outcome_id == len(items):
+            items.append(outcome)
+        canon_outcomes.append(outcome_id)
+    typecode = _memo_typecode(len(table))
+    value_typecode = _memo_typecode(len(items))
+    if len(table) < len(canon):
+        folded = [array(typecode, map(canon.__getitem__, column)) for column in columns]
+    else:
+        folded = [column if column.typecode == typecode else array(typecode, column) for column in columns]
+    folded_values = array(value_typecode, map(canon_outcomes.__getitem__, values))
+    reused: array | None = None
+    indexed = 0
+    if standing is not None:
+        reused, indexed, standing_labels, standing_outcomes = standing
+        if (
+            indexed > len(folded_values)
+            or canon[:standing_labels] != list(range(standing_labels))
+            or canon_outcomes[:standing_outcomes] != list(range(standing_outcomes))
+        ):
+            reused, indexed = None, 0
+    index, keep = _memo_index(folded, folded_values, reused, indexed)
+    if keep is not None:
+        folded = [array(typecode, itertools.compress(column, keep)) for column in folded]
+        folded_values = array(value_typecode, itertools.compress(folded_values, keep))
+        renumber = array("I", [0])
+        renumber.extend(itertools.accumulate(keep))
+        index = array("I", map(renumber.__getitem__, index))
+    tables = pickle.dumps((table, items), protocol=5)
+    header = pickle.dumps(
+        {
+            "format": SETTLE_MEMO_FORMAT,
+            "stamp": memo.stamp,
+            "family_keys": dict(memo.family_keys),
+            "rows": len(folded_values),
+            "labels": len(table),
+            "outcomes": len(items),
+            "slots": len(index),
+            "typecode": typecode,
+            "value_typecode": value_typecode,
+            "tables": len(tables),
+        },
+        protocol=5,
+    )
+    staged = path.with_name(f"{path.name}.{os.getpid()}.tmp")
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with open(staged, "wb") as handle:
+            handle.write(_MEMO_PREFIX.pack(len(header)))
+            handle.write(header)
+            handle.write(bytes(-(_MEMO_PREFIX.size + len(header)) % 8))
+            handle.write(tables)
+            handle.write(bytes(-len(tables) % 8))
+            for section in (*folded, folded_values, index):
+                blob = _memo_bytes(section)
+                handle.write(blob)
+                handle.write(bytes(-len(blob) % 8))
+        os.replace(staged, path)
+    except OSError as error:
+        with suppress(OSError):
+            staged.unlink()
+        print(f"[warn] settle memo: {path} not written ({error})", file=sys.stderr, flush=True)
+        return False
+    return True
+
+
 _SettleMemoBlock = tuple[list[str], list[Settled], list[array], array]
 
 
-def _write_settle_memo(
-    memo: SettleMemoFile, blocks: Iterable[_SettleMemoBlock], path: Path | None = None
-) -> bool:
-    """The one writer of a settle memo file: a header pickle carrying the format, `memo.stamp` and `memo.family_keys`, then one pickle per block — the labels and the settled records the block introduces, then its six key columns and its value column as indexes into everything introduced so far — staged beside the path and moved into place whole, so a reader in another process sees either the old file or the new one. `path` is where the file lands, `memo.path` unless a caller is filing a part beside it. A file the filesystem refuses is a warning and False, never a red build: the memo is a speed device and every reader settles what it lacks."""
-    path = memo.path if path is None else Path(path)
+def _write_settle_memo_part(memo: SettleMemoFile, blocks: Iterable[_SettleMemoBlock], path: Path) -> bool:
+    """The writer of a settle memo part, the file one walk leaves beside the shared file for `absorb_settle_memo_parts` (`SettleMemoFile.writes_part`): a gzip stream of pickles — a header carrying `SETTLE_MEMO_PART_FORMAT`, `memo.stamp` and `memo.family_keys`, then one pickle per block of `_memo_blocks`, the labels and settled records the block introduces and its six key columns and value column as indexes into everything introduced so far — staged beside `path` and moved into place whole. A part holds fresh windows only, so it streams out a block at a time and never needs the mapped shape; the absorb decodes it a block at a time through `_read_settle_memo`. A file the filesystem refuses is a warning and False."""
+    path = Path(path)
     staged = path.with_name(f"{path.name}.{os.getpid()}.tmp")
     try:
         path.parent.mkdir(parents=True, exist_ok=True)
         with gzip.open(staged, "wb", compresslevel=1) as handle:
             pickle.dump(
-                {"format": SETTLE_MEMO_FORMAT, "stamp": memo.stamp, "family_keys": dict(memo.family_keys)},
+                {
+                    "format": SETTLE_MEMO_PART_FORMAT,
+                    "stamp": memo.stamp,
+                    "family_keys": dict(memo.family_keys),
+                },
                 handle,
                 protocol=5,
             )
@@ -764,7 +1179,7 @@ def _write_settle_memo(
 
 
 def _memo_blocks(items: Iterable[tuple[_Window, _Outcome]]) -> Iterable[_SettleMemoBlock]:
-    """A walk's memo entries encoded `SETTLE_MEMO_BLOCK` at a time into the shape `_write_settle_memo` files: each block introduces the labels and records its rows are the first to name, and indexes every row through the tables introduced so far."""
+    """A walk's memo entries encoded `SETTLE_MEMO_BLOCK` at a time into the shape `_write_settle_memo_part` files: each block introduces the labels and records its rows are the first to name, and indexes every row through the tables introduced so far."""
     items = iter(items)
     label_index: dict[str, int] = {}
     outcome_index: dict[int, int] = {}
@@ -792,8 +1207,25 @@ def _memo_blocks(items: Iterable[tuple[_Window, _Outcome]]) -> Iterable[_SettleM
         )
 
 
+def _memo_columns(
+    items: Iterable[tuple[_Window, _Outcome]],
+) -> tuple[list[str], list[Settled], list[array], array]:
+    """A walk's memo entries as the tables and columns `_write_settle_memo` files — the labels and settled records in the order the rows first name them, six `array("I")` key columns and a value column indexing them — encoded `SETTLE_MEMO_BLOCK` entries at a time, so the key tuples of a whole memo are never held beside their columns."""
+    labels: list[str] = []
+    outcomes: list[Settled] = []
+    columns = [array("I") for _ in range(6)]
+    values = array("I")
+    for new_labels, new_items, block_columns, block_values in _memo_blocks(items):
+        labels.extend(new_labels)
+        outcomes.extend(new_items)
+        for column, block in zip(columns, block_columns):
+            column.extend(block)
+        values.extend(block_values)
+    return labels, outcomes, columns, values
+
+
 def _read_settle_memo(memo: SettleMemoFile, spec: ResolvedSpec) -> Iterator[tuple[_SettleMemoBlock, int]]:
-    """The blocks of the file at `memo.path` as a walk keyed with `memo` reads them, each beside the count of entries retired out of it. A file that is missing, carries another stamp, or whose header will not read yields nothing; a file under this stamp whose family keys moved yields every block less the entries naming a moved family — by a letter's label, by a formed ligature's label, or by both components of a moved ligature rune (`oracle_cache.StaleMask` at label grain) — and a moved family the registry cannot place yields nothing, since it stales the whole file. A block that will not decode ends the read with a warning, and every whole block before it stands on its own: the labels and records a block introduces are indexed only by that block and the ones after it. The retirement is priced per block over the label columns rather than per key — a bit per label, six column folds in C, one comprehension over the masks — and lands in the columns themselves, so a block yielded here is a valid block of a memo file in its own right, which is what lets `absorb_settle_memo_parts` re-file the standing blocks unchanged."""
+    """The blocks of the part at `memo.path` as `absorb_settle_memo_parts` reads them, each beside the count of entries retired out of it. A part that is missing, carries another stamp, or whose header will not read yields nothing; a part under this stamp whose family keys moved yields every block less the entries naming a moved family — by a letter's label, by a formed ligature's label, or by both components of a moved ligature rune (`oracle_cache.StaleMask` at label grain) — and a moved family the registry cannot place yields nothing, since it stales the whole part. A block that will not decode ends the read with a warning, and every whole block before it stands on its own: the labels and records a block introduces are indexed only by that block and the ones after it. The retirement is priced per block over the label columns rather than per key — a bit per label, six column folds in C, one comprehension over the masks — and lands in the columns themselves."""
     bits: list[int] = []
     loaded = 0
     try:
@@ -801,7 +1233,7 @@ def _read_settle_memo(memo: SettleMemoFile, spec: ResolvedSpec) -> Iterator[tupl
             header = pickle.load(handle)
             if (
                 not isinstance(header, dict)
-                or header.get("format") != SETTLE_MEMO_FORMAT
+                or header.get("format") != SETTLE_MEMO_PART_FORMAT
                 or header.get("stamp") != memo.stamp
             ):
                 return
@@ -842,33 +1274,33 @@ def _read_settle_memo(memo: SettleMemoFile, spec: ResolvedSpec) -> Iterator[tupl
 
 
 def absorb_settle_memo_parts(memo: SettleMemoFile, parts: Sequence[Path], spec: ResolvedSpec) -> bool:
-    """The parts the row ranges of one cut configuration filed beside the shared file, folded into it: the standing file's blocks re-filed as `_read_settle_memo` yields them — under the stamp, less the entries naming a moved family, exactly what a walk that replaced the file whole would have carried forward — then each part's blocks with every index shifted past the labels and records the file has introduced ahead of it, since a block indexes into the tables accumulated so far in its file, and a part's blocks were indexed within the part. The result lands under the current family keys, staged and replaced through `_write_settle_memo`, so a retired entry never rides a header that vouches for it (the issue 202 shape) and a reader in another process sees the old file or the new one. No parts on disk is a no-op and False; a standing file that is absent or restamped contributes nothing, and the parts become the file. Two ranges that both settled one window both filed it, and the later entry wins on load exactly as it does in the walk's own store (`_MemoStore.seal`); the belt's prune pass is where the file loses the repeat. True when a file was written."""
+    """The parts the row ranges of one cut configuration filed beside the shared file, folded into it: the standing file's live rows as `_MemoStore.load` serves them — under the stamp, less the entries naming a moved family, exactly what a walk that replaced the file whole would have carried forward — then each part's blocks with every index shifted past the labels and records ahead of it, written whole through `_write_settle_memo`, which folds the spellings a part re-introduces onto the file's ids and, when no standing row was retired, extends the standing index with the parts' rows rather than rebuilding it. The parts are read first, so the columns take the typecodes the whole will need and the standing rows copy in whole (`_MemoStore.carry_into`) rather than element by element. The result lands under the current family keys, so a retired entry never rides a header that vouches for it (the issue 202 shape), and a reader in another process sees the old file or the new one. No parts on disk is a no-op and False; a standing file that is absent or restamped contributes nothing, and the parts become the file. Two ranges that both settled one window both filed it, and the later entry wins at the earlier one's row, as it does in a dict. True when a file was written."""
     present = [Path(part) for part in parts if Path(part).is_file()]
     if not present:
         return False
-
-    def blocks() -> Iterator[_SettleMemoBlock]:
-        labels = 0
-        outcomes = 0
-        for block, _retired in _read_settle_memo(memo, spec):
-            yield block
-            labels += len(block[0])
-            outcomes += len(block[1])
-        for part in present:
-            base_labels, base_outcomes = labels, outcomes
-            for (new_labels, new_items, columns, values), _ in _read_settle_memo(
-                replace(memo, path=part), spec
-            ):
-                yield (
-                    new_labels,
-                    new_items,
-                    [array("I", (index + base_labels for index in column)) for column in columns],
-                    array("I", (value + base_outcomes for value in values)),
-                )
-                labels += len(new_labels)
-                outcomes += len(new_items)
-
-    return _write_settle_memo(memo, blocks())
+    read = [[block for block, _ in _read_settle_memo(replace(memo, path=part), spec)] for part in present]
+    introduced_labels = sum(len(block[0]) for blocks in read for block in blocks)
+    introduced_outcomes = sum(len(block[1]) for blocks in read for block in blocks)
+    store = _MemoStore()
+    store.load(memo, spec, None, lambda item: (item, "", ""))
+    labels: list[str] = []
+    outcomes: list[Settled] = []
+    columns = [array(_memo_typecode(len(store.labels) + introduced_labels)) for _ in range(6)]
+    values = array(_memo_typecode(len(store.outcomes) + introduced_outcomes))
+    store.carry_into(labels, outcomes, columns, values)
+    standing = (
+        (store.index_copy(), len(values), len(labels), len(outcomes)) if store.dead.count(1) == 0 else None
+    )
+    store.close()
+    for blocks in read:
+        base_labels, base_outcomes = len(labels), len(outcomes)
+        for new_labels, new_items, block_columns, block_values in blocks:
+            labels.extend(new_labels)
+            outcomes.extend(new_items)
+            for column, block in zip(columns, block_columns):
+                column.extend(map(base_labels.__add__, block))
+            values.extend(map(base_outcomes.__add__, block_values))
+    return _write_settle_memo(memo, labels, outcomes, columns, values, standing=standing)
 
 
 def _ambiguous_ids(spelling: Sequence[str], used: Iterable[int]) -> set[int]:
@@ -955,19 +1387,7 @@ def absorb_replay_memo(dump: Path, memo: SettleMemoFile, spec: ResolvedSpec, con
                             f"{dump} settles the window {key!r} two ways once respelled; nothing in it can be trusted"
                         )
 
-    def blocks() -> Iterable[_SettleMemoBlock]:
-        for start in range(0, rows, SETTLE_MEMO_BLOCK):
-            end = min(rows, start + SETTLE_MEMO_BLOCK)
-            yield (
-                labels if start == 0 else [],
-                records if start == 0 else [],
-                [column[start:end] for column in columns[:6]],
-                columns[6][start:end],
-            )
-        if not rows:
-            yield (labels, records, [array("I") for _ in range(6)], array("I"))
-
-    if not _write_settle_memo(memo, blocks()):
+    if not _write_settle_memo(memo, labels, records, columns[:6], columns[6]):
         raise kernel_exec.KernelRunError(f"{memo.path} could not be written")
     return rows
 
@@ -975,9 +1395,9 @@ def absorb_replay_memo(dump: Path, memo: SettleMemoFile, spec: ResolvedSpec, con
 class _SettledWindowWalk:
     """The memoized settle walk one conformance config runs over every swept text: a left-to-right pass computes each letter slot's raw window key — exactly `belt._matched_windows`' slots, with the left read from the just-settled stream — and resolves it through `windows`, a window -> (Settled, glyph name, left label) memo; only a miss reaches the crate. The memo is a pure speed device and nothing else: it records no coverage, and the sweep's verdict is the same whether every window misses or every window hits. Sound because every memoized outcome is a pure function of the window as keyed: the left label is the settled cell's display name (`geometry.display_name`, injective over every CellId field), and the right slots are the raw tokens a case line carries, all of them and none beyond. The key never reads the glyph inventory: a walk with minted names and a walk with none key alike and differ only in the name each hands back, which is what lets the oracle and the belt share one memo file. That last point about the right slots is why the walk needs no liveness oracle at all: blanking the deep slots wherever the table's relevance filters prove nothing could read them costs more in probes than the blanking saves. `windows` is deliberately unbounded; the interned labels plus deduplicated outcome tuples keep the residual cost to the key tuples themselves. The walk-equivalence sweeps in rebuild/test_conform.py are the standing alarm on all of it.
 
-    `memo` names the file this walk shares with every other walk over the same texts: the string replay fills it from the crate's own window memo on a whole-universe walk (`absorb_replay_memo`), and the witness stage, the oracle and the belt each load it and settle what it lacks. It is read lazily, on the first wave that would otherwise reach the crate, so a walk that settles nothing — an oracle pass whose rows are all served — never pays to decode it; and `save_memo` writes it back only when this walk settled at least one window the file did not hold, so a walk over a complete file rewrites nothing. The file is a gzip stream of pickles (`_write_settle_memo`, the one writer): a header carrying the format, the stamp and the per-family keys, then blocks of `SETTLE_MEMO_BLOCK` windows, each block the labels and outcomes it introduces plus its keys as columns of indexes into them. Writer and reader both work one block at a time — the memo is never in memory twice — and the loaded rows stay the columns the file stores (`_MemoStore`), their outcome objects shared with `windows` itself, so a loaded window costs its seven column entries, a reached byte and its share of the probe index rather than a key tuple. A family whose key moved since the file was written retires every entry whose window names it (`oracle_cache.StaleMask` at label grain, the ligature clause included), and the retirement is priced per block over the label columns rather than per key: a bit per label, six column folds in C, one comprehension over the masks.
+    `memo` names the file this walk shares with every other walk over the same texts: the string replay fills it from the crate's own window memo on a whole-universe walk (`absorb_replay_memo`), and the witness stage, the oracle and the belt each map it and settle what it lacks. It is mapped lazily, on the first wave that would otherwise reach the crate, so a walk that settles nothing — an oracle pass whose rows are all served — never pays to open it; and `save_memo` writes it back only when this walk settled at least one window the file did not hold, so a walk over a complete file rewrites nothing. The file is laid out for `mmap` (`_write_settle_memo`, the one writer): a header carrying the format, the stamp, the per-family keys and the sizes, the label and outcome tables as one pickle, then the six id columns, the value column and an open-addressed probe index as fixed-width little-endian arrays. A walk reads the two tables into Python and takes the columns and the index as views over the mapping (`_MemoStore`), its outcome objects shared with `windows` itself, so the rows and the index are pages of one file — resident once a box in the page cache however many walks map it, and evictable under pressure — and the walk's own heap holds the tables, a dead byte and a reached byte per row, and `windows`. A family whose key moved since the file was written retires every entry whose window names it (`oracle_cache.StaleMask` at label grain, the ligature clause included), and the retirement is priced over the mapped label columns rather than per key: a bit per label, six column maps in C, one reduce, one pass into the dead bytes.
 
-    Loaded entries sit in `_cold`, the `_MemoStore` over the file's columns, and a window the walk reaches there is marked reached in the store; under `promote` (a constructor keyword, on by default) the hit also enters `windows`, so the oracle and the witness stage pay the store's probe — six label-id lookups, a tuple hash and a linear probe over the index — once per window and a dict lookup after it. The belt runs with `promote=False` and answers every window out of the columns: it reaches nearly every loaded window, so a promoted copy of each would cost the key tuples the columns exist to avoid. The reached bytes are what `save_memo(prune=True)` writes on: the belt walks the whole universe every pass, so an entry it never reached is a window no text produces any more — its left slot named a settlement an edit has since moved — and carrying it forward would grow the file by a slice per rune edit forever. A pruning save files the fresh windows first and the reached rows after them in file order, so the belt's file is a permutation of what a promoting walk would file, which no reader can tell apart, since a load is order-independent and the later entry of a repeated key wins. The oracle prunes nothing, since a served row is a window it never reached, and its whole-file save files `windows` and then, in file order, every live row `windows` does not hold. A walk over a pile of texts fixed before it runs may restrict the load to the windows those texts can ask (`load_only_asked_by`): only the left slot of a window is settlement-dependent, so the five other slots of every window the pile reaches are computable up front, and a file row outside that set is dropped at decode time, counted in `unasked_windows`, and never held. Such a walk cannot tell a dropped row from a window no text reaches, so it never prunes and never replaces the shared file whole: its memo names a `write_path`, it files only the windows it settled fresh, and `absorb_settle_memo_parts` folds the part into the file.
+    Loaded entries sit in `_cold`, the `_MemoStore` over the mapping, and a window the walk reaches there is marked reached in the store; under `promote` (a constructor keyword, on by default) the hit also enters `windows`, so the oracle and the witness stage pay the store's probe — six label-id lookups, the stated hash of the six ids and a linear probe over the index — once per window and a dict lookup after it. The belt runs with `promote=False` and answers every window out of the columns: it reaches nearly every loaded window, so a promoted copy of each would cost the key tuples the columns exist to avoid. The reached bytes are what `save_memo(prune=True)` writes on: the belt walks the whole universe every pass, so an entry it never reached is a window no text produces any more — its left slot named a settlement an edit has since moved — and carrying it forward would grow the file by a slice per rune edit forever. A pruning save files the fresh windows first and the reached rows after them in file order, so the belt's file is a permutation of what a promoting walk would file, which no reader can tell apart, since a load is order-independent and the file holds one row per window. The oracle prunes nothing, since a served row is a window it never reached, and its whole-file save files `windows` and then, in file order, every live row `windows` does not hold. A walk over a pile of texts fixed before it runs may restrict the load to the windows those texts can ask (`load_only_asked_by`): only the left slot of a window is settlement-dependent, so the five other slots of every window the pile reaches are computable up front, and a file row outside that set is marked dead at load, counted in `unasked_windows`, and never served. Such a walk cannot tell a dropped row from a window no text reaches, so it never prunes and never replaces the shared file whole: its memo names a `write_path`, it files only the windows it settled fresh as a part in the block shape `_write_settle_memo_part` streams, and `absorb_settle_memo_parts` folds the part into the file.
 
     Batching is what makes the crate affordable here. `settle-cases` answers independent windows, but a text's next left is the previous window's answer, so `_run` advances a whole pile of texts in waves: every state runs forward to its first memo miss, the misses contribute one case line each — deduplicated by memo key, since a key that two states reach in the same wave is one question — and one `kernel_exec.settle_windows` invocation answers up to `batch` of them before every state advances again. A wave collects at most `batch` new keys and parks the rest for the next one, so a caller's chunk size bounds its own resident cost rather than the invocation's. `walk` is the same loop over a single text, which means a miss there spends a whole kernel spawn on one window; `single_settles` counts those, so a caller that forgot to `prefill` can see what it is paying.
 
@@ -1153,58 +1573,22 @@ class _SettledWindowWalk:
         return outcome
 
     def _load_memo(self) -> None:
-        """Read the shared memo file into `_cold`, the walk's `_MemoStore`, once, on the first wave that would otherwise reach the crate. A file that is missing, carries another stamp, or will not decode loads nothing — or as many whole blocks as decoded before it broke, every one of which is a valid memo entry on its own — and the walk settles the rest as it always has. A file under this stamp whose family keys moved loads every block minus the entries naming a moved family — by a letter's label, by a formed ligature's label, or by both components of a moved ligature rune — counted in `stale_windows`; a moved family the registry cannot place stales the whole file. A walk restricted by `load_only_asked_by` keeps of every block only the rows whose five settlement-independent slots are in its ask set and counts the rest in `unasked_windows`, so `memo_windows` counts the rows kept and retired. Every id is folded to the first id of its spelling as its block is read, since a part absorbed into the file can re-introduce a spelling under a second id, so the store keys in one id space and a restricted walk's test runs in it rather than over strings, the asks translated into those ids again only on a block that introduces a spelling an ask names; the fold is the identity on a file whose label table names every spelling once, and such a block's columns are appended as the file stores them. The retirement and the restriction each compress a block's columns before the block is appended, and the store's index is built once over everything appended."""
+        """Map the shared memo file into `_cold`, the walk's `_MemoStore`, once, on the first wave that would otherwise reach the crate. A file that is missing, carries another stamp, or will not read loads nothing, and the walk settles the rest as it always has; a file under this stamp whose family keys moved serves every row minus the ones naming a moved family — by a letter's label, by a formed ligature's label, or by both components of a moved ligature rune — counted in `stale_windows`, and a moved family the registry cannot place stales the whole file. A walk restricted by `load_only_asked_by` serves only the rows whose five settlement-independent slots are in its ask set and counts the rest in `unasked_windows`, so `memo_windows` counts the rows served and retired. Both tests run once, over the mapped columns, into the store's per-walk `dead` bytes."""
         self._memo_loaded = True
         if self.memo is None:
             return
         started = time.perf_counter()
         store = self._cold
-        labels = store.labels
-        outcomes = store.outcomes
-        first_ids = store.label_ids
-        loaded = 0
-        stale = 0
-        unasked = 0
-        asks = self._asks
-        asked_labels = set(itertools.chain.from_iterable(asks)) if asks is not None else set()
-        canon: list[int] = []
-        allowed: set[tuple[int, ...]] = set()
         try:
-            for (new_labels, new_items, columns, values), retired in _read_settle_memo(self.memo, self.spec):
-                outcomes.extend(self._outcome(item) for item in new_items)
-                introduced = False
-                for label in map(sys.intern, new_labels):
-                    labels.append(label)
-                    label_id = first_ids.setdefault(label, len(canon))
-                    introduced |= label_id == len(canon) and label in asked_labels
-                    canon.append(label_id)
-                if len(first_ids) < len(canon):
-                    columns = [array("I", map(canon.__getitem__, column)) for column in columns]
-                if asks is not None:
-                    if introduced:
-                        allowed = set()
-                        for ask in asks:
-                            with suppress(KeyError):
-                                allowed.add(tuple(map(first_ids.__getitem__, ask)))
-                    keys = [columns[slot] for slot in (0, 2, 3, 4, 5)]
-                    keep = [key in allowed for key in zip(*keys)]
-                    dropped = len(keep) - sum(keep)
-                    if dropped:
-                        unasked += dropped
-                        columns = [array("I", itertools.compress(column, keep)) for column in columns]
-                        values = array("I", itertools.compress(values, keep))
-                store.append(columns, values)
-                loaded += len(values) + retired
-                stale += retired
-            store.seal()
+            store.load(self.memo, self.spec, self._asks, self._outcome)
         finally:
-            self.memo_windows = loaded
-            self.stale_windows = stale
-            self.unasked_windows = unasked
+            self.memo_windows = store.loaded
+            self.stale_windows = store.stale
+            self.unasked_windows = store.unasked
             self.memo_seconds += time.perf_counter() - started
 
     def save_memo(self, prune: bool = False) -> bool:
-        """Write the memo to the shared file when this walk settled a window the file did not hold, through `_write_settle_memo`, which replaces the file atomically so a reader in another process sees either the old file or the new one. Refusals are not outcomes and are not written; a walk that reaches one of those windows asks the crate again. `prune` drops the loaded entries this walk never reached instead of carrying them forward, counted in `pruned_windows`, and is only honest for a walk over the whole universe — the belt's; it files the fresh windows and then, for a walk that promotes nothing, the reached rows in file order. A walk whose memo names a `write_path` files only the windows it settled fresh, as a part at that path, and leaves the shared file to `absorb_settle_memo_parts`; a walk that restricted its load (`load_only_asked_by`) is always of that kind, and never prunes, since a row its load dropped is indistinguishable from a window it never reached. True when a file was written."""
+        """Write the memo to the shared file when this walk settled a window the file did not hold, through `_write_settle_memo`, which replaces the file atomically so a reader in another process sees either the old file or the new one, and then close this walk's mapping of the old one. Refusals are not outcomes and are not written; a walk that reaches one of those windows asks the crate again. `prune` drops the loaded entries this walk never reached instead of carrying them forward, counted in `pruned_windows`, and is only honest for a walk over the whole universe — the belt's; it files the fresh windows and then, for a walk that promotes nothing, the reached rows in file order. The carried rows go into the new file straight out of the mapped columns, their ids shifted past the fresh windows' labels, without a key tuple per row. A walk whose memo names a `write_path` files only the windows it settled fresh, as a part at that path (`_write_settle_memo_part`), and leaves the shared file to `absorb_settle_memo_parts`; a walk that restricted its load (`load_only_asked_by`) is always of that kind, and never prunes, since a row its load dropped is indistinguishable from a window it never reached. True when a file was written."""
         if prune:
             assert self._asks is None, "a restricted walk never prunes"
         if self.memo is None:
@@ -1219,7 +1603,9 @@ class _SettledWindowWalk:
                 if not isinstance(outcome := self.windows[window], _RefusedWindow)
             )
             try:
-                return _write_settle_memo(self.memo, _memo_blocks(fresh), self.memo.write_path)
+                return _write_settle_memo_part(
+                    self.memo, _memo_blocks(fresh), cast(Path, self.memo.write_path)
+                )
             finally:
                 self.memo_seconds += time.perf_counter() - started
         store = self._cold
@@ -1236,14 +1622,16 @@ class _SettledWindowWalk:
             )
         else:
             items = cast(Iterable[tuple[_Window, _Outcome]], entries)
+        labels, outcomes, columns, values = _memo_columns(items)
         if prune:
             if not self._promote:
-                items = itertools.chain(items, store.items(reached=True))
+                store.carry_into(labels, outcomes, columns, values, reached=True)
         else:
-            items = itertools.chain(items, store.items(reached=False if self._promote else None))
+            store.carry_into(labels, outcomes, columns, values, reached=False if self._promote else None)
         try:
-            return _write_settle_memo(self.memo, _memo_blocks(items))
+            return _write_settle_memo(self.memo, labels, outcomes, columns, values)
         finally:
+            store.close()
             self.memo_seconds += time.perf_counter() - started
 
     def memo_line(self, config: str, written: bool) -> str | None:

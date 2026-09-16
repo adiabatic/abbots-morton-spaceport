@@ -79,7 +79,7 @@ def test_a_certificate_the_registry_refuses_is_reported_against_its_rule_under_a
 ):
     """A certificate text the registry will not tokenize is one rule's failure, never the stage's: the walk restricted to the pile's asks meets the refusal while it computes them, ahead of the prefill, and the check goes on to witness every other rule against the shared file, reporting the refused one by name. The restriction cut short that way loads the file whole, which the served count shows."""
     decision, _treaty = tables["default"]
-    memo = conform.SettleMemoFile(tmp_path / "settle-memo-default.gz", "stamp")
+    memo = conform.SettleMemoFile(tmp_path / "settle-memo-default.bin", "stamp")
     pile = sorted({belt._token_text(spec, tokens) for tokens in decision.certificates})
     seed = conform._SettledWindowWalk(spec, frozenset(), {}, guard, memo=memo)
     seed.walk_many(pile)
@@ -148,12 +148,12 @@ def test_the_witness_stage_writes_a_summary_and_shares_the_settle_memo(spec, tab
 
 def _memo_rows(memo, spec) -> set[tuple[str, ...]]:
     """Every window the file at `memo.path` holds, as the six-tuples of labels a walk keys on."""
-    rows: set[tuple[str, ...]] = set()
-    labels: list[str] = []
-    for (new_labels, _items, columns, _values), _retired in conform._read_settle_memo(memo, spec):
-        labels.extend(new_labels)
-        rows.update(tuple(labels[label_id] for label_id in row) for row in zip(*columns))
-    return rows
+    store = conform._MemoStore()
+    store.load(memo, spec, None, lambda item: (item, "", ""))
+    try:
+        return {window for window, _outcome in store.items()}
+    finally:
+        store.close()
 
 
 def _ask_of(window) -> tuple[str, ...]:
@@ -195,7 +195,7 @@ def test_a_restricted_walk_settles_a_text_outside_its_asks_fresh_and_alike(spec,
     """The superset claim from the other side: a walk restricted to one text's asks over a file holding only another text's windows serves none of them, counts them all as unasked, settles the other text exactly as an unrestricted walk over the same file does, and counts every one of its windows fresh — window locality, which says a dropped row costs a re-settle and never a different answer."""
     letters = sorted(_letters(spec).values())
     inside, outside = letters[0] * 2, letters[1] + letters[2]
-    memo = conform.SettleMemoFile(tmp_path / "settle-memo-default.gz", "stamp")
+    memo = conform.SettleMemoFile(tmp_path / "settle-memo-default.bin", "stamp")
     seed = conform._SettledWindowWalk(spec, frozenset(), {}, guard, memo=memo)
     seed.walk_many([outside])
     assert seed.save_memo()

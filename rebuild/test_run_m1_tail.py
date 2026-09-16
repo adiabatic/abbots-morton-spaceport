@@ -265,15 +265,15 @@ def _stub_main(monkeypatch, tmp_path, events, *, on_oracle=None, **gates):
 
 class TestMain:
     def test_the_oracle_starts_only_after_the_witness_memos_are_written(self, monkeypatch, tmp_path, capsys):
-        """The guard on the memo clobber: an oracle worker loads `settle-memo-<config>.gz` lazily and writes back what it settled, so one that started before the witness stage's file landed could replace that file with a smaller one, and the next belt would settle cold. The witness stub takes the stage's own shape — a part filed beside the file and folded into it through `conform.absorb_settle_memo_parts` — and parks long enough that an oracle started at the chain's end would land first; the oracle stub reads whether the file stands at the moment it starts."""
+        """The guard on the memo clobber: an oracle worker maps `settle-memo-<config>.bin` lazily and writes back what it settled, so one that started before the witness stage's file landed could replace that file with a smaller one, and the next belt would settle cold. The witness stub takes the stage's own shape — a part filed beside the file and folded into it through `conform.absorb_settle_memo_parts` — and parks long enough that an oracle started at the chain's end would land first; the oracle stub reads whether the file stands at the moment it starts."""
         events: list = []
-        memo = conform.SettleMemoFile(tmp_path / "settle-memo-default.gz", "stamp")
+        memo = conform.SettleMemoFile(tmp_path / "settle-memo-default.bin", "stamp")
         part = tmp_path / "witness-part.gz"
         standing: list[bool] = []
 
         def witness():
             time.sleep(0.3)
-            assert conform._write_settle_memo(memo, [], part)
+            assert conform._write_settle_memo_part(memo, [], part)
             assert conform.absorb_settle_memo_parts(memo, [part], SPEC)
 
         _stub_main(

@@ -1086,7 +1086,7 @@ class TestTheReplayStage:
         assert first["pass"] and first["families"] is None
         assert asked == [(None, tmp_path)]
         for memo in memos.values():
-            assert conform._write_settle_memo(memo, [])
+            assert conform._write_settle_memo(memo, *conform._memo_columns([]))
         again = run_m1.run_replay_strings(SPEC, tmp_path, "stamp", memo_inputs=inputs)
         assert again["families"] == [] and not again["walked"] and len(asked) == 1
 
@@ -1096,7 +1096,7 @@ class TestTheReplayStage:
         assert asked[-1] == (edited["families"], None)
 
         restamped = replace(memos["ss03"], stamp="another")
-        assert conform._write_settle_memo(restamped, [])
+        assert conform._write_settle_memo(restamped, *conform._memo_columns([]))
         assert not conform.settle_memo_standing(memos["ss03"])
         widened = run_m1.run_replay_strings(SPEC, tmp_path, "stamp", memo_inputs=inputs)
         assert widened["families"] is None and asked[-1] == (None, tmp_path)

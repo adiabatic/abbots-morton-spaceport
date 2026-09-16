@@ -853,7 +853,7 @@ def run_replay_strings(
 
     The walk is also the settle memo's producer. With `memo_inputs` (`settle_memo_inputs`, cut before the spec loaded), every whole-universe walk asks the crate to file its window memo per walked configuration beside the tables (`kernel_exec.replay_memo_dump`) and absorbs each one into the configuration's `conform.SettleMemoFile` under the stamp and family keys `conform.settle_memo_files` cuts — the files of the walked configurations alone, so a narrowed walk never dumps, questions, absorbs or unlinks a configuration it did not walk — so the witness stage, the oracle and the belt load what the replay settled instead of settling it again; a dump is deleted in this phase whatever the walk or the absorb did, and a failed absorb is a warning rather than a red build, since every reader settles what the file lacks. That is what widens the walk past the structure stamp: the memo stamp covers the comparison-side modules the replay's own stamp does not, so when any configuration's file is absent or fails `conform.settle_memo_standing` the whole universe is walked to refill it, where the replay alone would have walked nothing. A narrowed walk — a rune edit — files nothing and leaves the standing files to retire their own stale entries.
 
-    The record written beside the tables is what the next build's delta is cut against, so it carries the structure stamp and every rune digest as well as the counts, and it is written green or red: a disagreement lands in it with the crate's sentence and raises `SystemExit` naming the text. The fan-out width is the stage's own (`_replay_threads`): `replay_threads` when stated, else `kernel_exec.REPLAY_PEAK_BYTES` — what one configuration's walk holds, the trace memo over the windows its texts reach plus the window memo's inverse label map and block buffer — divided into the box, capped at the configuration count and the cores, so the whole universe replays in one wave on both fleet boxes; the absorb runs in this process after the crate has exited.
+    The record written beside the tables is what the next build's delta is cut against, so it carries the structure stamp and every rune digest as well as the counts, and it is written green or red: a disagreement lands in it with the crate's sentence and raises `SystemExit` naming the text. The fan-out width is the stage's own (`_replay_threads`): `replay_threads` when stated, else `kernel_exec.REPLAY_PEAK_BYTES` — what one configuration's walk holds, the trace memo over the windows its texts reach plus the window memo's inverse label map and block buffer — divided into the box, capped at the configuration count and the cores, so the whole universe replays in one wave on both fleet boxes; the absorbs run after the crate has exited, one spawn process per walked configuration up to that same width, each holding one configuration's dump, columns and probe index while it builds the file — a fraction of what the replay's divisor prices for a configuration, so the width is the replay's and no constant of its own.
     """
     configs = tuple(configs)
     if inputs is not None and set(configs) != set(conform.SETTLEMENT_CONFIGS):
@@ -908,8 +908,17 @@ def run_replay_strings(
                 summary["pass"] = False
                 summary["complaint"] = str(error)
         if emitting and summary["pass"]:
-            for config, memo in memos.items():
-                _absorb_replay_memo(out_dir, config, memo, spec)
+            with _spawn_pool(threads, len(memos)) as pool:
+                absorbs = {
+                    config: pool.submit(_absorb_replay_memo, out_dir, config, memo, spec)
+                    for config, memo in memos.items()
+                }
+                for config, future in absorbs.items():
+                    entries, seconds, complaint = future.result()
+                    if complaint is not None:
+                        console.warn(complaint)
+                    else:
+                        console.timing(f"settle_memo_emit {config}", seconds, f"entries={entries}")
     finally:
         for config in memos:
             with suppress(FileNotFoundError):
@@ -919,19 +928,19 @@ def run_replay_strings(
     return summary
 
 
-def _absorb_replay_memo(out_dir: Path, config: str, memo: conform.SettleMemoFile, spec: ResolvedSpec) -> None:
-    """One configuration's window memo absorbed into its settle memo file and reported as `[t] settle_memo_emit <config>`, so the cost lands in the cycle journal beside `replay_strings`. A dump the crate never filed, or one `conform.absorb_replay_memo` refuses, is a warning: the readers settle what the file lacks."""
+def _absorb_replay_memo(
+    out_dir: Path, config: str, memo: conform.SettleMemoFile, spec: ResolvedSpec
+) -> tuple[int | None, float, str | None]:
+    """One configuration's window memo absorbed into its settle memo file in a pool worker: the row count and the seconds the absorb took, which the parent reports as `[t] settle_memo_emit <config>` so the cost lands in the cycle journal beside `replay_strings`, or the warning to print in their place. A dump the crate never filed, or one `conform.absorb_replay_memo` refuses, is a warning: the readers settle what the file lacks."""
     dump = kernel_exec.replay_memo_dump(out_dir, config)
     started = time.perf_counter()
     if not dump.is_file():
-        console.warn(f"settle memo: the replay filed no window memo for {config} at {dump}")
-        return
+        return None, 0.0, f"settle memo: the replay filed no window memo for {config} at {dump}"
     try:
         entries = conform.absorb_replay_memo(dump, memo, spec, config)
     except (kernel_exec.KernelRunError, OSError) as error:
-        console.warn(f"settle memo: {dump} not absorbed ({error}); the readers settle instead")
-        return
-    console.timing(f"settle_memo_emit {config}", time.perf_counter() - started, f"entries={entries}")
+        return None, 0.0, f"settle memo: {dump} not absorbed ({error}); the readers settle instead"
+    return entries, time.perf_counter() - started, None
 
 
 def run_rule_witnesses(
@@ -1303,6 +1312,15 @@ def _report_oracle_cache(
         console.warn(f"oracle position store: re-shaping the rows that reach {moved_position_keys}")
 
 
+def _absorb_settle_memo_parts(
+    memo: conform.SettleMemoFile, parts: Sequence[Path], spec: ResolvedSpec
+) -> tuple[bool, float, int]:
+    """One cut configuration's parts folded into its shared file (`conform.absorb_settle_memo_parts`) in a pool worker, with the seconds the fold took, so the parent can report a file it rewrote as `[t] settle_memo_absorb <config>` beside the replay's `settle_memo_emit` lines — the whole-file write the mapped memo costs once per pass per configuration that settled anything fresh — and the worker's peak (`peak_rss_self_bytes`), so the pool record prices the absorb beside the ranges it ran after: a process high-water mark, so it reads at or above the range its worker ran before it, like every reading in that record."""
+    started = time.perf_counter()
+    written = conform.absorb_settle_memo_parts(memo, parts, spec)
+    return written, time.perf_counter() - started, peak_rss_self_bytes()
+
+
 def _shard_settle_memo(
     memo: conform.SettleMemoFile | None, scratch: Path, shard: oracle.OracleShard
 ) -> conform.SettleMemoFile | None:
@@ -1320,7 +1338,7 @@ def run_oracle(
     fresh_cache: bool = False,
     memo_inputs: oracle_cache.SettleMemoInputs | None = None,
 ) -> dict:
-    """The section 6 oracle over the subset tables, with the row cache read before the first row and written after the last. Above `--jobs 1` the unit of work is a row range of one configuration's table rather than a configuration: `oracle.oracle_shard_plan` cuts every table (by the row counts the subset stamp carries, `baseline_subset.subset_row_counts`; a table the stamp does not count stays one range) so that `jobs` workers each get a worker's share of the whole, and `_spawn_pool` is as wide as the box allows, where one worker per configuration left every core past the configuration count idle for the length of the phase. Each range writes its own audit segment and its own store segment, and files the settle memo windows it settled fresh as a part; the parent folds the ranges' tallies (`oracle.merge_config_shards`), concatenates the segments (`oracle.join_oracle_audit`, `oracle_cache.join_store_segments`) and absorbs the parts into the shared memo files (`conform.absorb_settle_memo_parts`, on the same pool), all in row order, so the summary, the audit and every store's records are the ones an uncut run writes. The crate's formation surface is swept once here and rides every submission, as the belt's fan-out does. `memo_inputs` is `settle_memo_inputs` as the caller snapshotted it before loading `spec`, and names the settle memo files this pass shares with the belt (`conform.settle_memo_files`): the oracle's rows are the belt's texts, so a settlement configuration whose file the replay filled or the belt wrote under these keys settles nothing, and one neither has reached yet writes the file the belt will load. A caller with no inputs shares nothing, and the overlay configuration has no memo to share, since its worker settles nothing at all.
+    """The section 6 oracle over the subset tables, with the row cache read before the first row and written after the last. Above `--jobs 1` the unit of work is a row range of one configuration's table rather than a configuration: `oracle.oracle_shard_plan` cuts every table (by the row counts the subset stamp carries, `baseline_subset.subset_row_counts`; a table the stamp does not count stays one range) so that `jobs` workers each get a worker's share of the whole, and `_spawn_pool` is as wide as the box allows, where one worker per configuration left every core past the configuration count idle for the length of the phase. Each range writes its own audit segment and its own store segment, and files the settle memo windows it settled fresh as a part; the parent folds the ranges' tallies (`oracle.merge_config_shards`), concatenates the segments (`oracle.join_oracle_audit`, `oracle_cache.join_store_segments`) and absorbs the parts into the shared memo files (`conform.absorb_settle_memo_parts`, on the same pool, each absorb's peak filed in the pool record beside the ranges' as `<config> absorb`), all in row order, so the summary, the audit and every store's records are the ones an uncut run writes. The crate's formation surface is swept once here and rides every submission, as the belt's fan-out does. `memo_inputs` is `settle_memo_inputs` as the caller snapshotted it before loading `spec`, and names the settle memo files this pass shares with the belt (`conform.settle_memo_files`): the oracle's rows are the belt's texts, so a settlement configuration whose file the replay filled or the belt wrote under these keys settles nothing, and one neither has reached yet writes the file the belt will load. A caller with no inputs shares nothing, and the overlay configuration has no memo to share, since its worker settles nothing at all.
 
     The cache's keys are cut once here — the row keys from the rune tree, the position keys from the compiled font and the kern sidecar — and handed to the workers, and then cut a second time at promotion, where a store is written only if neither a stamp nor a single key moved while the run held them. That second cut is the point: `fingerprint.rune_digests` reads the rune files off disk, a full run takes minutes, and the house style is to detach a long run and keep editing — so a rune touched mid-run would otherwise be recorded under a digest the verdicts on disk were never built from, and the next pass would serve pre-edit verdicts as fresh, green, forever. `_settle_green`'s recompute-before-recording and `artifact_cycle`'s green keys are the same discipline for the same reason.
 
@@ -1403,7 +1421,7 @@ def run_oracle(
                     console.progress(done, len(shards), "shards")
                 merges = {
                     config: pool.submit(
-                        conform.absorb_settle_memo_parts,
+                        _absorb_settle_memo_parts,
                         memo,
                         [
                             oracle.settle_memo_part(scratch, config, index)
@@ -1414,15 +1432,22 @@ def run_oracle(
                     for config, memo in settle_memos.items()
                     if segments[config] > 1
                 }
-                absorbed = [config for config, future in merges.items() if future.result()]
+                absorbed = []
+                worker_peaks = {
+                    shard.label: result.peak_rss_bytes for pairs in landed.values() for shard, result in pairs
+                }
+                for config, future in merges.items():
+                    written, seconds, peak = future.result()
+                    worker_peaks[f"{config} absorb"] = peak
+                    if written:
+                        absorbed.append(config)
+                        console.timing(f"settle_memo_absorb {config}", seconds)
             if absorbed:
                 console.say(f"settle memo: absorbed the ranges' parts for {', '.join(absorbed)}")
             record_pool(
                 "oracle-shard",
                 width=width,
-                worker_peaks={
-                    shard.label: result.peak_rss_bytes for pairs in landed.values() for shard, result in pairs
-                },
+                worker_peaks=worker_peaks,
                 controller_peak_bytes=peak_rss_self_bytes(),
             )
             ordered = [

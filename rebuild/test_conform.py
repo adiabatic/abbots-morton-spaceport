@@ -6,6 +6,7 @@ import inspect
 import itertools
 import json
 import os
+import pickle
 import struct
 import subprocess
 import sys
@@ -2571,7 +2572,7 @@ class TestCrateEmittedSettleMemo:
         return out_dir
 
     def _memo(self, tmp_path, config="default", stamp=STAMP, keys=None):
-        return conform.SettleMemoFile(tmp_path / f"settle-memo-{config}.gz", stamp, dict(keys or {}))
+        return conform.SettleMemoFile(tmp_path / f"settle-memo-{config}.bin", stamp, dict(keys or {}))
 
     @pytest.mark.parametrize("config", ["default", "ss03"])
     def test_the_absorbed_memo_serves_every_window_the_walk_reaches_and_settles_alike(
@@ -2703,7 +2704,7 @@ class TestCrateEmittedSettleMemo:
         )
 
     def test_two_crate_keys_that_collapse_to_one_walk_key_must_agree(self, spec, guard, dumps_dir, tmp_path):
-        """Two seats whose cells spell one display name are one walk key: rows keyed on either seat absorb as one entry when they agree, and a dump where they disagree is refused whole."""
+        """Two seats whose cells spell one display name are one walk key: rows keyed on either seat absorb as one row when they agree — the dump counts two, the file holds one — and a dump where they disagree is refused whole."""
         head, labels, records, _ = _dump_parts(kernel_exec.replay_memo_dump(dumps_dir, "default"))
         record = json.loads(records[0])
         twin = json.dumps({**record, "extension": record["extension"] + 1}, separators=(",", ":")).encode()
@@ -2722,7 +2723,7 @@ class TestCrateEmittedSettleMemo:
         assert conform.absorb_replay_memo(dump, memo, spec, "default") == 2
         walker = conform._SettledWindowWalk(spec, frozenset(), {}, guard, memo=memo)
         walker._load_memo()
-        assert walker.memo_windows == 2 and len(walker._cold) == 1
+        assert walker.memo_windows == 1 and len(walker._cold) == 1
         _write_dump(
             dump,
             head,
@@ -2817,13 +2818,13 @@ class TestSettleMemoFile:
         return _texts_to_depth(spec, max_length)
 
     def _memo(self, tmp_path, stamp=STAMP, keys=None):
-        return conform.SettleMemoFile(tmp_path / "settle-memo-default.gz", stamp, dict(keys or {}))
+        return conform.SettleMemoFile(tmp_path / "settle-memo-default.bin", stamp, dict(keys or {}))
 
     def test_settle_memo_files_key_each_configuration_off_the_snapshot(self, spec, tmp_path):
         inputs = oracle_cache.SettleMemoInputs(rune_digests={"qsTea": "t0"}, oracle_code="code", data="data")
         files = conform.settle_memo_files(tmp_path, spec, inputs)
         assert set(files) == set(conform.SETTLEMENT_CONFIGS)
-        assert files["default"].path == tmp_path / "settle-memo-default.gz"
+        assert files["default"].path == tmp_path / "settle-memo-default.bin"
         assert len({memo.stamp for memo in files.values()}) == len(files)
         assert files["default"].family_keys == oracle_cache.settle_family_keys(inputs, spec)
         assert conform.settle_memo_files(tmp_path, spec, None) == {}
@@ -2966,25 +2967,26 @@ class TestSettleMemoFile:
         assert fourth.walk_many(long_texts) == first.walk_many(long_texts)
         assert fourth.memo_windows == touched and fourth.fresh_windows == total - touched
 
+    def _decoded(self, memo, spec, outcome_of=None) -> list[tuple[conform._Window, conform._Outcome]]:
+        """Every live row of the file at `memo.path` in file order, through a store of its own, each outcome through `outcome_of` (the bare settled item in a placeholder outcome when None)."""
+        store = conform._MemoStore()
+        store.load(memo, spec, None, outcome_of or (lambda item: (item, "", "")))
+        try:
+            return list(store.items())
+        finally:
+            store.close()
+
     def _dict_of(self, walker, memo, spec) -> dict[conform._Window, conform._Outcome]:
-        """The file at `memo.path` read as a dict of window tuples, later entry winning at the earlier entry's position, every outcome through `walker._outcome` so the objects are the ones the walk shares with `windows` — the reading the store's `items` order and `len` are held to."""
-        entries: dict[conform._Window, conform._Outcome] = {}
-        labels: list[str] = []
-        outcomes: list[conform._Outcome] = []
-        for (new_labels, new_items, columns, values), _retired in conform._read_settle_memo(memo, spec):
-            labels.extend(new_labels)
-            outcomes.extend(walker._outcome(item) for item in new_items)
-            for row, value in zip(zip(*columns), values):
-                entries[cast(conform._Window, tuple(labels[label_id] for label_id in row))] = outcomes[value]
-        return entries
+        """The file at `memo.path` read as a dict of window tuples, every outcome through `walker._outcome` so the objects are the ones the walk shares with `windows` — the reading the store's `items` order and `len` are held to."""
+        return dict(self._decoded(memo, spec, walker._outcome))
 
     def _stream(self, path) -> bytes:
         return gzip.decompress(Path(path).read_bytes())
 
-    def test_the_store_reads_the_file_as_a_dict_does_and_the_carry_forward_writes_the_same_stream(
+    def test_the_store_reads_the_file_as_a_dict_does_and_the_carry_forward_files_the_same_rows(
         self, spec, guard, tmp_path
     ):
-        """The store against a dict of the same file, entry for entry: `items` iterates the live rows in the dict's order with the dict's outcomes, and `len` is its length. Then the whole-file carry-forward (`shard.of == 1`, no prune) over a walk that reached some rows and settled others fresh writes exactly the pickle stream a dict-backed walk writes — `windows` first, then every loaded entry `windows` does not hold, in file order — which is the byte identity the oracle's file rides on."""
+        """The store against a dict of the same file, entry for entry: `items` iterates the live rows in the dict's order with the dict's outcomes, and `len` is its length. Then the whole-file carry-forward (`shard.of == 1`, no prune) over a walk that reached some rows and settled others fresh files exactly the rows a dict-backed walk files, in its order — `windows` first, then every loaded entry `windows` does not hold, in file order — straight out of the mapped columns."""
         memo = self._memo(tmp_path)
         seed = conform._SettledWindowWalk(spec, frozenset(), {}, guard, memo=memo)
         seed.walk_many(self._texts(spec, 2))
@@ -3001,10 +3003,10 @@ class TestSettleMemoFile:
         assert walker.walk_many(texts) == reference.walk_many(texts)
         assert walker.fresh_windows and walker._cold.reached_count() == len(seed.windows)
         assert walker.save_memo()
-        carried = tmp_path / "carried.gz"
+        carried = tmp_path / "carried.bin"
         assert conform._write_settle_memo(
             memo,
-            conform._memo_blocks(
+            *conform._memo_columns(
                 itertools.chain(
                     cast(dict[conform._Window, conform._Outcome], walker.windows).items(),
                     (
@@ -3016,7 +3018,7 @@ class TestSettleMemoFile:
             ),
             carried,
         )
-        assert self._stream(memo.path) == self._stream(carried)
+        assert self._ordered(memo, spec) == self._ordered(replace(memo, path=carried), spec)
 
     def test_a_part_holds_the_fresh_windows_in_the_order_they_were_settled(self, spec, guard, tmp_path):
         """The `writes_part` branch is untouched by the store: the part is the fresh windows in settlement order and nothing loaded, as one pickle stream."""
@@ -3029,7 +3031,7 @@ class TestSettleMemoFile:
         walker.walk_many(self._texts(spec, 3))
         assert walker.fresh_windows and walker.save_memo()
         expected = tmp_path / "expected.gz"
-        assert conform._write_settle_memo(
+        assert conform._write_settle_memo_part(
             memo,
             conform._memo_blocks(
                 (window, cast(conform._Outcome, walker.windows[window])) for window in walker._fresh
@@ -3040,17 +3042,7 @@ class TestSettleMemoFile:
 
     def _ordered(self, memo, spec) -> list[tuple[tuple[str, ...], settle.Settled]]:
         """Every row of the file at `memo.path` in file order, as its window tuple and settled item."""
-        rows: list[tuple[tuple[str, ...], settle.Settled]] = []
-        labels: list[str] = []
-        items: list[settle.Settled] = []
-        for (new_labels, new_items, columns, values), _retired in conform._read_settle_memo(memo, spec):
-            labels.extend(new_labels)
-            items.extend(new_items)
-            rows.extend(
-                (tuple(labels[label_id] for label_id in row), items[value])
-                for row, value in zip(zip(*columns), values)
-            )
-        return rows
+        return [(window, outcome[0]) for window, outcome in self._decoded(memo, spec)]
 
     def test_a_pruning_walk_that_promotes_nothing_files_what_a_promoting_one_files(
         self, spec, guard, tmp_path
@@ -3064,19 +3056,19 @@ class TestSettleMemoFile:
         texts = [text for text in self._texts(spec, 3) if len(text) != 2 or text[0] == text[1]]
         files = {}
         for promote in (True, False):
-            memo = conform.SettleMemoFile(tmp_path / f"promote-{promote}.gz", self.STAMP)
+            memo = conform.SettleMemoFile(tmp_path / f"promote-{promote}.bin", self.STAMP)
             memo.path.write_bytes(seeded.path.read_bytes())
             walker = conform._SettledWindowWalk(spec, frozenset(), {}, guard, memo=memo, promote=promote)
             walker.walk_many(texts)
+            reached = {window for window, _ in walker._cold.items(reached=True)}
             assert walker.fresh_windows and walker.save_memo(prune=True)
             assert 0 < walker.pruned_windows < len(standing)
-            files[promote] = (walker, self._ordered(memo, spec))
-        promoting, promoted_rows = files[True]
-        columnar, columnar_rows = files[False]
+            files[promote] = (walker, reached, self._ordered(memo, spec))
+        promoting, _promoted_reached, promoted_rows = files[True]
+        columnar, reached, columnar_rows = files[False]
         assert promoting.pruned_windows == columnar.pruned_windows
         assert dict(promoted_rows) == dict(columnar_rows) and len(promoted_rows) == len(columnar_rows)
         assert [window for window, _ in promoted_rows] == list(promoting.windows)
-        reached = {window for window, _ in columnar._cold.items(reached=True)}
         assert [window for window, _ in columnar_rows] == list(columnar.windows) + [
             window for window, _ in standing if window in reached
         ]
@@ -3139,8 +3131,7 @@ class TestSettleMemoFile:
     ):
         texts = self._texts(spec, 2)
         memo = self._memo(tmp_path)
-        with gzip.open(memo.path, "wb") as handle:
-            handle.write(b"\x80\x05not a pickle stream")
+        memo.path.write_bytes(conform._MEMO_PREFIX.pack(24) + b"\x80\x05not a pickle stream at all")
         reference = conform._SettledWindowWalk(spec, frozenset(), {}, guard)
         walker = conform._SettledWindowWalk(spec, frozenset(), {}, guard, memo=memo)
         assert walker.walk_many(texts) == reference.walk_many(texts)
@@ -3152,34 +3143,169 @@ class TestSettleMemoFile:
         third.walk_many(texts)
         assert third._settle_calls == 0
 
-    def test_a_truncated_file_yields_the_whole_blocks_it_kept(self, spec, guard, tmp_path, monkeypatch):
-        monkeypatch.setattr(conform, "SETTLE_MEMO_BLOCK", 64)
+    def test_a_truncated_file_is_refused_and_loads_nothing(self, spec, guard, tmp_path, capsys):
+        """A mapped file is read whole or not at all: one cut short of the layout its header declares loads no row and costs a warning, the walk settles everything, and its save replaces the torn file with a whole one the next walk serves from."""
         texts = self._texts(spec)
         memo = self._memo(tmp_path)
         first = conform._SettledWindowWalk(spec, frozenset(), {}, guard, memo=memo)
         walked = first.walk_many(texts)
         assert first.save_memo()
-        assert len(first.windows) > 3 * conform.SETTLE_MEMO_BLOCK
-        stream = gzip.decompress(memo.path.read_bytes())
-        with gzip.open(memo.path, "wb") as handle:
-            handle.write(stream[: len(stream) // 2])
+        whole = memo.path.read_bytes()
+        memo.path.write_bytes(whole[: len(whole) // 2])
 
         second = conform._SettledWindowWalk(spec, frozenset(), {}, guard, memo=memo)
         assert second.walk_many(texts) == walked
-        assert 0 < second.memo_windows < len(first.windows)
-        assert second.memo_windows % conform.SETTLE_MEMO_BLOCK == 0
-        assert second.fresh_windows == len(first.windows) - second.memo_windows
+        assert second.memo_windows == 0 and second._cold.live == 0
+        assert second.fresh_windows == len(first.windows)
+        assert "[warn] settle memo:" in capsys.readouterr().err
         assert second.save_memo()
+        assert memo.path.read_bytes() == whole
         third = conform._SettledWindowWalk(spec, frozenset(), {}, guard, memo=memo)
         third.walk_many(texts)
         assert third.memo_windows == len(first.windows)
         assert third._settle_calls == 0
 
+    def test_a_file_cut_to_its_header_still_stands_and_loads_nothing(self, spec, guard, tmp_path, capsys):
+        """`settle_memo_standing` reads the header bytes and nothing after them: a file cut off right behind its header stands under its stamp and not under another, while a walk over it loads nothing and settles everything; a file cut inside the header stands under no stamp."""
+        texts = self._texts(spec, 2)
+        memo = self._memo(tmp_path)
+        first = conform._SettledWindowWalk(spec, frozenset(), {}, guard, memo=memo)
+        first.walk_many(texts)
+        assert first.save_memo() and conform.settle_memo_standing(memo)
+        whole = memo.path.read_bytes()
+        (length,) = conform._MEMO_PREFIX.unpack_from(whole)
+        header_end = conform._MEMO_PREFIX.size + length
+        assert header_end < len(whole) // 4
+        memo.path.write_bytes(whole[:header_end])
+        assert conform.settle_memo_standing(memo)
+        assert not conform.settle_memo_standing(self._memo(tmp_path, "tables-stamp-b"))
+        walker = conform._SettledWindowWalk(spec, frozenset(), {}, guard, memo=memo)
+        walker.walk_many(texts)
+        assert walker.memo_windows == 0 and walker.fresh_windows == len(first.windows)
+        assert "[warn] settle memo:" in capsys.readouterr().err
+        memo.path.write_bytes(whole[: header_end - 1])
+        assert not conform.settle_memo_standing(memo)
+
+    def test_a_store_closes_under_a_live_iterator_and_the_mapping_goes_with_it(self, spec, guard, tmp_path):
+        """`close` never raises: a view an `items` iterator still holds keeps the mapping open past the close, and the mapping goes when the iterator does, so a partial consumer inside a save's cleanup path costs nothing but the file's pages until it dies."""
+        texts = self._texts(spec, 2)
+        memo = self._memo(tmp_path)
+        first = conform._SettledWindowWalk(spec, frozenset(), {}, guard, memo=memo)
+        first.walk_many(texts)
+        assert first.save_memo()
+        store = conform._MemoStore()
+        store.load(memo, spec, None, lambda item: (item, "", ""))
+        mapping = store._mapping
+        assert mapping is not None
+        rows = store.items()
+        next(rows)
+        store.close()
+        assert store._mapping is None and not mapping.closed and len(store) == 0
+        del rows
+        mapping.close()
+        assert mapping.closed
+
+    def test_a_corrupt_index_retires_the_store_at_the_first_probe_that_finds_it(
+        self, spec, guard, tmp_path, capsys
+    ):
+        """The load reads the header and the tables and no column page, so an index whose every slot names one row, or names a row past the columns, is found by a probe: the chain is bounded by the row count, the id by the column, and either finding retires every row with a warning — the walk settles everything it has not yet been served (the one row every slot names may answer its own window first) and its save replaces the file with a whole one."""
+        texts = self._texts(spec, 2)
+        memo = self._memo(tmp_path)
+        first = conform._SettledWindowWalk(spec, frozenset(), {}, guard, memo=memo)
+        walked = first.walk_many(texts)
+        assert first.save_memo()
+        whole = memo.path.read_bytes()
+        header = self._header(memo)
+        index_bytes = header["slots"] * 4
+        for filler, problem in (
+            (1, "a probe chain past its rows"),
+            (header["rows"] + 5, "an id past its tables"),
+        ):
+            memo.path.write_bytes(whole[:-index_bytes] + struct.pack("<I", filler) * header["slots"])
+            walker = conform._SettledWindowWalk(spec, frozenset(), {}, guard, memo=memo)
+            assert walker.walk_many(texts) == walked
+            assert walker.memo_windows == header["rows"] and walker._cold.live == 0
+            assert len(first.windows) - walker.fresh_windows <= 1 and walker._cold.reached_count() == 0
+            assert f"[warn] settle memo: {memo.path} retired ({problem})" in capsys.readouterr().err
+            assert walker.save_memo()
+            assert memo.path.read_bytes() == whole
+
+    def test_a_file_replaced_under_an_open_mapping_keeps_serving_the_mapped_rows(self, spec, guard, tmp_path):
+        """The contract `_write_settle_memo` states, from the reader's side: a walk that mapped the file keeps the inode it mapped after a writer replaces the file, answers every window it loaded out of it with no crate call, and the next walk maps the new file. The replacement holds fewer rows — the depth-1 windows alone — so a walk reading the new file through its old mapping would have settled the rest."""
+        texts = self._texts(spec, 2)
+        memo = self._memo(tmp_path)
+        seed = conform._SettledWindowWalk(spec, frozenset(), {}, guard, memo=memo)
+        seed.walk_many(texts)
+        assert seed.save_memo()
+        mapped = conform._SettledWindowWalk(spec, frozenset(), {}, guard, memo=memo, promote=False)
+        mapped._load_memo()
+        assert mapped.memo_windows == len(seed.windows)
+        handle = mapped._cold._handle
+        assert handle is not None
+        inode = os.fstat(handle.fileno()).st_ino
+
+        smaller = conform._SettledWindowWalk(spec, frozenset(), {}, guard)
+        smaller.walk_many(self._texts(spec, 1))
+        assert 0 < len(smaller.windows) < len(seed.windows)
+        assert conform._write_settle_memo(
+            memo,
+            *conform._memo_columns(cast(dict[conform._Window, conform._Outcome], smaller.windows).items()),
+        )
+        assert memo.path.stat().st_ino != inode
+        reference = conform._SettledWindowWalk(spec, frozenset(), {}, guard)
+        assert mapped.walk_many(texts) == reference.walk_many(texts)
+        assert mapped._settle_calls == 0 and mapped.fresh_windows == 0
+        assert mapped._cold.reached_count() == len(seed.windows)
+        mapped._cold.close()
+
+        after = conform._SettledWindowWalk(spec, frozenset(), {}, guard, memo=memo)
+        assert after.walk_many(texts) == reference.walk_many(texts)
+        assert after.memo_windows == len(smaller.windows)
+        assert after.fresh_windows == len(seed.windows) - len(smaller.windows)
+
+    def test_the_index_a_writer_builds_answers_a_reader_in_another_interpreter(self, spec, guard, tmp_path):
+        """The hash is the file's, not the interpreter's: a file written here is probed in a spawned interpreter under another hash seed, and every row answers at the slot the writer put it in — which a slot computed from a salted or version-bound hash would not."""
+        texts = self._texts(spec, 2)
+        memo = self._memo(tmp_path)
+        first = conform._SettledWindowWalk(spec, frozenset(), {}, guard, memo=memo)
+        first.walk_many(texts)
+        assert first.save_memo()
+        script = "\n".join(
+            [
+                "from pathlib import Path",
+                "from rebuild.pipeline import conform",
+                "from rebuild.pipeline.fixtures import mini_spec",
+                f"memo = conform.SettleMemoFile(Path({str(memo.path)!r}), {self.STAMP!r})",
+                "store = conform._MemoStore()",
+                "store.load(memo, mini_spec(), None, lambda item: (item, '', ''))",
+                "rows = list(store.items())",
+                "hits = sum(store.probe(window) is outcome for window, outcome in rows)",
+                "print(len(rows), hits, store.live)",
+            ]
+        )
+        seed = "4242" if os.environ.get("PYTHONHASHSEED") != "4242" else "17"
+        completed = subprocess.run(
+            [sys.executable, "-c", script],
+            capture_output=True,
+            text=True,
+            check=True,
+            cwd=REPO_ROOT,
+            env={**os.environ, "PYTHONHASHSEED": seed},
+        )
+        rows, hits, live = map(int, completed.stdout.split())
+        assert rows == hits == live == len(first.windows) > 0
+
     def _rows(self, memo, spec) -> set[tuple[str, ...]]:
         """Every window the file at `memo.path` holds, as the six-tuples a walk keys on."""
+        return {window for window, _outcome in self._decoded(memo, spec)}
+
+    def _part_rows(self, part, memo, spec) -> set[tuple[str, ...]]:
+        """Every window the part at `part` holds, as the six-tuples a walk keys on."""
         rows: set[tuple[str, ...]] = set()
         labels: list[str] = []
-        for (new_labels, _items, columns, _values), _retired in conform._read_settle_memo(memo, spec):
+        for (new_labels, _items, columns, _values), _retired in conform._read_settle_memo(
+            replace(memo, path=part), spec
+        ):
             labels.extend(new_labels)
             rows.update(tuple(labels[label_id] for label_id in row) for row in zip(*columns))
         return rows
@@ -3351,7 +3477,7 @@ class TestSettleMemoFile:
         assert fresh and restricted.fresh_windows == len(fresh)
         assert restricted.save_memo()
         assert memo.path.read_bytes() == standing
-        assert self._rows(replace(memo, path=part), spec) == fresh
+        assert self._part_rows(part, memo, spec) == fresh
 
         assert conform.absorb_settle_memo_parts(memo, [part], spec)
         assert self._rows(memo, spec) == set(seed.windows) | fresh
@@ -3360,10 +3486,10 @@ class TestSettleMemoFile:
         assert third.walk_many(texts) == reference.walk_many(texts)
         assert third._settle_calls == 0 and third.fresh_windows == 0
 
-    def test_a_restricted_load_serves_a_spelling_the_absorb_re_introduced_under_a_second_id(
+    def test_a_restricted_load_serves_the_rows_a_part_absorbed_under_the_standing_spellings(
         self, spec, guard, tmp_path
     ):
-        """The steady state of the file the witness stage reads: a part files its labels afresh, so the absorb re-introduces spellings the standing file already holds under second ids, and a restricted load has to test rows in spelling space rather than id space. Seeded whole, extended by one restricted walk's part, and read by a second restricted walk over the same texts, the file serves every row that walk asks — the standing rows and the absorbed rows alike — and the walk settles nothing; a load that matched ids would drop the absorbed rows and settle them again."""
+        """The steady state of the file the witness stage reads: a part files its labels afresh, and the absorb folds each spelling onto the id the standing file already holds for it, so the file names every spelling once and a restricted load tests rows in one id space. Seeded whole, extended by one restricted walk's part, and read by a second restricted walk over the same texts, the file serves every row that walk asks — the standing rows and the absorbed rows alike — and the walk settles nothing."""
         texts = self._texts(spec, 2)
         memo = self._memo(tmp_path)
         half = len(texts) // 2
@@ -3373,18 +3499,25 @@ class TestSettleMemoFile:
 
         rest = texts[half:]
         part = tmp_path / "part.gz"
+        standing_labels = set(itertools.chain.from_iterable(seed.windows))
         first = conform._SettledWindowWalk(spec, frozenset(), {}, guard, memo=replace(memo, write_path=part))
         asks = first.load_only_asked_by(rest)
         first.walk_many(rest)
         assert first.fresh_windows and first.save_memo()
-        assert conform.absorb_settle_memo_parts(memo, [part], spec)
-        spellings = [
+        part_labels = {
             label
-            for (new_labels, *_rest), _retired in conform._read_settle_memo(memo, spec)
+            for (new_labels, *_rest), _retired in conform._read_settle_memo(replace(memo, path=part), spec)
             for label in new_labels
-        ]
-        repeated = {label for label in spellings if spellings.count(label) > 1}
-        assert repeated and repeated & set(itertools.chain.from_iterable(asks))
+        }
+        assert part_labels & standing_labels & set(itertools.chain.from_iterable(asks))
+        assert conform.absorb_settle_memo_parts(memo, [part], spec)
+        store = conform._MemoStore()
+        store.load(memo, spec, None, lambda item: (item, "", ""))
+        try:
+            assert len(store.label_ids) == len(store.labels)
+            assert part_labels | standing_labels <= set(store.labels)
+        finally:
+            store.close()
 
         rows = self._rows(memo, spec)
         kept = {window for window in rows if (window[0],) + tuple(window[2:]) in asks}
@@ -3400,37 +3533,49 @@ class TestSettleMemoFile:
         assert again._settle_calls == 0 and again.fresh_windows == 0
         assert not again.save_memo()
 
-    def test_a_spelling_under_two_ids_indexes_as_one_key(self, spec, guard, tmp_path):
-        """The absorbed file's label table names some spellings twice, and the store keys every column through the first id of each spelling: its label table is the file's whole table, its id map is smaller, and the concatenated index answers every row of the per-block tables with the outcome a dict of those blocks holds, one live row per distinct window."""
+    def _header(self, memo) -> dict:
+        with open(memo.path, "rb") as handle:
+            (length,) = conform._MEMO_PREFIX.unpack(handle.read(conform._MEMO_PREFIX.size))
+            return pickle.loads(handle.read(length))
+
+    def test_the_absorbed_file_names_each_spelling_once_and_answers_every_row(self, spec, guard, tmp_path):
+        """The absorbed file's label table names each spelling once — the part's labels folded onto the standing ids by the writer — so the store's id map is its label table inverted, and the index answers every row with the outcome a dict of the file holds, one row per distinct window. Nothing standing was retired, so the absorb extends the standing index in place: the file keeps the standing slot count and the standing rows their positions, and the standing columns copy in whole at the file's own typecode."""
         texts = self._texts(spec, 2)
         memo = self._memo(tmp_path)
-        half = len(texts) // 2
         seed = conform._SettledWindowWalk(spec, frozenset(), {}, guard, memo=memo)
-        seed.walk_many(texts[:half])
+        seed.walk_many(texts[:-3])
         assert seed.save_memo()
+        standing = self._header(memo)
+        standing_rows = self._ordered(memo, spec)
         part = tmp_path / "part.gz"
         first = conform._SettledWindowWalk(spec, frozenset(), {}, guard, memo=replace(memo, write_path=part))
-        first.load_only_asked_by(texts[half:])
-        first.walk_many(texts[half:])
+        first.load_only_asked_by(texts[-3:])
+        first.walk_many(texts[-3:])
         assert first.fresh_windows and first.save_memo()
+        assert standing["slots"] >= 2 * (standing["rows"] + first.fresh_windows), "no room to extend in place"
         assert conform.absorb_settle_memo_parts(memo, [part], spec)
+        absorbed = self._header(memo)
+        assert (
+            absorbed["slots"] == standing["slots"]
+            and absorbed["rows"] == standing["rows"] + first.fresh_windows
+        )
+        assert self._ordered(memo, spec)[: len(standing_rows)] == standing_rows
+        assert absorbed["typecode"] == standing["typecode"] == "H"
 
         walker = conform._SettledWindowWalk(spec, frozenset(), {}, guard, memo=memo)
         expected = self._dict_of(walker, memo, spec)
         walker._load_memo()
         store = walker._cold
-        assert len(store.label_ids) < len(store.labels)
-        assert all(store.labels.index(label) == label_id for label, label_id in store.label_ids.items())
+        assert len(store.label_ids) == len(store.labels)
+        assert all(store.labels[label_id] == label for label, label_id in store.label_ids.items())
         assert len(store) == len(expected) == len(store.values)
         assert list(store.items()) == list(expected.items())
         for window, outcome in expected.items():
             assert store.probe(window) is outcome
         assert store.reached_count() == len(expected)
 
-    def test_a_window_the_file_holds_twice_reads_as_one_row_with_the_later_outcome(
-        self, spec, guard, tmp_path
-    ):
-        """`seal`'s fold, on a file that files one window twice with two outcomes: the store reads it as a dict does — one live row at the first entry's position carrying the later entry's outcome — so `len`, `items` order and every probe match the dict, the superseded rows are dead rather than live, and a pruning save counts and files the distinct windows only."""
+    def test_a_window_filed_twice_lands_as_one_row_with_the_later_outcome(self, spec, guard, tmp_path):
+        """The writer's fold, on a memo that files one window twice with two outcomes: the file holds one row at the first entry's position carrying the later entry's outcome — what a dict of the entries holds — so `len`, `items` order and every probe match the dict, and a pruning save counts and files the distinct windows only."""
         memo = self._memo(tmp_path)
         seed = conform._SettledWindowWalk(spec, frozenset(), {}, guard, memo=memo)
         seed.walk_many(self._texts(spec, 2))
@@ -3441,24 +3586,23 @@ class TestSettleMemoFile:
             (window, next(other for other in outcomes if other is not outcome))
             for window, outcome in rows[::3]
         ]
-        assert conform._write_settle_memo(memo, conform._memo_blocks(itertools.chain(rows, repeated)))
+        assert conform._write_settle_memo(memo, *conform._memo_columns(itertools.chain(rows, repeated)))
 
         walker = conform._SettledWindowWalk(spec, frozenset(), {}, guard, memo=memo, promote=False)
         expected = self._dict_of(walker, memo, spec)
         walker._load_memo()
         store = walker._cold
-        assert len(store.values) == len(rows) + len(repeated)
-        assert len(store) == len(expected) == len(rows)
+        assert len(store.values) == len(store) == len(expected) == len(rows)
         assert list(store.items()) == list(expected.items())
-        assert store.reached.count(conform._MEMO_ROW_DEAD) == len(repeated)
+        assert dict(rows) != expected
         for window, outcome in repeated:
             assert expected[window] == outcome and store.probe(window) is expected[window]
         assert store.reached_count() == len(repeated)
         assert walker.save_memo(prune=True) and walker.pruned_windows == len(rows) - len(repeated)
         assert self._ordered(memo, spec) == [(window, outcome[0]) for window, outcome in repeated]
 
-    def test_two_parts_filing_one_window_absorb_into_one_live_row(self, spec, guard, tmp_path):
-        """The production shape of the repeat: two row ranges that both settle a window both file it, and the absorbed file holds the key twice. The store folds the pair onto the first row, so its live count is the dict's and a walk over the file reaches every window once."""
+    def test_two_parts_filing_one_window_absorb_into_one_row(self, spec, guard, tmp_path):
+        """The production shape of the repeat: two row ranges that both settle a window both file it, and the absorb folds the pair onto one row, so the file's row count is the dict's and a walk over the file reaches every window once."""
         texts = self._texts(spec, 2)
         memo = self._memo(tmp_path)
         third = len(texts) // 3
@@ -3471,13 +3615,15 @@ class TestSettleMemoFile:
             walker.load_only_asked_by(pile)
             walker.walk_many(pile)
             assert walker.fresh_windows and walker.save_memo()
+        filed = [self._part_rows(part, memo, spec) for part in parts]
+        assert filed[0] & filed[1]
         assert conform.absorb_settle_memo_parts(memo, parts, spec)
 
         walker = conform._SettledWindowWalk(spec, frozenset(), {}, guard, memo=memo, promote=False)
         expected = self._dict_of(walker, memo, spec)
         walker._load_memo()
         store = walker._cold
-        assert len(store.values) > len(store) == len(expected)
+        assert len(store.values) == len(store) == len(expected) == len(filed[0] | filed[1])
         assert list(store.items()) == list(expected.items())
         reference = conform._SettledWindowWalk(spec, frozenset(), {}, guard)
         assert walker.walk_many(texts) == reference.walk_many(texts)
