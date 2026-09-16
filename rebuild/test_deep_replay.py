@@ -8,6 +8,8 @@ from rebuild.tools import cycle_paths
 from rebuild.tools import deep_replay, deep_sweep
 
 RUNES = {"qsPea": "p1", "qsTea": "t1", "qsIt": "i1"}
+BOX_48_GIB = 51_539_607_552
+BOX_32_GIB = 34_359_738_368
 JOURNAL: list = []
 
 
@@ -157,6 +159,13 @@ def test_the_width_is_the_boxs_memory_or_the_stated_knob(monkeypatch):
     monkeypatch.setenv("AMS_DEEP_REPLAY_THREADS", "2GB")
     with pytest.raises(RuntimeError):
         deep_replay.replay_threads()
+
+
+@pytest.mark.parametrize("total, wanted", [(BOX_32_GIB, 1), (BOX_48_GIB, 2)])
+def test_the_shipped_walk_cost_holds_both_fleet_boxes_at_their_widths(total, wanted, monkeypatch):
+    """The width each fleet box (`doc/fleet.md`) walks at under the shipped `DEEP_REPLAY_PEAK_BYTES`, as an assertion a re-seed cannot quietly drop: the 32 GiB Mac walks one configuration at a time and the 48 GiB box two. No cycle spawns this walk, so `make job-costs` has no row watching the constant, and the box-shaped assertions above hold for any positive seed; this pin is what catches a seed past 21.7 GB, which costs the 48 GiB box its second walk and doubles its `make replay-deep` wall."""
+    monkeypatch.delenv("AMS_DEEP_REPLAY_THREADS", raising=False)
+    assert deep_replay.replay_threads(total_bytes=total) == wanted
 
 
 def test_a_green_deep_sweep_refreshes_the_replays_record(tmp_path, monkeypatch):
