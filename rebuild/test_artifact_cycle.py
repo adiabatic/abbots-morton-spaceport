@@ -1979,6 +1979,18 @@ def test_sweep_job_budget_is_the_cores_under_the_oracle_shards_memory_clamp():
     assert "capped at 64" in ac.sweep_job_derivation(64, total_bytes=roomy)
 
 
+def test_both_fleet_boxes_run_the_oracle_at_the_cores():
+    """The fleet-wide claim `ORACLE_SHARD_BYTES` has to keep (`doc/fleet.md` names the two boxes), which is the tracker's criterion for the oracle: the 48 GiB box runs its twelve cores and the 32 GiB box its ten, and on neither does the division bind before the cap. The capped budget cannot tell the cap from a division that lands exactly on the cores, so the uncapped division is asserted beside it. A re-seed that narrows either box below its cores, or that puts one box at the division's edge, fails here rather than in a cycle's plan line. The other direction is not held here or anywhere in the suite: a constant that errs low passes every assertion below, and only `make job-costs`' oracle-shard row — the cycle's job-costs step — prices the figure against the workers that ran, so a green suite is no confirmation of a re-seed."""
+    from rebuild.tools import memory_budget
+
+    assert ac.sweep_job_budget(12, total_bytes=BOX_48_GIB) == 12
+    assert ac.sweep_job_derivation(12, total_bytes=BOX_48_GIB).startswith("12 at ")
+    assert memory_budget.how_many_fit(ac.ORACLE_SHARD_BYTES, total_bytes=BOX_48_GIB) > 12
+    assert ac.sweep_job_budget(10, total_bytes=BOX_32_GIB) == 10
+    assert ac.sweep_job_derivation(10, total_bytes=BOX_32_GIB).startswith("10 at ")
+    assert memory_budget.how_many_fit(ac.ORACLE_SHARD_BYTES, total_bytes=BOX_32_GIB) > 10
+
+
 def test_the_plan_prints_the_sweep_width_with_its_derivation():
     plan = _plan(ncores=10, total_bytes=BOX_48_GIB)
     assert plan.sweep_jobs == ac.sweep_job_budget(10, total_bytes=BOX_48_GIB) == 10
