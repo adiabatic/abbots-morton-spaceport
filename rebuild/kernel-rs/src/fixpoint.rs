@@ -10,6 +10,7 @@
 
 use std::collections::BTreeSet;
 use std::rc::Rc;
+use std::time::{Duration, Instant};
 
 use crate::census::{FourthSlotFilter, ThirdSlotFilter, fourth_slot_inputs, third_slot_inputs};
 use crate::engine::{CacheSize, Engine, EngineModes, Slots};
@@ -18,7 +19,7 @@ use crate::fiber::DeepFiberDeriver;
 use crate::hash::{HashMap, HashSet};
 use crate::index::SpecIndex;
 use crate::liveness::ProspectLiveness;
-use crate::memo::{MemoBase, MemoSnapshot};
+use crate::memo::{MemoBase, MemoFile, MemoSnapshot, write_memo};
 use crate::model::Sym;
 use crate::options::{FollowerMap, WindowOptions};
 use crate::sha256;
@@ -88,7 +89,7 @@ impl EnumerationModes {
     }
 }
 
-/// What one enumeration may read before it settles a window itself, and whether it hands its own memo back when it is done ([`crate::memo`]). The bases answer windows in the order given; `keep_memo` is what a configuration other enumerations will read sets, at the cost of holding the memo through the drain and the sort rather than releasing it ahead of them.
+/// What one enumeration may read before it settles a window itself, and whether it hands its own memo back when it is done ([`crate::memo`]). The bases answer windows in the order given; `keep_memo` is what a configuration other enumerations will read sets, and it means only that the snapshot comes back to the caller, at the cost of holding it through the drain and the sort rather than releasing it ahead of them. Writing the memo to a file is orthogonal to it: [`enumerate_for_tables`] takes the file beside the seed and writes it at the release point whether or not the snapshot is kept.
 #[derive(Debug, Default)]
 pub struct Seed {
     pub bases: Vec<MemoBase>,
@@ -283,22 +284,32 @@ pub fn enumerate_transitions(
         contract_seeds,
         None,
         Seed::default(),
+        None,
     )
-    .map(|(product, _, _)| product)
+    .map(|enumeration| enumeration.product)
 }
 
-/// [`enumerate_transitions`] handing back the [`WindowOptions`] it ran over as well, with the census lines when `census` is given, and the engine's finished memo when the seed asked for it: the table build folds the product it still holds, and the fold's certificates read the formation guard through the same options — whose verdict memo the worklist already warmed — rather than sweeping the guard a second time. The seed is what lets one configuration's enumeration answer another's windows ([`crate::memo`]).
+/// What [`enumerate_for_tables`] hands back: the fixpoint, the [`WindowOptions`] it ran over, the engine's finished memo when the seed asked to keep it, and how long the memo file took to write when one was named — clocked here because the write runs inside the enumeration, so the caller can put it under its own label.
+pub struct TablesEnumeration<'i> {
+    pub product: FixpointProduct,
+    pub options: WindowOptions<'i>,
+    pub memo: Option<MemoSnapshot>,
+    pub memo_write: Option<Duration>,
+}
+
+/// [`enumerate_transitions`] handing back the [`WindowOptions`] it ran over as well, with the census lines when `census` is given, and the engine's finished memo when the seed asked for it: the table build folds the product it still holds, and the fold's certificates read the formation guard through the same options — whose verdict memo the worklist already warmed — rather than sweeping the guard a second time. The seed is what lets one configuration's enumeration answer another's windows ([`crate::memo`]). With a `file`, the finished memo is written there at the release point, after the engine's other memos are freed and before the snapshot is let go of, so a configuration whose seed did not keep it holds no memo through its drain or its sort.
 pub fn enumerate_for_tables<'i>(
     index: &'i SpecIndex,
     features: &[Sym],
     modes: EnumerationModes,
     census: Option<&mut Vec<String>>,
     seed: Seed,
-) -> Result<(FixpointProduct, WindowOptions<'i>, Option<MemoSnapshot>), String> {
-    enumerate_seeded(index, features, modes, contract_seeds, census, seed)
+    file: Option<MemoFile>,
+) -> Result<TablesEnumeration<'i>, String> {
+    enumerate_seeded(index, features, modes, contract_seeds, census, seed, file)
 }
 
-/// [`enumerate_transitions`] with the `--cache-census` diagnostic switched on: the same product, plus a `[c]` line per collection on the way past the drain saying how many entries it held and in how many buckets, the elimination text the memos were carrying, and the process's resident size sampled either side of the drain and the sort. Nothing here reaches the stream — the lines are the caller's to put on stderr — and nothing is computed unless the caller asked, so the shipping path pays nothing for it.
+/// [`enumerate_transitions`] with the `--cache-census` diagnostic switched on: the same product, plus a `[c]` line per collection on the way past the drain saying how many entries it held and in how many buckets, the elimination text the memos were carrying, and the process's resident size sampled before the memo release, after it — the engine's other memos freed and the trace memo still held, as a snapshot, wherever a file is to be written from it or the seed keeps it — then after the memo file is written and the snapshot let go of, when one is named, and past the sort. Nothing here reaches the stream — the lines are the caller's to put on stderr — and nothing is computed unless the caller asked, so the shipping path pays nothing for it.
 ///
 /// The instrument exists because every RAM decision this crate faces reduces to entry counts, and a count read off a live alphabet settles in one run what a struct-size argument can only estimate.
 pub fn enumerate_censused(
@@ -314,8 +325,9 @@ pub fn enumerate_censused(
         contract_seeds,
         Some(census),
         Seed::default(),
+        None,
     )
-    .map(|(product, _, _)| product)
+    .map(|enumeration| enumeration.product)
 }
 
 /// [`enumerate_transitions`] with the seeding left open, which is how the order-independence of the pinned world is testable at all. Production always passes [`contract_seeds`]; a test passes a permutation and asserts the same product, which is a statement about that world rather than about the discipline, since class grain makes the first visitor of a fiber decide its representative.
@@ -326,7 +338,8 @@ fn enumerate_seeded<'i>(
     seeds: fn(&WindowOptions<'_>) -> Vec<Item>,
     mut census: Option<&mut Vec<String>>,
     seed: Seed,
-) -> Result<(FixpointProduct, WindowOptions<'i>, Option<MemoSnapshot>), String> {
+    file: Option<MemoFile>,
+) -> Result<TablesEnumeration<'i>, String> {
     let mut engine = Engine::with_modes(
         index,
         features.iter().copied(),
@@ -874,8 +887,8 @@ fn enumerate_seeded<'i>(
         .iter()
         .map(|pointer| pointer.text(index))
         .collect();
-    // The drain and the sort below are the run's other working set, and the memos that answered the worklist are of no further use to them. Releasing here rather than at the end of the function is what keeps the two from coexisting, which would otherwise be the enumeration's peak — except for the one configuration other enumerations will read, whose trace memo leaves the engine as a snapshot instead and is held through both.
-    let memo = if seed.keep_memo {
+    // The drain and the sort below are the run's other working set, and the memos that answered the worklist are of no further use to them. Releasing here rather than at the end of the function is what keeps the two from coexisting, which would otherwise be the enumeration's peak. The memo file is written here as well, from the trace memo the engine hands over as a snapshot once its prospect, candidate and closure memos are freed — never before they are, or the writer's window rows would land beside them at their high-water — and the snapshot goes with the other memos once the file is out, except for the one configuration other enumerations will read, whose snapshot is held through the drain and the sort instead.
+    let memo = if seed.keep_memo || file.is_some() {
         engine.take_memo()
     } else {
         engine.release_memos();
@@ -884,6 +897,28 @@ fn enumerate_seeded<'i>(
     if let Some(lines) = census.as_mut() {
         lines.push(format!(
             "[c] {config} resident_after_release kb={}",
+            resident_kb()
+        ));
+    }
+    let mut memo_write = None;
+    if let Some(file) = file {
+        let started = Instant::now();
+        write_memo(
+            index,
+            &file.path,
+            &file.head,
+            memo.as_ref()
+                .expect("a memo file is written from a kept memo"),
+            &file.carried,
+        )?;
+        memo_write = Some(started.elapsed());
+    }
+    let memo = memo.filter(|_| seed.keep_memo);
+    if memo_write.is_some()
+        && let Some(lines) = census.as_mut()
+    {
+        lines.push(format!(
+            "[c] {config} resident_after_memo_write kb={}",
             resident_kb()
         ));
     }
@@ -961,7 +996,12 @@ fn enumerate_seeded<'i>(
         };
         check.run(&product)?;
     }
-    Ok((product, options, memo))
+    Ok(TablesEnumeration {
+        product,
+        options,
+        memo,
+        memo_write,
+    })
 }
 
 /// The seeds the fixpoint starts from: every letter against every boundary left, boundary-major, unpinned. Pushed in this order and popped from the back, which is the traversal class grain reads: the first item to reach a fiber fixes that row's representative.
@@ -1011,7 +1051,7 @@ fn retain_formed_before(
     Ok(kept)
 }
 
-/// This process's resident size in kibibytes, or `0` where the platform would not say. Asked of `ps` rather than of the C library because the crate takes no dependency and declares no foreign functions for a diagnostic; it runs twice per censused configuration and never on the shipping path.
+/// This process's resident size in kibibytes, or `0` where the platform would not say. Asked of `ps` rather than of the C library because the crate takes no dependency and declares no foreign functions for a diagnostic; it runs three or four times per censused configuration and never on the shipping path.
 fn resident_kb() -> u64 {
     let pid = std::process::id();
     std::process::Command::new("/bin/ps")
@@ -1511,12 +1551,23 @@ impl DeepPartitionCheck<'_, '_> {
 
 #[cfg(test)]
 mod tests {
+    use std::path::{Path, PathBuf};
     use std::sync::Arc;
 
     use super::*;
     use crate::index::fixtures;
-    use crate::memo::{Exclusion, unlocking_runes};
+    use crate::memo::{Exclusion, MemoHead, memo_path, read_memo, unlocking_runes};
     use crate::stream::emit_transitions;
+
+    /// A scratch directory of this module's own under `target/`, cleared first.
+    fn scratch(name: &str) -> PathBuf {
+        let directory = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("target/test-scratch")
+            .join(name);
+        let _ = std::fs::remove_dir_all(&directory);
+        std::fs::create_dir_all(&directory).expect("the scratch directory is makeable");
+        directory
+    }
 
     /// The two heights the ordinary fixtures join at.
     const HEIGHTS: &[(&str, &str)] = &[("baseline", "0"), ("x-height", "5")];
@@ -2329,12 +2380,28 @@ mod tests {
     #[test]
     fn a_permuted_seed_order_reaches_the_same_pinned_world_product() {
         let index = deep_alphabet();
-        let (contract, _, _) =
-            enumerate_seeded(&index, &[], PINNED, contract_seeds, None, Seed::default())
-                .expect("the fixpoint closes");
-        let (reversed, _, _) =
-            enumerate_seeded(&index, &[], PINNED, reversed_seeds, None, Seed::default())
-                .expect("the fixpoint closes");
+        let contract = enumerate_seeded(
+            &index,
+            &[],
+            PINNED,
+            contract_seeds,
+            None,
+            Seed::default(),
+            None,
+        )
+        .expect("the fixpoint closes")
+        .product;
+        let reversed = enumerate_seeded(
+            &index,
+            &[],
+            PINNED,
+            reversed_seeds,
+            None,
+            Seed::default(),
+            None,
+        )
+        .expect("the fixpoint closes")
+        .product;
         // Compared as the stream rather than as the product, because two of the product's fields are sets whose vector spelling is the emitter's business: `cited_provenance` comes out of a hash set and has no order of its own.
         assert_eq!(
             emit_transitions(&index, &contract),
@@ -2355,12 +2422,28 @@ mod tests {
     fn a_permuted_seed_order_reaches_the_same_class_grain_product() {
         let index = crate::liveness::tests::prospect_spec();
         let modes = EnumerationModes::default();
-        let (contract, _, _) =
-            enumerate_seeded(&index, &[], modes, contract_seeds, None, Seed::default())
-                .expect("the fixpoint closes");
-        let (reversed, _, _) =
-            enumerate_seeded(&index, &[], modes, reversed_seeds, None, Seed::default())
-                .expect("the fixpoint closes");
+        let contract = enumerate_seeded(
+            &index,
+            &[],
+            modes,
+            contract_seeds,
+            None,
+            Seed::default(),
+            None,
+        )
+        .expect("the fixpoint closes")
+        .product;
+        let reversed = enumerate_seeded(
+            &index,
+            &[],
+            modes,
+            reversed_seeds,
+            None,
+            Seed::default(),
+            None,
+        )
+        .expect("the fixpoint closes")
+        .product;
         assert!(
             !contract.deep_classes.is_empty(),
             "the product carries class rows, so the claim is about class grain"
@@ -2377,7 +2460,7 @@ mod tests {
         let index = fixtures::mini();
         let ss03 = fixtures::sym(&index, "ss03");
         let modes = EnumerationModes::default();
-        let (_, _, memo) = enumerate_seeded(
+        let memo = enumerate_seeded(
             &index,
             &[],
             modes,
@@ -2387,22 +2470,26 @@ mod tests {
                 bases: Vec::new(),
                 keep_memo: true,
             },
+            None,
         )
-        .expect("default closes");
+        .expect("default closes")
+        .memo;
         let memo = Arc::new(memo.expect("a kept memo comes back"));
         assert!(!memo.is_empty());
-        let (scratch, _, _) = enumerate_seeded(
+        let scratch = enumerate_seeded(
             &index,
             &[ss03],
             modes,
             contract_seeds,
             None,
             Seed::default(),
+            None,
         )
-        .expect("ss03 closes from scratch");
+        .expect("ss03 closes from scratch")
+        .product;
         let seeded_with = |excluded: Exclusion| {
             let mut census: Vec<String> = Vec::new();
-            let (product, _, _) = enumerate_seeded(
+            let product = enumerate_seeded(
                 &index,
                 &[ss03],
                 modes,
@@ -2415,8 +2502,10 @@ mod tests {
                     }],
                     keep_memo: false,
                 },
+                None,
             )
-            .expect("ss03 closes over a base");
+            .expect("ss03 closes over a base")
+            .product;
             let hits = census
                 .iter()
                 .find_map(|line| line.strip_prefix("[c] ss03 memo_base_hits count="))
@@ -2437,6 +2526,102 @@ mod tests {
             emit_transitions(&index, &unfiltered),
             "without the exclusion the base answers qsMay's windows as default settles them"
         );
+    }
+
+    /// A configuration nobody reads files its memo at the release point and carries none out (issue #265): `ss03` enumerated over `default`'s base with a file named and `keep_memo` off hands no snapshot back — the release a wave's census cannot show — clocks the write, and leaves a file that reads back as the memo a kept run of the same enumeration returns, window for window.
+    #[test]
+    fn a_configuration_keeping_no_memo_files_it_at_the_release_point() {
+        let index = fixtures::mini();
+        let ss03 = fixtures::sym(&index, "ss03");
+        let modes = EnumerationModes::default();
+        let base = enumerate_seeded(
+            &index,
+            &[],
+            modes,
+            contract_seeds,
+            None,
+            Seed {
+                bases: Vec::new(),
+                keep_memo: true,
+            },
+            None,
+        )
+        .expect("default closes")
+        .memo
+        .expect("a kept memo comes back");
+        let base = Arc::new(base);
+        let bases = || {
+            vec![MemoBase {
+                memo: Arc::clone(&base),
+                excluded: Exclusion::of(unlocking_runes(&index, &[ss03])),
+            }]
+        };
+        let kept = enumerate_seeded(
+            &index,
+            &[ss03],
+            modes,
+            contract_seeds,
+            None,
+            Seed {
+                bases: bases(),
+                keep_memo: true,
+            },
+            None,
+        )
+        .expect("ss03 closes over a base")
+        .memo
+        .expect("a kept memo comes back");
+        assert!(!kept.is_empty(), "ss03 traces windows of its own");
+        let dir = scratch("release-point-memo");
+        let path = memo_path(&dir, "ss03");
+        let head = MemoHead {
+            config: "ss03".to_owned(),
+            world: modes.world_token(),
+            stamp: "release-point".to_owned(),
+        };
+        let filed = enumerate_seeded(
+            &index,
+            &[ss03],
+            modes,
+            contract_seeds,
+            None,
+            Seed {
+                bases: bases(),
+                keep_memo: false,
+            },
+            Some(MemoFile {
+                path: path.clone(),
+                head: head.clone(),
+                carried: Vec::new(),
+            }),
+        )
+        .expect("ss03 closes over a base");
+        assert!(
+            filed.memo.is_none(),
+            "a memo nobody reads is let go of at the release point"
+        );
+        assert!(filed.memo_write.is_some(), "the write is clocked");
+        assert!(
+            path.is_file(),
+            "the file was written inside the enumeration"
+        );
+        let back = read_memo(&index, &path, &head, |_| true).expect("the file reads");
+        assert_eq!(back.len(), kept.len());
+        for (key, entry) in &kept.entries {
+            let again = back.entries[key];
+            assert_eq!(back.settled(again), kept.settled(*entry));
+            assert_eq!(
+                back.notes[again.notes.index()],
+                kept.notes[entry.notes.index()]
+            );
+            assert_eq!(back.delta(again), kept.delta(*entry));
+            assert_eq!(back.reads(again), kept.reads(*entry));
+            assert_eq!(
+                (again.prospect, again.joint_floor, again.decided_stage),
+                (entry.prospect, entry.joint_floor, entry.decided_stage)
+            );
+        }
+        std::fs::remove_dir_all(&dir).expect("the scratch directory is removable");
     }
 
     #[test]

@@ -344,6 +344,13 @@ fn pool_seat(index: usize) -> u32 {
     u32::try_from(index).expect("a memo pool seats fewer than 2^32 records")
 }
 
+/// The memo file one configuration's build writes: where, under which head, and which bases' admitted windows ride along with its own so the file is the union a later build reads. [`crate::fixpoint::enumerate_for_tables`] writes it at the enumeration's release point, from the finished snapshot the engine hands over once its other memos are freed and before that snapshot is let go of, so a configuration nobody reads holds no memo past its enumeration.
+pub struct MemoFile {
+    pub path: PathBuf,
+    pub head: MemoHead,
+    pub carried: Vec<MemoBase>,
+}
+
 /// One configuration's memo written as `memo-<config>.tsv`: the head line, then the five tables — `Y` for every symbol the file names, `S` for the settled records, `N` for the notes lists, `D` for the fired deltas, `R` for the read sets, each seated in file order, the lists' members set apart by [`LIST_SEPARATOR`] — then one `E` line per window naming its key by symbol seats, its four record seats, its prospect, its joint flag and its stage. The windows are `own`'s and, after them, every window of each carried base that the base's exclusion admits and no earlier source held, so the file is the union a later build may read and never a copy of a window twice, and they go out in key order rather than in the order the maps happen to hold them, so two builds of one memo write one file. Every name is spelled as text once, in the `Y` table, because a symbol is an interning order this spec happens to have and the next spec need not; the windows stream to the file, and what is held per window until the last byte is out is one [`Row`] rather than the records themselves, since a configuration's memo runs to millions of them.
 ///
 /// The stamp may carry neither a tab nor a newline, since the head is one tab-separated line; a writer handing one over is refused rather than written around.
@@ -823,7 +830,7 @@ mod tests {
         features: &[Sym],
         bases: Vec<MemoBase>,
     ) -> (crate::stream::FixpointProduct, MemoSnapshot) {
-        let (product, _, memo) = enumerate_for_tables(
+        let enumeration = enumerate_for_tables(
             index,
             features,
             EnumerationModes::default(),
@@ -832,9 +839,10 @@ mod tests {
                 bases,
                 keep_memo: true,
             },
+            None,
         )
         .expect("the fixture closes");
-        (product, memo.expect("kept"))
+        (enumeration.product, enumeration.memo.expect("kept"))
     }
 
     /// The file is the memo: written and read back over the same spec it holds every window with its record, its notes, its delta and its stage, an enumeration reading it back as a base answers every window out of it and reaches the same product, and a union written over two bases that both hold every window is the same file, each window written once out of the first.
