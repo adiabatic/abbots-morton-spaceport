@@ -327,7 +327,24 @@ fn notes_line(list: &[String]) -> Result<String, String> {
     Ok(format!("N\t{}", list.join(&LIST_SEPARATOR.to_string())))
 }
 
-/// One configuration's memo written as `memo-<config>.tsv`: the head line, then the five tables — `Y` for every symbol the file names, `S` for the settled records, `N` for the notes lists, `D` for the fired deltas, `R` for the read sets, each seated in file order, the lists' members set apart by [`LIST_SEPARATOR`] — then one `E` line per window naming its key by symbol seats, its four record seats, its prospect, its joint flag and its stage. The windows are `own`'s and, after them, every window of each carried base that the base's exclusion admits and no earlier source held, so the file is the union a later build may read and never a copy of a window twice, and they go out in key order rather than in the order the maps happen to hold them, so two builds of one memo write one file. Every name is spelled as text once, in the `Y` table, because a symbol is an interning order this spec happens to have and the next spec need not; the windows themselves are streamed to the file rather than built up in memory, since a configuration's memo runs to millions of them.
+/// One window of the file while it is written (issue #264): the key by reference, four seats — the source's pool seats until the first pass mints the file's, which overwrite them in place — the three bytes of the entry the `E` line spells, and the source that holds the window. Thirty-two bytes at align eight, one per window of the union from the collection loop to the last byte out, in a vector reserved once at the summed source entry counts — the bound the union cannot exceed, so no push moves it — and the `const` beside it pins the size so a field added here cannot widen the row unnoticed. The issue's caveats say why the four seats are not packed into one `u64` and why the entry's three bytes ride here rather than being fetched again at write time.
+struct Row<'a> {
+    key: &'a TraceKey,
+    seats: [u32; 4],
+    prospect: i8,
+    joint_floor: bool,
+    decided_stage: DecidedStage,
+    source: u16,
+}
+
+const _: () = assert!(std::mem::size_of::<Row<'static>>() == 32);
+
+/// A pool seat as a [`Row`] carries it, checked at the crossing as every seat mint is: the seat types are four bytes wide, and a pool that outgrew the row's slot would be a wrong file rather than a refusal without the check.
+fn pool_seat(index: usize) -> u32 {
+    u32::try_from(index).expect("a memo pool seats fewer than 2^32 records")
+}
+
+/// One configuration's memo written as `memo-<config>.tsv`: the head line, then the five tables — `Y` for every symbol the file names, `S` for the settled records, `N` for the notes lists, `D` for the fired deltas, `R` for the read sets, each seated in file order, the lists' members set apart by [`LIST_SEPARATOR`] — then one `E` line per window naming its key by symbol seats, its four record seats, its prospect, its joint flag and its stage. The windows are `own`'s and, after them, every window of each carried base that the base's exclusion admits and no earlier source held, so the file is the union a later build may read and never a copy of a window twice, and they go out in key order rather than in the order the maps happen to hold them, so two builds of one memo write one file. Every name is spelled as text once, in the `Y` table, because a symbol is an interning order this spec happens to have and the next spec need not; the windows stream to the file, and what is held per window until the last byte is out is one [`Row`] rather than the records themselves, since a configuration's memo runs to millions of them.
 ///
 /// The stamp may carry neither a tab nor a newline, since the head is one tab-separated line; a writer handing one over is refused rather than written around.
 pub fn write_memo(
@@ -351,25 +368,39 @@ pub fn write_memo(
                 .is_some_and(|entry| excluded.admits(key, memo.reads(*entry)))
         })
     };
-    let mut keyed: Vec<(&TraceKey, TraceEntry, usize)> = Vec::new();
+    let mut rows: Vec<Row<'_>> =
+        Vec::with_capacity(sources.iter().map(|(memo, _)| memo.len()).sum());
     for (seat, (memo, excluded)) in sources.iter().enumerate() {
+        let source = u16::try_from(seat).expect("a memo is written from fewer than 2^16 sources");
         for (key, entry) in &memo.entries {
             if !excluded.admits(key, memo.reads(*entry)) || held_earlier(seat, key) {
                 continue;
             }
-            keyed.push((key, *entry, seat));
+            rows.push(Row {
+                key,
+                seats: [
+                    pool_seat(entry.settled.index()),
+                    pool_seat(entry.notes.index()),
+                    pool_seat(entry.delta.index()),
+                    pool_seat(entry.reads.index()),
+                ],
+                prospect: entry.prospect,
+                joint_floor: entry.joint_floor,
+                decided_stage: entry.decided_stage,
+                source,
+            });
         }
     }
-    keyed.sort_unstable_by_key(|(key, _, _)| **key);
+    rows.sort_unstable_by_key(|row| *row.key);
     let mut symbols = Symbols::new();
     let mut settled: FileTable<Settled> = FileTable::new();
     let mut notes: FileTable<Vec<String>> = FileTable::new();
     let mut deltas: FileTable<Box<[Pointer]>> = FileTable::new();
     let mut reads: FileTable<Box<[Read]>> = FileTable::new();
     // Two passes over the same order: the first seats every symbol and record so the tables can go out ahead of the windows that name them, the second streams the windows.
-    let mut seated: Vec<(u32, u32, u32, u32)> = Vec::with_capacity(keyed.len());
-    for (key, entry, seat) in &keyed {
-        let (memo, _) = sources[*seat];
+    for row in &mut rows {
+        let (memo, _) = sources[usize::from(row.source)];
+        let key = row.key;
         for symbol in key.runes_named() {
             symbols.seat(index, symbol);
         }
@@ -379,17 +410,17 @@ pub fn write_memo(
         if let Some(seam) = key.left_seam {
             symbols.seat(index, seam);
         }
-        let settled_seat = settled.seat(memo.settled(*entry), |record| {
+        let settled_seat = settled.seat(&memo.settled[row.seats[0] as usize], |record| {
             Ok(settled_line(index, &mut symbols, record))
         })?;
-        let notes_seat = notes.seat(&memo.notes[entry.notes.index()], |list| notes_line(list))?;
-        let delta_seat = deltas.seat(&memo.deltas[entry.delta.index()], |delta| {
+        let notes_seat = notes.seat(&memo.notes[row.seats[1] as usize], |list| notes_line(list))?;
+        let delta_seat = deltas.seat(&memo.deltas[row.seats[2] as usize], |delta| {
             Ok(delta_line(index, &mut symbols, delta))
         })?;
-        let reads_seat = reads.seat(&memo.reads[entry.reads.index()], |list| {
+        let reads_seat = reads.seat(&memo.reads[row.seats[3] as usize], |list| {
             Ok(reads_line(index, &mut symbols, list))
         })?;
-        seated.push((settled_seat, notes_seat, delta_seat, reads_seat));
+        row.seats = [settled_seat, notes_seat, delta_seat, reads_seat];
     }
     let file =
         std::fs::File::create(path).map_err(|error| format!("{}: {error}", path.display()))?;
@@ -413,9 +444,8 @@ pub fn write_memo(
         }
     }
     let mut line = String::new();
-    for ((key, entry, _), (settled_seat, notes_seat, delta_seat, reads_seat)) in
-        keyed.iter().zip(seated)
-    {
+    for row in &rows {
+        let key = row.key;
         line.clear();
         let _ = write!(
             line,
@@ -434,12 +464,13 @@ pub fn write_memo(
                 symbols.slot(index, key.kinds[slot], key.runes[slot])
             );
         }
+        let [settled_seat, notes_seat, delta_seat, reads_seat] = row.seats;
         let _ = write!(
             line,
             "\t{settled_seat}\t{notes_seat}\t{delta_seat}\t{reads_seat}\t{}\t{}\t{}",
-            entry.prospect,
-            u8::from(entry.joint_floor),
-            entry.decided_stage.as_str()
+            row.prospect,
+            u8::from(row.joint_floor),
+            row.decided_stage.as_str()
         );
         writeln!(out, "{line}").map_err(complain)?;
     }
@@ -806,12 +837,13 @@ mod tests {
         (product, memo.expect("kept"))
     }
 
-    /// The file is the memo: written and read back over the same spec it holds every window with its record, its notes, its delta and its stage, and an enumeration reading it back as a base answers every window out of it and reaches the same product.
+    /// The file is the memo: written and read back over the same spec it holds every window with its record, its notes, its delta and its stage, an enumeration reading it back as a base answers every window out of it and reaches the same product, and a union written over two bases that both hold every window is the same file, each window written once out of the first.
     #[test]
     fn a_memo_file_reads_back_as_the_memo_that_wrote_it() {
         let index = fixtures::mini();
         let (product, memo) = enumerate_keeping(&index, &[], Vec::new());
-        let path = scratch("memo-round-trip").join("memo-default.tsv");
+        let dir = scratch("memo-round-trip");
+        let path = dir.join("memo-default.tsv");
         write_memo(&index, &path, &head("default"), &memo, &[]).expect("the file writes");
         assert_eq!(
             read_memo_head(&path).expect("the head reads"),
@@ -833,8 +865,9 @@ mod tests {
                 (entry.prospect, entry.joint_floor, entry.decided_stage)
             );
         }
+        let back = Arc::new(back);
         let base = MemoBase {
-            memo: Arc::new(back),
+            memo: Arc::clone(&back),
             excluded: Exclusion::none(),
         };
         let (seeded, own) = enumerate_keeping(&index, &[], vec![base]);
@@ -843,6 +876,30 @@ mod tests {
             emit_transitions(&index, &seeded)
         );
         assert!(own.is_empty(), "every window was answered out of the file");
+        let twice = dir.join("memo-default-twice.tsv");
+        let both = [
+            MemoBase {
+                memo: Arc::clone(&back),
+                excluded: Exclusion::none(),
+            },
+            MemoBase {
+                memo: Arc::clone(&back),
+                excluded: Exclusion::none(),
+            },
+        ];
+        write_memo(
+            &index,
+            &twice,
+            &head("default"),
+            &MemoSnapshot::default(),
+            &both,
+        )
+        .expect("the union writes");
+        assert_eq!(
+            std::fs::read(&twice).expect("the union file"),
+            std::fs::read(&path).expect("the first file"),
+            "a window two bases hold is written once, out of the first"
+        );
     }
 
     /// The seed across builds (issue #179): the edited spec enumerated over the previous spec's memo, behind an exclusion naming the edited rune, reaches the edited spec's from-scratch product — and the edit is a real one, since the two specs' products differ.
@@ -885,6 +942,148 @@ mod tests {
                     || own.reads(*entry).contains(&Read::Rune(tea))),
             "and nothing else was"
         );
+    }
+
+    /// Which source a window held by two sources is written from: the first source that admits it, `own` being the first of all. Over the previous spec's memo and the edited spec's, the file is the edited memo's whichever order the two are carried in so long as the previous memo is held behind the edited rune, since every window it holds beyond the edited memo names or reads that rune; carried ahead and admitted whole, the previous memo wins every window it holds, and the file differs from the edited memo's exactly on the windows that name or read the rune. Written from `own` beside one base, the file is the one two bases in that order write, so the shape every seeded build writes — a fresh `own` beside the previous build's memo — is pinned with the rest.
+    #[test]
+    fn a_window_two_bases_hold_is_written_from_the_first_source_that_admits_it() {
+        let before = fixtures::mini();
+        let after = fixtures::index_of(&mini_dump_without_the_tea_refusal());
+        let (_, memo_before) = enumerate_keeping(&before, &[], Vec::new());
+        let dir = scratch("memo-attribution");
+        let path_before = dir.join("memo-before.tsv");
+        write_memo(&before, &path_before, &head("default"), &memo_before, &[])
+            .expect("the file writes");
+        let previous = Arc::new(
+            read_memo(&after, &path_before, &head("default"), |_| true)
+                .expect("reads over the edited spec"),
+        );
+        let (_, memo_after) = enumerate_keeping(&after, &[], Vec::new());
+        let memo_after = Arc::new(memo_after);
+        let tea = fixtures::sym(&after, "qsTea");
+        let base = |memo: &Arc<MemoSnapshot>, excluded: Exclusion| MemoBase {
+            memo: Arc::clone(memo),
+            excluded,
+        };
+        let alone = dir.join("memo-alone.tsv");
+        write_memo(&after, &alone, &head("default"), &memo_after, &[]).expect("writes");
+        let alone_bytes = std::fs::read(&alone).expect("the file");
+        let union = |name: &str, carried: Vec<MemoBase>| {
+            let path = dir.join(name);
+            write_memo(
+                &after,
+                &path,
+                &head("default"),
+                &MemoSnapshot::default(),
+                &carried,
+            )
+            .expect("the union writes");
+            path
+        };
+        let edited_first = union(
+            "memo-edited-first.tsv",
+            vec![
+                base(&memo_after, Exclusion::none()),
+                base(&previous, Exclusion::of([tea])),
+            ],
+        );
+        assert_eq!(
+            std::fs::read(&edited_first).expect("the file"),
+            alone_bytes,
+            "the previous memo behind the edited rune adds nothing"
+        );
+        let previous_behind_tea = union(
+            "memo-previous-behind-tea.tsv",
+            vec![
+                base(&previous, Exclusion::of([tea])),
+                base(&memo_after, Exclusion::none()),
+            ],
+        );
+        assert_eq!(
+            std::fs::read(&previous_behind_tea).expect("the file"),
+            alone_bytes,
+            "a window the first source refuses is taken from the second"
+        );
+        let previous_first = union(
+            "memo-previous-first.tsv",
+            vec![
+                base(&previous, Exclusion::none()),
+                base(&memo_after, Exclusion::none()),
+            ],
+        );
+        let previous_first_bytes = std::fs::read(&previous_first).expect("the file");
+        assert_ne!(previous_first_bytes, alone_bytes);
+        let own_first = dir.join("memo-own-first.tsv");
+        write_memo(
+            &after,
+            &own_first,
+            &head("default"),
+            &previous,
+            &[base(&memo_after, Exclusion::none())],
+        )
+        .expect("writes");
+        assert_eq!(
+            std::fs::read(&own_first).expect("the file"),
+            previous_first_bytes,
+            "own is the first source, and a base beside it is written as a second base is"
+        );
+        let own_behind_a_base = dir.join("memo-own-behind-a-base.tsv");
+        write_memo(
+            &after,
+            &own_behind_a_base,
+            &head("default"),
+            &memo_after,
+            &[base(&previous, Exclusion::of([tea]))],
+        )
+        .expect("writes");
+        assert_eq!(
+            std::fs::read(&own_behind_a_base).expect("the file"),
+            alone_bytes,
+            "a seeded build's shape: own beside the previous memo behind the edited rune"
+        );
+        let back =
+            read_memo(&after, &previous_first, &head("default"), |_| true).expect("reads back");
+        let union_keys: HashSet<&TraceKey> = previous
+            .entries
+            .keys()
+            .chain(memo_after.entries.keys())
+            .collect();
+        assert_eq!(back.len(), union_keys.len());
+        let record = |memo: &MemoSnapshot, entry: TraceEntry| {
+            (
+                memo.settled(entry).clone(),
+                memo.notes[entry.notes.index()].clone(),
+                memo.delta(entry).to_vec(),
+                memo.reads(entry).to_vec(),
+                entry.prospect,
+                entry.joint_floor,
+                entry.decided_stage,
+            )
+        };
+        let mut moved = 0;
+        for (key, again) in &back.entries {
+            let held_before = previous.entries.get(key).copied();
+            let held_after = memo_after.entries.get(key).copied();
+            let names_tea = key.runes_named().any(|rune| rune == tea)
+                || held_before
+                    .is_some_and(|entry| previous.reads(entry).contains(&Read::Rune(tea)));
+            if let Some(entry) = held_before.filter(|_| names_tea) {
+                assert_eq!(
+                    record(&back, *again),
+                    record(&previous, entry),
+                    "a window naming the edited rune is written from the earlier source"
+                );
+                if held_after
+                    .is_none_or(|entry| record(&memo_after, entry) != record(&back, *again))
+                {
+                    moved += 1;
+                }
+            } else {
+                let entry = held_after.expect("every other window is the edited memo's");
+                assert_eq!(record(&back, *again), record(&memo_after, entry));
+            }
+        }
+        assert!(moved > 0, "striking the refusal moves some qsTea window");
     }
 
     /// What the reader refuses and what it drops: another configuration's file is a refusal naming both, and a window naming a stance the spec no longer has is dropped while its neighbors read.
