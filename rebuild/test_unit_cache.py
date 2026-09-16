@@ -1046,15 +1046,47 @@ def test_a_pooled_build_writes_its_signature_store_off_the_main_thread_and_joins
     assert unit_cache.load_signature_store(surface, environment) is not None
 
 
-def test_a_serial_build_writes_its_signature_store_in_place_on_the_main_thread(
+def test_a_serial_build_writes_its_signature_store_inline_before_the_units_phase_drafts_anything(
     mini_bundle, tmp_path, monkeypatch
 ):
-    """The serial build has no idle parent to overlap with — a CPU-bound parent would contend with the thread instead of overlapping it — so at `jobs=1` the store is written inline in the cache phase, on the main thread."""
+    """The serial build has no idle parent to overlap with — a CPU-bound parent would contend with a thread instead of overlapping it — so at `jobs=1` the store is written inline on the main thread, at the units-phase boundary where the pooled build starts its thread: the store is on disk, stamped for this build's environment, before `_FreshRunner.phase1` drafts a unit, which is what lets the entries die before the units phase rather than after the cache phase."""
     calls = _spy_signature_write(monkeypatch)
-    _build(tmp_path / "serial", mini_bundle, jobs=1)
+    surface = tmp_path / "serial"
+    phase1 = review_build._FreshRunner.phase1
+    stored_at_drafting: list[bool] = []
+
+    def drafting(self):
+        stored_at_drafting.append(
+            len(calls) == 1 and unit_cache.load_signature_store(surface, calls[0][1]) is not None
+        )
+        return phase1(self)
+
+    monkeypatch.setattr(review_build._FreshRunner, "phase1", drafting)
+    _build(surface, mini_bundle, jobs=1)
     assert len(calls) == 1
     on_main_thread, _environment = calls[0]
     assert on_main_thread
+    assert stored_at_drafting == [True]
+
+
+def test_the_signature_write_holds_no_entries_once_the_store_is_written(tmp_path):
+    """The thread owns the entries only until the write lands: `_write` drops them when `write_signature_store` returns, so a `join` after it finds the write holding nothing and the store on disk. The failing arm pins the attribute, the re-raise at the join, and the previous store surviving the failed write, not a release: the captured error's traceback keeps the write's frames, and the entries with them, until the join raises."""
+    write = review_build._SignatureWrite(tmp_path, "env-a", {"k1": "d1"})
+    write.join()
+    assert write._entries is None
+    assert unit_cache.load_signature_store(tmp_path, "env-a") == {"k1": "d1"}
+
+    class Failing(dict):
+        def __getitem__(self, key):
+            if key == "k2":
+                raise RuntimeError("the write stops here")
+            return super().__getitem__(key)
+
+    failing = review_build._SignatureWrite(tmp_path, "env-a", Failing(k1="x1", k2="x2"))
+    with pytest.raises(RuntimeError, match="stops here"):
+        failing.join()
+    assert failing._entries is None
+    assert unit_cache.load_signature_store(tmp_path, "env-a") == {"k1": "d1"}
 
 
 def test_a_failing_build_abandons_the_signature_write_rather_than_waiting_on_it(
