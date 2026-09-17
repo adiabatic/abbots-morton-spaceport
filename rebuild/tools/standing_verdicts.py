@@ -16,7 +16,7 @@ Each expressible delta shape is a row in SHAPES, and a rule declares exactly one
 
 - The `entry_drop` shape judges the same rendered pixels for a letter that gives up a named stretch of left-side entry: the old-font pivot form gives way to a named new form whose own-frame picture is the old one compacted left by that many columns — every dropped cell sitting in the columns that came off, the remaining cells shifting left by the same count, origin and placement standing still — and everything after the pivot sliding closer by that count, so a window whose only change is ·Low losing the extra baseline pixel the old font drew after ·See matches, and a window that also carries a blessed slide still needs the composed reading.
 
-- The `entry-contracted` shape judges the same rendered pixels for one or more named left–pivot pairs whose pivot pulls its entry inward by a declared number of columns: the letter comes that many columns closer, carried by however the after form's own frame took the contraction — a frame that moved its own-frame origin right by the whole count holds its placement still, one that moved its origin not at all carries its placement the whole count left, and the ink lands in the same place either way. The left-side loss stays inside the contracted columns, any far-right tail change is exactly the difference between the exit extensions named by the before and after glyphs, and everything after the pivot moves by the contraction combined with that exact exit-extension delta. A name-grain respelling in the suffix may ride along when the pivot still paints every cell it appears to lose, so the visible pivot-plus-suffix union remains exact; any visible ink change fails closed for the composed reading.
+- The `entry-contracted` shape judges the same rendered pixels for one or more named left–pivot pairs whose pivot pulls its entry inward by a declared number of columns: the letter comes that many columns closer, carried by however the after form's own frame took the contraction — a frame that moved its own-frame origin right by the whole count holds its placement still, one that moved its origin not at all carries its placement the whole count left, and the ink lands in the same place either way. The left-side loss stays inside the contracted columns, any far-right tail change is exactly the difference between the exit extensions named by the before and after glyphs, and everything after the pivot moves by the contraction combined with that exact exit-extension delta. A name-grain respelling in the suffix may ride along when the pivot still paints every cell it appears to lose, so the visible pivot-plus-suffix union remains exact; any visible ink change fails closed for the composed reading. The rule may decline nested before forms that carry a separate count or redraw, leaving those positions to a companion rule instead of claiming both readings at once.
 
 - The `stub_drop` shape judges the same rendered pixels for a letter that gives up a named left-side stub while the ink it keeps stays where it was: the old-font pivot form gives way to a named new form whose own-frame picture is the old one compacted left by that many columns, its own-frame origin standing still while its placement moves right by the same count — the left edge catching up to the ink that remains — and every other pixel in the window unmoved, which is what tells stub-dropped from entry-extension-dropped, whose remaining ink slides closer while its placement stands still: a window whose only change is ·May losing the leftover left pixel after ·Ah matches, and a window that also carries a blessed join-drop still needs the composed reading. A pivot here is a position, not a name: a second ·May keeping its old loop beside the one that lost the stub rides as span ink, because only the before side's named form says which of the two after loops is the drop.
 
@@ -940,14 +940,16 @@ def _matches_entry_drop(match, unit, excluded, context=None):
 
 
 def _contracted_entry_candidates(match, unit):
-    """The pivot positions where the rule's named family stands immediately after one of its named left families."""
+    """The non-declined pivot positions where the rule's named family stands immediately after one of its named left families."""
     glyphs = unit["before"]["glyphs"]
     left_families = set(_families(match["before"]["left"]))
+    declined = match["before"].get("except_pivots", ())
     return [
         index
         for index, name in enumerate(glyphs)
         if index
         and _named_pivot(name, match["before"]["pivots"])
+        and not _named_pivot(name, declined)
         and _joining_family(glyphs[index - 1]) in left_families
     ]
 
@@ -969,6 +971,7 @@ def _matches_entry_contracted(match, unit, excluded, context=None):
     key = (
         tuple(_families(match["before"]["left"])),
         tuple(match["before"]["pivots"]),
+        tuple(match["before"].get("except_pivots", ())),
         tuple(match["after"]["pivots"]),
         match["after"]["entry_contraction"],
         unit["id"],
@@ -1113,6 +1116,13 @@ def _validate_entry_contracted(rule_id, match) -> None:
             f"rule {rule_id!r}: match.before.left must be a bare Quikscript family name or a list "
             f"of them, got {left!r}"
         )
+    pivots = match["before"]["pivots"]
+    for declined in match["before"].get("except_pivots", ()):
+        if not _named_pivot(declined, pivots):
+            _fail(
+                f"rule {rule_id!r}: match.before.except_pivots names {declined!r}, which no pivot "
+                "prefix reaches"
+            )
 
 
 def _redrawn_trade(match):
@@ -1615,7 +1625,7 @@ def _candidate_counts(rules, unit):
 
 
 def _candidates(match, unit):
-    """The window positions one composable rule could speak for, read off the index record before anything is shaped: a slide, ink-gain, entry-drop, stub-drop, or redrawn rule's are the glyphs whose recorded before name carries one of its pivot prefixes; an entry-contracted rule additionally requires one of the named families immediately on the pivot's left; a join-dropped rule's are the positions where the named pivot's recorded seam into the named follower dropped from the named height to a break, and into whichever after cells it names; a join-retargeted or join-created rule's are the positions where the named pivot's recorded seam into the named follower moved from the named before state to the named new height and both after cells the rule names, less any position whose before glyph falls under a form the rule declines; an extension rule's are `_extension_positions` — the positions meeting every per-position precondition the single-rule matcher reads — and none at all unless the named seam is a yK height, since the walk has to know which row a dropped tail sits on. Deliberately name-grain and cheap, because this is the pre-gate that decides whether a window is worth shaping at all: a rule with no candidate here can never be credited, and a window holding fewer than two candidate positions is never shaped."""
+    """The window positions one composable rule could speak for, read off the index record before anything is shaped: a slide, ink-gain, entry-drop, stub-drop, or redrawn rule's are the glyphs whose recorded before name carries one of its pivot prefixes; an entry-contracted rule additionally requires one of the named families immediately on the pivot's left and declines any before forms it sets aside; a join-dropped rule's are the positions where the named pivot's recorded seam into the named follower dropped from the named height to a break, and into whichever after cells it names; a join-retargeted or join-created rule's are the positions where the named pivot's recorded seam into the named follower moved from the named before state to the named new height and both after cells the rule names, less any position whose before glyph falls under a form the rule declines; an extension rule's are `_extension_positions` — the positions meeting every per-position precondition the single-rule matcher reads — and none at all unless the named seam is a yK height, since the walk has to know which row a dropped tail sits on. Deliberately name-grain and cheap, because this is the pre-gate that decides whether a window is worth shaping at all: a rule with no candidate here can never be credited, and a window holding fewer than two candidate positions is never shaped."""
     glyphs = unit["before"]["glyphs"]
     if (
         _is_slide_match(match)
@@ -2320,7 +2330,8 @@ SHAPES = {
         cell_lists=(),
         matcher=_matches_entry_contracted,
         validate=_validate_entry_contracted,
-        name_lists=("pivots",),
+        before_optional=("except_pivots",),
+        name_lists=("pivots", "except_pivots"),
         int_fields=("entry_contraction",),
         family_fields=("left",),
         composable=True,

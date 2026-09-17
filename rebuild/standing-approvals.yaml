@@ -649,11 +649,26 @@ rules:
       before:
         left: qsPea
         pivots: [qsJay.en-y5.ex-y0]
+        except_pivots: [qsJay.en-y5.ex-y0.en-con-1]
       after:
         pivots:
           - qsJay.hapax.en-y5.en-con-1
           - qsJay.hapax.en-y5.ex-y0.en-con-1
         entry_contraction: 1
+      except_left: []
+  - id: jay-contracted-crown-cell-dropped
+    verdict: approve
+    note: "The contracted ·Jay after ·Pea gives up the leftmost cell of its crown while keeping its placement — qsJay's contract record has named qsPea since the letter landed in “Add ·Jay”, the rebuild's contracted form consumes that cell where the old contracted form keeps it, and the user gave the one-cell drop standing approval at u-YLwbQaAT3Xf after the same drop was approved in the other windows that reached a sitting"
+    match:
+      before:
+        pivots: [qsJay.en-y5.ex-y0.en-con-1]
+      after:
+        pivots:
+          - qsJay.hapax.en-y5.en-con-1
+          - qsJay.hapax.en-y5.ex-y0.en-con-1
+        dropped: [[0, 8]]
+        added: []
+        shift: 0
       except_left: []
   - id: gay-no-baseline-join-retargeted
     verdict: approve

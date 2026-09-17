@@ -4514,6 +4514,30 @@ def test_a_multi_left_entry_contraction_composes(slide_context):
     assert events == {SLIDE_RULE["id"]: [1], rule["id"]: [3]}
 
 
+def test_an_entry_contraction_rule_declining_the_window_form_does_not_match(slide_context):
+    rule = json.loads(json.dumps(CONTRACTED_ENTRY_RULE))
+    rule["match"]["before"]["except_pivots"] = ["qsMay.en-y0.ex-y5"]
+    assert not sv._matches(rule["match"], contracted_entry_window(), context=slide_context())
+
+
+def test_an_entry_contraction_rule_declining_another_nested_form_still_matches(slide_context):
+    rule = json.loads(json.dumps(CONTRACTED_ENTRY_RULE))
+    rule["match"]["before"]["except_pivots"] = ["qsMay.en-y0.ex-y5.en-con-1"]
+    assert sv._matches(rule["match"], contracted_entry_window(), context=slide_context())
+
+
+def test_a_declined_entry_contraction_leaves_its_position_to_the_other_composed_rule(slide_context):
+    twin = json.loads(json.dumps(CONTRACTED_ENTRY_RULE))
+    twin["id"] += "-declining"
+    twin["match"]["before"]["except_pivots"] = ["qsMay.en-y0.ex-y5"]
+    events = sv._composed(
+        [SLIDE_RULE, CONTRACTED_ENTRY_RULE, twin],
+        composed_contracted_entry_window(),
+        slide_context(),
+    )
+    assert events == {SLIDE_RULE["id"]: [1], CONTRACTED_ENTRY_RULE["id"]: [3]}
+
+
 def test_the_checked_in_bay_may_rule_reads_the_contraction(slide_context):
     match = {rule["id"]: rule for rule in sv.load_rules(sv.RULES)}["bay-may-entry-contracted"]["match"]
     assert sv._matches(match, contracted_entry_window(), context=slide_context())
@@ -4796,6 +4820,13 @@ def test_an_entry_contraction_rule_refuses_nonfamily_left_names(tmp_path, left):
     rule = json.loads(json.dumps(CONTRACTED_ENTRY_RULE))
     rule["match"]["before"]["left"] = left
     with pytest.raises(SystemExit, match="bare Quikscript family"):
+        sv.load_rules(_write_rules(tmp_path / "rules.yaml", [rule]))
+
+
+def test_an_entry_contraction_rule_declining_a_form_no_pivot_reaches_is_refused_at_load(tmp_path):
+    rule = json.loads(json.dumps(CONTRACTED_ENTRY_RULE))
+    rule["match"]["before"]["except_pivots"] = ["qsRoe.ex-y0"]
+    with pytest.raises(SystemExit, match="which no pivot prefix reaches"):
         sv.load_rules(_write_rules(tmp_path / "rules.yaml", [rule]))
 
 
