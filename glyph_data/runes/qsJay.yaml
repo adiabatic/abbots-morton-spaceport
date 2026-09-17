@@ -115,6 +115,10 @@ policy:
   - exit: baseline
     by: 1
     when:
+      right: {family: qsIt}
+  - exit: baseline
+    by: 1
+    when:
       right:
         family:
         - qsYe

@@ -5,7 +5,6 @@ Scratch for the ·Jay migration. Delete when the sitting closes the batch, lifti
 ## Parked
 
 - The drafted ductus in `glyph_data/runes/qsJay.yaml` and `glyph_data/runes/qsJay_qsUtter.yaml` await the author's vet; their `# DRAFT` markers are the worklist.
-- The new review units await their sitting. `make verdict-ready` is the readiness authority.
 - Issue #208 (re-adjudicate qsTea's qsJay-keyed contract) and issue #211 (qsIt's dead-listed x-height refusal) are discharged by the records below; closing them and deleting the `waits on ·Jay` label are GitHub mutations on a public repo and wait for the author.
 
 ## Recorded design overrides
