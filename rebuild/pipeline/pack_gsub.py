@@ -4,12 +4,13 @@ The pass is encoding-only by construction. It reads each qualifying lookup's for
 
 Verification is read-back's, and empirical rather than trusted: `rebuild/pipeline/readback.py` decompiles the settlement lookup off the written font through `per_glyph_sequences` and holds every input glyph's ordered rule sequence to the plan's, so the packing is proven over the bytes that shipped rather than by replaying its own output in memory, and the compiled font then faces the same conform sweep as before — the packing changes what read-back measures, never what shapes.
 
+Singleton-input streams place new groups and passthrough subtables immediately after their previous group, or at the beginning for their first rule. This earliest legal insertion leaves existing unrelated groups available for later rules in the same stream to share. Streams run in descending size order with stable first-seen ties; rules inside each stream retain their original order.
+
 feaLib can emit native format-2 subtables among the format-3 rules. These remain in place as barriers: each contiguous format-3 run packs independently, so no rule crosses a native subtable. Both formats qualify when every rule has one input glyph and substitutions only at sequence index 0; a lookup already entirely in format 2 needs no packing.
 """
 
 from __future__ import annotations
 
-from collections import Counter
 from dataclasses import dataclass
 from typing import Any
 
@@ -191,11 +192,31 @@ def _self_compatible(rule: LogicalRule) -> bool:
 
 
 def _group_rules(entries: list[tuple[LogicalRule, Any]]) -> list[_Group | Any]:
-    """Order-preserving greedy over (logical rule, original subtable) pairs: disjoint singleton-input streams are considered largest first, stably preserving each glyph's rule order, so smaller streams can fill compatible groups behind the larger streams. A run containing any multi-glyph input keeps its original traversal order because intersecting input sets can compete. Sorting rearranges the existing entry list in place; counts hold only one integer per input set, and the sort's temporary storage holds references rather than copies of rules or subtables. Packable rules land in the earliest compatible `_Group` at or after their input glyphs' last group; self-incompatible rules become passthrough singletons holding their original subtable object."""
-    if all(len(rule.input) == 1 for rule, _original in entries):
-        counts = Counter(rule.input for rule, _original in entries)
-        entries.sort(key=lambda entry: -counts[entry[0].input])
+    """Order-preserving greedy over (logical rule, original subtable) pairs. Disjoint singleton-input streams run largest first, with ties in first-seen order and each stream in original rule order. Each rule shares the earliest compatible group at or after its stream's last group, or inserts a new group immediately after that position (at the beginning for a stream's first rule). Self-incompatible rules insert their original subtables at the same earliest legal position. Stream lists hold references to the entries, not copies of rules or subtables. A run containing any multi-glyph input keeps its original traversal and appends new groups, because intersecting input sets can compete."""
     groups: list[_Group | Any] = []
+    if all(len(rule.input) == 1 for rule, _original in entries):
+        streams: dict[frozenset[str], list[tuple[LogicalRule, Any]]] = {}
+        for entry in entries:
+            streams.setdefault(entry[0].input, []).append(entry)
+        for stream in sorted(streams.values(), key=len, reverse=True):
+            last_index = -1
+            for rule, original in stream:
+                if _self_compatible(rule):
+                    for index in range(max(last_index, 0), len(groups)):
+                        candidate = groups[index]
+                        if isinstance(candidate, _Group) and candidate.accepts(rule):
+                            candidate.add(rule)
+                            last_index = index
+                            break
+                    else:
+                        group = _Group()
+                        group.add(rule)
+                        last_index += 1
+                        groups.insert(last_index, group)
+                else:
+                    last_index += 1
+                    groups.insert(last_index, original)
+        return groups
     last_group_of_glyph: dict[str, int] = {}
     for rule, original in entries:
         start = max((last_group_of_glyph.get(glyph, 0) for glyph in rule.input), default=0)

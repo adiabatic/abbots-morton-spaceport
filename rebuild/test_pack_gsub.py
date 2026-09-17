@@ -167,6 +167,31 @@ def packed_pair(tmp_path_factory):
 
 
 class TestPackGsub:
+    @pytest.mark.parametrize("passthrough", [False, True])
+    def test_smaller_stream_inserts_before_groups_its_later_rules_can_share(self, passthrough):
+        early_context = "[B C] B" if passthrough else "[B C]"
+        font = _build_font(f"""
+lookup t_settle useExtension {{
+    sub A' B by A.alt1;
+    sub A' B C by A.alt2;
+    sub A' B D by A.alt3;
+    sub B' {early_context} by B.alt1;
+    sub B' B by B.alt1;
+}} t_settle;
+feature calt {{ lookup t_settle; }} calt;
+""")
+        lookup = _settle_lookup(font)
+        before = pack_gsub.per_glyph_sequences(lookup)
+
+        pack_gsub.pack_lookup(lookup, font.getGlyphOrder())
+
+        assert lookup.SubTableCount == 2
+        assert [subtable.ExtSubTable.Format for subtable in lookup.SubTable] == [
+            3 if passthrough else 2,
+            2,
+        ]
+        assert pack_gsub.per_glyph_sequences(lookup) == before
+
     def test_larger_input_streams_pack_first_without_reordering_competing_rules(self):
         ot = pack_gsub._ot()
 
