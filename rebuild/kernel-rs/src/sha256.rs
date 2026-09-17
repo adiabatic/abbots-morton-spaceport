@@ -1,6 +1,8 @@
-//! SHA-256, FIPS 180-4, for the one thing the kernel hashes: the content-addressed deep-class ids of `rebuild/pipeline/table.py`'s `deep_class_id`, which ride the transitions stream and therefore have to agree with Python's `hashlib.sha256` digit for digit.
+//! SHA-256, FIPS 180-4, for content-addressed deep-class ids and table contract digests, both of which agree with Python's `hashlib.sha256` digit for digit.
 //!
-//! Hand-written rather than depended on. `Cargo.toml` carries `serde_json` and nothing else on purpose — the crate's one boundary is JSON — and a digest this small is cheaper to spell out here than to justify a second dependency and its transitive tree for. The implementation is the reference one with no shortcuts: no length-prefix tricks, no streaming state, one allocation for the padded message, since the longest thing it ever hashes is a tab-joined list of rune names.
+//! The incremental state retains one 64-byte block and the message length, so hashing a table requires no corpus-sized message or padding allocation. `digest_hex` supplies the one-shot interface for tab-joined rune names; table hashing feeds the same state a row at a time.
+
+use std::fmt::Write as _;
 
 /// The round constants, the first 32 bits of the fractional parts of the cube roots of the first 64 primes.
 const ROUND_CONSTANTS: [u32; 64] = [
@@ -21,23 +23,72 @@ const INITIAL_STATE: [u32; 8] = [
 
 /// One message's digest as 64 lowercase hex digits, which is what `hashlib.sha256(...).hexdigest()` returns.
 pub fn digest_hex(message: &[u8]) -> String {
-    let mut state = INITIAL_STATE;
-    let bits = (message.len() as u64) * 8;
-    let mut padded = Vec::with_capacity(message.len() + 72);
-    padded.extend_from_slice(message);
-    padded.push(0x80);
-    while padded.len() % 64 != 56 {
-        padded.push(0);
+    let mut digest = Sha256::new();
+    digest.update(message);
+    digest.finish()
+}
+
+pub struct Sha256 {
+    state: [u32; 8],
+    buffer: [u8; 64],
+    buffered: usize,
+    bytes: u64,
+}
+
+impl Default for Sha256 {
+    fn default() -> Self {
+        Self::new()
     }
-    padded.extend_from_slice(&bits.to_be_bytes());
-    for block in padded.as_chunks::<64>().0 {
-        compress(&mut state, block);
+}
+
+impl Sha256 {
+    pub fn new() -> Self {
+        Self {
+            state: INITIAL_STATE,
+            buffer: [0; 64],
+            buffered: 0,
+            bytes: 0,
+        }
     }
-    let mut out = String::with_capacity(64);
-    for word in state {
-        out.push_str(&format!("{word:08x}"));
+
+    pub fn update(&mut self, mut message: &[u8]) {
+        self.bytes = self.bytes.wrapping_add(message.len() as u64);
+        if self.buffered > 0 {
+            let take = message.len().min(64 - self.buffered);
+            self.buffer[self.buffered..self.buffered + take].copy_from_slice(&message[..take]);
+            self.buffered += take;
+            message = &message[take..];
+            if self.buffered < 64 {
+                return;
+            }
+            compress(&mut self.state, &self.buffer);
+            self.buffered = 0;
+        }
+        let (blocks, remainder) = message.as_chunks::<64>();
+        for block in blocks {
+            compress(&mut self.state, block);
+        }
+        self.buffer[..remainder.len()].copy_from_slice(remainder);
+        self.buffered = remainder.len();
     }
-    out
+
+    pub fn finish(mut self) -> String {
+        let bits = self.bytes.wrapping_mul(8);
+        self.buffer[self.buffered] = 0x80;
+        self.buffered += 1;
+        self.buffer[self.buffered..].fill(0);
+        if self.buffered > 56 {
+            compress(&mut self.state, &self.buffer);
+            self.buffer.fill(0);
+        }
+        self.buffer[56..].copy_from_slice(&bits.to_be_bytes());
+        compress(&mut self.state, &self.buffer);
+        let mut out = String::with_capacity(64);
+        for word in self.state {
+            write!(&mut out, "{word:08x}").unwrap();
+        }
+        out
+    }
 }
 
 /// One 64-byte block folded into the state: the message schedule, then the sixty-four rounds over the eight working variables, then the Davies-Meyer addition back into the state.
@@ -109,6 +160,107 @@ mod tests {
             digest_hex(&vec![b'a'; 1_000_000]),
             "cdc76e5c9914fb9281a1c7e284d73e67f1809a48a497200e046d39ccc7112cd0"
         );
+    }
+
+    #[test]
+    fn published_vectors_accept_awkward_chunks_and_empty_updates() {
+        for (message, expected) in [
+            (
+                b"abcdefghbcdefghicdefghijdefghijkefghijklfghijklmghijklmnhijklmnoijklmnopjklmnopqklmnopqrlmnopqrsmnopqrstnopqrstu".as_slice(),
+                "cf5b16a778af8380036ce59e7b0492370b249b11e8f07a51afac45037afee9d1",
+            ),
+            (
+                b"".as_slice(),
+                "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            ),
+            (
+                b"abc".as_slice(),
+                "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad",
+            ),
+            (
+                b"abcdbcdecdefdefgefghfghighijhijkijkljklmklmnlmnomnopnopq".as_slice(),
+                "248d6a61d20638b8e5c026930c3e6039a33ce45964ff2167f6ecedd419db06c1",
+            ),
+        ] {
+            for width in [1, 7, 55, 56, 63, 64, 65] {
+                let mut digest = Sha256::new();
+                digest.update(b"");
+                for chunk in message.chunks(width) {
+                    digest.update(chunk);
+                    digest.update(b"");
+                }
+                assert_eq!(digest.finish(), expected, "chunk width {width}");
+            }
+        }
+        let mut digest = Sha256::new();
+        let chunk = [b'a'; 997];
+        for _ in 0..(1_000_000 / chunk.len()) {
+            digest.update(&chunk);
+            digest.update(b"");
+        }
+        digest.update(&chunk[..1_000_000 % chunk.len()]);
+        assert_eq!(
+            digest.finish(),
+            "cdc76e5c9914fb9281a1c7e284d73e67f1809a48a497200e046d39ccc7112cd0"
+        );
+    }
+
+    /// Independently computed `shasum -a 256` answers cover the padding and block boundaries, with every two-part split exercising partial-buffer completion.
+    #[test]
+    fn padding_boundaries_accept_every_split() {
+        for (length, expected) in [
+            (
+                55,
+                "9f4390f8d30c2dd92ec9f095b65e2b9ae9b0a925a5258e241c9f1e910f734318",
+            ),
+            (
+                56,
+                "b35439a4ac6f0948b6d6f9e3c6af0f5f590ce20f1bde7090ef7970686ec6738a",
+            ),
+            (
+                63,
+                "7d3e74a05d7db15bce4ad9ec0658ea98e3f06eeecf16b4c6fff2da457ddc2f34",
+            ),
+            (
+                64,
+                "ffe054fe7ae0cb6dc65c3af9b61d5209f439851db43d0ba5997337df154668eb",
+            ),
+            (
+                65,
+                "635361c48bb9eab14198e76ea8ab7f1a41685d6ad62aa9146d301d4f17eb0ae0",
+            ),
+            (
+                119,
+                "31eba51c313a5c08226adf18d4a359cfdfd8d2e816b13f4af952f7ea6584dcfb",
+            ),
+            (
+                120,
+                "2f3d335432c70b580af0e8e1b3674a7c020d683aa5f73aaaedfdc55af904c21c",
+            ),
+            (
+                127,
+                "c57e9278af78fa3cab38667bef4ce29d783787a2f731d4e12200270f0c32320a",
+            ),
+            (
+                128,
+                "6836cf13bac400e9105071cd6af47084dfacad4e5e302c94bfed24e013afb73e",
+            ),
+            (
+                129,
+                "c12cb024a2e5551cca0e08fce8f1c5e314555cc3fef6329ee994a3db752166ae",
+            ),
+        ] {
+            let message = vec![b'a'; length];
+            assert_eq!(digest_hex(&message), expected);
+            for split in 0..=length {
+                let mut digest = Sha256::new();
+                digest.update(&message[..split]);
+                digest.update(b"");
+                digest.update(&message[split..]);
+                digest.update(b"");
+                assert_eq!(digest.finish(), expected, "length {length}, split {split}");
+            }
+        }
     }
 
     /// The shape the class ids are cut from: a tab-joined member list, hashed and cut to twelve digits. Every constant here is `hashlib`'s own answer for the same input, computed outside this crate — the ids ride the transitions stream, so agreeing with Python digit for digit is the whole contract, and a comparison of the crate against itself would pin nothing.
