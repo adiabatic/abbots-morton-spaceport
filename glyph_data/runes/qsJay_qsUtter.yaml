@@ -3,8 +3,8 @@ sequence:
 - qsJay
 - qsUtter
 ductus:
-  hapax: | # DRAFT — pending author sign-off
-    The ·Jay stroke and the ·Utter stroke drawn as one motion: the ·Jay part as usual along the crown and down through its descender, but instead of ending at the bottom left, the stroke doubles back and climbs diagonally up and to the right, out of the descender and past the baseline, and finishes with ·Utter's short rightward crown at the x-height, where it may connect to the next letter.
+  hapax: |
+    The ·Jay stroke and the ·Utter stroke drawn as one motion: the ·Jay part as usual along the crown and down through its descender, but instead of ending at the bottom left, the stroke doubles back and climbs diagonally up and to the right, out of the descender and past the baseline, and finishes with ·Utter’s short rightward crown at the x-height, where it may connect to the next letter.
 stances:
   hapax:
     motion: hapax
