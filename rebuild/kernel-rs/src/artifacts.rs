@@ -1,8 +1,10 @@
-//! The four things one configuration's fold leaves behind: `settlement-<config>.tsv`, `treaties-<config>.tsv`, the windows enumeration and the contract digest. Every separator, every `-` standing for an absent slot and every ordering here was transcribed from `rebuild/pipeline/table.py`'s writers rather than reinvented, and byte-identity of these files across that move was the whole proof standard. Two of those writers are still there, no longer as the build's path but as the second implementation `rebuild/test_windows.py` holds these bytes to: it reads an artifact back through `table.read_windows` and `table.read_treaty_tsv`, writes it out again through `DecisionTable.write_tsv` and `TreatyTable.write_tsv`, and requires the same bytes and the same `table.table_digest`.
+//! The four things one configuration's fold leaves behind: `settlement-<config>.tsv`, `treaties-<config>.tsv`, the windows enumeration and the contract digest. Every separator, every `-` standing for an absent slot and every ordering agrees with `rebuild/pipeline/table.py`'s writers. `rebuild/test_windows.py` reads an artifact back through `table.read_windows` and `table.read_treaty_tsv`, writes it out again through `DecisionTable.write_tsv` and `TreatyTable.write_tsv`, and requires the same bytes and the same `table.table_digest`.
 //!
 //! The windows payload is written **uncompressed**. `run_m1._pack_windows` gzips it into `windows-<config>.tsv.gz` with a zeroed stamp, which keeps the compressor on the side of the boundary that already owns it — this crate carries serde_json and nothing else, as the transitions stream's own note says — and keeps the artifact's identity claim on the decompressed bytes.
 //!
 //! The digest is not a file. It is one scalar per configuration, reported on stdout for the caller to hold in acceptance order, rather than a second per-configuration artifact family that nothing else reads and that a stale copy could poison.
+//!
+//! Table hashing feeds SHA-256 in section order with one reusable row buffer, keeping digest storage independent of the window corpus. Window writing and hashing share the row formatter and remain separate passes.
 
 use std::fmt::Write as _;
 use std::io::Write as _;
@@ -204,12 +206,7 @@ pub fn write_windows(
     out.write_all(line.as_bytes())?;
     for row in &decision.transitions {
         line.clear();
-        for label in row.key() {
-            line.push_str(label);
-            line.push('\t');
-        }
-        line.push_str(&row.outcome);
-        line.push('\n');
+        window_line_into(&mut line, row);
         out.write_all(line.as_bytes())?;
     }
     out.flush()
@@ -328,34 +325,40 @@ fn rule_json(rule: &Rule) -> String {
 ///
 /// The cells section is the one place the digest reads Python's own reprs rather than a tab-joined text: an absent height is the string `None` and the adjustments are a tuple repr, because the Python original interpolates the dataclass fields straight into an f-string.
 pub fn table_digest(index: &SpecIndex, decision: &DecisionTable, treaty: &TreatyTable) -> String {
-    let mut message: Vec<u8> = Vec::new();
-    message.extend_from_slice(format!("config\t{}\n", decision.config).as_bytes());
+    let mut digest = sha256::Sha256::new();
+    let mut line = String::new();
+    let _ = writeln!(&mut line, "config\t{}", decision.config);
+    digest.update(line.as_bytes());
     for rule in &decision.rules {
-        message.extend_from_slice(rule_line(rule).as_bytes());
-        message.push(b'\n');
+        digest.update(rule_line(rule).as_bytes());
+        digest.update(b"\n");
     }
-    message.extend_from_slice(b"--windows--\n");
+    digest.update(b"--windows--\n");
     for row in &decision.transitions {
-        message.extend_from_slice(window_line(row).as_bytes());
-        message.push(b'\n');
+        line.clear();
+        window_line_into(&mut line, row);
+        digest.update(line.as_bytes());
     }
-    message.extend_from_slice(b"--treaty--\n");
+    digest.update(b"--treaty--\n");
     for row in &treaty.rows {
+        line.clear();
         let _ = writeln!(
-            &mut message,
+            &mut line,
             "{}\t{}\t{}\t{}\t{}",
             row.left, row.right, row.junction, row.extension, row.kern
         );
+        digest.update(line.as_bytes());
     }
-    message.extend_from_slice(b"--cells--\n");
+    digest.update(b"--cells--\n");
     for cell in sorted_cells(index, &decision.cells) {
         let adjustments: Vec<String> = cell
             .adjustments
             .iter()
             .map(|token| crate::stream::python_repr(&adjustment_text(index, *token)))
             .collect();
+        line.clear();
         let _ = writeln!(
-            &mut message,
+            &mut line,
             "{}\t{}\t{}\t{}\t{}",
             index.resolve(cell.rune),
             index.resolve(cell.stance),
@@ -363,8 +366,9 @@ pub fn table_digest(index: &SpecIndex, decision: &DecisionTable, treaty: &Treaty
             cell.exit.map_or("None", |height| index.resolve(height)),
             crate::stream::python_tuple(&adjustments)
         );
+        digest.update(line.as_bytes());
     }
-    message.extend_from_slice(b"--provenance--\n");
+    digest.update(b"--provenance--\n");
     let mut cited: Vec<&str> = decision
         .cited_provenance
         .iter()
@@ -373,26 +377,23 @@ pub fn table_digest(index: &SpecIndex, decision: &DecisionTable, treaty: &Treaty
     cited.sort_unstable();
     cited.dedup();
     for pointer in cited {
-        message.extend_from_slice(pointer.as_bytes());
-        message.push(b'\n');
+        digest.update(pointer.as_bytes());
+        digest.update(b"\n");
     }
-    let _ = writeln!(
-        &mut message,
-        "--guards--\t{}",
-        decision.identity_guard_rules
-    );
-    sha256::digest_hex(&message)
+    line.clear();
+    let _ = writeln!(&mut line, "--guards--\t{}", decision.identity_guard_rules);
+    digest.update(line.as_bytes());
+    digest.finish()
 }
 
-/// One window row's seven tab-separated labels, which the windows body and the digest share.
-fn window_line(row: &TransitionRow) -> String {
-    let mut out = String::new();
+/// One window row's seven tab-separated labels and trailing newline, which the windows body and the digest share.
+fn window_line_into(out: &mut String, row: &TransitionRow) {
     for label in row.key() {
         out.push_str(label);
         out.push('\t');
     }
     out.push_str(&row.outcome);
-    out
+    out.push('\n');
 }
 
 #[cfg(test)]

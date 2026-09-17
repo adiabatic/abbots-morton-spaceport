@@ -248,13 +248,14 @@ class TestBuildStageHandoff:
             table_module.windows_path(tmp_path, config).name for config in conform.SETTLEMENT_CONFIGS
         )
 
-    def test_the_crates_artifacts_are_what_this_sides_writers_write_back(self, build_a, tmp_path):
+    @pytest.mark.parametrize("config", conform.SETTLEMENT_CONFIGS)
+    def test_the_crates_artifacts_are_what_this_sides_writers_write_back(self, build_a, tmp_path, config):
         """Both TSVs are the crate's bytes now, so what keeps this side's copies of those writers and of `table_digest` honest is that they reproduce them: read the enumeration and the treaty rows back, write them out again here, and require the same bytes and the same digest the crate reported at build time. A rule-ordering divergence between the two sides shows in the settlement TSV, which is the shipped GSUB order."""
         out_dir, _tables, digests = build_a
-        _inputs, decision = table_module.read_windows(table_module.windows_path(out_dir, "default"))
-        treaty = table_module.read_treaty_tsv(out_dir / "treaties-default.tsv")
-        decision.write_tsv(tmp_path / "settlement-default.tsv")
-        treaty.write_tsv(tmp_path / "treaties-default.tsv")
-        for name in ("settlement-default.tsv", "treaties-default.tsv"):
+        _inputs, decision = table_module.read_windows(table_module.windows_path(out_dir, config))
+        treaty = table_module.read_treaty_tsv(out_dir / f"treaties-{config}.tsv")
+        decision.write_tsv(tmp_path / f"settlement-{config}.tsv")
+        treaty.write_tsv(tmp_path / f"treaties-{config}.tsv")
+        for name in (f"settlement-{config}.tsv", f"treaties-{config}.tsv"):
             assert (tmp_path / name).read_bytes() == (out_dir / name).read_bytes(), name
-        assert digests["default"] == table_module.table_digest(decision, treaty)
+        assert digests[config] == table_module.table_digest(decision, treaty)
