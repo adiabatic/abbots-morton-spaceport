@@ -461,8 +461,9 @@ def _pair_coverage(units, blankness, rule_id, shape, match):
 
 
 def _form_coverage(units, blankness, rule_id, shape, match):
-    """The form-naming shapes' coverage: the survey over the rule's whole family, with each list the rule names relaxed while its other lists hold — the before forms settling into a named after form that no before pivot covers, the after forms (as the after font names them) a named before form settles into that no after pivot covers, and for entry-contracted the left families a named before form under a named after form stands after. Holding the other lists is what keeps this a docket about the rule's own change: nothing else on the before side pins a redraw at the name grain, and relaxing every list at once would list the family's every unrelated position."""
+    """The form-naming shapes' coverage: the survey over the rule's whole family, with each list the rule names relaxed while its other lists hold — the before forms settling into a named after form that no before pivot covers, the after forms (as the after font names them) a named before form settles into that no after pivot covers, and for entry-contracted the left families a named before form under a named after form stands after. A before form the rule explicitly declines belongs to its companion's survey and stays out of every axis here. Holding the other lists is what keeps this a docket about the rule's own change: nothing else on the before side pins a redraw at the name grain, and relaxing every list at once would list the family's every unrelated position."""
     before_named, after_named = match["before"]["pivots"], match["after"]["pivots"]
+    declined = match["before"].get("except_pivots", ())
     family = sv._family(before_named[0])
     rows, _skipped = _survey_positions(units, blankness, family)
     axes = [
@@ -481,6 +482,8 @@ def _form_coverage(units, blankness, rule_id, shape, match):
     for label, field, is_named, shown in axes:
         tallies: dict[str, collections.Counter] = collections.defaultdict(collections.Counter)
         for key, tally in rows.items():
+            if sv._named_pivot(key.glyph, declined):
+                continue
             value = getattr(key, field)
             if value == EDGE or is_named(value):
                 continue

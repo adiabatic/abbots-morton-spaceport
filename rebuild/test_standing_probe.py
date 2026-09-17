@@ -574,6 +574,23 @@ def test_coverage_names_the_left_families_an_entry_contracted_rule_does_not(tmp_
     assert "after forms: the rule names every one this enumeration reaches" in out
 
 
+def test_coverage_leaves_a_declined_entry_contraction_form_to_its_companion(tmp_path, capsys):
+    rule = json.loads(json.dumps(ENTRY_RULE))
+    rule["match"]["before"]["except_pivots"] = ["qsGay.en-y0.ex-y5.en-con-1"]
+    units = [
+        gay_window("e-1", "qsBay", "qsGay.en-y0.ex-y5", "qsGay/hapax/baseline/x-height/en-con-1"),
+        gay_window(
+            "e-2",
+            "qsDay",
+            "qsGay.en-y0.ex-y5.en-con-1",
+            "qsGay/hapax/baseline/x-height/en-con-1",
+        ),
+    ]
+    out = _run(tmp_path, capsys, units, ["--coverage", rule["id"]], rules=(EXT_RULE, rule))
+    assert "left families: the rule names every one this enumeration reaches" in out
+    assert "qsDay" not in out
+
+
 SURVEY_UNITS = [
     window(
         "s-1",
