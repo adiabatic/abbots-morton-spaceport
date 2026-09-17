@@ -77,6 +77,26 @@ policy:
         then:
           except:
           - {family: qsPea}
+          - family: qsIt
+            then:
+              family:
+              - qsDay
+              - qsDay_qsUtter
+              - qsZoo
+              - qsJai
+              - qsJai_qsUtter
+              - qsCheer
+              - qsJay
+              - qsJay_qsUtter
+              - qsRoe
+              - qsLlan
+              - qsEight
+              - qsI
+              - qsAwe
+              - qsOx
+              - qsUtter
+              - qsOwe
+              - qsFoot
   - cell: {exit: none}
     over: {exit: baseline}
     when:

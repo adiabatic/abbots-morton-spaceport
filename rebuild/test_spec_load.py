@@ -800,21 +800,33 @@ def _chain_bearing_excepts(condition, found):
 
 
 CHAIN_BEARING_EXCEPT_RECORDS = (
+    ("qsAwe.prefer[0]", 2),
+    ("qsBay.prefer[0]", 2),
+    ("qsCheer.prefer[0]", 2),
     ("qsDay.prefer[1]", 2),
     ("qsDay.prefer[5]", 3),
+    ("qsEight.prefer[0]", 2),
     ("qsGay.prefer[0]", 1),
+    ("qsGay.prefer[2]", 2),
     ("qsIt.prefer[1]", 1),
     ("qsIt.prefer[2]", 1),
     ("qsIt.prefer[3]", 1),
     ("qsIt.prefer[4]", 1),
     ("qsIt.prefer[5]", 1),
     ("qsIt.prefer[7]", 1),
+    ("qsJai.prefer[0]", 2),
+    ("qsJay.prefer[0]", 2),
+    ("qsKey.prefer[0]", 2),
     ("qsMay.prefer[0]", 1),
     ("qsNo.prefer[5]", 1),
+    ("qsOoze.prefer[0]", 2),
+    ("qsOx.prefer[0]", 2),
     ("qsOy.prefer[0]", 3),
     ("qsSee.prefer[0]", 1),
     ("qsTea_qsOy.prefer[0]", 3),
+    ("qsThey_qsZoo.prefer[1]", 2),
     ("qsUtter.prefer[2]", 1),
+    ("qsZoo.prefer[2]", 2),
 )
 
 
@@ -846,7 +858,7 @@ def test_the_qsday_depth_three_chains_both_hop_through_qsno(spec):
         and record.when.right.then.then is not None
         and record.provenance is not None
     }
-    assert spines == {"qsDay.prefer[3]", "qsDay.prefer[4]", "qsUtter.prefer[4]"}
+    assert spines == {"qsDay.prefer[3]", "qsDay.prefer[4]", "qsEight.prefer[1]", "qsUtter.prefer[4]"}
     tails = []
     for record in spec.runes["qsDay"].policy.prefer[3:5]:
         right = record.when.right
