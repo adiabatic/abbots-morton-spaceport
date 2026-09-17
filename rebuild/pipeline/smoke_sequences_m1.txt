@@ -1553,7 +1553,7 @@ E65F E67A E656           # ·Jay·Utter un-forms: alternate ·Utter takes the ba
 E65F E67A E659           # ·Jay·Utter un-forms before ·Vie
 E65F E67A E667           # ·Jay·Utter un-forms before ·Low
 E65F E67A E676           # ·Jay·Utter un-forms before ·Ah
-E65F E67A E67A           # ·Jay+Utter before ·Utter (break)
+E65F E67A E67A           # ·Jay+Utter joins the second ·Utter at the x-height
 E65F E67A E650           # ·Jay+Utter's x-height exit into ·Pea
 E65F E67A E651           # ·Jay+Utter's extended exit into ·Bay
 E65F E67A E652           # ·Jay+Utter before ·Tea: break at default; ss03 reaches half-·Tea
