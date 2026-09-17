@@ -642,6 +642,19 @@ rules:
           - qsRoe.hapax.en-y5.ex-y0.en-con-1
         entry_contraction: 1
       except_left: []
+  - id: jay-entry-contracted-after-pea
+    verdict: approve
+    note: "·Jay sits a pixel closer in ·Pea.half ~x~ ·Jay — its x-height entry pulls in one column on qsJay's contract record, which has named qsPea since the letter landed in “Add ·Jay”; the user gave the contraction standing approval at u-6Ha6rWUuXLG, and the same tighter seam was approved in the other windows that reached a sitting"
+    match:
+      before:
+        left: qsPea
+        pivots: [qsJay.en-y5.ex-y0]
+      after:
+        pivots:
+          - qsJay.hapax.en-y5.en-con-1
+          - qsJay.hapax.en-y5.ex-y0.en-con-1
+        entry_contraction: 1
+      except_left: []
   - id: gay-no-baseline-join-retargeted
     verdict: approve
     note: "·Gay reaches up to the x-height to join ·No, where the old font joined it at the baseline, and ·No redraws into its loop stance in place — qsNo's yielding prefer takes the x-height-exit cell over the baseline-exit one whenever ·Day, ·No, ·It or ·Oy follows and the left letter is neither ·Pea nor ·It, on the why recorded in “Give ·Pea·No the baseline join no matter what follows it” (its right-family list from “Let ·Day and ·No yield so ·Tea groups forward in ·Day·Tea·Day, ·Day·Tea·It, and ·No·Tea·It”), and ·Gay reached that prefer in “Add ·Gay”; every window that reached a sitting approved the raised join. ·No holds its own advance across the change, so whatever follows the pair moves only by what ·No's own outgoing seam does — no-xheight-join-created, no-jai-xheight-join-created, no-fee-xheight-join-created and no-oy-xheight-join-created name the joins that seam opens, no-baseline-join-retargeted the one it raises, and no-thaw-baseline-join-dropped and no-gay-baseline-join-dropped the reaches it loses, each of them explaining its half of the window beside this rule. gay-no-xheight-extension-added is the other ·Gay·No phenomenon, where the old font already exited at the x-height, and tea-no-xheight-join-retargeted, pea-no-xheight-join-retargeted and it-no-xheight-join-retargeted record ·No's seam moving the other way"
