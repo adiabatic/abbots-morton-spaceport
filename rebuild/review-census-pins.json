@@ -106,9 +106,9 @@
         "bare-name-live-join": 546885
       },
       "secondary_seams": {
-        "units_with_markers": 173405,
+        "units_with_markers": 173395,
         "seams_homed": 137588,
-        "seams_homeless": 49850,
+        "seams_homeless": 49835,
         "seams_suppressed_invisible": 1419
       }
     },
@@ -199,8 +199,8 @@
         "oy-it-baseline": 122,
         "may-utter-gains": 1037,
         "seam-loss-withdrawal": 13036,
-        "extension-non-summing": 92916,
-        "unmatched-misc": 14069,
+        "extension-non-summing": 92902,
+        "unmatched-misc": 14083,
         "deferred-ss04": 11125,
         "deferred-ss03": 7023
       },
