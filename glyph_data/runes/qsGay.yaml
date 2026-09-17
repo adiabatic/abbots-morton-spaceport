@@ -116,6 +116,7 @@ stances:
             - qsCheer
             - qsJay
             - qsJay_qsUtter
+            - qsYe
             - qsNo
             # ·Gay·Et should stay connected — there's no reason for them to not connect
             - qsEt

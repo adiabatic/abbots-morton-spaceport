@@ -1298,3 +1298,71 @@
   why: The preserved half-·Zoo tail in `·They+Zoo ~b~ ·Zoo.half` has the same ink relative to the seam as the accepted half-·Zoo corner at y=-1.
 - signature: contact:qsThey_qsZoo.hapax.ex-y0:qsZoo.half.en-y0.ex-y0:y-1
   why: The preserved half-·Zoo tail in `·They+Zoo ~b~ ·Zoo.half` has the same accepted corner at y=-1; the follower's outgoing anchor changes no ink there.
+
+# ·Ye's baseline entry sits on the foot of its stem, so a baseline left lands its last column against the stem and the two bodies stand side by side above the seam: a Tall left's upright beside ·Ye's loop tail at y6 (·Cheer, ·Key), a Short left's bowl beside the stem at y1 (·Ooze, ·Ox, ·Oy and the ·Tea·Oy ligature). The shipped font places the same anchors with no adjustment (baseline rows E65E:E660, E654:E660, E67E:E660, E678:E660, E679:E660, E652:E679:E660), so the adjacency is the old drawing. One signature per left entry/adjustment/lock variant; the seam is identical in all of them.
+- signature: contact:qsCheer.hapax.en-y5.ex-y0:qsYe.loop.en-y0:y6
+- signature: contact:qsCheer.hapax.en-y5.ex-y0.en-ext-1:qsYe.loop.en-y0:y6
+- signature: contact:qsCheer.hapax.ex-y0:qsYe.loop.en-y0:y6
+- signature: contact:qsCheer.hapax.ex-y0.locked:qsYe.loop.en-y0:y6
+- signature: contact:qsKey.hapax.en-y8.ex-y0:qsYe.loop.en-y0:y6
+- signature: contact:qsKey.hapax.ex-y0:qsYe.loop.en-y0:y6
+- signature: contact:qsKey.hapax.ex-y0.locked:qsYe.loop.en-y0:y6
+- signature: contact:qsOoze.hapax.en-y0.ex-y0:qsYe.loop.en-y0:y1
+- signature: contact:qsOoze.hapax.ex-y0:qsYe.loop.en-y0:y1
+- signature: contact:qsOoze.hapax.ex-y0.locked:qsYe.loop.en-y0:y1
+- signature: contact:qsOx.hapax.en-y5.ex-y0:qsYe.loop.en-y0:y1
+- signature: contact:qsOx.hapax.en-y5.ex-y0.en-ext-1:qsYe.loop.en-y0:y1
+- signature: contact:qsOx.hapax.ex-y0:qsYe.loop.en-y0:y1
+- signature: contact:qsOx.hapax.ex-y0.locked:qsYe.loop.en-y0:y1
+- signature: contact:qsOy.hapax.en-y5.ex-y0:qsYe.loop.en-y0:y1
+- signature: contact:qsOy.hapax.ex-y0:qsYe.loop.en-y0:y1
+- signature: contact:qsOy.hapax.ex-y0.locked:qsYe.loop.en-y0:y1
+- signature: contact:qsTea_qsOy.hapax.ex-y0:qsYe.loop.en-y0:y1
+
+# ·Gay's x-height exit lands ·Ye's climbing loop one column past ·Gay's stroke, and ·Gay's descender then stands beside ·Ye's stem at the baseline. The shipped font places the same anchors with no adjustment (baseline row E655:E660), so the adjacency is the old drawing. One signature per ·Gay entry/contraction/lock variant and per ·Ye exit variant; the seam is identical in all of them.
+- signature: contact:qsGay.hapax.en-y0.ex-y5:qsYe.climbing-loop.en-y5:y0
+- signature: contact:qsGay.hapax.en-y0.ex-y5:qsYe.climbing-loop.en-y5.ex-y0:y0
+- signature: contact:qsGay.hapax.en-y0.ex-y5:qsYe.climbing-loop.en-y5.ex-y0.ex-ext-1:y0
+- signature: contact:qsGay.hapax.en-y0.ex-y5.en-con-1:qsYe.climbing-loop.en-y5:y0
+- signature: contact:qsGay.hapax.en-y0.ex-y5.en-con-1:qsYe.climbing-loop.en-y5.ex-y0:y0
+- signature: contact:qsGay.hapax.en-y0.ex-y5.en-con-1:qsYe.climbing-loop.en-y5.ex-y0.ex-ext-1:y0
+- signature: contact:qsGay.hapax.ex-y5:qsYe.climbing-loop.en-y5:y0
+- signature: contact:qsGay.hapax.ex-y5:qsYe.climbing-loop.en-y5.ex-y0:y0
+- signature: contact:qsGay.hapax.ex-y5:qsYe.climbing-loop.en-y5.ex-y0.ex-ext-1:y0
+- signature: contact:qsGay.hapax.ex-y5.locked:qsYe.climbing-loop.en-y5:y0
+- signature: contact:qsGay.hapax.ex-y5.locked:qsYe.climbing-loop.en-y5.ex-y0:y0
+- signature: contact:qsGay.hapax.ex-y5.locked:qsYe.climbing-loop.en-y5.ex-y0.ex-ext-1:y0
+
+# ·Ye's baseline exit is one column right of its stem, so a baseline follower's left edge stands beside the stem where it rises from the seam: ·Utter and the normal ·Out at y1, ·Ooze, the swept-up ·Out and the ·Out·Tea ligature at y2. The shipped font places the same anchors with no adjustment (baseline rows E660:E67A, E660:E67B, E660:E67E, E660:E67B:E652, E660:E67B:E658), so the adjacency is the old drawing. One signature per ·Ye stance/lock variant and per follower exit variant; the seam is identical in all of them.
+- signature: contact:qsYe.climbing-loop.en-y5.ex-y0:qsOoze.hapax.en-y0:y2
+- signature: contact:qsYe.climbing-loop.en-y5.ex-y0:qsOoze.hapax.en-y0.ex-y0:y2
+- signature: contact:qsYe.climbing-loop.en-y5.ex-y0:qsOut.normal.en-y0:y1
+- signature: contact:qsYe.climbing-loop.en-y5.ex-y0:qsOut.swept-up.en-y0.ex-y5:y2
+- signature: contact:qsYe.climbing-loop.en-y5.ex-y0:qsOut.swept-up.en-y0.ex-y5.ex-ext-1:y2
+- signature: contact:qsYe.climbing-loop.en-y5.ex-y0:qsOut_qsTea.hapax.en-y0:y2
+- signature: contact:qsYe.climbing-loop.en-y5.ex-y0:qsUtter.mono.en-y0:y1
+- signature: contact:qsYe.climbing-loop.en-y5.ex-y0:qsUtter.mono.en-y0.ex-y5:y1
+- signature: contact:qsYe.climbing-loop.en-y5.ex-y0:qsUtter.mono.en-y0.ex-y5.ex-ext-1:y1
+- signature: contact:qsYe.loop.ex-y0:qsOoze.hapax.en-y0:y2
+- signature: contact:qsYe.loop.ex-y0:qsOoze.hapax.en-y0.ex-y0:y2
+- signature: contact:qsYe.loop.ex-y0:qsOut.normal.en-y0:y1
+- signature: contact:qsYe.loop.ex-y0:qsOut.swept-up.en-y0.ex-y5:y2
+- signature: contact:qsYe.loop.ex-y0:qsOut.swept-up.en-y0.ex-y5.ex-ext-1:y2
+- signature: contact:qsYe.loop.ex-y0:qsOut_qsTea.hapax.en-y0:y2
+- signature: contact:qsYe.loop.ex-y0:qsUtter.mono.en-y0:y1
+- signature: contact:qsYe.loop.ex-y0:qsUtter.mono.en-y0.ex-y5:y1
+- signature: contact:qsYe.loop.ex-y0:qsUtter.mono.en-y0.ex-y5.ex-ext-1:y1
+- signature: contact:qsYe.loop.ex-y0.locked:qsOoze.hapax.en-y0:y2
+- signature: contact:qsYe.loop.ex-y0.locked:qsOoze.hapax.en-y0.ex-y0:y2
+- signature: contact:qsYe.loop.ex-y0.locked:qsOut.normal.en-y0:y1
+- signature: contact:qsYe.loop.ex-y0.locked:qsOut.swept-up.en-y0.ex-y5:y2
+- signature: contact:qsYe.loop.ex-y0.locked:qsOut.swept-up.en-y0.ex-y5.ex-ext-1:y2
+- signature: contact:qsYe.loop.ex-y0.locked:qsOut_qsTea.hapax.en-y0:y2
+- signature: contact:qsYe.loop.ex-y0.locked:qsUtter.mono.en-y0:y1
+- signature: contact:qsYe.loop.ex-y0.locked:qsUtter.mono.en-y0.ex-y5:y1
+- signature: contact:qsYe.loop.ex-y0.locked:qsUtter.mono.en-y0.ex-y5.ex-ext-1:y1
+
+# The curled-over ·See's baseline entry after ·Ye lifts its curl into ·Ye's loop: beside the loop at y7 after the isolated drawing, and sharing the two pixels at ·Ye's columns 3 and 4 with the wider climbing loop. The shipped font draws the same composite (baseline rows E660:E65A:E650 and E665:E660:E65A:E650, `·Ye ~b~ ·See ~6~ ·Pea` with the same glyphs at the same anchors), so the overlap is the old drawing. One signature per ·Ye stance/lock variant against the y6-exiting ·See.
+- signature: contact:qsYe.climbing-loop.en-y5.ex-y0:qsSee.curled-over.en-y0.ex-y6:overlap
+- signature: contact:qsYe.loop.ex-y0:qsSee.curled-over.en-y0.ex-y6:y7
+- signature: contact:qsYe.loop.ex-y0.locked:qsSee.curled-over.en-y0.ex-y6:y7

@@ -826,6 +826,7 @@ CHAIN_BEARING_EXCEPT_RECORDS = (
     ("qsTea_qsOy.prefer[0]", 3),
     ("qsThey_qsZoo.prefer[1]", 2),
     ("qsUtter.prefer[2]", 1),
+    ("qsYe.prefer[0]", 1),
     ("qsZoo.prefer[2]", 2),
 )
 
