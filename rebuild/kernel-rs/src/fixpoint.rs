@@ -23,7 +23,7 @@ use crate::memo::{MemoBase, MemoFile, MemoSnapshot, write_memo};
 use crate::model::Sym;
 use crate::options::{FollowerMap, WindowOptions};
 use crate::sha256;
-use crate::stream::{FixpointProduct, TransitionRow, feature_config_token};
+use crate::stream::{FixpointProduct, Label, LabelPool, TransitionRow, feature_config_token};
 use crate::types::{
     CellId, EDGE, LeftContext, NotesPool, NotesSeat, RightToken, Settled, SettledPool, SettledSeat,
     TokenKind, TransitionTrace, cell_label,
@@ -110,68 +110,7 @@ type Allowed = Rc<BTreeSet<RightToken>>;
 /// The six labels one window is keyed by, `table.Window.key`: the input glyph, the left, and the four right slots, each as the id the pool minted for its spelling.
 type WindowKey = [Label; 6];
 
-/// One window label's id in the [`LabelPool`]: the position its spelling was minted at, and nothing about the text. Two ids are equal exactly when their spellings are, because the pool mints each spelling once; their order is minting order, which no consumer reads — the product's lexicographic order is reached through [`LabelPool::ranks`] instead.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
-struct Label(u32);
-
-/// The pool one enumeration interns its window labels through: every distinct spelling allocated once, minted a [`Label`] on first sight, and named by that id in every key and row until the run is over.
-///
-/// A configuration reaches millions of windows over a few tens of thousands of distinct labels, so an owned `String` per slot was both the largest allocation count in the run and a needless copy of the same handful of names in every key, and the shared handle that replaced it was still a fat pointer per slot per row and a cache miss per slot per compare in the sort. A `u32` per slot is a quarter of that, hashes as the integer it is, and costs the run one rank table at the end: the ids sorted by their text once, so the rows can be ordered by rank tuple and come out in exactly the lexicographic order the stream contracts. The spellings are only resolved back to shared handles when the sorted product is materialized, so every raise message and every row reads as it always did.
-#[derive(Default)]
-struct LabelPool {
-    ids: HashMap<Rc<str>, Label>,
-    texts: Vec<Rc<str>>,
-}
-
 impl LabelPool {
-    /// The pool's id for this spelling, minting one only where the pool has none.
-    fn intern(&mut self, text: &str) -> Label {
-        if let Some(&found) = self.ids.get(text) {
-            return found;
-        }
-        self.mint(Rc::from(text))
-    }
-
-    /// The same for a spelling the caller had to build anyway, so that a miss reuses the buffer rather than copying it a second time.
-    fn intern_owned(&mut self, text: String) -> Label {
-        if let Some(&found) = self.ids.get(text.as_str()) {
-            return found;
-        }
-        self.mint(Rc::from(text))
-    }
-
-    /// A spelling the pool has never seen, seated at the next id.
-    fn mint(&mut self, shared: Rc<str>) -> Label {
-        let id = Label(
-            u32::try_from(self.texts.len())
-                .expect("a configuration's distinct labels number in the tens of thousands, nowhere near the u32 ids can seat"),
-        );
-        self.ids.insert(Rc::clone(&shared), id);
-        self.texts.push(shared);
-        id
-    }
-
-    /// The spelling one id was minted for, as the shared handle the product's rows carry.
-    fn text(&self, label: Label) -> &Rc<str> {
-        &self.texts[label.0 as usize]
-    }
-
-    /// One key's six spellings, which is how a complaint names the window it is about: the `Debug` form of six `&str`s is the form the same six shared handles printed as, so the sentences read as they always did.
-    fn spelled(&self, key: &WindowKey) -> [&str; 6] {
-        key.map(|label| &**self.text(label))
-    }
-
-    /// Each id's position among every spelling the pool holds, sorted as text: `ranks[id]` compares as the spelling does, so ordering rows by their rank tuple is ordering them by their key tuple without touching a string.
-    fn ranks(&self) -> Vec<u32> {
-        let mut by_text: Vec<usize> = (0..self.texts.len()).collect();
-        by_text.sort_unstable_by(|&left, &right| self.texts[left].cmp(&self.texts[right]));
-        let mut ranks = vec![0u32; self.texts.len()];
-        for (rank, id) in by_text.into_iter().enumerate() {
-            ranks[id] = u32::try_from(rank).expect("a rank is one of the ids it ranks");
-        }
-        ranks
-    }
-
     /// One right slot's label, interned — [`right_token_label`] without minting the `String` that function returns.
     fn token(&mut self, index: &SpecIndex, token: RightToken) -> Label {
         match token {
@@ -851,9 +790,7 @@ fn enumerate_seeded<'i>(
         lines.push(CacheSize::of("seen", seen.len(), seen.capacity()).line(&config));
         lines.push(CacheSize::of("settled_seats", seats.len(), seats.capacity()).line(&config));
         lines.push(CacheSize::of("notes", notes.len(), notes.capacity()).line(&config));
-        lines.push(
-            CacheSize::of("labels", labels.texts.len(), labels.texts.capacity()).line(&config),
-        );
+        lines.push(CacheSize::of("labels", labels.len(), labels.capacity()).line(&config));
         lines.push(
             CacheSize::of("pending_rows", pending_rows.len(), pending_rows.capacity())
                 .line(&config),
@@ -931,15 +868,12 @@ fn enumerate_seeded<'i>(
         .iter()
         .map(|settled| labels.intern_owned(cell_label(index, &settled.cell)))
         .collect();
-    // The sort runs over the ids, through the rank table, before a single spelling is resolved: a rank tuple compares as the key tuple does, because every id ranks as its text, and the keys are distinct, so the unstable sort reaches the one order a stable one would. Only then are the spellings put back, in the order the rows will be written in.
+    // Rank tuples compare as spelling tuples while the rows retain their product-local IDs.
     let ranks = labels.ranks();
-    let mut keyed: Vec<(WindowKey, Row)> = transitions.into_iter().collect();
-    keyed.sort_unstable_by_key(|(key, _)| key.map(|label| ranks[label.0 as usize]));
-    let rows: Vec<TransitionRow> = keyed
+    let mut rows: Vec<TransitionRow> = transitions
         .into_iter()
         .map(|(key, row)| {
-            let [input_glyph, left, right1, right2, right3, right4] =
-                key.map(|label| Rc::clone(labels.text(label)));
+            let [input_glyph, left, right1, right2, right3, right4] = key;
             TransitionRow {
                 input_glyph,
                 left,
@@ -947,7 +881,6 @@ fn enumerate_seeded<'i>(
                 right2,
                 right3,
                 right4,
-                outcome: Rc::clone(labels.text(outcomes[row.settled.index()])),
                 settled: row.settled,
                 left_settled: row.left_settled,
                 provenance: row.provenance,
@@ -956,6 +889,7 @@ fn enumerate_seeded<'i>(
             }
         })
         .collect();
+    rows.sort_unstable_by_key(|row| row.labels().map(|label| ranks[label.0 as usize]));
     if let Some(lines) = census.as_mut() {
         lines.push(format!(
             "[c] {config} resident_after_sort kb={}",
@@ -977,6 +911,8 @@ fn enumerate_seeded<'i>(
     let product = FixpointProduct {
         config,
         transitions: rows,
+        labels,
+        outcomes,
         deep_classes,
         cited_provenance,
         cells,
@@ -1259,11 +1195,20 @@ impl DeepPartitionCheck<'_, '_> {
         let mut seen3: HashMap<[&str; 4], HashMap<&str, &str>> = HashMap::default();
         let mut seen4: HashMap<([&str; 4], &str), HashMap<&str, &str>> = HashMap::default();
         for row in &product.transitions {
-            let key = row.key();
-            let family = rune_of(index, row.input_glyph.split('.').next().unwrap_or_default());
-            let right1 = rune_of(index, &row.right1);
-            let right2 = rune_of(index, &row.right2);
-            let letters_window = !boundaryish(&row.right1) && !boundaryish(&row.right2);
+            let key = row.key(&product.labels);
+            let family = rune_of(
+                index,
+                product
+                    .labels
+                    .text(row.input_glyph)
+                    .split('.')
+                    .next()
+                    .unwrap_or_default(),
+            );
+            let right1 = rune_of(index, product.labels.text(row.right1));
+            let right2 = rune_of(index, product.labels.text(row.right2));
+            let letters_window = !boundaryish(product.labels.text(row.right1))
+                && !boundaryish(product.labels.text(row.right2));
             let mut live = false;
             if letters_window
                 && let (Some(family), Some(right1), Some(right2)) = (family, right1, right2)
@@ -1281,27 +1226,31 @@ impl DeepPartitionCheck<'_, '_> {
                     .map_err(complaint)?;
             }
             if !live {
-                if &*row.right3 != NA_LABEL {
+                if &**product.labels.text(row.right3) != NA_LABEL {
                     return Err(format!(
                         "{key:?}: right3 enumerated where the filters say dead"
                     ));
                 }
                 continue;
             }
-            if &*row.right3 == NA_LABEL {
+            if &**product.labels.text(row.right3) == NA_LABEL {
                 return Err(format!("{key:?}: right3 #NA where the filters say live"));
             }
-            if row.right3.starts_with(DEEP_CLASS_PREFIX) {
-                if !classes.contains_key(&*row.right3) {
+            if product
+                .labels
+                .text(row.right3)
+                .starts_with(DEEP_CLASS_PREFIX)
+            {
+                if !classes.contains_key(&**product.labels.text(row.right3)) {
                     return Err(format!(
                         "{key:?}: right3 token {} is not in the class map",
-                        row.right3
+                        product.labels.text(row.right3)
                     ));
                 }
-                used.insert(&*row.right3);
+                used.insert(&**product.labels.text(row.right3));
             }
-            if boundaryish(&row.right3) {
-                if &*row.right4 != NA_LABEL {
+            if boundaryish(product.labels.text(row.right3)) {
+                if &**product.labels.text(row.right4) != NA_LABEL {
                     return Err(format!(
                         "{key:?}: right4 enumerated past a boundary third slot"
                     ));
@@ -1312,19 +1261,24 @@ impl DeepPartitionCheck<'_, '_> {
             let right1 = right1.expect("a live row's right1 is a letter");
             let right2 = right2.expect("a live row's right2 is a letter");
             self.ensure_context(family, right1, right2)?;
-            let members3 = token_members(&classes, &row.right3);
-            let base = [&*row.input_glyph, &*row.left, &*row.right1, &*row.right2];
+            let members3 = token_members(&classes, product.labels.text(row.right3));
+            let base = [
+                &**product.labels.text(row.input_glyph),
+                &**product.labels.text(row.left),
+                &**product.labels.text(row.right1),
+                &**product.labels.text(row.right2),
+            ];
             let taken3 = seen3.entry(base).or_default();
             for member in &members3 {
                 if let Some(claimed) = taken3.get(member)
-                    && *claimed != &*row.right3
+                    && *claimed != &**product.labels.text(row.right3)
                 {
                     return Err(format!(
                         "{key:?}: r3 member {member} belongs to two tokens at one base: {claimed} and {}",
-                        row.right3
+                        product.labels.text(row.right3)
                     ));
                 }
-                taken3.insert(member, &*row.right3);
+                taken3.insert(member, &**product.labels.text(row.right3));
             }
             {
                 let partition = &self.contexts[&(family, right1, right2)];
@@ -1381,7 +1335,7 @@ impl DeepPartitionCheck<'_, '_> {
             // The census gate is ANDed in here rather than inside the filter, which is the same split the enumeration makes when it decides whether a fiber's r4 groups become slot-4 entries.
             let fourth =
                 verdicts.into_iter().next().unwrap_or(false) && self.deep4_inputs.contains(&family);
-            if &*row.right4 == NA_LABEL {
+            if &**product.labels.text(row.right4) == NA_LABEL {
                 if fourth {
                     return Err(format!("{key:?}: right4 #NA where the filters say live"));
                 }
@@ -1408,30 +1362,36 @@ impl DeepPartitionCheck<'_, '_> {
                     Some(_) => {}
                 }
             }
-            if row.right4.starts_with(DEEP_CLASS_PREFIX) {
-                if !classes.contains_key(&*row.right4) {
+            if product
+                .labels
+                .text(row.right4)
+                .starts_with(DEEP_CLASS_PREFIX)
+            {
+                if !classes.contains_key(&**product.labels.text(row.right4)) {
                     return Err(format!(
                         "{key:?}: right4 token {} is not in the class map",
-                        row.right4
+                        product.labels.text(row.right4)
                     ));
                 }
-                used.insert(&*row.right4);
+                used.insert(&**product.labels.text(row.right4));
             }
-            if boundaryish(&row.right4) {
+            if boundaryish(product.labels.text(row.right4)) {
                 continue;
             }
-            let members4 = token_members(&classes, &row.right4);
-            let taken4 = seen4.entry((base, &*row.right3)).or_default();
+            let members4 = token_members(&classes, product.labels.text(row.right4));
+            let taken4 = seen4
+                .entry((base, &**product.labels.text(row.right3)))
+                .or_default();
             for member in &members4 {
                 if let Some(claimed) = taken4.get(member)
-                    && *claimed != &*row.right4
+                    && *claimed != &**product.labels.text(row.right4)
                 {
                     return Err(format!(
                         "{key:?}: r4 member {member} belongs to two tokens at one base: {claimed} and {}",
-                        row.right4
+                        product.labels.text(row.right4)
                     ));
                 }
-                taken4.insert(member, &*row.right4);
+                taken4.insert(member, &**product.labels.text(row.right4));
             }
             if let Some(shared) = shared {
                 let missing: Vec<&str> = members4
@@ -1576,6 +1536,7 @@ mod tests {
     fn a_row_is_its_fields_and_no_padding() {
         assert_eq!(std::mem::size_of::<Option<SettledSeat>>(), 4);
         assert_eq!(std::mem::size_of::<Row>(), 16);
+        assert_eq!(std::mem::size_of::<TransitionRow>(), 40);
     }
 
     /// The registry the fixpoint fixtures share — `fixtures::four_family_registry` with the height table left open, so the partition check can declare the aliasing pair it needs beside the ordinary heights.
@@ -1694,13 +1655,16 @@ mod tests {
         product
             .transitions
             .iter()
-            .filter(|row| &*row.input_glyph == input && &*row.left == left)
+            .filter(|row| {
+                &**product.labels.text(row.input_glyph) == input
+                    && &**product.labels.text(row.left) == left
+            })
             .map(|row| {
                 [
-                    row.right1.to_string(),
-                    row.right2.to_string(),
-                    row.right3.to_string(),
-                    row.right4.to_string(),
+                    product.labels.text(row.right1).to_string(),
+                    product.labels.text(row.right2).to_string(),
+                    product.labels.text(row.right3).to_string(),
+                    product.labels.text(row.right4).to_string(),
                 ]
             })
             .collect()
@@ -1710,7 +1674,10 @@ mod tests {
     fn heads(product: &FixpointProduct) -> Vec<(String, String)> {
         let mut pairs: Vec<(String, String)> = Vec::new();
         for row in &product.transitions {
-            let pair = (row.input_glyph.to_string(), row.left.to_string());
+            let pair = (
+                product.labels.text(row.input_glyph).to_string(),
+                product.labels.text(row.left).to_string(),
+            );
             if !pairs.contains(&pair) {
                 pairs.push(pair);
             }
@@ -1810,7 +1777,7 @@ mod tests {
             product
                 .transitions
                 .iter()
-                .all(|row| &*row.outcome == "qsPea.half")
+                .all(|row| &**product.outcome(row) == "qsPea.half")
         );
         assert_eq!(product.config, "default");
     }
@@ -1840,8 +1807,8 @@ mod tests {
         let locked: Vec<&str> = product
             .transitions
             .iter()
-            .filter(|row| &*row.left == "uni200C")
-            .map(|row| &*row.input_glyph)
+            .filter(|row| &**product.labels.text(row.left) == "uni200C")
+            .map(|row| &**product.labels.text(row.input_glyph))
             .collect();
         assert!(
             locked.contains(&"qsPea.noentry") && locked.contains(&"qsMay"),
@@ -1853,8 +1820,8 @@ mod tests {
             product
                 .transitions
                 .iter()
-                .filter(|row| &*row.input_glyph == "qsPea.noentry")
-                .all(|row| row.outcome.starts_with("qsPea.half")),
+                .filter(|row| &**product.labels.text(row.input_glyph) == "qsPea.noentry")
+                .all(|row| product.outcome(row).starts_with("qsPea.half")),
             "the locked twin still settles as qsPea"
         );
         // Nothing else in the product carries the suffix: a ZWNJ at any other slot is an ordinary boundary.
@@ -1862,7 +1829,8 @@ mod tests {
             product
                 .transitions
                 .iter()
-                .all(|row| &*row.left == "uni200C" || !row.input_glyph.ends_with(".noentry"))
+                .all(|row| &**product.labels.text(row.left) == "uni200C"
+                    || !product.labels.text(row.input_glyph).ends_with(".noentry"))
         );
     }
 
@@ -1873,8 +1841,8 @@ mod tests {
         let deep: Vec<&str> = product
             .transitions
             .iter()
-            .filter(|row| &*row.right3 != NA_LABEL)
-            .map(|row| &*row.input_glyph)
+            .filter(|row| &**product.labels.text(row.right3) != NA_LABEL)
+            .map(|row| &**product.labels.text(row.input_glyph))
             .collect();
         assert!(
             !deep.is_empty() && deep.iter().all(|input| *input == "qsPea"),
@@ -1884,8 +1852,9 @@ mod tests {
             product
                 .transitions
                 .iter()
-                .filter(|row| &*row.right3 != NA_LABEL)
-                .all(|row| &*row.right1 == "qsTea" && &*row.right2 == "qsMay"),
+                .filter(|row| &**product.labels.text(row.right3) != NA_LABEL)
+                .all(|row| &**product.labels.text(row.right1) == "qsTea"
+                    && &**product.labels.text(row.right2) == "qsMay"),
             "and only where its chain is still unanswered two slots in"
         );
         let split: Vec<String> = slots_at(&product, "qsPea", "#EDGE")
@@ -1917,9 +1886,11 @@ mod tests {
             .transitions
             .iter()
             .filter(|row| {
-                &*row.input_glyph == "qsPea" && &*row.left == "#EDGE" && &*row.right3 == "qsPea"
+                &**product.labels.text(row.input_glyph) == "qsPea"
+                    && &**product.labels.text(row.left) == "#EDGE"
+                    && &**product.labels.text(row.right3) == "qsPea"
             })
-            .map(|row| (&*row.right4, &*row.outcome))
+            .map(|row| (&**product.labels.text(row.right4), &**product.outcome(row)))
             .collect();
         assert_eq!(
             outcomes,
@@ -2058,30 +2029,38 @@ mod tests {
         )
     }
 
-    /// One hand-built row. The partition assertion reads the six window labels and nothing else, so every row here names the same settled seat, into a table the product below does not bother to carry.
-    fn deep_row(labels: [&str; 6]) -> TransitionRow {
-        let [input_glyph, left, right1, right2, right3, right4] = labels.map(Rc::from);
-        TransitionRow {
-            input_glyph,
-            left,
-            right1,
-            right2,
-            right3,
-            right4,
-            outcome: Rc::from("qsMay.plain"),
-            settled: SettledSeat::at(0),
-            left_settled: None,
-            provenance: NotesSeat::at(0),
-            prospect: 0,
-            joint: false,
-        }
+    /// One hand-built window, retained as text until its product assigns local label IDs.
+    fn deep_row(labels: [&str; 6]) -> [String; 6] {
+        labels.map(str::to_owned)
     }
 
-    /// A product assembled out of hand-built rows and a stated class map — everything the assertion reads, and nothing it does not.
-    fn hand_product(rows: Vec<TransitionRow>, classes: &[(&str, &[&str])]) -> FixpointProduct {
+    /// A product assembled out of hand-built windows and a stated class map. The partition assertion reads labels only, so the fixture omits settled records and outcomes.
+    fn hand_product(rows: Vec<[String; 6]>, classes: &[(&str, &[&str])]) -> FixpointProduct {
+        let mut labels = LabelPool::default();
+        let transitions = rows
+            .into_iter()
+            .map(|key| {
+                let [input_glyph, left, right1, right2, right3, right4] =
+                    key.map(|text| labels.intern(&text));
+                TransitionRow {
+                    input_glyph,
+                    left,
+                    right1,
+                    right2,
+                    right3,
+                    right4,
+                    settled: SettledSeat::at(0),
+                    left_settled: None,
+                    provenance: NotesSeat::at(0),
+                    prospect: 0,
+                    joint: false,
+                }
+            })
+            .collect();
         FixpointProduct {
             config: "default".to_owned(),
-            transitions: rows,
+            transitions,
+            labels,
             deep_classes: classes
                 .iter()
                 .map(|(token, members)| {
@@ -2091,10 +2070,7 @@ mod tests {
                     )
                 })
                 .collect(),
-            cited_provenance: Vec::new(),
-            cells: Vec::new(),
-            seats: Vec::new(),
-            notes: Vec::new(),
+            ..FixpointProduct::default()
         }
     }
 
@@ -2410,7 +2386,7 @@ mod tests {
             contract
                 .transitions
                 .iter()
-                .any(|row| &*row.right4 != NA_LABEL),
+                .any(|row| &**contract.labels.text(row.right4) != NA_LABEL),
             "and the product both orders reached is the one carrying the pinned deep windows, not a trivially equal pair"
         );
         // Order-independence here is a fact about this world, not about the discipline: the dedup is by window key, a re-reached window reuses the settled a re-trace would return, and the fired set is a union over a window set no traversal can change. The class-grain half of the claim is the next test's.

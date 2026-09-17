@@ -16,7 +16,8 @@ use crate::index::SpecIndex;
 use crate::options::WindowOptions;
 use crate::rulefold::rules_for_input;
 use crate::stream::{
-    FixpointProduct, TransitionRow, cell_key, cell_key_repr, key_repr, python_repr, python_tuple,
+    FixpointProduct, Label, LabelPool, TransitionRow, cell_key, cell_key_repr, key_repr,
+    python_repr, python_tuple,
 };
 use crate::types::{AdjustmentToken, CellId, Settled, Side};
 
@@ -74,10 +75,12 @@ pub struct TreatyRow {
 #[derive(Debug)]
 /// One configuration's decision table, `table.DecisionTable` as a freshly folded one stands: the class-grain rows with the fold's own joint flags, the ordered rules, and the head fields the windows artifact and every downstream consumer read.
 ///
-/// The rows' two settled seats index the product's own seat table, which the decision table does not carry: nothing past the fold reads a settled record — the windows artifact and the digest spell a row's six labels and its outcome and no more — so the table would ride along unread.
+/// The decision table retains the product's label pool and settled-seat outcome table. Windows and digests resolve a row's six labels and its outcome through these tables; settled records and provenance lists are needed only during folding and are not retained.
 pub struct DecisionTable {
     pub config: String,
     pub transitions: Vec<TransitionRow>,
+    pub labels: LabelPool,
+    pub outcomes: Vec<Label>,
     pub rules: Vec<Rule>,
     pub identity_guard_rules: i64,
     pub cited_provenance: Vec<String>,
@@ -85,6 +88,12 @@ pub struct DecisionTable {
     pub cells: Vec<CellId>,
     /// One realizing string per rule, in rule order, as the tokens the text spells — rune names and the three boundary glyph labels — closed by [`crate::certificate`] so the rule first-matches at the row's own position. The windows head carries them beside the rules.
     pub certificates: Vec<Vec<String>>,
+}
+
+impl DecisionTable {
+    pub fn outcome(&self, row: &TransitionRow) -> &Rc<str> {
+        self.labels.text(self.outcomes[row.settled.index()])
+    }
 }
 
 /// One configuration's treaty table, `table.TreatyTable`.
@@ -115,24 +124,22 @@ pub struct FoldRow {
     pub joint: bool,
 }
 
-/// The label-grain stream as the fold and the rule fold read it: the class rows a seat indexes into, the provenance table those rows' notes seats index, and the expanded rows themselves. Sliced by input, which is what [`rules_for_input`] is handed.
+/// The label-grain stream as the fold and the rule fold read it: expanded rows reference their owning product's class rows, label pool, seated outcomes, and provenance. Sliced by input, which is what [`rules_for_input`] is handed.
 #[derive(Clone, Copy)]
 pub struct LabelRows<'a> {
-    class: &'a [TransitionRow],
-    notes: &'a [Vec<String>],
+    product: &'a FixpointProduct,
     fold: &'a [FoldRow],
 }
 
 impl<'a> LabelRows<'a> {
-    pub fn new(class: &'a [TransitionRow], notes: &'a [Vec<String>], fold: &'a [FoldRow]) -> Self {
-        Self { class, notes, fold }
+    pub fn new(product: &'a FixpointProduct, fold: &'a [FoldRow]) -> Self {
+        Self { product, fold }
     }
 
     /// The rows between two seats of the expansion, over the same class rows.
     pub fn slice(&self, start: usize, end: usize) -> Self {
         Self {
-            class: self.class,
-            notes: self.notes,
+            product: self.product,
             fold: &self.fold[start..end],
         }
     }
@@ -146,23 +153,23 @@ impl<'a> LabelRows<'a> {
     }
 
     pub fn base(&self, row: usize) -> &'a TransitionRow {
-        &self.class[self.fold[row].seat as usize]
+        &self.product.transitions[self.fold[row].seat as usize]
     }
 
     pub fn input_glyph(&self, row: usize) -> &'a Rc<str> {
-        &self.base(row).input_glyph
+        self.product.labels.text(self.base(row).input_glyph)
     }
 
     pub fn left(&self, row: usize) -> &'a Rc<str> {
-        &self.base(row).left
+        self.product.labels.text(self.base(row).left)
     }
 
     pub fn right1(&self, row: usize) -> &'a Rc<str> {
-        &self.base(row).right1
+        self.product.labels.text(self.base(row).right1)
     }
 
     pub fn right2(&self, row: usize) -> &'a Rc<str> {
-        &self.base(row).right2
+        self.product.labels.text(self.base(row).right2)
     }
 
     pub fn right3(&self, row: usize) -> &'a Rc<str> {
@@ -174,7 +181,7 @@ impl<'a> LabelRows<'a> {
     }
 
     pub fn outcome(&self, row: usize) -> &'a Rc<str> {
-        &self.base(row).outcome
+        self.product.outcome(self.base(row))
     }
 
     pub fn joint(&self, row: usize) -> bool {
@@ -182,17 +189,17 @@ impl<'a> LabelRows<'a> {
     }
 
     pub fn provenance(&self, row: usize) -> &'a [String] {
-        &self.notes[self.base(row).provenance.index()]
+        &self.product.notes[self.base(row).provenance.index()]
     }
 
     /// The six labels one row is keyed by, in `table.Window.key` order.
     pub fn key(&self, row: usize) -> [&'a str; 6] {
         let base = self.base(row);
         [
-            &base.input_glyph,
-            &base.left,
-            &base.right1,
-            &base.right2,
+            self.product.labels.text(base.input_glyph),
+            self.product.labels.text(base.left),
+            self.product.labels.text(base.right1),
+            self.product.labels.text(base.right2),
             &self.fold[row].right3,
             &self.fold[row].right4,
         ]
@@ -213,9 +220,9 @@ pub fn fold_with(
     mut product: FixpointProduct,
     options: &mut WindowOptions<'_>,
 ) -> Result<Folded, String> {
-    assert_key_sorted(&product.transitions)?;
+    assert_key_sorted(&product)?;
     let mut fold_rows = expand(&product);
-    flag_prospect_joints(&product.transitions, &product.seats, &mut fold_rows);
+    flag_prospect_joints(&product, &mut fold_rows);
     let mut class_joint: Vec<bool> = product.transitions.iter().map(|row| row.joint).collect();
     for row in &fold_rows {
         if row.joint {
@@ -226,7 +233,7 @@ pub fn fold_with(
         row.joint = *joint;
     }
 
-    let rows = LabelRows::new(&product.transitions, &product.notes, &fold_rows);
+    let rows = LabelRows::new(&product, &fold_rows);
     let mut rules: Vec<Rule> = Vec::new();
     let mut identity_guards: i64 = 0;
     let mut replay_lefts: ReplayLefts = HashMap::default();
@@ -263,16 +270,16 @@ pub fn fold_with(
         match left_settled.seam {
             None => {
                 seen.insert((
-                    Rc::clone(&base.left),
-                    Rc::clone(&base.outcome),
+                    Rc::clone(rows.left(row)),
+                    Rc::clone(rows.outcome(row)),
                     "break".to_owned(),
                     0,
                 ));
             }
             Some(seam) => {
                 seen.insert((
-                    Rc::clone(&base.left),
-                    Rc::clone(&base.outcome),
+                    Rc::clone(rows.left(row)),
+                    Rc::clone(rows.outcome(row)),
                     index.resolve(seam).to_owned(),
                     left_settled.extension + entry_extensions[&product.settled(base).cell],
                 ));
@@ -307,6 +314,8 @@ pub fn fold_with(
     let decision = DecisionTable {
         config: product.config,
         transitions: product.transitions,
+        labels: product.labels,
+        outcomes: product.outcomes,
         rules,
         identity_guard_rules: identity_guards,
         cited_provenance: product.cited_provenance,
@@ -325,13 +334,13 @@ pub fn fold_with(
 }
 
 /// The precondition [`fold_product`] and [`expand`] read a product under: its rows are in `table.Window.key` order, which is what makes an input's rows one contiguous run, a left's rows one contiguous run inside that, and the per-prefix expansion sort a global one. The transcribed fold re-sorted and grouped through dicts instead, so it folded any row order; here the order is the contract `FixpointProduct` states it carries, and a product that breaks it is refused rather than folded into duplicated blocks.
-fn assert_key_sorted(rows: &[TransitionRow]) -> Result<(), String> {
-    for pair in rows.windows(2) {
-        if pair[1].key() < pair[0].key() {
+fn assert_key_sorted(product: &FixpointProduct) -> Result<(), String> {
+    for pair in product.transitions.windows(2) {
+        if pair[1].key(&product.labels) < pair[0].key(&product.labels) {
             return Err(format!(
                 "the product's rows are not in key order: {} follows {}",
-                key_repr(pair[1].key()),
-                key_repr(pair[0].key())
+                key_repr(pair[1].key(&product.labels)),
+                key_repr(pair[0].key(&product.labels))
             ));
         }
     }
@@ -367,10 +376,14 @@ pub fn expand(product: &FixpointProduct) -> Vec<FoldRow> {
         }
         let run = expanded.len();
         for (seat, row) in rows.iter().enumerate().take(end).skip(start) {
-            let own3 = std::slice::from_ref(&row.right3);
-            let own4 = std::slice::from_ref(&row.right4);
-            let members3 = members.get(&*row.right3).map_or(own3, Vec::as_slice);
-            let members4 = members.get(&*row.right4).map_or(own4, Vec::as_slice);
+            let own3 = std::slice::from_ref(product.labels.text(row.right3));
+            let own4 = std::slice::from_ref(product.labels.text(row.right4));
+            let members3 = members
+                .get(&**product.labels.text(row.right3))
+                .map_or(own3, Vec::as_slice);
+            let members4 = members
+                .get(&**product.labels.text(row.right4))
+                .map_or(own4, Vec::as_slice);
             for right3 in members3 {
                 for right4 in members4 {
                     expanded.push(FoldRow {
@@ -391,19 +404,20 @@ pub fn expand(product: &FixpointProduct) -> Vec<FoldRow> {
 }
 
 /// The four labels a run of the product shares while its deep slots vary.
-fn near_slots(row: &TransitionRow) -> [&str; 4] {
-    [&row.input_glyph, &row.left, &row.right1, &row.right2]
+fn near_slots(row: &TransitionRow) -> [Label; 4] {
+    [row.input_glyph, row.left, row.right1, row.right2]
 }
 
 /// Compare every row's optimistic prospect against the follower's actual settled choice and flag divergent rows joint (design section 6.1 step 4.2).
 ///
 /// The successor index is keyed on the follower's (left, input, right1), which is the row's own (outcome, right1, right2), so the scan never touches a window the first three slots already rule out. Nothing here reads a successor's joint flag, only the seam it settled — read through `seats`, the product's table the follower's settled seat indexes — so the pass is order-free and the flags can be applied in one sweep afterwards.
-fn flag_prospect_joints(class: &[TransitionRow], seats: &[Settled], fold: &mut [FoldRow]) {
-    let mut successors: HashMap<(&str, &str, &str), Vec<u32>> = HashMap::default();
+fn flag_prospect_joints(product: &FixpointProduct, fold: &mut [FoldRow]) {
+    let class = &product.transitions;
+    let mut successors: HashMap<(Label, Label, Label), Vec<u32>> = HashMap::default();
     for (seat, row) in fold.iter().enumerate() {
         let base = &class[row.seat as usize];
         successors
-            .entry((&base.left, &base.input_glyph, &base.right1))
+            .entry((base.left, base.input_glyph, base.right1))
             .or_default()
             .push(seat as u32);
     }
@@ -413,23 +427,28 @@ fn flag_prospect_joints(class: &[TransitionRow], seats: &[Settled], fold: &mut [
             continue;
         }
         let base = &class[row.seat as usize];
-        if boundaryish(&base.right1) || boundaryish(&base.right2) {
+        if boundaryish(product.labels.text(base.right1))
+            || boundaryish(product.labels.text(base.right2))
+        {
             continue;
         }
-        let Some(candidates) = successors.get(&(&*base.outcome, &*base.right1, &*base.right2))
-        else {
+        let Some(candidates) = successors.get(&(
+            product.outcomes[base.settled.index()],
+            base.right1,
+            base.right2,
+        )) else {
             continue;
         };
         for &candidate in candidates {
             let successor = &fold[candidate as usize];
             let followed = &class[successor.seat as usize];
-            if &*row.right3 != NA_LABEL && followed.right2 != row.right3 {
+            if &*row.right3 != NA_LABEL && *product.labels.text(followed.right2) != row.right3 {
                 continue;
             }
             if &*row.right4 != NA_LABEL && successor.right3 != row.right4 {
                 continue;
             }
-            if i8::from(seats[followed.settled.index()].seam.is_some()) != base.prospect {
+            if i8::from(product.seats[followed.settled.index()].seam.is_some()) != base.prospect {
                 flagged.push(seat as u32);
                 break;
             }
@@ -673,25 +692,32 @@ pub fn assert_deep_class_unions(product: &FixpointProduct, rules: &[Rule]) -> Re
         by_input.entry(&rule.input_glyph).or_default().push(rule);
     }
     for row in &product.transitions {
-        let set3 = members.get(&*row.right3);
-        let set4 = members.get(&*row.right4);
+        let set3 = members.get(&**product.labels.text(row.right3));
+        let set4 = members.get(&**product.labels.text(row.right4));
         if set3.is_none() && set4.is_none() {
             continue;
         }
         for rule in by_input
-            .get(&*row.input_glyph)
+            .get(&**product.labels.text(row.input_glyph))
             .map_or(&[][..], Vec::as_slice)
         {
-            if !matches_slot(&rule.backtrack, &row.left)
-                || !matches_slot(&rule.look1, &row.right1)
-                || !matches_slot(&rule.look2, &row.right2)
+            if !matches_slot(&rule.backtrack, product.labels.text(row.left))
+                || !matches_slot(&rule.look1, product.labels.text(row.right1))
+                || !matches_slot(&rule.look2, product.labels.text(row.right2))
             {
                 continue;
             }
             if let (Some(set3), Some(look3)) = (set3, &rule.look3) {
                 let inside = intersection(set3, look3);
                 if !inside.is_empty() && inside.len() != set3.len() {
-                    return Err(split_class(row, &row.right3, "look3", &inside, set3));
+                    return Err(split_class(
+                        row,
+                        &product.labels,
+                        product.labels.text(row.right3),
+                        "look3",
+                        &inside,
+                        set3,
+                    ));
                 }
             }
             if let (Some(set4), Some(look4)) = (set4, &rule.look4) {
@@ -699,13 +725,22 @@ pub fn assert_deep_class_unions(product: &FixpointProduct, rules: &[Rule]) -> Re
                     None => true,
                     Some(look3) => match set3 {
                         Some(set3) => !intersection(set3, look3).is_empty(),
-                        None => look3.iter().any(|member| **member == *row.right3),
+                        None => look3
+                            .iter()
+                            .any(|member| **member == **product.labels.text(row.right3)),
                     },
                 };
                 if reaches {
                     let inside = intersection(set4, look4);
                     if !inside.is_empty() && inside.len() != set4.len() {
-                        return Err(split_class(row, &row.right4, "look4", &inside, set4));
+                        return Err(split_class(
+                            row,
+                            &product.labels,
+                            product.labels.text(row.right4),
+                            "look4",
+                            &inside,
+                            set4,
+                        ));
                     }
                 }
             }
@@ -731,6 +766,7 @@ fn intersection<'a>(set: &HashSet<&'a str>, look: &[Rc<str>]) -> Vec<&'a str> {
 
 fn split_class(
     row: &TransitionRow,
+    labels: &LabelPool,
     token: &str,
     slot: &str,
     inside: &[&str],
@@ -740,8 +776,8 @@ fn split_class(
     all.sort_unstable();
     format!(
         "{}: an emitted {slot} class splits deep class {token} at {}: {} of {}",
-        row.input_glyph,
-        key_repr(row.key()),
+        labels.text(row.input_glyph),
+        key_repr(row.key(labels)),
         python_str_list(inside),
         python_str_list(&all)
     )
@@ -759,7 +795,7 @@ mod tests {
     use crate::artifacts;
     use crate::fixpoint::{EnumerationModes, deep_class_id, enumerate_transitions};
     use crate::index::fixtures;
-    use crate::types::{NotesSeat, SettledPool, SettledSeat};
+    use crate::types::{NotesSeat, SettledSeat};
     use std::cell::RefCell;
 
     /// The world the fixture is folded in — the shipping one, where a class-grain row's representative is output-visible.
@@ -792,7 +828,7 @@ mod tests {
     fn every_enumerated_row_is_what_the_ordered_rules_predict() {
         let (_index, product, folded) = built();
         let fold_rows = expand(&product);
-        let rows = LabelRows::new(&product.transitions, &product.notes, &fold_rows);
+        let rows = LabelRows::new(&product, &fold_rows);
         assert_outcome_partition(&rows, &folded.decision.rules, None)
             .expect("first-match-wins over the whole table");
         assert_outcome_partition(&rows, &folded.decision.rules, Some(&folded.replay_lefts))
@@ -804,7 +840,7 @@ mod tests {
     fn a_rule_no_replayed_row_first_matches_is_refused() {
         let (_index, product, folded) = built();
         let fold_rows = expand(&product);
-        let rows = LabelRows::new(&product.transitions, &product.notes, &fold_rows);
+        let rows = LabelRows::new(&product, &fold_rows);
         let input = Rc::clone(&folded.decision.rules[0].input_glyph);
         let mut rules = folded.decision.rules.clone();
         rules.push(Rule {
@@ -833,7 +869,7 @@ mod tests {
     fn a_shadowed_duplicate_is_refused() {
         let (_index, product, folded) = built();
         let fold_rows = expand(&product);
-        let rows = LabelRows::new(&product.transitions, &product.notes, &fold_rows);
+        let rows = LabelRows::new(&product, &fold_rows);
         let mut rules = folded.decision.rules.clone();
         let twin = rules.last().expect("the fixture folds rules").clone();
         rules.push(twin);
@@ -850,7 +886,7 @@ mod tests {
     fn the_reduced_replay_catches_what_the_whole_table_replay_catches() {
         let (_index, product, folded) = built();
         let fold_rows = expand(&product);
-        let rows = LabelRows::new(&product.transitions, &product.notes, &fold_rows);
+        let rows = LabelRows::new(&product, &fold_rows);
         let rules = &folded.decision.rules;
         let mut perturbations: Vec<Vec<Rule>> = Vec::new();
         for seat in 0..rules.len() {
@@ -892,8 +928,8 @@ mod tests {
                 .decision
                 .transitions
                 .iter()
-                .filter(|row| row.input_glyph == *input)
-                .map(|row| &*row.left)
+                .filter(|row| folded.decision.labels.text(row.input_glyph) == input)
+                .map(|row| &**folded.decision.labels.text(row.left))
                 .collect();
             lefts.len() < all.len()
         });
@@ -1032,7 +1068,9 @@ mod tests {
         index: SpecIndex,
         cell: CellId,
         seam: crate::model::Sym,
-        seats: RefCell<SettledPool>,
+        seats: RefCell<Vec<Settled>>,
+        labels: RefCell<LabelPool>,
+        outcomes: RefCell<Vec<Label>>,
     }
 
     impl Bench {
@@ -1050,30 +1088,44 @@ mod tests {
                 index,
                 cell,
                 seam,
-                seats: RefCell::new(SettledPool::default()),
+                seats: RefCell::new(Vec::new()),
+                labels: RefCell::new(LabelPool::default()),
+                outcomes: RefCell::new(Vec::new()),
             }
         }
 
         /// One settled record's seat in the bench's own table, which every product the bench builds carries.
-        fn seat(&self, settled: Settled) -> SettledSeat {
-            self.seats.borrow_mut().seat(&settled)
+        fn seat(&self, settled: Settled, outcome: &str) -> SettledSeat {
+            let mut seats = self.seats.borrow_mut();
+            let seat = SettledSeat::at(seats.len());
+            seats.push(settled);
+            self.outcomes
+                .borrow_mut()
+                .push(self.labels.borrow_mut().intern(outcome));
+            seat
         }
 
         /// One row: its seven labels, the prospect its trace claimed, and whether it committed a seam.
         fn row(&self, labels: [&str; 7], prospect: i8, joins: bool) -> TransitionRow {
+            let [input_glyph, left, right1, right2, right3, right4, _] = {
+                let mut pool = self.labels.borrow_mut();
+                labels.map(|text| pool.intern(text))
+            };
             TransitionRow {
-                input_glyph: Rc::from(labels[0]),
-                left: Rc::from(labels[1]),
-                right1: Rc::from(labels[2]),
-                right2: Rc::from(labels[3]),
-                right3: Rc::from(labels[4]),
-                right4: Rc::from(labels[5]),
-                outcome: Rc::from(labels[6]),
-                settled: self.seat(Settled {
-                    cell: self.cell.clone(),
-                    seam: joins.then_some(self.seam),
-                    extension: 0,
-                }),
+                input_glyph,
+                left,
+                right1,
+                right2,
+                right3,
+                right4,
+                settled: self.seat(
+                    Settled {
+                        cell: self.cell.clone(),
+                        seam: joins.then_some(self.seam),
+                        extension: 0,
+                    },
+                    labels[6],
+                ),
                 left_settled: None,
                 provenance: NotesSeat::at(0),
                 prospect,
@@ -1118,16 +1170,22 @@ mod tests {
         /// One row whose left committed a seam, which is the only shape the treaty fold reads: [`Bench::row`] leaves `left_settled` absent, so a product of those folds into no treaty rows at all.
         fn joined(&self, labels: [&str; 7], cell: CellId, left_extension: i64) -> TransitionRow {
             let mut row = self.row(labels, 0, false);
-            row.settled = self.seat(Settled {
-                cell,
-                seam: None,
-                extension: 0,
-            });
-            row.left_settled = Some(self.seat(Settled {
-                cell: self.cell.clone(),
-                seam: Some(self.seam),
-                extension: left_extension,
-            }));
+            row.settled = self.seat(
+                Settled {
+                    cell,
+                    seam: None,
+                    extension: 0,
+                },
+                labels[6],
+            );
+            row.left_settled = Some(self.seat(
+                Settled {
+                    cell: self.cell.clone(),
+                    seam: Some(self.seam),
+                    extension: left_extension,
+                },
+                labels[1],
+            ));
             row
         }
 
@@ -1147,14 +1205,17 @@ mod tests {
             deep_classes: Vec<(String, Vec<String>)>,
             cells: Vec<CellId>,
         ) -> FixpointProduct {
-            rows.sort_by(|left, right| left.key().cmp(&right.key()));
+            let labels = self.labels.borrow().clone();
+            rows.sort_by(|left, right| left.key(&labels).cmp(&right.key(&labels)));
             FixpointProduct {
                 config: "default".to_owned(),
                 transitions: rows,
                 deep_classes,
                 cited_provenance: Vec::new(),
                 cells,
-                seats: self.seats.borrow().clone().into_table(),
+                seats: self.seats.borrow().clone(),
+                labels,
+                outcomes: self.outcomes.borrow().clone(),
                 notes: vec![Vec::new()],
             }
         }
@@ -1184,7 +1245,7 @@ mod tests {
             .decision
             .transitions
             .iter()
-            .map(|row| (&*row.input_glyph, row.joint))
+            .map(|row| (&**folded.decision.labels.text(row.input_glyph), row.joint))
             .collect();
         assert_eq!(flagged, [("qsIt", true), ("qsMay", false)]);
     }

@@ -206,7 +206,7 @@ pub fn write_windows(
     out.write_all(line.as_bytes())?;
     for row in &decision.transitions {
         line.clear();
-        window_line_into(&mut line, row);
+        window_line_into(&mut line, row, decision);
         out.write_all(line.as_bytes())?;
     }
     out.flush()
@@ -336,7 +336,7 @@ pub fn table_digest(index: &SpecIndex, decision: &DecisionTable, treaty: &Treaty
     digest.update(b"--windows--\n");
     for row in &decision.transitions {
         line.clear();
-        window_line_into(&mut line, row);
+        window_line_into(&mut line, row, decision);
         digest.update(line.as_bytes());
     }
     digest.update(b"--treaty--\n");
@@ -387,12 +387,12 @@ pub fn table_digest(index: &SpecIndex, decision: &DecisionTable, treaty: &Treaty
 }
 
 /// One window row's seven tab-separated labels and trailing newline, which the windows body and the digest share.
-fn window_line_into(out: &mut String, row: &TransitionRow) {
-    for label in row.key() {
+fn window_line_into(out: &mut String, row: &TransitionRow, decision: &DecisionTable) {
+    for label in row.key(&decision.labels) {
         out.push_str(label);
         out.push('\t');
     }
-    out.push_str(&row.outcome);
+    out.push_str(decision.outcome(row));
     out.push('\n');
 }
 
