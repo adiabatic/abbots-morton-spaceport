@@ -1,6 +1,6 @@
 # Curated sequence set for the M1 CoreText-vs-HarfBuzz smoke harness (M1-PLAN section 5, coretext_smoke).
 # One sequence per line as whitespace-separated hex codepoints; text after "#" is the label.
-# Codepoints: qsPea E650, qsBay E651, qsTea E652, qsDay E653, qsKey E654, qsGay E655, qsThaw E656, qsThey E657, qsFee E658, qsVie E659, qsSee E65A, qsZoo E65B, qsShe E65C, qsJai E65D, qsCheer E65E, qsJay E65F, qsMay E665, qsNo E666, qsLow E667, qsRoe E668, qsIt E670, qsEt E672, qsEight E673, qsAt E674, qsI E675, qsAh E676, qsAwe E677, qsOx E678, qsOy E679, qsUtter E67A, qsOut E67B, qsOoze E67E, space 0020, namer dot 00B7, ZWNJ 200C.
+# Codepoints: qsPea E650, qsBay E651, qsTea E652, qsDay E653, qsKey E654, qsGay E655, qsThaw E656, qsThey E657, qsFee E658, qsVie E659, qsSee E65A, qsZoo E65B, qsShe E65C, qsJai E65D, qsCheer E65E, qsJay E65F, qsYe E660, qsMay E665, qsNo E666, qsLow E667, qsRoe E668, qsIt E670, qsEt E672, qsEight E673, qsAt E674, qsI E675, qsAh E676, qsAwe E677, qsOx E678, qsOy E679, qsUtter E67A, qsOut E67B, qsOoze E67E, space 0020, namer dot 00B7, ZWNJ 200C.
 # The driver runs every line under all eight acceptance configurations.
 #
 # The prototype probe rows, carried forward.
@@ -1598,3 +1598,118 @@ E665 200C E65F           # ZWNJ severs the entry from ·May
 E65F 200C E665           # ZWNJ severs the exit into ·May
 00B7 E65F                # Namer dot before Deep ·Jay
 00B7 E65F E67A           # Namer dot before ·Jay+Utter
+
+# ·Ye
+E660                     # ·Ye in isolation
+E650 E660                # ·Pea before ·Ye
+E660 E650                # ·Ye before ·Pea
+E651 E660                # ·Bay before ·Ye
+E660 E651                # ·Ye before ·Bay
+E652 E660                # ·Tea before ·Ye
+E660 E652                # ·Ye before ·Tea
+E653 E660                # ·Day before ·Ye
+E660 E653                # ·Ye before ·Day
+E654 E660                # ·Key before ·Ye
+E660 E654                # ·Ye before ·Key
+E655 E660                # ·Gay before ·Ye
+E660 E655                # ·Ye before ·Gay
+E656 E660                # ·Thaw before ·Ye
+E660 E656                # ·Ye before ·Thaw
+E657 E660                # ·They before ·Ye
+E660 E657                # ·Ye before ·They
+E658 E660                # ·Fee before ·Ye
+E660 E658                # ·Ye before ·Fee
+E659 E660                # ·Vie before ·Ye
+E660 E659                # ·Ye before ·Vie
+E65A E660                # ·See before ·Ye
+E660 E65A                # ·Ye before ·See
+E65B E660                # ·Zoo before ·Ye
+E660 E65B                # ·Ye before ·Zoo
+E65C E660                # ·She before ·Ye
+E660 E65C                # ·Ye before ·She
+E65D E660                # ·Jai before ·Ye
+E660 E65D                # ·Ye before ·Jai
+E65E E660                # ·Cheer before ·Ye
+E660 E65E                # ·Ye before ·Cheer
+E65F E660                # ·Jay before ·Ye
+E660 E65F                # ·Ye before ·Jay
+E660 E660                # ·Ye before ·Ye
+E665 E660                # ·May before ·Ye
+E660 E665                # ·Ye before ·May
+E666 E660                # ·No before ·Ye
+E660 E666                # ·Ye before ·No
+E667 E660                # ·Low before ·Ye
+E660 E667                # ·Ye before ·Low
+E668 E660                # ·Roe before ·Ye
+E660 E668                # ·Ye before ·Roe
+E670 E660                # ·It before ·Ye
+E660 E670                # ·Ye before ·It
+E672 E660                # ·Et before ·Ye
+E660 E672                # ·Ye before ·Et
+E673 E660                # ·Eight before ·Ye
+E660 E673                # ·Ye before ·Eight
+E674 E660                # ·At before ·Ye
+E660 E674                # ·Ye before ·At
+E675 E660                # ·I before ·Ye
+E660 E675                # ·Ye before ·I
+E676 E660                # ·Ah before ·Ye
+E660 E676                # ·Ye before ·Ah
+E677 E660                # ·Awe before ·Ye
+E660 E677                # ·Ye before ·Awe
+E678 E660                # ·Ox before ·Ye
+E660 E678                # ·Ye before ·Ox
+E679 E660                # ·Oy before ·Ye
+E660 E679                # ·Ye before ·Oy
+E67A E660                # ·Utter before ·Ye
+E660 E67A                # ·Ye before ·Utter
+E67B E660                # ·Out before ·Ye
+E660 E67B                # ·Ye before ·Out
+E67E E660                # ·Ooze before ·Ye
+E660 E67E                # ·Ye before ·Ooze
+E652 E679 E660           # qsTea_qsOy before ·Ye
+E660 E652 E679           # ·Ye before qsTea_qsOy
+E653 E67A E660           # qsDay_qsUtter before ·Ye
+E660 E653 E67A           # ·Ye before qsDay_qsUtter
+E657 E65B E660           # qsThey_qsZoo before ·Ye
+E660 E657 E65B           # ·Ye before qsThey_qsZoo
+E657 E67A E660           # qsThey_qsUtter before ·Ye
+E660 E657 E67A           # ·Ye before qsThey_qsUtter
+E659 E67A E660           # qsVie_qsUtter before ·Ye
+E660 E659 E67A           # ·Ye before qsVie_qsUtter
+E65A E67A E660           # qsSee_qsUtter before ·Ye
+E660 E65A E67A           # ·Ye before qsSee_qsUtter
+E65D E67A E660           # qsJai_qsUtter before ·Ye
+E660 E65D E67A           # ·Ye before qsJai_qsUtter
+E65F E67A E660           # qsJay_qsUtter before ·Ye
+E660 E65F E67A           # ·Ye before qsJay_qsUtter
+E67B E652 E660           # qsOut_qsTea before ·Ye
+E660 E67B E652           # ·Ye before qsOut_qsTea
+E651 E660 E653           # Baseline-entered ·Ye never exits: one of the two baseline seams gives way
+E673 E660 E653           # The same choice after ·Eight's extended exit
+E651 E660 E665 E652      # ·Bay·Ye·May·Tea: under ss03 ·May reaches half-·Tea and the ·Ye·May seam gives way
+E665 E660 E653           # The climbing loop: entered at the x-height, exiting at the baseline
+E655 E660 E653           # ·Gay's x-height exit into the climbing loop
+E658 E660 E653           # ·Fee's x-height exit into the climbing loop
+E655 E670 E660           # Entered ·It exits at the x-height into ·Ye
+E651 E670 E660           # ·Bay·It·Ye: the same pass-through from a baseline enterer
+E660 E675                # ·Ye's exit extends by one into ·I
+E665 E660 E675           # The climbing loop's exit extends by one into ·I
+E660 E65A E650           # ·Ye joins the curled-over ·See before ·Pea
+E660 E65A E67E           # ·Ye before the straightest ·See (break)
+E660 E656                # ·Ye before ·Thaw: the after-Tall break
+E660 E674 E665           # ·Ye before the falling ·At into ·May (break)
+E660 E666 E658           # ·Ye before ·No that must exit high into ·Fee (break)
+E660 E67A E656           # ·Ye before the alternate ·Utter into ·Thaw
+E660 E67A E667           # ·Ye before the alternate ·Utter into ·Low
+E660 E653 E652 E679      # ·Ye·Day yields before qsTea_qsOy
+E660 E65B E652 E679      # ·Ye·Zoo before qsTea_qsOy
+E660 E67B E658           # ·Ye into the swept-up ·Out before ·Fee
+E660 E666 E653           # ·Ye into the flipped ·No before ·Day
+E660 E668 E666           # ·Ye's baseline exit into ·Roe's extended lower tip, then high into ·No
+E660 E659 E676           # ·Ye into ·Vie's extended baseline entry, then ·Ah
+200C E660                # Locked ·Ye twin
+200C E660 E675           # Locked ·Ye keeps its extended baseline exit into ·I
+E660 200C E653           # ZWNJ severs the exit into ·Day
+E665 200C E660           # ZWNJ severs the entry from ·May
+E651 200C E660           # ZWNJ severs the entry from ·Bay
+00B7 E660                # Namer dot before Tall ·Ye
