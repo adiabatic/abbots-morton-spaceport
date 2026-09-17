@@ -1,0 +1,220 @@
+rune: qsYe
+codepoint: 0xE660
+ductus:
+  loop: | # DRAFT — pending author sign-off
+    Begun at the left just above the x-height, the stroke rises to the right to the top of the letter, curves down the right side, and crosses back over its own start to run straight down the stem to the baseline, where it may connect to the next letter. A previous letter may connect at the foot of the stem on the baseline.
+  climbing-loop: | # DRAFT — pending author sign-off
+    Entered from the left at the x-height, the stroke climbs the stem into a clockwise loop, up the left side to the top, down the right side, and back across to the stem, then runs straight down the stem to the baseline, where it may connect to the next letter.
+mono:
+  bitmap:
+  - "  #  "
+  - " # # "
+  - " # # "
+  - "###  "  #
+  - " #   "
+  - " #   "
+  - " #   "
+  - " #   "
+  - " #   "  #
+stances:
+  loop:
+    motion: loop
+    traits: []
+    bitmap:
+    - "  # "
+    - " # #"
+    - "### "
+    - " #  "  #
+    - " #  "
+    - " #  "
+    - " #  "
+    - " #  "
+    - " #  "  #
+    surface:
+      entries:
+        baseline:
+          x: 1
+          stroke: vertical
+          from:
+          - family:
+            - qsBay
+            - qsDay
+            - qsKey
+            - qsZoo
+            - qsJai
+            - qsCheer
+            - qsJay
+            - qsIng
+            - qsLlan
+            - qsEt
+            - qsEight
+            - qsAwe
+            - qsOx
+            - qsOy
+            - qsOoze
+      exits:
+        baseline:
+          x: 2
+          stroke: vertical
+          withdrawal: safe
+          toward:
+          - family:
+            - qsDay
+            - qsDay_qsUtter
+            - qsVie
+            - qsVie_qsUtter
+            - qsSee
+            - qsZoo
+            - qsIng
+            - qsMay
+            - qsNo
+            - qsLow
+            - qsRoe
+            - qsEat
+            - qsAt
+            - qsI
+            - qsAh
+            - qsUtter
+            - qsOut
+            - qsOut_qsTea
+            - qsOoze
+      pairings:
+        never:
+        - entry: baseline
+          exit: baseline
+      cells: []
+      unlocks: []
+      require: []
+  climbing-loop:
+    motion: climbing-loop
+    traits: []
+    bitmap:
+    - "  ## "
+    - " #  #"
+    - " ### "
+    - "##   "  #
+    - " #   "
+    - " #   "
+    - " #   "
+    - " #   "
+    - " #   "  #
+    surface:
+      entries:
+        x-height:
+          x: 0
+          stroke: horizontal
+          from:
+          - family:
+            - qsGay
+            - qsFee
+            - qsMay
+            - qsNo
+            - qsLow
+            - qsIt
+            - qsAt
+            - qsI
+            - qsAh
+            - qsUtter
+            - qsOut
+            - qsOwe
+            - qsFoot
+      exits:
+        baseline:
+          x: 2
+          stroke: vertical
+          withdrawal: safe
+          toward:
+          - family:
+            - qsDay
+            - qsDay_qsUtter
+            - qsVie
+            - qsVie_qsUtter
+            - qsSee
+            - qsZoo
+            - qsIng
+            - qsMay
+            - qsNo
+            - qsLow
+            - qsRoe
+            - qsEat
+            - qsAt
+            - qsI
+            - qsAh
+            - qsUtter
+            - qsOut
+            - qsOut_qsTea
+            - qsOoze
+      cells: []
+      unlocks: []
+      require:
+      - entry
+policy:
+  order:
+  - loop
+  - climbing-loop
+  refuse: []
+  prefer:
+  - cell:
+      entry: none
+      exit: baseline
+    over:
+      entry: baseline
+      exit: none
+    when:
+      left: {class: can-exit-at-baseline}
+      right:
+        family:
+        - qsDay
+        - qsDay_qsUtter
+        - qsVie
+        - qsVie_qsUtter
+        - qsSee
+        - qsZoo
+        - qsIng
+        - qsMay
+        - qsNo
+        - qsLow
+        - qsRoe
+        - qsEat
+        - qsAt
+        - qsI
+        - qsAh
+        - qsUtter
+        - qsOut
+        - qsOut_qsTea
+        - qsOoze
+        except:
+        - family: qsAt
+          then: {family: qsMay}
+        - family: qsUtter
+          then:
+            family:
+            - qsThaw
+            - qsVie
+            - qsVie_qsUtter
+            - qsSee
+            - qsIng
+            - qsMay
+            - qsLow
+            - qsExcite
+            - qsExam
+            - qsEat
+            - qsAt
+            - qsI
+            - qsAh
+            - qsOut
+            - qsOoze
+  extend:
+  - stance: loop
+    exit: baseline
+    by: 1
+    when:
+      right: {family: qsI}
+  - stance: climbing-loop
+    exit: baseline
+    by: 1
+    when:
+      right: {family: qsI}
+  contract: []
+  resolve: []
+  groups: {}

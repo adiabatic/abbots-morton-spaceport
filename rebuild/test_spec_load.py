@@ -815,6 +815,7 @@ CHAIN_BEARING_EXCEPT_RECORDS = (
     ("qsSee.prefer[0]", 1),
     ("qsTea_qsOy.prefer[0]", 3),
     ("qsUtter.prefer[2]", 1),
+    ("qsYe.prefer[0]", 1),
 )
 
 
