@@ -658,10 +658,10 @@ rules:
       except_left: []
   - id: jay-contracted-crown-cell-dropped
     verdict: approve
-    note: "The contracted ·Jay after ·Pea gives up the leftmost cell of its crown while keeping its placement — qsJay's contract record has named qsPea since the letter landed in “Add ·Jay”, the rebuild's contracted form consumes that cell where the old contracted form keeps it, and the user gave the one-cell drop standing approval at u-YLwbQaAT3Xf after the same drop was approved in the other windows that reached a sitting"
+    note: "The contracted ·Jay gives up the leftmost cell of its crown while keeping its placement — after ·Pea, qsJay's contract record has named the contraction since the letter landed in “Add ·Jay”, and the user gave the one-cell drop standing approval at u-YLwbQaAT3Xf; after half-·Tea, the tuck from “Tighten the half-·Tea·Jay xheight join by a pixel” is re-spelled on ·Jay's entry and declared composite-ink-identical by jai-entry-contraction-respelled, and the user gives that re-spelling standing approval here after the same change was approved in the other windows that reached a sitting"
     match:
       before:
-        pivots: [qsJay.en-y5.ex-y0.en-con-1]
+        pivots: [qsJay.en-y5.ex-y0]
       after:
         pivots:
           - qsJay.hapax.en-y5.en-con-1
