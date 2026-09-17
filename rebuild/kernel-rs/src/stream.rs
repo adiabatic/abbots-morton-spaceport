@@ -22,15 +22,85 @@ use crate::types::{CellId, NotesSeat, Settled, SettledSeat, adjustment_text};
 /// The marker the head line carries, `kernel_io.TRANSITIONS_FORMAT`. A stream naming anything else is another format and not a newer spelling of this one.
 pub const TRANSITIONS_FORMAT: &str = "ams-m1-transitions/1";
 
+/// One window label's id in the [`LabelPool`]: the position its spelling was minted at, and nothing about the text. Within one pool, two ids are equal exactly when their spellings are, because the pool mints each spelling once; their order is minting order, which no consumer reads — the product's lexicographic order is reached through [`LabelPool::ranks`] instead.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub struct Label(pub(crate) u32);
+
+/// Product-local spellings shared by the fixpoint, fold, and decision table. Rows retain compact IDs; only consumers that need text resolve them through this pool. IDs from different pools are unrelated, and lexical ordering uses spelling ranks rather than minting order.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct LabelPool {
+    ids: HashMap<Rc<str>, Label>,
+    texts: Vec<Rc<str>>,
+}
+
+impl LabelPool {
+    pub(crate) fn len(&self) -> usize {
+        self.texts.len()
+    }
+    pub(crate) fn capacity(&self) -> usize {
+        self.texts.capacity()
+    }
+
+    /// The pool's id for this spelling, minting one only where the pool has none.
+    pub(crate) fn intern(&mut self, text: &str) -> Label {
+        if let Some(&found) = self.ids.get(text) {
+            return found;
+        }
+        self.mint(Rc::from(text))
+    }
+
+    /// The same for a spelling the caller had to build anyway, so that a miss reuses the buffer rather than copying it a second time.
+    pub(crate) fn intern_owned(&mut self, text: String) -> Label {
+        if let Some(&found) = self.ids.get(text.as_str()) {
+            return found;
+        }
+        self.mint(Rc::from(text))
+    }
+
+    /// A spelling the pool has never seen, seated at the next id.
+    fn mint(&mut self, shared: Rc<str>) -> Label {
+        let id = Label(
+            u32::try_from(self.texts.len())
+                .expect("a configuration's distinct labels number in the tens of thousands, nowhere near the u32 ids can seat"),
+        );
+        self.ids.insert(Rc::clone(&shared), id);
+        self.texts.push(shared);
+        id
+    }
+
+    /// The spelling one id was minted for, as a shared handle.
+    pub(crate) fn text(&self, label: Label) -> &Rc<str> {
+        &self.texts[label.0 as usize]
+    }
+
+    /// One key's six spellings, in the textual `Debug` form diagnostics use to identify a window.
+    pub(crate) fn spelled(&self, key: &[Label; 6]) -> [&str; 6] {
+        key.map(|label| &**self.text(label))
+    }
+
+    /// Each id's position among every spelling the pool holds, sorted as text: `ranks[id]` compares as the spelling does, so ordering rows by their rank tuple is ordering them by their key tuple without touching a string.
+    pub(crate) fn ranks(&self) -> Vec<u32> {
+        let mut by_text: Vec<usize> = (0..self.texts.len()).collect();
+        by_text.sort_unstable_by(|&left, &right| self.texts[left].cmp(&self.texts[right]));
+        let mut ranks = vec![0u32; self.texts.len()];
+        for (rank, id) in by_text.into_iter().enumerate() {
+            ranks[id] = u32::try_from(rank).expect("a rank is one of the ids it ranks");
+        }
+        ranks
+    }
+}
+
 /// Everything one configuration's fixpoint produces, `table.FixpointProduct`. The rows arrive already sorted on [`TransitionRow::key`] — that order is the product's own and the stream keeps it, because `assemble_tables` expands and flags in it.
 ///
 /// Three of the fields are `frozenset`s and a `Mapping` on the Python side and vectors here, so their canonical order is the emitter's business rather than the fixpoint's: `cells` and `cited_provenance` are sorted (and repeats collapsed, which is what a frozenset does to them) and `deep_classes` is sorted by token. `deep_classes` is empty at label grain and at every grain of the pinned world, and the emitter spells it either way.
 ///
-/// `seats` and `notes` have no Python counterpart at all: they are the tables every row's [`SettledSeat`]s and [`NotesSeat`] index — one entry per distinct settled record, and one per distinct provenance list, each in the order the fixpoint first reached it — and [`FixpointProduct::settled`], [`FixpointProduct::left_settled`] and [`FixpointProduct::provenance`] are how a row's three are read back. Python's `Transition` holds all three by value, and so did this row until issues #162 and #163 seated them.
-#[derive(Clone, Debug, Default, PartialEq, Eq)]
+/// `seats` and `notes` have no Python counterpart at all: they are the tables every row's [`SettledSeat`]s and [`NotesSeat`] index — one entry per distinct settled record, and one per distinct provenance list, each in the order the fixpoint first reached it — and [`FixpointProduct::settled`], [`FixpointProduct::left_settled`] and [`FixpointProduct::provenance`] are how a row's three are read back. Python's `Transition` holds all three by value. The label pool and settled-seat outcome table remain local to the product and pass intact into the decision table.
+#[derive(Clone, Debug, Default, Eq)]
 pub struct FixpointProduct {
     pub config: String,
     pub transitions: Vec<TransitionRow>,
+    pub labels: LabelPool,
+    pub outcomes: Vec<Label>,
     pub deep_classes: Vec<(String, Vec<String>)>,
     pub cited_provenance: Vec<String>,
     pub cells: Vec<CellId>,
@@ -38,7 +108,38 @@ pub struct FixpointProduct {
     pub notes: Vec<Vec<String>>,
 }
 
+/// Product equality resolves labels through each product's pool; numeric IDs from separate enumerations do not share an identity.
+impl PartialEq for FixpointProduct {
+    fn eq(&self, other: &Self) -> bool {
+        self.config == other.config
+            && self.deep_classes == other.deep_classes
+            && self.cited_provenance == other.cited_provenance
+            && self.cells == other.cells
+            && self.seats == other.seats
+            && self.notes == other.notes
+            && self.transitions.len() == other.transitions.len()
+            && self
+                .transitions
+                .iter()
+                .zip(&other.transitions)
+                .all(|(left, right)| {
+                    left.key(&self.labels) == right.key(&other.labels)
+                        && self.outcome(left) == other.outcome(right)
+                        && left.settled == right.settled
+                        && left.left_settled == right.left_settled
+                        && left.provenance == right.provenance
+                        && left.prospect == right.prospect
+                        && left.joint == right.joint
+                })
+    }
+}
+
 impl FixpointProduct {
+    /// The outcome belongs to the settled seat, shared by every row that reaches it.
+    pub fn outcome(&self, row: &TransitionRow) -> &Rc<str> {
+        self.labels.text(self.outcomes[row.settled.index()])
+    }
+
     /// The record one row settled into.
     pub fn settled(&self, row: &TransitionRow) -> &Settled {
         &self.seats[row.settled.index()]
@@ -55,18 +156,15 @@ impl FixpointProduct {
     }
 }
 
-/// One enriched row, `table.Transition`: the label view of a settled window plus the four fields only the fixpoint and the fold read. The seven labels are text rather than symbols because a window slot is not always a name the spec interned — `#EDGE`, `#NA`, and the ZWNJ twin's `.noentry` suffix are the kernel's own spellings — and nothing downstream keys on them as anything but text.
-///
-/// They are shared handles rather than owned strings because a product holds millions of rows over a few tens of thousands of distinct spellings: the fixpoint interns each one once and every row that names it holds the same allocation. Sorting and every raise message read them as the `&str` they are, so nothing about the stream moves. The two settled records and the provenance are seated the same way, by the same argument at a steeper ratio — a few thousand distinct records and lists over those millions of rows — so a row holds a [`SettledSeat`] and a [`NotesSeat`] into the product's tables and no cell or string of its own. The prospect is a byte because the term it records is a seam count, zero or one in either candidacy world, and the joint flag sits beside it (issue #163).
+/// One window's six product-local label IDs and seated trace data. Resolve labels through the owning product's pool and the outcome through its settled-seat table. Equality and debug IDs are meaningful only within that pool; external ordering and diagnostics use resolved spellings.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct TransitionRow {
-    pub input_glyph: Rc<str>,
-    pub left: Rc<str>,
-    pub right1: Rc<str>,
-    pub right2: Rc<str>,
-    pub right3: Rc<str>,
-    pub right4: Rc<str>,
-    pub outcome: Rc<str>,
+    pub input_glyph: Label,
+    pub left: Label,
+    pub right1: Label,
+    pub right2: Label,
+    pub right3: Label,
+    pub right4: Label,
     pub settled: SettledSeat,
     pub left_settled: Option<SettledSeat>,
     pub provenance: NotesSeat,
@@ -76,14 +174,18 @@ pub struct TransitionRow {
 
 impl TransitionRow {
     /// The six labels that key this row, `table.Window.key`: the order the product is sorted in and the tuple every raise names the offending row by. An array rather than a tuple so that comparing two of them is the one lexicographic string comparison Python's tuple comparison is.
-    pub fn key(&self) -> [&str; 6] {
+    pub fn key<'a>(&self, labels: &'a LabelPool) -> [&'a str; 6] {
+        labels.spelled(&self.labels())
+    }
+
+    pub fn labels(&self) -> [Label; 6] {
         [
-            &self.input_glyph,
-            &self.left,
-            &self.right1,
-            &self.right2,
-            &self.right3,
-            &self.right4,
+            self.input_glyph,
+            self.left,
+            self.right1,
+            self.right2,
+            self.right3,
+            self.right4,
         ]
     }
 }
@@ -161,11 +263,23 @@ pub fn write_transitions(
         .collect();
 
     for row in &product.transitions {
-        seat_of(index, &seats, product.settled(row), row, "settles into")
-            .map_err(WriteFailure::Refused)?;
+        seat_of(
+            index,
+            &seats,
+            product.settled(row),
+            row.key(&product.labels),
+            "settles into",
+        )
+        .map_err(WriteFailure::Refused)?;
         if let Some(left) = product.left_settled(row) {
-            seat_of(index, &seats, left, row, "carries the left-settled cell")
-                .map_err(WriteFailure::Refused)?;
+            seat_of(
+                index,
+                &seats,
+                left,
+                row.key(&product.labels),
+                "carries the left-settled cell",
+            )
+            .map_err(WriteFailure::Refused)?;
         }
     }
 
@@ -258,13 +372,20 @@ fn row_into(
     row: &TransitionRow,
 ) -> Result<(), String> {
     out.push('[');
-    for label in row.key() {
+    for label in row.key(&product.labels) {
         escape_into(out, label);
         out.push(',');
     }
-    escape_into(out, &row.outcome);
+    escape_into(out, product.outcome(row));
     out.push(',');
-    settled_into(out, index, seats, product.settled(row), row, "settles into")?;
+    settled_into(
+        out,
+        index,
+        seats,
+        product.settled(row),
+        row.key(&product.labels),
+        "settles into",
+    )?;
     out.push(',');
     match product.left_settled(row) {
         Some(left) => settled_into(
@@ -272,7 +393,7 @@ fn row_into(
             index,
             seats,
             left,
-            row,
+            row.key(&product.labels),
             "carries the left-settled cell",
         )?,
         None => out.push_str("null"),
@@ -291,10 +412,10 @@ fn settled_into(
     index: &SpecIndex,
     seats: &HashMap<&CellId, usize>,
     settled: &Settled,
-    row: &TransitionRow,
+    key: [&str; 6],
     relation: &str,
 ) -> Result<(), String> {
-    let seat = seat_of(index, seats, settled, row, relation)?;
+    let seat = seat_of(index, seats, settled, key, relation)?;
     out.push('[');
     let _ = write!(out, "{seat}");
     out.push(',');
@@ -310,13 +431,13 @@ fn seat_of(
     index: &SpecIndex,
     seats: &HashMap<&CellId, usize>,
     settled: &Settled,
-    row: &TransitionRow,
+    key: [&str; 6],
     relation: &str,
 ) -> Result<usize, String> {
     seats.get(&settled.cell).copied().ok_or_else(|| {
         format!(
             "the transition {} {relation} {}, which the product does not count among its reachable cells",
-            key_repr(row.key()),
+            key_repr(key),
             cell_key_repr(&cell_key(index, &settled.cell))
         )
     })
@@ -414,9 +535,17 @@ mod tests {
 
     /// The product the byte tests are grounded on, built cell by cell so the sort has something to do: the cells arrive in an order `cell_key` has to undo, and the rows exercise a `None` seam, a left-settled letter, a left-settled boundary, a negative extension and a negative prospect.
     fn worked_product(index: &SpecIndex) -> FixpointProduct {
+        worked_product_with_labels(index, LabelPool::default())
+    }
+
+    fn worked_product_with_labels(index: &SpecIndex, mut labels: LabelPool) -> FixpointProduct {
         FixpointProduct {
             config: "ss03+ss05".to_owned(),
-            transitions: vec![edge_row(), left_settled_row(), boundary_left_row()],
+            transitions: vec![
+                edge_row(&mut labels),
+                left_settled_row(&mut labels),
+                boundary_left_row(&mut labels),
+            ],
             deep_classes: Vec::new(),
             cited_provenance: vec![
                 "qsTea.yaml:policy.refuse[0]".to_owned(),
@@ -431,7 +560,57 @@ mod tests {
             ],
             seats: seated(index),
             notes: noted(),
+            outcomes: outcomes(&mut labels),
+            labels,
         }
+    }
+
+    fn outcomes(labels: &mut LabelPool) -> Vec<Label> {
+        [
+            "qsPea.half",
+            "qsTea.half.ex-y0.locked",
+            "qsPea.half",
+            "qsTea.half.en-y5.en-ext-1.ex-bind-pulled-back",
+            "space",
+        ]
+        .map(|text| labels.intern(text))
+        .to_vec()
+    }
+
+    #[test]
+    fn label_ranks_follow_spelling_order_and_reuse_repeated_spellings() {
+        let mut labels = LabelPool::default();
+        let tea = labels.intern("qsTea");
+        let edge = labels.intern("#EDGE");
+        let pea = labels.intern("qsPea");
+        assert_eq!(labels.intern("qsTea"), tea);
+        let ranks = labels.ranks();
+        let mut keys = [[tea; 6], [pea; 6], [edge; 6]];
+        keys.sort_unstable_by_key(|key| key.map(|label| ranks[label.0 as usize]));
+        assert_eq!(
+            keys.map(|key| labels.spelled(&key)),
+            [["#EDGE"; 6], ["qsPea"; 6], ["qsTea"; 6]]
+        );
+    }
+
+    #[test]
+    fn label_mint_order_does_not_change_product_equality_or_stream_bytes() {
+        let index = fixtures::mini();
+        let original = worked_product(&index);
+        let mut labels = LabelPool::default();
+        labels.intern("qsTea");
+        labels.intern("#NA");
+        labels.intern("qsPea");
+        let reordered = worked_product_with_labels(&index, labels);
+        assert_ne!(
+            original.transitions[0].input_glyph,
+            reordered.transitions[0].input_glyph
+        );
+        assert_eq!(original, reordered);
+        assert_eq!(
+            emit_transitions(&index, &original),
+            emit_transitions(&index, &reordered)
+        );
     }
 
     /// The provenance table the three worked rows index: the empty list, a two-pointer list in the order the trace left it, and a list of one.
@@ -510,15 +689,14 @@ mod tests {
         }
     }
 
-    fn edge_row() -> TransitionRow {
+    fn edge_row(labels: &mut LabelPool) -> TransitionRow {
         TransitionRow {
-            input_glyph: Rc::from("qsPea"),
-            left: Rc::from("#EDGE"),
-            right1: Rc::from("space"),
-            right2: Rc::from("#NA"),
-            right3: Rc::from("#NA"),
-            right4: Rc::from("#NA"),
-            outcome: Rc::from("qsPea.half"),
+            input_glyph: labels.intern("qsPea"),
+            left: labels.intern("#EDGE"),
+            right1: labels.intern("space"),
+            right2: labels.intern("#NA"),
+            right3: labels.intern("#NA"),
+            right4: labels.intern("#NA"),
             settled: SettledSeat::at(0),
             left_settled: None,
             provenance: NotesSeat::at(0),
@@ -527,15 +705,14 @@ mod tests {
         }
     }
 
-    fn left_settled_row() -> TransitionRow {
+    fn left_settled_row(labels: &mut LabelPool) -> TransitionRow {
         TransitionRow {
-            input_glyph: Rc::from("qsTea.noentry"),
-            left: Rc::from("qsPea.half.en-y0.ex-y5"),
-            right1: Rc::from("qsIt"),
-            right2: Rc::from("qsMay"),
-            right3: Rc::from("qsPea"),
-            right4: Rc::from("#NA"),
-            outcome: Rc::from("qsTea.half.ex-y0.locked"),
+            input_glyph: labels.intern("qsTea.noentry"),
+            left: labels.intern("qsPea.half.en-y0.ex-y5"),
+            right1: labels.intern("qsIt"),
+            right2: labels.intern("qsMay"),
+            right3: labels.intern("qsPea"),
+            right4: labels.intern("#NA"),
             settled: SettledSeat::at(1),
             left_settled: Some(SettledSeat::at(2)),
             provenance: NotesSeat::at(1),
@@ -544,15 +721,14 @@ mod tests {
         }
     }
 
-    fn boundary_left_row() -> TransitionRow {
+    fn boundary_left_row(labels: &mut LabelPool) -> TransitionRow {
         TransitionRow {
-            input_glyph: Rc::from("qsTea"),
-            left: Rc::from("space"),
-            right1: Rc::from("qsPea"),
-            right2: Rc::from("#EDGE"),
-            right3: Rc::from("#NA"),
-            right4: Rc::from("#NA"),
-            outcome: Rc::from("qsTea.half.en-y5.en-ext-1.ex-bind-pulled-back"),
+            input_glyph: labels.intern("qsTea"),
+            left: labels.intern("space"),
+            right1: labels.intern("qsPea"),
+            right2: labels.intern("#EDGE"),
+            right3: labels.intern("#NA"),
+            right4: labels.intern("#NA"),
             settled: SettledSeat::at(3),
             left_settled: Some(SettledSeat::at(4)),
             provenance: NotesSeat::at(2),
@@ -596,9 +772,10 @@ mod tests {
     #[test]
     fn a_deep_class_map_rides_the_head_sorted_by_token() {
         let index = fixtures::mini();
+        let mut labels = LabelPool::default();
         let product = FixpointProduct {
             config: "ss04".to_owned(),
-            transitions: vec![edge_row()],
+            transitions: vec![edge_row(&mut labels)],
             deep_classes: vec![
                 (
                     "#Cbbb".to_owned(),
@@ -619,6 +796,8 @@ mod tests {
             ],
             seats: seated(&index),
             notes: noted(),
+            outcomes: outcomes(&mut labels),
+            labels,
         };
         let stream = emit_transitions(&index, &product).expect("every cell is seated");
         assert_eq!(
@@ -633,14 +812,17 @@ mod tests {
     #[test]
     fn a_settled_cell_the_product_never_counted_stops_the_stream() {
         let index = fixtures::mini();
+        let mut labels = LabelPool::default();
         let product = FixpointProduct {
             config: "default".to_owned(),
-            transitions: vec![left_settled_row()],
+            transitions: vec![left_settled_row(&mut labels)],
             deep_classes: Vec::new(),
             cited_provenance: Vec::new(),
             cells: vec![pea_cell(&index)],
             seats: seated(&index),
             notes: noted(),
+            outcomes: outcomes(&mut labels),
+            labels,
         };
         assert_eq!(
             emit_transitions(&index, &product),
@@ -651,14 +833,17 @@ mod tests {
     #[test]
     fn a_left_settled_cell_the_product_never_counted_stops_the_stream() {
         let index = fixtures::mini();
+        let mut labels = LabelPool::default();
         let product = FixpointProduct {
             config: "default".to_owned(),
-            transitions: vec![left_settled_row()],
+            transitions: vec![left_settled_row(&mut labels)],
             deep_classes: Vec::new(),
             cited_provenance: Vec::new(),
             cells: vec![tea_locked(&index)],
             seats: seated(&index),
             notes: noted(),
+            outcomes: outcomes(&mut labels),
+            labels,
         };
         assert_eq!(
             emit_transitions(&index, &product),

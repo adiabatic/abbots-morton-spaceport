@@ -167,8 +167,13 @@ pub fn certify(
             let mut closed: Vec<Vec<RightToken>> = Vec::new();
             closures(index, options, tokens, CLOSURE_DEPTH, &mut closed)?;
             for candidate in closed {
-                let base = rows.base(row);
-                let key = window_at(index, &candidate, position, &base.input_glyph, &base.left);
+                let key = window_at(
+                    index,
+                    &candidate,
+                    position,
+                    rows.input_glyph(row),
+                    rows.left(row),
+                );
                 let spelled: [&str; 6] = [&key[0], &key[1], &key[2], &key[3], &key[4], &key[5]];
                 if first_match(&by_input, spelled) == Some(seat) {
                     found = Some(candidate);
@@ -274,11 +279,10 @@ fn pinned_tokens(
         tokens.push(input_token(index, rows.input_glyph(earlier))?);
     }
     let position = tokens.len();
-    let base = rows.base(row);
-    tokens.push(input_token(index, &base.input_glyph)?);
+    tokens.push(input_token(index, rows.input_glyph(row))?);
     for label in [
-        &*base.right1,
-        &*base.right2,
+        &**rows.right1(row),
+        &**rows.right2(row),
         &**rows.right3(row),
         &**rows.right4(row),
     ] {
@@ -526,7 +530,8 @@ mod tests {
     use crate::fixpoint::{EnumerationModes, enumerate_transitions};
     use crate::fold::{expand, first_match_rows, fold_product};
     use crate::index::fixtures;
-    use crate::stream::{FixpointProduct, TransitionRow};
+    use crate::stream::{Label, TransitionRow};
+    use crate::types::SettledSeat;
     use std::rc::Rc;
 
     const SHIPPING: EnumerationModes = EnumerationModes {
@@ -541,7 +546,7 @@ mod tests {
         let index = fixtures::mini();
         let product = enumerate_transitions(&index, &[], SHIPPING).expect("the fixpoint closes");
         let fold_rows = expand(&product);
-        let rows = LabelRows::new(&product.transitions, &product.notes, &fold_rows);
+        let rows = LabelRows::new(&product, &fold_rows);
         let prefixes = Prefixes::over(&rows);
         assert!(!rows.is_empty());
         let longest = prefixes.dist().iter().copied().max().expect("rows");
@@ -575,7 +580,7 @@ mod tests {
         assert_eq!(decision.certificates.len(), decision.rules.len());
         assert!(!decision.rules.is_empty());
         let fold_rows = expand(&product);
-        let rows = LabelRows::new(&product.transitions, &product.notes, &fold_rows);
+        let rows = LabelRows::new(&product, &fold_rows);
         let prefixes = Prefixes::over(&rows);
         let first_rows = first_match_rows(
             &rows,
@@ -605,8 +610,13 @@ mod tests {
                     tokens.starts_with(&pinned).then_some((row, position))
                 })
                 .expect("the certificate extends one of the rule's replayed rows");
-            let base = rows.base(row);
-            let key = window_at(&index, &tokens, position, &base.input_glyph, &base.left);
+            let key = window_at(
+                &index,
+                &tokens,
+                position,
+                rows.input_glyph(row),
+                rows.left(row),
+            );
             let spelled: [&str; 6] = [&key[0], &key[1], &key[2], &key[3], &key[4], &key[5]];
             assert_eq!(
                 first_match(&by_input, spelled),
@@ -623,7 +633,7 @@ mod tests {
         let product = enumerate_transitions(&index, &[], SHIPPING).expect("the fixpoint closes");
         let folded = fold_product(&index, product.clone()).expect("and folds");
         let fold_rows = expand(&product);
-        let rows = LabelRows::new(&product.transitions, &product.notes, &fold_rows);
+        let rows = LabelRows::new(&product, &fold_rows);
         let mut rules = folded.decision.rules.clone();
         rules.push(Rule {
             input_glyph: rules[0].input_glyph.clone(),
@@ -653,17 +663,17 @@ mod tests {
             .expect("and folds")
             .decision
             .rules;
-        let mut letters: Vec<Rc<str>> = Vec::new();
-        let mut lefts: Vec<Rc<str>> = Vec::new();
+        let mut letters: Vec<Label> = Vec::new();
+        let mut lefts: Vec<Label> = Vec::new();
         for row in &product.transitions {
-            if !boundaryish(&row.right1) && !letters.contains(&row.right1) {
-                letters.push(Rc::clone(&row.right1));
+            if !boundaryish(product.labels.text(row.right1)) && !letters.contains(&row.right1) {
+                letters.push(row.right1);
             }
-            if !boundaryish(&row.left) && !lefts.contains(&row.left) {
-                lefts.push(Rc::clone(&row.left));
+            if !boundaryish(product.labels.text(row.left)) && !lefts.contains(&row.left) {
+                lefts.push(row.left);
             }
         }
-        let carried = |row: &TransitionRow, slot: usize, label: &Rc<str>| {
+        let carried = |row: &TransitionRow, slot: usize, label: &Label| {
             product.transitions.iter().any(|other| {
                 other.input_glyph == row.input_glyph
                     && match slot {
@@ -680,37 +690,43 @@ mod tests {
         let (real, slot, label) = product
             .transitions
             .iter()
-            .filter(|row| !boundaryish(&row.left) && !boundaryish(&row.right1))
+            .filter(|row| {
+                !boundaryish(product.labels.text(row.left))
+                    && !boundaryish(product.labels.text(row.right1))
+            })
             .find_map(|row| {
                 [0usize, 1, 2].into_iter().find_map(|slot| {
                     let pool = if slot == 0 { &lefts } else { &letters };
                     pool.iter()
                         .find(|label| !carried(row, slot, label))
-                        .map(|label| (row, slot, Rc::clone(label)))
+                        .map(|label| (row, slot, *label))
                 })
             })
             .expect("a letter-left row and a pin no window before it carries");
         let mut phantom = real.clone();
         match slot {
-            0 => phantom.left = Rc::clone(&label),
-            1 => phantom.right1 = Rc::clone(&label),
-            _ => phantom.right2 = Rc::clone(&label),
+            0 => phantom.left = label,
+            1 => phantom.right1 = label,
+            _ => phantom.right2 = label,
         }
-        phantom.outcome = Rc::from("qsPhantom.pin");
-        let mut transitions = product.transitions.clone();
-        transitions.push(phantom.clone());
-        transitions.sort_by(|left, right| left.key().cmp(&right.key()));
-        let phantom_product = FixpointProduct {
-            transitions,
-            ..product.clone()
-        };
+        let mut phantom_product = product.clone();
+        let settled = phantom_product.settled(&phantom).clone();
+        phantom.settled = SettledSeat::at(phantom_product.seats.len());
+        phantom_product.seats.push(settled);
+        let outcome = phantom_product.labels.intern("qsPhantom.pin");
+        phantom_product.outcomes.push(outcome);
+        phantom_product.transitions.push(phantom.clone());
+        phantom_product.transitions.sort_by(|left, right| {
+            left.key(&phantom_product.labels)
+                .cmp(&right.key(&phantom_product.labels))
+        });
         rules.insert(
             0,
             Rule {
-                input_glyph: Rc::clone(&phantom.input_glyph),
-                backtrack: Some(vec![Rc::clone(&phantom.left)]),
-                look1: Some(vec![Rc::clone(&phantom.right1)]),
-                look2: Some(vec![Rc::clone(&phantom.right2)]),
+                input_glyph: Rc::clone(phantom_product.labels.text(phantom.input_glyph)),
+                backtrack: Some(vec![Rc::clone(phantom_product.labels.text(phantom.left))]),
+                look1: Some(vec![Rc::clone(phantom_product.labels.text(phantom.right1))]),
+                look2: Some(vec![Rc::clone(phantom_product.labels.text(phantom.right2))]),
                 look3: None,
                 look4: None,
                 outcome: Rc::from("qsPhantom.pin"),
@@ -719,11 +735,7 @@ mod tests {
             },
         );
         let fold_rows = expand(&phantom_product);
-        let rows = LabelRows::new(
-            &phantom_product.transitions,
-            &phantom_product.notes,
-            &fold_rows,
-        );
+        let rows = LabelRows::new(&phantom_product, &fold_rows);
         let prefixes = Prefixes::over(&rows);
         let first_rows = first_match_rows(&rows, &rules, None, ROW_CAP, Some(prefixes.dist()))
             .expect("the phantom's rule wins it");
@@ -735,11 +747,15 @@ mod tests {
         assert!(
             complaint.contains(&format!(
                 "({}, {}, {}, {}",
-                phantom.input_glyph, phantom.left, phantom.right1, phantom.right2
+                phantom_product.labels.text(phantom.input_glyph),
+                phantom_product.labels.text(phantom.left),
+                phantom_product.labels.text(phantom.right1),
+                phantom_product.labels.text(phantom.right2)
             )),
             "{complaint}"
         );
         assert!(complaint.contains("never produced"), "{complaint}");
+        let label = product.labels.text(label);
         let pin = if slot == 0 {
             format!("rows settle to {label}, but none of them before")
         } else {
@@ -750,25 +766,30 @@ mod tests {
         let mut bench_row = product
             .transitions
             .iter()
-            .find(|row| boundaryish(&row.left) && !boundaryish(&row.right1))
+            .find(|row| {
+                boundaryish(product.labels.text(row.left))
+                    && !boundaryish(product.labels.text(row.right1))
+            })
             .expect("a seed row with a letter at right1")
             .clone();
-        bench_row.right2 = Rc::from("qsNever");
-        bench_row.outcome = Rc::from("qsPhantom.pin");
-        let mut unspellable = product.transitions.clone();
-        unspellable.push(bench_row.clone());
-        unspellable.sort_by(|left, right| left.key().cmp(&right.key()));
-        let bench = FixpointProduct {
-            transitions: unspellable,
-            ..product.clone()
-        };
+        let mut bench = product.clone();
+        bench_row.right2 = bench.labels.intern("qsNever");
+        let settled = bench.settled(&bench_row).clone();
+        bench_row.settled = SettledSeat::at(bench.seats.len());
+        bench.seats.push(settled);
+        let outcome = bench.labels.intern("qsPhantom.pin");
+        bench.outcomes.push(outcome);
+        bench.transitions.push(bench_row.clone());
+        bench
+            .transitions
+            .sort_by(|left, right| left.key(&bench.labels).cmp(&right.key(&bench.labels)));
         let fold_rows = expand(&bench);
-        let rows = LabelRows::new(&bench.transitions, &bench.notes, &fold_rows);
+        let rows = LabelRows::new(&bench, &fold_rows);
         let prefixes = Prefixes::over(&rows);
         rules[0] = Rule {
-            input_glyph: Rc::clone(&bench_row.input_glyph),
+            input_glyph: Rc::clone(bench.labels.text(bench_row.input_glyph)),
             backtrack: None,
-            look1: Some(vec![Rc::clone(&bench_row.right1)]),
+            look1: Some(vec![Rc::clone(bench.labels.text(bench_row.right1))]),
             look2: Some(vec![Rc::from("qsNever")]),
             look3: None,
             look4: None,
@@ -790,7 +811,7 @@ mod tests {
         let mut options = WindowOptions::new(&index).expect("the fixture's options build");
         let product = enumerate_transitions(&index, &[], SHIPPING).expect("the fixpoint closes");
         let fold_rows = expand(&product);
-        let rows = LabelRows::new(&product.transitions, &product.notes, &fold_rows);
+        let rows = LabelRows::new(&product, &fold_rows);
         let prefixes = Prefixes::over(&rows);
         let mut closed_any = false;
         for row in 0..rows.len() {

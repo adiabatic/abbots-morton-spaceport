@@ -1535,11 +1535,16 @@ pub(crate) mod tests {
         };
         let mut out: Vec<String> = Vec::new();
         for row in &product.transitions {
-            for third in &members(&row.right3) {
-                for fourth in &members(&row.right4) {
+            let key = row.key(&product.labels);
+            for third in &members(key[4]) {
+                for fourth in &members(key[5]) {
                     out.push(format!(
                         "{}\t{}\t{}\t{}\t{third}\t{fourth}\t{}",
-                        row.input_glyph, row.left, row.right1, row.right2, row.outcome
+                        key[0],
+                        key[1],
+                        key[2],
+                        key[3],
+                        product.outcome(row)
                     ));
                 }
             }

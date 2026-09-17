@@ -484,11 +484,11 @@ mod tests {
             decision.config
         );
         for row in &decision.transitions {
-            for label in row.key() {
+            for label in row.key(&decision.labels) {
                 text.push_str(label);
                 text.push('\t');
             }
-            text.push_str(&row.outcome);
+            text.push_str(decision.outcome(row));
             text.push('\n');
         }
         text
