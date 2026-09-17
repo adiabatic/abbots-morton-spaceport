@@ -133,6 +133,11 @@ policy:
   refuse:
   - entry: baseline
     when:
+      self: {exit: none}
+      left: {family: qsYe}
+  - stance: normal
+    entry: baseline
+    when:
       left: {family: qsYe}
   prefer:
   - cell:
