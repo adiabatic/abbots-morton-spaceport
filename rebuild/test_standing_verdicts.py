@@ -4474,8 +4474,107 @@ def test_a_pure_entry_drop_matches(slide_context):
     assert sv._matches(ENTRY_RULE["match"], entry_window(), context=slide_context())
 
 
+def test_a_word_initial_entry_drop_needs_no_incoming_seam(slide_context):
+    window = slide_unit("initial-entry-drop", ["qsLow.en-ext-1"], spell(LOW))
+    assert sv._matches(ENTRY_RULE["match"], window, context=slide_context())
+
+
 def test_a_pure_entry_contraction_matches(slide_context):
     assert sv._matches(CONTRACTED_ENTRY_RULE["match"], contracted_entry_window(), context=slide_context())
+
+
+@pytest.fixture
+def contracted_ligature(tmp_path):
+    from fontTools.feaLib.builder import addOpenTypeFeaturesFromString
+    from fontTools.ttLib import TTFont
+
+    def build(*, composed=False, extra_pixel=False, wrong_continuation=False, wrong_after_entry=False):
+        before_name = "qsMay_qsF1"
+        after_family = "qsMay_qsF2" if wrong_continuation else before_name
+        after_entry = "y5" if wrong_after_entry else "y0"
+        after_name = f"{after_family}.loop.en-{after_entry}.en-con-1"
+        paths = []
+        for side, source, cmap, name in (
+            ("before", BEFORE_GLYPHS, BEFORE_CMAP, before_name),
+            ("after", AFTER_GLYPHS, AFTER_CMAP, after_name),
+        ):
+            pivot = cmap[CONTRACTED_MAY]
+            outline, advance = source[pivot]
+            tail = (_rect(200, 0, 250, 100),)
+            if side == "after" and extra_pixel:
+                tail += (_rect(250, 0, 300, 50),)
+            path = _build_font(
+                tmp_path / f"{side}.ttf",
+                {**source, name: (outline + tail, advance + 50)},
+                cmap,
+            )
+            font = TTFont(path)
+            addOpenTypeFeaturesFromString(font, f"feature liga {{ sub {pivot} qsF1 by {name}; }} liga;")
+            font.save(path)
+            font.close()
+            paths.append(path)
+        glyphs = ["qsBay.contract-lead", before_name, "qsF1"]
+        codepoints = [CONTRACTION_LEAD, CONTRACTED_MAY, FOLLOWER_1, FOLLOWER_1]
+        if composed:
+            glyphs = ["qsL", "qsSee.ex-y0", *glyphs]
+            codepoints = [LEAD, SEE, *codepoints]
+        window = slide_unit("contracted-ligature", glyphs, spell(*codepoints))
+        window["after"]["cells"][-2] = f"{after_family}/loop/baseline/None/en-con-1"
+        return window, sv.SlideContext(*paths)
+
+    return build
+
+
+def test_a_pair_contraction_follows_its_right_letter_into_a_ligature(contracted_ligature):
+    window, context = contracted_ligature()
+    assert sv._candidates(CONTRACTED_ENTRY_RULE["match"], window) == [1]
+    assert sv._matches(CONTRACTED_ENTRY_RULE["match"], window, context=context)
+
+
+@pytest.mark.parametrize(
+    "change",
+    [
+        "extra_pixel",
+        "wrong_continuation",
+        "wrong_after_entry",
+        "wrong_left",
+        "wrong_entry",
+        "wrong_lead",
+        "missing_modifier",
+        "declined",
+    ],
+)
+def test_a_ligature_continuation_must_keep_the_pair_and_pixel_contract(contracted_ligature, change):
+    window, context = contracted_ligature(
+        **{change: True} if change in ("extra_pixel", "wrong_continuation", "wrong_after_entry") else {}
+    )
+    rule = json.loads(json.dumps(CONTRACTED_ENTRY_RULE))
+    if change == "wrong_left":
+        rule["match"]["before"]["left"] = "qsTea"
+    elif change == "wrong_entry":
+        window["before"]["seams"][0] = "y5"
+    elif change == "wrong_lead":
+        rule["match"]["before"]["pivots"] = ["qsF1.en-y0.ex-y5"]
+    elif change == "missing_modifier":
+        rule["match"]["before"]["pivots"] = ["qsMay.en-y0.ex-y5.en-con-1"]
+    elif change == "declined":
+        rule["match"]["before"]["except_pivots"] = ["qsMay.en-y0.ex-y5"]
+    assert not sv._matches(rule["match"], window, context=context)
+
+
+def test_a_ligature_continuation_contraction_composes_with_a_slide(contracted_ligature):
+    window, context = contracted_ligature(composed=True)
+    assert not sv._matches(CONTRACTED_ENTRY_RULE["match"], window, context=context)
+    assert sv._composed(COMPOSED_CONTRACTED_ENTRY_RULES, window, context) == {
+        SLIDE_RULE["id"]: [1],
+        CONTRACTED_ENTRY_RULE["id"]: [3],
+    }
+
+
+@pytest.mark.parametrize("change", ["extra_pixel", "wrong_continuation", "wrong_after_entry"])
+def test_a_composed_ligature_continuation_still_proves_the_whole_compound(contracted_ligature, change):
+    window, context = contracted_ligature(composed=True, **{change: True})
+    assert sv._composed(COMPOSED_CONTRACTED_ENTRY_RULES, window, context) is None
 
 
 def test_a_union_invisible_suffix_respelling_rides_with_an_entry_contraction(slide_context):

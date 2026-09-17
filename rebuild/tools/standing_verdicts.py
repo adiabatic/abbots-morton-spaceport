@@ -28,6 +28,8 @@ Each expressible delta shape is a row in SHAPES, and a rule declares exactly one
 
 Each shape's own docstring states exactly what it proves, and none claims to bound the window beyond that.
 
+A pair-specific entry contraction also follows its right-hand letter into an existing ligature beginning with that letter. The incoming seam proves any named entry height, the compound retains every other named modifier apart from the lead letter's internal exit height, and the same compound family occupies the position on both sides. The entry contract judges the whole compound's pixels and displacement, so an unrelated change in its continuation refuses the approval. Unary form approvals retain their whole-family scope.
+
 Above them sits a reading no rule declares — the composed one, which runs first and asks whether two or more blessed changes together account for every rendered pixel of one window. The founding example makes it unavoidable: a window where the grounded ·See slides a column closer to what precedes it *and* ·J'ai gives up its exit extension carries two separately-blessed changes at once, and neither rule can speak for it alone — the slide shape fails closed on the extension pixel, the extension shape is structurally blind to ink outside its judged seam.
 
 Which shapes compose is the `composable` flag on their SHAPES row, and what earns it is naming a local pixel change the walk can prove — a displacement, a named set of own-frame cells appearing on or traded on the pivot, a named join becoming a gap, a named left-side stretch or stub the pivot gives up, or a named join being created or changing height; a shape that reads a whole window's name-grain structure, or its whole ink change byte for byte, says nothing about any one position and so has nothing to contribute to a walk.
@@ -373,6 +375,30 @@ def _validate_extension(rule_id, match) -> None:
 
 def _named_pivot(glyph_name, pivots):
     return any(_is_pivot(glyph_name, pivot) for pivot in pivots)
+
+
+def _named_contracted_pivot(glyph_name, pivots, seam):
+    """A pair-specific entry pivot may lead an existing ligature: the incoming seam proves its named entry height, while its outgoing height belongs inside the compound and does not constrain the compound's exit. Every other named modifier remains required. Unary form approvals keep `_named_pivot`'s whole-family reading."""
+    if _named_pivot(glyph_name, pivots):
+        return True
+    family = _family(glyph_name)
+    if "_" not in family:
+        return False
+    lead = family.split("_", 1)[0]
+    if any(part.startswith("en-y") and part[3:] != seam for part in _modifiers(glyph_name)):
+        return False
+    modifiers = [part for part in _modifiers(glyph_name) if not re.fullmatch(r"(?:en|ex)-y[0-9]+", part)]
+    projected = ".".join([lead, *modifiers])
+    for pivot in pivots:
+        if _family(pivot) != lead:
+            continue
+        named = _modifiers(pivot)
+        if any(part.startswith("en-y") and part[3:] != seam for part in named):
+            continue
+        required = [part for part in named if not re.fullmatch(r"(?:en|ex)-y[0-9]+", part)]
+        if _is_pivot(projected, ".".join([lead, *required])):
+            return True
+    return False
 
 
 def _split_at(run, indices):
@@ -879,8 +905,13 @@ def _entry_geometry(match, unit, comparator, pivot_positions=None):
         if any(
             index >= len(before_run)
             or index >= len(after_run)
-            or not _named_pivot(before_run[index][0], match["before"]["pivots"])
-            or not _named_pivot(after_run[index][0], match["after"]["pivots"])
+            or _family(before_run[index][0]) != _family(after_run[index][0])
+            or not _named_contracted_pivot(
+                before_run[index][0], match["before"]["pivots"], unit["before"]["seams"][index - 1]
+            )
+            or not _named_contracted_pivot(
+                after_run[index][0], match["after"]["pivots"], unit["after"]["seams"][index - 1]
+            )
             for index in before_pivots
         ):
             return False
@@ -940,7 +971,7 @@ def _matches_entry_drop(match, unit, excluded, context=None):
 
 
 def _contracted_entry_candidates(match, unit):
-    """The non-declined pivot positions where the rule's named family stands immediately after one of its named left families."""
+    """The non-declined pivot positions where the rule's named family, alone or leading an existing ligature, stands immediately after one of its named left families. A ligature preserves component alignment and proves any named entry height against the incoming seam."""
     glyphs = unit["before"]["glyphs"]
     left_families = set(_families(match["before"]["left"]))
     declined = match["before"].get("except_pivots", ())
@@ -948,8 +979,10 @@ def _contracted_entry_candidates(match, unit):
         index
         for index, name in enumerate(glyphs)
         if index
-        and _named_pivot(name, match["before"]["pivots"])
-        and not _named_pivot(name, declined)
+        and index <= len(unit["before"]["seams"])
+        and ("_" not in _family(name) or (_letter_for_letter(unit) and index <= len(unit["after"]["seams"])))
+        and _named_contracted_pivot(name, match["before"]["pivots"], unit["before"]["seams"][index - 1])
+        and not _named_contracted_pivot(name, declined, unit["before"]["seams"][index - 1])
         and _joining_family(glyphs[index - 1]) in left_families
     ]
 
@@ -1726,12 +1759,17 @@ def _gain_event(match, rule_id, index, after_names, intern, before_pieces, after
     return Event(rule_id, "gain", match["after"]["shift"])
 
 
-def _entry_event(match, rule_id, index, after_names, intern, before_pieces, after_pieces):
+def _entry_event(match, rule_id, index, after_names, intern, before_pieces, after_pieces, seam=None):
     """Whether one entry-shortening candidate's own contract holds at the rendered grain, one position at a time: the after side settles into one of the rule's named after forms, and `_entry_drop_holds` proves either the fixed-origin entry drop or the named entry contraction and says how far the pivot's own placement sits ahead of the span behind it. Placement under the running displacement is the walk's job, not this contract's, mirroring `_gain_event` leaving the span equality to the walk. None when any of that fails, which leaves the piece to be judged as ordinary span ink."""
     before, after = before_pieces.get(index), after_pieces.get(index)
     if before is None or after is None:
         return None
-    if not _named_pivot(after_names[index], match["after"]["pivots"]):
+    if "entry_contraction" in match["after"]:
+        if _family(before[0]) != _family(after[0]) or not _named_contracted_pivot(
+            after_names[index], match["after"]["pivots"], seam
+        ):
+            return None
+    elif not _named_pivot(after_names[index], match["after"]["pivots"]):
         return None
     lead = _entry_drop_holds(match, before, after, intern)
     if lead is None:
@@ -1938,7 +1976,14 @@ def _composed_walk(rules, unit, context):
                 )
             elif _is_entry_contracted_match(match):
                 event = _entry_event(
-                    match, rule["id"], index, after_names, intern, before_pieces, after_pieces
+                    match,
+                    rule["id"],
+                    index,
+                    after_names,
+                    intern,
+                    before_pieces,
+                    after_pieces,
+                    unit["after"]["seams"][index - 1],
                 )
             elif _is_stub_match(match):
                 event = _stub_event(
