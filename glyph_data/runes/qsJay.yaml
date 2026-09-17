@@ -1,7 +1,7 @@
 rune: qsJay
 codepoint: 0xE65F
 ductus:
-  hapax: | # DRAFT — pending author sign-off
+  hapax: |
     Begun at the left end of the crown bar at the x-height, where a previous letter may connect, the stroke runs rightward along the crown, turns down the right side, and descends, slanting leftward, through the baseline into the descender, ending at the bottom left. A short rightward tick on the baseline, to the right of the downstroke, carries the join to the next letter.
 mono:
   bitmap:
