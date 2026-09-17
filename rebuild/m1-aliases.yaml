@@ -111,13 +111,6 @@ qsJay_qsUtter.en-ext-1.ex-ext-1: {rune: qsJay_qsUtter, stance: hapax, entry: x-h
 qsJay_qsUtter.ex-con-2: {rune: qsJay_qsUtter, stance: hapax, exit: x-height}
 qsJay_qsUtter.ex-ext-1: {rune: qsJay_qsUtter, stance: hapax, exit: x-height, adjustments: [ex-ext-1]}
 qsJay_qsUtter.ex-ext-1.en-con-1: {rune: qsJay_qsUtter, stance: hapax, entry: x-height, exit: x-height, adjustments: [en-con-1, ex-ext-1]}
-qsYe: {rune: qsYe, stance: loop}
-qsYe.en-y0: {rune: qsYe, stance: loop, entry: baseline}
-qsYe.en-y5.ex-y0: {rune: qsYe, stance: climbing-loop, entry: x-height, exit: baseline}
-qsYe.en-y5.ex-y0.ex-ext-1: {rune: qsYe, stance: climbing-loop, entry: x-height, exit: baseline, adjustments: [ex-ext-1]}
-qsYe.ex-y0: {rune: qsYe, stance: loop, exit: baseline}
-qsYe.ex-y0.ex-ext-1: {rune: qsYe, stance: loop, exit: baseline, adjustments: [ex-ext-1]}
-qsYe.noentry: {rune: qsYe, stance: loop, adjustments: [locked]}
 qsNo.alt.en-y0.ex-y0.after-zoo: {rune: qsNo, stance: flipped, entry: baseline, exit: baseline}
 qsFee.en-y5: {rune: qsFee, stance: reversed-loop, entry: x-height}
 qsFee.en-y8.ex-y5: {rune: qsFee, stance: loop, entry: top, exit: x-height}
@@ -142,7 +135,6 @@ qsVie_qsUtter.en-ext-1.ex-ext-1: {rune: qsVie_qsUtter, stance: hapax, entry: bas
 qsVie_qsUtter.ex-con-2: {rune: qsVie_qsUtter, stance: hapax, exit: x-height}
 qsVie_qsUtter.ex-ext-1: {rune: qsVie_qsUtter, stance: hapax, exit: x-height, adjustments: [ex-ext-1]}
 qsSee: {rune: qsSee, stance: normal}
-qsSee.after-ye: {rune: qsSee, stance: normal}
 qsSee.en-y0.ex-y6: {rune: qsSee, stance: curled-over, entry: baseline, exit: y6}
 qsSee.en-y0.ex-y6.noentry: {rune: qsSee, stance: curled-over, exit: y6, adjustments: [locked]}
 qsSee.ex-y0: {rune: qsSee, stance: straighter, exit: baseline}

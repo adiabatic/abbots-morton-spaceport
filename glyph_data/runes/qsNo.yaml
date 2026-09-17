@@ -67,7 +67,6 @@ stances:
             - qsJai
             - qsCheer
             - qsJay
-            - qsYe
             - qsNo
             - qsRoe
             - qsIt
@@ -108,7 +107,6 @@ policy:
       left:
         except:
         - {family: qsPea}
-        - {family: qsYe}
         - {family: qsIt}
       right:
         family:
@@ -122,28 +120,9 @@ policy:
     when:
       left:
         family:
-        - qsBay
         - qsDay
-        - qsKey
-        - qsGay
-        - qsVie
-        - qsZoo
-        - qsShe
-        - qsJai
-        - qsCheer
-        - qsJay
-        - qsYe
-        - qsIng
-        - qsLlan
-        - qsExcite
         - qsIt
-        - qsEat
-        - qsEt
-        - qsEight
-        - qsAwe
-        - qsOx
         - qsOy
-        - qsOoze
         joined_at: baseline
       right:
         family: qsTea
