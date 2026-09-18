@@ -794,7 +794,7 @@ impl<'i> Engine<'i> {
         &self.base_hits
     }
 
-    /// This engine's trace memo, detached: the entries and the tables their seats index, together with every fired delta the engine seated. Every other memo is released at the same time, as [`Engine::release_memos`] releases it, because the candidate, closure and prospect memos seat their deltas in the table that leaves with the snapshot. `None` for an engine without a trace memo. The bases are not folded in: a snapshot is what this engine settled itself, and a caller that wants the union reads the bases beside it.
+    /// This engine's trace memo, detached: the entries compacted into an immutable array and the tables their seats index, together with every fired delta the engine seated. Every other memo is released before compaction, as [`Engine::release_memos`] releases it, because the candidate, closure and prospect memos seat their deltas in the table that leaves with the snapshot. The live trace map is consumed and released before the array is partitioned and sorted. `None` for an engine without a trace memo. The bases are not folded in: a snapshot is what this engine settled itself, and a caller that wants the union reads the bases beside it.
     pub fn take_memo(&mut self) -> Option<MemoSnapshot> {
         let memo = self.trace_cache.take()?;
         let deltas = std::mem::take(&mut self.deltas);
@@ -804,7 +804,7 @@ impl<'i> Engine<'i> {
         self.prospect_cache = HashMap::default();
         self.closure_cache = HashMap::default();
         Some(MemoSnapshot {
-            entries: memo.entries,
+            entries: memo.entries.into(),
             settled: memo.settled.into_table(),
             notes: memo.notes.into_table(),
             deltas: deltas.table,
@@ -5072,7 +5072,10 @@ mod tests {
                     .expect("the source window settles");
                 let key = Engine::trace_key(&left, token.letter_ordinal(), slots);
                 let mut memo = source.take_memo().expect("the source journals");
-                memo.entries.retain(|candidate, _| *candidate == key);
+                memo.entries = [(key, *memo.entries.get(&key).expect("the source window"))]
+                    .into_iter()
+                    .collect::<HashMap<_, _>>()
+                    .into();
                 assert_eq!(memo.len(), 1);
                 MemoBase {
                     memo: std::sync::Arc::new(memo),

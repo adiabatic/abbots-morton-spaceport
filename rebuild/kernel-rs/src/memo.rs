@@ -9,14 +9,15 @@
 //! The snapshot is shared behind an [`Arc`] rather than copied per configuration, because the memo is the enumeration's high-water mark and a copy per delta configuration would put the fan-out back on the memory bound the delta was meant to lift. It therefore holds no `Rc`, no reference into any engine, and no ladder — the fixpoint never records one — and a base is read-only from the moment it is built.
 
 use std::fmt::Write as _;
-use std::io::{BufRead, Write as _};
+use std::hash::{Hash, Hasher};
+use std::io::{BufRead, Seek as _, Write as _};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use crate::engine::{
     DeltaSeat, Pointer, ReadsSeat, TraceEntry, TraceKey, TraceNotesSeat, TraceSettledSeat,
 };
-use crate::hash::{HashMap, HashSet};
+use crate::hash::{FastHasher, HashMap, HashSet};
 use crate::index::{Read, SpecIndex};
 use crate::model::{PolicyRecord, Provenance, Sym, When};
 use crate::types::{
@@ -24,10 +25,173 @@ use crate::types::{
     TransitionTrace, adjustment_from_text, adjustment_text, boundary_settled,
 };
 
-/// One engine's finished trace memo: the entries with the three tables their seats index. The tables are the memo's own pools flattened, so an entry read through the snapshot resolves exactly as it resolved through the engine that recorded it.
+/// Immutable full-key records partitioned by a hash prefix, with sorted keys inside each bucket. The target of sixteen records per bucket rounds the bucket count up to a power of two, giving eight to sixteen records per bucket on average once the table exceeds one bucket. The index costs four bytes per bucket plus its final offset. A lookup hashes once, then compares complete keys within its bucket; the hash never stands in for equality.
+#[derive(Debug, Default)]
+pub(crate) struct SnapshotEntries {
+    records: Box<[(TraceKey, TraceEntry)]>,
+    offsets: Box<[u32]>,
+    prefix_bits: u32,
+}
+
+impl SnapshotEntries {
+    fn bucket(key: &TraceKey, prefix_bits: u32) -> usize {
+        if prefix_bits == 0 {
+            return 0;
+        }
+        let mut hash = FastHasher::default();
+        key.hash(&mut hash);
+        (hash.finish() >> (64 - prefix_bits)) as usize
+    }
+
+    /// Construction holds four bytes of source position per record beside the records themselves. Counting and in-place bucket partitioning hash each key a bounded number of times; small bucket insertion sorts use the source positions to preserve last-input-wins even though partitioning rearranges equal keys. A bucket above sixty-four records uses a temporary decorated sort to bound collision-heavy sorting time. The source positions and partition cursors are released before the final array is boxed; duplicates that reduce the required prefix rebuild its index over the surviving records.
+    fn from_records(mut records: Vec<(TraceKey, TraceEntry)>) -> Result<Self, String> {
+        let count = u32::try_from(records.len())
+            .map_err(|_| "a memo holds fewer than 2^32 windows".to_owned())?;
+        if records.is_empty() {
+            return Ok(Self::default());
+        }
+        let buckets = records.len().div_ceil(16).next_power_of_two();
+        let prefix_bits = buckets.trailing_zeros();
+        let mut offsets = vec![0u32; buckets + 1];
+        for (key, _) in &records {
+            offsets[Self::bucket(key, prefix_bits) + 1] += 1;
+        }
+        for bucket in 0..buckets {
+            offsets[bucket + 1] += offsets[bucket];
+        }
+        let mut positions: Vec<u32> = (0..count).collect();
+        let mut next = offsets[..buckets].to_vec();
+        for bucket in 0..buckets {
+            while next[bucket] < offsets[bucket + 1] {
+                let at = next[bucket] as usize;
+                let destination = Self::bucket(&records[at].0, prefix_bits);
+                if destination == bucket {
+                    next[bucket] += 1;
+                } else {
+                    let target = next[destination] as usize;
+                    records.swap(at, target);
+                    positions.swap(at, target);
+                    next[destination] += 1;
+                }
+            }
+        }
+        drop(next);
+        for bucket in 0..buckets {
+            let start = offsets[bucket] as usize;
+            let end = offsets[bucket + 1] as usize;
+            if end - start > 64 {
+                let mut ordered: Vec<_> = records[start..end]
+                    .iter()
+                    .copied()
+                    .zip(positions[start..end].iter().copied())
+                    .collect();
+                ordered.sort_unstable_by_key(|((key, _), position)| (*key, *position));
+                for (target, (record, _)) in records[start..end].iter_mut().zip(ordered) {
+                    *target = record;
+                }
+                continue;
+            }
+            for at in start + 1..end {
+                let mut cursor = at;
+                while cursor > start
+                    && (records[cursor].0, positions[cursor])
+                        < (records[cursor - 1].0, positions[cursor - 1])
+                {
+                    records.swap(cursor, cursor - 1);
+                    positions.swap(cursor, cursor - 1);
+                    cursor -= 1;
+                }
+            }
+        }
+        drop(positions);
+        let mut written = 0usize;
+        for bucket in 0..buckets {
+            let start = offsets[bucket] as usize;
+            let end = offsets[bucket + 1] as usize;
+            offsets[bucket] = written as u32;
+            for at in start..end {
+                if at + 1 == end || records[at].0 != records[at + 1].0 {
+                    records[written] = records[at];
+                    written += 1;
+                }
+            }
+        }
+        offsets[buckets] = written as u32;
+        records.truncate(written);
+        if written.div_ceil(16).next_power_of_two() < buckets {
+            drop(offsets);
+            return Self::from_records(records);
+        }
+        Ok(Self {
+            records: records.into_boxed_slice(),
+            offsets: offsets.into_boxed_slice(),
+            prefix_bits,
+        })
+    }
+
+    pub(crate) fn len(&self) -> usize {
+        self.records.len()
+    }
+
+    pub(crate) fn is_empty(&self) -> bool {
+        self.records.is_empty()
+    }
+
+    pub(crate) fn get(&self, key: &TraceKey) -> Option<&TraceEntry> {
+        if self.is_empty() {
+            return None;
+        }
+        let bucket = Self::bucket(key, self.prefix_bits);
+        let records =
+            &self.records[self.offsets[bucket] as usize..self.offsets[bucket + 1] as usize];
+        records
+            .binary_search_by_key(key, |(key, _)| *key)
+            .ok()
+            .map(|at| &records[at].1)
+    }
+
+    pub(crate) fn iter(&self) -> impl Iterator<Item = (&TraceKey, &TraceEntry)> {
+        self.records.iter().map(|(key, entry)| (key, entry))
+    }
+
+    #[cfg(test)]
+    fn keys(&self) -> impl Iterator<Item = &TraceKey> {
+        self.records.iter().map(|(key, _)| key)
+    }
+}
+
+impl From<HashMap<TraceKey, TraceEntry>> for SnapshotEntries {
+    fn from(entries: HashMap<TraceKey, TraceEntry>) -> Self {
+        let records = entries.into_iter().collect();
+        Self::from_records(records).expect("a live memo holds fewer than 2^32 windows")
+    }
+}
+
+impl<'a> IntoIterator for &'a SnapshotEntries {
+    type Item = (&'a TraceKey, &'a TraceEntry);
+    type IntoIter = std::iter::Map<
+        std::slice::Iter<'a, (TraceKey, TraceEntry)>,
+        fn(&'a (TraceKey, TraceEntry)) -> (&'a TraceKey, &'a TraceEntry),
+    >;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.records.iter().map(|(key, entry)| (key, entry))
+    }
+}
+
+#[cfg(test)]
+impl std::ops::Index<&TraceKey> for SnapshotEntries {
+    type Output = TraceEntry;
+
+    fn index(&self, key: &TraceKey) -> &Self::Output {
+        self.get(key).expect("the snapshot holds the window")
+    }
+}
+
+/// One engine's finished trace memo: compact immutable entries with the four tables their seats index. The tables are the memo's own pools flattened, so an entry read through the snapshot resolves exactly as it resolved through the engine that recorded it. The live engine's growing memo remains a hash map; a finished snapshot carries neither hash-table slack nor control bytes.
 #[derive(Debug, Default)]
 pub struct MemoSnapshot {
-    pub(crate) entries: HashMap<TraceKey, TraceEntry>,
+    pub(crate) entries: SnapshotEntries,
     pub(crate) settled: Vec<Settled>,
     pub(crate) notes: Vec<Vec<String>>,
     pub(crate) deltas: Vec<Box<[Pointer]>>,
@@ -401,7 +565,7 @@ pub fn write_memo(
         Vec::with_capacity(sources.iter().map(|(memo, _)| memo.len()).sum());
     for (seat, (memo, excluded)) in sources.iter().enumerate() {
         let source = u16::try_from(seat).expect("a memo is written from fewer than 2^16 sources");
-        for (key, entry) in &memo.entries {
+        for (key, entry) in memo.entries.iter() {
             if !excluded.admits(key, memo.reads(*entry)) || held_earlier(seat, key) {
                 continue;
             }
@@ -567,7 +731,7 @@ fn seat_at(text: &str) -> Option<usize> {
     text.parse().ok()
 }
 
-/// One memo file read back as a snapshot over this spec, holding only the windows `keep` admits. The configuration and the world are held to `expected`'s (its stamp is not read, being the caller's business); a window naming a symbol this spec never interned — a rune, a stance or a height that left the spec, or a pointer whose record did — is dropped rather than refused, because such a window names something that moved and would be excluded by the caller's rule in any case, and so is a window naming a rune the spec no longer models, a stance its rune no longer declares or a height no key field holds, since the file spells each as text and the key is its field's [`crate::index::Ordinal`], which this spec's index may no longer mint for it, and so is a window seated on a settled record whose cell no left of this spec keys ([`LeftOrdinals::of`]), since a stale record would otherwise reach a left. A line the format does not spell is a refusal naming it.
+/// One memo file read back as a snapshot over this spec, holding only the windows `keep` admits. A byte scan counts window lines before parsing so the record vector reserves once rather than doubling its allocation during a large load; rejected windows leave untouched capacity that boxing releases. The configuration and the world are held to `expected`'s (its stamp is not read, being the caller's business); a window naming a symbol this spec never interned — a rune, a stance or a height that left the spec, or a pointer whose record did — is dropped rather than refused, because such a window names something that moved and would be excluded by the caller's rule in any case, and so is a window naming a rune the spec no longer models, a stance its rune no longer declares or a height no key field holds, since the file spells each as text and the key is its field's [`crate::index::Ordinal`], which this spec's index may no longer mint for it, and so is a window seated on a settled record whose cell no left of this spec keys ([`LeftOrdinals::of`]), since a stale record would otherwise reach a left. A line the format does not spell is a refusal naming it.
 pub(crate) fn read_memo(
     index: &SpecIndex,
     path: &Path,
@@ -576,9 +740,31 @@ pub(crate) fn read_memo(
 ) -> Result<MemoSnapshot, String> {
     let file = std::fs::File::open(path).map_err(|error| format!("{}: {error}", path.display()))?;
     let complain = |number: usize, what: &str| format!("{}: line {number}: {what}", path.display());
-    let mut lines = std::io::BufReader::with_capacity(1 << 20, file)
-        .lines()
-        .enumerate();
+    let mut reader = std::io::BufReader::with_capacity(1 << 20, file);
+    let mut window_lines = 0usize;
+    loop {
+        let first = reader
+            .fill_buf()
+            .map_err(|error| format!("{}: {error}", path.display()))?
+            .first()
+            .copied();
+        let Some(first) = first else { break };
+        if first == b'E' {
+            window_lines = window_lines
+                .checked_add(1)
+                .filter(|count| u32::try_from(*count).is_ok())
+                .ok_or_else(|| {
+                    format!("{}: a memo holds fewer than 2^32 windows", path.display())
+                })?;
+        }
+        reader
+            .skip_until(b'\n')
+            .map_err(|error| format!("{}: {error}", path.display()))?;
+    }
+    reader
+        .rewind()
+        .map_err(|error| format!("{}: {error}", path.display()))?;
+    let mut lines = reader.lines().enumerate();
     let (_, head) = lines
         .next()
         .ok_or_else(|| complain(1, "an empty file is not a memo"))?;
@@ -596,6 +782,7 @@ pub(crate) fn read_memo(
     }
     let placeholder = boundary_settled(index.vocab(), TokenKind::Edge);
     let mut memo = MemoSnapshot::default();
+    let mut records = Vec::with_capacity(window_lines);
     let mut symbols: Vec<Option<Sym>> = Vec::new();
     let mut settled_usable: Vec<bool> = Vec::new();
     let mut delta_usable: Vec<bool> = Vec::new();
@@ -825,7 +1012,10 @@ pub(crate) fn read_memo(
                 if !keep(&key) {
                     continue;
                 }
-                memo.entries.insert(
+                if records.len() == u32::MAX as usize {
+                    return Err(complain(number, "a memo holds fewer than 2^32 windows"));
+                }
+                records.push((
                     key,
                     TraceEntry::new(
                         TraceSettledSeat::at(settled_seat),
@@ -836,7 +1026,7 @@ pub(crate) fn read_memo(
                         joint_floor,
                         decided_stage,
                     ),
-                );
+                ));
             }
             Some(other) => {
                 return Err(complain(
@@ -847,6 +1037,8 @@ pub(crate) fn read_memo(
             None => return Err(complain(number, "an empty line")),
         }
     }
+    memo.entries = SnapshotEntries::from_records(records)
+        .map_err(|error| format!("{}: {error}", path.display()))?;
     Ok(memo)
 }
 
@@ -893,6 +1085,144 @@ mod tests {
             world: EnumerationModes::default().world_token(),
             stamp: "stamp-under-test".to_owned(),
         }
+    }
+
+    fn entry_with_notes(seat: usize) -> TraceEntry {
+        TraceEntry::new(
+            TraceSettledSeat::at(0),
+            TraceNotesSeat::at(seat),
+            DeltaSeat::at(0),
+            ReadsSeat::at(0),
+            0,
+            false,
+            DecidedStage::Order,
+        )
+    }
+
+    #[test]
+    fn compact_entries_find_full_keys_and_keep_the_last_duplicate() {
+        let index = fixtures::mini();
+        let template = TraceKey::for_test(&index, fixtures::sym(&index, "qsPea"), [None; 4]);
+        let mut records = Vec::new();
+        let mut expected: HashMap<TraceKey, TraceEntry> = HashMap::default();
+        for pass in 0..3 {
+            for extension in (0..512i16).rev() {
+                let key = TraceKey {
+                    left_extension: extension,
+                    ..template
+                };
+                let entry = entry_with_notes(pass * 512 + extension as usize);
+                records.push((key, entry));
+                expected.insert(key, entry);
+            }
+        }
+        for seat in 0..128 {
+            let entry = entry_with_notes(seat);
+            records.push((template, entry));
+            expected.insert(template, entry);
+        }
+        let entries = SnapshotEntries::from_records(records).expect("the records fit");
+        assert_eq!(entries.len(), expected.len());
+        assert_eq!(std::mem::size_of::<(TraceKey, TraceEntry)>(), 36);
+        assert!(entries.offsets.windows(2).any(|pair| pair[1] - pair[0] > 1));
+        for (key, expected) in expected {
+            assert_eq!(entries.get(&key).expect("present").notes, expected.notes);
+        }
+        for extension in [-1, 512, i16::MAX] {
+            let missing = TraceKey {
+                left_extension: extension,
+                ..template
+            };
+            assert!(entries.get(&missing).is_none());
+        }
+        assert!(SnapshotEntries::default().get(&template).is_none());
+        let empty = SnapshotEntries::from_records(Vec::new()).expect("empty fits");
+        assert!(empty.is_empty());
+        assert_eq!(empty.iter().count(), 0);
+        assert!(empty.offsets.is_empty());
+    }
+
+    #[test]
+    fn duplicate_file_windows_keep_the_last_entry() {
+        let index = fixtures::mini();
+        let (_, memo) = enumerate_keeping(&index, &[], Vec::new());
+        let path = scratch("memo-duplicate-window").join("memo-default.tsv");
+        write_memo(&index, &path, &head("default"), &memo, &[]).expect("writes");
+        let mut text = std::fs::read_to_string(&path).expect("the file");
+        let mut duplicate: Vec<_> = text
+            .lines()
+            .find(|line| line.starts_with("E\t"))
+            .expect("a window")
+            .split('\t')
+            .map(str::to_owned)
+            .collect();
+        duplicate[15] = if duplicate[15] == "0" { "1" } else { "0" }.to_owned();
+        text.push_str(&duplicate.join("\t"));
+        text.push('\n');
+        std::fs::write(&path, text).expect("the duplicate appends");
+        let back = read_memo(&index, &path, &head("default"), |_| true).expect("reads");
+        assert_eq!(back.len(), memo.len());
+        let changed = memo
+            .entries
+            .iter()
+            .filter(|(key, entry)| {
+                back.entries.get(key).expect("present").prospect() != entry.prospect()
+            })
+            .count();
+        assert_eq!(changed, 1, "the final duplicate replaces its first record");
+    }
+
+    #[test]
+    fn file_windows_are_indexed_after_symbol_and_ordinal_remapping() {
+        let before = fixtures::mini();
+        let (_, memo) = enumerate_keeping(&before, &[], Vec::new());
+        let path = scratch("memo-remapped-windows").join("memo-default.tsv");
+        write_memo(&before, &path, &head("default"), &memo, &[]).expect("writes");
+        let mut spec =
+            crate::parse::parse_spec(&fixtures::mini_dump()).expect("the fixture parses");
+        let mut reversed = crate::model::Table::new();
+        for (name, rune) in spec.root.runes.iter().rev() {
+            reversed.push(*name, rune.clone());
+        }
+        spec.root.runes = reversed;
+        let after = fixtures::index_of(&crate::emit::emit_spec(&spec));
+        let pea_before = fixtures::sym(&before, "qsPea");
+        let pea_after = fixtures::sym(&after, "qsPea");
+        assert_ne!(pea_before, pea_after, "the symbol interning order changes");
+        assert_ne!(
+            before.rune_ordinal(pea_before),
+            after.rune_ordinal(pea_after),
+            "the key's field-local ordinal changes too"
+        );
+        let back =
+            read_memo(&after, &path, &head("default"), |_| true).expect("reads remapped keys");
+        assert_eq!(back.len(), memo.len());
+        let (expected, fresh) = enumerate_keeping(&after, &[], Vec::new());
+        for (key, entry) in fresh.entries.iter() {
+            let loaded = *back.entries.get(key).expect("the remapped key is found");
+            assert_eq!(back.trace(loaded), fresh.trace(*entry));
+            assert_eq!(
+                back.delta(loaded).iter().collect::<HashSet<_>>(),
+                fresh.delta(*entry).iter().collect::<HashSet<_>>()
+            );
+            assert_eq!(
+                back.reads(loaded).iter().collect::<HashSet<_>>(),
+                fresh.reads(*entry).iter().collect::<HashSet<_>>()
+            );
+        }
+        let (seeded, own) = enumerate_keeping(
+            &after,
+            &[],
+            vec![MemoBase {
+                memo: Arc::new(back),
+                excluded: Exclusion::none(),
+            }],
+        );
+        assert!(own.is_empty());
+        assert_eq!(
+            emit_transitions(&after, &seeded),
+            emit_transitions(&after, &expected)
+        );
     }
 
     /// One configuration enumerated with its memo kept, over whatever bases it is handed.
@@ -1359,6 +1689,7 @@ mod tests {
         ] {
             let build = |extensions: std::ops::RangeInclusive<i16>| {
                 let mut built = MemoSnapshot::default();
+                let mut records = Vec::new();
                 built.deltas.push(delta.clone());
                 built.reads.push(reads.clone());
                 if distinct_records {
@@ -1382,7 +1713,7 @@ mod tests {
                     } else {
                         (0, seat)
                     };
-                    built.entries.insert(
+                    records.push((
                         window,
                         TraceEntry::new(
                             TraceSettledSeat::at(settled_seat),
@@ -1393,8 +1724,9 @@ mod tests {
                             false,
                             DecidedStage::Order,
                         ),
-                    );
+                    ));
                 }
+                built.entries = SnapshotEntries::from_records(records).expect("the windows fit");
                 built
             };
             let own = build(i16::MIN..=-1);
