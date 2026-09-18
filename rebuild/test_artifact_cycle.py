@@ -2907,11 +2907,11 @@ def test_dry_run_plan_skip_make_test():
 
 
 def test_the_signature_pool_takes_the_cores_the_surface_width_cannot():
-    """The ink-signature phase's width is the one fan-out in the plan that memory does not derive: a signature worker holds one comparator and nothing a `*_BYTES` constant prices, so on a ten-core box the gated arm answers the cores less gate:make-test's two and the skip arm the whole box — never below the surface width, which memory derives and `SURFACE_JOBS_CAP` clamps, and unmoved on a box half the size, where the reserve and the parent's co-resident pile outrun the budget before anything divides and that width floors at one, since the cap is where the unit worker stops scaling and not this one. The argv carries the width beside `--jobs`, and the plan block states it on a row of its own with its derivation, so a reader can see the two widths differ and why. The widths are read off the budget rather than written here."""
+    """The ink-signature phase's width is the one fan-out in the plan that memory does not derive: a signature worker holds one comparator and nothing a `*_BYTES` constant prices, so on a ten-core box the gated arm answers the cores less gate:make-test's two and the skip arm the whole box — never below the surface width, which memory derives and `SURFACE_JOBS_CAP` clamps, and unmoved on a box a quarter the size, where the reserve and the parent's co-resident pile outrun the budget before anything divides and that width floors at one, since the cap is where the unit worker stops scaling and not this one. The argv carries the width beside `--jobs`, and the plan block states it on a row of its own with its derivation, so a reader can see the two widths differ and why. The widths are read off the budget rather than written here."""
     gated = _plan(skip_make_test=False, ncores=10, total_bytes=BOX_32_GIB)
     assert gated.signature_jobs == ac.signature_job_budget(skip_gates=False, ncores=10) == 8
     assert gated.signature_jobs >= gated.surface_jobs == ac.SURFACE_JOBS_CAP
-    narrow = _plan(skip_make_test=False, ncores=10, total_bytes=BOX_32_GIB // 2)
+    narrow = _plan(skip_make_test=False, ncores=10, total_bytes=BOX_32_GIB // 4)
     assert narrow.signature_jobs == 8 > narrow.surface_jobs == 1
     gated_by_name = {step.name: step for step in gated.steps}
     assert _argv(gated_by_name["surface-build"])[-4:] == [

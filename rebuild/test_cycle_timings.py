@@ -68,18 +68,24 @@ def test_parse_inner_timings_reads_a_trailing_rss_token():
     assert ct.parse_inner_timings("[t] conform[default] 5.5s shaping_runs=123 rss_gb=0.80") == [
         {"label": "conform[default]", "elapsed_s": 5.5, "rss_gb": 0.8}
     ]
+    assert ct.parse_inner_timings("[t] review.build plan 9.9s rss_gb=5.28 rss_now_gb=4.02") == [
+        {"label": "review.build plan", "elapsed_s": 9.9, "rss_gb": 5.28, "rss_now_gb": 4.02}
+    ]
+    assert ct.parse_inner_timings("[t] review.build plan 9.9s rss_now_gb=4.02") == [
+        {"label": "review.build plan", "elapsed_s": 9.9, "rss_now_gb": 4.02}
+    ]
 
 
 def test_parse_inner_timings_reads_the_surface_builds_phase_lines():
-    """The surface build's phase lines carry the token ahead of a tab-separated note, which is the shape `--inner` has to read a per-phase peak out of for the step whose high-water mark issue #156 wants attributed."""
+    """The surface build's phase lines carry the peak token, then the current-reading token where the box answers one, ahead of a tab-separated note, which is the shape `--inner` has to read a per-phase peak and resident set out of for the step whose high-water mark issue #156 wants attributed."""
     text = (
-        "[t] review.build load 12.3s rss_gb=1.23\t(signatures: 40 cached, 2 shaped across 8 workers)\n"
-        "[t] review.build units 900.0s rss_gb=15.40\t(jobs=1, fresh=1,000,000, verified=0 served)\n"
+        "[t] review.build load 12.3s rss_gb=1.23 rss_now_gb=1.20\t(signatures: 40 cached, 2 shaped across 8 workers)\n"
+        "[t] review.build units 900.0s rss_gb=15.40 rss_now_gb=9.75\t(jobs=1, fresh=1,000,000, verified=0 served)\n"
         "[t] review.build manifest+check 300.5s rss_gb=17.10\n"
     )
     assert ct.parse_inner_timings(text) == [
-        {"label": "review.build load", "elapsed_s": 12.3, "rss_gb": 1.23},
-        {"label": "review.build units", "elapsed_s": 900.0, "rss_gb": 15.4},
+        {"label": "review.build load", "elapsed_s": 12.3, "rss_gb": 1.23, "rss_now_gb": 1.2},
+        {"label": "review.build units", "elapsed_s": 900.0, "rss_gb": 15.4, "rss_now_gb": 9.75},
         {"label": "review.build manifest+check", "elapsed_s": 300.5, "rss_gb": 17.1},
     ]
 

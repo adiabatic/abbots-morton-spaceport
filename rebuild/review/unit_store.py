@@ -2,9 +2,9 @@
 
 Held as one slotted record per unit — the machine flags, the ink deltas, the digests, the seam-home projection with its name tuples, the seam rects, the spool address, the written address, the content key — that state walks at five to seven times what a packed row of the same fields takes (the stage-1 readings in `var/issue-299/stage1-cold.log`: 1,192 bytes a unit walked against 171 packed for the states alone). The difference is object overhead: a tuple header per span, a pointer per name, a dict per unit for the deltas, a string object per digest. Columns pay none of it. A `UnitStore` is allocated once with the row count and the row's fixed fields live in one `array` each, typed by width — flag bits in a byte, string ids in a `u32`, the two 32-byte keys in one `bytearray` apiece, addresses as a part id, a `u64` start and a `u32` length — and every variable-length field (the window's codepoints, the ink deltas, the after and before rows of the seam-home projection, the seams with their rects and homes) is an offset and a count into a side array, so an empty field costs its five bytes and nothing else. The mismatch lines are the one field kept as objects, in a dict keyed by ordinal: every shipping build has none (the write fails otherwise), so a column for them would be all offsets.
 
-The ordinal is the unit's index in `workload.units` as the list stands at the plan boundary, when the store is allocated; the build writes it onto each unit and every reduce joins by it. The unit's id is not a column: `unit_cache.unit_id_for` spells the first 64 bits of the content key in a fixed eleven base58 symbols over an ASCII-ordered alphabet, so the id is the key's first eight bytes read big-endian (`id_word`) and the string order of ids is the integer order of those words, which is what lets the home reduce tie-break on the integer. The few readers that hold an id string (the checker's home relation, the verification sample) go through `ordinal_of`, a bisect over a sorted array of the words built once after the fold, and that build is where a repeated id is refused: two windows under one 64-bit prefix would share a fragment address, so it is a refusal rather than a merge.
+The ordinal is the unit's row in the workload table (`audit.UnitTable`) as it stands compacted after the ink-duplicate fold, when the store is allocated over the same count; one index reads both tables, and every reduce joins by it. The two tables share one string table, handed in as `strings`, so a class the audit states and a family a worker names are one vocabulary. The input key is written here first, by the plan's keyer loop (`set_input_key`), before any row is folded; a fold that carries a key holds it to the column rather than copying over it. The unit's id is not a column: `unit_cache.unit_id_for` spells the first 64 bits of the content key in a fixed eleven base58 symbols over an ASCII-ordered alphabet, so the id is the key's first eight bytes read big-endian (`id_word`) and the string order of ids is the integer order of those words, which is what lets the home reduce tie-break on the integer. The few readers that hold an id string (the checker's home relation, the verification sample) go through `ordinal_of`, a bisect over a sorted array of the words built once after the fold, and that build is where a repeated id is refused: two windows under one 64-bit prefix would share a fragment address, so it is a refusal rather than a merge.
 
-Every string — a digest, a cluster, a family, a config name, a delta digest, a glyph or cell name, a seam token, a part name, a class, an echo, a policy file, a config note — is an id into one `_StringTable`, which interns through the `sys.intern` table `audit.load_audit` describes and assigns ids in first-seen order as the fold runs. In a pooled build that order is timing-dependent, and it never reaches an output byte, because every accessor materializes the string; nothing needs the vocabulary ahead of the fold. Id 0 is the empty string, which the accessors read as `""` where the record holds a string and as `None` where it holds an optional one.
+Every string — a digest, a cluster, a family, a config name, a delta digest, a glyph or cell name, a seam token, a part name, a class, an echo, a policy file, a config note — is an id into one `columns.StringTable`, which interns through the `sys.intern` table `audit.load_audit` describes and assigns ids in first-seen order as the fold runs. In a pooled build that order is timing-dependent, and it never reaches an output byte, because every accessor materializes the string; nothing needs the vocabulary ahead of the fold. Id 0 is the empty string, which the accessors read as `""` where the record holds a string and as `None` where it holds an optional one.
 
 The accessors materialize on demand, one unit at a time, exactly the shapes the build writes: `seam_home` is the `enrich.SeamHomeUnit` the home reduce compares, `seam_home_record` the `proj` dict the store line carries, `seam_rects` the `[{"pair", "before", "after"}]` list `patch_fragment` reads, `homes_record` the `[[home, suppressed]]` list, `cached_unit` the whole `unit_cache.CachedUnit` for `record_line`, and `source` the `unit_cache.PriorFragment` the fragment is read back by. JSON key and value order lives in the shipped bytes, so each of these rebuilds its dict in the order the writer reads it, and the fold refuses a projection or a record whose shape it could not rebuild byte for byte: rect dicts with keys other than `x_min`, `x_max`, `advance_total` in that order, or rows whose spans, names and seams disagree in length. The store is also the home reduce's `SeamHomeSource` (the protocol `enrich.resolve_home_assignments` takes): `windows`, `seam_count`, `projection`, `id_word`, `invisible` and `set_homes`, so the reduce skips the nine units in ten with no seam without materializing anything and writes its result straight into the seam side column.
 
@@ -13,14 +13,14 @@ The accessors materialize on demand, one unit at a time, exactly the shapes the 
 
 from __future__ import annotations
 
-import sys
 from array import array
 from bisect import bisect_left
 from collections.abc import Iterable, Iterator, Sequence
 from typing import NamedTuple, Protocol
 
 from rebuild.review import enrich, unit_cache
-from rebuild.review.audit import Unit, format_codepoints
+from rebuild.review.audit import MACHINE_CHANNELS, format_codepoints
+from rebuild.review.columns import StringTable
 from rebuild.tools import pile_tally
 
 KEY_BYTES = 32
@@ -41,7 +41,7 @@ _ALPHABET_INDEX = {symbol: index for index, symbol in enumerate(unit_cache.BASE5
 
 
 class Flags(NamedTuple):
-    """One unit's flag byte, unpacked. The three machine channels are every unit's; `slim` is the fragment shape the build writes for it (`audit.Unit.slim_fragment`, the store record's `slim` for a served unit); `served`, `exemplar`, `no_verdict` and `verbatim` are the served-only bits — whether the unit was served from the previous surface, what its store record says the fragment was written with, and whether its address is the shard writer's own (`unit_cache.PriorFragment.verbatim`) — and read as False on a fresh unit."""
+    """One unit's flag byte, unpacked. The three machine channels are every unit's, and this byte is their one home — a materialized `audit.Unit` copies them from here; `slim` is the fragment shape the build writes for it (`audit.slim_fragment` over the three channels and the ledger's exemption, the store record's `slim` for a served unit); `served`, `exemplar`, `no_verdict` and `verbatim` are the served-only bits — whether the unit was served from the previous surface, what its store record says the fragment was written with, and whether its address is the shard writer's own (`unit_cache.PriorFragment.verbatim`) — and read as False on a fresh unit."""
 
     ink_identical: bool
     picture_identical: bool
@@ -112,36 +112,6 @@ def id_word_of(unit_id: str) -> int:
     return value
 
 
-class _StringTable:
-    """One interning table for every string a column names: ids in first-seen order, the empty string at id 0, each string interned through `sys.intern` before the lookup so a name a worker's reply hands back as a fresh copy hits the entry the audit's own copy made. `bytes` is the table's cost as `pile_tally.packed_estimate` prices one — each distinct string once at its UTF-8 length plus an offset — and `len` counts the distinct strings, the empty one excluded, as the tally does."""
-
-    __slots__ = ("_strings", "_ids", "bytes")
-
-    def __init__(self) -> None:
-        self._strings: list[str] = [""]
-        self._ids: dict[str, int] = {"": 0}
-        self.bytes = 0
-
-    def id(self, value: str) -> int:
-        value = sys.intern(value)
-        found = self._ids.get(value)
-        if found is None:
-            found = len(self._strings)
-            self._strings.append(value)
-            self._ids[value] = found
-            self.bytes += len(value.encode()) + pile_tally.OFFSET_WIDTH
-        return found
-
-    def optional(self, value: str | None) -> int:
-        return 0 if value is None else self.id(value)
-
-    def __getitem__(self, index: int) -> str:
-        return self._strings[index]
-
-    def __len__(self) -> int:
-        return len(self._strings) - 1
-
-
 def _rect_edges(edge: dict) -> tuple[int, int, int]:
     """One highlight rect's three edges, from a dict that must hold exactly those keys in `enrich._highlight`'s order: the accessor rebuilds the dict from the three integers, so any other shape could not be materialized byte for byte and is refused here rather than mis-written."""
     if tuple(edge) != RECT_EDGES:
@@ -149,17 +119,16 @@ def _rect_edges(edge: dict) -> tuple[int, int, int]:
     return int(edge["x_min"]), int(edge["x_max"]), int(edge["advance_total"])
 
 
-def _bytes_of(column: array | bytearray) -> int:
-    return len(column) if isinstance(column, bytearray) else len(column) * column.itemsize
-
-
 class UnitStore:
-    """The parent's per-unit state as columns over the ordinal (the module docstring). Allocated with the row count; filled by `fold_projection` for a fresh unit and `fold_served` for a served one, once per ordinal; written to by the reduces and the write through the `set_*` methods; read through the accessors. `index` (or the first `ordinal_of`) builds the id index and refuses a repeated id, and requires every row folded, since an unfolded row would carry an all-zero key."""
+    """The parent's per-unit state as columns over the ordinal (the module docstring). Allocated with the row count, over the caller's string table when one is given (the workload table's, so the two share a vocabulary) and over one of its own otherwise, and with the input-key column copied from `input_keys` when the plan restarts a store after a broken stream; filled by `fold_projection` for a fresh unit and `fold_served` for a served one, once per ordinal; written to by the reduces and the write through the `set_*` methods; read through the accessors. `index` (or the first `ordinal_of`) builds the id index and refuses a repeated id, and requires every row folded, since an unfolded row would carry an all-zero key."""
 
-    def __init__(self, n: int) -> None:
+    def __init__(
+        self, n: int, strings: StringTable | None = None, input_keys: bytearray | None = None
+    ) -> None:
         self.n = n
         self._folded = bytearray(n)
-        self._table = _StringTable()
+        self._table = strings if strings is not None else StringTable()
+        self._holds_table = strings is None
         self._flags = array("B", [0]) * n
         self._diffs_digest = array("I", [0]) * n
         self._cluster = array("I", [0]) * n
@@ -169,7 +138,11 @@ class UnitStore:
         self._cell_pair_l = array("b", [-1]) * n
         self._cell_pair_r = array("b", [-1]) * n
         self._content_keys = bytearray(n * KEY_BYTES)
-        self._input_keys = bytearray(n * KEY_BYTES)
+        if input_keys is not None and len(input_keys) != n * KEY_BYTES:
+            raise ValueError(
+                f"an input-key column for {n} units is {n * KEY_BYTES} bytes, not {len(input_keys)}"
+            )
+        self._input_keys = bytearray(n * KEY_BYTES) if input_keys is None else bytearray(input_keys)
         self._src_part = array("I", [0]) * n
         self._src_start = array("Q", [0]) * n
         self._src_len = array("I", [0]) * n
@@ -214,6 +187,12 @@ class UnitStore:
     def __len__(self) -> int:
         return self.n
 
+    def emptied(self) -> UnitStore:
+        """A store over the same rows, string table and input keys with nothing folded: what the plan restarts with when a stream breaks after some records were folded, so the keys the keyer wrote survive and the rows the broken store vouched for do not."""
+        store = UnitStore(self.n, strings=self._table, input_keys=self._input_keys)
+        store._holds_table = self._holds_table
+        return store
+
     def _begin(self, ordinal: int) -> None:
         if not 0 <= ordinal < self.n:
             raise IndexError(f"ordinal {ordinal} is outside a store of {self.n} units")
@@ -222,6 +201,13 @@ class UnitStore:
         self._folded[ordinal] = 1
         self._id_words = self._id_ordinals = None
 
+    def set_input_key(self, ordinal: int, input_key: str) -> None:
+        """Write the unit's input key (`unit_cache.UnitKeyer.key`) into its row, ahead of any fold: the column is the key's one home, and the plan reads it back (`input_key_hex`) to name the records it wants and to materialize a unit for a worker."""
+        inputs = bytes.fromhex(input_key)
+        if len(inputs) != KEY_BYTES:
+            raise ValueError(f"ordinal {ordinal}: an input key is {KEY_BYTES} bytes")
+        self._input_keys[ordinal * KEY_BYTES : (ordinal + 1) * KEY_BYTES] = inputs
+
     def _fold_keys(self, ordinal: int, unit_id: str, content_key: str, input_key: str) -> None:
         content = bytes.fromhex(content_key)
         inputs = bytes.fromhex(input_key)
@@ -229,8 +215,15 @@ class UnitStore:
             raise ValueError(f"ordinal {ordinal}: a content key and an input key are {KEY_BYTES} bytes each")
         if unit_cache.unit_id_for(content_key) != unit_id:
             raise ValueError(f"ordinal {ordinal}: id {unit_id} is not the id of content key {content_key}")
+        held = self._input_keys[ordinal * KEY_BYTES : (ordinal + 1) * KEY_BYTES]
+        if any(held):
+            if held != inputs:
+                raise ValueError(
+                    f"ordinal {ordinal}: the fold carries input key {input_key}, not the key the plan wrote for the row"
+                )
+        else:
+            self._input_keys[ordinal * KEY_BYTES : (ordinal + 1) * KEY_BYTES] = inputs
         self._content_keys[ordinal * KEY_BYTES : (ordinal + 1) * KEY_BYTES] = content
-        self._input_keys[ordinal * KEY_BYTES : (ordinal + 1) * KEY_BYTES] = inputs
 
     def _fold_deltas(self, ordinal: int, deltas: Iterable[tuple[str, str]]) -> None:
         self._deltas_start[ordinal] = len(self._delta_config)
@@ -350,12 +343,12 @@ class UnitStore:
     def fold_projection(
         self,
         projection: FreshProjection,
-        unit: Unit,
         *,
+        no_verdict: bool,
         ordinal: int | None = None,
         address: Address | unit_cache.PriorFragment | None = None,
     ) -> int:
-        """Fold one fresh unit's phase-1 projection into the row at its ordinal, writing the id and the three machine flags onto the unit on the way (what reduce 1 copied off the state), and answer the ordinal. The ordinal is the argument when given, else the projection's `ordinal`; the spool address is the argument when given (a `(part, start, length)` triple or the spool's own `PriorFragment`), else the projection's `part`, `start` and `length`, else nothing, which leaves `source` answering None. The seam-home projection carries the unit's ink flags too (`seam_home_projection` reads them off the unit), and one that disagrees with the projection's own is refused, since `seam_home` reads the flag column. The ink deltas are not written onto the unit: the store is their home and `ink_deltas` reads them back in the order they were folded, which is the order the fragment's JSON carries."""
+        """Fold one fresh unit's phase-1 projection into the row at its ordinal and answer the ordinal. The ordinal is the argument when given, else the projection's `ordinal`; the spool address is the argument when given (a `(part, start, length)` triple or the spool's own `PriorFragment`), else the projection's `part`, `start` and `length`, else nothing, which leaves `source` answering None. `no_verdict` is the ledger's exemption for the unit (the workload table's flag), which with the projection's three machine flags decides the `slim` bit — the fragment shape the drafting wrote (`audit.slim_fragment`). The seam-home projection carries the unit's ink flags too (`seam_home_projection` reads them off the unit), and one that disagrees with the projection's own is refused, since `seam_home` reads the flag column. The ink deltas' home is here: `ink_deltas` reads them back in the order they were folded, which is the order the fragment's JSON carries."""
         if ordinal is None:
             ordinal = projection.ordinal
             if ordinal < 0:
@@ -370,15 +363,12 @@ class UnitStore:
             raise ValueError(f"ordinal {ordinal}: the seam-home projection's ink flags are not the unit's")
         self._begin(ordinal)
         self._fold_keys(ordinal, projection.unit_id, projection.content_key, projection.input_key)
-        unit.unit_id = projection.unit_id
-        unit.ink_identical = projection.ink_identical
-        unit.picture_identical = projection.picture_identical
-        unit.junior_equivalent = projection.junior_equivalent
+        approved = projection.ink_identical or projection.picture_identical or projection.junior_equivalent
         self._flags[ordinal] = (
             (INK_IDENTICAL if projection.ink_identical else 0)
             | (PICTURE_IDENTICAL if projection.picture_identical else 0)
             | (JUNIOR_EQUIVALENT if projection.junior_equivalent else 0)
-            | (SLIM if unit.slim_fragment else 0)
+            | (SLIM if approved or no_verdict else 0)
         )
         self._diffs_digest[ordinal] = self._table.id(projection.diffs_digest)
         self._cluster[ordinal] = self._table.id(projection.cluster)
@@ -397,11 +387,11 @@ class UnitStore:
         self,
         ordinal: int,
         cached: unit_cache.ServedUnit,
-        unit: Unit,
         *,
+        codepoints: tuple[int, ...],
         found: unit_cache.PriorFragment | None = None,
     ) -> int:
-        """Fold one served unit's store record into the row at its ordinal, writing the id and the three machine flags onto the unit as `fold_projection` does, and answer the ordinal. `found` is the prior fragment the plan located for the record — the record's own address (`ServedUnit.located`, the default) or the one the walk found for a record without one — and is the row's source; it must carry the record's id and stamp, since the plan serves a unit only on that equality. The window comes from the unit, which the record does not carry; the record's class, echo, exemplar and exemption flags, homes and policy file go into the served-only columns as the record holds them, which is what `served_as_is` compares against this build's values."""
+        """Fold one served unit's store record into the row at its ordinal and answer the ordinal. `found` is the prior fragment the plan located for the record — the record's own address (`ServedUnit.located`, the default) or the one the walk found for a record without one — and is the row's source; it must carry the record's id and stamp, since the plan serves a unit only on that equality. `codepoints` is the unit's window, which the record does not carry and the workload table does; the record's class, echo, exemplar and exemption flags, homes and policy file go into the served-only columns as the record holds them, which is what `served_as_is` compares against this build's values."""
         if found is None:
             found = cached.located()
         if found is None:
@@ -412,10 +402,6 @@ class UnitStore:
             )
         self._begin(ordinal)
         self._fold_keys(ordinal, cached.prior_id, cached.content_key, cached.key)
-        unit.unit_id = cached.prior_id
-        unit.ink_identical = cached.ink_identical
-        unit.picture_identical = cached.picture_identical
-        unit.junior_equivalent = cached.junior_equivalent
         self._flags[ordinal] = (
             SERVED
             | (INK_IDENTICAL if cached.ink_identical else 0)
@@ -438,7 +424,7 @@ class UnitStore:
             ordinal,
             enrich.SeamHomeUnit(
                 unit_id=cached.prior_id,
-                codepoint_values=unit.codepoint_values,
+                codepoint_values=codepoints,
                 ink_identical=cached.ink_identical,
                 picture_identical=cached.picture_identical,
                 pair=cached.pair,
@@ -523,6 +509,26 @@ class UnitStore:
     def invisible(self, ordinal: int) -> bool:
         """Whether the unit is ink- or picture-identical: a seam homed on it is suppressed."""
         return bool(self._flags[ordinal] & (INK_IDENTICAL | PICTURE_IDENTICAL))
+
+    def machine_flags(self, ordinal: int) -> tuple[bool, bool, bool]:
+        """The three machine channels in `audit.MACHINE_CHANNELS` order, what a materialized `audit.Unit` copies."""
+        bits = self._flags[ordinal]
+        return bool(bits & INK_IDENTICAL), bool(bits & PICTURE_IDENTICAL), bool(bits & JUNIOR_EQUIVALENT)
+
+    def ink_identical(self, ordinal: int) -> bool:
+        return bool(self._flags[ordinal] & INK_IDENTICAL)
+
+    def machine_approved(self, ordinal: int) -> bool:
+        """Whether any machine channel approves the unit (`audit.Unit.machine_approved` over the flag column)."""
+        return bool(self._flags[ordinal] & (INK_IDENTICAL | PICTURE_IDENTICAL | JUNIOR_EQUIVALENT))
+
+    def machine_channel(self, ordinal: int) -> str | None:
+        """The one channel that approves the unit, in `MACHINE_CHANNELS` precedence, or None."""
+        bits = self._flags[ordinal]
+        for name, bit in zip(MACHINE_CHANNELS, (INK_IDENTICAL, PICTURE_IDENTICAL, JUNIOR_EQUIVALENT)):
+            if bits & bit:
+                return name
+        return None
 
     def diffs_digest(self, ordinal: int) -> str:
         return self._table[self._diffs_digest[ordinal]]
@@ -729,16 +735,18 @@ class UnitStore:
             )
         ]
 
-    def served_as_is(self, ordinal: int, unit: Unit) -> bool:
-        """Whether the served fragment's bytes on disk are already what this build writes for the unit (read off the served-only columns): the address is the shard writer's own, and the class, echo, exemplar and exemption flags and homes the record says the fragment was written with equal this build's."""
+    def served_as_is(
+        self, ordinal: int, *, class_id: str, echo: str | None, exemplar: bool, no_verdict: bool
+    ) -> bool:
+        """Whether the served fragment's bytes on disk are already what this build writes for the unit (read off the served-only columns): the address is the shard writer's own, and the class, echo, exemplar and exemption flags and homes the record says the fragment was written with equal this build's, handed in as the workload table holds them."""
         flags = self.flags(ordinal)
         return (
             flags.served
             and flags.verbatim
-            and self.served_class(ordinal) == unit.class_id
-            and self.served_echo(ordinal) == unit.echo
-            and flags.exemplar == unit.exemplar
-            and flags.no_verdict == unit.no_verdict
+            and self.served_class(ordinal) == class_id
+            and self.served_echo(ordinal) == echo
+            and flags.exemplar == exemplar
+            and flags.no_verdict == no_verdict
             and self.served_homes(ordinal) == self.homes_record(ordinal)
         )
 
@@ -751,15 +759,17 @@ class UnitStore:
         """The unit as the home reduce compares it: `seam_home` with the id left empty, since the reduce reads no id off a projection (the ordinal and `id_word` carry identity) and spelling one is the costliest part of the build for a candidate the reduce asks for once per lookup."""
         return self._seam_home(ordinal, "")
 
-    def cached_unit(self, ordinal: int, unit: Unit) -> unit_cache.CachedUnit:
-        """The unit's store record for this build, field for field what `store_entries` built from the unit state and the write's maps: the keys, the flags, the deltas, the digests, the projection and the seams from the columns; the class, the fragment shape, the echo and the ledger's flags from the unit as this build holds it; the address, the homes and the policy file from what the write and the reduce set."""
+    def cached_unit(
+        self, ordinal: int, *, class_id: str, echo: str | None, exemplar: bool, no_verdict: bool
+    ) -> unit_cache.CachedUnit:
+        """The unit's store record for this build, field for field what `store_entries` built from the unit state and the write's maps: the keys, the flags, the deltas, the digests, the projection and the seams from the columns; the fragment shape from the flag column and the exemption; the class, the echo and the ledger's flags as the workload table holds them; the address, the homes and the policy file from what the write and the reduce set."""
         flags = self.flags(ordinal)
         return unit_cache.CachedUnit(
             key=self.input_key_hex(ordinal),
             prior_id=self.unit_id(ordinal),
-            prior_class=unit.class_id,
+            prior_class=class_id,
             content_key=self.content_key_hex(ordinal),
-            slim=unit.slim_fragment,
+            slim=flags.ink_identical or flags.picture_identical or flags.junior_equivalent or no_verdict,
             address=self.written_address(ordinal),
             ink_identical=flags.ink_identical,
             picture_identical=flags.picture_identical,
@@ -772,9 +782,9 @@ class UnitStore:
             proj=self.seam_home_record(ordinal),
             seams=self.seam_rects(ordinal),
             mismatches=self.mismatches(ordinal),
-            echo=unit.echo,
-            exemplar=unit.exemplar,
-            no_verdict=unit.no_verdict,
+            echo=echo,
+            exemplar=exemplar,
+            no_verdict=no_verdict,
             homes=self.homes_record(ordinal),
             policy_file=self.policy_file(ordinal),
         )
@@ -785,16 +795,12 @@ class UnitStore:
                 yield value
 
     def census(self) -> pile_tally.Measure:
-        """The store's own reading for the debug tally: the rows, every array's bytes plus the string table plus the mismatch lines as the walked figure, and as the packed cost the rows alone — the arrays and the lines, with the table reported beside them as `packed_estimate` counts one and `pile_tally`'s line contracts (the table is not in `packed_bytes`, so the packed figure reads beside every other pile's). The columns are the rows, so the line's ratio is the table's share of them: under a megabyte against columns of gigabytes on the corpus the build measures, where it reads `1.00`."""
-        arrays = sum(_bytes_of(column) for column in self._columns())
+        """The store's own reading for the debug tally (`pile_tally.column_census`): the rows, every array's bytes plus the mismatch lines as the packed figure, the string table beside them, and the walked figure the packed one plus the table when the table is the store's own — a store handed the workload table's names into a table that table's line already holds (`build.unit_table_census`), so its walked figure is its rows alone. The columns are the rows, so the line's ratio is the table's share of them: under a megabyte against columns of gigabytes on the corpus the build measures, where it reads `1.00`."""
         lines = sum(
             len(line.encode()) + pile_tally.OFFSET_WIDTH
             for lines in self._mismatches.values()
             for line in lines
         )
-        rows = arrays + lines
-        return pile_tally.Measure(
-            self.n,
-            rows + self._table.bytes,
-            pile_tally.PackedCost(rows, len(self._table), self._table.bytes),
+        return pile_tally.column_census(
+            self.n, self._columns(), self._table, lines, holds_table=self._holds_table
         )

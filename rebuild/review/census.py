@@ -25,19 +25,24 @@ import json
 import sys
 import tempfile
 import warnings
-from collections.abc import Iterable, Mapping, Sequence
+from array import array
+from collections.abc import Iterable, Iterator, Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Protocol
+from typing import TYPE_CHECKING, NamedTuple, Protocol
 
 from rebuild.review import unit_index
 from rebuild.review.audit import (
     BATCH_SIZE,
+    NO_VERDICT,
     UNMATCHED_CLASS,
+    Compaction,
     LedgerClass,
     Unit,
+    UnitTable,
+    Workload,
     _config_index,
-    assign_batches,
+    format_codepoints,
     group_for,
     load_audit,
     load_workload,
@@ -45,9 +50,13 @@ from rebuild.review.audit import (
     render_groups_for_rows,
     slim_fragment,
 )
+from rebuild.review.columns import StringTable, TuplePool
 from rebuild.review.enrich import LETTERS, Enricher, load_spec
 from rebuild.review.families import FAMILY_ORDER, assign_family, deferred_family
 from rebuild.review.ink import InkComparator
+
+if TYPE_CHECKING:
+    from rebuild.review.unit_store import UnitStore
 
 REPO_ROOT = Path(__file__).resolve().parent.parent.parent
 PINS_PATH = REPO_ROOT / "rebuild" / "review-census-pins.json"
@@ -65,6 +74,7 @@ BEFORE_FONT = REPO_ROOT / "site" / "AbbotsMortonSpaceportSansSenior-Regular.otf"
 CLASS_UNIT_COUNT_KEYS = ("boundary-echo", "dangling-anchor-dropped", "bare-name-live-join")
 
 WORKED_EXAMPLE_CODEPOINTS = "E670:E653:E652:E666"
+_WORKED_EXAMPLE_WINDOW = parse_codepoints(WORKED_EXAMPLE_CODEPOINTS)
 
 
 def _text(unit) -> str:
@@ -264,27 +274,27 @@ def _encode_note_distribution(distribution: dict[str | None, int]) -> list[list]
 def audit_group(repo_root: Path = REPO_ROOT) -> dict:
     """The pre-merge name-grain audit facts: the raw row count and the deduped unit count, cheap (no shaping)."""
     workload = load_workload(AUDIT_PATH, LEDGER_PATH, dict(LETTERS))
-    return {"row_count": workload.row_count, "units": len(workload.units)}
+    return {"row_count": workload.row_count, "units": workload.table.n}
 
 
-def ink_histogram(workload, comparator) -> dict:
-    """The kern-neutral ink census over the pre-merge workload: flag every unit whose placed ink is identical in both fonts under every config in its set, tally the machine-approved units per class, assign batches, and count the boundary-echo no-verdict exemptions and the human workload. Mutates `workload` in place (sets ink_identical and batch), exactly as the census reference does."""
+def ink_histogram(workload: Workload, comparator) -> dict:
+    """The kern-neutral ink census over the pre-merge workload, materialized into records: flag every unit whose placed ink is identical in both fonts under every config in its set, tally the machine-approved units per class, and count the boundary-echo no-verdict exemptions, the human workload and its batches — the plain slice of the human units, as `ink_group_from_flags` counts them, since the ink verdict alone decides the pre-merge index. The records are this call's own and the flags go onto them, exactly as the census reference does."""
+    units = workload.units()
     machine_by_class: dict[str, int] = {}
-    for unit in workload.units:
+    for unit in units:
         if comparator.ink_identical(_text(unit), unit.configs):
             unit.ink_identical = True
             machine_by_class[unit.class_id] = machine_by_class.get(unit.class_id, 0) + 1
-    batches = assign_batches(workload.units)
     machine_total = sum(machine_by_class.values())
-    exempt = [unit for unit in workload.units if unit.no_verdict and not unit.ink_identical]
-    human = [unit for unit in workload.units if not unit.ink_identical and not unit.no_verdict]
+    exempt = sum(1 for unit in units if unit.no_verdict and not unit.ink_identical)
+    human = sum(1 for unit in units if not unit.ink_identical and not unit.no_verdict)
     return {
         "machine_total": machine_total,
-        "non_identical": len(workload.units) - machine_total,
+        "non_identical": len(units) - machine_total,
         "by_class": machine_by_class,
-        "boundary_echo_exempt": len(exempt),
-        "human_units": len(human),
-        "batches": batches,
+        "boundary_echo_exempt": exempt,
+        "human_units": human,
+        "batches": (human + BATCH_SIZE - 1) // BATCH_SIZE,
     }
 
 
@@ -296,9 +306,8 @@ def ink_group(repo_root: Path = REPO_ROOT) -> dict:
 
 def family_assignments(repo_root: Path = REPO_ROOT) -> list[str]:
     """Assign every UNMATCHED window (pre-merge name grain) to its verdict family: load the audit, group by (codepoints, baseline, new) triple, enrich each triple whose class is UNMATCHED under any config, and run the seam-gain/seam-loss discriminator. Returns the family label per window in iteration order."""
-    rows = load_audit(AUDIT_PATH)
     by_triple: dict[tuple, list] = {}
-    for row in rows:
+    for row in load_audit(AUDIT_PATH):
         by_triple.setdefault((row.codepoints, row.baseline, row.new), []).append(row)
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
@@ -315,11 +324,13 @@ def family_assignments(repo_root: Path = REPO_ROOT) -> list[str]:
             baseline=baseline,
             new=new,
             class_id="UNMATCHED",
-            rows=ordered,
+            row_count=len(ordered),
             configs=tuple(member.config for member in ordered),
             kinds=tuple(sorted({kind for member in members for kind in member.kinds})),
             group=group_for(parse_codepoints(codepoints), dict(LETTERS)),
-            render_groups=render_groups_for_rows(ordered),
+            render_groups=render_groups_for_rows(
+                (member.baseline, member.new, member.config) for member in ordered
+            ),
             config_classes=config_classes,
         )
         units.append(unit)
@@ -343,7 +354,7 @@ def families_group(repo_root: Path = REPO_ROOT) -> dict:
 
 
 class CensusGrain(Protocol):
-    """The four fields the pre-merge census is defined over. Both a live `Unit` and a captured `PremergeUnit` satisfy it, so the digest that identifies a workload can be taken from either side of the fold."""
+    """The four fields the pre-merge census is defined over. A materialized `Unit` and a `PremergeSnapshot` row (`PremergeSnapshot.grains`) both satisfy it, so the digest that identifies a workload can be taken from either side of the fold."""
 
     @property
     def codepoints(self) -> str: ...
@@ -358,16 +369,108 @@ class CensusGrain(Protocol):
     def configs(self) -> tuple[str, ...]: ...
 
 
-@dataclass(frozen=True)
-class PremergeUnit:
-    """One pre-merge unit as the build saw it before the ink-duplicate fold: a reference to the live object plus the scalars the census grain is defined over, and the deferred stylistic-set bucket, which can only be decided here. Deferral is pure config logic over the pre-merge config classes, and folding moves those — an ss03-only survivor that absorbs an ss04-only sibling is deferred-ss03 before the fold and would read as deferred-ss04 after it."""
+class Grain(NamedTuple):
+    """One pre-merge unit as the census grain reads it: the snapshot materializes one at a time for `workload_digest`."""
 
-    unit: Unit
     codepoints: str
     class_id: str
     no_verdict: bool
     configs: tuple[str, ...]
-    deferred: str | None
+
+
+class _Configs(NamedTuple):
+    """The config-gating axis of a pre-merge row, the shape `families.deferred_family` reads."""
+
+    config_classes: Mapping[str, str]
+    configs: tuple[str, ...]
+
+
+class PremergeSnapshot:
+    """The workload as the build saw it before the ink-duplicate fold, as columns copied off the table one per pre-fold row: the class id and the config-set id into the table's own string table and tuple pool, the exemption byte, the window's offsets into the table's value column (which no compaction moves), and the deferred stylistic-set bucket, which can only be decided here — deferral is pure config logic over the pre-merge config classes, and folding moves those: an ss03-only survivor that absorbs an ss04-only sibling is deferred-ss03 before the fold and would read as deferred-ss04 after it. `rebase` takes the fold's compaction and records, per pre-fold row, the post-fold row of its survivor and whether the row was folded away, after which `derive_premerge` reads the survivor's phase-1 products off the store and the table with no join and no search. About ten bytes a row, where a record per row was the largest pile the plateau held past the fold."""
+
+    __slots__ = (
+        "n",
+        "strings",
+        "tuples",
+        "class_id",
+        "no_verdict",
+        "configs",
+        "deferred",
+        "window_start",
+        "window_n",
+        "window_values",
+        "survivor",
+        "folded",
+    )
+
+    def __init__(self, table: UnitTable) -> None:
+        self.n = table.n
+        self.strings: StringTable = table.strings
+        self.tuples: TuplePool[str] = table.tuples
+        self.class_id = table.class_ids()
+        flags = table.flags()
+        self.no_verdict = bytearray(1 if flag & NO_VERDICT else 0 for flag in flags)
+        self.configs = table.configs_ids()
+        self.window_start, self.window_n, self.window_values = table.windows()
+        self.deferred = array("I", [0]) * table.n
+        self.survivor: array | None = None
+        self.folded: bytearray | None = None
+        unmatched = self.strings.find(UNMATCHED_CLASS)
+        if unmatched is None:
+            return
+        mappings = table.config_classes_ids()
+        buckets: dict[tuple[int, int], int] = {}
+        for row in range(table.n):
+            if self.class_id[row] != unmatched:
+                continue
+            key = (mappings[row], self.configs[row])
+            bucket = buckets.get(key)
+            if bucket is None:
+                bucket = buckets[key] = self.strings.optional(
+                    deferred_family(_Configs(table.mappings[key[0]], self.tuples[key[1]]))
+                )
+            self.deferred[row] = bucket
+
+    def __len__(self) -> int:
+        return self.n
+
+    def rebase(self, compaction: Compaction) -> None:
+        """Record where each pre-fold row's survivor sits once the table is compacted, and which rows were folded away."""
+        if len(compaction.survivor) != self.n:
+            raise ValueError(f"a compaction over {len(compaction.survivor)} rows, against {self.n} captured")
+        self.survivor = compaction.survivor
+        self.folded = compaction.folded
+
+    def codepoints(self, row: int) -> tuple[int, ...]:
+        start = self.window_start[row]
+        return tuple(self.window_values[start : start + self.window_n[row]])
+
+    def grains(self) -> Iterator[Grain]:
+        strings = self.strings
+        tuples = self.tuples
+        for row in range(self.n):
+            yield Grain(
+                format_codepoints(self.codepoints(row)),
+                strings[self.class_id[row]],
+                bool(self.no_verdict[row]),
+                tuples[self.configs[row]],
+            )
+
+    def class_rows(self) -> Iterator[tuple[str, bool]]:
+        strings = self.strings
+        for row in range(self.n):
+            yield strings[self.class_id[row]], bool(self.no_verdict[row])
+
+    def columns(self) -> Iterator[array | bytearray]:
+        yield self.class_id
+        yield self.no_verdict
+        yield self.configs
+        yield self.deferred
+        yield self.window_start
+        yield self.window_n
+        if self.survivor is not None and self.folded is not None:
+            yield self.survivor
+            yield self.folded
 
 
 @dataclass(frozen=True)
@@ -380,83 +483,74 @@ class PremergeFacts:
     families: list[tuple[int, str]]
 
 
-def capture_premerge(units: Sequence[Unit]) -> list[PremergeUnit]:
-    """Snapshot the workload for the sidecar, called immediately before `merge_ink_duplicate_units`. The fold replaces a survivor's field values rather than mutating them and never touches the units it removes, so these scalars stay true for the rest of the build; only the deferral has to be computed now, from config classes the fold is about to widen. A matched unit is never asked for one — `deferred_family` falls back to reading every config as novel, which is meaningless outside UNMATCHED."""
-    return [
-        PremergeUnit(
-            unit=unit,
-            codepoints=unit.codepoints,
-            class_id=unit.class_id,
-            no_verdict=unit.no_verdict,
-            configs=unit.configs,
-            deferred=deferred_family(unit) if unit.class_id == UNMATCHED_CLASS else None,
-        )
-        for unit in units
-    ]
+def capture_premerge(table: UnitTable) -> PremergeSnapshot:
+    """Snapshot the workload for the sidecar, called immediately before `merge_ink_duplicate_units`: the columns the census grain is defined over, copied, and each UNMATCHED row's deferral decided now, from config classes the fold is about to widen. A matched row is never asked for one — `deferred_family` falls back to reading every config as novel, which is meaningless outside UNMATCHED."""
+    return PremergeSnapshot(table)
 
 
 def workload_digest(units: Iterable[CensusGrain]) -> str:
-    """A sha256 over the census grain of a unit list, in order — what lets a consumer prove the workload it just loaded is the one a sidecar's flags are indexed against, since an index into that flag string means nothing against a different list."""
-    payload = "\n".join(
-        f"{unit.codepoints}\t{unit.class_id}\t{int(unit.no_verdict)}\t{','.join(unit.configs)}"
-        for unit in units
-    )
-    return hashlib.sha256(payload.encode("utf-8")).hexdigest()
-
-
-def derive_premerge(capture: list[PremergeUnit], live_units: Sequence[Unit]) -> PremergeFacts:
-    """Project the build's post-merge phase-1 products back onto the pre-merge grain the census pins are defined over. A unit that survived the fold answers for itself; one that was folded away answers through its survivor, resolved as the unique live unit of the same window whose config set covers the folded unit's earliest config.
-
-    Both projections are sound by construction, and neither rests on an agreement between two derivations any more. A fold happens only when every config of every folded sibling yields one identical `InkComparator.signature`, and that signature is now defined as the two run-order ink lists `config_diff` reads — so a folded sibling's delta, and therefore its ink verdict, is its survivor's by definition rather than by a sampled resemblance. And a pre-merge UNMATCHED unit that is novel under the default config necessarily leads its window's fold order, so it is always its own survivor and its family is the phase-1 family on that same object; everything else UNMATCHED never carries the default config, is therefore deferred, and took its bucket at capture time. That second argument is asserted rather than trusted below, at the one place it could fail — an UNMATCHED, undeferred snapshot that is not its own survivor — which is the whole of what the retired families sample was checking.
-    """
-    live = {id(unit) for unit in live_units}
-    dead_windows = {snap.codepoints for snap in capture if id(snap.unit) not in live}
-    survivors: dict[str, list[Unit]] = {}
-    for unit in live_units:
-        if unit.codepoints in dead_windows:
-            survivors.setdefault(unit.codepoints, []).append(unit)
-
-    flags: list[str] = []
-    assigned: list[tuple[int, str]] = []
-    for index, snap in enumerate(capture):
-        assert snap.class_id != UNMATCHED_CLASS or snap.deferred is not None or id(snap.unit) in live, (
-            f"window {snap.codepoints}: a default-novel UNMATCHED unit was folded away, so its family "
-            "cannot be read off its own phase-1 object"
-        )
-        if id(snap.unit) in live:
-            target = snap.unit
+    """A sha256 over the census grain of a unit sequence, in order — what lets a consumer prove the workload it just loaded is the one a sidecar's flags are indexed against, since an index into that flag string means nothing against a different list. The grains are streamed through the hash one line at a time, newline-joined, so a snapshot of millions of rows never spells its payload whole."""
+    digest = hashlib.sha256()
+    first = True
+    for unit in units:
+        line = f"{unit.codepoints}\t{unit.class_id}\t{int(unit.no_verdict)}\t{','.join(unit.configs)}"
+        if first:
+            first = False
         else:
-            candidates = [
-                unit for unit in survivors.get(snap.codepoints, ()) if snap.configs[0] in unit.configs
-            ]
-            if len(candidates) != 1:
-                raise ValueError(
-                    f"window {snap.codepoints}: {len(candidates)} live units carry the folded unit's"
-                    f" config {snap.configs[0]!r}"
-                )
-            target = candidates[0]
-        flags.append("1" if target.ink_identical else "0")
-        if snap.class_id == UNMATCHED_CLASS:
-            family = snap.deferred or target.family_id
+            digest.update(b"\n")
+        digest.update(line.encode("utf-8"))
+    return digest.hexdigest()
+
+
+def derive_premerge(snapshot: PremergeSnapshot, table: UnitTable, store: UnitStore) -> PremergeFacts:
+    """Project the build's post-merge phase-1 products back onto the pre-merge grain the census pins are defined over. A unit that survived the fold answers for itself; one that was folded away answers through the survivor the fold recorded for it (`PremergeSnapshot.rebase`), the ink flag read off the store's row and the family off the table's.
+
+    Both projections are sound by construction. A fold happens only when every config of every folded sibling yields one identical `InkComparator.signature`, and that signature is defined as the two run-order ink lists `config_diff` reads — so a folded sibling's delta, and therefore its ink verdict, is its survivor's by definition rather than by a sampled resemblance. And a pre-merge UNMATCHED unit that is novel under the default config necessarily leads its window's fold order, so it is always its own survivor and its family is the phase-1 family on that same row; everything else UNMATCHED never carries the default config, is therefore deferred, and took its bucket at capture time. That second argument is asserted rather than trusted below, at the one place it could fail — an UNMATCHED, undeferred row that was folded away — which is the whole of what the retired families sample was checking.
+    """
+    if snapshot.survivor is None or snapshot.folded is None:
+        raise ValueError(
+            "the pre-merge snapshot is derived once the fold's compaction has been rebased onto it"
+        )
+    strings = snapshot.strings
+    unmatched = strings.find(UNMATCHED_CLASS)
+    survivor = snapshot.survivor
+    folded = snapshot.folded
+    class_ids = snapshot.class_id
+    deferred = snapshot.deferred
+    ink_identical = store.ink_identical
+    flags = bytearray(snapshot.n)
+    assigned: list[tuple[int, str]] = []
+    for row in range(snapshot.n):
+        target = survivor[row]
+        is_unmatched = class_ids[row] == unmatched
+        assert not is_unmatched or deferred[row] or not folded[row], (
+            f"window {format_codepoints(snapshot.codepoints(row))}: a default-novel UNMATCHED unit was folded "
+            "away, so its family cannot be read off its own phase-1 row"
+        )
+        flags[row] = 49 if ink_identical(target) else 48
+        if is_unmatched:
+            family = strings[deferred[row]] if deferred[row] else table.family_id(target)
             if not family:
-                raise ValueError(f"window {snap.codepoints}: UNMATCHED unit resolved to no verdict family")
-            assigned.append((index, family))
-    # The flags are an index into the capture, so one per captured unit is the whole of what makes an index into them mean anything.
-    assert len(flags) == len(capture), f"{len(flags)} ink flags over {len(capture)} pre-merge units"
+                raise ValueError(
+                    f"window {format_codepoints(snapshot.codepoints(row))}: UNMATCHED unit resolved to no verdict family"
+                )
+            assigned.append((row, family))
     return PremergeFacts(
-        units=len(capture),
-        workload_digest=workload_digest(capture),
-        ink_flags="".join(flags),
+        units=snapshot.n,
+        workload_digest=workload_digest(snapshot.grains()),
+        ink_flags=flags.decode("ascii"),
         families=assigned,
     )
 
 
-def ink_group_from_flags(class_rows: Sequence[tuple[str, bool]], flags: str) -> dict:
-    """The ink group rebuilt from one '0'/'1' flag per pre-merge unit plus that unit's (class, no-verdict) pair. This and `ink_histogram` are mirrors and must agree key for key, insertion order of `by_class` included; rebuild/test_census_facts.py holds them equal over synthetic units. Neither Junior equivalence nor picture identity plays a part on either side — the pre-merge census counts the ink verdict alone, and the batch count is the plain slice of whatever is left over."""
+def ink_group_from_flags(class_rows: Iterable[tuple[str, bool]], flags: str) -> dict:
+    """The ink group rebuilt from one '0'/'1' flag per pre-merge unit plus that unit's (class, no-verdict) pair, the pairs streamed in capture order. This and `ink_histogram` are mirrors and must agree key for key, insertion order of `by_class` included; rebuild/test_census_facts.py holds them equal over synthetic units. Neither Junior equivalence nor picture identity plays a part on either side — the pre-merge census counts the ink verdict alone, and the batch count is the plain slice of whatever is left over."""
     machine_by_class: dict[str, int] = {}
     exempt = 0
     human = 0
+    total = 0
     for (class_id, no_verdict), flag in zip(class_rows, flags, strict=True):
+        total += 1
         if flag == "1":
             machine_by_class[class_id] = machine_by_class.get(class_id, 0) + 1
         elif no_verdict:
@@ -466,7 +560,7 @@ def ink_group_from_flags(class_rows: Sequence[tuple[str, bool]], flags: str) -> 
     machine_total = sum(machine_by_class.values())
     return {
         "machine_total": machine_total,
-        "non_identical": len(class_rows) - machine_total,
+        "non_identical": total - machine_total,
         "by_class": machine_by_class,
         "boundary_echo_exempt": exempt,
         "human_units": human,
@@ -480,25 +574,27 @@ def families_group_from(assignments: list[str]) -> dict:
     return {"census": census, "total": sum(census.values())}
 
 
-def built_group_from_memory(units: Sequence[Unit], config_notes: Mapping[int, str | None]) -> dict:
-    """`built_group` over the build's own in-memory state rather than the shards it wrote — the same three facts by the same rules, the None-when-absent worked-example contract included, so the surface build can report them without re-parsing hundreds of megabytes it just serialized. `config_notes` is each unit's `config_note` by ordinal (`Unit.ordinal`, the unit's row in the build's unit store), the one fragment field this group reads, kept by the build as the fragments went by rather than the fragments themselves."""
+def built_group_from_memory(table: UnitTable, config_notes: Mapping[int, str | None]) -> dict:
+    """`built_group` over the build's own in-memory state rather than the shards it wrote — the same three facts by the same rules, the None-when-absent worked-example contract included, so the surface build can report them without re-parsing hundreds of megabytes it just serialized. The units are the table's rows; `config_notes` is each unit's `config_note` by ordinal, the one fragment field this group reads, kept by the build as the fragments went by rather than the fragments themselves."""
     human_units = 0
     distribution: dict[str | None, int] = {}
     example_echo: str | None = None
-    codepoints_by_echo: dict[str, set[str]] = {}
-    for unit in units:
-        if unit.batch is not None:
-            assert unit.echo is not None
+    windows_by_echo: dict[str, set[tuple[int, ...]]] = {}
+    for ordinal in range(table.n):
+        if table.batch(ordinal) is not None:
+            echo = table.echo(ordinal)
+            assert echo is not None
             human_units += 1
-            codepoints_by_echo.setdefault(unit.echo, set()).add(unit.codepoints)
-            if unit.codepoints == WORKED_EXAMPLE_CODEPOINTS:
-                example_echo = unit.echo
-        note = config_notes[unit.ordinal]
+            window = table.codepoints(ordinal)
+            windows_by_echo.setdefault(echo, set()).add(window)
+            if window == _WORKED_EXAMPLE_WINDOW:
+                example_echo = echo
+        note = config_notes[ordinal]
         distribution[note] = distribution.get(note, 0) + 1
     return {
         "human_units": human_units,
         "worked_example_echo_siblings": (
-            len(codepoints_by_echo[example_echo]) if example_echo is not None else None
+            len(windows_by_echo[example_echo]) if example_echo is not None else None
         ),
         "config_note_distribution": _encode_note_distribution(distribution),
     }
@@ -506,9 +602,9 @@ def built_group_from_memory(units: Sequence[Unit], config_notes: Mapping[int, st
 
 def build_facts(
     manifest: dict,
-    units: Sequence[Unit],
+    table: UnitTable,
     config_notes: Mapping[int, str | None],
-    capture: list[PremergeUnit],
+    snapshot: PremergeSnapshot,
     premerge: PremergeFacts,
     row_count: int,
 ) -> dict:
@@ -525,11 +621,9 @@ def build_facts(
             "invariant": invariant_group(manifest, families["census"]),
             "volatile": {
                 "manifest": manifest_group(manifest),
-                "built": built_group_from_memory(units, config_notes),
-                "audit": {"row_count": row_count, "units": len(capture)},
-                "ink": ink_group_from_flags(
-                    [(snap.class_id, snap.no_verdict) for snap in capture], premerge.ink_flags
-                ),
+                "built": built_group_from_memory(table, config_notes),
+                "audit": {"row_count": row_count, "units": snapshot.n},
+                "ink": ink_group_from_flags(snapshot.class_rows(), premerge.ink_flags),
                 "families": families,
             },
         },

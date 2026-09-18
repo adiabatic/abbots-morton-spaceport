@@ -5,6 +5,7 @@ Nothing here reads the live surface, and nothing needs to. `build_m1` proves the
 
 import copy
 import gc
+import gzip
 import hashlib
 import json
 import multiprocessing
@@ -28,7 +29,7 @@ from rebuild.review import unit_index
 from rebuild.review.audit import (
     ACCEPTANCE_CONFIGS,
     SLIM_OMITTED_KEYS,
-    Unit,
+    UnitTable,
     _config_index,
     load_workload,
     machine_approved,
@@ -53,6 +54,7 @@ from rebuild.review.build import (
 from rebuild.review.enrich import LETTERS, EnrichedUnit
 from rebuild.review.export import _triage_projection, build_triage, load_units, load_verdicts
 from rebuild.review.ink import shape_memo_census
+from rebuild.review.columns import StringTable, TuplePool
 from rebuild.review.unit_store import UnitStore
 from rebuild.tools import console, pile_tally
 from rebuild.tools.cycle_timings import parse_inner_timings
@@ -121,9 +123,10 @@ def test_fixture_sources_derive_the_checked_in_shards():
     workload = load_workload(FIXTURES / "fixture-audit.tsv", FIXTURES / "fixture-ledger.yaml", dict(LETTERS))
     shipped = {unit["codepoints"]: unit for unit in _load_fixture_units()}
     assert len(shipped) == 6
-    assert {unit.codepoints for unit in workload.units} == set(shipped)
+    units = workload.units()
+    assert {unit.codepoints for unit in units} == set(shipped)
 
-    for derived in workload.units:
+    for derived in units:
         unit = shipped[derived.codepoints]
         assert derived.class_id == unit["class"]
         assert derived.group == unit["group"]
@@ -141,12 +144,12 @@ def test_fixture_sources_derive_the_checked_in_shards():
         assert entry.no_verdict == meta["no_verdict"]
 
     assert [entry.id for entry in workload.classes_present] == [meta["id"] for meta in manifest["classes"]]
-    by_class = workload.units_by_class()
+    by_class = workload.table.rows_by_class(range(workload.table.n))
     for meta in manifest["classes"]:
         members = by_class[meta["id"]]
         assert len(members) == meta["unit_count"]
-        assert sum(member.row_count for member in members) == meta["row_count"]
-    assert len(workload.units) == manifest["totals"]["units"]
+        assert sum(map(workload.table.row_count, members)) == meta["row_count"]
+    assert workload.table.n == len(units) == manifest["totals"]["units"]
     assert workload.row_count == manifest["totals"]["rows"]
 
 
@@ -640,13 +643,12 @@ def test_the_serial_runner_spools_every_fragment_and_keeps_no_enrichment(tmp_pat
         return draft_pin(self, enriched, *args, **kwargs)
 
     monkeypatch.setattr(review_build.Drafter, "draft_pin", counting_draft_pin)
-    units = load_workload(MINI / "audit.tsv", mini_bundle.ledger, dict(LETTERS)).units
-    for index, unit in enumerate(units):
-        unit.ordinal = index
-        unit.input_key = hashlib.sha256(f"k{index}".encode()).hexdigest()
-    store = UnitStore(len(units))
+    table = load_workload(MINI / "audit.tsv", mini_bundle.ledger, dict(LETTERS)).table
+    store = UnitStore(table.n, strings=table.strings)
+    for ordinal in range(table.n):
+        store.set_input_key(ordinal, hashlib.sha256(f"k{ordinal}".encode()).hexdigest())
     runner = review_build._FreshRunner(
-        units,
+        range(table.n),
         1,
         MINI,
         review_build.SITE_BEFORE_FONT,
@@ -654,17 +656,23 @@ def test_the_serial_runner_spools_every_fragment_and_keeps_no_enrichment(tmp_pat
         review_build.SITE_JUNIOR_FONT,
         REPO_ROOT,
         spec_root=mini_bundle.spec_root,
+        table=table,
         out_dir=tmp_path,
         subset_pack=mini_bundle.subset_pack,
     )
     try:
-        assert runner.phase1(store, units) is None
+        assert runner.phase1(store) is None
         assert _live_enriched_units() == 0
-        assert all(store.folded(unit.ordinal) and not unit.input_key for unit in units)
+        assert all(store.folded(ordinal) for ordinal in range(table.n))
         assert (tmp_path / review_build.FRESH_SPOOL_NAME).is_dir()
         shapes = {True: 0, False: 0}
-        for unit in units:
+        for unit in table.units(store):
             assert store.unit_id(unit.ordinal) == unit.unit_id
+            assert (
+                store.input_key_hex(unit.ordinal)
+                == unit.input_key
+                == hashlib.sha256(f"k{unit.ordinal}".encode()).hexdigest()
+            )
             source = store.source(unit.ordinal)
             assert source is not None and source.part == "units/serial.000.json"
             fragment = runner.fragment(source)
@@ -686,7 +694,7 @@ def test_the_serial_runner_spools_every_fragment_and_keeps_no_enrichment(tmp_pat
 
 def test_the_stamped_scaffold_keys_are_the_projections_share_of_the_scaffold(mini_bundle):
     """`hold_scaffold` proves a fresh fragment's stamp by comparing the scaffold keys inside the carry projection instead of re-hashing the fragment, so the guard is as strong as the hash exactly when the keys it compares are the scaffold's whole share of the projection: every key `unit_scaffold` writes is one of `_SCAFFOLD_HEAD` and `_SCAFFOLD_TAIL`, `_STAMPED_SCAFFOLD_KEYS` is that set minus `CARRY_PRESENTATION_KEYS`, and moving a scaffold key moves `carry_content_hash` if and only if the key is a stamped one. A scaffold key added to either tuple fails here until the projection places it."""
-    unit = load_workload(MINI / "audit.tsv", mini_bundle.ledger, dict(LETTERS)).units[0]
+    unit = load_workload(MINI / "audit.tsv", mini_bundle.ledger, dict(LETTERS)).table.unit(0)
     scaffold_keys = review_build._SCAFFOLD_HEAD + review_build._SCAFFOLD_TAIL
     scaffold = review_build.unit_scaffold(unit)
     assert tuple(scaffold) == scaffold_keys
@@ -840,14 +848,19 @@ def test_a_pooled_build_counts_its_units_and_closes_every_phase_it_opens(
     timings = {event.label: event for event in events if isinstance(event, console.Timing)}
     assert list(timings) == phases
     total = manifest["totals"]["units"]
-    token, note = timings["review.build units"].tail.split("\t")
-    assert token.startswith("rss_gb=") and float(token.removeprefix("rss_gb=")) > 0
+    tokens, note = timings["review.build units"].tail.split("\t")
+    peak, *current = tokens.split(" ")
+    assert peak.startswith("rss_gb=") and float(peak.removeprefix("rss_gb=")) > 0
+    assert all(
+        item.startswith("rss_now_gb=") and float(item.removeprefix("rss_now_gb=")) > 0 for item in current
+    )
     assert note == f"(jobs=2, fresh={total:,}, verified=0 served)"
-    _token, note = timings["review.build load"].tail.split("\t")
+    _tokens, note = timings["review.build load"].tail.split("\t")
     assert re.fullmatch(_SIGNATURE_NOTE, note), note
     inner = {entry["label"]: entry for entry in parse_inner_timings(captured.err)}
     assert list(inner) == phases
     assert all(inner[phase]["rss_gb"] > 0 for phase in phases)
+    assert all(inner[phase].get("rss_now_gb", 1.0) > 0 for phase in phases)
     counters = [event for event in events if isinstance(event, console.Progress)]
     assert counters and all(event.total == total for event in counters)
     width = review_build._handout_width(total, 2)
@@ -880,16 +893,16 @@ def test_a_pooled_build_counts_its_units_and_closes_every_phase_it_opens(
 
 def test_the_pool_is_handed_the_pile_in_configuration_order(mini_bundle):
     """The queue a pooled build's workers draw from is the fresh pile sorted by the configuration each unit settles under, so consecutive batches walk one configuration's key range of the mapped subset pack: over the mini workload, whose units lead with four of the six acceptance configurations — `default` and `ss10` many units deep, `ss03` and `ss04` once each, so the stability arm below is exercised at depth on two of them and is vacuous for the two the fixture never leads with — `_configuration_order` answers every unit exactly once, its `audit._config_index` never decreasing along the list, and within one configuration the units in the order the pile came in — a stable sort, so the only term the hand-out adds is the configuration. The order is a property of the parent's hand-out and not of any worker, which is why the pile is ordered here rather than in the worker."""
-    units = load_workload(MINI / "audit.tsv", mini_bundle.ledger, dict(LETTERS)).units
-    ordered = review_build._configuration_order(units)
-    assert len(ordered) == len(units) > 1
-    assert {id(unit) for unit in ordered} == {id(unit) for unit in units}
-    indices = [_config_index(unit.configs[0]) for unit in ordered]
-    assert indices == sorted(indices)
+    table = load_workload(MINI / "audit.tsv", mini_bundle.ledger, dict(LETTERS)).table
+    ordered = review_build._configuration_order(range(table.n), table)
+    assert len(ordered) == table.n > 1
+    assert sorted(ordered) == list(range(table.n))
+    indices = [_config_index(table.configs(ordinal)[0]) for ordinal in ordered]
+    assert indices == [table.config_rank(ordinal) for ordinal in ordered] == sorted(indices)
     assert len(indices) > len(set(indices)) > 1
     for config in ACCEPTANCE_CONFIGS:
-        within = [unit for unit in ordered if unit.configs[0] == config]
-        assert within == [unit for unit in units if unit.configs[0] == config]
+        within = [ordinal for ordinal in ordered if table.configs(ordinal)[0] == config]
+        assert within == [ordinal for ordinal in range(table.n) if table.configs(ordinal)[0] == config]
 
 
 def test_the_window_keyed_signatures_die_where_the_ink_duplicate_merge_returns(
@@ -912,9 +925,9 @@ def test_the_window_keyed_signatures_die_where_the_ink_duplicate_merge_returns(
         table.append(weakref.ref(tracked))
         return (tracked, *rest)
 
-    def watching_merge(units, ink_sig, exempt_classes=frozenset()):
+    def watching_merge(units, rows, ink_sig, exempt_classes=frozenset()):
         alive["merge"] = table[0]() is not None
-        return merge(units, ink_sig, exempt_classes)
+        return merge(units, rows, ink_sig, exempt_classes)
 
     def watching_release_rows(units):
         gc.collect()
@@ -1017,6 +1030,7 @@ _SUBSUMED_PILES = frozenset(
         "worker.spooled",
         "unit_cache.served",
         "unit_cache.located",
+        "unit_cache.named",
         "written.config_notes",
         "written.content_keys",
         "written.addresses",
@@ -1035,17 +1049,19 @@ def _subsumed_piles(tallies: dict[str, dict[str, int]]) -> list[str]:
     )
 
 
-def _store_lines_are_exact(text: str) -> dict[str, bool]:
-    """Every boundary's `unit_store` line held to the store's exact census: the walked figure is the packed rows plus the string table and nothing else, since the columns are the rows and the table is printed beside them rather than inside `packed_bytes` (the `pile_tally` line's contract). The ratio itself is the table's share of the columns, `1.00` on the corpus the build measures and a few hundredths over it on the mini bundle, so the relation is what a test pins."""
+def _store_lines_are_exact(
+    text: str, pile: str = "unit_store", *, holds_table: bool = False
+) -> dict[str, bool]:
+    """Every boundary's line for a pile that reports its own columns — the workload table under `workload.units`, the unit store, the audit's row columns under `workload.rows`, the pre-merge snapshot under `census.premerge` — held to the exact census: the walked figure is the packed rows and nothing else, plus the string table on the one line that holds it (`holds_table`, the workload table's), since the columns are the rows, the four piles name into one table, and the table is printed beside every line rather than inside `packed_bytes` (the `pile_tally` line's contract). The ratio itself is the table's share of the columns on the line that holds it, `1.00` on the corpus the build measures and a few hundredths over it on the mini bundle, and exactly `1.00` on the others, so the relation is what a test pins."""
     exact: dict[str, bool] = {}
     for line in text.splitlines():
         match = re.match(
-            r"^\[tally\] (\S+) unit_store .* est_bytes=(\d+) .* packed_bytes=(\d+) .* string_bytes=(\d+)$",
+            rf"^\[tally\] (\S+) {re.escape(pile)} .* est_bytes=(\d+) .* packed_bytes=(\d+) .* string_bytes=(\d+)$",
             line,
         )
         if match:
             boundary, est_bytes, packed_bytes, string_bytes = match.groups()
-            exact[boundary] = int(est_bytes) == int(packed_bytes) + int(string_bytes)
+            exact[boundary] = int(est_bytes) == int(packed_bytes) + (int(string_bytes) if holds_table else 0)
     return exact
 
 
@@ -1087,7 +1103,7 @@ def _packed_piles(text: str) -> dict[str, dict[str, int]]:
 def test_a_serial_build_tallies_its_piles_at_every_phase_boundary_and_writes_the_same_bytes(
     tmp_path, mini_bundle, capsys, monkeypatch
 ):
-    """The tally is an instrument and nothing else: with `AMS_SURFACE_PILE_TALLY=1` in the environment a serial build prints one boundary per phase onto stdout, each naming the piles the parent holds at that moment with the counts the build's own figures corroborate — every unit in the workload, its audit rows at load and none once the content keys have read them, the packed unit store with a row per unit from the plan boundary on, reported exactly (its walked figure is its packed rows plus the string table printed beside them) and in place of every per-unit pile it subsumed, the checker's identity for every unit written, no pile of store records at the cache boundary (the store is streamed out record by record), and no pile of enrichments at any boundary — and the shards and manifest it writes are byte-for-byte the ones the same build writes with the variable unset."""
+    """The tally is an instrument and nothing else: with `AMS_SURFACE_PILE_TALLY=1` in the environment a serial build prints one boundary per phase onto stdout, each naming the piles the parent holds at that moment with the counts the build's own figures corroborate — the workload table with a row per unit at every boundary, read exactly like the store (its walked figure is its packed columns and pools plus the string table beside them) and shrinking where the name tuples leave it at the units boundary, its audit rows at load — the row columns' own exact census — and none once the content keys have read them, the pre-merge snapshot with a row per pre-fold unit, the packed unit store with a row per unit from the plan boundary on, reported exactly and in place of every per-unit pile it subsumed, the checker's identity for every unit written, no pile of store records at the cache boundary (the store is streamed out record by record), and no pile of enrichments at any boundary — and the shards and manifest it writes are byte-for-byte the ones the same build writes with the variable unset."""
 
     def build(out: Path) -> dict:
         return review_build.build_m1(
@@ -1113,7 +1129,9 @@ def test_a_serial_build_tallies_its_piles_at_every_phase_boundary_and_writes_the
     tallies = _tally_lines(captured.out)
     assert list(tallies) == ["load", "plan", "units", "manifest+check", "census-facts", "cache"]
     total = manifest["totals"]["units"]
-    assert tallies["load"]["workload.units"] == total
+    for boundary in tallies:
+        assert tallies[boundary]["workload.units"] == total
+        assert tallies[boundary]["census.premerge"] >= total
     assert tallies["load"]["workload.rows"] == manifest["totals"]["rows"]
     assert tallies["plan"]["workload.rows"] == 0
     assert "ink.shape_memo" in tallies["load"] and "signatures" in tallies["load"]
@@ -1121,7 +1139,7 @@ def test_a_serial_build_tallies_its_piles_at_every_phase_boundary_and_writes_the
     for boundary in ("plan", "units", "manifest+check", "census-facts", "cache"):
         assert "signatures" not in tallies[boundary]
     assert re.search(_SIGNATURE_NOTE, captured.err)
-    assert tallies["plan"]["unit_cache.keys"] == total and tallies["plan"]["unit_cache.named"] == 0
+    assert tallies["plan"]["unit_cache.keys"] == total and tallies["plan"]["unit_cache.unplaced"] == 0
     for boundary in ("plan", "units", "manifest+check", "census-facts", "cache"):
         assert tallies[boundary]["unit_store"] == total
     assert tallies["units"]["runner.subset_pack"] > 0
@@ -1134,13 +1152,28 @@ def test_a_serial_build_tallies_its_piles_at_every_phase_boundary_and_writes_the
     assert "[tally]" not in captured.err
     packed = _packed_piles(captured.out)
     assert packed["load"].keys() >= {"workload.units", "workload.rows"}
-    assert packed["plan"].keys() >= {"unit_cache.keys", "unit_cache.named", "unit_store"}
+    assert packed["plan"].keys() >= {"unit_cache.keys", "unit_cache.unplaced", "unit_store"}
     assert packed["units"].keys() >= {"workload.units", "unit_store"}
     assert packed["cache"].keys() >= {"unit_store", "checker.identity"}
     assert min(packed["units"][pile] for pile in ("workload.units", "unit_store")) > 0
     assert _store_lines_are_exact(captured.out) == {
         boundary: True for boundary in ("plan", "units", "manifest+check", "census-facts", "cache")
     }
+    assert _store_lines_are_exact(captured.out, "workload.rows")["load"]
+    assert packed["load"]["workload.rows"] > 0
+    boundaries = ("load", "plan", "units", "manifest+check", "census-facts", "cache")
+    assert _store_lines_are_exact(captured.out, "workload.units", holds_table=True) == {
+        boundary: True for boundary in boundaries
+    }
+    assert _store_lines_are_exact(captured.out, "census.premerge") == {
+        boundary: True for boundary in boundaries
+    }
+    assert (
+        packed["load"]["workload.units"]
+        == packed["plan"]["workload.units"]
+        > packed["units"]["workload.units"]
+    )
+    assert packed["units"]["workload.units"] == packed["cache"]["workload.units"] > 0
     for boundary, piles in packed.items():
         assert not piles.keys() & {
             "verified",
@@ -1153,76 +1186,76 @@ def test_a_serial_build_tallies_its_piles_at_every_phase_boundary_and_writes_the
         assert (silent / relative).read_bytes() == (tallied / relative).read_bytes(), relative
 
 
-def test_a_served_rebuild_prices_the_records_and_fragments_the_cache_handed_it(
+def _served_build(out: Path, mini_bundle) -> dict:
+    return review_build.build_m1(
+        out,
+        audit_path=MINI / "audit.tsv",
+        ledger_path=mini_bundle.ledger,
+        subset_dir=MINI,
+        after_font=MINI / "M1.otf",
+        spec_root=mini_bundle.spec_root,
+        subset_pack=mini_bundle.subset_pack,
+    )
+
+
+def _strip_addresses(surface: Path) -> None:
+    """The store rewritten as one written before addresses were recorded: every record's `address` dropped, the header kept."""
+    path = unit_cache.store_path(surface)
+    with gzip.open(path, "rt", encoding="utf-8") as stream:
+        lines = stream.read().splitlines()
+    edited = [lines[0]] + [
+        json.dumps({key: value for key, value in json.loads(line).items() if key != "address"})
+        for line in lines[1:]
+    ]
+    with gzip.open(path, "wt", encoding="utf-8") as stream:
+        stream.write("\n".join(edited) + "\n")
+
+
+def test_a_served_rebuild_holds_no_pile_of_the_records_the_cache_handed_it(
     tmp_path, mini_bundle, capsys, monkeypatch
 ):
-    """The piles a served build holds are the ones a fresh build never makes, so they are the ones no fresh tally reads: a rebuild over the surface a first build left serves every unit from the store, and the plan boundary then holds the record per named unit the cache handed back, priced above zero by its declared shape — an empty pile answers before the shape is ever read, so a roster assertion over a fresh build says nothing about the declaration — beside the unit store, which the served ingest has filled row for row by that boundary and which reports itself exactly."""
-
-    def build(out: Path) -> dict:
-        return review_build.build_m1(
-            out,
-            audit_path=MINI / "audit.tsv",
-            ledger_path=mini_bundle.ledger,
-            subset_dir=MINI,
-            after_font=MINI / "M1.otf",
-            spec_root=mini_bundle.spec_root,
-            subset_pack=mini_bundle.subset_pack,
-        )
-
+    """A rebuild over the surface a first build left serves every unit from the store, and the plan boundary holds none of the records it served: each was folded into the unit store the moment the stream handed it over, so no pile of them exists to print — `unit_cache.named` never prints, and the residue pile `unit_cache.unplaced` is empty, since every record of a store this code wrote carries its address — while the unit store, filled row for row by the folds, reports itself exactly over the whole workload."""
     monkeypatch.delenv(pile_tally.TALLY_ENV, raising=False)
     surface = tmp_path / "surface"
-    build(surface)
+    _served_build(surface, mini_bundle)
     capsys.readouterr()
 
     monkeypatch.setenv(pile_tally.TALLY_ENV, "1")
-    manifest = build(surface)
+    manifest = _served_build(surface, mini_bundle)
     captured = capsys.readouterr()
     total = manifest["totals"]["units"]
+    assert re.search(rf"served {total:,} of {total:,} units from cache", captured.err)
     tallies = _tally_lines(captured.out)
-    assert tallies["plan"]["unit_cache.named"] == total
+    assert tallies["plan"]["unit_cache.unplaced"] == 0
     assert tallies["plan"]["unit_store"] == total
     assert not _subsumed_piles(tallies)
     packed = _packed_piles(captured.out)
-    assert packed["plan"]["unit_cache.named"] > 0
+    assert "unit_cache.unplaced" in packed["plan"]
     assert packed["plan"]["unit_store"] > 0
     assert _store_lines_are_exact(captured.out)["plan"]
 
 
-def _pinned_unit() -> Unit:
-    """One unit with every field the `workload.units` shape declares filled and none of them empty, so a width that moves moves the number the test states."""
-    return Unit(
-        codepoints="E650:E651",
-        baseline=("qsPea", "qsBay"),
-        new=("qsPea.alt", "qsBay"),
-        class_id="pair",
-        rows=(),
-        row_count=2,
-        configs=("default", "ss03"),
-        kinds=("join",),
-        group="qsPea",
-        exemplar=True,
-        unit_id="u-3kR7pQm2a4X",
-        input_key="ab" * 32,
-        order=3,
-        batch=1,
-        render_groups=(("qsPea",), ("qsBay", "qsTea")),
-        ink_deltas={"default": "delta-a"},
-        config_classes={"default": "pair", "ss03": "pair-alt"},
-        family_id="qsPea",
-        echo="echo-1",
-        cluster="cluster-1",
-    )
+def test_a_served_rebuild_prices_the_records_the_walk_has_to_place(
+    tmp_path, mini_bundle, capsys, monkeypatch
+):
+    """The residue a served plan buffers is measured whenever it is non-empty: over a store written before addresses were recorded, every record waits for the walk, so the plan boundary prices one record per unit under `unit_cache.unplaced`, by the declared shape, above zero — which is what says the pile is priced rather than merely declared — and every unit still serves."""
+    monkeypatch.delenv(pile_tally.TALLY_ENV, raising=False)
+    surface = tmp_path / "surface"
+    _served_build(surface, mini_bundle)
+    _strip_addresses(surface)
+    capsys.readouterr()
 
-
-def test_a_unit_prices_to_the_width_the_packed_shape_declares():
-    """The `workload.units` shape against one filled unit, field by field: five flag bits; the window as a count byte and a `u16` a codepoint (5); `baseline`, `new`, `configs`, `kinds` and the two `render_groups` as an offset and count each plus a `u32` id a name (13, 13, 13, 9, and 5 + 9 + 13); `class_id`, `group`, `family_id`, `echo` and `cluster` as `u32` ids (4 each); the released rows and the two mappings as offset-and-count pairs over their entries (5, 5 + 8, 5 + 16); the content id in its eight raw bytes; the input key in its thirty-two; `order` and `batch` in four and two. A unit that has not been enriched still costs the id and key columns in full, since a fixed-width column has no holes, and `row_count` costs nothing beside the rows' own count."""
-    shape = review_build._packed_shape("workload.units")
-    unit = _pinned_unit()
-    assert pile_tally.packed_size(shape, unit) == 185.625
-    assert pile_tally.packed_size(shape, replace(unit, row_count=97)) == 185.625
-    fresh = replace(unit, unit_id="", input_key="")
-    assert pile_tally.packed_size(shape, fresh) == 185.625
-    assert review_build._packed_shape("workload.units") is shape
+    monkeypatch.setenv(pile_tally.TALLY_ENV, "1")
+    manifest = _served_build(surface, mini_bundle)
+    captured = capsys.readouterr()
+    total = manifest["totals"]["units"]
+    assert re.search(rf"served {total:,} of {total:,} units from cache", captured.err)
+    tallies = _tally_lines(captured.out)
+    assert tallies["plan"]["unit_cache.unplaced"] == total
+    assert tallies["plan"]["unit_store"] == total
+    assert not _subsumed_piles(tallies)
+    packed = _packed_piles(captured.out)
+    assert packed["plan"]["unit_cache.unplaced"] > 0
 
 
 def test_close_finds_the_peak_behind_an_unconsumed_phase_reply(tmp_path, monkeypatch):
@@ -1248,6 +1281,7 @@ def test_close_finds_the_peak_behind_an_unconsumed_phase_reply(tmp_path, monkeyp
         tmp_path / "after.otf",
         tmp_path / "junior.otf",
         tmp_path,
+        table=UnitTable(0, StringTable(), TuplePool()),
         out_dir=tmp_path,
         subset_pack=tmp_path / "subsets.pack",
     )
@@ -1376,7 +1410,7 @@ def test_a_pool_worker_answers_with_the_complaints_of_the_fragments_it_drafted(
 
 
 def _two_chunks(mini_bundle) -> list[list]:
-    units = load_workload(MINI / "audit.tsv", mini_bundle.ledger, dict(LETTERS)).units
+    units = load_workload(MINI / "audit.tsv", mini_bundle.ledger, dict(LETTERS)).units()
     split = len(units) // 3
     assert 0 < split < len(units) - split
     return [units[:split], units[split:]]
@@ -1491,6 +1525,16 @@ def _export_surface():
         )
         for unit_id, unit in units.items()
     }
+
+
+def test_the_machine_approved_classes_are_listed_in_the_manifests_class_order(mini_surface):
+    """`by_class` is keyed by first appearance along the machine-approved units in triage order, so its classes run as the manifest's `classes` do — ledger classes in ledger order, then the promoted verdict families in `families.FAMILY_ORDER` — and never as the workload table's load order, where an UNMATCHED unit sits by its lead-family pair with no family term; the pins publish this key order verbatim as `machine_approved_classes` (`census.invariant_group`), so a build that walked the table in row order would move the census pins' invariant block for no adjudicable reason."""
+    manifest = json.loads((mini_surface / "manifest.json").read_text(encoding="utf-8"))
+    by_class = list(manifest["machine_approved"]["by_class"])
+    classes = [meta["id"] for meta in manifest["classes"]]
+    assert by_class and set(by_class) <= set(classes)
+    assert by_class == [class_id for class_id in classes if class_id in by_class]
+    assert sum(manifest["machine_approved"]["by_class"].values()) == manifest["machine_approved"]["units"]
 
 
 def test_export_skips_verdicts_landing_on_picture_identical_units():

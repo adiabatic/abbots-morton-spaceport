@@ -21,7 +21,8 @@ from rebuild.review.audit import (
     AUDIT_HEADER,
     SLIM_OMITTED_KEYS,
     UNMATCHED_CLASS,
-    Unit,
+    AuditRow,
+    load_table,
     load_workload,
 )
 from rebuild.review.build import (
@@ -45,6 +46,7 @@ from rebuild.review.build import (
 from rebuild.review.drafts import DraftError, Drafter
 from rebuild.review.enrich import LETTERS, Enricher, _highlight, load_spec
 from rebuild.review.subset_pack import SubsetPack, SubsetRow, pack_key, table_digests, write_pack
+from rebuild.review.unit_store import UnitStore
 from rebuild.validation.rowmodel import Row, iter_rows
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
@@ -113,7 +115,7 @@ def mini_enriched(mini_bundle):
         spec = load_spec(mini_bundle.spec_root)
     enricher = Enricher(spec, MINI, MINI_FONT, repo_root=REPO_ROOT, subset_pack=mini_bundle.subset_pack)
     workload = load_workload(MINI_AUDIT, mini_bundle.ledger, dict(LETTERS))
-    return enricher.enrich_many(workload.units[:MINI_SLICE])
+    return enricher.enrich_many(workload.units()[:MINI_SLICE])
 
 
 @pytest.fixture(scope="module")
@@ -556,7 +558,7 @@ def test_a_manifest_with_no_classes_draws_no_complaint():
 
 
 def test_the_verification_sample_is_reproducible_and_bounded():
-    served = [f"u-{index:04d}" for index in range(1000)]
+    served = list(range(1000))
     first = _verification_sample(served, "an-environment-stamp", 200)
     assert len(first) == 200
     assert set(first) <= set(served)
@@ -781,22 +783,25 @@ def test_a_served_unit_skips_check_unit_but_not_the_cross_unit_grain():
 
 def test_the_premerge_projection_answers_one_ink_flag_per_captured_unit():
     """What makes an index into `ink_flags` mean anything: the flags run parallel to the capture, which is the pre-merge grain the census pins are defined over. `derive_premerge` now says so itself rather than leaving a sweep over the live sidecar to discover otherwise. (The companion claim — that no unit at a family index is ink-identical — is a fact about the corpus, not about the projection, and lives in `build_m1` where the corpus is.)"""
-    units = [
-        Unit(
-            codepoints=codepoints,
-            baseline=("qsPea", "qsMay"),
-            new=("qsPea/full/None/baseline/", "qsMay/full/baseline/None/"),
-            class_id=UNMATCHED_CLASS,
-            rows=(),
-            configs=("default",),
-            unit_id=f"u-{index:04d}",
-            family_id="a-family",
+    rows = [
+        AuditRow(
+            "default",
+            codepoints,
+            ("cell",),
+            UNMATCHED_CLASS,
+            ("qsPea", "qsMay"),
+            ("qsPea/full/None/baseline/", "qsMay/full/baseline/None/"),
         )
-        for index, codepoints in enumerate(("E650:E665", "E650:E652"))
+        for codepoints in ("E650:E665", "E650:E652")
     ]
-    capture = census.capture_premerge(units)
-    facts = census.derive_premerge(capture, units)
-    assert len(facts.ink_flags) == facts.units == len(units)
+    table, _rows = load_table(rows, [], dict(LETTERS))
+    capture = census.capture_premerge(table)
+    capture.rebase(table.compact())
+    store = UnitStore(table.n, strings=table.strings)
+    for ordinal in range(table.n):
+        table.set_family(ordinal, "a-family")
+    facts = census.derive_premerge(capture, table, store)
+    assert len(facts.ink_flags) == facts.units == table.n == 2
     assert [index for index, _family in facts.families] == [0, 1]
 
 

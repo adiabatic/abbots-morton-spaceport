@@ -52,6 +52,20 @@ def test_rss_token_round_trips_through_the_inner_line_grammar():
     assert parse_inner_timings(line) == [{"label": "build_tables_total", "elapsed_s": 243.1, "rss_gb": 8.94}]
 
 
+def test_both_rss_tokens_round_trip_side_by_side():
+    line = f"[t] review.build plan 9.9s {peak_rss.rss_token(5_280_000_000)} {peak_rss.rss_now_token(4_020_000_000)}"
+    assert parse_inner_timings(line) == [
+        {"label": "review.build plan", "elapsed_s": 9.9, "rss_gb": 5.28, "rss_now_gb": 4.02}
+    ]
+    assert peak_rss.rss_now_token(4_020_000_000) == "rss_now_gb=4.02"
+
+
+def test_the_current_reading_is_a_resident_set_under_the_peak():
+    current = peak_rss.current_rss_bytes()
+    assert current is not None and current > 10 * 1024 * 1024
+    assert current <= peak_rss.peak_rss_self_bytes() * 1.05
+
+
 def test_reap_returns_the_child_peak_and_sets_returncode():
     proc = subprocess.Popen([sys.executable, "-c", "x = bytearray(64 * 1024 * 1024)"])
     peak = peak_rss.reap_peak_rss_bytes(proc)

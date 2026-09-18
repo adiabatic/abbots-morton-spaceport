@@ -20,7 +20,16 @@ from rebuild.pipeline import fingerprint, fixtures, kernel_exec, spec_load
 from rebuild.review import unit_cache, unit_index
 from rebuild.review import build as review_build
 from rebuild.review import enrich as review_enrich
-from rebuild.review.audit import SLIM_OMITTED_KEYS, AuditRow, Unit, slim_fragment
+from rebuild.review.audit import (
+    SLIM_OMITTED_KEYS,
+    AuditRow,
+    RowColumns,
+    UnitTable,
+    _config_index,
+    load_table,
+    merge_ink_duplicate_units,
+    slim_fragment,
+)
 from rebuild.review.build import (
     SITE_BEFORE_FONT,
     SITE_JUNIOR_FONT,
@@ -445,6 +454,50 @@ def test_corrupt_store_degrades_to_a_full_build(mini_surface, mini_bundle, tmp_p
     assert _tree(surface) == _tree(mini_surface)
 
 
+def test_a_store_that_fails_midway_degrades_to_a_full_build(mini_surface, mini_bundle, tmp_path, capfd):
+    """The plan folds each record as the stream hands it over, so a store that stops reading after some records has already put rows into the unit store; the pass discards them with the store — every unit fresh, the unreadable note printed — and lands byte for byte on the surface a fresh build over the same audit writes, rather than serving the records the broken store handed over before it broke."""
+    surface = _copy(mini_surface, tmp_path)
+    path = unit_cache.store_path(surface)
+    with gzip.open(path, "rt", encoding="utf-8") as stream:
+        lines = stream.read().splitlines()
+    assert len(lines) > 3
+    broken = json.loads(lines[len(lines) // 2])
+    del broken["proj"]
+    kept = lines[: len(lines) // 2] + [json.dumps(broken)]
+    with gzip.open(path, "wt", encoding="utf-8") as stream:
+        stream.write("\n".join(kept) + "\n")
+    capfd.readouterr()
+    _build(surface, mini_bundle, jobs=1)
+    report = capfd.readouterr().err
+    served, _total = _counts(report, SERVED)
+    assert served == 0
+    assert f"unit cache: {unit_cache.UNREADABLE_NOTE}" in report
+    assert _tree(surface) == _tree(mini_surface)
+
+
+def test_two_units_spelling_one_input_key_are_refused_at_the_plan(mini_bundle, tmp_path, monkeypatch):
+    """Two units cannot spell one key — every row belongs to one triple and every key line carries the row's window and names — so a repeat is a sha256 collision, and the plan refuses it by name before the store is opened rather than serving both units from one record and dying at the store's duplicate-id refusal."""
+    monkeypatch.setattr(unit_cache.UnitKeyer, "key", lambda self, table, rows, ordinal: "0" * 64)
+    with pytest.raises(SystemExit) as raised:
+        _build(tmp_path / "surface", mini_bundle, jobs=1)
+    match = re.search(r"units (\S+) and (\S+) spell one input key", str(raised.value))
+    assert match and match.group(1) != match.group(2)
+
+
+def test_a_fold_that_raises_is_not_swallowed_by_the_store_parse(
+    mini_surface, mini_bundle, tmp_path, monkeypatch
+):
+    """The fold runs in the plan's frame, not the stream's, so an error of the fold's own — a row folded twice, an id that is not its content key's, a coding error in the sink — propagates as loudly as it ever did instead of reading as a store that will not parse and degrading to a full build."""
+    surface = _copy(mini_surface, tmp_path)
+
+    def refuse(self, ordinal, cached, *, codepoints, found=None):
+        raise ValueError("the fold's own error")
+
+    monkeypatch.setattr(UnitStore, "fold_served", refuse)
+    with pytest.raises(ValueError, match="the fold's own error"):
+        _build(surface, mini_bundle, jobs=1)
+
+
 def test_fresh_unit_cache_bypasses_a_warm_store(mini_surface, mini_bundle, tmp_path, capfd):
     surface = _copy(mini_surface, tmp_path)
     before = _tree(surface)
@@ -480,7 +533,7 @@ def test_a_pool_handed_the_pile_in_any_configuration_order_is_byte_identical_to_
     monkeypatch.setattr("rebuild.review.build.PHASE1_HANDOUT_UNITS", 37)
     monkeypatch.setattr(
         "rebuild.review.build._configuration_order",
-        lambda units: sorted(units, key=lambda unit: -_config_index(unit.configs[0])),
+        lambda fresh, table: sorted(fresh, key=lambda ordinal: -table.config_rank(ordinal)),
     )
     parallel = tmp_path / "reversed"
     _build(parallel, mini_bundle, jobs=2)
@@ -505,9 +558,9 @@ def test_both_pooled_hand_outs_go_through_the_configuration_sort_and_cover_their
     handed: list[list] = []
     original = review_build._configuration_order
 
-    def spy(units):
-        handed.append(list(units))
-        return original(units)
+    def spy(fresh, table):
+        handed.append(list(fresh))
+        return original(fresh, table)
 
     monkeypatch.setattr("rebuild.review.build._configuration_order", spy)
     surface = tmp_path / "surface"
@@ -521,7 +574,7 @@ def test_both_pooled_hand_outs_go_through_the_configuration_sort_and_cover_their
     (verified,) = _counts(err, r"verified=(\d[\d,]*) served")
     assert served == total
     assert [len(pile) for pile in handed] == [total, 0, min(review_build.VERIFICATION_SAMPLE, total)]
-    assert verified == len(handed[2]) == len({unit.unit_id for unit in handed[2]})
+    assert verified == len(handed[2]) == len(set(handed[2]))
 
 
 SIGNATURES = r"signatures: (\d[\d,]*) cached, (\d[\d,]*) shaped"
@@ -884,7 +937,8 @@ def test_a_refuse_why_edit_moves_only_that_family_key(tmp_path):
 # --- the key and cluster byte-contracts ------------------------------------------------
 
 
-def _unit(codepoints: str, matched: str = "seam-loss-withdrawal") -> Unit:
+def _unit(codepoints: str, matched: str = "seam-loss-withdrawal") -> tuple[UnitTable, RowColumns, int]:
+    """One unit's table beside its row columns and its ordinal, the three things the keyer reads."""
     row = AuditRow(
         config="default",
         codepoints=codepoints,
@@ -893,7 +947,9 @@ def _unit(codepoints: str, matched: str = "seam-loss-withdrawal") -> Unit:
         baseline=("a", "b"),
         new=("c", "d"),
     )
-    return Unit(codepoints=codepoints, baseline=row.baseline, new=row.new, class_id=matched, rows=(row,))
+    table, rows = load_table([row], [], _FAMILY_OF)
+    assert table.n == 1
+    return table, rows, 0
 
 
 _FAMILY_OF = {0xE650: "qsPea", 0xE652: "qsTea", 0xE668: "qsRoe"}
@@ -905,18 +961,80 @@ def _keyer(**overrides) -> unit_cache.UnitKeyer:
 
 
 def test_unit_key_moves_only_with_window_families():
-    unit = _unit("E650:E652")
-    base = _keyer().key(unit)
-    assert _keyer(qsRoe="r1").key(unit) == base
-    assert _keyer(qsTea="t1").key(unit) != base
-    assert _keyer(qsPea_qsTea="pt1").key(unit) != base
+    pair = _unit("E650:E652")
+    base = _keyer().key(*pair)
+    assert _keyer(qsRoe="r1").key(*pair) == base
+    assert _keyer(qsTea="t1").key(*pair) != base
+    assert _keyer(qsPea_qsTea="pt1").key(*pair) != base
     solo = _unit("0020:E650")
-    assert _keyer().key(solo) != _keyer(qsPea="p1").key(solo)
-    assert _keyer().key(solo) == _keyer(qsPea_qsTea="pt1", qsTea="t1", qsRoe="r1").key(solo)
+    assert _keyer().key(*solo) != _keyer(qsPea="p1").key(*solo)
+    assert _keyer().key(*solo) == _keyer(qsPea_qsTea="pt1", qsTea="t1", qsRoe="r1").key(*solo)
 
 
 def test_unit_key_moves_with_row_content():
-    assert _keyer().key(_unit("E650:E652")) != _keyer().key(_unit("E650:E652", matched="UNMATCHED"))
+    assert _keyer().key(*_unit("E650:E652")) != _keyer().key(*_unit("E650:E652", matched="UNMATCHED"))
+
+
+def _key_over_rows(keyer: unit_cache.UnitKeyer, codepoints: tuple[int, ...], rows: list[AuditRow]) -> str:
+    """The unit key as a hash over row records: each row as the audit's own line, then the window families' keys — the shape `UnitKeyer.key` reconstructs from the row columns, spelled here over `AuditRow`s so the two can be held equal."""
+    families = frozenset(_FAMILY_OF[value] for value in codepoints if value in _FAMILY_OF)
+    lines = [
+        "\t".join(
+            (
+                row.config,
+                row.codepoints,
+                ",".join(row.kinds),
+                row.matched_entry,
+                "|".join(row.baseline),
+                "|".join(row.new),
+            )
+        )
+        for row in rows
+    ]
+    lines += [f"{name}\t{keyer._family_keys[name]}" for name in keyer._relevant_families(families)]
+    return hashlib.sha256("\n".join(lines).encode()).hexdigest()
+
+
+def test_a_folded_survivors_key_is_the_key_over_its_absorbed_rows_own_names():
+    """After the ink-duplicate fold a survivor's run spans two name-tuple pairs — its own and the absorbed sibling's — merged by config rank with the survivor's row first at a tie, which is the stable sort of the two units' rows concatenated survivor first. The content key is over that run with each row's own names, so it equals a hash over the row records in that order, and moves when an absorbed row's rendered names move: a key over the survivor's names alone would serve a stale fragment to a window whose absorbed rows had changed."""
+
+    def rows_for(new_a: tuple[str, ...], new_b: tuple[str, ...]) -> list[AuditRow]:
+        return [
+            AuditRow("default", "E650:E652", ("cell",), "UNMATCHED", ("a", "b"), new_a),
+            AuditRow("ss04", "E650:E652", ("cell",), "UNMATCHED", ("a", "b"), new_a),
+            AuditRow("ss03", "E650:E652", ("seam",), "UNMATCHED", ("a.ss03", "b"), new_b),
+            AuditRow("ss04", "E650:E652", ("seam",), "UNMATCHED", ("a.ss03", "b"), new_b),
+        ]
+
+    def folded(records: list[AuditRow]) -> tuple[UnitTable, RowColumns, list[AuditRow]]:
+        table, columns = load_table(records, [], _FAMILY_OF)
+        assert table.n == 2
+        survivor = next(ordinal for ordinal in range(2) if table.configs(ordinal)[0] == "default")
+        absorbed = 1 - survivor
+        survivor_rows = [row for row in records if row.baseline == table.baseline(survivor)]
+        absorbed_rows = [row for row in records if row.baseline == table.baseline(absorbed)]
+        stats = merge_ink_duplicate_units(table, columns, lambda text, config: text)
+        assert stats["units_folded"] == 1 and table.survivor(absorbed) == survivor
+        assert table.compact().survivor[absorbed] == 0 and table.n == 1
+        ordered = sorted(survivor_rows + absorbed_rows, key=lambda row: _config_index(row.config))
+        return table, columns, ordered
+
+    table, columns, ordered = folded(rows_for(("c", "d"), ("c", "d.ss03")))
+    survivor = table.unit(0)
+    assert survivor.configs == ("default", "ss03", "ss04", "ss04")
+    assert [row.config for row in ordered] == list(survivor.configs)
+    assert [row.baseline for row in ordered] == [("a", "b"), ("a.ss03", "b"), ("a", "b"), ("a.ss03", "b")]
+    base = _keyer().key(table, columns, 0)
+    assert base == _key_over_rows(_keyer(), survivor.codepoint_values, ordered)
+
+    moved_table, moved_columns, moved_ordered = folded(rows_for(("c", "d"), ("c", "d.moved")))
+    moved = moved_table.unit(0)
+    assert moved.baseline == survivor.baseline and moved.new == survivor.new
+    assert (
+        _keyer().key(moved_table, moved_columns, 0)
+        == _key_over_rows(_keyer(), moved.codepoint_values, moved_ordered)
+        != base
+    )
 
 
 _SIGNATURE_ROW = AuditRow(
@@ -1179,6 +1297,43 @@ def test_the_store_parse_interns_and_pools_what_repeats_across_records(tmp_path)
     assert replace(first, key="k2") == second
 
 
+def test_a_streamed_store_pools_only_the_records_it_hands_over_without_an_address(tmp_path):
+    """The stream shares one table across the addressless records, which a streaming caller buffers together for the walk, and none across the addressed ones, each folded and released before the next is parsed: two addressed records that project the same spans come with equal tuples that are distinct objects, two addressless ones with the same object, and a caller passing its own table holds every record together and gets the sharing `load_store` promises."""
+    fragments = [{"id": "u-0001", "content_key": "f" * 64}, {"id": "u-0002", "content_key": "f" * 64}]
+    parts, spans = _write_shard(tmp_path, "small", fragments)
+    (tmp_path / "manifest.json").write_text("{}", encoding="utf-8")
+    records = [
+        replace(
+            _round_trip_unit(), key="k1", prior_id="u-0001", address=(parts[0], spans[0][1], spans[0][2])
+        ),
+        replace(
+            _round_trip_unit(), key="k2", prior_id="u-0002", address=(parts[0], spans[1][1], spans[1][2])
+        ),
+        replace(_round_trip_unit(), key="k3", prior_id="u-0003"),
+        replace(_round_trip_unit(), key="k4", prior_id="u-0004"),
+    ]
+    unit_cache.write_store(tmp_path, "env-a", records)
+    stream = unit_cache.stream_store(tmp_path, "env-a")
+    assert stream is not None
+    by_key = {cached.key: cached for cached in stream}
+    assert by_key["k1"].address is not None and by_key["k2"].address is not None
+    assert by_key["k3"].address is None and by_key["k4"].address is None
+    for name in ("pair", "after_spans", "after_cells", "before_spans", "before_glyphs", "seam_pairs"):
+        assert getattr(by_key["k1"], name) == getattr(by_key["k2"], name), name
+        assert getattr(by_key["k1"], name) is not getattr(by_key["k2"], name), name
+        assert getattr(by_key["k3"], name) is getattr(by_key["k4"], name), name
+    pool: dict = {}
+    stream = unit_cache.stream_store(tmp_path, "env-a", pool=pool)
+    assert stream is not None
+    held = list(stream)
+    assert all(cached.after_spans is held[0].after_spans is pool[held[0].after_spans] for cached in held)
+    loaded = unit_cache.load_store(tmp_path, "env-a")
+    assert (
+        loaded is not None
+        and loaded["k1"].after_cells is loaded["k2"].after_cells is loaded["k4"].after_cells
+    )
+
+
 def test_a_store_serves_only_the_keys_the_workload_names(tmp_path, monkeypatch):
     """The load parses only the lines whose key the caller names, sliced off the front of the raw line, so a record the workload has stopped naming costs a prefix compare and is never held — pinned by counting the record lines that reach `json.loads`, since a load that parsed every line and dropped the unnamed ones would serve the same keys; without `wanted`, every record loads as before."""
     (tmp_path / "manifest.json").write_text("{}", encoding="utf-8")
@@ -1232,15 +1387,14 @@ def test_the_store_parse_reproduces_the_projection_it_was_written_from(tmp_path)
     unit_cache.write_store(tmp_path, "env-a", [written])
     loaded = unit_cache.load_store(tmp_path, "env-a")
     assert loaded is not None
-    unit = Unit(codepoints="0001:0002", baseline=(), new=(), class_id="boundary-echo", rows=())
     walked = unit_cache.PriorFragment("units/boundary-echo.json", 1, 5, prior_id, written.content_key)
     store = UnitStore(1)
-    store.fold_served(0, loaded[written.key], unit, found=walked)
+    store.fold_served(0, loaded[written.key], codepoints=(1, 2), found=walked)
     home = store.seam_home(0)
     assert store.seam_home_record(0) == written.proj
     assert json.dumps(store.seam_home_record(0)) == json.dumps(written.proj)
     assert (
-        (home.unit_id, home.codepoint_values) == (prior_id, (1, 2)) == (unit.unit_id, unit.codepoint_values)
+        (home.unit_id, home.codepoint_values) == (prior_id, (1, 2)) == (store.unit_id(0), store.codepoints(0))
     )
     assert home.seam_pairs == ((1, 2),)
     assert (home.ink_identical, home.picture_identical) == (False, False)
