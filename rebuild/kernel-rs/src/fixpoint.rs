@@ -814,6 +814,11 @@ fn enumerate_seeded<'i>(
             "[c] {config} memo_base_hits count={}",
             engine.base_hits()
         ));
+        for (seat, count) in engine.base_hits_by_seat().iter().enumerate() {
+            lines.push(format!(
+                "[c] {config} memo_base_hits seat={seat} count={count}"
+            ));
+        }
         lines.push(format!(
             "[c] {config} resident_before_release kb={}",
             resident_kb()
@@ -2487,6 +2492,7 @@ mod tests {
                 .expect("the census reports the base hits")
                 .parse::<u64>()
                 .expect("as a count");
+            assert!(census.contains(&format!("[c] ss03 memo_base_hits seat=0 count={hits}")));
             (product, hits)
         };
         let (seeded, hits) = seeded_with(Exclusion::of(&index, unlocking_runes(&index, &[ss03])));

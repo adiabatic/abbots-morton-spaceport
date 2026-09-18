@@ -495,6 +495,43 @@ fn a_build_seeded_from_the_previous_memo_files_the_bytes_a_from_scratch_one_file
         assert!(seeded.join(format!("memo-{token}.tsv")).is_file());
         assert!(!scratch_built.join(format!("memo-{token}.tsv")).exists());
     }
+    for (arm, configs, extra, tokens) in [
+        (
+            "config-seed-off",
+            "--configs=default,ss03",
+            Some("--config-seed-off"),
+            vec!["default", "ss03"],
+        ),
+        ("single", "--configs=default", None, vec!["default"]),
+        ("without-default", "--configs=ss03", None, vec!["ss03"]),
+    ] {
+        let outdir = root.join(arm);
+        let seed = format!("--seed={}", word(&previous));
+        let mut args = vec![
+            "build-tables",
+            word(&after),
+            word(&outdir),
+            configs,
+            "--inputs=cli-stamp",
+            &seed,
+            "--edited=qsTea",
+            "--memo-stamp=after",
+        ];
+        args.extend(extra);
+        let output = run(&args);
+        assert!(output.status.success(), "{arm}: {}", complaint(&output));
+        for token in tokens {
+            for family in ["settlement", "treaties", "windows"] {
+                let name = format!("{family}-{token}.tsv");
+                assert_eq!(
+                    std::fs::read(outdir.join(&name)).expect("the seeded build filed it"),
+                    std::fs::read(scratch_built.join(&name)).expect("the scratch build filed it"),
+                    "{arm}: {name}"
+                );
+            }
+            assert!(outdir.join(format!("memo-{token}.tsv")).is_file());
+        }
+    }
     let output = run(&[
         "build-tables",
         word(&after),
