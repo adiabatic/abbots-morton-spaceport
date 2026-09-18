@@ -8,7 +8,8 @@ import collections
 import json
 import pathlib
 import sys
-from collections.abc import Iterable
+from collections.abc import Iterable, Mapping
+from typing import Any
 
 ROOT = pathlib.Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
@@ -44,7 +45,12 @@ def resolve_prior(verdict_files):
     return prior
 
 
-def main(argv=None, *, current_units: Iterable[dict] | None = None, current_ids: set[str] | None = None):
+def main(
+    argv=None,
+    *,
+    current_units: Iterable[Mapping[str, Any]] | None = None,
+    current_ids: set[str] | None = None,
+):
     """Carry from a one-pass human record source and every surface id, including machine ids for the stranded figure. Supplied records need only an `id`; the chain supplies its echo projection, and a standalone run streams the human index while collecting all ids. The two arguments come together or not at all."""
     parser = argparse.ArgumentParser(
         description="Carry prior verdicts onto the live surface, landing each on the unit of the id it names."

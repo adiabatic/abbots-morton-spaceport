@@ -5,6 +5,8 @@ import collections
 import json
 import pathlib
 import sys
+from collections.abc import Iterable, Mapping
+from typing import Any
 
 ROOT = pathlib.Path(__file__).resolve().parents[2]
 if str(ROOT) not in sys.path:
@@ -32,9 +34,9 @@ def triage_position(unit):
     return (order is None, order if isinstance(order, int) else 0, unit["id"])
 
 
-def load_human_units(surface):
+def load_human_units(surface, *, fields: Iterable[str] | None = None):
     """The surface's human units in the slim index shape, beside the id of every unit on it (rebuild.review.unit_index owns the projection, the classification and the shard fallback). The tools that share this loader — the docket data, the novelty order, the echo fill, the standing fill, the standing probe and daemon, the complaint docket — between them read a couple of dozen fields per human unit and nothing of a machine unit but its id, and reading the shards for them meant parsing gigabytes to reach a few hundred bytes each."""
-    return unit_index.load_human_units(surface)
+    return unit_index.load_human_units(surface, fields=fields)
 
 
 def latest_verdicts(path):
@@ -46,7 +48,7 @@ def latest_verdicts(path):
     return best
 
 
-def main(argv=None, *, units: list[dict] | None = None):
+def main(argv=None, *, units: Iterable[Mapping[str, Any]] | None = None):
     """`units` lets a caller that already holds the surface's index records hand them over rather than have this tool read them again; only the human records — `batch` not None — enter the docket, whichever way they arrive."""
     parser = argparse.ArgumentParser(description=(__doc__ or "").split(":")[0] + ".")
     parser.add_argument(

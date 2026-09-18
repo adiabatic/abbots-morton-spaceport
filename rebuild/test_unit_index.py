@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
+import ast
 import gzip
 import hashlib
 import json
 import shutil
+from collections.abc import Mapping, Sequence
 from pathlib import Path
 
 import pytest
@@ -235,7 +237,7 @@ def test_iter_units_and_load_units_agree(tmp_path):
     assert list(unit_index.iter_units(surface)) == unit_index.load_units(surface)
 
 
-def _human_and_ids(units: list[dict]) -> tuple[list[dict], set[str]]:
+def _human_and_ids(units: Sequence[Mapping]) -> tuple[list[Mapping], set[str]]:
     return [unit for unit in units if unit["batch"] is not None], {unit["id"] for unit in units}
 
 
@@ -296,7 +298,7 @@ def test_human_stream_skips_machine_json_and_parses_humans_on_demand(tmp_path, m
 def test_corrupt_current_human_stream_raises_without_restarting_shards(tmp_path):
     surface = _fixture_surface(tmp_path)
     human, _ids = _human_and_ids(unit_index.load_units(surface))
-    unit_index.write_index_lines(surface, [(json.dumps(human[0]) + "\n").encode(), b"broken\n"])
+    unit_index.write_index_lines(surface, [(json.dumps(dict(human[0])) + "\n").encode(), b"broken\n"])
     stream = unit_index.iter_human_units(surface)
     assert next(stream) == human[0]
     with pytest.raises(ValueError):
@@ -400,3 +402,199 @@ def test_the_contract_check_refuses_a_sidecar_stamped_for_another_manifest(tmp_p
     (surface / "manifest.json").write_text("{}\n", encoding="utf-8")
     complaints = _check_output_files(surface, _output_manifest(surface))
     assert any(f"{unit_index.INDEX_NAME} is unreadable or stamped" in line for line in complaints)
+
+
+def _reader_surface(tmp_path: Path, mode: str) -> tuple[Path, list[dict]]:
+    surface = _fixture_surface(tmp_path)
+    slot = unit_index.slot_reader(surface)
+    expected = [unit_index.index_record(fragment, **slot(fragment)) for fragment in _shard_units(surface)]
+    if mode != "absent":
+        _write(surface)
+    if mode == "stale":
+        manifest = json.loads((surface / "manifest.json").read_text())
+        manifest["generated_at"] = "stale"
+        (surface / "manifest.json").write_text(json.dumps(manifest))
+    return surface, expected
+
+
+@pytest.mark.parametrize("mode", ["current", "absent", "stale"])
+@pytest.mark.parametrize("fields", [None, (), ("after", "id", "before", "configs"), ("class",)])
+def test_compact_readers_preserve_fields_order_and_human_classification(tmp_path, mode, fields):
+    surface, full = _reader_surface(tmp_path, mode)
+    selected = set(full[0]) if fields is None else set(fields)
+    expected = [{key: value for key, value in record.items() if key in selected} for record in full]
+    human = [record for record, original in zip(expected, full) if original["batch"] is not None]
+    ids = {record["id"] for record in full}
+    for reader in (unit_index.load_units, unit_index.iter_units, unit_index.stream_shards):
+        actual = list(reader(surface, fields=fields))
+        assert actual == expected
+        for record, original in zip(actual, expected):
+            assert isinstance(record, Mapping)
+            assert not hasattr(record, "__dict__")
+            assert list(record) == list(original)
+            assert json.loads(json.dumps(dict(record))) == original
+    indexed = unit_index.load_index(surface, fields=fields)
+    assert indexed == (expected if mode == "current" else None)
+    seen = set()
+    assert list(unit_index.iter_human_units(surface, fields=fields, unit_ids=seen)) == human
+    assert seen == ids
+    assert unit_index.load_human_units(surface, fields=fields) == (human, ids)
+
+
+@pytest.mark.parametrize("mode", ["current", "absent", "stale"])
+def test_unknown_projection_fields_are_rejected_by_every_reader(tmp_path, mode):
+    surface, _ = _reader_surface(tmp_path, mode)
+    for reader in (
+        unit_index.load_index,
+        unit_index.load_units,
+        unit_index.iter_units,
+        unit_index.stream_shards,
+        unit_index.iter_human_units,
+        unit_index.load_human_units,
+    ):
+        with pytest.raises(ValueError, match="misspelled_field"):
+            result = reader(surface, fields=("id", "misspelled_field"))
+            if result is not None:
+                list(result)
+
+
+def test_projection_omissions_cannot_silently_disable_a_rule(tmp_path):
+    surface = _fixture_surface(tmp_path)
+    [record, *_] = unit_index.load_units(surface, fields=("id", "no_verdict"))
+    assert record.get("no_verdict", "default") == record["no_verdict"]
+    for read in (lambda: record["before"], lambda: record.get("before"), lambda: record.get("before", {})):
+        with pytest.raises((ValueError, KeyError), match="before"):
+            read()
+    assert record.get("not_a_unit_field", "default") == "default"
+    with pytest.raises(KeyError):
+        record["not_a_unit_field"]
+    with pytest.raises(TypeError):
+        record["id"] = "changed"  # pyright: ignore[reportIndexIssue]
+
+
+def test_repeated_nested_values_share_storage_without_changing_json_types(tmp_path):
+    fragment = {
+        "id": "first",
+        "class": "repeated class value",
+        "configs": ["senior config value"],
+        "before": {"glyphs": ["repeated glyph value"], "seams": [5]},
+        "after": {"cells": ["repeated cell value"], "seams": [5]},
+        "ink_deltas": {"senior config value": "same delta value"},
+    }
+    (tmp_path / "manifest.json").write_text(json.dumps({"classes": []}))
+    unit_index.write_index(tmp_path, [("test", [fragment, {**fragment, "id": "second"}])])
+    first, second = unit_index.load_units(tmp_path)
+    assert first == unit_index.index_record(fragment)
+    for field in ("class", "configs", "before", "after", "ink_deltas"):
+        assert first[field] is second[field]
+    assert isinstance(first["before"], dict)
+    assert isinstance(first["before"]["glyphs"], list)
+    assert first["before"]["seams"] is first["after"]["seams"]
+    assert first["configs"][0] is next(iter(first["ink_deltas"]))
+    assert json.loads(json.dumps(dict(first))) == unit_index.index_record(fragment)
+
+
+def _standing_unit_fields(source: str) -> set[str]:
+    fields = set()
+    for node in ast.walk(ast.parse(source)):
+        key = None
+        if isinstance(node, ast.Subscript) and isinstance(node.value, ast.Name) and node.value.id == "unit":
+            key = node.slice
+        elif (
+            isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Attribute)
+            and isinstance(node.func.value, ast.Name)
+            and node.func.value.id == "unit"
+            and node.func.attr == "get"
+            and node.args
+        ):
+            key = node.args[0]
+        if key is not None:
+            assert isinstance(key, ast.Constant) and isinstance(key.value, str), ast.dump(node)
+            fields.add(key.value)
+    return fields
+
+
+def test_pool_preserves_distinct_json_scalar_types_inside_equal_containers(tmp_path):
+    values = [True, 1, 1.0, False, 0, 0.0, -0.0]
+    (tmp_path / "manifest.json").write_text(json.dumps({"classes": []}))
+    unit_index.write_index_lines(
+        tmp_path,
+        (
+            unit_index.index_line({"id": f"unit-{index}", "before": {"seams": [value]}})
+            for index, value in enumerate(values)
+        ),
+    )
+    records = unit_index.load_units(tmp_path, fields=("before",))
+    seams = [record["before"]["seams"] for record in records]
+    assert len({id(value) for value in seams}) == len(values)
+    for actual, expected in zip(seams, values):
+        assert type(actual[0]) is type(expected)
+        assert json.dumps(actual) == json.dumps([expected])
+
+
+def test_standing_projection_covers_the_fields_read_by_both_consumers(tmp_path):
+    from rebuild.tools import standing_daemon
+
+    expected = {
+        "id",
+        "batch",
+        "class",
+        "echo",
+        "notation",
+        "codepoints",
+        "configs",
+        "ink_deltas",
+        "no_verdict",
+        "content_key",
+        "render_groups",
+        "pair",
+        "secondary_seams",
+        "before",
+        "after",
+    }
+    derived = set()
+    for name in ("standing_probe.py", "standing_verdicts.py"):
+        derived.update(_standing_unit_fields((REPO_ROOT / "rebuild" / "tools" / name).read_text()))
+    assert _standing_unit_fields("print(f\"{unit['class']} {unit.get('echo')}\")") == {"class", "echo"}
+    assert derived == expected == standing_daemon.UNIT_FIELDS
+    surface, full = _reader_surface(tmp_path, "current")
+    assert unit_index.load_units(surface, fields=standing_daemon.UNIT_FIELDS) == [
+        {key: value for key, value in record.items() if key in expected} for record in full
+    ]
+
+
+def test_streaming_discards_unique_containers_after_the_reader_pool_fills(tmp_path, monkeypatch):
+    monkeypatch.setattr(unit_index, "_CONTAINER_POOL_LIMIT", 32)
+    readers = []
+    original = unit_index._RecordReader
+
+    class ObservedReader(original):
+        def __init__(self, fields):
+            super().__init__(fields)
+            readers.append(self)
+
+    monkeypatch.setattr(unit_index, "_RecordReader", ObservedReader)
+    (tmp_path / "manifest.json").write_text(json.dumps({"classes": []}))
+    unit_index.write_index_lines(
+        tmp_path,
+        (
+            unit_index.index_line({"id": f"unit-{index}", "configs": [f"unique-{index}"]})
+            for index in range(512)
+        ),
+    )
+    stream = unit_index.iter_units(tmp_path, fields=("id", "configs"))
+    consumed = 0
+    for index, record in enumerate(stream):
+        assert record == {"id": f"unit-{index}", "configs": [f"unique-{index}"]}
+        assert len(readers[-1].pool) <= 32
+        consumed += 1
+    assert consumed == 512
+    assert len(readers) == 1
+    assert len(readers[0].pool) == 32
+    next_stream = unit_index.iter_units(tmp_path, fields=("configs",))
+    next(next_stream)
+    assert len(readers) == 2
+    assert readers[0].pool is not readers[1].pool
+    assert len(readers[1].pool) == 1
+    list(next_stream)

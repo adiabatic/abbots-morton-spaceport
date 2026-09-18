@@ -7,7 +7,8 @@ import json
 import pathlib
 import re
 import sys
-from collections.abc import Iterable
+from collections.abc import Iterable, Mapping
+from typing import Any
 
 import yaml
 
@@ -243,7 +244,7 @@ def emit_park(group, marker_target, *, stamp, park_dir, note_text):
     return path
 
 
-def main(argv=None, *, units: Iterable[dict] | None = None, unit_ids: set[str] | None = None):
+def main(argv=None, *, units: Iterable[Mapping[str, Any]] | None = None, unit_ids: set[str] | None = None):
     """`units` and `unit_ids` hand over a single-pass human record stream and every surface id together: the absent-unit warning includes machine units. Only complaint fields and compact blank/churn projections survive consumption of the stream."""
     parser = argparse.ArgumentParser(description=(__doc__ or "").split(":")[0] + ".")
     parser.add_argument(

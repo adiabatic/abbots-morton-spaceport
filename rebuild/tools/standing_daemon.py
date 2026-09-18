@@ -1,4 +1,4 @@
-"""Hold the review surface in one process so the standing probe and the standing dry run stop reloading it: `serve` loads the surface's human index records once (`standing_probe._human` over `review_docket.load_human_units`, the same filter both tools apply), opens one `standing_verdicts.SlideContext` over the surface's font pair once, and then answers `probe` and `fill` requests over a Unix-domain socket by running the tools' own `main` — the same parser, the same functions, over those held objects, under the client's working directory, with stdout and stderr captured — and handing back the exit code and both streams, which the client (`rebuild/tools/standing_client.py`, the protocol's home) writes unchanged. Nothing is re-implemented, so a served run prints byte for byte what an in-process run prints; `rebuild/test_standing_daemon.py` holds that over the frozen mini bundle for the probe's unit, find, survey and coverage modes and both dry-run forms.
+"""Hold the review surface in one process so the standing probe and the standing dry run stop reloading it: `serve` loads the surface's human index records once (`standing_probe._human` over `unit_index.iter_human_units` projected onto `UNIT_FIELDS`, the same filter both tools apply), opens one `standing_verdicts.SlideContext` over the surface's font pair once, and then answers `probe` and `fill` requests over a Unix-domain socket by running the tools' own `main` — the same parser, the same functions, over those held objects, under the client's working directory, with stdout and stderr captured — and handing back the exit code and both streams, which the client (`rebuild/tools/standing_client.py`, the protocol's home) writes unchanged. Nothing is re-implemented, so a served run prints byte for byte what an in-process run prints; `rebuild/test_standing_daemon.py` holds that over the frozen mini bundle for the probe's unit, find, survey and coverage modes and both dry-run forms.
 
 It is one process by design: the surface objects are shared, a second holder would be a second copy of the surface, and `serve` refuses to start beside a daemon that already answers at its socket. It answers one request at a time — a single thread, the listen backlog queuing the rest — because the held objects are not safe to share across requests and the win is memory and fan-out width, not per-request latency. The `SlideContext` memos are emptied after every request, so a served run shapes exactly the windows a fresh process would and the daemon's footprint stays bounded. The rules file and the verdicts file are not held: each request's tool reads them as its argv names them, so neither can go stale in here and a scratch `--rules` is served as readily as the checked-in one.
 
@@ -26,16 +26,36 @@ ROOT = pathlib.Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
 
 from rebuild.pipeline import fingerprint  # noqa: E402
+from rebuild.review.unit_index import iter_human_units  # noqa: E402
 from rebuild.tools import memory_budget, peak_rss, standing_client  # noqa: E402
-from rebuild.tools.review_docket import SURFACE, load_human_units  # noqa: E402
+from rebuild.tools.review_docket import SURFACE  # noqa: E402
 
-# What this one process holds for as long as it runs, and so a co-resident term on the box that no cycle width subtracts. The resident set is the human index records — `load_human_units` parses those alone and keeps every other unit's id as a set, released once `_human` has taken its slice — beside the comparator over the font pair, with one request's evaluation on top. The seed is the `peak rss` line the daemon prints at exit — 2.48 GB on the 32 GiB box in doc/fleet.md after a probe and a targeted dry run over the live surface, beside 2.50 GB for the same probe and 2.51 GB for the same targeted run each loading in its own process — rounded up past all three. `serve` resolves it once as `describe_fit(…, cap=1)` and enforces the one by refusing to start beside a live daemon; nothing divides by it and nothing else subtracts it — `surface_job_budget` and `kernel_threads_budget` price a box with no daemon on it — which is why the daemon is stopped before a cycle pass and exits by itself once the surface it holds is rebuilt. It is a reading to re-seed as the surface grows, like SURFACE_PARENT_BYTES, and the surface-holding cap in the dont-bug-me-about-this-ever-again skill is priced off the same figure.
-STANDING_DAEMON_BYTES = 3_000_000_000
+# The peak budget for this one process, a co-resident term on the box that no cycle width subtracts. The held surface is compact human index records — `iter_human_units` streams them projected onto `UNIT_FIELDS`, sharing repeated values within the read and retaining no all-surface id set — beside the comparator over the font pair. The budget also covers transient loading allocations, allocator retention and one whole-domain request's evaluation; the process high-water is not its idle resident set. The seed is the `peak rss` line the daemon prints at exit: 1.52 GB on the 32 GiB box in doc/fleet.md after a probe and a whole-domain dry run with no memo and the cycle-derived refill width, rounded up with at least a quarter of headroom. That instrument measures the daemon process, not the refill workers, which STANDING_FILL_WORKER_BYTES prices separately. `serve` resolves it once as `describe_fit(…, cap=1)` and enforces the one by refusing to start beside a live daemon; nothing divides by it and nothing else subtracts it — `surface_job_budget` and `kernel_threads_budget` price a box with no daemon on it — which is why the daemon is stopped before a cycle pass and exits by itself once the surface it holds is rebuilt. It is a reading to re-seed as the surface grows, like SURFACE_PARENT_BYTES, and the surface-holding cap in the dont-bug-me-about-this-ever-again skill is priced off the same figure.
+STANDING_DAEMON_BYTES = 2_000_000_000
 IDLE_CHECK_SECONDS = 30
 REQUEST_READ_SECONDS = 30
 STOP_WAIT_SECONDS = 15
 EXCLUDED_TREES = (".venv", ".uv-cache")
 FONT_NAMES = ("before.otf", "after.otf")
+UNIT_FIELDS = frozenset(
+    {
+        "id",
+        "batch",
+        "class",
+        "echo",
+        "notation",
+        "codepoints",
+        "configs",
+        "ink_deltas",
+        "no_verdict",
+        "content_key",
+        "render_groups",
+        "pair",
+        "secondary_seams",
+        "before",
+        "after",
+    }
+)
 
 
 class Stamp(NamedTuple):
@@ -179,7 +199,7 @@ def serve(surface=SURFACE, socket_path=None) -> int:
         surface = pathlib.Path(surface).resolve()
         started = time.monotonic()
         manifest = json.loads((surface / "manifest.json").read_text())
-        units = standing_probe._human(load_human_units(surface)[0])
+        units = standing_probe._human(iter_human_units(surface, fields=UNIT_FIELDS))
         fonts = [surface / "fonts" / name for name in FONT_NAMES]
         context = standing_verdicts.SlideContext(*fonts) if all(font.is_file() for font in fonts) else None
         held = stamp_of(surface)
