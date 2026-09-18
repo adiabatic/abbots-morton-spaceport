@@ -59,9 +59,13 @@ def slim_fragment(fragment) -> bool:
     return machine_approved(fragment) or fragment.get("no_verdict") is True
 
 
+# A plain dict rather than a read-only proxy: a Unit is pickled to every surface worker, and a mappingproxy cannot be. The field's `Mapping` type is what refuses an in-place write.
+NO_DELTAS: Mapping[str, str] = {}
+
+
 @dataclass(slots=True)
 class Unit:
-    """One (codepoints, baseline, new) triple of the audit and everything the build derives per unit. `rows` is the triple's audit rows from load until `release_rows` drops them — the build's content key is the last reader of a row's fields, and what the manifest tallies afterward is `row_count`, which holds the count on its own so a released unit still answers it. The count defaults to the rows handed in, so a caller that never releases never has to state it. `input_key` is the unit cache's content key over the unit's inputs (`unit_cache.UnitKeyer.key`), the handle the build joins its per-unit state by until the unit is enriched; `unit_id` is the content id that enrichment stamps (`unit_cache.unit_id_for`), empty until then for a unit the cache does not serve. `order` and `batch` are the unit's place in the manifest's triage index — its position among the human units and the batch that position falls in — and null for a unit that takes no verdict; neither is written into the unit's fragment."""
+    """One (codepoints, baseline, new) triple of the audit and everything the build derives per unit. `rows` is the triple's audit rows from load until `release_rows` drops them — the build's content key is the last reader of a row's fields, and what the manifest tallies afterward is `row_count`, which holds the count on its own so a released unit still answers it. The count defaults to the rows handed in, so a caller that never releases never has to state it. `ordinal` is the unit's index in the workload as it stands at the plan boundary, the row its phase-1 state occupies in the build's unit store (`unit_store.UnitStore`); the build writes it once the unit universe is final and every reduce after joins by it, and it is -1 until then. `input_key` is the unit cache's content key over the unit's inputs (`unit_cache.UnitKeyer.key`), the handle the plan serves the unit by; the build clears it once the store holds the key. `unit_id` is the content id that enrichment stamps (`unit_cache.unit_id_for`), empty until then for a unit the cache does not serve. `ink_deltas` is the shared empty mapping `NO_DELTAS` on every unit the parent holds — the store carries the per-config deltas, and the drafting reads them as an argument — so nothing assigns or mutates it, and the field is typed as a read-only `Mapping` so that a write through it is a type error at the line that makes it rather than a corpus-wide value. `order` and `batch` are the unit's place in the manifest's triage index — its position among the human units and the batch that position falls in — and null for a unit that takes no verdict; neither is written into the unit's fragment."""
 
     codepoints: str
     baseline: tuple[str, ...]
@@ -75,13 +79,14 @@ class Unit:
     exemplar: bool = False
     unit_id: str = ""
     input_key: str = ""
+    ordinal: int = -1
     order: int | None = None
     batch: int | None = None
     render_groups: tuple[tuple[str, ...], ...] = ()
     ink_identical: bool = False
     picture_identical: bool = False
     junior_equivalent: bool = False
-    ink_deltas: dict[str, str] = field(default_factory=dict)
+    ink_deltas: Mapping[str, str] = field(default_factory=lambda: NO_DELTAS)
     no_verdict: bool = False
     config_classes: dict[str, str] = field(default_factory=dict)
     family_id: str = ""

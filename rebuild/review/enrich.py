@@ -2,11 +2,11 @@
 
 from __future__ import annotations
 
-from collections.abc import Iterator, Sequence
+from collections.abc import Iterable, Iterator, Sequence
 from dataclasses import dataclass, field
 from itertools import batched
 from pathlib import Path
-from typing import Callable
+from typing import Callable, Protocol
 
 from rebuild.pipeline import kernel_exec, spec_load
 from rebuild.pipeline.explain import ExplainReport, explain_many
@@ -705,6 +705,68 @@ def seam_home_projection(enriched: EnrichedUnit) -> SeamHomeUnit:
     )
 
 
+class SeamHomeSource(Protocol):
+    """The whole corpus as the secondary-home reduce reads it: random access by ordinal, and nothing else. The reduce touches nine units in ten only to learn that they carry no seam and to index their window, so a source that holds its units as columns and builds a `SeamHomeUnit` on demand costs the parent a handful of tuples per lookup instead of a live object per unit — which is why the reduce asks for this protocol rather than for a list. A list of projections is one such source through `_ListSource`; the packed unit store is the other, and the protocol is declared here rather than beside the store so that `unit_store` imports `enrich` and never the reverse.
+
+    Every method is keyed by the unit's ordinal, the source's own dense index over `0 … len(source)`, and every parameter is positional so an implementation names them as it likes. `id_word` answers the total order the reduce breaks ties on: it must rank units exactly as their `unit_id` strings do, which for a corpus id is the integer the base58 spelling encodes (`unit_cache.base58_64` is fixed width over an ASCII-ordered alphabet, so the two orders are one order). `invisible` is the home-side reading of `ink_identical or picture_identical`, asked only of a resolved home. `set_homes` receives home *ordinals*, not ids, so the reduce never materializes a name the caller may not want. The reduce reads no `unit_id` off a `projection` — the ordinal and `id_word` carry identity — so a source may leave that field empty rather than spell an id for every candidate.
+    """
+
+    def __len__(self) -> int: ...
+
+    def windows(self) -> Iterable[tuple[int, tuple[int, ...]]]: ...
+
+    def seam_count(self, ordinal: int, /) -> int: ...
+
+    def projection(self, ordinal: int, /) -> SeamHomeUnit: ...
+
+    def id_word(self, ordinal: int, /) -> int: ...
+
+    def invisible(self, ordinal: int, /) -> bool: ...
+
+    def set_homes(self, ordinal: int, seam_assign: Sequence[tuple[int | None, bool]], /) -> None: ...
+
+
+class _ListSource:
+    """A list of projections as a `SeamHomeSource`, for the callers that hold the objects already: `resolve_secondary_homes`, which has one projection per enriched unit in hand, and the tests, which build their corpora by hand. The ordinal is the list index, the id word is the id string read as a big-endian integer — exact for ids of one width, which every `unit_cache.unit_id_for` id is — and `set_homes` translates the reduce's home ordinals back into the ids the `assignments` dict is keyed and valued by, so this path hands back what `apply_home_assignments` and the surface's fragment writers read.
+
+    A seam-free unit gets no entry: nine units in ten carry no secondary seam, and every reader of an absent entry does with `()` what it would have done with an empty list (issue #278).
+    """
+
+    __slots__ = ("projections", "assignments")
+
+    def __init__(self, projections: list[SeamHomeUnit]) -> None:
+        self.projections = projections
+        self.assignments: dict[str, list[tuple[str | None, bool]]] = {}
+
+    def __len__(self) -> int:
+        return len(self.projections)
+
+    def windows(self) -> Iterator[tuple[int, tuple[int, ...]]]:
+        for ordinal, item in enumerate(self.projections):
+            yield ordinal, item.codepoint_values
+
+    def seam_count(self, ordinal: int, /) -> int:
+        return len(self.projections[ordinal].seam_pairs)
+
+    def projection(self, ordinal: int, /) -> SeamHomeUnit:
+        return self.projections[ordinal]
+
+    def id_word(self, ordinal: int, /) -> int:
+        return int.from_bytes(self.projections[ordinal].unit_id.encode(), "big")
+
+    def invisible(self, ordinal: int, /) -> bool:
+        item = self.projections[ordinal]
+        return item.ink_identical or item.picture_identical
+
+    def set_homes(self, ordinal: int, seam_assign: Sequence[tuple[int | None, bool]], /) -> None:
+        if not seam_assign:
+            return
+        self.assignments[self.projections[ordinal].unit_id] = [
+            (None if home is None else self.projections[home].unit_id, suppressed)
+            for home, suppressed in seam_assign
+        ]
+
+
 def _seam_outcomes_match(
     item: SeamHomeUnit, left: int, right: int, candidate: SeamHomeUnit, offset: int
 ) -> bool:
@@ -746,71 +808,89 @@ def _seam_outcomes_match(
 
 def _find_home(
     item: SeamHomeUnit,
+    ordinal: int,
     pair: tuple[int, int],
-    by_codepoints: dict[tuple[int, ...], list[SeamHomeUnit]],
-) -> SeamHomeUnit | None:
-    """The seam's home: the shortest unit in the universe whose codepoint string is a substring of `item`'s containing the seam's two cells, with matching before/after outcomes at the seam and that seam as its primary pair. Shortest substring length wins; ties break to the lowest unit id. None when no unit qualifies."""
+    by_codepoints: dict[tuple[int, ...], list[int]],
+    source: SeamHomeSource,
+    held: dict[int, SeamHomeUnit],
+) -> int | None:
+    """The seam's home, as the home's ordinal: the shortest unit in the universe whose codepoint string is a substring of `item`'s containing the seam's two cells, with matching before/after outcomes at the seam and that seam as its primary pair. Shortest substring length wins; ties break to the lowest unit id, which `source.id_word` ranks as an integer. None when no unit qualifies. The self-skip compares ordinals rather than ids because the ordinal is the unit's identity here — a corpus carries one unit per id, which the store's index enforces when it builds. `held` is the item's memo of candidates already materialized: one candidate answers several probes (every length and offset that reaches its window, and every seam of the item), so a source that builds its projection from columns is asked once per candidate per item, and the caller drops the memo with the item so it never grows past one item's candidates."""
     values = item.codepoint_values
     left, right = pair
     minimum = item.after_spans[right][1] - item.after_spans[left][0]
     for length in range(minimum, len(values) + 1):
-        matches: list[SeamHomeUnit] = []
+        matches: list[int] = []
         first_offset = max(0, item.after_spans[right][1] - length)
         last_offset = min(item.after_spans[left][0], len(values) - length)
         for offset in range(first_offset, last_offset + 1):
             window = values[offset : offset + length]
             for candidate in by_codepoints.get(window, ()):
-                if candidate.unit_id == item.unit_id:
+                if candidate == ordinal:
                     continue
-                if _seam_outcomes_match(item, left, right, candidate, offset):
+                projection = held.get(candidate)
+                if projection is None:
+                    projection = held[candidate] = source.projection(candidate)
+                if _seam_outcomes_match(item, left, right, projection, offset):
                     matches.append(candidate)
         if matches:
-            return min(matches, key=lambda match: match.unit_id)
+            return min(matches, key=source.id_word)
     return None
 
 
 def resolve_home_assignments(
-    projections: list[SeamHomeUnit],
+    source: SeamHomeSource | list[SeamHomeUnit],
 ) -> tuple[dict[str, list[tuple[str | None, bool]]], dict[str, int]]:
-    """The global secondary-home reduce over slim projections: for every unit, resolve each secondary seam to (home unit id or None, suppressed) in the seam's order, and tally the census. A seam whose home is ink- or picture-identical is suppressed (an invisible name-grain rename, no marker); a seam with no home keeps home None and stays visible so it is never silently unmarked. Pure over the projections — no EnrichedUnit is touched — so it runs in the parent from what the workers returned."""
-    by_codepoints: dict[tuple[int, ...], list[SeamHomeUnit]] = {}
-    for item in projections:
-        by_codepoints.setdefault(item.codepoint_values, []).append(item)
+    """The global secondary-home reduce over the whole corpus: for every unit that carries a secondary seam, resolve each seam to (home or None, suppressed) in the seam's order, write the row back through the source, and tally the census. A seam whose home is ink- or picture-identical is suppressed (an invisible name-grain rename, no marker); a seam with no home keeps home None and stays visible so it is never silently unmarked.
+
+    The reduce reads the corpus through `SeamHomeSource`, so the window index it builds holds ordinals rather than objects and a unit is materialized only when it bears a seam or answers a lookup — nine units in ten are read for their window and their seam count alone. A list of projections is accepted directly and wrapped, which is what makes the returned dict: the list path collects the assignments keyed by unit id for `apply_home_assignments` and the fragment writers, while a source that keeps its own homes (the unit store's side column) leaves that dict empty and takes the rows through `set_homes`. Either way the census is the same four counts.
+    """
+    if isinstance(source, list):
+        adapter = _ListSource(source)
+        reduced: SeamHomeSource = adapter
+    else:
+        adapter = None
+        reduced = source
+    by_codepoints: dict[tuple[int, ...], list[int]] = {}
+    for ordinal, window in reduced.windows():
+        by_codepoints.setdefault(window, []).append(ordinal)
     census = {
         "units_with_markers": 0,
         "seams_homed": 0,
         "seams_homeless": 0,
         "seams_suppressed_invisible": 0,
     }
-    assignments: dict[str, list[tuple[str | None, bool]]] = {}
-    for item in projections:
+    for ordinal in range(len(reduced)):
+        if not reduced.seam_count(ordinal):
+            continue
+        item = reduced.projection(ordinal)
+        held: dict[int, SeamHomeUnit] = {}
         visible = 0
-        seam_assign: list[tuple[str | None, bool]] = []
+        seam_assign: list[tuple[int | None, bool]] = []
         for pair in item.seam_pairs:
-            home = _find_home(item, pair, by_codepoints)
+            home = _find_home(item, ordinal, pair, by_codepoints, reduced, held)
             if home is None:
                 census["seams_homeless"] += 1
                 visible += 1
                 seam_assign.append((None, False))
-            elif home.ink_identical or home.picture_identical:
+            elif reduced.invisible(home):
                 census["seams_suppressed_invisible"] += 1
                 seam_assign.append((None, True))
             else:
                 census["seams_homed"] += 1
                 visible += 1
-                seam_assign.append((home.unit_id, False))
-        assignments[item.unit_id] = seam_assign
+                seam_assign.append((home, False))
+        reduced.set_homes(ordinal, seam_assign)
         if visible:
             census["units_with_markers"] += 1
-    return assignments, census
+    return (adapter.assignments if adapter is not None else {}), census
 
 
 def apply_home_assignments(
     enriched_units: list[EnrichedUnit], assignments: dict[str, list[tuple[str | None, bool]]]
 ) -> None:
-    """Write a `resolve_home_assignments` result back onto each unit's secondary seams in place."""
+    """Write a `resolve_home_assignments` result back onto each unit's secondary seams in place. A unit with no secondary seam has no entry at all, and `zip` against the empty default writes nothing, which is the same nothing an empty row would have written."""
     for item in enriched_units:
-        for seam, (home, suppressed) in zip(item.secondary_seams, assignments[item.unit.unit_id]):
+        for seam, (home, suppressed) in zip(item.secondary_seams, assignments.get(item.unit.unit_id, ())):
             seam.home = home
             seam.suppressed = suppressed
 

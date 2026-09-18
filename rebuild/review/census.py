@@ -480,8 +480,8 @@ def families_group_from(assignments: list[str]) -> dict:
     return {"census": census, "total": sum(census.values())}
 
 
-def built_group_from_memory(units: Sequence[Unit], config_notes: Mapping[str, str | None]) -> dict:
-    """`built_group` over the build's own in-memory state rather than the shards it wrote — the same three facts by the same rules, the None-when-absent worked-example contract included, so the surface build can report them without re-parsing hundreds of megabytes it just serialized. `config_notes` is each unit's `config_note` by id, the one fragment field this group reads, kept by the build as the fragments went by rather than the fragments themselves."""
+def built_group_from_memory(units: Sequence[Unit], config_notes: Mapping[int, str | None]) -> dict:
+    """`built_group` over the build's own in-memory state rather than the shards it wrote — the same three facts by the same rules, the None-when-absent worked-example contract included, so the surface build can report them without re-parsing hundreds of megabytes it just serialized. `config_notes` is each unit's `config_note` by ordinal (`Unit.ordinal`, the unit's row in the build's unit store), the one fragment field this group reads, kept by the build as the fragments went by rather than the fragments themselves."""
     human_units = 0
     distribution: dict[str | None, int] = {}
     example_echo: str | None = None
@@ -493,7 +493,7 @@ def built_group_from_memory(units: Sequence[Unit], config_notes: Mapping[str, st
             codepoints_by_echo.setdefault(unit.echo, set()).add(unit.codepoints)
             if unit.codepoints == WORKED_EXAMPLE_CODEPOINTS:
                 example_echo = unit.echo
-        note = config_notes[unit.unit_id]
+        note = config_notes[unit.ordinal]
         distribution[note] = distribution.get(note, 0) + 1
     return {
         "human_units": human_units,
@@ -507,7 +507,7 @@ def built_group_from_memory(units: Sequence[Unit], config_notes: Mapping[str, st
 def build_facts(
     manifest: dict,
     units: Sequence[Unit],
-    config_notes: Mapping[str, str | None],
+    config_notes: Mapping[int, str | None],
     capture: list[PremergeUnit],
     premerge: PremergeFacts,
     row_count: int,
