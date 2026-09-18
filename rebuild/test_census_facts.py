@@ -209,6 +209,7 @@ def test_workload_digest_tracks_order_and_configs():
 def _stub_unit(unit_id: str, codepoints: str, batch: int | None, echo: str | None) -> Unit:
     unit = Unit(codepoints=codepoints, baseline=(), new=(), class_id="boundary-echo", rows=())
     unit.unit_id = unit_id
+    unit.ordinal = int(unit_id.removeprefix("u-"))
     unit.batch = batch
     unit.echo = echo
     return unit
@@ -250,7 +251,7 @@ def _example_records():
         _stub_unit("u-0003", "E650:E651", None, None),
     ]
     notes = [None, None, "only under ss10", "only when ss03 is on"]
-    config_notes = {unit.unit_id: note for unit, note in zip(units, notes, strict=True)}
+    config_notes = {unit.ordinal: note for unit, note in zip(units, notes, strict=True)}
     records = [
         {
             "ink_identical": unit.batch is None,
@@ -259,7 +260,7 @@ def _example_records():
             "no_verdict": False,
             "echo": unit.echo,
             "codepoints": unit.codepoints,
-            "config_note": config_notes[unit.unit_id],
+            "config_note": config_notes[unit.ordinal],
         }
         for unit in units
     ]

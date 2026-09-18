@@ -12,7 +12,6 @@ import sys
 import threading
 from dataclasses import replace
 from pathlib import Path
-from types import SimpleNamespace
 
 import pytest
 import yaml
@@ -27,11 +26,10 @@ from rebuild.review.build import (
     SITE_JUNIOR_FONT,
     _cluster_id,
     _cluster_id_from_repr,
-    _seam_home_record,
-    _served_seam_home,
     _write_shard,
     build_m1,
 )
+from rebuild.review.unit_store import UnitStore
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 MINI = REPO_ROOT / "rebuild" / "review" / "fixtures" / "mini"
@@ -1055,11 +1053,11 @@ def test_a_serial_build_writes_its_signature_store_inline_before_the_units_phase
     phase1 = review_build._FreshRunner.phase1
     stored_at_drafting: list[bool] = []
 
-    def drafting(self):
+    def drafting(self, *args):
         stored_at_drafting.append(
             len(calls) == 1 and unit_cache.load_signature_store(surface, calls[0][1]) is not None
         )
-        return phase1(self)
+        return phase1(self, *args)
 
     monkeypatch.setattr(review_build._FreshRunner, "phase1", drafting)
     _build(surface, mini_bundle, jobs=1)
@@ -1227,20 +1225,24 @@ def test_a_line_whose_key_cannot_be_sliced_reads_as_absent(tmp_path):
 
 
 def test_the_store_parse_reproduces_the_projection_it_was_written_from(tmp_path):
-    """The projection a served unit hands the secondary-home reduce, re-serialized the way the store writer serializes a fresh unit's, is the record's `proj` exactly — the identity a re-addressed served record's bytes rest on — and the pooled tuples it is assembled from are the fresh path's shapes: two-tuples of ints for the spans and the seam pairs, the unit's own id and codepoint values beside them."""
+    """The projection a served unit hands the secondary-home reduce, folded into the unit store and re-serialized the way the store writer serializes a fresh unit's, is the record's `proj` exactly — the identity a re-addressed served record's bytes rest on — and the tuples the store answers are the fresh path's shapes: two-tuples of ints for the spans and the seam pairs, the unit's own id and codepoint values beside them."""
     (tmp_path / "manifest.json").write_text("{}", encoding="utf-8")
-    written = _round_trip_unit()
+    prior_id = unit_cache.unit_id_for("f" * 64)
+    written = replace(_round_trip_unit(), key="ab" * 32, prior_id=prior_id)
     unit_cache.write_store(tmp_path, "env-a", [written])
-    pool: dict = {}
-    loaded = unit_cache.load_store(tmp_path, "env-a", pool=pool)
+    loaded = unit_cache.load_store(tmp_path, "env-a")
     assert loaded is not None
-    unit = SimpleNamespace(unit_id="u-0001", codepoint_values=(1, 2))
-    home = _served_seam_home(unit, loaded["k1"], pool)  # pyright: ignore[reportArgumentType]
-    assert _seam_home_record(home) == written.proj
-    assert json.dumps(_seam_home_record(home)) == json.dumps(written.proj)
-    assert (home.unit_id, home.codepoint_values) == ("u-0001", (1, 2))
-    assert home.seam_pairs == ((1, 2),) and home.seam_pairs[0] is pool[(1, 2)]
-    assert home.codepoint_values[0] is pool[1]
+    unit = Unit(codepoints="0001:0002", baseline=(), new=(), class_id="boundary-echo", rows=())
+    walked = unit_cache.PriorFragment("units/boundary-echo.json", 1, 5, prior_id, written.content_key)
+    store = UnitStore(1)
+    store.fold_served(0, loaded[written.key], unit, found=walked)
+    home = store.seam_home(0)
+    assert store.seam_home_record(0) == written.proj
+    assert json.dumps(store.seam_home_record(0)) == json.dumps(written.proj)
+    assert (
+        (home.unit_id, home.codepoint_values) == (prior_id, (1, 2)) == (unit.unit_id, unit.codepoint_values)
+    )
+    assert home.seam_pairs == ((1, 2),)
     assert (home.ink_identical, home.picture_identical) == (False, False)
 
 

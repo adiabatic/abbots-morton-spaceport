@@ -4,6 +4,7 @@ Every unit these tests reach for is one whose codepoints they name, and they tak
 """
 
 import dataclasses
+import random
 import re
 import warnings
 from pathlib import Path
@@ -15,16 +16,20 @@ from rebuild.review.enrich import (
     LETTERS,
     EnrichedUnit,
     Enricher,
+    SeamHomeUnit,
     SecondarySeam,
     letter_display,
     load_spec,
     notation,
     notation_tokens,
     parse_entry_extension,
+    resolve_home_assignments,
     resolve_secondary_homes,
     rune_display,
+    seam_home_projection,
     text_entities,
 )
+from rebuild.review.unit_cache import unit_id_for
 from rebuild.review.ink import kern_neutral, translate_outline
 from rebuild.validation.rowmodel import iter_rows
 
@@ -475,6 +480,161 @@ def test_secondary_seam_without_any_home_is_emitted_with_home_none():
         "seams_homeless": 1,
         "seams_suppressed_invisible": 0,
     }
+
+
+class _ColumnarSeamHomes:
+    """The packed unit store's side of `SeamHomeSource`, standing in for it here: the projections held as parallel column lists, a `SeamHomeUnit` rebuilt on every lookup, ids ranked as integers, and homes written back as ordinals into a side map. It shares no line with `_ListSource`, so the two answering alike is evidence that the reduce reads nothing but the protocol — and it is the only way to witness the columnar path from this file, which must not import `unit_store`."""
+
+    def __init__(self, projections):
+        self.ids = [item.unit_id for item in projections]
+        self.codepoints = [item.codepoint_values for item in projections]
+        self.seams = [item.seam_pairs for item in projections]
+        self.flags = [(item.ink_identical, item.picture_identical) for item in projections]
+        self.outcomes = [
+            (
+                item.pair,
+                item.after_spans,
+                item.after_cells,
+                item.after_seams,
+                item.before_spans,
+                item.before_glyphs,
+                item.before_seams,
+            )
+            for item in projections
+        ]
+        self.homes: dict[int, list[tuple[int | None, bool]]] = {}
+
+    def __len__(self):
+        return len(self.ids)
+
+    def windows(self):
+        return enumerate(self.codepoints)
+
+    def seam_count(self, ordinal):
+        return len(self.seams[ordinal])
+
+    def projection(self, ordinal):
+        pair, after_spans, after_cells, after_seams, before_spans, before_glyphs, before_seams = (
+            self.outcomes[ordinal]
+        )
+        ink_identical, picture_identical = self.flags[ordinal]
+        return SeamHomeUnit(
+            unit_id=self.ids[ordinal],
+            codepoint_values=self.codepoints[ordinal],
+            ink_identical=ink_identical,
+            picture_identical=picture_identical,
+            pair=pair,
+            after_spans=after_spans,
+            after_cells=after_cells,
+            after_seams=after_seams,
+            before_spans=before_spans,
+            before_glyphs=before_glyphs,
+            before_seams=before_seams,
+            seam_pairs=self.seams[ordinal],
+        )
+
+    def id_word(self, ordinal):
+        return int.from_bytes(self.ids[ordinal].encode(), "big")
+
+    def invisible(self, ordinal):
+        ink_identical, picture_identical = self.flags[ordinal]
+        return ink_identical or picture_identical
+
+    def set_homes(self, ordinal, seam_assign):
+        if seam_assign:
+            self.homes[ordinal] = list(seam_assign)
+
+    def named_homes(self):
+        """The ordinal-keyed side map spelled the way the list path spells it, so one equality covers both."""
+        return {
+            self.ids[ordinal]: [
+                (None if home is None else self.ids[home], suppressed) for home, suppressed in entries
+            ]
+            for ordinal, entries in self.homes.items()
+        }
+
+
+def _home_fixtures():
+    """The corpora of the resolver tests above as the reduce's own input, one per outcome the census distinguishes — a shortest-substring home, a rejected outcome, a candidate that judges the seam as secondary itself, an invisible home, no home at all — plus a corpus whose every unit is seamless."""
+    item = _stub_enriched(
+        "u-0001",
+        (0xE650, 0xE665, 0xE652, 0xE670),
+        ("A", "B", "C", "D"),
+        ("y0", "y5", "break"),
+        pair=(0, 1),
+        seam_pairs=((1, 2),),
+    )
+    short = _stub_enriched("u-0002", (0xE665, 0xE652), ("B", "C"), ("y5",), pair=(0, 1))
+    longer = _stub_enriched("u-0003", (0xE665, 0xE652, 0xE670), ("B", "C", "D"), ("y5", "break"), pair=(0, 1))
+    wrong_cell = _stub_enriched("u-0004", (0xE665, 0xE652), ("B", "C-other"), ("y5",), pair=(0, 1))
+    secondary_there_too = _stub_enriched(
+        "u-0005", (0xE665, 0xE652, 0xE670), ("B", "C", "D"), ("y5", "break"), pair=(1, 2)
+    )
+    ink_identical = _stub_enriched(
+        "u-0006", (0xE665, 0xE652), ("B", "C"), ("y5",), pair=(0, 1), ink_identical=True
+    )
+    picture_identical = _stub_enriched(
+        "u-0007", (0xE665, 0xE652), ("B", "C"), ("y5",), pair=(0, 1), picture_identical=True
+    )
+    corpora = {
+        "shortest_substring_wins": [item, short, longer],
+        "differing_outcome_rejected": [item, wrong_cell, longer],
+        "seam_must_be_the_candidates_primary": [item, secondary_there_too],
+        "ink_identical_home_suppresses": [item, ink_identical],
+        "picture_identical_home_suppresses": [item, picture_identical],
+        "no_home_at_all": [item],
+        "every_unit_seamless": [short, longer, wrong_cell],
+    }
+    return {
+        name: [seam_home_projection(enriched) for enriched in enriched_units]
+        for name, enriched_units in corpora.items()
+    }
+
+
+@pytest.mark.parametrize("name", sorted(_home_fixtures()))
+def test_a_columnar_source_and_the_list_adapter_resolve_the_same_homes(name):
+    """The reduce's answer is a property of the corpus, not of how the corpus is held: a source that rebuilds each projection from columns and one that hands back the objects it already has must agree on every assignment and on all four census counts, or the packed store would ship different homes from the list the tests above pin."""
+    projections = _home_fixtures()[name]
+    expected, expected_census = resolve_home_assignments(projections)
+    columnar = _ColumnarSeamHomes(projections)
+    assignments, census = resolve_home_assignments(columnar)
+    assert columnar.named_homes() == expected
+    assert census == expected_census
+    assert assignments == {}, "a source that keeps its own homes is not handed a second copy of them"
+
+
+def test_the_list_adapter_hands_back_the_assignment_dict_its_readers_index():
+    """`apply_home_assignments` and the surface's fragment writers index the list path's result by unit id and read (home id, suppressed) pairs out of it, so the adapter owes them ids rather than the ordinals the reduce resolves."""
+    assignments, _ = resolve_home_assignments(_home_fixtures()["shortest_substring_wins"])
+    assert assignments == {"u-0001": [("u-0002", False)]}
+
+
+def test_a_seamless_projection_gets_no_assignment_entry():
+    """Nine units in ten carry no secondary seam, and an empty row is the same nothing to every reader as an absent one, so the reduce writes neither the row nor the key (issue #278) — and `apply_home_assignments` must survive the absence, since it is the only reader that indexed the dict unconditionally."""
+    projections = _home_fixtures()["every_unit_seamless"]
+    assignments, census = resolve_home_assignments(projections)
+    assert assignments == {}
+    assert census == {
+        "units_with_markers": 0,
+        "seams_homed": 0,
+        "seams_homeless": 0,
+        "seams_suppressed_invisible": 0,
+    }
+    seamless = _stub_enriched("u-0002", (0xE665, 0xE652), ("B", "C"), ("y5",), pair=(0, 1))
+    assert resolve_secondary_homes([seamless])["units_with_markers"] == 0
+    assert seamless.secondary_seams == ()
+
+
+def test_a_unit_ids_string_order_is_the_integer_order_of_the_word_it_encodes():
+    """The reduce breaks a home tie on `id_word`, and that integer order must be the `unit_id` strings' own order or a tie would resolve to a different home. `unit_cache.base58_64` spells a fixed eleven symbols over an alphabet that ascends in ASCII, so the base58 spelling of a 64-bit word sorts as the word does; the id's constant `u-` prefix and that fixed width also make the whole id string sort as its own bytes read big-endian, which is the word `_ListSource` answers with."""
+    draws = random.Random(299)
+    words = sorted({0, 1, 2**63, 2**64 - 1} | {draws.getrandbits(64) for _ in range(200)})
+    ids = [unit_id_for(f"{word:016x}") for word in words]
+    assert ids == sorted(ids)
+    assert len(set(len(unit_id) for unit_id in ids)) == 1
+    assert [int.from_bytes(unit_id.encode(), "big") for unit_id in ids] == sorted(
+        int.from_bytes(unit_id.encode(), "big") for unit_id in ids
+    )
 
 
 def test_enrich_emits_secondary_seams_with_primary_style_rects(enricher, units_by_key):
