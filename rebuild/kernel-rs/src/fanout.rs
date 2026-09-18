@@ -347,7 +347,7 @@ pub struct TableAnswer {
 
 /// Every configuration's two tables, its window enumeration and its digest, written under `outdir` at most `workers` at a time, each configuration reading what the seeding lets it read and leaving the memo file it says to leave.
 ///
-/// Under the configuration seed, the no-feature configuration enumerates first and alone, keeping its memo and writing its memo file inside that enumeration, ahead of the wave; its fold then runs at one of the given width's seats while the rest run at the others, each reading that memo behind an exclusion naming its own unlocking runes, so the wall is one full enumeration and its memo write plus one wave, the memo is held once, shared, and the rows the writer holds over the largest memo are never resident beside a delta at its high-water. Each delta writes its own file at its own release point, so a delta carries no memo through its drain, its sort or its fold. A previous build's memo, where the seeding names one, is read behind the edited runes: `default` reads its own previous file whole, and a delta configuration reads `default`'s previous file behind the edited runes and its own unlocking runes together, and its own previous file only for the windows naming one of its unlocking runes, which is the one part of it the in-process memo cannot answer. A set without the no-feature configuration, or one configuration alone, has no in-process memo to seed from and every configuration reads its own previous file whole. The wave claims the deltas heaviest-first by unlocking-rune count with the named seat as tie-break ([`delta_worklist`]), and the seat travels with the configuration, so the answers, their digests and their `[t]` lines come back in the order the configurations were named whatever order they ran in.
+/// Under the configuration seed, the no-feature configuration enumerates first and alone, keeping its memo and writing its memo file inside that enumeration, ahead of the wave; its fold then runs at one of the given width's seats while the rest run at the others, each reading that memo behind an exclusion naming its own unlocking runes, so the wall is one full enumeration and its memo write plus one wave, the memo is held once, shared, and the rows the writer holds over the largest memo are never resident beside a delta at its high-water. Each delta writes its own file at its own release point, so a delta carries no memo through its drain, its sort or its fold. Every previous build's memo omits keys naming edited runes while loading: those entries cannot answer a lookup or contribute to the written union. Exclusions still check surviving entries' reads for edited runes and moved classes. A delta configuration reads `default`'s previous file behind its own unlocking runes as well, and its own previous file only for the windows naming one of its unlocking runes, which is the one part of it the in-process memo cannot answer. A set without the no-feature configuration, or one configuration alone, has no in-process memo to seed from and every configuration reads its own previous file with the same edited-key filter. The previous default remains shared through the wave because its unaffected entries answer delta windows without retracing. The wave claims the deltas heaviest-first by unlocking-rune count with the named seat as tie-break ([`delta_worklist`]), and the seat travels with the configuration, so the answers, their digests and their `[t]` lines come back in the order the configurations were named whatever order they ran in.
 ///
 /// Nothing is swept first, unlike the stream fan-out: `run_m1.build_tables` writes into the build's own artifact directory beside a dozen other families, and a run that deleted the tables of a configuration set the build no longer names would be answering a question nobody asked it.
 #[allow(clippy::too_many_arguments)]
@@ -372,7 +372,9 @@ pub fn run_configs_tables(
         .filter(|_| configs.len() > 1);
     let Some(default_seat) = default_seat else {
         return claim_all(configs, workers, |config| {
-            let previous = load_seed(index, &seeding, config.token, &world, |_| true)?;
+            let previous = load_seed(index, &seeding, config.token, &world, |key| {
+                !edited.names(key)
+            })?;
             let seed = Seed {
                 bases: base_over(previous.as_ref(), edited.clone())
                     .into_iter()
@@ -388,8 +390,10 @@ pub fn run_configs_tables(
         });
     };
     let default = &configs[default_seat];
-    let previous_default = load_seed(index, &seeding, default.token, &world, |_| true)
-        .map_err(|complaint| format!("{}: {complaint}", default.token))?;
+    let previous_default = load_seed(index, &seeding, default.token, &world, |key| {
+        !edited.names(key)
+    })
+    .map_err(|complaint| format!("{}: {complaint}", default.token))?;
     let pending = enumerate_config_tables(
         index,
         default,
@@ -429,7 +433,7 @@ pub fn run_configs_tables(
             let unlocking = &work.unlocking;
             let behind_unlocking = Exclusion::of(index, unlocking.iter().copied());
             let previous_own = load_seed(index, &seeding, config.token, &world, |key| {
-                behind_unlocking.names(key)
+                behind_unlocking.names(key) && !edited.names(key)
             })?;
             let mut bases = vec![MemoBase {
                 memo: Arc::clone(&memo),

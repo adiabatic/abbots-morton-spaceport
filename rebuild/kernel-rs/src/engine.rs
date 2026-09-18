@@ -728,8 +728,8 @@ pub struct Engine<'i> {
     bases: Vec<MemoBase>,
     /// Per base, which of its delta seats this engine has replayed into its fired set, so a base delta hit for the second time costs the set nothing.
     base_fired: Vec<Vec<bool>>,
-    /// How many windows the bases answered, for the cache census.
-    base_hits: u64,
+    /// How many windows each base seat answered, for the cache census.
+    base_hits: Vec<u64>,
 }
 
 impl<'i> Engine<'i> {
@@ -766,7 +766,7 @@ impl<'i> Engine<'i> {
             trace_cache: modes.trace_memo.then(TraceMemo::default),
             bases: Vec::new(),
             base_fired: Vec::new(),
-            base_hits: 0,
+            base_hits: Vec::new(),
         }
     }
 
@@ -780,12 +780,18 @@ impl<'i> Engine<'i> {
             .iter()
             .map(|base| vec![false; base.memo.deltas.len()])
             .collect();
+        self.base_hits = vec![0; bases.len()];
         self.bases = bases;
     }
 
     /// How many windows the bases answered so far.
     pub fn base_hits(&self) -> u64 {
-        self.base_hits
+        self.base_hits.iter().sum()
+    }
+
+    /// How many windows each base answered, in lookup order, since the bases were seeded.
+    pub fn base_hits_by_seat(&self) -> &[u64] {
+        &self.base_hits
     }
 
     /// This engine's trace memo, detached: the entries and the tables their seats index, together with every fired delta the engine seated. Every other memo is released at the same time, as [`Engine::release_memos`] releases it, because the candidate, closure and prospect memos seat their deltas in the table that leaves with the snapshot. `None` for an engine without a trace memo. The bases are not folded in: a snapshot is what this engine settled itself, and a caller that wants the union reads the bases beside it.
@@ -2734,7 +2740,7 @@ impl<'i> Engine<'i> {
                 base.memo.delta(entry),
             );
             crate::index::journal_extend(base.memo.reads(entry));
-            self.base_hits += 1;
+            self.base_hits[seat] += 1;
             return Ok(trace);
         }
         self.begin_capture();
@@ -2821,7 +2827,7 @@ impl<'i> Engine<'i> {
             base.memo.delta(entry),
         );
         crate::index::journal_extend(base.memo.reads(entry));
-        self.base_hits += 1;
+        self.base_hits[seat] += 1;
         Some(answer)
     }
 
@@ -5041,6 +5047,74 @@ mod tests {
             .expect("the fixture settles");
         let replayed = engine.end_capture().reads;
         assert_eq!(&*replayed, reads.as_slice());
+    }
+
+    #[test]
+    fn base_hit_census_tracks_trace_and_settled_reads_by_seat() {
+        let index = firing_spec();
+        let modes = EngineModes {
+            trace_memo: true,
+            ..EngineModes::default()
+        };
+        let ss03 = fixtures::sym(&index, "ss03");
+        let left = settled_left(&index, "qsTea", "plain", Some("baseline"));
+        let token = letter_token(&index, "qsPea");
+        let windows = [
+            Slots::pair(letter_token(&index, "qsTea"), EDGE),
+            Slots::pair(letter_token(&index, "qsTea"), UNKNOWN),
+        ];
+        let bases: Vec<_> = windows
+            .iter()
+            .map(|&slots| {
+                let mut source = Engine::with_modes(&index, [ss03], modes);
+                source
+                    .transition_trace(&left, token, slots)
+                    .expect("the source window settles");
+                let key = Engine::trace_key(&left, token.letter_ordinal(), slots);
+                let mut memo = source.take_memo().expect("the source journals");
+                memo.entries.retain(|candidate, _| *candidate == key);
+                assert_eq!(memo.len(), 1);
+                MemoBase {
+                    memo: std::sync::Arc::new(memo),
+                    excluded: crate::memo::Exclusion::none(),
+                }
+            })
+            .collect();
+        let mut engine = Engine::with_modes(&index, [ss03], modes);
+        engine.seed_bases(bases.clone());
+        assert_eq!(engine.base_hits_by_seat(), &[0, 0]);
+        for slots in windows {
+            engine
+                .transition_trace(&left, token, slots)
+                .expect("the base answers the trace");
+        }
+        assert_eq!(engine.base_hits_by_seat(), &[1, 1]);
+        for slots in windows {
+            assert!(
+                engine
+                    .settled_from_memo(&left, token, slots, |_| ())
+                    .is_some()
+            );
+        }
+        assert_eq!(engine.base_hits_by_seat(), &[2, 2]);
+        assert_eq!(engine.base_hits(), 4);
+        assert_eq!(
+            engine.base_hits(),
+            engine.base_hits_by_seat().iter().sum::<u64>()
+        );
+        engine.take_memo().expect("the reader journals");
+        engine.release_memos();
+        assert_eq!(engine.base_hits_by_seat(), &[2, 2]);
+        engine
+            .transition_trace(&left, token, windows[1])
+            .expect("retained bases still answer after releasing own memos");
+        assert_eq!(engine.base_hits_by_seat(), &[2, 3]);
+        engine.seed_bases(bases);
+        assert_eq!(engine.base_hits_by_seat(), &[0, 0]);
+        assert_eq!(engine.base_hits(), 0);
+        engine.seed_bases(Vec::new());
+        assert!(engine.base_hits_by_seat().is_empty());
+        assert_eq!(engine.base_hits(), 0);
     }
 
     /// Two windows that enumerate the same lists share one seat into each pool, an entry's lists read back through the pools exactly as its miss returned them, sentences included, and the sentence count is of what the pools hold rather than of what the entries name.

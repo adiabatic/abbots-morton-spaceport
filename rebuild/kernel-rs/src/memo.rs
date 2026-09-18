@@ -1024,6 +1024,79 @@ mod tests {
         );
     }
 
+    /// Filtering named edited runes while reading saves entries without changing the product, base hits, or memo union bytes written for the next build. Lookup still checks each surviving entry's reads.
+    #[test]
+    fn filtering_edited_keys_preserves_products_hits_and_memo_bytes() {
+        let before = fixtures::mini();
+        let after = fixtures::index_of(&mini_dump_without_the_tea_refusal());
+        let edited = Exclusion::of(&after, [fixtures::sym(&after, "qsTea")]);
+        let root = scratch("memo-filter-edited");
+        for token in ["default", "ss03"] {
+            let features = |index: &SpecIndex| {
+                if token == "default" {
+                    Vec::new()
+                } else {
+                    vec![fixtures::sym(index, token)]
+                }
+            };
+            let (_, previous) = enumerate_keeping(&before, &features(&before), Vec::new());
+            let path = root.join(format!("previous-{token}.tsv"));
+            write_memo(&before, &path, &head(token), &previous, &[]).expect("previous writes");
+            let unfiltered = read_memo(&after, &path, &head(token), |_| true)
+                .expect("the whole previous memo reads");
+            let filtered = read_memo(&after, &path, &head(token), |key| !edited.names(key))
+                .expect("the filtered previous memo reads");
+            assert!(
+                !filtered.is_empty(),
+                "unaffected windows remain for {token}"
+            );
+            assert!(
+                filtered.len() < unfiltered.len(),
+                "edited windows are omitted for {token}"
+            );
+            assert!(filtered.entries.keys().all(|key| !edited.names(key)));
+            let mut expected = None;
+            for (arm, previous) in [("unfiltered", unfiltered), ("filtered", filtered)] {
+                let bases = vec![MemoBase {
+                    memo: Arc::new(previous),
+                    excluded: edited.clone(),
+                }];
+                let mut census = Vec::new();
+                let enumeration = enumerate_for_tables(
+                    &after,
+                    &features(&after),
+                    EnumerationModes::default(),
+                    Some(&mut census),
+                    Seed {
+                        bases: bases.clone(),
+                        keep_memo: true,
+                    },
+                    None,
+                )
+                .expect("the edited spec closes over either base");
+                let hits = census
+                    .iter()
+                    .find(|line| line.contains(" memo_base_hits count="))
+                    .expect("the census reports hits")
+                    .clone();
+                let own = enumeration.memo.expect("the fresh memo is kept");
+                let output = root.join(format!("{arm}-{token}.tsv"));
+                write_memo(&after, &output, &head(token), &own, &bases).expect("the union writes");
+                let actual = (
+                    enumeration.product,
+                    hits,
+                    own.len(),
+                    std::fs::read(output).expect("the union reads"),
+                );
+                if let Some(expected) = &expected {
+                    assert_eq!(&actual, expected, "filtering changes no answer for {token}");
+                } else {
+                    expected = Some(actual);
+                }
+            }
+        }
+    }
+
     /// Which source a window held by two sources is written from: the first source that admits it, `own` being the first of all. Over the previous spec's memo and the edited spec's, the file is the edited memo's whichever order the two are carried in so long as the previous memo is held behind the edited rune, since every window it holds beyond the edited memo names or reads that rune; carried ahead and admitted whole, the previous memo wins every window it holds, and the file differs from the edited memo's exactly on the windows that name or read the rune. Written from `own` beside one base, the file is the one two bases in that order write, so the shape every seeded build writes — a fresh `own` beside the previous build's memo — is pinned with the rest.
     #[test]
     fn a_window_two_bases_hold_is_written_from_the_first_source_that_admits_it() {
