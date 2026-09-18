@@ -291,6 +291,25 @@ def load_units(surface: Path) -> list[dict]:
     return list(stream_shards(surface))
 
 
+def iter_human_units(surface: Path, *, unit_ids: set[str] | None = None) -> Iterator[dict]:
+    """Yield human index records in shard order, optionally accumulating every surface id in the same walk. Machine index lines contribute only their heads and never pass through the JSON parser. An absent or stale index streams projected shards with the same legacy workload rules; a corrupt current index raises instead of restarting a partially consumed stream and duplicating units. The id set is complete only when the iterator is exhausted."""
+    if index_is_current(surface):
+        with gzip.open(index_path(surface), "rb") as stream:
+            next(stream)
+            for line in stream:
+                head = line[: line.index(CLASS_SEAM)]
+                if unit_ids is not None:
+                    unit_ids.add(head[len(ID_OPEN) : head.index(ORDER_SEAM)].decode())
+                if not head.endswith(MACHINE_TAIL):
+                    yield json.loads(line)
+        return
+    for record in stream_shards(surface):
+        if unit_ids is not None:
+            unit_ids.add(record["id"])
+        if record.get("batch") is not None:
+            yield record
+
+
 def load_human_units(surface: Path) -> tuple[list[dict], set[str]]:
     """The human records on a surface — the units the manifest's triage index holds, `batch` not None — parsed, beside the id of every unit on it, machine ones included. The plumbing's consumers read the human records and nothing of a machine record but its id: carry's stranded figure and the complaint docket's absent-unit warning both count prior verdicts against every id on the surface, and those two readers are the whole reason the id set rides beside the list. Over a current index the classification is a byte test rather than a parse: `index_record` opens every record with `id`, `order` and `batch` in that order (`rebuild/test_unit_index.py` holds the order), so a line's head cut at `CLASS_SEAM` ends with `MACHINE_TAIL` exactly when the unit is outside the index, and only the human lines go through `json.loads`. An index that fails partway through is refused whole and the shards answer instead, as `load_index` refuses rather than half-answers; that fallback parses every fragment to project it, so a stale index costs the whole parse whatever this drops."""
     if index_is_current(surface):

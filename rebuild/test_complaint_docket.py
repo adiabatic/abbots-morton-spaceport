@@ -1,10 +1,12 @@
 """Tests for the complaint docket: grouping reject/neither verdicts by the deciding rune records (policy fix site first, exact provenance tuple as the fallback), the fresh-vs-standing split against the manifest stamp, the reverse index from a group's pointer basis to blank park candidates and judged churn, and park-file emission under the bulk discipline (skip verdicts at the manifest stamp, every member enumerated)."""
 
 import json
+import weakref
 
 import pytest
 
 from rebuild.tools import complaint_docket as cd
+from rebuild.tools.review_docket import load_human_units
 
 STAMP = "2026-07-10T00:00:00Z"
 FRESH = "2026-07-10T12:00:00Z"
@@ -320,6 +322,59 @@ def test_the_human_records_without_the_id_set_are_refused(repo):
         run(repo, units=[unit("u-0001", [P_EXTEND_1])])
     with pytest.raises(SystemExit):
         run(repo, unit_ids={"u-0001"})
+
+
+def test_streamed_records_preserve_docket_and_park_bytes_without_retaining_records(repo, capsys):
+    write_surface(
+        repo,
+        [
+            unit("u-0003", [P_EXTEND_1]),
+            unit("u-0001", [P_EXTEND_1], policy=policy_draft()),
+            unit("u-0002", [P_EXTEND_1, P_EXTEND_2]),
+            unit("u-0004", [P_EXTEND_2]),
+            unit("u-0005", [P_EXTEND_1], cls="ruled-class"),
+            unit("u-0006", [P_EXTEND_1]),
+            unit("u-0007", [P_EXTEND_1], batch=None),
+        ],
+    )
+    write_verdicts(
+        repo,
+        [
+            v("u-0001", "reject", at=FRESH),
+            v("u-0002", "neither"),
+            v("u-0004", "approve"),
+            v("u-0006", "skip"),
+            v("u-0007", "reject"),
+            v("u-0009", "reject"),
+        ],
+    )
+    units, unit_ids = load_human_units(repo["surface"])
+    assert run(repo, units=units, unit_ids=unit_ids) == 0
+    group = data(repo)["groups"][0]
+    assert run(repo, "--park", group["id"], units=units, unit_ids=unit_ids) == 0
+    expected = repo["data_out"].read_bytes()
+    park_path = repo["root"] / group["park_file"]
+    expected_park = park_path.read_bytes()
+    capsys.readouterr()
+
+    class StreamRecord(dict):
+        pass
+
+    references = []
+
+    def stream():
+        for record in units:
+            assert sum(reference() is not None for reference in references) <= 1
+            streamed = StreamRecord(record)
+            references.append(weakref.ref(streamed))
+            yield streamed
+            del streamed
+
+    assert run(repo, "--park", group["id"], units=stream(), unit_ids=unit_ids) == 0
+    assert repo["data_out"].read_bytes() == expected
+    assert park_path.read_bytes() == expected_park
+    assert all(reference() is None for reference in references)
+    assert capsys.readouterr().err == "warning: 1 verdict records name units absent from this surface\n"
 
 
 def test_conflicting_mechanical_drafts_on_one_fix_site_are_flagged(repo):

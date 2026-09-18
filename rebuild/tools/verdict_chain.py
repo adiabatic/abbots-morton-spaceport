@@ -1,10 +1,8 @@
-"""The cycle's verdict plumbing as one process: carry, merge, echo fill, standing fill, their merges, the echo pass that witnesses the fixpoint, and the complaint docket, over one copy of the surface's human index records and the id of every unit on it.
+"""The cycle's verdict plumbing in one process: carry, merge, echo fill, standing fill, their merges, a witnessed echo fixpoint, and the complaint docket.
 
-Every one of those steps reaches a few slim fields per human unit, and each run as its own `uv run` subprocess would parse the whole of the unit shards to get at them — gigabytes per step, most of the chain's wall time in parsing. They read the index sidecar instead (rebuild/review/unit_index), and reading it once and handing it down is the whole reason this module exists. What is held is `unit_index.load_human_units`' pair: the human records parsed, which every step reads, and every id on the surface as a set, which the carry's stranded figure and the docket's absent-unit warning count prior verdicts against — a machine record contributes nothing else to any step, so none is parsed or held. The steps themselves are the tools' own: each tool's `main` does its own work and writes its own file, so `rebuild/tools/complaint_docket.py` and the rest are runnable on their own for the sitting-prep targets in the Makefile. The standing fill runs in its `--open-only --require-reach` form here. The narrowing is what it writes from — the blanks and the units verdicted outside the accepting set are the only units that can move a fill or a warning — while the reach check is a reading of the surface rather than of the queue, taken over the whole human domain against a blank store, and it is a refusal: a checked-in rule that reaches no window on this surface fails this step, which turns the plumbing red and `make verdict-ready` NOT READY, until the rule is deleted or the form it waits for migrates. The fill also gets its memo (`--standing-memo`, beside the surface directory by default), so a pass whose surface moved evaluates only the units whose content moved; `--fresh-standing-memo` is the cycle's `--fresh` reaching it. The units the memo cannot serve — a dropped memo's whole domain, or the units a moved standing rule can reach — are refilled across a worker pool at the width `--standing-fill-jobs` states (forwarded to the fill as `--jobs`), and the width is the cycle's to state rather than this chain's to derive, because this process is the one the pool hangs off and the cycle is what knows which gates share the box with it.
+The first index walk retains every surface id and only the human id/echo/notation projection. Carry reads that projection for ids, and every echo round reuses it. Standing fill opens fresh human streams through its source factory; the complaint docket receives its own stream. Full human index records live only for the step consuming them, while machine lines supply ids without being parsed.
 
-The chain opens each step with `rebuild.tools.console`'s `[phase] <step>` line and closes it with `[t] <step> <secs>s`, so the cycle surfaces the step it is on and the duration it took exactly as it does for every other child, and the cycle-timings journal reads what it always did. The `[chain] ` prefix is left to the two lines that are results rather than phases — the fixpoint witness and a step's failure — which is what still delimits the sections the driver reads its per-step report out of.
-
-The echo pass runs twice. Standing fills can make an echo group unanimous and leave a blank sibling, so a chain that ran echo once would have to refuse the plumbing green whenever the standing merge moved anything and hand the cascade to the next cycle; holding the index in memory makes a second echo pass cost a second, so the chain closes the cascade itself and the green is witnessed — "a re-run would write nothing" — rather than inferred from an ordering argument. The echo-fill file holds every echo fill the chain landed, later rounds included, so the artifact and the store still say the same thing.
+Standing fill runs with `--open-only --require-reach`, its persistent memo, and the cycle's `--standing-fill-jobs` width. The chain opens each step with `[phase]` and closes it with `[t]`; its failure and fixpoint reports retain the `[chain]` prefix. Echo rounds after the standing merge close the cascade, and the echo output holds the union of fills landed across rounds.
 """
 
 from __future__ import annotations
@@ -87,7 +85,7 @@ def _merge(
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
-        description="Run the artifact cycle's verdict plumbing in one process over one copy of the unit index's human records."
+        description="Run the artifact cycle's verdict plumbing in one process over streamed human index records and a reusable echo projection."
     )
     parser.add_argument("--surface", type=pathlib.Path, default=SURFACE)
     parser.add_argument(
@@ -139,7 +137,10 @@ def main(argv: list[str] | None = None) -> int:
 
     surface = args.surface
     started = time.perf_counter()
-    units, unit_ids = unit_index.load_human_units(surface)
+    unit_ids: set[str] = set()
+    units = [
+        echo_verdicts.echo_record(unit) for unit in unit_index.iter_human_units(surface, unit_ids=unit_ids)
+    ]
     print(
         f"[t] index {time.perf_counter() - started:.1f}s\t({len(units)} human of {len(unit_ids)} units)",
         flush=True,
@@ -211,7 +212,12 @@ def main(argv: list[str] | None = None) -> int:
             ]
             if args.fresh_standing_memo:
                 standing_argv.append("--fresh-memo")
-            code = _run("standing-fill", lambda: standing_verdicts.main(standing_argv, units=units))
+            code = _run(
+                "standing-fill",
+                lambda: standing_verdicts.main(
+                    standing_argv, unit_source=lambda: unit_index.iter_human_units(surface)
+                ),
+            )
             if code:
                 return code
             code = _merge(
@@ -245,7 +251,7 @@ def main(argv: list[str] | None = None) -> int:
                 "--data-out",
                 str(args.complaints_out),
             ],
-            units=units,
+            units=unit_index.iter_human_units(surface),
             unit_ids=unit_ids,
         ),
     )

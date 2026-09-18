@@ -8,6 +8,8 @@ import json
 import shutil
 from pathlib import Path
 
+import pytest
+
 from rebuild.pipeline import fingerprint
 from rebuild.review import app_index, unit_index
 from rebuild.review.build import _check_output_files, _write_shard
@@ -245,6 +247,72 @@ def test_load_human_units_is_load_units_filtered_to_the_human_records(tmp_path):
     human, ids = _human_and_ids(every)
     assert human and len(human) < len(every)
     assert unit_index.load_human_units(surface) == (human, ids)
+
+
+@pytest.mark.parametrize("mode", ["current", "absent", "stale"])
+def test_human_stream_preserves_shard_order_and_collects_all_ids(tmp_path, mode):
+    surface = _fixture_surface(tmp_path)
+    expected, expected_ids = _human_and_ids(unit_index.load_units(surface))
+    if mode != "absent":
+        _write(surface)
+    if mode == "stale":
+        manifest = json.loads((surface / "manifest.json").read_text())
+        manifest["generated_at"] = "stale"
+        (surface / "manifest.json").write_text(json.dumps(manifest))
+    ids = set()
+    units = unit_index.iter_human_units(surface, unit_ids=ids)
+    assert ids == set()
+    assert list(units) == expected
+    assert ids == expected_ids
+    assert list(unit_index.iter_human_units(surface)) == expected
+
+
+def test_human_stream_skips_machine_json_and_parses_humans_on_demand(tmp_path, monkeypatch):
+    surface = _fixture_surface(tmp_path)
+    records = unit_index.load_units(surface)
+    human, ids = _human_and_ids(records)
+    _write(surface)
+    original = json.loads
+    parsed = []
+
+    def loads(value, *args, **kwargs):
+        record = original(value, *args, **kwargs)
+        if isinstance(record, dict) and "id" in record:
+            parsed.append(record)
+            assert record["batch"] is not None
+        return record
+
+    monkeypatch.setattr(unit_index.json, "loads", loads)
+    seen_ids = set()
+    stream = unit_index.iter_human_units(surface, unit_ids=seen_ids)
+    assert parsed == []
+    assert next(stream) == human[0]
+    assert parsed == human[:1]
+    assert list(stream) == human[1:]
+    assert parsed == human
+    assert seen_ids == ids
+
+
+def test_corrupt_current_human_stream_raises_without_restarting_shards(tmp_path):
+    surface = _fixture_surface(tmp_path)
+    human, _ids = _human_and_ids(unit_index.load_units(surface))
+    unit_index.write_index_lines(surface, [(json.dumps(human[0]) + "\n").encode(), b"broken\n"])
+    stream = unit_index.iter_human_units(surface)
+    assert next(stream) == human[0]
+    with pytest.raises(ValueError):
+        next(stream)
+    assert unit_index.load_human_units(surface)[0] == human
+
+
+def test_human_stream_fallback_keeps_legacy_fragment_batches(tmp_path):
+    (tmp_path / "manifest.json").write_text(
+        json.dumps({"classes": [{"id": "legacy", "shard": "legacy.json"}]})
+    )
+    (tmp_path / "legacy.json").write_text(json.dumps([{"id": "human", "batch": 2}, {"id": "machine"}]))
+    ids = set()
+    [human] = unit_index.iter_human_units(tmp_path, unit_ids=ids)
+    assert (human["id"], human["order"], human["batch"]) == ("human", None, 2)
+    assert ids == {"human", "machine"}
 
 
 def test_an_index_line_opens_with_the_id_order_and_batch(tmp_path):

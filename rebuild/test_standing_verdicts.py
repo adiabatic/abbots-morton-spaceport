@@ -5,6 +5,7 @@ import json
 import pathlib
 import re
 import sys
+from collections.abc import Iterable
 
 import pytest
 
@@ -7899,9 +7900,11 @@ class _InlinePool:
     def __exit__(self, *_exc):
         return False
 
-    def imap_unordered(self, func, chunks):
-        self.chunks = [list(chunk) for chunk in chunks]
-        return [func(chunk) for chunk in reversed(self.chunks)]
+    def imap_unordered(self, func, chunks) -> Iterable[list[tuple[str, list]]]:
+        wave = [list(chunk) for chunk in chunks]
+        assert len(wave) <= self.width
+        self.chunks.extend(wave)
+        return [func(chunk) for chunk in reversed(wave)]
 
 
 def _inline_pools(monkeypatch):
@@ -7917,7 +7920,7 @@ def _inline_pools(monkeypatch):
     return pools
 
 
-def _pile(count):
+def _pile(count: int) -> list[dict]:
     """Keyed units under distinct content keys, so each has its own memo key, plus one the build never stamped."""
     return [_keyed_unit(f"k-{index}", content_key=f"{index:064x}") for index in range(count)] + [
         canonical("u-unkeyed")
@@ -7956,9 +7959,14 @@ def test_the_prefill_counts_what_the_serial_pass_counts(tmp_path, monkeypatch):
 def test_the_prefill_asks_only_what_the_run_asks(tmp_path, monkeypatch):
     """What a pooled run decides ahead is exactly what its passes will ask about — the whole domain under --require-reach, the open units alone under a bare --open-only — since a unit decided that the run never asks for would advance `computed` and land in the memo where the serial pass wrote nothing; and a targeted run, which writes neither, never reaches the prefill."""
     asked = []
-    monkeypatch.setattr(
-        sv, "_prefill", lambda decider, units, jobs: asked.append(([u["id"] for u in units], jobs))
-    )
+    prefill = sv._prefill
+
+    def observe(decider, units, jobs):
+        units = list(units)
+        asked.append(([unit["id"] for unit in units], jobs))
+        prefill(decider, units, jobs)
+
+    monkeypatch.setattr(sv, "_prefill", observe)
     units = [canonical("u-1"), canonical("u-2"), canonical("u-3")]
     accepted = [{"unit": "u-2", "verdict": "approve", "note": "", "at": STAMP}]
     _run_main(tmp_path / "open", monkeypatch, units, accepted, extra=("--open-only", "--jobs", "4"))
@@ -7990,7 +7998,8 @@ def test_a_shallow_miss_pile_and_a_width_of_one_never_start_a_pool(monkeypatch):
     sv._prefill(decider, units, 8)
     monkeypatch.setattr(sv, "_STANDING_POOL_THRESHOLD", 1)
     sv._prefill(decider, units, 1)
-    assert (decider._decided, decider.computed, decider.unkeyed) == ({}, 0, 0)
+    assert set(decider._decided) == {unit["id"] for unit in units}
+    assert (decider.computed, decider.unkeyed) == (5, 1)
 
 
 def test_the_decider_holds_the_composable_digest_for_the_run(slide_context):
@@ -8265,3 +8274,171 @@ def test_the_memo_stamp_holds_still_across_a_version_bump(tmp_path, slide_fonts)
     metrics[name] = (metrics[name][0] + 10, metrics[name][1])
     font.save(str(before))
     assert sv.memo_environment(surface, root)[0] != stamp
+
+
+@pytest.mark.parametrize(
+    "flags", [(), ("--open-only",), ("--open-only", "--require-reach"), ("--explain", RULE["id"])]
+)
+def test_one_shot_source_preserves_reports_fills_and_cold_warm_memos(tmp_path, monkeypatch, capsys, flags):
+    units = _pile(6)
+    surface = _surface(tmp_path, units)
+    rules = _write_rules(tmp_path / "rules.yaml", [RULE])
+    verdicts = tmp_path / "verdicts.json"
+    verdicts.write_text(
+        json.dumps(
+            {
+                "manifest_generated_at": STAMP,
+                "verdicts": [{"unit": units[1]["id"], "verdict": "approve", "at": STAMP}],
+            }
+        )
+    )
+    out = tmp_path / "out.json"
+    memo = tmp_path / "memo.ndjson.gz"
+    monkeypatch.setattr(sv, "memo_environment", lambda surface: ("fixture", {}))
+    argv = [
+        str(verdicts),
+        "--surface",
+        str(surface),
+        "--rules",
+        str(rules),
+        "--out",
+        str(out),
+        "--memo",
+        str(memo),
+        *flags,
+    ]
+    expected = []
+    for _ in range(2):
+        code = sv.main(argv, units=units)
+        expected.append((code, capsys.readouterr().out, out.read_bytes(), memo.read_bytes()))
+    memo.unlink()
+    for reference in expected:
+        called = False
+
+        def source():
+            nonlocal called
+            assert not called
+            called = True
+            yield from units
+
+        code = sv.main(argv, unit_source=source)
+        assert called
+        assert (code, capsys.readouterr().out, out.read_bytes(), memo.read_bytes()) == reference
+
+
+@pytest.mark.parametrize("jobs", [1, 3])
+def test_prefill_releases_streamed_records_and_bounds_pool_waves(tmp_path, monkeypatch, jobs):
+    import weakref
+
+    class Record(dict):
+        pass
+
+    alive = weakref.WeakValueDictionary()
+
+    def source():
+        for index in range(31):
+            assert len(alive) <= 2
+            unit = Record(_keyed_unit(f"u-{index}", content_key=f"{index:064x}"))
+            alive[index] = unit
+            yield unit
+
+    monkeypatch.setattr(sv, "_STANDING_POOL_THRESHOLD", 1)
+    monkeypatch.setattr(sv, "_STANDING_POOL_CHUNK", 2)
+    pools = _inline_pools(monkeypatch)
+    memo = sv.Memo(tmp_path / "memo.gz", "fixture", {})
+    decider = sv.Decider([RULE], None, memo)
+    sv._prefill(decider, source(), jobs)
+    assert len(decider._decided) == 31
+    assert decider.computed == 31
+    assert not alive
+    assert len(pools) == (jobs > 1)
+
+
+def test_missing_delta_stream_writes_neither_fills_nor_memo(tmp_path, monkeypatch):
+    units = [tea_i("u-1")]
+    surface = _surface(tmp_path, units)
+    rules = _write_rules(tmp_path / "rules.yaml", [EXT_RULE, COMPOSED_EXT_RULE])
+    verdicts = tmp_path / "verdicts.json"
+    verdicts.write_text(json.dumps({"manifest_generated_at": STAMP, "verdicts": []}))
+    out, memo = tmp_path / "out.json", tmp_path / "memo.gz"
+    monkeypatch.setattr(sv, "memo_environment", lambda surface: ("fixture", {}))
+    with pytest.raises(SystemExit, match="predates"):
+        sv.main(
+            [
+                str(verdicts),
+                "--surface",
+                str(surface),
+                "--rules",
+                str(rules),
+                "--out",
+                str(out),
+                "--memo",
+                str(memo),
+            ],
+            unit_source=lambda: iter(units),
+        )
+    assert not out.exists()
+    assert not memo.exists()
+
+
+def test_pool_releases_previous_wave_before_decoding_the_next(monkeypatch):
+    import weakref
+
+    class Record(dict):
+        pass
+
+    alive = weakref.WeakValueDictionary()
+    loads = json.loads
+    peak = 0
+    width, chunk_size = 3, 2
+
+    def decode(line):
+        nonlocal peak
+        unit = Record(loads(line))
+        alive[unit["id"]] = unit
+        peak = max(peak, len(alive))
+        assert len(alive) <= width * chunk_size
+        return unit
+
+    class Pool(_InlinePool):
+        def imap_unordered(self, func, chunks):
+            for chunk in chunks:
+                yield func(chunk)
+
+    class Context:
+        @staticmethod
+        def Pool(width, initializer, initargs):
+            return Pool(width, initializer, initargs)
+
+    monkeypatch.setattr(sv.json, "loads", decode)
+    monkeypatch.setattr(sv.multiprocessing, "get_context", lambda method: Context)
+    monkeypatch.setattr(sv, "_STANDING_POOL_THRESHOLD", 1)
+    monkeypatch.setattr(sv, "_STANDING_POOL_CHUNK", chunk_size)
+    decider = sv.Decider([RULE], None)
+    sv._prefill(decider, _pile(30), width)
+    assert peak == width * chunk_size
+    assert not alive
+    assert len(decider._decided) == 31
+
+
+def test_pool_worker_failure_closes_the_spool(monkeypatch):
+    temporary_file = sv.tempfile.TemporaryFile
+    handles = []
+
+    def tracked_file():
+        handle = temporary_file()
+        handles.append(handle)
+        return handle
+
+    def fail_worker(units):
+        raise RuntimeError("worker failed")
+
+    _inline_pools(monkeypatch)
+    monkeypatch.setattr(sv.tempfile, "TemporaryFile", tracked_file)
+    monkeypatch.setattr(sv, "_standing_pool_chunk", fail_worker)
+    monkeypatch.setattr(sv, "_STANDING_POOL_THRESHOLD", 1)
+    monkeypatch.setattr(sv, "_STANDING_POOL_CHUNK", 2)
+    with pytest.raises(RuntimeError, match="worker failed"):
+        sv._prefill(sv.Decider([RULE], None), _pile(4), 2)
+    assert len(handles) == 1
+    assert handles[0].closed

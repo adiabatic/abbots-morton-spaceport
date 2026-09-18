@@ -179,7 +179,9 @@ def test_a_prior_verdict_on_a_machine_unit_is_not_stranded(tmp_path, capsys):
     assert "carry figures: human=1 key_hits=1 unhit=0 stranded=0" in capsys.readouterr().out.splitlines()
 
     held = [{"id": kept["id"], "batch": 0}]
-    _carry(tmp_path / "held", [kept], verdicts, current_units=held, current_ids={kept["id"], machine["id"]})
+    _carry(
+        tmp_path / "held", [kept], verdicts, current_units=iter(held), current_ids={kept["id"], machine["id"]}
+    )
     assert "carry figures: human=1 key_hits=1 unhit=0 stranded=0" in capsys.readouterr().out.splitlines()
 
 

@@ -7,6 +7,7 @@ import json
 import pathlib
 import re
 import sys
+from collections.abc import Iterable
 
 import yaml
 
@@ -17,8 +18,8 @@ from rebuild.tools.review_docket import (  # noqa: E402
     ACCEPTING_VERDICTS,
     RULED_STATUSES,
     latest_verdicts,
-    load_human_units,
 )
+from rebuild.review.unit_index import iter_human_units  # noqa: E402
 from rebuild.tools.verdict_notes import strip_markers  # noqa: E402
 
 SURFACE = ROOT / "rebuild/out/review"
@@ -242,8 +243,8 @@ def emit_park(group, marker_target, *, stamp, park_dir, note_text):
     return path
 
 
-def main(argv=None, *, units: list[dict] | None = None, unit_ids: set[str] | None = None):
-    """`units` and `unit_ids` let the verdict chain hand over what it already holds — the human index records and the id of every unit on the surface, the pair `load_human_units` returns — and they come together or not at all: the absent-unit warning counts verdict records against every id, so the human records alone would warn about every verdict on a machine unit."""
+def main(argv=None, *, units: Iterable[dict] | None = None, unit_ids: set[str] | None = None):
+    """`units` and `unit_ids` hand over a single-pass human record stream and every surface id together: the absent-unit warning includes machine units. Only complaint fields and compact blank/churn projections survive consumption of the stream."""
     parser = argparse.ArgumentParser(description=(__doc__ or "").split(":")[0] + ".")
     parser.add_argument(
         "verdicts",
@@ -288,28 +289,40 @@ def main(argv=None, *, units: list[dict] | None = None, unit_ids: set[str] | Non
     records = latest_verdicts(verdicts_path)
 
     if units is None or unit_ids is None:
-        units, unit_ids = load_human_units(surface)
-    units_by_id = {unit["id"]: unit for unit in units}
+        unit_ids = set()
+        units = iter_human_units(surface, unit_ids=unit_ids)
+    complaints = []
+    human = []
+    for unit in units:
+        record = records.get(unit["id"])
+        if record and record["verdict"] in COMPLAINT_KINDS:
+            complaint = {key: unit[key] for key in ("id", "class", "codepoints", "notation")}
+            complaint.update(
+                order=unit.get("order"),
+                provenance=unit.get("provenance"),
+                policy=unit.get("policy"),
+            )
+            complaints.append((complaint, record))
+        elif unit.get("provenance") and (
+            not record or record["verdict"] == "skip" or record["verdict"] in CHURN_KINDS
+        ):
+            human.append(
+                {
+                    "id": unit["id"],
+                    "class": unit["class"],
+                    "order": unit.get("order"),
+                    "echo": unit.get("echo"),
+                    "provenance": frozenset(unit.get("provenance") or []),
+                }
+            )
     unknown = sum(1 for unit_id in records if unit_id not in unit_ids)
     if unknown:
         print(f"warning: {unknown} verdict records name units absent from this surface", file=sys.stderr)
-    human = units
-    human_ids = set(units_by_id)
     ruled_ids = {
         entry["id"] for entry in manifest.get("classes", []) if entry.get("status") in RULED_STATUSES
     }
 
-    complaints = [
-        (units_by_id[unit_id], record)
-        for unit_id, record in sorted(
-            records.items(),
-            key=lambda item: (
-                _triage_position(units_by_id[item[0]]) if item[0] in units_by_id else -1,
-                item[0],
-            ),
-        )
-        if record["verdict"] in COMPLAINT_KINDS and unit_id in human_ids
-    ]
+    complaints.sort(key=lambda item: (_triage_position(item[0]), item[0]["id"]))
     threshold = args.since or stamp
     groups, naming = finalize_groups(
         build_groups(complaints), threshold=threshold, human=human, records=records, ruled_ids=ruled_ids

@@ -109,6 +109,27 @@ def test_a_real_split_still_reports_and_fills_nothing(tmp_path, monkeypatch, cap
     assert "e-0001  #units=u-0001,u-0002,u-0003" in printed
 
 
+def test_echo_projection_matches_streamed_fill_and_reports(tmp_path, monkeypatch, capsys):
+    units = [unit("u-0001", "e-0001"), unit("u-0002", "e-0001")]
+    surface = surface_with(tmp_path, units)
+    verdicts = verdicts_file(tmp_path, [v("u-0001", "approve")])
+    out = tmp_path / "fill.json"
+    argv = [str(verdicts), "--surface", str(surface), "--out", str(out)]
+    ev.main(argv)
+    expected_bytes, expected_report = out.read_bytes(), capsys.readouterr().out
+    projection = [ev.echo_record(record) for record in units]
+    assert all(set(record) == {"id", "echo", "notation"} for record in projection)
+
+    def refuse_read(_surface):
+        raise AssertionError("a supplied echo projection must not reread the index")
+
+    monkeypatch.setattr(ev.unit_index, "iter_human_units", refuse_read)
+    for _round in range(2):
+        ev.main(argv, units=projection)
+        assert out.read_bytes() == expected_bytes
+        assert capsys.readouterr().out == expected_report
+
+
 def test_the_baked_docket_lists_the_split_group_and_not_the_approve_identical_one(
     tmp_path, monkeypatch, capsys
 ):
