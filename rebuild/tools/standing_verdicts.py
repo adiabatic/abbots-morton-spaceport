@@ -63,7 +63,7 @@ This is the zero-touch sibling of echo_verdicts.py: echo fill extends the user's
 
 Records are stamped with the manifest's generated_at, so any human verdict beats a standing fill on merge, and a parked unit (a skip verdict) is not blank and is never filled. The artifact cycle runs this after the echo fill, with a merge_verdicts pass to land the file. The run's report rolls every composed line's credit back up per rule, so each rule's whole reach reads in one place — deliberately not a column that sums across rules, since a window two rules explain between them counts toward each of them.
 
-Every decision above is per-unit pure: what the composed reading credits a window with, whether a guard holds it, and which rules' own matchers accept or hold it are a function of the unit's index record, the two fonts' rendering of its window, and the rules file, and of nothing else — the verdict store only decides which of those decisions become fills. `Decider.decide` is that function, `rule_reach` assembles a run out of its answers, and the memo (`Memo`, the `--memo` flag; the verdict chain passes it) persists the answers across passes so a surface-moving pass evaluates only the units whose key is new. A unit's key is its build-time `content_key` stamp, joined with the persisted `ink_deltas` that stamp deliberately leaves out and with the after font's compiled-glyph digest for every family the window's after cells name (`fingerprint.after_font_glyph_digests`, the same per-family grain the review unit cache and the oracle's position store invalidate at, so a drawing or anchor change reaches exactly the windows that can feel it); a unit the surface never stamped is evaluated every pass and never stored. The memo's own stamp is the code that decides (`MEMO_CODE_MODULES`, held to this module's import closure by rebuild/test_standing_verdicts.py), the before font outside its `head` and `name` tables, the after font's family-blind remainder, and `uv.lock`'s dependency pins for the shaper; any of those moving drops the memo entirely, and over-invalidation is the safe direction. The rules file reaches the memo per entry instead: the header carries the file's `Roster` (each rule's match digest and verdict, the non-composable rules a composed reading reads for every window, and whether a composed reading is on), each entry carries the composable rules with a candidate position in its window, and a stored decision holds rule ids and no prose, so a rules commit re-evaluates only the units the moved rules can reach (`Decider._serve`) and a reworded note re-evaluates nothing while every fill quotes the new wording. The misses — a dropped memo's whole domain, or the units a moved rule can reach, which a broad rule carries past the pool's threshold — are refilled across a spawn pool at the width the caller states (`--jobs`; the verdict chain forwards the artifact cycle's, a hand run states the one the cycle's plan prints, and the tool derives none of its own), in this process or in the daemon serving the run alike, each worker deciding a chunk of the misses over its own `SlideContext` and handing back the memo's own wire records (`_prefill`), while a pass whose misses stay under the threshold — the ordinary served pass, or a narrow rule's landing — stays serial. What is written back is bounded to the units on this surface, so it never outgrows the human domain, and the fills and the report are byte-identical served or computed, pooled or serial, which rebuild/test_standing_verdicts.py proves over the frozen mini bundle. The `--require-reach` rollup reads the same answers, so its pass over the whole domain costs no second evaluation. A `--targeted` run — the authoring loop's form, taking its rule from `--explain` and further windows from `--unit` — evaluates only the units the rule could speak for at the name grain (`_reachable`) plus the listed ones, prints that rule's own line, the composed lines crediting it, its rollup line, its tripwire and its explain block byte-identical to the whole-domain run's, and one line per listed unit with the decision the run counted, and writes neither a fill file nor the memo; it costs the surface load rather than the domain, and the whole-domain run stays the final pass and the cycle's form. rebuild/test_standing_verdicts.py holds the identity, and the candidate invariant behind it for every checked-in rule, over the same frozen mini bundle. Either form can be served instead of loaded: with `--daemon auto|always|never` and `--socket PATH`, a standing daemon (`rebuild/tools/standing_daemon.py`, the authority on what it holds and when it declines) that answers at the socket and holds this surface runs this same `main` — the same `Decider`, the same lines — over the objects it holds and hands back the streams and the exit code, byte-identical to the in-process run, which rebuild/test_standing_daemon.py holds over the mini bundle; the verdict chain's in-process call hands `main` its own `units` and is never served.
+Every decision above is per-unit pure: what the composed reading credits a window with, whether a guard holds it, and which rules' own matchers accept or hold it are a function of the unit's index record, the two fonts' rendering of its window, and the rules file, and of nothing else — the verdict store only decides which of those decisions become fills. `Decider.decide` is that function, `rule_reach` assembles a run out of its answers, and the memo (`Memo`, the `--memo` flag; the verdict chain passes it) persists the answers across passes so a surface-moving pass evaluates only the units whose key is new. A unit's key is its build-time `content_key` stamp, joined with the persisted `ink_deltas` that stamp deliberately leaves out and with the after font's compiled-glyph digest for every family the window's after cells name (`fingerprint.after_font_glyph_digests`, the same per-family grain the review unit cache and the oracle's position store invalidate at, so a drawing or anchor change reaches exactly the windows that can feel it); a unit the surface never stamped is evaluated every pass and never stored. The memo's own stamp is the code that decides (`MEMO_CODE_MODULES`, held to this module's import closure by rebuild/test_standing_verdicts.py), the before font outside its `head` and `name` tables, the after font's family-blind remainder, and `uv.lock`'s dependency pins for the shaper; any of those moving drops the memo entirely, and over-invalidation is the safe direction. The rules file reaches the memo per entry instead: the header carries the file's `Roster` (each rule's match digest and verdict, the non-composable rules a composed reading reads for every window, and whether a composed reading is on), each entry carries the composable rules with a candidate position in its window, and a stored decision holds rule ids and no prose, so a rules commit re-evaluates only the units the moved rules can reach (`Decider._serve`) and a reworded note re-evaluates nothing while every fill quotes the new wording. The misses — a dropped memo's whole domain, or the units a moved rule can reach, which a broad rule carries past the pool's threshold — are refilled across a spawn pool at the width the caller states (`--jobs`; the verdict chain forwards the artifact cycle's, a hand run states the one the cycle's plan prints, and the tool derives none of its own), in this process or in the daemon serving the run alike, each worker deciding a chunk of the misses over its own `SlideContext` and handing back the memo's own wire records (`_prefill`), while a pass whose misses stay under the threshold — the ordinary served pass, or a narrow rule's landing — stays serial. What is written back is bounded to the units on this surface, so it never outgrows the human domain, and the fills and the report are byte-identical served or computed, pooled or serial, which rebuild/test_standing_verdicts.py proves over the frozen mini bundle. The `--require-reach` rollup reads the same answers, so its pass over the whole domain costs no second evaluation. A `--targeted` run — the authoring loop's form, taking its rule from `--explain` and further windows from `--unit` — evaluates only the units the rule could speak for at the name grain (`_reachable`) plus the listed ones, prints that rule's own line, the composed lines crediting it, its rollup line, its tripwire and its explain block byte-identical to the whole-domain run's, and one line per listed unit with the decision the run counted, and writes neither a fill file nor the memo; it costs the surface load rather than the domain, and the whole-domain run stays the final pass and the cycle's form. rebuild/test_standing_verdicts.py holds the identity, and the candidate invariant behind it for every checked-in rule, over the same frozen mini bundle. Either form can be served instead of loaded: with `--daemon auto|always|never` and `--socket PATH`, a standing daemon (`rebuild/tools/standing_daemon.py`, the authority on what it holds and when it declines) that answers at the socket and holds this surface runs this same `main` — the same `Decider`, the same lines — over the objects it holds and hands back the streams and the exit code, byte-identical to the in-process run, which rebuild/test_standing_daemon.py holds over the mini bundle; the verdict chain's in-process call hands `main` its `unit_source` and is never served. Normal CLI and chain fills consume that source once, keep unit ids and decisions for reporting, and spool pool misses to temporary gzipped NDJSON; pool submission holds a bounded wave of chunks, and temporary storage closes on success or failure.
 """
 
 import argparse
@@ -74,7 +74,8 @@ import multiprocessing
 import pathlib
 import re
 import sys
-from collections.abc import Callable
+import tempfile
+from collections.abc import Callable, Iterable
 from itertools import batched
 from typing import NamedTuple, NoReturn
 
@@ -86,6 +87,7 @@ sys.path.insert(0, str(ROOT))
 from rebuild.pipeline import fingerprint  # noqa: E402
 from rebuild.review.ink import IDENTITY_DIFF, InkComparator, delta_digest, features_for  # noqa: E402
 from rebuild.validation.classify import PIXEL_SIZE  # noqa: E402
+from rebuild.review.unit_index import iter_human_units  # noqa: E402
 from rebuild.tools import standing_client  # noqa: E402
 from rebuild.tools.review_docket import ACCEPTING_VERDICTS, latest_verdicts, load_human_units  # noqa: E402
 
@@ -2768,10 +2770,16 @@ class Memo:
 
     def write(self, units, roster: Roster | None = None) -> int:
         """Write the memo back, bounded to `units` and headed by `roster`, and return how many entries it holds. An entry the run neither computed nor served is carried only when `roster` is the one it was stored under."""
+        return self._write_keys((self.key_for(unit) for unit in units), roster)
+
+    def write_primed(self, roster: Roster | None = None) -> int:
+        """Write entries for the complete domain whose keys the streaming pass primes."""
+        return self._write_keys(self._keys.values(), roster)
+
+    def _write_keys(self, keys, roster: Roster | None) -> int:
         carry = roster == self.stored
         kept: dict[str, Decision] = {}
-        for unit in units:
-            key = self.key_for(unit)
+        for key in keys:
             if key is None:
                 continue
             decision = self.fresh.get(key)
@@ -2930,14 +2938,20 @@ class Decider:
 
     def take(self, unit, decision: Decision) -> Decision:
         """Count a decision computed for this run — here, by a pooled worker handing it back through `_prefill`, or by `_serve` repairing an entry — exactly as `decide` counts one it computed itself: a keyed unit's into the memo's fresh entries and `computed`, an unkeyed unit's into `unkeyed`, and either into `_decided`."""
-        key = self.memo.key_for(unit) if self.memo is not None else None
+        if self.memo is not None:
+            self.memo.key_for(unit)
+        return self.take_id(unit["id"], decision)
+
+    def take_id(self, unit_id: str, decision: Decision) -> Decision:
+        """Count a worker answer using the key primed before its record was spooled."""
+        key = self.memo._keys[unit_id] if self.memo is not None else None
         if key is None:
             self.unkeyed += 1
         else:
             self.computed += 1
             assert self.memo is not None
             self.memo.fresh[key] = decision
-        self._decided[unit["id"]] = decision
+        self._decided[unit_id] = decision
         return decision
 
     def decide(self, unit) -> Decision:
@@ -2992,59 +3006,81 @@ def _standing_pool_chunk(units) -> list[tuple[str, list]]:
 
 
 def _prefill(decider: Decider, asked, jobs: int) -> None:
-    """Decide the units the run is about to ask for and the memo cannot serve (`Decider.misses`: no entry under the unit's key, or an entry the live rules refuse; an entry the live rules can repair is served serially and never sent) across a spawn pool, ahead of `rule_reach`, so both of its passes are then answered out of `Decider._decided`. The outcome is the serial pass's byte for byte: `rule_reach` walks the units in its own order whatever order the chunks come back in, `Memo.write` sorts its keys, and `served`, `computed` and `unkeyed` are totals, so completion order reaches neither the fills nor the memo nor the report. What is prefilled is exactly what the run asks about — the whole domain under --require-reach, else the narrowed candidates — since deciding a unit the run never asks about would advance `computed` and write a memo entry the serial pass never wrote. At a width of one, or below `_STANDING_POOL_THRESHOLD` misses, nothing happens here and the serial path is the whole pass. Each returned id is taken off the pile it was sent from, so a worker answering for a unit it was never handed, or twice, fails here rather than counting."""
+    """Consume the requested records once, deciding hits immediately and spooling pool misses. Pool submission holds at most one wave of `jobs` chunks; only ids and decisions survive the pass."""
     if jobs <= 1:
+        for unit in asked:
+            decider.decide(unit)
         return
-    misses = decider.misses(asked)
-    if len(misses) < _STANDING_POOL_THRESHOLD:
-        return
-    pile = {unit["id"]: unit for unit in misses}
-    fonts = None if decider.context is None else decider.context.fonts
-    chunks = list(batched(misses, _STANDING_POOL_CHUNK))
-    spawn = multiprocessing.get_context("spawn")
-    with spawn.Pool(
-        min(jobs, len(chunks)), initializer=_standing_pool_init, initargs=(decider.rules, fonts)
-    ) as pool:
-        for records in pool.imap_unordered(_standing_pool_chunk, chunks):
-            for unit_id, record in records:
-                decider.take(pile.pop(unit_id), _decision_from_record(record))
-    assert not pile, f"the pool never answered for {len(pile)} units"
+    with tempfile.TemporaryFile() as handle:
+        missed: set[str] = set()
+        with gzip.GzipFile(fileobj=handle, mode="wb", compresslevel=1, mtime=0) as stream:
+            for unit in asked:
+                try:
+                    if unit["id"] in decider._decided or decider._serving(unit) is not None:
+                        decider.decide(unit)
+                    else:
+                        missed.add(unit["id"])
+                        stream.write((json.dumps(unit) + "\n").encode())
+                finally:
+                    if decider.context is not None:
+                        decider.context.memo.clear()
+                        decider.context.composed.clear()
+        handle.seek(0)
+        with gzip.GzipFile(fileobj=handle, mode="rb") as stream:
+            units = (json.loads(line) for line in stream)
+            if len(missed) < _STANDING_POOL_THRESHOLD:
+                for unit in units:
+                    decider.decide(unit)
+                return
+            fonts = None if decider.context is None else decider.context.fonts
+            width = min(jobs, (len(missed) + _STANDING_POOL_CHUNK - 1) // _STANDING_POOL_CHUNK)
+            spawn = multiprocessing.get_context("spawn")
+            with spawn.Pool(width, initializer=_standing_pool_init, initargs=(decider.rules, fonts)) as pool:
+                for wave in batched(batched(units, _STANDING_POOL_CHUNK), width):
+                    for records in pool.imap_unordered(_standing_pool_chunk, wave):
+                        for unit_id, record in records:
+                            missed.remove(unit_id)
+                            decider.take_id(unit_id, _decision_from_record(record))
+                    del wave
+        assert not missed, f"the pool never answered for {len(missed)} units"
 
 
 def rule_reach(rules, units, records, stamp, context=None, decide=None) -> Run:
     """The whole pass in one place, so the records a run writes and the tally it reports can never disagree about what any rule reached: every unit's decision (`decide`, a `Decider.decide` by default, which is where the memo sits), the composed claims first, because they take a window before any single rule is asked about it, then each rule's own answers over what is left. A caller outside the CLI — the standing probe, or a test holding checked-in rules against a synthetic surface — gets the same numbers the run printed, without re-deriving a single matcher decision."""
     if decide is None:
         decide = Decider(rules, context).decide
+    return _decision_reach(rules, ((unit["id"], decide(unit)) for unit in units), records, stamp)
+
+
+def _decision_reach(rules, decisions, records, stamp) -> Run:
+    """Aggregate ids and decisions in surface order without retaining unit records."""
     order = {rule["id"]: index for index, rule in enumerate(rules)}
     by_id = {rule["id"]: rule for rule in rules}
     fills = []
-    claimed: set[str] = set()
     credited_units: dict[str, list[str]] = {}
     composed_counts: dict[tuple[str, ...], list[int]] = {}
-    matched_by: dict[str, list[dict]] = {rule["id"]: [] for rule in rules}
-    held_by: dict[str, list[dict]] = {rule["id"]: [] for rule in rules}
-    for unit in units:
-        decision = decide(unit)
+    matched_by: dict[str, list[str]] = {rule["id"]: [] for rule in rules}
+    held_by: dict[str, list[str]] = {rule["id"]: [] for rule in rules}
+    for unit_id, decision in decisions:
         composed = decision.composed
         if composed is None:
             for rule_id in decision.matched:
-                matched_by[rule_id].append(unit)
+                matched_by[rule_id].append(unit_id)
             for rule_id in decision.held:
-                held_by[rule_id].append(unit)
+                held_by[rule_id].append(unit_id)
             continue
-        claimed.add(unit["id"])
         for rule_id in composed.credited:
-            credited_units.setdefault(rule_id, []).append(unit["id"])
+            credited_units.setdefault(rule_id, []).append(unit_id)
         counts = composed_counts.setdefault(composed.credited, [0, 0, 0])
         if composed.held:
             counts[2] += 1
-        elif unit["id"] in records:
+        elif unit_id in records:
             counts[1] += 1
         else:
             counts[0] += 1
             fills.append(
                 {
-                    "unit": unit["id"],
+                    "unit": unit_id,
                     "verdict": composed.verdict,
                     "note": _composed_note(by_id, composed),
                     "at": stamp,
@@ -3054,14 +3090,14 @@ def rule_reach(rules, units, records, stamp, context=None, decide=None) -> Run:
     reaches: dict[str, Reach] = {}
     for rule in rules:
         matched = matched_by[rule["id"]]
-        blanks = [unit for unit in matched if unit["id"] not in records]
+        blanks = [unit_id for unit_id in matched if unit_id not in records]
         note = f"[standing: {rule['id']}] {rule['note']}"
-        for unit in blanks:
-            fills.append({"unit": unit["id"], "verdict": rule["verdict"], "note": note, "at": stamp})
+        for unit_id in blanks:
+            fills.append({"unit": unit_id, "verdict": rule["verdict"], "note": note, "at": stamp})
         reaches[rule["id"]] = Reach(
-            filled=[unit["id"] for unit in blanks],
-            verdicted=[unit["id"] for unit in matched if unit["id"] in records],
-            held=[unit["id"] for unit in held_by[rule["id"]]],
+            filled=blanks,
+            verdicted=[unit_id for unit_id in matched if unit_id in records],
+            held=held_by[rule["id"]],
             composed_credit=len(credited_units.get(rule["id"], ())),
             composed_lines=sum(1 for ids in composed_counts if rule["id"] in ids),
         )
@@ -3156,6 +3192,10 @@ def _vocabulary_lines(rules, units):
     joining = {
         _joining_family(name) for unit in units for name in (unit.get("before") or {}).get("glyphs") or ()
     }
+    return _joining_vocabulary_lines(rules, joining)
+
+
+def _joining_vocabulary_lines(rules, joining):
     return [
         f"  except_left vocabulary: {rule['id']} guards against {family}, which no window on this surface "
         "joins from — the rule matches exactly what it always did, and its guard simply has nothing here "
@@ -3208,12 +3248,25 @@ def targeted_report(rules, rule, units, listed_ids, records, stamp, decide):
     listed = list(dict.fromkeys(listed_ids))
     wanted = set(listed)
     match = rule["match"]
-    subset = [unit for unit in units if unit["id"] in wanted or _reachable(match, unit)]
-    run = rule_reach(rules, subset, records, stamp, decide=decide)
-    by_id = {unit["id"]: unit for unit in subset}
+    by_id = {}
+    joining = set()
+    total = evaluated = 0
+
+    def decisions():
+        nonlocal total, evaluated
+        for unit in units:
+            total += 1
+            joining.update(_joining_family(name) for name in (unit.get("before") or {}).get("glyphs") or ())
+            if unit["id"] in wanted:
+                by_id[unit["id"]] = unit
+            if unit["id"] in wanted or _reachable(match, unit):
+                evaluated += 1
+                yield unit["id"], decide(unit)
+
+    run = _decision_reach(rules, decisions(), records, stamp)
     rule_id = rule["id"]
     lines = [
-        f"  targeted at {rule_id}: {len(subset)} of {len(units)} human units evaluated — the rule's "
+        f"  targeted at {rule_id}: {evaluated} of {total} human units evaluated — the rule's "
         f"name-grain candidates plus {len(listed)} listed — and no fill file written"
     ]
     lines += _listed_lines(
@@ -3226,12 +3279,12 @@ def targeted_report(rules, rule, units, listed_ids, records, stamp, decide):
     lines += _tally_lines([rule], Run(run.fills, crediting, run.reaches), False)
     lines += _rollup_lines([rule], run.reaches)
     lines += _tripwire_lines({rule_id: run.reaches[rule_id]}, records)
-    lines += _vocabulary_lines([rule], units)
+    lines += _joining_vocabulary_lines([rule], joining)
     lines += _explain_lines(rule_id, run.reaches[rule_id], records)
     return lines
 
 
-def main(argv=None, *, units=None, context=None):
+def main(argv=None, *, units=None, context=None, unit_source: Callable[[], Iterable[dict]] | None = None):
     argv = sys.argv[1:] if argv is None else list(argv)
     parser = argparse.ArgumentParser(description=(__doc__ or "").split(":")[0] + ".")
     parser.add_argument(
@@ -3300,7 +3353,7 @@ def main(argv=None, *, units=None, context=None):
         )
     if args.unit and not args.targeted:
         parser.error("--unit needs --targeted")
-    if units is None and context is None:
+    if units is None and context is None and unit_source is None:
         served = standing_client.ask("fill", argv, args.surface, mode=args.daemon, socket_path=args.socket)
         if served is not None:
             return standing_client.relay(served)
@@ -3317,33 +3370,31 @@ def main(argv=None, *, units=None, context=None):
     if args.explain is not None and not any(rule["id"] == args.explain for rule in rules):
         raise SystemExit(f"--explain names {args.explain!r}, which is not a rule id in {args.rules}")
     records = latest_verdicts(pathlib.Path(args.verdicts))
-    units = [
+    source = (
+        unit_source() if unit_source is not None else (iter_human_units(surface) if units is None else units)
+    )
+    eligible = (
         unit
-        for unit in (load_human_units(surface)[0] if units is None else units)
+        for unit in source
         if not unit.get("no_verdict") and unit.get("batch") is not None and unit.get("render_groups") == 1
-    ]
+    )
     composable = _composable(rules)
     declared = [shape for shape in (_shape_of(rule["match"]) for rule in rules) if shape is not None]
     wants_deltas = any(shape.needs_ink_deltas for shape in declared) or len(composable) > 1
-    # The index record always carries the key, and carries None exactly when the shard had no ink_deltas field at all — which is what "predates the emission" means here.
-    if wants_deltas and not any(unit.get("ink_deltas") is not None for unit in units):
-        raise SystemExit(
-            "the surface carries no ink_deltas fields, so it predates the "
-            f"{_shape_names(lambda shape: shape.needs_ink_deltas, 'and')} shapes; such a rule cannot "
-            "match anything on it — rebuild the surface (make review-cycle) first"
-        )
+    context_error = None
     if not (any(shape.font_backed for shape in declared) or len(composable) > 1):
         context = None
     elif context is None:
         before_font, after_font = surface / "fonts" / "before.otf", surface / "fonts" / "after.otf"
         if not (before_font.is_file() and after_font.is_file()):
-            raise SystemExit(
+            context_error = (
                 f"a {_shape_names(lambda shape: shape.font_backed, 'or')} rule, and any composed reading "
                 "two or more composable rules could earn, re-shape their candidate windows in the "
                 "surface's own font pair, and this surface carries no fonts/before.otf + fonts/after.otf "
                 "— rebuild the surface (make review-cycle) first"
             )
-        context = SlideContext(before_font, after_font)
+        else:
+            context = SlideContext(before_font, after_font)
 
     memo = None
     if args.memo is not None:
@@ -3351,26 +3402,69 @@ def main(argv=None, *, units=None, context=None):
         memo = Memo.open(args.memo, environment, family_digests, fresh=args.fresh_memo)
     decider = Decider(rules, context, memo)
 
+    domain_ids = []
+    candidate_ids = []
+    joining = set()
+    has_deltas = False
+
+    def asked_units():
+        nonlocal has_deltas
+        for unit in eligible:
+            unit_id = unit["id"]
+            domain_ids.append(unit_id)
+            has_deltas |= unit.get("ink_deltas") is not None
+            joining.update(_joining_family(name) for name in (unit.get("before") or {}).get("glyphs") or ())
+            if memo is not None:
+                memo.key_for(unit)
+            candidate = (
+                not args.open_only
+                or unit_id not in records
+                or records[unit_id]["verdict"] not in ACCEPTING_VERDICTS
+            )
+            if candidate:
+                candidate_ids.append(unit_id)
+            if context_error is None and (candidate or args.require_reach or args.targeted):
+                yield unit
+
+    target_lines = []
     if args.targeted:
         rule = next(rule for rule in rules if rule["id"] == args.explain)
-        for line in targeted_report(
-            rules, rule, units, args.unit, records, manifest["generated_at"], decider.decide
-        ):
+        target_lines = targeted_report(
+            rules, rule, asked_units(), args.unit, records, manifest["generated_at"], decider.decide
+        )
+    else:
+        _prefill(decider, asked_units(), args.jobs)
+    if wants_deltas and not has_deltas:
+        raise SystemExit(
+            "the surface carries no ink_deltas fields, so it predates the "
+            f"{_shape_names(lambda shape: shape.needs_ink_deltas, 'and')} shapes; such a rule cannot "
+            "match anything on it — rebuild the surface (make review-cycle) first"
+        )
+    if context_error is not None:
+        raise SystemExit(context_error)
+    if args.targeted:
+        for line in target_lines:
             print(line)
         return 0
 
-    candidates = open_units(units, records) if args.open_only else units
-    _prefill(decider, units if args.require_reach else candidates, args.jobs)
-    run = rule_reach(rules, candidates, records, manifest["generated_at"], decide=decider.decide)
-
-    # Reach is a reading of the surface rather than of the queue, so --require-reach judges it over the whole human domain against an empty store: a rule every one of whose windows a human already verdicted has still reached them, and a narrowed run would have been offered none of them.
+    run = _decision_reach(
+        rules,
+        ((unit_id, decider._decided[unit_id]) for unit_id in candidate_ids),
+        records,
+        manifest["generated_at"],
+    )
     reaches = run.reaches
     if args.require_reach:
-        reaches = rule_reach(rules, units, {}, manifest["generated_at"], decide=decider.decide).reaches
+        reaches = _decision_reach(
+            rules,
+            ((unit_id, decider._decided[unit_id]) for unit_id in domain_ids),
+            {},
+            manifest["generated_at"],
+        ).reaches
 
     lines = []
     if memo is not None:
-        held = memo.write(units, decider.roster)
+        held = memo.write_primed(decider.roster)
         lines.append(
             f"  memo: served {decider.served}, computed {decider.computed}, unkeyed {decider.unkeyed}; "
             f"{memo.path.name} holds {held} {'entry' if held == 1 else 'entries'}"
@@ -3379,7 +3473,7 @@ def main(argv=None, *, units=None, context=None):
     if args.require_reach or not args.open_only:
         lines += _rollup_lines(rules, reaches)
     lines += _tripwire_lines(run.reaches, records)
-    lines += _vocabulary_lines(rules, units)
+    lines += _joining_vocabulary_lines(rules, joining)
     if args.explain is not None:
         lines += _explain_lines(args.explain, run.reaches[args.explain], records)
 

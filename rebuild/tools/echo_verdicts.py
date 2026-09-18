@@ -10,7 +10,8 @@ ROOT = pathlib.Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
 
 from rebuild.tools import console  # noqa: E402
-from rebuild.tools.review_docket import load_human_units, verdicts_agree  # noqa: E402
+from rebuild.review import unit_index  # noqa: E402
+from rebuild.tools.review_docket import verdicts_agree  # noqa: E402
 from rebuild.tools.verdict_notes import cap_markers  # noqa: E402
 
 SURFACE = ROOT / "rebuild/out/review"
@@ -26,8 +27,13 @@ def latest_verdicts(path):
     return best
 
 
+def echo_record(unit: dict) -> dict:
+    """The fields echo fill retains for each human unit, including its conflict-report notation."""
+    return {"id": unit["id"], "echo": unit.get("echo"), "notation": unit.get("notation")}
+
+
 def main(argv=None, *, units=None):
-    """`units` lets the verdict chain hand over the human index records it holds; a standalone run loads them itself. The `echo` filter below reads the same set either way: under `m1-audit`, the one mode the build writes, `rebuild/review/build.py`'s contract check refuses an echo on any unit outside the human workload, so no machine record can join a group and the human records are every record that can."""
+    """Read the chain's reusable human echo projection or stream a standalone surface. Echo groups retain only id, echo, and notation; the build's contract refuses echoes outside the human workload."""
     parser = argparse.ArgumentParser(description=(__doc__ or "").split(".")[0] + ".")
     parser.add_argument("verdicts", help="the verdicts file to seed from (an export or the autosave)")
     parser.add_argument("--surface", default=str(SURFACE))
@@ -45,9 +51,9 @@ def main(argv=None, *, units=None):
     records = latest_verdicts(pathlib.Path(args.verdicts))
 
     groups = collections.defaultdict(list)
-    for unit in load_human_units(surface)[0] if units is None else units:
+    for unit in unit_index.iter_human_units(surface) if units is None else units:
         if unit.get("echo"):
-            groups[unit["echo"]].append(unit)
+            groups[unit["echo"]].append(echo_record(unit))
 
     fills = []
     conflicts = []

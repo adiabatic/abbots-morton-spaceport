@@ -8,6 +8,7 @@ import collections
 import json
 import pathlib
 import sys
+from collections.abc import Iterable
 
 ROOT = pathlib.Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
@@ -43,8 +44,8 @@ def resolve_prior(verdict_files):
     return prior
 
 
-def main(argv=None, *, current_units: list[dict] | None = None, current_ids: set[str] | None = None):
-    """`current_units` and `current_ids` let a caller that already holds the live surface hand it over rather than have this tool read it again: the human index records, which the carry lands verdicts on, and the id of every unit on the surface, machine ones included, which the stranded figure counts prior verdicts against — the pair `unit_index.load_human_units` returns, and rebuild.tools.verdict_chain is the one caller that hands it over. They come together or not at all: the human records alone would land every verdict correctly and count `stranded` short, since a prior verdict on a unit that is on the surface but outside the human workload is not stranded."""
+def main(argv=None, *, current_units: Iterable[dict] | None = None, current_ids: set[str] | None = None):
+    """Carry from a one-pass human record source and every surface id, including machine ids for the stranded figure. Supplied records need only an `id`; the chain supplies its echo projection, and a standalone run streams the human index while collecting all ids. The two arguments come together or not at all."""
     parser = argparse.ArgumentParser(
         description="Carry prior verdicts onto the live surface, landing each on the unit of the id it names."
     )
@@ -71,13 +72,16 @@ def main(argv=None, *, current_units: list[dict] | None = None, current_ids: set
 
     manifest = json.loads((args.current_surface / "manifest.json").read_text())
     if current_units is None or current_ids is None:
-        current_units, current_ids = unit_index.load_human_units(args.current_surface)
+        current_ids = set()
+        current_units = unit_index.iter_human_units(args.current_surface, unit_ids=current_ids)
     human = current_units
 
     carried = []
     kinds = collections.Counter()
     unhit = 0
+    human_count = 0
     for unit in human:
+        human_count += 1
         hit = prior.get(unit["id"])
         if hit is None:
             unhit += 1
@@ -96,7 +100,7 @@ def main(argv=None, *, current_units: list[dict] | None = None, current_ids: set
         if unit_id not in current_ids and record["verdict"] != "skip"
     )
     print(
-        f"carry figures: human={len(human)} key_hits={len(human) - unhit} unhit={unhit} stranded={stranded}"
+        f"carry figures: human={human_count} key_hits={human_count - unhit} unhit={unhit} stranded={stranded}"
     )
 
     carried.sort(key=lambda r: r["unit"])
@@ -110,7 +114,7 @@ def main(argv=None, *, current_units: list[dict] | None = None, current_ids: set
     out.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n")
     print(f"wrote {out.name}: {len(carried)} carried onto manifest {manifest['generated_at']}")
     print(f"kinds: {dict(kinds)}")
-    print(f"human queue: {len(human)} -> {len(human) - len(carried)} still needing fresh verdicts")
+    print(f"human queue: {human_count} -> {human_count - len(carried)} still needing fresh verdicts")
     return 0
 
 

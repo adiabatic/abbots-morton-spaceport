@@ -1,4 +1,4 @@
-"""Tests for the verdict chain's contract with the steps it drives, which is thinner than it looks: the chain loads the surface's human index records once, beside the id of every unit on the surface, and hands every step the human records — the carry and the docket take the id set too, since their stranded and absent-unit figures count prior verdicts against every id — and each step decides for itself what part of that list it has any business reading. The standing fill is the one step that decides visibly — the chain asks for its `--open-only --require-reach` form, narrowing what it writes from to the units that can move a fill while keeping the reach check over the whole domain, where a rule that has run out of windows fails the step — so what is asserted here is that the chain passes both flags and still hands the human records over entire."""
+"""The chain keeps only ids and echo fields, reuses the echo projection, and supplies fresh streams to standing fill and the complaint docket."""
 
 import json
 import pathlib
@@ -37,18 +37,23 @@ IDS = frozenset({"u-1", "u-2", "u-machine"})
 
 
 def _chain(tmp_path, monkeypatch, extra=(), complaints=False):
-    """The chain over a stub surface with every step but the standing fill stubbed out, returning its exit code, the human records it loaded, the standing fill's calls, where the fill was told to write, the docket's calls (none unless `complaints` asks for the step) and what each echo round was handed."""
+    """The chain over a stub surface with every step but the standing fill stubbed out, returning its exit code, the human source records, the standing fill's calls, where the fill was told to write, the docket's calls (none unless `complaints` asks for the step) and what each echo round was handed."""
     surface = tmp_path / "review"
     surface.mkdir()
     (surface / "manifest.json").write_text(json.dumps({"generated_at": STAMP}))
     master = tmp_path / "master.json"
     master.write_text(json.dumps(_payload()))
-    index = [{"id": "u-1"}, {"id": "u-2"}]
+    index = [{"id": "u-1", "after": {"cells": [1]}}, {"id": "u-2"}]
     calls = []
     dockets = []
     echoes = []
 
-    monkeypatch.setattr(vc.unit_index, "load_human_units", lambda _surface: (index, set(IDS)))
+    def stream(_surface, *, unit_ids=None):
+        if unit_ids is not None:
+            unit_ids.update(IDS)
+        yield from (dict(unit) for unit in index)
+
+    monkeypatch.setattr(vc.unit_index, "iter_human_units", stream)
     monkeypatch.setattr(vc.merge_verdicts, "main", lambda _argv: 0)
 
     def echo(argv, units=None):
@@ -57,16 +62,22 @@ def _chain(tmp_path, monkeypatch, extra=(), complaints=False):
 
     monkeypatch.setattr(vc.echo_verdicts, "main", echo)
 
-    def standing(argv, units=None):
-        calls.append((argv, units))
+    def standing(argv, unit_source=None):
+        assert unit_source is not None
+        first, second = unit_source(), unit_source()
+        assert first is not second
+        assert list(first) == list(second) == index
+        calls.append((argv, unit_source))
         return _write_out(argv)
 
     monkeypatch.setattr(vc.standing_verdicts, "main", standing)
-    monkeypatch.setattr(
-        vc.complaint_docket,
-        "main",
-        lambda argv, units=None, unit_ids=None: dockets.append((argv, units, unit_ids)) or 0,
-    )
+
+    def docket(argv, units=None, unit_ids=None):
+        assert units is not None
+        dockets.append((argv, list(units), unit_ids))
+        return 0
+
+    monkeypatch.setattr(vc.complaint_docket, "main", docket)
 
     standing_out = tmp_path / "verdicts-standing-fill.json"
     code = vc.main(
@@ -93,7 +104,7 @@ def _chain(tmp_path, monkeypatch, extra=(), complaints=False):
 
 
 def test_the_chain_runs_the_standing_fill_in_its_open_only_form(tmp_path, monkeypatch):
-    """The narrowing and the refusal are both the tool's, so the chain still hands over the human records entire and merely names the form — and hands it the memo beside the surface directory, outside it, so a surface rebuild never clears it."""
+    """The narrowing and the refusal are both the tool's, so the chain still supplies fresh streams over the human records entire and merely names the form — and hands it the memo beside the surface directory, outside it, so a surface rebuild never clears it."""
     code, index, calls, standing_out, dockets, _echoes = _chain(tmp_path, monkeypatch)
     assert code == 0
     assert dockets == []
@@ -104,7 +115,7 @@ def test_the_chain_runs_the_standing_fill_in_its_open_only_form(tmp_path, monkey
     assert argv[argv.index("--memo") + 1] == str(tmp_path / vc.standing_verdicts.MEMO_NAME)
     assert "--fresh-memo" not in argv
     assert argv[argv.index("--jobs") + 1] == "1"
-    assert units is index
+    assert list(units()) == index
 
 
 def test_the_echo_fill_takes_the_human_records_and_the_docket_takes_the_id_set_beside_them(
@@ -113,10 +124,12 @@ def test_the_echo_fill_takes_the_human_records_and_the_docket_takes_the_id_set_b
     """Echo fill reads nothing a machine record could carry, so it gets the human records alone; the docket's absent-unit warning counts verdict records against every id on the surface, so it gets the id set beside them."""
     code, index, _calls, _out, dockets, echoes = _chain(tmp_path, monkeypatch, complaints=True)
     assert code == 0
-    assert echoes and all(units is index for units in echoes)
+    assert len(echoes) >= 2
+    assert all(units is echoes[0] for units in echoes)
+    assert echoes[0] == [vc.echo_verdicts.echo_record(unit) for unit in index]
     [(argv, units, unit_ids)] = dockets
     assert argv[argv.index("--surface") + 1] == str(tmp_path / "review")
-    assert units is index
+    assert units == index
     assert unit_ids == IDS
 
 
@@ -152,7 +165,13 @@ def _carrying_chain(tmp_path, monkeypatch, extra=()):
     index = [{"id": "u-DdcTojn1hba"}]
     carries = []
     merges = []
-    monkeypatch.setattr(vc.unit_index, "load_human_units", lambda _surface: (index, set(IDS)))
+
+    def stream(_surface, *, unit_ids=None):
+        if unit_ids is not None:
+            unit_ids.update(IDS)
+        yield from (dict(unit) for unit in index)
+
+    monkeypatch.setattr(vc.unit_index, "iter_human_units", stream)
     monkeypatch.setattr(
         vc.carry_verdicts,
         "main",
@@ -161,7 +180,7 @@ def _carrying_chain(tmp_path, monkeypatch, extra=()):
     )
     monkeypatch.setattr(vc.merge_verdicts, "main", lambda argv: merges.append(argv) or 0)
     monkeypatch.setattr(vc.echo_verdicts, "main", lambda argv, units=None: _write_out(argv))
-    monkeypatch.setattr(vc.standing_verdicts, "main", lambda argv, units=None: _write_out(argv))
+    monkeypatch.setattr(vc.standing_verdicts, "main", lambda argv, unit_source=None: _write_out(argv))
     code = vc.main(
         [
             "--surface",
@@ -188,14 +207,14 @@ def _carrying_chain(tmp_path, monkeypatch, extra=()):
 
 
 def test_the_carry_step_hands_the_verdicts_file_and_the_loaded_index_to_the_carry(tmp_path, monkeypatch):
-    """The carry lands verdicts by unit id, so the chain hands it the verdicts file, the human records it already loaded and every id on the surface beside them — its stranded figure counts against the machine ids too, and no surface beyond the live one is named — and merges what it wrote."""
+    """The carry lands verdicts by unit id, so the chain hands it the verdicts file, the human echo projection it holds and every id on the surface beside them — its stranded figure counts against the machine ids too, and no surface beyond the live one is named — and merges what it wrote."""
     code, index, carries, merges = _carrying_chain(tmp_path, monkeypatch)
     assert code == 0
     [(argv, units, unit_ids)] = carries
     assert argv[: argv.index("--out")] == ["--verdicts", str(tmp_path / "verdicts.json")]
     assert argv[argv.index("--out") + 1] == str(tmp_path / "carried.json")
     assert argv[argv.index("--current-surface") + 1] == str(tmp_path / "review")
-    assert units is index
+    assert units == [vc.echo_verdicts.echo_record(unit) for unit in index]
     assert unit_ids == IDS
     assert merges[0][0] == str(tmp_path / "carried.json")
 
