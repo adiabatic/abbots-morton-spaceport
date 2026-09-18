@@ -8,13 +8,14 @@ from pathlib import Path
 
 import pytest
 
-from rebuild.review import census
+from rebuild.review import census, unit_store
 from rebuild.review.audit import (
     AuditRow,
-    Unit,
+    UnitTable,
     Workload,
     build_units,
     load_ledger,
+    load_table,
     merge_ink_duplicate_units,
 )
 from rebuild.review.census import (
@@ -38,6 +39,7 @@ from rebuild.review.census import (
 )
 from rebuild.review.audit import LedgerClass
 from rebuild.review.enrich import LETTERS
+from rebuild.review.unit_store import UnitStore
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 LEDGER_PATH = REPO_ROOT / "rebuild" / "m1-divergences.yaml"
@@ -64,16 +66,27 @@ def _row(config: str, codepoints: str, matched: str, baseline: tuple[str, ...]) 
     )
 
 
-def _index_of(capture, codepoints: str, config: str) -> int:
+def _index_of(capture: census.PremergeSnapshot, codepoints: str, config: str) -> int:
     return next(
         index
-        for index, snap in enumerate(capture)
-        if snap.codepoints == codepoints and config in snap.configs
+        for index, grain in enumerate(capture.grains())
+        if grain.codepoints == codepoints and config in grain.configs
     )
 
 
+def _folded_table(rows: list[AuditRow]) -> tuple[census.PremergeSnapshot, UnitTable, UnitStore]:
+    """A table loaded from `rows` against the live ledger, captured, folded under an ink signature that reads every render of a window identical, compacted with the snapshot rebased, beside an empty store over the same rows."""
+    ledger = load_ledger(LEDGER_PATH)
+    table, columns = load_table(rows, ledger, dict(LETTERS))
+    capture = capture_premerge(table)
+    exempt = {entry.id for entry in ledger if entry.no_verdict}
+    merge_ink_duplicate_units(table, columns, lambda text, config: text, exempt)
+    capture.rebase(table.compact())
+    return capture, table, UnitStore(table.n, strings=table.strings)
+
+
 def _folded_fixture():
-    """Four windows covering every shape the projection has to handle: a default-reachable UNMATCHED survivor absorbing a relabeled ss04 sibling, two stylistic-set-only UNMATCHED siblings that defer to different buckets, a no-verdict matched unit absorbing an UNMATCHED sibling, and two standalone units that never fold. Returns the pre-merge capture and the post-fold live list, with phase 1's products hand-set on the survivors."""
+    """Four windows covering every shape the projection has to handle: a default-reachable UNMATCHED survivor absorbing a relabeled ss04 sibling, two stylistic-set-only UNMATCHED siblings that defer to different buckets, a no-verdict matched unit absorbing an UNMATCHED sibling, and two standalone units that never fold. Returns the pre-merge snapshot, the compacted table and a store over it, with phase 1's products hand-set on the survivors' rows."""
     rows = [
         _row("default", FOLD_WINDOW, "UNMATCHED", ("qsPea", "qsMay")),
         _row("ss03", FOLD_WINDOW, "UNMATCHED", ("qsPea", "qsMay")),
@@ -85,12 +98,7 @@ def _folded_fixture():
         _row("default", STANDALONE_UNMATCHED, "UNMATCHED", ("qsDay", "qsDay")),
         _row("default", STANDALONE_MATCHED, "dangling-anchor-dropped", ("qsKey", "qsKey")),
     ]
-    ledger = load_ledger(LEDGER_PATH)
-    units = build_units(rows, ledger, dict(LETTERS))
-    capture = capture_premerge(units)
-    exempt = {entry.id for entry in ledger if entry.no_verdict}
-    merge_ink_duplicate_units(units, lambda text, config: text, exempt)
-
+    capture, table, store = _folded_table(rows)
     verdicts = {
         FOLD_WINDOW: (True, "no-chain-gains"),
         DEFERRED_WINDOW: (False, "deferred-ss04"),
@@ -98,17 +106,22 @@ def _folded_fixture():
         STANDALONE_UNMATCHED: (False, "seam-loss-withdrawal"),
         STANDALONE_MATCHED: (True, ""),
     }
-    for unit in units:
-        unit.ink_identical, unit.family_id = verdicts[unit.codepoints]
-    return capture, units
+    assert table.n == 5
+    for ordinal in range(table.n):
+        ink_identical, family = verdicts[table.codepoints_text(ordinal)]
+        if ink_identical:
+            store._flags[ordinal] |= unit_store.INK_IDENTICAL
+        table.set_family(ordinal, family)
+    return capture, table, store
 
 
 def test_folded_siblings_take_their_survivors_ink_verdict():
     """A fold is proof that every config of every folded sibling renders one identical picture, so the survivor's ink verdict is the whole window's — each captured sibling reports its survivor's flag, and the units that never folded report their own."""
-    capture, units = _folded_fixture()
-    facts = derive_premerge(capture, units)
+    capture, table, store = _folded_fixture()
+    facts = derive_premerge(capture, table, store)
     flags = facts.ink_flags
     assert facts.units == len(capture) == len(flags) == 8
+    assert facts.workload_digest == workload_digest(capture.grains())
     assert flags[_index_of(capture, FOLD_WINDOW, "default")] == "1"
     assert flags[_index_of(capture, FOLD_WINDOW, "ss04")] == "1"
     assert flags[_index_of(capture, DEFERRED_WINDOW, "ss03")] == "0"
@@ -121,8 +134,8 @@ def test_folded_siblings_take_their_survivors_ink_verdict():
 
 def test_families_read_deferral_from_the_premerge_config_classes():
     """The family of a pre-merge UNMATCHED unit is its own deferred bucket when it has one and its survivor's phase-1 family otherwise, and the bucket has to come from the pre-merge config classes the fold is about to widen: the ss03-only survivor here stays deferred-ss03 even though the ss04 sibling it absorbs would push the merged unit to deferred-ss04. A matched unit claims no family at all."""
-    capture, units = _folded_fixture()
-    facts = derive_premerge(capture, units)
+    capture, table, store = _folded_fixture()
+    facts = derive_premerge(capture, table, store)
     assert dict(facts.families) == {
         _index_of(capture, FOLD_WINDOW, "default"): "no-chain-gains",
         _index_of(capture, FOLD_WINDOW, "ss04"): "deferred-ss04",
@@ -136,29 +149,33 @@ def test_families_read_deferral_from_the_premerge_config_classes():
     assert matched.isdisjoint(index for index, _family in facts.families)
 
 
-def test_derive_premerge_refuses_a_unit_with_no_resolvable_survivor():
-    """A captured unit whose object is gone must be answered by exactly one live unit of the same window carrying its earliest config. Nothing else is a survivor, and guessing would silently attribute one window's ink to another's."""
+def test_derive_premerge_reads_each_folded_rows_survivor_off_the_compaction():
+    """A captured row that the fold removed answers through the survivor the compaction recorded for it — the earliest-config sibling's post-fold row — and a snapshot that was never rebased onto a compaction is refused rather than read against rows that have moved."""
     rows = [
         _row("default", FOLD_WINDOW, "UNMATCHED", ("qsPea", "qsMay")),
         _row("ss04", FOLD_WINDOW, "UNMATCHED", ("qsPea.ss04", "qsMay")),
     ]
-    units = build_units(rows, load_ledger(LEDGER_PATH), dict(LETTERS))
-    capture = capture_premerge(units)
-    del units[_index_of(capture, FOLD_WINDOW, "ss04")]
-    with pytest.raises(ValueError, match=FOLD_WINDOW):
-        derive_premerge(capture, units)
+    table, columns = load_table(rows, load_ledger(LEDGER_PATH), dict(LETTERS))
+    capture = capture_premerge(table)
+    merge_ink_duplicate_units(table, columns, lambda text, config: text)
+    with pytest.raises(ValueError, match="rebased"):
+        derive_premerge(capture, table, UnitStore(table.n))
+    capture.rebase(table.compact())
+    assert capture.survivor is not None and capture.folded is not None
+    folded = _index_of(capture, FOLD_WINDOW, "ss04")
+    assert list(capture.folded) == [1 if index == folded else 0 for index in range(2)]
+    assert list(capture.survivor) == [0, 0] and table.n == 1
+    with pytest.raises(ValueError, match="against 2 captured"):
+        capture.rebase(table.compact())
 
 
 def test_derive_premerge_refuses_an_unmatched_unit_with_no_family():
     """Every pre-merge UNMATCHED window owes the census a family. A non-deferred one whose survivor never got a phase-1 family is a hole in the partition, not an empty string to be recorded."""
-    units = build_units(
-        [_row("default", STANDALONE_UNMATCHED, "UNMATCHED", ("qsDay", "qsDay"))],
-        load_ledger(LEDGER_PATH),
-        dict(LETTERS),
+    capture, table, store = _folded_table(
+        [_row("default", STANDALONE_UNMATCHED, "UNMATCHED", ("qsDay", "qsDay"))]
     )
-    capture = capture_premerge(units)
     with pytest.raises(ValueError, match=STANDALONE_UNMATCHED):
-        derive_premerge(capture, units)
+        derive_premerge(capture, table, store)
 
 
 class _Comparator:
@@ -180,18 +197,22 @@ def test_ink_group_from_flags_mirrors_the_histogram():
         for index in range(len(identical))
     ]
     ledger = load_ledger(LEDGER_PATH)
-    units = build_units(rows, ledger, dict(LETTERS))
+    table, _rows = load_table(rows, ledger, dict(LETTERS))
+    units = table.units()
     verdicts = {_text(unit): flag for unit, flag in zip(units, identical, strict=True)}
     flags = "".join("1" if verdicts[_text(unit)] else "0" for unit in units)
-    class_rows = [(unit.class_id, unit.no_verdict) for unit in units]
+    snapshot = capture_premerge(table)
+    assert [(unit.class_id, unit.no_verdict) for unit in units] == list(snapshot.class_rows())
 
-    workload = Workload(units=units, ledger=ledger, row_count=len(rows))
-    assert ink_group_from_flags(class_rows, flags) == ink_histogram(workload, _Comparator(verdicts))
+    workload = Workload(table=table, ledger=ledger, row_count=len(rows))
+    assert ink_group_from_flags(snapshot.class_rows(), flags) == ink_histogram(
+        workload, _Comparator(verdicts)
+    )
 
 
 def test_workload_digest_tracks_order_and_configs():
     """The digest is what proves a flag string is indexed against the workload a reader just loaded, so it has to move when the order moves and when a unit's config set changes — either would silently misalign every index after it."""
-    units = build_units(
+    units, _rows = build_units(
         [
             _row("default", FOLD_WINDOW, "UNMATCHED", ("qsPea", "qsMay")),
             _row("default", STANDALONE_UNMATCHED, "UNMATCHED", ("qsDay", "qsDay")),
@@ -206,13 +227,55 @@ def test_workload_digest_tracks_order_and_configs():
     assert workload_digest(units) != base
 
 
-def _stub_unit(unit_id: str, codepoints: str, batch: int | None, echo: str | None) -> Unit:
-    unit = Unit(codepoints=codepoints, baseline=(), new=(), class_id="boundary-echo", rows=())
-    unit.unit_id = unit_id
-    unit.ordinal = int(unit_id.removeprefix("u-"))
-    unit.batch = batch
-    unit.echo = echo
-    return unit
+def test_the_snapshots_grains_digest_as_the_materialized_units_do():
+    """The snapshot's columns spell the same census grain a materialized unit does — window, class, exemption, configs, in row order — so the digest over the snapshot is the digest over the units the same table materializes, and it is the one the sidecar carries."""
+    table, _rows = load_table(
+        [
+            _row("default", FOLD_WINDOW, "UNMATCHED", ("qsPea", "qsMay")),
+            _row("ss03", FOLD_WINDOW, "UNMATCHED", ("qsPea", "qsMay")),
+            _row("default", STANDALONE_MATCHED, "boundary-echo", ("qsKey", "qsKey")),
+        ],
+        load_ledger(LEDGER_PATH),
+        dict(LETTERS),
+    )
+    snapshot = capture_premerge(table)
+    assert workload_digest(snapshot.grains()) == workload_digest(table.units())
+    assert [grain.no_verdict for grain in snapshot.grains()] == [unit.no_verdict for unit in table.units()]
+    assert any(grain.no_verdict for grain in snapshot.grains())
+
+
+def _example_table() -> tuple[UnitTable, dict[int, str | None], list[dict]]:
+    """Four windows as a table with the reduce's fields written into its columns — three human units in two echo groups, the worked example among them, and one machine-approved unit outside the index — beside their config notes by ordinal and the shard records the same units would have been written as."""
+    windows = {
+        WORKED_EXAMPLE_CODEPOINTS: (0, "e-0000", None),
+        "E670:E653:E652:E650": (0, "e-0000", None),
+        "E670:E653:E652:E651": (1, "e-0001", "only under ss10"),
+        "E650:E651": (None, None, "only when ss03 is on"),
+    }
+    table, _rows = load_table(
+        [_row("default", codepoints, "boundary-echo", ("q",)) for codepoints in windows],
+        load_ledger(LEDGER_PATH),
+        dict(LETTERS),
+    )
+    config_notes: dict[int, str | None] = {}
+    records: list[dict] = []
+    for ordinal in range(table.n):
+        batch, echo, note = windows[table.codepoints_text(ordinal)]
+        table.set_order_batch(ordinal, None if batch is None else ordinal, batch)
+        table.set_echo(ordinal, echo)
+        config_notes[ordinal] = note
+        records.append(
+            {
+                "ink_identical": batch is None,
+                "picture_identical": False,
+                "junior_equivalent": False,
+                "no_verdict": False,
+                "echo": echo,
+                "codepoints": table.codepoints_text(ordinal),
+                "config_note": note,
+            }
+        )
+    return table, config_notes, records
 
 
 def _write_shard(root: Path, records: list[dict]) -> dict:
@@ -243,44 +306,24 @@ def _write_shard(root: Path, records: list[dict]) -> dict:
     return manifest
 
 
-def _example_records():
-    units = [
-        _stub_unit("u-0000", WORKED_EXAMPLE_CODEPOINTS, 0, "e-0000"),
-        _stub_unit("u-0001", "E670:E653:E652:E650", 0, "e-0000"),
-        _stub_unit("u-0002", "E670:E653:E652:E651", 1, "e-0001"),
-        _stub_unit("u-0003", "E650:E651", None, None),
-    ]
-    notes = [None, None, "only under ss10", "only when ss03 is on"]
-    config_notes = {unit.ordinal: note for unit, note in zip(units, notes, strict=True)}
-    records = [
-        {
-            "ink_identical": unit.batch is None,
-            "picture_identical": False,
-            "junior_equivalent": False,
-            "no_verdict": False,
-            "echo": unit.echo,
-            "codepoints": unit.codepoints,
-            "config_note": config_notes[unit.ordinal],
-        }
-        for unit in units
-    ]
-    return units, config_notes, records
-
-
 def test_built_group_from_memory_mirrors_the_shard_walk(tmp_path):
-    """The built group computed off the build's own units and per-unit notes has to equal the one computed by re-reading the shards it wrote — same human-workload size, same echo-sibling count for the worked example, same encoded config-note histogram."""
-    units, config_notes, records = _example_records()
+    """The built group computed off the build's own table and per-unit notes has to equal the one computed by re-reading the shards it wrote — same human-workload size, same echo-sibling count for the worked example, same encoded config-note histogram."""
+    table, config_notes, records = _example_table()
     manifest = _write_shard(tmp_path, records)
-    assert built_group_from_memory(units, config_notes) == built_group(tmp_path, manifest)
+    assert built_group_from_memory(table, config_notes) == built_group(tmp_path, manifest)
+    assert built_group_from_memory(table, config_notes)["worked_example_echo_siblings"] == 2
 
 
 def test_built_group_reports_a_missing_worked_example_as_none(tmp_path):
     """A workload that never pages the worked example to a human — every mini surface a test builds — reports its echo-sibling count as None rather than refusing to build, and both formulations agree on that too; over the live corpus it is the pins diff — an accepted count replaced by a null — that surfaces the loss."""
-    units, config_notes, records = _example_records()
-    units[0].batch = None
-    records[0]["ink_identical"] = True
+    table, config_notes, records = _example_table()
+    example = next(
+        ordinal for ordinal in range(table.n) if table.codepoints_text(ordinal) == WORKED_EXAMPLE_CODEPOINTS
+    )
+    table.set_order_batch(example, None, None)
+    records[example]["ink_identical"] = True
     manifest = _write_shard(tmp_path, records)
-    from_memory = built_group_from_memory(units, config_notes)
+    from_memory = built_group_from_memory(table, config_notes)
     assert from_memory["worked_example_echo_siblings"] is None
     assert from_memory == built_group(tmp_path, manifest)
 
@@ -358,34 +401,32 @@ def test_invariant_group_keeps_each_sources_own_order():
 
 def test_build_facts_reduces_its_own_premerge_records(tmp_path):
     """The pins the sidecar carries are reductions of the records it carries beside them, so a reader can recompute either group and get the same answer. The invariant block is a reduction too — of the same manifest and the same family census the volatile groups came from, which is why the two blocks can restate each other without any risk of disagreeing."""
-    units, config_notes, records = _example_records()
+    table, config_notes, records = _example_table()
     manifest = _write_shard(tmp_path, records)
     capture = capture_premerge(
-        build_units(
+        load_table(
             [
                 _row("default", FOLD_WINDOW, "UNMATCHED", ("qsPea", "qsMay")),
                 _row("default", STANDALONE_MATCHED, "boundary-echo", ("qsKey", "qsKey")),
             ],
             load_ledger(LEDGER_PATH),
             dict(LETTERS),
-        )
+        )[0]
     )
     premerge = PremergeFacts(
         units=len(capture),
-        workload_digest=workload_digest(capture),
+        workload_digest=workload_digest(capture.grains()),
         ink_flags="10",
         families=[(_index_of(capture, FOLD_WINDOW, "default"), "no-chain-gains")],
     )
-    facts = build_facts(manifest, units, config_notes, capture, premerge, row_count=2)
+    facts = build_facts(manifest, table, config_notes, capture, premerge, row_count=2)
     assert facts["format"] == FACTS_FORMAT
     assert facts["surface"]["generated_at"] == manifest["generated_at"]
     volatile = facts["pins"]["volatile"]
     assert volatile["audit"] == {"row_count": 2, "units": 2}
     assert volatile["built"] == built_group(tmp_path, manifest)
     assert volatile["families"] == {"census": {"no-chain-gains": 1}, "total": 1}
-    assert volatile["ink"] == ink_group_from_flags(
-        [(snap.class_id, snap.no_verdict) for snap in capture], "10"
-    )
+    assert volatile["ink"] == ink_group_from_flags(capture.class_rows(), "10")
     assert facts["pins"]["invariant"] == {
         "classes": [meta["id"] for meta in manifest["classes"]],
         "machine_approved_classes": ["bare-name-live-join", "boundary-echo"],
@@ -393,7 +434,7 @@ def test_build_facts_reduces_its_own_premerge_records(tmp_path):
         "families": ["no-chain-gains"],
     }
     assert facts["premerge"]["ink_identical"] == "10"
-    assert facts["premerge"]["workload_digest"] == workload_digest(capture)
+    assert facts["premerge"]["workload_digest"] == workload_digest(capture.grains())
 
 
 def _cli_surface(tmp_path: Path, pins: dict) -> Path:
@@ -447,7 +488,7 @@ def test_update_copies_the_sidecars_volatile_block_and_reduces_the_invariant_aga
 
 def test_from_scratch_recomputes_from_sources_without_the_sidecar(tmp_path, monkeypatch):
     """`--from-scratch` is the standalone re-derivation the sidecar traded away: it re-reads the source artifacts for the pre-merge groups and never touches census-facts.json, which here is deliberately unreadable. It reaches the same two-block shape, the invariant block reading the families it just re-derived rather than any the sidecar might have held."""
-    _units, _config_notes, records = _example_records()
+    _table, _config_notes, records = _example_table()
     surface = tmp_path / "surface"
     surface.mkdir()
     manifest = _write_shard(surface, records)

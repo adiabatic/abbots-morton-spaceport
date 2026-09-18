@@ -4,7 +4,7 @@ The journal is rebuild/out/cycle-timings.ndjson (gitignored with the rest of reb
 
 A check line denormalizes its own context — host, cpu count, box size — rather than pointing at a run line for it, because the parentless line is the common case and a record nobody can interpret without a parent it does not have is not a record. rc is not a verdict, and this journal is where that stays honest: a check line records what the judge decided and never what the process returned, so a run that died before its judge and a run the judge failed are told apart. The rule runs backwards too — a "step" line carries a return code and no verdict, and no reader here manufactures one from it, so the history from before check lines existed stays what it is, unjudged, rather than being back-filled with a guess that would read exactly like a measurement.
 
-What a cycle spent is still recorded as it always was: one "step" line per subprocess the driver actually spawned, and one "run" line when the cycle finishes, interrupted finishes included. A step line carries the driver's step name (run_m1, gate:conform, merge, ...), the argv, the return code, the wall seconds, the step's peak RSS in bytes (measured by the driver as it reaps the child, so it covers the child's whole process tree — see peak_rss.reap_peak_rss_bytes), and — parsed out of the child's captured stdout/stderr — any inner "[t] <label> <secs>s" phase lines the child printed, which is how the per-config conform sweeps and run_m1's phase breakdown survive even for gates whose output is never streamed to the console. An inner line may carry its own peak-RSS figure as a trailing "rss_gb=<n>" token (peak_rss.rss_token is the writer; decimal GB, like every figure here), which rides into the journal beside the label's seconds. A run line carries the run's identity — hostname, cpu count, and the size of the box it ran on — start/finish stamps, total wall seconds, the cycle summary's exit/gates/plan blocks, and the carry's figures (human units, key hits, unhit, stranded; `artifact_cycle.carry_figures` reads them off the carry's own line), so a slow step can be read in context — which machine, and which skips were in effect — and so what a surface rebuild cost the verdict store is on the record beside what it cost in time.
+What a cycle spent is still recorded as it always was: one "step" line per subprocess the driver actually spawned, and one "run" line when the cycle finishes, interrupted finishes included. A step line carries the driver's step name (run_m1, gate:conform, merge, ...), the argv, the return code, the wall seconds, the step's peak RSS in bytes (measured by the driver as it reaps the child, so it covers the child's whole process tree — see peak_rss.reap_peak_rss_bytes), and — parsed out of the child's captured stdout/stderr — any inner "[t] <label> <secs>s" phase lines the child printed, which is how the per-config conform sweeps and run_m1's phase breakdown survive even for gates whose output is never streamed to the console. An inner line may carry its own peak-RSS figure as a trailing "rss_gb=<n>" token (peak_rss.rss_token is the writer; decimal GB, like every figure here), which rides into the journal beside the label's seconds, and beside it a current reading as "rss_now_gb=<n>" (peak_rss.rss_now_token), the set the process holds as the phase closes rather than the mark it has reached, which rides in as rss_now_gb; either token may be absent and the entry then carries no such field. A run line carries the run's identity — hostname, cpu count, and the size of the box it ran on — start/finish stamps, total wall seconds, the cycle summary's exit/gates/plan blocks, and the carry's figures (human units, key hits, unhit, stranded; `artifact_cycle.carry_figures` reads them off the carry's own line), so a slow step can be read in context — which machine, and which skips were in effect — and so what a surface rebuild cost the verdict store is on the record beside what it cost in time.
 
 The box is worth its own field because a per-step peak read months later means nothing without the machine's size beside it: whether a step that held 9 GB was comfortable or was most of the box is a fact about the box, not about the step, and the journal is the only place the two are ever written down together. `make job-costs` divides that same figure by a checked-in per-unit peak to state the width that constant implies here, which is the second reason it is recorded rather than probed at read time — a figure probed on the reader's box would answer for the wrong machine.
 
@@ -46,6 +46,7 @@ POOL_UNIT_ENV = "AMS_POOL_UNIT"
 CYCLE_RUN_ENV = "AMS_CYCLE_RUN"
 
 _RSS_TOKEN = re.compile(r"\brss_gb=(\d+(?:\.\d+)?)")
+_RSS_NOW_TOKEN = re.compile(r"\brss_now_gb=(\d+(?:\.\d+)?)")
 
 _JOURNAL_LOCK = threading.Lock()
 _pool_warn_state: list[bool] = [False]
@@ -176,9 +177,13 @@ def parse_inner_timings(text: str) -> list[dict]:
     entries: list[dict] = []
     for match in INNER_LINE.finditer(text):
         entry: dict = {"label": match.group(1), "elapsed_s": float(match.group(2))}
-        rss = _RSS_TOKEN.search(match.group(3) or "")
+        tail = match.group(3) or ""
+        rss = _RSS_TOKEN.search(tail)
         if rss:
             entry["rss_gb"] = float(rss.group(1))
+        now = _RSS_NOW_TOKEN.search(tail)
+        if now:
+            entry["rss_now_gb"] = float(now.group(1))
         entries.append(entry)
     return entries
 
@@ -370,7 +375,9 @@ def render_runs(
             if inner:
                 for item in step.get("inner", []):
                     rss = item.get("rss_gb")
+                    now = item.get("rss_now_gb")
                     inner_suffix = f"  rss={rss:.2f}GB" if isinstance(rss, int | float) else ""
+                    inner_suffix += f"  now={now:.2f}GB" if isinstance(now, int | float) else ""
                     lines.append(
                         f"  {_seconds(item.get('elapsed_s')):>10.1f}s    {item.get('label', '?')}{inner_suffix}"
                     )

@@ -2,11 +2,13 @@
 
 import io
 import re
+from array import array
 from dataclasses import dataclass
 from typing import Any
 
 import pytest
 
+from rebuild.review import columns
 from rebuild.tools import pile_tally
 
 _PILE_LINE = re.compile(r"^\[tally\] (\S+) (\S+) count=(\d+) est_bytes=(\d+) est_gb=(\d+\.\d\d)$")
@@ -226,6 +228,19 @@ def test_a_boundary_prints_the_documented_lines_sorted_largest_first():
     largest = _LARGEST_LINE.match(lines[-1])
     assert largest and largest.groups() == ("units", "ink.shape_memo")
     assert all(line.startswith(pile_tally.TALLY) for line in lines)
+
+
+def test_a_column_census_charges_a_shared_string_table_to_one_line():
+    """A packed pile's walked figure is its columns plus its string table, unless the pile names into a table another pile's line holds, when it is the columns alone; the table is printed beside the packed figure either way, so the two readings differ in `est_bytes` and nowhere else."""
+    table = columns.StringTable()
+    for value in ("ink", "picture", "junior"):
+        table.id(value)
+    rows = [array("I", [1, 2, 3]), bytearray(b"\x01\x02\x03")]
+    strings = len("inkpicturejunior") + 3 * pile_tally.OFFSET_WIDTH
+    held = pile_tally.column_census(3, rows, table, 4)
+    shared = pile_tally.column_census(3, rows, table, 4, holds_table=False)
+    assert held == pile_tally.Measure(3, 12 + 3 + 4 + strings, pile_tally.PackedCost(12 + 3 + 4, 3, strings))
+    assert shared == pile_tally.Measure(3, 12 + 3 + 4, held.packed)
 
 
 def test_an_empty_boundary_still_lands_on_the_record():

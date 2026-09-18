@@ -12,7 +12,7 @@ import pytest
 
 from rebuild.review import build as review_build
 from rebuild.review import unit_cache, unit_store
-from rebuild.review.audit import Unit, format_codepoints, load_workload
+from rebuild.review.audit import load_workload, sort_for_triage, triage_key
 from rebuild.review.build import _seam_records
 from rebuild.review.enrich import LETTERS, SeamHomeUnit
 from rebuild.review.unit_store import UnitStore
@@ -107,12 +107,7 @@ def _projection(label: str, codepoints: tuple[int, ...] = (0xE652, 0xE670), **ov
     return _Projection(**fields)
 
 
-def _unit(codepoints: tuple[int, ...] = (0xE652, 0xE670), **overrides) -> Unit:
-    fields: dict = dict(
-        codepoints=format_codepoints(codepoints), baseline=(), new=(), class_id="boundary-echo", rows=()
-    )
-    fields.update(overrides)
-    return Unit(**fields)
+_WINDOW = (0xE652, 0xE670)
 
 
 def _record(seam_home: SeamHomeUnit) -> dict:
@@ -137,16 +132,13 @@ def _spooled(projection: _Projection, start: int) -> unit_cache.PriorFragment:
 def test_a_fresh_projection_reads_back_what_the_fold_was_handed():
     """Fold one projection and read every accessor back equal to what the projection carried: the flags, the deltas dict in its folded order, the digests, the pair, the seam home, the seam rects as `_seam_records` shapes them, the spool address, the mismatch lines — and the unit carries the id and the three flags the fold wrote onto it, and the shared empty deltas it was born with."""
     projection = _projection("one", ink_identical=True, mismatches=("ss03 E652:E670: derived cells differ",))
-    unit = _unit(input_key=projection.input_key)
     store = UnitStore(1)
-    assert store.fold_projection(projection, unit, ordinal=0, address=_spooled(projection, 12)) == 0
-    assert (unit.unit_id, unit.ink_identical, unit.picture_identical, unit.junior_equivalent) == (
-        projection.unit_id,
-        True,
-        False,
-        False,
+    store.set_input_key(0, projection.input_key)
+    assert (
+        store.fold_projection(projection, no_verdict=False, ordinal=0, address=_spooled(projection, 12)) == 0
     )
-    assert unit.ink_deltas == {} and unit.ink_deltas is _unit().ink_deltas
+    assert store.machine_flags(0) == (True, False, False) and store.machine_approved(0)
+    assert store.machine_channel(0) == "ink_identical"
     flags = store.flags(0)
     assert (flags.ink_identical, flags.picture_identical, flags.junior_equivalent) == (True, False, False)
     assert (flags.served, flags.slim, flags.exemplar, flags.no_verdict, flags.verbatim) == (
@@ -164,7 +156,7 @@ def test_a_fresh_projection_reads_back_what_the_fold_was_handed():
     assert store.family(0) == projection.family == ""
     assert store.pair_codepoints(0) == projection.pair_codepoints
     assert store.cell_pair(0) == projection.seam_home.pair
-    assert store.codepoints(0) == projection.seam_home.codepoint_values == unit.codepoint_values
+    assert store.codepoints(0) == projection.seam_home.codepoint_values == _WINDOW
     assert store.seam_home(0) == projection.seam_home
     assert store.projection(0) == replace(store.seam_home(0), unit_id="")
     assert store.seam_rects(0) == _seam_records(projection.seam_rects)
@@ -181,7 +173,26 @@ def test_a_fresh_projection_reads_back_what_the_fold_was_handed():
     assert store.served_class(0) is None and store.served_echo(0) is None
     assert store.served_homes(0) == [[None, False]]
     assert store.homes(0) == ((None, False),)
-    assert list(store.windows()) == [(0, unit.codepoint_values)]
+    assert list(store.windows()) == [(0, _WINDOW)]
+
+
+def test_the_input_key_column_is_written_once_and_a_fold_holds_its_key_to_it():
+    """The plan writes each unit's input key into the store ahead of any fold and the fold carries the same key on its projection or record; a fold whose key disagrees with the column is refused rather than overwriting it, a fold into a row whose key was never written fills it, and a restarted store (`emptied`) keeps the keys and nothing else."""
+    projection = _projection("keyed")
+    store = UnitStore(2)
+    store.set_input_key(0, projection.input_key)
+    with pytest.raises(ValueError, match="not the key the plan wrote"):
+        store.fold_projection(replace(projection, input_key=_key("other")), no_verdict=False, ordinal=0)
+    store = store.emptied()
+    assert store.input_key_hex(0) == projection.input_key and not store.folded(0)
+    store.fold_projection(projection, no_verdict=True, ordinal=0)
+    assert store.flags(0).slim
+    store.fold_projection(_projection("unkeyed"), no_verdict=False, ordinal=1)
+    assert store.input_key_hex(1) == _key("input:unkeyed")
+    with pytest.raises(ValueError, match="32 bytes"):
+        store.set_input_key(0, "ab")
+    with pytest.raises(ValueError):
+        UnitStore(1, input_keys=bytearray(3))
 
 
 def test_the_fold_takes_the_ordinal_and_address_off_the_projection_when_not_given():
@@ -189,15 +200,15 @@ def test_the_fold_takes_the_ordinal_and_address_off_the_projection_when_not_give
     base = _projection("addressed")
     addressed = replace(base, ordinal=1, part="units/w0.000.json", start=3, length=40)
     store = UnitStore(2)
-    assert store.fold_projection(addressed, _unit()) == 1
+    assert store.fold_projection(addressed, no_verdict=False) == 1
     assert store.source(1) == unit_cache.PriorFragment(
         "units/w0.000.json", 3, 40, base.unit_id, base.content_key
     )
     other = _projection("no-address")
-    assert store.fold_projection(other, _unit(), ordinal=0) == 0
+    assert store.fold_projection(other, no_verdict=False, ordinal=0) == 0
     assert store.source(0) is None
     with pytest.raises(ValueError, match="no ordinal"):
-        UnitStore(1).fold_projection(_projection("bare"), _unit())
+        UnitStore(1).fold_projection(_projection("bare"), no_verdict=False)
 
 
 def _served_record(
@@ -262,16 +273,15 @@ def test_a_served_record_reads_back_and_its_cached_unit_is_the_store_line(tmp_pa
     homed = _served_record("homed", [[home.prior_id, False]], ("units/small.json", 7, 5))
     loaded = _load(tmp_path, [home, homed])
     store = UnitStore(2)
-    units = [_unit(), _unit((0xE652, 0xE670, 0xE652))]
-    for ordinal, (record, unit) in enumerate(zip((homed, home), units)):
+    windows = [_WINDOW, (0xE652, 0xE670, 0xE652)]
+    for ordinal, (record, window) in enumerate(zip((homed, home), windows)):
         cached = loaded[record.key]
-        unit.input_key = record.key
-        assert store.fold_served(ordinal, cached, unit) == ordinal
-        assert unit.unit_id == record.prior_id
+        assert store.fold_served(ordinal, cached, codepoints=window) == ordinal
+        assert store.unit_id(ordinal) == record.prior_id
     homed_served = loaded[homed.key]
     assert store.seam_home(0) == SeamHomeUnit(
-        unit_id=units[0].unit_id,
-        codepoint_values=units[0].codepoint_values,
+        unit_id=store.unit_id(0),
+        codepoint_values=windows[0],
         ink_identical=homed_served.ink_identical,
         picture_identical=homed_served.picture_identical,
         pair=homed_served.pair,
@@ -302,23 +312,28 @@ def test_a_served_record_reads_back_and_its_cached_unit_is_the_store_line(tmp_pa
     assert store.homes(0) == ((home.prior_id, False),)
     assert store.home_ordinals(0) == ((1, False),)
     assert store.homes_record(0) == homed.homes
-    for unit in units:
-        unit.echo = "e-2WvdGAWe6bX"
-    assert store.served_as_is(0, units[0]) and store.served_as_is(1, units[1])
+
+    def held(ordinal: int, echo: str | None = "e-2WvdGAWe6bX", no_verdict: bool = False) -> bool:
+        return store.served_as_is(
+            ordinal, class_id="boundary-echo", echo=echo, exemplar=False, no_verdict=no_verdict
+        )
+
+    assert held(0) and held(1)
     for ordinal, record in enumerate((homed, home)):
         assert record.address is not None
         store.set_written_address(ordinal, record.address)
         assert store.written_address(ordinal) == record.address
-        assert unit_cache.record_line(store.cached_unit(ordinal, units[ordinal])) == unit_cache.record_line(
-            record
+        cached_unit = store.cached_unit(
+            ordinal, class_id="boundary-echo", echo="e-2WvdGAWe6bX", exemplar=False, no_verdict=False
         )
-    units[0].echo = "e-other"
-    assert not store.served_as_is(0, units[0])
-    units[0].echo = "e-2WvdGAWe6bX"
+        assert unit_cache.record_line(cached_unit) == unit_cache.record_line(record)
+    assert not held(0, echo="e-other")
+    assert not held(0, no_verdict=True)
+    assert store.cached_unit(0, class_id="boundary-echo", echo=None, exemplar=False, no_verdict=True).slim
     store.set_homes(0, [(1, True)])
-    assert not store.served_as_is(0, units[0])
+    assert not held(0)
     store.set_homes(0, [(None, False)])
-    assert store.homes_record(0) == [[None, False]] and not store.served_as_is(0, units[0])
+    assert store.homes_record(0) == [[None, False]] and not held(0)
     with pytest.raises(ValueError):
         store.set_homes(0, [])
     with pytest.raises(IndexError):
@@ -332,14 +347,16 @@ def test_a_served_record_is_folded_with_the_fragment_the_plan_located(tmp_path):
     assert cached.located() is None
     store = UnitStore(1)
     with pytest.raises(ValueError):
-        store.fold_served(0, cached, _unit())
+        store.fold_served(0, cached, codepoints=_WINDOW)
     other = unit_cache.PriorFragment("units/x.json", 1, 2, "u-11111111111", record.content_key)
     with pytest.raises(ValueError):
-        store.fold_served(0, cached, _unit(), found=other)
+        store.fold_served(0, cached, codepoints=_WINDOW, found=other)
     walked = unit_cache.PriorFragment("units/x.json", 1, 2, record.prior_id, record.content_key)
-    store.fold_served(0, cached, _unit(), found=walked)
+    store.fold_served(0, cached, codepoints=_WINDOW, found=walked)
     assert store.source(0) == walked and not store.flags(0).verbatim
-    assert not store.served_as_is(0, _unit(echo="e-2WvdGAWe6bX"))
+    assert not store.served_as_is(
+        0, class_id="boundary-echo", echo="e-2WvdGAWe6bX", exemplar=False, no_verdict=False
+    )
 
 
 def test_the_id_index_refuses_a_duplicate_and_answers_ordinal_of():
@@ -347,7 +364,7 @@ def test_the_id_index_refuses_a_duplicate_and_answers_ordinal_of():
     store = UnitStore(3)
     projections = [_projection(f"p{index}", (0xE652, 0xE670 + index)) for index in range(3)]
     for ordinal, projection in enumerate(reversed(projections)):
-        store.fold_projection(projection, _unit(), ordinal=ordinal)
+        store.fold_projection(projection, no_verdict=False, ordinal=ordinal)
     for ordinal, projection in enumerate(reversed(projections)):
         assert store.ordinal_of(projection.unit_id) == ordinal
         assert store.id_word(ordinal) == unit_store.id_word_of(projection.unit_id)
@@ -359,14 +376,14 @@ def test_the_id_index_refuses_a_duplicate_and_answers_ordinal_of():
     with pytest.raises(KeyError):
         store.ordinal_of("u-zzzzzzzzzzz")
     partial = UnitStore(2)
-    partial.fold_projection(projections[0], _unit(), ordinal=1)
+    partial.fold_projection(projections[0], no_verdict=False, ordinal=1)
     with pytest.raises(ValueError, match="ordinal 0 was never folded"):
         partial.index()
     twice = UnitStore(2)
-    twice.fold_projection(projections[0], _unit(), ordinal=0)
+    twice.fold_projection(projections[0], no_verdict=False, ordinal=0)
     twice.fold_projection(
         replace(projections[1], content_key=projections[0].content_key, unit_id=projections[0].unit_id),
-        _unit(),
+        no_verdict=False,
         ordinal=1,
     )
     with pytest.raises(
@@ -374,7 +391,7 @@ def test_the_id_index_refuses_a_duplicate_and_answers_ordinal_of():
     ):
         twice.index()
     with pytest.raises(ValueError, match="folded twice"):
-        store.fold_projection(projections[0], _unit(), ordinal=0)
+        store.fold_projection(projections[0], no_verdict=False, ordinal=0)
 
 
 def test_id_string_order_is_the_order_of_the_words_they_spell():
@@ -408,37 +425,37 @@ def test_the_fold_refuses_rows_whose_lengths_disagree():
     }
     for label, seam_home in cases.items():
         with pytest.raises(ValueError, match="spans"):
-            UnitStore(1).fold_projection(replace(base, seam_home=seam_home), _unit(), ordinal=0)
+            UnitStore(1).fold_projection(replace(base, seam_home=seam_home), no_verdict=False, ordinal=0)
     with pytest.raises(ValueError, match="seam rects"):
-        UnitStore(1).fold_projection(replace(base, seam_rects=()), _unit(), ordinal=0)
+        UnitStore(1).fold_projection(replace(base, seam_rects=()), no_verdict=False, ordinal=0)
     with pytest.raises(ValueError, match="is not seam pair"):
         UnitStore(1).fold_projection(
-            replace(base, seam_rects=(((1, 0),) + base.seam_rects[0][1:],)), _unit(), ordinal=0
+            replace(base, seam_rects=(((1, 0),) + base.seam_rects[0][1:],)), no_verdict=False, ordinal=0
         )
     edges = base.seam_rects[0]
     reordered = {"x_max": 5, "x_min": 0, "advance_total": 9}
     with pytest.raises(ValueError, match="rect edge"):
         UnitStore(1).fold_projection(
-            replace(base, seam_rects=((edges[0], reordered, edges[2]),)), _unit(), ordinal=0
+            replace(base, seam_rects=((edges[0], reordered, edges[2]),)), no_verdict=False, ordinal=0
         )
     extra = {**edges[1], "extra": 1}
     with pytest.raises(ValueError, match="rect edge"):
         UnitStore(1).fold_projection(
-            replace(base, seam_rects=((edges[0], edges[1], extra),)), _unit(), ordinal=0
+            replace(base, seam_rects=((edges[0], edges[1], extra),)), no_verdict=False, ordinal=0
         )
     with pytest.raises(ValueError, match="ink flags are not the unit's"):
-        UnitStore(1).fold_projection(replace(base, ink_identical=True), _unit(), ordinal=0)
+        UnitStore(1).fold_projection(replace(base, ink_identical=True), no_verdict=False, ordinal=0)
     with pytest.raises(ValueError, match="is not the id of content key"):
-        UnitStore(1).fold_projection(replace(base, unit_id="u-11111111111"), _unit(), ordinal=0)
+        UnitStore(1).fold_projection(replace(base, unit_id="u-11111111111"), no_verdict=False, ordinal=0)
     with pytest.raises(IndexError):
-        UnitStore(1).fold_projection(base, _unit(), ordinal=1)
+        UnitStore(1).fold_projection(base, no_verdict=False, ordinal=1)
 
 
 def test_a_served_record_with_homes_off_its_seams_is_refused(tmp_path):
     record = _served_record("homes", [[None, False], [None, False]], ("units/small.json", 1, 5))
     cached = _load(tmp_path, [record])[record.key]
     with pytest.raises(ValueError, match="served homes"):
-        UnitStore(1).fold_served(0, cached, _unit())
+        UnitStore(1).fold_served(0, cached, codepoints=_WINDOW)
 
 
 def _column_bytes(store: UnitStore) -> int:
@@ -459,7 +476,7 @@ def test_the_census_is_the_arrays_bytes_and_empty_homes_and_mismatches_cost_none
     store = UnitStore(2)
     seamless = _projection("seamless", seam_home=_seam_home("", (0xE652, 0xE670), seams=False))
     seamless = replace(seamless, seam_home=replace(seamless.seam_home, unit_id=seamless.unit_id))
-    store.fold_projection(seamless, _unit(), ordinal=0)
+    store.fold_projection(seamless, no_verdict=False, ordinal=0)
     seam_side = sum(
         len(column)
         for column in (
@@ -487,7 +504,7 @@ def test_the_census_is_the_arrays_bytes_and_empty_homes_and_mismatches_cost_none
         _column_bytes(store) + string_bytes,
         pile_tally.PackedCost(_column_bytes(store), strings, string_bytes),
     )
-    store.fold_projection(_projection("seamed", mismatches=("a line",)), _unit(), ordinal=1)
+    store.fold_projection(_projection("seamed", mismatches=("a line",)), no_verdict=False, ordinal=1)
     after = store.census()
     strings, string_bytes = _string_bytes(store)
     lines = len("a line".encode()) + pile_tally.OFFSET_WIDTH
@@ -502,7 +519,7 @@ def test_the_census_is_the_arrays_bytes_and_empty_homes_and_mismatches_cost_none
 
 def test_the_written_address_policy_file_and_config_note_round_trip():
     store = UnitStore(1)
-    store.fold_projection(_projection("write"), _unit(), ordinal=0)
+    store.fold_projection(_projection("write"), no_verdict=False, ordinal=0)
     store.set_written_address(0, ("units/boundary-echo.000.json", 1234, 5678))
     store.set_policy_file(0, "glyph_data/runes/qsTea.yaml")
     store.set_config_note(0, "ss03 only")
@@ -517,26 +534,26 @@ def test_the_written_address_policy_file_and_config_note_round_trip():
 class _RecordingStore(UnitStore):
     """The store with every projection the runner folds kept beside its row, so the test can hold each accessor to the projection the fold was handed."""
 
-    def __init__(self, n: int) -> None:
-        super().__init__(n)
+    def __init__(self, n: int, **kwargs) -> None:
+        super().__init__(n, **kwargs)
         self.projections: dict[int, unit_store.FreshProjection] = {}
 
-    def fold_projection(self, projection, unit, **kwargs):
-        ordinal = super().fold_projection(projection, unit, **kwargs)
+    def fold_projection(self, projection, **kwargs):
+        ordinal = super().fold_projection(projection, **kwargs)
         self.projections[ordinal] = projection
         return ordinal
 
 
 def test_the_mini_bundle_folds_and_reads_back_every_projection(mini_bundle, tmp_path):
-    """Over the frozen mini bundle's real projections, folded by the serial runner as it drafts: every accessor equals the projection the fold was handed, the source is the spool's own address off the projection, the unit's key has left the unit for the store, the index answers every id, the whole workload is a seam-home source, and the census is exactly the columns' bytes plus the string table, the columns alone as the packed figure."""
-    units = load_workload(MINI / "audit.tsv", mini_bundle.ledger, dict(LETTERS)).units
-    for index, unit in enumerate(units):
-        unit.ordinal = index
-        unit.input_key = _key(f"mini:{index}")
-    keys = [unit.input_key for unit in units]
-    store = _RecordingStore(len(units))
+    """Over the frozen mini bundle's real projections, folded by the serial runner as it drafts: every accessor equals the projection the fold was handed, the source is the spool's own address off the projection, the key the plan wrote is the key the fold carried, the index answers every id, the whole workload is a seam-home source, the census is exactly the columns' bytes — the string table is the workload table's, printed beside the store's line and charged under `workload.units` — and the triage permutation `sort_for_triage` answers over the table is the sort by id string that `triage_key` states."""
+    workload = load_workload(MINI / "audit.tsv", mini_bundle.ledger, dict(LETTERS))
+    table = workload.table
+    store = _RecordingStore(table.n, strings=table.strings)
+    keys = [_key(f"mini:{ordinal}") for ordinal in range(table.n)]
+    for ordinal, key in enumerate(keys):
+        store.set_input_key(ordinal, key)
     runner = review_build._FreshRunner(
-        units,
+        range(table.n),
         1,
         MINI,
         review_build.SITE_BEFORE_FONT,
@@ -544,18 +561,20 @@ def test_the_mini_bundle_folds_and_reads_back_every_projection(mini_bundle, tmp_
         review_build.SITE_JUNIOR_FONT,
         REPO_ROOT,
         spec_root=mini_bundle.spec_root,
+        table=table,
         out_dir=tmp_path,
         subset_pack=mini_bundle.subset_pack,
     )
     try:
-        runner.phase1(store, units)
+        runner.phase1(store)
     finally:
         runner.close()
-    assert sorted(store.projections) == list(range(len(units)))
+    assert sorted(store.projections) == list(range(table.n))
+    units = table.units(store)
     seams = 0
     for ordinal, unit in enumerate(units):
         projection = store.projections[ordinal]
-        assert unit.unit_id == projection.unit_id and unit.input_key == ""
+        assert unit.unit_id == projection.unit_id and unit.input_key == keys[ordinal]
         assert store.ordinal_of(unit.unit_id) == ordinal
         assert store.unit_id(ordinal) == unit.unit_id
         assert store.input_key_hex(ordinal) == keys[ordinal] == projection.input_key
@@ -594,6 +613,23 @@ def test_the_mini_bundle_folds_and_reads_back_every_projection(mini_bundle, tmp_
     strings, string_bytes = _string_bytes(store)
     assert reading == pile_tally.Measure(
         len(units),
-        _column_bytes(store) + string_bytes,
+        _column_bytes(store),
         pile_tally.PackedCost(_column_bytes(store), strings, string_bytes),
     )
+    restarted = store.emptied().census()
+    assert restarted.packed is not None and restarted.est_bytes == restarted.packed.est_bytes
+    assert (restarted.packed.strings, restarted.packed.string_bytes) == (strings, string_bytes)
+    class_order = {entry.id: index for index, entry in enumerate(workload.classes_present)}
+    order = sort_for_triage(table, store, class_order, dict(LETTERS))
+    family_rank = {name: value for value, name in dict(LETTERS).items()}
+    by_id = sorted(
+        range(table.n),
+        key=lambda ordinal: triage_key(
+            class_order.get(table.class_id(ordinal), len(class_order)),
+            table.group(ordinal),
+            table.codepoints(ordinal),
+            store.unit_id(ordinal),
+            family_rank,
+        ),
+    )
+    assert list(order) == by_id and sorted(order) == list(range(table.n))

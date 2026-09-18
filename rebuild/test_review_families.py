@@ -125,7 +125,7 @@ def test_assignment_is_deterministic(mini_bundle):
     """Two independently constructed Enrichers assign the same family to the same window. That is a property of the code, not of any window, so it runs over the frozen mini-M1 bundle: no live audit to scan for a sample, no live subset tables to parse, and the whole thing lands in the contracts lane."""
     mini = REPO_ROOT / "rebuild" / "review" / "fixtures" / "mini"
     workload = load_workload(mini / "audit.tsv", mini_bundle.ledger, dict(LETTERS))
-    unit = next(item for item in workload.units if item.class_id == "UNMATCHED")
+    unit = next(item for item in workload.units() if item.class_id == "UNMATCHED")
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
         spec = load_spec(mini_bundle.spec_root)

@@ -197,7 +197,7 @@ def test_segment_pieces_materialize_to_the_geometry_they_stand_in_for(
         return pieces
 
     monkeypatch.setattr(enricher, "_segment_pieces", recording)
-    enricher.enrich_many(mini_units.units)
+    enricher.enrich_many(mini_units.units())
     assert recorded
     intern = enricher._intern
     for side, shaped, pens, spans, cp_start, cp_end, pieces in recorded:
@@ -233,7 +233,7 @@ def test_single_cell_unit_has_null_pair(enricher):
         baseline=row.baseline,
         new=row.new,
         class_id="synthetic",
-        rows=(row,),
+        row_count=1,
         configs=("ss03",),
         kinds=("ligation",),
     )
@@ -334,7 +334,7 @@ def _stub_enriched(
             baseline=tuple(f"old-{cell}" for cell in cells),
             new=tuple(cells),
             class_id="synthetic",
-            rows=(),
+            row_count=0,
             unit_id=unit_id,
             ink_identical=ink_identical,
             picture_identical=picture_identical,

@@ -565,7 +565,7 @@ def example_units(mini_bundle: MiniBundle):
     workload = audit.load_workload(MINI / "audit.tsv", mini_bundle.ledger, dict(enrich.LETTERS))
     units = {
         (unit.codepoints, unit.configs[0]): unit
-        for unit in workload.units
+        for unit in workload.units()
         if unit.codepoints in regenerate.EXAMPLE_WINDOWS
     }
     reached = {codepoints for codepoints, _config in units}

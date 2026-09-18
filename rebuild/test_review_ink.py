@@ -43,11 +43,11 @@ def comparator():
 
 @pytest.fixture(scope="module")
 def mini_units(mini_bundle):
-    """The frozen bundle's whole workload, which is about a thousand windows over four letters and the boundary tokens — enough for a stride to witness a property of the comparator, and small enough that loading it costs a second."""
+    """The frozen bundle's whole workload, materialized into records, which is about a thousand windows over four letters and the boundary tokens — enough for a stride to witness a property of the comparator, and small enough that loading it costs a second."""
     from rebuild.review.audit import load_workload
     from rebuild.review.enrich import LETTERS
 
-    return load_workload(MINI / "audit.tsv", mini_bundle.ledger, dict(LETTERS))
+    return load_workload(MINI / "audit.tsv", mini_bundle.ledger, dict(LETTERS)).units()
 
 
 def _text(unit) -> str:
@@ -328,7 +328,7 @@ def test_u_0000_is_ink_identical(comparator):
 def test_verdicts_are_deterministic_across_two_comparators(mini_units, comparator):
     """Memoization hygiene: a second comparator over the same fonts reaches the same verdict. A hundred windows witness that as well as a corpus stride did — the property is that the memo cannot serve a different answer, not that it holds for a particular number of windows."""
     again = InkComparator(BEFORE_FONT, MINI_FONT)
-    sample = mini_units.units[:: max(1, len(mini_units.units) // 100)]
+    sample = mini_units[:: max(1, len(mini_units) // 100)]
     assert [comparator.ink_identical(_text(unit), unit.configs) for unit in sample] == [
         again.ink_identical(_text(unit), unit.configs) for unit in sample
     ]
@@ -357,7 +357,7 @@ def test_a_real_one_pixel_change_is_not_picture_identical(comparator):
 
 def test_the_delta_sentinel_is_the_picture_reading_over_a_sample(mini_units, comparator):
     """The property the two identity channels rest on, held over a stride of the frozen windows against real compiled outlines: `config_diff` answers the sentinel exactly where the reference picture reading says the window is one picture, and wherever the pieces are identical the sentinel follows — so piece identity implies the sentinel, the sentinel implies picture identity, and the build's picture flag, read off the same diffs it digests, can never part company with `picture_equal`."""
-    for unit in mini_units.units[::5]:
+    for unit in mini_units[::5]:
         for config in unit.configs:
             sentinel = comparator.config_diff(_text(unit), config) == IDENTITY_DIFF
             assert sentinel == comparator.picture_equal(_text(unit), config), (unit.codepoints, config)

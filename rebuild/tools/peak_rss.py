@@ -2,7 +2,7 @@
 
 The normalization it owns: `getrusage`'s `ru_maxrss` (and the rusage `os.wait4` returns) is bytes on Darwin and KiB on Linux, so every raw reading passes through `maxrss_to_bytes` before it is stored or compared. `/usr/bin/time` output is normalized the same way — BSD `-l` reports the maximum resident set size in bytes on Darwin, GNU `-v` reports kbytes — and `parse_time_output` reads either format back to bytes.
 
-Self versus children is explicit because the two answer different questions: `peak_rss_self_bytes` is this process's own high-water mark, `peak_rss_children_bytes` is the max over every child this process has reaped, and `process_peak_rss_bytes` is the widest single process this one has been or has waited on — the figure a `[t]` line about a stage that fans out should carry. None of these is a current reading; a high-water mark only ever rises, so a delta between two readings attributes nothing (see `reap_peak_rss_bytes` for the per-child form that does).
+Self versus children is explicit because the two answer different questions: `peak_rss_self_bytes` is this process's own high-water mark, `peak_rss_children_bytes` is the max over every child this process has reaped, and `process_peak_rss_bytes` is the widest single process this one has been or has waited on — the figure a `[t]` line about a stage that fans out should carry. None of these is a current reading; a high-water mark only ever rises, so a delta between two readings attributes nothing (see `reap_peak_rss_bytes` for the per-child form that does). `current_rss_bytes` is the current reading, the set this process holds at the moment it is asked, and a `[t]` line carrying both tokens (`rss_token`, `rss_now_token`) says two different things: where in the step the peak was made, and what the phase that just closed leaves resident once its transients are gone.
 
 Stdlib-only on purpose: the bench harnesses import this under alternative interpreters and from trees where only the repo root is on `sys.path`, and the pipeline imports it without pulling in any tools-tree machinery.
 """
@@ -46,6 +46,28 @@ def format_gb(byte_count: float) -> str:
 def rss_token(byte_count: float) -> str:
     """The trailing token a `[t]` phase line carries its peak RSS in, e.g. `[t] build_tables_total 243.1s rss_gb=8.94`. `cycle_timings.parse_inner_timings` is the reader; a round-trip test binds the two."""
     return f"rss_gb={format_gb(byte_count)}"
+
+
+def rss_now_token(byte_count: float) -> str:
+    """The token a `[t]` phase line carries its current RSS in beside the peak, e.g. `rss_gb=5.36 rss_now_gb=4.02`; `cycle_timings.parse_inner_timings` reads it into `rss_now_gb`, and the spelling shares no substring with `rss_gb=` at a word boundary, so the peak token's reader is unmoved by it."""
+    return f"rss_now_gb={format_gb(byte_count)}"
+
+
+def current_rss_bytes() -> int | None:
+    """This process's resident set at this moment, in bytes: the resident-pages field of `/proc/self/statm` times the page size where that file exists, else one `ps -o rss=` query, which answers in KiB, and None where neither answers (a sandbox that blocks `ps`, a platform with neither). The one reading here that can fall as well as rise, which is what lets a phase's own working set be told apart from the step's high-water mark; on Darwin it costs a `ps` spawn per call, so it is read once per phase and never in a loop."""
+    try:
+        with open("/proc/self/statm", encoding="ascii") as handle:
+            pages = int(handle.read().split()[1])
+        return pages * os.sysconf("SC_PAGE_SIZE")
+    except OSError, ValueError, IndexError:
+        pass
+    try:
+        reply = subprocess.run(
+            ["ps", "-o", "rss=", "-p", str(os.getpid())], capture_output=True, text=True, check=False
+        )
+        return int(reply.stdout.strip()) * 1024
+    except OSError, ValueError:
+        return None
 
 
 def time_wrapper(platform: str = sys.platform) -> list[str]:
