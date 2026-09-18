@@ -5,6 +5,8 @@ import collections
 import json
 import pathlib
 import sys
+from collections.abc import Mapping
+from typing import Any
 
 ROOT = pathlib.Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
@@ -27,7 +29,7 @@ def latest_verdicts(path):
     return best
 
 
-def echo_record(unit: dict) -> dict:
+def echo_record(unit: Mapping[str, Any]) -> dict:
     """The fields echo fill retains for each human unit, including its conflict-report notation."""
     return {"id": unit["id"], "echo": unit.get("echo"), "notation": unit.get("notation")}
 

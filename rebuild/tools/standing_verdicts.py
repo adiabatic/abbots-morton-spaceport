@@ -75,9 +75,9 @@ import pathlib
 import re
 import sys
 import tempfile
-from collections.abc import Callable, Iterable
+from collections.abc import Callable, Iterable, Mapping
 from itertools import batched
-from typing import NamedTuple, NoReturn
+from typing import Any, NamedTuple, NoReturn
 
 import yaml
 
@@ -3020,7 +3020,7 @@ def _prefill(decider: Decider, asked, jobs: int) -> None:
                         decider.decide(unit)
                     else:
                         missed.add(unit["id"])
-                        stream.write((json.dumps(unit) + "\n").encode())
+                        stream.write((json.dumps(dict(unit)) + "\n").encode())
                 finally:
                     if decider.context is not None:
                         decider.context.memo.clear()
@@ -3284,7 +3284,13 @@ def targeted_report(rules, rule, units, listed_ids, records, stamp, decide):
     return lines
 
 
-def main(argv=None, *, units=None, context=None, unit_source: Callable[[], Iterable[dict]] | None = None):
+def main(
+    argv=None,
+    *,
+    units=None,
+    context=None,
+    unit_source: Callable[[], Iterable[Mapping[str, Any]]] | None = None,
+):
     argv = sys.argv[1:] if argv is None else list(argv)
     parser = argparse.ArgumentParser(description=(__doc__ or "").split(":")[0] + ".")
     parser.add_argument(

@@ -12,7 +12,9 @@ from __future__ import annotations
 import gzip
 import hashlib
 import json
+import sys
 from collections.abc import Iterable, Iterator, Mapping
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
@@ -98,6 +100,75 @@ def index_record(fragment: dict, *, order: int | None = None, batch: int | None 
             else None
         ),
     }
+
+
+INDEX_FIELDS = tuple(index_record({"id": ""}))
+_INDEX_FIELD_SET = frozenset(INDEX_FIELDS)
+_CONTAINER_POOL_LIMIT = 16_384
+
+
+@dataclass(frozen=True, slots=True, eq=False)
+class UnitRecord(Mapping[str, Any]):
+    """An immutable field projection with shared schema. Both subscription and `.get` raise KeyError for a known index field omitted by the projection, preventing a matcher's undeclared field from silently reading as absent. Nested JSON lists and dictionaries are pooled and read-only by convention; callers making edits must copy them first. Convert the outer mapping with `dict(record)` for JSON serialization."""
+
+    _values: tuple[Any, ...]
+    _schema: dict[str, int]
+
+    def __getitem__(self, key: str) -> Any:
+        return self._values[self._schema[key]]
+
+    def __iter__(self) -> Iterator[str]:
+        return iter(self._schema)
+
+    def __len__(self) -> int:
+        return len(self._values)
+
+    def get(self, key: str, default: Any = None) -> Any:
+        if key in _INDEX_FIELD_SET:
+            return self[key]
+        return default
+
+
+class _RecordReader:
+    """One reader's projection and bounded nested-container pool. Pool keys name canonical child containers by identity, keeping key storage shallow; the pool retains every child it names. The cap bounds retained discarded records during streaming."""
+
+    def __init__(self, fields: Iterable[str] | None) -> None:
+        selected = _INDEX_FIELD_SET if fields is None else frozenset(fields)
+        unknown = selected - _INDEX_FIELD_SET
+        if unknown:
+            raise ValueError(f"Unknown unit-index fields: {', '.join(sorted(unknown))}")
+        self.schema = {
+            name: index for index, name in enumerate(name for name in INDEX_FIELDS if name in selected)
+        }
+        self.pool: dict[tuple, Any] = {}
+
+    def _key(self, value: Any) -> tuple:
+        if isinstance(value, (dict, list)):
+            return (type(value), id(value))
+        if isinstance(value, float):
+            return (float, value.hex())
+        return (type(value), value)
+
+    def _value(self, value: Any) -> Any:
+        if isinstance(value, str):
+            return sys.intern(value)
+        if isinstance(value, list):
+            value = [self._value(item) for item in value]
+            key = (list, *(self._key(item) for item in value))
+        elif isinstance(value, dict):
+            value = {sys.intern(name): self._value(item) for name, item in value.items()}
+            key = (dict, *((name, self._key(item)) for name, item in value.items()))
+        else:
+            return value
+        existing = self.pool.get(key)
+        if existing is not None:
+            return existing
+        if len(self.pool) < _CONTAINER_POOL_LIMIT:
+            self.pool[key] = value
+        return value
+
+    def record(self, document: Mapping[str, Any]) -> UnitRecord:
+        return UnitRecord(tuple(self._value(document[name]) for name in self.schema), self.schema)
 
 
 def manifest_sha256(surface: Path) -> str:
@@ -246,14 +317,15 @@ def index_is_current(surface: Path) -> bool:
         return False
 
 
-def load_index(surface: Path) -> list[dict] | None:
+def load_index(surface: Path, *, fields: Iterable[str] | None = None) -> list[UnitRecord] | None:
     """The index's records, or None when there is no usable index: absent, unreadable, format-mismatched, or stamped for a manifest other than the one on disk. A None costs the caller one fallback pass over the shards, so over-invalidation stays the safe direction here too."""
+    reader = _RecordReader(fields)
     if not index_is_current(surface):
         return None
     try:
         with gzip.open(index_path(surface), "rt", encoding="utf-8") as stream:
             next(stream)
-            return [json.loads(line) for line in stream]
+            return [reader.record(json.loads(line)) for line in stream]
     except OSError, EOFError, ValueError, StopIteration:
         return None
 
@@ -265,71 +337,95 @@ def iter_shard_fragments(surface: Path) -> Iterator[dict]:
         yield from shard
 
 
-def stream_shards(surface: Path) -> Iterator[dict]:
+def stream_shards(surface: Path, *, fields: Iterable[str] | None = None) -> Iterator[UnitRecord]:
     """The fallback: the shards themselves, projected the way the sidecar would have been, each unit's place in the queue read off the manifest."""
+    reader = _RecordReader(fields)
+    return _stream_shards(surface, reader)
+
+
+def _stream_shards(surface: Path, reader: _RecordReader) -> Iterator[UnitRecord]:
     slot = slot_reader(surface)
     for fragment in iter_shard_fragments(surface):
-        yield index_record(fragment, **slot(fragment))
+        yield reader.record(index_record(fragment, **slot(fragment)))
 
 
-def iter_units(surface: Path) -> Iterator[dict]:
+def iter_units(surface: Path, *, fields: Iterable[str] | None = None) -> Iterator[UnitRecord]:
     """Every unit on a surface, projected, one at a time: the index when it is there and stamped for this manifest, the shards otherwise. A caller that keeps only a slice of the corpus reads it this way rather than through `load_units`, so the records it drops never coexist with the ones it keeps; `load_human_units` is that case for the plumbing's slice, and reads the index by a byte test on each line's head instead of parsing every record only to drop it."""
+    reader = _RecordReader(fields)
+    return _iter_units(surface, reader)
+
+
+def _iter_units(surface: Path, reader: _RecordReader) -> Iterator[UnitRecord]:
     if index_is_current(surface):
         with gzip.open(index_path(surface), "rt", encoding="utf-8") as stream:
             next(stream)
             for line in stream:
-                yield json.loads(line)
+                yield reader.record(json.loads(line))
         return
-    yield from stream_shards(surface)
+    yield from _stream_shards(surface, reader)
 
 
-def load_units(surface: Path) -> list[dict]:
+def load_units(surface: Path, *, fields: Iterable[str] | None = None) -> list[UnitRecord]:
     """Every unit on a surface, projected. The index when it is there and stamped for this manifest; the shards otherwise."""
-    records = load_index(surface)
+    fields = None if fields is None else tuple(fields)
+    records = load_index(surface, fields=fields)
     if records is not None:
         return records
-    return list(stream_shards(surface))
+    return list(stream_shards(surface, fields=fields))
 
 
-def iter_human_units(surface: Path, *, unit_ids: set[str] | None = None) -> Iterator[dict]:
+def iter_human_units(
+    surface: Path, *, unit_ids: set[str] | None = None, fields: Iterable[str] | None = None
+) -> Iterator[UnitRecord]:
     """Yield human index records in shard order, optionally accumulating every surface id in the same walk. Machine index lines contribute only their heads and never pass through the JSON parser. An absent or stale index streams projected shards with the same legacy workload rules; a corrupt current index raises instead of restarting a partially consumed stream and duplicating units. The id set is complete only when the iterator is exhausted."""
+    reader = _RecordReader(fields)
+    return _iter_human_units(surface, reader, unit_ids)
+
+
+def _iter_human_units(
+    surface: Path, reader: _RecordReader, unit_ids: set[str] | None
+) -> Iterator[UnitRecord]:
     if index_is_current(surface):
-        with gzip.open(index_path(surface), "rb") as stream:
-            next(stream)
-            for line in stream:
-                head = line[: line.index(CLASS_SEAM)]
-                if unit_ids is not None:
-                    unit_ids.add(head[len(ID_OPEN) : head.index(ORDER_SEAM)].decode())
-                if not head.endswith(MACHINE_TAIL):
-                    yield json.loads(line)
+        yield from _stream_human_index(surface, reader, unit_ids)
         return
-    for record in stream_shards(surface):
+    yield from _stream_human_shards(surface, reader, unit_ids)
+
+
+def _stream_human_index(
+    surface: Path, reader: _RecordReader, unit_ids: set[str] | None
+) -> Iterator[UnitRecord]:
+    with gzip.open(index_path(surface), "rb") as stream:
+        next(stream)
+        for line in stream:
+            head = line[: line.index(CLASS_SEAM)]
+            if unit_ids is not None:
+                unit_ids.add(head[len(ID_OPEN) : head.index(ORDER_SEAM)].decode())
+            if not head.endswith(MACHINE_TAIL):
+                yield reader.record(json.loads(line))
+
+
+def _stream_human_shards(
+    surface: Path, reader: _RecordReader, unit_ids: set[str] | None
+) -> Iterator[UnitRecord]:
+    slot = slot_reader(surface)
+    for fragment in iter_shard_fragments(surface):
         if unit_ids is not None:
-            unit_ids.add(record["id"])
-        if record.get("batch") is not None:
-            yield record
+            unit_ids.add(fragment["id"])
+        workload = slot(fragment)
+        if workload["batch"] is not None:
+            yield reader.record(index_record(fragment, **workload))
 
 
-def load_human_units(surface: Path) -> tuple[list[dict], set[str]]:
+def load_human_units(
+    surface: Path, *, fields: Iterable[str] | None = None
+) -> tuple[list[UnitRecord], set[str]]:
     """The human records on a surface — the units the manifest's triage index holds, `batch` not None — parsed, beside the id of every unit on it, machine ones included. The plumbing's consumers read the human records and nothing of a machine record but its id: carry's stranded figure and the complaint docket's absent-unit warning both count prior verdicts against every id on the surface, and those two readers are the whole reason the id set rides beside the list. Over a current index the classification is a byte test rather than a parse: `index_record` opens every record with `id`, `order` and `batch` in that order (`rebuild/test_unit_index.py` holds the order), so a line's head cut at `CLASS_SEAM` ends with `MACHINE_TAIL` exactly when the unit is outside the index, and only the human lines go through `json.loads`. An index that fails partway through is refused whole and the shards answer instead, as `load_index` refuses rather than half-answers; that fallback parses every fragment to project it, so a stale index costs the whole parse whatever this drops."""
+    reader = _RecordReader(fields)
+    ids: set[str] = set()
     if index_is_current(surface):
-        human: list[dict] = []
-        ids: set[str] = set()
         try:
-            with gzip.open(index_path(surface), "rb") as stream:
-                next(stream)
-                for line in stream:
-                    head = line[: line.index(CLASS_SEAM)]
-                    ids.add(head[len(ID_OPEN) : head.index(ORDER_SEAM)].decode())
-                    if not head.endswith(MACHINE_TAIL):
-                        human.append(json.loads(line))
-            return human, ids
+            return list(_stream_human_index(surface, reader, ids)), ids
         except OSError, EOFError, ValueError, StopIteration:
-            pass
-    human = []
-    ids = set()
-    for record in stream_shards(surface):
-        ids.add(record["id"])
-        if record["batch"] is not None:
-            human.append(record)
-    return human, ids
+            ids = set()
+            reader = _RecordReader(reader.schema)
+    return list(_stream_human_shards(surface, reader, ids)), ids
