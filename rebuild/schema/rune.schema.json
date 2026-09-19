@@ -284,7 +284,7 @@
         "by": {"type": "integer", "minimum": 1},
         "ok": {"type": "array", "items": {"type": "integer"}, "minItems": 2, "maxItems": 2, "description": "The band of total extension the build's seam check will accept — `[lo, hi]`, defaulting to `[by, by]`. Widen it when extension from both sides of a seam can legitimately push the total past `by`."},
         "split": {"type": "array", "items": {"type": "integer"}, "minItems": 2, "maxItems": 2, "description": "Reserved and unused — parsed and modeled, but no rune sets it and nothing in the build consumes it."},
-        "bind": {"$ref": "#/$defs/motionName", "description": "One of this stance's own `bitmaps`, swapped in as the drawing the extension lengthens. Example: ·Roe's baseline-entry extension binds `shortened-top`, the two-pixel-topped ·Roe the old font drew after ·Jay, ·Ye, ·It, ·Eat and ·Eight."},
+        "bind": {"$ref": "#/$defs/motionName", "description": "One of this stance's own `bitmaps`, swapped in as the drawing the extension lengthens. Example: ·Roe's baseline-entry extension after the climbing-loop ·Ye binds `shortened-top`, the two-pixel-topped ·Roe."},
         "when": {"$ref": "#/$defs/when"},
         "why": {"type": "string"}
       },
