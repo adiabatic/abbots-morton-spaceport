@@ -28,7 +28,7 @@ Then look at that rune's `policy.extend` / `policy.contract` for a record that i
 
 A single family stays flow (`{family: qsGay}`); two or more go block. Rune YAML uses the structural style; `uv run python tools/reflow_yaml.py` on the touched rune (expect a no-op).
 
-Do not add `self:` / `then:` / `feature:` guards unless the user scoped the change. Pair-wide means the two letters that bound the space.
+Do not add `self:` / `then:` / `feature:` guards unless the user scoped the change. Pair-wide means the two letters that bound the space, and it is the standing rule (CLAUDE.md: no word-initial, word-final, or isolated treatment unless The Manual mandates it). When a `bind:` cannot coexist with a cell (its drawing would clobber an onward exit's connector), keep the unbound amount on a separate record so the extension itself stays pair-wide, and guard only the bound one.
 
 ## 3 — probe
 
