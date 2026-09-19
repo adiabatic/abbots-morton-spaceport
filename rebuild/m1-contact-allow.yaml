@@ -510,10 +510,20 @@
   why: The extended baseline entry lengthens the lower arm at its root, not at its tip.
 - signature: dangle:qsRoe.hapax.en-y0.en-ext-1:exit:x-height
   why: The upper arm's tip on the entry-extended baseline cell.
+- signature: dangle:qsRoe.hapax.en-y0.en-bind-shortened-top.en-ext-1:exit:baseline
+  why: The shortened-top form of the entry-extended baseline cell, the two-pixel-topped ·Roe the shipped font draws after ·Jay, ·Ye, ·It, ·Eat and ·Eight; the lower arm's tip is as drawn.
+- signature: dangle:qsRoe.hapax.en-y0.en-bind-shortened-top.en-ext-1:exit:x-height
+  why: The upper arm's tip on the shortened-top form, one column shorter and still ending horizontally.
+- signature: dangle:qsRoe.hapax.en-y0.en-bind-shortened-top.en-ext-2:exit:baseline
+  why: The shortened-top form with the baseline entry extended by two, after the climbing-loop ·Ye; the lower arm's tip is unchanged.
+- signature: dangle:qsRoe.hapax.en-y0.en-bind-shortened-top.en-ext-2:exit:x-height
+  why: The upper arm's tip on the two-pixel-extended shortened-top form.
 - signature: dangle:qsRoe.hapax.en-y0.ex-y5:exit:baseline
   why: With the upper arm run out over the bowl, the lower arm's tip is the one left dangling.
 - signature: dangle:qsRoe.hapax.en-y0.ex-y5.en-ext-1:exit:baseline
   why: The same lower-arm tip with the baseline entry extended.
+- signature: dangle:qsRoe.hapax.en-y0.ex-y5.en-ext-2:exit:baseline
+  why: The same lower-arm tip with the baseline entry extended by two, after the climbing-loop ·Ye.
 - signature: dangle:qsRoe.hapax.en-y5:exit:baseline
   why: ·Roe entered at the x-height keeps both arm tips on a declined exit.
 - signature: dangle:qsRoe.hapax.en-y5:exit:x-height

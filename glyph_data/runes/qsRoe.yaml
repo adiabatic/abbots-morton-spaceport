@@ -35,6 +35,14 @@ stances:
         - "     #"
         - "    # "
         - "####  "  #
+      shortened-top:
+        bitmap:
+        - " ##  "  #
+        - "   # "
+        - "    #"
+        - "    #"
+        - "   # "
+        - "###  "  #
     surface:
       entries:
         baseline:
@@ -118,6 +126,32 @@ policy:
         - qsIt
         - qsEat
         - qsEight
+  - entry: baseline
+    by: 1
+    bind: shortened-top
+    when:
+      self: {exit: none}
+      left:
+        family:
+        - qsJay
+        - qsYe
+        - qsIt
+        - qsEat
+        - qsEight
+  - entry: baseline
+    by: 2
+    when:
+      left:
+        family: qsYe
+        bitmap: climbing-loop
+  - entry: baseline
+    by: 2
+    bind: shortened-top
+    when:
+      self: {exit: none}
+      left:
+        family: qsYe
+        bitmap: climbing-loop
   - entry: baseline
     by: 1
     when:
