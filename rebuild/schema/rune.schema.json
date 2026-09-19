@@ -395,7 +395,7 @@
       }
     },
     "leftCondition": {
-      "description": "What the left neighbor must be for this to match. Pin it down by `family`, by `class` (a named group), or by the exact `stance` it settled into; by the height it `joined_at`; by its exit `stroke`; or by `is` for a boundary like a space. `except` lists cases that make it fail instead.\n\nOnly the left side can name `stance` and `joined_at`, because the left neighbor is already settled by the time this letter is placed (see `when`).",
+      "description": "What the left neighbor must be for this to match. Pin it down by `family`, by `class` (a named group), by the exact `stance` it settled into, or by the `bitmap` it draws; by the height it `joined_at`; by its exit `stroke`; or by `is` for a boundary like a space. `except` lists cases that make it fail instead.\n\nOnly the left side can name `stance`, `bitmap` and `joined_at`, because the left neighbor is already settled by the time this letter is placed (see `when`).",
       "type": "object",
       "additionalProperties": false,
       "minProperties": 1,
@@ -403,6 +403,7 @@
         "family": {"$ref": "#/$defs/familyOrList"},
         "class": {"$ref": "#/$defs/motionName", "description": "A named set of letters — either a group from this rune's `policy.groups`, or a script-wide predicate class. Matches if the letter is a member."},
         "stance": {"$ref": "#/$defs/motionName", "description": "The variant the left neighbor settled into. A left-only axis (see `when`)."},
+        "bitmap": {"$ref": "#/$defs/motionName", "description": "The drawing the left neighbor renders, named by the stance whose base `bitmap` it is — for a record that cares about the literal shape beside it rather than the motion. It needs `family` beside it, naming the runes the drawing belongs to, and it stands only for a stance that draws exactly one thing: the build resolves it to `stance` when every named family has a stance of that name carrying no `bitmaps:` siblings, and refuses it otherwise, because the settled left the engine remembers is its rune, stance and seam and never which sibling drawing a cell picked. Adding a sibling to such a stance later fails the build here rather than silently widening the match. Never written together with `stance`. Example: ·Roe lengthens its baseline entry by two after the climbing-loop ·Ye — `{entry: baseline, by: 2, bind: shortened-top, when: {left: {family: qsYe, bitmap: climbing-loop}}}`."},
         "joined_at": {"$ref": "#/$defs/heightOrNone", "description": "The seam height the left neighbor settled at (`baseline`, `x-height`, `y6`, `top`, or `none`). Usable only on the left — the right neighbor isn't settled yet, so it has no seam height to name."},
         "stroke": {"$ref": "#/$defs/strokeOrientation"},
         "is": {"$ref": "#/$defs/boundaryValue"},

@@ -1117,3 +1117,119 @@ class TestConfigurationBlindness:
             if unlocking[first] & unlocking[second]
         }
         assert {tuple(sorted(group)) for group in spec.registry.interactions} == interacting
+
+
+BITMAP_AXIS_LEFT = textwrap.dedent("""\
+    rune: qsIt
+    codepoint: 0xE670
+    ductus:
+      loop: |
+        A loop.
+      climbing-loop: |
+        A climbing loop.
+    stances:
+      loop:
+        motion: loop
+        bitmap:
+        - "##"
+        - "# "
+        - "# "
+        - "# "
+        - "# "
+        - "# "
+        surface:
+          exits:
+            baseline: {x: 1, withdrawal: safe}
+      climbing-loop:
+        motion: climbing-loop
+        bitmap:
+        - " #"
+        - "##"
+        - "# "
+        - "# "
+        - "# "
+        - "# "
+        surface:
+          exits:
+            baseline: {x: 1, withdrawal: safe}
+    policy:
+      order: [loop, climbing-loop]
+    """)
+
+
+def _bitmap_axis_follower(left: str) -> str:
+    return textwrap.dedent(f"""\
+        rune: qsDay
+        codepoint: 0xE653
+        ductus:
+          hapax: |
+            A stroke.
+        stances:
+          hapax:
+            motion: hapax
+            bitmap:
+            - "###"
+            - "#  "
+            - "#  "
+            - "#  "
+            - "#  "
+            - "###"
+            bitmaps:
+              shortened-top:
+                bitmap:
+                - " ##"
+                - "#  "
+                - "#  "
+                - "#  "
+                - "#  "
+                - "###"
+            surface:
+              entries:
+                baseline: {{x: 0}}
+        policy:
+          extend:
+          - {{entry: baseline, by: 2, bind: shortened-top, when: {{left: {left}}}}}
+        """)
+
+
+def test_left_bitmap_resolves_to_the_stance_whose_sole_drawing_it_is(tmp_path):
+    loaded = load_tmp_spec(
+        tmp_path,
+        {"qsIt": BITMAP_AXIS_LEFT, "qsDay": _bitmap_axis_follower("{family: qsIt, bitmap: climbing-loop}")},
+    )
+    (record,) = loaded.runes["qsDay"].policy.extend
+    assert record.when.left == Condition(family=("qsIt",), stance=("climbing-loop",))
+    assert record.bind == "shortened-top"
+    spelled_as_stance = load_tmp_spec(
+        tmp_path,
+        {"qsIt": BITMAP_AXIS_LEFT, "qsDay": _bitmap_axis_follower("{family: qsIt, stance: climbing-loop}")},
+    )
+    assert spelled_as_stance.runes["qsDay"].policy.extend == loaded.runes["qsDay"].policy.extend
+
+
+@pytest.mark.parametrize(
+    ("left", "message"),
+    [
+        ("{family: qsIt, bitmap: shortened-top}", "names no stance of qsIt"),
+        ("{class: can-enter-at-baseline, bitmap: climbing-loop}", "needs family: beside it"),
+        ("{family: qsIt, stance: loop, bitmap: climbing-loop}", "name the same axis"),
+        ("{family: qsMay, bitmap: climbing-loop}", "qsMay is not a modeled rune"),
+    ],
+)
+def test_left_bitmap_refuses_what_the_settled_left_cannot_carry(tmp_path, left, message):
+    error = load_tmp_error(tmp_path, {"qsIt": BITMAP_AXIS_LEFT, "qsDay": _bitmap_axis_follower(left)})
+    assert any(message in issue.message for issue in error.issues), error.issues
+    assert any(issue.path == "policy.extend[0].when.left.bitmap" for issue in error.issues)
+
+
+def test_left_bitmap_refuses_a_stance_with_sibling_drawings(tmp_path):
+    with_sibling = BITMAP_AXIS_LEFT.replace(
+        '    - "# "\n    surface:\n      exits:\n        baseline: {x: 1, withdrawal: safe}\npolicy:',
+        '    - "# "\n    bitmaps:\n      reaching:\n        bitmap:\n        - " #"\n        - "##"\n        - "# "\n        - "# "\n        - "# "\n        - "##"\n    surface:\n      exits:\n        baseline: {x: 1, withdrawal: safe}\npolicy:',
+    )
+    assert with_sibling != BITMAP_AXIS_LEFT
+    error = load_tmp_error(
+        tmp_path,
+        {"qsIt": with_sibling, "qsDay": _bitmap_axis_follower("{family: qsIt, bitmap: climbing-loop}")},
+    )
+    assert any("siblings ['reaching']" in issue.message for issue in error.issues), error.issues

@@ -168,6 +168,7 @@ when:
     family: [qsIt, qsVie]      # axis 1; ligature runes are ordinary values here, and left-facing lists are ligature-transparent (see below); group/class references legal
     class: can-exit-at-baseline    # a predicate class (§2) or rune-local group
     stance: flipped            # axis 2 — the neighbor's resolved stance
+    bitmap: climbing-loop      # axis 2 spelled as the drawing; the loader resolves it to `stance` (see below)
     joined_at: baseline        # axis 3 — the height of the join being decided (none = the seam did not join)
     stroke: vertical           # axis 4 — orientation at the facing attachment
     is: boundary               # axis 6 — boundary | space | zwnj | namer-dot (see below)
@@ -183,6 +184,8 @@ when:
   word: final                  # axis 5 — initial | medial | final | isolated (derived from run-splitting boundaries)
   feature: ss04                # axis 7 — active stylistic set(s)
 ```
+
+`bitmap:` on a left condition is the `stance` axis spelled as the drawing, for a record whose reason is the literal shape beside it rather than the motion. The engine remembers a settled left as its rune, stance and seam and never which of a stance's sibling drawings the cell picked, so the loader (`spec_load._resolve_left_bitmaps`) resolves the key before the kernel sees it and only when it can: the name must be a stance of every family the condition names, and that stance must carry no `bitmaps:` siblings, so that the stance and the drawing are the same fact. A sibling added to such a stance later fails the build at the record rather than widening the match. The two spellings hash the same, since the kernel's spec carries only the resolved `stance`.
 
 Left-facing family lists are ligature-transparent: a family named in a `left.family`, an entry row's `from:` scope, or the family atoms of a rune-local group union also matches every registered ligature rune whose `sequence` ends in that family (`spec_load._expand_ligature_lefts`, the settled-world restatement of the shipped font's `expand_selectors_for_ligatures` — without it, every new ligature migration would have to hand-edit the from-scope of every follower its trailing component already reaches, and the miss is silent seam loss, the qsSee_qsUtter·Pea sitting's u-121942/u-121944). Naming a ligature literally stays legal and strictly more specific under §6.2's extensional order. The expansion is positive-only — `except:` entries and group `minus` atoms stay literal, so carving a ligature back out means naming it, mirroring the old pass's negative-selector doctrine — and right-facing lists (`toward:` scopes, `when.right` with its `then:` chains) are untouched: nothing joins into today's entryless ligatures, and lead-side transparency for right tokens is an open question deliberately left unanswered until a live case forces it.
 

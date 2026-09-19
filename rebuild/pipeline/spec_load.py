@@ -858,6 +858,70 @@ class _Linter:
                 )
 
 
+def _left_facing_conditions(raw: dict):
+    """Yields (path, condition_dict) for every top-level left-facing condition a rune authors: each policy record's and unlock's `when.left`, and each entry row's `from:` scope entries. The `except:` atoms beneath them are not visited, since the schema gives those no `bitmap` key."""
+    policy = raw.get("policy") or {}
+    for kind in _RECORD_KINDS + ("resolve",):
+        for index, record in enumerate(policy.get(kind, ()) or ()):
+            left = (record.get("when") or {}).get("left") if isinstance(record, dict) else None
+            if isinstance(left, dict):
+                yield f"policy.{kind}[{index}].when.left", left
+    for stance_name, stance_raw in (raw.get("stances") or {}).items():
+        surface = stance_raw.get("surface") or {}
+        for index, unlock in enumerate(surface.get("unlocks", ()) or ()):
+            left = (unlock.get("when") or {}).get("left") if isinstance(unlock, dict) else None
+            if isinstance(left, dict):
+                yield f"stances.{stance_name}.surface.unlocks[{index}].when.left", left
+        for height, row in (surface.get("entries") or {}).items():
+            for index, condition in enumerate(row.get("from", ()) or ()):
+                if isinstance(condition, dict):
+                    yield f"stances.{stance_name}.surface.entries.{height}.from[{index}]", condition
+
+
+def _resolve_left_bitmaps(contexts: list[_FileContext], rune_raws: dict[str, dict]) -> None:
+    """The `bitmap:` axis of a left condition, resolved to the `stance:` axis it stands for (design section 3.4). The engine remembers a settled left as its rune, stance and seam, never which of a stance's sibling drawings the cell picked, so a drawing is addressable only when it is the one thing its stance draws: the name must be a stance of every family the condition names, and that stance must carry no `bitmaps:` siblings. Resolved in place on the raw record before `_condition` reads it, so the kernel's spec never sees the axis and a rune written with `stance:` hashes the same."""
+    for context in contexts:
+        for path, condition in _left_facing_conditions(context.data):
+            bitmap = condition.get("bitmap")
+            if bitmap is None:
+                continue
+            families = _as_tuple(condition.get("family"))
+            if not families:
+                context.error(
+                    f"{path}.bitmap",
+                    "bitmap: needs family: beside it, naming the runes whose drawing this is",
+                )
+                continue
+            if condition.get("stance") is not None:
+                context.error(
+                    f"{path}.bitmap", "bitmap: and stance: name the same axis; write one or the other"
+                )
+                continue
+            resolved = True
+            for family in families:
+                stances = (rune_raws.get(family) or {}).get("stances") or {}
+                stance_raw = stances.get(bitmap)
+                if family not in rune_raws:
+                    context.error(f"{path}.bitmap", f"bitmap {bitmap!r}: {family} is not a modeled rune")
+                    resolved = False
+                elif stance_raw is None:
+                    context.error(
+                        f"{path}.bitmap",
+                        f"bitmap {bitmap!r} names no stance of {family}: a bitmap is addressed by the stance whose base drawing it is",
+                    )
+                    resolved = False
+                elif stance_raw.get("bitmaps"):
+                    siblings = sorted(stance_raw["bitmaps"])
+                    context.error(
+                        f"{path}.bitmap",
+                        f"bitmap {bitmap!r} is one of several drawings {family}.{bitmap} renders (siblings {siblings}); the settled left carries stance and seam only, so a bitmap condition can name only a stance's sole drawing",
+                    )
+                    resolved = False
+            if not resolved:
+                continue
+            condition["stance"] = condition.pop("bitmap")
+
+
 def _stance_satisfies(expression: dict, rune_raw: dict, stance_raw: dict, is_ligature: bool) -> bool:
     if "can_enter_at" in expression:
         entries = ((stance_raw.get("surface") or {}).get("entries")) or {}
@@ -1400,6 +1464,9 @@ def load_spec(runes_dir: Path, registry_path: Path, schema_dir: Path) -> Resolve
         duplicates = sorted({name for name in names if names.count(name) > 1})
         raise SpecError(str(runes_dir), "", f"duplicate rune files for {duplicates}")
 
+    _resolve_left_bitmaps(contexts, rune_raws)
+    if issues:
+        raise SpecError.from_issues(issues)
     classes = _evaluate_predicate_classes(registry_raw, rune_raws)
     by_trailing = _ligatures_by_trailing(rune_raws)
     runes = {context.data["rune"]: _build_rune(context, classes, by_trailing) for context in contexts}
