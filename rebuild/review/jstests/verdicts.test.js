@@ -12,6 +12,8 @@ import {
   importVerdicts,
   recentNotes,
   verdictCounts,
+  assembleDelta,
+  DELTA_FORMAT,
   EXPORT_FORMAT,
 } from '../static/verdicts.js';
 
@@ -412,4 +414,46 @@ test('recentNotes drops a note that is nothing but echo-fill provenance', () => 
   });
   recordVerdict(store, 'u-0002', 'reject', { note: 'real note', at: '2026-06-10T10:00:00Z' });
   assert.deepEqual(recentNotes(store), ['real note']);
+});
+
+test('every mutation marks its units dirty for the next autosave', () => {
+  const store = createStore();
+  recordVerdict(store, 'u-1', 'approve');
+  recordVerdictWithEchoes(store, 'u-2', 'reject', ['u-3']);
+  groupApprove(store, ['u-4']);
+  updateNote(store, 'u-1', 'note');
+  assert.deepEqual([...store.dirty].sort(), ['u-1', 'u-2', 'u-3', 'u-4']);
+  store.dirty.clear();
+  undo(store);
+  assert.deepEqual([...store.dirty], ['u-4']);
+  store.dirty.clear();
+  recordVerdict(store, 'u-1', null);
+  assert.deepEqual([...store.dirty], ['u-1']);
+  markExported(store);
+  assert.deepEqual([...store.dirty], ['u-1']);
+});
+
+test('assembleDelta carries a record per dirty unit that has one and a clear for each that does not', () => {
+  const store = createStore();
+  recordVerdict(store, 'u-2', 'approve', { note: 'n', at: '2026-07-03T00:00:00Z' });
+  recordVerdict(store, 'u-1', 'reject', { at: '2026-07-03T00:00:01Z' });
+  recordVerdict(store, 'u-1', null);
+  const delta = assembleDelta(store, '2026-07-03T23:31:04Z', store.dirty);
+  assert.deepEqual(delta, {
+    format: DELTA_FORMAT,
+    manifest_generated_at: '2026-07-03T23:31:04Z',
+    sets: [{ unit: 'u-2', verdict: 'approve', note: 'n', at: '2026-07-03T00:00:00Z' }],
+    clears: ['u-1'],
+  });
+});
+
+test('importVerdicts marks what it took as dirty, so an imported file reaches the autosave', () => {
+  const store = createStore();
+  const result = importVerdicts(
+    store,
+    { format: EXPORT_FORMAT, manifest_generated_at: 's', verdicts: [{ unit: 'u-7', verdict: 'approve', at: '1' }] },
+    's',
+  );
+  assert.deepEqual(result.units, ['u-7']);
+  assert.deepEqual([...store.dirty], ['u-7']);
 });

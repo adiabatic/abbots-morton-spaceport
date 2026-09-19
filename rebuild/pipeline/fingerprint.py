@@ -105,11 +105,11 @@ def pipeline_code_paths(repo_root: Path) -> list[Path]:
     )
 
 
-REVIEW_NON_BUILD_MODULES = frozenset({"serve.py", "status.py", "journal.py", "export.py"})
+REVIEW_NON_BUILD_MODULES = frozenset({"serve.py", "verdict_store.py", "status.py", "journal.py", "export.py"})
 
 
 def review_code_paths(repo_root: Path) -> list[Path]:
-    """The surface build's own code: rebuild/review/ minus the modules the build never imports, because a stamp component that moves on an edit the build cannot execute costs a full surface rebuild and drops the per-unit store while proving nothing (the ink-signature store keys on `unit_cache.signature_code_paths`, which ink.py alone of these reaches). serve.py is the dev server; status.py, journal.py, and export.py belong to the verdict plumbing, whose own key hashes what it runs (plumbing_skip_fingerprint). rebuild/test_review_code_closure.py walks build.py's import graph both ways so this exclusion list cannot drift from the real closure."""
+    """The surface build's own code: rebuild/review/ minus the modules the build never imports, because a stamp component that moves on an edit the build cannot execute costs a full surface rebuild and drops the per-unit store while proving nothing (the ink-signature store keys on `unit_cache.signature_code_paths`, which ink.py alone of these reaches). serve.py is the dev server and verdict_store.py the store it keeps resident; status.py, journal.py, and export.py belong to the verdict plumbing, whose own key hashes what it runs (plumbing_skip_fingerprint). rebuild/test_review_code_closure.py walks build.py's import graph both ways so this exclusion list cannot drift from the real closure."""
     return sorted(
         path
         for path in (Path(repo_root) / "rebuild" / "review").glob("*.py")
