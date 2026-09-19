@@ -75,10 +75,10 @@
   "volatile": {
     "manifest": {
       "totals": {
-        "units": 2149594,
-        "rows": 7492114,
+        "units": 2149671,
+        "rows": 7492509,
         "batches": 779,
-        "echo_groups": 9845
+        "echo_groups": 9841
       },
       "machine_approved": {
         "units": 1873741,
@@ -101,24 +101,24 @@
         }
       },
       "class_unit_count": {
-        "boundary-echo": 289209,
-        "dangling-anchor-dropped": 362381,
-        "bare-name-live-join": 610556
+        "boundary-echo": 289213,
+        "dangling-anchor-dropped": 362339,
+        "bare-name-live-join": 610238
       },
       "secondary_seams": {
-        "units_with_markers": 186985,
-        "seams_homed": 149229,
-        "seams_homeless": 52411,
+        "units_with_markers": 187069,
+        "seams_homed": 149245,
+        "seams_homeless": 52488,
         "seams_suppressed_invisible": 1500
       }
     },
     "built": {
-      "human_units": 233592,
+      "human_units": 233665,
       "worked_example_echo_siblings": 846,
       "config_note_distribution": [
         [
           null,
-          1300649
+          1300730
         ],
         [
           "only under ss10",
@@ -150,7 +150,7 @@
         ],
         [
           "only when ss04 is off",
-          20770
+          20768
         ],
         [
           "only when ss04 is off and ss05 is off",
@@ -158,7 +158,7 @@
         ],
         [
           "only when ss04 is on",
-          21223
+          21221
         ],
         [
           "only when ss05 is off",
@@ -175,12 +175,12 @@
       ]
     },
     "audit": {
-      "row_count": 7492114,
-      "units": 2156114
+      "row_count": 7492509,
+      "units": 2156193
     },
     "ink": {
       "machine_total": 1083222,
-      "non_identical": 1072892,
+      "non_identical": 1072971,
       "by_class": {
         "boundary-echo": 167765,
         "zwnj-word-initial-unification": 136,
@@ -188,8 +188,8 @@
         "bare-name-live-join": 584706,
         "zoo-entry-contraction-respelled": 1283
       },
-      "boundary_echo_exempt": 136199,
-      "human_units": 936693,
+      "boundary_echo_exempt": 136203,
+      "human_units": 936768,
       "batches": 3123
     },
     "families": {
@@ -199,12 +199,12 @@
         "oy-it-baseline": 126,
         "may-utter-gains": 1069,
         "seam-loss-withdrawal": 13840,
-        "extension-non-summing": 101103,
+        "extension-non-summing": 101536,
         "unmatched-misc": 14969,
-        "deferred-ss04": 11451,
+        "deferred-ss04": 11453,
         "deferred-ss03": 7378
       },
-      "total": 152999
+      "total": 153434
     }
   }
 }
