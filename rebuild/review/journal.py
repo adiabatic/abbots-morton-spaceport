@@ -82,14 +82,52 @@ def record_transition(
     ]
     clears = [] if base else sorted(unit for unit in old_records if unit not in new_records)
 
+    seed = old_records if not base and old_records and not journal_path.exists() else None
+    recorded = _append(
+        journal_path,
+        source=source,
+        at=at,
+        stamp=stamp,
+        base=base,
+        stashed=stashed,
+        sets=sets,
+        clears=clears,
+        seed=seed,
+    )
+    return {"base": base, "sets": len(sets), "clears": len(clears), "recorded": recorded}
+
+
+def record_delta(
+    journal_path, *, source: str, stamp: str, sets, clears, seed_records=None, at: str | None = None
+) -> dict:
+    """Append a same-stamp change the caller already knows the shape of — the records set and the units cleared — without diffing two whole stores. `seed_records` is the store as it stood before the change, less the changed units; it is written as a seed base event only when the journal file does not exist yet, the same completeness rule `record_transition` applies, and a caller that knows the file exists passes None."""
+    journal_path = Path(journal_path)
+    at = at or now_stamp()
+    sets = [record for record in sets if isinstance(record, dict) and isinstance(record.get("unit"), str)]
+    sets.sort(key=lambda record: record["unit"])
+    clears = sorted(clears)
+    seed = seed_records if seed_records and not journal_path.exists() else None
+    recorded = _append(
+        journal_path,
+        source=source,
+        at=at,
+        stamp=stamp,
+        base=False,
+        stashed=None,
+        sets=sets,
+        clears=clears,
+        seed=seed,
+    )
+    return {"base": False, "sets": len(sets), "clears": len(clears), "recorded": recorded}
+
+
+def _append(journal_path, *, source, at, stamp, base, stashed, sets, clears, seed) -> bool:
     lines: list[dict] = []
-    if not base and old_records and not journal_path.exists():
+    if seed:
         lines.append(
-            _event_line(
-                source="seed", at=at, stamp=stamp, base=True, stashed=None, sets=len(old_records), clears=0
-            )
+            _event_line(source="seed", at=at, stamp=stamp, base=True, stashed=None, sets=len(seed), clears=0)
         )
-        lines.extend(_set_line(record) for _, record in sorted(old_records.items()))
+        lines.extend(_set_line(record) for _, record in sorted(seed.items()))
     if base or sets or clears or stashed is not None:
         lines.append(
             _event_line(
@@ -109,7 +147,7 @@ def record_transition(
         with journal_path.open("a", encoding="utf-8") as handle:
             for line in lines:
                 handle.write(json.dumps(line, ensure_ascii=False) + "\n")
-    return {"base": base, "sets": len(sets), "clears": len(clears), "recorded": bool(lines)}
+    return bool(lines)
 
 
 def _iter_entries(journal_path):

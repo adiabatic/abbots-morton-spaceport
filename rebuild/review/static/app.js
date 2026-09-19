@@ -10,6 +10,9 @@ import {
   groupApprove,
   undo,
   assembleExport,
+  assembleDelta,
+  DELTA_FORMAT,
+  EXPORT_FORMAT,
   markExported,
   importVerdicts,
   verdictCounts,
@@ -2165,38 +2168,83 @@ function exportPayload() {
   return JSON.stringify(assembleExport(store, manifest.generated_at), null, 2);
 }
 
+// The autosave is a stream of changes, not a copy of the store: a flush POSTs the records of the units in store.dirty (a set or a clear each) and nothing else, so its cost is the size of what the reader just did rather than the size of the queue, which by now holds every carried and filled verdict on the surface. The server keeps the store resident, applies the delta, and hands back a sync token; syncVerdictsFromServer sends that token back to be given only what changed since, so the focus re-merge and the docket poll cost nothing while nothing has changed. Flushes run one at a time: two deltas in flight could land out of order and a clear could lose to the set it undid.
 const AUTOSAVE_DEBOUNCE_MS = 800;
+const AUTOSAVE_CHUNK = 20000;
 let autosaveTimer = null;
 let autosaveWorks = false;
 let autosaveFailed = false;
+let autosaveInFlight = false;
+let autosaveToken = null;
 
 function scheduleAutosave() {
   clearTimeout(autosaveTimer);
   autosaveTimer = setTimeout(flushAutosave, AUTOSAVE_DEBOUNCE_MS);
 }
 
+function takeDirty() {
+  const ids = [...store.dirty];
+  store.dirty.clear();
+  return ids;
+}
+
+function restoreDirty(ids) {
+  for (const id of ids) store.dirty.add(id);
+}
+
+function deltaPayload(ids) {
+  return JSON.stringify(assembleDelta(store, manifest.generated_at, ids));
+}
+
 async function flushAutosave() {
   clearTimeout(autosaveTimer);
   autosaveTimer = null;
+  if (autosaveInFlight) {
+    scheduleAutosave();
+    return;
+  }
+  if (store.dirty.size === 0) return;
+  const ids = takeDirty();
+  autosaveInFlight = true;
   try {
-    const response = await fetch('autosave', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: exportPayload(),
-    });
-    if (response.status === 409) {
-      if (!autosaveFailed) toast('Autosave refused: this tab is from an older surface — reload to continue');
-      autosaveFailed = true;
-      updateProgress();
-      return;
+    // An ordinary flush is one decision and its echoes; an Import of a whole master is every record in the file, so a flush goes out in bounded pieces and no single body can reach the server's request-size cap.
+    for (let start = 0; start < ids.length; start += AUTOSAVE_CHUNK) {
+      const chunk = ids.slice(start, start + AUTOSAVE_CHUNK);
+      let response;
+      try {
+        response = await fetch('autosave', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: deltaPayload(chunk),
+        });
+      } catch (error) {
+        restoreDirty(ids.slice(start));
+        throw error;
+      }
+      if (response.status === 409) {
+        restoreDirty(ids.slice(start));
+        if (!autosaveFailed) toast('Autosave refused: this tab is from an older surface — reload to continue');
+        autosaveFailed = true;
+        updateProgress();
+        return;
+      }
+      if (!response.ok) {
+        restoreDirty(ids.slice(start));
+        throw new Error(`HTTP ${response.status}`);
+      }
+      const body = await response.json();
+      if (typeof body.token === 'string') autosaveToken = body.token;
     }
-    if (!response.ok) throw new Error(`HTTP ${response.status}`);
     autosaveWorks = true;
     autosaveFailed = false;
+    // Anything that went dirty during the flight goes out next; a failed save leaves its ids dirty for the next mutation's flush instead of retrying on a timer.
+    if (store.dirty.size > 0) scheduleAutosave();
   } catch (error) {
     console.warn('autosave failed', error);
     if (!autosaveFailed) toast('Autosave failed — download verdicts.json to be safe');
     autosaveFailed = true;
+  } finally {
+    autosaveInFlight = false;
   }
   updateProgress();
 }
@@ -2229,11 +2277,13 @@ async function restoreAutosave() {
     }
     return;
   }
+  if (typeof data.token === 'string') autosaveToken = data.token;
   markExported(store);
+  for (const id of result.units) store.dirty.delete(id);
   if (result.added > 0) toast(`Restored ${result.added} autosaved verdicts`);
 }
 
-// The store is this page's memory alone, restored from the server only at boot — so a docket left open in another tab or window goes stale as verdicts land elsewhere, and its next autosave POST would clobber them. Re-merging the server file whenever the page regains focus keeps every open copy of the app fresh (newer `at` wins, exactly the import rule) and folds the other session's verdicts into this page's next POST. Cleared verdicts are absent from the file rather than tombstoned, so a clear never propagates across tabs — another still-open copy can resurrect it; clearing is rare and visible, so that trade is fine.
+// The store is this page's memory alone, restored from the server only at boot — so a docket left open in another tab or window goes stale as verdicts land elsewhere. Re-merging the server's changes whenever the page regains focus keeps every open copy of the app fresh (newer `at` wins, exactly the import rule). With a token the server answers with just the records changed since this page last heard from it; without one, or when the server no longer recognizes it (a restart, an external rewrite of the file), it answers with the whole store and a fresh token. A clear made in another session is not applied here: clearing is rare and visible, and a copy that keeps the record only sends it back when the reader touches it again.
 let verdictSyncInFlight = false;
 let verdictSyncLastAt = 0;
 let bootRestoreDone = false;
@@ -2242,13 +2292,18 @@ async function syncVerdictsFromServer() {
   if (!bootRestoreDone || verdictSyncInFlight || Date.now() - verdictSyncLastAt < 2000) return;
   verdictSyncInFlight = true;
   try {
-    const response = await fetch('autosave');
+    const query = autosaveToken ? `?since=${encodeURIComponent(autosaveToken)}` : '';
+    const response = await fetch(`autosave${query}`);
     if (!response.ok) return;
     const data = await response.json();
-    const result = importVerdicts(store, data, manifest.generated_at);
-    if (!result.ok || result.units.length === 0) return;
+    const incoming = data.format === DELTA_FORMAT ? { ...data, format: EXPORT_FORMAT, verdicts: data.sets } : data;
+    const result = importVerdicts(store, incoming, manifest.generated_at);
+    if (!result.ok) return;
+    if (typeof data.token === 'string') autosaveToken = data.token;
+    if (result.units.length === 0) return;
     for (const id of result.units) {
       store.unexported.delete(id);
+      store.dirty.delete(id);
       syncRowVerdict(id);
     }
     updateProgress();
@@ -2848,10 +2903,10 @@ function wireEvents() {
   });
 
   window.addEventListener('pagehide', () => {
-    if (autosaveTimer === null) return;
     clearTimeout(autosaveTimer);
     autosaveTimer = null;
-    navigator.sendBeacon('autosave', new Blob([exportPayload()], { type: 'application/json' }));
+    if (store.dirty.size === 0) return;
+    navigator.sendBeacon('autosave', new Blob([deltaPayload(takeDirty())], { type: 'application/json' }));
   });
 }
 

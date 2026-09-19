@@ -336,14 +336,15 @@ def _gates_check(summary, generated_at, manifest_fp, artifact_cycle_remedy) -> d
 
 
 def _verdict_store_check(
-    autosave_path, generated_at, carry_out, frontier_hit, frontier_rel
+    autosave_path, generated_at, carry_out, frontier_hit, frontier_rel, autosave=None
 ) -> tuple[dict, dict | None]:
-    path = Path(autosave_path)
-    try:
-        raw = path.read_bytes() if path.exists() else None
-    except OSError:
-        raw = None
-    autosave = parse_autosave_payload(raw) if raw is not None else None
+    if autosave is None:
+        path = Path(autosave_path)
+        try:
+            raw = path.read_bytes() if path.exists() else None
+        except OSError:
+            raw = None
+        autosave = parse_autosave_payload(raw) if raw is not None else None
     if autosave is None:
         return {
             "level": "warn",
@@ -434,7 +435,9 @@ def compute_status(
     *,
     human_ids=None,
     recompute=None,
+    autosave=None,
 ) -> dict:
+    """`autosave` is the parsed autosave document when the caller already holds it — the serve.py handler hands over its resident store rather than having the file read and parsed again per status request — and None to read `autosave_path`."""
     if recompute is None:
         recompute = fingerprint.compute_all
     repo_root = Path(repo_root)
@@ -453,7 +456,7 @@ def compute_status(
     carry_out = summary.get("carry_out") if summary else None
 
     verdict_store, aligned_records = _verdict_store_check(
-        autosave_path, generated_at, carry_out, frontier_hit, frontier_rel
+        autosave_path, generated_at, carry_out, frontier_hit, frontier_rel, autosave
     )
     checks = {
         "surface": _surface_check(manifest),

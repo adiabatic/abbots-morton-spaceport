@@ -1,9 +1,16 @@
 export const VERDICT_KINDS = ['approve', 'reject', 'either', 'identical', 'neither', 'skip'];
 
 export const EXPORT_FORMAT = 'ams-review-verdicts/1';
+export const DELTA_FORMAT = 'ams-review-verdicts-delta/1';
 
+// `unexported` is every unit changed since the last download, the count the status bar and the beforeunload nag read; `dirty` is every unit changed since the last autosave the server accepted, drained by each flush and refilled when one fails. The two sets move together on a mutation and apart on the events that clear them.
 export function createStore() {
-  return { records: new Map(), undoStack: [], unexported: new Set() };
+  return { records: new Map(), undoStack: [], unexported: new Set(), dirty: new Set() };
+}
+
+function touch(store, unitId) {
+  store.unexported.add(unitId);
+  store.dirty.add(unitId);
 }
 
 export function recordVerdict(store, unitId, verdict, { note = '', at = new Date().toISOString() } = {}) {
@@ -16,7 +23,7 @@ export function recordVerdict(store, unitId, verdict, { note = '', at = new Date
     store.records.set(unitId, { unit: unitId, verdict, note, at });
   }
   store.undoStack.push({ type: 'verdict', unit: unitId, prev });
-  store.unexported.add(unitId);
+  touch(store, unitId);
   return store.records.get(unitId) ?? null;
 }
 
@@ -30,12 +37,12 @@ export function recordVerdictWithEchoes(
   if (!VERDICT_KINDS.includes(verdict)) throw new Error(`unknown verdict: ${verdict}`);
   const entries = [{ unit: unitId, prev: store.records.get(unitId) ?? null }];
   store.records.set(unitId, { unit: unitId, verdict, note, at });
-  store.unexported.add(unitId);
+  touch(store, unitId);
   for (const id of echoIds) {
     if (id === unitId || store.records.has(id)) continue;
     entries.push({ unit: id, prev: null });
     store.records.set(id, { unit: id, verdict, note, at });
-    store.unexported.add(id);
+    touch(store, id);
   }
   if (entries.length === 1) store.undoStack.push({ type: 'verdict', unit: unitId, prev: entries[0].prev });
   else store.undoStack.push({ type: 'group', entries });
@@ -48,7 +55,7 @@ export function updateNote(store, unitId, note) {
   const record = store.records.get(unitId);
   if (!record || record.note === note) return false;
   record.note = note;
-  store.unexported.add(unitId);
+  touch(store, unitId);
   return true;
 }
 
@@ -58,7 +65,7 @@ export function groupApprove(store, unitIds, { at = new Date().toISOString() } =
     if (store.records.has(unitId)) continue;
     entries.push({ unit: unitId, prev: null });
     store.records.set(unitId, { unit: unitId, verdict: 'approve', note: '', at });
-    store.unexported.add(unitId);
+    touch(store, unitId);
   }
   if (entries.length > 0) store.undoStack.push({ type: 'group', entries });
   const applied = [];
@@ -72,7 +79,7 @@ export function undo(store) {
   const restore = (unitId, prev) => {
     if (prev) store.records.set(unitId, prev);
     else store.records.delete(unitId);
-    store.unexported.add(unitId);
+    touch(store, unitId);
   };
   if (action.type === 'verdict') {
     restore(action.unit, action.prev);
@@ -97,6 +104,18 @@ export function assembleExport(store, manifestGeneratedAt, exportedAt = new Date
 
 export function markExported(store) {
   store.unexported.clear();
+}
+
+// The autosave body for a set of changed units: each one's current record under `sets`, or its id under `clears` when it holds no record any more. The units are the store's `dirty` set at flush time; the caller empties it and, on a failed save, puts the same ids back.
+export function assembleDelta(store, manifestGeneratedAt, unitIds) {
+  const sets = [];
+  const clears = [];
+  for (const unitId of [...unitIds].sort()) {
+    const record = store.records.get(unitId);
+    if (record) sets.push({ unit: record.unit, verdict: record.verdict, note: record.note, at: record.at });
+    else clears.push(unitId);
+  }
+  return { format: DELTA_FORMAT, manifest_generated_at: manifestGeneratedAt, sets, clears };
 }
 
 export function importVerdicts(store, data, manifestGeneratedAt, { force = false } = {}) {
@@ -126,7 +145,7 @@ export function importVerdicts(store, data, manifestGeneratedAt, { force = false
       note: entry.note ?? '',
       at: entry.at ?? '',
     });
-    store.unexported.add(entry.unit);
+    touch(store, entry.unit);
     units.push(entry.unit);
     if (existing) replaced += 1;
     else added += 1;
