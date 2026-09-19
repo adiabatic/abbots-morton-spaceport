@@ -3150,18 +3150,22 @@ fn note_applied(index: &SpecIndex, notes: &mut Vec<String>, record: Option<&Poli
     }
 }
 
-/// The adjustment tokens one side's chosen records spell, in the order the grammar writes them: the extension, then the contract's binding, its trim, and — only when it names neither — its plain contraction. An extend of zero pixels spells nothing, while a contract of zero pixels still spells itself: the extension is read for a nonzero value and the contraction for presence.
+/// The adjustment tokens one side's chosen records spell, in the order the grammar writes them: the extend's binding, then the extension, then the contract's binding, its trim, and — only when it names neither — its plain contraction. An extend's binding comes before its extension because geometry applies tokens in order and the binding is the drawing the connector arithmetic then lengthens. An extend of zero pixels spells nothing, while a contract of zero pixels still spells itself: the extension is read for a nonzero value and the contraction for presence.
 fn adjustment_tokens(
     side: Side,
     extend: Option<&PolicyRecord>,
     contract: Option<&PolicyRecord>,
 ) -> Vec<AdjustmentToken> {
     let mut tokens: Vec<AdjustmentToken> = Vec::new();
-    if let Some(record) = extend
-        && let Some(by) = record.by
-        && by != 0
-    {
-        tokens.push(AdjustmentToken::Extend(side, by));
+    if let Some(record) = extend {
+        if let Some(bind) = record.bind {
+            tokens.push(AdjustmentToken::Bind(side, bind));
+        }
+        if let Some(by) = record.by
+            && by != 0
+        {
+            tokens.push(AdjustmentToken::Extend(side, by));
+        }
     }
     if let Some(record) = contract {
         if let Some(bind) = record.bind {
@@ -6204,6 +6208,40 @@ mod tests {
                 "qsPea.yaml:policy.contract[0]"
             ]
         );
+    }
+
+    /// An extend that names a `bind:` spells the binding ahead of its extension, so geometry swaps the drawing in before it lengthens the connector, and the pixels still count toward the seam's extension.
+    #[test]
+    fn a_bound_extend_spells_its_binding_before_its_extension() {
+        let pea_policy = fixtures::policy(&[(
+            "extend",
+            &fixtures::seq(&[&pointed_record(
+                "extend",
+                "qsPea",
+                0,
+                &[
+                    ("exit", "\"x-height\""),
+                    ("by", "1"),
+                    ("bind", "\"reaching\""),
+                ],
+            )]),
+        )]);
+        let index = ranking_spec(&pea_policy, &plain_policy());
+        let mut engine = Engine::new(&index, no_features());
+        let trace = settle_pea(
+            &mut engine,
+            Slots::pair(letter_token(&index, "qsTea"), EDGE),
+        )
+        .expect("the fixture settles");
+        assert_eq!(
+            trace.settled.cell.adjustments,
+            [
+                AdjustmentToken::Bind(Side::Exit, fixtures::sym(&index, "reaching")),
+                AdjustmentToken::Extend(Side::Exit, 1),
+            ]
+        );
+        assert_eq!(trace.settled.extension, 1);
+        assert_eq!(trace.notes, ["qsPea.yaml:policy.extend[0]"]);
     }
 
     /// The ranking testbed again, with `qsTea`'s baseline exit withdrawing to a named drawing rather than safely, and whatever `cells:` compositions the caller spells.

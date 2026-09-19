@@ -272,7 +272,7 @@
       }
     },
     "extendRecord": {
-      "description": "Lengthen one side of this stance's seam stroke when the join matches — the inverse of `contract`. Name the side and height with `entry` (left) or `exit` (right) plus a height, then `by: N` to add N pixels: the stroke widens at that row and the neighbor slides over, so the connecting stroke gains N pixels of ink. `when:` gates which joins get it; left-side records can read the settled neighbor's `stance` and `joined_at`, right-side ones can't. Most-specific record wins, and extensions never sum on one side. `ok: [lo, hi]` is the band of total extension the build's seam check will accept (defaults to `[by, by]`); widen it when both sides of a seam can legitimately add up past `by`. `split` is reserved and unused. Example: ·May adds a pixel of x-height exit toward ·Day/·Fee/·Jay and a few others — `{exit: x-height, by: 1, ok: [1, 1], when: {right: {family: [qsDay, qsDay_qsUtter, qsFee, qsJai, qsJay, qsRoe, qsIt]}}}`.",
+      "description": "Lengthen one side of this stance's seam stroke when the join matches — the inverse of `contract`. Name the side and height with `entry` (left) or `exit` (right) plus a height, then `by: N` to add N pixels: the stroke widens at that row and the neighbor slides over, so the connecting stroke gains N pixels of ink. `when:` gates which joins get it; left-side records can read the settled neighbor's `stance` and `joined_at`, right-side ones can't. Most-specific record wins, and extensions never sum on one side. `ok: [lo, hi]` is the band of total extension the build's seam check will accept (defaults to `[by, by]`); widen it when both sides of a seam can legitimately add up past `by`. `bind` swaps in one of this stance's own `bitmaps` as the drawing the extension is applied to, for a reach whose redraw goes beyond the connector row; `by` still lengthens the connector on top of it, so one bound drawing serves every amount. `split` is reserved and unused. Example: ·May adds a pixel of x-height exit toward ·Day/·Fee/·Jay and a few others — `{exit: x-height, by: 1, ok: [1, 1], when: {right: {family: [qsDay, qsDay_qsUtter, qsFee, qsJai, qsJay, qsRoe, qsIt]}}}`.",
       "type": "object",
       "additionalProperties": false,
       "required": ["by", "when"],
@@ -284,7 +284,7 @@
         "by": {"type": "integer", "minimum": 1},
         "ok": {"type": "array", "items": {"type": "integer"}, "minItems": 2, "maxItems": 2, "description": "The band of total extension the build's seam check will accept — `[lo, hi]`, defaulting to `[by, by]`. Widen it when extension from both sides of a seam can legitimately push the total past `by`."},
         "split": {"type": "array", "items": {"type": "integer"}, "minItems": 2, "maxItems": 2, "description": "Reserved and unused — parsed and modeled, but no rune sets it and nothing in the build consumes it."},
-        "bind": {"$ref": "#/$defs/motionName"},
+        "bind": {"$ref": "#/$defs/motionName", "description": "One of this stance's own `bitmaps`, swapped in as the drawing the extension lengthens. Example: ·Roe's baseline-entry extension binds `shortened-top`, the two-pixel-topped ·Roe the old font drew after ·Jay, ·Ye, ·It, ·Eat and ·Eight."},
         "when": {"$ref": "#/$defs/when"},
         "why": {"type": "string"}
       },
@@ -294,7 +294,7 @@
       ]
     },
     "contractRecord": {
-      "description": "Shorten one side of a join for specific neighbors — the opposite of `extend`.\n\nAim it with `stance` plus `entry` or `exit` at a height, gated by `when:`. Then pick exactly one way to pull back: `by: N` shortens the connecting stroke by N pixels and moves the anchor in with it; `trim: N` blanks N pixels of ink but leaves the anchor where it was; `bind` swaps in one of this stance's own `bitmaps`, for a pull-back that spans rows and isn't simple arithmetic.\n\nThe most specific record wins per side, and a side's adjustment never sums.\n\nExample: ·No's x-height exit shortens by a pixel before ·J'ai — `{exit: x-height, by: 1, when: {right: {family: qsJai}}}` (·Utter's does the same by two). Only `by` is in use today; no rune has a `trim` or `bind` yet.",
+      "description": "Shorten one side of a join for specific neighbors — the opposite of `extend`.\n\nAim it with `stance` plus `entry` or `exit` at a height, gated by `when:`. Then pick exactly one way to pull back: `by: N` shortens the connecting stroke by N pixels and moves the anchor in with it; `trim: N` blanks N pixels of ink but leaves the anchor where it was; `bind` swaps in one of this stance's own `bitmaps`, for a pull-back that spans rows and isn't simple arithmetic.\n\nThe most specific record wins per side, and a side's adjustment never sums.\n\nExample: ·No's x-height exit shortens by a pixel before ·J'ai — `{exit: x-height, by: 1, when: {right: {family: qsJai}}}` (·Utter's does the same by two). Only `by` is in use today on contracts; no rune has a `trim` or a contract `bind` yet (·Roe's shortened-top form is an extend `bind`).",
       "type": "object",
       "additionalProperties": false,
       "required": ["when"],
