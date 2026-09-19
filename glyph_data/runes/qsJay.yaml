@@ -152,11 +152,6 @@ policy:
         family:
         - qsPea
         - qsHe
-      right:
-        except:
-        - {family: qsYe}
-        - {family: qsExam}
-        - {family: qsI}
   - entry: x-height
     by: 1
     when:
