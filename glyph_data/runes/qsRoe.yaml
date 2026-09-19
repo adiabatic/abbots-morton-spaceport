@@ -127,18 +127,6 @@ policy:
         - qsEat
         - qsEight
   - entry: baseline
-    by: 1
-    bind: shortened-top
-    when:
-      self: {exit: none}
-      left:
-        family:
-        - qsJay
-        - qsYe
-        - qsIt
-        - qsEat
-        - qsEight
-  - entry: baseline
     by: 2
     when:
       left:
