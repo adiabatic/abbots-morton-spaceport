@@ -373,9 +373,6 @@ fn sequence_of(index: &SpecIndex, name: Sym) -> Option<&[Sym]> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::artifacts;
-    use crate::fixpoint::{EnumerationModes, enumerate_transitions};
-    use crate::fold::{FoldMode, fold_product, fold_with_mode};
     use crate::index::fixtures;
 
     /// A JSON object over already-built pieces, for the mappings the fixtures compose rather than spell.
@@ -643,73 +640,6 @@ mod tests {
         // Beyond the window the verdict is existential: `qsPea` stands because some raw continuation frees it, `qsMay` stands nowhere.
         assert!(stands(&mut options, pea, None));
         assert!(!stands(&mut options, may, None));
-    }
-
-    #[test]
-    fn the_compressed_fold_matches_the_materialized_fold_when_formation_varies() {
-        let index = alphabet();
-        let mut guard_options = WindowOptions::new(&index).expect("the static structures build");
-        let liga = fixtures::sym(&index, "qsPea_qsTea");
-        let pea = letter(&index, "qsPea");
-        let tea = letter(&index, "qsTea");
-        let may = letter(&index, "qsMay");
-        assert!(
-            guard_options
-                .liga_formed_before(liga, pea, Some(tea))
-                .expect("the standing verdict computes")
-        );
-        assert!(
-            !guard_options
-                .liga_formed_before(liga, pea, Some(may))
-                .expect("the yielding verdict computes")
-        );
-
-        let product = enumerate_transitions(&index, &[], EnumerationModes::default())
-            .expect("the ligature alphabet's fixpoint closes and settles");
-        let ordinary =
-            fold_product(&index, product.clone()).expect("the materialized fold answers");
-        let mut compressed_options =
-            WindowOptions::new(&index).expect("the compressed fold's options build");
-        let compressed = fold_with_mode(
-            &index,
-            product,
-            &mut compressed_options,
-            FoldMode::Compressed,
-        )
-        .expect("the compressed fold answers");
-
-        assert_eq!(
-            artifacts::settlement_tsv(&ordinary.decision),
-            artifacts::settlement_tsv(&compressed.decision)
-        );
-        assert_eq!(
-            artifacts::treaty_tsv(&ordinary.treaty),
-            artifacts::treaty_tsv(&compressed.treaty)
-        );
-        let window_identity = |folded: &crate::fold::Folded| {
-            folded
-                .decision
-                .transitions
-                .iter()
-                .map(|row| {
-                    (
-                        row.key(&folded.decision.labels).map(str::to_owned),
-                        folded.decision.outcome(row).to_string(),
-                        row.prospect,
-                        row.joint,
-                    )
-                })
-                .collect::<Vec<_>>()
-        };
-        assert_eq!(window_identity(&ordinary), window_identity(&compressed));
-        assert_eq!(
-            artifacts::table_digest(&index, &ordinary.decision, &ordinary.treaty),
-            artifacts::table_digest(&index, &compressed.decision, &compressed.treaty)
-        );
-        assert_eq!(
-            ordinary.decision.certificates,
-            compressed.decision.certificates
-        );
     }
 
     #[test]

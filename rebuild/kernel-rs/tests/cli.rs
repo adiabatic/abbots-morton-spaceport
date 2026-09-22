@@ -38,15 +38,6 @@ fn word(path: &Path) -> &str {
 fn run(arguments: &[&str]) -> Output {
     Command::new(KERNEL)
         .args(arguments)
-        .env_remove("AMS_COMPRESSED_FOLD")
-        .output()
-        .expect("the binary this crate just built runs")
-}
-
-fn run_with_compressed_env(arguments: &[&str], value: &str) -> Output {
-    Command::new(KERNEL)
-        .args(arguments)
-        .env("AMS_COMPRESSED_FOLD", value)
         .output()
         .expect("the binary this crate just built runs")
 }
@@ -61,14 +52,12 @@ fn timing_phase(line: &str) -> &str {
     let body = line
         .strip_prefix("[t] ")
         .unwrap_or_else(|| panic!("a timings line starts with the marker: {line}"));
-    let mut fields = body.split_ascii_whitespace();
-    let phase = fields
-        .next()
-        .unwrap_or_else(|| panic!("a timings line names a phase: {line}"));
-    let seconds = fields
-        .next()
-        .and_then(|seconds| seconds.strip_suffix('s'))
-        .unwrap_or_else(|| panic!("a timings line names a duration in seconds: {line}"));
+    let body = body
+        .strip_suffix('s')
+        .unwrap_or_else(|| panic!("a timings line ends in seconds: {line}"));
+    let (phase, seconds) = body
+        .rsplit_once(' ')
+        .unwrap_or_else(|| panic!("a timings line names a phase and a duration: {line}"));
     assert!(!phase.is_empty(), "a timings line names a phase: {line}");
     let (whole, fraction) = seconds
         .split_once('.')
@@ -78,18 +67,6 @@ fn timing_phase(line: &str) -> &str {
         assert!(digits(fraction), "and its decimal is digits too: {line}");
     }
     phase
-}
-
-fn table_files(outdir: &Path) -> Vec<Vec<u8>> {
-    CONFIGS
-        .iter()
-        .flat_map(|(token, _)| {
-            ["settlement", "treaties", "windows"].map(|family| {
-                std::fs::read(outdir.join(format!("{family}-{token}.tsv")))
-                    .expect("the table artifact landed")
-            })
-        })
-        .collect()
 }
 
 fn digits(text: &str) -> bool {
@@ -410,86 +387,6 @@ fn a_table_build_files_three_artifacts_and_answers_one_digest_per_configuration(
     }
 }
 
-/// The compressed fold is an explicit experiment through either of its two build-only switches, and both switches file the production fold's exact artifacts and digests. Its timing trace names the compressed relation and carries the three row grains as suffix fields.
-#[test]
-fn the_compressed_fold_flag_and_environment_select_the_same_exact_table_build() {
-    let root = scratch("cli-compressed-fold");
-    let spec = spec_at(&root);
-    let ordinary = root.join("ordinary");
-    let flagged = root.join("flagged");
-    let environed = root.join("environed");
-    let common = ["--configs=default,ss03", "--inputs=cli-stamp"];
-    let mut ordinary_args = vec!["build-tables", word(&spec), word(&ordinary)];
-    ordinary_args.extend(common);
-    let ordinary_output = run(&ordinary_args);
-    assert!(
-        ordinary_output.status.success(),
-        "{}",
-        complaint(&ordinary_output)
-    );
-
-    let mut flagged_args = vec!["build-tables", word(&spec), word(&flagged)];
-    flagged_args.extend(common);
-    flagged_args.extend(["--compressed-fold", "--timings"]);
-    let flagged_output = run(&flagged_args);
-    assert!(
-        flagged_output.status.success(),
-        "{}",
-        complaint(&flagged_output)
-    );
-    let stderr = String::from_utf8_lossy(&flagged_output.stderr);
-    let relation = stderr
-        .lines()
-        .find(|line| line.starts_with("[t] fold.relation[default] "))
-        .expect("the compressed relation is visible in the timing trace");
-    for field in ["class_rows=", "concrete_rows=", "atom_rows="] {
-        assert!(relation.contains(field), "{relation}");
-    }
-
-    let mut env_args = vec!["build-tables", word(&spec), word(&environed)];
-    env_args.extend(common);
-    let env_output = run_with_compressed_env(&env_args, "1");
-    assert!(env_output.status.success(), "{}", complaint(&env_output));
-    assert_eq!(ordinary_output.stdout, flagged_output.stdout);
-    assert_eq!(ordinary_output.stdout, env_output.stdout);
-    assert_eq!(table_files(&ordinary), table_files(&flagged));
-    assert_eq!(table_files(&ordinary), table_files(&environed));
-}
-
-#[test]
-fn compressed_fold_switches_are_build_only_and_the_environment_is_strict_there() {
-    let root = scratch("cli-compressed-fold-refusals");
-    let spec = spec_at(&root);
-    let enumerate = run(&["enumerate", word(&spec), "--compressed-fold"]);
-    assert_eq!(enumerate.status.code(), Some(2));
-
-    let ignored = run_with_compressed_env(&["enumerate", word(&spec)], "not-a-mode");
-    assert!(ignored.status.success(), "{}", complaint(&ignored));
-
-    let tables = root.join("tables");
-    for (value, extra) in [
-        ("", None),
-        ("not-a-mode", None),
-        ("not-a-mode", Some("--compressed-fold")),
-    ] {
-        let mut arguments = vec![
-            "build-tables",
-            word(&spec),
-            word(&tables),
-            "--configs=default",
-            "--inputs=cli-stamp",
-        ];
-        arguments.extend(extra);
-        let refused = run_with_compressed_env(&arguments, value);
-        assert_eq!(refused.status.code(), Some(1));
-        assert!(
-            complaint(&refused).contains("AMS_COMPRESSED_FOLD must be 0 or 1"),
-            "{}",
-            complaint(&refused)
-        );
-    }
-}
-
 /// The configuration delta is invisible in the artifacts: a table build reading `default`'s memo for the other configurations files the same three artifacts per configuration, byte for byte, as one told to enumerate every configuration from scratch, and answers the same digests.
 #[test]
 fn a_seeded_table_build_files_the_bytes_a_from_scratch_one_files() {
@@ -693,30 +590,8 @@ fn a_timed_table_build_names_the_enumerate_and_fold_phases_per_configuration() {
         [
             "spec_parse",
             "enumerate[default]",
-            "fold.expand[default]",
-            "fold.sort[default]",
-            "fold.joints[default]",
-            "fold.rules[default]",
-            "fold.treaties[default]",
-            "fold.prefixes[default]",
-            "fold.partition[default]",
-            "fold.deep_classes[default]",
-            "fold.certificates[default]",
-            "fold.artifacts[default]",
-            "fold.digest[default]",
             "fold[default]",
             "enumerate[ss03]",
-            "fold.expand[ss03]",
-            "fold.sort[ss03]",
-            "fold.joints[ss03]",
-            "fold.rules[ss03]",
-            "fold.treaties[ss03]",
-            "fold.prefixes[ss03]",
-            "fold.partition[ss03]",
-            "fold.deep_classes[ss03]",
-            "fold.certificates[ss03]",
-            "fold.artifacts[ss03]",
-            "fold.digest[ss03]",
             "fold[ss03]",
             "tables_total"
         ]
