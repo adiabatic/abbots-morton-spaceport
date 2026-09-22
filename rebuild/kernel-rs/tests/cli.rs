@@ -568,7 +568,7 @@ fn family_word(family: &str) -> &str {
     }
 }
 
-/// The build's own phases, which the cycle reads the same way it reads a stream run's, and which name the fold rather than the emitter now that there is nothing to emit.
+/// The build's own phases, which the cycle reads the same way it reads a stream run's, including the two proof-search phases retained beside the aggregate fold.
 #[test]
 fn a_timed_table_build_names_the_enumerate_and_fold_phases_per_configuration() {
     let root = scratch("cli-tables-timings");
@@ -590,8 +590,12 @@ fn a_timed_table_build_names_the_enumerate_and_fold_phases_per_configuration() {
         [
             "spec_parse",
             "enumerate[default]",
+            "fold.prefixes[default]",
+            "fold.partition[default]",
             "fold[default]",
             "enumerate[ss03]",
+            "fold.prefixes[ss03]",
+            "fold.partition[ss03]",
             "fold[ss03]",
             "tables_total"
         ]

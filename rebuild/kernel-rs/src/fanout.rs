@@ -132,7 +132,12 @@ pub fn timing_line(label: &str, elapsed: Duration) -> String {
     format!("[t] {label} {:.1}s", elapsed.as_secs_f64())
 }
 
-/// What a run says about itself on stderr beyond its answer: the two phase timings, and the cache census the RAM work reads. Both are off by default, and a run with neither says nothing at all on a clean exit — which the identity harness relies on.
+/// One fold subphase's wall clock at millisecond precision, so a short proof-search phase does not round to zero.
+fn fold_timing_line(label: &str, elapsed: Duration) -> String {
+    format!("[t] {label} {:.3}s", elapsed.as_secs_f64())
+}
+
+/// What a run says about itself on stderr beyond its answer: phase timings, and the cache census the RAM work reads. Both are off by default, and a run with neither says nothing at all on a clean exit — which the identity harness relies on.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct Report {
     pub timings: bool,
@@ -530,7 +535,7 @@ fn enumerate_config_tables<'i>(
     })
 }
 
-/// [`run_config_tables`]'s second half, on the thread that enumerated: the memo let go of first — whoever wants it past this point cloned it out of the [`EnumeratedTables`] ahead of it, and only `default` carries one this far, every configuration's file having been written at its fixpoint's release point — then the fold over the product, the three artifact files and the digest of the pair, timed as `fold[<config>]`. The timing lines follow whatever the first half recorded, so a configuration's lines read enumerate, memo, fold whichever thread clocked each.
+/// [`run_config_tables`]'s second half, on the thread that enumerated: the memo let go of first — whoever wants it past this point cloned it out of the [`EnumeratedTables`] ahead of it, and only `default` carries one this far, every configuration's file having been written at its fixpoint's release point — then the fold over the product, the three artifact files and the digest of the pair, timed as `fold[<config>]`. A timed fold also names its prefix search and partition replay at millisecond precision. The timing lines follow whatever the first half recorded, so a configuration's lines read enumerate, memo, fold whichever thread clocked each.
 fn finish_config_tables(
     index: &SpecIndex,
     config: &Configuration<'_>,
@@ -548,7 +553,13 @@ fn finish_config_tables(
     } = pending;
     drop(memo);
     let started = Instant::now();
-    let folded = fold::fold_with(index, product, &mut options)?;
+    let folded = if report.timings {
+        fold::fold_with_profile(index, product, &mut options, |phase, elapsed| {
+            timed.push(fold_timing_line(&format!("fold.{phase}[{token}]"), elapsed));
+        })?
+    } else {
+        fold::fold_with(index, product, &mut options)?
+    };
     let settlement = outdir.join(format!("settlement-{token}.tsv"));
     write_text(&settlement, &artifacts::settlement_tsv(&folded.decision))?;
     let treaties = outdir.join(format!("treaties-{token}.tsv"));
@@ -839,9 +850,9 @@ mod tests {
         std::fs::remove_dir_all(&outdir).expect("the scratch directory is removable");
     }
 
-    /// The `[t]` line's shape, which `cycle_timings.py`'s `_INNER_LINE` has to match and `run_m1.py`'s own lines already do: the marker, the label, the seconds at one decimal, and the trailing `s`.
+    /// The `[t]` line shapes `cycle_timings.py`'s `_INNER_LINE` parses: ordinary phases at one decimal and short fold subphases at millisecond precision.
     #[test]
-    fn a_timing_line_is_the_one_decimal_shape_the_cycle_parses() {
+    fn timing_lines_use_the_shapes_the_cycle_parses() {
         assert_eq!(
             timing_line("spec_parse", Duration::from_millis(1234)),
             "[t] spec_parse 1.2s"
@@ -857,6 +868,10 @@ mod tests {
         assert_eq!(
             timing_line("enumerate_total", Duration::from_secs(75)),
             "[t] enumerate_total 75.0s"
+        );
+        assert_eq!(
+            fold_timing_line("fold.partition[default]", Duration::from_micros(1234)),
+            "[t] fold.partition[default] 0.001s"
         );
     }
 
@@ -1096,9 +1111,9 @@ mod tests {
         std::fs::remove_dir_all(&root).expect("the scratch directory is removable");
     }
 
-    /// A table build's timing lines arrive in the caller's configuration order and name each configuration's three phases in the order they ran, whatever the width: `default`'s fold line comes back where its enumerate and memo lines do, even when it was clocked beside the deltas', and `ss03`'s come back last although the wave claims it first.
+    /// A table build's timing lines arrive in the caller's configuration order and name each configuration's phases in the order they ran, whatever the width: `default`'s fold lines come back where its enumerate and memo lines do, even when they were clocked beside the deltas', and `ss03`'s come back last although the wave claims it first.
     #[test]
-    fn a_table_build_times_its_three_phases_in_configuration_order_at_any_width() {
+    fn a_table_build_times_its_phases_in_configuration_order_at_any_width() {
         let index = fixtures::mini();
         let configs = permuting(&index);
         let root = scratch("fan-out-tables-timings");
@@ -1130,12 +1145,18 @@ mod tests {
                 [
                     "enumerate[default]",
                     "memo[default]",
+                    "fold.prefixes[default]",
+                    "fold.partition[default]",
                     "fold[default]",
                     "enumerate[ss09]",
                     "memo[ss09]",
+                    "fold.prefixes[ss09]",
+                    "fold.partition[ss09]",
                     "fold[ss09]",
                     "enumerate[ss03]",
                     "memo[ss03]",
+                    "fold.prefixes[ss03]",
+                    "fold.partition[ss03]",
                     "fold[ss03]"
                 ],
                 "at {workers} workers"

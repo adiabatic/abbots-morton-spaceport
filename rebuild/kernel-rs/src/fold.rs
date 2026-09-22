@@ -9,6 +9,7 @@
 //! The replay that asserts the partition is also where the rules meet their realizing strings. It records, per rule, the replayed rows with the shortest producer chains that first-match it, and [`crate::certificate`] closes each such row's chain into a string the rule first-matches at the row's own position — one certificate per rule, written into the windows head beside the rules, which is how the build proves every rule reachable by settling rather than by searching.
 
 use std::rc::Rc;
+use std::time::{Duration, Instant};
 
 use crate::certificate;
 use crate::hash::{HashMap, HashSet};
@@ -20,6 +21,8 @@ use crate::stream::{
     python_repr, python_tuple,
 };
 use crate::types::{AdjustmentToken, CellId, Settled, Side};
+
+type FoldReporter<'a> = dyn FnMut(&str, Duration) + 'a;
 
 /// The label a slot the window does not carry is spelled with, `table.NA_LABEL`.
 pub const NA_LABEL: &str = "#NA";
@@ -217,8 +220,27 @@ pub fn fold_product(index: &SpecIndex, product: FixpointProduct) -> Result<Folde
 /// The assertions run where the transcribed fold ran them — the reachable-cells cross-check between the rule fold and the treaty fold, the reduced first-match-wins replay last — with the deep-class union check after them, which the Python original stated only on its fixture because there it cost nothing, and which costs almost nothing here either.
 pub fn fold_with(
     index: &SpecIndex,
+    product: FixpointProduct,
+    options: &mut WindowOptions<'_>,
+) -> Result<Folded, String> {
+    fold_with_report(index, product, options, None)
+}
+
+/// [`fold_with`] with opt-in wall-clock reports for prefix search and the outcome partition. The callback receives stable phase names without a configuration suffix so callers can choose their own grouping and output format; an ordinary fold takes no clocks.
+pub fn fold_with_profile(
+    index: &SpecIndex,
+    product: FixpointProduct,
+    options: &mut WindowOptions<'_>,
+    mut report: impl FnMut(&str, Duration),
+) -> Result<Folded, String> {
+    fold_with_report(index, product, options, Some(&mut report))
+}
+
+fn fold_with_report(
+    index: &SpecIndex,
     mut product: FixpointProduct,
     options: &mut WindowOptions<'_>,
+    mut report: Option<&mut FoldReporter<'_>>,
 ) -> Result<Folded, String> {
     assert_key_sorted(&product)?;
     let mut fold_rows = expand(&product);
@@ -299,7 +321,13 @@ pub fn fold_with(
         .collect();
     treaty_rows.sort();
 
+    let started = report.is_some().then(Instant::now);
     let prefixes = certificate::Prefixes::over(&rows);
+    if let (Some(report), Some(started)) = (report.as_deref_mut(), started) {
+        report("prefixes", started.elapsed());
+    }
+
+    let started = report.is_some().then(Instant::now);
     let first_rows = first_match_rows(
         &rows,
         &rules,
@@ -307,6 +335,9 @@ pub fn fold_with(
         certificate::ROW_CAP,
         Some(prefixes.dist()),
     )?;
+    if let (Some(report), Some(started)) = (report, started) {
+        report("partition", started.elapsed());
+    }
     assert_deep_class_unions(&product, &rules)?;
     let certificates = certificate::certify(index, options, &prefixes, &rows, &rules, &first_rows)?;
 
@@ -565,8 +596,100 @@ pub fn first_match(by_input: &HashMap<&str, Vec<(usize, &Rule)>>, key: [&str; 6]
     None
 }
 
-/// [`assert_outcome_partition`]'s replay, handing back what it learned on the way: for every rule, up to `keep` of the replayed rows that first-match it, as seats into `rows` — the ones with the shortest producer chains when `dist` ranks the rows ([`crate::certificate::Prefixes`]), an unreached row ranking last, else the first in replay order. The refusals are the assertion's own — an outcome mismatch, or a rule no replayed row first-matches — so a caller that gets rows back gets a whole partition with them.
-pub fn first_match_rows(
+const LINEAR_CLASS_MAX: usize = 8;
+
+struct IndexedRule {
+    seat: usize,
+    slots: [Option<Box<[u32]>>; 5],
+}
+
+struct IndexedMatcher<'a> {
+    rows: LabelRows<'a>,
+    labels: LabelPool,
+    deep_ids: HashMap<(usize, usize), u32>,
+    by_input: HashMap<u32, Vec<IndexedRule>>,
+}
+
+impl<'a> IndexedMatcher<'a> {
+    /// Compile the same ordered rules the reference matcher reads into product-local integer classes. The cloned pool preserves every existing row ID; rule members absent from the product and concrete deep members are interned behind it. `deep_ids` is one entry per shared deep-label allocation, never one per row. The held row view keeps those allocations live for every address lookup; equal spellings in distinct allocations intern to the same ID. These IDs are membership keys only, so their minting order never supplies a semantic or output order.
+    fn new(rows: &LabelRows<'a>, rules: &[Rule]) -> Self {
+        let mut labels = rows.product.labels.clone();
+        let mut by_input: HashMap<u32, Vec<IndexedRule>> = HashMap::default();
+        for (seat, rule) in rules.iter().enumerate() {
+            let input = labels.intern(&rule.input_glyph).0;
+            let slots = rule.slots().map(|slot| {
+                slot.as_ref().map(|members| {
+                    let mut ids: Vec<u32> = members
+                        .iter()
+                        .map(|member| labels.intern(member).0)
+                        .collect();
+                    ids.sort_unstable();
+                    ids.dedup();
+                    ids.into_boxed_slice()
+                })
+            });
+            by_input
+                .entry(input)
+                .or_default()
+                .push(IndexedRule { seat, slots });
+        }
+        Self {
+            rows: *rows,
+            labels,
+            deep_ids: HashMap::default(),
+            by_input,
+        }
+    }
+
+    fn first_match(&mut self, row: usize) -> Option<usize> {
+        let rows = self.rows;
+        let base = rows.base(row);
+        let deep3 = self.deep_id(rows.right3(row));
+        let deep4 = self.deep_id(rows.right4(row));
+        let slots = [base.left.0, base.right1.0, base.right2.0, deep3, deep4];
+        for rule in self
+            .by_input
+            .get(&base.input_glyph.0)
+            .map_or(&[][..], Vec::as_slice)
+        {
+            if rule
+                .slots
+                .iter()
+                .zip(slots)
+                .any(|(class, label)| class.as_deref().is_some_and(|class| !admits(class, label)))
+            {
+                continue;
+            }
+            return Some(rule.seat);
+        }
+        None
+    }
+
+    fn deep_id(&mut self, text: &Rc<str>) -> u32 {
+        let pointer = label_pointer(text);
+        if let Some(&found) = self.deep_ids.get(&pointer) {
+            return found;
+        }
+        let id = self.labels.intern(text).0;
+        self.deep_ids.insert(pointer, id);
+        id
+    }
+}
+
+fn label_pointer(text: &Rc<str>) -> (usize, usize) {
+    (text.as_ptr() as usize, text.len())
+}
+
+fn admits(class: &[u32], label: u32) -> bool {
+    if class.len() <= LINEAR_CLASS_MAX {
+        class.contains(&label)
+    } else {
+        class.binary_search(&label).is_ok()
+    }
+}
+
+#[cfg(test)]
+fn first_match_rows_reference(
     rows: &LabelRows<'_>,
     rules: &[Rule],
     lefts: Option<&ReplayLefts>,
@@ -619,6 +742,89 @@ pub fn first_match_rows(
                 failures.push(format!(
                     "{}: settlement says {settled}, rules say {predicted}",
                     key_repr(key)
+                ));
+            }
+        }
+    }
+    if count > 0 {
+        return Err(format!(
+            "{count} first-match-wins replay mismatches: {}",
+            failures.join("; ")
+        ));
+    }
+    let never: Vec<usize> = (0..rules.len())
+        .filter(|seat| first_rows[*seat].is_empty())
+        .collect();
+    if never.is_empty() {
+        return Ok(first_rows);
+    }
+    let listed: Vec<String> = never
+        .iter()
+        .take(5)
+        .map(|seat| rule_repr(&rules[*seat]))
+        .collect();
+    Err(format!(
+        "{} rule(s) no replayed row first-matches: {}",
+        never.len(),
+        listed.join("; ")
+    ))
+}
+
+/// [`assert_outcome_partition`]'s replay, handing back what it learned on the way: for every rule, up to `keep` of the replayed rows that first-match it, as seats into `rows` — the ones with the shortest producer chains when `dist` ranks the rows ([`crate::certificate::Prefixes`]), an unreached row ranking last, else the first in replay order. The refusals are the assertion's own — an outcome mismatch, or a rule no replayed row first-matches — so a caller that gets rows back gets a whole partition with them. Rule membership is compiled to product-local integer classes, and the index is built and dropped inside this call so the partition phase owns its construction and residence whole.
+pub fn first_match_rows(
+    rows: &LabelRows<'_>,
+    rules: &[Rule],
+    lefts: Option<&ReplayLefts>,
+    keep: usize,
+    dist: Option<&[u32]>,
+) -> Result<Vec<Vec<usize>>, String> {
+    let mut matcher = IndexedMatcher::new(rows, rules);
+    let mut failures: Vec<String> = Vec::new();
+    let mut count = 0usize;
+    let mut first_rows: Vec<Vec<usize>> = vec![Vec::new(); rules.len()];
+    let mut ranks: Vec<Vec<u32>> = vec![Vec::new(); rules.len()];
+    for row in 0..rows.len() {
+        let input = rows.input_glyph(row);
+        let left = rows.left(row);
+        if let Some(lefts) = lefts
+            && !lefts
+                .get(&**input)
+                .is_some_and(|covered| covered.contains(&**left))
+        {
+            continue;
+        }
+        let mut predicted: &str = input;
+        if let Some(seat) = matcher.first_match(row) {
+            predicted = &rules[seat].outcome;
+            match dist {
+                None => {
+                    if first_rows[seat].len() < keep {
+                        first_rows[seat].push(row);
+                    }
+                }
+                Some(dist) => {
+                    let rank = dist[row];
+                    let kept = &mut first_rows[seat];
+                    let ranked = &mut ranks[seat];
+                    if kept.len() < keep || rank < *ranked.last().expect("a full list has a last") {
+                        let at = ranked.partition_point(|held| *held <= rank);
+                        ranked.insert(at, rank);
+                        kept.insert(at, row);
+                        if kept.len() > keep {
+                            ranked.pop();
+                            kept.pop();
+                        }
+                    }
+                }
+            }
+        }
+        let settled: &str = rows.outcome(row);
+        if predicted != settled {
+            count += 1;
+            if failures.len() < 5 {
+                failures.push(format!(
+                    "{}: settlement says {settled}, rules say {predicted}",
+                    key_repr(rows.key(row))
                 ));
             }
         }
@@ -833,6 +1039,95 @@ mod tests {
             .expect("first-match-wins over the whole table");
         assert_outcome_partition(&rows, &folded.decision.rules, Some(&folded.replay_lefts))
             .expect("and over the reduction the build replays");
+    }
+
+    #[test]
+    fn production_proof_preserves_reference_prefixes_matches_rows_failures_and_certificates() {
+        let (index, product, folded) = built();
+        let fold_rows = expand(&product);
+        let rows = LabelRows::new(&product, &fold_rows);
+        let rules = &folded.decision.rules;
+        let by_input = rules_by_input(rules);
+        let mut indexed = IndexedMatcher::new(&rows, rules);
+        for row in 0..rows.len() {
+            assert_eq!(
+                first_match(&by_input, rows.key(row)),
+                indexed.first_match(row),
+                "{}",
+                key_repr(rows.key(row))
+            );
+        }
+
+        let reference_prefixes = certificate::Prefixes::over_reference(&rows);
+        let prefixes = certificate::Prefixes::over(&rows);
+        certificate::assert_same_prefixes(&reference_prefixes, &prefixes);
+        let reference_rows = first_match_rows_reference(
+            &rows,
+            rules,
+            Some(&folded.replay_lefts),
+            certificate::ROW_CAP,
+            Some(reference_prefixes.dist()),
+        )
+        .expect("the reference replay accepts the folded rules");
+        let production_rows = first_match_rows(
+            &rows,
+            rules,
+            Some(&folded.replay_lefts),
+            certificate::ROW_CAP,
+            Some(prefixes.dist()),
+        )
+        .expect("the production replay accepts the folded rules");
+        assert_eq!(reference_rows, production_rows);
+        let mut options = WindowOptions::new(&index).expect("the fixture has valid options");
+        let reference_certificates = certificate::certify(
+            &index,
+            &mut options,
+            &reference_prefixes,
+            &rows,
+            rules,
+            &reference_rows,
+        )
+        .expect("the reference proof certifies the folded rules");
+        assert_eq!(reference_certificates, folded.decision.certificates);
+
+        let mut cases: Vec<Vec<Rule>> = vec![rules.clone()];
+        let mut shadowed = rules.clone();
+        shadowed.push(rules.last().expect("the fixture folds rules").clone());
+        cases.push(shadowed);
+        let mut outcome_mismatch = rules.clone();
+        outcome_mismatch[0].outcome = Rc::from("qsWrong.outcome");
+        cases.push(outcome_mismatch);
+        let mut omitted = rules.clone();
+        omitted.remove(0);
+        cases.push(omitted);
+        let mut reordered = rules.clone();
+        reordered.swap(0, 1);
+        cases.push(reordered);
+
+        for (case, rules) in cases.iter().enumerate() {
+            for lefts in [None, Some(&folded.replay_lefts)] {
+                let reference = first_match_rows_reference(
+                    &rows,
+                    rules,
+                    lefts,
+                    certificate::ROW_CAP,
+                    Some(prefixes.dist()),
+                );
+                let production = first_match_rows(
+                    &rows,
+                    rules,
+                    lefts,
+                    certificate::ROW_CAP,
+                    Some(prefixes.dist()),
+                );
+                assert_eq!(
+                    reference,
+                    production,
+                    "case {case}, reduced={}",
+                    lefts.is_some()
+                );
+            }
+        }
     }
 
     /// A rule nothing can reach is dead GSUB, and this replay is the only pass that knows which rule won a row — so it refuses one. A backtrack naming a left the fixture never enumerates matches nothing, which leaves every prediction and therefore the outcome partition exactly as it was: what fails is the tally alone.
@@ -1311,6 +1606,132 @@ mod tests {
             ],
         );
         (bench, product, [first, second])
+    }
+
+    #[test]
+    fn indexed_membership_preserves_overlap_guards_identity_and_distinct_deep_allocations() {
+        let bench = Bench::new();
+        let third = deep_class_id(&["D".to_owned(), "E".to_owned()]);
+        let fourth = deep_class_id(&["F".to_owned(), "G".to_owned()]);
+        let product = bench.product(
+            vec![
+                bench.row(
+                    ["qsIt", "#EDGE", "qsMay", "C", &third, &fourth, "same"],
+                    0,
+                    false,
+                ),
+                bench.row(
+                    ["qsIt", "uni200C", "qsMay", "C", &third, &fourth, "qsIt"],
+                    0,
+                    false,
+                ),
+                bench.row(
+                    ["qsIt", "#EDGE", "qsTea", "Direct", "D", "F", "direct"],
+                    0,
+                    false,
+                ),
+            ],
+            vec![
+                (third, vec!["D".to_owned(), "E".to_owned()]),
+                (fourth, vec!["F".to_owned(), "G".to_owned()]),
+            ],
+        );
+        let fold_rows = expand(&product);
+        let rows = LabelRows::new(&product, &fold_rows);
+        let wide_edge: Vec<Rc<str>> = [
+            "#EDGE", "edge-a", "edge-b", "edge-c", "edge-d", "edge-e", "edge-f", "edge-g",
+            "edge-h", "edge-i",
+        ]
+        .into_iter()
+        .map(Rc::from)
+        .collect();
+        let rules = vec![
+            Rule {
+                input_glyph: Rc::from("qsIt"),
+                backtrack: Some(wide_edge.clone()),
+                look1: Some(vec![Rc::from("qsMay")]),
+                look2: Some(vec![Rc::from("C")]),
+                look3: Some(vec![Rc::from("D")]),
+                look4: Some(vec![Rc::from("F"), Rc::from("G")]),
+                outcome: Rc::from("same"),
+                provenance: vec!["partial overlap first".to_owned()],
+                joint: false,
+            },
+            Rule {
+                input_glyph: Rc::from("qsIt"),
+                backtrack: Some(wide_edge.clone()),
+                look1: Some(vec![Rc::from("qsMay")]),
+                look2: Some(vec![Rc::from("C")]),
+                look3: Some(vec![Rc::from("D"), Rc::from("E")]),
+                look4: Some(vec![Rc::from("G")]),
+                outcome: Rc::from("same"),
+                provenance: vec!["same outcome, distinct rule".to_owned()],
+                joint: false,
+            },
+            Rule {
+                input_glyph: Rc::from("qsIt"),
+                backtrack: Some(vec![Rc::from("uni200C")]),
+                look1: Some(vec![Rc::from("qsMay")]),
+                look2: Some(vec![Rc::from("C")]),
+                look3: Some(vec![Rc::from("D"), Rc::from("E")]),
+                look4: Some(vec![Rc::from("F"), Rc::from("G")]),
+                outcome: Rc::from("qsIt"),
+                provenance: vec!["ZWNJ guard".to_owned()],
+                joint: false,
+            },
+            Rule {
+                input_glyph: Rc::from("qsIt"),
+                backtrack: Some(wide_edge),
+                look1: Some(vec![Rc::from("qsTea")]),
+                look2: Some(
+                    [
+                        "Direct", "near-a", "near-b", "near-c", "near-d", "near-e", "near-f",
+                        "near-g", "near-h", "near-i",
+                    ]
+                    .into_iter()
+                    .map(Rc::from)
+                    .collect(),
+                ),
+                look3: Some(vec![Rc::from("D")]),
+                look4: Some(vec![Rc::from("F")]),
+                outcome: Rc::from("direct"),
+                provenance: vec!["direct deep labels".to_owned()],
+                joint: false,
+            },
+        ];
+        let by_input = rules_by_input(&rules);
+        let mut indexed = IndexedMatcher::new(&rows, &rules);
+        let mut d_allocations: HashSet<(usize, usize)> = HashSet::default();
+        let mut saw_identity = false;
+        for row in 0..rows.len() {
+            let key = rows.key(row);
+            if key[4] == "D" {
+                d_allocations.insert(label_pointer(rows.right3(row)));
+            }
+            let reference = first_match(&by_input, key);
+            assert_eq!(reference, indexed.first_match(row), "{}", key_repr(key));
+            let expected = if key[1] == "uni200C" {
+                Some(2)
+            } else if key[2] == "qsTea" {
+                Some(3)
+            } else if key[4] == "D" {
+                Some(0)
+            } else if key[5] == "G" {
+                Some(1)
+            } else {
+                saw_identity = true;
+                None
+            };
+            assert_eq!(reference, expected, "{}", key_repr(key));
+        }
+        assert!(
+            saw_identity,
+            "the fixture stopped exercising input fallback"
+        );
+        assert!(
+            d_allocations.len() > 1,
+            "the concrete deep member and direct label share one allocation"
+        );
     }
 
     #[test]
