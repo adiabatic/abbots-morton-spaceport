@@ -46,6 +46,8 @@ When a fact has both a prose home and an executable one, the executable one is b
 
 Pre-work fact-finding that grounds a PLAN is consumed once; after the PLAN exists it belongs in git history, not a checked-in `recon/` file. The same holds for a triage, audit, or lever-hunt dump: once its conclusion has landed in the runes or a ledger and committed, delete it. Evidence stays checked in only while it is the proof pile for a still-open fork or a live build input, such as the archived surfaces `rebuild/tools/carry_verdicts.py` reads.
 
+A rejected experiment's findings, evidence references, and reproduction commands belong in a comment on its GitHub issue. Preserve that record in the issue before deleting its checked-in PLAN. A decisive result against adoption closes the issue as not planned (WONTFIX).
+
 ## Present tense, in notes and in code
 
 A note that has drifted into a changelog is rewritten in place to its current state, never extended with another dated correction. Docstrings and code comments follow the same rule: they say what the code does and why, never what it replaced, because the reader they are written for never saw the old shape and nothing checks the narration.
