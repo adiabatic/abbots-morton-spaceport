@@ -39,8 +39,86 @@ pub struct Prefixes {
     parent: Vec<u32>,
 }
 
+/// One exact successor query, shortened at the first carried deep slot that is `#NA`. The three labels every query carries are the next input, the producer's settled outcome and its shifted first right slot; a query whose producer carries either deep slot keeps that label too. The enum's length therefore makes labels beyond the cutoff unable to distinguish two otherwise equal queries.
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+enum SuccessorQuery<'a> {
+    ThroughRight1([&'a str; 3]),
+    ThroughRight2([&'a str; 4]),
+    ThroughRight3([&'a str; 5]),
+}
+
+impl<'a> SuccessorQuery<'a> {
+    fn from_prefix(prefix: [&'a str; 5], pinned: usize) -> Self {
+        match pinned {
+            3 => Self::ThroughRight1(prefix[..3].try_into().expect("three pinned labels")),
+            4 => Self::ThroughRight2(prefix[..4].try_into().expect("four pinned labels")),
+            5 => Self::ThroughRight3(prefix),
+            _ => unreachable!("a successor query carries three to five labels"),
+        }
+    }
+}
+
 impl Prefixes {
-    pub fn over(rows: &LabelRows<'_>) -> Prefixes {
+    /// Finds every shortest producer chain, searching an exact successor query only for its first FIFO producer. Equal signatures generate the same ordered sequence of ranges; the first producer therefore assigns every still-unreached row any equal producer could assign, and later producers can neither assign a row nor replace its parent. Distinct signatures still search independently even where their shorter `#NA` ranges overlap, leaving the exact-range index to suppress only the same concrete range the reference search suppresses.
+    pub fn over<'a>(rows: &LabelRows<'a>) -> Prefixes {
+        let count = rows.len();
+        let mut dist = vec![UNREACHED; count];
+        let mut parent = vec![UNREACHED; count];
+        let mut queue: VecDeque<u32> = VecDeque::new();
+        let mut signatures: HashSet<SuccessorQuery<'a>> = HashSet::default();
+        let mut scanned: HashSet<(u32, u32)> = HashSet::default();
+        for (row, length) in dist.iter_mut().enumerate() {
+            if boundaryish(rows.left(row)) {
+                *length = 0;
+                queue.push_back(row as u32);
+            }
+        }
+        while let Some(row) = queue.pop_front() {
+            let at = row as usize;
+            let key = rows.key(at);
+            if boundaryish(key[2]) {
+                continue;
+            }
+            let outcome: &str = rows.outcome(at);
+            let prefix: [&str; 5] = [key[2], outcome, key[3], key[4], key[5]];
+            let pinned = prefix[3..]
+                .iter()
+                .position(|label| *label == NA_LABEL)
+                .map_or(5, |open| 3 + open);
+            if !signatures.insert(SuccessorQuery::from_prefix(prefix, pinned)) {
+                continue;
+            }
+            let mut runs: Vec<(usize, usize)> = Vec::new();
+            for carried in 3..=pinned {
+                let mut wanted: Vec<&str> = prefix[..carried].to_vec();
+                if carried < pinned {
+                    wanted.push(NA_LABEL);
+                }
+                let width = wanted.len();
+                let start = partition(rows, |key| key[..width] < wanted[..]);
+                let end = partition(rows, |key| key[..width] <= wanted[..]);
+                if start < end {
+                    runs.push((start, end));
+                }
+            }
+            for (start, end) in runs {
+                if !scanned.insert((start as u32, end as u32)) {
+                    continue;
+                }
+                for next in start..end {
+                    if dist[next] == UNREACHED {
+                        dist[next] = dist[at] + 1;
+                        parent[next] = row;
+                        queue.push_back(next as u32);
+                    }
+                }
+            }
+        }
+        Prefixes { dist, parent }
+    }
+
+    #[cfg(test)]
+    pub(crate) fn over_reference(rows: &LabelRows<'_>) -> Prefixes {
         let count = rows.len();
         let mut dist = vec![UNREACHED; count];
         let mut parent = vec![UNREACHED; count];
@@ -116,6 +194,13 @@ impl Prefixes {
         chain.reverse();
         Some(chain)
     }
+}
+
+/// Assert exact parent and distance parity between two prefix searches. Fold integration fixtures use this before comparing the candidate rows and certificate text derived from the chains.
+#[cfg(test)]
+pub(crate) fn assert_same_prefixes(expected: &Prefixes, actual: &Prefixes) {
+    assert_eq!(actual.dist, expected.dist, "prefix distances differ");
+    assert_eq!(actual.parent, expected.parent, "prefix parents differ");
 }
 
 /// The first row index for which `before` is false, over rows in their key order.
@@ -528,10 +613,10 @@ fn closures(
 mod tests {
     use super::*;
     use crate::fixpoint::{EnumerationModes, enumerate_transitions};
-    use crate::fold::{expand, first_match_rows, fold_product};
+    use crate::fold::{FoldRow, expand, first_match_rows, fold_product};
     use crate::index::fixtures;
-    use crate::stream::{Label, TransitionRow};
-    use crate::types::SettledSeat;
+    use crate::stream::{FixpointProduct, Label, LabelPool, TransitionRow};
+    use crate::types::{NotesSeat, SettledSeat};
     use std::rc::Rc;
 
     const SHIPPING: EnumerationModes = EnumerationModes {
@@ -540,6 +625,225 @@ mod tests {
         deep_classes: true,
     };
 
+    fn checked_prefixes(rows: &LabelRows<'_>) -> Prefixes {
+        let reference = Prefixes::over_reference(rows);
+        let production = Prefixes::over(rows);
+        assert_same_prefixes(&reference, &production);
+        production
+    }
+
+    /// A compact hand-built label-row stream. Each row gets its own outcome seat; the prefix searches read no settled record or cell, so those product tables stay empty.
+    fn prefix_fixture(records: &[[&str; 7]]) -> (FixpointProduct, Vec<FoldRow>) {
+        let mut labels = LabelPool::default();
+        let mut outcomes = Vec::with_capacity(records.len());
+        let mut transitions = Vec::with_capacity(records.len());
+        for record in records {
+            let [input_glyph, left, right1, right2, right3, right4, outcome] =
+                (*record).map(|text| labels.intern(text));
+            let settled = SettledSeat::at(outcomes.len());
+            outcomes.push(outcome);
+            transitions.push(TransitionRow {
+                input_glyph,
+                left,
+                right1,
+                right2,
+                right3,
+                right4,
+                settled,
+                left_settled: None,
+                provenance: NotesSeat::at(0),
+                prospect: 0,
+                joint: false,
+            });
+        }
+        transitions.sort_by(|left, right| left.key(&labels).cmp(&right.key(&labels)));
+        let product = FixpointProduct {
+            config: "prefix-fixture".to_owned(),
+            transitions,
+            labels,
+            outcomes,
+            deep_classes: Vec::new(),
+            cited_provenance: Vec::new(),
+            cells: Vec::new(),
+            seats: Vec::new(),
+            notes: vec![Vec::new()],
+        };
+        let fold = product
+            .transitions
+            .iter()
+            .enumerate()
+            .map(|(seat, row)| FoldRow {
+                seat: seat as u32,
+                right3: Rc::clone(product.labels.text(row.right3)),
+                right4: Rc::clone(product.labels.text(row.right4)),
+                joint: false,
+            })
+            .collect();
+        (product, fold)
+    }
+
+    fn query_at<'a>(rows: &LabelRows<'a>, row: usize) -> (SuccessorQuery<'a>, usize) {
+        let key = rows.key(row);
+        let prefix = [key[2], rows.outcome(row).as_ref(), key[3], key[4], key[5]];
+        let pinned = prefix[3..]
+            .iter()
+            .position(|label| *label == NA_LABEL)
+            .map_or(5, |open| 3 + open);
+        (SuccessorQuery::from_prefix(prefix, pinned), pinned)
+    }
+
+    fn ranges_at(rows: &LabelRows<'_>, row: usize) -> Vec<(usize, usize)> {
+        let key = rows.key(row);
+        let prefix = [key[2], rows.outcome(row).as_ref(), key[3], key[4], key[5]];
+        let (_, pinned) = query_at(rows, row);
+        let mut ranges = Vec::new();
+        for carried in 3..=pinned {
+            let mut wanted = prefix[..carried].to_vec();
+            if carried < pinned {
+                wanted.push(NA_LABEL);
+            }
+            let width = wanted.len();
+            let start = partition(rows, |candidate| candidate[..width] < wanted[..]);
+            let end = partition(rows, |candidate| candidate[..width] <= wanted[..]);
+            if start < end {
+                ranges.push((start, end));
+            }
+        }
+        ranges
+    }
+
+    /// The signature is the exact query through its last carried slot: text behind the first deep `#NA` cannot split it, while a carried label can.
+    #[test]
+    fn successor_query_signatures_stop_at_the_carried_slot_cutoff() {
+        let shallow_a =
+            SuccessorQuery::from_prefix(["next", "outcome", "right1", NA_LABEL, "behind-a"], 3);
+        let shallow_b =
+            SuccessorQuery::from_prefix(["next", "outcome", "right1", NA_LABEL, "behind-b"], 3);
+        let carried =
+            SuccessorQuery::from_prefix(["next", "outcome", "right1", "right2", NA_LABEL], 4);
+        let mut signatures: HashSet<SuccessorQuery<'_>> = HashSet::default();
+        assert!(signatures.insert(shallow_a));
+        assert!(!signatures.insert(shallow_b));
+        assert!(signatures.insert(carried));
+    }
+
+    /// Equal signatures recur first through two same-distance boundary seeds and then through a row they reach, while distinct cutoff-3/4/5 signatures share strictly nested nonempty ranges. Production retains every reference parent and distance across the shape, including the first FIFO parent of every nested target.
+    #[test]
+    fn prefixes_preserve_fifo_parents_across_the_successor_shapes() {
+        let (product, fold_rows) = prefix_fixture(&[
+            ["S3", EDGE_LABEL, "A", "A", NA_LABEL, NA_LABEL, "O"],
+            ["S3", "uni200C", "A", "A", NA_LABEL, NA_LABEL, "O"],
+            ["S4", EDGE_LABEL, "A", "A", "C", NA_LABEL, "O"],
+            ["S5", EDGE_LABEL, "A", "A", "C", "D", "O"],
+            ["A", "O", "A", NA_LABEL, NA_LABEL, NA_LABEL, "X0"],
+            ["A", "O", "A", "A", NA_LABEL, NA_LABEL, "O"],
+            ["A", "O", "A", "C", NA_LABEL, NA_LABEL, "X1"],
+            ["A", "O", "A", "C", "D", NA_LABEL, "X2"],
+            [
+                "U",
+                "never",
+                "edge",
+                NA_LABEL,
+                NA_LABEL,
+                NA_LABEL,
+                "unreached",
+            ],
+        ]);
+        let rows = LabelRows::new(&product, &fold_rows);
+        let reference = Prefixes::over_reference(&rows);
+        let production = Prefixes::over(&rows);
+        assert_same_prefixes(&reference, &production);
+        let find = |input: &str, left: &str| {
+            (0..rows.len())
+                .find(|&row| {
+                    rows.input_glyph(row).as_ref() == input && rows.left(row).as_ref() == left
+                })
+                .expect("the fixture row exists")
+        };
+        let shallow = find("S3", EDGE_LABEL);
+        let tied = find("S3", "uni200C");
+        let middle = find("S4", EDGE_LABEL);
+        let deep = find("S5", EDGE_LABEL);
+        let repeated_later = (0..rows.len())
+            .find(|&row| {
+                rows.input_glyph(row).as_ref() == "A"
+                    && rows.left(row).as_ref() == "O"
+                    && rows.outcome(row).as_ref() == "O"
+            })
+            .expect("the later repeated signature exists");
+        let unreachable = find("U", "never");
+        assert_eq!(production.dist[shallow], 0);
+        assert_eq!(production.dist[tied], 0);
+        assert_eq!(production.dist[repeated_later], 1);
+        assert_eq!(production.parent[repeated_later], shallow as u32);
+        assert_eq!(production.dist[unreachable], UNREACHED);
+        let (shallow_query, shallow_cutoff) = query_at(&rows, shallow);
+        let (tied_query, tied_cutoff) = query_at(&rows, tied);
+        let (later_query, later_cutoff) = query_at(&rows, repeated_later);
+        assert_eq!(shallow_query, tied_query);
+        assert_eq!(shallow_query, later_query);
+        assert_eq!([shallow_cutoff, tied_cutoff, later_cutoff], [3, 3, 3]);
+        assert_eq!(query_at(&rows, middle).1, 4);
+        assert_eq!(query_at(&rows, deep).1, 5);
+
+        let shallow_ranges = ranges_at(&rows, shallow);
+        let middle_ranges = ranges_at(&rows, middle);
+        let deep_ranges = ranges_at(&rows, deep);
+        assert_eq!(shallow_ranges.len(), 1);
+        assert_eq!(middle_ranges.len(), 2);
+        assert_eq!(deep_ranges.len(), 3);
+        let outer = shallow_ranges[0];
+        let nested: Vec<(usize, usize)> = middle_ranges
+            .iter()
+            .chain(&deep_ranges)
+            .copied()
+            .filter(|range| *range != outer)
+            .collect();
+        assert!(!nested.is_empty());
+        assert!(
+            nested
+                .iter()
+                .all(|&(start, end)| outer.0 <= start && end <= outer.1),
+            "the distinct deeper signatures do not search nested ranges"
+        );
+    }
+
+    /// The sharing rule is independent of the enumeration world's deep-class grain and the two prospect/vote arms.
+    #[test]
+    fn prefixes_match_the_reference_in_every_enumeration_world() {
+        let index = fixtures::mini();
+        for modes in [
+            SHIPPING,
+            EnumerationModes {
+                simulated_prospect: true,
+                vote_slots: true,
+                deep_classes: false,
+            },
+            EnumerationModes {
+                simulated_prospect: true,
+                vote_slots: false,
+                deep_classes: true,
+            },
+            EnumerationModes {
+                simulated_prospect: false,
+                vote_slots: true,
+                deep_classes: true,
+            },
+            EnumerationModes {
+                simulated_prospect: false,
+                vote_slots: false,
+                deep_classes: true,
+            },
+        ] {
+            let product = enumerate_transitions(&index, &[], modes).expect("the fixpoint closes");
+            let fold_rows = expand(&product);
+            let rows = LabelRows::new(&product, &fold_rows);
+            let reference = Prefixes::over_reference(&rows);
+            let production = Prefixes::over(&rows);
+            assert_same_prefixes(&reference, &production);
+        }
+    }
+
     /// Every row of the fixture's product sits on a producer chain from a seed, a short one, and each link of the chain is the successor relation the rows pin: the next row's input is this row's right1, its left is this row's outcome, and its right slots are this row's shifted one up wherever this row carries them.
     #[test]
     fn every_row_of_the_fixture_is_reached_by_a_short_chain_the_rows_pin() {
@@ -547,7 +851,7 @@ mod tests {
         let product = enumerate_transitions(&index, &[], SHIPPING).expect("the fixpoint closes");
         let fold_rows = expand(&product);
         let rows = LabelRows::new(&product, &fold_rows);
-        let prefixes = Prefixes::over(&rows);
+        let prefixes = checked_prefixes(&rows);
         assert!(!rows.is_empty());
         let longest = prefixes.dist().iter().copied().max().expect("rows");
         assert!(longest != UNREACHED, "a row no seed reaches");
@@ -581,7 +885,7 @@ mod tests {
         assert!(!decision.rules.is_empty());
         let fold_rows = expand(&product);
         let rows = LabelRows::new(&product, &fold_rows);
-        let prefixes = Prefixes::over(&rows);
+        let prefixes = checked_prefixes(&rows);
         let first_rows = first_match_rows(
             &rows,
             &decision.rules,
@@ -736,7 +1040,11 @@ mod tests {
         );
         let fold_rows = expand(&phantom_product);
         let rows = LabelRows::new(&phantom_product, &fold_rows);
-        let prefixes = Prefixes::over(&rows);
+        let prefixes = checked_prefixes(&rows);
+        let phantom_row = (0..rows.len())
+            .find(|&row| rows.outcome(row).as_ref() == "qsPhantom.pin")
+            .expect("the phantom remains in the expansion");
+        assert_eq!(prefixes.dist[phantom_row], UNREACHED);
         let first_rows = first_match_rows(&rows, &rules, None, ROW_CAP, Some(prefixes.dist()))
             .expect("the phantom's rule wins it");
         let mut options = WindowOptions::new(&index).expect("the fixture's options build");
@@ -785,7 +1093,7 @@ mod tests {
             .sort_by(|left, right| left.key(&bench.labels).cmp(&right.key(&bench.labels)));
         let fold_rows = expand(&bench);
         let rows = LabelRows::new(&bench, &fold_rows);
-        let prefixes = Prefixes::over(&rows);
+        let prefixes = checked_prefixes(&rows);
         rules[0] = Rule {
             input_glyph: Rc::clone(bench.labels.text(bench_row.input_glyph)),
             backtrack: None,
@@ -812,7 +1120,7 @@ mod tests {
         let product = enumerate_transitions(&index, &[], SHIPPING).expect("the fixpoint closes");
         let fold_rows = expand(&product);
         let rows = LabelRows::new(&product, &fold_rows);
-        let prefixes = Prefixes::over(&rows);
+        let prefixes = checked_prefixes(&rows);
         let mut closed_any = false;
         for row in 0..rows.len() {
             let (tokens, _position) = pinned_tokens(&index, &prefixes, &rows, row)
