@@ -153,7 +153,6 @@ KERNEL_NON_SURFACE_MODULES = frozenset(
         "artifacts.rs",
         "census.rs",
         "certificate.rs",
-        "compressed_fold.rs",
         "fanout.rs",
         "fiber.rs",
         "fixpoint.rs",
@@ -165,7 +164,6 @@ KERNEL_NON_SURFACE_MODULES = frozenset(
         "sha256.rs",
         "shipped_order.rs",
         "stream.rs",
-        "virtual_rows.rs",
     }
 )
 

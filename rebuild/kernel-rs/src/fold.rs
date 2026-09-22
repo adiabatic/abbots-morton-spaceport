@@ -9,10 +9,8 @@
 //! The replay that asserts the partition is also where the rules meet their realizing strings. It records, per rule, the replayed rows with the shortest producer chains that first-match it, and [`crate::certificate`] closes each such row's chain into a string the rule first-matches at the row's own position — one certificate per rule, written into the windows head beside the rules, which is how the build proves every rule reachable by settling rather than by searching.
 
 use std::rc::Rc;
-use std::time::{Duration, Instant};
 
 use crate::certificate;
-use crate::compressed_fold::CompressedRows;
 use crate::hash::{HashMap, HashSet};
 use crate::index::SpecIndex;
 use crate::options::WindowOptions;
@@ -22,9 +20,6 @@ use crate::stream::{
     python_repr, python_tuple,
 };
 use crate::types::{AdjustmentToken, CellId, Settled, Side};
-use crate::virtual_rows::VirtualRows;
-
-type FoldReporter<'a> = dyn FnMut(&str, Duration, Option<&str>) + 'a;
 
 /// The label a slot the window does not carry is spelled with, `table.NA_LABEL`.
 pub const NA_LABEL: &str = "#NA";
@@ -118,14 +113,6 @@ pub struct Folded {
     pub replay_lefts: ReplayLefts,
 }
 
-/// Which fold representation a table build uses. The materialized fold remains the default; the compressed fold is an explicit experiment.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub enum FoldMode {
-    #[default]
-    Expanded,
-    Compressed,
-}
-
 /// The lefts a first-match-wins replay has to cover, per input glyph.
 pub type ReplayLefts = HashMap<Rc<str>, HashSet<Rc<str>>>;
 
@@ -141,61 +128,32 @@ pub struct FoldRow {
 #[derive(Clone, Copy)]
 pub struct LabelRows<'a> {
     product: &'a FixpointProduct,
-    backing: RowBacking<'a>,
-    start: usize,
-    end: usize,
-}
-
-#[derive(Clone, Copy)]
-enum RowBacking<'a> {
-    Expanded(&'a [FoldRow]),
-    Virtual(&'a VirtualRows),
+    fold: &'a [FoldRow],
 }
 
 impl<'a> LabelRows<'a> {
     pub fn new(product: &'a FixpointProduct, fold: &'a [FoldRow]) -> Self {
-        Self {
-            product,
-            backing: RowBacking::Expanded(fold),
-            start: 0,
-            end: fold.len(),
-        }
-    }
-
-    /// The exact conceptual expansion backed by shared one-slot patterns. Its joint flag is the owning class row's projected flag; consumers of the virtual view use labels, outcomes and provenance, while joint-sensitive rule folding runs over the compressed materialized rows before this view is built.
-    pub fn virtual_rows(product: &'a FixpointProduct, rows: &'a VirtualRows) -> Self {
-        Self {
-            product,
-            backing: RowBacking::Virtual(rows),
-            start: 0,
-            end: rows.len(),
-        }
+        Self { product, fold }
     }
 
     /// The rows between two seats of the expansion, over the same class rows.
     pub fn slice(&self, start: usize, end: usize) -> Self {
-        assert!(
-            start <= end && end <= self.len(),
-            "a label row slice is in range"
-        );
         Self {
             product: self.product,
-            backing: self.backing,
-            start: self.start + start,
-            end: self.start + end,
+            fold: &self.fold[start..end],
         }
     }
 
     pub fn len(&self) -> usize {
-        self.end - self.start
+        self.fold.len()
     }
 
     pub fn is_empty(&self) -> bool {
-        self.len() == 0
+        self.fold.is_empty()
     }
 
     pub fn base(&self, row: usize) -> &'a TransitionRow {
-        &self.product.transitions[self.seat(row) as usize]
+        &self.product.transitions[self.fold[row].seat as usize]
     }
 
     pub fn input_glyph(&self, row: usize) -> &'a Rc<str> {
@@ -215,19 +173,11 @@ impl<'a> LabelRows<'a> {
     }
 
     pub fn right3(&self, row: usize) -> &'a Rc<str> {
-        let row = self.ordinal(row);
-        match self.backing {
-            RowBacking::Expanded(fold) => &fold[row].right3,
-            RowBacking::Virtual(rows) => rows.right3(row),
-        }
+        &self.fold[row].right3
     }
 
     pub fn right4(&self, row: usize) -> &'a Rc<str> {
-        let row = self.ordinal(row);
-        match self.backing {
-            RowBacking::Expanded(fold) => &fold[row].right4,
-            RowBacking::Virtual(rows) => rows.right4(row),
-        }
+        &self.fold[row].right4
     }
 
     pub fn outcome(&self, row: usize) -> &'a Rc<str> {
@@ -235,14 +185,7 @@ impl<'a> LabelRows<'a> {
     }
 
     pub fn joint(&self, row: usize) -> bool {
-        let row = self.ordinal(row);
-        match self.backing {
-            RowBacking::Expanded(fold) => fold[row].joint,
-            RowBacking::Virtual(rows) => {
-                let seat = rows.seat(row);
-                self.product.transitions[seat as usize].joint
-            }
-        }
+        self.fold[row].joint
     }
 
     pub fn provenance(&self, row: usize) -> &'a [String] {
@@ -251,47 +194,15 @@ impl<'a> LabelRows<'a> {
 
     /// The six labels one row is keyed by, in `table.Window.key` order.
     pub fn key(&self, row: usize) -> [&'a str; 6] {
-        let row = self.ordinal(row);
-        match self.backing {
-            RowBacking::Expanded(fold) => {
-                let held = &fold[row];
-                let base = &self.product.transitions[held.seat as usize];
-                [
-                    self.product.labels.text(base.input_glyph),
-                    self.product.labels.text(base.left),
-                    self.product.labels.text(base.right1),
-                    self.product.labels.text(base.right2),
-                    &held.right3,
-                    &held.right4,
-                ]
-            }
-            RowBacking::Virtual(rows) => {
-                let (seat, right3, right4) = rows.parts(row);
-                let base = &self.product.transitions[seat as usize];
-                [
-                    self.product.labels.text(base.input_glyph),
-                    self.product.labels.text(base.left),
-                    self.product.labels.text(base.right1),
-                    self.product.labels.text(base.right2),
-                    right3,
-                    right4,
-                ]
-            }
-        }
-    }
-
-    fn seat(&self, row: usize) -> u32 {
-        let row = self.ordinal(row);
-        match self.backing {
-            RowBacking::Expanded(fold) => fold[row].seat,
-            RowBacking::Virtual(rows) => rows.seat(row),
-        }
-    }
-
-    #[inline]
-    fn ordinal(&self, row: usize) -> usize {
-        assert!(row < self.len(), "a label row ordinal is in range");
-        self.start + row
+        let base = self.base(row);
+        [
+            self.product.labels.text(base.input_glyph),
+            self.product.labels.text(base.left),
+            self.product.labels.text(base.right1),
+            self.product.labels.text(base.right2),
+            &self.fold[row].right3,
+            &self.fold[row].right4,
+        ]
     }
 }
 
@@ -306,138 +217,43 @@ pub fn fold_product(index: &SpecIndex, product: FixpointProduct) -> Result<Folde
 /// The assertions run where the transcribed fold ran them — the reachable-cells cross-check between the rule fold and the treaty fold, the reduced first-match-wins replay last — with the deep-class union check after them, which the Python original stated only on its fixture because there it cost nothing, and which costs almost nothing here either.
 pub fn fold_with(
     index: &SpecIndex,
-    product: FixpointProduct,
-    options: &mut WindowOptions<'_>,
-) -> Result<Folded, String> {
-    fold_with_mode(index, product, options, FoldMode::Expanded)
-}
-
-pub fn fold_with_mode(
-    index: &SpecIndex,
-    product: FixpointProduct,
-    options: &mut WindowOptions<'_>,
-    mode: FoldMode,
-) -> Result<Folded, String> {
-    fold_with_report(index, product, options, mode, None)
-}
-
-/// [`fold_with`] with an opt-in wall-clock report after each completed phase. The callback receives stable phase names without a configuration suffix so callers can choose their own grouping and output format; an ordinary fold takes no clocks.
-pub fn fold_with_profile(
-    index: &SpecIndex,
-    product: FixpointProduct,
-    options: &mut WindowOptions<'_>,
-    mut report: impl FnMut(&str, Duration),
-) -> Result<Folded, String> {
-    fold_with_profile_mode(
-        index,
-        product,
-        options,
-        FoldMode::Expanded,
-        |phase, elapsed, _detail| report(phase, elapsed),
-    )
-}
-
-pub fn fold_with_profile_mode(
-    index: &SpecIndex,
-    product: FixpointProduct,
-    options: &mut WindowOptions<'_>,
-    mode: FoldMode,
-    mut report: impl FnMut(&str, Duration, Option<&str>),
-) -> Result<Folded, String> {
-    fold_with_report(index, product, options, mode, Some(&mut report))
-}
-
-fn fold_with_report(
-    index: &SpecIndex,
     mut product: FixpointProduct,
     options: &mut WindowOptions<'_>,
-    mode: FoldMode,
-    mut report: Option<&mut FoldReporter<'_>>,
 ) -> Result<Folded, String> {
     assert_key_sorted(&product)?;
-    let (row_storage, rules, identity_guards, replay_lefts) = match mode {
-        FoldMode::Expanded => {
-            let mut fold_rows = if report.is_some() {
-                let started = Instant::now();
-                let mut sorting = Duration::ZERO;
-                let rows = expand_with(&product, |rows| {
-                    let started = Instant::now();
-                    sort_fold_rows(rows);
-                    sorting += started.elapsed();
-                });
-                let expanding = started.elapsed().saturating_sub(sorting);
-                report.as_deref_mut().expect("the report is present")("expand", expanding, None);
-                report.as_deref_mut().expect("the report is present")("sort", sorting, None);
-                rows
-            } else {
-                expand(&product)
-            };
-            let started = report.is_some().then(Instant::now);
-            flag_prospect_joints(&product, &mut fold_rows);
-            let mut class_joint: Vec<bool> =
-                product.transitions.iter().map(|row| row.joint).collect();
-            for row in &fold_rows {
-                if row.joint {
-                    class_joint[row.seat as usize] = true;
-                }
-            }
-            project_class_joints(&mut product, &class_joint);
-            report_elapsed(&mut report, "joints", started);
-            let started = report.is_some().then(Instant::now);
-            let (rules, identity_guards, replay_lefts) =
-                fold_rules(index, &LabelRows::new(&product, &fold_rows), None)?;
-            report_elapsed(&mut report, "rules", started);
-            (
-                RowStorage::Expanded(fold_rows),
-                rules,
-                identity_guards,
-                replay_lefts,
-            )
+    let mut fold_rows = expand(&product);
+    flag_prospect_joints(&product, &mut fold_rows);
+    let mut class_joint: Vec<bool> = product.transitions.iter().map(|row| row.joint).collect();
+    for row in &fold_rows {
+        if row.joint {
+            class_joint[row.seat as usize] = true;
         }
-        FoldMode::Compressed => {
-            let started = report.is_some().then(Instant::now);
-            let compressed = CompressedRows::new(&product)?;
-            let stats = compressed.stats();
-            if let (Some(report), Some(started)) = (report.as_deref_mut(), started) {
-                let detail = format!(
-                    "class_rows={} concrete_rows={} atom_rows={} slot3_atoms={} slot4_atoms={}",
-                    stats.class_rows,
-                    stats.concrete_rows,
-                    stats.atom_rows,
-                    stats.slot3_atoms,
-                    stats.slot4_atoms
-                );
-                report("relation", started.elapsed(), Some(&detail));
-            }
-            let started = report.is_some().then(Instant::now);
-            project_class_joints(&mut product, compressed.class_joint());
-            report_elapsed(&mut report, "joints", started);
-            let started = report.is_some().then(Instant::now);
-            let (rules, identity_guards, replay_lefts) =
-                fold_rules(index, &compressed.rows(&product), Some(&compressed))?;
-            report_elapsed(&mut report, "rules", started);
-            drop(compressed);
-            let started = report.is_some().then(Instant::now);
-            let rows = VirtualRows::new(&product);
-            if rows.len() != stats.concrete_rows {
-                return Err(format!(
-                    "compressed fold: the virtual relation has {} rows but the atom relation counted {} concrete rows",
-                    rows.len(),
-                    stats.concrete_rows
-                ));
-            }
-            report_elapsed(&mut report, "virtual_rows", started);
-            (
-                RowStorage::Virtual(rows),
-                rules,
-                identity_guards,
-                replay_lefts,
-            )
-        }
-    };
-    let rows = row_storage.rows(&product);
+    }
+    for (row, joint) in product.transitions.iter_mut().zip(&class_joint) {
+        row.joint = *joint;
+    }
 
-    let started = report.is_some().then(Instant::now);
+    let rows = LabelRows::new(&product, &fold_rows);
+    let mut rules: Vec<Rule> = Vec::new();
+    let mut identity_guards: i64 = 0;
+    let mut replay_lefts: ReplayLefts = HashMap::default();
+    for (start, end) in input_runs(&rows) {
+        let slice = rows.slice(start, end);
+        let input_glyph = Rc::clone(slice.input_glyph(0));
+        let rune = input_glyph.split('.').next().unwrap_or(&input_glyph);
+        let Some(modeled) = index.sym_of(rune).filter(|name| index.is_modeled(*name)) else {
+            return Err(format!(
+                "{input_glyph}: the spec models no rune {}",
+                python_repr(rune)
+            ));
+        };
+        let never_locked = !index.is_entry_bearing(modeled);
+        let folded = rules_for_input(&input_glyph, &slice, never_locked)?;
+        rules.extend(folded.rules);
+        identity_guards += folded.identity_guards;
+        replay_lefts.insert(input_glyph, folded.replay_lefts);
+    }
+
     assert_reachable_cells(index, &rows, &product.seats, &product.cells)?;
 
     let entry_extensions: HashMap<&CellId, i64> = product
@@ -482,12 +298,8 @@ fn fold_with_report(
         })
         .collect();
     treaty_rows.sort();
-    report_elapsed(&mut report, "treaties", started);
 
-    let started = report.is_some().then(Instant::now);
     let prefixes = certificate::Prefixes::over(&rows);
-    report_elapsed(&mut report, "prefixes", started);
-    let started = report.is_some().then(Instant::now);
     let first_rows = first_match_rows(
         &rows,
         &rules,
@@ -495,13 +307,8 @@ fn fold_with_report(
         certificate::ROW_CAP,
         Some(prefixes.dist()),
     )?;
-    report_elapsed(&mut report, "partition", started);
-    let started = report.is_some().then(Instant::now);
     assert_deep_class_unions(&product, &rules)?;
-    report_elapsed(&mut report, "deep_classes", started);
-    let started = report.is_some().then(Instant::now);
     let certificates = certificate::certify(index, options, &prefixes, &rows, &rules, &first_rows)?;
-    report_elapsed(&mut report, "certificates", started);
 
     let config = product.config.clone();
     let decision = DecisionTable {
@@ -526,66 +333,6 @@ fn fold_with_report(
     })
 }
 
-fn report_elapsed(
-    report: &mut Option<&mut FoldReporter<'_>>,
-    phase: &str,
-    started: Option<Instant>,
-) {
-    if let (Some(report), Some(started)) = (report.as_deref_mut(), started) {
-        report(phase, started.elapsed(), None);
-    }
-}
-
-enum RowStorage {
-    Expanded(Vec<FoldRow>),
-    Virtual(VirtualRows),
-}
-
-impl RowStorage {
-    fn rows<'a>(&'a self, product: &'a FixpointProduct) -> LabelRows<'a> {
-        match self {
-            Self::Expanded(rows) => LabelRows::new(product, rows),
-            Self::Virtual(rows) => LabelRows::virtual_rows(product, rows),
-        }
-    }
-}
-
-fn project_class_joints(product: &mut FixpointProduct, class_joint: &[bool]) {
-    for (row, joint) in product.transitions.iter_mut().zip(class_joint) {
-        row.joint = *joint;
-    }
-}
-
-fn fold_rules(
-    index: &SpecIndex,
-    rows: &LabelRows<'_>,
-    compressed: Option<&CompressedRows>,
-) -> Result<(Vec<Rule>, i64, ReplayLefts), String> {
-    let mut rules: Vec<Rule> = Vec::new();
-    let mut identity_guards: i64 = 0;
-    let mut replay_lefts: ReplayLefts = HashMap::default();
-    for (start, end) in input_runs(rows) {
-        let slice = rows.slice(start, end);
-        let input_glyph = Rc::clone(slice.input_glyph(0));
-        let rune = input_glyph.split('.').next().unwrap_or(&input_glyph);
-        let Some(modeled) = index.sym_of(rune).filter(|name| index.is_modeled(*name)) else {
-            return Err(format!(
-                "{input_glyph}: the spec models no rune {}",
-                python_repr(rune)
-            ));
-        };
-        let never_locked = !index.is_entry_bearing(modeled);
-        let mut folded = rules_for_input(&input_glyph, &slice, never_locked)?;
-        if let Some(compressed) = compressed {
-            compressed.expand_rules(&input_glyph, &mut folded.rules);
-        }
-        rules.extend(folded.rules);
-        identity_guards += folded.identity_guards;
-        replay_lefts.insert(input_glyph, folded.replay_lefts);
-    }
-    Ok((rules, identity_guards, replay_lefts))
-}
-
 /// The precondition [`fold_product`] and [`expand`] read a product under: its rows are in `table.Window.key` order, which is what makes an input's rows one contiguous run, a left's rows one contiguous run inside that, and the per-prefix expansion sort a global one. The transcribed fold re-sorted and grouped through dicts instead, so it folded any row order; here the order is the contract `FixpointProduct` states it carries, and a product that breaks it is refused rather than folded into duplicated blocks.
 fn assert_key_sorted(product: &FixpointProduct) -> Result<(), String> {
     for pair in product.transitions.windows(2) {
@@ -602,10 +349,6 @@ fn assert_key_sorted(product: &FixpointProduct) -> Result<(), String> {
 
 /// The label-grain expansion of one product, in `table.Window.key` order. See the module docstring for why the sort is per prefix run rather than global. Public so a caller replaying a perturbed rule list can build the same rows the fold asserted over.
 pub fn expand(product: &FixpointProduct) -> Vec<FoldRow> {
-    expand_with(product, sort_fold_rows)
-}
-
-fn expand_with(product: &FixpointProduct, mut sort: impl FnMut(&mut [FoldRow])) -> Vec<FoldRow> {
     let mut pool: HashSet<Rc<str>> = HashSet::default();
     let mut members: HashMap<&str, Vec<Rc<str>>> = HashMap::default();
     for (token, names) in &product.deep_classes {
@@ -652,16 +395,12 @@ fn expand_with(product: &FixpointProduct, mut sort: impl FnMut(&mut [FoldRow])) 
                 }
             }
         }
-        sort(&mut expanded[run..]);
+        expanded[run..].sort_by(|left, right| {
+            (&*left.right3, &*left.right4).cmp(&(&*right.right3, &*right.right4))
+        });
         start = end;
     }
     expanded
-}
-
-fn sort_fold_rows(rows: &mut [FoldRow]) {
-    rows.sort_by(|left, right| {
-        (&*left.right3, &*left.right4).cmp(&(&*right.right3, &*right.right4))
-    });
 }
 
 /// The four labels a run of the product shares while its deep slots vary.
@@ -1076,147 +815,12 @@ mod tests {
     }
 
     #[test]
-    fn a_sliced_label_view_rejects_rows_beyond_its_own_end() {
-        let index = fixtures::mini();
-        let product = enumerate_transitions(&index, &[], SHIPPING)
-            .expect("the fixture's fixpoint closes and settles");
-        let fold_rows = expand(&product);
-        let rows = LabelRows::new(&product, &fold_rows).slice(0, 1);
-        assert!(std::panic::catch_unwind(|| rows.right3(1)).is_err());
-        assert!(std::panic::catch_unwind(|| rows.right4(1)).is_err());
-        assert!(std::panic::catch_unwind(|| rows.joint(1)).is_err());
-        assert!(std::panic::catch_unwind(|| rows.key(1)).is_err());
-    }
-
-    #[test]
-    fn a_label_view_rejects_reversed_and_out_of_view_slices() {
-        let index = fixtures::mini();
-        let product = enumerate_transitions(&index, &[], SHIPPING)
-            .expect("the fixture's fixpoint closes and settles");
-        let fold_rows = expand(&product);
-        let rows = LabelRows::new(&product, &fold_rows);
-        assert!(std::panic::catch_unwind(|| rows.slice(1, 0)).is_err());
-        assert!(std::panic::catch_unwind(|| rows.slice(0, rows.len() + 1)).is_err());
-        let one = rows.slice(0, 1);
-        assert!(std::panic::catch_unwind(|| one.slice(0, 2)).is_err());
-    }
-
-    #[test]
     fn the_fixtures_fixpoint_folds_into_rules_windows_and_treaty_rows() {
         let (_index, _product, folded) = built();
         assert!(!folded.decision.rules.is_empty());
         assert!(!folded.decision.transitions.is_empty());
         assert!(!folded.treaty.rows.is_empty());
         assert!(!folded.decision.cited_provenance.is_empty());
-    }
-
-    #[test]
-    fn a_profiled_fold_is_the_ordinary_fold_with_each_phase_reported() {
-        let index = fixtures::mini();
-        let product = enumerate_transitions(&index, &[], SHIPPING)
-            .expect("the fixture's fixpoint closes and settles");
-        let ordinary = fold_product(&index, product.clone()).expect("the ordinary fold answers");
-        let mut options = WindowOptions::new(&index).expect("the fixture has valid options");
-        let mut phases: Vec<String> = Vec::new();
-        let profiled = fold_with_profile(&index, product, &mut options, |phase, _elapsed| {
-            phases.push(phase.to_owned());
-        })
-        .expect("the profiled fold answers");
-        assert_eq!(
-            artifacts::settlement_tsv(&ordinary.decision),
-            artifacts::settlement_tsv(&profiled.decision)
-        );
-        assert_eq!(
-            artifacts::treaty_tsv(&ordinary.treaty),
-            artifacts::treaty_tsv(&profiled.treaty)
-        );
-        assert_eq!(
-            ordinary.decision.certificates,
-            profiled.decision.certificates
-        );
-        assert_eq!(
-            artifacts::table_digest(&index, &ordinary.decision, &ordinary.treaty),
-            artifacts::table_digest(&index, &profiled.decision, &profiled.treaty)
-        );
-        assert_eq!(
-            phases,
-            [
-                "expand",
-                "sort",
-                "joints",
-                "rules",
-                "treaties",
-                "prefixes",
-                "partition",
-                "deep_classes",
-                "certificates"
-            ]
-        );
-    }
-
-    #[test]
-    fn the_compressed_fold_writes_the_materialized_folds_exact_tables_and_certificates() {
-        let index = fixtures::mini();
-        for features in [Vec::new(), vec![fixtures::sym(&index, "ss03")]] {
-            let product = enumerate_transitions(&index, &features, SHIPPING)
-                .expect("the fixture's fixpoint closes and settles");
-            let ordinary =
-                fold_product(&index, product.clone()).expect("the ordinary fold answers");
-            let mut options = WindowOptions::new(&index).expect("the fixture has valid options");
-            let mut phases: Vec<String> = Vec::new();
-            let mut relation_detail: Option<String> = None;
-            let compressed = fold_with_profile_mode(
-                &index,
-                product,
-                &mut options,
-                FoldMode::Compressed,
-                |phase, _elapsed, detail| {
-                    phases.push(phase.to_owned());
-                    if phase == "relation" {
-                        relation_detail = detail.map(str::to_owned);
-                    }
-                },
-            )
-            .expect("the compressed fold answers");
-            assert_folded_equal(&index, &ordinary, &compressed);
-            assert_eq!(
-                phases,
-                [
-                    "relation",
-                    "joints",
-                    "rules",
-                    "virtual_rows",
-                    "treaties",
-                    "prefixes",
-                    "partition",
-                    "deep_classes",
-                    "certificates"
-                ]
-            );
-            let detail = relation_detail.expect("the relation reports its grains");
-            assert!(detail.contains("class_rows="), "{detail}");
-            assert!(detail.contains("concrete_rows="), "{detail}");
-            assert!(detail.contains("atom_rows="), "{detail}");
-        }
-    }
-
-    fn assert_folded_equal(index: &SpecIndex, ordinary: &Folded, compressed: &Folded) {
-        assert_eq!(
-            artifacts::settlement_tsv(&ordinary.decision),
-            artifacts::settlement_tsv(&compressed.decision)
-        );
-        assert_eq!(
-            artifacts::treaty_tsv(&ordinary.treaty),
-            artifacts::treaty_tsv(&compressed.treaty)
-        );
-        assert_eq!(
-            ordinary.decision.certificates,
-            compressed.decision.certificates
-        );
-        assert_eq!(
-            artifacts::table_digest(index, &ordinary.decision, &ordinary.treaty),
-            artifacts::table_digest(index, &compressed.decision, &compressed.treaty)
-        );
     }
 
     /// The whole-table replay, which is what a fixture small enough to afford it is held to and what the reduction the build runs is measured against.
@@ -1636,12 +1240,7 @@ mod tests {
             ],
             Vec::new(),
         );
-        let folded =
-            fold_product(&bench.index, product.clone()).expect("the hand-built product folds");
-        let mut options = WindowOptions::new(&bench.index).expect("the fixture has valid options");
-        let compressed = fold_with_mode(&bench.index, product, &mut options, FoldMode::Compressed)
-            .expect("the compressed hand-built product folds");
-        assert_folded_equal(&bench.index, &folded, &compressed);
+        let folded = fold_product(&bench.index, product).expect("the hand-built product folds");
         let flagged: Vec<(&str, bool)> = folded
             .decision
             .transitions
@@ -1731,49 +1330,6 @@ mod tests {
         assert_eq!(
             deep,
             [("qsIt.x", vec!["D", "E"]), ("qsIt.y", vec!["F", "G"])]
-        );
-    }
-
-    /// A hand-built fold with classes on both deep slots, the complete boundary block and authored provenance exercises the quotient against the parts a source-incidence-only test cannot cover.
-    #[test]
-    fn the_compressed_fold_matches_the_deep_bench_across_both_slots_and_provenance() {
-        let (bench, mut product, _tokens) = deep_bench();
-        let fourth = deep_class_id(&["H".to_owned(), "I".to_owned()]);
-        let fourth_label = product.labels.intern(&fourth);
-        let target = product
-            .transitions
-            .iter()
-            .position(|row| &**product.outcome(row) == "qsIt.x")
-            .expect("the first deep block is present");
-        product.transitions[target].right4 = fourth_label;
-        let labels = &product.labels;
-        product
-            .transitions
-            .sort_by(|left, right| left.key(labels).cmp(&right.key(labels)));
-        product
-            .deep_classes
-            .push((fourth, vec!["H".to_owned(), "I".to_owned()]));
-        product.notes[0] = vec!["bench.source".to_owned()];
-        product.cited_provenance = vec!["bench.source".to_owned()];
-        let expanded = expand(&product);
-        let fourth_members: Vec<&str> = expanded
-            .iter()
-            .filter(|row| &*row.right4 != NA_LABEL)
-            .map(|row| &*row.right4)
-            .collect();
-        assert_eq!(fourth_members, ["H", "I", "H", "I"]);
-
-        let ordinary = fold_product(&bench.index, product.clone()).expect("the deep bench folds");
-        let mut options = WindowOptions::new(&bench.index).expect("the fixture has valid options");
-        let compressed = fold_with_mode(&bench.index, product, &mut options, FoldMode::Compressed)
-            .expect("the compressed deep bench folds");
-        assert_folded_equal(&bench.index, &ordinary, &compressed);
-        assert!(
-            ordinary
-                .decision
-                .rules
-                .iter()
-                .any(|rule| rule.provenance == ["bench.source"])
         );
     }
 
@@ -2000,7 +1556,7 @@ mod tests {
 
     /// The ZWNJ backtrack-slot guards, stated over a rune the fixture genuinely does not entry-bear: an input the chokepoint never locks leads its rules with the default block replayed under an explicit `uni200C` backtrack, and closes that run with the identity catch-all no later backtrack-classed rule may match across.
     #[test]
-    fn the_compressed_fold_preserves_zwnj_guards_for_an_input_the_chokepoint_never_locks() {
+    fn an_input_the_chokepoint_never_locks_leads_its_rules_with_zwnj_guards() {
         let bench = Bench::new();
         assert!(
             !bench
@@ -2008,12 +1564,8 @@ mod tests {
                 .is_entry_bearing(fixtures::sym(&bench.index, "qsIt")),
             "the fixture stopped being the one this arm needs"
         );
-        let product = chokepoint(&bench, "qsIt");
-        let folded = fold_product(&bench.index, product.clone()).expect("the product folds");
-        let mut options = WindowOptions::new(&bench.index).expect("the fixture has valid options");
-        let compressed = fold_with_mode(&bench.index, product, &mut options, FoldMode::Compressed)
-            .expect("the compressed product folds");
-        assert_folded_equal(&bench.index, &folded, &compressed);
+        let folded =
+            fold_product(&bench.index, chokepoint(&bench, "qsIt")).expect("the product folds");
         let zwnj: Vec<Rc<str>> = vec![Rc::from("uni200C")];
         let guards = folded
             .decision
