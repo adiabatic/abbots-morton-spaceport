@@ -8,6 +8,7 @@ pub mod artifacts;
 pub mod cases;
 pub mod census;
 pub mod certificate;
+pub mod compressed_fold;
 pub mod emit;
 pub mod engine;
 pub mod error;
@@ -30,6 +31,7 @@ pub mod shipped_order;
 pub mod specificity;
 pub mod stream;
 pub mod types;
+pub mod virtual_rows;
 
 /// The marker every dump's `format` key carries. A dump naming anything else is refused rather than guessed at, exactly as `kernel_io.spec_of` refuses it.
 pub const SPEC_FORMAT: &str = "ams-m1-spec/1";

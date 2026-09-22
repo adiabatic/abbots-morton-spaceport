@@ -132,6 +132,12 @@ pub fn timing_line(label: &str, elapsed: Duration) -> String {
     format!("[t] {label} {:.1}s", elapsed.as_secs_f64())
 }
 
+/// One fold subphase's wall clock at millisecond precision, in the same protocol shape as [`timing_line`] so fixture-scale phases remain measurable in the timings journal.
+fn precise_timing_line(label: &str, elapsed: Duration, detail: Option<&str>) -> String {
+    let tail = detail.map_or(String::new(), |detail| format!(" {detail}"));
+    format!("[t] {label} {:.3}s{tail}", elapsed.as_secs_f64())
+}
+
 /// What a run says about itself on stderr beyond its answer: the two phase timings, and the cache census the RAM work reads. Both are off by default, and a run with neither says nothing at all on a clean exit — which the identity harness relies on.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct Report {
@@ -361,6 +367,32 @@ pub fn run_configs_tables(
     report: Report,
     seeding: Seeding,
 ) -> Result<Vec<TableAnswer>, String> {
+    run_configs_tables_with_fold(
+        index,
+        configs,
+        modes,
+        outdir,
+        inputs,
+        workers,
+        report,
+        seeding,
+        fold::FoldMode::Expanded,
+    )
+}
+
+/// [`run_configs_tables`] with an explicit fold implementation. The ordinary entry point stays on the production materialized fold; experiments opt into another mode at the command boundary.
+#[allow(clippy::too_many_arguments)]
+pub fn run_configs_tables_with_fold(
+    index: &SpecIndex,
+    configs: &[Configuration<'_>],
+    modes: EnumerationModes,
+    outdir: &Path,
+    inputs: &str,
+    workers: usize,
+    report: Report,
+    seeding: Seeding,
+    fold_mode: fold::FoldMode,
+) -> Result<Vec<TableAnswer>, String> {
     std::fs::create_dir_all(outdir).map_err(|error| format!("{}: {error}", outdir.display()))?;
     let world = modes.world_token();
     let edited = Exclusion::of(index, seeding.edited.iter().copied())
@@ -385,8 +417,10 @@ pub fn run_configs_tables(
                 .into_iter()
                 .collect();
             let file = memo_file(&seeding, outdir, config.token, &world, carried);
-            run_config_tables(index, config, modes, outdir, inputs, report, seed, file)
-                .map_err(|complaint| format!("{}: {complaint}", config.token))
+            run_config_tables_with_fold(
+                index, config, modes, outdir, inputs, report, seed, file, fold_mode,
+            )
+            .map_err(|complaint| format!("{}: {complaint}", config.token))
         });
     };
     let default = &configs[default_seat];
@@ -424,7 +458,7 @@ pub fn run_configs_tables(
     );
     let rest = delta_worklist(index, configs, default_seat);
     let finish_default = || {
-        finish_config_tables(index, default, outdir, inputs, report, pending)
+        finish_config_tables(index, default, outdir, inputs, report, pending, fold_mode)
             .map_err(|complaint| format!("{}: {complaint}", default.token))
     };
     let (default_answer, mut answered) =
@@ -453,8 +487,10 @@ pub fn run_configs_tables(
                 bases,
                 keep_memo: false,
             };
-            run_config_tables(index, config, modes, outdir, inputs, report, seed, file)
-                .map_err(|complaint| format!("{}: {complaint}", config.token))
+            run_config_tables_with_fold(
+                index, config, modes, outdir, inputs, report, seed, file, fold_mode,
+            )
+            .map_err(|complaint| format!("{}: {complaint}", config.token))
         })?;
     answered.push((default_seat, default_answer));
     Ok(seat_answers(answered, configs.len()))
@@ -472,8 +508,33 @@ pub fn run_config_tables(
     seed: Seed,
     file: Option<MemoFile>,
 ) -> Result<TableAnswer, String> {
+    run_config_tables_with_fold(
+        index,
+        config,
+        modes,
+        outdir,
+        inputs,
+        report,
+        seed,
+        file,
+        fold::FoldMode::Expanded,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+pub fn run_config_tables_with_fold(
+    index: &SpecIndex,
+    config: &Configuration<'_>,
+    modes: EnumerationModes,
+    outdir: &Path,
+    inputs: &str,
+    report: Report,
+    seed: Seed,
+    file: Option<MemoFile>,
+    fold_mode: fold::FoldMode,
+) -> Result<TableAnswer, String> {
     let pending = enumerate_config_tables(index, config, modes, report, seed, file)?;
-    finish_config_tables(index, config, outdir, inputs, report, pending)
+    finish_config_tables(index, config, outdir, inputs, report, pending, fold_mode)
 }
 
 /// One configuration between the two halves of its table build: enumerated, its memo file written, with everything the fold and the writes read still in hand. It cannot cross a thread — the product's transition rows hold `Rc<str>` ([`crate::stream`]) and the window options hold `Rc<FollowerMap>` ([`crate::options`]) — which is why the second half runs on the thread that enumerated rather than as a seat of its own, and why the memo is the one field a caller clones out ahead of it: behind its [`Arc`] it is the one part of an enumeration the other configurations read. Only a configuration whose seed kept it carries one here at all; a delta's went to its file and was let go of at the fixpoint's release point, so a delta holds no memo through its drain, its sort or its fold.
@@ -538,6 +599,7 @@ fn finish_config_tables(
     inputs: &str,
     report: Report,
     pending: EnumeratedTables<'_>,
+    fold_mode: fold::FoldMode,
 ) -> Result<TableAnswer, String> {
     let token = config.token;
     let EnumeratedTables {
@@ -548,7 +610,24 @@ fn finish_config_tables(
     } = pending;
     drop(memo);
     let started = Instant::now();
-    let folded = fold::fold_with(index, product, &mut options)?;
+    let folded = if report.timings {
+        fold::fold_with_profile_mode(
+            index,
+            product,
+            &mut options,
+            fold_mode,
+            |phase, elapsed, detail| {
+                timed.push(precise_timing_line(
+                    &format!("fold.{phase}[{token}]"),
+                    elapsed,
+                    detail,
+                ));
+            },
+        )?
+    } else {
+        fold::fold_with_mode(index, product, &mut options, fold_mode)?
+    };
+    let artifacts_started = report.timings.then(Instant::now);
     let settlement = outdir.join(format!("settlement-{token}.tsv"));
     write_text(&settlement, &artifacts::settlement_tsv(&folded.decision))?;
     let treaties = outdir.join(format!("treaties-{token}.tsv"));
@@ -556,7 +635,22 @@ fn finish_config_tables(
     let windows = outdir.join(format!("windows-{token}.tsv"));
     artifacts::write_windows(index, &folded.decision, inputs, &windows)
         .map_err(|error| format!("{}: {error}", windows.display()))?;
+    if let Some(artifacts_started) = artifacts_started {
+        timed.push(precise_timing_line(
+            &format!("fold.artifacts[{token}]"),
+            artifacts_started.elapsed(),
+            None,
+        ));
+    }
+    let digest_started = report.timings.then(Instant::now);
     let digest = artifacts::table_digest(index, &folded.decision, &folded.treaty);
+    if let Some(digest_started) = digest_started {
+        timed.push(precise_timing_line(
+            &format!("fold.digest[{token}]"),
+            digest_started.elapsed(),
+            None,
+        ));
+    }
     if report.timings {
         timed.push(timing_line(&format!("fold[{token}]"), started.elapsed()));
     }
@@ -858,6 +952,14 @@ mod tests {
             timing_line("enumerate_total", Duration::from_secs(75)),
             "[t] enumerate_total 75.0s"
         );
+        assert_eq!(
+            precise_timing_line(
+                "fold.relation[default]",
+                Duration::from_micros(1234),
+                Some("class_rows=10 concrete_rows=20 atom_rows=5")
+            ),
+            "[t] fold.relation[default] 0.001s class_rows=10 concrete_rows=20 atom_rows=5"
+        );
     }
 
     /// The name a configuration's stream is filed under, which is the caller's own token and nothing added to it — a caller that named the configurations knows every filename before the run starts.
@@ -1096,9 +1198,9 @@ mod tests {
         std::fs::remove_dir_all(&root).expect("the scratch directory is removable");
     }
 
-    /// A table build's timing lines arrive in the caller's configuration order and name each configuration's three phases in the order they ran, whatever the width: `default`'s fold line comes back where its enumerate and memo lines do, even when it was clocked beside the deltas', and `ss03`'s come back last although the wave claims it first.
+    /// A table build's timing lines arrive in the caller's configuration order and name each configuration's phases in the order they ran, whatever the width: `default`'s fold lines come back where its enumerate and memo lines do, even when they were clocked beside the deltas', and `ss03`'s come back last although the wave claims it first.
     #[test]
-    fn a_table_build_times_its_three_phases_in_configuration_order_at_any_width() {
+    fn a_table_build_times_its_phases_in_configuration_order_at_any_width() {
         let index = fixtures::mini();
         let configs = permuting(&index);
         let root = scratch("fan-out-tables-timings");
@@ -1130,12 +1232,45 @@ mod tests {
                 [
                     "enumerate[default]",
                     "memo[default]",
+                    "fold.expand[default]",
+                    "fold.sort[default]",
+                    "fold.joints[default]",
+                    "fold.rules[default]",
+                    "fold.treaties[default]",
+                    "fold.prefixes[default]",
+                    "fold.partition[default]",
+                    "fold.deep_classes[default]",
+                    "fold.certificates[default]",
+                    "fold.artifacts[default]",
+                    "fold.digest[default]",
                     "fold[default]",
                     "enumerate[ss09]",
                     "memo[ss09]",
+                    "fold.expand[ss09]",
+                    "fold.sort[ss09]",
+                    "fold.joints[ss09]",
+                    "fold.rules[ss09]",
+                    "fold.treaties[ss09]",
+                    "fold.prefixes[ss09]",
+                    "fold.partition[ss09]",
+                    "fold.deep_classes[ss09]",
+                    "fold.certificates[ss09]",
+                    "fold.artifacts[ss09]",
+                    "fold.digest[ss09]",
                     "fold[ss09]",
                     "enumerate[ss03]",
                     "memo[ss03]",
+                    "fold.expand[ss03]",
+                    "fold.sort[ss03]",
+                    "fold.joints[ss03]",
+                    "fold.rules[ss03]",
+                    "fold.treaties[ss03]",
+                    "fold.prefixes[ss03]",
+                    "fold.partition[ss03]",
+                    "fold.deep_classes[ss03]",
+                    "fold.certificates[ss03]",
+                    "fold.artifacts[ss03]",
+                    "fold.digest[ss03]",
                     "fold[ss03]"
                 ],
                 "at {workers} workers"
