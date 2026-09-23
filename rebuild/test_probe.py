@@ -118,7 +118,7 @@ def test_no_wanted_window_opens_no_table(monkeypatch, tmp_path):
 def test_every_window_and_configuration_rides_one_explain_many_call(monkeypatch):
     """Two windows under two configurations are one `explain_many` call whose requests are the window-major cross product in order, so the explainer's warm-up is paid once per process."""
     _spec, calls = _stub_settlement(monkeypatch, ["default", "ss03"])
-    monkeypatch.setattr(probe.conform, "features_for_config", lambda config: frozenset({config}))
+    monkeypatch.setattr(probe, "features_for_config", lambda config: frozenset({config}))
     probe.main(["E665:E670", "E652:E67A"])
     assert len(calls) == 1
     assert calls[0][1] == [
@@ -132,7 +132,7 @@ def test_every_window_and_configuration_rides_one_explain_many_call(monkeypatch)
 def test_each_block_carries_its_own_windows_settlement_and_baseline(monkeypatch, capsys):
     """Every rendered line names the window and configuration it came from, so the whole multi-window output is pinned as text: window blocks in argument order, each block's configurations in `CONFIGS` order, each line showing the settlement answered for that window under that configuration and the baseline row read for it. A slice taken from another window's reports, or a baseline looked up under another window's key, changes the text."""
     _stub_settlement(monkeypatch, ["default", "ss03"])
-    monkeypatch.setattr(probe.conform, "features_for_config", lambda config: frozenset({config}))
+    monkeypatch.setattr(probe, "features_for_config", lambda config: frozenset({config}))
     monkeypatch.setattr(probe, "baseline_rows", _baseline_naming_the_window)
     probe.main(["E665:E670", "E652:E67A:E650"])
     assert capsys.readouterr().out == (

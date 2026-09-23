@@ -51,6 +51,7 @@ from rebuild.pipeline import (
     surface,
 )
 from rebuild.pipeline import table as table_module
+from rebuild.pipeline.labels import features_for_config
 from rebuild.pipeline.model import (
     CellId,
     GlyphRecord,
@@ -977,7 +978,7 @@ def run_rule_witnesses(
             part = Path(scratch) / f"{config}.gz"
             report = belt.check_rule_certificates(
                 spec,
-                conform.features_for_config(config),
+                features_for_config(config),
                 decision,
                 guard_verdicts,
                 memo=None if memo is None else replace(memo, write_path=part),
@@ -1263,7 +1264,7 @@ def oracle_row_cache_keys(
             REPO_ROOT,
             spec,
             config,
-            conform.features_for_config(config),
+            features_for_config(config),
             out_dir / f"baseline-{config}.subset.tsv.gz",
             ALIAS_YAML,
             keys.keys(),

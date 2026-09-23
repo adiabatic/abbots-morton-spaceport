@@ -18,6 +18,7 @@ from pathlib import Path
 import yaml
 
 from rebuild.pipeline import conform, geometry
+from rebuild.pipeline.labels import spec_alphabet
 from rebuild.pipeline.model import ResolvedSpec
 from rebuild.pipeline.settle import cell_label
 from rebuild.validation.classify import SeamClassifier
@@ -54,7 +55,7 @@ class ManualPinReport:
 
 
 def migrated_alphabet(spec: ResolvedSpec) -> frozenset[int]:
-    return frozenset(ord(ch) for ch in conform.spec_alphabet(spec))
+    return frozenset(ord(ch) for ch in spec_alphabet(spec))
 
 
 def _codepoint_display_names() -> dict[int, str]:

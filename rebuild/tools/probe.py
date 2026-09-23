@@ -12,8 +12,8 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(REPO_ROOT))
 
-from rebuild.pipeline import conform
 from rebuild.pipeline.explain import explain_many
+from rebuild.pipeline.labels import features_for_config
 from rebuild.pipeline.run_m1 import OUT_DIR
 from rebuild.pipeline.spec_load import load_default_spec
 
@@ -108,7 +108,7 @@ def main(argv: Sequence[str] | None = None) -> None:
         print(USAGE, file=sys.stderr)
         sys.exit(2)
     spec = load_default_spec()
-    features = [conform.features_for_config(config) for config in CONFIGS]
+    features = [features_for_config(config) for config in CONFIGS]
     reports = explain_many(spec, [(cps, active) for _key, cps in windows for active in features])
     keys = frozenset(key for key, _cps in windows)
     baselines: dict[str, dict[str, list[str]] | None] = {
