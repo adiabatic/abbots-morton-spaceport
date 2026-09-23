@@ -152,8 +152,8 @@ def test_the_table_pools_the_per_unit_tuples_and_interns_the_group(mini):
     assert len(distinct) == len(table.mappings)
 
 
-def test_two_units_stating_the_same_class_map_share_one_pooled_instance_and_nothing_mutates_it(mini_bundle):
-    """Issue #276's shape: the class maps pool to one instance per distinct mapping, keyed on the mapping's own insertion order, so two units whose maps differ only in key order are two entries that each materialize in their own order — the order the shipped fragment carries — and no reader writes through the pooled instance, whose type refuses it."""
+def test_two_units_stating_the_same_class_map_share_one_pooled_instance(mini_bundle):
+    """Issue #276's shape: the class maps pool to one instance per distinct mapping, keyed on the mapping's own insertion order, so two units whose maps differ only in key order are two entries that each materialize in their own order — the order the shipped fragment carries. The pooled instance is typed read-only, and the whole-build test in `rebuild/test_unit_cache.py` holds that no build, cold or served, writes through it."""
     rows = [
         AuditRow("default", "E650:E665", ("cell",), "UNMATCHED", ("a",), ("b",)),
         AuditRow("ss03", "E650:E665", ("cell",), "ss03-chain-join-gains", ("a",), ("b",)),
@@ -172,14 +172,12 @@ def test_two_units_stating_the_same_class_map_share_one_pooled_instance_and_noth
     assert list(reordered) == ["ss03", "default"]
     assert len(table.mappings) == 2
     assert list(table.unit(by_window["E650:E650"]).config_classes) == ["ss03", "default"]
-    before = {ordinal: dict(table.config_classes(ordinal)) for ordinal in range(table.n)}
     pool = MappingPool()
     shared = pool.pooled({"x": "y"})
     assert pool.pooled({"x": "y"}) is shared and pool.pooled({"x": "y", "z": "w"}) is not shared
     assert pool.elements == 2 + 4 and len(pool) == 2
     with pytest.raises(TypeError):
         pool.id({"x": 1})  # pyright: ignore[reportArgumentType]
-    assert {ordinal: dict(table.config_classes(ordinal)) for ordinal in range(table.n)} == before
 
 
 def test_release_rows_leaves_the_count_behind(tmp_path, mini_bundle):

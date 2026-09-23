@@ -1,4 +1,4 @@
-"""Tests for the persisted per-unit surface cache (issue 20; rebuild/review/unit_cache.py is the contract). The load-bearing claims: an incremental rebuild over an edited audit is byte-identical to a from-scratch build of the same inputs — ids, batches, echo numbering, seam homes, and the store itself included — a no-change rebuild serves every unit, a corrupt or bypassed store degrades to a full build rather than stale bytes, and the serial and parallel paths agree.
+"""Tests for the persisted per-unit surface cache (issue 20; rebuild/review/unit_cache.py is the contract). The load-bearing claims: an incremental rebuild over an edited audit is byte-identical to a from-scratch build of the same inputs — ids, batches, echo numbering, seam homes, and the store itself included — a no-change rebuild serves every unit, a corrupt or bypassed store degrades to a full build rather than stale bytes, a cold build ships a unit's per-config class map in the order the audit states its configs and neither it nor a served rebuild writes through the pooled instance, and the serial and parallel paths agree.
 
 None of that is a property of any glyph, so none of it needs the live build: the workload is the frozen mini-M1 bundle under rebuild/review/fixtures/mini/ — a thousand-odd real windows over four letters, their subset-table slices, and the after-font they were extracted with — and the whole module runs in the contracts lane at full width, each build costing seconds rather than the twelve-and-a-half a live subset-table parse cost before serving a workload that never read it. `fixtures/mini/regenerate.py` is how the bundle is refreshed; the key and cluster byte-contracts below are pinned separately over synthetic inputs.
 """
@@ -10,6 +10,7 @@ import re
 import shutil
 import sys
 import threading
+from collections.abc import Mapping
 from dataclasses import replace
 from pathlib import Path
 
@@ -143,6 +144,43 @@ def _edited_audit(tmp_path: Path) -> Path:
     return path
 
 
+def _out_of_order_audit(tmp_path: Path) -> tuple[Path, dict[str, list[str]]]:
+    """The mini audit with two windows made into per-config splits: the ss03 row of each is retagged to a ledger class, so each is blessed under ss03 and novel under the rest of its configs, and the second window's ss03 row is moved to the head of the file, so its class map states ss03 first while the first window's states its configs in config order. Answers the edited file and, for the in-order window and then the out-of-order one, the configs in the order the edited file states them.
+
+    The in-order window is the first in the file whose rows state one (codepoints, baseline, new) triple, every one UNMATCHED, under configs that include default and ss03, and the out-of-order window is the next such window over the same configs. One triple means no ink-duplicate fold reaches them. The rows left UNMATCHED keep each unit's class UNMATCHED, and since default is among them, neither the family the census defers nor the family phase 1 assigns moves. The mini audit is written config block by config block, so every class map it states is in config order, and the moved row is what gives the build a map stated in another order.
+    """
+    lines = MINI_AUDIT.read_text(encoding="utf-8").splitlines()
+    header, rows = lines[0], [line.split("\t") for line in lines[1:]]
+    windows: dict[str, tuple[set[tuple[str, str]], set[str], list[str]]] = {}
+    for fields in rows:
+        triples, entries, configs = windows.setdefault(fields[1], (set(), set(), []))
+        triples.add((fields[4], fields[5]))
+        entries.add(fields[3])
+        configs.append(fields[0])
+    candidates = [
+        window
+        for window, (triples, entries, configs) in windows.items()
+        if len(triples) == 1 and entries == {"UNMATCHED"} and {"default", "ss03"} <= set(configs)
+    ]
+    assert candidates, "the mini audit states no one-triple, all-UNMATCHED window under default and ss03"
+    in_order = candidates[0]
+    out_of_order = next(
+        (window for window in candidates[1:] if sorted(windows[window][2]) == sorted(windows[in_order][2])),
+        None,
+    )
+    assert out_of_order is not None, f"no second one-triple, all-UNMATCHED window states {in_order}'s configs"
+    for fields in rows:
+        if fields[1] in (in_order, out_of_order) and fields[0] == "ss03":
+            fields[3] = RETAG_CLASS
+    moved = next(fields for fields in rows if fields[1] == out_of_order and fields[0] == "ss03")
+    edited = [moved] + [fields for fields in rows if fields is not moved]
+    path = tmp_path / "audit-out-of-order.tsv"
+    path.write_text("\n".join([header] + ["\t".join(fields) for fields in edited]) + "\n", encoding="utf-8")
+    return path, {
+        window: [fields[0] for fields in edited if fields[1] == window] for window in (in_order, out_of_order)
+    }
+
+
 def test_incremental_rebuild_matches_a_from_scratch_build_after_an_edit(
     mini_surface, mini_bundle, tmp_path, capfd
 ):
@@ -175,6 +213,80 @@ def _class_fragments(surface: Path, class_id: str) -> list[dict]:
         for part in unit_index.class_shards(_class_meta(surface, class_id))
         for fragment in json.loads((surface / part).read_text(encoding="utf-8"))
     ]
+
+
+def _fragment_of(surface: Path, codepoints: str) -> dict:
+    """The one fragment a surface ships for a window, looked for under every class the manifest lists, since the build shards an UNMATCHED unit under the verdict family it promotes the unit to."""
+    manifest = json.loads((surface / "manifest.json").read_text(encoding="utf-8"))
+    (fragment,) = [
+        fragment
+        for meta in manifest["classes"]
+        for fragment in _class_fragments(surface, meta["id"])
+        if fragment["codepoints"] == codepoints
+    ]
+    return fragment
+
+
+PoolSnapshot = list[tuple[Mapping[str, str], tuple[tuple[str, str], ...]]]
+
+
+def _pooled_maps(monkeypatch) -> list[tuple[UnitTable, PoolSnapshot]]:
+    """Every workload table a build loads, each beside the instance and the items of every class map its pool holds at load, so a test can hold the pool to what the loader wrote once the build is done reading it."""
+    captured: list[tuple[UnitTable, PoolSnapshot]] = []
+    real = review_build.load_workload
+
+    def spy(*args, **kwargs):
+        workload = real(*args, **kwargs)
+        pool = workload.table.mappings
+        snapshot = [(pool[index], tuple(pool[index].items())) for index in range(len(pool) + 1)]
+        captured.append((workload.table, snapshot))
+        return workload
+
+    monkeypatch.setattr(review_build, "load_workload", spy)
+    return captured
+
+
+def _assert_no_pooled_map_was_written(table: UnitTable, snapshot: PoolSnapshot) -> None:
+    """Every class map pooled at load is still the instance at its id and still holds the items it was pooled under, and every map the pool holds when the check runs, those the fold added included, is filed under its own items."""
+    pool = table.mappings
+    for index, (instance, items) in enumerate(snapshot):
+        assert pool[index] is instance, index
+        assert tuple(instance.items()) == items, index
+    assert [pool.id(pool[index]) for index in range(len(pool) + 1)] == list(range(len(pool) + 1))
+
+
+def test_a_cold_build_ships_a_class_map_in_the_order_its_audit_states_it_and_no_build_writes_through_a_pooled_one(
+    mini_bundle, tmp_path, monkeypatch, capfd
+):
+    """A cold build ships a per-config class map in the order its audit states the configs: that order is in the shard bytes, beside a `configs` list that is always in config order, while the content key and the id hash the map order-blind, so a pool keyed on sorted items would ship two same-valued maps in whichever order it saw first. No reader writes through a pooled map across the cold build or a served rebuild over the same audit; both run at one job, so phase 1 runs in this process and a write through a pooled map lands on the instance the test holds rather than on a worker's pickled copy. The served rebuild serves every unit and is byte-identical to the cold build; since it copies every fragment as it lies, it holds the pool unwritten and the bytes stable, not the order a rebuild ships after an audit edit that restates a window's configs in another order."""
+    audit, stated = _out_of_order_audit(tmp_path)
+    in_order, out_of_order = stated
+    captured = _pooled_maps(monkeypatch)
+    cold = tmp_path / "cold"
+    _build(cold, mini_bundle, audit_path=audit, jobs=1)
+    assert len(captured) == 1
+    _assert_no_pooled_map_was_written(*captured[0])
+    first = _fragment_of(cold, in_order)
+    second = _fragment_of(cold, out_of_order)
+    assert list(first["config_classes"]) == stated[in_order]
+    assert list(second["config_classes"]) == stated[out_of_order]
+    assert first["config_classes"] == second["config_classes"]
+    assert stated[in_order] != stated[out_of_order]
+    assert first["configs"] == second["configs"] == sorted(stated[in_order], key=_config_index)
+    note = f"blessed as {RETAG_CLASS} under ss03; novel under " + ", ".join(
+        sorted(set(stated[in_order]) - {"ss03"}, key=_config_index)
+    )
+    assert first["config_class_note"] == second["config_class_note"] == note
+    served = _copy(cold, tmp_path)
+    capfd.readouterr()
+    _build(served, mini_bundle, audit_path=audit, jobs=1)
+    report = capfd.readouterr().err
+    served_count, total = _counts(report, SERVED)
+    verbatim, written, _ = _counts(report, VERBATIM)
+    assert served_count == verbatim == written == total
+    assert len(captured) == 2
+    _assert_no_pooled_map_was_written(*captured[1])
+    assert _tree(served) == _tree(cold)
 
 
 def _ledger_with(bundle, tmp_path: Path, class_id: str, *, no_verdict: bool) -> Path:
