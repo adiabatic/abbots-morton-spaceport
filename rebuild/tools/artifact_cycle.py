@@ -14,7 +14,7 @@ The two artifact-independent gates (js, make-test) run from t=0 in a small threa
 
 The cycle runs no cross-language check, because there is no second implementation to check against: the kernel crate is the only engine that enumerates and the only one that settles, so neither the tables nor a window's outcome can drift from a twin. What the cycle does prove about settlement is empirical — gate:conform shapes the compiled font through HarfBuzz and compares it against a re-settle of every swept text, window by window, through the crate's own settle-cases verb, with the memo keyed on the raw window so the sweep stays independent of the crate's enumeration and fold. `make kernel-gate` is the on-demand instrument to reach for around a kernel-semantics change: the crate's own gate, seconds once the crate is built. The spec-ingest parity is a contracts test now and rides gate:rebuild-contracts every cycle.
 
-gate:make-test is auto-skipped when its input closure is provably unchanged since the last green run. The closure is every tracked or untracked-unignored file outside what make_test_exempt exempts — the exempt trees, the exempt files, Markdown, and the Makefile itself beyond what `make -n all` and `make -n test` print — that function being the authority and arguing each exemption from what the gate executes (make all -> build_font over glyph_data/*.yaml non-recursively, typst, pyright over tools/ test/ conftest.py, pytest test/ site/), none of which reads any of it, so a diff confined there cannot move the gate's outcome and re-running its ≈15 CPU-minutes would verify nothing. The last green fingerprint lives in rebuild/out/make-test-green.json, written by rebuild.tools.make_test_gate — the `make test` entry point — on every green run, so interactive greens and cycle greens share one record and `make test` itself self-skips on the same test. cycle_summary.json still records the fingerprint the cycle ran (or validly skipped) against, for display only — the skip decision reads the shared green record alone, so a contradicted green that make_test_gate deleted can never be resurrected out of an older summary. The fingerprint sees file content only — a system-toolchain change (a typst upgrade, say; pyright and pytest are pinned through uv.lock, which is in the closure) is invisible to it. --force-make-test runs the gate regardless (as does `make test FORCE=1` inside the wrapper).
+gate:make-test is auto-skipped when its input closure is provably unchanged since the last green run. The closure is every tracked or untracked-unignored file outside what make_test_exempt exempts — the exempt trees, the exempt files, Markdown, and the Makefile itself beyond what `make -n all` and `make -n test` print — that function being the authority and arguing each exemption from what the gate executes (make all -> build_font over glyph_data/*.yaml non-recursively, typst, pyright over tools/ test/ conftest.py, pytest test/ site/), none of which reads any of it, so a diff confined there cannot move the gate's outcome and re-running its ≈15 CPU-minutes would verify nothing. The last green fingerprint lives in rebuild/out/make-test-green.json, written by rebuild.tools.make_test_gate — the `make test` entry point — on every green run, so interactive greens and cycle greens share one record and `make test` itself self-skips on the same test. cycle_summary.json still records the fingerprint the cycle ran (or validly skipped) against, for display only — the skip decision reads the shared green record alone, so a contradicted green that make_test_gate deleted can never be resurrected out of an older summary. The fingerprint sees file content only — a system-toolchain change (a typst upgrade, say; pyright and pytest are pinned through uv.lock, which is in the closure) is invisible to it. --force-make-test and --fresh run the gate regardless by spawning `make test FORCE=1` (`make_test_gate_argv`): the wrapper decides its own skip by the same predicate the plan does (`make_test_skippable`), so a bare `make test` would stand down on the closure the flag forced. The plan reserves the gate's cores and bytes beside the surface build exactly when that predicate says the gate runs.
 
 The verdict plumbing is guarded the same way, by rebuild/out/plumbing-green.json. Every step of it is a pure function of the surface, the verdicts master, the live store, the checked-in standing approvals, and its own code, so the key is (the surface's inputs fingerprint and stamp, the master's path and bytes, the autosave's bytes, standing-approvals' bytes, the chain's own import closure plus review/serve.py). Two of those components are there because a narrower key looked sufficient and was not. The master, because it is the one input the autosave's hash cannot see: an export dropped at the repo root can outrank the autosave in the auto-resolution and carry verdicts the store has never held. The code, because every sibling key folds in its own stage's executable and this chain's lives in a tree no other fingerprint reads — without it a fix to a fill's matcher or to the carry's join would be skipped as already proven, silently never running. That component is the named closure `plumbing_code_paths` rather than the whole of rebuild/tools/, and rebuild/test_plumbing_closure.py walks the entry points' import graph on every contracts run to prove the name still covers what runs.
 
@@ -292,6 +292,16 @@ def prior_make_test_fingerprint(green_path: Path | None = None) -> str | None:
     """The closure fingerprint of the last green `make test` run, from the shared green record alone: every green run rewrites it and clear_contradicted_green deletes it, so any copy elsewhere (the cycle summary keeps one for display) could only resurrect a fingerprint whose last observed run was red."""
     record = read_make_test_green(green_path)
     return record["fingerprint"] if record is not None else None
+
+
+def make_test_skippable(fingerprint: str | None, recorded: str | None, *, force: bool) -> bool:
+    """Whether `make test` would verify nothing: unforced, and the closure's fingerprint is the one the shared green record holds. A fingerprint of None (no git, no make) never skips. This is the one predicate both deciders read: the cycle's plan, which reserves gate:make-test's cores and bytes beside the surface build only when it answers False, and rebuild.tools.make_test_gate, which the plan's argv (`make_test_gate_argv`) hands --force exactly when the plan was forced. So the reservation and the wrapper's own decision are one answer over one fingerprint and one record, and no pass holds cores for a gate that stands down."""
+    return not force and fingerprint is not None and fingerprint == recorded
+
+
+def make_test_gate_argv(*, force: bool) -> list[str]:
+    """gate:make-test's argv: `make test`, with FORCE=1 on a forced pass (--fresh or --force-make-test). The wrapper behind the recipe re-reads the green record for itself, so without the override it would stand down on the very closure the flag forced; FORCE=1 reaches it as --force and forces the type check inside it as well, exactly as `make test FORCE=1` does by hand."""
+    return ["make", "test", "FORCE=1"] if force else ["make", "test"]
 
 
 M1_ARTIFACT_NAMES = ("M1.otf", "divergence-audit.tsv", "inputs_fingerprint.json")
@@ -1533,6 +1543,7 @@ def build_plan(
     skip_make_test: bool = False,
     make_test_note: str = "",
     make_test_fingerprint: str | None = None,
+    force_make_test: bool = False,
     conform_horizon: int = CONFORM_HORIZON_DEFAULT,
     pool_policy: str = REBUILD_POOL_POLICY_DEFAULT,
     review_out: Path | None = None,
@@ -1932,8 +1943,17 @@ def build_plan(
             plan.steps.append(
                 Step("gate:make-test", None, f"SKIPPED ({make_test_note})", lane="t0", skipped=True)
             )
+        elif force_make_test or fresh:
+            plan.steps.append(
+                Step(
+                    "gate:make-test",
+                    make_test_gate_argv(force=True),
+                    "forced: the suite and pyright run even where their green records answer for the closure",
+                    lane="t0",
+                )
+            )
         else:
-            plan.steps.append(Step("gate:make-test", ["make", "test"], lane="t0"))
+            plan.steps.append(Step("gate:make-test", make_test_gate_argv(force=False), lane="t0"))
 
     plan.steps.append(
         Step(
@@ -3916,11 +3936,7 @@ def main(argv: list[str] | None = None) -> int:
     make_test_fp: str | None = None
     if not args.skip_gates:
         make_test_fp = make_test_closure_fingerprint(ROOT)
-        if (
-            not args.force_make_test
-            and make_test_fp is not None
-            and make_test_fp == prior_make_test_fingerprint()
-        ):
+        if make_test_skippable(make_test_fp, prior_make_test_fingerprint(), force=args.force_make_test):
             skip_make_test = True
             make_test_note = "closure unchanged since its last green run; --force-make-test overrides"
 
@@ -4050,6 +4066,7 @@ def main(argv: list[str] | None = None) -> int:
         skip_make_test=skip_make_test,
         make_test_note=make_test_note,
         make_test_fingerprint=make_test_fp,
+        force_make_test=args.force_make_test,
         conform_horizon=args.conform_horizon,
         pool_policy=args.rebuild_pool,
         review_out=args.review_out,

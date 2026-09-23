@@ -6,6 +6,7 @@ import itertools
 import json
 import os
 import re
+import shlex
 import shutil
 import subprocess
 import sys
@@ -13,6 +14,7 @@ import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any
 
 import pytest
@@ -24,6 +26,7 @@ from rebuild.tools import calibrate_budgets as cb
 from rebuild.tools import console
 from rebuild.tools import cycle_paths
 from rebuild.tools import cycle_timings as ct
+from rebuild.tools import make_test_gate as mtg
 from rebuild.tools.peak_rss import format_gb
 from rebuild.tools.cycle_timings import CycleTimings
 
@@ -3170,6 +3173,92 @@ def test_dry_run_plan_skip_make_test():
     rendered = _plan_text(plan)
     assert "gate:make-test not running, so no queueing" in rendered
     assert "Lane t0   [from t=0, background]  : gate:js" in rendered
+
+
+def _make_test_gate_args(argv: list[str]) -> list[str]:
+    """What the live Makefile hands rebuild.tools.make_test_gate for one gate:make-test argv: the recipe `make -n` prints for it, read past the module name. The caller's own overrides come off the environment first, as `make_test_recipe_lines` strips them, so a suite run under `make test-rebuild FORCE=1` asks the same question a bare one does."""
+    assert argv[:2] == ["make", "test"]
+    env = {key: value for key, value in os.environ.items() if key not in ("MAKEFLAGS", "MFLAGS", "FORCE")}
+    printed = subprocess.run(
+        ["make", "-n", *argv[1:]], cwd=REPO_ROOT, capture_output=True, text=True, check=True, env=env
+    ).stdout
+    (recipe,) = [line for line in printed.splitlines() if "rebuild.tools.make_test_gate" in line]
+    tokens = shlex.split(recipe)
+    return tokens[tokens.index("rebuild.tools.make_test_gate") + 1 :]
+
+
+def _planned(argv: list[str]) -> ac.Plan:
+    """The plan `main` resolves for one command line, caught on its way to the renderer."""
+    seen: list[ac.Plan] = []
+    real = ac.render_plan
+    with pytest.MonkeyPatch.context() as patch:
+        patch.setattr(ac, "render_plan", lambda plan: seen.append(plan) or real(plan))
+        assert ac.main(["--dry-run", *argv]) == 0
+    (plan,) = seen
+    return plan
+
+
+def _font_suite_stub(monkeypatch, fingerprint: str) -> list[list[str]]:
+    """The wrapper over a closure that fingerprints as `fingerprint`, with the suite spawn caught rather than run. The catch is on the one `subprocess` module every caller shares, so anything that spawns for real goes first."""
+    spawned: list[list[str]] = []
+    monkeypatch.setattr(mtg, "make_test_closure_fingerprint", lambda root: fingerprint)
+    monkeypatch.setattr(
+        mtg.subprocess,
+        "run",
+        lambda argv, cwd, env=None: spawned.append(argv) or SimpleNamespace(returncode=0),
+    )
+    return spawned
+
+
+@pytest.mark.parametrize("flag", ["--fresh", "--force-make-test"])
+def test_a_forced_pass_hands_the_make_test_wrapper_force(tmp_path, monkeypatch, flag):
+    """On a closure its green record answers for, `make test` stands down in about a second, because the wrapper behind the recipe reads that record for itself. A flag that promises the gate runs therefore has to reach the wrapper and not only the plan: the argv carries FORCE=1, the live Makefile turns it into --force, and the wrapper spawns the suite. A bare pass over the same closure plans the gate skipped."""
+    _unsettled_repo(tmp_path, monkeypatch)
+    monkeypatch.setattr(ac, "make_test_closure_fingerprint", lambda root=None: "fp")
+    ac.record_make_test_green("fp")
+
+    bare = {step.name: step for step in _planned([]).steps}["gate:make-test"]
+    assert bare.skipped
+    assert bare.argv is None
+
+    forced = {step.name: step for step in _planned([flag]).steps}["gate:make-test"]
+    assert not forced.skipped
+    assert forced.argv == ["make", "test", "FORCE=1"]
+    wrapper = _make_test_gate_args(_argv(forced))
+    assert "--force" in wrapper
+
+    spawned = _font_suite_stub(monkeypatch, "fp")
+    assert mtg.main(wrapper) == 0
+    assert spawned == [mtg.PYTEST_ARGV]
+
+
+@pytest.mark.parametrize("flags", [[], ["--fresh"], ["--force-make-test"]])
+@pytest.mark.parametrize("recorded", ["fp", "older", None])
+def test_the_plan_reserves_make_tests_pool_exactly_when_the_wrapper_runs_it(
+    tmp_path, monkeypatch, flags, recorded
+):
+    """The surface build's widths are settled in the plan, before `make test` has decided anything, so the reservation is honest only if the plan and the wrapper answer the same question the same way: cores and bytes held beside the build for a gate that then stands down on its own green record are cores the build never gets back. Every pairing of a forcing flag with a green record lands on one of two consistent ends. Either the gate is planned skipped, the wrapper would stand down over the same fingerprint and record, and the build takes the whole box; or the gate is planned to run, the argv the live Makefile hands the wrapper spawns the suite, and its pool comes off the build's widths."""
+    _unsettled_repo(tmp_path, monkeypatch)
+    monkeypatch.setattr(ac, "make_test_closure_fingerprint", lambda root=None: "fp")
+    if recorded is not None:
+        ac.record_make_test_green(recorded)
+
+    plan = _planned(flags)
+    step = {step.name: step for step in plan.steps}["gate:make-test"]
+    runs = not step.skipped
+    assert runs is (bool(flags) or recorded != "fp")
+
+    wrapper = _make_test_gate_args(_argv(step) if runs else ["make", "test"])
+    spawned = _font_suite_stub(monkeypatch, "fp")
+    assert mtg.main(wrapper) == 0
+    assert spawned == ([mtg.PYTEST_ARGV] if runs else [])
+
+    assert plan.surface_jobs == ac.surface_job_budget(skip_gates=False, skip_make_test=not runs)
+    assert plan.signature_jobs == ac.signature_job_budget(skip_gates=False, skip_make_test=not runs)
+    assert plan.kernel_threads == ac.kernel_threads_budget(skip_make_test=not runs)
+    rendered = _plan_text(plan)
+    assert ("gate:make-test's pytest pool held to" in rendered) is runs
+    assert ("gate:make-test skipped, so the surface build takes the whole box" in rendered) is not runs
 
 
 def test_the_signature_pool_takes_the_cores_the_surface_width_cannot():
