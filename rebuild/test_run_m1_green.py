@@ -133,7 +133,10 @@ def test_red_leaves_a_record_for_other_content_alone(green_store):
 
 
 class _JoinedGates:
-    """A `TableGates` whose branch is already done and green: what a stubbed `run` hands `main` beside its summary, so the memo wait, the join and the close all return at once."""
+    """A `TableGates` whose branch is already done and green: what a stubbed `run` hands `main` beside its summary, so the two memo waits, the join and the close all return at once."""
+
+    def wait_for_replay(self):
+        return None
 
     def wait_for_memo(self):
         return None
@@ -621,8 +624,6 @@ class TestOracleFanIn:
         for shard, memo in seen:
             if shard.config in conform.OVERLAY_CONFIGS:
                 assert memo is None
-            elif shard.of == 1:
-                assert memo is not None and memo.write_path is None
             else:
                 assert memo is not None and memo.write_path == oracle.settle_memo_part(
                     oracle.oracle_audit_scratch(tmp_path), shard.config, shard.index
@@ -641,6 +642,89 @@ class TestOracleFanIn:
         assert cut.label in str(failure.value)
         assert standing.read_bytes() == b"the audit of the last green run\n"
         assert [path.name for path in tmp_path.iterdir()] == ["divergence-audit.tsv"]
+
+    def _memos(self, monkeypatch, order):
+        """Every settlement configuration named a settle memo file under the run's out directory, and the parent's absorb recorded in `order` as the configuration and the parts it was handed rather than run; answers the memo inputs a caller passes to share them."""
+        monkeypatch.setattr(
+            run_m1.conform,
+            "settle_memo_files",
+            lambda out_dir, spec, inputs: {
+                config: conform.SettleMemoFile(out_dir / f"settle-memo-{config}.bin", "stamp")
+                for config in conform.SETTLEMENT_CONFIGS
+            },
+        )
+
+        def absorb(memo, parts, spec):
+            order.append(("absorb", memo.path.name, list(parts)))
+            return False
+
+        monkeypatch.setattr(run_m1.conform, "absorb_settle_memo_parts", absorb)
+        return oracle_cache.SettleMemoInputs(rune_digests={}, oracle_code="c", data="d")
+
+    def test_every_range_files_a_part_and_the_absorbs_wait_for_memo_ready(self, monkeypatch, tmp_path):
+        """No range of the pooled oracle writes a shared settle memo file, cut or not: each files the windows it settled fresh as a part, and the parent folds every configuration's parts in only once every range has landed and `memo_ready` has returned — the witness stage's absorb, in `main` — so a pool started beside the witness stage neither lands a file without that stage's windows nor has its own replaced by that stage's. Nothing is cut here (the stamp counts no rows), so every configuration is the one-range shape, the one whose range would otherwise have written the file itself."""
+        seen: list = []
+        order: list = []
+        worker = self._worker(shards=seen)
+
+        def recording(*args, **kwargs):
+            order.append("range")
+            return worker(*args, **kwargs)
+
+        self._pool(monkeypatch, recording)
+        memo_inputs = self._memos(monkeypatch, order)
+        run_m1.run_oracle(
+            out_dir=tmp_path, jobs=6, memo_inputs=memo_inputs, memo_ready=lambda: order.append("ready")
+        )
+        scratch = oracle.oracle_audit_scratch(tmp_path)
+        ranges = len(conform.ACCEPTANCE_CONFIGS)
+        assert order[: ranges + 1] == ["range"] * ranges + ["ready"]
+        assert order[ranges + 1 :] == [
+            ("absorb", f"settle-memo-{config}.bin", [oracle.settle_memo_part(scratch, config, 0)])
+            for config in conform.SETTLEMENT_CONFIGS
+        ]
+        for shard, memo in seen:
+            assert shard.of == 1
+            if shard.config in conform.OVERLAY_CONFIGS:
+                assert memo is None
+            else:
+                assert memo is not None and memo.write_path == oracle.settle_memo_part(
+                    scratch, shard.config, 0
+                )
+
+    def test_the_serial_oracle_calls_memo_ready_before_its_first_walk(self, monkeypatch, tmp_path):
+        """At `--jobs 1` the walks write the shared settle memo files whole as they go, so the wait comes before the first of them rather than after the last."""
+        order: list = []
+        self._pool(monkeypatch, self._worker())
+        memo_inputs = self._memos(monkeypatch, order)
+
+        def compare(*args, **kwargs):
+            order.append("compare")
+            raise RuntimeError("the serial compare started")
+
+        monkeypatch.setattr(run_m1.oracle, "compare_against_baseline", compare)
+        with pytest.raises(RuntimeError, match="the serial compare started"):
+            run_m1.run_oracle(
+                out_dir=tmp_path, jobs=1, memo_inputs=memo_inputs, memo_ready=lambda: order.append("ready")
+            )
+        assert order == ["ready", "compare"]
+
+    def test_a_red_memo_ready_stops_the_oracle_before_any_absorb(self, monkeypatch, tmp_path):
+        """A witness stage that goes red while the pool runs reaches the oracle as `memo_ready` raising its red: no configuration's parts are folded into a memo file, and the standing audit stays where it was, as it does behind a range that fell over."""
+        standing = tmp_path / "divergence-audit.tsv"
+        standing.write_bytes(b"the audit of the last green run\n")
+        order: list = []
+        self._pool(monkeypatch, self._worker())
+        memo_inputs = self._memos(monkeypatch, order)
+
+        def red():
+            raise conform.WitnessError("1 rule(s) whose certificate does not fire them")
+
+        with pytest.raises(conform.WitnessError):
+            run_m1.run_oracle(out_dir=tmp_path, jobs=6, memo_inputs=memo_inputs, memo_ready=red)
+        assert order == []
+        assert standing.read_bytes() == b"the audit of the last green run\n"
+        assert self._landed(tmp_path) == ["divergence-audit.tsv"]
 
     def test_a_cut_configurations_store_is_joined_from_its_ranges_segments_and_read_back(
         self, monkeypatch, tmp_path

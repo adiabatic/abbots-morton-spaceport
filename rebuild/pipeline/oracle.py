@@ -596,7 +596,7 @@ def oracle_audit_shard(scratch_dir: Path, config: str, segment: int | None = Non
 
 
 def settle_memo_part(scratch_dir: Path, config: str, segment: int) -> Path:
-    """Where one row range of a cut configuration files the settle memo windows it settled fresh, under the run's pid-named scratch beside its audit segment, so a killed run's parts are swept with everything else it staged and `conform.absorb_settle_memo_parts` finds every range's part in one directory."""
+    """Where one row range of the pooled oracle, cut configuration or not, files the settle memo windows it settled fresh, under the run's pid-named scratch beside its audit segment, so a killed run's parts are swept with everything else it staged and `conform.absorb_settle_memo_parts` finds every range's part in one directory."""
     return Path(scratch_dir) / "settle-memo" / f"{config}.{segment}.gz"
 
 
@@ -882,7 +882,7 @@ def oracle_config_worker(
     guard_verdicts: settle.FormationGuard | None = None,
     shard: OracleShard | None = None,
 ) -> OracleConfigResult:
-    """One config's oracle compare in its own process — or one row range's of it, when `shard` names the range — its audit rows written to that range's segment under `audit_dir` so only counts ride the result home. The section 5.7 verdict surface is swept here when the caller has none to pass down, exactly as the belt's worker sweeps its own — except by the overlay configuration's worker, which forms nothing and shapes through `IsolatedOverlayShaper` instead of HarfBuzz; a caller fanning out several ranges hands the sweep it made once down every submission instead. The row cache is opened here rather than handed in already open for the same reason the segment is: a spawned worker inherits no file handles, and opening it on this side of the pipe is what keeps this path and the serial one byte-equal. `settle_memo` is the belt's shared settle memo file for this configuration, read and written on this side of the pipe for the same reason; a range of a cut configuration carries one whose `write_path` is its own part, which the parent absorbs into the shared file once every range has landed."""
+    """One config's oracle compare in its own process — or one row range's of it, when `shard` names the range — its audit rows written to that range's segment under `audit_dir` so only counts ride the result home. The section 5.7 verdict surface is swept here when the caller has none to pass down, exactly as the belt's worker sweeps its own — except by the overlay configuration's worker, which forms nothing and shapes through `IsolatedOverlayShaper` instead of HarfBuzz; a caller fanning out several ranges hands the sweep it made once down every submission instead. The row cache is opened here rather than handed in already open for the same reason the segment is: a spawned worker inherits no file handles, and opening it on this side of the pipe is what keeps this path and the serial one byte-equal. `settle_memo` is the belt's shared settle memo file for this configuration, read and written on this side of the pipe for the same reason; a range of the pooled oracle carries one whose `write_path` is its own part, which the parent absorbs into the shared file once every range has landed and the witness stage has returned."""
     shard = OracleShard(config) if shard is None else shard
     aliases = load_alias_map(alias_path)
     entries = yaml.safe_load(Path(ledger_path).read_text()) or []

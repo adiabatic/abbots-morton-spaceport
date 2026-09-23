@@ -3760,6 +3760,61 @@ class TestSettleMemoFile:
         assert walker.walk_many(texts) == reference.walk_many(texts)
         assert walker.fresh_windows == 0 and store.reached_count() == len(expected)
 
+    def test_a_range_part_filed_before_the_witness_fold_absorbs_onto_the_rows_that_fold_added(
+        self, spec, guard, tmp_path, monkeypatch
+    ):
+        """The data half of the oracle starting beside the witness stage: a row range maps the file before the witness stage's fold lands, so it settles and files again windows that fold then puts in the standing rows, and its part is absorbed behind the fold. Nothing standing was retired, so the writer extends the standing index with the part's rows rather than rebuilding it; each window the fold already holds lands on its standing row and the rest append, so every standing row keeps its place, the file holds one row per window and answers as a dict of it does, and a walk over every text settles nothing."""
+        texts = self._texts(spec, 2)
+        memo = self._memo(tmp_path)
+        seed = conform._SettledWindowWalk(spec, frozenset(), {}, guard, memo=memo)
+        seed.walk_many(texts[:-6])
+        assert seed.save_memo()
+
+        ranged_part, witness_part = tmp_path / "range.gz", tmp_path / "witness.gz"
+        ranged = conform._SettledWindowWalk(
+            spec, frozenset(), {}, guard, memo=replace(memo, write_path=ranged_part)
+        )
+        ranged.walk_many(texts[-4:])
+        assert ranged.fresh_windows and ranged.save_memo()
+        witness = conform._SettledWindowWalk(
+            spec, frozenset(), {}, guard, memo=replace(memo, write_path=witness_part)
+        )
+        witness.load_only_asked_by(texts[-6:-2])
+        witness.walk_many(texts[-6:-2])
+        assert witness.fresh_windows and witness.save_memo()
+        filed = self._part_rows(ranged_part, memo, spec)
+        folded = self._part_rows(witness_part, memo, spec)
+        assert filed & folded and filed - folded
+
+        assert conform.absorb_settle_memo_parts(memo, [witness_part], spec)
+        standing = self._header(memo)
+        standing_rows = self._ordered(memo, spec)
+        assert folded <= {window for window, _ in standing_rows}
+        extended: list[tuple[bool, int]] = []
+        indexing = conform._memo_index
+
+        def recording(columns, values, index=None, indexed=0):
+            extended.append((index is not None and len(index) >= 2 * len(values), indexed))
+            return indexing(columns, values, index, indexed)
+
+        monkeypatch.setattr(conform, "_memo_index", recording)
+        assert conform.absorb_settle_memo_parts(memo, [ranged_part], spec)
+        assert extended == [(True, standing["rows"])]
+        absorbed = self._header(memo)
+        assert absorbed["slots"] == standing["slots"]
+        assert absorbed["rows"] == standing["rows"] + len(filed - folded)
+        assert self._ordered(memo, spec)[: len(standing_rows)] == standing_rows
+
+        walker = conform._SettledWindowWalk(spec, frozenset(), {}, guard, memo=memo, promote=False)
+        expected = self._dict_of(walker, memo, spec)
+        walker._load_memo()
+        store = walker._cold
+        assert len(store.values) == len(store) == len(expected) == absorbed["rows"]
+        assert list(store.items()) == list(expected.items())
+        reference = conform._SettledWindowWalk(spec, frozenset(), {}, guard)
+        assert walker.walk_many(texts) == reference.walk_many(texts)
+        assert walker._settle_calls == 0 and walker.fresh_windows == 0
+
     def test_a_restriction_needs_a_part_and_never_prunes(self, spec, guard, tmp_path):
         """The two guards that tie the load half to the write half: a walk whose memo would replace the shared file whole may not restrict its load, and a restricted walk may not prune, since after a restricted load a dropped row and an unreached window look the same."""
         texts = self._texts(spec, 1)
