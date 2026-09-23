@@ -1527,7 +1527,7 @@ def run_oracle(
         "positions_served": report.positions_served,
         "counts_by_entry": dict(sorted(report.counts_by_entry.items())),
         "unmatched": report.unmatched_count,
-        "multi_matched": len(report.multi_matched),
+        "multi_matched": report.multi_matched_count,
         "notes": report.notes,
     }
     for row in report.unmatched_exemplars[: oracle.ORACLE_UNMATCHED_EXEMPLARS]:

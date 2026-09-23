@@ -99,7 +99,7 @@ def build_and_oracle(
         "rows_compared": report.rows_compared,
         "divergent_rows": report.divergent_rows,
         "unmatched": report.unmatched_count,
-        "multi_matched": len(report.multi_matched),
+        "multi_matched": report.multi_matched_count,
         "audit": str(out_dir / "divergence-audit.tsv"),
     }
 

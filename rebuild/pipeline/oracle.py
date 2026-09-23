@@ -129,13 +129,13 @@ class BaselineReport:
     counts_by_entry: dict[str, int] = field(default_factory=dict)
     unmatched_count: int = 0
     unmatched_exemplars: list[DivergentRow] = field(default_factory=list)
-    multi_matched: list[tuple[DivergentRow, tuple[str, ...]]] = field(default_factory=list)
+    multi_matched_count: int = 0
     notes: list[str] = field(default_factory=list)
 
 
 @dataclass
 class OracleConfigResult:
-    """One configuration's oracle tally — or one row range's of it, before `merge_config_shards` folds the ranges — which travels home from `oracle_config_worker` down a process pipe. The unmatched rows ride as a count plus the first `ORACLE_UNMATCHED_EXEMPLARS` of them rather than as the whole list: `oracle_summary.json` reads a length and quotes that many exemplars, so pickling every unmatched `DivergentRow` back to the parent spent an audit's worth of objects on a number. Nothing is lost by the cap — the worker has already written every unmatched row to its own audit shard, one line each, and `divergence-audit.tsv` is where they are read. `positions_served` counts the rows among `positions_compared` whose verdict came off the store rather than out of HarfBuzz. `pass_ordinal` is the ordinal the range's store segment was written under, None when no store was written, and is what the parent stamps a joined store's header with; `peak_rss_bytes` is the worker's own peak, filed as a pool observation so `make job-costs` can price a shard."""
+    """One configuration's oracle tally — or one row range's of it, before `merge_config_shards` folds the ranges — which travels home from `oracle_config_worker` down a process pipe. The unmatched rows ride as a count plus the first `ORACLE_UNMATCHED_EXEMPLARS` of them, and the rows two or more ledger entries match ride as a count alone (`multi_matched_count`), rather than either as a whole list: `oracle_summary.json` reads a count for each and quotes exemplars of the unmatched rows only, and the run_m1 gate compares the multi-matched count with zero, so pickling every such `DivergentRow` back to the parent would spend an audit's worth of objects on a number — and on a ledger whose entries overlap, a corpus's worth. Nothing is lost: the worker has already written every one of those rows to its own audit shard, one line each, a multi-matched row with its matched ids joined by `+`, and `divergence-audit.tsv` is where they are read. `positions_served` counts the rows among `positions_compared` whose verdict came off the store rather than out of HarfBuzz. `pass_ordinal` is the ordinal the range's store segment was written under, None when no store was written, and is what the parent stamps a joined store's header with; `peak_rss_bytes` is the worker's own peak, filed as a pool observation so `make job-costs` can price a shard."""
 
     config: str
     rows_compared: int = 0
@@ -146,7 +146,7 @@ class OracleConfigResult:
     counts_by_entry: dict[str, int] = field(default_factory=dict)
     unmatched_count: int = 0
     unmatched_exemplars: list[DivergentRow] = field(default_factory=list)
-    multi_matched: list[tuple[DivergentRow, tuple[str, ...]]] = field(default_factory=list)
+    multi_matched_count: int = 0
     notes: list[str] = field(default_factory=list)
     pass_ordinal: int | None = None
     peak_rss_bytes: int = 0
@@ -830,7 +830,7 @@ def _compare_config(
                 if len(result.unmatched_exemplars) < ORACLE_UNMATCHED_EXEMPLARS:
                     result.unmatched_exemplars.append(divergent)
             else:
-                result.multi_matched.append((divergent, tuple(matches)))
+                result.multi_matched_count += 1
             if audit is not None:
                 audit.write(
                     "\t".join(
@@ -925,7 +925,7 @@ def oracle_config_worker(
 
 
 def merge_config_shards(results: Sequence[OracleConfigResult]) -> OracleConfigResult:
-    """One configuration's result folded back out of its row ranges' results, handed in row order: the counts sum, `counts_by_entry` sums per entry, `multi_matched` concatenates, `unmatched_exemplars` concatenates and then truncates to `ORACLE_UNMATCHED_EXEMPLARS` — which is the uncut result's first that many in table order exactly, since a range's own list is complete for its rows whenever it is shorter than the cap — and `notes` concatenate with repeats dropped, since a table missing from the directory would otherwise be noted once per range. The ranges of one configuration wrote their store segments under one ordinal, having read the same store's header; a disagreement there is a fault in the fan-out and refused rather than folded. `peak_rss_bytes` is the widest range's."""
+    """One configuration's result folded back out of its row ranges' results, handed in row order: the counts sum, `counts_by_entry` sums per entry, `unmatched_exemplars` concatenates and then truncates to `ORACLE_UNMATCHED_EXEMPLARS` — which is the uncut result's first that many in table order exactly, since a range's own list is complete for its rows whenever it is shorter than the cap — and `notes` concatenate with repeats dropped, since a table missing from the directory would otherwise be noted once per range. The ranges of one configuration wrote their store segments under one ordinal, having read the same store's header; a disagreement there is a fault in the fan-out and refused rather than folded. `peak_rss_bytes` is the widest range's."""
     if not results:
         raise ValueError("merge_config_shards folds at least one range")
     configs = {result.config for result in results}
@@ -948,7 +948,7 @@ def merge_config_shards(results: Sequence[OracleConfigResult]) -> OracleConfigRe
             merged.counts_by_entry[entry_id] = merged.counts_by_entry.get(entry_id, 0) + count
         merged.unmatched_count += result.unmatched_count
         merged.unmatched_exemplars.extend(result.unmatched_exemplars)
-        merged.multi_matched.extend(result.multi_matched)
+        merged.multi_matched_count += result.multi_matched_count
         for note in result.notes:
             if note not in seen_notes:
                 seen_notes.add(note)
@@ -970,7 +970,7 @@ def merge_oracle_results(results: Iterable[OracleConfigResult]) -> BaselineRepor
             report.counts_by_entry[entry_id] = report.counts_by_entry.get(entry_id, 0) + count
         report.unmatched_count += result.unmatched_count
         report.unmatched_exemplars.extend(result.unmatched_exemplars)
-        report.multi_matched.extend(result.multi_matched)
+        report.multi_matched_count += result.multi_matched_count
         report.notes.extend(result.notes)
     return report
 
