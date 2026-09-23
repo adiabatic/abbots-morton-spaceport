@@ -8032,6 +8032,32 @@ def test_the_decider_empties_the_context_memos_behind_every_unit(slide_context):
     assert decider.decide(founding_window()).composed is None
 
 
+def test_the_decider_empties_the_context_memos_behind_every_memo_entry_it_serves(slide_context):
+    """`_serving` is asked outside `decide` — by the prefill's spool pass and through `misses` — so it owns the boundary of the `_serve` it runs: behind an entry it repairs and one it refuses alike, it empties the context's shape and walk memos, which here hold another window's shapes when it is asked. The repaired decision is the one a fresh context computes through `evaluate` under the live rules, and `decide` counts it without evaluating, beside the refused window it evaluates."""
+    keyed = _keyed_unit("k-1")
+    claimed = dict(composed_window("w-both"), content_key="b" * 64)
+    seed = sv.Decider(COMPOSABLE_RULES, slide_context())
+    memo = sv.Memo(pathlib.Path("unused"), "env", {}, stored=seed.roster)
+    for unit in (keyed, claimed):
+        memo.entries[memo.key_for(unit) or ""] = seed.evaluate(unit)
+    live = [*COMPOSABLE_RULES, RULE]
+    context = slide_context()
+    decider = sv.Decider(live, context, memo)
+    fresh = {unit["id"]: sv.Decider(live, slide_context()).evaluate(unit) for unit in (keyed, claimed)}
+    for unit, missed, served in ((keyed, [], (fresh["k-1"], True)), (claimed, [claimed], None)):
+        for window in (composed_window(), founding_window()):
+            decider.evaluate(window)
+        assert context.memo and context.composed
+        assert decider.misses([unit]) == missed
+        assert (context.memo, context.composed) == ({}, {})
+        assert decider._serving(unit) == served
+    assert fresh["k-1"].matched == {RULE["id"]} and fresh["w-both"].composed is not None
+    for unit in (keyed, claimed):
+        assert decider.decide(unit) == fresh[unit["id"]]
+        assert (context.memo, context.composed) == ({}, {})
+    assert (decider.served, decider.computed) == (0, 2)
+
+
 def test_the_alignment_cache_answers_per_unit_object_and_releases():
     """Two distinct unit dicts under one id — the suite builds them constantly — get their own answers, because the cache is keyed on the object and keeps it alive so no other object can take its address; a repeat ask answers what a fresh computation answers; and `release_alignment_cache` empties it."""
     sv.release_alignment_cache()
