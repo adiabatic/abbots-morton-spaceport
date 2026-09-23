@@ -26,7 +26,7 @@ The same provably-unchanged principle guards every other heavy stage, each keyed
 
 Between the run_m1 skip and a full rebuild there is a third route. When the per-file diff against the run_m1 green is confined to comparison-side inputs — the alias map, the divergence ledger, the contact allow-list, the kern sidecar, the oracle's two modules (the classifier and the position channel), the baselines and their subsets, every one of them outside the tables' stamp (`comparison_side_label` is the roster and argues each member) — and the tables on disk still carry that stamp and the artifacts are all present, the cycle spawns `run_m1 --gates-only` instead of a build: the defect gate, the Manual-pin gate and the oracle re-run over the tables and font already there, the ledgers' verdicts are re-adjudicated, and nothing is enumerated. The green that pass records covers the new inputs, so the next cycle skips run_m1 outright. `uv.lock` is deliberately not comparison-side — a fontTools or uharfbuzz bump can move the font's bytes and what the shaper makes of them — so a toolchain bump still rebuilds.
 
-Which passes cost the reviewer their letters is decided here rather than by the caller, because only the resolved plan knows. Two of the things a cycle writes belong to the running app — the surface it serves, where livereload watches every shard and a restamped manifest orphans the tab's store, and the verdict store, which merge_verdicts refuses to touch under a live server because an open tab would flush its own copy back over the merge. A pass whose plan skips both writes neither, so a listening server is left alone and the letters stay on screen for the whole run: that is the pass with no artifact work, whose long verification would otherwise black the app out for every minute of it. A pass whose surface did not move but whose store did takes a shape of its own: the carry there is provably the identity — every unit id resolves to itself, and the carry preserves each record's `at`, which the merge compares strictly — so the carry is skipped and the master is merged straight in, which is the one thing the store's own hash cannot see. That pass still writes the store, so it is a port-taking one. An edit confined to rebuild/review/static/ has a shape of its own as well: the copied app assets are the one surface input no unit can feel, so instead of rebuilding, the pass copies them over the served copy and restamps that single fingerprint component (`assets-refresh`), which leaves every shard, both sidecars, the unit-cache store and `generated_at` exactly where they were — nothing under the app moves that the tab is keyed on, so the server stays up and livereload reloads it onto the new shell. A surface promotion is the opposite shape under the same skip: the whole tree under the app is swapped for the rehearsal's and the stamp moves with it, so the pass takes the port, and both the plumbing skip and the store-only route are off on it — they rest on the surface not moving, and here the store's verdicts have to be carried onto the promoted units by id. A pass that does write under the app needs the port to itself, and --stop-server (which `make review-cycle` passes) is permission to take it — terminate the server and wait out the port — where a bare run still refuses and says how. Retention is the third writer: the app appends to the journal as you verdict, and a compaction rewrites the file around a read, so with a server up the journal and the stash sweep that indexes off it are both left for a later pass.
+Which passes cost the reviewer their letters is decided here rather than by the caller, because only the resolved plan knows. Two of the things a cycle writes belong to the running app — the surface it serves, where livereload watches every shard and a restamped manifest orphans the tab's store, and the verdict store, which merge_verdicts refuses to touch under a live server because an open tab would flush its own copy back over the merge. A pass whose plan skips both writes neither, so a listening server is left alone and the letters stay on screen for the whole run: that is the pass with no artifact work, whose long verification would otherwise black the app out for every minute of it. A pass whose surface did not move but whose store did takes a shape of its own: the carry there is provably the identity — every unit id resolves to itself, and the carry preserves each record's `at`, which the merge compares strictly — so the carry is skipped and the master is merged straight in, which is the one thing the store's own hash cannot see. That pass still writes the store, so it is a port-taking one. The route needs the master stamped for the served surface, as the merge requires of every input; a master stamped for another surface, which is what a pass stopped between the surface build and the carry leaves behind, takes the full carry instead (the carry source's resolution says which of the two an auto-resolved master is, and `master_stamped_for_surface` says it of a --verdicts one). An edit confined to rebuild/review/static/ has a shape of its own as well: the copied app assets are the one surface input no unit can feel, so instead of rebuilding, the pass copies them over the served copy and restamps that single fingerprint component (`assets-refresh`), which leaves every shard, both sidecars, the unit-cache store and `generated_at` exactly where they were — nothing under the app moves that the tab is keyed on, so the server stays up and livereload reloads it onto the new shell. A surface promotion is the opposite shape under the same skip: the whole tree under the app is swapped for the rehearsal's and the stamp moves with it, so the pass takes the port, and both the plumbing skip and the store-only route are off on it — they rest on the surface not moving, and here the store's verdicts have to be carried onto the promoted units by id. A pass that does write under the app needs the port to itself, and --stop-server (which `make review-cycle` passes) is permission to take it — terminate the server and wait out the port — where a bare run still refuses and says how. Retention is the third writer: the app appends to the journal as you verdict, and a compaction rewrites the file around a read, so with a server up the journal and the stash sweep that indexes off it are both left for a later pass.
 
 A green finish ends with a retention pass over the cycle's own disk piles, all of them regenerable or journal-covered: root verdicts-carried-*.json files not stamped for the live surface are deleted (only the stamp-aligned frontier is ever read; the tracked copy under rebuild/evidence/ is never touched), verdicts-autosave-* stashes not referenced by a journal event at or after the last base event are deleted (the journal, not the stashes, is the sanctioned recovery path — and the reference index is the test because a stash's mtime predates the event that created it), and the journal itself is compacted to the newest base event older than RETENTION_WINDOW_DAYS, keeping at least that many days of --restore-as-of history. Failed, interrupted, first-run, and rehearsal cycles never prune; --keep-history opts out entirely; a retention error warns and never turns a green cycle red.
 
@@ -37,6 +37,7 @@ from __future__ import annotations
 
 import argparse
 import ast
+import contextlib
 import fnmatch
 import functools
 import hashlib
@@ -45,11 +46,13 @@ import os
 import posixpath
 import re
 import shutil
+import signal
 import socket
 import subprocess
 import sys
 import threading
 import time
+from collections.abc import Iterator
 from concurrent.futures import Future, ThreadPoolExecutor
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
@@ -89,6 +92,7 @@ JSTEST_DIR = ROOT / "rebuild" / "review" / "jstests"
 POOL_POLICIES = ("queue", "overlap")
 REBUILD_POOL_POLICY_DEFAULT = "queue"
 PLUMBING_SKIP_NOTE = "surface, verdicts master, live store, and standing approvals unchanged since the last complete plumbing pass; --fresh overrides"
+STORE_ONLY_DECLINED_NOTE = "The surface build is skipped, but the verdicts master is not stamped for the served surface and the merge would refuse it, so the plumbing carries it onto the served surface by unit id rather than merging it straight in."
 CONFORM_SKIP_NOTE = "no new rule shape, compile code or shaper since its last green sweep; --fresh overrides"
 CONFORM_MAYBE_NOTE = "runs unless run_m1 leaves the emitted lookup's behavior classes, the compile code and the shaper under the key of its last green sweep, in which case it is re-skipped after run_m1"
 UNDECIDED_UNTIL_RUN_M1 = {
@@ -2024,6 +2028,18 @@ def describe_carry_source(resolved: dict, root: Path, *, promoting: bool = False
     return f"Auto-resolved carry source: {shown} ({resolved['count']} effective verdicts, {stamped}). Pass --verdicts to override."
 
 
+def master_stamped_for_surface(master: Path, surface: Path) -> bool:
+    """Whether the verdicts master carries the surface's own stamp, read as merge_verdicts reads both: the master parsed whole as an ams-review-verdicts/1 document, the stamp off the manifest's `generated_at`. The store-only route hands the merge the master as it stands, and the merge refuses any input stamped for another surface, so this is the route's precondition. `main` asks it of a master named by --verdicts; an auto-resolved master answers it already in the resolution's `aligned`, which `status.resolve_carry_source` reads off the same whole parse against the same manifest stamp, so that master is not parsed a second time. A pass stopped after the surface build wrote a new surface and before the plumbing carried the store onto it leaves the store stamped for the surface before, and the next pass skips the build as unchanged; a master stamped that way answers no, so that pass takes the full carry, which lands the store's verdicts on the new surface by unit id. An unreadable master answers no as well, and the carry reports it."""
+    from rebuild.review.serve import parse_autosave_payload
+
+    stamp = _manifest_stamp_at(surface)
+    try:
+        payload = parse_autosave_payload(Path(master).read_bytes())
+    except OSError:
+        return False
+    return stamp is not None and payload is not None and payload["manifest_generated_at"] == stamp
+
+
 def resolve_short_id() -> str:
     try:
         result = subprocess.run(
@@ -2247,7 +2263,7 @@ _Emitter = console.Digest
 
 
 class _ChildRegistry:
-    """Thread-safe set of live subprocesses, so a KeyboardInterrupt can reap every child (no orphaned pytest army survives)."""
+    """Thread-safe set of live subprocesses, so a stop — a Ctrl-C, or any signal `stop_signals` catches — can reap every child (no orphaned pytest army survives)."""
 
     def __init__(self) -> None:
         self._lock = threading.Lock()
@@ -2289,6 +2305,45 @@ class _ChildRegistry:
             self.killed_count += 1
 
 
+STOP_SIGNALS = (signal.SIGINT, signal.SIGTERM, signal.SIGHUP)
+
+
+class CycleStopped(KeyboardInterrupt):
+    """A stop signal the pass caught, raised in the main thread wherever it was waiting, so `_run_cycle` takes the path a Ctrl-C takes: terminate and reap every child, then write the interrupted summary naming the signal. It is a KeyboardInterrupt so that nothing catching Exception swallows it."""
+
+    def __init__(self, signum: int) -> None:
+        super().__init__(signum)
+        self.signum = signum
+
+
+@contextlib.contextmanager
+def stop_signals() -> Iterator[None]:
+    """Turn SIGINT, SIGTERM and SIGHUP into `CycleStopped` for the length of a pass. Every child a pass spawns stays in the cycle's process group, so a signal sent to the group reaches each of them directly; this is for the signal that reaches the driver alone — `kill` on `make`, which hands SIGTERM to its recipe, whose `uv run` hands it on — which would otherwise end the driver and leave its children building. The first signal raises and every later one is dropped, because a group signal arrives twice, once directly and once forwarded by the `uv run` wrapper, and the second must not cut short the cleanup the first began. A signal the pass started with ignored stays ignored: `nohup` ignores SIGHUP so that a pass outlives its shell. Only the main thread can install a handler, so on any other thread this installs none. The previous handlers are restored on the way out."""
+    if threading.current_thread() is not threading.main_thread():
+        yield
+        return
+    caught: list[int] = []
+
+    def stop(signum: int, _frame) -> None:
+        if caught:
+            return
+        caught.append(signum)
+        raise CycleStopped(signum)
+
+    previous = {}
+    for signum in STOP_SIGNALS:
+        handler = signal.getsignal(signum)
+        if handler == signal.SIG_IGN:
+            continue
+        previous[signum] = signal.SIG_DFL if handler is None else handler
+        signal.signal(signum, stop)
+    try:
+        yield
+    finally:
+        for signum, handler in previous.items():
+            signal.signal(signum, handler)
+
+
 @dataclass
 class _StepResult:
     name: str
@@ -2326,7 +2381,7 @@ def _run_step(
 
     `stream` says this child's unparsed lines belong on the terminal verbatim as well as in its log, which is true of the one diff a spawned child prints for a human to act on — the constants', on the pass where the job-costs check trips and asks whether one has already been re-seeded (the census's invariant diff is the driver's own lines, filed the same way). Everything else a child says reaches the terminal as an event or not at all, and reaches the log either way, so a failure has its whole output replayed under its own banner rather than nothing at all.
 
-    A step whose spawn the registry refused opens no banner: a torn-down registry means a SIGINT already landed, and a banner for a child that never started would report a step this pass did not run.
+    A step whose spawn the registry refused opens no banner: a torn-down registry means a stop signal already landed, and a banner for a child that never started would report a step this pass did not run. The child stays in the cycle's process group, so a signal sent to that group reaches it and everything it spawns.
     """
     if registry.closed:
         return _StepResult(name, 130, "", "", 0.0)
@@ -3262,11 +3317,14 @@ def _run_cycle(
         _record_gate_greens(report, plan, gate_keys, emit)
         _do_job_costs(report, spawn=spawn, emit=emit, registry=registry, plan=plan)
         return _finish(report, failures, plan, timings, emit)
-    except KeyboardInterrupt:
+    except KeyboardInterrupt as stop:
         registry.terminate_all()
         pool.shutdown(wait=False, cancel_futures=True)
         report.interrupted = True
-        return _finish_interrupted(report, failures, registry.killed_count, plan, timings, emit)
+        signum = stop.signum if isinstance(stop, CycleStopped) else signal.SIGINT
+        return _finish_interrupted(
+            report, failures, registry.killed_count, plan, timings, emit, signum=signum
+        )
     finally:
         pool.shutdown(wait=True)
 
@@ -3418,7 +3476,7 @@ def _step_outcome(report: CycleReport, plan: Plan, step: Step, *, retention_ran:
 
     A step that spawned a child answers with what that child came to rather than with the bare fact that it ran: a row filled from the seconds the step cost would read `ok` for a run_m1 whose Manual pins failed, a surface build whose child died, or a chain that exited nonzero, because every step that ran cost some. The two informational steps are the exception in the other direction — the census and the job-costs check gate nothing by design, and each already says what went wrong in its own figure, so a nonzero exit there is a note rather than a failed row.
 
-    Retention is the one step whose row can read all three words on a plan that meant to run it: it happens inside `_finish`, so a failure or a SIGINT anywhere upstream stops the pass before it, and that row is `not run`. `skipped` is reserved for the plan having ruled it out — `--keep-history`, a first run, a rehearsal — which is a different fact and the one the plan block explains.
+    Retention is the one step whose row can read all three words on a plan that meant to run it: it happens inside `_finish`, so a failure or a stop signal anywhere upstream stops the pass before it, and that row is `not run`. `skipped` is reserved for the plan having ruled it out — `--keep-history`, a first run, a rehearsal — which is a different fact and the one the plan block explains.
     """
     status = _GATE_STATUS_FIELDS.get(step.name)
     if status is not None:
@@ -4021,6 +4079,7 @@ def main(argv: list[str] | None = None) -> int:
     if recovered is not None:
         announce(recovered)
 
+    master_aligned: bool | None = None
     if not args.no_carry and args.verdicts is None and not first_run:
         resolved = resolve_carry_source()
         if resolved is None:
@@ -4031,6 +4090,7 @@ def main(argv: list[str] | None = None) -> int:
         else:
             announce(describe_carry_source(resolved, ROOT, promoting=promote_from is not None))
             args.verdicts = resolved["path"]
+            master_aligned = resolved["aligned"]
 
     skip_plumbing = False
     store_only = False
@@ -4051,8 +4111,12 @@ def main(argv: list[str] | None = None) -> int:
             skip_plumbing = True
             plumbing_note = PLUMBING_SKIP_NOTE
         elif plumbing_key is not None and args.verdicts is not None:
-            # The surface has not moved, so the carry would resolve every unit against itself: every unit id is its own, and the carry preserves each record's `at`, which the merge compares strictly — so its re-prefixed notes could never land. Only the store moved, and the one input the store's own hash cannot see is the master, so merging that directly is the whole of what the carry was for.
-            store_only = True
+            if master_aligned is None:
+                master_aligned = master_stamped_for_surface(args.verdicts, REVIEW_OUT)
+                if not master_aligned:
+                    announce(STORE_ONLY_DECLINED_NOTE)
+            # A master stamped for the served surface means the surface has not moved since it was stamped, so the carry would resolve every unit against itself: every unit id is its own, and the carry preserves each record's `at`, which the merge compares strictly — so its re-prefixed notes could never land. Only the store moved, and the one input the store's own hash cannot see is the master, so merging that directly is the whole of what the carry was for.
+            store_only = master_aligned
 
     plan = build_plan(
         verdicts=args.verdicts,
@@ -4126,7 +4190,8 @@ def main(argv: list[str] | None = None) -> int:
         os.environ[CYCLE_RUN_ENV] = timings.run_id
 
         registry = _ChildRegistry()
-        return _run_cycle(plan, report, digest, registry, timings=timings)
+        with stop_signals():
+            return _run_cycle(plan, report, digest, registry, timings=timings)
 
 
 def readiness_block(plan: Plan) -> list[str]:
@@ -4190,16 +4255,19 @@ def _finish_interrupted(
     plan: Plan,
     timings: CycleTimings | None = None,
     emit: console.Digest | None = None,
+    *,
+    signum: int = signal.SIGINT,
 ) -> int:
+    """Close a pass a stop signal cut short, its children already reaped: the summary and the timings journal record it as interrupted, the summary block names the signal and how many children it took down, and the exit status is the shell's for that signal, 128 plus its number."""
     digest = console.Digest() if emit is None else emit
     _emit_cycle_summary(report, failures, plan, "interrupted", timings)
     digest.summary(
         summary_rows(report, plan, retention_ran=False),
         summary_cycle_lines(report, plan, []),
         console.VERDICT_INTERRUPTED,
-        [*failures, f"SIGINT: terminated {killed_count} child process(es)"],
+        [*failures, f"{signal.Signals(signum).name}: terminated {killed_count} child process(es)"],
     )
-    return 130
+    return 128 + signum
 
 
 if __name__ == "__main__":
