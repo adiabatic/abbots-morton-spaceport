@@ -98,6 +98,44 @@ def test_a_surface_pool_record_prices_the_worker_constant():
     assert parent == []
 
 
+def test_a_conform_belt_pool_record_lands_on_the_belt_row_only():
+    """The belt and the oracle both fan out from run_m1 over the same configurations, but a belt worker and an oracle range hold different piles, so neither row reads the other's records: a belt worker filed as a range would read as headroom the oracle's divisor does not have, and the reverse."""
+    belt = _pool("conform-belt", [390_000_000, 920_000_000])
+    observed, _, _ = cb.observations(_unit("conform-belt"), [belt], {}, host=HOST, recent=20)
+    assert [item.peak_bytes for item in observed] == [390_000_000, 920_000_000]
+    assert {item.source for item in observed} == {"pool"}
+    oracle, _, _ = cb.observations(_unit("oracle-shard"), [belt], {}, host=HOST, recent=20)
+    assert oracle == []
+    shard = _pool("oracle-shard", [560_000_000])
+    crossed, _, _ = cb.observations(_unit("conform-belt"), [shard], {}, host=HOST, recent=20)
+    assert crossed == []
+
+
+def test_a_conform_step_peak_is_never_read_as_a_belt_worker():
+    """`reap_peak_rss_bytes` maxes over gate:conform's tree rather than summing it, so the step's peak reads one process and never the pool; no row admits it, the belt's included."""
+    steps = {"r1": [_step("gate:conform", 3_000_000_000)]}
+    observed, _, _ = cb.observations(_unit("conform-belt"), [], steps, host=HOST, recent=20)
+    assert observed == []
+    assert all("gate:conform" not in unit.step_names for unit in cb.UNITS)
+
+
+def test_an_overrun_of_the_belt_constant_trips_the_check(tmp_path, capsys):
+    """The belt's row checks as well as reports: a worker past `CONFORM_BELT_BYTES` means the divisor gate:conform's width is priced on does not hold, and `--check` says so the way it does for every other constant."""
+    over = _journal(tmp_path, [_pool("conform-belt", [CONSTANTS["conform-belt"] + 1])])
+    code, out = _run(capsys, over, "--check")
+    assert code == 1
+    assert "re-seed CONFORM_BELT_BYTES in rebuild/tools/artifact_cycle.py" in out
+    under = _journal(tmp_path, [_pool("conform-belt", [CONSTANTS["conform-belt"] - 1])])
+    assert _main(under, "--host", HOST, "--check") == 0
+
+
+def test_the_belt_cap_reads_the_acceptance_configurations_the_pipeline_defines():
+    """The belt's width clause caps at the acceptance-configuration count, read out of the pipeline's source rather than imported; the count it reads is the one `run_m1.run_font_conformance` submits a worker for apiece."""
+    from rebuild.pipeline import conform
+
+    assert cb._acceptance_config_count(cb.ROOT / cb.CONFORM_SOURCE) == len(conform.ACCEPTANCE_CONFIGS)
+
+
 def test_a_plumbing_step_peak_prices_the_standing_fill_parent():
     """The plumbing step's peak is the chain parent, the widest process under it on every pass, so it lands on the standing-fill-parent row alone; the refill pool beside it files no record, so no worker row reads it."""
     steps = {"r1": [_step("plumbing", 9_000_000_000)]}
@@ -362,6 +400,9 @@ def test_the_width_clauses_answer_for_the_box_and_the_tree_they_are_given(tmp_pa
     (tree / "rebuild" / "pipeline" / "kernel_exec.py").write_text(
         f"{cb.KERNEL_DELTA_NAME} = 8_000_000_000\n{cb.KERNEL_MEMO_NAME} = 4_000_000_000\n", encoding="utf-8"
     )
+    (tree / cb.CONFORM_SOURCE).write_text(
+        'SETTLEMENT_CONFIGS = ("a", "b", "c")\nOVERLAY_CONFIGS = ("d",)\n', encoding="utf-8"
+    )
     rows = cb.build_rows([], {}, constants=CONSTANTS, host=HOST, recent=20, tolerance=0.0, seeded_at={})
     out = "\n".join(cb.render_rows(rows, host=HOST, total_bytes=48_000_000_000, cores=12, root=tree))
     assert "48.00 GB total" in out
@@ -373,6 +414,12 @@ def test_the_width_clauses_answer_for_the_box_and_the_tree_they_are_given(tmp_pa
     assert "the font suite takes the cores this process may run on (12), not the division" in out
     assert "the surface build's parent is subtracted from the box rather than divided into it" in out
     assert "the refill pool runs 12 at 2.00 GB each out of 48.00 GB total" in out
+    belt_block = out.split("\nconform-belt  ")[1].split("\n\n")[0]
+    belt_width = next(line for line in belt_block.splitlines() if line.startswith("  width here: "))
+    assert "capped at 4" in belt_width
+    assert "with the build lane idle" in belt_width
+    assert "less 25.00 GB co-resident" in belt_width
+    assert "beside a surface build of its parent and 3 workers" in belt_width
 
 
 def test_a_check_that_cannot_run_exits_apart_from_one_that_tripped(tmp_path, capsys, monkeypatch):

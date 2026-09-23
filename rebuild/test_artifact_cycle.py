@@ -2,6 +2,7 @@ import argparse
 import functools
 import gzip
 import hashlib
+import itertools
 import json
 import os
 import re
@@ -326,11 +327,25 @@ def test_dry_run_plan_default():
 
 
 def test_dry_run_plan_conform_jobs_cap():
-    """gate:conform is handed the sweep width whole, past the acceptance-configuration count: the belt narrows itself to one process per configuration at its own `run_m1._spawn_pool` call site, so the plan caps nothing on its behalf."""
+    """gate:conform is handed the belt's own width, capped at the acceptance configurations and the cores, and the argv states it at every value, one included: a width left off the command line would hand run_m1 its own default, a different number from the one this plan priced beside the surface build."""
+    from rebuild.pipeline.conform import ACCEPTANCE_CONFIGS
+
     plan = _plan(ncores=12)
     by_name = {step.name: step for step in plan.steps}
-    assert plan.conform_jobs == plan.sweep_jobs == ac.sweep_job_budget(12, total_bytes=BOX_44_GB) == 12
-    assert _argv(by_name["gate:conform"])[-2:] == ["--jobs", str(plan.conform_jobs)]
+    assert (
+        plan.conform_jobs
+        == ac.conform_job_budget(
+            skip_gates=plan.skip_gates,
+            skip_make_test=plan.skip_make_test,
+            skip_surface=plan.skip_surface,
+            plumbing_runs=plan.runs("plumbing"),
+            pool_policy=plan.pool_policy,
+            ncores=12,
+            total_bytes=BOX_44_GB,
+        )
+        == len(ACCEPTANCE_CONFIGS)
+    )
+    assert _argv(by_name["gate:conform"])[-2:] == ["--jobs", str(len(ACCEPTANCE_CONFIGS))]
 
     small = _plan(ncores=4)
     small_by_name = {step.name: step for step in small.steps}
@@ -338,7 +353,7 @@ def test_dry_run_plan_conform_jobs_cap():
 
     single = _plan(ncores=1)
     single_by_name = {step.name: step for step in single.steps}
-    assert _argv(single_by_name["gate:conform"])[-1] == "--conform-only"
+    assert _argv(single_by_name["gate:conform"])[-2:] == ["--jobs", "1"]
 
 
 def test_dry_run_plan_states_a_surface_width_of_one_in_the_argv():
@@ -1997,10 +2012,9 @@ def test_the_plan_prints_the_sweep_width_with_its_derivation():
     text = _plan_text(plan)
     assert f"run_m1 sweeps --jobs             : {plan.sweep_jobs}  (the oracle's row-range workers, " in text
     assert ac.sweep_job_derivation(10, total_bytes=BOX_48_GIB) in text
-    assert "the belt narrows itself to one process per acceptance configuration" in text
     by_name = {step.name: step for step in plan.steps}
     assert _argv(by_name["run_m1"])[5:7] == ["--jobs", str(plan.sweep_jobs)]
-    assert _argv(by_name["gate:conform"])[-2:] == ["--jobs", str(plan.sweep_jobs)]
+    assert _argv(by_name["gate:conform"])[-2:] == ["--jobs", str(plan.conform_jobs)]
 
 
 class TestTheSurfaceBuildWidth:
@@ -2108,8 +2122,259 @@ class TestTheStandingFillWidth:
         ]
 
 
-def test_both_job_budgets_answer_the_cgroup_allowance_rather_than_the_hosts_core_count(monkeypatch):
-    """A CPU quota is invisible to `os.cpu_count()`, so a budget that read it would give a two-core allowance on a many-core host a sweep process per acceptance configuration and a surface build at the cap — every one of them a core the process may not run on. Both budgets probe through `usable_cores`, and what stands in for the box here is the real probe over an invented cgroup root, so the allowance is a fixture rather than a stub: two cores sits under both caps, so each budget answers the allowance itself. The surface budget also divides an invented terabyte box, so its memory arithmetic never binds and the core clamp is the whole assertion. A stated `ncores` still outranks the probe, which is what keeps `build_plan`'s explicit threading its own."""
+def _lane_conform_line(plan: ac.Plan) -> str:
+    """The plan block's one Lane conform line."""
+    (line,) = [line for line in _plan_text(plan).splitlines() if "Lane conform" in line]
+    return line
+
+
+def _plan_conform_derivation(plan: ac.Plan, *, ncores: int, total_bytes: int) -> str:
+    """The belt's derivation over the flags the plan itself resolved, so the call matches what `build_plan` divided."""
+    return ac.conform_job_derivation(
+        skip_gates=plan.skip_gates,
+        skip_make_test=plan.skip_make_test,
+        skip_surface=plan.skip_surface,
+        plumbing_runs=plan.runs("plumbing"),
+        pool_policy=plan.pool_policy,
+        ncores=ncores,
+        total_bytes=total_bytes,
+    )
+
+
+class TestTheConformBeltWidth:
+    """gate:conform's belt is the cycle's to size: one spawn process per acceptance configuration, each holding `CONFORM_BELT_BYTES`, submitted as run_m1's gate passes and so running beside the build lane, the surface build or the plumbing step after it, which is why the larger of the two the pass runs comes off the box before the belt divides it."""
+
+    def test_the_surface_build_comes_off_the_box_before_the_division(self):
+        """Asserted at the fit-terms seam, where no box enters, for the reason the surface build's own reservation is: no fleet machine is tight enough for the subtraction to move the belt's width, and a box invented to sit exactly where it would is a magic number every re-seed has to re-tune. The surface term is the build's parent and the workers `surface_job_budget` resolves for the same pass, and a pass that runs the plumbing step without the build takes the chain parent and the refill pool `standing_fill_jobs` resolves off instead; gate:make-test's pool joins either under the overlap policy only, since the queue policy parks the belt behind make-test."""
+        from rebuild.pipeline.conform import ACCEPTANCE_CONFIGS
+
+        def surface(skip_make_test):
+            return ac.SURFACE_PARENT_BYTES + ac.SURFACE_WORKER_BYTES * ac.surface_job_budget(
+                skip_gates=False, skip_make_test=skip_make_test, ncores=9, total_bytes=BOX_48_GIB
+            )
+
+        def plumbing(skip_make_test):
+            return ac.STANDING_FILL_PARENT_BYTES + ac.STANDING_FILL_WORKER_BYTES * ac.standing_fill_jobs(
+                skip_gates=False, skip_make_test=skip_make_test, ncores=9, total_bytes=BOX_48_GIB
+            )
+
+        def terms(*, skip_make_test=False, skip_surface=False, plumbing_runs=False, pool_policy="queue"):
+            return ac._conform_fit_terms(
+                skip_gates=False,
+                skip_make_test=skip_make_test,
+                skip_surface=skip_surface,
+                plumbing_runs=plumbing_runs,
+                pool_policy=pool_policy,
+                ncores=9,
+                total_bytes=BOX_48_GIB,
+            )
+
+        configs = len(ACCEPTANCE_CONFIGS)
+        assert terms() == (ac.CONFORM_BELT_BYTES, surface(False), configs)
+        assert terms(skip_surface=True) == (ac.CONFORM_BELT_BYTES, 0, configs)
+        make_test = ac._make_test_pool_bytes(skip_make_test=False, ncores=9)
+        assert make_test > 0
+        assert terms(pool_policy="overlap") == (ac.CONFORM_BELT_BYTES, surface(False) + make_test, configs)
+        assert terms(pool_policy="overlap", skip_surface=True) == (ac.CONFORM_BELT_BYTES, make_test, configs)
+        assert terms(pool_policy="overlap", skip_make_test=True) == (
+            ac.CONFORM_BELT_BYTES,
+            surface(True),
+            configs,
+        )
+        assert terms(skip_make_test=True) == (ac.CONFORM_BELT_BYTES, surface(True), configs)
+
+        assert 0 < plumbing(False) < surface(False)
+        assert terms(plumbing_runs=True) == (ac.CONFORM_BELT_BYTES, surface(False), configs)
+        assert terms(skip_surface=True, plumbing_runs=True) == (
+            ac.CONFORM_BELT_BYTES,
+            plumbing(False),
+            configs,
+        )
+        assert terms(skip_surface=True, plumbing_runs=True, pool_policy="overlap") == (
+            ac.CONFORM_BELT_BYTES,
+            plumbing(False) + make_test,
+            configs,
+        )
+        assert terms(skip_surface=True, plumbing_runs=True, skip_make_test=True) == (
+            ac.CONFORM_BELT_BYTES,
+            plumbing(True),
+            configs,
+        )
+
+    def test_the_larger_build_lane_step_is_the_one_that_comes_off(self):
+        """The belt opens beside the surface build, and one still running when the build hands over, or one the queue policy starts late, runs beside the plumbing step, so a pass that runs both takes the larger of the two off the box. The surface build stops widening at `SURFACE_JOBS_CAP` while the standing fill takes the cores, so on a box with cores enough the plumbing step is the larger, and there it is the plumbing step that comes off."""
+        box: dict[str, Any] = dict(skip_gates=False, skip_make_test=False, total_bytes=BOX_48_GIB)
+        wide: dict[str, Any] = dict(box, ncores=40)
+        surface = ac.SURFACE_PARENT_BYTES + ac.SURFACE_WORKER_BYTES * ac.surface_job_budget(**wide)
+        plumbing = ac.STANDING_FILL_PARENT_BYTES + ac.STANDING_FILL_WORKER_BYTES * ac.standing_fill_jobs(
+            **wide
+        )
+        assert plumbing > surface
+        assert ac._conform_build_lane(**wide, skip_surface=False, plumbing_runs=True) == (
+            "plumbing",
+            plumbing,
+        )
+        assert ac._conform_build_lane(**wide, skip_surface=False, plumbing_runs=False) == (
+            "surface-build",
+            surface,
+        )
+        assert (
+            ac._conform_fit_terms(**wide, skip_surface=False, plumbing_runs=True, pool_policy="queue")[1]
+            == plumbing
+        )
+        narrow: dict[str, Any] = dict(box, ncores=9)
+        assert ac._conform_build_lane(**narrow, skip_surface=False, plumbing_runs=True)[0] == "surface-build"
+        assert ac._conform_build_lane(**narrow, skip_surface=True, plumbing_runs=False) == ("", 0)
+
+    def test_both_fleet_boxes_run_the_belt_at_the_configuration_count(self):
+        """The fleet-wide claim `CONFORM_BELT_BYTES` has to keep (`doc/fleet.md` names the boxes): beside a gated build lane, the surface build and the plumbing step after it, the 48 GiB boxes at twelve and eighteen cores and the 32 GiB box at ten all run one worker per acceptance configuration, and so they do beside the plumbing step alone, and on none does the division bind before the cap. The capped budget cannot tell the cap from a division that lands exactly on it, so the uncapped division is asserted beside it; a re-seed that starts narrowing a fleet box fails here and has to be argued. The other direction is not held here or anywhere in the suite: a constant that errs low passes every assertion below, and only `make job-costs`' conform-belt row prices the figure against the workers that ran, so a green suite is no confirmation of a re-seed."""
+        from rebuild.pipeline.conform import ACCEPTANCE_CONFIGS
+        from rebuild.tools import memory_budget
+
+        configs = len(ACCEPTANCE_CONFIGS)
+        for ncores, total_bytes in ((12, BOX_48_GIB), (18, BOX_48_GIB), (10, BOX_32_GIB)):
+            for skip_surface in (False, True):
+                gated: dict[str, Any] = dict(
+                    skip_gates=False,
+                    skip_make_test=False,
+                    skip_surface=skip_surface,
+                    plumbing_runs=True,
+                    pool_policy="queue",
+                    ncores=ncores,
+                    total_bytes=total_bytes,
+                )
+                assert ac.conform_job_budget(**gated) == configs
+                assert ac.conform_job_derivation(**gated).startswith(f"{configs} at ")
+                _per_unit, coresident, _cap = ac._conform_fit_terms(**gated)
+                assert coresident > 0
+                assert (
+                    memory_budget.how_many_fit(
+                        ac.CONFORM_BELT_BYTES, coresident_bytes=coresident, total_bytes=total_bytes
+                    )
+                    > configs
+                )
+
+    def test_the_cores_and_the_configurations_cap_the_belt(self):
+        """A box with room to spare runs one worker per acceptance configuration, since a configuration is the belt's unit and a further worker has nothing to sweep, and a box with fewer cores than configurations runs its cores: the cap is both non-memory bounds in one `min()`, so a small cgroup allowance never widens past what it may run on."""
+        from rebuild.pipeline.conform import ACCEPTANCE_CONFIGS
+
+        for ncores in (1, 2, 4, 6, 10, 12, 18):
+            assert ac.conform_job_budget(
+                skip_surface=True, ncores=ncores, total_bytes=1_000_000_000_000
+            ) == min(ncores, len(ACCEPTANCE_CONFIGS))
+
+    def test_a_belt_width_of_one_is_stated_on_the_argv(self, monkeypatch):
+        """A box the pooled belt does not fit beside the surface build floors at one, the serial belt, and the argv states that width like any other: left off, run_m1 would take its own default, a width this plan never priced. The oracle's width is a separate budget and does not follow the belt down."""
+        monkeypatch.setattr(ac, "CONFORM_BELT_BYTES", 10**12)
+        plan = _plan(ncores=12)
+        by_name = {step.name: step for step in plan.steps}
+        assert plan.conform_jobs == 1
+        assert _argv(by_name["gate:conform"])[-2:] == ["--jobs", "1"]
+        assert plan.sweep_jobs > 1
+        assert _argv(by_name["run_m1"])[5:7] == ["--jobs", str(plan.sweep_jobs)]
+
+    def test_the_plan_prints_the_belt_width_with_its_derivation(self):
+        """Every Lane conform variant that runs the belt quotes its width, the constant it divides by and the derivation over the flags the plan resolved, so a reader surprised by the width can audit it on the line that states it. The co-resident term is the larger build-lane step's, with gate:make-test's pool added under the overlap policy: the surface build's where it runs and outweighs the plumbing step, the plumbing step's where the build does not run or the step outweighs it, and a pass that runs neither says so in words and prints no co-resident term unless gate:make-test's pool stands beside the belt."""
+        box: dict[str, Any] = dict(ncores=10, total_bytes=BOX_32_GIB)
+        arms = {
+            "queued": _plan(**box),
+            "make-test skipped": _plan(skip_make_test=True, make_test_note="closure unchanged", **box),
+            "overlap": _plan(pool_policy="overlap", **box),
+        }
+        assert "QUEUED behind gate:make-test" in _lane_conform_line(arms["queued"])
+        assert "gate:make-test not running, so no queueing" in _lane_conform_line(arms["make-test skipped"])
+        assert "CO-RESIDENT with the pytest pools" in _lane_conform_line(arms["overlap"])
+        for plan in arms.values():
+            assert plan.runs("plumbing")
+            line = _lane_conform_line(plan)
+            derivation = _plan_conform_derivation(plan, **box)
+            assert (
+                f"(--jobs {plan.conform_jobs}; CONFORM_BELT_BYTES a belt worker, beside the surface build's parent and its {plan.surface_jobs} workers"
+                in line
+            )
+            assert line.endswith(f"; {derivation})")
+            assert f"at {format_gb(ac.CONFORM_BELT_BYTES)} GB each" in derivation
+            assert "less a reserve of" in derivation
+            assert "GB co-resident" in derivation
+        overlap = arms["overlap"]
+        assert "workers and gate:make-test's pool; " in _lane_conform_line(overlap)
+        _per_unit, coresident, _cap = ac._conform_fit_terms(
+            skip_gates=False,
+            skip_make_test=False,
+            skip_surface=False,
+            plumbing_runs=True,
+            pool_policy="overlap",
+            ncores=10,
+            total_bytes=BOX_32_GIB,
+        )
+        assert coresident > ac.SURFACE_PARENT_BYTES + ac.SURFACE_WORKER_BYTES * overlap.surface_jobs
+        assert f"less {format_gb(coresident)} GB co-resident" in _plan_conform_derivation(overlap, **box)
+        assert "gate:make-test's pool" not in _lane_conform_line(arms["queued"])
+
+        beside_plumbing = _plan(skip_surface=True, surface_note="inputs unchanged", **box)
+        line = _lane_conform_line(beside_plumbing)
+        derivation = _plan_conform_derivation(beside_plumbing, **box)
+        workers = beside_plumbing.standing_fill_jobs
+        assert (
+            f"(--jobs {beside_plumbing.conform_jobs}; CONFORM_BELT_BYTES a belt worker, the surface build not running this pass, so beside the plumbing step's chain parent and its {workers} refill workers; "
+            in line
+        )
+        assert line.endswith(f"; {derivation})")
+        plumbing = ac.STANDING_FILL_PARENT_BYTES + ac.STANDING_FILL_WORKER_BYTES * workers
+        assert f"less {format_gb(plumbing)} GB co-resident" in derivation
+
+        idle = {
+            "skip_surface": True,
+            "surface_note": "inputs unchanged",
+            "skip_plumbing": True,
+            "plumbing_note": "nothing moved",
+        }
+        alone = _plan(**idle, **box)
+        assert not alone.runs("plumbing")
+        line = _lane_conform_line(alone)
+        derivation = _plan_conform_derivation(alone, **box)
+        assert (
+            f"(--jobs {alone.conform_jobs}; CONFORM_BELT_BYTES a belt worker, neither the surface build nor the plumbing step running this pass, so nothing co-resident; "
+            in line
+        )
+        assert line.endswith(f"; {derivation})")
+        assert "GB co-resident" not in derivation
+
+        overlap_alone = _plan(**idle, pool_policy="overlap", **box)
+        line = _lane_conform_line(overlap_alone)
+        assert "so only gate:make-test's pool co-resident; " in line
+        assert "GB co-resident" in _plan_conform_derivation(overlap_alone, **box)
+
+        wide: dict[str, Any] = dict(ncores=40, total_bytes=BOX_48_GIB)
+        outweighed = _plan(**wide)
+        line = _lane_conform_line(outweighed)
+        assert (
+            f"CONFORM_BELT_BYTES a belt worker, the plumbing step outweighing the surface build, so beside the plumbing step's chain parent and its {outweighed.standing_fill_jobs} refill workers; "
+            in line
+        )
+        assert line.endswith(f"; {_plan_conform_derivation(outweighed, **wide)})")
+
+    def test_the_printed_derivation_is_the_one_that_produced_the_width(self):
+        """The plan line quotes a sentence, and a sentence that disagreed with the number beside it would be worse than none: both come from one resolution of the same three terms, so on every arm the clause opens with the width it explains."""
+        for total_bytes in (BOX_32_GIB, 20_000_000_000):
+            for skip_make_test in (False, True):
+                for skip_surface, plumbing_runs in itertools.product((False, True), repeat=2):
+                    for pool_policy in ac.POOL_POLICIES:
+                        kw: dict[str, Any] = dict(
+                            skip_gates=False,
+                            skip_make_test=skip_make_test,
+                            skip_surface=skip_surface,
+                            plumbing_runs=plumbing_runs,
+                            pool_policy=pool_policy,
+                            ncores=10,
+                            total_bytes=total_bytes,
+                        )
+                        width = ac.conform_job_budget(**kw)
+                        assert ac.conform_job_derivation(**kw).startswith(f"{width} at ")
+
+
+def test_the_job_budgets_answer_the_cgroup_allowance_rather_than_the_hosts_core_count(monkeypatch):
+    """A CPU quota is invisible to `os.cpu_count()`, so a budget that read it would give a two-core allowance on a many-core host an oracle range per core, a belt process per acceptance configuration and a surface build at the cap — every one of them a core the process may not run on. The oracle's, the belt's and the surface build's budgets all probe through `usable_cores`, and what stands in for the box here is the real probe over an invented cgroup root, so the allowance is a fixture rather than a stub: two cores sits under both caps, so each budget answers the allowance itself. The surface budget also divides an invented terabyte box, so its memory arithmetic never binds and the core clamp is the whole assertion. A stated `ncores` still outranks the probe, which is what keeps `build_plan`'s explicit threading its own."""
     from rebuild.pipeline.conform import ACCEPTANCE_CONFIGS
     from rebuild.tools import memory_budget
 
@@ -2121,6 +2386,7 @@ def test_both_job_budgets_answer_the_cgroup_allowance_rather_than_the_hosts_core
     assert allowed == min(host, 2) < min(len(ACCEPTANCE_CONFIGS), ac.SURFACE_JOBS_CAP)
     assert ac.sweep_job_budget(total_bytes=1_000_000_000_000) == allowed
     assert ac.surface_job_budget(skip_gates=True, total_bytes=1_000_000_000_000) == allowed
+    assert ac.conform_job_budget(skip_gates=True, skip_surface=True, total_bytes=1_000_000_000_000) == allowed
     assert ac.sweep_job_budget(12, total_bytes=1_000_000_000_000) == 12
     assert (
         ac.surface_job_budget(skip_gates=True, ncores=12, total_bytes=1_000_000_000_000)

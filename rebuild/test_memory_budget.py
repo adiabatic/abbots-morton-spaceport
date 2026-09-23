@@ -259,12 +259,23 @@ class TestTheHandRunDefaults:
         assert extract._shard_workers_default(cgroup_root=SAMPLES / "container-v1") == min(host, 2)
         assert extract._shard_workers_default(cgroup_root=SAMPLES / "no-such-box") == host
 
-    def test_the_m1_driver_sweeps_at_the_budget_the_artifact_cycle_would_pass(self):
-        """run_m1's `--jobs` is the post-build sweeps' width, and the default is the same `sweep_job_budget()` the cycle already passes rather than a checked-in one, so a hand run cuts the oracle's tables into row ranges across the cycle's width instead of walking a configuration at a time. The width is the cores under the clamp `ORACLE_SHARD_BYTES` argues, with nothing subtracted for a co-resident pool; run_m1's other memory ceiling is `--kernel-threads`, and these jobs never reach it."""
+    def test_the_m1_driver_sweeps_at_the_budget_the_artifact_cycle_would_pass(
+        self, monkeypatch: pytest.MonkeyPatch
+    ):
+        """run_m1's `--jobs` is the post-build sweeps' width, and a run that states none takes the same `sweep_job_budget()` the cycle already passes rather than a checked-in one, so a hand run cuts the oracle's tables into row ranges across the cycle's width instead of walking a configuration at a time. The width is the cores under the clamp `ORACLE_SHARD_BYTES` argues, with nothing subtracted for a co-resident pool; run_m1's other memory ceiling is `--kernel-threads`, and these jobs never reach it. The parser's default is None, because `--conform-only` resolves an unstated width to the belt's own budget instead, so the width is read where `main` hands it to the oracle (`--gates-only`, the cheapest entry that runs it) rather than off the parser. The belt's budget is moved off the oracle's here, since on a box where the two resolve to the same width a run handed the belt's default would pass unseen; `--gates-only` beside `--conform-only` still takes the oracle's, because the gates-only branch runs first and sweeps nothing."""
         import rebuild.tools.artifact_cycle as ac
         from rebuild.pipeline import run_m1
 
-        assert _parser_built_by(run_m1.main).parse_args([]).jobs == ac.sweep_job_budget()
+        assert _parser_built_by(run_m1.main).parse_args([]).jobs is None
+        sweep = ac.sweep_job_budget()
+        monkeypatch.setattr(ac, "conform_job_budget", lambda **_: sweep + 1)
+        handed: list[int] = []
+        monkeypatch.setattr(
+            run_m1, "run_gates_only", lambda *, out_dir, jobs, fresh_cache: handed.append(jobs)
+        )
+        run_m1.main(["--gates-only"])
+        run_m1.main(["--gates-only", "--conform-only"])
+        assert handed == [sweep, sweep]
 
     def test_the_surface_build_takes_the_unreserved_arm_of_its_own_budget(
         self, monkeypatch: pytest.MonkeyPatch

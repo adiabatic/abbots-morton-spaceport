@@ -450,6 +450,20 @@ def test_record_pool_round_trips_through_load_pool_records(tmp_path):
     assert (records[0]["width"], records[1]["width"]) == (8, 4)
 
 
+def test_a_conform_belt_record_keys_its_workers_by_configuration(tmp_path):
+    """The belt's pool record names its workers by acceptance configuration rather than by gateway, and `gateway_order` sorts those names by the digits in them: `default` has none and sorts first, and `ss03+ss05` reads as 305 and sorts last. So a reader matching a peak to its configuration reads it by key, never by position."""
+    path = tmp_path / "j.ndjson"
+    configs = ("default", "ss03", "ss04", "ss05", "ss03+ss05", "ss10")
+    peaks = {config: 300_000_000 + index for index, config in enumerate(configs)}
+    ct.record_pool("conform-belt", width=6, worker_peaks=peaks, controller_peak_bytes=280_000_000, path=path)
+    (record,) = ct.load_pool_records(path)
+    assert record["unit"] == "conform-belt"
+    assert record["width"] == 6
+    assert record["controller_peak_rss_bytes"] == 280_000_000
+    assert record["worker_peak_rss_bytes"] == peaks
+    assert list(record["worker_peak_rss_bytes"]) == ["default", "ss03", "ss04", "ss05", "ss10", "ss03+ss05"]
+
+
 def test_load_journal_never_sees_a_pool_record(tmp_path):
     path = tmp_path / "j.ndjson"
     run_id = _mixed_journal(path)

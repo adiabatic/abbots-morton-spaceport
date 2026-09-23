@@ -1,12 +1,15 @@
 """Interactive run_m1 and --conform-only record the same last-green files the artifact cycle skips on, so a fix verified by hand is not re-verified by the next cycle, and each of them files what it decided as a check line in the timings journal. The gate verdicts come from artifact_cycle's own evaluators, never from run_m1's exit code, which is nonzero whenever the oracle carries UNMATCHED rows — the normal mid-migration state — and that is the fact the check lines here exist to pin: the same run that exits 1 files a green. `--gates-only` records that same run_m1 green under one further condition — a prior green to stand on and every input that moved since it comparison-side — which is what makes the artifact cycle's re-adjudication route worth taking rather than merely cheap."""
 
 import gzip
+import itertools
 import json
+import pickle
 
 import pytest
 
 from rebuild.pipeline import conform, defects, fixtures, oracle, oracle_cache, run_m1
 from rebuild.tools import artifact_cycle as ac
+from rebuild.tools import calibrate_budgets as cb
 from rebuild.tools import console
 from rebuild.tools import cycle_paths
 from rebuild.tools import cycle_timings as ct
@@ -417,6 +420,27 @@ def test_the_conform_horizon_default_matches_the_cycle_driver(monkeypatch, tmp_p
     assert swept == [ac.CONFORM_HORIZON_DEFAULT]
 
 
+def test_a_hand_conform_only_run_defaults_to_the_belts_budget(monkeypatch, tmp_path):
+    """A hand `--conform-only` shares the box with no surface build and no make-test pool, so its default is the belt's own budget at that idle arm rather than the oracle's `sweep_job_budget()`, which a bare run keeps; a stated `--jobs` beats the default, one included. The oracle's budget is moved off the belt's here, since on a box where the two resolve to the same width a default taken from the wrong one would pass unseen."""
+    store = tmp_path / "conform-green.json"
+    handed = []
+    belt = ac.conform_job_budget(skip_gates=True, skip_surface=True)
+    monkeypatch.setattr(cycle_paths, "CONFORM_GREEN", store)
+    monkeypatch.setattr(ac, "conform_skip_fingerprint", lambda root=None, horizon=4: "fp-conform")
+    monkeypatch.setattr(ac, "conform_skip_files", lambda root=None, horizon=4: {})
+    monkeypatch.setattr(ac, "sweep_job_budget", lambda ncores=None, total_bytes=None: belt + 1)
+
+    def fake_sweep(max_length, jobs):
+        handed.append(jobs)
+        return {"pass": True, "divergences": 0}
+
+    monkeypatch.setattr(run_m1, "run_font_conformance", fake_sweep)
+    run_m1.main(["--conform-only"])
+    run_m1.main(["--conform-only", "--jobs", "1"])
+    run_m1.main(["--conform-only", "--jobs", "4"])
+    assert handed == [max(1, belt), 1, 4]
+
+
 class _FinishedFuture:
     def __init__(self, value):
         self._value = value
@@ -426,7 +450,7 @@ class _FinishedFuture:
 
 
 class _InlinePool:
-    """A stand-in for the spawn pool that runs each worker where it was submitted, so the oracle's fan-in can be exercised without a process per acceptance configuration and without a build to sweep."""
+    """A stand-in for the spawn pool that runs each worker where it was submitted, so the oracle's row ranges and the belt's configurations can be exercised without a process per unit and without a build to sweep."""
 
     def __enter__(self):
         return self
@@ -663,7 +687,7 @@ class TestOracleFanIn:
             assert store is not None and store.rows == rows[config] and store.pass_ordinal == 1
 
     def test_the_belts_pool_is_never_wider_than_the_acceptance_configurations(self):
-        """`--jobs` is the oracle's width and the belt takes the same number, so the belt's own call site is what holds it to one process per configuration however wide the box is."""
+        """The cycle hands the belt a width already capped at the acceptance configurations (`artifact_cycle.conform_job_budget`), but a hand `--jobs` can state any number, so the belt's own call site is what holds it to one process per configuration however wide the number is, while a narrower one narrows the pool."""
         wide = run_m1._spawn_pool(64, len(conform.ACCEPTANCE_CONFIGS))
         try:
             width = wide._max_workers  # pyright: ignore[reportAttributeAccessIssue]
@@ -712,6 +736,105 @@ class TestOracleFanIn:
             run_m1.run_oracle(out_dir=tmp_path, jobs=6)
         assert standing.read_bytes() == b"the audit of the last green run\n"
         assert self._landed(tmp_path) == ["divergence-audit.tsv"]
+
+
+class TestConformFanIn:
+    """The belt's fan-in files what its workers held as a `conform-belt` pool record, and it files nothing where the pile is not the belt's; the report it writes is the serial belt's whatever the width. Only the sweep itself is stubbed (`conform._conformance_config`, the unit the serial arm and every worker share), so the real wrapper, the real worker, the real `run_conformance` and the real merge run on every arm."""
+
+    @staticmethod
+    def _swept(
+        shaper,
+        spec,
+        config,
+        alphabet,
+        splitters,
+        glyph_names,
+        anchors_of,
+        max_length,
+        guard_verdicts=None,
+        settle_memo=None,
+    ):
+        """A deterministic sweep whose every field names its configuration, so a merge that folded in completion order rather than acceptance order would write a different report."""
+        index = conform.ACCEPTANCE_CONFIGS.index(config)
+        return conform.ConformanceConfigResult(
+            config=config,
+            sequences=100,
+            shaping_runs=100 + index,
+            divergences=[
+                conform.Divergence(
+                    text=chr(0xE650 + index),
+                    config=config,
+                    position=index,
+                    expected="qsPea",
+                    got="qsPea.alt",
+                    kind=f"kind-{config}",
+                )
+            ],
+            notes=[f"{config}: swept at {max_length}"],
+            modes=[f"mode-{index % 2}"],
+        )
+
+    def _pool(self, monkeypatch):
+        """The fan-out with every process and every build input taken out of it: an inline pool, futures resolved in reverse, the crate stubbed, no spec, no tables to read and no memo to share, and what the worker and `run_conformance` build before the sweep faked, since the spec is None."""
+        monkeypatch.setattr(run_m1, "_spawn_pool", lambda jobs, units: _InlinePool())
+        monkeypatch.setattr(run_m1, "as_completed", lambda futures: reversed(list(futures)))
+        monkeypatch.setattr(run_m1.kernel_exec, "ensure_built", lambda: None)
+        monkeypatch.setattr(run_m1.kernel_exec, "guard_sweep", lambda spec: {})
+        monkeypatch.setattr(run_m1, "tables_inputs", lambda: None)
+        monkeypatch.setattr(run_m1, "settle_memo_inputs", lambda: None)
+        monkeypatch.setattr(run_m1, "load_default_spec", lambda: None)
+        monkeypatch.setattr(run_m1, "serialized_tables", lambda out_dir, inputs: {})
+        monkeypatch.setattr(run_m1, "mint_cell_glyphs", lambda spec, decisions: {})
+        monkeypatch.setattr(conform, "settle_memo_files", lambda out_dir, spec, inputs: {})
+        monkeypatch.setattr(conform, "Shaper", lambda font_path: object())
+        monkeypatch.setattr(conform, "spec_alphabet", lambda spec: ())
+        monkeypatch.setattr(conform, "splitting_boundary_chars", lambda spec: frozenset())
+        monkeypatch.setattr(conform, "_conformance_config", self._swept)
+
+    def test_a_pooled_belt_files_one_conform_belt_pool_record(self, monkeypatch, tmp_path):
+        """One record per pooled belt, at the width the pool ran and with one observation per acceptance configuration, under the unit name the job-costs registry reads — a record filed under a name no unit claims would read exactly like a belt this box has never pooled. Every peak reading is distinct here, and the inline pool runs each worker as it is submitted, in acceptance order, before the controller reads its own, so a fan-in that filed one configuration's peak under another, or the controller's under a worker, would fail."""
+        self._pool(monkeypatch)
+        assert "conform-belt" in {name for unit in cb.UNITS for name in unit.pool_units}
+        configs = conform.ACCEPTANCE_CONFIGS
+        for jobs in (6, 2):
+            monkeypatch.setattr(run_m1, "peak_rss_self_bytes", itertools.count(1).__next__)
+            before = len(ct.load_pool_records(ct.JOURNAL))
+            run_m1.run_font_conformance(out_dir=tmp_path, jobs=jobs)
+            records = ct.load_pool_records(ct.JOURNAL)[before:]
+            assert len(records) == 1
+            (record,) = records
+            assert record["unit"] == "conform-belt"
+            assert record["width"] == min(jobs, len(configs))
+            assert record["worker_peak_rss_bytes"] == {
+                config: index + 1 for index, config in enumerate(configs)
+            }
+            assert record["controller_peak_rss_bytes"] == len(configs) + 1
+
+    def test_a_serial_or_deep_belt_files_no_pool_record(self, monkeypatch, tmp_path):
+        """The serial belt starts no pool to measure, and a deeper sweep's worker holds its horizon's windows in process, a different pile from the belt's that must never be priced as one of its workers."""
+        self._pool(monkeypatch)
+        run_m1.run_font_conformance(out_dir=tmp_path, jobs=1)
+        run_m1.run_font_conformance(out_dir=tmp_path, max_length=conform.BELT_HORIZON + 1, jobs=6)
+        assert ct.load_pool_records(ct.JOURNAL) == []
+
+    def test_the_belt_writes_the_same_summary_at_every_width(self, monkeypatch, tmp_path):
+        """Width 1 takes `conform.run_conformance` and widths 2 and 6 take the pooled fan-in, whose futures resolve here in reverse; the report is the same bytes on all three, which is what lets the belt's width move without its report moving with it."""
+        self._pool(monkeypatch)
+        written = {}
+        for jobs in (1, 2, 6):
+            run_m1.run_font_conformance(out_dir=tmp_path, jobs=jobs)
+            written[jobs] = (tmp_path / "conform_summary.json").read_bytes()
+        assert written[1] == written[2] == written[6]
+        summary = json.loads(written[1])
+        assert list(summary["divergences_by_kind"]) == [
+            f"kind-{config}" for config in conform.ACCEPTANCE_CONFIGS
+        ]
+
+    def test_the_priced_worker_pickles_for_spawn(self):
+        """The inline pool never pickles what it runs, and a spawn pool pickles every submission by its module and name, so a wrapper that was nested or otherwise unreachable by name would pass every test here and fail only on the first real pooled belt."""
+        assert (
+            pickle.loads(pickle.dumps(run_m1._priced_conformance_config)) is run_m1._priced_conformance_config
+        )
 
 
 class TestOracleShardPlan:

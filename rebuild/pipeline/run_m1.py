@@ -59,7 +59,7 @@ from rebuild.pipeline.model import (
     relevant_marker_features,
     ss10_twin_name,
 )
-from rebuild.pipeline.settle import cell_label
+from rebuild.pipeline.settle import FormationGuard, cell_label
 from rebuild.pipeline.spec_load import load_default_spec
 from rebuild.pipeline.table import DecisionTable
 from rebuild.tools import console
@@ -79,7 +79,7 @@ RAW_STANCE = "cmap"
 
 
 def _spawn_pool(jobs: int, units: int) -> ProcessPoolExecutor:
-    """A spawn pool no wider than `jobs` and no wider than the `units` its caller is about to submit: the belt submits one per acceptance configuration and gets that many, the oracle submits one per row range and gets as many as the box allows."""
+    """A spawn pool no wider than `jobs` and no wider than the `units` its caller is about to submit: the belt submits one per acceptance configuration and gets at most that many, the oracle submits one per row range and gets as many as the box allows."""
     workers = max(1, min(jobs, units))
     return ProcessPoolExecutor(max_workers=workers, mp_context=multiprocessing.get_context("spawn"))
 
@@ -1100,6 +1100,8 @@ def run_font_conformance(
     The fan-out spends the section 5.7 verdict surface once for the whole run rather than once per worker: a spawned worker inherits nothing, so each would otherwise build the crate it found and sweep the spec for itself. The mapping pickles, so it rides the submission; the serial arm sweeps inside `run_conformance` as before.
 
     At the per-edit horizon each configuration's walk shares its settle memo with the string replay that fills it and the oracle's walk over the same texts, through a file under `out_dir` keyed per family the way the oracle row cache is (`conform.settle_memo_files`, off `settle_memo_inputs` snapshotted before the spec loads): the replay writes what it settled, each later phase loads and writes back what it added, and a rune edit retires only the entries whose windows name an edited family. A deeper sweep shares nothing — its memo is a multiple of the belt's, and a file that size would cost the next belt and oracle workers more to decode than they save.
+
+    A pooled belt at `conform.BELT_HORIZON` files every configuration's worker peak (`_priced_conformance_config`) as one observation of the `conform-belt` pool unit (`cycle_timings.record_pool`), which `make job-costs` reports; the serial arm starts no pool and a deeper sweep's worker is a different pile, so neither files one.
     """
     inputs = tables_inputs()
     memo_inputs = settle_memo_inputs()
@@ -1118,12 +1120,13 @@ def run_font_conformance(
     )
     if jobs > 1:
         collected: dict[str, conform.ConformanceConfigResult] = {}
+        worker_peaks: dict[str, int] = {}
         kernel_exec.ensure_built()
         guard_verdicts = kernel_exec.guard_sweep(spec)
         with _spawn_pool(jobs, len(conform.ACCEPTANCE_CONFIGS)) as pool:
             futures = {
                 pool.submit(
-                    conform.conformance_config_worker,
+                    _priced_conformance_config,
                     spec,
                     out_dir / "M1.otf",
                     config,
@@ -1135,9 +1138,17 @@ def run_font_conformance(
                 for config in conform.ACCEPTANCE_CONFIGS
             }
             for future in as_completed(futures):
-                result = future.result()
+                result, peak = future.result()
                 collected[result.config] = result
+                worker_peaks[result.config] = peak
                 console.progress(len(collected), len(conform.ACCEPTANCE_CONFIGS), "configurations")
+        if max_length == conform.BELT_HORIZON:
+            record_pool(
+                "conform-belt",
+                width=min(jobs, len(conform.ACCEPTANCE_CONFIGS)),
+                worker_peaks=worker_peaks,
+                controller_peak_bytes=peak_rss_self_bytes(),
+            )
         ordered = [collected[config] for config in conform.ACCEPTANCE_CONFIGS]
         report = conform.merge_conformance_results(out_dir / "M1.otf", ordered)
         report.write(out_dir / summary_name)
@@ -1310,6 +1321,22 @@ def _report_oracle_cache(
         console.say("oracle position store: the position stamp and every glyph key still stand")
     else:
         console.warn(f"oracle position store: re-shaping the rows that reach {moved_position_keys}")
+
+
+def _priced_conformance_config(
+    spec: ResolvedSpec,
+    font_path: Path,
+    config: str,
+    max_length: int = 4,
+    glyphs: Mapping[CellId, GlyphRecord] | None = None,
+    guard_verdicts: FormationGuard | None = None,
+    settle_memo: conform.SettleMemoFile | None = None,
+) -> tuple[conform.ConformanceConfigResult, int]:
+    """One configuration's belt sweep in a pool worker (`conform.conformance_config_worker`), with the worker's peak (`peak_rss_self_bytes`) beside the result, so the fan-in files the belt's `conform-belt` pool record. The peak rides a pair here rather than a field on the result because conform.py is in `oracle_cache.ORACLE_ROW_CODE_PATHS`, and an edit there would drop every settle memo and row store. A reading is a process high-water mark, so a configuration that runs second in a reused worker reads at or above the one before it."""
+    result = conform.conformance_config_worker(
+        spec, font_path, config, max_length, glyphs, guard_verdicts, settle_memo
+    )
+    return result, peak_rss_self_bytes()
 
 
 def _absorb_settle_memo_parts(
@@ -1699,15 +1726,16 @@ def _settle_green(
 
 
 def main(argv: list[str] | None = None) -> None:
-    from rebuild.tools.artifact_cycle import sweep_job_budget
+    from rebuild.tools.artifact_cycle import conform_job_budget, conform_job_derivation, sweep_job_budget
 
     sweep_jobs = sweep_job_budget()
+    belt_jobs = conform_job_budget(skip_gates=True, skip_surface=True)
     parser = argparse.ArgumentParser(description="Run the M1 integration pipeline and its Phase-2 gates.")
     parser.add_argument(
         "--jobs",
         type=int,
-        default=sweep_jobs,
-        help=f"worker budget for the oracle and the conformance sweep: the oracle cuts every configuration's table into row ranges and runs this many at once, while the conformance sweep runs one process per acceptance configuration and no more, since that is its unit; the default is the same `sweep_job_budget()` width the artifact cycle already passes rather than a checked-in one — {sweep_jobs} on this box, the cores under the memory clamp that budget's own docstring argues from `ORACLE_SHARD_BYTES` — so a hand run walks the oracle at the cycle's width. `--jobs 1` is serial. The table build's own width is --kernel-threads.",
+        default=None,
+        help=f"worker budget for the oracle and the conformance sweep: the oracle cuts every configuration's table into row ranges and runs this many at once, while the conformance sweep runs one process per acceptance configuration and no more, since that is its unit. Each default is a budget the artifact cycle derives from the box rather than a checked-in width: a bare run takes the oracle's `sweep_job_budget()`, the width the cycle hands run_m1 — {sweep_jobs} on this box, the cores under the memory clamp that budget's own docstring argues from `ORACLE_SHARD_BYTES` — and --conform-only takes the belt's own `conform_job_budget()` at its idle arm, since a hand sweep shares the box with no surface build and no make-test pool — on this box {conform_job_derivation(skip_gates=True, skip_surface=True)}. `--jobs 1` is serial. The table build's own width is --kernel-threads.",
     )
     parser.add_argument(
         "--conform-only",
@@ -1749,7 +1777,9 @@ def main(argv: list[str] | None = None) -> None:
         ),
     )
     args = parser.parse_args(argv)
-    jobs = args.jobs if args.jobs and args.jobs > 1 else 1
+    belt_default = args.conform_only and not args.gates_only
+    stated = args.jobs if args.jobs is not None else belt_jobs if belt_default else sweep_jobs
+    jobs = stated if stated > 1 else 1
     started = time.perf_counter()
 
     if args.gates_only:
