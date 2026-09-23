@@ -38,3 +38,22 @@ until ! kill -0 $pid 2>/dev/null; do sleep 30; done
 ```
 
 If a pattern is unavoidable, bracket a character so the watcher cannot match itself: `pgrep -f "artifact_cycl[e]"`.
+
+## Stopping a pass
+
+Every step's child stays in the process group the pass started in: `_run_step` spawns it in the cycle's group, and `test_a_step_child_stays_in_the_cycles_process_group` in `rebuild/test_artifact_cycle.py` holds that. Launched with `start_new_session=True`, the recorded pid leads that group, so one signal reaches every process in it at once — the driver, each step's child, and whatever those spawn without a group of their own, pool workers and pytest workers among them — and the loop after it waits until the last of them has exited:
+
+```zsh
+kill -TERM -- -$pid
+while pgrep -g $pid > /dev/null; do sleep 1; done
+```
+
+- The driver catches SIGINT, SIGTERM and SIGHUP (`stop_signals` in `rebuild/tools/artifact_cycle.py`), terminates and reaps every child it spawned, and closes the pass as interrupted: `terminal.log` ends on a `CYCLE INTERRUPTED:` block naming the signal, and the exit status is 128 plus the signal's number. A signal the pass started with ignored stays ignored, so a pass under `nohup` still outlives its shell.
+- Launched with `nohup … &` from a shell without job control, the pass shares the shell's group, so signal the recorded pid and its children: `kill -TERM $pid $(pgrep -P $pid)`. That one form stops both launch shapes.
+  - In the Detach recipe above, `caffeinate` execs its utility, so `$pid` is `make`. `make` hands SIGTERM to its recipe, `uv run` hands it to the driver, and the driver's cleanup above takes its children down.
+  - In a `sh -c` chain, such as the dont-bug-me-about-this-ever-again skill's launches, `$pid` is the `sh`. A SIGTERM to the `sh` alone ends it and leaves the `make` it is running at work, while `kill -0 $pid` already reports the pid gone. Signaling its children as well stops that `make`, and the `sh` starts no further command.
+  - A child's own workers get no signal on that route; they exit when their pipe to the parent breaks, which can be a batch later, so only the group launch can be waited out exactly.
+- A build holding gigabytes takes seconds to exit after the signal, so a process listing taken right after the kill still shows it. Wait for the group to empty before deciding anything survived, and before starting the next pass.
+- The driver acts on the first stop signal and ignores every later SIGINT, SIGTERM or SIGHUP, so a repeated Ctrl-C does not cut a slow teardown short. `kill -KILL` is the way past one; it skips the driver's cleanup and leaves no interrupted record, so keep it for whatever a SIGTERM left standing.
+
+The next pass runs from what a stopped pass leaves behind. One stopped after the surface build and before the carry leaves the verdict store stamped for the surface the build replaced; the next pass skips the build and carries that store onto the new surface by unit id rather than merging it straight in (`doc/review-cycle.md` § The verdict store).

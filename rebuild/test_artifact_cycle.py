@@ -8,6 +8,7 @@ import os
 import re
 import shlex
 import shutil
+import signal
 import subprocess
 import sys
 import threading
@@ -1914,6 +1915,124 @@ def test_keyboard_interrupt_terminates_children_and_returns_130(monkeypatch, cap
     out = capsys.readouterr().out
     assert "ARTIFACT CYCLE SUMMARY" in out
     assert "CYCLE INTERRUPTED" in out
+
+
+@pytest.mark.parametrize("signum", [signal.SIGTERM, signal.SIGHUP])
+def test_a_caught_stop_signal_takes_the_interrupt_path_and_names_itself(signum, monkeypatch, capsys):
+    """SIGTERM and SIGHUP reach `_run_cycle` as `CycleStopped` and take the path a Ctrl-C takes: every child terminated and reaped, the interrupted summary written, and the exit status the shell's for that signal. The summary block names the signal that stopped the pass, not SIGINT."""
+    registry = ac._ChildRegistry()
+    proc = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(30)"])
+    registry.add(proc)
+
+    def stopped(report, *, spawn, emit, registry, **_):
+        raise ac.CycleStopped(signum)
+
+    monkeypatch.setattr(ac, "_do_run_m1", stopped)
+
+    rc = ac._run_cycle(_plan(skip_gates=True), ac.CycleReport(), ac._Emitter(), registry)
+
+    assert rc == 128 + signum
+    assert proc.poll() is not None
+    out = capsys.readouterr().out
+    assert "CYCLE INTERRUPTED" in out
+    assert f"{signal.Signals(signum).name}: terminated 1 child process(es)" in out
+    assert "SIGINT: terminated" not in out
+    assert json.loads(cycle_paths.CYCLE_SUMMARY.read_text())["exit"] == "interrupted"
+
+
+@pytest.fixture
+def _stop_dispositions():
+    """The three stop signals at the dispositions a pass started from a terminal inherits, put back afterwards. A worker started under `nohup`, or in the background of a shell without job control, inherits SIGHUP or SIGINT ignored, and `stop_signals` rightly leaves an ignored signal alone, so without this the tests below would read how the suite was launched rather than what the context manager does."""
+    before = {signum: signal.getsignal(signum) for signum in ac.STOP_SIGNALS}
+    signal.signal(signal.SIGINT, signal.default_int_handler)
+    signal.signal(signal.SIGTERM, signal.SIG_DFL)
+    signal.signal(signal.SIGHUP, signal.SIG_DFL)
+    yield
+    for signum, handler in before.items():
+        signal.signal(signum, signal.SIG_DFL if handler is None else handler)
+
+
+def test_stop_signals_raises_once_leaves_an_ignored_signal_alone_and_restores_the_handlers(
+    _stop_dispositions,
+):
+    """The handler raises for the first signal and drops the rest, since a group signal reaches the driver twice — once directly and once forwarded by its `uv run` wrapper — and the second must not cut short the cleanup the first began. A signal ignored on the way in stays ignored (`nohup`'s SIGHUP), and every handler it replaced is back on the way out. The handler is called here rather than signaled, so the test process never receives a signal."""
+    signal.signal(signal.SIGHUP, signal.SIG_IGN)
+    with ac.stop_signals():
+        assert signal.getsignal(signal.SIGHUP) == signal.SIG_IGN
+        stop = signal.getsignal(signal.SIGTERM)
+        assert callable(stop)
+        assert signal.getsignal(signal.SIGINT) is stop
+        with pytest.raises(ac.CycleStopped) as caught:
+            stop(signal.SIGTERM, None)
+        assert caught.value.signum == signal.SIGTERM
+        assert isinstance(caught.value, KeyboardInterrupt)
+        assert stop(signal.SIGINT, None) is None
+        assert stop(signal.SIGTERM, None) is None
+    assert signal.getsignal(signal.SIGHUP) == signal.SIG_IGN
+    assert signal.getsignal(signal.SIGTERM) == signal.SIG_DFL
+    assert signal.getsignal(signal.SIGINT) is signal.default_int_handler
+
+
+_STOP_HARNESS = """
+import signal
+import sys
+
+from rebuild.tools import artifact_cycle as ac
+
+sleeper = "import os, sys, time; open(sys.argv[1], 'w').write(str(os.getpid())); time.sleep(120)"
+signal.signal(signal.SIGHUP, signal.SIG_IGN)
+registry = ac._ChildRegistry()
+with ac.stop_signals():
+    try:
+        ac._run_step("sleeper", [sys.executable, "-c", sleeper, sys.argv[1]], emit=ac._Emitter(), registry=registry, stream=False)
+    except ac.CycleStopped as stop:
+        registry.terminate_all()
+        print(signal.Signals(stop.signum).name, registry.killed_count, flush=True)
+"""
+
+
+def test_a_signal_to_the_driver_alone_stops_and_reaps_its_child(tmp_path):
+    """The case `stop_signals` is for, with a real signal: SIGTERM sent to the driver's process alone, which is what `kill` on `make` becomes by the time it reaches the driver, interrupts the step it is waiting on, and the child it spawned is terminated and reaped instead of running on without it. The SIGHUP sent first is ignored, because the harness starts with it ignored the way `nohup` starts a pass."""
+    pid_file = tmp_path / "sleeper.pid"
+    driver = subprocess.Popen(
+        [sys.executable, "-c", _STOP_HARNESS, str(pid_file)],
+        cwd=REPO_ROOT,
+        stdin=subprocess.DEVNULL,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+    )
+    try:
+        deadline = time.monotonic() + 60
+        while not (pid_file.exists() and pid_file.read_text().strip()):
+            assert driver.poll() is None, driver.communicate()
+            assert time.monotonic() < deadline
+            time.sleep(0.05)
+        sleeper = int(pid_file.read_text())
+        driver.send_signal(signal.SIGHUP)
+        driver.send_signal(signal.SIGTERM)
+        out, err = driver.communicate(timeout=60)
+    finally:
+        if driver.poll() is None:
+            driver.kill()
+            driver.wait()
+    assert driver.returncode == 0, err
+    assert out.splitlines()[-1] == "SIGTERM 1"
+    with pytest.raises(ProcessLookupError):
+        os.kill(sleeper, 0)
+
+
+def test_a_step_child_stays_in_the_cycles_process_group():
+    """A signal sent to the cycle's process group reaches every process the pass started only while no step moves its child into a group of its own, which is what makes `kill -TERM -- -<pgid>` stop a pass whole (doc/running-long-steps.md)."""
+    result = ac._run_step(
+        "probe",
+        [sys.executable, "-c", "import os; print(os.getpgrp())"],
+        emit=ac._Emitter(),
+        registry=ac._ChildRegistry(),
+        stream=False,
+    )
+    assert result.returncode == 0
+    assert int(result.stdout.strip()) == os.getpgrp()
 
 
 def test_registry_add_rejects_after_terminate_all():
@@ -6167,6 +6286,55 @@ def test_main_never_skips_the_plumbing_under_fresh_or_a_partial_chain(tmp_path, 
         assert ac.PLUMBING_SKIP_NOTE not in capsys.readouterr().out
 
 
+def test_main_carries_a_master_stamped_for_another_surface_instead_of_merging_it(
+    tmp_path, monkeypatch, capsys
+):
+    """The store-only route hands the merge the master as it stands, and the merge refuses any input stamped for another surface, so the route is taken only for a master stamped for the served one. A pass stopped after the surface build wrote a new surface and before the carry leaves the autosave stamped for the surface before, and the pass after it skips the build as unchanged: that pass plans the full carry, and so does a pass handed such a master by --verdicts. The auto-resolved master's alignment comes from its resolution, whose line already names the older stamp, so neither that master's second parse nor the declined-route note is spent on it; a --verdicts master is asked with `master_stamped_for_surface` and the note says why its carry runs. Restamped for the served surface, the same autosave takes the store-only route again."""
+    _settled_repo(tmp_path, monkeypatch)
+    ac.record_plumbing_green("moved")
+    served = "2026-07-17T20:24:44Z"
+    older = "2026-07-10T00:00:00Z"
+    autosave = tmp_path / "verdicts-autosave.json"
+    autosave.write_text(json.dumps(_verdicts_doc(older, ["u-1"])))
+    export = tmp_path / "masters" / "verdicts-export.json"
+    export.parent.mkdir()
+    export.write_text(json.dumps(_verdicts_doc(older, ["u-2"])))
+    stamped_for_surface = ac.master_stamped_for_surface
+    asked: list[Path] = []
+
+    def asking(master, surface):
+        asked.append(Path(master))
+        return stamped_for_surface(master, surface)
+
+    monkeypatch.setattr(ac, "master_stamped_for_surface", asking)
+
+    outs = []
+    for argv in (["--dry-run"], ["--dry-run", "--verdicts", str(export)]):
+        assert ac.main(argv) == 0
+        out = capsys.readouterr().out
+        row = _step_lines(out, "plumbing")
+        assert "--verdicts" in row and "--carry-out" in row
+        assert "--merge-master" not in row
+        outs.append(out)
+    resolved, named = outs
+    assert f"stamped {older}, an older surface than the served one" in resolved
+    assert ac.STORE_ONLY_DECLINED_NOTE not in resolved
+    assert ac.STORE_ONLY_DECLINED_NOTE in named
+    assert asked == [export]
+
+    autosave.write_text(json.dumps(_verdicts_doc(served, ["u-1"])))
+    assert ac.main(["--dry-run"]) == 0
+    out = capsys.readouterr().out
+    assert "--merge-master" in _step_lines(out, "plumbing")
+    assert ac.STORE_ONLY_DECLINED_NOTE not in out
+    assert asked == [export]
+
+    surface = tmp_path / "rebuild" / "out" / "review"
+    assert stamped_for_surface(autosave, surface)
+    assert not stamped_for_surface(export, surface)
+    assert not stamped_for_surface(tmp_path / "absent.json", surface)
+
+
 def _assets_only_repo(tmp_path, monkeypatch):
     """A settled repo whose one moved input is the copied review UI assets: the byte-strict question answers no, the assets-exempt one answers yes, and that pair is the whole trigger for the refresh step."""
     _settled_repo(tmp_path, monkeypatch)
@@ -7066,6 +7234,28 @@ def test_main_hands_its_run_id_to_every_child_through_the_environment(tmp_path, 
     monkeypatch.setattr(ac, "_run_cycle", fake_cycle)
     assert ac.main([]) == 0
     assert seen["env"] == seen["run_id"]
+
+
+def test_main_runs_the_pass_under_the_stop_handlers(tmp_path, monkeypatch, _stop_dispositions):
+    """`main` hands `_run_cycle` a process whose SIGTERM and SIGHUP raise `CycleStopped`, so a signal that reaches the driver alone still reaps the children, and it puts the handlers it replaced back when the pass returns."""
+    _settled_repo(tmp_path, monkeypatch)
+    ac.record_plumbing_green("plu")
+    monkeypatch.setattr(ac, "server_listening", lambda port=ac.REVIEW_PORT: False)
+    seen = {}
+
+    def fake_cycle(plan, report, emit, registry, **kw):
+        stop = signal.getsignal(signal.SIGTERM)
+        assert callable(stop)
+        seen["hup"] = signal.getsignal(signal.SIGHUP) is stop
+        with pytest.raises(ac.CycleStopped) as caught:
+            stop(signal.SIGTERM, None)
+        seen["signum"] = caught.value.signum
+        return 0
+
+    monkeypatch.setattr(ac, "_run_cycle", fake_cycle)
+    assert ac.main([]) == 0
+    assert seen == {"hup": True, "signum": signal.SIGTERM}
+    assert signal.getsignal(signal.SIGTERM) == signal.SIG_DFL
 
 
 def test_main_mints_one_run_directory_and_points_latest_at_it(tmp_path, monkeypatch):
