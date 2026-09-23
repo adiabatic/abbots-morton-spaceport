@@ -28,6 +28,7 @@ from rebuild.review import build as review_build
 from rebuild.review import unit_index
 from rebuild.review.audit import (
     ACCEPTANCE_CONFIGS,
+    NO_DELTAS,
     SLIM_OMITTED_KEYS,
     UnitTable,
     _config_index,
@@ -634,7 +635,7 @@ def _live_enriched_units() -> int:
 
 
 def test_the_serial_runner_spools_every_fragment_and_keeps_no_enrichment(tmp_path, mini_bundle, monkeypatch):
-    """No EnrichedUnit outlives the batch that produced it: once phase 1 returns, the unit store holds a spool address per fresh unit and the runner holds nothing enriched, each address reads back as that unit's drafted fragment, and closing the runner sweeps the spool from under the surface. The fragments come in two shapes and the drafter sees one of them: a unit the build machine-approves or the ledger exempts is spooled slim, without the explain, the drafts or the highlight, and was never drafted; every human unit is whole, and was."""
+    """No EnrichedUnit outlives the batch that produced it: once phase 1 returns, the unit store holds a spool address per fresh unit and the runner holds nothing enriched, each address reads back as that unit's drafted fragment, and closing the runner sweeps the spool from under the surface. The fragments come in two shapes and the drafter sees one of them: a unit the build machine-approves or the ledger exempts is spooled slim, without the explain, the drafts or the highlight, and was never drafted; every human unit is whole, and was. Phase 1 leaves every unit it is handed carrying the shared empty `NO_DELTAS`, and the per-config deltas it finds live in the store, which holds some for the mini workload."""
     drafted: set[str] = set()
     draft_pin = review_build.Drafter.draft_pin
 
@@ -642,7 +643,16 @@ def test_the_serial_runner_spools_every_fragment_and_keeps_no_enrichment(tmp_pat
         drafted.add(enriched.unit.unit_id)
         return draft_pin(self, enriched, *args, **kwargs)
 
+    handed: list[tuple[int, bool]] = []
+    phase1_unit = review_build._phase1_unit
+
+    def watching_phase1_unit(unit, *args, **kwargs):
+        result = phase1_unit(unit, *args, **kwargs)
+        handed.append((unit.ordinal, unit.ink_deltas is NO_DELTAS))
+        return result
+
     monkeypatch.setattr(review_build.Drafter, "draft_pin", counting_draft_pin)
+    monkeypatch.setattr(review_build, "_phase1_unit", watching_phase1_unit)
     table = load_workload(MINI / "audit.tsv", mini_bundle.ledger, dict(LETTERS)).table
     store = UnitStore(table.n, strings=table.strings)
     for ordinal in range(table.n):
@@ -664,6 +674,10 @@ def test_the_serial_runner_spools_every_fragment_and_keeps_no_enrichment(tmp_pat
         assert runner.phase1(store) is None
         assert _live_enriched_units() == 0
         assert all(store.folded(ordinal) for ordinal in range(table.n))
+        assert sorted(ordinal for ordinal, _ in handed) == list(range(table.n))
+        assert all(shared for _, shared in handed)
+        assert not NO_DELTAS
+        assert any(store.ink_deltas(ordinal) for ordinal in range(table.n))
         assert (tmp_path / review_build.FRESH_SPOOL_NAME).is_dir()
         shapes = {True: 0, False: 0}
         for unit in table.units(store):

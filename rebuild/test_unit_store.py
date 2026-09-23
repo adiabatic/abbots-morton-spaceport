@@ -130,7 +130,7 @@ def _spooled(projection: _Projection, start: int) -> unit_cache.PriorFragment:
 
 
 def test_a_fresh_projection_reads_back_what_the_fold_was_handed():
-    """Fold one projection and read every accessor back equal to what the projection carried: the flags, the deltas dict in its folded order, the digests, the pair, the seam home, the seam rects as `_seam_records` shapes them, the spool address, the mismatch lines — and the unit carries the id and the three flags the fold wrote onto it, and the shared empty deltas it was born with."""
+    """Fold one projection and read every accessor back equal to what the projection carried: the flags, the deltas dict in its folded order, the digests, the pair, the seam home, the seam rects as `_seam_records` shapes them, the spool address, the mismatch lines."""
     projection = _projection("one", ink_identical=True, mismatches=("ss03 E652:E670: derived cells differ",))
     store = UnitStore(1)
     store.set_input_key(0, projection.input_key)
