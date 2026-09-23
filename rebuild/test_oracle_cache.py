@@ -398,6 +398,12 @@ def test_an_alias_map_edited_into_a_shape_the_guard_refuses_promotes_nothing(
 # --- the anti-laundering clauses ---------------------------------------------------------
 
 
+def _row(index: int, glyph: str = "g") -> Row:
+    return Row(
+        codepoints=(0xE650 + index,), glyphs=(glyph,), clusters=(0,), seams=(), positions=((0, 0, 100),)
+    )
+
+
 def test_the_verification_sample_covers_every_serving_family_and_rotates():
     """Every family that served a row is checked on every pass, which is what catches a family-wide poisoning with probability one instead of with probability sample-over-served — the shape a rune edited mid-run produces. A family with fewer served rows than the cap contributes all of them; the draw is a pure function of the stamp, the family, and the pass ordinal, so the order rows are offered in cannot move it; and seeding on the ordinal makes consecutive passes cover different rows rather than re-proving the same fraction of a percent forever.
 
@@ -445,12 +451,6 @@ def test_the_verification_sample_covers_every_serving_family_and_rotates():
     assert elsewhere.by_family()["qsPea"] != drawn["qsPea"]
 
 
-def _row(index: int, glyph: str = "g") -> Row:
-    return Row(
-        codepoints=(0xE650 + index,), glyphs=(glyph,), clusters=(0,), seams=(), positions=((0, 0, 100),)
-    )
-
-
 def test_the_verification_sample_hands_back_the_rows_it_drew():
     """The winners carry the parsed rows the main loop offered them with, so neither verifier re-reads the table: `sampled_rows()` answers the very objects offered, once per index however many families drew it, in the index order `indexes()` answers in. The row stays out of the draw — two samples fed the same indexes under different rows draw the same families — and stays out of the heap's comparison too: `Row` has no ordering, so the distinct index in every `(score, index, row)` entry is what keeps a tuple comparison from ever reaching it."""
     stamp = "stamp-value"
@@ -462,11 +462,11 @@ def test_the_verification_sample_hands_back_the_rows_it_drew():
     for index, families in served.items():
         sample.offer(index, rows[index], families)
     picked = sample.sampled_rows()
-    assert [index for index, _row in picked] == list(sample.indexes())
+    assert [index for index, _ in picked] == list(sample.indexes())
     assert all(row is rows[index] for index, row in picked)
     drawn = sample.by_family()
     assert drawn["qsSee"] == drawn["qsZoo"] == (100, 101, 102)
-    assert [index for index, _row in picked if index >= 100] == [100, 101, 102]
+    assert [index for index, _ in picked if index >= 100] == [100, 101, 102]
 
     relabeled = oracle_cache.VerificationSample(stamp, 0)
     for index, families in served.items():
