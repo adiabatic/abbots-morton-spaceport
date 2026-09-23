@@ -856,7 +856,7 @@ class _UnitProjection:
 
 
 def _phase1_unit(
-    unit, comparator, oracle, enricher, drafter: Drafter, report=None, spool: _FragmentSpool | None = None
+    unit, comparator, oracle, enricher, drafter: Drafter, report, spool: _FragmentSpool | None = None
 ) -> tuple[_UnitProjection, dict, list[str]]:
     """One unit's whole per-unit work: the ink flags and deltas, the enrichment, the fragment drafted from it (`unit_to_json`), and the drafting-time contract check over that fragment (`check_unit` at `DRAFTED`) — returned as the slim projection the parent's reduces read, the fragment itself, and the check's complaints, which the caller carries to the write so the build fails there in the shape the write-time check fails it. Given a `spool`, the fragment is spooled here as it is drafted and its address rides on the projection; the verification sample passes none and patches the fragment in hand. The deltas are written onto the fragment and the projection and never onto the unit, whose `ink_deltas` stays the shared empty mapping in every process. The check runs here, in whichever process drafts, so the pooled and the serial path check one way. The EnrichedUnit is local to this call: nothing downstream needs it once the fragment exists, and drafting here rather than after the parent's reduces is what keeps the batch's shapes in the memo for the drafter's replay."""
     text = "".join(chr(value) for value in unit.codepoint_values)
@@ -974,6 +974,11 @@ def _record_signature_pool(width: int, peaks: dict[str, int]) -> None:
     record_pool("signature", width=width, worker_peaks=peaks, controller_peak_bytes=peak_rss_self_bytes())
 
 
+def signature_text(window: str) -> str:
+    """The text a window's ink signature is taken over: the window's codepoint string parsed and joined into the characters the comparator shapes. `unit_cache.SIGNATURE_STORE_FORMAT` names this derivation and rebuild/test_review_audit.py pins the two together, so an edit here that changes a text is a format bump."""
+    return "".join(chr(value) for value in parse_codepoints(window))
+
+
 def _resolve_signature_digests(
     table: UnitTable,
     rows: RowColumns,
@@ -1010,10 +1015,7 @@ def _resolve_signature_digests(
     width = 1
     if misses:
         config_at = rows.config_at
-        pairs = [
-            ("".join(chr(value) for value in parse_codepoints(window)), config_at(index))
-            for window, index in zip(windows, misses)
-        ]
+        pairs = [(signature_text(window), config_at(index)) for window, index in zip(windows, misses)]
         if signature_jobs > 1 and len(misses) >= _SIGNATURE_POOL_THRESHOLD:
             ctx = multiprocessing.get_context("spawn")
             width = min(signature_jobs, len(misses))

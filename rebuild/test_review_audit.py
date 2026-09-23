@@ -12,6 +12,7 @@ import pytest
 import yaml
 
 from rebuild.review import families
+from rebuild.review import unit_cache
 from rebuild.review import unit_store
 from rebuild.review.audit import (
     ACCEPTANCE_CONFIGS,
@@ -33,7 +34,7 @@ from rebuild.review.audit import (
     sort_for_triage,
     triage_key,
 )
-from rebuild.review.build import row_columns_census, unit_table_census
+from rebuild.review.build import row_columns_census, signature_text, unit_table_census
 from rebuild.review.columns import MappingPool, TuplePool
 from rebuild.review.enrich import LETTERS
 from rebuild.review.unit_store import UnitStore
@@ -475,9 +476,17 @@ def test_configs_within_a_unit_are_in_acceptance_order(mini):
 
 
 def test_parse_codepoints():
-    """The codepoint-string half of the codepoints-to-text derivation the ink-signature resolver shares with the audit, pinned in both directions: `build._resolve_signature_digests` parses a row's window on its way to the text the comparator shapes and `build.ink_sig` formats a window back into a signature key. `unit_cache.signature_code_paths` leaves audit.py out of the signature store's stamp on the strength of this pin; the `chr` join in build.py that finishes the derivation is argued in that docstring, not pinned here."""
+    """The codepoint-string half of the codepoints-to-text derivation the ink-signature resolver shares with the audit, pinned in both directions: `build.signature_text` parses a row's window on its way to the text the comparator shapes and `build.ink_sig` formats a window back into a signature key. `unit_cache.signature_code_paths` leaves audit.py out of the signature store's stamp on the strength of this pin; the `chr` join that finishes the derivation is pinned beside the store format by the test below."""
     assert parse_codepoints("200C:E652:E679") == (0x200C, 0xE652, 0xE679)
     assert format_codepoints((0x200C, 0xE652, 0xE679)) == "200C:E652:E679"
+
+
+def test_the_signature_text_is_pinned_beside_the_store_format():
+    """The text `build.signature_text` hands the comparator for a window, pinned beside the `SIGNATURE_STORE_FORMAT` it holds under. A store written under one text keeps serving its digests to a build that shapes another until the format moves, so an edit that changes an answer here bumps the format and restates both literals together."""
+    assert unit_cache.SIGNATURE_STORE_FORMAT == "ams-review-ink-signatures/2"
+    assert signature_text("200C:E652:E679") == "\u200c\ue652\ue679"
+    assert signature_text("0020:E650:00B7") == " \ue650\u00b7"
+    assert signature_text("E650") == "\ue650"
 
 
 def test_ink_duplicate_siblings_fold_to_one_unit(mini_bundle):
