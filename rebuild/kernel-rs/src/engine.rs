@@ -136,9 +136,9 @@ pub struct EngineModes {
     pub simulated_prospect: bool,
     /// Whether a follower vote is evaluated over the seat's real shifted slots rather than pinning everything past its own `right1` to `vote_deep_slot`.
     pub vote_slots: bool,
-    /// Whether the engine memoizes whole windows and journals a fired delta per memoized evaluation. Off everywhere but the table fixpoint and the case replay.
+    /// Whether the engine memoizes whole windows and journals a fired delta per memoized evaluation. Off everywhere but the table fixpoint, the two case verbs (`settle-cases`, `liveness-cases`) and the string replay.
     pub trace_memo: bool,
-    /// Whether a trace carries its explain ladder — the ranking, the eliminations with their sentences, and the runner-up. On everywhere a person reads a trace — the explain report, the review surface, the probe; off in the table fixpoint, whose rows read the settled triple, the prospect, the joint floor and the notes, and nothing else. Formatting a ladder nobody reads is the enumeration's largest avoidable allocation, so this is where that decision is spelled.
+    /// Whether a trace carries its explain ladder — the ranking, the eliminations with their sentences, and the runner-up. On everywhere a person reads a trace — the explain report, the review surface, the probe; off in the table fixpoint, whose rows read the settled triple, the prospect, the joint floor and the notes, and nothing else, and in the string replay, whose walk reads the settled record alone. Formatting a ladder nobody reads is the largest avoidable allocation in either, so this is where that decision is spelled.
     pub explain_ladder: bool,
 }
 
@@ -599,7 +599,7 @@ impl TraceNotesSeat {
     }
 }
 
-/// What the trace memo holds per window: two-byte seats into the memo's two pools for the settled record and the notes, four-byte seats into [`Engine::deltas`] for the fired delta and into the engine's reads pool for the runes and classes the evaluation read, and one byte holding the prospect, the joint flag and the stage together — sixteen bytes at the wide seats' alignment and no heap (issue #266). Folding the three into a byte buys nothing on its own, since the four-byte alignment absorbs it; it is the narrow seats beside it that take the entry from twenty bytes to sixteen. An entry holding the whole [`TransitionTrace`] by value beside a boxed delta is what an instrumented run of that layout measured: over a million entries a configuration naming a couple of hundred distinct settled records, about a hundred distinct notes lists and a few tens of thousands of distinct deltas, so nearly every entry held by value what hundreds of its neighbors held too (issue #165). The ladder is not here at all: it exists only where the engine was built with [`EngineModes::explain_ladder`], which the fixpoint never is, so it lives in [`TraceMemo::ladders`] rather than as an empty slot on every entry the fixpoint records.
+/// What the trace memo holds per window: two-byte seats into the memo's two pools for the settled record and the notes, four-byte seats into [`Engine::deltas`] for the fired delta and into the engine's reads pool for the runes and classes the evaluation read, and one byte holding the prospect, the joint flag and the stage together — sixteen bytes at the wide seats' alignment and no heap (issue #266). Folding the three into a byte buys nothing on its own, since the four-byte alignment absorbs it; it is the narrow seats beside it that take the entry from twenty bytes to sixteen. An entry holding the whole [`TransitionTrace`] by value beside a boxed delta is what an instrumented run of that layout measured: over a million entries a configuration naming a couple of hundred distinct settled records, about a hundred distinct notes lists and a few tens of thousands of distinct deltas, so nearly every entry held by value what hundreds of its neighbors held too (issue #165). The ladder is not here at all: it exists only where the engine was built with [`EngineModes::explain_ladder`], which neither the fixpoint nor the string replay is, so it lives in [`TraceMemo::ladders`] rather than as an empty slot on every entry those two record.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) struct TraceEntry {
     pub(crate) settled: TraceSettledSeat,
@@ -5230,6 +5230,92 @@ mod tests {
                     0
                 }
             );
+        }
+    }
+
+    /// The explain ladder is read off a window already settled and feeds nothing back: two trace-memo engines, one recording ladders and one not, settle the same windows — boundary lefts and settled ones, two slots and four, a letter and the edge on the right — to the same trace once the ladder is set aside, on the miss and on the hit alike. The string replay and the table fixpoint build their engines without the ladder on the strength of this.
+    #[test]
+    fn the_explain_ladder_moves_no_settled_window() {
+        let index = firing_spec();
+        let ss03 = fixtures::sym(&index, "ss03");
+        let pea = letter_token(&index, "qsPea");
+        let tea = letter_token(&index, "qsTea");
+        let windows = [
+            (
+                settled_left(&index, "qsTea", "plain", Some("baseline")),
+                pea,
+                Slots::pair(tea, EDGE),
+            ),
+            (
+                settled_left(&index, "qsTea", "plain", Some("baseline")),
+                pea,
+                Slots::new(tea, pea, tea, EDGE),
+            ),
+            (
+                settled_left(&index, "qsTea", "plain", Some("baseline")),
+                pea,
+                Slots::pair(tea, SPACE),
+            ),
+            (
+                settled_left(&index, "qsPea", "half", Some("baseline")),
+                tea,
+                Slots::pair(pea, EDGE),
+            ),
+            (
+                settled_left(&index, "qsPea", "half", Some("x-height")),
+                tea,
+                Slots::new(SPACE, UNKNOWN, UNKNOWN, UNKNOWN),
+            ),
+            (
+                settled_left(&index, "qsPea", "half", Some("baseline")),
+                tea,
+                Slots::pair(EDGE, UNKNOWN),
+            ),
+            (
+                LeftContext::boundary(TokenKind::Edge),
+                tea,
+                Slots::pair(pea, tea),
+            ),
+            (
+                LeftContext::boundary(TokenKind::Space),
+                tea,
+                Slots::new(pea, tea, pea, EDGE),
+            ),
+            (
+                LeftContext::boundary(TokenKind::Zwnj),
+                tea,
+                Slots::pair(EDGE, UNKNOWN),
+            ),
+        ];
+        let engine = |explain_ladder| {
+            Engine::with_modes(
+                &index,
+                [ss03],
+                EngineModes {
+                    trace_memo: true,
+                    explain_ladder,
+                    ..EngineModes::default()
+                },
+            )
+        };
+        let mut without = engine(false);
+        let mut with = engine(true);
+        for pass in ["miss", "hit"] {
+            for (at, (left, token, slots)) in windows.iter().enumerate() {
+                let settle = |engine: &mut Engine<'_>| {
+                    engine
+                        .transition_trace(left, *token, *slots)
+                        .unwrap_or_else(|error| panic!("window {at} settles: {error:?}"))
+                };
+                let bare = settle(&mut without);
+                let mut explained = settle(&mut with);
+                assert!(bare.ladder.is_none(), "window {at} on the {pass}");
+                assert!(
+                    explained.ladder.take().is_some(),
+                    "window {at} on the {pass}"
+                );
+                assert_eq!(bare, explained, "window {at} on the {pass}");
+            }
         }
     }
 

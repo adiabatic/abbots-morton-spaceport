@@ -769,7 +769,7 @@ static NO_LADDER: TraceLadder = TraceLadder {
 
 /// The rich settlement result, `settle.TransitionTrace`: what the window settled into plus everything the table build, the explain CLI and the review surface read about how it got there. Notes are formatted strings — YAML pointers and the two authored sentences the kernel writes — because nothing downstream keys on them.
 ///
-/// The explain half hangs off [`TransitionTrace::ladder`] and is absent wherever the engine was built without [`crate::engine::EngineModes::explain_ladder`] — which is the table fixpoint and nothing else.
+/// The explain half hangs off [`TransitionTrace::ladder`] and is absent wherever the engine was built without [`crate::engine::EngineModes::explain_ladder`] — which is the table fixpoint and the string replay.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct TransitionTrace {
     pub settled: Settled,

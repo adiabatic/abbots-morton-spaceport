@@ -1,4 +1,4 @@
-"""The deep replay's decisions, with the walk itself stubbed out: which runes it walks after an edit, what it refuses to run against, what it records when it passes and leaves alone when it fails, how the cycle reports its standing, and the width it walks at. The walk it drives is kernel_exec.replay_strings, which the build's own horizon-4 replay already exercises."""
+"""The deep replay's decisions, with the walk itself stubbed out: which runes it walks after an edit, what it refuses to run against, what it records when it passes and leaves alone when it fails, how the cycle reports its standing, the width it walks at, and the memo ceiling it hands the crate. The walk it drives is kernel_exec.replay_strings, which the build's own horizon-4 replay exercises everywhere but the memo ceiling, a keyword the build never passes; `TestTheStringReplay` in rebuild/test_kernel_exec.py drives the `memo_windows` path through the verb."""
 
 import pytest
 
@@ -19,8 +19,9 @@ class Spec:
 
 @pytest.fixture
 def bench(tmp_path, monkeypatch):
-    """A repo root the tool believes in: the runes' digests answered from a table rather than the tree, a tables stamp treated as current, a resolved spec whose closure is the identity, and every record redirected into tmp_path."""
+    """A repo root the tool believes in: the runes' digests answered from a table rather than the tree, a tables stamp treated as current, a resolved spec whose closure is the identity, the memo ceiling knob unset so the walk takes the priced default whatever the developer's shell states, and every record redirected into tmp_path."""
     store = tmp_path / "rebuild" / "out" / "deep-replay-green.json"
+    monkeypatch.delenv("AMS_DEEP_REPLAY_MEMO_WINDOWS", raising=False)
     monkeypatch.setattr(deep_replay, "ROOT", tmp_path)
     monkeypatch.setattr(cycle_paths, "DEEP_REPLAY_GREEN", store)
     monkeypatch.setattr(deep_replay, "tables_stamped", lambda: True)
@@ -37,10 +38,12 @@ def bench(tmp_path, monkeypatch):
     return tmp_path
 
 
-def _stub_walk(monkeypatch, walked=None, disagree=None):
-    def fake(spec, out_dir, configs, *, horizon, families, threads, timings=False):
+def _stub_walk(monkeypatch, walked=None, disagree=None, ceilings=None):
+    def fake(spec, out_dir, configs, *, horizon, families, threads, memo_windows, timings=False):
         if walked is not None:
             walked.append((horizon, families, threads))
+        if ceilings is not None:
+            ceilings.append(memo_windows)
         if disagree is not None:
             raise deep_replay.kernel_exec.ReplayDisagreement(disagree)
         return {config: {"texts": 1, "windows": 1, "skipped": 0} for config in configs}
@@ -130,6 +133,35 @@ def test_a_disagreement_records_nothing(bench, monkeypatch, capsys):
     assert "qsUtter qsBay qsGay qsIt qsPea" in capsys.readouterr().err
 
 
+def test_the_walk_hands_the_crate_its_memo_ceiling(bench, monkeypatch, capsys):
+    """Every walk hands the crate a memo ceiling: the priced default with the knob unset, the stated count with it set, and a knob that is not a count raises before anything walks. The per-configuration line names what `windows` counts once a release can fire, and the journal line carries the walk's peak resident set beside its wall, which is what `make cycle-timings ARGS='--by-step'` prints beside `check:replay-deep`."""
+    ceilings: list = []
+    _stub_walk(monkeypatch, ceilings=ceilings)
+    checks: list = []
+    monkeypatch.setattr(
+        deep_replay, "record_check", lambda verdict, **kw: checks.append((verdict.verdict, kw))
+    )
+    monkeypatch.setattr(deep_replay.peak_rss, "peak_rss_children_bytes", lambda: 123)
+    assert deep_replay.main(["--families", "qsTea", "--threads", "1"]) == 0
+    assert ceilings == [deep_replay.DEEP_REPLAY_MEMO_WINDOWS]
+    out = capsys.readouterr().out
+    assert f"at most {deep_replay.DEEP_REPLAY_MEMO_WINDOWS} windows memoized per walk" in out
+    assert "deep replay[default]: 1 texts, 1 window settles, 0 skipped" in out
+    assert [(verdict, kw["peak_rss_bytes"]) for verdict, kw in checks] == [("green", 123)]
+    monkeypatch.setenv("AMS_DEEP_REPLAY_MEMO_WINDOWS", "2000000")
+    assert deep_replay.main(["--families", "qsTea", "--threads", "1"]) == 0
+    assert ceilings == [deep_replay.DEEP_REPLAY_MEMO_WINDOWS, 2_000_000]
+    assert "at most 2000000 windows memoized per walk" in capsys.readouterr().out
+    monkeypatch.setenv("AMS_DEEP_REPLAY_MEMO_WINDOWS", "2M")
+    with pytest.raises(RuntimeError, match="AMS_DEEP_REPLAY_MEMO_WINDOWS"):
+        deep_replay.main(["--families", "qsTea", "--threads", "1"])
+    assert len(ceilings) == 2
+    monkeypatch.delenv("AMS_DEEP_REPLAY_MEMO_WINDOWS")
+    _stub_walk(monkeypatch, disagree="replay disagreement at position 1 of qsTea qsIt")
+    assert deep_replay.main(["--families", "qsTea", "--threads", "1"]) == 1
+    assert [(verdict, kw["peak_rss_bytes"]) for verdict, kw in checks[2:]] == [("red", 123)]
+
+
 def test_runes_moving_mid_walk_record_nothing(bench, monkeypatch, capsys):
     _stub_walk(monkeypatch)
     answers = iter([dict(RUNES), {**RUNES, "qsIt": "i2"}])
@@ -161,9 +193,24 @@ def test_the_width_is_the_boxs_memory_or_the_stated_knob(monkeypatch):
         deep_replay.replay_threads()
 
 
-@pytest.mark.parametrize("total, wanted", [(BOX_32_GIB, 1), (BOX_48_GIB, 2)])
+def test_the_memo_ceiling_is_the_stated_knob_or_the_priced_default(monkeypatch):
+    """The ceiling the walk hands the crate is `AMS_DEEP_REPLAY_MEMO_WINDOWS` wherever it is set and the priced `DEEP_REPLAY_MEMO_WINDOWS` otherwise; a stated value that is not a bare decimal count of at least one window raises naming the knob rather than falling back to the default."""
+    monkeypatch.delenv("AMS_DEEP_REPLAY_MEMO_WINDOWS", raising=False)
+    assert deep_replay.replay_memo_windows() == deep_replay.DEEP_REPLAY_MEMO_WINDOWS
+    monkeypatch.setenv("AMS_DEEP_REPLAY_MEMO_WINDOWS", "2000000")
+    assert deep_replay.replay_memo_windows() == 2_000_000
+    for stated in ("2M", "0", "-5", "", "2.5e6"):
+        monkeypatch.setenv("AMS_DEEP_REPLAY_MEMO_WINDOWS", stated)
+        with pytest.raises(RuntimeError, match="AMS_DEEP_REPLAY_MEMO_WINDOWS"):
+            deep_replay.replay_memo_windows()
+
+
+@pytest.mark.parametrize(
+    "total, wanted",
+    [(BOX_32_GIB, len(conform.SETTLEMENT_CONFIGS)), (BOX_48_GIB, len(conform.SETTLEMENT_CONFIGS))],
+)
 def test_the_shipped_walk_cost_holds_both_fleet_boxes_at_their_widths(total, wanted, monkeypatch):
-    """The width each fleet box (`doc/fleet.md`) walks at under the shipped `DEEP_REPLAY_PEAK_BYTES`, as an assertion a re-seed cannot quietly drop: the 32 GiB Mac walks one configuration at a time and the 48 GiB box two. No cycle spawns this walk, so `make job-costs` has no row watching the constant, and the box-shaped assertions above hold for any positive seed; this pin is what catches a seed past 21.7 GB, which costs the 48 GiB box its second walk and doubles its `make replay-deep` wall."""
+    """Both fleet boxes (`doc/fleet.md`) walk every settlement configuration at once under the shipped `DEEP_REPLAY_PEAK_BYTES`, as an assertion a re-seed cannot quietly drop. No cycle spawns this walk, so `make job-costs` has no row watching the constant, and the box-shaped assertions above hold for any positive seed; this pin is what catches a seed past 5.27 GB, which costs the 32 GiB box its fifth walk, or past 8.71 GB, which costs the 48 GiB box its fifth."""
     monkeypatch.delenv("AMS_DEEP_REPLAY_THREADS", raising=False)
     assert deep_replay.replay_threads(total_bytes=total) == wanted
 

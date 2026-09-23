@@ -938,6 +938,43 @@ class TestTheStringReplay:
             assert json.loads(head)["rows"] == answered[config]["windows"]
         assert not list(tables_dir.glob("replay-windows-*.bin"))
 
+    def test_a_memo_ceiling_reaches_the_verb_and_moves_only_the_settle_count(
+        self, tables_dir, tmp_path, monkeypatch
+    ):
+        """`memo_windows` reaches the verb as `--memo-windows=`, and a walk that releases its memos under it answers every text the uncapped walk answers, skips the same ones and settles strictly more windows, since a window met again after a release is settled again. A ceiling beside a memo directory, or one below a single window, is refused before anything is spawned, so nothing lands in the directory."""
+        uncapped = kernel_exec.replay_strings(
+            SPEC, tables_dir, conform.SETTLEMENT_CONFIGS, horizon=3, families=None, threads=1
+        )
+        capped = kernel_exec.replay_strings(
+            SPEC, tables_dir, conform.SETTLEMENT_CONFIGS, horizon=3, families=None, threads=1, memo_windows=1
+        )
+        assert sorted(capped) == sorted(uncapped)
+        for config, counts in uncapped.items():
+            assert capped[config]["texts"] == counts["texts"]
+            assert capped[config]["skipped"] == counts["skipped"]
+            assert capped[config]["windows"] > counts["windows"]
+
+        def spawned(arguments, verb):
+            raise AssertionError(f"a refused walk spawned {verb}")
+
+        monkeypatch.setattr(kernel_exec, "_run_kernel", spawned)
+        with pytest.raises(ValueError, match="not both"):
+            kernel_exec.replay_strings(
+                SPEC,
+                tables_dir,
+                ["default"],
+                horizon=3,
+                families=None,
+                threads=1,
+                memo_dir=tmp_path,
+                memo_windows=1,
+            )
+        with pytest.raises(ValueError, match="at least one window"):
+            kernel_exec.replay_strings(
+                SPEC, tables_dir, ["default"], horizon=3, families=None, threads=1, memo_windows=0
+            )
+        assert not list(tmp_path.iterdir())
+
     def test_a_table_edited_behind_the_engine_is_refused_naming_the_text(self, tables_dir, tmp_path):
         for name in ("settlement-default.tsv", "settlement-ss03.tsv"):
             (tmp_path / name).write_text((tables_dir / name).read_text())

@@ -574,13 +574,13 @@ fn finish_config_tables(
     Ok(TableAnswer { digest, timed })
 }
 
-/// What one configuration's string replay answered: the walk's counts, and its timing line when one was asked for.
+/// What one configuration's string replay answered: the walk's counts, and its census and timing lines when they were asked for.
 pub struct ReplayAnswer {
     pub report: replay::Report,
     pub timed: Vec<String>,
 }
 
-/// Every configuration's persisted rules replayed over `universe`, at most `workers` at a time: each one reads `<outdir>/settlement-<config>.tsv` back, walks the universe's texts, and holds the rules' first-match answer to the engine's own settlement window by window. The world is the enumeration's, minus the grain: a replay settles single windows, which have no grain to name. With a `memo_dir`, each green walk files its window memo there as `replay-windows-<config>.bin` ([`replay::Replay::write_window_memo`]); a walk that raises files nothing.
+/// Every configuration's persisted rules replayed over `universe`, at most `workers` at a time: each one reads `<outdir>/settlement-<config>.tsv` back, walks the universe's texts, and holds the rules' first-match answer to the engine's own settlement window by window. The world is the enumeration's, minus the grain: a replay settles single windows, which have no grain to name. With a `memo_dir`, each green walk files its window memo there as `replay-windows-<config>.bin` ([`replay::Replay::write_window_memo`]); a walk that raises files nothing, and a walk that released its memo under the universe's ceiling files none and raises, which `replay-strings` keeps any command line from asking for.
 #[allow(clippy::too_many_arguments)]
 pub fn run_configs_replay(
     index: &SpecIndex,
@@ -603,7 +603,7 @@ pub fn replay_memo_path(memo_dir: &Path, token: &str) -> PathBuf {
     memo_dir.join(format!("replay-windows-{token}.bin"))
 }
 
-/// One configuration replayed: its rules read back, the walk run, and the phase named `replay[<config>]` when the caller wants it timed; then, with a `memo_dir`, the window memo filed under `replay_memo[<config>]`.
+/// One configuration replayed: its rules read back, the walk run, and the phase named `replay[<config>]` when the caller wants it timed, the census's `[c]` lines riding ahead of it when the caller wants those, as they do for a table run; then, with a `memo_dir`, the window memo filed under `replay_memo[<config>]`. The walk's clock stops before the census is taken, so the end-of-walk resident-size sample stays out of the phase it reports; the samples a censused walk takes at each release under the universe's ceiling fall inside it.
 pub fn run_config_replay(
     index: &SpecIndex,
     config: &Configuration<'_>,
@@ -626,10 +626,14 @@ pub fn run_config_replay(
         ..EngineModes::default()
     };
     let mut walk = replay::Replay::new(index, config.features.clone(), engine_modes, &rules);
+    if report.census {
+        walk.with_census(token);
+    }
     let walked = walk.walk_universe(universe)?;
-    let mut timed: Vec<String> = Vec::new();
+    let elapsed = started.elapsed();
+    let mut timed = walk.take_census();
     if report.timings {
-        timed.push(timing_line(&format!("replay[{token}]"), started.elapsed()));
+        timed.push(timing_line(&format!("replay[{token}]"), elapsed));
     }
     if let Some(memo_dir) = memo_dir {
         let started = Instant::now();

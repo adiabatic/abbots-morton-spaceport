@@ -994,8 +994,8 @@ fn retain_formed_before(
     Ok(kept)
 }
 
-/// This process's resident size in kibibytes, or `0` where the platform would not say. Asked of `ps` rather than of the C library because the crate takes no dependency and declares no foreign functions for a diagnostic; it runs three or four times per censused configuration and never on the shipping path.
-fn resident_kb() -> u64 {
+/// This process's resident size in kibibytes, or `0` where the platform would not say. Asked of `ps` rather than of the C library because the crate takes no dependency and declares no foreign functions for a diagnostic; it runs a few times per censused table configuration, and twice per release plus once at the end of a censused replay, and never on the shipping path.
+pub(crate) fn resident_kb() -> u64 {
     let pid = std::process::id();
     std::process::Command::new("/bin/ps")
         .args(["-o", "rss=", "-p", &pid.to_string()])

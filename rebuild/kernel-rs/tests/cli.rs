@@ -866,3 +866,219 @@ fn a_replay_with_a_memo_directory_files_one_window_memo_per_configuration() {
         "nothing reaches stdout on a refusal"
     );
 }
+
+/// The replay's cache census through the binary: `--cache-census` leaves the answer lines byte for byte as the bare walk prints them and writes only `[c]` lines to stderr without `--timings` — the walk's own memo, every engine memo with the trace memo's ladder pool empty, no elimination text, and the resident size once the walk is done, for each configuration — and beside `--timings` those lines ride ahead of the configuration's `replay[<config>]` phase. Under a memo ceiling a third of the walk's window count, each release reports the walk memo and the engine's memos under `release=<k>` with the resident size on both sides, the walk counts its releases, and no `walk_memo` row reads past the ceiling.
+#[test]
+fn a_censused_replay_writes_its_census_to_stderr_and_leaves_the_answer_alone() {
+    let root = scratch("cli-replay-census");
+    let spec = spec_at(&root);
+    let outdir = root.join("tables");
+    let built = run(&[
+        "build-tables",
+        word(&spec),
+        word(&outdir),
+        "--configs=default,ss03",
+        "--inputs=cli-stamp",
+    ]);
+    assert!(built.status.success(), "{}", complaint(&built));
+    let replay = |extra: &[&str]| {
+        let mut arguments = vec![
+            "replay-strings",
+            word(&spec),
+            word(&outdir),
+            "--configs=default,ss03",
+            "--horizon=3",
+        ];
+        arguments.extend_from_slice(extra);
+        run(&arguments)
+    };
+    let bare = replay(&[]);
+    assert!(bare.status.success(), "{}", complaint(&bare));
+    assert!(bare.stderr.is_empty(), "{}", complaint(&bare));
+    let censused = replay(&["--cache-census"]);
+    assert!(censused.status.success(), "{}", complaint(&censused));
+    assert_eq!(
+        censused.stdout, bare.stdout,
+        "the answer lines are unchanged"
+    );
+    let stderr = complaint(&censused);
+    for line in stderr.lines() {
+        assert!(
+            line.starts_with("[c] "),
+            "a census without a clock writes only census lines: {line}"
+        );
+    }
+    for (token, _) in CONFIGS {
+        for prefix in [
+            format!("[c] {token} walk_memo len="),
+            format!("[c] {token} trace_cache len="),
+            format!("[c] {token} trace_ladders len=0 "),
+            format!("[c] {token} resident_after_walk kb="),
+        ] {
+            assert!(
+                stderr.lines().any(|line| line.starts_with(&prefix)),
+                "{prefix} is in the census: {stderr}"
+            );
+        }
+        let elimination = format!("[c] {token} elimination_text bytes=0");
+        assert!(
+            stderr.lines().any(|line| line == elimination),
+            "{elimination} is in the census: {stderr}"
+        );
+    }
+
+    let timed = replay(&["--cache-census", "--timings"]);
+    assert!(timed.status.success(), "{}", complaint(&timed));
+    assert_eq!(timed.stdout, bare.stdout, "the answer lines are unchanged");
+    let lines: Vec<String> = complaint(&timed).lines().map(str::to_owned).collect();
+    for (token, _) in CONFIGS {
+        let phase = format!("replay[{token}]");
+        let clocked = lines
+            .iter()
+            .position(|line| line.starts_with("[t] ") && timing_phase(line) == phase)
+            .unwrap_or_else(|| panic!("{phase} is timed: {lines:?}"));
+        let censused = lines
+            .iter()
+            .rposition(|line| line.starts_with(&format!("[c] {token} ")))
+            .unwrap_or_else(|| panic!("{token} is censused: {lines:?}"));
+        assert!(
+            censused < clocked,
+            "{token}'s census rides ahead of its phase: {lines:?}"
+        );
+    }
+
+    let walked = answers(&bare)
+        .remove("default")
+        .expect("default is answered");
+    let ceiling = (walked.windows / 3).max(1);
+    let ceiling_flag = format!("--memo-windows={ceiling}");
+    let released = replay(&["--cache-census", &ceiling_flag]);
+    assert!(released.status.success(), "{}", complaint(&released));
+    let stderr = complaint(&released);
+    for prefix in [
+        "[c] default release=1 walk_memo len=",
+        "[c] default release=1 trace_cache len=",
+        "[c] default release=1 resident_before_release kb=",
+        "[c] default release=1 resident_after_release kb=",
+    ] {
+        assert!(
+            stderr.lines().any(|line| line.starts_with(prefix)),
+            "{prefix} is in the census: {stderr}"
+        );
+    }
+    let releases: u64 = stderr
+        .lines()
+        .find_map(|line| line.strip_prefix("[c] default releases count="))
+        .and_then(|count| count.parse().ok())
+        .unwrap_or_else(|| panic!("the census counts default's releases: {stderr}"));
+    assert!(releases >= 1, "{stderr}");
+    for line in stderr
+        .lines()
+        .filter(|line| line.starts_with("[c] default "))
+    {
+        if let Some((_, rest)) = line.split_once(" walk_memo len=") {
+            let len: u64 = rest
+                .split(' ')
+                .next()
+                .and_then(|len| len.parse().ok())
+                .unwrap_or_else(|| panic!("a walk_memo row states its len: {line}"));
+            assert!(len <= ceiling, "the memo never passes the ceiling: {line}");
+        }
+    }
+}
+
+/// One replay answer line's counts.
+struct Walked {
+    texts: u64,
+    windows: u64,
+    skipped: u64,
+}
+
+/// A clean replay's answer lines, by configuration.
+fn answers(output: &Output) -> std::collections::BTreeMap<String, Walked> {
+    String::from_utf8_lossy(&output.stdout)
+        .lines()
+        .map(|line| {
+            let answer: serde_json::Value =
+                serde_json::from_str(line).expect("an answer line is JSON");
+            let count = |key: &str| {
+                answer[key]
+                    .as_u64()
+                    .unwrap_or_else(|| panic!("{key} is a count: {line}"))
+            };
+            (
+                answer["config"]
+                    .as_str()
+                    .expect("an answer names its configuration")
+                    .to_owned(),
+                Walked {
+                    texts: count("texts"),
+                    windows: count("windows"),
+                    skipped: count("skipped"),
+                },
+            )
+        })
+        .collect()
+}
+
+/// The memo ceiling through the binary: a walk that releases before every text answers the texts and skipped counts the uncapped walk answers for every configuration, with more window settles, and a ceiling beside a memo directory is a usage error that writes nothing to stdout and files no memo.
+#[test]
+fn a_replay_with_a_memo_ceiling_answers_the_texts_an_uncapped_walk_answers() {
+    let root = scratch("cli-replay-ceiling");
+    let spec = spec_at(&root);
+    let outdir = root.join("tables");
+    let built = run(&[
+        "build-tables",
+        word(&spec),
+        word(&outdir),
+        "--configs=default,ss03",
+        "--inputs=cli-stamp",
+    ]);
+    assert!(built.status.success(), "{}", complaint(&built));
+    let replay = |extra: &[&str]| {
+        let mut arguments = vec![
+            "replay-strings",
+            word(&spec),
+            word(&outdir),
+            "--configs=default,ss03",
+            "--horizon=4",
+        ];
+        arguments.extend_from_slice(extra);
+        run(&arguments)
+    };
+    let bare = replay(&[]);
+    assert!(bare.status.success(), "{}", complaint(&bare));
+    let capped = replay(&["--memo-windows=1"]);
+    assert!(capped.status.success(), "{}", complaint(&capped));
+    let uncapped = answers(&bare);
+    let released = answers(&capped);
+    assert_eq!(
+        uncapped.keys().collect::<Vec<_>>(),
+        released.keys().collect::<Vec<_>>()
+    );
+    for (token, _) in CONFIGS {
+        let (whole, walked) = (&uncapped[token], &released[token]);
+        assert_eq!(walked.texts, whole.texts, "{token}");
+        assert_eq!(walked.skipped, whole.skipped, "{token}");
+        assert!(
+            walked.windows > whole.windows,
+            "{token} settles its windows again after each release"
+        );
+    }
+
+    let memos = root.join("memos");
+    std::fs::create_dir_all(&memos).expect("the memo directory is makeable");
+    let both = replay(&["--memo-windows=1", &format!("--memo-dir={}", word(&memos))]);
+    assert_eq!(both.status.code(), Some(2), "{}", complaint(&both));
+    assert!(
+        both.stdout.is_empty(),
+        "nothing reaches stdout on a refusal"
+    );
+    assert!(
+        std::fs::read_dir(&memos)
+            .expect("the memo directory lists")
+            .next()
+            .is_none(),
+        "a refused command line files nothing"
+    );
+}
