@@ -487,7 +487,7 @@ class TestOracleFanIn:
         """What the oracle left in its out directory, less the timings journal: `rebuild/conftest.py`'s autouse redirect points that journal into the same `tmp_path`, and the fan-out's pool record writes to it once every range has landed."""
         return sorted(path.name for path in out_dir.iterdir() if path.name != ct.JOURNAL.name)
 
-    def _worker(self, refuse=None, overcount=None, record=None, shards=None):
+    def _worker(self, refuse=None, overcount=None, record=None, shards=None, multi=None):
         def worker(
             spec,
             subset_tables_dir,
@@ -514,7 +514,10 @@ class TestOracleFanIn:
             with segment.open("w", encoding="utf-8", newline="\n") as handle:
                 handle.write(f"{config}\t{shard.first_row:04X}\tcell\tpea-half\tqsPea\tqsPea.half\n")
             return oracle.OracleConfigResult(
-                config=config, rows_compared=1, divergent_rows=2 if shard.label == overcount else 1
+                config=config,
+                rows_compared=1,
+                divergent_rows=2 if shard.label == overcount else 1,
+                multi_matched_count=0 if multi is None else multi(shard),
             )
 
         return worker
@@ -526,6 +529,27 @@ class TestOracleFanIn:
         assert lines[0] == oracle.ORACLE_AUDIT_HEADER
         assert [line.split("\t")[0] for line in lines[1:]] == list(conform.ACCEPTANCE_CONFIGS)
         assert self._landed(tmp_path) == ["divergence-audit.tsv", "oracle_summary.json"]
+
+    def test_the_summary_counts_every_ranges_multi_matched_rows(self, monkeypatch, tmp_path):
+        """The gate reads `multi_matched` off `oracle_summary.json`, so the counts the ranges sent home have to reach that file as their sum — one count per configuration when nothing is cut, one per range when the tables are — or a ledger with overlapping entries passes the build. Every range reports two or more, and a cut range one more than the range before it, so a summary that counted the ranges instead of summing their counts reads short."""
+
+        def per_range(shard):
+            return shard.index + 2
+
+        self._pool(monkeypatch, self._worker(multi=per_range))
+        summary = run_m1.run_oracle(out_dir=tmp_path, jobs=6)
+        written = json.loads((tmp_path / "oracle_summary.json").read_text())
+        assert summary["multi_matched"] == written["multi_matched"] == 2 * len(conform.ACCEPTANCE_CONFIGS)
+
+        rows = {config: 1000 for config in conform.ACCEPTANCE_CONFIGS}
+        self._pool(monkeypatch, self._worker(multi=per_range), rows=rows)
+        summary = run_m1.run_oracle(out_dir=tmp_path, jobs=10)
+        written = json.loads((tmp_path / "oracle_summary.json").read_text())
+        planned = oracle.oracle_shard_plan(10, rows)
+        assert len(planned) > len(conform.ACCEPTANCE_CONFIGS)
+        assert (
+            summary["multi_matched"] == written["multi_matched"] == sum(per_range(shard) for shard in planned)
+        )
 
     def test_a_worker_that_falls_over_leaves_the_standing_audit_alone(self, monkeypatch, tmp_path):
         standing = tmp_path / "divergence-audit.tsv"

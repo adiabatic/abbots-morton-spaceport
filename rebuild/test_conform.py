@@ -1144,28 +1144,30 @@ class TestOracleAudit:
         assert len(set(names)) == len(conform.ACCEPTANCE_CONFIGS)
 
 
+def _divergent_subset_tables(root: Path, per_config: dict[str, list[tuple[int, int]]]) -> Path:
+    """Hand-made subset tables under `root / "tables"` whose every row diverges against an all-pending alias map; `TestOracleUnmatchedTally` and `TestOracleMultiMatchedTally` share them."""
+    tables = root / "tables"
+    tables.mkdir(parents=True)
+    for config, pairs in per_config.items():
+        with gzip.open(tables / f"baseline-{config}.subset.tsv.gz", "wt", encoding="utf-8") as fh:
+            fh.write(f"# config: {config}\n")
+            for left, right in pairs:
+                fh.write(
+                    f"{left:04X}:{right:04X}\told{left:04X}|old{right:04X}\t0,1\tbreak"
+                    "\t0,0,150|150,0,150\n"
+                )
+    return tables
+
+
 class TestOracleUnmatchedTally:
     """What a configuration sends home about its unmatched rows. Every one of them is already on disk in that configuration's audit shard, and `oracle_summary.json` asks the result object for two things only — how many there were, and `ORACLE_UNMATCHED_EXEMPLARS` of them to quote — so the result carries a count and that first slice rather than the whole list, which on a live run is a six-figure pile of `DivergentRow` objects pickled across a process pipe to be counted. Pin the count, the cap, the stream order the exemplars have to keep for the summary to quote the same ones, and the gate verdict's dependence on the count rather than on the sample."""
-
-    def _tables(self, tmp_path: Path, per_config: dict[str, list[tuple[int, int]]]) -> Path:
-        tables = tmp_path / "tables"
-        tables.mkdir()
-        for config, pairs in per_config.items():
-            with gzip.open(tables / f"baseline-{config}.subset.tsv.gz", "wt", encoding="utf-8") as fh:
-                fh.write(f"# config: {config}\n")
-                for left, right in pairs:
-                    fh.write(
-                        f"{left:04X}:{right:04X}\told{left:04X}|old{right:04X}\t0,1\tbreak"
-                        "\t0,0,150|150,0,150\n"
-                    )
-        return tables
 
     def test_a_configuration_sends_home_a_count_and_the_first_twenty_rows(self, spec, tmp_path):
         letters = (0xE650, 0xE652, 0xE653, 0xE65A, 0xE665, 0xE667, 0xE670, 0xE679, 0xE67A)
         pairs = [(left, right) for left in letters for right in letters]
         wide = pairs[:25]
         narrow = pairs[25:28]
-        tables = self._tables(tmp_path, {"default": wide, "ss03": narrow})
+        tables = _divergent_subset_tables(tmp_path, {"default": wide, "ss03": narrow})
         aliases = tmp_path / "aliases.yaml"
         aliases.write_text("".join(f"old{code:04X}: pending\n" for code in letters))
         ledger = tmp_path / "ledger.yaml"
@@ -1205,7 +1207,7 @@ class TestOracleUnmatchedTally:
         letters = (0xE650, 0xE652, 0xE653, 0xE65A, 0xE665, 0xE667, 0xE670, 0xE679, 0xE67A)
         pairs = [(left, right) for left in letters for right in letters]
         wide = pairs[:25]
-        tables = self._tables(tmp_path, {"default": wide})
+        tables = _divergent_subset_tables(tmp_path, {"default": wide})
         aliases = tmp_path / "aliases.yaml"
         aliases.write_text("".join(f"old{code:04X}: pending\n" for code in letters))
         ledger = tmp_path / "ledger.yaml"
@@ -1227,6 +1229,117 @@ class TestOracleUnmatchedTally:
         ]
         assert merged.rows_compared == 25 and merged.divergent_rows == 25
         oracle.discard_oracle_audit_scratch(tmp_path)
+
+
+class TestOracleMultiMatchedTally:
+    """What a configuration sends home about the rows two or more ledger entries match. The run_m1 gate reads one number off them — `oracle_summary.json`'s `multi_matched`, which must be zero — and every such row is already an audit line with its matched ids joined by `+`, so a range sends home a count and nothing else. A ledger that grows an overlapping entry then fails the build at the cost of an integer per range, not a pickled `DivergentRow` per row. Pin that the count partitions the divergent rows with the other two tallies on every path, that it sums through both folds, and that the object crossing the pipe does not grow with it."""
+
+    LETTERS = (0xE650, 0xE652, 0xE653, 0xE65A, 0xE665, 0xE667, 0xE670, 0xE679, 0xE67A)
+    PAIRS: list[tuple[int, int]] = list(itertools.product(LETTERS, LETTERS))
+
+    def _aliases(self, tmp_path: Path) -> Path:
+        aliases = tmp_path / "aliases.yaml"
+        aliases.write_text("".join(f"old{code:04X}: pending\n" for code in self.LETTERS))
+        return aliases
+
+    @staticmethod
+    def _accounted_for(tally: oracle.BaselineReport | oracle.OracleConfigResult) -> int:
+        return sum(tally.counts_by_entry.values()) + tally.unmatched_count + tally.multi_matched_count
+
+    def test_a_row_two_entries_match_travels_home_as_a_count_on_every_path(self, spec, tmp_path):
+        wide = self.PAIRS[:25]
+        narrow = self.PAIRS[25:28]
+        tables = _divergent_subset_tables(tmp_path, {"default": wide, "ss03": narrow})
+        aliases = self._aliases(tmp_path)
+        ledger = tmp_path / "ledger.yaml"
+        ledger.write_text('- id: every-row\n  match: {}\n- id: pea-rows\n  match: {window: "E650"}\n')
+        configs = ("default", "ss03")
+        doubled = {
+            config: [f"{left:04X}:{right:04X}" for left, right in rows if 0xE650 in (left, right)]
+            for config, rows in (("default", wide), ("ss03", narrow))
+        }
+        assert len(doubled["default"]) == 11
+        assert sum(0xE650 in pair for pair in wide[:10]) == 10
+        assert sum(0xE650 in pair for pair in wide[10:]) == 1
+        assert len(doubled["ss03"]) == 1
+
+        serial = tmp_path / "serial"
+        report = oracle.compare_against_baseline(
+            spec, tables, aliases, ledger, configs=configs, out_dir=serial
+        )
+        assert report.multi_matched_count == 12
+        assert report.unmatched_count == 0
+        assert report.counts_by_entry == {"every-row": 16}
+        assert self._accounted_for(report) == report.divergent_rows == 28
+        audit = (serial / "divergence-audit.tsv").read_text(encoding="utf-8").splitlines()
+        assert [
+            line.split("\t")[1] for line in audit[1:] if line.split("\t")[3] == "every-row+pea-rows"
+        ] == doubled["default"] + doubled["ss03"]
+
+        fanned = tmp_path / "fanned"
+        fanned.mkdir()
+        results = [
+            oracle.oracle_config_worker(
+                spec,
+                tables,
+                aliases,
+                ledger,
+                config,
+                None,
+                None,
+                audit_dir=oracle.oracle_audit_scratch(fanned),
+            )
+            for config in configs
+        ]
+        assert [result.multi_matched_count for result in results] == [11, 1]
+        merged = oracle.merge_oracle_results(results)
+        assert merged.multi_matched_count == 12
+
+        cut = tmp_path / "cut"
+        cut.mkdir()
+        shards = [oracle.OracleShard("default", 0, 10, 0, 2), oracle.OracleShard("default", 10, None, 1, 2)]
+        ranged = [
+            oracle.oracle_config_worker(
+                spec,
+                tables,
+                aliases,
+                ledger,
+                "default",
+                None,
+                None,
+                audit_dir=oracle.oracle_audit_scratch(cut),
+                shard=shard,
+            )
+            for shard in shards
+        ]
+        assert [result.multi_matched_count for result in ranged] == [10, 1]
+        folded = oracle.merge_config_shards(ranged)
+        assert folded.multi_matched_count == 11
+        rejoined = oracle.merge_oracle_results([folded, results[1]])
+        assert rejoined.multi_matched_count == 12
+        for tally in (*results, merged, *ranged, folded, rejoined):
+            assert self._accounted_for(tally) == tally.divergent_rows
+        oracle.discard_oracle_audit_scratch(fanned)
+        oracle.discard_oracle_audit_scratch(cut)
+
+    def test_what_a_range_sends_home_does_not_grow_with_its_multi_matched_rows(self, spec, tmp_path):
+        """Every divergent row matches both entries, so every tally but the multi-matched count stays empty or small. With every integer the result carries below 256 each pickles to the same width, so the result that crosses the pipe is the same length over ten such rows as over twenty-five."""
+        aliases = self._aliases(tmp_path)
+        ledger = tmp_path / "ledger.yaml"
+        ledger.write_text("- id: first\n  match: {}\n- id: second\n  match: {}\n")
+        pickled = []
+        for rows in (self.PAIRS[:10], self.PAIRS[:25]):
+            root = tmp_path / str(len(rows))
+            tables = _divergent_subset_tables(root, {"default": rows})
+            scratch = oracle.oracle_audit_scratch(root)
+            result = oracle.oracle_config_worker(
+                spec, tables, aliases, ledger, "default", None, None, audit_dir=scratch
+            )
+            assert result.multi_matched_count == len(rows)
+            assert result.counts_by_entry == {}
+            pickled.append(len(pickle.dumps(replace(result, peak_rss_bytes=0))))
+            oracle.discard_oracle_audit_scratch(root)
+        assert pickled[0] == pickled[1]
 
 
 CACHE_LETTERS = (0xE650, 0xE652, 0xE653, 0xE65A, 0xE665, 0xE667)
