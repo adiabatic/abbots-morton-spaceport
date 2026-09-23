@@ -2,10 +2,16 @@
 
 import hashlib
 import json
+import os
+import time
+import weakref
+from collections import Counter
 from collections.abc import Mapping
 from pathlib import Path
 
-from rebuild.review import app_index, unit_index
+import pytest
+
+from rebuild.review import app_index, status, unit_index
 from rebuild.review.status import (
     compute_status,
     count_effective,
@@ -13,6 +19,7 @@ from rebuild.review.status import (
     pick_frontier,
     resolve_carry_source,
 )
+from rebuild.review.verdict_store import parse_autosave_payload
 from rebuild.tools import verdict_ready
 
 STAMP = "2026-07-17T20:24:44Z"
@@ -43,9 +50,20 @@ def recompute(_repo):
     return dict(FP)
 
 
+@pytest.fixture(autouse=True)
+def _empty_frontier_memo(monkeypatch):
+    """The frontier memo is module state that outlives a test in its xdist worker, so every test here starts from an empty one and a parse it counts is never answered by an entry an earlier test left."""
+    monkeypatch.setattr(status, "_MEMO", {})
+
+
 def _write(path, obj):
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(obj))
+
+
+def _write_raw(path, text, encoding="utf-8"):
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_bytes(text.encode(encoding))
 
 
 def verdict(unit, kind="approve", at="2026-07-17T21:00:00Z"):
@@ -654,6 +672,608 @@ def test_resolve_carry_source_empty_aligned_autosave_yields_to_stale_master(tmp_
 def test_resolve_carry_source_none_when_nothing_carryable(tmp_path):
     write_autosave(tmp_path, records=[verdict("u-1", "skip")])
     assert resolve_carry_source(tmp_path, STAMP, tmp_path / "verdicts-autosave.json") is None
+
+
+def test_no_parsed_verdicts_file_outlives_the_read_of_the_next(tmp_path, monkeypatch):
+    monkeypatch.setattr(status, "_SETTLE_NS", 10**18)
+    write_autosave(tmp_path, records=[verdict(unit) for unit in ("u-1", "u-2", "u-3", "u-4")])
+    for name, units in (("a", ("u-1",)), ("b", ("u-1", "u-2")), ("c", ("u-1", "u-2", "u-3"))):
+        _write(tmp_path / f"verdicts-{name}.json", verdicts_doc(STAMP, [verdict(unit) for unit in units]))
+
+    class _Held(dict):
+        pass
+
+    class _HeldBytes(bytearray):
+        pass
+
+    real = status.parse_autosave_payload
+    held = []
+    overlaps = []
+
+    def hold(data):
+        raw = _HeldBytes(data)
+        held.append(weakref.ref(raw))
+        return raw
+
+    def spy(raw):
+        overlaps.append(
+            sum(1 for reference in held if (alive := reference()) is not None and alive is not raw)
+        )
+        data = real(raw)
+        if data is None:
+            return None
+        store = _Held(data)
+        held.append(weakref.ref(store))
+        return store
+
+    _spy_on_reads(monkeypatch, wrap=hold)
+    monkeypatch.setattr(status, "parse_autosave_payload", spy)
+    assert pick_frontier(tmp_path, STAMP) == (tmp_path / "verdicts-c.json", 3)
+    picked = len(overlaps)
+    assert picked == 3
+    hit = resolve_carry_source(tmp_path, STAMP, tmp_path / "verdicts-autosave.json")
+    assert hit == {"path": tmp_path / "verdicts-autosave.json", "stamp": STAMP, "count": 4, "aligned": True}
+    assert len(overlaps) == picked + 4
+    assert overlaps == [0] * len(overlaps)
+
+
+DEFAULT_HEAD_BYTES = status._HEAD_BYTES
+ESCAPED_VALUE_STAMP = "2026-07-04T00:00:00Z"
+
+
+def _records(count):
+    return [verdict(f"u-{index}") for index in range(1, count + 1)]
+
+
+def _digest(path):
+    return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+def _spy_on_parses(monkeypatch):
+    real = status.parse_autosave_payload
+    parsed = []
+
+    def spy(raw):
+        parsed.append(hashlib.sha256(raw).hexdigest())
+        return real(raw)
+
+    monkeypatch.setattr(status, "parse_autosave_payload", spy)
+    return parsed
+
+
+def _spy_on_head_reads(monkeypatch):
+    real = status._head_stamp
+    heads = []
+
+    def spy(head):
+        heads.append(len(head))
+        return real(head)
+
+    monkeypatch.setattr(status, "_head_stamp", spy)
+    return heads
+
+
+def _spy_on_reads(monkeypatch, wrap=None):
+    """Tallies the bytes read through every handle Path.open returns, per path, and passes each read through wrap; Path.read_bytes opens through Path.open, so the autosave's read is seen too."""
+    real_open = Path.open
+    tally: Counter[Path] = Counter()
+
+    class Handle:
+        def __init__(self, path, handle):
+            self.path = path
+            self.handle = handle
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *exc):
+            return self.handle.__exit__(*exc)
+
+        def __getattr__(self, name):
+            return getattr(self.handle, name)
+
+        def read(self, *args):
+            data = self.handle.read(*args)
+            tally[self.path] += len(data)
+            return data if wrap is None else wrap(data)
+
+    def spy(self, *args, **kwargs):
+        return Handle(self, real_open(self, *args, **kwargs))
+
+    monkeypatch.setattr(Path, "open", spy)
+    return tally
+
+
+def _escaped_key_text(stamp, records):
+    return (
+        f'{{"format": "ams-review-verdicts/1", "manifest\\u005fgenerated_at": "{stamp}", "exported_at": "", '
+        f'"verdicts": {json.dumps(records)}}}'
+    )
+
+
+def _escaped_value_text(records):
+    escaped = ESCAPED_VALUE_STAMP.replace("-", "\\u002d")
+    return (
+        f'{{"format": "ams-review-verdicts/1", "manifest_generated_at": "{escaped}", "exported_at": "", '
+        f'"verdicts": {json.dumps(records)}}}'
+    )
+
+
+def _reference_verdict_files(repo_root):
+    root = Path(repo_root)
+    candidates = sorted(root.glob("verdicts-*.json")) + sorted(
+        (root / "rebuild" / "evidence").glob("verdicts-*.json")
+    )
+    for path in candidates:
+        if path.name == "verdicts-autosave.json":
+            continue
+        try:
+            raw = path.read_bytes()
+        except OSError:
+            continue
+        data = parse_autosave_payload(raw)
+        if data is None:
+            continue
+        yield path, data
+
+
+def _reference_effective_count(data):
+    try:
+        best = {}
+        for record in data["verdicts"]:
+            unit = record["unit"]
+            if unit not in best or record["at"] > best[unit]["at"]:
+                best[unit] = record
+        return sum(1 for record in best.values() if record.get("verdict") != "skip")
+    except KeyError, TypeError:
+        return None
+
+
+def _reference_pick_frontier(repo_root, manifest_stamp):
+    best = None
+    for path, data in _reference_verdict_files(repo_root):
+        if data["manifest_generated_at"] != manifest_stamp:
+            continue
+        count = _reference_effective_count(data)
+        if count is None:
+            continue
+        if best is None or count > best[1]:
+            best = (path, count)
+    return best
+
+
+def _reference_resolve_carry_source(repo_root, manifest_stamp, autosave_path):
+    entries = []
+    autosave_path = Path(autosave_path)
+    try:
+        raw = autosave_path.read_bytes() if autosave_path.exists() else None
+    except OSError:
+        raw = None
+    autosave = parse_autosave_payload(raw) if raw is not None else None
+    if autosave is not None:
+        count = _reference_effective_count(autosave)
+        if count:
+            entries.append((autosave_path, autosave["manifest_generated_at"], count, True))
+    for path, data in _reference_verdict_files(repo_root):
+        count = _reference_effective_count(data)
+        if count:
+            entries.append((path, data["manifest_generated_at"], count, False))
+    if not entries:
+        return None
+    pool = [entry for entry in entries if manifest_stamp is not None and entry[1] == manifest_stamp]
+    aligned = bool(pool)
+    if not pool:
+        latest = max(stamp for _, stamp, _, _ in entries)
+        pool = [entry for entry in entries if entry[1] == latest]
+    path, stamp, count, _ = max(pool, key=lambda entry: (entry[2], entry[3]))
+    return {"path": path, "stamp": stamp, "count": count, "aligned": aligned}
+
+
+def _write_corpus(root):
+    """Each tricky file carries a stamp of its own, so a file the whole parse skips is the only would-be frontier under its stamp and a file it finds is the only candidate there; the evidence-directory autosave carries the newest stamp, so keeping it would move the carry source's fallback too. Returns every stamp the corpus names."""
+    evidence = root / "rebuild" / "evidence"
+    write_autosave(root, records=_records(4))
+    _write(root / "verdicts-plain-a.json", verdicts_doc(STAMP, _records(2)))
+    _write(root / "verdicts-plain-b.json", verdicts_doc(STAMP, _records(2)))
+    _write(root / "verdicts-plain-c.json", verdicts_doc(STAMP, _records(1)))
+    _write(evidence / "verdicts-carried-tied.json", verdicts_doc(STAMP, _records(2)))
+    _write(evidence / "verdicts-autosave.json", verdicts_doc("2026-08-31T00:00:00Z", _records(5)))
+    truncated = json.dumps(verdicts_doc("2026-07-01T00:00:01Z", _records(3)))
+    _write_raw(root / "verdicts-truncated.json", truncated[: len(truncated) - 5])
+    _write(
+        root / "verdicts-wrong-format.json",
+        {**verdicts_doc("2026-07-01T00:00:02Z", _records(3)), "format": "ams-review-verdicts/0"},
+    )
+    _write(
+        root / "verdicts-records-in-a-dict.json",
+        {
+            **verdicts_doc("2026-07-01T00:00:03Z", []),
+            "verdicts": {"u-1": verdict("u-1"), "u-2": verdict("u-2")},
+        },
+    )
+    _write(
+        root / "verdicts-bare-string-record.json", verdicts_doc("2026-07-01T00:00:04Z", [*_records(3), "u-4"])
+    )
+    foreign = json.dumps(verdicts_doc("2026-07-01T00:00:05Z", _records(200)))
+    _write_raw(root / "verdicts-foreign-truncated.json", foreign[: len(foreign) // 2])
+    _write(
+        root / "verdicts-late-stamp.json",
+        {
+            "format": "ams-review-verdicts/1",
+            "verdicts": _records(2),
+            "exported_at": "x" * (DEFAULT_HEAD_BYTES + 100),
+            "manifest_generated_at": "2026-07-02T00:00:00Z",
+        },
+    )
+    _write(
+        root / "verdicts-nested-stamp.json",
+        {
+            "meta": {"manifest_generated_at": "2026-07-03T00:00:00Z"},
+            **verdicts_doc("2026-07-03T00:00:01Z", _records(2)),
+        },
+    )
+    _write_raw(root / "verdicts-escaped-value.json", _escaped_value_text(_records(2)))
+    _write_raw(root / "verdicts-escaped-key.json", _escaped_key_text("2026-07-05T00:00:00Z", _records(2)))
+    _write_raw(
+        root / "verdicts-bom.json",
+        json.dumps(verdicts_doc("2026-07-06T00:00:00Z", _records(2))),
+        encoding="utf-8-sig",
+    )
+    _write_raw(
+        root / "verdicts-utf16.json",
+        json.dumps(verdicts_doc("2026-07-07T00:00:00Z", _records(2))),
+        encoding="utf-16",
+    )
+    _write(
+        root / "verdicts-null-stamp.json", {**verdicts_doc(STAMP, _records(3)), "manifest_generated_at": None}
+    )
+    _write(
+        root / "verdicts-no-stamp.json",
+        {
+            key: value
+            for key, value in verdicts_doc(STAMP, _records(3)).items()
+            if key != "manifest_generated_at"
+        },
+    )
+    _write_raw(
+        root / "verdicts-two-stamps.json",
+        '{"format": "ams-review-verdicts/1", "manifest_generated_at": "2026-07-08T00:00:00Z", '
+        f'"manifest_generated_at": "2026-07-08T00:00:01Z", "exported_at": "", "verdicts": {json.dumps(_records(2))}}}',
+    )
+    (root / "verdicts-dir.json").mkdir()
+    return [
+        STAMP,
+        "2026-08-31T00:00:00Z",
+        "2026-07-01T00:00:01Z",
+        "2026-07-01T00:00:02Z",
+        "2026-07-01T00:00:03Z",
+        "2026-07-01T00:00:04Z",
+        "2026-07-01T00:00:05Z",
+        "2026-07-02T00:00:00Z",
+        "2026-07-03T00:00:00Z",
+        "2026-07-03T00:00:01Z",
+        ESCAPED_VALUE_STAMP,
+        "2026-07-05T00:00:00Z",
+        "2026-07-06T00:00:00Z",
+        "2026-07-07T00:00:00Z",
+        "2026-07-08T00:00:00Z",
+        "2026-07-08T00:00:01Z",
+    ]
+
+
+def test_pick_frontier_parses_no_candidate_stamped_for_another_surface(tmp_path, monkeypatch):
+    aligned = tmp_path / "verdicts-a.json"
+    stash = tmp_path / "verdicts-autosave-2026-07-10T00.00.00Z.json"
+    _write(aligned, verdicts_doc(STAMP, _records(2)))
+    _write(stash, verdicts_doc(OTHER_STAMP, _records(200)))
+    _write_raw(tmp_path / "verdicts-escaped-key.json", _escaped_key_text(OTHER_STAMP, _records(3)))
+    _write(
+        tmp_path / "rebuild" / "evidence" / "verdicts-carried-abc1234.json",
+        verdicts_doc(OTHER_STAMP, _records(3)),
+    )
+    assert stash.stat().st_size > status._HEAD_BYTES
+    parsed = _spy_on_parses(monkeypatch)
+    reads = _spy_on_reads(monkeypatch)
+    assert pick_frontier(tmp_path, STAMP) == (aligned, 2)
+    assert reads[stash] <= status._HEAD_BYTES
+    assert parsed == [_digest(aligned)]
+    reads.clear()
+    assert pick_frontier(tmp_path, None) is None
+    assert reads[stash] <= status._HEAD_BYTES
+    assert parsed == [_digest(aligned)]
+
+
+def test_a_candidate_stamped_for_another_surface_and_malformed_past_its_stamp_is_skipped(tmp_path):
+    text = json.dumps(verdicts_doc(OTHER_STAMP, _records(3)))
+    _write_raw(tmp_path / "verdicts-a-broken.json", text[: len(text) - 20])
+    _write(tmp_path / "verdicts-b.json", verdicts_doc(STAMP, _records(1)))
+    assert pick_frontier(tmp_path, STAMP) == (tmp_path / "verdicts-b.json", 1)
+    assert pick_frontier(tmp_path, OTHER_STAMP) is None
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        pytest.param(json.dumps(verdicts_doc(STAMP, _records(3)))[:-5], id="truncated-tail"),
+        pytest.param(
+            json.dumps({**verdicts_doc(STAMP, _records(3)), "format": "ams-review-verdicts/0"}),
+            id="wrong-format",
+        ),
+        pytest.param(
+            json.dumps(
+                {**verdicts_doc(STAMP, []), "verdicts": {record["unit"]: record for record in _records(3)}}
+            ),
+            id="verdicts-not-a-list",
+        ),
+    ],
+)
+def test_an_aligned_candidate_malformed_past_its_stamp_is_not_trusted(tmp_path, text):
+    _write_raw(tmp_path / "verdicts-a-malformed.json", text)
+    assert pick_frontier(tmp_path, STAMP) is None
+    _write(tmp_path / "verdicts-b.json", verdicts_doc(STAMP, _records(1)))
+    assert pick_frontier(tmp_path, STAMP) == (tmp_path / "verdicts-b.json", 1)
+
+
+def test_a_head_stamp_overridden_after_the_records_is_not_the_frontier_under_the_head_stamp(tmp_path):
+    text = (
+        f'{{"format": "ams-review-verdicts/1", "manifest_generated_at": "{STAMP}", "exported_at": "{STAMP}", '
+        f'"verdicts": {json.dumps(_records(3))}, "manifest_generated_at": "{OTHER_STAMP}"}}'
+    )
+    assert json.loads(text)["manifest_generated_at"] == OTHER_STAMP
+    _write_raw(tmp_path / "verdicts-a-restamped.json", text)
+    _write(tmp_path / "verdicts-b.json", verdicts_doc(STAMP, _records(1)))
+    assert pick_frontier(tmp_path, STAMP) == (tmp_path / "verdicts-b.json", 1)
+
+
+def test_a_stamp_far_from_the_head_of_its_file_is_still_read(tmp_path):
+    path = tmp_path / "verdicts-late.json"
+    _write(
+        path,
+        {
+            "format": "ams-review-verdicts/1",
+            "verdicts": _records(2),
+            "exported_at": "x" * (status._HEAD_BYTES + 100),
+            "manifest_generated_at": STAMP,
+        },
+    )
+    assert pick_frontier(tmp_path, STAMP) == (path, 2)
+
+
+def test_resolve_carry_source_falls_back_to_the_newest_stamp_on_a_tree_pick_frontier_read_by_head(
+    tmp_path, monkeypatch
+):
+    monkeypatch.setattr(status, "_SETTLE_NS", -(10**18))
+    newer_stamp = "2026-07-20T00:00:00Z"
+    aligned = tmp_path / "verdicts-aligned.json"
+    newer = tmp_path / "verdicts-newer.json"
+    autosave = tmp_path / "verdicts-autosave.json"
+    _write(aligned, verdicts_doc(STAMP, _records(1)))
+    _write(newer, verdicts_doc(newer_stamp, _records(3)))
+    _write(tmp_path / "verdicts-older.json", verdicts_doc(OTHER_STAMP, _records(2)))
+    assert pick_frontier(tmp_path, STAMP) == (aligned, 1)
+    assert status._MEMO[newer][1].parsed is False
+    assert resolve_carry_source(tmp_path, "2026-07-01T00:00:00Z", autosave) == {
+        "path": newer,
+        "stamp": newer_stamp,
+        "count": 3,
+        "aligned": False,
+    }
+    assert resolve_carry_source(tmp_path, STAMP, autosave) == {
+        "path": aligned,
+        "stamp": STAMP,
+        "count": 1,
+        "aligned": True,
+    }
+
+
+@pytest.mark.parametrize("head_bytes", [1, 7, 64, DEFAULT_HEAD_BYTES])
+def test_the_frontier_and_the_carry_source_answer_as_a_whole_parse_of_every_file_does(
+    tmp_path, monkeypatch, head_bytes
+):
+    stamps = [*_write_corpus(tmp_path), None, "no-such-stamp", 0]
+    autosave = tmp_path / "verdicts-autosave.json"
+    monkeypatch.setattr(status, "_HEAD_BYTES", head_bytes)
+    monkeypatch.setattr(status, "_SETTLE_NS", -(10**18))
+    for stamp in stamps:
+        message = (stamp, status._HEAD_BYTES)
+        expected_frontier = _reference_pick_frontier(tmp_path, stamp)
+        expected_carry = _reference_resolve_carry_source(tmp_path, stamp, autosave)
+        monkeypatch.setattr(status, "_MEMO", {})
+        assert pick_frontier(tmp_path, stamp) == expected_frontier, message
+        assert pick_frontier(tmp_path, stamp) == expected_frontier, message
+        monkeypatch.setattr(status, "_MEMO", {})
+        assert resolve_carry_source(tmp_path, stamp, autosave) == expected_carry, message
+        assert resolve_carry_source(tmp_path, stamp, autosave) == expected_carry, message
+        monkeypatch.setattr(status, "_MEMO", {})
+        assert pick_frontier(tmp_path, stamp) == expected_frontier, message
+        assert resolve_carry_source(tmp_path, stamp, autosave) == expected_carry, message
+    monkeypatch.setattr(status, "_MEMO", {})
+    for stamp in stamps:
+        message = (stamp, status._HEAD_BYTES)
+        assert pick_frontier(tmp_path, stamp) == _reference_pick_frontier(tmp_path, stamp), message
+    for stamp in stamps:
+        message = (stamp, status._HEAD_BYTES)
+        assert resolve_carry_source(tmp_path, stamp, autosave) == _reference_resolve_carry_source(
+            tmp_path, stamp, autosave
+        ), message
+
+
+def test_the_head_read_agrees_with_a_whole_parse_at_every_window_size(tmp_path, monkeypatch):
+    compact = tmp_path / "verdicts-compact.json"
+    indented = tmp_path / "verdicts-indented.json"
+    escaped = tmp_path / "verdicts-escaped-value.json"
+    _write(compact, verdicts_doc(STAMP, _records(1)))
+    _write_raw(indented, json.dumps(verdicts_doc(OTHER_STAMP, _records(2)), indent=2))
+    _write_raw(escaped, _escaped_value_text(_records(3)))
+    for path in (compact, indented, escaped):
+        assert path.read_bytes().index(b'"verdicts"') + len(b'"verdicts"') < 190
+    autosave = tmp_path / "verdicts-autosave.json"
+    for size in range(1, 200):
+        monkeypatch.setattr(status, "_HEAD_BYTES", size)
+        for stamp in (STAMP, OTHER_STAMP, ESCAPED_VALUE_STAMP, None, "no-such-stamp"):
+            monkeypatch.setattr(status, "_MEMO", {})
+            assert pick_frontier(tmp_path, stamp) == _reference_pick_frontier(tmp_path, stamp), (stamp, size)
+            monkeypatch.setattr(status, "_MEMO", {})
+            assert resolve_carry_source(tmp_path, stamp, autosave) == _reference_resolve_carry_source(
+                tmp_path, stamp, autosave
+            ), (stamp, size)
+
+
+def test_pick_frontier_answers_an_unchanged_tree_from_the_memo(tmp_path, monkeypatch):
+    monkeypatch.setattr(status, "_SETTLE_NS", -(10**18))
+    aligned = tmp_path / "verdicts-a.json"
+    foreign = tmp_path / "verdicts-b.json"
+    autosave = tmp_path / "verdicts-autosave.json"
+    _write(aligned, verdicts_doc(STAMP, _records(2)))
+    _write(foreign, verdicts_doc(OTHER_STAMP, _records(200)))
+    write_autosave(tmp_path, records=_records(1))
+    assert foreign.stat().st_size > status._HEAD_BYTES
+    parsed = _spy_on_parses(monkeypatch)
+    heads = _spy_on_head_reads(monkeypatch)
+    assert pick_frontier(tmp_path, STAMP) == (aligned, 2)
+    first = (len(parsed), len(heads))
+    assert pick_frontier(tmp_path, STAMP) == (aligned, 2)
+    assert (len(parsed), len(heads)) == first
+    assert set(status._MEMO) == {aligned, foreign}
+    assert pick_frontier(tmp_path, STAMP) == (aligned, 2)
+    assert (len(parsed), len(heads)) == first
+    carry = {"path": aligned, "stamp": STAMP, "count": 2, "aligned": True}
+    assert resolve_carry_source(tmp_path, STAMP, autosave) == carry
+    counted = len(parsed)
+    assert resolve_carry_source(tmp_path, STAMP, autosave) == carry
+    assert parsed[counted:] == [_digest(autosave)]
+
+
+def test_a_same_size_rewrite_in_place_is_read_again(tmp_path, monkeypatch):
+    monkeypatch.setattr(status, "_SETTLE_NS", -(10**18))
+    path = tmp_path / "verdicts-a.json"
+    _write(path, verdicts_doc(STAMP, _records(2)))
+    assert pick_frontier(tmp_path, STAMP) == (path, 2)
+    original = path.stat()
+    records = [verdict("u-1", "skip") | {"note": "abc"}, verdict("u-2")]
+    _write(path, verdicts_doc(STAMP, records))
+    os.utime(path, ns=(original.st_atime_ns, original.st_mtime_ns - 1_000_000_000))
+    assert path.stat().st_size == original.st_size
+    assert pick_frontier(tmp_path, STAMP) == (path, 1)
+    _write(path, verdicts_doc(OTHER_STAMP, records))
+    os.utime(path, ns=(original.st_atime_ns, original.st_mtime_ns - 2_000_000_000))
+    assert path.stat().st_size == original.st_size
+    assert pick_frontier(tmp_path, STAMP) is None
+    assert pick_frontier(tmp_path, OTHER_STAMP) == (path, 1)
+
+
+def test_a_same_size_rewrite_that_keeps_its_mtime_is_read_again(tmp_path, monkeypatch):
+    monkeypatch.setattr(status, "_SETTLE_NS", -(10**18))
+    path = tmp_path / "verdicts-a.json"
+    _write(path, verdicts_doc(STAMP, _records(2)))
+    assert pick_frontier(tmp_path, STAMP) == (path, 2)
+    recorded = path.stat()
+    _write(path, verdicts_doc(OTHER_STAMP, _records(2)))
+    os.utime(path, ns=(recorded.st_atime_ns, recorded.st_mtime_ns))
+    deadline = time.monotonic() + 1
+    while path.stat().st_ctime_ns == recorded.st_ctime_ns and time.monotonic() < deadline:
+        os.utime(path, ns=(recorded.st_atime_ns, recorded.st_mtime_ns))
+    rewritten = path.stat()
+    assert (rewritten.st_ino, rewritten.st_size, rewritten.st_mtime_ns) == (
+        recorded.st_ino,
+        recorded.st_size,
+        recorded.st_mtime_ns,
+    )
+    assert rewritten.st_ctime_ns != recorded.st_ctime_ns
+    assert pick_frontier(tmp_path, STAMP) is None
+    assert pick_frontier(tmp_path, OTHER_STAMP) == (path, 2)
+
+
+def test_a_file_renamed_onto_a_candidate_is_read_again(tmp_path, monkeypatch):
+    monkeypatch.setattr(status, "_SETTLE_NS", -(10**18))
+    path = tmp_path / "verdicts-a.json"
+    replacement = tmp_path / "replacement.json"
+    _write(path, verdicts_doc(STAMP, _records(2)))
+    assert pick_frontier(tmp_path, STAMP) == (path, 2)
+    recorded = path.stat()
+    _write(replacement, verdicts_doc(OTHER_STAMP, _records(2)))
+    os.utime(replacement, ns=(recorded.st_atime_ns, recorded.st_mtime_ns))
+    os.replace(replacement, path)
+    replaced = path.stat()
+    assert (replaced.st_size, replaced.st_mtime_ns) == (recorded.st_size, recorded.st_mtime_ns)
+    assert pick_frontier(tmp_path, STAMP) is None
+    assert pick_frontier(tmp_path, OTHER_STAMP) == (path, 2)
+
+
+def test_a_corrupt_aligned_candidate_is_parsed_once_and_skipped_every_time(tmp_path, monkeypatch):
+    monkeypatch.setattr(status, "_SETTLE_NS", -(10**18))
+    corrupt = tmp_path / "verdicts-a-corrupt.json"
+    valid = tmp_path / "verdicts-b.json"
+    _write_raw(corrupt, json.dumps(verdicts_doc(STAMP, _records(3)))[:-5])
+    _write(valid, verdicts_doc(STAMP, _records(1)))
+    parsed = _spy_on_parses(monkeypatch)
+    assert pick_frontier(tmp_path, STAMP) == (valid, 1)
+    assert pick_frontier(tmp_path, STAMP) == (valid, 1)
+    assert parsed.count(_digest(corrupt)) == 1
+
+
+def test_a_candidate_changed_inside_the_settle_window_is_read_again(tmp_path, monkeypatch):
+    monkeypatch.setattr(status, "_SETTLE_NS", 10**18)
+    path = tmp_path / "verdicts-a.json"
+    _write(path, verdicts_doc(STAMP, _records(2)))
+    parsed = _spy_on_parses(monkeypatch)
+    assert pick_frontier(tmp_path, STAMP) == (path, 2)
+    assert pick_frontier(tmp_path, STAMP) == (path, 2)
+    assert parsed == [_digest(path)] * 2
+
+
+def test_resolve_carry_source_parses_only_what_pick_frontier_read_by_its_head(tmp_path, monkeypatch):
+    monkeypatch.setattr(status, "_SETTLE_NS", -(10**18))
+    autosave = tmp_path / "verdicts-autosave.json"
+    foreign = tmp_path / "verdicts-c.json"
+    carried = tmp_path / "rebuild" / "evidence" / "verdicts-carried-abc1234.json"
+    write_autosave(tmp_path, records=_records(1))
+    _write(tmp_path / "verdicts-a.json", verdicts_doc(STAMP, _records(2)))
+    _write(tmp_path / "verdicts-b.json", verdicts_doc(STAMP, _records(3)))
+    _write(foreign, verdicts_doc(OTHER_STAMP, _records(200)))
+    _write(carried, verdicts_doc("2026-07-20T00:00:00Z", _records(4)))
+    assert pick_frontier(tmp_path, STAMP) == (tmp_path / "verdicts-b.json", 3)
+    parsed = _spy_on_parses(monkeypatch)
+    hit = resolve_carry_source(tmp_path, STAMP, autosave)
+    assert parsed == [_digest(autosave), _digest(foreign), _digest(carried)]
+    assert hit == _reference_resolve_carry_source(tmp_path, STAMP, autosave)
+
+
+def test_a_deleted_candidate_drops_out_of_the_frontier(tmp_path, monkeypatch):
+    monkeypatch.setattr(status, "_SETTLE_NS", -(10**18))
+    winner = tmp_path / "verdicts-a.json"
+    runner_up = tmp_path / "verdicts-b.json"
+    _write(winner, verdicts_doc(STAMP, _records(3)))
+    _write(runner_up, verdicts_doc(STAMP, _records(2)))
+    assert pick_frontier(tmp_path, STAMP) == (winner, 3)
+    winner.unlink()
+    assert pick_frontier(tmp_path, STAMP) == (runner_up, 2)
+    assert set(status._MEMO) == {runner_up}
+    runner_up.unlink()
+    assert pick_frontier(tmp_path, STAMP) is None
+
+
+def test_the_frontier_path_is_spelled_from_the_callers_root(tmp_path, monkeypatch):
+    monkeypatch.setattr(status, "_SETTLE_NS", -(10**18))
+    _write(tmp_path / "verdicts-a.json", verdicts_doc(STAMP, _records(2)))
+    monkeypatch.chdir(tmp_path)
+    assert pick_frontier(Path("."), STAMP) == (Path("verdicts-a.json"), 2)
+    assert pick_frontier(Path("."), STAMP) == (Path("verdicts-a.json"), 2)
+    assert pick_frontier(tmp_path, STAMP) == (tmp_path / "verdicts-a.json", 2)
+
+
+def test_the_memo_holds_only_the_last_walks_candidates(tmp_path, monkeypatch):
+    monkeypatch.setattr(status, "_SETTLE_NS", -(10**18))
+    first = tmp_path / "first"
+    second = tmp_path / "second"
+    carried = second / "rebuild" / "evidence" / "verdicts-carried-abc1234.json"
+    _write(first / "verdicts-a.json", verdicts_doc(STAMP, _records(1)))
+    _write(second / "verdicts-b.json", verdicts_doc(STAMP, _records(2)))
+    _write(carried, verdicts_doc(OTHER_STAMP, _records(3)))
+    assert pick_frontier(first, STAMP) == (first / "verdicts-a.json", 1)
+    assert set(status._MEMO) == {first / "verdicts-a.json"}
+    assert pick_frontier(second, STAMP) == (second / "verdicts-b.json", 2)
+    assert set(status._MEMO) == {second / "verdicts-b.json", carried}
 
 
 def test_mismatched_empty_autosave_remedy_names_the_frontier(tmp_path):

@@ -86,7 +86,7 @@ def main() -> None:
             """A conditional Range request that satisfied `If-Modified-Since` would otherwise come back 304 with no body, and the app would have nothing to parse."""
             return False
 
-    # The status is the freshness fingerprint over the review code plus a scan of every verdicts file at the root, seconds of CPU the app asks for on every focus and every hash change. It is computed off the loop, so the shard Range requests a card is waiting on go out while it runs, and one answer serves every request inside STATUS_TTL_S — nothing it reads moves between a cycle and the next, and a cycle restarts this server.
+    # The status is the freshness fingerprint over the review code plus the frontier pick, CPU the app asks for on every focus and every hash change; status.pick_frontier answers the pick from a memo of what each verdicts file answered, keyed on the file's stat. It is computed off the loop, so the shard Range requests a card is waiting on go out while it runs, and one answer serves every request inside STATUS_TTL_S — nothing it reads moves between a cycle and the next, and a cycle restarts this server.
     class StatusCache:
         at: float = 0.0
         result: dict | None = None
