@@ -2252,7 +2252,7 @@ def _composed_verdict(rules, unit, events, context):
 
 
 class SlideContext:
-    """The font-backed state the slide shape and the composed reading match with: one InkComparator over the surface's shipped font pair, a per-run memo of each rule's geometric verdict per unit so the guarded and unguarded passes over one rule shape a window once, and a second memo of each composed walk per unit, keyed on the composable rules' ids and matches so a window is shaped once however many times the same rules ask about it and a caller holding a second rule set against the same context is never served the first set's reading. `fonts` keeps the pair it was built over, so a pooled worker (`_standing_pool_init`) builds its own context over provably the parent's fonts. Every key in both memos names the unit it was computed for and `Decider._decided` answers any repeat ask, so `Decider.decide` empties both behind every unit at no cost, and a pooled worker, which asks `evaluate` directly and never passes through `decide`, empties them behind every chunk (`_standing_pool_chunk`), which is what makes its peak chunk-shaped rather than slice-shaped."""
+    """The font-backed state the slide shape and the composed reading match with: one InkComparator over the surface's shipped font pair, a per-run memo of each rule's geometric verdict per unit so the guarded and unguarded passes over one rule shape a window once, and a second memo of each composed walk per unit, keyed on the composable rules' ids and matches so a window is shaped once however many times the same rules ask about it and a caller holding a second rule set against the same context is never served the first set's reading. `fonts` keeps the pair it was built over, so a pooled worker (`_standing_pool_init`) builds its own context over provably the parent's fonts. Every key in both memos names the unit it was computed for and `Decider._decided` answers any repeat ask, so `Decider._release` empties both at no cost behind every unit `Decider.decide` serves or computes and every memo entry `Decider._serving` holds against the live rules, and a pooled worker, which asks `evaluate` directly and passes through neither, empties them behind every chunk (`_standing_pool_chunk`), which is what makes its peak chunk-shaped rather than slice-shaped."""
 
     def __init__(self, before_font, after_font) -> None:
         self.fonts = (before_font, after_font)
@@ -2919,8 +2919,14 @@ class Decider:
                 held.add(rule["id"])
         return Decision(None, frozenset(matched), frozenset(held), entry.relevant), bool(repairs)
 
+    def _release(self) -> None:
+        """Empty the context's shape and walk memos. Every key in them names the unit it was computed for, and `_decided` and `_servings` answer any repeat ask, so emptying them behind a unit costs nothing: `decide` does it behind every unit it serves or computes, `_serving` behind every memo entry it holds against the live rules, which `_prefill` and `misses` ask for outside `decide`, and a pooled worker behind every chunk (`_standing_pool_chunk`). The alignment cache is not one of these memos: it spans the run on the serial path, and `release_alignment_cache` names the boundaries that empty it."""
+        if self.context is not None:
+            self.context.memo.clear()
+            self.context.composed.clear()
+
     def _serving(self, unit) -> tuple[Decision, bool] | None:
-        """`_serve` over the unit's memo entry, answered once per unit however many times `misses` and `decide` ask, its key marked served in the memo so `Memo.write` keeps it under a moved roster, and written back over the entry when it repaired or trimmed it, so the file never keeps a rule the live file dropped."""
+        """`_serve` over the unit's memo entry, answered once per unit however many times `_prefill`, `misses` and `decide` ask, its key marked served in the memo so `Memo.write` keeps it under a moved roster, and written back over the entry when it repaired or trimmed it, so the file never keeps a rule the live file dropped. The context's memos are released behind the `_serve` it runs (`_release`), so a repair asked for outside `decide` leaves no window in them."""
         unit_id = unit["id"]
         if unit_id not in self._servings:
             serving = None
@@ -2928,7 +2934,10 @@ class Decider:
             if self.memo is not None and key is not None:
                 entry = self.memo.entries.get(key)
                 if entry is not None:
-                    serving = self._serve(unit, entry)
+                    try:
+                        serving = self._serve(unit, entry)
+                    finally:
+                        self._release()
                     if serving is not None:
                         self.memo.served.add(key)
                         if serving[0] != entry:
@@ -2955,7 +2964,7 @@ class Decider:
         return decision
 
     def decide(self, unit) -> Decision:
-        """The unit boundary: the decision, served or computed, answered from `_decided` on a repeat ask, and the context's shape and walk memos emptied behind every unit it serves or computes, because every key in them names the unit it was computed for and `_decided` answers any repeat ask, so a run's context holds one unit's windows rather than the domain's. `misses` asks `_serving` outside this boundary, so a repair it runs stays in the shape memo until the next `decide` that serves or computes."""
+        """The unit boundary: the decision, served or computed, answered from `_decided` on a repeat ask, and the context's shape and walk memos released behind every unit it serves or computes (`_release`), so a run's context holds one unit's windows rather than the domain's."""
         decision = self._decided.get(unit["id"])
         if decision is not None:
             return decision
@@ -2970,9 +2979,7 @@ class Decider:
             self._decided[unit["id"]] = decision
             return decision
         finally:
-            if self.context is not None:
-                self.context.memo.clear()
-                self.context.composed.clear()
+            self._release()
 
     def misses(self, units) -> list:
         """The units among `units` this run would have to evaluate itself: not decided yet, and not servable from the memo — no entry under their key, or an entry `_serve` refuses. An entry `_serve` repairs is not a miss: the repair is a matcher or two, run serially. A dropped memo misses everything; a rules commit misses the units the moved rules can reach, which a broad rule can carry past `_STANDING_POOL_THRESHOLD`, so a rule-landing pass can open the pool over a memo it mostly served."""
@@ -2999,14 +3006,12 @@ def _standing_pool_chunk(units) -> list[tuple[str, list]]:
     try:
         return [(unit["id"], _decision_record(decider.evaluate(unit))) for unit in units]
     finally:
-        if decider.context is not None:
-            decider.context.memo.clear()
-            decider.context.composed.clear()
+        decider._release()
         release_alignment_cache()
 
 
 def _prefill(decider: Decider, asked, jobs: int) -> None:
-    """Consume the requested records once, deciding hits immediately and spooling pool misses. Pool submission holds at most one wave of `jobs` chunks; only ids and decisions survive the pass."""
+    """Consume the requested records once, deciding hits immediately and spooling pool misses. Pool submission holds at most one wave of `jobs` chunks; only ids and decisions survive the pass. `_serving` and `decide` each release the context's memos behind the unit they ask about (`Decider._release`), so the spool pass holds no unit's windows past it."""
     if jobs <= 1:
         for unit in asked:
             decider.decide(unit)
@@ -3015,16 +3020,11 @@ def _prefill(decider: Decider, asked, jobs: int) -> None:
         missed: set[str] = set()
         with gzip.GzipFile(fileobj=handle, mode="wb", compresslevel=1, mtime=0) as stream:
             for unit in asked:
-                try:
-                    if unit["id"] in decider._decided or decider._serving(unit) is not None:
-                        decider.decide(unit)
-                    else:
-                        missed.add(unit["id"])
-                        stream.write((json.dumps(dict(unit)) + "\n").encode())
-                finally:
-                    if decider.context is not None:
-                        decider.context.memo.clear()
-                        decider.context.composed.clear()
+                if unit["id"] in decider._decided or decider._serving(unit) is not None:
+                    decider.decide(unit)
+                else:
+                    missed.add(unit["id"])
+                    stream.write((json.dumps(dict(unit)) + "\n").encode())
         handle.seek(0)
         with gzip.GzipFile(fileobj=handle, mode="rb") as stream:
             units = (json.loads(line) for line in stream)
