@@ -890,6 +890,24 @@ class TestConformanceMerge:
         assert merged.shaping_runs == 0
         assert merged.passed is True
 
+    def test_per_configuration_workers_merged_in_any_order_write_the_serial_report(
+        self, spec, guard, tmp_path
+    ):
+        """The pooled belt at any width against the serial one, with no pool: each configuration swept by the worker a pool would run, finished in reverse, re-ordered by acceptance configuration and merged, writes the bytes `run_conformance` writes. A worker that built its shaper, alphabet or splitters differently from the serial arm's, or a merge that folded in completion order, would diverge here. Both arms run with no glyph mapping and the worker is handed the guard, so neither the anchor path nor a worker's own guard build is under test."""
+        font = MINI / "M1.otf"
+        finished = [
+            conform.conformance_config_worker(spec, font, config, 2, None, guard, None)
+            for config in reversed(conform.ACCEPTANCE_CONFIGS)
+        ]
+        by_config = {result.config: result for result in finished}
+        merged = conform.merge_conformance_results(
+            font, [by_config[config] for config in conform.ACCEPTANCE_CONFIGS]
+        )
+        assert merged.shaping_runs > 0
+        merged.write(tmp_path / "a.json")
+        conform.run_conformance(font, spec, max_length=2, out_dir=tmp_path, summary_name="b.json")
+        assert (tmp_path / "a.json").read_bytes() == (tmp_path / "b.json").read_bytes()
+
 
 _AUDIT_SHAPES = (
     {},

@@ -84,7 +84,7 @@ def main(argv: list[str] | None = None) -> int:
         "--jobs",
         type=int,
         default=sweep_job_budget(),
-        help="worker budget in the same lane the cycle's conform gate uses; the belt runs one process per acceptance configuration and no more, since a configuration is its unit, so a wider number is narrowed to that count",
+        help="worker budget, defaulting to the oracle's sweep_job_budget() for this box; the sweep runs one process per acceptance configuration and no more, since a configuration is its unit, so a wider number is narrowed to that count",
     )
     parser.add_argument(
         "--status",

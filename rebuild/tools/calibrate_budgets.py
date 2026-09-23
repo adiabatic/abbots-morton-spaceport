@@ -1,10 +1,10 @@
 """Hold the checked-in per-unit memory peaks against what this box actually measured — `make job-costs`, the instrument for issue #92.
 
-Several widths in this tree are a box divided by a measured per-unit peak: what one pytest worker of a suite holds, what one kernel configuration holds while it is live. Each of those peaks is a checked-in constant — `FONT_SUITE_WORKER_BYTES` in the root `conftest.py`, `DELTA_PEAK_BYTES` and `DEFAULT_MEMO_BYTES` in `rebuild/pipeline/kernel_exec.py`, `SURFACE_PARENT_BYTES`, `SURFACE_WORKER_BYTES` and `ORACLE_SHARD_BYTES` in `rebuild/tools/artifact_cycle.py` — and every one of them is a reading of a working set that a memory-saver or a heavier fixture can move out from under. The measurements that would catch such a move are already being taken on every run, by two instruments that were never introduced to each other: each xdist controller's per-worker peaks, and the peak RSS the cycle stamps on every step it spawns. So a divisor could go stale silently, and a stale one announces itself not as a red test but as a box in swap — or, in the other direction, as a pool held to a quarter of the width it had room for. This module is the introduction, and it is a file read: no build, no import of the code it prices.
+Several widths in this tree are a box divided by a measured per-unit peak: what one pytest worker of a suite holds, what one kernel configuration holds while it is live. Each of those peaks is a checked-in constant — `FONT_SUITE_WORKER_BYTES` in the root `conftest.py`, `DELTA_PEAK_BYTES` and `DEFAULT_MEMO_BYTES` in `rebuild/pipeline/kernel_exec.py`, `SURFACE_PARENT_BYTES`, `SURFACE_WORKER_BYTES`, `ORACLE_SHARD_BYTES` and `CONFORM_BELT_BYTES` in `rebuild/tools/artifact_cycle.py` — and every one of them is a reading of a working set that a memory-saver or a heavier fixture can move out from under. The measurements that would catch such a move are already being taken on every run, by two instruments that were never introduced to each other: each xdist controller's per-worker peaks, and the peak RSS the cycle stamps on every step it spawns. So a divisor could go stale silently, and a stale one announces itself not as a red test but as a box in swap — or, in the other direction, as a pool held to a quarter of the width it had room for. This module is the introduction, and it is a file read: no build, no import of the code it prices.
 
 What it reads is the cycle-timings journal and nothing else. `kind:"pool"` records supply one observation per worker, because the unit being priced is one worker and a pool of eight is therefore eight measurements of it. Named `kind:"step"` records supply their `peak_rss_bytes`, but only where that figure genuinely is one unit, and that caveat wants stating rather than hinting: `peak_rss.reap_peak_rss_bytes` maxes over a child's whole process tree instead of summing it, so a step peak is the widest single process under that step. That is one unit exactly where the step's tree is a parent holding heads over one-thread children (`run_m1`), or a parent holding the whole corpus over workers each holding one batch of it (`surface-build`), where the max reads the parent and the parent is what that row prices, and it is emphatically not one unit for `gate:make-test`, whose tree carries `make all` and `uv run pyright` beside the pool. The `UNITS` registry below states, per unit, which sources are honest for it, and each entry carries the argument in its own words.
 
-What an observation is held against is that unit's constant, read out of its source file by `ast` and never imported. pytest loads every conftest under the plain name `conftest`, so from anywhere under `rebuild/` a plain `import conftest` answers the wrong file while `import rebuild.conftest` would execute a second copy of one pytest has already loaded and armed its lane-audit hook in; `ast` answers without executing anything, and it keeps a build tool out of the business of importing pytest and inheriting that file's `sys.path` edits. It is `artifact_cycle._font_suite_worker_bytes`' argument, made a third time here. The same mechanism settles one detail the width clauses need: the surface rows read their cap and each other's constant beside their own peak, so the width each prints is the one the build will actually take rather than an uncapped division nothing in the repo uses. The kernel row cannot be settled the same way — what narrows that fan-out is the configuration count and the cores at `run_m1.build_tables`' own call site, neither of them a constant to read — so it prints the memory arithmetic and says in words what narrows it afterwards.
+What an observation is held against is that unit's constant, read out of its source file by `ast` and never imported. pytest loads every conftest under the plain name `conftest`, so from anywhere under `rebuild/` a plain `import conftest` answers the wrong file while `import rebuild.conftest` would execute a second copy of one pytest has already loaded and armed its lane-audit hook in; `ast` answers without executing anything, and it keeps a build tool out of the business of importing pytest and inheriting that file's `sys.path` edits. It is `artifact_cycle._font_suite_worker_bytes`' argument, made a third time here. The same mechanism settles one detail the width clauses need: the surface rows read their cap and each other's constant beside their own peak, and the conform-belt row reads its cap, the acceptance-configuration count, as the lengths of the literal configuration tuples in `rebuild/pipeline/conform.py` (`_acceptance_config_count`), beside the surface constants its second arm needs, so the width each prints is the one its pool will actually take rather than an uncapped division nothing in the repo uses. The kernel row cannot be settled the same way — what narrows that fan-out is the configuration count and the cores at `run_m1.build_tables`' own call site, neither of them a constant to read — so it prints the memory arithmetic and says in words what narrows it afterwards.
 
 An observed peak past its constant means the divisor is stale. It does not mean an artifact is wrong: what a stale divisor costs is a pool of the wrong width, so nothing here gates a build and `--check`'s nonzero exit is loudness rather than a failure. That nonzero is spelled apart from a crash — `1` is the verdict and `2` is this tool failing to reach one — because the artifact cycle reads the two differently, printing a constants diff on the first and an informational line on the second, and a traceback reported as an overrun would be a measurement nobody ever took. The fix is to re-seed the constant off the fresher measurement, and committing the updated constant is the acceptance — exactly the contract `rebuild/review-census-pins.json` already has for the census, where the diff is what a human reads and the commit is the blessing. The tolerance therefore defaults to zero, which is not strictness for its own sake: these constants are already headroom, each one's own comment saying it rounds up past the top of its measured range because a per-unit cost that errs low is what puts a box into swap while one that errs high only narrows a pool. A measurement that reaches the constant has already eaten all of that deliberate slack, and saying so is the whole news this check exists to deliver; softening it by a further fraction would be headroom on headroom. The knob stays for a caller surveying a fleet with `--host all`, not to soften the default.
 
@@ -38,6 +38,8 @@ SURFACE_WORKER_NAME = "SURFACE_WORKER_BYTES"
 STANDING_FILL_PARENT_NAME = "STANDING_FILL_PARENT_BYTES"
 STANDING_FILL_WORKER_NAME = "STANDING_FILL_WORKER_BYTES"
 ORACLE_SHARD_NAME = "ORACLE_SHARD_BYTES"
+CONFORM_BELT_NAME = "CONFORM_BELT_BYTES"
+CONFORM_SOURCE = "rebuild/pipeline/conform.py"
 
 
 @dataclass(frozen=True)
@@ -123,6 +125,15 @@ UNITS: tuple[Unit, ...] = (
         note="These pool records come from `run_m1.run_oracle`'s own fan-in rather than from a pytest controller: one record per oracle fan-out, one observation per row range that ran, each the range's worker's own peak as it reported it home. The run_m1 step peak is deliberately not admitted: that step's widest process is the table build's child, which the kernel-build row prices, and it would read a build's footprint as a shard's. The row is quiet on a box the arithmetic narrows to `--jobs 1`, since the serial oracle starts no pool; a hand `run_m1 --gates-only` at any wider width puts an observation on the record.",
     ),
     Unit(
+        name="conform-belt",
+        constant=CONFORM_BELT_NAME,
+        source=SURFACE_SOURCE,
+        pool_units=("conform-belt",),
+        step_names=(),
+        step_caveat="",
+        note="These pool records come from `run_m1.run_font_conformance`'s own fan-in rather than from a pytest controller: one record per pooled belt at `conform.BELT_HORIZON`, one observation per acceptance configuration, each the configuration's worker's own peak as `run_m1._priced_conformance_config` carried it home beside the result. A deeper sweep (`make conform-deep`, or a `--conform-horizon` past the belt's) runs the same pooled arm and files nothing here, since its worker builds a horizon-deep memo in process and is a different pile from the belt's. A reading is the worker process's high-water mark and `run_m1._spawn_pool` sets no `maxtasksperchild`, so below the acceptance-configuration count a configuration that runs second in a reused worker reads at or above the mark the one before it left, and the record prices the pool's shape rather than one configuration's cost. The gate:conform step peak is deliberately not admitted: `reap_peak_rss_bytes` maxes over the child's tree rather than summing it, so that step's peak reads one process and never the pool. The row is quiet on a pass whose gate:conform skips on its green, and at `--jobs 1`, since the serial belt starts no pool; a hand `run_m1 --conform-only` at any wider width puts observations on the record. The row prices `CONFORM_BELT_BYTES`, the divisor `artifact_cycle.conform_job_budget` divides the box by once the build lane's larger step is off it.",
+    ),
+    Unit(
         name="standing-fill-parent",
         constant=STANDING_FILL_PARENT_NAME,
         source=SURFACE_SOURCE,
@@ -150,6 +161,31 @@ def _constant_assignment(path: Path, name: str) -> tuple[int, int]:
 
 def _int_constant(path: Path, name: str) -> int:
     return _constant_assignment(path, name)[0]
+
+
+@functools.cache
+def _acceptance_config_count(path: Path) -> int:
+    """How many acceptance configurations `path` defines: the lengths of its module-scope `SETTLEMENT_CONFIGS` and `OVERLAY_CONFIGS` tuples summed, the two `conform.ACCEPTANCE_CONFIGS` concatenates, read out of the source for `_constant_assignment`'s reason. It is the belt's non-memory cap beside the cores. A missing name or a value that is not a literal tuple raises, because a cap this cannot read is a width the report would state wrong."""
+    names = ("SETTLEMENT_CONFIGS", "OVERLAY_CONFIGS")
+    lengths: dict[str, int] = {}
+    tree = ast.parse(path.read_text(encoding="utf-8"))
+    for node in tree.body:
+        if not isinstance(node, ast.Assign):
+            continue
+        for target in node.targets:
+            if isinstance(target, ast.Name) and target.id in names:
+                value = ast.literal_eval(node.value) if isinstance(node.value, ast.Tuple) else None
+                if not isinstance(value, tuple):
+                    raise RuntimeError(
+                        f"{path} assigns {target.id} something other than a literal tuple: the conform-belt row reads the acceptance-configuration count off that tuple's length to state the belt's cap."
+                    )
+                lengths[target.id] = len(value)
+    missing = [name for name in names if name not in lengths]
+    if missing:
+        raise RuntimeError(
+            f"{path} defines no {' or '.join(missing)}: the conform-belt row reads the acceptance-configuration count off those tuples to state the belt's cap. Point `CONFORM_SOURCE` at the file that defines them, or update this reader beside whatever moved them."
+        )
+    return sum(lengths.values())
 
 
 def constant_seeded_at(path: Path, name: str, *, root: Path = ROOT) -> str | None:
@@ -395,7 +431,7 @@ def _sources_line(row: UnitRow) -> str | None:
 
 
 def _width_clause(unit: Unit, constant_bytes: int, *, total_bytes: int, cores: int, root: Path) -> str:
-    """The width this constant implies on the box in hand, said the way the call site that owns it says it. Five units, four shapes: the font suite's pool takes the cores flat and prices this constant as a co-resident rather than dividing by it, so a bare `describe_fit` there would state a width the repo never asks for; the kernel fan-out divides with no memory cap at all and is narrowed afterwards by the configuration count and the cores at run_m1.build_tables' own `min()`, neither of which is a constant to read, so that narrowing is stated in words; the surface build names two constants rather than one, because its flat half is as large as its divided half — the parent row states what is subtracted from the box and the worker row what the remainder is divided by, so neither is the whole width on its own and each prints the other's figure to reach one; and the standing fill's parent is the surface parent's shape again, subtracted before a division by a worker constant this registry does not watch. The surface rows and the standing-fill row print the unreserved arm and say so, the gated cycle's further subtraction being a fact about a pass rather than about a box. The cap comes out of `root` rather than out of this module's own tree for the reason the constants do: a report is a pure function of a stated box and a stated tree, and a tree hard-coded here would have a test that invented both quietly reading the live repo for half its answer."""
+    """The width this constant implies on the box in hand, said the way the call site that owns it says it, one shape per call site: the font suite's pool takes the cores flat and prices this constant as a co-resident rather than dividing by it, so a bare `describe_fit` there would state a width the repo never asks for; the kernel fan-out divides with no memory cap at all and is narrowed afterwards by the configuration count and the cores at run_m1.build_tables' own `min()`, neither of which is a constant to read, so that narrowing is stated in words; the surface build names two constants rather than one, because its flat half is as large as its divided half — the parent row states what is subtracted from the box and the worker row what the remainder is divided by, so neither is the whole width on its own and each prints the other's figure to reach one; the standing fill's parent is the surface parent's shape again, subtracted before a division by a worker constant this registry does not watch; and the conform belt divides by its own constant under a cap that is a data count, the acceptance configurations its source file defines, beside the cores, and prints two arms, the build lane idle and beside a surface build, whose parent and width it reads off the surface constants. The surface rows and the standing-fill row print the unreserved arm and say so, and the belt's second arm takes the surface build at that arm, the gated cycle's further subtraction being a fact about a pass rather than about a box. The cap comes out of `root` rather than out of this module's own tree for the reason the constants do: a report is a pure function of a stated box and a stated tree, and a tree hard-coded here would have a test that invented both quietly reading the live repo for half its answer."""
     if unit.name == "font-suite":
         allowed = memory_budget.describe_fit(constant_bytes, total_bytes=total_bytes)
         return f"the font suite takes the cores this process may run on ({cores}), not the division; memory would allow {allowed}"
@@ -424,6 +460,21 @@ def _width_clause(unit: Unit, constant_bytes: int, *, total_bytes: int, cores: i
             worker, coresident_bytes=constant_bytes, cap=cores, total_bytes=total_bytes
         )
         return f"the standing fill's chain parent is subtracted from the box rather than divided into it; with it off, the refill pool runs {allowed} ({STANDING_FILL_WORKER_NAME}, seeded by hand); under a gated cycle gate:make-test's pool comes off the box before this division too, and two cores off the cap"
+    if unit.name == "conform-belt":
+        cap = min(_acceptance_config_count(root / CONFORM_SOURCE), cores)
+        parent = _int_constant(root / SURFACE_SOURCE, SURFACE_PARENT_NAME)
+        worker = _int_constant(root / SURFACE_SOURCE, SURFACE_WORKER_NAME)
+        surface_width = memory_budget.how_many_fit(
+            worker,
+            coresident_bytes=parent,
+            cap=min(_int_constant(root / SURFACE_SOURCE, SURFACE_CAP_NAME), cores),
+            total_bytes=total_bytes,
+        )
+        idle = memory_budget.describe_fit(constant_bytes, cap=cap, total_bytes=total_bytes)
+        beside = memory_budget.describe_fit(
+            constant_bytes, coresident_bytes=parent + surface_width * worker, cap=cap, total_bytes=total_bytes
+        )
+        return f"the belt runs {idle} with the build lane idle, and {beside} beside a surface build of its parent and {surface_width} workers"
     return memory_budget.describe_fit(constant_bytes, total_bytes=total_bytes)
 
 
