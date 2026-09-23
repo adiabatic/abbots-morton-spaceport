@@ -14,7 +14,7 @@ use crate::hash::HashMap;
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct Sym(NonZeroU32);
 
-/// The one string pool a parsed dump resolves through: a `Vec<String>` for `Sym` to text and a map for text to `Sym`, on the crate's own hasher ([`crate::hash`]). The hasher is a measured choice: a finalizer-less fast hasher measures far slower than SipHash on this project's keys, whose low bits are a five-value alphabet, and a finalized one measures far faster, which is the one the crate takes.
+/// The one string pool a parsed dump resolves through: a `Vec<String>` for `Sym` to text and a map for text to `Sym`, on the crate's own hasher ([`crate::hash`]). The hasher is a measured choice: a fast hasher without a finalizer, whose low bits cannot see the high bits of the last word written, measures far slower than SipHash on this project's keys, and a finalized one measures far faster, which is the one the crate takes.
 #[derive(Clone, Debug, Default)]
 pub struct Interner {
     strings: Vec<String>,

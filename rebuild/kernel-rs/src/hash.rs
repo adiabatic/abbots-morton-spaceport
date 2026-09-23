@@ -1,6 +1,6 @@
 //! The crate's hash maps and sets: [`HashMap`] and [`HashSet`] are the standard library's tables on [`FastHasher`], a multiply-rotate hasher with an avalanche finalizer, in place of the `RandomState` SipHash the standard aliases default to. Every module that keys a table imports the two aliases from here and constructs them through `Default`, so the hasher is chosen once and no call site names it.
 //!
-//! The crate's map keys are small `Copy` structs of packed integers — `TraceKey`, `CandidatesKey` and `ProspectKey` in `engine.rs`, each a run of `u16` field ordinals and one packed word of token kinds, `Pointer` beside them, `Candidate` in `types.rs`, `Sym` in `model.rs`, `StanceId` in `index.rs`, the fixpoint's and the replay's window keys — whose derived `Hash` emits one write per field, and the tables they key are the widest the build holds (`--cache-census` reports how wide). SipHash costs a whole compression round per write on those keys and the settlement pays it on every probe; this hasher folds each word into the state with one rotate, one xor and one multiply. What makes the finalizer necessary is how hashbrown reads the finished word: the low bits pick the bucket and the top seven bits are the control byte it matches sixteen at a time, so a hasher whose low bits carry only the last field written — a five-value alphabet in these keys — measures far slower than SipHash, while a finalized one, whose every output bit depends on every input bit, measures far faster (`doc/rebuild-design.md` §14.1). The finalizer is the reason the fast hasher wins here, and the reason a first pass without one lost.
+//! The crate's map keys are small `Copy` structs of packed integers — `TraceKey`, `CandidatesKey` and `ProspectKey` in `engine.rs`, each a run of `u16` field ordinals and one packed word of token kinds, `Pointer` beside them, `Candidate` in `types.rs`, `Sym` in `model.rs`, `StanceId` in `index.rs`, the fixpoint's and the replay's window keys — whose derived `Hash` emits one write per field, and the tables they key are the widest the build holds (`--cache-census` reports how wide). SipHash costs a whole compression round per write on those keys and the settlement pays it on every probe; this hasher folds each word into the state with one rotate, one xor and one multiply. What makes the finalizer necessary is how hashbrown reads the finished word: the low bits pick the bucket and the top seven bits are the control byte it matches sixteen at a time, so a hasher without a finalizer, whose last multiply carries each bit of the last word written only upward and so leaves the low bits unable to see that word's high bits, measures far slower than SipHash, while a finalized one, whose every output bit depends on every input bit, measures far faster (`doc/rebuild-design.md` §14.1). The finalizer is the reason the fast hasher wins here, and the reason a first pass without one lost.
 //!
 //! Two consequences worth holding onto. Iteration order over these tables is a function of the keys alone and identical across processes, where the standard tables reseed per process; nothing downstream reads that order, since every table that reaches output is drained and sorted first, so this is a narrowing of what the crate already tolerated. And the hasher is not collision-resistant against chosen keys: a caller that could pick the keys could pick colliding ones, which is irrelevant for a build tool reading a spec this repository authors and the reason to reach for the standard hasher instead were this crate ever fed untrusted input.
 
@@ -163,6 +163,55 @@ mod tests {
         assert_ne!(hash_of(&[0u8; 8]), hash_of(&[0u8; 9]));
     }
 
+    /// Whether a source names a standard hash table, a hash module or a glob under a `collections` path, or renames the module itself, after which a `c::HashMap` spells no `collections` path at all.
+    fn reaches_for_a_standard_table(source: &str) -> bool {
+        source.match_indices("collections").any(|(at, name)| {
+            if source[..at].ends_with(|c: char| c.is_alphanumeric() || c == '_') {
+                return false;
+            }
+            let statement = source[at + name.len()..]
+                .split(';')
+                .next()
+                .unwrap_or_default();
+            let words: Vec<&str> = statement
+                .split(|c: char| !(c.is_alphanumeric() || c == '_'))
+                .filter(|word| !word.is_empty())
+                .collect();
+            match statement.strip_prefix("::") {
+                Some(path) => {
+                    path.contains("Hash")
+                        || path.contains("hash_")
+                        || path.contains('*')
+                        || words.windows(2).any(|pair| pair == ["self", "as"])
+                }
+                None => words.first() == Some(&"as"),
+            }
+        })
+    }
+
+    #[test]
+    fn the_import_tripwire_catches_a_renamed_collections_module() {
+        for stray in [
+            "use std::collections::HashMap;",
+            "use std::collections::hash_map::Entry;",
+            "use std::collections::*;",
+            "fn f() -> std::collections::HashSet<u32> { Default::default() }",
+            "use std::collections as c;\nfn f() -> c::HashMap<u32, u32> { c::HashMap::new() }",
+            "use std::{collections as c, fmt};",
+            "use std::collections::{self as c};",
+        ] {
+            assert!(reaches_for_a_standard_table(stray), "missed: {stray}");
+        }
+        for clean in [
+            "use std::collections::BTreeSet;",
+            "use std::collections::{BTreeMap as Map, VecDeque};",
+            "use crate::hash::{HashMap, HashSet};",
+            "let collections_as_text = 1;",
+        ] {
+            assert!(!reaches_for_a_standard_table(clean), "flagged: {clean}");
+        }
+    }
+
     #[test]
     fn no_crate_module_imports_the_standard_hash_tables() {
         let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
@@ -180,13 +229,7 @@ mod tests {
                     continue;
                 }
                 let source = std::fs::read_to_string(&path).expect("a crate source file reads");
-                let reaches_for_a_table = source.match_indices("collections::").any(|(at, _)| {
-                    let statement = source[at..].split(';').next().unwrap_or_default();
-                    statement.contains("Hash")
-                        || statement.contains("hash_")
-                        || statement.contains('*')
-                });
-                if reaches_for_a_table {
+                if reaches_for_a_standard_table(&source) {
                     strays.push(
                         path.strip_prefix(root)
                             .unwrap_or(&path)

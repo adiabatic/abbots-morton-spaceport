@@ -63,7 +63,7 @@ impl<'a> Universe<'a> {
     }
 }
 
-/// The sweep universe's alphabet, `conform.spec_alphabet`: every modeled letter with a code point and every registered boundary token, in code point order, which is the order the universe is walked in and therefore the order a disagreement is found in. A rune's code point is its own record's, or the registry family's where the record leaves it unspelled — the two agree wherever both are spelled, since `spec_load` refuses a rune whose code point disagrees with its family's.
+/// The sweep universe's alphabet, `labels.spec_alphabet`: every modeled letter with a code point and every registered boundary token, in code point order, which is the order the universe is walked in and therefore the order a disagreement is found in. A rune's code point is its own record's, or the registry family's where the record leaves it unspelled — the two agree wherever both are spelled, since `spec_load` refuses a rune whose code point disagrees with its family's.
 pub fn alphabet(index: &SpecIndex) -> Result<Vec<RightToken>, String> {
     let mut seated: Vec<(i64, RightToken)> = Vec::new();
     for (name, _) in index.runes() {
@@ -641,7 +641,7 @@ impl<'i> Replay<'i> {
         label
     }
 
-    /// The label an input carries immediately after a ZWNJ: the chokepoint twin's for an entry-bearing rune, whose rows the enumeration keys under that label (`fixpoint`'s locked input), and its raw label for a rune the chokepoint never locks. This is `conform.formed_labels`' `.noentry` rename, applied to the input slot alone — the `#NA` cascade keeps a post-ZWNJ letter out of every right slot.
+    /// The label an input carries immediately after a ZWNJ: the chokepoint twin's for an entry-bearing rune, whose rows the enumeration keys under that label (`fixpoint`'s locked input), and its raw label for a rune the chokepoint never locks. This is `labels.formed_labels`' `.noentry` rename, applied to the input slot alone — the `#NA` cascade keeps a post-ZWNJ letter out of every right slot.
     fn locked_label(&mut self, rune: Sym, raw: u32) -> u32 {
         if !self.index.is_entry_bearing(rune) {
             return raw;
