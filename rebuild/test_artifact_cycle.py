@@ -4509,7 +4509,7 @@ def test_a_promotion_whose_outgoing_tree_will_not_delete_still_counts(tmp_path, 
 def test_recover_superseded_surface_settles_the_leftover_before_the_first_run_question(
     tmp_path, monkeypatch, capsys
 ):
-    """A `.superseded` tree beside a live one is the surface a promotion replaced, so it is deleted; one with no live tree beside it is the live surface a pass that died between the two renames had stepped aside, so it is put back. `main` settles it before asking whether the surface exists, so an interrupted promotion is neither a first run nor an orphan of the surface's size."""
+    """A `.superseded` tree beside a live one is the surface a promotion replaced, so it is deleted; one with no live tree beside it is the live surface a pass that died between the two renames had stepped aside, so it is put back. `main` settles it before asking whether the surface exists, so an interrupted promotion is neither a first run nor an orphan of the surface's size. A dry run still puts a lone tree back, so the plan it prints is the one a real pass follows, but leaves a tree beside a live one for the next real pass to delete."""
     live = tmp_path / "review"
     superseded = tmp_path / "review.superseded"
     assert ac.recover_superseded_surface(live) is None
@@ -4532,6 +4532,14 @@ def test_recover_superseded_surface_settles_the_leftover_before_the_first_run_qu
     assert "Put " in out and "review.superseded" in out
     assert "First-run mode" not in out
     assert (ac.REVIEW_OUT / "manifest.json").exists()
+
+    leftover = ac.REVIEW_OUT.with_name("review.superseded")
+    leftover.mkdir()
+    (leftover / "manifest.json").write_text("{}")
+    assert ac.main(["--dry-run"]) == 0
+    out = capsys.readouterr().out
+    assert "Left " in out and "for the next real pass to delete" in out
+    assert (leftover / "manifest.json").exists()
 
 
 def test_a_promoted_surface_still_answers_for_itself(tmp_path, mini_surface):

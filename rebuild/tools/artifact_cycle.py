@@ -821,7 +821,7 @@ def promotable_surface(
 
 
 def promote_surface(source: Path, live: Path | None = None) -> None:
-    """Move a rehearsal's surface into place as the live one. Two renames rather than a removal and a move: the live tree steps aside under a `.superseded` name, the source takes its place, and only then is the outgoing tree deleted — so the seconds a 3.5 GB rmtree takes never pass with no surface on disk, and a second rename that fails puts the live tree back rather than leaving nothing. Deleting the outgoing tree is best-effort: once the second rename has returned the promotion has happened, so a tree that will not delete is left for `recover_superseded_surface` at the next pass's start rather than reported as a failed move. That sweep also answers for a pass that died between the two renames, when the `.superseded` tree is the only surface on disk; the clear here is for a leftover standing beside a live tree.
+    """Move a rehearsal's surface into place as the live one. Two renames rather than a removal and a move: the live tree steps aside under a `.superseded` name, the source takes its place, and only then is the outgoing tree deleted — so the seconds a 3.5 GB rmtree takes never pass with no surface on disk, and a second rename that fails puts the live tree back rather than leaving nothing. Deleting the outgoing tree is best-effort: once the second rename has returned the promotion has happened, so a tree that will not delete is left for `recover_superseded_surface` at the next real pass's start rather than reported as a failed move. That sweep also answers for a pass that died between the two renames, when the `.superseded` tree is the only surface on disk; the clear here is for a leftover standing beside a live tree.
 
     The move is sound where a reconstruction would not be: every stamp inside a surface is content-only against `unit_index.manifest_sha256` — the per-unit index, both app sidecars, the unit store's header and the signature store's — the manifest records no output path, and a rebuild would restamp `generated_at`, the key the autosave alignment rests on. So the promoted directory answers `surface_build_skippable` exactly as it did where it was built, and both stores arrive warm. The one manifest field the move leaves stale is `repo_head`, the commit the rehearsal ran at: the app banner and `make verdict-ready` show it, and a commit outside every fingerprint component moves HEAD without moving the promotion's eligibility. Nothing the cycle keys on reads it.
     """
@@ -837,13 +837,15 @@ def promote_surface(source: Path, live: Path | None = None) -> None:
     shutil.rmtree(superseded, ignore_errors=True)
 
 
-def recover_superseded_surface(live: Path | None = None) -> str | None:
-    """Settle whatever a promotion left under the `.superseded` name, before a pass asks whether it has a surface at all. Standing beside a live tree it is the outgoing surface, whose delete did not finish, and it goes; standing alone it is the live surface a pass that died between the two renames had stepped aside, and one rename puts it back, so the next pass reads the surface it had rather than a first run. It runs at the start of every pass because the green-finish retention never runs on the failed or first-run passes that leave the tree behind. Returns the line to announce, or None when there was nothing to settle."""
+def recover_superseded_surface(live: Path | None = None, *, delete: bool = True) -> str | None:
+    """Settle whatever a promotion left under the `.superseded` name, before a pass asks whether it has a surface at all. Standing beside a live tree it is the outgoing surface, whose delete did not finish, and it goes; standing alone it is the live surface a pass that died between the two renames had stepped aside, and one rename puts it back, so the next pass reads the surface it had rather than a first run. It runs at the start of every pass because the green-finish retention never runs on the failed or first-run passes that leave the tree behind. `delete=False` is the dry run's form: the delete is the one irreversible act and no plan question reads the tree it removes, so the tree stays for the next real pass, while the put-back still runs because every plan question reads the live surface and a dry run's plan has to be the one a real pass follows. Returns the line to announce, or None when there was nothing to settle."""
     live_dir = live if live is not None else REVIEW_OUT
     superseded = live_dir.with_name(f"{live_dir.name}.superseded")
     if not superseded.exists():
         return None
     if live_dir.exists():
+        if not delete:
+            return f"Left {superseded}, the surface a promotion replaced, for the next real pass to delete."
         shutil.rmtree(superseded, ignore_errors=True)
         return f"Deleted {superseded}, the surface a promotion replaced."
     os.replace(superseded, live_dir)
@@ -3986,7 +3988,7 @@ def main(argv: list[str] | None = None) -> int:
     if args.fresh:
         args.force_make_test = True
 
-    recovered = recover_superseded_surface()
+    recovered = recover_superseded_surface(delete=not args.dry_run)
     first_run = not (REVIEW_OUT / "manifest.json").exists()
 
     skip_make_test = False
