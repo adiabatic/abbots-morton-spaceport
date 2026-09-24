@@ -1,7 +1,7 @@
 """Probe codepoint windows: old-font baseline (glyphs+seams, all configs) vs new settlement.
 Usage: uv run python rebuild/tools/probe.py E653:E666:E652 [E652:E67A ...] [--no-baseline]
 
-Every argument is a window, and every window rides one `explain_many` call across the acceptance configurations, so a before/after battery pays the explainer's warm-up once per process. The output is one `=== window X ===` block per argument in argument order, each block identical to what the same window prints alone. `--no-baseline` skips the baseline tables and marks their two lines as not read.
+Every argument is a window, and every window rides one `explain_many` call across the acceptance configurations, so a before/after battery pays the explainer's warm-up once per process. The output is one `=== window X ===` block per argument in argument order, each block identical to what the same window prints alone. `--no-baseline` skips the baseline tables and leaves each configuration's two OLD lines out.
 """
 
 import gzip
@@ -19,7 +19,6 @@ from rebuild.pipeline.spec_load import load_default_spec
 
 CONFIGS = ["default", "ss03", "ss05", "ss03+ss05", "ss04", "ss10"]
 USAGE = "usage: uv run python rebuild/tools/probe.py [--no-baseline] E6XX:E6XX [E6XX:E6XX:E6XX ...]"
-BASELINE_NOT_READ = "(baseline not read)"
 NOT_IN_SUBSET = "(not in subset)"
 
 
@@ -59,16 +58,9 @@ def parse_window(entry: str) -> list[int] | None:
 
 
 def render_window(spec, window_key: str, reports, baselines: dict[str, dict[str, list[str]] | None]) -> None:
-    """Print one window's block: the header, then per configuration the baseline glyphs and seams and the settled cells and seams. `baselines[cfg]` is None when the baseline was not read."""
+    """Print one window's block: the header, then per configuration the baseline glyphs and seams and the settled cells and seams. `baselines[cfg]` is None when the baseline was not read, and the block then carries no OLD lines."""
     print(f"=== window {window_key} ===")
     for cfg, report in zip(CONFIGS, reports):
-        sub = baselines[cfg]
-        if sub is None:
-            bg, bs = BASELINE_NOT_READ, ""
-        else:
-            b = sub.get(window_key)
-            bg = b[1] if b else NOT_IN_SUBSET
-            bs = b[3] if b else ""
         settled = report.settled
         cells = []
         seams = []
@@ -86,8 +78,11 @@ def render_window(spec, window_key: str, reports, baselines: dict[str, dict[str,
                     else (f"y{sm}" if isinstance(sm, int) else f"y{spec.registry.y_of(sm)}")
                 )
         print(f"\n[{cfg}]")
-        print(f"  OLD glyphs: {bg}")
-        print(f"  OLD seams : {bs}")
+        sub = baselines[cfg]
+        if sub is not None:
+            b = sub.get(window_key)
+            print(f"  OLD glyphs: {b[1] if b else NOT_IN_SUBSET}")
+            print(f"  OLD seams : {b[3] if b else ''}")
         print(f"  NEW cells : {' | '.join(cells)}")
         print(f"  NEW seams : {','.join(seams)}")
 
