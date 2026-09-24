@@ -43,7 +43,7 @@ BOX_32_GIB = 34_359_738_368
 
 @pytest.fixture(autouse=True)
 def _no_stated_widths(monkeypatch):
-    """Both knobs that outrank every derived width in the tree, cleared for the whole file. Every plan built here carries a kernel width and a pytest-pool width now, and a developer who has exported either variable would otherwise watch these assertions pass or fail for a reason that has nothing to do with the arrangement the test set up. That the knobs do outrank the arithmetic is asserted by the tests that set them deliberately."""
+    """The knobs that outrank every derived width the plan names, cleared for the whole file. Every plan built here carries a kernel width, a replay width and a pytest-pool width, and a developer who has exported any of the three variables would otherwise watch these assertions pass or fail for a reason that has nothing to do with the arrangement the test set up. That the knobs do outrank the arithmetic is asserted by the tests that set them deliberately."""
     monkeypatch.delenv("PYTEST_XDIST_AUTO_NUM_WORKERS", raising=False)
     monkeypatch.delenv("AMS_KERNEL_THREADS", raising=False)
     monkeypatch.delenv("AMS_REPLAY_THREADS", raising=False)
@@ -2550,7 +2550,7 @@ def test_the_gated_arm_seats_the_whole_delta_wave_on_the_fleets_32_gib_box(monke
 
 
 def test_replay_threads_budget_takes_the_pytest_pool_off_the_box_first():
-    """The same subtraction the kernel width makes, on the replay's own divisor: the gated arm prices gate:make-test's pool before dividing, so it is never wider than the skipped arm, and on a box the cap does not bind the pool is what separates the two. The cap is held here, unlike the kernel's, so both arms stop at the configuration count and the cores."""
+    """The same subtraction the kernel width makes, on the replay's own divisor: the gated arm prices gate:make-test's pool before dividing, so it is never wider than the skipped arm, and on a box the cap does not bind the pool is what separates the two. The cap is held here as it is for the kernel's width, so both arms stop at the configuration count and the cores."""
     from rebuild.pipeline.conform import SETTLEMENT_CONFIGS
     from rebuild.pipeline.kernel_exec import REPLAY_PEAK_BYTES
 
@@ -2614,10 +2614,30 @@ def test_the_replay_plan_line_explains_the_width_it_prints_on_every_route(monkey
 
 
 def test_kernel_threads_budget_never_narrows_a_stated_kernel_width(monkeypatch):
-    """AMS_KERNEL_THREADS is what someone reaches for to keep a build out of swap, so it outranks every derivation here, this reservation included."""
+    """AMS_KERNEL_THREADS is what someone reaches for to keep a build out of swap, so it outranks every derivation here, this reservation included. The cut to the configuration count and the cores that the budget still makes is not a narrowing from memory but the cut `run_m1._table_build_threads` makes anyway, so a stated width at or under that cap passes through untouched."""
     monkeypatch.setenv("AMS_KERNEL_THREADS", "5")
     assert ac.kernel_threads_budget(ncores=8, total_bytes=BOX_44_GB) == 5
     assert ac.kernel_threads_budget(skip_make_test=True, ncores=8, total_bytes=BOX_44_GB) == 5
+
+
+def test_kernel_threads_budget_holds_its_answer_at_the_configuration_count_and_the_cores(monkeypatch):
+    """The cap `replay_threads_budget` holds its own at, on the table build's width: on the fleet's 48 GiB boxes the memory answer runs past the configuration count, so without the cap the plan line would name a width `run_m1._table_build_threads` goes on to narrow. The cores bind where they are the smaller term, the rendered line says the cap is there, and a stated `AMS_KERNEL_THREADS` past the configuration count is cut to it as the child would cut it."""
+    from rebuild.pipeline.conform import SETTLEMENT_CONFIGS
+    from rebuild.pipeline.kernel_exec import kernel_threads_default
+
+    count = len(SETTLEMENT_CONFIGS)
+    assert kernel_threads_default(total_bytes=BOX_48_GIB) > count
+    assert ac.kernel_threads_budget(ncores=18, total_bytes=BOX_48_GIB) == count
+    assert ac.kernel_threads_budget(skip_make_test=True, ncores=12, total_bytes=BOX_48_GIB) == count
+    assert ac.kernel_threads_budget(ncores=2, total_bytes=BOX_48_GIB) == 2
+    plan = _plan(ncores=18, total_bytes=BOX_48_GIB)
+    assert plan.kernel_threads == count
+    assert (
+        f"run_m1 --kernel-threads          : {count}  (the table build's memory ceiling, less gate:make-test's {plan.make_test_workers} workers, capped at the configuration count and the cores)"
+        in _plan_text(plan)
+    )
+    monkeypatch.setenv("AMS_KERNEL_THREADS", "99")
+    assert ac.kernel_threads_budget(ncores=18, total_bytes=BOX_48_GIB) == count
 
 
 def test_a_plan_reserves_for_the_pytest_pool_only_when_that_gate_runs():
