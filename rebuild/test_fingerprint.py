@@ -1,4 +1,4 @@
-"""Tests for the build-input fingerprint module: the streamed file digest and the sweep that keeps it the only way rebuild/ hashes a file, content sensitivity, order independence, missing-file tolerance, the stat-based baselines component, the Stage A record round trip, the serve.py exclusion, the four prose-blind digests — the rune files' and the three human-reviewed ledgers' — the code projection that makes a Python docstring or a whole-line Rust comment invisible to every key `path_lines` builds while the artifact cycle's two gate closures stay raw, the two version-carrier projections — the lock without its project block and a font without its `head` and `name` tables — that keep a version bump from moving any stamp while a dependency pin, a glyph, an anchor or a table still moves every one, and the explain-aware rune digest and `explain_prose` component that are where a refuse record's `why` and a divergence class's `why` live instead of in any key a table build reads.
+"""Tests for the build-input fingerprint module: the streamed file digest and the sweep that keeps it the only way rebuild/ hashes a file, content sensitivity, order independence, missing-file tolerance, the stat-based baselines component, the Stage A record round trip, the serve.py exclusion, the four prose-blind digests — the rune files' and the three human-reviewed ledgers' — the code projection that makes a Python docstring or a whole-line Rust comment invisible to every key `path_lines` builds while the artifact cycle's two gate closures stay raw, the two version-carrier projections — the lock without its project block and a font without its `head` and `name` tables — that keep a version bump from moving any stamp while a dependency pin, a glyph, an anchor or a table still moves every one, the fontTools default that carries a unitsPerEm edit into the `CFF ` table the font projection keeps, and the explain-aware rune digest and `explain_prose` component that are where a refuse record's `why` and a divergence class's `why` live instead of in any key a table build reads.
 
 The sweep is here rather than in prose because file_sha256 exists to stop a hash costing the file its size in RAM, and that claim only holds while every hash goes through it — which a roster of callers written into a docstring cannot keep, since nothing checks a roster and the next module to grow a file hash falsifies it in silence. The modules that cannot import fingerprint spell the same streamed read out inline instead; those are pinned against the helper by value here, so a copy cannot drift from the original unnoticed either.
 """
@@ -9,6 +9,8 @@ import json
 import subprocess
 import textwrap
 from pathlib import Path
+
+import pytest
 
 from rebuild.baseline import model
 from rebuild.pipeline import fingerprint
@@ -1152,6 +1154,56 @@ def test_font_content_digest_is_blind_to_head_and_name_and_to_nothing_else(tmp_p
     }
     assert all(digest != base for digest in moved.values()), moved
     assert len(set(moved.values())) == len(moved)
+
+
+def _builder_font(target, units_per_em):
+    from fontTools.fontBuilder import FontBuilder
+    from fontTools.pens.t2CharStringPen import T2CharStringPen
+
+    builder = FontBuilder(units_per_em, isTTF=False)
+    names = [".notdef", "square"]
+    builder.setupGlyphOrder(names)
+    builder.setupCharacterMap({0xE650: "square"})
+    charstrings = {}
+    for name in names:
+        pen = T2CharStringPen(100, None)
+        pen.moveTo((0, 0))
+        pen.lineTo((0, 100))
+        pen.lineTo((100, 100))
+        pen.lineTo((100, 0))
+        pen.closePath()
+        charstrings[name] = pen.getCharString()
+    builder.setupCFF(
+        psName="Square-Regular",
+        fontInfo={"FamilyName": "Square", "FullName": "Square Regular"},
+        charStringsDict=charstrings,
+        privateDict={},
+    )
+    builder.setupHorizontalMetrics({name: (100, 0) for name in names})
+    builder.setupHorizontalHeader(ascent=450, descent=-100)
+    builder.setupNameTable({"familyName": "Square", "styleName": "Regular"})
+    builder.setupOS2()
+    builder.setupPost()
+    builder.save(str(target))
+    return target
+
+
+def test_a_units_per_em_edit_moves_the_font_projection_through_the_cff_font_matrix(tmp_path):
+    """What the projection's soundness on `unitsPerEm` rests on. tools/build_font.py hands `FontBuilder.setupCFF` a `fontInfo` with no FontMatrix, and fontTools then writes the `CFF ` top dict's FontMatrix as 1/unitsPerEm, so two fonts built that way and differing only in unitsPerEm differ in `CFF ` as well as `head`, and the projection, which keeps `CFF `, tells them apart. A fontTools release that stops deriving the matrix fails this before a upem edit in glyph_data/metadata.yaml can slip past every font key."""
+    from fontTools.ttLib import TTFont
+
+    fonts = {upem: _builder_font(tmp_path / f"upem-{upem}.otf", upem) for upem in (550, 1100)}
+    tables = {}
+    for upem, path in fonts.items():
+        font = TTFont(str(path))
+        matrix = font["CFF "].cff.topDictIndex[0].FontMatrix  # pyright: ignore[reportAttributeAccessIssue]
+        assert matrix == pytest.approx([1 / upem, 0, 0, 1 / upem, 0, 0])
+        assert font.reader is not None
+        tables[upem] = {tag: font.reader[tag] for tag in font.reader.keys()}
+    narrow, wide = tables[550], tables[1100]
+    assert narrow.keys() == wide.keys()
+    assert {tag for tag in narrow if narrow[tag] != wide[tag]} == {"head", "CFF "}
+    assert fingerprint.font_content_digest(fonts[550]) != fingerprint.font_content_digest(fonts[1100])
 
 
 def test_font_content_digest_falls_back_to_the_raw_bytes_for_a_file_that_is_no_sfnt(tmp_path):
