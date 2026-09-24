@@ -1,24 +1,31 @@
-"""Content fingerprints for the build inputs, keyed by component so the readiness checker can name the remedy when a component goes stale.
+"""Content fingerprints of the build inputs, split into named components so the readiness checker can say which component is stale and what rebuilds it.
 
-The surface manifest's `generated_at` stamp is mtime-based and exists to key unit-id joinability; it cannot answer "does this surface reflect the sources on disk right now". These fingerprints do: pure content hashes (plus stat sizes for the 400MB baseline TSVs, whose content digests already live in digests.tsv), sorted and mtime-free so consecutive builds of the same inputs stay byte-identical.
+Each component is a SHA-256 over sorted lines that hold no mtimes, so two builds of the same inputs produce the same value. Most lines are `label\\tdigest` pairs over file contents. The baseline TSVs are the exception: they are large, and `rebuild/out/digests.tsv` already holds their content digests, so `baselines_value` hashes their sizes and that file. The surface manifest's `generated_at` is mtime-based and identifies a surface build, so that exported verdicts and sidecars can be matched to it. It cannot tell whether the surface matches the sources on disk; these fingerprints can.
 
-Chain honesty: run_m1 persists the Stage A components (`data`, `baselines`, `pipeline_code`) into rebuild/out/m1/inputs_fingerprint.json at build time, and the review build copies those recorded values into the manifest instead of recomputing them — so a surface rebuilt over stale out/m1 artifacts carries the stale hashes and the checker flags it.
+run_m1 writes the Stage A components (`data`, `baselines`, `pipeline_code`) to `rebuild/out/m1/inputs_fingerprint.json` when it builds. The review build copies those recorded values into the manifest instead of recomputing them, so a surface rebuilt over stale `rebuild/out/m1` artifacts carries the stale values and the checker flags it. The review build computes the Stage B components (`review_code`, `static`, `fonts`, `explain_prose`) itself.
 
-`tables_value` serves the same honesty for a build artifact rather than a manifest: the serialized decision tables carry it, so the conformance sweep can tell a table its own sources produced from one it must rebuild. It is keyed on `table_data_value` rather than `data_value` — the alias map, the divergence ledger, and the kern sidecar are read by gates that consume a built table and by nothing that builds one, so they belong to the whole-run record and not to this stamp. Its code half is `table_code_paths` rather than `pipeline_code_paths` for the same reason: the oracle's two modules (`COMPARISON_CODE_MODULES` — the classifier in oracle.py, the position channel in oracle_positions.py) run against tables and a font already built, so an edit to the classifier, the ledger match or the position diff re-adjudicates over the enumeration on disk instead of throwing it away, and rebuild/test_build_code_closure.py is what proves the build never reaches either.
+`tables_value` is the source stamp a serialized window enumeration carries, so the conformance sweep can tell whether the tables on disk were built from the sources on disk. It covers only what the table fixpoint and the font compile read. Its data half, `table_data_value`, leaves out `NON_TABLE_DATA_LABELS` (the alias map, the divergence ledger, and the kern sidecar). Its code half, `table_code_paths`, leaves out `COMPARISON_CODE_MODULES` (oracle.py and oracle_positions.py). Those inputs are read only by gates that run against tables and a font already built, so editing one re-runs those gates over the enumeration on disk instead of discarding it. rebuild/test_build_code_closure.py checks that the build never imports the comparison modules.
 
-The three human-reviewed ledgers hash prose-blind as well, for the rune files' reason below: what a reviewer wrote down is documentation, and only what a stage or a gate reads may move a key. The contact allow-list is the narrowest of them — in no component here at all, `data` included. The defect gate is the only stage that reads it, so a two-line bless has no business dropping the review unit cache and re-stamping the whole surface — which is what its old place in `data_paths` cost, through `unit_cache.environment_stamp` and `oracle_cache.stamped_data_paths` alike. It rides the artifact cycle's run_m1 skip key alone, under `CONTACT_ALLOW_LABEL`, hashed by `contact_allow_digest`: prose-blind in the same way a rune is, since a signature's `why:` is the reviewer's recorded rationale and can move no gate.
+The three human-reviewed ledgers have prose-blind digests, like the rune files below:
 
-The divergence ledger keeps its place in `data` and its exemption from `tables_value`, hashed by `divergence_ledger_digest` under `DIVERGENCE_LEDGER_LABEL`: a class's predicate, status, `no_verdict` flag, count and exemplars are what the audit, the classifier and the census read, so those still move the Stage A record and the artifact cycle's run_m1 key — spent as a re-adjudication over the tables and font already on disk — while rewording a class's `why` moves neither. That one rationale is read after all, the way a refusal's is: the review build writes it into the surface manifest's `classes[].why` and `check_manifest` requires it to be there. So it rides the Stage B `explain_prose` component through `ledger_prose_lines`, and rewording a class costs a cache-served surface rebuild and nothing else — no fixpoint, no sweep, no suite lane.
+- The contact allow-list is in no component, not even `data`. Only the defect gate reads it, so its digest (`contact_allow_digest`, under `CONTACT_ALLOW_LABEL`) is only in the artifact cycle's run_m1 skip key. Changing a signature re-runs that gate without restamping the surface or dropping the review unit cache. Each entry's `why` is left out of the digest.
+- The divergence ledger is in `data` and left out of `tables_value`. `divergence_ledger_digest` hashes every field except each class's `why`. The audit, the classifier, and the census read those fields, so changing one moves `data` and the run_m1 skip key, and the cycle re-runs the comparison over the tables and font on disk. The review build copies each class's `why` into the manifest's `classes[].why`, which `check_manifest` requires, so the `why` is hashed into the Stage B `explain_prose` component through `ledger_prose_lines`. Rewording a class's `why` costs a surface rebuild served from the unit cache and nothing else.
+- The standing approvals are in no component. `standing_approvals_digest` leaves out each rule's `note` and is used only by the artifact cycle's rebuild-lane closure. The plumbing key (`artifact_cycle.plumbing_skip_fingerprint`) hashes the file's raw bytes instead, because `standing_verdicts` copies a rule's `note` into every verdict it fills.
 
-The standing approvals are in no component here either; `standing_approvals_digest` exists for the artifact cycle's rebuild-lane closures alone, and it drops each rule's `note` because no lane reads one. The plumbing key deliberately does not use it: `standing_verdicts` quotes a rule's `note` verbatim into every verdict it fills, so a reword changes what the chain writes and `artifact_cycle.plumbing_skip_fingerprint` keeps the file's raw bytes.
+`rune_file_digest` hashes a rune's parsed document instead of its bytes, with the prose removed: YAML comments and formatting, the ductus text, `notes`, and every `why`, refuse records' included. No build step reads any of these (the refuse `why` has one reader, described next), so editing them should not make the surface stale or re-run a cycle. The digest keeps every geometric and policy field, the ductus keys (motion names, which the lints check), and the presence of every prose field, because the schema requires `why` on some records.
 
-Rune files are hashed by `rune_file_digest`, a prose-blind digest over the parsed document rather than the raw bytes: YAML comments and formatting, the ductus prose, the notes prose, and every `why` rationale — refuse records' included — are documentation no stage that builds anything consumes, so editing them must not stale the surface or re-run a cycle. What stays in the digest is exactly what can move an output or a gate: every geometric and policy field, the ductus *keys* (motion names, which the parity and naming lints enforce), and the *presence* of every prose field (the schema requires `why` on absolute prefers).
+The crate appends a refuse record's `why` to that refusal's elimination message when it builds an explain ladder. The table fixpoint never requests a ladder; only the review surface's explain panel shows ladders. So the refuse `why` is hashed by `rune_explain_digest`, which the review unit cache's family keys are built from, and by the Stage B `explain_prose` component. Rewording one re-enriches the windows whose explain text quotes it and restamps the surface. No key built from `rune_file_digest` or `rune_digests` sees it.
 
-One rationale is read after all, and it has two homes of its own rather than a place in that digest. `policy.refuse[].why` is what the kernel crate's engine appends to a refusal's elimination sentence when it is asked for an explain ladder — a request the table fixpoint never makes and the review surface's explain panel is the whole audience for. So it rides `rune_explain_digest`, which the review unit cache's family keys are built from, and the Stage B `explain_prose` component, which the surface's manifest stamps: rewording one re-enriches the windows whose explain text quotes it and re-stamps the surface, and costs nothing else. The tables' stamp, the conformance sweep's key, the rebuild suite's key, the artifact cycle's run_m1 green, the oracle row cache's family keys, and `unit_cache.environment_stamp` all read `rune_file_digest` and cannot see it.
+`code_file_digest` projects code files the same way. A `.py` file is hashed as its syntax tree with every docstring's text set to None, and a `.rs` file with its whole-line `//` comments removed, so rewording either moves no key built by `path_lines` or `hash_paths`. Everything the interpreter or compiler sees stays in: every identifier, every non-docstring string constant (matchers compare against error text), every annotation, default, and decorator, and every Rust code line including its trailing comment. The presence of each docstring stays too. A file that fails to parse or decode is hashed as raw bytes, as `_projected_digest` does, so the failure stays visible. Every other file type that reaches `path_lines`, such as the app's static files and the crate's manifest and lock, is hashed raw by `file_sha256`. `baseline_subset.stamp_key` also uses `code_file_digest`.
 
-Code files hash through a projection of their own, for the runes' reason. `code_file_digest` parses a `.py` file and hashes its syntax tree with every docstring's text set to `None`, and hashes a `.rs` file with its whole-line `//` comments dropped, so rewording either moves no key `path_lines` builds: the tables' stamp, the run_m1 skip key, the trace-memo and replay stamps, the oracle row cache and the settle memo, both surface stores, the standing-fill memo and the standing daemon's stamp among them. What stays is everything the interpreter or the compiler can see — every identifier, every non-docstring string constant (matchers compare against literal error text), every annotation and default, every decorator, every Rust code line with its trailing comment — and the presence of each docstring, the way the rune projection keeps the presence of each prose field. A file that does not parse or decode falls back to its raw bytes, as `_projected_digest` does, so a stopping edit stays visible; every other suffix `path_lines` reaches — the app shell, the crate's manifest and lock — hashes raw through `file_sha256`. Two closures stay raw on purpose, and both are the artifact cycle's rather than this module's: `artifact_cycle._closure_digest` with `make_test_closure_fingerprint`, because test fixtures and the closure tests read source text, and `pyright_gate`'s own, where a `# pyright: ignore` comment changes the answer being gated — so `gate:rebuild-contracts` and `gate:make-test` still run on a prose-only edit. `baseline_subset.stamp_key` reads `code_file_digest` directly for the same reason. rebuild/test_fingerprint.py is the authority on what the projection sees and pins the keys this module builds (`pipeline_code`, the tables' stamp, the run_m1 skip key) and the two raw closures; each memo or store pins its own stamp beside itself (rebuild/test_standing_verdicts.py for the standing-fill memo, rebuild/test_unit_cache.py for the surface stores, rebuild/test_baseline_subset.py for the subset key).
+Three closures outside this module hash code files raw. The rebuild-lane closure (`artifact_cycle._closure_digest`) and gate:make-test's closure (`artifact_cycle.make_test_closure_fingerprint`) do so because test fixtures and the closure tests read source text, so gate:rebuild-contracts and gate:make-test still run after a prose-only edit. The pyright gate's closure (`pyright_gate.closure_fingerprint`) does so because a `# pyright: ignore` comment changes pyright's result. rebuild/test_fingerprint.py checks what the projection keeps and drops.
 
-The two version carriers hash through projections of their own, so a version bump moves no key. `make all` rewrites both site fonts with the new version in their `name` table and `head.fontRevision`, and the bump-minor skill refreshes `uv.lock`, where the one block that moves is the project's own `[[package]]` entry; neither can move a shaped byte, since the M1 after font takes its metadata from a constant in compile_font.py and the interpreter the tests run under is decided by the pinned packages, each in a lock block of its own. `font_content_digest` digests a font table by table off its `sfnt` reader — the sorted tag roster, then each table's length and bytes — and drops exactly `head` and `name`: `head` holds the revision, the checksum adjustment and the modification stamp beside `unitsPerEm`, `name` the version strings; a shaper places a glyph in font units off `hmtx` and `GPOS` and reads neither table for a position. `unitsPerEm` (authored in glyph_data/metadata.yaml apart from the pixel size the outlines are drawn at) reaches the projection anyway, through `CFF `: tools/build_font.py hands `FontBuilder.setupCFF` no FontMatrix, so fontTools writes the top dict's FontMatrix as 1/unitsPerEm, and a upem edit in glyph_data/metadata.yaml moves `CFF ` and the projection with it. rebuild/test_fingerprint.py pins that fontTools default. Only a hand edit to `head.unitsPerEm` with nothing else changed gets past the projection, and nothing in the tree writes one. The surface manifest carries the value besides, as the `fonts.<side>.upem` field the app scales its highlights by. Everything that can reach a shaped run stays — every outline and advance (`CFF `, `hmtx`), every cursive anchor and kern (`GPOS`), the substitutions (`GSUB`), the `cmap`, and a table added or dropped — and a file fontTools cannot open, or a truncated table it cannot read, digests to its raw bytes. `lock_digest` (`rebuild.tools.lock_digest`, a leaf because the pyright gate hashes the lock too) cuts the project's block out of the lock text and hashes the rest, so a dependency's pinned version, a package added or removed, and a changed pin of anything still move it. `fonts_value` is the `fonts` roll-up over the font projection, read by the Stage B `fonts` component and the contracts lane's `fonts` label; both surface stores and the standing memo take their `before_font` line through `font_content_digest` directly, and `baseline_subset.prove_font_provenance` weighs the same projection against the one its sidecar recorded when a header's raw digest no longer matches the font on disk. The daemon's font pair stays raw: it holds the surface's own copies, which move only when the surface is rebuilt and its `generated_at` with it.
+The two files a version bump rewrites have projections too, so a bump moves no key. `make all` writes the new version into both site fonts' `name` table and `head.fontRevision`, and the bump-minor skill refreshes `uv.lock`, where only the project's own `[[package]]` block changes.
+
+- `font_content_digest` hashes a font table by table from the bytes the `sfnt` reader returns: the sorted table tags, then each table's length and digest, leaving out `head` and `name` (`FONT_VERSION_TABLES`). `head` holds the revision, the checksum adjustment, and the modification time, and `name` holds the version strings. A shaper reads neither to position a glyph. `head` also holds `unitsPerEm`, but an edit to `units_per_em` in glyph_data/metadata.yaml still reaches the digest through `CFF `: tools/build_font.py passes `FontBuilder.setupCFF` no FontMatrix, so fontTools writes the matrix as 1/unitsPerEm. rebuild/test_fingerprint.py checks that fontTools default. Only a hand edit to `head.unitsPerEm` alone would go unseen, and nothing in the tree makes one. Every table that can affect a shaped run stays (`CFF `, `hmtx`, `GPOS`, `GSUB`, `cmap`), and so does the list of tables. A file fontTools cannot open, or whose table it cannot read, is hashed as raw bytes.
+- `lock_digest` (in `rebuild.tools.lock_digest`, a separate module because the pyright gate also hashes the lock and must not import rebuild.pipeline) removes the project's own block from the lock and hashes the rest, so a changed dependency pin or an added or removed package still moves it.
+
+`fonts_value` is `hash_paths` with `font_content_digest` per font. It is the Stage B `fonts` component and the contracts lane's `fonts` label.
 """
 
 from __future__ import annotations
@@ -45,7 +52,7 @@ STAGE_A_FILENAME = "inputs_fingerprint.json"
 
 
 def file_sha256(path: Path) -> str:
-    """The shared file-content hash behind the build's fingerprints, stamps, and green records. Streamed through the digest rather than read whole, so hashing a file never costs its size in resident memory: the same value either way, and most of what passes through is small, but these inputs all grow with the migration and the one that forced the change is already hundreds of megabytes. A module that deliberately keeps rebuild.pipeline out of its import surface spells the same streamed read out inline instead and says why where it does; the roster is not written down here, because rebuild/test_fingerprint.py enforces it and a prose copy could only drift. Missing-file behavior stays with each caller, which is the one thing they disagree about."""
+    """Return the SHA-256 hex digest of a file's bytes, streamed so the file is never held in memory whole. rebuild/test_fingerprint.py checks that no rebuild module hashes a file it read whole, and that the inline copies in modules that cannot import this one return the same value. Each caller handles a missing file itself."""
     with open(path, "rb") as handle:
         return hashlib.file_digest(handle, "sha256").hexdigest()
 
@@ -68,7 +75,7 @@ def data_paths(repo_root: Path) -> list[Path]:
     return paths
 
 
-# The comparison side of rebuild/pipeline/: modules that run against tables and a font already built and build neither — the oracle's driver and classifier in oracle.py, and its position channel in oracle_positions.py, which the oracle row cache stamps on its own (`oracle_cache.POSITION_CODE_PATHS`). A comparison-side module left off this roster rides the tables' stamp, so every edit to it forces a full build instead of the gates-only route; the closure test's reverse direction is what makes a new one land here. They ride `pipeline_code_paths` — the whole-run record, the run_m1 green, the review surface's stamp — and `table_code_paths` leaves them out, so that a serialized window enumeration's stamp names what produced it and nothing more; the review unit cache's two rosters, `unit_cache.surface_code_paths` and the narrower `unit_cache.signature_code_paths`, leave them out too, since neither the surface build nor the ink comparator imports them. rebuild/test_build_code_closure.py walks the import graph from every other pipeline module and from `run_m1.run`, and fails the moment either reaches one of these, so the roster cannot quietly admit a module the build actually runs.
+# Pipeline modules that only run against tables and a font already built: the oracle's driver and classifier (oracle.py) and its position channel (oracle_positions.py, which the oracle row cache also stamps on its own as `oracle_cache.POSITION_CODE_PATHS`). They stay in `pipeline_code_paths`, and `table_code_paths` leaves them out, so an edit to one re-runs the gates over the tables on disk instead of forcing a full build. A module of this kind that is missing from the set is hashed into the tables' stamp, so every edit to it forces a full build. rebuild/test_build_code_closure.py fails if the build imports any module listed here.
 COMPARISON_CODE_MODULES = frozenset({"oracle.py", "oracle_positions.py"})
 
 
@@ -85,14 +92,14 @@ FONT_COMPILE_TOOL_MODULES = frozenset(
 
 
 def font_compile_tool_paths(repo_root: Path) -> list[Path]:
-    """The tools/ modules the M1 font compile runs: the import closure of tools/build_font.py inside tools/, which is what rebuild/pipeline/compile_font.py reaches when it hands the mini font's glyph data and FEA to `build_font` — the glyph compiler, the IR, the FEA emitter, the join analysis, and the Departure Mono import (compile_font puts tools/ on sys.path, so those modules import one another by bare name). A roster rather than the whole tree, because most of tools/ is authoring and audit scripts no build runs, and pinned to the walked closure by rebuild/test_build_code_closure.py so it can neither rot into an include-list nor miss a module the compile picked up. Returned unconditionally, the way the crate's paths are: `hash_paths` keeps whatever is a file."""
+    """Return the tools/ modules the M1 font compile runs: the import closure of tools/build_font.py within tools/, which rebuild/pipeline/compile_font.py calls to build the mini font. compile_font puts tools/ on sys.path, so these modules import each other by bare name. Most of tools/ is authoring and audit scripts that no build runs, so this is a fixed list instead of the whole directory, and rebuild/test_build_code_closure.py checks that it equals the walked import closure. Paths are returned whether or not they exist; `hash_paths` skips missing files."""
     return sorted(Path(repo_root) / "tools" / name for name in FONT_COMPILE_TOOL_MODULES)
 
 
 def pipeline_code_paths(repo_root: Path) -> list[Path]:
-    """rebuild/validation and the kernel crate ride in this component: the shaper, row model, seam classifier, and Manual-pin replays are the before side of the M1 comparison, while the crate emits the transition stream and formation guard the font is built from. Both fingerprinted Python trees and the crate's complete build-input surface are included rather than tracking current imports or modules piecemeal; those lists go wrong the next time an import or Rust module is added, and over-invalidation is the safe direction. The review unit cache's two store stamps are the readers that do not take this component: the unit store's `unit_cache.surface_code_paths` is the walked closure of what the surface build runs, and the ink-signature store's `unit_cache.signature_code_paths` the narrower closure of what the comparator runs, both strict subsets of this tree held to the import graph by rebuild/test_review_code_closure.py, so a pipeline or crate edit the surface never executes moves this record and the run_m1 green without dropping either store, and one the surface runs but the comparator does not drops the unit store alone.
+    """Return the code the `pipeline_code` component hashes: rebuild/pipeline, rebuild/validation, the kernel crate's manifest, lock, and sources, and the font compile's tools/ modules (`font_compile_tool_paths`). rebuild/validation holds the shaper, row model, seam classifier, and Manual-pin replays, which are the before side of the M1 comparison. Whole trees are hashed instead of a list of imported modules, because such a list goes stale when an import or a Rust module is added, and over-invalidating is the safe error.
 
-    The font compile's tools/ closure rides here too (`font_compile_tool_paths`), because compile_font hands the mini font to tools/build_font.py: an edit to the glyph compiler, the IR, the FEA emitter or the join analysis moves M1.otf's bytes, and until they were stamped it moved them under a run_m1 green, a table stamp, a conform key, a surface stamp and a unit-cache environment stamp that all stayed put. That tree is named by roster rather than swept whole, since nearly all of it is authoring and audit scripts the build never runs, and the roster is held to the walked closure by a test rather than tracked by hand — conservative in the same direction as the crate's build-input surface. Being pipeline code, it rides `table_code_paths` and so `tables_value` as well, which is right: the compile is on the build side, and only `COMPARISON_CODE_MODULES` leaves that stamp.
+    The tools/ modules are included because compile_font passes the mini font to tools/build_font.py, so an edit to the glyph compiler, the IR, the FEA emitter, or the join analysis changes M1.otf. They are build-side, so `table_code_paths` keeps them as well.
     """
     root = Path(repo_root)
     kernel = root / "rebuild" / "kernel-rs"
@@ -109,7 +116,7 @@ REVIEW_NON_BUILD_MODULES = frozenset({"serve.py", "verdict_store.py", "status.py
 
 
 def review_code_paths(repo_root: Path) -> list[Path]:
-    """The surface build's own code: rebuild/review/ minus the modules the build never imports, because a stamp component that moves on an edit the build cannot execute costs a full surface rebuild and drops the per-unit store while proving nothing (the ink-signature store keys on `unit_cache.signature_code_paths`, which ink.py alone of these reaches). serve.py is the dev server and verdict_store.py the store it keeps resident; status.py, journal.py, and export.py belong to the verdict plumbing, whose own key hashes what it runs (plumbing_skip_fingerprint). rebuild/test_review_code_closure.py walks build.py's import graph both ways so this exclusion list cannot drift from the real closure."""
+    """Return rebuild/review/*.py without `REVIEW_NON_BUILD_MODULES`, the modules the surface build never imports. Hashing one of those would force a full surface rebuild and drop the per-unit store for an edit the build cannot execute. serve.py is the dev server and verdict_store.py the store it keeps; status.py and journal.py belong to the verdict plumbing, and `artifact_cycle.plumbing_skip_fingerprint` hashes all four itself. export.py is a standalone CLI that turns exported verdicts into a triage YAML. rebuild/test_review_code_closure.py checks this set against build.py's import graph in both directions."""
     return sorted(
         path
         for path in (Path(repo_root) / "rebuild" / "review").glob("*.py")
@@ -131,7 +138,7 @@ def _label(repo_root: Path, path: Path) -> str:
 
 
 def _without_docstrings(tree: ast.Module) -> ast.Module:
-    """The syntax tree with every docstring's text set to `None` in place: the leading string expression of the module and of each class and function body, which is exactly what `ast.get_docstring` reads. The expression stays, so a docstring's presence is still in the digest and a module holding only a docstring does not collapse onto an empty one."""
+    """Set the text of every docstring in `tree` to None, in place, and return the tree. A docstring is the leading string expression of a module, class, or function body, the one `ast.get_docstring` reads. The expression itself stays, so adding or removing a docstring still changes the digest, and a module holding only a docstring does not hash like an empty one."""
     for node in ast.walk(tree):
         if not isinstance(node, (ast.Module, ast.ClassDef, ast.FunctionDef, ast.AsyncFunctionDef)):
             continue
@@ -145,12 +152,12 @@ def _without_docstrings(tree: ast.Module) -> ast.Module:
 
 
 def _projected_python(raw: bytes) -> str:
-    """A Python source's docstring-blind view: its syntax tree dumped without positions, so a comment, a reflowed blank line or a shifted line number is invisible and every identifier, constant, annotation, default and decorator is not."""
+    """Return the AST dump of a Python source with its docstrings blanked. The dump has no line positions, so comments, blank lines, and shifted line numbers don't change it; identifiers, constants, annotations, defaults, and decorators do."""
     return ast.dump(_without_docstrings(ast.parse(raw)))
 
 
 def _projected_rust(raw: bytes) -> str:
-    """A Rust source with its whole-line comments dropped — `//`, `///` and `//!` alike, judged on the left-stripped line — and nothing else touched: a trailing comment on a code line rides along with the line, which is the conservative half of the projection."""
+    """Return a Rust source with every whole-line comment removed: each line whose left-stripped text starts with `//`, which covers `///` and `//!`. A trailing comment after code stays with its line."""
     return "\n".join(line for line in raw.decode().splitlines() if not line.lstrip().startswith("//"))
 
 
@@ -159,9 +166,9 @@ _CODE_DIGESTS: dict[tuple[str, str], str] = {}
 
 
 def code_file_digest(path: Path) -> str:
-    """One code file's prose-blind digest (the module docstring holds the contract for what the projection drops), and `file_sha256` for any other suffix. The dispatch is on the suffix before the file is opened, so a font or a baseline reaching `path_lines` is still streamed and never read whole. A file the projection cannot parse or decode digests to its raw bytes, so two broken drafts cannot collapse onto one value.
+    """Return a prose-blind digest for a `.py` or `.rs` file (the module docstring says what the projection drops), and `file_sha256` for any other suffix. The suffix is checked before the file is opened, so a font or a baseline reaching `path_lines` is streamed and never read whole. A file that fails to parse or decode digests to its raw bytes, so two broken drafts don't share a value.
 
-    Memoized per process on the suffix and the raw content digest: the stamp functions rebuild these lines many times in one cycle, and the projection costs many times what the raw hash does, while a key on the path's size and mtime could serve a stale projection to a file rewritten to the same size within one clock tick — the shape the contract tests take. The raw hash the key costs is the cheap part of what the memo saves.
+    Results are memoized per process on the suffix and the raw content digest. The stamp functions ask for the same files many times in one cycle, and the projection costs far more than the raw hash. A key on size and mtime could return a stale projection for a file rewritten to the same size within one clock tick, which the tests do.
     """
     project = _CODE_PROJECTIONS.get(path.suffix)
     if project is None:
@@ -179,7 +186,7 @@ def code_file_digest(path: Path) -> str:
 
 
 def path_lines(repo_root: Path, paths: list[Path]) -> list[str]:
-    """The per-file `label\\tdigest` lines a path-set hash is built from, sorted — exposed so a green record can store them and a skip miss can name exactly which input moved instead of reporting only that some 64-hex value did. Each digest is `code_file_digest`'s: prose-blind for a Python or Rust source, the raw bytes for everything else."""
+    """Return the sorted `label\\tdigest` lines that `hash_paths` hashes, one per existing file, each digest from `code_file_digest`. A green record can store them so that a skip miss names the file that changed."""
     return sorted(f"{_label(repo_root, path)}\t{code_file_digest(path)}" for path in paths if path.is_file())
 
 
@@ -196,7 +203,7 @@ _FONT_DIGESTS: dict[str, str] = {}
 
 
 def _projected_font_lines(path: Path) -> list[str] | None:
-    """The `sfnt` view of one font: its sorted tag roster, then the length and digest of every table outside `FONT_VERSION_TABLES`, each read off the reader as the bytes the file holds — never decompiled, never recompiled, so a table fontTools would normalize on a save is still the table on disk. None for a file that is not an `sfnt`, holds no tables, or cuts a table short, which the caller digests raw."""
+    """Return the lines `font_content_digest` hashes: the sorted table tags, then the length and digest of each table outside `FONT_VERSION_TABLES`. Each table is read from the reader as the bytes in the file, without decompiling, so fontTools' normalization on save cannot hide a difference. Returns None for a file that is not an `sfnt`, has no tables, or has a truncated table; the caller then hashes it raw."""
     from fontTools.ttLib import TTFont, TTLibError
 
     try:
@@ -222,7 +229,7 @@ def _projected_font_lines(path: Path) -> list[str] | None:
 
 
 def font_content_digest(path: Path) -> str:
-    """One font's head- and name-blind digest (the module docstring holds the contract for what the projection drops), and the raw `file_sha256` for a file fontTools cannot read as an `sfnt`, so a fake font in a fixture and a truncated one on disk each keep a digest of their own. Memoized per process on the raw content digest, for `code_file_digest`'s reason: the stamps ask for the same two fonts many times in one cycle, and the raw hash the key costs is the cheap part of what the memo saves."""
+    """Return a font's digest without its `head` and `name` tables (the module docstring says what is kept), or `file_sha256` for a file fontTools cannot read as an `sfnt`, so a fake fixture font and a truncated font each get a value of their own. Memoized per process on the raw content digest, for the same reason as `code_file_digest`."""
     raw_digest = file_sha256(path)
     digest = _FONT_DIGESTS.get(raw_digest)
     if digest is None:
@@ -233,7 +240,7 @@ def font_content_digest(path: Path) -> str:
 
 
 def fonts_value(repo_root: Path, paths: list[Path]) -> str:
-    """The `fonts` roll-up: one `label\\tfont_content_digest` line per font on disk, sorted and hashed — `hash_paths` with the font projection in place of the raw digest, which is what lets a version bump's `make all` leave the Stage B `fonts` component and the contracts lane's `fonts` label where they were."""
+    """Return `hash_paths` over the given fonts with `font_content_digest` in place of the raw digest, so the `make all` of a version bump leaves the Stage B `fonts` component and the contracts lane's `fonts` label unchanged."""
     return digest_lines(
         sorted(f"{_label(repo_root, path)}\t{font_content_digest(path)}" for path in paths if path.is_file())
     )
@@ -249,9 +256,9 @@ def _labels_of(lines: Iterable[str]) -> dict[str, str]:
 
 @dataclass(frozen=True)
 class EnvironmentStamp:
-    """A whole-store stamp as its own `label\\tdigest` lines rather than only as a hash, in the `path_lines` idiom: a store that records the lines it was written under lets a miss name which input moved, where a store recording only the hex can say that some 64-hex value did. `value` is the digest over `lines` and nothing else, so a caller that compares hex compares exactly what a lines-blind stamp held. `detail` carries, per label, the lines a label's own digest folds — the `path_lines` of a code closure — so a miss can name the file inside a closure and not just the closure; it sits outside `value` and `labels`, so a stamp with detail and one without agree on both.
+    """A whole-store stamp kept as `label\\tdigest` lines, so a store that records them can name the input that changed on a miss. `value` is the digest of `lines` alone. `detail` maps a label to the lines behind that label's digest (for a code closure, its `path_lines`), so a miss can name the file inside the closure. `detail` is not part of `value` or `labels`, so adding it leaves both unchanged.
 
-    The type is here rather than beside the oracle row cache because both trees that stamp a store import this module and neither may import the other's: the review surface's stores may not reach `rebuild/pipeline/oracle_cache.py`, which sits outside `unit_cache.surface_code_paths` and would drag an unstamped pipeline module into the surface build's closure (rebuild/test_review_code_closure.py holds that roster), and the pipeline never imports `rebuild/review/`.
+    The class lives here because the review surface's stores and the oracle row cache both import this module and neither may import the other. `rebuild/pipeline/oracle_cache.py` is outside `unit_cache.surface_code_paths`, so importing it from the surface build would run code the surface's stamp does not hash (rebuild/test_review_code_closure.py checks that list), and the pipeline never imports `rebuild/review/`.
     """
 
     lines: tuple[str, ...]
@@ -280,7 +287,7 @@ def moved_note(
     limit: int = 8,
     expand: Mapping[str, str | None] | None = None,
 ) -> str | None:
-    """Which labels moved between two `label -> digest` maps — the miss diagnostic, over a stamp's own lines, over a code closure's per-file lines, or over a store's family keys. `None` when nothing differs. A changed label that `expand` hands a sub-note reads `label: sub-note` in place of `label (changed)`, which is how a closure label names the files that moved inside it; a new or gone label has no sub-diff and is never expanded, and a label whose sub-note is `None` reads as plainly changed. Mirrors `artifact_cycle.moved_inputs_note`, which is the house idiom for this."""
+    """Return a note naming the labels that differ between two `label -> digest` maps, or None when none differ. A changed label that `expand` maps to a note is shown as `label: note`; any other changed label is shown as `label (changed)`, and added or removed labels as `label (new)` or `label (gone)`. At most `limit` labels are listed, followed by a count of the rest. `artifact_cycle.moved_inputs_note` formats its notes the same way."""
     moved: list[str] = []
     for name in sorted(recorded.keys() & current.keys()):
         if recorded[name] == current[name]:
@@ -296,7 +303,7 @@ def moved_note(
 
 
 def cursive_anchor_map(font) -> dict[str, list]:
-    """Per glyph, the cursive-attachment geometry the after font positions it by: one (lookup index, entry, exit) triple per CursivePos record naming it, anchors as [x, y] or None. GPOS is the one channel a compiled glyph's rendering reads outside its charstring and advance, so it belongs in the per-glyph digest."""
+    """Return, per glyph, one (lookup index, entry, exit) triple for each GPOS cursive-attachment record that names it, with anchors as [x, y] or None. Outside its charstring and advance, GPOS is the only table that changes how a compiled glyph renders, so the per-glyph digest includes it."""
     anchors: dict[str, list] = {}
     if "GPOS" not in font:
         return anchors
@@ -324,9 +331,9 @@ def cursive_anchor_map(font) -> dict[str, list]:
 
 
 def after_font_glyph_digests(after_font: Path) -> tuple[dict[str, str], str]:
-    """Per qs family, a digest over the after font's compiled glyphs whose name stem belongs to it (decomposed outline operations, so subroutine plumbing can never hide a change; advance and sidebearing; cursive anchors), plus one environment digest over everything else a shaped run can touch regardless of family: the non-qs glyphs (boundary and marker helpers), the cmap, and the GPOS feature-to-lookup wiring. Two caches key on it — the review unit cache's family content keys (`unit_cache.family_content_keys`) and the oracle's per-row position store (`oracle_cache.position_family_keys`) — and it lives here because `rebuild/review/` imports `rebuild/pipeline/` and never the reverse.
+    """Return a digest per qs family over the after font's glyphs whose name stem is that family, and one digest over the rest of the font that a shaped run can depend on, apart from GSUB. A glyph's digest covers its decomposed outline (so a change inside a subroutine still shows), its advance and sidebearing, and its cursive anchors. The second digest covers the non-qs glyphs (boundary and marker helpers), the cmap, and the GPOS feature-to-lookup wiring. The function lives here because `rebuild/review/` imports `rebuild/pipeline/` and never the reverse.
 
-    The GSUB wiring is deliberately not in the environment digest, and it is the one omission worth arguing. A rune edit moves the GSUB lookup list on essentially every cycle, so folding it in made both of the unit cache's whole-store stamps move on exactly the workflow the cache exists for — a store that never once served a unit. What covers a window's glyph selection instead is a pair of things already in the keys: the settled cells the window resolves to (the audit row's `new` column for a unit; the served row verdict's own per-family rune keys for an oracle row), and `gate:conform`, which re-shapes the compiled font through HarfBuzz every cycle and proves its selection is the settlement's. So within a cycle whose conform gate is green, which glyph the after font puts in a window is a function of that window's settled cells, and those cells cannot move without the key moving. Everything the selected glyph then contributes — outline, advance, cursive anchors — is in the per-family digests, for every variant of every family the window can reach rather than only the selected one, and the code that emits the GSUB at all is in the environment stamp's pipeline fingerprint. GPOS stays because its channel is positional: it can move a run without moving a name or a cell.
+    The GSUB wiring is left out. A rune edit changes the GSUB lookup list on nearly every cycle, so including it would drop every cache keyed on this digest after each rune edit. A window's glyph selection is covered by two other things. The caches' keys include the settled cells the window resolves to (the audit row's `new` column for a unit, the per-family rune keys for an oracle row). And `gate:conform` shapes the compiled font through HarfBuzz every cycle and checks that its selection matches settlement. So while conform passes, the glyph the font selects for a window is a function of the window's settled cells, which cannot change without the key changing. Every glyph a window can reach, in every variant of every family, is in the per-family digests. GPOS stays in because it can move a run without changing a glyph name or a cell.
     """
     from fontTools.pens.recordingPen import DecomposingRecordingPen
     from fontTools.ttLib import TTFont
@@ -374,7 +381,7 @@ def after_font_glyph_digests(after_font: Path) -> tuple[dict[str, str], str]:
     return family_digests, helpers
 
 
-# Every policy record kind that carries an author `why`, and the one whose rationale something downstream reads. The difference is the whole of what separates `rune_file_digest` from `rune_explain_digest`.
+# Policy record kinds whose records carry an author `why`, and the kinds whose `why` something downstream reads. `rune_explain_digest` keeps the `why` of the second group and `rune_file_digest` drops it; that is the only difference between them.
 POLICY_PROSE_KINDS = ("prefer", "extend", "contract", "resolve", "refuse")
 QUOTED_POLICY_PROSE_KINDS = ("refuse",)
 
@@ -402,7 +409,7 @@ def _projected_stance(stance: object) -> object:
 
 
 def _projected_rune(document: object, *, quoted_prose: bool = False) -> object:
-    """The prose-blind view of a parsed rune document (see the module docstring for the contract). Anything shaped in a way the schema would reject — a non-string prose value, a non-dict ductus — passes through unprojected, so a type-breaking edit still moves the digest and the load failure it causes stays visible. `quoted_prose` spares the one rationale something downstream reads, `policy.refuse[].why`, which is the whole difference between the two rune digests here."""
+    """Return the prose-blind view of a parsed rune document (the module docstring says what it drops). A value shaped in a way the schema rejects, such as a non-string prose value or a non-dict ductus, passes through unchanged, so the digest still moves and the load failure stays visible. With `quoted_prose`, the `why` of refuse records is kept."""
     if not isinstance(document, dict):
         return document
     projected = dict(document)
@@ -431,7 +438,7 @@ def _projected_rune(document: object, *, quoted_prose: bool = False) -> object:
 
 
 def _projected_digest(path: Path, project: Callable[[object], object]) -> str:
-    """Content digest of one YAML file over a prose-blind projection of what it parses to, so documentation edits, comments, and reformatting leave it unmoved. Falls back to the raw byte hash when the file does not parse or serialize — a malformed input is a stopping change wherever one of these digests is read, and the fallback keeps it visible rather than hashing a guess."""
+    """Return the SHA-256 of a YAML file's parsed content after `project`, so comments, formatting, and whatever `project` drops don't affect it. A file that fails to parse or serialize digests to its raw bytes, so a malformed file still changes the digest and two broken drafts don't share a value."""
     raw = path.read_bytes()
     try:
         payload = json.dumps(project(yaml.load(raw.decode(), Loader=_SAFE_LOADER)), ensure_ascii=False)
@@ -450,7 +457,7 @@ def _projected_rune_keeping_quoted_prose(document: object) -> object:
 
 
 def rune_explain_digest(path: Path) -> str:
-    """One rune file's explain-aware content digest: `rune_file_digest`'s projection but for `policy.refuse[].why`, the sentence the crate's engine appends to a refusal's elimination when it is asked for an explain ladder and the review surface serves as explain text. Nothing that builds a table or a font asks for that ladder, so this digest is the review side's alone — it exists so rewording a refusal can invalidate the windows quoting it without touching anything keyed on the prose-blind digest."""
+    """Return `rune_file_digest`'s projection with `policy.refuse[].why` kept. The crate appends that text to a refusal's elimination message in an explain ladder, which the review surface shows as explain text. No table or font build asks for a ladder, so only the review side uses this digest: rewording a refusal invalidates the windows that quote it and nothing keyed on `rune_file_digest`."""
     return _projected_digest(path, _projected_rune_keeping_quoted_prose)
 
 
@@ -458,14 +465,14 @@ CONTACT_ALLOW_LABEL = "rebuild/m1-contact-allow.yaml"
 
 
 def _projected_allow_list(document: object) -> object:
-    """The prose-blind view of the parsed contact allow-list: every entry keeps its signature and loses its `why`, which is the reviewer's rationale for blessing that corner and reaches no gate. A document shaped in a way `defects.run_gates` would reject passes through unprojected, so the load failure it causes stays visible in the digest."""
+    """Return the parsed contact allow-list with each entry's `why` set to None; the signature stays. A document `defects.run_gates` would reject passes through unchanged, so its load failure stays visible in the digest."""
     if not isinstance(document, list):
         return document
     return [_without_why(entry) for entry in document]
 
 
 def contact_allow_digest(path: Path) -> str:
-    """The contact allow-list's prose-blind content digest — the one line the allow list contributes to any key here, and it contributes it to the artifact cycle's run_m1 skip key alone (`CONTACT_ALLOW_LABEL`). Blessing a signature moves it; wording the bless does not."""
+    """Return the contact allow-list's prose-blind digest. Only the artifact cycle's run_m1 skip key uses it, under `CONTACT_ALLOW_LABEL`. Adding or changing a signature moves it; rewording a `why` does not."""
     return _projected_digest(path, _projected_allow_list)
 
 
@@ -474,19 +481,19 @@ STANDING_APPROVALS_LABEL = "rebuild/standing-approvals.yaml"
 
 
 def _projected_ledger(document: object) -> object:
-    """The prose-blind view of the parsed divergence ledger: every entry keeps its `id`, `status`, `match`, `no_verdict`, `ink_identical`, `count` and `exemplars` — which `audit.load_ledger`, `oracle.classify_divergence` and the census all read — and loses only its `why`, the reviewer's recorded rationale for the class. A document shaped in a way `audit.load_ledger` would refuse passes through unprojected, so the load failure it causes stays visible in the digest."""
+    """Return the parsed divergence ledger with each entry's `why` set to None. The other fields (`id`, `status`, `match`, `no_verdict`, `ink_identical`, `count`, `exemplars`) stay, because `audit.load_ledger`, `oracle.classify_divergence`, and the census read them. A document `audit.load_ledger` would reject passes through unchanged, so its load failure stays visible in the digest."""
     if not isinstance(document, list):
         return document
     return [_without_why(entry) for entry in document]
 
 
 def divergence_ledger_digest(path: Path) -> str:
-    """The divergence ledger's prose-blind content digest, which is how `data_lines` hashes it. Retriaging a class moves it; rewording one does not, because that wording rides `explain_prose` through `ledger_prose_lines` instead."""
+    """Return the divergence ledger's prose-blind digest, which `data_lines` uses. Changing a class's fields moves it. Rewording a class's `why` does not, because `ledger_prose_lines` hashes the `why` into `explain_prose` instead."""
     return _projected_digest(path, _projected_ledger)
 
 
 def _projected_standing_rules(document: object) -> object:
-    """The note-blind view of the parsed standing approvals: every rule keeps its `id`, `verdict`, `match` and `except_left`, and loses only its `note`. A document shaped in a way `standing_verdicts.load_rules` would refuse passes through unprojected, for the same reason the other two projections do."""
+    """Return the parsed standing approvals with each rule's `note` set to None; every other field stays. A document `standing_verdicts.load_rules` would reject passes through unchanged, so its load failure stays visible in the digest."""
     if not isinstance(document, dict):
         return document
     rules = document.get("rules")
@@ -496,12 +503,12 @@ def _projected_standing_rules(document: object) -> object:
 
 
 def standing_approvals_digest(path: Path) -> str:
-    """The standing approvals' note-blind content digest. No component here carries it: the artifact cycle's rebuild-lane closures are its whole audience, since a rule's `note` is quoted into the verdicts the chain fills and so belongs in the plumbing key's raw bytes rather than here."""
+    """Return the standing approvals' digest without each rule's `note`. No component here includes it; only the artifact cycle's rebuild-lane closure uses it. The plumbing key hashes the file raw instead, because the standing fill copies each `note` into the verdicts it writes."""
     return _projected_digest(path, _projected_standing_rules)
 
 
 def _data_digest(root: Path, path: Path, runes: set[Path]) -> str:
-    """How one data input is hashed for `data_lines`: a prose-blind digest where the input has one — the rune files' and the divergence ledger's — and raw bytes otherwise."""
+    """Return one data input's digest for `data_lines`: the prose-blind digest for rune files and the divergence ledger, and the raw bytes for everything else."""
     if path in runes:
         return rune_file_digest(path)
     if _label(root, path) == DIVERGENCE_LEDGER_LABEL:
@@ -510,7 +517,7 @@ def _data_digest(root: Path, path: Path, runes: set[Path]) -> str:
 
 
 def data_lines(repo_root: Path) -> list[str]:
-    """The per-file `label\\tdigest` lines the `data` component is built from: rune files and the divergence ledger by their prose-blind digests, every other data input by raw bytes. Sorted, like `path_lines`, and exposed for the same reason."""
+    """Return the sorted `label\\tdigest` lines behind the `data` component, one per existing data input, each hashed as `_data_digest` says. Exposed for the same reason as `path_lines`."""
     root = Path(repo_root)
     runes = set(rune_paths(root))
     return sorted(
@@ -521,7 +528,7 @@ def data_lines(repo_root: Path) -> list[str]:
 
 
 def data_value(repo_root: Path) -> str:
-    """The `data` component: rune files and the divergence ledger by their prose-blind digests, every other data input by raw bytes."""
+    """Return the `data` component: the hash of `data_lines`."""
     return hashlib.sha256("\n".join(data_lines(repo_root)).encode()).hexdigest()
 
 
@@ -533,31 +540,31 @@ NON_TABLE_DATA_LABELS = (
 
 
 def table_data_lines(repo_root: Path) -> list[str]:
-    """`data_lines` minus the three data inputs no table stage reads. `rebuild/m1-aliases.yaml` and `rebuild/m1-divergences.yaml` are the baseline oracle's, read to name and classify divergences the fixpoint has already decided; `glyph_data/senior_quikscript_kerning.yaml` is the position channel's, read by `oracle_positions.KernEvaluator` alone to add the sidecar's kerns back before a baseline position diff — the font compile hands the builder its own empty kerning map and never opens the file. None of the three reaches the kernel crate or any stage that builds a decision table, so folding them into the tables' own stamp only made a ledger, classifier, or kern re-adjudication throw away an enumeration that would come back byte for byte.
+    """Return `data_lines` without `NON_TABLE_DATA_LABELS`, the data inputs no table stage reads. The oracle reads the alias map and the divergence ledger to name and classify divergences after the fixpoint has decided them. Only `oracle_positions.KernEvaluator` reads the kern sidecar, to add its kerns back before a position comparison; the font compile passes the builder an empty kerning map and never opens the file. None of the three reaches the kernel crate or any stage that builds a decision table, so including them in the tables' stamp would discard enumerations that would be rebuilt byte for byte.
 
-    Narrower stamp, same coverage: all three stay in `data_lines`, which is what the artifact cycle's run_m1 green record and the Stage A `data` component are keyed on, so editing one still moves that key — and what the cycle spends against it is a re-adjudication over the tables and font already on disk (`artifact_cycle.comparison_side_label`), not a fixpoint.
+    All three stay in `data_lines`, so an edit to one still moves the `data` component and the run_m1 skip key. The cycle then re-runs the comparison over the tables and font on disk (`artifact_cycle.comparison_side_label`) instead of the fixpoint.
     """
     excluded = set(NON_TABLE_DATA_LABELS)
     return [line for line in data_lines(repo_root) if line.split("\t", 1)[0] not in excluded]
 
 
 def table_data_value(repo_root: Path) -> str:
-    """The data half of the stamp a serialized window enumeration carries: `table_data_lines` hashed, which is `data_value` narrowed by exactly the comparison-side labels in `NON_TABLE_DATA_LABELS` and by nothing else."""
+    """Return the hash of `table_data_lines`, the data half of `tables_value`."""
     return hashlib.sha256("\n".join(table_data_lines(repo_root)).encode()).hexdigest()
 
 
 def rune_digests(repo_root: Path) -> dict[str, str]:
-    """Every rune file's prose-blind digest, keyed by family name (the file stem, which spec_load lints to equal the `rune:` field). This is the per-rune grain the oracle row cache invalidates at (`oracle_cache.family_keys`), so a cached row survives a cycle exactly when every family it names still carries the digest recorded beside it. The review unit cache keys on `rune_explain_digests` instead, because among the products it caches is the explain text a refusal's `why` is quoted into."""
+    """Return every rune file's `rune_file_digest`, keyed by family name (the file stem, which spec_load checks against the `rune:` field). The oracle row cache invalidates per family on these (`oracle_cache.family_keys`). The review unit cache uses `rune_explain_digests` instead, because the explain text it caches quotes refuse `why`s."""
     return {path.stem: rune_file_digest(path) for path in rune_paths(Path(repo_root)) if path.is_file()}
 
 
 def rune_explain_digests(repo_root: Path) -> dict[str, str]:
-    """`rune_digests` at the same per-family grain and explain-aware, which is what the review unit cache's family content keys (`unit_cache.family_content_keys`) are built from: an entry moves when a record moves and when a refusal's `why` is reworded, and on nothing else. Byte-identical to `rune_digests` for a rune whose refusals carry no `why`."""
+    """Return every rune file's `rune_explain_digest`, keyed by family name. The review unit cache's family keys (`unit_cache.family_content_keys`) are built from these. A rune whose refusals have no `why` gets the same value as in `rune_digests`."""
     return {path.stem: rune_explain_digest(path) for path in rune_paths(Path(repo_root)) if path.is_file()}
 
 
 def refuse_prose_lines(repo_root: Path) -> list[str]:
-    """The `family\\tindex\\twhy` line of every refuse record carrying a `why`, sorted — the whole of the rune prose anything downstream reads, and one of the two inputs to the `explain_prose` component, `ledger_prose_lines` being the other. A rune that will not parse or decode contributes `family\\t-\\t<raw digest>` instead, the way `_projected_digest` falls back, so a broken file moves the value rather than silently contributing no refusals at all."""
+    """Return a sorted `family\\tindex\\twhy` line for each refuse record with a `why`. This is all the rune prose anything downstream reads, and one of the two inputs to `explain_prose` (`ledger_prose_lines` is the other). A rune that fails to parse or decode contributes `family\\t-\\t<raw digest>`, so a broken file changes the value instead of reading as a rune with no refusals."""
     lines: list[str] = []
     for path in rune_paths(Path(repo_root)):
         if not path.is_file():
@@ -580,7 +587,7 @@ def refuse_prose_lines(repo_root: Path) -> list[str]:
 
 
 def ledger_prose_lines(repo_root: Path) -> list[str]:
-    """The `ledger\\t<id>\\t<why>` line of every divergence-ledger entry carrying a rationale, sorted — the `explain_prose` component's other input, and the reason the ledger's `why` can leave the `data` digest without the surface being able to serve a stale one. The review build copies that rationale into the manifest's `classes[].why`, which `check_manifest` requires, and nothing else downstream reads it: no shard and no sidecar carries it, so rewording a class re-stamps the surface and re-enriches nothing. A ledger that will not parse or decode, or that is not the list `audit.load_ledger` expects, contributes `ledger\\t-\\t<raw digest>` instead, the way `_projected_digest` falls back."""
+    """Return a sorted `ledger\\t<id>\\t<why>` line for each divergence-ledger entry with a `why`: the other input to `explain_prose`. The ledger's `why` leaves the `data` digest and is hashed here so the surface cannot serve a stale one: the review build copies it into the manifest's `classes[].why`, which `check_manifest` requires. No shard or sidecar carries it, so rewording a class restamps the surface and re-enriches no unit. A ledger that fails to parse or decode, or is not the list `audit.load_ledger` expects, contributes `ledger\\t-\\t<raw digest>`."""
     path = Path(repo_root) / DIVERGENCE_LEDGER_LABEL
     if not path.is_file():
         return []
@@ -602,14 +609,14 @@ def ledger_prose_lines(repo_root: Path) -> list[str]:
 
 
 def explain_prose_value(repo_root: Path) -> str:
-    """The `explain_prose` component: `refuse_prose_lines` and `ledger_prose_lines` concatenated and then sorted as one list, hashed, so the surface's manifest can answer whether the explain text and the class rationales it serves are the wording on disk. The two kinds cannot collide because a ledger line's first field is the literal `ledger` and a refuse line's is a family name. Stage B rather than Stage A because no stage of the M1 build reads any of it — run_m1 could not record it honestly, and a stale value here is the surface's to fix rather than a rebuild's."""
+    """Return the `explain_prose` component: the hash of `refuse_prose_lines` and `ledger_prose_lines` sorted together, so the manifest records whether the explain text and class rationales it serves match the wording on disk. The two kinds of line cannot collide, because a ledger line's first field is `ledger` and a refuse line's is a family name. It is a Stage B component because no stage of the M1 build reads this prose, so run_m1 has nothing to record, and a stale value means the surface needs rebuilding, not the tables."""
     root = Path(repo_root)
     lines = sorted(refuse_prose_lines(root) + ledger_prose_lines(root))
     return hashlib.sha256("\n".join(lines).encode()).hexdigest()
 
 
 def table_code_paths(repo_root: Path) -> list[Path]:
-    """`pipeline_code_paths` minus `COMPARISON_CODE_MODULES`: the code half of the stamp a serialized window enumeration carries. Everything that can move a table or the font stays — the crate, the spec loader, the emitters, the compiler, the gates that run inside the build — and what leaves is only what runs against those artifacts afterward: the oracle's classifier and its position channel. Conservative in the same direction as `pipeline_code_paths`: a module the build never reaches is still stamped unless it is named in the roster, and the import-graph test is what earns a module its place there."""
+    """Return `pipeline_code_paths` without `COMPARISON_CODE_MODULES`: the code half of `tables_value`. Everything that can change a table or the font stays, including the crate, the spec loader, the emitters, the compiler, and the gates that run inside the build. A module leaves only when `COMPARISON_CODE_MODULES` names it, and rebuild/test_build_code_closure.py checks that the build never imports one."""
     root = Path(repo_root)
     pipeline = root / "rebuild" / "pipeline"
     return [
@@ -620,7 +627,7 @@ def table_code_paths(repo_root: Path) -> list[Path]:
 
 
 def tables_value(repo_root: Path) -> str:
-    """The content key over everything the decision-table fixpoint and the font compile read: the rune and config data by `table_data_value`, plus the build side of the pipeline code by `table_code_paths`. A serialized window enumeration carries this value so it can prove it still describes the sources on disk, and the conformance sweep refuses the moment it does not. Deliberately narrower than the Stage A record at both ends — the oracle's baselines feed no table, so re-extracting them must not throw the windows away, and neither do the alias map, the divergence ledger, the kern sidecar, or the oracle's own code, so re-adjudicating one of those must not either. The contact allow-list is narrower still: it is in no component of the Stage A record either, and an edit to it moves this stamp exactly as little."""
+    """Return the content key over everything the decision-table fixpoint and the font compile read: `table_data_value` and the hash of `table_code_paths`. A serialized window enumeration carries it, and the conformance sweep stops with an error when it no longer matches. It is narrower than the Stage A record: the baselines, the alias map, the divergence ledger, the kern sidecar, and the oracle's own code feed no table, so editing one of them keeps the enumeration. The contact allow-list is in neither."""
     root = Path(repo_root)
     lines = (
         f"table_data\t{table_data_value(root)}",
@@ -651,7 +658,7 @@ def stage_a(repo_root: Path) -> dict:
 
 
 def stage_b(repo_root: Path, before_font: Path, junior_font: Path, spec_root: Path | None = None) -> dict:
-    """The review-side components. `explain_prose` is taken over `spec_root` when a build names one, because the rationales the surface quotes are read from the spec it settles under — a workload bundled with its own frozen spec serves that spec's `why`s, not this checkout's — and over the checkout otherwise, where the two are the same tree. `fonts` is `fonts_value` over the two site fonts, blind to their `head` and `name` tables, so the surface skip survives the `make all` a version bump runs."""
+    """Return the review-side components. `explain_prose` is computed over `spec_root` when the build names one, because a workload bundled with its own frozen spec serves that spec's rationales; otherwise it is computed over the checkout. `fonts` is `fonts_value` over the two site fonts, so the `make all` of a version bump leaves it unchanged."""
     root = Path(repo_root)
     return {
         "review_code": hash_paths(root, review_code_paths(root)),
