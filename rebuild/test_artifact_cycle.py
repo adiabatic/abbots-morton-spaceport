@@ -32,10 +32,10 @@ from rebuild.tools.peak_rss import format_gb
 from rebuild.tools.cycle_timings import CycleTimings
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-# Width assertions use stated machines rather than the host running the suite. At the 5.5 GB per-delta bound beside default's 2.5 GB memo snapshot, 32.5 GB fits four deltas alone and three beside the normal pytest pool; 38 GB exercises larger stated pool widths; 44 GB is the surface width's box. Re-seeding DELTA_PEAK_BYTES or DEFAULT_MEMO_BYTES moves these expectations and can require a different box to keep the reservation observable.
+# Width assertions use stated machines rather than the host running the suite. At the 6.3 GB per-delta bound beside default's 2.5 GB memo snapshot, 36 GB fits four deltas alone and three beside the normal pytest pool; 38 GB exercises larger stated pool widths; 44 GB is the surface width's box. Re-seeding DELTA_PEAK_BYTES or DEFAULT_MEMO_BYTES moves these expectations and can require a different box to keep the reservation observable.
 BOX_44_GB = 44_000_000_000
 BOX_38_GB = 38_000_000_000
-BOX_32_5_GB = 32_500_000_000
+BOX_36_GB = 36_000_000_000
 # The fleet's two real machines, for the surface width's assertions. With a worker priced at its width-two peak, no box either machine offers separates the build's arms — the pool's bytes come off a box with a worker's worth of slack left over on both — so the reservation arithmetic is asserted at the `_surface_fit_terms` seam, where no box enters at all, and the widths here are asserted against the machines that actually run them rather than against one invented to sit where the subtraction would move a width: 51_539_607_552 is the 48 GiB box whose width-two pool outran the eight-wide worker seed, and 34_359_738_368 is the 32 GiB Mac the eight-wide core clamp drove into swap.
 BOX_48_GIB = 51_539_607_552
 BOX_32_GIB = 34_359_738_368
@@ -2527,26 +2527,28 @@ def test_a_stated_pool_width_is_the_width_the_cycle_reserves_by(monkeypatch):
     """PYTEST_XDIST_AUTO_NUM_WORKERS is not something the cycle may narrow — the child inherits this process's environment, so a width already stated here is what that pool is going to take whatever the cycle would have preferred. Reserving by it is the only way the two stay one number."""
     monkeypatch.setenv("PYTEST_XDIST_AUTO_NUM_WORKERS", "9")
     assert ac.make_test_pool_width(ncores=1) == 9
-    assert ac.kernel_threads_budget(ncores=12, total_bytes=BOX_38_GB) == 4
+    assert ac.kernel_threads_budget(ncores=12, total_bytes=BOX_38_GB) == 3
     monkeypatch.setenv("PYTEST_XDIST_AUTO_NUM_WORKERS", "64")
     assert ac.kernel_threads_budget(ncores=12, total_bytes=BOX_38_GB) == 1
 
 
 def test_kernel_threads_budget_takes_the_pytest_pool_off_the_box_first():
-    """The pytest pool comes off the box beside default's retained memo before division. At the 5.5 GB per-delta bound beside the 2.5 GB memo snapshot, the 32.5 GB box fits four deltas alone; subtracting the normal 0.6 GB pytest pool leaves room for three. This boundary makes a missing reservation change the answer."""
-    solo = ac.kernel_threads_budget(skip_make_test=True, ncores=8, total_bytes=BOX_32_5_GB)
-    beside = ac.kernel_threads_budget(ncores=8, total_bytes=BOX_32_5_GB)
+    """The pytest pool comes off the box beside default's retained memo before division. At the 6.3 GB per-delta bound beside the 2.5 GB memo snapshot, the 36 GB box fits four deltas alone; subtracting the normal 0.6 GB pytest pool leaves room for three. This boundary makes a missing reservation change the answer."""
+    solo = ac.kernel_threads_budget(skip_make_test=True, ncores=8, total_bytes=BOX_36_GB)
+    beside = ac.kernel_threads_budget(ncores=8, total_bytes=BOX_36_GB)
     assert (solo, beside) == (4, 3)
 
 
-def test_the_gated_arm_seats_the_whole_delta_wave_on_the_fleets_32_gib_box(monkeypatch):
-    """The half of the kernel width's criterion only the cycle can assert: the pair in kernel_exec is chosen so that the wave stays in one round after gate:make-test's pytest pool has come off the box too, so on the fleet's 32 GiB Mac the gated arm and the skipped-gate arm answer the same width and both cover every configuration past default. A re-seed that keeps the solo width and loses the gated one fails here. The override is cleared first, since an exported width would satisfy the inequality whatever the constants say."""
+def test_the_gated_arm_seats_what_the_solo_arm_seats_on_both_fleet_boxes(monkeypatch):
+    """The half of the kernel width's criterion only the cycle can assert: the pair in kernel_exec is chosen so that gate:make-test's pytest pool coming off the box costs neither fleet machine a seat. On the 48 GiB box the gated arm and the skipped-gate arm answer the same width and both cover every configuration past default, so the wave stays in one round; on the 32 GiB Mac both arms seat three deltas. A re-seed that keeps a solo width and loses the gated one fails here. The override is cleared first, since an exported width would satisfy these assertions whatever the constants say."""
     from rebuild.pipeline.conform import SETTLEMENT_CONFIGS
 
     monkeypatch.delenv("AMS_KERNEL_THREADS", raising=False)
-    gated = ac.kernel_threads_budget(ncores=10, total_bytes=BOX_32_GIB)
+    gated = ac.kernel_threads_budget(ncores=18, total_bytes=BOX_48_GIB)
     assert gated >= len(SETTLEMENT_CONFIGS) - 1
-    assert ac.kernel_threads_budget(skip_make_test=True, ncores=10, total_bytes=BOX_32_GIB) == gated
+    assert ac.kernel_threads_budget(skip_make_test=True, ncores=18, total_bytes=BOX_48_GIB) == gated
+    assert ac.kernel_threads_budget(ncores=10, total_bytes=BOX_32_GIB) == 3
+    assert ac.kernel_threads_budget(skip_make_test=True, ncores=10, total_bytes=BOX_32_GIB) == 3
 
 
 def test_replay_threads_budget_takes_the_pytest_pool_off_the_box_first():
@@ -2554,8 +2556,8 @@ def test_replay_threads_budget_takes_the_pytest_pool_off_the_box_first():
     from rebuild.pipeline.conform import SETTLEMENT_CONFIGS
     from rebuild.pipeline.kernel_exec import REPLAY_PEAK_BYTES
 
-    solo = ac.replay_threads_budget(skip_make_test=True, ncores=8, total_bytes=BOX_32_5_GB)
-    beside = ac.replay_threads_budget(ncores=8, total_bytes=BOX_32_5_GB)
+    solo = ac.replay_threads_budget(skip_make_test=True, ncores=8, total_bytes=BOX_36_GB)
+    beside = ac.replay_threads_budget(ncores=8, total_bytes=BOX_36_GB)
     assert 1 <= beside <= solo <= len(SETTLEMENT_CONFIGS)
     assert ac.replay_threads_budget(ncores=2, total_bytes=BOX_44_GB) == 2
     narrow_box = 8_000_000_000 + 3 * REPLAY_PEAK_BYTES + 300_000_000
@@ -2642,14 +2644,14 @@ def test_kernel_threads_budget_holds_its_answer_at_the_configuration_count_and_t
 
 def test_a_plan_reserves_for_the_pytest_pool_only_when_that_gate_runs():
     """An auto-skipped gate and --skip-gates are the same fact — no pool is going to be co-resident — so the fan-out gets the whole box back rather than paying for a pool that never starts."""
-    assert _plan(ncores=8, total_bytes=BOX_32_5_GB).kernel_threads == 3
+    assert _plan(ncores=8, total_bytes=BOX_36_GB).kernel_threads == 3
     assert (
         _plan(
-            ncores=8, total_bytes=BOX_32_5_GB, skip_make_test=True, make_test_note="closure unchanged"
+            ncores=8, total_bytes=BOX_36_GB, skip_make_test=True, make_test_note="closure unchanged"
         ).kernel_threads
         == 4
     )
-    assert _plan(ncores=8, total_bytes=BOX_32_5_GB, skip_gates=True).kernel_threads == 4
+    assert _plan(ncores=8, total_bytes=BOX_36_GB, skip_gates=True).kernel_threads == 4
 
 
 def test_dry_run_renders_concurrency():
