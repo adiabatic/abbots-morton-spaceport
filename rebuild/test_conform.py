@@ -21,7 +21,6 @@ import pytest
 
 from rebuild.pipeline import (
     baseline_subset,
-    belt,
     conform,
     kernel_exec,
     labels,
@@ -30,6 +29,7 @@ from rebuild.pipeline import (
     oracle_positions,
     run_m1,
     settle,
+    witness,
 )
 from rebuild.pipeline.fixtures import mini_spec
 from rebuild.pipeline.model import CellId
@@ -2432,7 +2432,7 @@ class TestRawLabelsLateFormation:
 
 
 class TestSettledWindowWalk:
-    """The memo keys on the raw window — every slot one settlement can read, none of them blanked — so the bar is two things at once: observational identity with an unmemoized settlement of the same tokens, and key agreement with `belt._matched_windows`, which reads the same raw slots. Over-keying was never the risk; under-keying was (a key that blanks a slot the kernel can still read replays a wrong outcome somewhere), and both paths run exhaustively here, the walk reusing its memo from the second text on while the reference path settles every text in a sequence of its own. The rule replay itself does not ride the walk — `belt._matched_windows` and `_DeepTokenIndex` keep it, for the build's certificate check — so the arms that need rules exercise them there."""
+    """The memo keys on the raw window — every slot one settlement can read, none of them blanked — so the bar is two things at once: observational identity with an unmemoized settlement of the same tokens, and key agreement with `witness._matched_windows`, which reads the same raw slots. Over-keying was never the risk; under-keying was (a key that blanks a slot the kernel can still read replays a wrong outcome somewhere), and both paths run exhaustively here, the walk reusing its memo from the second text on while the reference path settles every text in a sequence of its own. The rule replay itself does not ride the walk — `witness._matched_windows` and `_DeepTokenIndex` keep it, for the build's certificate check — so the arms that need rules exercise them there."""
 
     SWEEP_CHUNK = 4096
 
@@ -2469,14 +2469,14 @@ class TestSettledWindowWalk:
                     expected = [trace.settled for trace in traces]
                     assert settled == expected, text
                     assert names == conform.settled_names(spec, expected, None), text
-                    for _index, window, _matched in belt._matched_windows(
+                    for _index, window, _matched in witness._matched_windows(
                         spec, text, features, guard, names, {}, None
                     ):
                         assert window in walker.windows, (text, window)
                     if rules_by_input is not None:
                         replayed += [
                             (window, matched)
-                            for _index, window, matched in belt._matched_windows(
+                            for _index, window, matched in witness._matched_windows(
                                 spec, text, features, guard, names, rules_by_input, deep_index
                             )
                         ]
@@ -2515,7 +2515,7 @@ class TestSettledWindowWalk:
         assert any(row.right3 != "#NA" for row in decision.transitions)
         assert any(rule.look3 for rule in decision.rules)
         assert decision.deep_classes
-        rules_by_input = belt._renamed_rules_by_input(spec, frozenset(), decision)
+        rules_by_input = witness._renamed_rules_by_input(spec, frozenset(), decision)
         index = conform._DeepTokenIndex(decision, raw_rename_map(spec, frozenset()))
         _walker, replayed = self._sweep(
             spec, frozenset(), conform.spec_alphabet(spec), 5, rules_by_input, index
@@ -2523,7 +2523,7 @@ class TestSettledWindowWalk:
         assert any(matched is not None for _window, matched in replayed)
 
     def test_synthetic_depth4_replay_carries_rules_and_a_genuine_index(self):
-        """The class-grain depth-4 arm with real rules and a real transported index: the mini fixture plus a reach-3 chain on ·Tea, built in the shipping deep world, mints an r4 class at the ·Tea·May·May·May windows, and `belt._matched_windows` must resolve the realized labels to that class token and match rules against it — the replay half of the pair, which the witness gate leans on, while the walk beside it keeps settling those same texts right."""
+        """The class-grain depth-4 arm with real rules and a real transported index: the mini fixture plus a reach-3 chain on ·Tea, built in the shipping deep world, mints an r4 class at the ·Tea·May·May·May windows, and `witness._matched_windows` must resolve the realized labels to that class token and match rules against it — the replay half of the pair, which the witness gate leans on, while the walk beside it keeps settling those same texts right."""
         import dataclasses
 
         from rebuild.pipeline import fixtures, model
@@ -2550,7 +2550,7 @@ class TestSettledWindowWalk:
         spec = dataclasses.replace(spec, runes=runes)
         decision = build_tables(spec, frozenset())[0]
         assert any(row.right4 in decision.deep_classes for row in decision.transitions)
-        rules_by_input = belt._renamed_rules_by_input(spec, frozenset(), decision)
+        rules_by_input = witness._renamed_rules_by_input(spec, frozenset(), decision)
         index = conform._DeepTokenIndex(decision, raw_rename_map(spec, frozenset()))
         alphabet = tuple(
             chr(codepoint)
@@ -3776,12 +3776,12 @@ class TestSettleMemoFile:
         )
         ranged.walk_many(texts[-4:])
         assert ranged.fresh_windows and ranged.save_memo()
-        witness = conform._SettledWindowWalk(
+        witness_walk = conform._SettledWindowWalk(
             spec, frozenset(), {}, guard, memo=replace(memo, write_path=witness_part)
         )
-        witness.load_only_asked_by(texts[-6:-2])
-        witness.walk_many(texts[-6:-2])
-        assert witness.fresh_windows and witness.save_memo()
+        witness_walk.load_only_asked_by(texts[-6:-2])
+        witness_walk.walk_many(texts[-6:-2])
+        assert witness_walk.fresh_windows and witness_walk.save_memo()
         filed = self._part_rows(ranged_part, memo, spec)
         folded = self._part_rows(witness_part, memo, spec)
         assert filed & folded and filed - folded

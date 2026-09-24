@@ -127,7 +127,6 @@ def _manifest_stamp(out_dir: Path) -> str:
 # The rebuild/pipeline modules the surface build never imports: the driver, the defect and Manual-pin gates it runs, the baseline oracle with its position channel and its row cache, the conformance sweep with its settle-memo codec, the witness stage's rule replay, the GSUB emitter, the GPOS emitter, the GSUB packer, the pixel geometry, read-back, the font compile, the CoreText smoke and the cell enumeration the driver realizes glyphs from. The vocabulary the build shares with the sweep — the alphabet, a configuration's features, a formed stream's labels, the boundary names and the alias map — lives in `labels.py`, a leaf the build reaches without reaching the sweep behind it. Every other pipeline module is in build.py's walked import closure and rides `surface_code_paths`. An exclusion roster rather than an inclusion one, so a module that lands in the tree is hashed until rebuild/test_review_code_closure.py says the build never reaches it.
 PIPELINE_NON_SURFACE_MODULES = frozenset(
     {
-        "belt.py",
         "compile_font.py",
         "conform.py",
         "coretext_smoke.py",
@@ -144,6 +143,7 @@ PIPELINE_NON_SURFACE_MODULES = frozenset(
         "readback.py",
         "run_m1.py",
         "surface.py",
+        "witness.py",
     }
 )
 
