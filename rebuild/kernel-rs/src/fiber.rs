@@ -1,14 +1,18 @@
-//! The issue-26 fiber source: per live context `(input family, right1, right2)`, the static third-slot option list's letters partitioned into fibers of an outcome-probe function, derived lazily on first reach and memoized per build.
+//! Derives the fibers for class-grain enumeration. For each live context `(input family, right1, right2)`, the letters in the static third-slot option list are partitioned into fibers by the results of an outcome probe. Each context is derived the first time it is requested and memoized for the build.
 //!
-//! A fiber is an equivalence class of third tokens that the enumeration may collapse into one row. The key per candidate letter `t3` has three components. First the probe function itself: for every left class in [`ProspectLiveness::seat_left_classes`] and every bounded coordinate, the full row-visible record — the settled triple, the prospect, the joint-floor flag and the notes — with the three raise identities kept as three distinct values (E-INCOMPARABLE, E-AMBIGUOUS, and everything else; [`crate::error::SettleError`] carries that split for exactly this reason, and collapsing any two would silently merge fibers the review surface and the treaty fold read apart). Second the `fourth_slot_matters` verdict itself. Third, for members whose verdict is true, the *computed* r4 option list, run through [`WindowOptions::right4_options`] per member — structurally, so a filter added to that pipeline without a key update fails [`crate::fixpoint`]'s partition assertion loudly instead of silently splitting a fiber.
+//! A fiber is a set of third-slot letters that the enumeration may collapse into one row. A candidate letter `t3`'s fiber key has three parts:
 //!
-//! The coordinate set is bounded rather than the full grid: `(EDGE, UNKNOWN)` where the fourth slot is dead — an r4-dead member is traced only at EDGE and enqueues no r4 pin, so deeper coordinates are unread for it — widening to the whole probe alphabet with `UNKNOWN` appended after it exactly where `fourth_slot_matters` is true, which is where a seat can move under a specific `(third, fourth)` pair and is what absorbs the joint34 counterexample at fiber grain. The append order is load-bearing twice: the r4 grouping indexes the probe matrix by a token's position in that coordinate list, so `UNKNOWN` must sit past every probe token rather than among them.
+//! 1. The probe results: for every left class in [`ProspectLiveness::seat_left_classes`] and every probed coordinate, the full row-visible record, which is the settled triple, the prospect, the joint-floor flag, and the notes. E-INCOMPARABLE, E-AMBIGUOUS, and every other error are three distinct values, and [`crate::error::SettleError`] keeps those outcomes apart for this reason: merging any two would merge fibers that the review surface and the treaty fold tell apart.
+//! 2. The `fourth_slot_matters` verdict.
+//! 3. Where that verdict is true, the r4 option list [`WindowOptions::right4_options`] computes for this member. Because the key stores the computed list, a filter added to that pipeline without a key update makes [`crate::fixpoint`]'s partition assertion fail instead of silently splitting a fiber.
 //!
-//! Components two and three are what make an r3 class induce one shared r4 sub-enumeration: its `t4` groups under the probe function restricted to the option list are the r4 fibers, and because the probe function is indexed by `t3` the r4 partition is per `(context, r3 class)` and never per context alone. Grouping runs in option-pipeline order — a boundary is its own singleton where it stands, and letters group by their column of the probe matrix with each bucket taking the seat of its first member.
+//! The probed coordinates are bounded. Where the fourth slot is dead they are `(EDGE, UNKNOWN)`: an r4-dead member's row is traced only at `EDGE` and enqueues no r4 pin, so no letter in the fourth slot is read for it. Where `fourth_slot_matters` is true they are the whole probe alphabet followed by `UNKNOWN`. Those are the contexts where the input letter's settlement can change under a specific `(third, fourth)` pair, which is how the fibers account for the joint34 counterexample ([`crate::liveness`]).
 //!
-//! The verdict the deriver asks for is the raw filter verdict, `fourth_slot_matters(family, right1, right2, t3)`, and deliberately not that ANDed with the depth-4 census: the fixpoint applies `rune_name in deep4_inputs` separately when it decides whether a fiber's r4 groups become slot-4 entries, and the partition assertion replays the same distinction. Under the deep world the census is every rune and the AND is invisible; the pinned world's assertions still read it.
+//! Parts 2 and 3 make the members of one r3 fiber share one r4 sub-enumeration, whose r4 fibers are the r4 option letters grouped by their probe results. Because the probe results depend on `t3`, the r4 partition is per `(context, r3 fiber)`, not per context. Grouping follows option-pipeline order: each boundary is its own singleton where it stands, and letters with the same column of the probe matrix share a group placed at its first member.
 //!
-//! The probes run on the build's own tracing engine, so their traces land in the shared memo and their fired pointers in `Engine::fired`, exactly as the liveness probes' traces already do. The one imported rather than probed assumption is the left-class collapse [`ProspectLiveness::seat_left_classes`] already trusts; the fixpoint's per-build echo check is the standing guard on it at real-left, real-entry, real-adjustment grain.
+//! The deriver asks for the raw filter verdict `fourth_slot_matters(family, right1, right2, t3)`, not that verdict ANDed with the depth-4 census. The fixpoint applies the census (`deep4_inputs`) separately when it decides whether a fiber's r4 groups become slot-4 entries, and the partition assertion does the same. In the deep world the census is every rune, so the AND changes nothing there; the pinned-world assertions still read it.
+//!
+//! The probes run on the build's own tracing engine, so their traces go into the shared memo and their fired pointers into `Engine::fired`, as the liveness probes' do. The one assumption taken from elsewhere instead of probed is the left-class collapse in [`ProspectLiveness::seat_left_classes`]. The fixpoint's echo check tests it on every build at real lefts, real entries, and real adjustments.
 
 use std::rc::Rc;
 
@@ -21,10 +25,10 @@ use crate::model::Sym;
 use crate::options::WindowOptions;
 use crate::types::{EDGE, LeftContext, RightToken, Settled, TokenKind, UNKNOWN};
 
-/// The coordinates an r4-dead member is probed at, `(EDGE, UNKNOWN)`. Such a member is traced only at `EDGE` by the enumeration and enqueues no r4 pin, so no deeper coordinate is ever read for it and probing the whole alphabet there would key the fiber on windows nothing consults.
+/// The coordinates an r4-dead member is probed at. The enumeration traces such a member's row only at `EDGE` and enqueues no r4 pin, so no letter in the fourth slot is ever read for it, and probing the whole alphabet would key the fiber on windows nothing reads.
 const DEAD_FOURTH_COORDS: [RightToken; 2] = [EDGE, UNKNOWN];
 
-/// One probed window's row-visible record. A settled window carries everything a row reports — the settled triple, the prospect, the joint-floor flag and the notes — and the three raise identities stay three distinct values, because a fiber that merged an E-INCOMPARABLE window with an unreachable one would collapse two outcomes the review surface and the treaty fold read apart.
+/// One probed window's row-visible record. A settled window keeps every field a row reports: the settled triple, the prospect, the joint-floor flag, and the notes. The three error outcomes stay distinct, because a fiber that merged an E-INCOMPARABLE window with an unreachable one would merge outcomes the review surface and the treaty fold tell apart.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 enum FiberRecord {
     Settled {
@@ -38,7 +42,7 @@ enum FiberRecord {
     Unreachable,
 }
 
-/// One candidate third token's whole fiber key: the `fourth_slot_matters` verdict, the computed r4 option list where that verdict is true, and the probe matrix itself, one row per left class and one column per bounded coordinate.
+/// One candidate third letter's fiber key: the `fourth_slot_matters` verdict, the computed r4 option list where that verdict is true, and the probe matrix, with one row per left class and one column per probed coordinate.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 struct FiberKey {
     fourth_matters: bool,
@@ -46,9 +50,9 @@ struct FiberKey {
     probe: Vec<Vec<FiberRecord>>,
 }
 
-/// One r3 letter fiber of a live context: the member tokens, the member-uniform `fourth_slot_matters` verdict, and — only where that verdict is true — the shared r4 sub-enumeration.
+/// One r3 fiber of a live context: its member letters, their shared `fourth_slot_matters` verdict, and, only where that verdict is true, their shared r4 sub-enumeration.
 ///
-/// `members` arrives in sorted-letter order, which is the order the static option list already has, so the first member is the deterministic representative. `r4_groups` is the computed r4 option list partitioned into boundary singletons and r4 letter fibers, in option-pipeline order; a dead fourth carries none at all.
+/// `members` is in sorted-name order, which is the order of the static option list, so the first member is the deterministic representative. `r4_groups` is the computed r4 option list split into boundary singletons and r4 letter fibers, in option-pipeline order. It is empty when the fourth slot is dead.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Fiber {
     pub members: Vec<RightToken>,
@@ -56,16 +60,16 @@ pub struct Fiber {
     pub r4_groups: Vec<Vec<RightToken>>,
 }
 
-/// One live context's whole third-slot partition: the static option list's boundaries in their own order, and its letters as fibers in first-member-encountered order.
+/// One live context's third-slot partition: the static option list's boundaries in their own order, and its letters as fibers, ordered by each fiber's first member.
 ///
-/// The boundaries are carried rather than re-derived because the enumeration walks them ahead of the fibers and pins them exactly as it pins a fiber's members, and because a boundary third slot is a class of one by definition — nothing about the outcome probe would ever merge two of them.
+/// The boundaries are listed here so the enumeration does not derive them again: it walks them before the fibers and pins them the same way it pins a fiber's members. A boundary is always a class of one, so none is grouped.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ContextFibers {
     pub boundary_options: Vec<RightToken>,
     pub fibers: Vec<Fiber>,
 }
 
-/// The per-build fiber deriver. Everything it needs beyond its own memo arrives per call — the engine, the liveness probe, the fourth-slot filter and the option pipelines are all the fixpoint's, lent for the derivation, because a second copy of any of them would fork a memo the product reports through.
+/// The per-build fiber deriver. Apart from its own memo, everything it uses belongs to the fixpoint and is passed in on each call: the engine, the liveness probe, the fourth-slot filter, and the option pipelines. Using the fixpoint's own instances means the deriver's probes share their memos and fire into the `Engine::fired` set the product reports as `cited_provenance`.
 #[derive(Debug, Default)]
 pub struct DeepFiberDeriver {
     contexts: HashMap<(Sym, Sym, Sym), Rc<ContextFibers>>,
@@ -77,13 +81,13 @@ impl DeepFiberDeriver {
         Self::default()
     }
 
-    /// This context's fiber partition, derived on first reach and memoized after.
+    /// This context's fiber partition, derived on the first request and memoized.
     ///
-    /// The static option list is [`WindowOptions::right3_options`] over the follower map [`WindowOptions::context_follower_map`] hands back for `(family, right1)` — the same computation the enumeration runs, not a restatement of it. Its non-letter entries become [`ContextFibers::boundary_options`] untouched; its letters are probed and grouped.
+    /// The static option list is [`WindowOptions::right3_options`] over the follower map [`WindowOptions::context_follower_map`] returns for `(family, right1)`, the same call the enumeration makes. Its non-letter entries become [`ContextFibers::boundary_options`] unchanged; its letters are probed and grouped.
     ///
-    /// A context is only ever asked for where the third slot is live, but the deriver does not check that and answers whatever it is asked: the caller that knows the verdict is the caller that has already computed it.
+    /// The fixpoint asks only for contexts whose third slot is live. The deriver does not check this, because the caller has already computed that verdict.
     ///
-    /// The fourth-slot filter is lent the liveness probe on the terms [`crate::census`] sets out — where the engine's own modes make a deep world, and nowhere else. That is not a second opinion about the world but the very filter the enumeration itself asks; a deriver only ever runs in a deep world anyway, so the two spellings can only differ where nothing calls either.
+    /// The fourth-slot filter gets the liveness probe only when the engine's modes make a deep world, which is the rule the fixpoint follows when it calls the same filter ([`crate::census`]). A deriver only runs in a deep world, so the probe is always passed in practice.
     #[allow(clippy::too_many_arguments)]
     pub fn context(
         &mut self,
@@ -188,7 +192,7 @@ impl DeepFiberDeriver {
     }
 }
 
-/// One probed window's record — the trace where the window settles, and one of the three raise identities where it does not.
+/// One probed window's record: the trace's row-visible fields when the window settles, or one of the three error outcomes when it does not.
 fn record(
     engine: &mut Engine<'_>,
     left: &LeftContext,
@@ -210,9 +214,9 @@ fn record(
     }
 }
 
-/// One r3 fiber's r4 sub-enumeration: its computed option list partitioned in pipeline order, a boundary standing as its own singleton where it sits and letters grouped by their column of the probe matrix, each bucket seated where its first member fell.
+/// One r3 fiber's r4 sub-enumeration: its computed option list, split in pipeline order. Each boundary is a singleton where it stands, and letters are grouped by their column of the probe matrix, each group placed where its first member falls.
 ///
-/// The column of a letter is its records across every left class, read at the coordinate its own position in the probe alphabet names — which is why `UNKNOWN` is appended after that alphabet rather than mixed into it. The column is borrowed out of the matrix rather than copied out of it: a bucket is only ever compared against another bucket of the same matrix, so borrowing says what the grouping means and spares a clone per option per left class.
+/// A letter's column is its records under every left class at that letter's own coordinate, found by its position in `full_coords`. The column borrows the records instead of cloning them, since a column is only compared with other columns of the same matrix.
 fn r4_groups(key: &FiberKey, full_coords: &[RightToken]) -> Vec<Vec<RightToken>> {
     let coord_index: HashMap<RightToken, usize> = full_coords
         .iter()
@@ -353,7 +357,7 @@ mod tests {
         )
     }
 
-    /// The `belt_spec` of [`crate::liveness`]'s tests, whose one context has a live fourth slot at exactly one third token.
+    /// The `belt_spec` fixture from [`crate::liveness`]'s tests, whose one context has a live fourth slot at exactly one third letter.
     fn belt_spec() -> SpecIndex {
         let pea = letter(
             "qsPea",
@@ -445,7 +449,7 @@ mod tests {
         tall_spec_of(&[pea, tea, may, it])
     }
 
-    /// `qsMay` at the follower's own second slot, anything at its third, and the caller's condition at its fourth. The two reaches below differ in that last hop alone, which is what makes the pair a controlled experiment on the r4 grouping.
+    /// A right-context condition for `qsTea`'s prefer: `qsMay` in the slot after `qsTea`, anything in the slot after that, and `fourth` in the next, which is the input letter's fourth slot. The two reaches below differ only in that last condition, so comparing them isolates its effect on the r4 grouping.
     fn reach_past_may(fourth: &str) -> String {
         fixtures::condition(&[
             ("family", &fixtures::names(&["qsMay"])),
@@ -453,12 +457,12 @@ mod tests {
         ])
     }
 
-    /// The reach whose fourth hop asks only for a boundary: `EDGE` answers yes, `UNKNOWN` answers optimistically, and every letter answers no, so the whole r4 letter alphabet reads alike and shares one column.
+    /// The reach whose last condition accepts only a boundary: `EDGE` matches, `UNKNOWN` matches optimistically, and no letter matches, so every r4 letter has the same column.
     fn any_boundary_fourth() -> String {
         reach_past_may(&fixtures::condition(&[("is_token", "\"boundary\"")]))
     }
 
-    /// The same reach naming one letter at that hop instead, which is the single change that splits the column the r4 letters shared.
+    /// The same reach naming `qsIt` in that position instead, which is the one change that splits the column the r4 letters shared.
     fn one_named_fourth() -> String {
         reach_past_may(&fixtures::condition(&[(
             "family",
@@ -466,7 +470,7 @@ mod tests {
         )]))
     }
 
-    /// The fixture whose fourth slot is live at every third: `qsTea`'s absolute prefer yields its exit on what stands at the seat's fourth slot and reads nothing at the third, so every letter third looks alike to the probe and the whole alphabet lands in one fiber — while the r4 grouping still has to partition the option list, which is the matrix column doing the work alone.
+    /// A fixture whose fourth slot is live at every third letter. `qsTea`'s absolute prefer drops its exit when the reach matches, and the reach reads the input letter's fourth slot but places no condition on the third, so every third letter probes alike and the whole alphabet forms one fiber. The r4 grouping still has to partition the option list, so the probe-matrix columns alone decide it.
     fn live_fourth_spec(reach: &str) -> SpecIndex {
         let pea = letter(
             "qsPea",
@@ -526,7 +530,7 @@ mod tests {
         spec_of(&[pea, tea, acceptor("qsMay"), acceptor("qsIt")])
     }
 
-    /// One context's partition spelled the way the `liveness-cases` verb spells it — every token through [`right_token_label`], the vocabulary that verb answers in, so a golden here reads as the answer a sweep would.
+    /// One context's partition formatted as the `liveness-cases` subcommand formats it, with every token passed through [`right_token_label`], so an expected string here reads like that subcommand's output.
     fn spelled(index: &SpecIndex, context: &ContextFibers) -> String {
         let names = |tokens: &[RightToken]| -> Vec<String> {
             tokens
@@ -558,7 +562,7 @@ mod tests {
         )
     }
 
-    /// The two record-vs-record raises, told apart by the third slot: `qsPea` demands its two stances at once where the slots past the seat spell `qsMay·qsIt`, which is E-AMBIGUOUS inside one rune, and crosses `qsTea`'s vote where they spell `qsMay·qsMay`, which is E-INCOMPARABLE across two. Every other third token settles.
+    /// A fixture in which the third letter decides between the two record-vs-record errors. With lookahead `qsTea qsMay qsIt`, `qsPea`'s first two prefers demand different stances, which is E-AMBIGUOUS within one rune. With lookahead `qsTea qsMay qsMay`, `qsPea`'s third prefer conflicts with `qsTea`'s vote, which is E-INCOMPARABLE across two runes. Every other third letter settles.
     fn raising_spec() -> SpecIndex {
         let pea = letter(
             "qsPea",
@@ -652,7 +656,7 @@ mod tests {
         spec_of(&[pea, tea, may, it])
     }
 
-    /// The scaffolding a context is derived through, all of it the one instance the fixpoint lends.
+    /// The objects a context is derived through, one instance of each, as the fixpoint passes them.
     struct Scaffolding<'i> {
         engine: Engine<'i>,
         liveness: ProspectLiveness<'i>,
@@ -688,9 +692,9 @@ mod tests {
         }
     }
 
-    /// The whole partition of the joint34 context: the static list's boundaries carried in their own order, its letters split by the outcome probe, and the one fiber whose fourth slot is live carrying the r4 sub-enumeration its members share.
+    /// The full partition of the joint34 context: the static list's boundaries in their own order, its letters split by the outcome probe, and the one fiber with a live fourth slot carrying its r4 sub-enumeration.
     ///
-    /// The r4 groups are the shape the option pipeline hands back — every boundary a singleton where it stands, then the letters grouped by their column of the probe matrix, `qsIt` apart from the three that read alike.
+    /// The r4 groups follow the option pipeline: each boundary a singleton where it stands, then the letters grouped by probe-matrix column, with `qsIt` apart from the three that probe alike.
     #[test]
     fn a_context_partitions_its_thirds_and_hands_each_fiber_its_r4_groups() {
         let index = belt_spec();
@@ -718,7 +722,7 @@ mod tests {
         );
     }
 
-    /// Two asks for one context hand back the same derivation rather than probing twice, which is what keeps the fired journal a build reports the same warm as cold.
+    /// Two requests for one context return the same derivation instead of probing twice.
     #[test]
     fn a_context_is_derived_once_and_handed_out_by_reference() {
         let index = belt_spec();
@@ -728,7 +732,7 @@ mod tests {
         assert!(Rc::ptr_eq(&first, &second));
     }
 
-    /// The r4 letters group by their column of the probe matrix and by nothing else. Change one hop of the follower's reach — a boundary fourth for a named letter — and the letter it names leaves the bucket the rest shared, while the boundaries stay singletons where they stand in the option list and the r3 partition above them does not move at all.
+    /// The r4 letters group by their probe-matrix column and by nothing else. Changing one condition of the follower's reach, from any boundary to one named letter, moves that letter out of the group the other letters share. The boundaries stay singletons at their option-list positions, and the r3 partition does not change.
     #[test]
     fn one_hop_of_the_reach_splits_the_r4_column_the_letters_shared() {
         let shared = live_fourth_spec(&any_boundary_fourth());
@@ -760,7 +764,7 @@ mod tests {
         );
     }
 
-    /// An r4-dead member is traced at the two coordinates the enumeration will ever read it at and at no others, while a live one is traced across the whole alphabet. Widening the dead member's sweep is invisible at verdict grain — the fiber key would still partition the same way — but every one of those windows journals its fired pointers into the product's `cited_provenance`, so the coordinate list is output rather than an optimization.
+    /// The deriver probes an r4-dead member only at `EDGE` and `UNKNOWN`, and a live one across the whole alphabet. Probing the dead member more widely would not change the partition, but every traced window adds its fired pointers to the product's `cited_provenance`, so the coordinate list affects the output.
     #[test]
     fn a_dead_fourth_member_is_probed_at_two_coordinates_and_a_live_one_at_the_alphabet() {
         let index = belt_spec();
@@ -807,7 +811,7 @@ mod tests {
         );
     }
 
-    /// The three raise identities are three values, not one: a third token whose seat raises E-INCOMPARABLE and one whose seat raises E-AMBIGUOUS land in two fibers, and the tokens that settle land in a third.
+    /// The three error outcomes are three values: a third letter whose window raises E-INCOMPARABLE and one whose window raises E-AMBIGUOUS go into two separate fibers, and the letters that settle go into a third.
     #[test]
     fn a_context_splits_the_thirds_its_two_raises_tell_apart() {
         let index = raising_spec();
@@ -856,7 +860,7 @@ mod tests {
         );
     }
 
-    /// The same split at the record itself, with the third identity a fiber key can carry: a window nothing can settle into is a value of its own, distinct from both raises and from every settled record.
+    /// The same split at the record level, plus the third error outcome a key can hold: a window with nothing to settle into is its own value, distinct from both conflicts and from every settled record.
     #[test]
     fn a_probed_window_records_four_outcomes_that_never_collapse() {
         let index = raising_spec();

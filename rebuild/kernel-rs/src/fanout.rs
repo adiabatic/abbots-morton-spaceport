@@ -1,8 +1,8 @@
-//! Running configurations: one of them into whatever sink a verb hands over, and a whole named set of them concurrently into a directory of streams (sub-issue #46). This is where `enumerate` and `enumerate-configs` become the same answer written twice — both turn a configuration into bytes here and nowhere else, so a file the fan-out wrote and the stdout one enumeration writes cannot drift apart.
+//! Runs settlement configurations: one into a caller's sink, or a named set concurrently into a directory of files. The `enumerate` and `enumerate-configs` subcommands both serialize a configuration through [`run_config`], so a file the fan-out writes cannot differ from what `enumerate` writes to stdout for the same configuration.
 //!
-//! Byte-identity across thread counts is a property of the arrangement rather than of a comparison. One [`SpecIndex`] is shared, and it can only be shared: nothing on it is mutable and nothing in it has interior mutability, so every configuration reads the same spec and none can disturb it. Everything else — the engine, the window options, the two slot filters, the liveness probe, the fiber deriver — is built inside [`crate::fixpoint::enumerate_transitions`], per call, which is to say per configuration. The one thing that crosses between configurations is a finished memo, read-only behind an [`Arc`] and behind the exclusion that says which of its windows the reader may take ([`crate::memo`]), and it crosses only from `default`, whose enumeration — its memo file written inside it, at the release point — has finished before any reader starts; its fold then runs at one of the wave's own seats and only reads the snapshot, so no schedule can be observed in the output.
+//! The output does not depend on the thread count. All configurations share one [`SpecIndex`], which has no mutable state. The engine, the window options, the two slot filters, the liveness probe, and the fiber deriver are built inside the fixpoint on each call, so each configuration has its own. The only data shared between configurations are read-only memo snapshots behind an [`Arc`], each read through an exclusion that says which of its windows a reader may use ([`crate::memo`]): `default`'s finished memo, and, when the seed directory has one, the previous build's `default` memo. `default`'s enumeration, including its memo file write, finishes before any delta starts. Its fold then runs in one of the wave's worker slots and does not use the memo.
 //!
-//! Parallelism stops at the configuration, and declining to go finer is a decision rather than an omission: the product is a function of the row set — a class-grain row is traced at its fiber's canonical representative, so no traversal order reaches the bytes — but the worklist's LIFO drain order is held as contract anyway, and `cited_provenance` is what the one engine fired while tracing that configuration's windows, so a worklist split across threads would have to reproduce one engine's memo and journal across several to give the sequential answer, which is the whole cost the split would have been trying to avoid.
+//! Parallelism stops at the configuration. A configuration's product depends only on its row set, not on the order the worklist visits windows, because a class-grain row is traced at its fiber's canonical representative. The fixpoint keeps its LIFO worklist order fixed anyway. A configuration's `cited_provenance` is what its one engine fired while tracing its windows. Splitting one configuration's worklist across threads would require the threads to share one engine's memo and fired set to reproduce the sequential result, which would cost what the split was meant to save.
 
 use std::cmp::Reverse;
 use std::collections::BTreeSet;
@@ -26,13 +26,17 @@ use crate::options::WindowOptions;
 use crate::replay;
 use crate::stream::{self, FixpointProduct};
 
-/// One configuration a run answers: the token it is spelled by — the filename, the stream head's `config`, and the label of its timing lines — and the features that token resolved to.
+/// One configuration to run: the token that names it (the file name, the stream head's `config`, and the label on its timing lines) and the features the token resolves to.
 pub struct Configuration<'a> {
     pub token: &'a str,
     pub features: Vec<Sym>,
 }
 
-/// What a table build may read before it settles a window itself, and what it leaves for the next one ([`crate::memo`]). `config_seed` is the per-configuration delta: `default` enumerates first, alone, and every other configuration then reads its finished memo for the windows naming none of its own unlocking runes; off, every configuration enumerates from scratch, which is the from-scratch arm the delta is held byte-identical to. `seed_dir` is a previous build's memo files, read as a base per configuration behind an exclusion naming `edited`, the runes whose content moved since that build, and `moved_classes`, the predicate classes whose membership did; a configuration with no file there reads nothing. `memo_stamp` is the stamp under which this build writes its own memo files beside its tables, and a build handed none writes none.
+/// Which memos a table build may read before it settles a window itself, and which memo file it writes ([`crate::memo`]).
+///
+/// - `config_seed`: `default` enumerates first, alone, and every other configuration then reads `default`'s finished memo for the windows that name none of its own unlocking runes. When it is off, no configuration reads `default`'s in-process memo; `tests/cli.rs` checks that both settings write the same tables.
+/// - `seed_dir`: a previous build's memo files, each read as a base for its own configuration behind an exclusion of `edited` (the runes whose content changed since that build) and `moved_classes` (the predicate classes whose membership changed). A configuration with no file there reads nothing.
+/// - `memo_stamp`: the stamp this build writes its own memo files under, beside its tables. With no stamp, no memo files are written.
 #[derive(Clone, Debug)]
 pub struct Seeding {
     pub config_seed: bool,
@@ -54,7 +58,7 @@ impl Default for Seeding {
     }
 }
 
-/// A previous build's memo for one configuration, read from the seed directory through `keep`, or `None` where the directory holds no file for it. A file that is there but is not this configuration's, or not this world's, is a refusal rather than a silent miss, because a seed handed over by name was meant to be read.
+/// A previous build's memo for one configuration, read from the seed directory and filtered through `keep`, or `None` when the directory has no file for it. A file that exists but belongs to another configuration or world is an error, because the caller named the seed directory so that it would be read.
 fn load_seed(
     index: &SpecIndex,
     seeding: &Seeding,
@@ -77,7 +81,7 @@ fn load_seed(
     read_memo(index, &path, &expected, keep).map(|memo| Some(Arc::new(memo)))
 }
 
-/// The memo file one configuration writes under this seeding, or `None` when the build was handed no stamp to write under.
+/// The memo file one configuration writes under this seeding, or `None` when the build has no stamp to write under.
 fn memo_file(
     seeding: &Seeding,
     outdir: &Path,
@@ -96,7 +100,7 @@ fn memo_file(
     })
 }
 
-/// A base over a previous memo behind an exclusion, or nothing where there is no previous memo.
+/// A base over a previous memo behind an exclusion, or `None` when there is no previous memo.
 fn base_over(memo: Option<&Arc<MemoSnapshot>>, excluded: Exclusion) -> Option<MemoBase> {
     memo.map(|memo| MemoBase {
         memo: Arc::clone(memo),
@@ -104,40 +108,40 @@ fn base_over(memo: Option<&Arc<MemoSnapshot>>, excluded: Exclusion) -> Option<Me
     })
 }
 
-/// Why one configuration did not answer, told apart rather than worded here, because who a failure blames is the caller's knowledge: the verb writing to stdout blames the spec for a refusal and the stream itself for a write that failed, and the verb writing files names the configuration for either.
+/// Why one configuration failed. The two cases are separate variants with no prefix added, because the caller decides what the message blames: `enumerate` blames the spec for a refusal and stdout for a failed write, and `enumerate-configs` names the configuration for either.
 #[derive(Debug)]
 pub enum Failure {
-    /// The fixpoint or the emitter would not answer this configuration, in that module's own sentence.
+    /// The fixpoint or the emitter rejected this configuration, with that module's error message.
     Refused(String),
-    /// The sink the stream was being written to would not take it.
+    /// Writing to the sink failed.
     Sink(std::io::Error),
 }
 
-/// What a configuration's stream is filed under. Spelled once because a run both writes these names and sweeps for them, and two spellings that drifted would either delete this run's own answer or leave the last run's behind.
+/// The file name pattern of a configuration's stream. A run both writes these names and sweeps for them, so they are defined once: if the two disagreed, a run would delete its own output or leave the previous run's behind.
 const STREAM_PREFIX: &str = "transitions-";
 const STREAM_SUFFIX: &str = ".ndjson";
 
-/// The file one configuration's stream is written to under an output directory. The token is the whole name past the prefix, which is why a non-canonical one is refused before a run ever starts.
+/// The file one configuration's stream is written to. The token is used unchanged as the rest of the name. The CLI rejects a non-canonical token before the run, so the file name matches the stream head's `config`.
 pub fn transitions_path(outdir: &Path, token: &str) -> PathBuf {
     outdir.join(format!("{STREAM_PREFIX}{token}{STREAM_SUFFIX}"))
 }
 
-/// The ceiling on a caller-named `--threads` — the machine's own parallelism, or one where it has none to give. It is QoS-blind: verified answering the full logical core count while confined to efficiency cores under `taskpolicy -b`, which is exactly the situation `make test-slowly` creates.
+/// The cap on a caller's `--threads`: the machine's available parallelism, or 1 when it reports none. It ignores QoS: under `taskpolicy -b`, which confines the process to efficiency cores and is how `make test-slowly` runs, it was observed to return the full logical core count.
 pub fn available_threads() -> usize {
     std::thread::available_parallelism().map_or(1, std::num::NonZero::get)
 }
 
-/// One phase's wall clock in `run_m1.py`'s spelling, `[t] <label> <secs>s` at one decimal, which is the shape `cycle_timings.py` recovers a child's phases from.
+/// One phase's wall-clock time as `[t] <label> <secs>s` at one decimal. `INNER_LINE` in `rebuild/tools/console.py` is the pattern `cycle_timings.py` parses these lines with.
 pub fn timing_line(label: &str, elapsed: Duration) -> String {
     format!("[t] {label} {:.1}s", elapsed.as_secs_f64())
 }
 
-/// One fold subphase's wall clock at millisecond precision, so a short proof-search phase does not round to zero.
+/// One fold subphase's wall-clock time at millisecond precision, so a short subphase such as the prefix search does not round to zero.
 fn fold_timing_line(label: &str, elapsed: Duration) -> String {
     format!("[t] {label} {:.3}s", elapsed.as_secs_f64())
 }
 
-/// What a run says about itself on stderr beyond its answer: phase timings, and the cache census the RAM work reads. Both are off by default, and a run with neither says nothing at all on a clean exit — which the identity harness relies on.
+/// What a run writes to stderr besides its output: phase timings and the `--cache-census` lines. Both are off by default. A run with neither writes nothing to stderr on a clean exit, which the identity harness relies on.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct Report {
     pub timings: bool,
@@ -145,7 +149,7 @@ pub struct Report {
 }
 
 impl Report {
-    /// The report a run makes when it is only being timed.
+    /// A report with timings as given and no census.
     pub fn timed(timings: bool) -> Self {
         Self {
             timings,
@@ -153,13 +157,13 @@ impl Report {
         }
     }
 
-    /// Whether this run says anything at all.
+    /// Whether this run writes nothing to stderr.
     pub fn silent(self) -> bool {
         !self.timings && !self.census
     }
 }
 
-/// One configuration answered into `sink`: its fixpoint, its stream, and the stream written — with the two phases named as `enumerate[<config>]` and `emit[<config>]` when the caller wants them timed, and the census's `[c]` lines ahead of them when it wants those. Nothing is prefixed onto either complaint here; see [`Failure`] for why the wording is left to whoever called.
+/// Runs one configuration into `sink`: its fixpoint, then its stream. When asked, it returns the census's `[c]` lines followed by `enumerate[<config>]` and `emit[<config>]` timing lines. Errors carry no prefix; [`Failure`] says why.
 pub fn run_config(
     index: &SpecIndex,
     config: &Configuration<'_>,
@@ -196,9 +200,9 @@ pub fn run_config(
     Ok(timed)
 }
 
-/// Every configuration's stream written under `outdir`, at most `workers` of them in flight, with each one's timing lines returned in the order the caller named its configurations.
+/// Writes every configuration's stream under `outdir`, running at most `workers` at once, and returns each one's timing lines in the order the caller listed the configurations.
 ///
-/// The directory is made with its parents, as the Python artifact writers make theirs, and a file already sitting where a configuration's stream goes is overwritten rather than refused. Every other `transitions-*.ndjson` there is swept first, because a consumer globbing the directory after a clean exit would otherwise read a configuration this run never answered as one of its answers. [`claim_all`] carries the scheduling and the failure rule.
+/// The directory is created with its parents, as the Python artifact writers do, and an existing file at a stream's path is overwritten. Every other `transitions-*.ndjson` in the directory is removed first, so a consumer that globs the directory after a clean exit finds only this run's configurations. [`claim_all`] describes the scheduling and failure handling.
 pub fn run_configs(
     index: &SpecIndex,
     configs: &[Configuration<'_>],
@@ -214,11 +218,11 @@ pub fn run_configs(
     })
 }
 
-/// Every configuration answered by `answer`, at most `workers` of them in flight, with each answer returned at the seat its configuration was named in.
+/// Runs `answer` on every configuration with at most `workers` at once, and returns the results in the order the configurations were listed.
 ///
-/// The worklist is [`claim_all_leading`]'s over the configurations in listed order, each carrying the seat it was named at: a worker claims the next configuration, answers it, and claims again, so one worker walks the whole list in listed order and several share it out without a plan. Order is recovered from the seat each answer carries rather than from the order the answers arrived in, which is what makes a caller's stderr and stdout a function of the plan alone.
+/// Each worker claims the next configuration from a shared counter, runs it, and claims again, so one worker walks the list in order and several share it without a plan ([`claim_all_leading`]). Each result carries its configuration's list position and is put back in list order by that position, so the caller's stdout and stderr do not depend on scheduling.
 ///
-/// A `workers` of 0 is a run at one worker rather than a run that claims nothing: the count caps concurrency, and no cap can mean fewer than the one worker it takes to walk the list. The first failure stops further claims, since a run whose exit is nonzero says nothing about the directory it half filled, and the complaint reported is the earliest-seated of those any worker reached.
+/// A `workers` of 0 runs one worker: the count caps concurrency, and walking the list takes at least one. The first failure stops further claims, since the output of a failed run is not usable anyway. The error returned is the one at the earliest list position among the failures that occurred.
 fn claim_all<T: Send>(
     configs: &[Configuration<'_>],
     workers: usize,
@@ -229,11 +233,11 @@ fn claim_all<T: Send>(
         .map(|((), seated)| seat_answers(seated, configs.len()))
 }
 
-/// [`claim_all`]'s machinery over any worklist, with one of its `workers` seats taken first by `lead`, which runs on the calling thread inside the pool's scope and is followed on that thread by the claim loop, so the pool is `workers` wide with the lead in it rather than beside it. The other seats are spawned before the lead runs, so the wave is under way while it does.
+/// [`claim_all`]'s scheduler over any worklist, with one of the `workers` slots taken by `lead`. The other workers are spawned first. Then `lead` runs on the calling thread inside the pool's scope, and afterward that thread joins the claim loop. The pool is therefore `workers` wide including the lead, and the other workers are already claiming while the lead runs.
 ///
-/// The counter hands out list positions and nothing else, but each item carries the seat its answer belongs at, and the answers come back as `(seat, answer)` pairs rather than in list order, so a caller may order its worklist by cost and still get every answer where it named it ([`seat_answers`] is the dense form). The first failure stops further claims, and the complaint reported is the one at the earliest carried seat among those any worker reached, so a configuration's complaint is the one it was named at rather than the one it was claimed at.
+/// Each worklist item carries the position its result belongs at, and results come back as `(position, result)` pairs, so a caller can order its worklist by cost and still place every result where it was listed ([`seat_answers`] turns the pairs into a list). The first failure stops further claims. The error returned is from the failed item with the earliest carried position, which may differ from the earliest claimed.
 ///
-/// `lead` carries no `Send` bound, and neither does what it answers, which is the reason the entry point exists: it is how a value that cannot cross a thread — the table build's enumerated product, whose transition rows and window options hold `Rc`s — is finished while the other seats claim. A failing lead stops further claims as a failing worker does, and its complaint is the run's word over any worker's: the lead is the seat the caller answered ahead of the whole list, so the earliest-seat rule the workers keep among themselves reaches it first.
+/// `lead` needs no `Send` bound, and neither does its result, which is why this function exists: the table build's enumerated product holds `Rc`s and cannot cross threads, so `default`'s fold has to finish on the thread that enumerated it while the workers claim deltas. A failing lead stops further claims as a failing worker does, and its error takes precedence over any worker's.
 fn claim_all_leading<W: Sync, L, T: Send>(
     work: &[(usize, W)],
     workers: usize,
@@ -282,7 +286,7 @@ fn claim_all_leading<W: Sync, L, T: Send>(
     }
 }
 
-/// A run's `(seat, answer)` pairs as one answer per seat in seat order. A run that reported no failure answered every seat, since claiming stops only on a failure or an exhausted list.
+/// Turns `(position, result)` pairs into one result per position, in position order. A run that reported no failure has a result for every position, since claiming stops only on a failure or at the end of the list.
 fn seat_answers<T>(answered: Vec<(usize, T)>, seats: usize) -> Vec<T> {
     let mut seated: Vec<Option<T>> = (0..seats).map(|_| None).collect();
     for (seat, one) in answered {
@@ -294,7 +298,7 @@ fn seat_answers<T>(answered: Vec<(usize, T)>, seats: usize) -> Vec<T> {
         .collect()
 }
 
-/// One seat's walk of the worklist: claim the next item, answer it, claim again, until the list is exhausted or someone has failed. Each answer comes back with the seat its item carries, and a failure stops everyone's claiming and comes back with that seat, which is what the earliest-seat reduction reads.
+/// One worker's loop: claim the next item, run it, and repeat until the list is exhausted or any worker has failed. Each result is paired with its item's position. A failure sets the stop flag and is returned with its position, which [`claim_all_leading`] compares to pick the earliest.
 fn claim_seats<W, T>(
     work: &[(usize, W)],
     next: &AtomicUsize,
@@ -318,13 +322,15 @@ fn claim_seats<W, T>(
     Ok(mine)
 }
 
-/// One delta as the wave claims it: the configuration, and its unlocking runes ([`unlocking_runes`]) computed once while the worklist is built, since both the claim order and the seat's exclusion read them.
+/// One delta in the wave's worklist: the configuration and its unlocking runes ([`unlocking_runes`]), computed once when the worklist is built because both the claim order and the delta's memo exclusion read them.
 struct DeltaWork<'c> {
     config: &'c Configuration<'c>,
     unlocking: HashSet<Sym>,
 }
 
-/// The wave's worklist: every configuration but `default_seat`, each paired with the seat it was named at, in the order the wave claims them — the most unlocking runes first, the named seat as tie-break. The count is a structural proxy for how long a delta traces on its own: a delta whose features unlock more runes shares less of `default`'s memo and enumerates more of the product itself, and the proxy only has to separate the memo-heavy deltas from the cheap ones. Claiming those first ends the wave sooner on a box whose width is narrower than the roster, where a heavy delta claimed last runs its whole tail with the other seats idle. Claim order is a schedule and cannot reach the bytes: each delta reads only `default`'s snapshot behind its [`Arc`] and the previous build's files, never another delta's output, and every answer is seated by the seat it carries.
+/// The wave's worklist: every configuration except the one at `default_seat`, each paired with its list position, sorted by unlocking-rune count, largest first, with list position as the tie-break.
+///
+/// The count estimates how long a delta traces on its own: a delta whose features unlock more runes can use less of `default`'s memo and enumerates more itself. The estimate only has to separate the memo-heavy deltas from the cheap ones. Claiming the heavy ones first ends the wave sooner when the machine runs fewer workers than there are deltas, because a heavy delta claimed last would run alone while the other workers sit idle. Claim order cannot change the output: each delta reads only `default`'s snapshot and the previous build's files, never another delta's output, and each result is placed by its list position.
 fn delta_worklist<'c>(
     index: &SpecIndex,
     configs: &'c [Configuration<'c>],
@@ -343,18 +349,29 @@ fn delta_worklist<'c>(
     work
 }
 
-/// What one configuration's table build answered: the contract digest of its two tables, and its timing lines.
+/// One configuration's table build result: the digest [`artifacts::table_digest`] computes over its decision and treaty tables, and its timing lines.
 #[derive(Debug)]
 pub struct TableAnswer {
     pub digest: String,
     pub timed: Vec<String>,
 }
 
-/// Every configuration's two tables, its window enumeration and its digest, written under `outdir` at most `workers` at a time, each configuration reading what the seeding lets it read and leaving the memo file it says to leave.
+/// Builds every configuration's settlement table, treaty table, window file, and digest under `outdir`, running at most `workers` at once. Each configuration reads the memos `seeding` allows and writes the memo file `seeding` asks for.
 ///
-/// Under the configuration seed, the no-feature configuration enumerates first and alone, keeping its memo and writing its memo file inside that enumeration, ahead of the wave; its fold then runs at one of the given width's seats while the rest run at the others, each reading that memo behind an exclusion naming its own unlocking runes, so the wall is one full enumeration and its memo write plus one wave, the memo is held once, shared, and the rows the writer holds over the largest memo are never resident beside a delta at its high-water. Each delta writes its own file at its own release point, so a delta carries no memo through its drain, its sort or its fold. Every previous build's memo omits keys naming edited runes while loading: those entries cannot answer a lookup or contribute to the written union. Exclusions still check surviving entries' reads for edited runes and moved classes. A delta configuration reads `default`'s previous file behind its own unlocking runes as well, and its own previous file only for the windows naming one of its unlocking runes, which is the one part of it the in-process memo cannot answer. A set without the no-feature configuration, or one configuration alone, has no in-process memo to seed from and every configuration reads its own previous file with the same edited-key filter. The previous default remains shared through the wave because its unaffected entries answer delta windows without retracing. The wave claims the deltas heaviest-first by unlocking-rune count with the named seat as tie-break ([`delta_worklist`]), and the seat travels with the configuration, so the answers, their digests and their `[t]` lines come back in the order the configurations were named whatever order they ran in.
+/// When `config_seed` is on and the set has the no-feature configuration and at least one other:
 ///
-/// Nothing is swept first, unlike the stream fan-out: `run_m1.build_tables` writes into the build's own artifact directory beside a dozen other families, and a run that deleted the tables of a configuration set the build no longer names would be answering a question nobody asked it.
+/// - `default` enumerates first and alone, keeps its memo, and writes its memo file inside that enumeration, before the wave.
+/// - `default`'s fold then runs in one of the `workers` slots while the deltas run in the others ([`claim_all_leading`]). Each delta reads `default`'s memo behind an exclusion of its own unlocking runes. Wall-clock time is one full enumeration and its memo write, plus one wave. The memo is held once and shared. Because `default`'s memo write finishes before the wave starts, the rows the writer holds for the largest memo are never resident at the same time as a delta at its peak.
+/// - Each delta writes its own memo file at its fixpoint's release point, so it holds no memo through its drain, sort, or fold.
+/// - A delta also reads `default`'s previous memo file behind its unlocking runes, the edited runes, and the moved classes, and reads its own previous file only for the windows that name one of its unlocking runes, which are the windows `default`'s memo cannot answer for it.
+/// - The previous `default` memo stays loaded through the wave, because its unaffected entries answer delta windows without retracing.
+/// - The wave claims deltas in [`delta_worklist`] order. Each result carries its list position, so the results, digests, and `[t]` lines come back in the order the configurations were listed.
+///
+/// Otherwise there is no in-process memo to share, and each configuration reads only its own previous file.
+///
+/// Every previous memo is loaded without the keys that name edited runes, since those entries cannot answer a lookup or be carried into the written memo. The exclusions still check the remaining entries' reads for edited runes and moved classes at lookup and when writing.
+///
+/// Unlike [`run_configs`], this removes nothing from `outdir`: `run_m1.build_tables` writes into the build's artifact directory beside other artifacts, and deleting the tables of configurations the build no longer names is not this function's job.
 #[allow(clippy::too_many_arguments)]
 pub fn run_configs_tables(
     index: &SpecIndex,
@@ -465,7 +482,7 @@ pub fn run_configs_tables(
     Ok(seat_answers(answered, configs.len()))
 }
 
-/// One configuration folded in place: its fixpoint over whatever the seed lets it read, with the finished memo written to `file` at the fixpoint's release point when one is named, then the fold over the product that fixpoint still holds — the rule certificates closed over the enumeration's own [`WindowOptions`], so the guard is swept once — the three artifact files, and the digest of the pair. The phases are named `enumerate[<config>]`, `memo[<config>]` and `fold[<config>]` when the caller wants them timed, the census's `[c]` lines riding ahead of them as they do for a stream run. It is [`enumerate_config_tables`] then [`finish_config_tables`] on one thread, for the caller that wants both at once; the seeded fan-out takes the halves apart so `default`'s second half can run beside the wave.
+/// Builds one configuration's tables on the current thread: [`enumerate_config_tables`] then [`finish_config_tables`]. The fixpoint reads what `seed` allows and writes `file`, when given, at its release point. The fold over the product builds the rule certificates with the enumeration's own [`WindowOptions`], so the formation guard is swept once. It writes the three artifact files and returns the digest. When asked, the timing lines are `enumerate[<config>]`, `memo[<config>]`, and `fold[<config>]`, after the census's `[c]` lines. The seeded fan-out calls the two halves separately so that `default`'s second half can run alongside the wave.
 #[allow(clippy::too_many_arguments)]
 pub fn run_config_tables(
     index: &SpecIndex,
@@ -481,7 +498,9 @@ pub fn run_config_tables(
     finish_config_tables(index, config, outdir, inputs, report, pending)
 }
 
-/// One configuration between the two halves of its table build: enumerated, its memo file written, with everything the fold and the writes read still in hand. It cannot cross a thread — the product's transition rows hold `Rc<str>` ([`crate::stream`]) and the window options hold `Rc<FollowerMap>` ([`crate::options`]) — which is why the second half runs on the thread that enumerated rather than as a seat of its own, and why the memo is the one field a caller clones out ahead of it: behind its [`Arc`] it is the one part of an enumeration the other configurations read. Only a configuration whose seed kept it carries one here at all; a delta's went to its file and was let go of at the fixpoint's release point, so a delta holds no memo through its drain, its sort or its fold.
+/// One configuration between the two halves of its table build: enumerated, its memo file written, and holding what the fold and the file writes need.
+///
+/// It cannot cross threads, because the product's label pool holds `Rc<str>` ([`crate::stream`]) and the window options hold `Rc<FollowerMap>` ([`crate::options`]). That is why the second half runs on the thread that enumerated, and why a caller clones the memo out first: behind its [`Arc`], the memo is the only part of an enumeration that other configurations read. Only a configuration whose seed set `keep_memo` has a memo here. A delta's memo was written to its file and dropped at the fixpoint's release point.
 struct EnumeratedTables<'i> {
     product: FixpointProduct,
     options: WindowOptions<'i>,
@@ -489,7 +508,7 @@ struct EnumeratedTables<'i> {
     timed: Vec<String>,
 }
 
-/// [`run_config_tables`]'s first half: the fixpoint over whatever the seed lets it read, with the memo file written at its release point when one is named, timed as `enumerate[<config>]` and `memo[<config>]` with the census's `[c]` lines ahead of them — the enumerate line is the fixpoint less the write, so the two lines read as the phases they are — and the finished memo kept behind an [`Arc`] when the seed asked to keep it.
+/// [`run_config_tables`]'s first half: the fixpoint over what the seed allows, writing the memo file at the release point when one is named, and keeping the finished memo behind an [`Arc`] when the seed asks. The timing lines are `enumerate[<config>]`, which excludes the memo write, and `memo[<config>]`, which is the write, after the census's `[c]` lines.
 fn enumerate_config_tables<'i>(
     index: &'i SpecIndex,
     config: &Configuration<'_>,
@@ -535,7 +554,7 @@ fn enumerate_config_tables<'i>(
     })
 }
 
-/// [`run_config_tables`]'s second half, on the thread that enumerated: the memo let go of first — whoever wants it past this point cloned it out of the [`EnumeratedTables`] ahead of it, and only `default` carries one this far, every configuration's file having been written at its fixpoint's release point — then the fold over the product, the three artifact files and the digest of the pair, timed as `fold[<config>]`. A timed fold also names its prefix search and partition replay at millisecond precision. The timing lines follow whatever the first half recorded, so a configuration's lines read enumerate, memo, fold whichever thread clocked each.
+/// [`run_config_tables`]'s second half, on the thread that enumerated. It drops the memo first (a caller that needs it has already cloned it out of [`EnumeratedTables`]), then folds the product, writes the three artifact files, and computes the digest. A timed run adds `fold.prefixes[<config>]` and `fold.partition[<config>]` at millisecond precision, then `fold[<config>]`. These follow the first half's lines, so a configuration's lines read enumerate, memo, fold, whichever thread ran each half.
 fn finish_config_tables(
     index: &SpecIndex,
     config: &Configuration<'_>,
@@ -574,13 +593,13 @@ fn finish_config_tables(
     Ok(TableAnswer { digest, timed })
 }
 
-/// What one configuration's string replay answered: the walk's counts, and its census and timing lines when they were asked for.
+/// One configuration's string replay result: the walk's counts, and its census and timing lines when requested.
 pub struct ReplayAnswer {
     pub report: replay::Report,
     pub timed: Vec<String>,
 }
 
-/// Every configuration's persisted rules replayed over `universe`, at most `workers` at a time: each one reads `<outdir>/settlement-<config>.tsv` back, walks the universe's texts, and holds the rules' first-match answer to the engine's own settlement window by window. The world is the enumeration's, minus the grain: a replay settles single windows, which have no grain to name. With a `memo_dir`, each green walk files its window memo there as `replay-windows-<config>.bin` ([`replay::Replay::write_window_memo`]); a walk that raises files nothing, and a walk that released its memo under the universe's ceiling files none and raises, which `replay-strings` keeps any command line from asking for.
+/// Replays every configuration's persisted rules over `universe`, at most `workers` at a time. Each configuration reads `<outdir>/settlement-<config>.tsv` back, walks the universe's texts, and checks the rules' first-match result against the engine's own settlement, window by window. The engine gets the enumeration's two world flags but not `deep_classes`, since a replay settles single windows, which have no grain. With a `memo_dir`, each passing walk writes its window memo there as `replay-windows-<config>.bin` ([`replay::Replay::write_window_memo`]). A walk that fails writes nothing. A walk that released its memo under the universe's ceiling fails instead of writing, and the `replay-strings` CLI rejects `--memo-dir` with `--memo-windows`, so no command line can request that.
 #[allow(clippy::too_many_arguments)]
 pub fn run_configs_replay(
     index: &SpecIndex,
@@ -598,12 +617,12 @@ pub fn run_configs_replay(
     })
 }
 
-/// Where one configuration's window memo lands under `memo_dir`; `kernel_exec.replay_memo_dump` names the same file.
+/// Where one configuration's window memo is written under `memo_dir`. `kernel_exec.replay_memo_dump` builds the same path.
 pub fn replay_memo_path(memo_dir: &Path, token: &str) -> PathBuf {
     memo_dir.join(format!("replay-windows-{token}.bin"))
 }
 
-/// One configuration replayed: its rules read back, the walk run, and the phase named `replay[<config>]` when the caller wants it timed, the census's `[c]` lines riding ahead of it when the caller wants those, as they do for a table run; then, with a `memo_dir`, the window memo filed under `replay_memo[<config>]`. The walk's clock stops before the census is taken, so the end-of-walk resident-size sample stays out of the phase it reports; the samples a censused walk takes at each release under the universe's ceiling fall inside it.
+/// Replays one configuration: reads its rules back and walks the universe. When asked, it returns the census's `[c]` lines and a `replay[<config>]` timing line. With a `memo_dir`, it then writes the window memo, timed as `replay_memo[<config>]`. The walk's clock stops before the census is taken, so the end-of-walk resident-size sample is not counted in the walk's time; the samples a censused walk takes at each release under the universe's ceiling are.
 pub fn run_config_replay(
     index: &SpecIndex,
     config: &Configuration<'_>,
@@ -655,7 +674,7 @@ fn write_text(path: &Path, text: &str) -> Result<(), String> {
     std::fs::write(path, text).map_err(|error| format!("{}: {error}", path.display()))
 }
 
-/// One configuration answered into its own file under `outdir`, which is the only thing a worker does. Every complaint names the configuration, since a caller running several has no other way to tell which one failed, and one the filesystem raised names the file it raised it about.
+/// Runs one configuration into its own file under `outdir`. Every error names the configuration, since a caller running several has no other way to tell which one failed, and a filesystem error also names the file.
 fn into_file(
     index: &SpecIndex,
     config: &Configuration<'_>,
@@ -672,9 +691,9 @@ fn into_file(
     })
 }
 
-/// Every `transitions-*.ndjson` already under `outdir` that this run does not name, removed before any configuration writes.
+/// Removes every `transitions-*.ndjson` file under `outdir` that this run does not name, before any configuration writes.
 ///
-/// The sweep is exactly the pattern [`transitions_path`] spells and nothing wider. An output directory holds whatever its owner put there, and a run that swept anything else would be answering a question nobody asked it.
+/// It removes only regular files that match the pattern [`transitions_path`] produces, and leaves everything else in the directory alone.
 fn sweep_unnamed_streams(outdir: &Path, configs: &[Configuration<'_>]) -> Result<(), String> {
     let named: BTreeSet<&str> = configs.iter().map(|config| config.token).collect();
     let listing =
@@ -703,20 +722,20 @@ mod tests {
     use super::*;
     use crate::index::fixtures;
 
-    /// The world every test below runs in — the shipping one, where the deep slots enumerate at class grain and the representative a fiber's first visitor fixes is output-visible, which is the world byte-identity across schedules is worth asserting in.
+    /// The shipping world (the [`EnumerationModes`] default), in which the deep slots enumerate at class grain. The tests below check byte-identity across schedules in this world.
     const SHIPPING: EnumerationModes = EnumerationModes {
         simulated_prospect: true,
         vote_slots: true,
         deep_classes: true,
     };
 
-    /// The two configurations the fixture can tell apart: it unlocks a `qsMay` entry under `ss03` and nothing under nothing.
+    /// Two configurations the fixture tells apart: `ss03` unlocks a `qsMay` entry, and `default` unlocks nothing.
     const TOKENS: [&str; 2] = ["default", "ss03"];
 
-    /// The set whose claim order is not its declaration order: `default`; a delta unlocking nothing, spelled `ss09` with no features because the fixture declares no second feature and the first no-feature configuration is the one that seeds; and `ss03`, the delta unlocking `qsMay`, which the wave claims first although it is named last.
+    /// A set whose claim order differs from its listed order: `default`; `ss09`, a delta that unlocks nothing; and `ss03`, the delta that unlocks `qsMay`, which the wave claims first although it is listed last. `ss09` has no features because the fixture declares no second feature. It still runs as a delta, because only the first no-feature configuration seeds.
     const PERMUTING: [&str; 3] = ["default", "ss09", "ss03"];
 
-    /// A scratch path of this test's own, cleared first so a stale file cannot stand in for one a run was supposed to write, and left uncreated so that making it is the run's own job. It lives under `target/`, which is gitignored, rather than in the system temp directory.
+    /// A scratch directory for one test under `target/test-scratch`, which is gitignored. It is cleared first so a stale file cannot pass for one the run should have written, and it is not created, because creating it is part of what the run does.
     fn scratch(name: &str) -> PathBuf {
         let directory = Path::new(env!("CARGO_MANIFEST_DIR"))
             .join("target/test-scratch")
@@ -751,7 +770,7 @@ mod tests {
             .collect()
     }
 
-    /// The bytes `enumerate` writes for one configuration, which is [`run_config`] into a buffer — the same call the verb makes, differing only in where it points.
+    /// The bytes `enumerate` writes for one configuration: [`run_config`] into a buffer instead of stdout.
     fn enumerated(index: &SpecIndex, config: &Configuration<'_>) -> String {
         let mut sink: Vec<u8> = Vec::new();
         run_config(index, config, SHIPPING, &mut sink, Report::timed(false))
@@ -759,15 +778,15 @@ mod tests {
         String::from_utf8(sink).expect("a transitions stream is text")
     }
 
-    /// A directory sitting exactly where a configuration's stream goes, which is how a worker is made to fail inside a run rather than before one.
+    /// Puts a directory at a configuration's stream path, so a worker fails during the run instead of before it.
     fn block(outdir: &Path, token: &str) {
         std::fs::create_dir_all(transitions_path(outdir, token))
             .expect("a directory can occupy a stream's path");
     }
 
-    /// The whole fan-out against the bytes one enumeration at a time writes, at one thread and at more threads than there are configurations, into a directory neither run was given.
+    /// The fan-out, at one thread and at more threads than configurations, writes the same bytes as enumerating each configuration alone.
     ///
-    /// This is the exit bar's own claim at fixture scale: the files a concurrent run leaves behind are the files a serial run would, letter for letter, because the only thing the configurations share is a spec nothing can write to.
+    /// This is the thread-count invariant in the module doc at fixture scale: a concurrent run's files match a serial run's byte for byte, because the configurations share only a read-only spec.
     #[test]
     fn a_fan_out_writes_the_bytes_one_enumeration_at_a_time_writes() {
         let index = fixtures::mini();
@@ -802,7 +821,7 @@ mod tests {
         std::fs::remove_dir_all(&root).expect("the scratch directory is removable");
     }
 
-    /// The timing lines a run buffers arrive in the caller's own configuration order whatever the thread count, and name every configuration's two phases.
+    /// Timing lines come back in the caller's configuration order at any thread count and name both phases of every configuration.
     #[test]
     fn the_timing_lines_come_back_in_the_order_the_configurations_were_named() {
         let index = fixtures::mini();
@@ -842,7 +861,7 @@ mod tests {
         std::fs::remove_dir_all(&root).expect("the scratch directory is removable");
     }
 
-    /// A run without `--timings` says nothing at all, which is what lets the identity harness read any stderr on a clean exit as a failure.
+    /// A run without `--timings` records no timing lines, so the identity harness can treat any stderr on a clean exit as a failure.
     #[test]
     fn a_run_that_was_not_asked_to_time_itself_records_nothing() {
         let index = fixtures::mini();
@@ -854,7 +873,7 @@ mod tests {
         std::fs::remove_dir_all(&outdir).expect("the scratch directory is removable");
     }
 
-    /// The `[t]` line shapes `cycle_timings.py`'s `_INNER_LINE` parses: ordinary phases at one decimal and short fold subphases at millisecond precision.
+    /// The `[t]` line formats that `console.INNER_LINE` parses: ordinary phases at one decimal and fold subphases at millisecond precision.
     #[test]
     fn timing_lines_use_the_shapes_the_cycle_parses() {
         assert_eq!(
@@ -879,7 +898,7 @@ mod tests {
         );
     }
 
-    /// The name a configuration's stream is filed under, which is the caller's own token and nothing added to it — a caller that named the configurations knows every filename before the run starts.
+    /// A configuration's stream is named `transitions-<token>.ndjson` with the caller's token unchanged, so a caller knows every file name before the run starts.
     #[test]
     fn a_configuration_files_its_stream_under_its_own_token() {
         assert_eq!(
@@ -888,7 +907,7 @@ mod tests {
         );
     }
 
-    /// A stream that cannot even be created stops the run, and the complaint carries both the configuration and the path the filesystem refused.
+    /// A stream that cannot be created stops the run, and the error names both the configuration and the path.
     #[test]
     fn a_stream_that_cannot_be_created_stops_the_run() {
         let index = fixtures::mini();
@@ -909,7 +928,7 @@ mod tests {
         std::fs::remove_dir_all(&outdir).expect("the scratch directory is removable");
     }
 
-    /// With every seat blocked and a worker for each, the complaint a run reports is the earliest-seated one — whichever worker reached it, and however many of the others got far enough to fail too. Seat 0 is always claimed, since a worker only stops claiming once someone else has failed, so the run's word is the first configuration's every time.
+    /// With every stream path blocked and one worker per configuration, the run reports the error at the earliest list position, whichever worker reached it and however many others also failed. Position 0 is always claimed: the first claim takes it, and a worker stops claiming only after some worker has failed.
     #[test]
     fn the_complaint_a_run_reports_is_the_earliest_seated_one() {
         let index = fixtures::mini();
@@ -935,7 +954,7 @@ mod tests {
         std::fs::remove_dir_all(&outdir).expect("the scratch directory is removable");
     }
 
-    /// A run sweeps the streams of configurations it was not asked about, so that a directory globbed after a clean exit is this run's answer and nothing else, and leaves everything that is not a stream where it found it.
+    /// A run removes the streams of configurations it was not asked for, so a directory globbed after a clean exit holds only this run's output, and it leaves files that are not streams alone.
     #[test]
     fn a_run_sweeps_the_streams_it_did_not_name() {
         let index = fixtures::mini();
@@ -960,7 +979,7 @@ mod tests {
         std::fs::remove_dir_all(&outdir).expect("the scratch directory is removable");
     }
 
-    /// A thread count of 0 is a run at one worker: the count caps concurrency, and a cap of none cannot mean a run that answers nothing.
+    /// A thread count of 0 runs one worker: the count caps concurrency, and a cap of 0 must not mean a run that does nothing.
     #[test]
     fn a_run_with_no_workers_named_still_answers_every_configuration() {
         let index = fixtures::mini();
@@ -975,10 +994,10 @@ mod tests {
         std::fs::remove_dir_all(&outdir).expect("the scratch directory is removable");
     }
 
-    /// The stamp every table build below files its windows under.
+    /// The inputs stamp every table build below writes its window files under.
     const INPUTS: &str = "fixture-stamp";
 
-    /// A seeding that writes memo files, which puts a memo write at every configuration's release point, `default`'s ahead of the wave that reads its snapshot.
+    /// A seeding that writes memo files, so every configuration writes one at its release point and `default` writes its file before the wave reads its snapshot.
     fn stamped() -> Seeding {
         Seeding {
             memo_stamp: Some("identity".to_owned()),
@@ -986,10 +1005,10 @@ mod tests {
         }
     }
 
-    /// What one width of the table fan-out filed: every configuration's digest, and every configuration's files as [`table_files`] reads them back.
+    /// What one width of the table fan-out wrote: every configuration's digest, and every configuration's files as [`table_files`] reads them.
     type Filed = (Vec<String>, Vec<Vec<(String, Vec<u8>)>>);
 
-    /// The files one configuration's table build leaves behind, read back as bytes: the three tables, and the memo file beside them when the build was handed a stamp.
+    /// The files one configuration's table build writes, read back as bytes: the three tables, plus the memo file when the build had a stamp.
     fn table_files(outdir: &Path, token: &str, memo: bool) -> Vec<(String, Vec<u8>)> {
         let mut names: Vec<String> = ["settlement", "treaties", "windows"]
             .iter()
@@ -1008,7 +1027,7 @@ mod tests {
             .collect()
     }
 
-    /// Every file `written` holds is the same bytes `expected` holds under the same name, paired by name rather than by position, so a file one side filed and the other did not is a failure naming it rather than a comparison against its neighbor.
+    /// Asserts that `written` and `expected` hold the same files position by position, with the same names and the same bytes. Checking the name means a file only one side wrote fails on its name instead of being compared with a different file.
     fn same_files(
         written: &[Vec<(String, Vec<u8>)>],
         expected: &[Vec<(String, Vec<u8>)>],
@@ -1036,13 +1055,13 @@ mod tests {
         }
     }
 
-    /// A directory sitting exactly where a configuration's settlement table goes, which fails its build in the second half — past its enumeration, and for `default`, with the wave already under way — rather than before anything ran.
+    /// Puts a directory at a configuration's settlement table path, which makes its build fail in the second half: after its enumeration and, for `default`, after the wave has started.
     fn block_settlement(outdir: &Path, token: &str) {
         std::fs::create_dir_all(outdir.join(format!("settlement-{token}.tsv")))
             .expect("a directory can occupy a settlement table's path");
     }
 
-    /// The table fan-out against itself across widths, over the set whose claim order is not its declaration order: the tables, the memo files and the digests are the same bytes seat for seat at no workers named, at one, at two — the width the claim order exists for, where one seat takes the heavy delta and the lead claims the cheap one after `default`'s fold — and at more than there are configurations, where the deltas enumerate while `default`'s fold runs on the calling thread. The stamped arm is the sharper one: every configuration writes its memo file at its release point, `default`'s before the wave reads the snapshot and each delta's before its snapshot goes, and that file, sorted by its writer, is compared too; and the stamped arm's tables and digests are the unstamped arm's at the same width, so writing at the release point perturbs no table.
+    /// The table fan-out writes the same bytes at every width, over the set whose claim order differs from its listed order. Tables, memo files, and digests match per configuration at 0, 1, 2, and 8 workers. At 2, one worker takes the heavy delta and the lead claims the cheap one after `default`'s fold, which is the case the claim order is for. At 8, the deltas enumerate while `default`'s fold runs on the calling thread. In the stamped case, every configuration writes its memo file at its release point, and those files are compared too. The stamped case's tables and digests must also match the unstamped case's at the same width, which shows that writing the memo file changes no table.
     #[test]
     fn a_table_fan_out_files_the_same_bytes_at_every_width() {
         let index = fixtures::mini();
@@ -1115,7 +1134,7 @@ mod tests {
         std::fs::remove_dir_all(&root).expect("the scratch directory is removable");
     }
 
-    /// A table build's timing lines arrive in the caller's configuration order and name each configuration's phases in the order they ran, whatever the width: `default`'s fold lines come back where its enumerate and memo lines do, even when they were clocked beside the deltas', and `ss03`'s come back last although the wave claims it first.
+    /// A table build's timing lines come back in the caller's configuration order, with each configuration's phases in the order they ran, at any width. `default`'s fold lines follow its enumerate and memo lines even when the fold ran alongside the deltas, and `ss03`'s lines come last although the wave claims it first.
     #[test]
     fn a_table_build_times_its_phases_in_configuration_order_at_any_width() {
         let index = fixtures::mini();
@@ -1169,7 +1188,7 @@ mod tests {
         std::fs::remove_dir_all(&root).expect("the scratch directory is removable");
     }
 
-    /// `default`'s second half can fail while the wave is running, and when it does its complaint is the run's word: alone, naming the file it failed on; and with every seat blocked, over the delta's, whether or not the delta was claimed before the stop. Which seat was under way when is the lead test's to pin; what is held here is the word the run gives back.
+    /// If `default`'s second half fails while the wave runs, the run reports `default`'s error. When only `default` is blocked, the error names the file it failed on. When every configuration is blocked, the run reports `default`'s error instead of the delta's, whether or not the delta was claimed before the stop. `a_lead_runs_beside_the_seat_that_claims_while_it_does` checks that the lead overlaps the workers; this test checks only which error the run returns.
     #[test]
     fn a_default_that_fails_during_the_wave_is_what_the_run_reports() {
         let index = fixtures::mini();
@@ -1218,7 +1237,7 @@ mod tests {
         std::fs::remove_dir_all(&root).expect("the scratch directory is removable");
     }
 
-    /// The wave's worklist over the permuting set: `ss03`, the delta unlocking `qsMay`, comes first carrying seat 2, the delta unlocking nothing follows carrying seat 1, `default` is not in it, and each entry holds its unlocking runes.
+    /// The wave's worklist over the permuting set: `ss03`, the delta that unlocks `qsMay`, comes first with position 2, and the delta that unlocks nothing follows with position 1. `default` is not in it, and each entry holds its unlocking runes.
     #[test]
     fn the_delta_worklist_is_claimed_heaviest_first() {
         let index = fixtures::mini();
@@ -1235,7 +1254,7 @@ mod tests {
         assert!(work[1].1.unlocking.is_empty());
     }
 
-    /// A failing item's complaint is reported at the seat it carries, not the position it was claimed at, pinned rather than raced: over a worklist seated out of order, every answer fails only once both items have met at a barrier, so both are claimed before either failure stops the claiming, whichever of the three seats claims them, and the run's word is the seat-1 item's although the seat-3 item was claimed first.
+    /// A failing item's error is reported at the position the item carries, not the order it was claimed in. The test uses a barrier instead of relying on timing: over a worklist listed out of order, each item fails only after both items reach the barrier, so both are claimed before either failure stops claiming, whichever of the three workers claims them. The run reports the position-1 item's error although the position-3 item was claimed first.
     #[test]
     fn a_failing_item_is_reported_at_the_seat_it_carries() {
         let work = [(3, "ss03"), (1, "ss09")];
@@ -1253,7 +1272,7 @@ mod tests {
         assert_eq!(complaint, "ss09: blocked");
     }
 
-    /// The lead's overlap with the wave, pinned rather than raced: with two seats and a worklist seated out of order, the lead waits at a barrier the first item's answer reaches, so the worker has claimed and started answering while the lead is still running — the arrangement `default`'s fold relies on — and the run hands back what both answered carrying the seats the items were named at, the lead's answer apart from them. When both fail, the lead's word is the run's.
+    /// The lead runs while another worker claims, which the test enforces with a barrier instead of relying on timing: with two workers and a worklist listed out of order, the lead waits at a barrier that the first item's answer also reaches, so the worker has claimed and started an item while the lead is still running. `default`'s fold relies on this overlap. The run returns both items' results with the positions they carry, and the lead's result separately. When both fail, the run returns the lead's error.
     #[test]
     fn a_lead_runs_beside_the_seat_that_claims_while_it_does() {
         let work = [(3, "ss03"), (1, "ss09")];
