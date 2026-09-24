@@ -199,7 +199,7 @@ def test_a_present_window_prints_its_baseline_row(monkeypatch, capsys):
 
 
 def test_no_baseline_never_reads_a_subset_table(monkeypatch, capsys):
-    """`--no-baseline` marks the baseline lines as not read, distinct from a genuine miss, and never asks for a table."""
+    """`--no-baseline` leaves the OLD lines out, so nothing in the block reads as a genuine miss, and never asks for a table."""
     _stub_settlement(monkeypatch, ["default"])
 
     def refuse(_config, _windows):
@@ -209,7 +209,8 @@ def test_no_baseline_never_reads_a_subset_table(monkeypatch, capsys):
     probe.main(["--no-baseline", "E665:E670"])
     output = capsys.readouterr().out
     assert "=== window E665:E670 ===" in output
-    assert "  OLD glyphs: (baseline not read)\n  OLD seams : \n" in output
+    assert "\n[default]\n  NEW cells : " in output
+    assert "OLD" not in output
     assert "NEW seams : y5" in output
 
 
