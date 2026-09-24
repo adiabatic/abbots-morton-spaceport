@@ -3496,7 +3496,7 @@ def test_a_stated_contracts_width_is_the_width_the_cycle_hands_the_child(monkeyp
 
 
 def test_the_plan_states_the_contracts_pool_width_on_its_lane_line():
-    """The lane line carries the width and its derivation, and the build lane reads the new order, so a reader can see the suite is submitted ahead of the build and how many cores it was handed; a ten-core box beside a cap-width build reaches one worker under either policy, and the twelve-core box is where the overlap arm prints its narrower width rather than implying it; and a pass whose surface build is skipped says the suite is submitted once the run_m1 gate passes, never that it runs beside a build the plan's own row reads SKIPPED."""
+    """The lane line carries the width and its derivation, and the build lane reads the new order, so a reader can see the suite is submitted ahead of the build and how many cores it was handed; a ten-core box beside a cap-width build reaches one worker under either policy, and on the twelve-core box the overlap arm reaches one worker on the arithmetic alone, unfloored and narrower than the queue policy's, and prints it rather than implying it; and a pass whose surface build is skipped says the suite is submitted once the run_m1 gate passes, never that it runs beside a build the plan's own row reads SKIPPED."""
     gated = _plan(ncores=10, total_bytes=BOX_32_GIB)
     text = _plan_text(gated)
     assert (
@@ -3520,7 +3520,8 @@ def test_the_plan_states_the_contracts_pool_width_on_its_lane_line():
     assert "CO-RESIDENT with the other pools (overlap policy)" in _plan_text(overlap)
     roomy = _plan(ncores=12, total_bytes=BOX_48_GIB)
     roomy_overlap = _plan(pool_policy="overlap", ncores=12, total_bytes=BOX_48_GIB)
-    assert 1 <= roomy_overlap.contracts_workers < roomy.contracts_workers
+    assert roomy_overlap.contracts_workers == 1 < roomy.contracts_workers
+    assert "floored" not in roomy_overlap.contracts_reason
     assert f"-n {roomy_overlap.contracts_workers} (" in _plan_text(roomy_overlap)
 
     solo = _plan(skip_surface=True, surface_note="unchanged", ncores=10, total_bytes=BOX_32_GIB)
