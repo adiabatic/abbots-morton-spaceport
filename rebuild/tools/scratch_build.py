@@ -3,9 +3,9 @@
 Usage:
     uv run python rebuild/tools/scratch_build.py <runes_dir> <out_dir> [--configs a,b]
 
-`--configs` narrows the table build and the oracle to the same named list, in the order it names them (`request_configs`), and its tokens are the settlement configurations `rebuild.tools.kernel_all_configs.configs_from` offers, refused before the spec is resolved and dumped. Without it the build asks for the settlement set and the oracle for the acceptance set, so a plain run still checks the ss10 overlay arm; a narrowed run drops that arm, since the tokens name settlement configurations alone. A hunt that reads only `default`'s rows passes `--configs default` and pays for one configuration's enumeration and one configuration's oracle walk; a set that does not name `default` enumerates every member from scratch and saves far less. A narrowed build's out dir may not resolve under rebuild/out/m1 (`scratch_out_dir`): the crate sweeps nothing, so it would rewrite the live settlement, treaty and memo files of the configurations it names and leave the others' standing as the last whole build wrote them, a mixed set that the directory's readers (`rebuild/review/tablediff.py` globs it as one build's) cannot tell from a whole one.
+`--configs` narrows the table build and the oracle to the same named list, in the order it names them (`request_configs`), and its tokens are the settlement configurations `rebuild.tools.kernel_all_configs.configs_from` offers, refused before the spec is resolved and dumped. Without it the build asks for the settlement set and the oracle for the acceptance set, so a plain run still checks the ss10 overlay arm; a narrowed run drops that arm, since the tokens name settlement configurations alone. A hunt that reads only `default`'s rows passes `--configs default` and pays for one configuration's enumeration and one configuration's oracle walk; a set that does not name `default` enumerates every member from scratch and saves far less. No build's out dir may resolve under rebuild/out/m1 (`scratch_out_dir`), narrowed or not. A narrowed build there would rewrite the live settlement, treaty and memo files of the configurations it names and leave the others' standing as the last whole build wrote them, since the crate sweeps nothing: a mixed set that the directory's readers (`rebuild/review/tablediff.py` globs it as one build's) cannot tell from a whole one. A whole-set build there would rewrite every table, `M1.otf` and `divergence-audit.tsv` from the candidate's runes while leaving the stamped window enumerations standing, since it passes no inputs stamp, and the artifact cycle's run_m1 skip key hashes the repo's inputs and checks only that those files exist, so the next pass would build the review surface over the candidate's font and audit.
 
-Prints a JSON line with the configurations built, oracle pass/unmatched/multi_matched/divergent_rows and the audit path. Mirrors rebuild.pipeline.run_m1.run() + run_oracle(), read-back included, parameterized by spec.
+Prints a JSON line with the configurations built (`configs`), the configurations the oracle walked (`oracle_configs`, which a plain run's ss10 arm makes the longer list), the defect gate's errors, the oracle's rows_compared/divergent_rows/unmatched/multi_matched and the audit path. Mirrors rebuild.pipeline.run_m1.run() + run_oracle(), read-back included, parameterized by spec.
 """
 
 from __future__ import annotations
@@ -38,12 +38,12 @@ def request_configs(requested: str) -> tuple[list[str], list[str]]:
     return list(tokens), list(tokens)
 
 
-def scratch_out_dir(requested: str, narrowed: bool) -> Path:
-    """The resolved out dir, refused when a narrowed build would land under rebuild/out/m1: the inverse of `kernel_all_configs.scratch_out_dir`, which requires one tree where this forbids one, and only for a narrowed request, since a whole-set build there rewrites every table and leaves the directory one build's, where a narrowed one leaves it two builds' under one set of names."""
+def scratch_out_dir(requested: str) -> Path:
+    """The resolved out dir, refused when it would land under rebuild/out/m1: the inverse of `kernel_all_configs.scratch_out_dir`, which requires one tree where this forbids one."""
     out_dir = Path(requested).resolve()
-    if narrowed and (out_dir == M1_OUT or M1_OUT in out_dir.parents):
+    if out_dir == M1_OUT or M1_OUT in out_dir.parents:
         raise SystemExit(
-            f"refusing out_dir {out_dir}: a narrowed build under {M1_OUT} would rewrite the live tables of the configurations it names and leave the others' standing as the last whole build wrote them, a mixed set that every reader of that directory takes for one build's"
+            f"refusing out_dir {out_dir}: a scratch build under {M1_OUT} rewrites the live settlement, treaty and memo files, M1.otf and divergence-audit.tsv from the candidate's runes and leaves the stamped window enumerations standing, and the artifact cycle's run_m1 skip key cannot see that, so the next pass would build the review surface over the candidate's font and audit"
         )
     return out_dir
 
@@ -95,6 +95,7 @@ def build_and_oracle(
     )
     return {
         "configs": build_configs,
+        "oracle_configs": oracle_configs,
         "defect_errors": [f"{d.code} {d.signature}: {d.message}" for d in defect_report.errors],
         "rows_compared": report.rows_compared,
         "divergent_rows": report.divergent_rows,
@@ -115,7 +116,7 @@ def main(argv: list[str] | None = None) -> None:
     )
     args = ap.parse_args(argv)
     build_configs, oracle_configs = request_configs(args.configs)
-    out_dir = scratch_out_dir(args.out_dir, narrowed=bool(args.configs))
+    out_dir = scratch_out_dir(args.out_dir)
     runes_dir = Path(args.runes_dir).resolve()
     print(json.dumps(build_and_oracle(runes_dir, out_dir, build_configs, oracle_configs)))
 
