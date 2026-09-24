@@ -1,4 +1,4 @@
-"""Rule certificates: every settlement rule the table builder emits arrives with a realizing string closed off the shortest chain of rows that produces a row the rule first-matches (`certificate.rs`), and the build's witness stage (`run_m1.run_rule_witnesses`, over `belt.check_rule_certificates`) settles each one through the crate and asserts its rule fires. That is the realizability half of the dead-rule alarm — a rule with no string that fires it is dead code in the emitted FEA, which is a generator defect — and the half a fold cannot state, since the fold's never-first refusal replays the table's own rows and a row is realizable only if its left state is. The worked example this guards: the `qsNo.loop qsMay' qsMay …` rules need six tokens (·Day·Tea·No·May·May·May), past what any affordable exhaustive sweep enumerates (the per-edit belt stops at four), so the certificate — not sweep length — is what keeps the alarm exact as the alphabet grows.
+"""Rule certificates: every settlement rule the table builder emits arrives with a realizing string closed off the shortest chain of rows that produces a row the rule first-matches (`certificate.rs`), and the build's witness stage (`run_m1.run_rule_witnesses`, over `witness.check_rule_certificates`) settles each one through the crate and asserts its rule fires. That is the realizability half of the dead-rule alarm — a rule with no string that fires it is dead code in the emitted FEA, which is a generator defect — and the half a fold cannot state, since the fold's never-first refusal replays the table's own rows and a row is realizable only if its left state is. The worked example this guards: the `qsNo.loop qsMay' qsMay …` rules need six tokens (·Day·Tea·No·May·May·May), past what any affordable exhaustive sweep enumerates (the per-edit belt stops at four), so the certificate — not sweep length — is what keeps the alarm exact as the alphabet grows.
 
 The stage lives in the build rather than in a lane of this suite, and the reason is the artifact: a certificate is a fact about exactly the tables it was folded beside, so the only place it can be checked without first proving the tables current is the run that folded them. `run_m1` refuses to mint a glyph while any certificate fails, and `--gates-only` reuses tables that passed. What this module holds is the machinery's own contract on the mini fixture, font-free and with no stamped artifact in sight: both mini tables are certified rule for rule, a certificate that names the wrong text is reported rather than believed, a table whose certificates do not cover its rules vouches for none of them, and every row the fold emits names sources that are among the certified rules, exactly one row per rule.
 
@@ -11,7 +11,7 @@ from collections import Counter
 
 import pytest
 
-from rebuild.pipeline import belt, conform, emit_gsub, fixtures, kernel_exec, oracle_cache, run_m1, settle
+from rebuild.pipeline import conform, emit_gsub, fixtures, kernel_exec, oracle_cache, run_m1, settle, witness
 from rebuild.pipeline.table import Rule
 
 CONFIGS = ("default", "ss03")
@@ -47,7 +47,7 @@ def test_every_rule_of_the_mini_tables_is_certified(spec, tables, guard, config)
     decision, _treaty = tables[config]
     assert len(decision.certificates) == len(decision.rules)
     assert all(decision.certificates)
-    report = belt.check_rule_certificates(spec, conform.features_for_config(config), decision, guard)
+    report = witness.check_rule_certificates(spec, conform.features_for_config(config), decision, guard)
     assert report.passed, report.failures
     assert sorted(report.witnessed) == list(range(len(decision.rules)))
     assert report.fresh and not report.served
@@ -66,7 +66,7 @@ def test_a_certificate_naming_the_wrong_text_is_reported(spec, tables, guard):
     certificates = list(decision.certificates)
     certificates[index] = (foreign,)
     poisoned = dataclasses.replace(decision, certificates=tuple(certificates))
-    report = belt.check_rule_certificates(spec, frozenset(), poisoned, guard)
+    report = witness.check_rule_certificates(spec, frozenset(), poisoned, guard)
     assert not report.passed
     assert len(report.failures) == 1
     assert f"rule {index} " in report.failures[0]
@@ -80,12 +80,12 @@ def test_a_certificate_the_registry_refuses_is_reported_against_its_rule_under_a
     """A certificate text the registry will not tokenize is one rule's failure, never the stage's: the walk restricted to the pile's asks meets the refusal while it computes them, ahead of the prefill, and the check goes on to witness every other rule against the shared file, reporting the refused one by name. The restriction cut short that way loads the file whole, which the served count shows."""
     decision, _treaty = tables["default"]
     memo = conform.SettleMemoFile(tmp_path / "settle-memo-default.bin", "stamp")
-    pile = sorted({belt._token_text(spec, tokens) for tokens in decision.certificates})
+    pile = sorted({witness._token_text(spec, tokens) for tokens in decision.certificates})
     seed = conform._SettledWindowWalk(spec, frozenset(), {}, guard, memo=memo)
     seed.walk_many(pile)
     assert seed.save_memo()
     index = 0
-    refused = belt._token_text(spec, decision.certificates[index])
+    refused = witness._token_text(spec, decision.certificates[index])
     original = settle.tokens_from_codepoints
 
     def refusing(spec_, codepoints):
@@ -94,7 +94,7 @@ def test_a_certificate_the_registry_refuses_is_reported_against_its_rule_under_a
         return original(spec_, codepoints)
 
     monkeypatch.setattr(settle, "tokens_from_codepoints", refusing)
-    report = belt.check_rule_certificates(
+    report = witness.check_rule_certificates(
         spec, frozenset(), decision, guard, memo=dataclasses.replace(memo, write_path=tmp_path / "part.gz")
     )
     assert not report.passed
@@ -121,7 +121,7 @@ def test_a_rule_with_no_certificate_vouches_for_nothing(spec, tables, guard):
         joint=False,
     )
     poisoned = dataclasses.replace(decision, rules=decision.rules + (dead,))
-    report = belt.check_rule_certificates(spec, frozenset(), poisoned, guard)
+    report = witness.check_rule_certificates(spec, frozenset(), poisoned, guard)
     assert not report.passed
     assert report.witnessed == {}
     assert len(report.failures) == 1
@@ -180,7 +180,7 @@ def test_the_stage_loads_only_the_windows_its_certificates_can_ask(spec, tables,
         decision = tables[config][0]
         record = summary["configs"][config]
         assert record["witnessed"] == record["rules"] == len(decision.rules)
-        pile = sorted({belt._token_text(spec, tokens) for tokens in decision.certificates})
+        pile = sorted({witness._token_text(spec, tokens) for tokens in decision.certificates})
         asker = conform._SettledWindowWalk(spec, conform.features_for_config(config), {}, guard)
         asks = asker.load_only_asked_by(pile)
         kept = {window for window in seeded[config] if _ask_of(window) in asks}
@@ -226,7 +226,7 @@ def test_mini_spec_emitted_rules_all_fold_from_certified_rules(spec, tables, gua
     emitted = emit_gsub.fold_settle_rules(spec, tables)
     certified = {}
     for config, (decision, _treaty) in tables.items():
-        report = belt.check_rule_certificates(spec, conform.features_for_config(config), decision, guard)
+        report = witness.check_rule_certificates(spec, conform.features_for_config(config), decision, guard)
         assert report.passed, report.failures
         certified[config] = set(report.witnessed)
     assert emitted

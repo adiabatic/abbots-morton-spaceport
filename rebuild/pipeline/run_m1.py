@@ -34,7 +34,6 @@ import yaml
 
 from rebuild.pipeline import (
     baseline_subset,
-    belt,
     compile_font,
     conform,
     defects,
@@ -49,6 +48,7 @@ from rebuild.pipeline import (
     oracle_cache,
     readback,
     surface,
+    witness,
 )
 from rebuild.pipeline import table as table_module
 from rebuild.pipeline.labels import features_for_config
@@ -964,7 +964,7 @@ def run_rule_witnesses(
     out_dir: Path,
     memo_inputs: oracle_cache.SettleMemoInputs | None,
 ) -> dict:
-    """The witness stage: every configuration's certificates settled through the crate and each rule asserted to fire in its own (`belt.check_rule_certificates`), which is the realizability half of the dead-rule alarm — the crate's fold refuses a rule no replayed row first-matches, and this refuses a rule whose replayed row no string reaches, which is what a wrong pin in the worklist would look like. It runs here, on the tables the build just folded, because the certificates are a fact about exactly those tables: nothing can check them against stale artifacts, and `--gates-only` reuses tables this stage already passed.
+    """The witness stage: every configuration's certificates settled through the crate and each rule asserted to fire in its own (`witness.check_rule_certificates`), which is the realizability half of the dead-rule alarm — the crate's fold refuses a rule no replayed row first-matches, and this refuses a rule whose replayed row no string reaches, which is what a wrong pin in the worklist would look like. It runs here, on the tables the build just folded, because the certificates are a fact about exactly those tables: nothing can check them against stale artifacts, and `--gates-only` reuses tables this stage already passed.
 
     Each configuration's walk shares the settle memo the string replay fills and the oracle and the belt load (`conform.settle_memo_files`, keyed per family off `memo_inputs` the way the oracle row cache is), so a window any of them has settled since the runes it names last moved is settled once; on a whole-universe replay this stage serves every certificate's windows off the file the replay just filled and settles only what a narrowed replay left standing. The file holds the horizon-4 universe and the certificates ask a fraction of it, so the walk loads only the rows its certificate texts can ask (`conform._SettledWindowWalk.load_only_asked_by`) and holds nothing else, files the windows it settled fresh as a part under a scratch directory (`SettleMemoFile.write_path`, the shape every row range of the pooled oracle takes), and this stage folds the part into the shared file (`conform.absorb_settle_memo_parts`) inside the configuration's timed span: the file then carries every standing window plus the fresh ones, exactly what a walk that loaded and replaced it whole would have filed, and a walk that settled nothing writes no part and leaves the file untouched. That key is where the window-locality theorem reaches the certificates: a rune edit retires only the memo entries naming an edited family, so only the certificates naming one are re-settled. A caller building a spec of its own has no memo inputs and no memo, and settles everything. The summary is written beside the other gate summaries; a red one is raised at the join, ahead of any complaint the glyph chain makes. The stage runs after the string replay on the table-only branch (`_run_table_gates`), which is the ordering that lets it load the file the replay filled. The oracle runs beside it and may map the file before or after this stage's fold lands, but it files every window it settles as a part and folds its parts in only once this stage has returned (`TableGates.wait_for_memo`), so no oracle write can land a file without this stage's windows or be replaced by this stage's.
     """
@@ -978,7 +978,7 @@ def run_rule_witnesses(
             decision = entry[0] if isinstance(entry, (tuple, list)) else entry
             memo = memos.get(config)
             part = Path(scratch) / f"{config}.gz"
-            report = belt.check_rule_certificates(
+            report = witness.check_rule_certificates(
                 spec,
                 features_for_config(config),
                 decision,
