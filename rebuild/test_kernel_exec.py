@@ -909,18 +909,18 @@ class TestTheMemoryDerivedThreadDefault:
             kernel_exec.replay_threads_default(total_bytes=34_359_738_368)
 
     @pytest.mark.parametrize(
-        "total, wanted", [(4_000_000_000, 1), (34_359_738_368, 4), (32_000_000_000, 3), (64_000_000_000, 9)]
+        "total, wanted", [(4_000_000_000, 1), (34_359_738_368, 3), (32_000_000_000, 3), (64_000_000_000, 8)]
     )
     def test_the_width_follows_the_box_and_never_falls_below_one(self, total, wanted):
-        """The 32 GiB box fits four deltas beside `default`'s 2.5 GB memo snapshot at the 5.5 GB per-delta bound, while the decimal 32 GB spelling is half a gigabyte short of the fourth and fits three. A box too small for one delta gets one anyway, while the 64 GB box fits nine before the caller applies its configuration and CPU caps."""
+        """The 32 GiB box fits three deltas beside `default`'s 2.5 GB memo snapshot at the 6.3 GB per-delta bound, 1.34 GB short of the fourth, and the decimal 32 GB spelling fits three too. A box too small for one delta gets one anyway, while the 64 GB box fits eight before the caller applies its configuration and CPU caps."""
         assert kernel_exec.kernel_threads_default(total_bytes=total) == wanted
 
     def test_a_coresident_pool_comes_off_the_box_before_it_is_divided(self):
-        """What a caller running the fan-out beside something else — the artifact cycle, beside its pytest pool — takes off the top, so the width answers for the machine the configurations will actually share rather than for an empty one. It comes off beside `default`'s memo term rather than instead of it, which is why 12 GB costs the 64 GB box two deltas and not three. It is the caller's fact and defaults to nothing, because a bare run_m1 has nothing beside it."""
-        assert kernel_exec.kernel_threads_default(total_bytes=64_000_000_000) == 9
+        """What a caller running the fan-out beside something else — the artifact cycle, beside its pytest pool — takes off the top, so the width answers for the machine the configurations will actually share rather than for an empty one. It comes off beside `default`'s memo term rather than instead of it, which is why 10 GB costs the 64 GB box two deltas and not one. It is the caller's fact and defaults to nothing, because a bare run_m1 has nothing beside it."""
+        assert kernel_exec.kernel_threads_default(total_bytes=64_000_000_000) == 8
         assert (
-            kernel_exec.kernel_threads_default(coresident_bytes=12_000_000_000, total_bytes=64_000_000_000)
-            == 7
+            kernel_exec.kernel_threads_default(coresident_bytes=10_000_000_000, total_bytes=64_000_000_000)
+            == 6
         )
 
     def test_a_stated_width_outranks_a_coresident_reservation_too(self, monkeypatch):
