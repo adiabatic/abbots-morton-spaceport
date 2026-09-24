@@ -1129,21 +1129,8 @@ def _make_test_pool_bytes(*, skip_make_test: bool, ncores: int | None) -> float:
     return 0 if skip_make_test else _font_suite_worker_bytes() * make_test_pool_width(ncores=ncores)
 
 
-def kernel_threads_budget(
-    *, skip_make_test: bool = False, ncores: int | None = None, total_bytes: int | None = None
-) -> int:
-    """The kernel fan-out's width for this cycle, named by the cycle rather than inherited silently, because it is the one width here that memory binds: a live delta holds its whole working set until it emits, so the width is the box, less the memo snapshot `default` leaves alive for the wave (`kernel_exec.DEFAULT_MEMO_BYTES`, a memo rather than a whole configuration, which is what lets the gated arm and the solo arm seat the whole wave on the fleet's 32 GiB box alike), divided by one delta (`kernel_exec.DELTA_PEAK_BYTES`). What makes it the cycle's own rather than a re-export of `kernel_exec.KERNEL_THREADS_DEFAULT` is that a cycle is not a box to itself — gate:make-test's pytest pool is hot from t=0 and stays hot right across the table build — so that pool comes off the box beside the memo before the division: FONT_SUITE_WORKER_BYTES apiece for as many workers as `make_test_pool_width` says it will have, which is the same figure the cycle hands the child, so what is reserved and what runs are one number by construction rather than two that happen to agree. A pass whose gate is skipped subtracts nothing, there being no pool to subtract, and --skip-gates is that same case with the caller saying so.
-
-    The arithmetic underneath stays `kernel_exec.kernel_threads_default`'s: the reserve policy applied exactly once, and AMS_KERNEL_THREADS short-circuiting ahead of all of it, so a stated width wins here exactly as it does for a bare run_m1 and this reservation can never narrow one. What comes back is the memory answer before the configuration count and the cores this process may actually run on narrow it. That narrowing lives in exactly one place, `run_m1.build_tables`'s own `min()`, and is deliberately not repeated here: a second copy on this side would be a second thing to keep in agreement with it, and what not having one costs is only that a box roomier than the configuration count reads a plan line naming a width the run will go on to narrow. `ncores` and `total_bytes` are keywords for the reason every budget here takes its box as one — an assertion about a machine the suite is not running on has to be a pure function over an invented one.
-    """
-    from rebuild.pipeline.kernel_exec import kernel_threads_default
-
-    coresident = _make_test_pool_bytes(skip_make_test=skip_make_test, ncores=ncores)
-    return kernel_threads_default(coresident_bytes=coresident, total_bytes=total_bytes)
-
-
-def _replay_fit_terms(*, skip_make_test: bool, ncores: int | None) -> tuple[float, int]:
-    """The co-resident term and the cap `replay_threads_budget` and `replay_threads_derivation` share, derived once so the width and the clause that explains it are two readings of one derivation. The term is gate:make-test's pytest pool, `_make_test_pool_bytes`, the one term `kernel_threads_budget` subtracts too, and nothing else, since the replay's own engines are built after the table build's process has exited and hold no memo of its. The cap is the configuration count and the cores this process may actually run on, the two non-memory bounds `run_m1._replay_threads` applies."""
+def _wave_fit_terms(*, skip_make_test: bool, ncores: int | None) -> tuple[float, int]:
+    """The co-resident term and the cap the table build's width and the string replay's share — `kernel_threads_budget`, `replay_threads_budget` and `replay_threads_derivation` — derived once so each width, and the clause that explains the replay's, are readings of one derivation. The term is gate:make-test's pytest pool, `_make_test_pool_bytes`, and nothing else: `default`'s retained memo is `kernel_exec.kernel_threads_default`'s own term to add, and the replay's engines are built after the table build's process has exited and hold no memo of its. The cap is the configuration count and the cores this process may actually run on, the two non-memory bounds `run_m1._table_build_threads` and `run_m1._replay_threads` apply."""
     from rebuild.pipeline.conform import SETTLEMENT_CONFIGS
     from rebuild.tools import memory_budget
 
@@ -1151,16 +1138,29 @@ def _replay_fit_terms(*, skip_make_test: bool, ncores: int | None) -> tuple[floa
     return coresident, min(len(SETTLEMENT_CONFIGS), ncores or memory_budget.usable_cores())
 
 
+def kernel_threads_budget(
+    *, skip_make_test: bool = False, ncores: int | None = None, total_bytes: int | None = None
+) -> int:
+    """The kernel fan-out's width for this cycle, named by the cycle rather than inherited silently, because it is the one width here that memory binds: a live delta holds its whole working set until it emits, so the width is the box, less the memo snapshot `default` leaves alive for the wave (`kernel_exec.DEFAULT_MEMO_BYTES`, a memo rather than a whole configuration, which is what lets the gated arm and the solo arm seat the whole wave on the fleet's 32 GiB box alike), divided by one delta (`kernel_exec.DELTA_PEAK_BYTES`). What makes it the cycle's own rather than a re-export of `kernel_exec.KERNEL_THREADS_DEFAULT` is that a cycle is not a box to itself — gate:make-test's pytest pool is hot from t=0 and stays hot right across the table build — so that pool comes off the box beside the memo before the division: FONT_SUITE_WORKER_BYTES apiece for as many workers as `make_test_pool_width` says it will have, which is the same figure the cycle hands the child, so what is reserved and what runs are one number by construction rather than two that happen to agree. A pass whose gate is skipped subtracts nothing, there being no pool to subtract, and --skip-gates is that same case with the caller saying so.
+
+    The arithmetic underneath stays `kernel_exec.kernel_threads_default`'s: the reserve policy applied exactly once, and AMS_KERNEL_THREADS short-circuiting ahead of all of it, so a stated width wins here exactly as it does for a bare run_m1 and this reservation can never narrow one. The answer is then held at the configuration count and the cores this process may actually run on, the cap `replay_threads_budget` holds its own at, rather than left to `run_m1._table_build_threads` alone: on the fleet's 48 GiB boxes (`doc/fleet.md`) the memory answer runs past the configuration count, so a plan line naming the bare memory answer would name a width the build never takes there, and the cap makes the plan line, the argv and `cycle_summary.json`'s `plan.kernel_threads` the wave's real width, with the child's own `min()` only confirming it. A stated `AMS_KERNEL_THREADS` past the configuration count is cut to it here the way `run_m1._table_build_threads` would cut it, which narrows nothing the box's memory decided. `ncores` and `total_bytes` are keywords for the reason every budget here takes its box as one — an assertion about a machine the suite is not running on has to be a pure function over an invented one.
+    """
+    from rebuild.pipeline.kernel_exec import kernel_threads_default
+
+    coresident, cap = _wave_fit_terms(skip_make_test=skip_make_test, ncores=ncores)
+    return max(1, min(kernel_threads_default(coresident_bytes=coresident, total_bytes=total_bytes), cap))
+
+
 def replay_threads_budget(
     *, skip_make_test: bool = False, ncores: int | None = None, total_bytes: int | None = None
 ) -> int:
     """The string replay's width for this cycle, the `--replay-threads` the plan hands run_m1: `kernel_exec.REPLAY_PEAK_BYTES` — one configuration's horizon-4 walk — divided into the box with gate:make-test's pytest pool taken off it first, exactly the pool `kernel_threads_budget` subtracts for the table build, since that pool is hot across the whole run_m1 step and the replay runs inside it; a pass whose gate is skipped subtracts nothing. The arithmetic underneath is `kernel_exec.replay_threads_default`'s, with `AMS_REPLAY_THREADS` short-circuiting ahead of it, so a stated width wins here as it does for a bare run_m1.
 
-    Where this parts company with `kernel_threads_budget` is the cap: the answer is held at the configuration count and the cores here rather than left to `run_m1._replay_threads` alone. On both fleet boxes the memory answer runs past the configuration count with or without the pool subtracted — the pool is insurance for a smaller box, not a number that moves the width here — so a plan line naming the bare memory answer would name a width the run never takes on any machine that runs it; the cap makes the line and the argv the wave's real width, and the child's own `min()` then only confirms it. A stated `AMS_REPLAY_THREADS` past the configuration count is cut to it here the way the crate and `run_m1._replay_threads` would cut it, which narrows nothing the box's memory decided. `ncores` and `total_bytes` are keywords for the reason every budget here takes its box as one — an assertion about a machine the suite is not running on has to be a pure function over an invented one.
+    The answer is held at the configuration count and the cores here, as `kernel_threads_budget` holds its own, rather than left to `run_m1._replay_threads` alone. On every fleet box the memory answer runs past the configuration count with or without the pool subtracted — the pool is insurance for a smaller box, not a number that moves the width here — so a plan line naming the bare memory answer would name a width the run never takes on any machine that runs it; the cap makes the line and the argv the wave's real width, and the child's own `min()` then only confirms it. A stated `AMS_REPLAY_THREADS` past the configuration count is cut to it here the way the crate and `run_m1._replay_threads` would cut it, which narrows nothing the box's memory decided. `ncores` and `total_bytes` are keywords for the reason every budget here takes its box as one — an assertion about a machine the suite is not running on has to be a pure function over an invented one.
     """
     from rebuild.pipeline.kernel_exec import replay_threads_default
 
-    coresident, cap = _replay_fit_terms(skip_make_test=skip_make_test, ncores=ncores)
+    coresident, cap = _wave_fit_terms(skip_make_test=skip_make_test, ncores=ncores)
     return max(1, min(replay_threads_default(coresident_bytes=coresident, total_bytes=total_bytes), cap))
 
 
@@ -1172,7 +1172,7 @@ def replay_threads_derivation(
     from rebuild.pipeline.kernel_exec import REPLAY_PEAK_BYTES
     from rebuild.tools import memory_budget
 
-    coresident, cap = _replay_fit_terms(skip_make_test=skip_make_test, ncores=ncores)
+    coresident, cap = _wave_fit_terms(skip_make_test=skip_make_test, ncores=ncores)
     width = replay_threads_budget(skip_make_test=skip_make_test, ncores=ncores, total_bytes=total_bytes)
     count = len(SETTLEMENT_CONFIGS)
     waves = (
@@ -2132,6 +2132,7 @@ def _render_concurrency(plan: Plan) -> list[str]:
         kernel_reason = "the table build's memory ceiling, the one width RAM binds"
     else:
         kernel_reason = f"the table build's memory ceiling, less gate:make-test's {workers}"
+    kernel_reason += ", capped at the configuration count and the cores"
     lines.append(f"    run_m1 sweeps --jobs             : {plan.sweep_jobs}  ({plan.sweep_reason})")
     if plan.reuse_run_m1:
         lines.append(
