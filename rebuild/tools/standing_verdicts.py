@@ -2920,13 +2920,13 @@ class Decider:
         return Decision(None, frozenset(matched), frozenset(held), entry.relevant), bool(repairs)
 
     def _release(self) -> None:
-        """Empty the context's shape and walk memos. Every key in them names the unit it was computed for, and `_decided` and `_servings` answer any repeat ask, so emptying them behind a unit costs nothing: `decide` does it behind every unit it serves or computes, `_serving` behind every memo entry it holds against the live rules, which `_prefill` and `misses` ask for outside `decide`, and a pooled worker behind every chunk (`_standing_pool_chunk`). The alignment cache is not one of these memos: it spans the run on the serial path, and `release_alignment_cache` names the boundaries that empty it."""
+        """Empty the context's shape and walk memos. Every key in them names the unit it was computed for, and `_decided` and `_servings` answer any repeat ask, so emptying them behind a unit costs nothing: `decide` does it behind every unit it serves or computes, `_serving` behind every memo entry it holds against the live rules, which `_prefill` asks for outside `decide`, and a pooled worker behind every chunk (`_standing_pool_chunk`). The alignment cache is not one of these memos: it spans the run on the serial path, and `release_alignment_cache` names the boundaries that empty it."""
         if self.context is not None:
             self.context.memo.clear()
             self.context.composed.clear()
 
     def _serving(self, unit) -> tuple[Decision, bool] | None:
-        """`_serve` over the unit's memo entry, answered once per unit however many times `_prefill`, `misses` and `decide` ask, its key marked served in the memo so `Memo.write` keeps it under a moved roster, and written back over the entry when it repaired or trimmed it, so the file never keeps a rule the live file dropped. The context's memos are released behind the `_serve` it runs (`_release`), so a repair asked for outside `decide` leaves no window in them."""
+        """`_serve` over the unit's memo entry, answered once per unit however many times `_prefill` and `decide` ask, its key marked served in the memo so `Memo.write` keeps it under a moved roster, and written back over the entry when it repaired or trimmed it, so the file never keeps a rule the live file dropped. The context's memos are released behind the `_serve` it runs (`_release`), so a repair asked for outside `decide` leaves no window in them."""
         unit_id = unit["id"]
         if unit_id not in self._servings:
             serving = None
@@ -2981,10 +2981,6 @@ class Decider:
         finally:
             self._release()
 
-    def misses(self, units) -> list:
-        """The units among `units` this run would have to evaluate itself: not decided yet, and not servable from the memo — no entry under their key, or an entry `_serve` refuses. An entry `_serve` repairs is not a miss: the repair is a matcher or two, run serially. A dropped memo misses everything; a rules commit misses the units the moved rules can reach, which a broad rule can carry past `_STANDING_POOL_THRESHOLD`, so a rule-landing pass can open the pool over a memo it mostly served."""
-        return [unit for unit in units if unit["id"] not in self._decided and self._serving(unit) is None]
-
 
 # Below this many misses a pool's startup — spawn, the module import, the rules and two font loads, about 0.2 s a worker — outruns what it saves: a miss costs about 1.3 ms serially and about 11 us to pickle each way, so the break-even at width four sits near five hundred misses, and a warm pass over unmoved rules, which computes tens of units, never comes near this; a pass landing a rule broad enough to reach thousands of units does. See rebuild/out/cycle-timings.ndjson for the plumbing rows these rates were read off.
 _STANDING_POOL_THRESHOLD = 2_000
@@ -3011,7 +3007,7 @@ def _standing_pool_chunk(units) -> list[tuple[str, list]]:
 
 
 def _prefill(decider: Decider, asked, jobs: int) -> None:
-    """Consume the requested records once, deciding hits immediately and spooling pool misses. Pool submission holds at most one wave of `jobs` chunks; only ids and decisions survive the pass. `_serving` and `decide` each release the context's memos behind the unit they ask about (`Decider._release`), so the spool pass holds no unit's windows past it."""
+    """Consume the requested records once, deciding hits immediately and spooling pool misses. A miss is a unit not decided yet that the memo cannot serve: no entry under its key, or an entry `_serve` refuses. An entry `_serve` repairs is a hit, decided here, since the repair is a matcher or two. Pool submission holds at most one wave of `jobs` chunks; only ids and decisions survive the pass. `_serving` and `decide` each release the context's memos behind the unit they ask about (`Decider._release`), so the spool pass holds no unit's windows past it."""
     if jobs <= 1:
         for unit in asked:
             decider.decide(unit)
