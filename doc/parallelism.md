@@ -47,7 +47,7 @@ Widths derive from total memory, never from what is free, so a gate started whil
 
 ## Measuring
 
-- `make cycle-timings` summarizes what each step costs, host-tagged; `ARGS='--by-step'` compares step medians across machines. Read it before deciding a run is hung and before picking a watcher's timeout.
+- `make cycle-timings` summarizes what each step costs, host-tagged; `ARGS='--by-step'` compares step medians across machines. Read it before deciding a run is hung and before picking a watcher's timeout. The `gate:rebuild-contracts` row mixes two widths, `contracts_pool_width`'s narrow answer on a pass that runs the surface build and its wide one on a pass that does not, so that row's median climbs as narrow passes accumulate; that is the design, not a regression, and each pass's width is on the `kind:"pool"` record with unit `rebuild-contracts` that its pytest controller files, which carries no run id and lines up with the pass's step row by host and `finished_at`.
 - `make job-costs` prints each checked-in per-unit constant beside what this host measured and the width each implies. `ARGS='--check'` exits nonzero when an observed peak outruns its constant; the artifact cycle runs that form every pass, and re-seeding the constant and committing it is the acceptance.
 - The kernel's `--cache-census` flag on `enumerate`, `enumerate-configs`, `build-tables` and `replay-strings` prints what each memo holds per configuration — `memo_base_hits` beside `trace_cache` is what a delta or a seeded build answered out of a base against what it traced itself, and on the replay the walk's own memo and tables beside the engine's memos is how the walk's peak is attributed between the two — and is the instrument for any memory argument about the kernel.
 
