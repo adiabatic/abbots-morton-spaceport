@@ -705,6 +705,30 @@ class TestTheKernelInvocation:
         assert set(seen) == {kernel_exec.UNSTAMPED_WINDOWS}
         assert kernel_exec.UNSTAMPED_WINDOWS
 
+    @pytest.mark.parametrize("configs", [None, ("default",), ("ss03", "default")])
+    def test_the_table_build_seeds_from_the_configurations_it_builds(self, monkeypatch, tmp_path, configs):
+        """`build_tables` hands `memo_seed` the list it hands the crate, so a whole-set build still seeds from every settlement configuration's memo and a narrowed one from its own alone."""
+        seen = {}
+
+        def memo_seed(out_dir, stamp, scratch, configs):
+            seen["seed"] = tuple(configs)
+            return None
+
+        def build_table_files(spec_path, out_dir, configs, **rest):
+            seen["crate"] = tuple(configs)
+            raise Reached
+
+        monkeypatch.setattr(kernel_exec, "ensure_built", lambda: None)
+        monkeypatch.setattr(run_m1, "memo_seed", memo_seed)
+        monkeypatch.setattr(kernel_exec, "build_table_files", build_table_files)
+        with pytest.raises(Reached):
+            if configs is None:
+                run_m1.build_tables(SPEC, tmp_path)
+            else:
+                run_m1.build_tables(SPEC, tmp_path, configs=configs)
+        expected = tuple(conform.SETTLEMENT_CONFIGS) if configs is None else configs
+        assert seen == {"seed": expected, "crate": expected}
+
     def test_run_hands_the_width_to_the_table_build(self, monkeypatch, tmp_path):
         seen = {}
 
@@ -822,6 +846,32 @@ class TestTheMemoStamp:
         assert seed.moved_classes == ()
         assert sorted(path.name for path in seed.directory.iterdir()) == ["memo-default.tsv"]
         assert run_m1.memo_seed(tmp_path / "empty", stamp, tmp_path / "seed2") is None
+
+    def test_the_seed_reads_only_the_configurations_the_build_names(self, tmp_path):
+        """A narrowed build unpacks only its own configurations' memos and takes only their edited runes, since the crate reads no other; the whole set, the default, still reads every memo that holds and names every rune any of them may not answer for."""
+        stamp = run_m1.memo_stamp(SPEC)
+        world = "+".join(kernel_exec.enumeration_tokens())
+        recorded = json.loads(stamp)
+        rune = next(iter(recorded["runes"]))
+        behind = json.dumps({**recorded, "runes": {**recorded["runes"], rune: "another-digest"}})
+        for config, head in (
+            ("default", f"# {kernel_exec.MEMO_FORMAT}\tdefault\t{world}\t{stamp}\n"),
+            ("ss03", f"# {kernel_exec.MEMO_FORMAT}\tss03\t{world}\t{behind}\n"),
+        ):
+            with gzip.open(kernel_exec.memo_path(tmp_path, config), "wt") as handle:
+                handle.write(head)
+        narrowed = run_m1.memo_seed(tmp_path, stamp, tmp_path / "narrowed", configs=("default",))
+        assert narrowed is not None
+        assert narrowed.edited == ()
+        assert sorted(path.name for path in narrowed.directory.iterdir()) == ["memo-default.tsv"]
+        whole = run_m1.memo_seed(tmp_path, stamp, tmp_path / "whole")
+        assert whole is not None
+        assert whole.edited == (rune,)
+        assert sorted(path.name for path in whole.directory.iterdir()) == [
+            "memo-default.tsv",
+            "memo-ss03.tsv",
+        ]
+        assert run_m1.memo_seed(tmp_path, stamp, tmp_path / "ss04", configs=("ss04",)) is None
 
 
 class TestTheMemoryDerivedThreadDefault:

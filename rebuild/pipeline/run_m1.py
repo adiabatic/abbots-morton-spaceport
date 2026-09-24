@@ -199,13 +199,15 @@ class MemoSeed:
     moved_classes: tuple[str, ...]
 
 
-def memo_seed(out_dir: Path, stamp: str, scratch: Path) -> MemoSeed | None:
-    """The previous build's memos under `out_dir` that this build may read, unpacked into `scratch`, or None when none may be: each configuration's packed memo is read for its head, held to this process's world and to `stamp` through `memo_edited`, and unpacked plain for the crate only where it passes; the edited runes are the union over every memo unpacked, so a rune one memo must not answer for is answered by no memo. A memo that fails — its head, its stamp, or a gzip that will not unpack whole — is left where it is and simply not read, and this build's own memo replaces it on the way out."""
+def memo_seed(
+    out_dir: Path, stamp: str, scratch: Path, configs: Sequence[str] = conform.SETTLEMENT_CONFIGS
+) -> MemoSeed | None:
+    """The previous build's memos under `out_dir` that this build may read, unpacked into `scratch`, or None when none may be: each named configuration's packed memo is read for its head, held to this process's world and to `stamp` through `memo_edited`, and unpacked plain for the crate only where it passes; the edited runes are the union over every memo unpacked, so a rune one memo must not answer for is answered by no memo. `configs` is the build's own list, since the crate reads only the memos of the configurations it is asked for: a narrowed build unpacks only its own configurations' memos, and a memo that narrowed builds never rewrite cannot widen the union with every rune moved since the last whole build. A memo that fails — its head, its stamp, or a gzip that will not unpack whole — is left where it is and simply not read, and this build's own memo replaces it on the way out."""
     world = "+".join(kernel_exec.enumeration_tokens()) or "pinned"
     edited: set[str] = set()
     moved_classes: set[str] = set()
     unpacked = False
-    for config in conform.SETTLEMENT_CONFIGS:
+    for config in configs:
         packed = kernel_exec.memo_path(out_dir, config)
         head = kernel_exec.read_memo_head(packed)
         if head is None or head.config != config or head.world != world:
@@ -334,7 +336,7 @@ def build_tables(
 
     What Python does per configuration is small and is what only Python can do: read the head back for the rules, the reachable cells and the fired provenance every downstream stage needs, parse the treaty TSV back for the defect gates, and pack the plain window payload into the `.gz` the artifact is (the compressor never crossed the boundary). The head reads run in a thread per configuration behind the one kernel process and are what this call waits for; the packing (`_pack_config`, the memo file included) runs on a `Packing` pool at the core-bound width (`_core_bound_threads`, one packer per configuration up to the cores, whatever the crate's width), since a packer holds a zlib stream and a copy buffer and nothing the memory width prices, and the compressor releases the interpreter lock. With a `packing` passed the tables come back as soon as the heads are read, each configuration's pack a future the caller waits on through `Packing.wait` and a pool the caller closes; with none, the packing is finished before the return.
 
-    A build with an `out_dir` also carries its trace memos across builds: the previous build's `memo-<config>.tsv.gz` files under it are read through `memo_seed` — unpacked for the crate wherever their stamp still holds, with the runes whose content moved named as edited — so a window naming no edited rune settles as it settled last time, and this build's own memos are packed into the same names on the way out, under `memo_stamp` over the spec in hand. A caller with no `out_dir` reads and writes none.
+    A build with an `out_dir` also carries its trace memos across builds: the previous build's `memo-<config>.tsv.gz` files under it for the configurations this build names are read through `memo_seed` — unpacked for the crate wherever their stamp still holds, with the runes whose content moved named as edited — so a window naming no edited rune settles as it settled last time, and this build's own memos are packed into the same names on the way out, under `memo_stamp` over the spec in hand. A caller with no `out_dir` reads and writes none.
 
     `out_dir`, when given, gets the section 8 TSVs. The second returned mapping is each configuration's `table.table_digest` as the crate reported it — taken in the crate while the window rows are still in hand, which is the grain the rest of the rebuild states table identity at and the only moment it can be taken without re-costing the fixpoint; the crate also prints it on stdout, which is where `rebuild/tools/scaling_sweep.py` reads it. Both returned mappings are rebuilt in `configs` order however the configurations finish, so completion order can never reach an artifact.
 
@@ -363,7 +365,7 @@ def build_tables(
         seed = None
         if out_dir is not None and stamp is not None:
             start = time.perf_counter()
-            seed = memo_seed(out_dir, stamp, directory / "seed")
+            seed = memo_seed(out_dir, stamp, directory / "seed", configs)
             console.timing(
                 "memo_seed",
                 time.perf_counter() - start,
