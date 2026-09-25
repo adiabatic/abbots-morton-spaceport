@@ -1093,6 +1093,32 @@ def test_a_failing_standing_fill_stops_the_cascade():
     assert report.standing_merge_status == "not run (standing-fill failed)"
 
 
+@pytest.mark.parametrize(
+    ("rounds", "failed", "status"),
+    [
+        ([("echo-fill-2", ["boom"])], "echo-fill", "echo_fill_status"),
+        ([_FULL_CHAIN[6], ("echo-merge-2", ["boom"])], "echo-merge", "echo_merge_status"),
+    ],
+)
+def test_a_later_echo_round_failure_leaves_the_first_round_reported_as_run(rounds, failed, status):
+    """The chain runs the standing fill and merge in the first round, so a failure in round 2 reports them as done and names the round that failed."""
+    report, failures = _run_plumbing(
+        _plan(),
+        _chain_stdout(*_FULL_CHAIN[:6], *rounds, failed=rounds[-1][0]),
+        returncode=1,
+    )
+    assert failures == [f"{failed} round 2 failed"]
+    statuses = {
+        "merge_status": "merged",
+        "echo_fill_status": "filled",
+        "echo_merge_status": "merged",
+        "standing_fill_status": "filled",
+        "standing_merge_status": "merged",
+    }
+    statuses[status] += ", round 2 FAILED (exit 1)"
+    assert {name: getattr(report, name) for name in statuses} == statuses
+
+
 def test_a_carry_only_chain_reports_the_fills_as_never_run():
     """--no-merge and rehearsal both stop the chain after the carry, so the fills print no `[phase]` line and the summary reports them as not run."""
     report, failures = _run_plumbing(_plan(no_merge=True), _chain_stdout(_FULL_CHAIN[0], fixpoint=False))
