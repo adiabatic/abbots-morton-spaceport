@@ -57,6 +57,7 @@ import {
   copyPreamble,
   tokenSeparators,
   searchUnits,
+  echoGroupOfQuery,
 } from './render.js';
 import {
   APP_INDEX_FORMAT,
@@ -2494,9 +2495,9 @@ function renderSearchResults(query) {
   input.setAttribute('aria-expanded', 'true');
   input.removeAttribute('aria-activedescendant');
   searchActive = -1;
-  const groupId = query.trim().toLowerCase();
-  if (/^e-\d{4}$/.test(groupId) && echoIndex.has(groupId)) {
-    const members = echoIndex.get(groupId);
+  const group = echoGroupOfQuery(query, echoIndex);
+  if (group) {
+    const { id: groupId, members } = group;
     const row = el('button', 'search-result search-group');
     row.type = 'button';
     row.id = `search-opt-${groupId}`;
