@@ -22,6 +22,7 @@ Usage::
 from __future__ import annotations
 
 import argparse
+import re
 import sys
 from collections import Counter, defaultdict
 from pathlib import Path
@@ -131,30 +132,15 @@ def collect(side, defs, meta, family_filter=None):
     return rows, skipped_no_bitmap, skipped_no_ink
 
 
-_DERIVED_ENTRY_MODIFIERS = (
-    "en-ext-1",
-    "en-ext-2",
-    "en-con-1",
-    "en-con-2",
-    "en-trim-",
-)
-_DERIVED_EXIT_MODIFIERS = (
-    "ex-ext-1",
-    "ex-ext-2",
-    "ex-con-1",
-    "ex-con-2",
-    "ex-trim-",
-)
+_DERIVED_MODIFIER_RE = {
+    "entry": re.compile(r"en-(?:ext|con|trim)-\d+"),
+    "exit": re.compile(r"ex-(?:ext|con|trim)-\d+"),
+}
 
 
 def is_derived_variant(name, side):
-    parts = name.split(".")[1:]
-    needles = _DERIVED_ENTRY_MODIFIERS if side == "entry" else _DERIVED_EXIT_MODIFIERS
-    for part in parts:
-        for needle in needles:
-            if part == needle or part.startswith(needle):
-                return True
-    return False
+    pattern = _DERIVED_MODIFIER_RE[side]
+    return any(pattern.fullmatch(part) for part in name.split(".")[1:])
 
 
 def report(side, rows, skipped_no_bitmap, skipped_no_ink, *, verbose=False):
