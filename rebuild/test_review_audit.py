@@ -1,8 +1,8 @@
 """Tests for the review surface's M1-mode unit assembly: TSV/ledger loading, the dedupe to per-config-class units (including the UNMATCHED verdict windows that carry a per-config class map), and deterministic triage ordering.
 
-None of it needs the live audit. Ordering, id assignment, batch slicing, config order, and the one-render-group invariant are properties of `build_units` and `assign_batches` over any input, and the frozen mini workload under rebuild/review/fixtures/mini/ is a thousand real windows' worth of input — so the whole module runs in the contracts lane at full width. The two claims that really were about the live corpus, that the dedupe conserves rows and that every ledger exemplar resolves, are `build_units`' own assertions now, where they cover every build rather than every gate run.
+None of it reads the live audit. Ordering, batch slicing, config order, and the one-render-group invariant are properties of `build_units` and `assign_batches` over any input, so the tests use the frozen mini workload under rebuild/review/fixtures/mini/, which holds real windows. Every build also checks that the dedupe loses no rows: `_SurfaceCheck.finish` in rebuild/review/build.py compares the manifest's row total with the rows summed over its classes.
 
-The live counts belong to the census the surface build emits and the artifact cycle diffs into rebuild/review-census-pins.json, never to an assertion here — they move with every migrated letter.
+The live counts change with every migrated letter, so they are not asserted here. The surface build's census reports them, and the artifact cycle diffs them into rebuild/review-census-pins.json.
 """
 
 import sys
@@ -62,7 +62,7 @@ def test_load_audit_parses_fixture(tmp_path):
 
 
 def test_load_audit_interns_every_label_and_pools_every_name_tuple(tmp_path):
-    """Every label the audit states is the `sys.intern` instance of itself, so a config name, a class id or a glyph name is one object across the rows, the subset tables and the cache alike, and a name tuple two rows state the same is one tuple — the instance the pool handed in holds, so the columns' ids name the rows' own tuples."""
+    """Every label the audit states is interned with `sys.intern`, so a config name, class id or glyph name is one object everywhere it is used. Equal name tuples in two rows are one tuple object, the one held by the pool passed in, so the columns' ids name the rows' own tuples."""
     path = tmp_path / "audit.tsv"
     path.write_text(FIXTURE_AUDIT)
     names = TuplePool()
@@ -97,7 +97,7 @@ def test_fixture_units_dedupe_and_carry_configs(mini_bundle, tmp_path):
 
 
 def test_conflicting_class_resolves_to_unmatched_with_config_classes(mini_bundle):
-    """A triple whose audit rows carry different classes per config is not a build error. When one config leaves it UNMATCHED (the ss03-chain-join-gains windows, blessed under ss03 but novel under default), the unit takes the UNMATCHED sentinel as its class — so the novel default behavior is what gets adjudicated — and records every config's class in config_classes. Two distinct *matched* classes for one triple is still a genuine classification bug and raises."""
+    """A triple whose audit rows carry different classes per config is not a build error. When one config leaves it UNMATCHED (the ss03-chain-join-gains windows, blessed under ss03 but new under default), the unit's class is the UNMATCHED sentinel, so the new default behavior is what gets reviewed, and `config_classes` records every config's class. Two different matched classes for one triple is a classification bug and raises."""
     rows = [
         AuditRow("default", "E650:E665", ("cell",), "UNMATCHED", ("a",), ("b",)),
         AuditRow("ss03", "E650:E665", ("cell",), "ss03-chain-join-gains", ("a",), ("b",)),
@@ -130,12 +130,12 @@ def test_render_groups_split_by_rendered_outcome_identity():
 
 @pytest.fixture
 def mini(mini_bundle):
-    """The frozen mini-M1 audit under rebuild/review/fixtures/mini/, loaded against the bundle's pinned ledger — a thousand-odd real windows over four letters, which is what these properties want: enough classes to order, enough per-config splits to dedupe, and not one byte of rebuild/out/. Regenerating it is `fixtures/mini/regenerate.py`."""
+    """The frozen mini-M1 audit under rebuild/review/fixtures/mini/, loaded against the bundle's pinned ledger. It holds real windows over four letters, with enough classes to order and enough per-config splits to dedupe, and reads nothing from rebuild/out/. `fixtures/mini/regenerate.py` regenerates it."""
     return load_workload(MINI_AUDIT, mini_bundle.ledger, dict(LETTERS))
 
 
 def test_the_table_pools_the_per_unit_tuples_and_interns_the_group(mini):
-    """A unit's config set, kinds, render groups and class map are drawn from a few dozen distinct values over the whole audit and its group from a few thousand family pairs, so two rows that state the same value answer the same object on every read rather than one built apiece — the tuple the echo key hashes is one the interpreter has hashed before — and a materialized unit carries those instances."""
+    """A unit's config set, kinds, render groups, class map and group come from small vocabularies, so the table pools or interns them. Two rows with the same value return the same object on every read, and a materialized unit carries those instances."""
     table = mini.table
     by_value: dict[str, dict] = {"configs": {}, "kinds": {}, "render_groups": {}, "config_classes": {}}
     for ordinal in range(table.n):
@@ -154,7 +154,7 @@ def test_the_table_pools_the_per_unit_tuples_and_interns_the_group(mini):
 
 
 def test_two_units_stating_the_same_class_map_share_one_pooled_instance(mini_bundle):
-    """Issue #276's shape: the class maps pool to one instance per distinct mapping, keyed on the mapping's own insertion order, so two units whose maps differ only in key order are two entries that each materialize in their own order — the order the shipped fragment carries. The pooled instance is typed read-only, and the whole-build test in `rebuild/test_unit_cache.py` holds that no build, cold or served, writes through it."""
+    """The class maps pool to one instance per distinct mapping, keyed on the mapping's insertion order. Two units whose maps differ only in key order get two entries, and each materializes in its own order, which is the order the shipped fragment carries. The pooled instance is typed read-only, and a whole-build test in `rebuild/test_unit_cache.py` checks that no build, cold or served, writes through it."""
     rows = [
         AuditRow("default", "E650:E665", ("cell",), "UNMATCHED", ("a",), ("b",)),
         AuditRow("ss03", "E650:E665", ("cell",), "ss03-chain-join-gains", ("a",), ("b",)),
@@ -182,7 +182,7 @@ def test_two_units_stating_the_same_class_map_share_one_pooled_instance(mini_bun
 
 
 def test_release_rows_leaves_the_count_behind(tmp_path, mini_bundle):
-    """A unit's row count is stated once, off the run it was built over, and survives the columns' release; releasing drops the workload's columns and nothing else — every count and every config set stands as it was."""
+    """A unit's row count is taken from its run and survives `release_rows`. Releasing drops the workload's row columns and nothing else, so every count and config set is unchanged."""
     path = tmp_path / "audit.tsv"
     path.write_text(FIXTURE_AUDIT)
     workload = load_workload(path, mini_bundle.ledger, dict(LETTERS))
@@ -206,13 +206,13 @@ def test_release_rows_leaves_the_count_behind(tmp_path, mini_bundle):
 
 
 def test_every_unit_has_exactly_one_render_group(mini):
-    """The M1 invariant of the dedupe key: a unit's rows share (codepoints, baseline, new), so the per-config rendered outcomes can never differ within a unit — even the per-config-split UNMATCHED units (blessed under ss03, novel under default) render identically across configs, the difference being only the class label. If this ever fails, the data violates the dedupe key's documented guarantee and the extra groups must render stacked, never collapsed."""
+    """A unit's rows share (codepoints, baseline, new), so the rendered outcome cannot differ between configs within a unit. The per-config-split UNMATCHED units (blessed under ss03, new under default) differ only in their class label. If this fails, the extra render groups must be shown stacked, not collapsed into one."""
     for unit in mini.units():
         assert unit.render_groups == (unit.configs,)
 
 
 def test_config_classes_follow_the_file_order_and_the_run_follows_the_config_order(mini_bundle):
-    """Two orders live side by side on one unit. The run in the columns — what `configs` reads and the content key hashes — is config order, with the file's order within a config, wherever the file states the rows in; `config_classes` keeps the order the file states the configs in, since that order is in the shipped fragment's bytes. A config outside `ACCEPTANCE_CONFIGS` sorts behind every ranked one in the run and stays where the file put it in the map."""
+    """A unit keeps two orders. Its run in the columns, which `configs` reads and the content key hashes, is in config order, with the file's order within a config. `config_classes` keeps the order the file states the configs in, because that order is in the shipped fragment's bytes. A config outside `ACCEPTANCE_CONFIGS` sorts after every listed one in the run and keeps its file position in the map."""
     rows = [
         AuditRow("ss03", "E650:E665", ("cell",), "UNMATCHED", ("a",), ("b",)),
         AuditRow("ss02", "E650:E665", ("cell",), "x-class", ("a",), ("b",)),
@@ -234,7 +234,7 @@ def test_config_classes_follow_the_file_order_and_the_run_follows_the_config_ord
 
 
 def test_a_row_line_is_the_audit_line_it_was_read_from(tmp_path, mini_bundle):
-    """What the content key hashes is the file's own line minus its newline, byte for byte, for every row of every unit: a tab-joined split round-trips, the window is the unit's, and the names are the row's."""
+    """For every row of every unit, `line` reproduces the audit file's line minus its newline, byte for byte. This is what the content key hashes."""
     path = tmp_path / "audit.tsv"
     path.write_text(FIXTURE_AUDIT)
     workload = load_workload(path, mini_bundle.ledger, dict(LETTERS))
@@ -260,7 +260,7 @@ def test_the_row_columns_refuse_a_config_vocabulary_wider_than_a_byte():
 
 
 def test_build_units_seals_the_tuple_pool_once_its_columns_are_written():
-    """The pool's tuple-to-id dict exists to assign ids while the rows stream past and is the largest thing the pool holds, so `build_units` drops it as the stream ends: the ids still name their tuples, which the units hold as their own name tuples, and a further `id` is refused rather than served from a rebuilt dict."""
+    """The pool's tuple-to-id dict is needed only while the rows are read, and it is the largest thing the pool holds, so `build_units` seals the pool when the rows end. The ids still name their tuples, which the units hold as their own name tuples, and a later `id` call raises."""
     names = TuplePool()
     rows = [AuditRow("default", "E650:E665", ("cell",), "UNMATCHED", ("a", "b"), ("c",))]
     (unit,), columns = build_units(rows, [], dict(LETTERS), names)
@@ -273,7 +273,7 @@ def test_build_units_seals_the_tuple_pool_once_its_columns_are_written():
 
 
 def test_the_row_sort_key_ranks_a_config_outside_a_grown_acceptance_tuple(monkeypatch):
-    """A config outside `ACCEPTANCE_CONFIGS` ranks at the tuple's length, and the rank field of `build_units`' sort key is sized to that value rather than to a fixed width: with the tuple grown to eight entries the out-of-vocabulary rank is eight, which a three-bit field would carry into the unit's bits and file as the first row of the next unit's run. Every row stays in its own unit's run, in config order, however long the tuple is."""
+    """A config outside `ACCEPTANCE_CONFIGS` ranks at the tuple's length (`audit._config_index`). With the tuple grown to eight entries, every row still stays in its own unit's run, in config order."""
     from rebuild.review import audit
 
     monkeypatch.setattr(audit, "ACCEPTANCE_CONFIGS", (*ACCEPTANCE_CONFIGS, "ss06", "ss07"))
@@ -301,7 +301,7 @@ def test_the_row_sort_key_ranks_a_config_outside_a_grown_acceptance_tuple(monkey
 
 
 def test_the_dedupe_loses_no_rows(mini):
-    """Every audit row ends up under exactly one unit: the dedupe groups rows, it never drops or duplicates one, and the units' runs tile the columns without overlap. How many there are is the census's business, so only the accounting is asserted — plus that both sides are nonempty, since an empty audit would satisfy the sum vacuously. Over the live corpus `check_shards` re-proves the same conservation on every build through the shard totals, which is why it need not be swept here."""
+    """Every audit row ends up under exactly one unit, and the units' runs cover the columns without gaps or overlap. The census reports the counts, so only the totals are asserted, plus that both sides are nonempty, since an empty audit would pass the sum trivially. On the live corpus, `_SurfaceCheck.finish` checks the same row total on every build."""
     units = mini.units()
     assert mini.row_count > 0
     assert len(units) == mini.table.n > 0
@@ -316,7 +316,7 @@ def test_the_dedupe_loses_no_rows(mini):
 
 
 def test_triage_order_follows_ledger_then_group_then_codepoints(mini):
-    # The UNMATCHED units carry the sentinel class at workload level (their verdict family is assigned later, at build time); they rank after every ledger class so they sort last and clean-unit ids are preserved.
+    # The UNMATCHED units carry the sentinel class at workload level, because their verdict family is assigned later in the build. They rank after every ledger class.
     class_order = {entry.id: index for index, entry in enumerate(mini.ledger)}
     units = mini.units()
     indices = [class_order.get(unit.class_id, len(mini.ledger)) for unit in units]
@@ -342,7 +342,7 @@ def test_triage_order_follows_ledger_then_group_then_codepoints(mini):
 
 
 def test_unit_ids_batches_and_positions_are_unassigned_until_the_build_knows_them(mini):
-    """An id is the content key's, stamped at enrichment, and a batch is a slice of the index the build lays down once every unit has its ink flags and its family — so the loaded workload carries none of them."""
+    """An id comes from the content key, which is stamped at enrichment, and a batch is assigned only once every unit has its ink flags and its family, so the loaded workload has neither."""
     for unit in mini.units():
         assert unit.unit_id == ""
         assert unit.order is None
@@ -352,7 +352,7 @@ def test_unit_ids_batches_and_positions_are_unassigned_until_the_build_knows_the
 
 
 def test_assign_batches_indexes_the_human_workload_and_nulls_machine_units(mini):
-    """`assign_batches` is pure over the table, the store's flags and an order, so the mini workload witnesses it exactly as the live one does. Every human unit takes its position among the human units along the order and the slice that position falls in; every other unit takes neither, and a materialized unit carries the same answer."""
+    """`assign_batches` depends only on the table, the store's flags and an order, so the mini workload tests it as well as the live one would. Every human unit gets its position among the human units in the order and the batch that position falls in. Every other unit gets neither, and a materialized unit carries the same values."""
     table = mini.table
     store = UnitStore(table.n, strings=table.strings)
     for ordinal in range(table.n):
@@ -382,7 +382,7 @@ def test_assign_batches_indexes_the_human_workload_and_nulls_machine_units(mini)
 
 
 def test_sort_for_triage_orders_by_class_group_window_then_id():
-    """The order the manifest's index takes, with the id as the last term so sibling units of one window — which share class, group and codepoints — fall into an order that is the same on every surface rather than the audit's. A shorter window sorts ahead of a longer one whatever its codepoints — the boundary-led `0020:E650:E652` window, whose group is the same two families, lands behind every two-cell window of that group and ahead of `E650:E652:E650`, which is three cells too and compares higher cell by cell — and the sort agrees with `triage_key` over the id strings term for term."""
+    """The manifest's index order, with the id as the last term, so sibling units of one window (same class, group and codepoints) get the same order on every surface instead of the audit's order. A shorter window sorts ahead of a longer one whatever its codepoints: the boundary-led `0020:E650:E652` window, whose group is the same two families, sorts after every two-cell window of that group and before `E650:E652:E650`, which is also three cells and compares higher cell by cell. The sort agrees with `triage_key` over the id strings."""
     rows = [
         AuditRow("default", "E650:E652", ("cell",), "class-b", ("a",), ("b",)),
         AuditRow("default", "E650:E652", ("cell",), "class-b", ("a",), ("c",)),
@@ -425,7 +425,7 @@ def test_sort_for_triage_orders_by_class_group_window_then_id():
 
 
 def test_no_verdict_flag_mirrors_the_ledger_class():
-    """The ledger's `no_verdict: true` marks every unit of a wholesale-adjudicated class exempt from individual verdicts; every other unit stays verdictable. Which classes carry the flag is the ledger's own content, not a code contract, so the propagation runs against a synthetic ledger: a unit carries the flag iff its class does."""
+    """The ledger's `no_verdict: true` exempts every unit of a class judged as a whole from individual verdicts. Which classes carry the flag is ledger content, so the test uses a synthetic ledger: a unit carries the flag if and only if its class does."""
     ledger = [
         LedgerClass(
             id="wholesale-adjudicated",
@@ -476,13 +476,13 @@ def test_configs_within_a_unit_are_in_acceptance_order(mini):
 
 
 def test_parse_codepoints():
-    """The codepoint-string half of the codepoints-to-text derivation the ink-signature resolver shares with the audit, pinned in both directions: `build.signature_text` parses a row's window on its way to the text the comparator shapes and `build.ink_sig` formats a window back into a signature key. `unit_cache.signature_code_paths` leaves audit.py out of the signature store's stamp on the strength of this pin; the `chr` join that finishes the derivation is pinned beside the store format by the test below."""
+    """Pins the codepoint-string parsing in both directions. `build.signature_text` parses a row's window into the text the comparator shapes, and `build.ink_sig` formats a window back into a signature key. `unit_cache.signature_code_paths` leaves audit.py out of the signature store's stamp because this test pins the parsing. The test below pins the `chr` join that finishes the text."""
     assert parse_codepoints("200C:E652:E679") == (0x200C, 0xE652, 0xE679)
     assert format_codepoints((0x200C, 0xE652, 0xE679)) == "200C:E652:E679"
 
 
 def test_the_signature_text_is_pinned_beside_the_store_format():
-    """The text `build.signature_text` hands the comparator for a window, pinned beside the `SIGNATURE_STORE_FORMAT` it holds under. A store written under one text keeps serving its digests to a build that shapes another until the format moves, so an edit that changes an answer here bumps the format and restates both literals together."""
+    """Pins the text `build.signature_text` returns for a window together with `SIGNATURE_STORE_FORMAT`. A store written for one text keeps serving its digests to a build that shapes another until the format changes, so an edit that changes a result here must bump the format and update both literals together."""
     assert unit_cache.SIGNATURE_STORE_FORMAT == "ams-review-ink-signatures/2"
     assert signature_text("200C:E652:E679") == "\u200c\ue652\ue679"
     assert signature_text("0020:E650:00B7") == " \ue650\u00b7"
@@ -490,7 +490,7 @@ def test_the_signature_text_is_pinned_beside_the_store_format():
 
 
 def test_ink_duplicate_siblings_fold_to_one_unit(mini_bundle):
-    """The name-grain dedupe key splits one visual question in two when a config merely relabels a glyph (the old font's ss04 rename of word-initial ·It). With an ink signature reporting every render of the window identical, the siblings fold: the earliest-config unit survives with the union of configs, kinds, and per-config classes, a merged run of both siblings' rows in the columns — each row still under its own rendered names — a single render group, and contiguous renumbered ids; the two runs it replaces are orphaned, outside the columns' live count and inside their bytes."""
+    """The name-grain dedupe key splits one visual question into two units when a config only renames a glyph (the old font's ss04 rename of word-initial ·It). When the ink signature reports every render of the window identical, the siblings fold. The earliest-config unit survives with the union of configs, kinds and per-config classes, a merged run of both siblings' rows in the columns (each row keeps its own rendered names), and a single render group, and compacting the table removes the absorbed unit. The two runs the merged run replaces are orphaned: outside the columns' live count but still in their bytes."""
     rows = [
         AuditRow("default", "E650:E665", ("cell",), "UNMATCHED", ("qsPea", "qsMay.en-y0"), ("b",)),
         AuditRow("ss03", "E650:E665", ("cell",), "UNMATCHED", ("qsPea", "qsMay.en-y0"), ("b",)),
@@ -538,7 +538,7 @@ def test_ink_duplicate_siblings_fold_to_one_unit(mini_bundle):
 
 
 def test_ink_duplicate_fold_respects_matched_classes_and_exemptions(mini_bundle):
-    """A fold that would put two distinct matched ledger classes on one unit is skipped (different names legitimately hit different ledger predicates), while a matched class folding with an UNMATCHED sibling resolves UNMATCHED-wins and recomputes the no-verdict flag from the exemption set."""
+    """A fold that would put two different matched ledger classes on one unit is skipped, because different glyph names can match different ledger predicates. A matched class folding with an UNMATCHED sibling takes the UNMATCHED class and recomputes the no-verdict flag from the exempt classes."""
     conflicting, columns = load_table(
         [
             AuditRow("default", "E650:E665", ("cell",), "class-a", ("a",), ("b",)),
@@ -587,7 +587,7 @@ def test_units_whose_configs_render_differently_never_fold(mini_bundle):
 
 
 def test_the_name_tuples_are_released_after_phase_one(mini):
-    """The table holds each unit's `baseline` and `new` as ids into the name pool the row columns share, from the load until the build's `release_names` at the units boundary; releasing drops both columns and the pool, the census reads the pool's bytes as gone, and a unit materialized afterward carries empty name tuples, as the parent's records did once the worker had read its copies."""
+    """The table holds each unit's `baseline` and `new` as ids into the name pool it shares with the row columns, until the build calls `release_names` after phase 1. Releasing drops both columns and the pool, the census no longer counts the pool's bytes, and a unit materialized afterward has empty name tuples."""
     table = mini.table
     assert table.names is not None and table.names.sealed
     unit = table.unit(0)
@@ -606,7 +606,7 @@ def test_the_name_tuples_are_released_after_phase_one(mini):
 
 
 def test_the_table_census_is_the_columns_bytes_and_the_pools_priced_beside_the_string_table(mini):
-    """The table's reading under `workload.units` is exact — the columns' bytes plus every pool at its packed price as the packed figure, the string table beside them, and the two summed as the walked figure — so the line's ratio is the table's share of the columns, and a compaction takes the folded rows' bytes off it."""
+    """The table's `workload.units` reading is exact. The packed figure is the columns' bytes plus every pool's packed size, the string table is reported beside it, and the two summed are the walked figure. A compaction removes the folded rows' bytes from it."""
     table = mini.table
     reading = unit_table_census(table)
     assert reading.packed is not None
@@ -635,7 +635,7 @@ def _ledger(tmp_path, *ids: str) -> Path:
 
 
 def test_a_ledger_declaring_one_class_twice_is_refused_at_load(tmp_path):
-    """Everything downstream indexes the ledger by id — the class order the surface shards in, the oracle's row matcher, the verdict store's class keys — so a repeated id is a class whose second entry silently loses, and it is refused where the file is read."""
+    """Code downstream indexes the ledger by id, so a repeated id would make one entry silently replace the other. `load_ledger` raises on it."""
     with pytest.raises(ValueError, match="halves-entry-extension-restored"):
         load_ledger(
             _ledger(
@@ -649,13 +649,13 @@ def test_a_ledger_declaring_one_class_twice_is_refused_at_load(tmp_path):
 
 @pytest.mark.parametrize("identifier", ["UNMATCHED", families.FAMILY_ORDER[0]])
 def test_a_ledger_claiming_a_synthesized_class_is_refused_at_load(tmp_path, identifier):
-    """The catch-all and the verdict families are classes the build makes for itself, so a ledger entry claiming one of those ids would be shadowed by a class the ledger does not describe."""
+    """The build creates the UNMATCHED catch-all and the verdict family classes itself, so a ledger entry with one of those ids would be overridden by a class the ledger does not describe."""
     with pytest.raises(ValueError, match=identifier):
         load_ledger(_ledger(tmp_path, identifier))
 
 
 def test_the_live_ledger_loads_one_class_per_entry():
-    """The other end of those refusals: the checked-in ledger passes them, and every entry in the file reaches the loader as its own class."""
+    """The checked-in ledger passes those checks, and every entry in the file loads as its own class."""
     path = REPO_ROOT / "rebuild" / "m1-divergences.yaml"
     entries = yaml.safe_load(path.read_text(encoding="utf-8"))
     classes = load_ledger(path)

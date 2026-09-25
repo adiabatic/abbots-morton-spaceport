@@ -1,4 +1,4 @@
-"""The on-demand deep sweep's decisions, with the sweep itself stubbed out: what it refuses to run against, what it records when it passes, what it clears when it fails, and the belt green it hands forward. The sweep it drives is run_m1.run_font_conformance, which the font-facing gates already exercise."""
+"""Tests for the on-demand deep sweep's decisions, with the sweep stubbed out: which inputs it refuses, what it records on a pass, what it clears on a failure, and the belt green record it writes. The sweep itself is `run_m1.run_font_conformance`, which the font-facing gates already exercise."""
 
 import json
 
@@ -11,7 +11,7 @@ from rebuild.tools import deep_sweep
 
 @pytest.fixture
 def bench(tmp_path, monkeypatch):
-    """A repo root the tool believes in: a behavior-class sidecar to arm on, a tables stamp treated as current, and every green record redirected into tmp_path so nothing touches rebuild/out."""
+    """A stub repo root with a behavior-class sidecar and the compile code files, a tables stamp that counts as current, and every green record redirected into tmp_path so nothing touches rebuild/out."""
     from rebuild.pipeline.emit_gsub import BEHAVIOR_CLASSES_FORMAT
 
     m1 = tmp_path / "rebuild" / "out" / "m1"
@@ -49,7 +49,7 @@ def test_a_root_without_a_behavior_class_sidecar_is_refused(bench, monkeypatch):
 
 
 def test_a_stale_tables_stamp_is_refused(bench, monkeypatch):
-    """The precondition is artifact identity — the serialized enumeration stamped from exactly the sources on disk — never a green receipt: a --gates-only pass leaves a perfectly sweepable font whether or not the inputs that moved since the last green build licensed it to record one, and a red interactive run deletes the receipt without changing a byte of the artifacts."""
+    """The sweep requires tables stamped from the sources on disk, not a green record. A --gates-only pass can leave a sweepable font without recording a green, and a failed interactive run deletes the green record without changing the artifacts."""
     _stub_sweep(monkeypatch, {"pass": True, "divergences": 0})
     monkeypatch.setattr(deep_sweep, "tables_stamped", lambda: False)
     with pytest.raises(SystemExit, match="stale relative to the runes"):

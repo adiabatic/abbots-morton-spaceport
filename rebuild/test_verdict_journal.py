@@ -1,4 +1,4 @@
-"""Tests for the verdict journal: transition diffs (sets, clears, base events on stamp changes), the seed event that opens a journal over a pre-existing store, and replay — including the as-of cutoff and tolerance of a truncated trailing line from a crashed append."""
+"""Tests for the verdict journal (`rebuild/review/journal.py`): the sets, clears, and base events a transition writes, the seed event that opens a journal over an existing store, replay with and without an as-of cutoff, compaction, and tolerance of a trailing line torn by a crashed append."""
 
 import json
 
@@ -175,7 +175,7 @@ def test_replay_tolerates_a_truncated_trailing_line(tmp_path):
 
 
 def test_replay_tolerates_a_tail_torn_mid_character(tmp_path):
-    """Notes are written with ensure_ascii=False, so the letter names in them are multi-byte and a crash between one write and the next can cut one in half. Decoding the file as a single string turned that into a UnicodeDecodeError out of every reader at once — replay, the event listing, and the restore path that exists for exactly this kind of accident. Decoded a line at a time, it is the torn tail it is, and everything ahead of it still replays."""
+    """Notes are written with `ensure_ascii=False`, so a letter name in a note is multi-byte and a crash between writes can cut one in half. The journal is read as bytes and decoded one line at a time, so the torn tail ends the scan and every line before it still replays. Decoding the whole file as text would raise `UnicodeDecodeError` in every reader, the restore path included."""
     path = tmp_path / "journal.ndjson"
     journal.record_transition(
         path,
@@ -197,7 +197,7 @@ def test_replay_tolerates_a_tail_torn_mid_character(tmp_path):
 
 
 def test_replay_reads_past_a_note_carrying_a_unicode_line_separator(tmp_path):
-    """A reviewer's note can hold U+2028 — paste one out of a PDF and it comes along — and json.dumps writes it raw, but str.splitlines counts it as a line break. Splitting the whole file that way tore such a line in two, left the first half unparseable, and dropped every entry after it from the store the journal is supposed to be able to restore. Reading the handle a line at a time breaks on newlines alone, so the note and the rest of the journal both survive."""
+    """A note can contain U+2028, for example when pasted from a PDF. `json.dumps` writes it raw, and `str.splitlines` treats it as a line break, which would split the entry and drop every entry after it. The journal is read a line at a time and splits on newlines only, so the note and the rest of the journal replay intact."""
     note = "the seam splits\u2028here"
     path = tmp_path / "journal.ndjson"
     journal.record_transition(
@@ -225,7 +225,7 @@ def test_replay_reads_past_a_note_carrying_a_unicode_line_separator(tmp_path):
 
 
 def test_compact_finds_a_floor_past_a_note_carrying_a_unicode_line_separator(tmp_path):
-    """The floor scan breaks the file on newlines for the same reason replay does. Splitting on every Unicode line break instead stopped the scan at the torn half of a U+2028 note, so the newest base behind one was never seen and the journal either kept its stale floor or never compacted at all."""
+    """`compact` also splits the file on newlines only. Splitting on every Unicode line break would stop the scan at the first half of a U+2028 note, so the newest base event after it would never be found."""
     path = tmp_path / "journal.ndjson"
     journal.record_transition(
         path,

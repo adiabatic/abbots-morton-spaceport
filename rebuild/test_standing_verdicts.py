@@ -1,4 +1,7 @@
-"""Tests for the standing-approval fill: the delta shapes — the two structural pattern matches, being the ligature shape (pivot glyph, seams into and out of it, follower family, post-ligature seam, flank-seam identity) and the extension-dropped shape (pivot glyph giving up a named stretch of exit — an `ex-ext-N` it carried, in whole or down to a shorter one its named after cell keeps, or an `ex-con-N` its named after cell carries when the before glyph never had an exit extension — the seam it exits into holding its height, the full after-cell identity of pivot and follower, every other seam standing still, nothing ligating anywhere, and the unit's own judgment fields agreeing that this seam is the question), the ink-exact ink-delta shape (the unit's persisted per-config digests being a nonempty subset of the ones the rule blesses, so an ink-identical window matches nothing and one unlisted delta under one config fails the whole unit closed, and a surface predating the field refuses the run outright), and the rendered-pixel slide shape, whose preconditions are read off the index record before anything is shaped (a nonempty `ink_deltas` holding one distinct digest whose keys are exactly the unit's config set, and a pivot-prefix name among the recorded before glyphs) and whose geometry is then re-derived in a purpose-built font pair, where the pivot keeps its exact ink with its own-frame origin displaced by the declared column count and every span's union of ink slides cumulatively — so a union-invisible name-grain re-spelling to the pivot's right rides along, while one stray pixel anywhere in the window, or a font pair that never settles into the named pivot, fails the match closed — the rendered-pixel ink-gain shape, whose preconditions match the slide shape's and whose geometry is the named pivot keeping its placement, height, and own-frame origin while gaining exactly the named cells, every following span moving by the declared count — the rendered-pixel join-dropped shape, whose preconditions are a named pivot–follower seam dropping from a yK height to a break plus the slide shape's digest-agreement, and whose geometry is both letters keeping their exact picture and own-frame origin — or, where the rule names in full the cells both letters settle into, the pivot keeping only that origin and free to redraw in place, and, where it declares the columns its follower hands back, the follower moving that origin right by them and free to redraw inside the receiver cells — with the follower sitting the declared gap further and everything after it sitting the same extra gap away — the rendered-pixel entry-extension-dropped shape, whose preconditions match the slide shape's and whose geometry is the named pivot keeping its placement, height, and own-frame origin while its after picture is the old one compacted left by the declared column count, everything after the pivot sliding closer by that count — the rendered-pixel stub-dropped shape, whose preconditions match the slide shape's and whose geometry is walked position by position because a pivot is a position rather than a name: each position that settles into a named after form is judged as the old picture compacted left by the declared column count with its placement moving right by that count and its origin standing still, every span between pivots rendering identically with no displacement — so a second same-family letter keeping its old form rides as span ink, and one stray pixel anywhere fails the match closed — the rendered-pixel redrawn shape, whose preconditions match the slide shape's and whose geometry is walked position by position because a pivot is a position rather than a name: each position that settles into a named after form is judged as the named cell trade at one common column offset (an entry-extended frame names the same trade one column over), its own frame standing still or taking up to the entry contraction its new form names, its placement carrying the displacement accumulated so far — or as much of that contraction as the frame left closer than that, which the rest of the window then carries too — every span between pivots rendering identically under it, and the displacement growing by the declared shift and whatever the pivot took at each pivot — so a second same-family letter keeping its old form rides as span ink, a trade that only gives ink up names an empty added set (an exit contraction, which the name-grain extension-dropped shape would speak for too but blindly), and one stray pixel anywhere fails the match closed — the composed reading that runs before all of them and credits two or more events in one window, whether they come from two rules or from one rule speaking twice — its name-grain pre-gate refusing to shape a window holding fewer than two candidate positions, its walk carrying a running column displacement across the window so that each span between events must render identically once displaced, its chaining of a join-dropped or extension event whose follower is itself the next event, its skipping of an extension's named follower so a named redraw does not block composition, its refusal of a pivot contracting off the seam row, of a tail wider than the pivot gave up, and of two rules claiming one position, its judging of a failed candidate as ordinary span ink, its per-shape guard scopes, and its own reporting line, which `main` keeps clear of the per-rule lines — the except_left guard, which reads a ligature's trailing left component and refuses the whole unit rather than the one position, blankness against the verdicts file (parked skip verdicts are not blank), the non-winning manifest stamp on every emitted record, rules-file validation, which admits exactly one shape per rule and checks that shape's own coherence, and the targeted run, whose subset is the rule's name-grain candidates plus the listed units and whose lines for that rule are the whole-domain run's byte for byte."""
+"""Tests for the standing-approval fill in `rebuild/tools/standing_verdicts.py`.
+
+They cover every match shape in `sv.SHAPES`, the composed reading that credits two or more events in one window, the except_left guard, which units count as blank (a parked skip verdict does not), the manifest stamp every fill record carries as its `at`, rules-file validation, the `--open-only`, `--require-reach` and `--targeted` runs, the memo, and the pooled refill. The fixture rules use synthetic letters and cells, and the fixture fonts are built from rectilinear outlines (`_build_font`). The contract each shape checks is recorded in the module docstring of `standing_verdicts`, which `test_every_shape_is_named_in_the_module_docstring` checks names every shape.
+"""
 
 import gzip
 import json
@@ -1257,7 +1260,7 @@ def test_an_ink_identical_unit_does_not_match():
 
 
 def test_an_ink_delta_rule_reaches_a_window_carrying_a_union_invisible_tuck(tmp_path):
-    """A blessed digest fills the window where the same change rides beside a tuck: ·Fee shortens by a column in both windows, and in one of them ·At also gives up a column ·J'ai paints anyway. The surface's delta is read at the picture grain, so both windows persist the tuck-free digest, and a rule naming it — derived from the plain window, the way the probe's family line derives it — matches the tucked one too, with nothing else in the rule."""
+    """An ink-delta rule matches a window whose change sits beside a tuck the union picture hides. ·Fee loses a column in both windows, and in the tucked one ·At also loses a column that ·J'ai paints anyway. The delta is computed over the union picture, so both windows record the same digest, and a rule naming the digest of the plain window matches the tucked one."""
     from rebuild.review.ink import InkComparator, delta_digest
 
     cmap = {0xE001: "qsFee", 0xE002: "qsAt", 0xE003: "qsJai", 0xE004: "qsAt.plain"}
@@ -1473,7 +1476,7 @@ def test_the_checked_in_ligature_rule_reads_exactly_what_it_always_did():
 
 
 def test_the_batch_workflow_the_skill_points_at_is_saved_under_that_name():
-    """The skill's Batches section names the saved workflow by its slash command and its file, and the workflow's first statement registers exactly that name: both are read from the checked-in files, so whenever this lane runs it holds the pointer and the registry together. It is the only gate that reads either (make test exempts .claude/ wholesale), and neither file is in the lane's closure (`rebuild_gate_closure_files` in rebuild/tools/artifact_cycle.py), so an edit confined to them moves no lane key on its own; the drift is caught on the next run the closure does trigger."""
+    """Checks that the workflow's `meta.name` is `batch-standing-approvals` and that the skill's Batches section names the workflow by that slash command and by its file path. This is the only test that reads either file, and `make test` exempts `.claude/`. Neither file is in the lane's closure (`rebuild_gate_closure_files` in rebuild/tools/artifact_cycle.py), so an edit to only these files does not rerun this test; a mismatch is caught on the next run that something else triggers."""
     workflow = (sv.ROOT / ".claude/workflows/batch-standing-approvals.js").read_text()
     head = re.match(r"export const meta = \{\s*\n\s*name: '([^']+)',", workflow)
     assert head is not None
@@ -1720,13 +1723,13 @@ def test_every_shape_loads_from_one_rules_file(tmp_path):
 
 
 def test_every_shape_is_named_in_the_module_docstring():
-    """The module docstring is the contract authority — the skill sends a reader there and nowhere else for what a shape proves — so a row whose paragraph was never written leaves that authority a reading short, which is how the stub-dropped shape shipped undocumented."""
+    """The module docstring of `standing_verdicts` is where each shape's contract is recorded, and the skill points readers there, so every row of `sv.SHAPES` must be named in it."""
     doc = sv.__doc__ or ""
     assert [name for name in sv.SHAPES if name not in doc] == []
 
 
 def _fixture_rules():
-    """Every rule dict this module builds at import, discovered off its own globals rather than listed, so a fixture added later is held to the same standard without anyone remembering to enroll it."""
+    """Return every rule dict among this module's globals, so a fixture rule added later is checked without being listed."""
     return {
         name: value
         for name, value in vars(sys.modules[__name__]).items()
@@ -1737,7 +1740,7 @@ def _fixture_rules():
 
 
 def test_no_fixture_rule_borrows_a_checked_in_rules_id():
-    """The corpus here is fiction — synthetic letters, invented cells, geometry drawn to exercise a matcher rather than to describe the font — and an id in the `fixture-` namespace says so at a glance. A fixture wearing a real rule's id reads as documentation of that rule while modeling whatever the test needed, which is how an ink-delta fixture came to carry the stub-dropped rule's id for the whole life of that shape; holding the two sets disjoint is what keeps a reader from taking one for the other."""
+    """The fixture rules use synthetic letters, cells and geometry, and a `fixture-` id marks them as such. A fixture with a checked-in rule's id would read as documentation of that rule, so the two id sets must be disjoint."""
     checked_in = {rule["id"] for rule in sv.load_rules(sv.RULES)}
     borrowed = sorted(
         f"{name} ({rule['id']})" for name, rule in _fixture_rules().items() if rule["id"] in checked_in
@@ -1799,7 +1802,7 @@ _FIRST_CODEPOINT = 0xE001
 
 
 def register_glyph(side, name, outline, advance):
-    """One side's drawing of one glyph name, recorded once. Outlines are held per side rather than per codepoint because the two sides are separate fonts and an after form routinely answers for several before forms — the trimmed pivot stands in for every tail the rebuild gives up — so a glyph and a before→after pair are two registrations, not one call with six arguments."""
+    """Record one side's outline and advance for a glyph name, and fail if that side already draws it. Outlines are kept per side because the two sides are separate fonts and one after form often pairs with several before forms, so pairs are registered separately with `register_pair`."""
     drawn = _OUTLINES[side]
     if name in drawn:
         raise ValueError(f"the {side} font already draws {name}")
@@ -1807,7 +1810,7 @@ def register_glyph(side, name, outline, advance):
 
 
 def register_pair(before_name, after_name):
-    """The private-use codepoint that spells one before→after change, allocated rather than chosen so a new window costs nobody a reading of the tail of a table. Both names must already be drawn on their own side, and one pair takes one codepoint: two spellings of the same question would only ever be one window's worth of evidence hiding behind another's."""
+    """Allocate and return the next private-use codepoint for one before-to-after glyph pair. Both names must already be drawn on their own side, and a pair registered twice fails, so each pair has exactly one codepoint."""
     for side, name in (("before", before_name), ("after", after_name)):
         if name not in _OUTLINES[side]:
             raise ValueError(f"the {side} font draws no {name}")
@@ -1819,7 +1822,7 @@ def register_pair(before_name, after_name):
 
 
 def spell(*codepoints):
-    """The `codepoints` field of a window spec, written from the pairs the window is made of, so a spec names the changes it shows and never a hex string somebody has to keep in step with the cmaps."""
+    """Return the `codepoints` field of a window spec for the given pair codepoints, so a spec names its pairs instead of hex strings that must match the cmaps."""
     return ":".join(f"{codepoint:04X}" for codepoint in codepoints)
 
 
@@ -2146,7 +2149,7 @@ FOUNDING_CODEPOINTS = spell(LEAD, SEE, FOLLOWER_1, FOLLOWER_2)
 
 
 def _build_font(path, glyphs, cmap):
-    """A tiny TTF whose every coordinate and advance is a whole number of PIXEL_SIZE columns: one rectilinear outline per named glyph, the codepoints cmapped straight onto the names the run has to shape into, and each glyph's left sidebearing set to its own leftmost point — which is load-bearing rather than tidy, because fontTools' TrueType glyph set translates an outline by `lsb - xMin` on the way out and would otherwise pull every inset glyph back to x=0, erasing the own-frame origin the slide shape reads."""
+    """Write a small TTF with one rectilinear outline per named glyph and the given cmap, and return its path. The fixtures give every coordinate and advance in whole PIXEL_SIZE (50-unit) columns. Each glyph's left sidebearing is set to its leftmost point. This is required: fontTools' TrueType glyph set translates an outline by `lsb - xMin` when it reads it, so any other lsb would move an inset glyph to x=0 and erase the own-frame origin the slide shape reads."""
     from fontTools.fontBuilder import FontBuilder
     from fontTools.pens.ttGlyphPen import TTGlyphPen
 
@@ -2215,7 +2218,7 @@ def founding_window(uid="s-1"):
 
 
 def test_a_glyph_drawn_twice_on_one_side_is_refused():
-    """A second drawing of a name would quietly become the only one, taking every codepoint that already spells the first with it — which is exactly what a dict literal's duplicate key did in silence."""
+    """A second outline for a name would silently replace the first for every codepoint already mapped to it."""
     with pytest.raises(ValueError, match="already draws"):
         register_glyph("before", "qsL", TWO_COLUMNS, 100)
 
@@ -2233,7 +2236,7 @@ def test_a_pair_registered_twice_is_refused():
 
 
 def test_every_drawn_glyph_is_spelled_by_some_codepoint():
-    """An outline no codepoint reaches is ink the fonts carry and no window can ever ask about, so it is either a dead fixture or a pair somebody forgot to register."""
+    """An outline no codepoint maps to can never be shaped, so it is either an unused fixture or a pair that was never registered."""
     for side, cmap in (("before", BEFORE_CMAP), ("after", AFTER_CMAP)):
         assert sorted(set(_OUTLINES[side]) - set(cmap.values())) == []
 
@@ -2654,12 +2657,12 @@ def test_a_redrawn_pivot_defeats_the_join_match(slide_context):
 
 
 def test_a_join_dropped_rule_naming_cells_lets_its_pivot_redraw(slide_context):
-    """Naming the cells both letters settle into is what frees the pivot to redraw as the join goes away, so the rule stays bounded by those names rather than by the picture — which is what a ·No raised to the x-height needs, redrawing into its loop as it loses the reach down to ·Thaw."""
+    """A join-dropped rule that names the cells both letters settle into lets the pivot redraw as the join goes away, and those names bound the rule instead of the picture. A ·No raised to the x-height needs this: it redraws into its loop as it loses the reach down to ·Thaw."""
     assert sv._matches(REDRAWN_JOIN_RULE["match"], redrawn_join_window(), context=slide_context())
 
 
 def test_a_join_dropped_rule_naming_cells_may_leave_its_follower_standing(slide_context):
-    """A pivot freed to redraw can lose its join without moving the letter after it, so a zero gap is a change of its own there rather than the identity."""
+    """A pivot that may redraw can lose its join without moving the letter after it, so a gap of zero is a real change in this case."""
     context = slide_context("after-join-pivot-keeping-its-advance")
     assert sv._matches(UNMOVED_JOIN_RULE["match"], redrawn_join_window(), context=context)
 
@@ -2682,7 +2685,7 @@ def test_a_pivot_moving_its_own_frame_origin_defeats_the_join_match(slide_contex
 
 
 def test_a_join_dropped_rule_may_declare_the_column_its_follower_hands_back(slide_context):
-    """The form that inserted a column at its left edge to take the join gives it up as the join dies, so the follower's own-frame origin moves right by the declared count and it redraws inside the receiver cells — a created join's follower reach running the other way, which is what ·Gay does when the ·No in front of it is raised past reaching it."""
+    """A follower form that inserted a column at its left edge to take the join gives that column up when the join goes away. Its own-frame origin moves right by the declared count, and it redraws inside the receiver cells. ·Gay does this when the ·No in front of it is raised and can no longer reach it."""
     assert sv._matches(GIVE_BACK_JOIN_RULE["match"], give_back_join_window(), context=slide_context())
 
 
@@ -2914,7 +2917,7 @@ def _surface(tmp_path, units, fonts=None):
 
 
 def _invoke_main(tmp_path, monkeypatch, units, verdicts, rules_list=(RULE,), fonts=None, extra=()):
-    """The CLI as the chain spawns it, returning both its exit code and the fills it wrote. `_run_main` is this with the code dropped, which is what every test predating --require-reach wants."""
+    """Run the CLI over a fixture surface, rules file and verdicts file, and return its exit code and the fill file it wrote. `_run_main` returns only the fills."""
     surface = _surface(tmp_path, units, fonts)
     rules = _write_rules(tmp_path / "rules.yaml", list(rules_list))
     verdicts_path = tmp_path / "verdicts.json"
@@ -2947,7 +2950,7 @@ def _run_main(tmp_path, monkeypatch, units, verdicts, rules_list=(RULE,), fonts=
 
 
 def _target_main(tmp_path, monkeypatch, units, verdicts, flags, rules_list=(RULE,), fonts=None):
-    """The CLI spawned without --out and with `flags` in place of it, the targeted run's form: its exit code, after checking that the run wrote no fill file — neither at the default `OUT`, which is pointed into tmp_path for the call, nor anywhere else under it — and no memo."""
+    """Run the CLI with `flags` and no --out, the form a targeted run takes, and return its exit code. It also asserts that the run wrote no fill file at the default `OUT` (redirected into tmp_path) or at tmp_path/out.json, and no `*.ndjson.gz` memo directly in tmp_path."""
     surface = _surface(tmp_path, units, fonts)
     rules = _write_rules(tmp_path / "rules.yaml", list(rules_list))
     verdicts_path = tmp_path / "verdicts.json"
@@ -3000,7 +3003,7 @@ def test_main_fills_only_blank_matching_human_units(tmp_path, monkeypatch):
 
 
 def test_main_never_fills_a_unit_outside_the_human_workload(tmp_path, monkeypatch):
-    """A machine-approved unit carries batch null, and a Junior-equivalent one still carries the nonempty ink_deltas the ink-delta and slide shapes read — so the candidate filter has to read the workload split itself rather than infer it from an empty delta field."""
+    """A machine-approved unit has a null batch, and a Junior-equivalent one can still have the nonempty ink_deltas that the ink-delta and slide shapes read, so the candidate filter must read the batch field instead of relying on an empty delta field."""
     units = [canonical("u-1"), canonical("u-2")]
     units[1]["batch"] = None
     payload = _run_main(tmp_path, monkeypatch, units, [])
@@ -3105,7 +3108,7 @@ def test_main_refuses_a_stale_stamped_verdicts_file(tmp_path, monkeypatch):
 
 
 def out_window(uid="o-1"):
-    """A two-letter window joining from ·Out that no rule in this file speaks for: the surface carrying a guarded family in a place the guard is never asked about, which is what a live except_left reading zero held looks like."""
+    """A two-letter window joining from ·Out that no rule in this file matches. The surface then has a window joining from the guarded family ·Out, but no guard is checked on it, so the rule's except_left holds nothing and is still in use."""
     return unit(
         uid,
         ["qsOut.ex-y5", "qsMay"],
@@ -3156,7 +3159,7 @@ def test_the_warning_is_silent_when_every_matched_verdict_is_blessed(tmp_path, m
 
 
 def test_an_identical_verdict_never_trips_the_warning(tmp_path, monkeypatch, capsys):
-    """`identical` accepts the new rendering exactly as approve and either do — the reviewer merely found the highlighted portion unchanged — so a rule agreeing with one is no accident to report."""
+    """`identical` accepts the new rendering as approve and either do (the reviewer found the highlighted part unchanged), so a rule matching such a unit agrees with the user."""
     units = [canonical("u-1"), canonical("u-2")]
     verdicts = [{"unit": "u-2", "verdict": "identical", "note": "", "at": "2026-07-11T00:00:00Z"}]
     _run_main(tmp_path / "full", monkeypatch, units, verdicts)
@@ -3166,7 +3169,7 @@ def test_an_identical_verdict_never_trips_the_warning(tmp_path, monkeypatch, cap
 
 
 def test_open_only_writes_the_fills_the_whole_domain_writes(tmp_path, monkeypatch):
-    """A fill comes only from a blank and every matcher decision is per-unit pure, so handing the run only the blanks and the disputed units cannot move a single record."""
+    """A fill is written only for a blank, and each matcher decision depends only on its own unit, so running over only the blanks and the disputed units writes the same fills."""
     units = [
         canonical("u-1"),
         canonical("u-2"),
@@ -3186,7 +3189,7 @@ def test_open_only_writes_the_fills_the_whole_domain_writes(tmp_path, monkeypatc
 
 
 def test_open_only_keeps_the_tripwire_word_for_word(tmp_path, monkeypatch, capsys):
-    """Every unit the tripwire can name carries a verdict outside the accepting set, which is precisely what the narrowing keeps."""
+    """Every unit the tripwire can name has a verdict outside ACCEPTING_VERDICTS, and `--open-only` keeps those units."""
     units = [canonical("u-1"), canonical("u-2")]
     verdicts = [{"unit": "u-2", "verdict": "reject", "note": "", "at": "2026-07-11T00:00:00Z"}]
     _run_main(tmp_path / "full", monkeypatch, units, verdicts)
@@ -3197,7 +3200,7 @@ def test_open_only_keeps_the_tripwire_word_for_word(tmp_path, monkeypatch, capsy
 
 
 def test_open_only_drops_the_already_verdicted_column_and_the_rollup(tmp_path, monkeypatch, capsys):
-    """Both are readings of the store rather than of the fills, and a narrowed run has not read the store. `--require-reach` is how the cycle gets the rollup back — over the whole domain against a blank store, which is what reach means — and the tests below hold it to that."""
+    """Both describe the verdict store, not the fills, and a narrowed run has not read the whole store. `--require-reach` restores the rollup by evaluating the whole domain against a blank store. The tests below check it."""
     units = [canonical("u-1"), canonical("u-2"), canonical("u-3", left="qsOut.ex-ext-1")]
     verdicts = [{"unit": "u-2", "verdict": "approve", "note": "", "at": "2026-07-11T00:00:00Z"}]
     _run_main(
@@ -3216,7 +3219,7 @@ def test_open_only_drops_the_already_verdicted_column_and_the_rollup(tmp_path, m
 
 
 def test_require_reach_prints_the_rollup_a_narrowed_run_would_have_dropped(tmp_path, monkeypatch, capsys):
-    """The narrowing drops the rollup because a narrowed run has read no store; `--require-reach` takes its own pass over the whole domain against a blank one and prints the rollup off that, so the cycle's form keeps both the cheap fills and the full reach reading. What stays dropped is the already-verdicted column, which is a reading of the real store and belongs to the run that made the fills."""
+    """`--require-reach` evaluates the whole domain against a blank store and prints the rollup from that, so the cycle's `--open-only` run keeps both the narrowed fills and the full reach. The already-verdicted column stays dropped, because it describes the real store."""
     units = [canonical("u-1"), canonical("u-2")]
     verdicts = [{"unit": "u-2", "verdict": "approve", "note": "", "at": "2026-07-11T00:00:00Z"}]
     code, _payload = _invoke_main(
@@ -3232,7 +3235,7 @@ def test_require_reach_prints_the_rollup_a_narrowed_run_would_have_dropped(tmp_p
 def test_require_reach_counts_a_rule_whose_windows_are_all_verdicted_as_reaching(
     tmp_path, monkeypatch, capsys
 ):
-    """Reach is a reading of the surface, not of the queue: a rule every one of whose windows a human has already judged has still reached them, and the blank store this judges against is what says so. The narrowed run itself sees none of those units, writes nothing, and must not be what the refusal reads."""
+    """Reach is measured over the surface, not over the blank units. A rule whose windows all have verdicts still reaches them, because reach is judged against a blank store. The narrowed run sees none of those units and writes nothing, so the refusal must not read it."""
     units = [canonical("u-1")]
     verdicts = [{"unit": "u-1", "verdict": "approve", "note": "", "at": "2026-07-11T00:00:00Z"}]
     code, payload = _invoke_main(
@@ -3246,7 +3249,7 @@ def test_require_reach_counts_a_rule_whose_windows_are_all_verdicted_as_reaching
 
 
 def test_require_reach_refuses_when_a_rule_reaches_nothing(tmp_path, monkeypatch, capsys):
-    """The refusal that holds the checked-in rules to the surface: a checked-in rule matching no window on this surface fails the step, so the plumbing goes red and `make verdict-ready` reads NOT READY. It is a refusal rather than a skip — the fills the reaching rules earned are written first and in full, because the run that produced them is correct and only the rules file is out of date."""
+    """A rule matching no window on this surface makes the run exit 1, so the plumbing step fails and `make verdict-ready` reports NOT READY. The fills from the rules that do reach are still written in full first, because they are correct and only the rules file is out of date."""
     units = [canonical("u-1"), canonical("u-2")]
     code, payload = _invoke_main(
         tmp_path,
@@ -3267,7 +3270,7 @@ def test_require_reach_refuses_when_a_rule_reaches_nothing(tmp_path, monkeypatch
 
 
 def test_without_require_reach_a_dead_rule_is_only_reported(tmp_path, monkeypatch, capsys):
-    """The bare tool still prints REACHED NOTHING and returns 0, which is what a dry run wants: the author asking what a candidate rule reaches must not be handed a nonzero exit for a rule they have not landed yet."""
+    """Without the flag the tool prints REACHED NOTHING and returns 0, so a dry run of an uncommitted candidate rule does not fail."""
     code, _payload = _invoke_main(
         tmp_path, monkeypatch, [canonical("u-1")], [], rules_list=(RULE, SHORTENED_RULE)
     )
@@ -3278,7 +3281,7 @@ def test_without_require_reach_a_dead_rule_is_only_reported(tmp_path, monkeypatc
 
 
 def test_open_only_reads_the_except_left_vocabulary_off_the_whole_surface(tmp_path, monkeypatch, capsys):
-    """Which families the surface's windows join from is a question about the surface, not about the queue, so the narrowing must not answer it off the blanks alone."""
+    """The families the surface's windows join from are read from the whole surface, so `--open-only` must not read them from the blanks alone."""
     verdicts = [
         {"unit": uid, "verdict": "approve", "note": "", "at": "2026-07-11T00:00:00Z"}
         for uid in ("u-1", "o-1")
@@ -3294,7 +3297,7 @@ def test_open_only_reads_the_except_left_vocabulary_off_the_whole_surface(tmp_pa
 
 
 def test_open_only_refuses_explain(tmp_path, monkeypatch):
-    """--explain's middle column names the ids a verdict already covers, which a narrowed run was never offered."""
+    """--explain's middle column lists the already-verdicted unit ids, which a narrowed run does not evaluate."""
     with pytest.raises(SystemExit):
         _run_main(
             tmp_path,
@@ -3394,7 +3397,7 @@ class _RefusingComparator:
 
 
 class _RefusingContext:
-    """A SlideContext stand-in whose comparator raises the moment anything asks it to shape, so a test can prove the name-grain pre-gate answered before the fonts were ever consulted."""
+    """A SlideContext stand-in whose comparator raises if asked to shape, so a test can show the name-grain pre-gate decided without the fonts."""
 
     def __init__(self) -> None:
         self.comparator = _RefusingComparator()
@@ -3403,7 +3406,7 @@ class _RefusingContext:
 
 
 def twice_slid_window(uid="c-twice"):
-    """One rule's own change at two positions in one window: two grounded ·See letters, each pulling everything after it a column closer."""
+    """One rule's change at two positions in one window: two grounded ·See letters, each moving everything after it a column closer."""
     return slide_unit(
         uid,
         ["qsL", "qsSee.ex-y0", "qsF1", "qsSee.ex-y0", "qsF1"],
@@ -3417,7 +3420,7 @@ def test_a_slide_and_an_extension_in_one_window_compose(slide_context):
 
 
 def test_one_rule_at_two_positions_composes(slide_context):
-    """Two applications of one blessed change explain a window between them exactly as two rules do — the reading a window carrying the same dropped tail twice needs, since no single rule can be asked twice on its own line."""
+    """The composed reading credits one rule at two positions in a window the same way it credits two rules. A window that drops the same tail twice needs this, because the extension-dropped matcher matches only at the unit's primary judged seam."""
     events = sv._composed(COMPOSABLE_RULES, twice_slid_window(), slide_context())
     assert events == {SLIDE_RULE["id"]: [1, 3]}
 
@@ -3453,7 +3456,7 @@ def test_main_writes_one_composed_record_and_leaves_the_per_rule_lines(
 
 
 def test_main_writes_a_twice_slid_window_on_a_composed_line(tmp_path, monkeypatch, capsys, slide_fonts):
-    """A composed line crediting one rule twice over carries that rule's own id, so it reads as the same line its single-position windows land on and only the block it sits in tells them apart."""
+    """A composed line that credits one rule twice is labeled with that rule's id alone, so its text matches the rule's own line and only the block it is printed in distinguishes them."""
     payload = _run_main(
         tmp_path,
         monkeypatch,
@@ -3473,7 +3476,7 @@ def test_main_writes_a_twice_slid_window_on_a_composed_line(tmp_path, monkeypatc
 
 
 def test_open_only_names_the_composed_pair_without_the_column(tmp_path, monkeypatch, capsys, slide_fonts):
-    """A composed reading claims a window on that window's own contents, so a narrowed run credits the same pair and only the middle column goes."""
+    """A composed reading depends only on the window, so a narrowed run credits the same pair and drops only the already-verdicted column."""
     _run_main(
         tmp_path,
         monkeypatch,
@@ -3607,7 +3610,7 @@ def test_the_rollup_adds_a_rules_own_line_to_the_credit_composed_lines_gave_it(
 def test_a_rule_that_only_ever_earned_composed_credit_does_not_read_as_dead(
     tmp_path, monkeypatch, capsys, slide_fonts
 ):
-    """The composed pass claims a window before any single rule is asked about it, so a rule whose whole reach is composed shows zero on its own line — the one number the reached-nothing line must not read as a rule that speaks for nothing."""
+    """The composed pass claims a window before any single rule is checked, so a rule reached only through composition shows zero on its own line, and the REACHED NOTHING line must not count it as unreached."""
     _run_main(
         tmp_path,
         monkeypatch,
@@ -3646,7 +3649,7 @@ def test_the_rollup_reads_zero_composed_lines_when_nothing_composed(
 
 
 def slide_fixture_windows():
-    """Every window the slide shape's own fixtures build, refusals included, so the composed walk can be held against `_matches_slide` over the lot."""
+    """The slide shape's fixture windows, including the ones it rejects, for comparing the composed walk with `_matches_slide`."""
     bare = founding_window("s-1b")
     del bare["ink_deltas"]
     return [
@@ -3896,7 +3899,7 @@ def test_an_extension_whose_follower_is_a_slide_pivot_composes(slide_context):
 
 @pytest.mark.parametrize("family", ["qsL", "qsF3"])
 def test_the_slide_guard_holds_the_whole_composed_window(slide_context, family):
-    """·L is the slide pivot's own left neighbor, and ·F3 sits three letters past the pivot on the far side of the other credited rule: the slide shape's guard is window-scoped, so either one holds the whole unit."""
+    """·L is the slide pivot's left neighbor, and ·F3 is three letters past the pivot, beyond the other credited rule's pivot. The slide shape's guard reads the whole window, so either family holds the unit."""
     rules = [guarded_rule(SLIDE_RULE, [family]), COMPOSED_EXT_RULE]
     window = composed_window()
     context = slide_context()
@@ -4833,7 +4836,7 @@ def test_a_gain_and_a_stub_drop_in_one_window_compose(slide_context):
 
 
 def test_the_stub_guard_holds_the_whole_composed_window(slide_context):
-    """·Roe opens the window two letters before the stub pivot, so only a window-scoped guard reaches it — the stub shape's is, exactly as its single-rule matcher's is."""
+    """·Roe is the window's first letter, two letters before the stub pivot, so only a guard read over the whole window reaches it. The stub-dropped shape's guard scope is the whole window, as it is for its single-rule matcher."""
     rules = [GAIN_RULE, guarded_rule(STUB_RULE, ["qsRoe"])]
     window = composed_stub_window()
     context = slide_context()
@@ -5868,7 +5871,7 @@ def test_a_created_join_rule_declaring_no_stub_drop_is_refused_by_a_pivot_that_g
 def test_a_created_join_rule_declaring_a_stub_drop_still_matches_a_pivot_that_keeps_its_entry(
     slide_context,
 ):
-    """The declared drop is the room the pivot has, not a move it has to make: the same rule speaks for the window where the old font drew no entry in front of the join and the letter stands exactly where it was."""
+    """`pivot_stub_drop` is the most the pivot may move right, not a move it must make. So the same rule matches the window where the old font drew no entry in front of the join and the pivot does not move."""
     assert sv._matches(STUB_CREATED_JOIN_RULE["match"], created_join_window(), context=slide_context())
 
 
@@ -5954,7 +5957,7 @@ def test_two_created_joins_claiming_one_position_still_refuse(slide_context):
 
 
 def test_a_created_join_that_declines_the_form_leaves_the_position_to_its_companion(slide_context):
-    """Two counts on one seam, kept apart by the before form each rule speaks for: the rule that declines this window's form is not a claim on the position at all, so the companion reads it and the window composes."""
+    """Two rules give one seam different shifts and are told apart by the before form each accepts. The rule whose `except_pivots` names this window's form makes no claim on the position, so the other rule is credited there and the window composes."""
     twin = json.loads(json.dumps(CREATED_JOIN_RULE))
     twin["id"] = CREATED_JOIN_RULE["id"] + "-again"
     twin["match"]["after"]["shift"] = -1
@@ -6234,7 +6237,7 @@ def test_a_slide_and_a_widened_created_join_in_one_window_compose(slide_context)
 
 
 def test_a_retarget_chained_behind_a_created_join_spends_the_follower_advance(slide_context):
-    """A retarget whose pivot is a widened created join's follower reads that letter under the join's shift alone, and its own counts, read with that pivot standing, already hold the advance the wider form gave back."""
+    """When a retarget's pivot is a widened created join's follower, the walk places that letter by the join's shift alone. The retarget's own counts are read with its pivot in place, so they already include the advance the wider form gave back (`_handed_on`)."""
     events = sv._composed(
         RETARGET_BEHIND_WIDENED_JOIN_RULES, retarget_behind_created_join_window(), slide_context()
     )
@@ -6244,7 +6247,7 @@ def test_a_retarget_chained_behind_a_created_join_spends_the_follower_advance(sl
 def test_a_retarget_chained_behind_a_created_join_refuses_a_follower_moved_by_the_advance_too(
     slide_context,
 ):
-    """A follower that moves the declared advance further than the retarget's own count refuses, rather than the walk adding that advance a second time."""
+    """The walk fails when the follower moves the created join's declared advance further than the retarget's own count, because the walk does not add that advance a second time."""
     events = sv._composed(
         RETARGET_BEHIND_WIDENED_JOIN_RULES,
         retarget_behind_created_join_window(),
@@ -6278,7 +6281,7 @@ def test_a_chained_created_join_still_needs_its_follower_moved_by_both_shifts(sl
 
 
 def test_a_created_join_chains_behind_an_ink_gain_on_its_pivot(slide_context):
-    """·Tea settling into the full bar and the baseline join that bar opens are two claims on one letter — the picture it takes and the seam it offers — so the gain leads the position and the join rides behind it, both credited there."""
+    """·Tea settling into the full bar and the baseline join that bar opens are two events on one letter: the picture it takes and the seam it offers. The ink gain is the position's event, the created join chains behind it, and both rules are credited at that position."""
     events = sv._composed(GAINED_CREATED_JOIN_RULES, gained_created_join_window(), slide_context())
     assert events == {GAIN_UNDER_CREATED_JOIN_RULE["id"]: [1], GAINED_CREATED_JOIN_RULE["id"]: [1]}
 
@@ -6307,7 +6310,7 @@ def test_two_ink_gains_claiming_one_position_still_refuse(slide_context):
 
 
 def test_a_created_join_chains_behind_a_redrawn_trade_on_its_pivot(slide_context):
-    """·Eight's bowl pulling in and the baseline join only that bowl reaches are two claims on one letter — the picture it takes and the seam it offers — so the trade leads the position and the join rides behind it, both credited there."""
+    """·Eight's bowl pulling in and the baseline join that only the smaller bowl reaches are two events on one letter: the picture it takes and the seam it offers. The redrawn event is the position's event, the created join chains behind it, and both rules are credited at that position."""
     events = sv._composed(REDRAWN_CREATED_JOIN_RULES, redrawn_created_join_window(), slide_context())
     assert events == {
         REDRAWN_UNDER_CREATED_JOIN_RULE["id"]: [1],
@@ -6367,7 +6370,7 @@ def test_a_retarget_chains_behind_a_created_join_on_its_follower(slide_context):
 
 
 def test_a_retarget_chains_behind_a_created_join_whose_follower_reached_back(slide_context):
-    """The join's declared reach is what judges that letter's own-frame origin, so a follower that reached back over its old left edge to take the join still carries its own retarget onward, the columns it reached back over its own pen being what the join hands the retarget."""
+    """The created join's declared `follower_reach` accounts for its follower's moved own-frame origin. So a follower that reached back over its old left edge to take the join can still be a retarget's pivot, and the join passes the retarget only the reached-back columns (`_handed_on`)."""
     events = sv._composed(
         RETARGET_BEHIND_REACHING_JOIN_RULES, retarget_behind_reaching_join_window(), slide_context()
     )
@@ -6375,7 +6378,7 @@ def test_a_retarget_chains_behind_a_created_join_whose_follower_reached_back(sli
 
 
 def test_neither_rule_alone_reads_a_retarget_behind_a_reaching_created_join(slide_context):
-    """A retarget whose pivot moved its own-frame origin is no event on its own: without the created join in front of it, nothing has declared that move."""
+    """A retarget whose pivot moved its own-frame origin is not an event by itself. Only a created join in front of it declares that move."""
     window = retarget_behind_reaching_join_window()
     for rule in RETARGET_BEHIND_REACHING_JOIN_RULES:
         assert not sv._matches(rule["match"], window, context=slide_context())
@@ -6422,7 +6425,7 @@ def test_an_extension_chained_behind_a_created_join_still_needs_both_shifts(slid
 
 
 def test_a_created_join_chains_behind_a_created_join_on_its_follower(slide_context):
-    """The earlier join judges that letter's incoming seam and the later its outgoing one, so the letter stands where the earlier join put it and the later carries everything past its own follower by both shifts."""
+    """The first created join covers the shared letter's incoming seam and the second covers its outgoing seam. The letter is placed where the first join put it, and the second join moves everything after its own follower by both shifts."""
     events = sv._composed(
         CREATED_JOIN_BEHIND_CREATED_JOIN_RULES,
         created_join_behind_created_join_window(),
@@ -6495,7 +6498,7 @@ def test_a_redraw_chained_behind_a_created_join_still_needs_both_shifts(slide_co
 
 
 def test_a_retarget_chains_behind_a_retarget_on_its_follower(slide_context):
-    """The earlier retarget judges that letter's incoming seam and the later its outgoing one, so the earlier hands on nothing of the shift it declared beyond its follower's own move: the later event's counts, read with its own pivot standing, already hold whatever that letter's advance did."""
+    """The first retarget covers the shared letter's incoming seam and the second covers its outgoing seam. The first passes on only its follower's move, not the rest of its declared shift, because the second retarget's counts are read with its own pivot in place and already include any change in that letter's advance."""
     events = sv._composed(RETARGET_BEHIND_RETARGET_RULES, retarget_behind_retarget_window(), slide_context())
     assert events == {RETARGET_RULE["id"]: [1], RETARGET_BEHIND_RETARGET_RULE["id"]: [2]}
 
@@ -6508,7 +6511,7 @@ def test_neither_rule_alone_reads_a_retarget_behind_a_retarget(slide_context):
 
 
 def test_a_retarget_chained_behind_a_retarget_still_needs_its_follower_standing(slide_context):
-    """What the chained retarget owes the walk is where its own follower lands, which the earlier event says nothing about."""
+    """The first retarget says nothing about where the second retarget's follower is placed, so the walk still checks that placement."""
     events = sv._composed(
         RETARGET_BEHIND_RETARGET_RULES,
         retarget_behind_retarget_window(),
@@ -6518,7 +6521,7 @@ def test_a_retarget_chained_behind_a_retarget_still_needs_its_follower_standing(
 
 
 def test_a_join_drop_chains_behind_a_retarget_on_its_follower(slide_context):
-    """The retarget judges that letter's incoming seam and the gap its outgoing one, so the retarget hands on nothing of the shift it declared beyond its follower's own move: the gap is read with its own pivot standing and so already holds whatever that letter's advance did."""
+    """The retarget covers the shared letter's incoming seam and the join drop covers its outgoing seam. The retarget passes on only its follower's move, not the rest of its declared shift, because the join drop's gap is read with its own pivot in place and already includes any change in that letter's advance."""
     events = sv._composed(JOIN_BEHIND_RETARGET_RULES, join_behind_retarget_window(), slide_context())
     assert events == {RETARGET_RULE["id"]: [1], REDRAWN_JOIN_RULE["id"]: [2]}
 
@@ -6531,7 +6534,7 @@ def test_neither_rule_alone_reads_a_join_drop_behind_a_retarget(slide_context):
 
 
 def test_a_join_drop_chained_behind_a_retarget_still_needs_its_pivot_standing(slide_context):
-    """What the chained gap owes the walk is its own pivot's origin, which the retarget in front of it says nothing about."""
+    """The retarget in front says nothing about the join drop's pivot origin, so the join drop still checks it."""
     events = sv._composed(
         JOIN_BEHIND_RETARGET_RULES,
         join_behind_retarget_window(),
@@ -6541,7 +6544,7 @@ def test_a_join_drop_chained_behind_a_retarget_still_needs_its_pivot_standing(sl
 
 
 def test_a_join_drop_leaving_its_follower_standing_chains_behind_a_retarget(slide_context):
-    """What the flipped ·No does in front of ·Cheer once ·Pea or ·Tea lowers the seam into it: the retarget judges ·No's incoming seam, the zero gap its outgoing one, and the follower stands exactly where the old font drew it."""
+    """This models the flipped ·No before ·Cheer after ·Pea or ·Tea lowers the seam into ·No: the retarget covers ·No's incoming seam, the zero-gap join drop covers its outgoing seam, and the follower stays where the old font drew it."""
     events = sv._composed(
         UNMOVED_JOIN_BEHIND_RETARGET_RULES,
         join_behind_retarget_window(),
@@ -6564,7 +6567,7 @@ def test_a_zero_gap_chained_behind_a_retarget_refuses_a_follower_sitting_further
 
 
 def test_a_join_drop_whose_follower_hands_a_column_back_chains_behind_a_retarget(slide_context):
-    """The give-back rides inside the dropped join rather than beside it, so the retarget on ·No's incoming seam and the gap on its outgoing one still explain the window between them however far the follower redrew."""
+    """The follower's give-back is part of the join-dropped event, so the retarget on ·No's incoming seam and the join drop on its outgoing seam still explain the window, however far the follower redrew."""
     events = sv._composed(
         GIVE_BACK_BEHIND_RETARGET_RULES, give_back_behind_retarget_window(), slide_context()
     )
@@ -6579,7 +6582,7 @@ def test_neither_rule_alone_reads_a_give_back_join_behind_a_retarget(slide_conte
 
 
 def test_a_redraw_chains_behind_a_retarget_on_its_follower(slide_context):
-    """A retarget judges the letter it brings in and a redrawn trade the picture that letter settles into, so the two explain one window between them exactly as a created join and a trade do."""
+    """The retarget checks where the letter it brings in is placed, and the redrawn event checks the picture that letter settles into. Together they explain the window, as a created join followed by a redraw does."""
     events = sv._composed(REDRAWN_BEHIND_RETARGET_RULES, redrawn_behind_retarget_window(), slide_context())
     assert events == {REDRAWN_BEHIND_RETARGET_RULE["id"]: [1], REDRAWN_EXT_RULE["id"]: [2]}
 
@@ -6592,7 +6595,7 @@ def test_neither_rule_alone_reads_a_redraw_behind_a_retarget(slide_context):
 
 
 def test_a_redraw_chained_behind_a_retarget_still_needs_its_column(slide_context):
-    """The retarget has already judged where the redrawn letter stands, so what the chained trade still owes the walk is the column it carries on to everything past it."""
+    """The retarget has already checked where the redrawn letter is placed, so the redrawn event still has to move everything after it by its declared shift."""
     events = sv._composed(
         REDRAWN_BEHIND_RETARGET_RULES,
         redrawn_behind_retarget_window(),
@@ -6914,7 +6917,7 @@ def test_a_slide_and_a_placement_carried_trade_in_one_window_compose(slide_conte
 
 
 def test_a_trade_the_pivots_own_frame_carries_matches(slide_context):
-    """The after form takes the whole contraction into its own frame, so the ink it keeps stands exactly where it was and the trade is read one column over."""
+    """The after form takes the whole entry contraction into its own frame, so the ink it keeps stays where it was and the trade is read one column over."""
     assert sv._matches(FRAMED_REDRAWN_RULE["match"], framed_redrawn_window(), context=slide_context())
 
 
@@ -6927,7 +6930,7 @@ def test_a_frame_moving_further_than_its_contraction_names_is_refused(slide_cont
 
 
 def test_a_placement_taking_the_contraction_the_frame_already_took_is_refused(slide_context):
-    """What the frame took is room the placement no longer has, so a letter that moves closer on top of it is two columns nearer on a contraction of one."""
+    """The columns the frame took are no longer available to the placement. A letter that also moves closer ends up two columns nearer on a contraction of one, so the match fails."""
     assert not sv._matches(
         FRAMED_REDRAWN_RULE["match"],
         framed_redrawn_window(),
@@ -7018,7 +7021,7 @@ def composed_pure_loss_window(uid="pl-2"):
 
 
 def test_a_form_that_only_gives_ink_up_is_redrawn(slide_context):
-    """An exit contraction has no trade to name — the foot's terminal pixel goes and nothing takes its place — so the added set is empty and the shift is what the follower does about it. The name-grain extension-dropped shape would speak for this seam too, and blindly for whatever else the window did; this one proves the rest of the window stood still."""
+    """An exit contraction has no trade to name: the foot's terminal pixel goes and nothing replaces it. So the added set is empty and the shift is how far the follower moves. The name-grain extension-dropped shape would also match this seam, without checking the rest of the window. This shape checks that nothing else in the window changed."""
     assert sv._matches(PURE_LOSS_RULE["match"], pure_loss_window(), context=slide_context())
 
 
@@ -7072,7 +7075,7 @@ SOLO_WINDOWS = {
 def test_a_solo_rule_of_every_shape_fills_its_window_or_names_the_missing_fonts(
     tmp_path, monkeypatch, shape_name
 ):
-    """One rule of one shape, one window it matches, and a surface carrying no font pair: a font-backed shape has to say so and stop, and every other shape has to fill. Parametrized over the rows so a shape left out of `main`'s gates cannot land quietly — a font-backed one that the gate never sees reaches its own matcher with no context and raises mid-run instead of naming the surface — and so a new row without a window to match against fails here rather than going untested."""
+    """Runs one rule of each shape over one window it matches, on a surface with no font pair. A font-backed shape must exit naming the missing fonts, and every other shape must fill. The test is parametrized over `sv.SHAPES`, so a font-backed shape missing from `main`'s font check fails here: it would reach its own matcher with no context and raise mid-run instead of naming the surface. A new row with no `SOLO_WINDOWS` entry also fails here."""
     rule, window = SOLO_WINDOWS[shape_name]
     if sv.SHAPES[shape_name].font_backed:
         with pytest.raises(SystemExit, match="carries no fonts/before.otf"):
@@ -7187,7 +7190,7 @@ COMPOSED_WALK_CORPORA = {
 
 @pytest.mark.parametrize("corpus_name", list(COMPOSED_WALK_CORPORA))
 def test_the_composed_walk_credits_a_shape_exactly_where_its_own_matcher_does(slide_context, corpus_name):
-    """The walk and the single-rule matcher have to agree about one rule over every window: credit it where the matcher matches, and credit it nowhere else. Every shape asserts the same property over a corpus of its own — the windows it matches, the composed windows it appears in, and windows belonging to some other shape — so the table above is the whole of what a new shape adds, and the slide row's extra after-fonts carry the refusals a stray pixel is supposed to produce."""
+    """The composed walk and the single-rule matcher must agree about one rule on every window: the walk credits the rule where the matcher matches and nowhere else. Each row of `COMPOSED_WALK_CORPORA` checks this over its own corpus: windows the rule matches, composed windows it appears in, and windows that belong to another shape. The slide row's extra after fonts supply the stray-pixel cases that must fail."""
     rule, windows, afters = COMPOSED_WALK_CORPORA[corpus_name]
     for after in afters:
         context = slide_context(after)
@@ -7212,7 +7215,7 @@ def test_a_unit_the_build_never_stamped_has_no_memo_key():
 
 
 def test_the_memo_key_moves_with_the_stamp_the_deltas_and_the_families_the_window_names():
-    """Three things reach a fill decision past the content-key stamp — the persisted ink deltas the stamp leaves out and the after font's compiled glyphs for every family the after cells name — and each of them moves the key on its own, while a family the window never names does not."""
+    """The memo key covers the content-key stamp, the persisted ink deltas the stamp leaves out, and the after font's compiled-glyph digest for each family the after cells name. Each of these changes the key on its own; a family the window does not name does not."""
     digests = {"qsPea": "p" * 64, "qsAh": "a" * 64, "qsTea_qsOy": "t" * 64, "qsMay": "m" * 64}
     key = sv.unit_key(_keyed_unit(), digests)
     assert key is not None and len(key) == 32
@@ -7226,7 +7229,7 @@ def test_the_memo_key_moves_with_the_stamp_the_deltas_and_the_families_the_windo
 
 
 def test_the_memo_stamp_is_blind_to_the_rules_file(tmp_path):
-    """The rules file is no part of the whole-store stamp — it reaches the memo through the header's roster and each entry's relevant ids — so the stamp holds still across a reworded note and an appended rule alike, while the roster moves for the appended rule, for an edited match, for an edited except_left and for a changed verdict, and holds still for the reword and for a match spelled in another key order."""
+    """The whole-store stamp does not read the rules file. Rules reach the memo through the header's roster and each entry's relevant ids. The roster changes when a rule is appended or a rule's match, except_left, or verdict is edited. It stays the same when a note is reworded or a match's keys are reordered."""
     surface = _surface(tmp_path, [canonical("u-1")])
     stamp, digests = sv.memo_environment(surface)
     assert digests == {}
@@ -7248,7 +7251,7 @@ def test_the_memo_stamp_is_blind_to_the_rules_file(tmp_path):
 
 
 def test_the_memo_stamp_holds_still_across_a_docstring_edit(tmp_path):
-    """The deciding code reaches the stamp through `fingerprint.hash_paths`, whose per-file digest is prose-blind, so rewording a docstring in any module `MEMO_CODE_MODULES` names leaves the stamp where it stands and every decision the memo holds served — the cost of a reworded docstring in the unit index is otherwise the whole domain recomputed — while a statement edit in the same module drops it. A hand-built root with a real file at every roster path, so the assertion is about the roster rather than about this checkout."""
+    """The stamp hashes the deciding code through `fingerprint.hash_paths`, whose per-file digest is prose-blind. Rewording a docstring in any module `MEMO_CODE_MODULES` names leaves the stamp unchanged, so the memo is still served, and a statement edit in the same module changes it. Without this, a reworded docstring in the unit index would recompute the whole domain. The test builds a root with a file at every roster path, so it checks the roster and not this checkout."""
     root = tmp_path / "repo"
     for relative in sv.MEMO_CODE_MODULES:
         (root / relative).parent.mkdir(parents=True, exist_ok=True)
@@ -7269,7 +7272,7 @@ def test_the_memo_stamp_holds_still_across_a_docstring_edit(tmp_path):
 
 
 def test_the_memo_stamp_reads_the_fonts_when_the_surface_carries_them(tmp_path, slide_fonts):
-    """With fonts beside the surface the stamp carries the before font wholesale and the after font's family-blind remainder, and the per-family digests the keys cite come back for every family the after font draws."""
+    """With fonts beside the surface, the stamp includes the before font's content digest and the after font's family-independent remainder, and the per-family digests the keys use are returned for every family the after font draws."""
     bare = _surface(tmp_path / "bare", [founding_window()])
     with_fonts = _surface(tmp_path / "fonts", [founding_window()], fonts=slide_fonts)
     bare_stamp, bare_digests = sv.memo_environment(bare)
@@ -7280,7 +7283,7 @@ def test_the_memo_stamp_reads_the_fonts_when_the_surface_carries_them(tmp_path, 
 
 
 def _repo_imports(module, path):
-    """Every repo module the file names in an import, a package-relative `from .x import y` resolved against the module's own package, since the validation tree spells its sibling imports that way."""
+    """Every repo module the file imports. A package-relative `from .x import y` is resolved against the module's own package, because `rebuild/validation/` writes its sibling imports that way."""
     import ast
 
     package = module.rsplit(".", 1)[0]
@@ -7296,7 +7299,7 @@ def _repo_imports(module, path):
 
 
 def test_the_memo_code_roster_is_this_modules_import_closure():
-    """The stamp hashes exactly the repo code a decision runs through: this module and everything it reaches by import, less the key side — the pipeline modules, whose edits move the keys or the stamp itself rather than any decision (`fingerprint` cuts the after-font digest the unit keys cite). A module that starts deciding without being on the roster is the miss this catches; one on the roster the module never reaches is the other."""
+    """The memo stamp hashes the repo code a decision runs through: `standing_verdicts` and every module it imports, directly or indirectly, except the pipeline modules. Edits to those change the unit keys or the stamp itself, not a decision (`fingerprint` computes the after-font digests the unit keys use). The test fails when a module the walk reaches is missing from `MEMO_CODE_MODULES`, and when the roster names a module the walk does not reach."""
     from rebuild.test_plumbing_closure import _module_path
 
     seen = {}
@@ -7332,7 +7335,7 @@ def test_a_memo_stamped_for_another_environment_is_empty(tmp_path):
 
 
 def test_a_header_with_no_readable_roster_reads_as_every_rule_moved(tmp_path):
-    """A memo written with no roster, or whose roster is malformed, keeps its entries readable but has no rules to hold them against, so the Decider treats every rule as moved and serves none of them — over-invalidation, the safe direction."""
+    """A memo written with no roster, or with a malformed one, keeps its entries readable but has no roster to compare them against. The Decider treats every rule as changed and recomputes the entries instead of serving them. Recomputing too much is the safe direction."""
     path = tmp_path / "memo.ndjson.gz"
     unit = _keyed_unit()
     memo = sv.Memo(path, "env", {})
@@ -7362,7 +7365,7 @@ def test_a_header_with_no_readable_roster_reads_as_every_rule_moved(tmp_path):
 
 
 def test_a_decision_survives_the_memo_round_trip(tmp_path):
-    """Every field of a decision comes back off the file as it went in — the composed part's credited ids, held flag, verdict and weakening rule, the matched and held ids, and the entry's relevant ids — and so does the roster in the header."""
+    """Every field of a decision reads back from the file as written: the composed part's credited ids, held flag, verdict, and weakening rule; the matched and held ids; and the entry's relevant ids. The header's roster reads back too."""
     composed = sv.Composed(("a", "b"), False, "either", "w")
     decisions = {
         "1" * 64: sv.Decision(composed, frozenset(), frozenset(), ("a", "b", "d")),
@@ -7385,7 +7388,7 @@ def test_a_decision_survives_the_memo_round_trip(tmp_path):
 
 
 def test_the_memo_written_back_is_bounded_to_the_surface_and_keeps_what_it_did_not_read(tmp_path):
-    """What goes back to disk is one entry per keyed unit on the surface the run was asked about: a unit that left the surface is dropped, and one still on it whose entry the run never needed — a narrowed run decides only the open units — is carried across unread rather than lost."""
+    """The memo written back holds one entry per keyed unit on the surface the run was given. An entry for a unit no longer on the surface is dropped. An entry for a unit still on it that the run did not read is kept, because an `--open-only` run decides only the open units."""
     path = tmp_path / "memo.ndjson.gz"
     stays, leaves = _keyed_unit("s-1", content_key="s" * 64), _keyed_unit("l-1", content_key="l" * 64)
     memo = sv.Memo(path, "env", {})
@@ -7417,7 +7420,7 @@ def test_fresh_memo_needs_a_memo(tmp_path, monkeypatch):
 
 
 def test_main_serves_the_second_run_from_the_memo_and_reports_it(tmp_path, monkeypatch, capsys):
-    """The bare tool with `--memo`: a cold run computes and stores, the next run over the same surface and rules serves everything stamped, and both write the same fills and the same report but for the memo's own line."""
+    """Runs the bare tool with `--memo` twice. The first run computes and stores, the second run over the same surface and rules serves every stamped unit, and both write the same fills and the same report apart from the `memo:` line."""
     units = [_keyed_unit("k-1"), _keyed_unit("k-2", content_key="e" * 64), canonical("u-3")]
     memo = tmp_path / "memo.ndjson.gz"
     cold = _run_main(tmp_path / "cold", monkeypatch, units, [], extra=("--memo", str(memo)))
@@ -7433,7 +7436,7 @@ def test_main_serves_the_second_run_from_the_memo_and_reports_it(tmp_path, monke
 
 
 def test_a_reworded_note_is_served_from_the_memo_in_the_new_wording(tmp_path, monkeypatch, capsys):
-    """A stored decision holds rule ids and no prose, and the fill's note is read from the live rules on the way out, so a reword computes nothing and every fill still quotes the new wording."""
+    """A stored decision holds rule ids and no note text, and the fill's note is read from the live rules when the fill is written. So a reworded note computes nothing and every fill uses the new wording."""
     units = [_keyed_unit("k-1")]
     memo = tmp_path / "memo.ndjson.gz"
     _run_main(tmp_path / "first", monkeypatch, units, [], extra=("--memo", str(memo)))
@@ -7452,7 +7455,7 @@ EXT_ONLY_CODEPOINTS = spell(LEAD, MIDDLE, PIVOT, FOLLOWER_3, FOLLOWER_1)
 
 
 def _nowhere_slide(uid="fixture-slide-nowhere"):
-    """A composable rule whose pivot no window of the suite draws, so it has a candidate position nowhere."""
+    """A composable rule whose pivot no fixture window draws, so it has no candidate position anywhere."""
     copied = json.loads(json.dumps(SLIDE_RULE))
     copied["id"] = uid
     copied["match"]["before"]["pivots"] = ["qsSee.nowhere"]
@@ -7473,7 +7476,7 @@ def _memo_line(lines):
 
 
 def _warm_runs(tmp_path, monkeypatch, capsys, fonts, units, rules_by_label, memo=None):
-    """The CLI over `units` once per rule list, in order, all against one memo: each label's fills, its `memo:` line and its other report lines."""
+    """Runs the CLI over `units` once per rule list, in order, all against one memo. Returns each label's fills, its `memo:` line, and its other report lines."""
     memo = tmp_path / "memo.ndjson.gz" if memo is None else memo
     runs = {}
     for label, rules in rules_by_label.items():
@@ -7492,7 +7495,7 @@ def _warm_runs(tmp_path, monkeypatch, capsys, fonts, units, rules_by_label, memo
 
 
 def test_a_units_relevant_rules_are_the_ones_that_could_speak_for_it(slide_context):
-    """An entry's relevant ids are exactly the composable rules with a candidate position in its window, in rules-file order, whatever the window's decision came to; the rules a composed reading reads for every window — a non-composable rule with a live guard or an `either` verdict — sit in the roster's `always` list instead, and a rule that is neither is in neither."""
+    """An entry's relevant ids are the composable rules with a candidate position in its window, in rules-file order, whatever the window's decision was. A non-composable rule with a non-empty except_left or an `either` verdict is read by every composed reading, so it goes in the roster's `always` list instead. A rule that is neither is in neither list."""
     context = slide_context()
     inert_either = dict(RULE, id="inert-either", verdict="either", match=dict(RULE["match"], except_left=[]))
     inert_approve = dict(RULE, id="inert-approve", match=dict(RULE["match"], except_left=[]))
@@ -7509,7 +7512,7 @@ def test_a_units_relevant_rules_are_the_ones_that_could_speak_for_it(slide_conte
 
 
 def test_adding_a_rule_keeps_the_entries_it_has_no_candidate_in(tmp_path, monkeypatch, capsys, slide_fonts):
-    """A composable rule with no candidate position in a window puts no term into that window's pre-gate and no event into its walk, so appending one serves every stored entry as it stands, prints the appended rule's own empty line, and writes the same fills."""
+    """A composable rule with no candidate position in a window adds no term to that window's pre-gate and no event to its walk. So appending one serves every stored entry unchanged, prints the appended rule's own zero line, and writes the same fills."""
     runs = _warm_runs(
         tmp_path,
         monkeypatch,
@@ -7527,7 +7530,7 @@ def test_adding_a_rule_keeps_the_entries_it_has_no_candidate_in(tmp_path, monkey
 def test_a_changed_rule_drops_only_the_entries_it_had_candidates_in(
     tmp_path, monkeypatch, capsys, slide_fonts
 ):
-    """Editing a rule's match re-evaluates the units whose stored relevant ids name it and the units its new form has a candidate in, and no other: a pivot added to the slide rule that no window draws re-evaluates the two windows the slide rule had candidates in and serves the extension-only one; a pivot the two ·See windows draw, added to the rule that had a candidate nowhere, re-evaluates those two, whose stored entries never named it, and serves the extension-only one again; and the fills come out as a fresh run's under the same rules."""
+    """Editing a rule's match re-evaluates the units whose stored relevant ids name it and the units its new match has a candidate in, and no others. Adding a pivot no window draws to the slide rule re-evaluates the two windows the slide rule had candidates in and serves the extension-only one. Adding a pivot the two ·See windows draw to the rule that had no candidate anywhere re-evaluates those two windows, whose stored entries did not name it, and again serves the extension-only one. The fills match a fresh run's under the same rules."""
     both, slide, extension = _keyed_windows()
     widened = json.loads(json.dumps(SLIDE_RULE))
     widened["match"]["before"]["pivots"] = ["qsSee.ex-y0", "qsSee.nowhere"]
@@ -7564,7 +7567,7 @@ def test_a_changed_rule_drops_only_the_entries_it_had_candidates_in(
 def test_a_vanished_rule_is_taken_off_the_entries_it_was_matched_on(
     tmp_path, monkeypatch, capsys, slide_fonts
 ):
-    """A non-composable rule that leaves the file is no candidate anywhere, so no entry is re-evaluated for it; it is taken off the matched and held sets of the entries that named it, which stops the memo naming a rule the report has no line for, and the file written back no longer names it either."""
+    """A non-composable rule removed from the file has no candidates, so no entry is re-evaluated for it. It is removed from the matched and held sets of the entries that named it, so the memo does not name a rule the report has no line for, and the file written back does not name it either."""
     held = dict(canonical("k-2", left="qsOut.ex-ext-1"), content_key="e" * 64, ink_deltas={"ss03": DELTA_A})
     units = [_keyed_unit("k-1"), held]
     memo = tmp_path / "memo.ndjson.gz"
@@ -7588,7 +7591,7 @@ def test_a_vanished_rule_is_taken_off_the_entries_it_was_matched_on(
 
 
 def test_the_composed_gate_turning_on_drops_every_entry(tmp_path, monkeypatch, capsys, slide_fonts):
-    """The composed reading is on for the run, not per window, once two composable rules are in the file, so going from one to two re-evaluates every entry even where the second rule has no candidate — the one edit that moves a window's decision without touching a rule that could speak for it — and a third run under the same two serves everything."""
+    """The composed reading is on for the whole run once the file has two composable rules. So going from one to two re-evaluates every entry, even where the second rule has no candidate. This is the one edit that changes a window's decision without touching a rule that has a candidate in it. A third run under the same two rules serves everything."""
     runs = _warm_runs(
         tmp_path,
         monkeypatch,
@@ -7612,7 +7615,7 @@ def test_the_composed_gate_turning_on_drops_every_entry(tmp_path, monkeypatch, c
 def test_a_changed_always_read_rule_drops_the_claimed_windows_only(
     tmp_path, monkeypatch, capsys, slide_fonts
 ):
-    """A non-composable rule with a live guard is read by every composed reading, so editing its guard re-evaluates the windows a composed reading claims and serves the rest: an unclaimed window reads no such rule, and the edited rule's own answers on it are repaired only where its name-grain precondition admits the window, which a ·Tea ligature rule's does for none of these."""
+    """A non-composable rule with a non-empty except_left is read by every composed reading, so editing its guard re-evaluates the windows a composed reading claims and serves the rest. An unclaimed window does not read that rule, and the edited rule's own results on it are repaired only where its name-grain precondition admits the window. A ·Tea ligature rule's precondition admits none of these windows."""
     both, slide, extension = _keyed_windows()
     guarded = guarded_rule(dict(RULE, id="guarded-ligature"), ["qsAh"])
     reguarded = guarded_rule(dict(RULE, id="guarded-ligature"), ["qsOut"])
@@ -7632,7 +7635,7 @@ def test_a_changed_always_read_rule_drops_the_claimed_windows_only(
 def test_two_composable_rules_swapping_places_re_evaluate_the_windows_naming_both(
     tmp_path, monkeypatch, capsys, slide_fonts
 ):
-    """Swapping two composable rules in the file moves no match digest and no verdict, and still moves what a claimed window's fill says, since the credited ids and their notes are written in rules-file order. A claimed window whose relevant ids no longer sit in the file's order is re-evaluated, a window naming one of them is served, and the fills come out as a fresh run's under the swapped file."""
+    """Swapping two composable rules in the file changes no match digest and no verdict, but it does change a claimed window's fill, because the credited ids and their notes are written in rules-file order. A claimed window whose relevant ids are no longer in file order is re-evaluated, a window naming only one of them is served, and the fills match a fresh run's under the swapped file."""
     both, slide, extension = _keyed_windows()
     swapped = [COMPOSED_EXT_RULE, SLIDE_RULE]
     runs = _warm_runs(
@@ -7658,7 +7661,7 @@ def test_two_composable_rules_swapping_places_re_evaluate_the_windows_naming_bot
 def test_a_new_non_composable_rule_is_asked_on_the_served_entries_its_shape_admits(
     tmp_path, monkeypatch, capsys, slide_fonts
 ):
-    """A non-composable rule appended to the file has a candidate position nowhere, so no unclaimed entry is re-evaluated for it; it is asked, guarded and unguarded, on every served unclaimed entry its name-grain precondition admits, and nothing else runs on those — the parent's `evaluate` is let through for the two claimed windows only and made to raise otherwise, so every other answer the run counted came through the repair. The fills and the report are a run's with no memo under the appended rules: the window the rule accepts is filled, the one its guard holds is reported held, the claimed windows are re-evaluated because a guarded rule joins the ones every composed reading reads, and the unclaimed extension window, which a ·Tea ligature rule's precondition does not admit, is served as it stands."""
+    """A non-composable rule appended to the file has no candidate positions, so no unclaimed entry is re-evaluated for it. Instead it is checked, with and without its guard, on every served unclaimed entry its name-grain precondition admits, and nothing else runs on those entries. The test lets the parent's `evaluate` run only for the two claimed windows and fails otherwise, so every other result the run counted came from the repair. The fills and the report match a run with no memo under the appended rules: the window the rule accepts is filled, the one its guard holds is reported held, the claimed windows are re-evaluated because a guarded rule joins the rules every composed reading reads, and the unclaimed extension window, which a ·Tea ligature rule's precondition does not admit, is served unchanged."""
     held = dict(canonical("k-2", left="qsOut.ex-ext-1"), content_key="e" * 64, ink_deltas={"ss03": DELTA_A})
     units = [_keyed_unit("k-1"), held, *_keyed_windows()]
     appended = [*COMPOSABLE_RULES, RULE]
@@ -7684,7 +7687,7 @@ def test_a_new_non_composable_rule_is_asked_on_the_served_entries_its_shape_admi
 
 
 def test_a_run_under_moved_rules_carries_no_entry_it_never_read(tmp_path):
-    """A narrowed run decides only the open units and carries the rest across unread, which is safe only under the roster they were stored under: heading an unread entry with a moved roster would serve it on the next pass as if it had been held against the moved rules. So a run under the stored roster carries every entry, and a run under a moved one keeps what it computed or served and drops the rest."""
+    """An `--open-only` run decides only the open units and carries the other entries across unread. That is safe only under the roster the entries were stored under: writing an unread entry under a changed roster would serve it on the next pass as if it had been checked against the changed rules. So a run under the stored roster keeps every entry, and a run under a changed roster keeps only what it computed or served."""
     path = tmp_path / "memo.ndjson.gz"
     asked, unasked = _keyed_unit("a-1", content_key="a" * 64), _keyed_unit("n-1", content_key="n" * 64)
     seed = sv.Memo(path, "env", {})
@@ -7714,7 +7717,7 @@ def _human_units(surface):
 
 
 def _mini_rules(surface, path):
-    """The checked-in rules, whose composed reading credits windows of the mini bundle, plus one ink-delta rule blessing the digest the bundle's human units carry most, so the run also writes single-rule fills."""
+    """The checked-in rules, whose composed reading credits windows of the mini bundle, plus one ink-delta rule for the digest the bundle's human units carry most often, so the run also writes single-rule fills."""
     from collections import Counter
 
     digests = Counter(
@@ -7730,7 +7733,7 @@ def _mini_rules(surface, path):
 
 
 def _run_over_mini(tmp_path, monkeypatch, surface, rules, verdicts, extra, writes=True):
-    """The CLI over the mini surface: its exit code and the fills file's bytes — or None for the bytes when `writes` is off, the targeted run's form, which is spawned without --out and is checked to have written nothing."""
+    """Runs the CLI over the mini surface and returns its exit code and the fills file's bytes. With `writes` off (the targeted run's form), the run gets no --out, the test checks that it wrote nothing, and the bytes are None."""
     stamp = json.loads((surface / "manifest.json").read_text())["generated_at"]
     tmp_path.mkdir(parents=True, exist_ok=True)
     verdicts_path = tmp_path / "verdicts.json"
@@ -7752,7 +7755,7 @@ def _run_over_mini(tmp_path, monkeypatch, surface, rules, verdicts, extra, write
 def test_the_mini_bundle_reaches_a_composed_line_and_the_bundle_local_rule(
     tmp_path, monkeypatch, capsys, mini_surface
 ):
-    """What makes the byte-identity proof below worth anything: over a blank store the run lands both kinds of fill, one a composed reading credits and one a single rule's own line writes, so a memo that served either wrong would show."""
+    """Over a blank store, the mini-bundle run writes both kinds of fill: one credited by a composed reading and one written by a single rule's own line. The byte-identity tests below depend on this, because a memo that served either kind wrongly would then show a difference."""
     rules = _mini_rules(mini_surface, tmp_path / "rules.yaml")
     _code, fills = _run_over_mini(tmp_path, monkeypatch, mini_surface, rules, [], ())
     capsys.readouterr()
@@ -7764,7 +7767,7 @@ def test_the_mini_bundle_reaches_a_composed_line_and_the_bundle_local_rule(
 
 @pytest.mark.parametrize("form", [(), ("--open-only", "--require-reach")])
 def test_the_memo_serves_the_mini_bundle_byte_for_byte(tmp_path, monkeypatch, capsys, mini_surface, form):
-    """The standing proof that the memo changes nothing but the time: over a real build of the frozen mini bundle, under the checked-in rules and one bundle-local ink-delta rule, with a store holding a reject and an approve, the fills file, the exit code and every report line are byte-identical across a run with no memo, a cold run that writes one, a warm run served entirely from it, and a `--fresh-memo` run that ignores and rewrites it. The warm run's own line says it computed nothing, which is the whole of what the memo buys, in both the bare form and the chain's `--open-only --require-reach` form, whose rollup reads off the same decisions the narrowed pass did."""
+    """The memo changes only the run time. Over a real build of the frozen mini bundle, under the checked-in rules and one bundle-local ink-delta rule, with a store holding a reject and an approve, the fills file, the exit code, and every report line are byte-identical across four runs: no memo, a cold run that writes one, a warm run served entirely from it, and a `--fresh-memo` run that ignores and rewrites it. The warm run's `memo:` line shows it computed nothing. Both the bare form and the verdict chain's `--open-only --require-reach` form are checked, and the latter's rollup reads the same decisions the narrowed pass made."""
     rules = _mini_rules(mini_surface, tmp_path / "rules.yaml")
     stamp = json.loads((mini_surface / "manifest.json").read_text())["generated_at"]
     human = [unit["id"] for unit in _human_units(mini_surface)]
@@ -7802,7 +7805,7 @@ def test_the_memo_serves_the_mini_bundle_byte_for_byte(tmp_path, monkeypatch, ca
 def test_a_rules_edit_recomputes_only_the_units_the_edit_can_reach(
     tmp_path, monkeypatch, capsys, mini_surface, form
 ):
-    """The issue's own verification, over a real build of the frozen mini bundle under the checked-in rules and the bundle-local ink-delta rule: with every note reworded, a warm run computes nothing and still writes the fills, the exit code and every report line a run with no memo writes under the reworded rules, every fill quoting the new wording; and with one composable rule appended — a twin of a checked-in rule that has candidates here, so the walk's ambiguity refusal moves the fills of every window it reaches — a warm run computes exactly the human units the twin has a candidate position in and is byte-identical to a run with no memo under the appended rules. In both the bare form and the chain's."""
+    """Over a real build of the frozen mini bundle, under the checked-in rules and the bundle-local ink-delta rule. With every note reworded, a warm run computes nothing and writes the same fills, exit code, and report lines as a run with no memo under the reworded rules, and every fill uses the new wording. With one composable rule appended, a warm run computes only the human units the appended rule has a candidate position in, and matches a run with no memo under the appended rules byte for byte. The appended rule is a copy of a checked-in rule that has candidates here, so the walk's refusal of two rules claiming one position changes the fills of every window it reaches. Both the bare form and the verdict chain's form are checked."""
     seeded = sv.load_rules(_mini_rules(mini_surface, tmp_path / "seed.yaml"))
     human = _human_units(mini_surface)
     reworded = [dict(rule, note=rule["note"] + " (reworded)") for rule in seeded]
@@ -7857,7 +7860,7 @@ def test_a_rules_edit_recomputes_only_the_units_the_edit_can_reach(
 
 @pytest.mark.parametrize("form", [(), ("--open-only", "--require-reach")])
 def test_a_pooled_refill_is_the_serial_pass_byte_for_byte(tmp_path, monkeypatch, capsys, mini_surface, form):
-    """The pool changes nothing but the time, held the same way the memo is: over the frozen mini bundle, a cold run that refills its memo across a spawn pool of two — the threshold lowered so the bundle's few hundred misses start one, the chunk shrunk so the pool is handed many tasks — writes the same fills, prints the same report and the same `memo:` line, and leaves the same memo bytes as the cold serial run, in both the bare form and the chain's. The parent's own `evaluate` is made to raise for the pooled run, so every decision it counted came back from a worker, whose spawned interpreter imports the module afresh and never sees the patch. This is the one test in the suite that starts a multiprocessing pool, which the closure recorder marks unclosable, so it runs on every narrowed lane."""
+    """The pool changes only the run time, checked the same way as the memo. Over the frozen mini bundle, a cold run that refills its memo across a spawn pool of two writes the same fills, prints the same report and `memo:` line, and leaves the same memo bytes as the cold serial run, in both the bare form and the verdict chain's form. The test lowers the threshold so the bundle's misses start a pool, and shrinks the chunk so the pool gets many tasks. The parent's own `evaluate` fails for the pooled run, so every decision it counted came from a worker, whose spawned interpreter imports the module afresh without the patch. It is the only test in this file that starts a real multiprocessing pool, which the closure recorder marks unclosable, so it runs on every narrowed contracts-lane run."""
     rules = _mini_rules(mini_surface, tmp_path / "rules.yaml")
     stamp = json.loads((mini_surface / "manifest.json").read_text())["generated_at"]
     human = [unit["id"] for unit in _human_units(mini_surface)]
@@ -7887,7 +7890,7 @@ def test_a_pooled_refill_is_the_serial_pass_byte_for_byte(tmp_path, monkeypatch,
 
 
 class _InlinePool:
-    """`multiprocessing`'s pool protocol answered in this process: the initializer runs here, so the real worker functions run over the real chunks, and the chunks come back in reverse, which is the completion order the parent's bookkeeping has to be blind to."""
+    """Runs the `multiprocessing` pool protocol in this process. The initializer runs here, the real worker function runs over the real chunks, and the results come back in reverse order, a completion order the parent's bookkeeping must not depend on."""
 
     def __init__(self, width, initializer, initargs):
         self.width = width
@@ -7921,14 +7924,14 @@ def _inline_pools(monkeypatch):
 
 
 def _pile(count: int) -> list[dict]:
-    """Keyed units under distinct content keys, so each has its own memo key, plus one the build never stamped."""
+    """Keyed units with distinct content keys, so each has its own memo key, plus one unit the build never stamped."""
     return [_keyed_unit(f"k-{index}", content_key=f"{index:064x}") for index in range(count)] + [
         canonical("u-unkeyed")
     ]
 
 
 def test_the_prefill_counts_what_the_serial_pass_counts(tmp_path, monkeypatch):
-    """The parent's bookkeeping over a pool's answers is the serial pass's: with a memo already holding some of the units, a pooled run — the pool answered in-process, its chunks handed back in reverse — leaves the Decider with the same decisions, the same served, computed and unkeyed totals, and the same fresh memo entries as a run that decided everything itself, which is where a regression in the accounting would land without paying for a spawn."""
+    """The parent's bookkeeping over pooled results matches the serial pass. With a memo already holding some of the units, a pooled run (the pool run in-process, its chunks returned in reverse) leaves the Decider with the same decisions, the same served, computed, and unkeyed totals, and the same fresh memo entries as a serial run. This catches an accounting regression without the cost of spawning workers."""
     units = _pile(9)
     memo_path = tmp_path / "memo.ndjson.gz"
     served = sv.Memo(memo_path, "env", {})
@@ -7957,7 +7960,7 @@ def test_the_prefill_counts_what_the_serial_pass_counts(tmp_path, monkeypatch):
 
 
 def test_the_prefill_asks_only_what_the_run_asks(tmp_path, monkeypatch):
-    """What a pooled run decides ahead is exactly what its passes will ask about — the whole domain under --require-reach, the open units alone under a bare --open-only — since a unit decided that the run never asks for would advance `computed` and land in the memo where the serial pass wrote nothing; and a targeted run, which writes neither, never reaches the prefill."""
+    """A pooled run decides in advance only what its passes will ask about: the whole domain under --require-reach, and only the open units under --open-only alone. A unit decided that the run never asks for would increase `computed` and be written to the memo where the serial pass writes nothing. A targeted run writes neither and never calls the prefill."""
     asked = []
     prefill = sv._prefill
 
@@ -7990,7 +7993,7 @@ def test_the_prefill_asks_only_what_the_run_asks(tmp_path, monkeypatch):
 
 
 def test_a_shallow_miss_pile_and_a_width_of_one_never_start_a_pool(monkeypatch):
-    """A warm pass keeps its single-digit seconds because its few misses never reach the threshold, and a width of one is the serial pass whatever the pile: neither reaches for a pool, held with the pool's entry point made to fail."""
+    """A warm pass's few misses stay below `_STANDING_POOL_THRESHOLD`, and a width of one always decides serially, so neither starts a pool. The test makes the pool's entry point fail."""
     monkeypatch.setattr(sv.multiprocessing, "get_context", lambda method: pytest.fail("a pool was started"))
     units = _pile(5)
     monkeypatch.setattr(sv, "_STANDING_POOL_THRESHOLD", len(units) + 1)
@@ -8003,7 +8006,7 @@ def test_a_shallow_miss_pile_and_a_width_of_one_never_start_a_pool(monkeypatch):
 
 
 def test_the_decider_holds_the_composable_digest_for_the_run(slide_context):
-    """`_composed` is asked per unit and the digest it keys the walk memo on is constant for the run, so the Decider computes it once — and still tells two rule sets apart when both are driven through `evaluate` against one context, which is what the digest exists for."""
+    """`_composed` runs per unit, and the digest it keys the walk memo on is constant for the run, so the Decider computes it once. Two Deciders with different rule sets, driven through `evaluate` against one context, still get separate walk memo entries, which is what the digest is for."""
     context = slide_context()
     renamed = [json.loads(json.dumps(rule)) for rule in COMPOSABLE_RULES]
     for rule in renamed:
@@ -8019,7 +8022,7 @@ def test_the_decider_holds_the_composable_digest_for_the_run(slide_context):
 
 
 def test_the_decider_empties_the_context_memos_behind_every_unit(slide_context):
-    """`decide` owns the unit boundary: behind every unit it empties the context's shape memo and its walk memo, and the answer is the one a fresh context computes through `evaluate`, because every key in both memos names the unit it was computed for — so a second, differently shaped unit through the same Decider is decided on its own terms and leaves the memos as empty as the first did."""
+    """`decide` empties the context's shape memo and walk memo after every unit and returns what a fresh context computes through `evaluate`, because every key in both memos is for one unit. So a second, differently shaped unit through the same Decider is decided independently and also leaves both memos empty."""
     context = slide_context()
     decider = sv.Decider(COMPOSABLE_RULES, context)
     for window in (composed_window(), founding_window()):
@@ -8033,7 +8036,7 @@ def test_the_decider_empties_the_context_memos_behind_every_unit(slide_context):
 
 
 def test_the_decider_empties_the_context_memos_behind_every_memo_entry_it_serves(slide_context):
-    """`_serving` is asked outside `decide`, by the prefill's spool pass, so it owns the boundary of the `_serve` it runs: behind an entry it repairs and one it refuses alike, the spool pass's hit and its miss, it empties the context's shape and walk memos, which here hold another window's shapes when it is asked. The repaired decision is the one a fresh context computes through `evaluate` under the live rules, and `decide` counts it without evaluating, beside the refused window it evaluates."""
+    """`_serving` is called outside `decide`, by the prefill's spool pass, so it empties the context's shape and walk memos after the `_serve` it runs. It does so both for an entry it repairs and for one it refuses (the spool pass's hit and its miss); here the memos hold another window's shapes when it is called. The repaired decision equals what a fresh context computes through `evaluate` under the live rules. `decide` records it without calling `evaluate`, evaluates the refused window, and counts both as computed."""
     keyed = _keyed_unit("k-1")
     claimed = dict(composed_window("w-both"), content_key="b" * 64)
     seed = sv.Decider(COMPOSABLE_RULES, slide_context())
@@ -8058,7 +8061,7 @@ def test_the_decider_empties_the_context_memos_behind_every_memo_entry_it_serves
 
 
 def test_the_alignment_cache_answers_per_unit_object_and_releases():
-    """Two distinct unit dicts under one id — the suite builds them constantly — get their own answers, because the cache is keyed on the object and keeps it alive so no other object can take its address; a repeat ask answers what a fresh computation answers; and `release_alignment_cache` empties it."""
+    """Two distinct unit dicts with the same unit id get separate answers, because the cache is keyed on the object's `id()` and holds a reference to the object, so no other object can reuse its address. A repeat call returns what a fresh computation returns, and `release_alignment_cache` empties the cache."""
     sv.release_alignment_cache()
     misaligned, aligned = canonical("u-1"), founding_window("u-1")
     assert misaligned["id"] == aligned["id"]
@@ -8072,7 +8075,7 @@ def test_the_alignment_cache_answers_per_unit_object_and_releases():
 
 
 def test_a_rules_lines_never_name_a_unit_outside_its_name_grain_candidates(tmp_path, mini_surface):
-    """What the targeted run rests on: over the frozen mini bundle, under the checked-in rules and the bundle-local ink-delta rule, every unit a rule's own matcher accepts or holds, and every unit a composed reading credits it at, is one `_reachable` admits for that rule — so a run over only the admitted units sees everything the whole domain would put on the rule's lines — and the narrowing is real, since some rule with a reach admits fewer units than the domain holds."""
+    """The targeted run depends on this. Over the frozen mini bundle, under the checked-in rules and the bundle-local ink-delta rule, every unit a rule's own matcher accepts or holds, and every unit a composed reading credits it at, is one `_reachable` admits for that rule. So a run over only the admitted units sees everything the whole domain would put on the rule's lines. The test also checks that the narrowing removes units: some rule with a reach admits fewer units than the domain holds."""
     rules = sv.load_rules(_mini_rules(mini_surface, tmp_path / "rules.yaml"))
     context = sv.SlideContext(mini_surface / "fonts" / "before.otf", mini_surface / "fonts" / "after.otf")
     decide = sv.Decider(rules, context).decide
@@ -8097,7 +8100,7 @@ TARGETED_HEADER = re.compile(r"^  targeted at (\S+): (\d+) of (\d+) human units 
 
 
 def _lines_about(lines, rule_id):
-    """Everything a report says about one rule, in the pieces the targeted run promises byte for byte: its own tally line, the composed tally lines whose credited tuple names it, its rollup line, whether a reached-nothing line names it, the tripwire fragments under it, and its four-line explain block."""
+    """Everything a report says about one rule, in the pieces the targeted run must reproduce byte for byte: its own tally line, the composed tally lines whose credited tuple names it, its rollup line, whether a reached-nothing line names it, the tripwire fragments under it, and its four-line explain block."""
     crediting = []
     for line in lines:
         head, sep, _rest = line.partition(": ")
@@ -8120,7 +8123,7 @@ def _lines_about(lines, rule_id):
 def test_a_targeted_run_prints_a_rules_lines_byte_identical_to_the_whole_domain(
     tmp_path, monkeypatch, capsys, mini_surface
 ):
-    """The identity the targeted run is for: over a real build of the frozen mini bundle, with a store holding a reject and an approve, every rule the whole-domain rollup shows reaching anything — a rule with composed credit, a rule with an own line, the non-composable bundle-local ink-delta rule — and the first rule that reached nothing get a targeted run each, which exits clean, writes nothing, evaluates a subset no larger than the domain (and smaller for at least one rule), and prints the rule's own line, the composed lines crediting it, its rollup line, its reached-nothing line, its tripwire fragments and its explain block exactly as a whole-domain run with the same `--explain` printed them (`--explain` is single-valued, so the whole domain runs once per rule here)."""
+    """Over a real build of the frozen mini bundle, with a store holding a reject and an approve, each rule the whole-domain rollup shows reaching anything, and the first rule that reached nothing, gets a targeted run. Each targeted run exits cleanly, writes nothing, evaluates no more units than the domain holds (fewer for at least one rule), and prints the rule's own line, the composed lines crediting it, its rollup line, its reached-nothing line, its tripwire fragments, and its explain block as a whole-domain run with the same `--explain` prints them. `--explain` takes one rule, so the whole domain runs once per rule."""
     rules = _mini_rules(mini_surface, tmp_path / "rules.yaml")
     stamp = json.loads((mini_surface / "manifest.json").read_text())["generated_at"]
     human = [unit["id"] for unit in _human_units(mini_surface)]
@@ -8176,7 +8179,7 @@ def test_a_targeted_run_prints_a_rules_lines_byte_identical_to_the_whole_domain(
 def test_a_targeted_run_refuses_the_flags_that_would_write_or_read_the_whole_domain(
     tmp_path, monkeypatch, flags
 ):
-    """A targeted run can never land a fill file or touch the memo, and reach stays a whole-domain reading: it takes its rule from --explain and refuses --out, --memo, --require-reach and --open-only outright, and --unit means nothing without it, so a copied cycle command line cannot write a subset fill by mistake."""
+    """A targeted run never writes a fill file or touches the memo, and reach stays a whole-domain reading. The run takes its rule from --explain and rejects --out, --memo, --require-reach, and --open-only, and --unit is rejected without --targeted, so a copied cycle command line cannot write a subset fill by mistake."""
     substituted = tuple(
         {"OUT": str(tmp_path / "out.json"), "MEMO": str(tmp_path / "memo.ndjson.gz")}.get(flag, flag)
         for flag in flags
@@ -8189,7 +8192,7 @@ def test_a_targeted_run_refuses_the_flags_that_would_write_or_read_the_whole_dom
 
 
 def test_a_listed_unit_gets_its_decision_line_and_moves_no_line_of_the_rules(tmp_path, monkeypatch, capsys):
-    """Listing a unit is a reading, never a change: each listed id gets one line saying whether it is a name-grain candidate of the rule and what the run decided about it — matched, held by the guard, spoken for by no rule, or not a human unit at all — and every other line of the report is the one the run without the listing printed."""
+    """Each listed id gets one line saying whether it is a name-grain candidate of the rule and what the run decided about it: matched, held by the guard, covered by no rule, or not a human unit. Listing units changes only the header line, which counts them. Every line after the listed-unit lines matches the run without the listing."""
     units = [
         canonical("u-1"),
         canonical("u-2", left="qsOut.ex-ext-1"),
@@ -8226,7 +8229,7 @@ def test_a_listed_unit_gets_its_decision_line_and_moves_no_line_of_the_rules(tmp
 
 
 def test_a_listed_composed_window_names_its_credit(tmp_path, monkeypatch, capsys, slide_fonts):
-    """A targeted run at one of two composing rules prints the composed line crediting both, the rule's own line at zero, and a rollup carrying the credit, exactly as the whole-domain run at test_main_writes_one_composed_record_and_leaves_the_per_rule_lines prints them, and a listed composed window's line names the credited rules and the verdict the fill carries."""
+    """A targeted run at one of two composing rules prints the composed line crediting both, the rule's own line at zero, and a rollup carrying the credit, as the whole-domain run in test_main_writes_one_composed_record_and_leaves_the_per_rule_lines prints them. A listed composed window's line names the credited rules and the verdict the fill carries."""
     rule_id = SLIDE_RULE["id"]
     _target_main(
         tmp_path,
@@ -8266,7 +8269,7 @@ _MEMO_LOCK = (
 
 
 def test_the_memo_stamp_holds_still_across_a_version_bump(tmp_path, slide_fonts):
-    """The two version carriers the memo's stamp reads, each at its projected grain: rewriting the before font's `head.fontRevision` and `name` records and editing the project's own block of the lock leave the stamp where it stands and the memo served, while a widened glyph in the before font and a moved uharfbuzz pin each drop it."""
+    """A version bump leaves the memo stamp unchanged. Changing the before font's `head.fontRevision` and `name` records, and changing the project's own package version in `uv.lock`, do not change the stamp. Widening a glyph in the before font, or changing the uharfbuzz pin, does."""
     from fontTools.ttLib import TTFont
 
     root = _stamp_root(tmp_path, _MEMO_LOCK)

@@ -1,8 +1,10 @@
-"""`fingerprint.COMPARISON_CODE_MODULES` is the roster of pipeline modules a serialized window enumeration's stamp leaves out (`fingerprint.table_code_paths`, the code half of `tables_value`), and every reuse that stamp licenses — `run_m1 --gates-only` re-adjudicating over the tables and M1.otf on disk, `--conform-only` sweeping them — rests on the claim that nothing on the roster can move a table or the font. A hand-written roster is only safe while something checks the claim, and this is that check, in two halves. The first walks the import graph from every build-side module and requires it to reach nothing on the roster: at module grain, the same approximation `rebuild/test_oracle_code_closure.py` makes, conservative in the safe direction, and following `if TYPE_CHECKING:` imports for the same reason that test does. The second is the driver, `rebuild/pipeline/run_m1.py`, which cannot be held to that rule — it imports the comparison side because it also runs the gates — so it is walked at function grain instead: from `run_m1.run`, the build entry, through every module-level function it calls, no expression may name a comparison-side module or anything imported from one.
+"""Checks that `fingerprint.COMPARISON_CODE_MODULES` and `fingerprint.FONT_COMPILE_TOOL_MODULES` match the import graph.
 
-The reverse direction holds too: every roster entry must be a module the driver reaches, so the roster stays the set of modules the gates run and cannot grow a stray that nothing exercises. And because the whole point of splitting the classifier out of conform.py was to put it outside the oracle row cache's stamp as well as the tables', the roster is also checked against `oracle_cache.ORACLE_ROW_CODE_PATHS` — a comparison-side module named there would drop the store on every classifier edit for nothing.
+`COMPARISON_CODE_MODULES` lists the pipeline modules left out of a serialized window enumeration's stamp (`fingerprint.table_code_paths`, the code half of `tables_value`). Reusing the tables and M1.otf on disk, as `run_m1 --gates-only` and `--conform-only` do, is safe only if no module on that list can change a table or the font. The first check walks the import graph from every build-side module and requires it to reach nothing on the list. Like `rebuild/test_oracle_code_closure.py`, it works at module grain and follows `if TYPE_CHECKING:` imports, which errs toward including too much. The driver, `rebuild/pipeline/run_m1.py`, imports the comparison side because it also runs the gates, so it is checked at function grain instead: no expression in `run_m1.run`, or in any module-level function it calls transitively, may name a comparison-side module or anything imported from one.
 
-`fingerprint.FONT_COMPILE_TOOL_MODULES` is the mirror-image roster and is pinned here too, by the same argument run the other way: the M1 font compile leaves rebuild/ entirely when `compile_font` hands the mini font to tools/build_font.py, so the tools/ modules it reaches there can move M1.otf's bytes and every stamp keyed on `pipeline_code_paths` has to see them. That roster must equal the import closure inside tools/ and not merely contain it — a module missing from it is a font edit no key notices, a stray on it is a fixpoint spent on code the compile never runs — so the walk here resolves tools' bare imports (they are siblings on `sys.path`, not a package) at any nesting and the roster is asserted equal to what it finds. The walk starts from every tools/ module the pipeline's own Python names by import, not from tools/build_font.py alone, so a pipeline module that starts importing some other tools/ module directly reaches this test rather than running tools/ code no stamp sees; rebuild/test_plumbing_closure.py and rebuild/test_review_code_closure.py stop at the `pipeline_code` boundary on the strength of this check.
+The reverse also holds: every entry on the list must be a module the driver reaches, so the list names only modules the gates run. The list is also checked against `oracle_cache.ORACLE_ROW_CODE_PATHS`, because a comparison-side module named there would drop the oracle row cache on every classifier edit for no benefit.
+
+`FONT_COMPILE_TOOL_MODULES` lists the tools/ modules the M1 font compile runs. `compile_font` passes the mini font to tools/build_font.py, so those modules can change M1.otf's bytes, and every stamp keyed on `pipeline_code_paths` must hash them. The list must equal the import closure inside tools/: a missing module is a font edit no key notices, and an extra one makes an edit to code the compile never runs trigger a rebuild. The walk follows tools' bare imports (they are siblings on `sys.path`, not a package) at any nesting. It starts from every tools/ module the pipeline's Python imports, not only tools/build_font.py, so a pipeline module that starts importing another tools/ module directly fails this test. rebuild/test_plumbing_closure.py and rebuild/test_review_code_closure.py do not follow imports into tools/ modules and rely on this check for them. This check does not cover the rebuild/tools modules the pipeline imports, which `pipeline_code_paths` does not hash (rebuild/test_plumbing_closure.py's docstring names some).
 """
 
 from __future__ import annotations
@@ -34,7 +36,7 @@ def _module_name(path: Path) -> str:
 
 
 def _imports(tree: ast.AST) -> set[str]:
-    """Every repo module the tree names in an import, absolute form only — this tree has no relative imports, and a `from X import y` is recorded both as X and as X.y so a submodule import is followed."""
+    """Return every repo module the tree names in an absolute import (the tree has no relative imports). `from X import y` is recorded as both X and X.y, so a submodule import is followed."""
     found: set[str] = set()
     for node in ast.walk(tree):
         if isinstance(node, ast.Import):
@@ -46,7 +48,7 @@ def _imports(tree: ast.AST) -> set[str]:
 
 
 def reachable_modules(entry_points: tuple[str, ...]) -> dict[str, Path]:
-    """The transitive closure of repo modules the entry points import, keyed by module name."""
+    """Return the transitive closure of repo modules the entry points import, keyed by module name."""
     seen: dict[str, Path] = {}
     queue = list(entry_points)
     while queue:
@@ -66,7 +68,7 @@ def _comparison_paths() -> set[Path]:
 
 
 def _build_side_paths() -> list[Path]:
-    """The Python half of `table_code_paths`, minus the driver: every module the stamp claims is build-side and can be held to the module-grain rule."""
+    """Return the Python files in `table_code_paths` except the driver: the build-side modules checked at module grain."""
     return [
         path
         for path in fingerprint.table_code_paths(REPO_ROOT)
@@ -75,7 +77,7 @@ def _build_side_paths() -> list[Path]:
 
 
 def _tools_imports(tree: ast.AST) -> set[str]:
-    """Every name the tree imports, at any nesting: tools/ modules are siblings on `sys.path` rather than a package, so they import one another by bare name and several do it inside a function to break an import cycle."""
+    """Return every name the tree imports, at any nesting. tools/ modules are siblings on `sys.path`, not a package, so they import one another by bare name, sometimes inside a function to break an import cycle."""
     found: set[str] = set()
     for node in ast.walk(tree):
         if isinstance(node, ast.Import):
@@ -86,7 +88,7 @@ def _tools_imports(tree: ast.AST) -> set[str]:
 
 
 def _tools_entry_points() -> set[Path]:
-    """The tools/ modules the pipeline's Python names by import, at any nesting and `if TYPE_CHECKING:` included: rebuild/pipeline and rebuild/validation put tools/ on `sys.path` and import from it by bare name, so a name resolves against tools/<head>.py the same way a tools/ sibling's does."""
+    """Return the tools/ modules the pipeline's Python imports, at any nesting and including `if TYPE_CHECKING:` blocks. rebuild/pipeline/compile_font.py puts tools/ on `sys.path`, so a bare name resolves against tools/<head>.py the same way a tools/ sibling's does."""
     entries: set[Path] = set()
     for path in fingerprint.pipeline_code_paths(REPO_ROOT):
         if path.suffix != ".py" or path.parent == TOOLS:
@@ -99,7 +101,7 @@ def _tools_entry_points() -> set[Path]:
 
 
 def _font_compile_closure() -> set[Path]:
-    """The tools/ modules reachable by import from every tools/ module the pipeline names. A name resolves only against tools/<head>.py, so stdlib, third-party, and `rebuild.*` imports drop out — the last of those on purpose, since the rebuild/ trees are hashed whole by the same component."""
+    """Return the tools/ modules reachable by import from every tools/ module the pipeline imports. A name resolves only against tools/<head>.py, so stdlib, third-party, and `rebuild.*` imports are dropped. `pipeline_code_paths` hashes rebuild/pipeline and rebuild/validation whole but not rebuild/tools, so a `rebuild.tools` module that tools/build_font.py imports is in no `fingerprint` component (the oracle row cache's stamp, `oracle_cache.ORACLE_ROW_CODE_PATHS`, lists some of them)."""
     seen: set[Path] = set()
     queue = sorted(_tools_entry_points())
     while queue:
@@ -115,7 +117,7 @@ def _font_compile_closure() -> set[Path]:
 
 
 def test_the_font_compile_roster_is_the_import_closure_of_what_the_pipeline_names_inside_tools():
-    """What the roster claims: exactly these tools/ modules run when rebuild/pipeline/compile_font.py compiles M1.otf, and so exactly these have to ride `pipeline_code_paths` — and through it `table_code_paths`, the tables' stamp, the run_m1 green, the conform key and the surface stamp. Equality in both directions is the point: a module the walk reaches and the roster misses is a font edit that moves no key, and a roster entry the walk never reaches is a fixpoint spent on code the compile never executes. The walk starts from every tools/ module the pipeline imports, so a pipeline module that names one the roster lacks fails here too, rather than running code no stamp keyed on `pipeline_code_paths` hashes."""
+    """The tools/ modules that run when rebuild/pipeline/compile_font.py compiles M1.otf are exactly the ones `FONT_COMPILE_TOOL_MODULES` lists, and so exactly the ones hashed into `pipeline_code_paths` and `table_code_paths`. A module the walk reaches that the list misses is a font edit that changes no key, and a list entry the walk never reaches makes edits to code the compile never runs trigger a rebuild. The walk starts from every tools/ module the pipeline imports, so a pipeline module that imports one the list lacks also fails here."""
     assert FONT_COMPILE_ENTRY.is_file(), "tools/build_font.py moved; the walk has no entry point"
     entries = _tools_entry_points()
     assert (
@@ -135,7 +137,7 @@ def test_the_font_compile_roster_is_the_import_closure_of_what_the_pipeline_name
 
 
 def test_the_font_compile_roster_rides_both_the_run_record_and_the_tables_stamp():
-    """The compile is on the build side, so its tools/ closure belongs in the narrow stamp as well as the wide one — `table_code_paths` subtracts only `COMPARISON_CODE_MODULES`, and a font-compile module left out of it would let a serialized enumeration claim to describe sources that had moved under it."""
+    """The compile is on the build side, so its tools/ closure belongs in `table_code_paths` as well as `pipeline_code_paths`. A font-compile module left out of `table_code_paths` would let a serialized enumeration pass as current after its sources changed."""
     paths = set(fingerprint.font_compile_tool_paths(REPO_ROOT))
     assert paths
     assert paths <= set(fingerprint.pipeline_code_paths(REPO_ROOT))
@@ -178,7 +180,7 @@ def test_no_build_side_module_reaches_the_comparison_side():
 
 
 def _comparison_bindings(tree: ast.Module) -> set[str]:
-    """Every name the driver binds to a comparison-side module or to something imported from one, at any depth — a function-local import binds a name too."""
+    """Return every name the driver binds to a comparison-side module or to something imported from one, including names bound by function-local imports."""
     comparison_modules = {_module_name(path) for path in _comparison_paths()}
     bound: set[str] = set()
     for node in ast.walk(tree):
@@ -203,7 +205,7 @@ def _dotted(node: ast.AST) -> str | None:
 
 
 def _build_entry_reach(tree: ast.Module) -> tuple[set[str], set[str]]:
-    """The module-level functions `run` calls, transitively, and every dotted name any of them mentions."""
+    """Return the module-level functions `run` calls, transitively, and every dotted name any of them mentions."""
     functions = {
         node.name: node for node in tree.body if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
     }
@@ -249,7 +251,7 @@ def test_the_build_entry_never_names_the_comparison_side():
 
 
 def test_every_roster_entry_is_reached_from_the_driver():
-    """The other direction, so the roster stays the set of modules the gates actually run: a stray entry costs no correctness, but it would be a module nothing exercises claiming a place outside the stamp."""
+    """Every entry on the list is a module the driver reaches, so the list names only modules the gates run. An extra entry causes no wrong result, but it excludes from the stamp a module that no gate runs."""
     reached = set(reachable_modules((_module_name(BUILD_DRIVER),)).values())
     strays = sorted(str(path.relative_to(REPO_ROOT)) for path in _comparison_paths() if path not in reached)
     assert (

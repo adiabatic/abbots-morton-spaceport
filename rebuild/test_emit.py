@@ -71,7 +71,7 @@ _OUTCOME_BLOCK = re.compile(r"lookup (\S+) \{\n    sub (\S+) by (\S+);\n\} \1;")
 
 
 def _outcome_lookups(fea):
-    """The settlement outcome lookups as {(input glyph, outcome): name}, read off the text between the chokepoint and the settlement lookup in the order they are defined."""
+    """The settlement outcome lookups as {(input glyph, outcome): name}, parsed from the FEA text between the chokepoint lookup and the settlement lookup."""
     region = fea.split("} m1_zwnj;")[1].split("lookup m1_settle useExtension {")[0]
     return {(glyph, outcome): name for name, glyph, outcome in _OUTCOME_BLOCK.findall(region)}
 
@@ -347,7 +347,7 @@ class TestEmitGsub:
 
 
 class TestBehaviorClasses:
-    """The deep sweep's arming enumeration over the same fixture plan the emission tests above assert the text of: the token set must be exactly what that plan's shapes imply, and every shape the enumeration does not recognize must raise rather than enumerate to nothing — a plan that arms nothing would leave a deep-sweep green standing over a build it never shaped."""
+    """`emit_gsub.behavior_classes` over the fixture plan the tests above check. The token set must match the plan's shapes exactly, and an unrecognized shape must raise. A shape that produced no token would never arm the deep sweep, so its green record would stay valid over a build it never shaped."""
 
     FIXTURE_TOKENS = {
         "formation:2",
@@ -470,7 +470,7 @@ class TestEmitGpos:
 
 
 class TestLateFormationGuardLines:
-    """The section 5.7 guard's FEA realization over the mini fixture spec, whose qsDay_qsUtter corner carries the guard's worked example; qsTea_qsOy is never blocked there, so it stays in the plain type-4 lookup asserted above."""
+    """The FEA for the §5.7 late-formation guard over the mini fixture spec, whose qsDay_qsUtter ligature is the guard's worked example. qsTea_qsOy is never blocked there, so it stays in the plain type-4 lookup."""
 
     def test_guarded_ligature_moves_to_its_own_contextual_lookup(self, spec, guard_verdicts):
         registry = emit_gsub._ClassRegistry()
@@ -513,7 +513,7 @@ class TestLateFormationGuardLines:
         assert "ignore sub qsDay' qsUtter' qsSee uni200C;" in ignores
 
     def test_partially_blocked_follower_gets_a_two_slot_ignore(self, spec, guard_verdicts):
-        """·Tea takes the pair apart only when a second ·Tea follows, so it compiles to a two-slot ignore over that one third letter rather than joining the one-slot guard class — the branch the shipped alphabet no longer reaches."""
+        """A following ·Tea blocks the ligature only when a second ·Tea follows it, so it compiles to the two-slot ignore `qsTea qsTea` instead of joining the one-slot guard class. The shipped alphabet does not reach this branch."""
         registry = emit_gsub._ClassRegistry()
         guarded, _plain, ignores, _rows, _pairs = emit_gsub._formation_lines(spec, registry, guard_verdicts)
         letters = sorted(name for name, rune in spec.runes.items() if not rune.sequence)
@@ -537,14 +537,14 @@ class TestLateFormationGuardLines:
         )
 
     def test_utter_second_slot_releases_uniformly(self, spec, guard_verdicts):
-        """Ligature-transparent left scopes let the formed ligature serve a following alternate ·Utter wherever the unformed trail could — the alternate's x-height entry scope names qsDay_qsUtter alongside qsUtter — so before a following ·Utter the ligature always forms and the guard emits no second-slot ·Utter rows at all."""
+        """The alternate ·Utter's x-height entry scope names qsDay_qsUtter beside qsUtter, so the formed ligature joins a following ·Utter wherever the unformed pair could. The ligature therefore always forms before ·Utter, and the guard emits no rows with ·Utter in the second slot."""
         registry = emit_gsub._ClassRegistry()
         guarded, _plain, _ignores, _rows, _pairs = emit_gsub._formation_lines(spec, registry, guard_verdicts)
         utter_second = [line for line in guarded if "qsDay' qsUtter' qsUtter" in line]
         assert utter_second == []
 
     def test_emission_reads_one_crate_sweep(self, spec, glyphs, guard_verdicts, monkeypatch):
-        """Every guarded row an emission writes comes off one sweep of the spec it was handed: `emit_gsub` asks `kernel_exec.guard_sweep` once and reads the whole verdict surface from that answer, rather than asking per ligature or per window."""
+        """`emit_gsub` calls `kernel_exec.guard_sweep` once per spec and reads every guarded row from that result, instead of calling it per ligature or per window."""
         sweeps = []
 
         def crate_guard(received_spec):

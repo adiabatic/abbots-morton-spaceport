@@ -1,4 +1,4 @@
-"""Tests for the complaint docket: grouping reject/neither verdicts by the deciding rune records (policy fix site first, exact provenance tuple as the fallback), the fresh-vs-standing split against the manifest stamp, the reverse index from a group's pointer basis to blank park candidates and judged churn, and park-file emission under the bulk discipline (skip verdicts at the manifest stamp, every member enumerated)."""
+"""Tests for the complaint docket (`rebuild/tools/complaint_docket.py`): grouping reject and neither verdicts by the rune records that decided them (a reject groups by its policy draft's fix site when it has one and otherwise by its exact provenance tuple, and a neither joins the reject group whose pointers overlap its own most), the fresh and standing split at the manifest stamp, the lookup from a group's pointers to the blank units it can park and the judged units a fix would change, and the park file (skip verdicts stamped with the manifest's `generated_at`, one per park candidate)."""
 
 import json
 import weakref
@@ -76,7 +76,7 @@ def repo(tmp_path):
 
 
 def write_surface(repo, units):
-    """One shard per manifest class, the way a real surface ships, so the tools walk the manifest to find them."""
+    """Write one shard per manifest class, as a real surface does, so the tools find the units through the manifest."""
     surface = repo["surface"]
     manifest = json.loads((surface / "manifest.json").read_text())
     by_class = {}
@@ -304,7 +304,7 @@ def test_exempt_units_never_complain_and_never_park(repo):
 
 
 def test_the_absent_unit_warning_counts_against_every_id_on_the_surface(repo, capsys):
-    """A verdict record naming a unit outside the human workload names a unit the surface holds, so it is not absent; only an id the surface does not hold at all is. The fixture ships shards with no index, so this runs the loader's shard fallback through the tool."""
+    """A verdict on a unit outside the human workload names a unit that is on the surface, so it is not absent; only an id missing from the whole surface is. The fixture surface has shards but no index, so the tool goes through the loader's shard fallback."""
     write_surface(repo, [unit("u-0001", [P_EXTEND_1]), unit("u-0002", [P_EXTEND_1], batch=None)])
     write_verdicts(repo, [v("u-0001", "reject"), v("u-0002", "reject")])
     assert run(repo) == 0
@@ -315,7 +315,7 @@ def test_the_absent_unit_warning_counts_against_every_id_on_the_surface(repo, ca
 
 
 def test_the_human_records_without_the_id_set_are_refused(repo):
-    """The pair the verdict chain hands over comes whole or not at all: the human records alone would warn about every verdict on a machine unit."""
+    """`main` exits when passed `units` without `unit_ids`, or the reverse. The absent-unit warning needs every surface id, and the human records alone would count every verdict on a machine unit as absent."""
     write_surface(repo, [unit("u-0001", [P_EXTEND_1])])
     write_verdicts(repo, [v("u-0001", "reject")])
     with pytest.raises(SystemExit):

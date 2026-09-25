@@ -1,4 +1,4 @@
-"""Synthetic contracts for a ligature's preserved trailing stroke and its local geometry."""
+"""Tests, on synthetic runes, for how `spec_load` gives a ligature its trailing component's outgoing stroke (exit rows, exit policy, and exit unlocks) while the ligature keeps its own geometry."""
 
 import warnings
 from copy import deepcopy

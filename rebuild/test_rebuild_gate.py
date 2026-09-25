@@ -1,4 +1,4 @@
-"""The rebuild suite's self-skipping wrapper: it skips on a matching green record, only the recordable flag writes a record, a red run deletes the record it contradicts, and every run that reaches a judgment — a skip included — files it in the timings journal under the lane's own name."""
+"""Tests for the rebuild suite's self-skipping wrapper (`rebuild/tools/rebuild_gate.py`): it skips on a matching green record, only a green run whose closure did not change writes a record, a red run deletes the record it contradicts, and every run, a skip included, writes one check line to the timings journal under the lane's pool name."""
 
 import json
 
@@ -14,20 +14,20 @@ LANE = "contracts"
 
 
 def _checks():
-    """The check lines this run filed. The journal constant is read here rather than captured, because rebuild/conftest.py's autouse redirect is what points it under tmp_path and record_check resolves it at call time for exactly that reason."""
+    """The check lines this test wrote. `ct.JOURNAL` is read at call time because rebuild/conftest.py's autouse fixture redirects it under tmp_path."""
     return ct.load_checks(ct.JOURNAL)
 
 
 @pytest.fixture
 def green_store(tmp_path, monkeypatch):
-    """The lane's record under tmp_path. rebuild_lane_green resolves the module constant at call time, so redirecting it here is enough for both modules."""
+    """The lane's green record under tmp_path. `rebuild_lane_green` reads the `cycle_paths` constant at call time, so this redirect reaches both the wrapper and the artifact cycle."""
     store = tmp_path / "rebuild-contracts-green.json"
     monkeypatch.setattr(cycle_paths, "REBUILD_CONTRACTS_GREEN", store)
     return store
 
 
 def _fingerprints(monkeypatch, values):
-    """The fingerprint sequence: one entry per call the wrapper makes, so a two-element list is the before/after pair a run to a green consumes. The closure the wrapper reads is the key and one label carrying it, which is enough for the selection to find nothing recorded and run the whole suite."""
+    """Stub the lane closure with one key per call. A green run reads it twice, before and after the suite. The stub returns the key with a one-label digest map, so the selection finds no recorded per-test closures and runs the whole suite."""
     calls = iter(values)
 
     def closure(root, lane):
@@ -38,7 +38,7 @@ def _fingerprints(monkeypatch, values):
 
 
 def _suite_stub(monkeypatch, outcome):
-    """Stub _run_suite, recording (argv, env) per spawn. `outcome` is the (returncode, stdout) the spawn answers, or None for a run that must spawn nothing."""
+    """Stub `_run_suite`, recording (argv, env) per spawn. `outcome` is the (returncode, stdout) the spawn returns, or None for a run that must not spawn."""
     spawned = []
 
     def fake_run(argv, env):
@@ -143,7 +143,7 @@ def test_a_stale_record_format_never_matches(green_store, monkeypatch):
 
 
 def test_the_lane_names_its_pool_on_its_own_child(green_store, monkeypatch):
-    """The lane's controller files its per-worker peaks under the lane's name, which only holds while the unit rides a copy of the environment written for that one spawn."""
+    """The suite's xdist controller records its per-worker peaks under the pool unit name, which the wrapper sets only on the copy of the environment it passes to the spawn."""
     _fingerprints(monkeypatch, ["c-1"] * 2)
     spawned = _suite_stub(monkeypatch, (0, ""))
     assert rg.main([]) == 0
@@ -159,7 +159,7 @@ def test_pyright_rides_into_the_spawned_lane(green_store, monkeypatch):
 
 
 def test_a_green_run_files_its_verdict_under_the_lanes_check_name(green_store, monkeypatch):
-    """One check line, named the way the lane's pool line is named, carrying the argv that was spawned and the seconds it took — and no run, because nothing spawns this wrapper but a person."""
+    """One check line under the lane's pool name, with the spawned argv and the elapsed seconds. It has no `run` key, because only `make test-rebuild` runs this wrapper and no artifact cycle is its parent."""
     _fingerprints(monkeypatch, ["c-1"] * 2)
     _suite_stub(monkeypatch, (0, ""))
     assert rg.main([]) == 0
@@ -174,7 +174,7 @@ def test_a_green_run_files_its_verdict_under_the_lanes_check_name(green_store, m
 
 
 def test_a_skipped_lane_files_a_skipped_check_with_no_timing(green_store, monkeypatch):
-    """A closure judged unchanged is a judgment worth counting, so the skip is on the record — but with no argv and no seconds, since nothing ran and a zero would land in the timing rows as a suite that finished instantly."""
+    """A skip is written to the journal so it is counted, but with no argv and no seconds. Nothing ran, and a zero would appear in the timing rows as a suite that finished instantly."""
     ac.record_green(green_store, "fp-contracts")
     _fingerprints(monkeypatch, ["fp-contracts"])
     _suite_stub(monkeypatch, None)
@@ -187,7 +187,7 @@ def test_a_skipped_lane_files_a_skipped_check_with_no_timing(green_store, monkey
 
 
 def test_a_hard_failure_files_the_ids_it_failed_on(green_store, monkeypatch):
-    """The ids are the point of the record: a red run files what failed."""
+    """A red run records the ids of the tests that failed."""
     _fingerprints(monkeypatch, ["c-1"])
     _suite_stub(monkeypatch, (3, HARD_STDOUT))
     assert rg.main([]) == 3

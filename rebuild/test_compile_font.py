@@ -1,4 +1,4 @@
-"""compile_font integration test: the prototype's verified senior_fea recipe end to end on a four-glyph mini-font. Read-only with respect to the old pipeline."""
+"""Integration test for `compile_font.build_mini_font`: compile six glyphs of four mini-spec letters and a hand-written settlement lookup through `tools/build_font.build_font`'s `senior_fea=` path, then shape and classify the result. The old pipeline is only read, never modified."""
 
 import pytest
 

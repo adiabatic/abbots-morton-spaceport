@@ -1,4 +1,4 @@
-"""The canonical differential digest: `table.table_digest` over one configuration's built pair. Two things are proved here — that the digest is a function of the tables alone, so two builds of unchanged sources agree, and that it is sensitive at full contract grain, so dropping any one rule, window row, treaty row, reachable cell or cited-provenance pointer, moving the identity-guard count, flipping a rule's joint flag, or stripping a rule's provenance, moves it."""
+"""Tests `table.table_digest` over one configuration's decision and treaty tables. Two builds of unchanged sources give the same digest. Dropping any one rule, window row, treaty row, reachable cell, or cited-provenance pointer, changing the identity-guard count, flipping a rule's joint flag, or stripping a rule's provenance changes it."""
 
 import dataclasses
 

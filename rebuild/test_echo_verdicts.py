@@ -1,4 +1,4 @@
-"""Tests for the echo-group agreement rule shared by the two tools that report it: `review_docket.verdicts_agree` itself, the echo-fill and disagreement audit in echo_verdicts.py, and the conflicts list review_docket.py bakes into the docket data."""
+"""Tests for the echo-group agreement rule, `review_docket.verdicts_agree`, and the two tools that use it: the echo fill and disagreement audit in echo_verdicts.py, and the conflicts list review_docket.py bakes into the docket data."""
 
 import json
 

@@ -1,4 +1,4 @@
-"""Tests for the headless verdict merge: the app's newer-at-wins union replicated outside the browser, the stamp guards (aligned inputs only, stale autosave stashed, never merge onto an outdated surface), the never-shrink invariant, idempotence, and the journal-backed restore path."""
+"""Tests for `rebuild/tools/merge_verdicts.py`, which merges verdict files into the autosave outside the browser: the review app's union in which the newer `at` wins, the stamp checks (only inputs stamped for the current surface, a stale autosave stashed, no merge onto an outdated surface), the refusal while the review server is listening, idempotence, and the restore from the journal."""
 
 import json
 
@@ -154,7 +154,7 @@ def test_merge_refuses_while_the_server_is_up(repo, tmp_path, monkeypatch, capsy
 
 
 def test_merge_to_a_scratch_store_proceeds_while_the_server_is_up(repo, tmp_path, monkeypatch, capsys):
-    """The refusal's hazard — an open tab flushing its store back over the merge — exists only for the one file the server serves, so a merge aimed anywhere else runs without demanding --yes (which would train the gesture that disarms the guard where it matters)."""
+    """The refusal guards against an open tab writing its store back over the merge, which can happen only to the file the server serves (`mv.AUTOSAVE`). A merge into any other file runs without `--yes`, so that users do not get used to passing `--yes` where the guard matters."""
     carried = write_doc(tmp_path / "carried.json", "S2", [v("u-1")])
     monkeypatch.setattr(mv, "AUTOSAVE", tmp_path / "elsewhere" / "verdicts-autosave.json")
     monkeypatch.setattr(mv, "_server_listening", lambda: True)

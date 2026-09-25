@@ -1,4 +1,4 @@
-"""Extractor unit tests for the pure pieces: basis enumeration, row serialization, header rendering, seam classification on corpus-known pairs, sampling stability, and small-run determinism. The broader validation suite (corpus replay) lives in the parallel test module."""
+"""Unit tests for the baseline extractor: basis enumeration, row serialization, header rendering, seam classification on known pairs, sampling stability, and small-run determinism. The validation suite, including corpus replay, is rebuild/test_validation_suite.py."""
 
 import gzip
 

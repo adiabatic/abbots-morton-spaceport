@@ -1,4 +1,4 @@
-"""Tests for the standing daemon, the one process that holds a review surface for the standing probe and the standing dry run: over a real build of the frozen mini bundle, a probe naming units and running its find, survey and coverage modes, and a dry run in both its forms — the whole-domain run with its fill file and the targeted run — print byte for byte through the daemon what they print in-process, exit code, stdout and fill bytes alike, with the held font pair serving the rendered grain; that the fallback is what a run with no daemon gets, silently when there was no socket to ask and with one stderr line when there was, and that `--daemon always` refuses to load instead; that a daemon whose surface manifest or font pair has moved declines the request as stale and exits with its socket removed; that a request for a surface it does not hold is declined without exiting; that SIGTERM removes the socket and a second `serve` refuses to start beside a live one without loading; that the `status` and `stop` verbs say what is held and end it; and that a caller handing either tool its own units is never served, which is the verdict chain's in-process form. Every daemon here is a real child process over a socket under tmp_path — SIGTERM, socket removal and the second-daemon refusal are process facts — and rebuild/conftest.py points the tools' default socket under tmp_path for every test, so nothing here can reach a daemon on the box."""
+"""Tests for the standing daemon, the process that holds a review surface for the standing probe and the standing dry run. Over a real build of the frozen mini bundle, they check that the probe's unit, find, survey, and coverage modes and both dry-run forms (whole-domain with a fill file, and targeted) produce the same exit code, stdout, and fill bytes through the daemon as in-process, with the held font pair used for the rendered grain. They also check the fallback when no daemon answers, the stale and wrong-surface declines, socket removal on SIGTERM and `stop`, the refusal to start a second daemon, the `status` and `stop` subcommands, and that a caller passing its own units is never served. Each daemon is a real child process on a socket under tmp_path, and rebuild/conftest.py points the tools' default socket under tmp_path for every test, so no test can reach a daemon running on the machine."""
 
 import json
 import os
@@ -37,7 +37,7 @@ def _verdicts(path, surface, records):
 
 
 def _start(surface, cwd):
-    """A daemon over `surface`, listening at `cwd / "daemon.sock"` with its log beside it, returned once its status verb answers; a child that dies or never answers fails the test with the log."""
+    """Starts a daemon over `surface` listening at `cwd / "daemon.sock"`, with its log in `cwd`, and returns once it answers a `status` request. If the child exits or does not answer within START_SECONDS, the test fails with the log."""
     sock = cwd / "daemon.sock"
     log = cwd / "daemon.log"
     with log.open("w") as handle:
@@ -70,7 +70,7 @@ def _stop(proc, sock):
 
 @pytest.fixture(scope="module")
 def daemon(mini_surface, tmp_path_factory):
-    """One daemon over the mini surface for the tests that only ask it things; it is stopped at teardown and must exit clean with its socket gone."""
+    """One daemon over the mini surface, shared by the tests that only send it requests. Teardown stops it and checks that it exits 0 and removes its socket."""
     proc, sock = _start(mini_surface, tmp_path_factory.mktemp("standing-daemon"))
     yield proc, sock
     assert _stop(proc, sock) == 0
@@ -95,7 +95,7 @@ def _probe_argv(surface, tmp_path, sock, *units):
 
 
 def test_a_served_probe_is_byte_identical_to_the_in_process_one(daemon, mini_surface, tmp_path, capsys):
-    """Every mode in one call, as the skill batches them — three unit ids at the rendered grain, --find, --survey over the first unit's family and --coverage on a rule whose shape has an enumeration — with a store holding one reject: served and in-process agree on the exit code and every byte of stdout, nothing reaches stderr, and the rendered-grain columns are there, so the held SlideContext served rather than the NO_FONTS fallback."""
+    """Runs every probe mode in one call, as the dont-bug-me-about-this-ever-again skill batches them: three unit ids, --find, --survey over the first unit's family, and --coverage on a rule whose shape has an enumeration, against a store with one reject. The served and in-process runs must match on exit code and every byte of stdout, with nothing on stderr. The rendered-grain columns must appear, which shows the daemon used its held SlideContext and did not fall back to NO_FONTS."""
     _proc, sock = daemon
     human = _human_units(mini_surface)
     ids = [unit["id"] for unit in human[:3]]
@@ -142,7 +142,7 @@ def test_a_served_probe_is_byte_identical_to_the_in_process_one(daemon, mini_sur
 def test_a_served_dry_run_is_byte_identical_to_the_in_process_one(
     daemon, mini_surface, tmp_path, monkeypatch, capsys
 ):
-    """Both forms, under the bundle-local rules and a store holding a reject and an approve: the whole-domain run with a relative --out, resolved under the client's working directory on both sides, agrees on the exit code, every report line and the fill file's bytes, and writes fills; the targeted run agrees on the exit code and every line and writes nothing."""
+    """Runs both dry-run forms under the bundle's own rules against a store with one reject and one approve. The whole-domain run uses a relative --out, which both sides resolve under the client's working directory. Its served and in-process runs must match on exit code, report lines, and the fill file's bytes, and the file must contain fills. The targeted runs must match on exit code and report lines and write no files."""
     _proc, sock = daemon
     human = [unit["id"] for unit in _human_units(mini_surface)]
     stamp = _stamp(mini_surface)
@@ -183,7 +183,7 @@ def test_a_served_dry_run_is_byte_identical_to_the_in_process_one(
 
 
 def test_the_fallback_engages_when_no_daemon_answers(mini_surface, tmp_path, capsys):
-    """With --socket naming a path nothing binds, auto mode is never mode for both tools with nothing on stderr; with a plain file there, auto mode still matches and says on stderr that it is loading here; always mode refuses to load, naming the socket."""
+    """With --socket naming a path that does not exist, auto mode gives the same result as never mode for both tools, with nothing on stderr. With a plain file at the socket path, auto mode gives the same result and writes one stderr line saying it is loading the surface in this process. Always mode exits with a message naming the socket."""
     unbound = tmp_path / "nothing" / "daemon.sock"
     plain = tmp_path / "plain.sock"
     plain.write_text("")
@@ -217,7 +217,7 @@ def test_the_fallback_engages_when_no_daemon_answers(mini_surface, tmp_path, cap
 
 @pytest.mark.parametrize("axis", ["manifest", "font"])
 def test_a_stale_daemon_declines_and_exits(mini_surface, tmp_path, capsys, axis):
-    """A daemon over a copy of the mini surface, the copy then edited on one axis of its stamp — the manifest's generated_at, or the after font's bytes — declines the next request as stale, and exits clean with its socket gone."""
+    """Starts a daemon over a copy of the mini surface, then changes one field of the copy's stamp: the manifest's generated_at or the after font's bytes. The daemon must decline the next request as stale, exit 0, and remove its socket."""
     copy = tmp_path / "surface"
     shutil.copytree(mini_surface, copy)
     proc, sock = _start(copy, tmp_path)
@@ -243,7 +243,7 @@ def test_a_stale_daemon_declines_and_exits(mini_surface, tmp_path, capsys, axis)
 
 
 def test_a_request_for_another_surface_is_declined(daemon, mini_surface, tmp_path, capsys):
-    """Asked about a copy of the surface it holds, the daemon declines naming both: always mode exits with that reason, auto mode falls back to the in-process output with one stderr note, and the daemon stays up."""
+    """A request for a copy of the held surface is declined with a reason naming both paths. Always mode exits with that reason, auto mode falls back to the in-process output with one stderr line, and the daemon keeps running."""
     proc, sock = daemon
     copy = tmp_path / "other"
     shutil.copytree(mini_surface, copy)
@@ -262,7 +262,7 @@ def test_a_request_for_another_surface_is_declined(daemon, mini_surface, tmp_pat
 
 
 def test_sigterm_removes_the_socket_and_a_second_daemon_refuses_to_start(mini_surface, tmp_path, capsys):
-    """A fresh daemon answers status; a second serve on the same socket exits 1 naming the first's pid without loading; SIGTERM to the first ends it clean, removes the socket, and leaves status answering that nothing is there."""
+    """A running daemon answers `status`. A second `serve` on the same socket exits 1 without loading, naming the first daemon's pid. SIGTERM makes the first daemon exit 0 and remove its socket, after which `status` reports that no daemon answers."""
     proc, sock = _start(mini_surface, tmp_path)
     try:
         assert standing_daemon.main(["status", "--socket", str(sock)]) == 0
@@ -304,7 +304,7 @@ def test_the_status_and_stop_verbs_report_the_held_surface(mini_surface, tmp_pat
 
 
 def test_a_caller_that_injects_units_is_never_served(mini_surface, tmp_path, capsys):
-    """The verdict chain hands `main` its own units; with --daemon always pointed at a socket nothing binds, both tools still run to completion in-process, which is what proves the chain never asks."""
+    """The verdict chain passes `main` its own units. With --daemon always and a socket that nothing binds, both tools still run to completion in-process, which shows that a caller passing units never contacts the daemon."""
     unbound = tmp_path / "nothing" / "daemon.sock"
     units = _human_units(mini_surface)
     rules = _mini_rules(mini_surface, tmp_path / "rules.yaml")
@@ -345,7 +345,7 @@ _DAEMON_LOCK = (
 
 
 def test_the_stamp_reads_the_lock_by_its_dependency_pins(tmp_path, monkeypatch):
-    """A holder survives a version bump — the project's own block of the lock is not in its stamp — and still exits on a moved uharfbuzz pin, `_moved` naming the lock. `ROOT` is pointed at a scratch repo so the checkout's lock is never edited; the code field over that root is empty, since nothing loaded lives there, and stays constant across the arms."""
+    """The stamp does not change when only the project's own version changes, because `fingerprint.lock_digest` drops the project's block of the lock. It does change when the uharfbuzz pin changes, and `_moved` names uv.lock. A missing lock stamps as `-`. `ROOT` points at a scratch directory so the checkout's lock is never edited. No loaded module lives under that directory, so the code field hashes an empty file list and is the same in every case."""
     root = tmp_path / "repo"
     root.mkdir()
     lock = root / "uv.lock"

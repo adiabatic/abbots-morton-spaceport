@@ -1,4 +1,4 @@
-"""The hand probe reads new settlement from the same Rust-backed batch path as the explain CLI and review surface, and reads its baseline rows by scanning the subset table only as far as the last window it wants."""
+"""Tests for rebuild/tools/probe.py, which settles windows through `explain_many` (the Rust-backed batch path the explain CLI and the review surface use) and reads baseline rows by scanning the subset table only as far as the last wanted window."""
 
 import gzip
 from pathlib import Path
@@ -27,7 +27,7 @@ SETTLED = (
 
 
 def _settled_naming_the_request(codepoints, features):
-    """A settlement that names the request it answers: one cell per codepoint, its rune the codepoint and its stance the active features, every seam at the x-height. A block rendered from another window's reports, or from another configuration's, reads differently."""
+    """Return one cell per codepoint, with the codepoint as its rune, the active features as its stance, and every seam at the x-height. A block rendered from another window's or another configuration's reports then prints different text."""
     stance = "+".join(sorted(features)) or "default"
     last = len(codepoints) - 1
     return tuple(
@@ -41,12 +41,12 @@ def _settled_naming_the_request(codepoints, features):
 
 
 def _baseline_naming_the_window(config, windows):
-    """A baseline row for every wanted window whose glyphs field names the window and the configuration, so a block that shows another window's row, or another configuration's, reads differently."""
+    """Return a baseline row for every wanted window whose glyphs field names the window and the configuration, so a block that shows another window's or another configuration's row prints different text."""
     return {w: [w, f"old-{w}-{config}", "0", "y0"] for w in windows}
 
 
 def _stub_settlement(monkeypatch, configs, settle=_settled_naming_the_request):
-    """Route the probe through a recording `explain_many` that answers each request with `settle(codepoints, features)`, under the given configurations and with no baseline table."""
+    """Replace the probe's `explain_many` with one that records its calls and returns `settle(codepoints, features)` for each request, load the mini spec, set `CONFIGS`, and make every baseline lookup empty."""
     spec = fixtures.mini_spec()
     calls = []
 
@@ -62,7 +62,7 @@ def _stub_settlement(monkeypatch, configs, settle=_settled_naming_the_request):
 
 
 def test_probe_routes_its_configs_through_explain_many(monkeypatch, capsys):
-    """What the probe owns is the routing and the rendering, so the settlement it renders is a literal pair of cells here rather than a second trip through the kernel: one `explain_many` call carrying every configuration's window, and each report's cells and seams printed under their configuration."""
+    """The probe is responsible only for routing and rendering, so the settlement here is a fixed pair of cells instead of a kernel call. The probe makes one `explain_many` call and prints each report's cells and seams under its configuration."""
     spec, calls = _stub_settlement(monkeypatch, ["default"], settle=lambda _codepoints, _features: SETTLED)
     probe.main(["E665:E670"])
     assert len(calls) == 1
@@ -75,7 +75,7 @@ def test_probe_routes_its_configs_through_explain_many(monkeypatch, capsys):
 
 
 def test_the_baseline_scan_stops_at_the_last_window_it_wants():
-    """The scan is a pass with an early exit, so it is asserted on how far the source advanced rather than only on its answer: two wanted keys sit early in a synthetic table and the generator never yields the row after the second."""
+    """The scan should stop after the last wanted row, so the test checks how far the line generator advanced as well as the result: with two wanted keys early in a synthetic table, the generator never yields the row after the second."""
     table = ["# header\n"] + [f"K{i}\tg{i}\t0\ty{i}\n" for i in range(20)]
     yielded = []
 
@@ -91,7 +91,7 @@ def test_the_baseline_scan_stops_at_the_last_window_it_wants():
 
 
 def test_the_baseline_scan_returns_what_a_whole_table_dict_holds(monkeypatch):
-    """Over the mini bundle's checked-in default table, asking for the first data key, the last key, and an absent one in a single call returns exactly the rows a whole-table dict holds for the present keys; the oracle is built here over the same file so the assertion survives a regeneration of the bundle."""
+    """On the mini bundle's default table, one call asking for the first data key, the last key, and an absent key returns the same rows as a whole-table dict for the two present keys. The expected dict is built from the same file, so the test still passes after the bundle is regenerated."""
     monkeypatch.setattr(probe, "OUT_DIR", MINI)
     whole = {}
     with gzip.open(MINI / "baseline-default.subset.tsv.gz", "rt") as f:
@@ -110,13 +110,13 @@ def test_the_baseline_scan_returns_what_a_whole_table_dict_holds(monkeypatch):
 
 
 def test_no_wanted_window_opens_no_table(monkeypatch, tmp_path):
-    """An empty wanted set returns an empty answer without opening a table, so a directory holding no such file raises nothing."""
+    """An empty wanted set returns an empty dict without opening a table, so a directory with no table raises nothing."""
     monkeypatch.setattr(probe, "OUT_DIR", tmp_path)
     assert probe.baseline_rows("default", set()) == {}
 
 
 def test_every_window_and_configuration_rides_one_explain_many_call(monkeypatch):
-    """Two windows under two configurations are one `explain_many` call whose requests are the window-major cross product in order, so the explainer's warm-up is paid once per process."""
+    """Two windows under two configurations make one `explain_many` call whose requests are the cross product in window-major order, so the explainer's warm-up cost is paid once per process."""
     _spec, calls = _stub_settlement(monkeypatch, ["default", "ss03"])
     monkeypatch.setattr(probe, "features_for_config", lambda config: frozenset({config}))
     probe.main(["E665:E670", "E652:E67A"])
@@ -130,7 +130,7 @@ def test_every_window_and_configuration_rides_one_explain_many_call(monkeypatch)
 
 
 def test_each_block_carries_its_own_windows_settlement_and_baseline(monkeypatch, capsys):
-    """Every rendered line names the window and configuration it came from, so the whole multi-window output is pinned as text: window blocks in argument order, each block's configurations in `CONFIGS` order, each line showing the settlement answered for that window under that configuration and the baseline row read for it. A slice taken from another window's reports, or a baseline looked up under another window's key, changes the text."""
+    """Checks the full multi-window output as text: window blocks in argument order, configurations in `CONFIGS` order within each block, and each line showing the settlement and baseline row for its own window and configuration. The stubs name the window and configuration in every line, so a block built from another window's reports or baseline key prints different text."""
     _stub_settlement(monkeypatch, ["default", "ss03"])
     monkeypatch.setattr(probe, "features_for_config", lambda config: frozenset({config}))
     monkeypatch.setattr(probe, "baseline_rows", _baseline_naming_the_window)
@@ -162,7 +162,7 @@ def test_each_block_carries_its_own_windows_settlement_and_baseline(monkeypatch,
 
 
 def test_the_multi_window_run_is_the_single_window_runs_concatenated(monkeypatch, capsys):
-    """The skills diff probe output before and after a rune edit, so a run over several windows prints exactly the single-window runs joined in argument order. The stubbed settlement and baseline name their window, so the two single-window outputs differ and a block sliced from the wrong window's reports would not match."""
+    """The skills diff probe output from before and after a rune edit, so a run over several windows must print the single-window runs joined in argument order. The stubs name their window, so the two single-window outputs differ and a block taken from the wrong window's reports would not match."""
     _stub_settlement(monkeypatch, ["default", "ss03"])
     monkeypatch.setattr(probe, "baseline_rows", _baseline_naming_the_window)
     probe.main(["E665:E670"])
@@ -199,7 +199,7 @@ def test_a_present_window_prints_its_baseline_row(monkeypatch, capsys):
 
 
 def test_no_baseline_never_reads_a_subset_table(monkeypatch, capsys):
-    """`--no-baseline` leaves the OLD lines out, so nothing in the block reads as a genuine miss, and never asks for a table."""
+    """`--no-baseline` leaves the OLD lines out, so no line looks like a missing baseline row, and never reads a table."""
     _stub_settlement(monkeypatch, ["default"])
 
     def refuse(_config, _windows):
@@ -216,7 +216,7 @@ def test_no_baseline_never_reads_a_subset_table(monkeypatch, capsys):
 
 @pytest.mark.parametrize("argv", [[], ["--no-baseline"], ["E665:zz"], ["E665:"], ["qsMay"]])
 def test_an_empty_or_malformed_window_list_prints_the_usage_and_exits_2(monkeypatch, capsys, argv):
-    """No window, or an entry that is not a colon-joined hex window, is refused with the usage line and exit status 2 before anything is loaded."""
+    """With no window, or an entry that is not a colon-joined hex window, the probe prints the usage line and exits with status 2 before loading anything."""
     _spec, calls = _stub_settlement(monkeypatch, ["default"])
     with pytest.raises(SystemExit) as raised:
         probe.main(argv)

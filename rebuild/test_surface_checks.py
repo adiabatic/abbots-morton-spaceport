@@ -1,6 +1,6 @@
-"""The invariants the surface build enforces on itself, each shown refusing a surface that breaks it, beside the drafts and the geometry it refuses to produce in the first place.
+"""Tests for the review surface build's contract checks, each run against a surface that breaks one predicate, and for the drafters and packers that raise instead of producing a bad value.
 
-None of these predicates is a test that sweeps the live shards; the cross-unit ones are checks inside `build_m1`, which means a violation fails the build that produced it rather than a gate half an hour later. The manifest-shape predicates and the ones about the files beside the manifest are not: a build writes every field they read out of its own inputs, so they are proven through `check_output_dir` over a real m1 build instead (`rebuild/test_app_index.py` over the frozen mini bundle), and what this module holds them to is the checked-in fixture surface — which carries no fonts, index page or sidecars, so `check_manifest` runs over it directly and the file predicates over a copy with one file broken at a time. `check_unit` runs over every unit a build computed, a cache-served one held instead by the `content_key` stamp its shard and its store record must agree on, and every cross-unit predicate in `check_shards` runs over both kinds. What that placement costs is granularity — a violation arrives as one line in a `contract check failed` list rather than a named failing test — so what this module holds is the checker's own correctness: every predicate is exercised against the checked-in fixture surface, which passes as shipped, and then against one field broken at a time. The emitters answer for the other end, where a draft, a highlight rect, or a baseline row that could only ship as a recorded failure raises where it is made instead; those are exercised over the frozen mini bundle rather than over a broken fixture, because an emitter can only be wrong about a window it actually saw.
+`build_m1` runs `check_unit` over every unit it computes and runs the cross-unit predicates of `check_shards` through `_SurfaceCheck`, so a violation fails the build that produced it. A cache-served unit skips `check_unit` and is covered instead by the `content_key` stamp that its shard and its store record must agree on; the cross-unit predicates run over both kinds. The manifest-shape predicates (`check_manifest`) and the file predicates (`_check_output_files`) do not run in `build_m1`, because a build writes every field they read from its own inputs; `check_output_dir` runs them over a real m1 build of the frozen mini bundle in `rebuild/test_app_index.py`. A violation appears only as one line in a `contract check failed` list, not as a named failing test, so this module tests the checker itself. It runs `check_manifest` and `check_shards` over the checked-in fixture surface, which passes as shipped and carries no fonts, index page, or sidecars, and then with one field broken at a time. It runs the file predicates over small surfaces under tmp_path with one file missing or wrong. The drafter tests run over the frozen mini bundle; the highlight and subset-pack tests use small synthetic inputs, plus one check over the mini bundle's real tables.
 """
 
 import copy
@@ -54,7 +54,7 @@ FIXTURES = REPO_ROOT / "rebuild" / "review" / "fixtures"
 MINI = FIXTURES / "mini"
 MINI_AUDIT = MINI / "audit.tsv"
 MINI_FONT = MINI / "M1.otf"
-# Enough of the bundle's windows for each shape the drafter tests ask for to be among them, and few enough that one settlement pass covers the slice.
+# How many of the bundle's windows the drafter tests enrich: enough to include each shape those tests ask for, and few enough for one settlement pass.
 MINI_SLICE = 64
 SEAM_BEARER = "u-WJSK8gMxjxy"
 SEAM_HOME = "u-Ng8Npb18Kha"
@@ -90,13 +90,13 @@ def _complaint(errors: list[str], needle: str) -> None:
 
 
 def _sidecars(surface: Path) -> None:
-    """Every stamped file the output check wants beside a manifest — the plumbing's unit index and the app's two — so a test about one missing file is not also a test about the other three."""
+    """Writes the stamped sidecars the output check requires beside a manifest (the plumbing's unit index and the files in `app_index.ARTIFACTS`), so a test about one missing file does not also fail on the others."""
     unit_index.write_index(surface, [])
     app_index.write_app_artifacts(surface, {}, {})
 
 
 def test_the_fixture_surface_passes_every_predicate():
-    """The floor under everything else here: the checked-in miniature satisfies the whole contract as shipped, so every failure below is the broken field and not the fixture."""
+    """The checked-in fixture surface passes every predicate as shipped, so each failure in the tests below comes from the field that test breaks."""
     manifest, shards = _surface()
     assert check_manifest(manifest) == []
     assert check_shards(manifest, shards, REPO_ROOT) == []
@@ -104,12 +104,12 @@ def test_the_fixture_surface_passes_every_predicate():
 
 # --- the drafts a reviewer would act on -------------------------------------------------------
 
-# A draft nobody could act on is refused where it is made rather than recorded as a `fail: …` value for a later re-read to reject, so these are `DraftError`s out of the drafter and not complaints out of `check_unit`. They are asserted over the frozen mini bundle — real windows, a real after font, a real settlement — because a drafter can only be wrong about a window it actually drafted.
+# The drafter raises `DraftError` for a draft no reviewer could use, instead of recording a `fail: …` value for `check_unit` to reject later. These tests run over the frozen mini bundle (real windows, a real after font, a real settlement), because a drafter can only be wrong about a window it actually drafted.
 
 
 @pytest.fixture(scope="module")
 def mini_enriched(mini_bundle):
-    """A slice of the bundle's windows, enriched under the spec they settled beneath. One slice serves every drafter test here: enrichment is the expensive half, and none of them cares which window it gets beyond the shape it asks for."""
+    """The first MINI_SLICE units of the bundle's workload, enriched under the spec they were settled with. Enrichment is the expensive step, so every drafter test shares this slice; each test needs only some window of the shape it asks for."""
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
         spec = load_spec(mini_bundle.spec_root)
@@ -125,7 +125,7 @@ def mini_drafter():
 
 @pytest.fixture(scope="module")
 def joined_unit(mini_enriched):
-    """A window whose first after-seam is one a pin can assert either way, so a test can flip it and know the after font refutes the result."""
+    """A window whose first after-seam is `break` or `y0`, so a test can flip it to the other and know the after font refutes the flipped pin."""
     return next(unit for unit in mini_enriched if unit.after_seams[:1] in (("break",), ("y0",)))
 
 
@@ -135,7 +135,7 @@ def policy_unit(mini_enriched, mini_drafter):
 
 
 def test_a_pin_the_after_font_refutes_is_never_drafted(mini_drafter, joined_unit):
-    """The pin the drafter would hand a reviewer to paste into the corpus, drafted from a real window and then from the same window with one seam asserted the other way: the first is what ships, and the second is refused rather than shipped with a recorded failure beside it."""
+    """A pin drafted from a real window passes against the after font. A pin drafted from the same window with its first seam flipped raises DraftError instead of being shipped with a recorded failure."""
     assert mini_drafter.draft_pin(joined_unit).semantics_after_font == "pass"
     flipped = ("y0" if joined_unit.after_seams[0] == "break" else "break", *joined_unit.after_seams[1:])
     with pytest.raises(DraftError) as raised:
@@ -151,7 +151,7 @@ def test_a_pin_that_does_not_parse_is_never_drafted(monkeypatch, mini_drafter, j
 
 
 def test_a_policy_record_the_rune_schema_rejects_is_never_drafted(monkeypatch, mini_drafter, policy_unit):
-    """Which of the three checkers the branch table reaches depends on the window, so all three are made to refuse: what is under test is that a refused record raises rather than riding out as a schema_valid false."""
+    """Which of the three schema checkers the drafter uses depends on the window, so all three are made to fail. The test checks that a record the schema rejects raises DraftError instead of being recorded with `schema_valid` false."""
     for name in ("_refuse_checker", "_prefer_checker", "_contract_checker"):
         monkeypatch.setattr(getattr(mini_drafter, name), "check", lambda _record: ["boom"])
     with pytest.raises(DraftError) as raised:
@@ -160,7 +160,7 @@ def test_a_policy_record_the_rune_schema_rejects_is_never_drafted(monkeypatch, m
 
 
 def test_an_any_of_candidate_that_does_not_parse_is_never_drafted(monkeypatch, mini_drafter, joined_unit):
-    """The before-behavior candidate is the one string in the any-of record nothing else checks — the pin covers the after behavior — so it is parsed where it is written."""
+    """The before-behavior candidate is the only string in the any-of record that nothing else checks (the pin covers the after behavior), so the drafter parses it when it writes it."""
     real = drafts.expect_string
     calls: list[int] = []
 
@@ -195,7 +195,7 @@ def test_a_slim_unit_carrying_explain_material_fails_the_build(key):
 
 @pytest.mark.parametrize("key", SLIM_OMITTED_KEYS)
 def test_a_slim_unit_carrying_an_emptied_field_fails_the_build(key):
-    """Absent is the shape, never null: an emptied field on a slim fragment is exactly what the app would read as a whole record with a blank in it."""
+    """A slim fragment omits these keys; it never sets them to null. The app would read a null field on a slim fragment as a full record with a blank field."""
     unit = _one(SLIM_UNIT)
     unit[key] = None
     _complaint(check_unit(unit), f"omit {key}")
@@ -216,7 +216,7 @@ def test_a_human_unit_with_drafts_null_fails_the_build():
 
 @pytest.mark.parametrize("flag", ("picture_identical", "junior_equivalent", "no_verdict"))
 def test_every_machine_channel_and_the_exemption_take_the_slim_shape(flag):
-    """Slim is a property of taking no verdict rather than of one channel: a picture-identical unit, a Junior-equivalent one and a unit in a no-verdict class each ship without the explain material, and each fails the build carrying it."""
+    """Every unit that takes no verdict is slim: a picture-identical unit, a Junior-equivalent unit, and a unit in a no-verdict class each pass without the explain material, and each fails the build when it carries drafts."""
     unit = _one(SLIM_UNIT)
     deltas = {} if flag == "picture_identical" else {"ss02": "d-000000000000"}
     unit.update(ink_identical=False, ink_deltas=deltas, **{flag: True})
@@ -290,7 +290,7 @@ def test_a_cluster_spanning_two_classes_fails_the_build():
 
 
 def test_human_unit_ids_out_of_triage_order_fails_the_build():
-    """The index is the queue's order — class, group, window, id — and a fragment carries no position, so the checker re-derives the order from the fragments and holds the manifest to it."""
+    """`human_unit_ids` lists the human units in triage order (class, group, window, id). A fragment carries no position, so the checker derives the order from the fragments with `triage_key` and compares the manifest with it."""
     manifest, shards = _surface()
     manifest["human_unit_ids"] = list(reversed(manifest["human_unit_ids"]))
     _complaint(check_shards(manifest, shards), "not the triage-ordered sequence")
@@ -309,14 +309,14 @@ def test_a_batch_count_the_index_does_not_bear_out_fails_the_build():
 
 
 def test_a_fragment_carrying_a_batch_fails_the_build():
-    """A fragment's bytes depend on its content and the ledger alone, which is what lets a served fragment be copied verbatim; a batch is a fact about the queue and lives in the manifest's index."""
+    """A fragment's bytes depend only on its content and the ledger, which is what lets a served fragment be copied unchanged. A batch is a position in the queue, so it is recorded in the manifest's index."""
     unit = _one()
     unit["batch"] = 0
     _complaint(check_unit(unit), "carries no batch")
 
 
 def test_an_id_that_is_not_its_stamps_fails_the_build():
-    """The id is the content key's first 64 bits in base58, so a fragment whose id names other content than its stamp describes is refused, as is one of any other shape."""
+    """The id is the content key's first 64 bits in base58. The check fails a fragment whose id belongs to different content than its stamp, and an id of any other form."""
     unit = _one()
     unit["id"] = _one(ECHO_MATE)["id"]
     _complaint(check_unit(unit), "must be the content key's own")
@@ -334,7 +334,7 @@ def test_a_no_verdict_class_carrying_batches_fails_the_build():
 
 
 def _homed_surface() -> tuple[dict, dict[str, list[dict]]]:
-    """The fixture with its one homed seam made resolver-shaped: a census present (which is what says the homes were assigned rather than hand-written), a home window that really is a substring of its bearer's, and a primary pair on the home. The fixture ships without a census precisely because its seam is hand-placed."""
+    """Returns the fixture with its one homed seam made to look like the resolver's output: a `secondary_seams` census in the manifest, which marks the homes as resolver-assigned, a home window that is a substring of the bearer's window, and a primary pair on the home. The fixture ships without a census because its seam is placed by hand."""
     manifest, shards = _surface()
     manifest["secondary_seams"] = {
         "units_with_markers": 1,
@@ -369,7 +369,7 @@ def test_a_home_with_no_primary_pair_fails_the_build():
 
 
 def test_a_home_with_nothing_to_see_fails_the_build():
-    """An ink-identical home is what `seams_suppressed_invisible` counts; one that reached a shipped seam instead means the resolver's suppression did not fire."""
+    """The resolver counts a seam whose home is ink-identical in `seams_suppressed_invisible` instead of shipping it. A shipped seam with such a home means that suppression did not happen."""
     manifest, shards = _homed_surface()
     home = _unit(shards, SEAM_HOME)
     home["ink_identical"] = True
@@ -381,7 +381,7 @@ def test_a_home_with_nothing_to_see_fails_the_build():
 
 
 def test_a_picture_identical_home_fails_the_build_the_same_way():
-    """Picture identity is the same nothing-to-see at the coarser grain: the home's delta is empty under every config, and the resolver's suppression must still have fired."""
+    """A picture-identical home also shows no visible change: its delta is empty under every config, so the resolver should have suppressed the seam."""
     manifest, shards = _homed_surface()
     home = _unit(shards, SEAM_HOME)
     home["picture_identical"] = True
@@ -396,7 +396,7 @@ def test_a_picture_identical_home_fails_the_build_the_same_way():
 
 
 def test_a_missing_unit_index_fails_the_build(tmp_path):
-    """The plumbing reads the index and never the shards, so a surface that ships without one, or with one stamped for a manifest it does not describe, is a surface the next carry would resolve off a stale projection."""
+    """The plumbing reads the unit index, not the shards. A surface without an index, or with one stamped for another manifest, would make the next carry read stale data."""
     manifest = {"classes": [], "fonts": {}}
     (tmp_path / "index.html").write_text("")
     (tmp_path / "manifest.json").write_text(json.dumps(manifest), encoding="utf-8")
@@ -432,7 +432,7 @@ def _split_first_class(surface: Path) -> None:
 
 
 def test_a_class_written_as_parts_reads_back_as_the_same_class(tmp_path):
-    """Splitting a class is invisible to the contract: `check_output_dir` concatenates the parts in order before it checks anything, so a surface answers the same whether a class is one file or several."""
+    """`check_output_dir` concatenates a class's parts in order before checking, so it reports the same errors whether a class is one file or several."""
     plain = tmp_path / "plain"
     shutil.copytree(FIXTURES, plain, ignore=shutil.ignore_patterns("mini", "*.md", "*.tsv", "*.yaml"))
     split = tmp_path / "split"
@@ -443,7 +443,7 @@ def test_a_class_written_as_parts_reads_back_as_the_same_class(tmp_path):
 
 
 def test_every_part_of_a_split_class_must_be_present_and_non_empty(tmp_path):
-    """A build that wrote part 000 and died before 001 must not read as complete, so the check walks every part rather than the first."""
+    """A build that wrote part 000 and died before 001 must not pass as complete, so the check reads every part."""
     manifest = {
         "classes": [{"id": "big", "shards": ["units/big.000.json", "units/big.001.json"]}],
         "fonts": {},
@@ -462,7 +462,7 @@ def test_every_part_of_a_split_class_must_be_present_and_non_empty(tmp_path):
 
 
 def test_a_font_copy_that_is_not_its_source_fails_the_build(tmp_path):
-    """The staleness this catches is a real one: a surface whose manifest is internally consistent, whose copied font is faithful to that manifest, and whose source has since been recompiled."""
+    """The copied font matches the manifest's sha256, but its source has since been recompiled. Only the check with `repo_root` catches this."""
     import hashlib
 
     source = Path("site") / "AbbotsMortonSpaceportSansSenior-Regular.otf"
@@ -498,7 +498,7 @@ def test_a_build_without_its_baseline_subset_tables_refuses_before_it_starts(tmp
 
 
 def test_an_empty_audit_refuses_before_any_unit_is_built(tmp_path, mini_bundle):
-    """The rebuild's own end state — an audit whose every window matches — is not a surface with nothing in it but a build with nothing to do, and it says so where the rows are read rather than several minutes later as a manifest whose `classes` list came out empty."""
+    """An audit in which every window matches, the rebuild's intended end state, leaves the build nothing to do. The build exits naming the audit when it reads the rows, instead of writing a manifest with an empty `classes` list minutes later."""
     audit_path = tmp_path / "audit.tsv"
     audit_path.write_text("\t".join(AUDIT_HEADER) + "\n", encoding="utf-8")
     with pytest.raises(SystemExit) as raised:
@@ -516,7 +516,7 @@ def test_an_empty_audit_refuses_before_any_unit_is_built(tmp_path, mini_bundle):
 
 
 def test_identical_table_directories_refuse_to_diff(tmp_path):
-    """The same refusal on the table-diff side, and the same end state: two directories that settle every window alike have no diff to review."""
+    """The table-diff build exits the same way: two directories that settle every window alike have no diff to review."""
     old_dir = tmp_path / "old"
     new_dir = tmp_path / "new"
     old_dir.mkdir()
@@ -538,7 +538,7 @@ def test_identical_table_directories_refuse_to_diff(tmp_path):
 
 
 def test_a_font_that_moved_since_load_fails_the_copy(tmp_path):
-    """What the build holds its fonts to now that it no longer re-reads them after the fact: the digest it took when it loaded the font, asserted against the copy it ships. A run_m1 landing anywhere in the minutes between would otherwise leave a surface whose units describe the old font beside an `after.otf` that is the new one."""
+    """`_copy_font` compares the copy it ships with the digest the build took when it loaded the font. Without this, a run_m1 that finished between the load and the copy would leave units that describe the old font beside an `after.otf` that is the new one."""
     digest = _sha256(MINI_FONT)
     record = _copy_font(MINI_FONT, tmp_path, "after.otf", "AMS Review After", REPO_ROOT, digest)
     assert record["sha256"] == digest
@@ -548,7 +548,7 @@ def test_a_font_that_moved_since_load_fails_the_copy(tmp_path):
 
 
 def test_a_manifest_with_no_classes_draws_no_complaint():
-    """A surface with an empty `classes` list is not a contract violation — it is a workload the build refuses to start, and the refusals above are where that is said. A checker that called it malformed would fire on the rebuild's own end state."""
+    """`check_manifest` accepts an empty `classes` list. The build exits before it would write one (see the tests above), and a checker that failed on it would fail on the rebuild's intended end state."""
     manifest, _shards = _surface()
     manifest["classes"] = []
     assert not [error for error in check_manifest(manifest) if "classes" in error]
@@ -572,7 +572,7 @@ def test_the_verification_sample_is_reproducible_and_bounded():
 
 
 def test_a_highlight_rect_is_refused_where_the_pens_run_backwards():
-    """`x_min <= x_max <= advance_total` is a property of the pen positions the rect is read off, so it is held there: monotone pens can only make a well-formed rect, and pens that are not are a shaped run the enricher has no business drawing a band over."""
+    """`_highlight` requires non-decreasing pen positions. Those always give `x_min <= x_max <= advance_total`, and a shaped run whose pens go backwards should not get a highlight band."""
     with pytest.raises(ValueError) as raised:
         _highlight([0, 10, 5], [(0, 1), (1, 2)], 0, 1)
     assert "non-decreasing" in str(raised.value)
@@ -602,13 +602,13 @@ def _subset_table(path: Path, *rows: Row) -> Path:
 
 
 def _pack(tmp_path: Path, *configs: str) -> SubsetPack:
-    """The named configurations' tables under `tmp_path` packed and opened, with the digests the reader holds the header to hashed off the same tables."""
+    """Packs the named configurations' tables under `tmp_path` and opens the pack, checking its header against digests of the same tables."""
     digests = table_digests(tmp_path, configs)
     return SubsetPack.open(write_pack(tmp_path, configs, digests, tmp_path / "subsets.pack"), digests)
 
 
 def test_a_baseline_row_outside_the_seam_vocabulary_is_refused_by_the_packer(tmp_path):
-    """`SeamClassifier.classify` can name two heights at once, and a shard's `before.seams` cannot say that. The refusal belongs where the table is read, which is the packer: it sweeps every row of every table it packs, so a compound token on any row refuses the table before a pack exists, and no worker's lookups decide which rows were checked. Nothing is renamed into place on a refusal, so a build that reaches the pack finds no torn one."""
+    """`SeamClassifier.classify` can emit a compound token naming two heights, and a shard's `before.seams` cannot represent one. The packer checks every row of every table it packs, so a compound token on any row fails the table before a pack exists, whichever rows the workers later look up. Nothing is renamed into place on a failure, so no partial pack is left behind."""
     pair = (0xE650, 0xE652)
     _subset_table(tmp_path / "baseline-clean.subset.tsv.gz", _subset_row(pair, ("y0",)))
     clean = _pack(tmp_path, "clean")
@@ -630,7 +630,7 @@ def test_a_baseline_row_outside_the_seam_vocabulary_is_refused_by_the_packer(tmp
 
 
 def test_a_packed_row_is_the_projection_the_enricher_reads(tmp_path):
-    """What a lookup hands back is a `SubsetRow` — the glyphs, clusters and seams of the parsed `Row` and nothing else, since `positions` is dead on this path and `codepoints` is the key — materialized from the mapped record with its strings drawn from the pack's one interned string table: a glyph name or a seam token is one object however many rows carry it, and the same object `sys.intern` answers anywhere else in the process. A window the table does not hold, or a configuration the pack does not, answers None."""
+    """A lookup returns a `SubsetRow` with only the glyphs, clusters, and seams of the parsed `Row`: `positions` is not read on this path and `codepoints` is the key. Its strings come from the pack's interned string table, so a glyph name or seam token is one object however many rows use it, and the same object `sys.intern` returns elsewhere in the process. A window the table does not hold, or a configuration the pack does not hold, returns None."""
     first = _subset_row((0xE650, 0xE652), ("y0",))
     second = _subset_row((0xE652, 0xE650), ("y0",))
     _subset_table(tmp_path / "baseline-two.subset.tsv.gz", first, second)
@@ -658,7 +658,7 @@ def test_a_packed_row_is_the_projection_the_enricher_reads(tmp_path):
 
 
 def test_a_window_no_key_can_spell_is_refused_at_the_packer(tmp_path):
-    """A key is four 16-bit slots, and both bounds are checked: a fifth codepoint outruns the slots, and a codepoint past the Basic Multilingual Plane would shift into its neighbor's slot and pack two windows under one key, so `pack_key` refuses it rather than masking it — `10000:0020` and `0001:0000:0020` are different windows and get no shared key. A table holding either never becomes a pack."""
+    """A key is four 16-bit slots, and `pack_key` checks both bounds. A fifth codepoint does not fit. A codepoint past the Basic Multilingual Plane would spill into its neighbor's slot and give two windows one key (`10000:0020` and `0001:0000:0020`), so `pack_key` raises instead of masking it. A table holding such a window never becomes a pack."""
     with pytest.raises(ValueError) as wide:
         pack_key("E650:E652:E650:E652:E650")
     assert "5 codepoints" in str(wide.value)
@@ -679,7 +679,7 @@ def test_a_window_no_key_can_spell_is_refused_at_the_packer(tmp_path):
     "path", sorted(MINI.glob("baseline-*.subset.tsv.gz")), ids=lambda path: path.name.split(".")[0]
 )
 def test_the_pack_drops_nothing_the_enricher_reads_from_a_real_table(path: Path, mini_bundle):
-    """Over every table the frozen bundle ships, packed six at a time into the bundle's pack, the rows read back are row for row what `rowmodel.Row` would have parsed: the pack's keys in its sorted order are exactly the table's keys, and under each the same glyphs, clusters and seams. `iter_rows` is the oracle here on purpose — the packer never builds a `Row`, it splits a line once and reads three of its fields, so the row model's parse is the independent reading this holds it to. A synthetic two-row table pins the shape; this pins it against tables the extractor actually wrote, ligature rows and boundary tokens included."""
+    """For every table the frozen bundle ships, all packed into the bundle's pack, the rows read back match what `rowmodel.Row` parses: the pack's keys, in sorted order, are the table's keys, and each has the same glyphs, clusters, and seams. `iter_rows` is the reference because the packer never builds a `Row`; it splits each line and reads three fields, so the row model's parse is an independent reading. The synthetic tests above check the format; this one checks tables the extractor wrote, including ligature rows and boundary tokens."""
     config = path.name.split(".")[0].removeprefix("baseline-")
     pack = SubsetPack.open(mini_bundle.subset_pack, table_digests(MINI, ACCEPTANCE_CONFIGS))
     packed = list(pack.rows(config))
@@ -698,7 +698,7 @@ def test_the_pack_drops_nothing_the_enricher_reads_from_a_real_table(path: Path,
 
 
 def test_a_subset_key_is_spelled_the_way_the_row_model_spells_it(tmp_path):
-    """A window is found under the codepoints the row model would parse whatever the table's spelling of them — lowercase, unpadded — since the packer re-derives every key through `int`; the pack's own spelling of a key is the uppercase four-digit one `Row.to_tsv` writes. Header and blank lines are skipped the way `iter_rows` skips them, and a table written out of key order is sorted on the way in."""
+    """The packer converts every key through `int`, so a window is found under the codepoints the row model parses whatever case or padding the table uses. The pack writes keys in the uppercase four-digit form `Row.to_tsv` writes. Header and blank lines are skipped as `iter_rows` skips them, and a table written out of key order is sorted when packed."""
     path = tmp_path / "baseline-spelled.subset.tsv.gz"
     with gzip.open(path, "wt", encoding="utf-8") as stream:
         stream.write("# config: default\n")
@@ -722,7 +722,7 @@ def test_a_subset_key_is_spelled_the_way_the_row_model_spells_it(tmp_path):
 
 
 def test_a_pack_is_written_once_and_rewritten_only_when_a_table_moves(tmp_path, monkeypatch):
-    """`ensure_pack` is what every reader goes through, and it writes only when it must: a pack whose header records the tables' digests and this packer's code digest is reused as it lies, a table whose digest has moved gets the pack rewritten over it, and so does a pack written by other packer code — the whole-table seam sweep and the projection live in the packer, so a tightening of either reaches every pack on the next build rather than being outlived by one — and the reader refuses a pack whose header disagrees with either rather than serving rows of some other table or some other reading of it."""
+    """Every reader goes through `ensure_pack`, which writes only when it must. A pack whose header records the tables' digests and this packer's code digest is reused. A pack is rewritten when a table's digest changes, when the packer code changes (so a change to the seam check or the projection reaches every pack on the next build), or when the configuration list or destination differs. `SubsetPack.open` raises on a pack whose header disagrees with the tables or the packer code."""
     pair = (0xE650, 0xE652)
     _subset_table(tmp_path / "baseline-default.subset.tsv.gz", _subset_row(pair, ("y0",)))
     _subset_table(tmp_path / "baseline-ss10.subset.tsv.gz", _subset_row(pair, ("break",)))
@@ -769,7 +769,7 @@ def test_a_pack_is_written_once_and_rewritten_only_when_a_table_moves(tmp_path, 
 
 
 def test_a_served_unit_skips_check_unit_but_not_the_cross_unit_grain():
-    """What `served_ids` buys and what it must not: the per-unit predicates are the ones a served fragment's stamp already answers for, while the predicates that relate a unit to its shard and to its neighbors run over every unit on every build, served or not."""
+    """`served_ids` skips `check_unit` for a served fragment, whose stamp already covers the per-unit predicates. The predicates that relate a unit to its shard and to other units still run over every unit, served or not."""
     manifest, shards = _surface()
     _unit(shards, PLAIN_UNIT)["drafts"]["pin"]["syntax"] = "fail: Expected glyph token at pos 0"
     _complaint(check_shards(manifest, shards, REPO_ROOT), "drafts.pin.syntax")
@@ -782,7 +782,7 @@ def test_a_served_unit_skips_check_unit_but_not_the_cross_unit_grain():
 
 
 def test_the_premerge_projection_answers_one_ink_flag_per_captured_unit():
-    """What makes an index into `ink_flags` mean anything: the flags run parallel to the capture, which is the pre-merge grain the census pins are defined over. `derive_premerge` now says so itself rather than leaving a sweep over the live sidecar to discover otherwise. (The companion claim — that no unit at a family index is ink-identical — is a fact about the corpus, not about the projection, and lives in `build_m1` where the corpus is.)"""
+    """`ink_flags` has one entry per captured unit, at the pre-merge grain the census pins are defined over, so an index into it identifies a unit. The related claim that no unit with a family is ink-identical holds only for the real corpus, so `build_m1` asserts it instead of `derive_premerge`."""
     rows = [
         AuditRow(
             "default",
@@ -814,7 +814,7 @@ def _fixture_units() -> list[dict]:
 
 
 def _broken(unit: dict, key: str) -> list[dict]:
-    """The unit with one key deleted and with the same key set to a value of a type no field carries: the two corruptions every predicate in `check_unit` has an answer to, with nothing that could raise out of the checker instead of being reported by it."""
+    """Returns two copies of the unit: one with `key` deleted and one with `key` set to the string `"wrong"`. Neither makes `check_unit` raise."""
     without = copy.deepcopy(unit)
     without.pop(key, None)
     wrong = copy.deepcopy(unit)
@@ -824,7 +824,7 @@ def _broken(unit: dict, key: str) -> list[dict]:
 
 @pytest.mark.parametrize("mode", ("m1-audit", "table-diff"))
 def test_the_two_check_moments_partition_the_whole_contract(mode):
-    """`check_unit` is one function with two named subsets, and calling it at `DRAFTED` and then at `PATCHED` is calling it whole: over every fixture unit as shipped, and over each one with every key deleted and every key wrongly typed in turn, the two subsets' complaints concatenate to the full check's list, in its order, and never overlap. A predicate that answered at both moments or at neither would fail here, which is what makes the split a partition rather than two lists that happen to cover the contract today."""
+    """`check_unit` has two named subsets, and running `DRAFTED` then `PATCHED` must equal running it whole. For every fixture unit as shipped, and with each key in turn deleted or set to a wrong value, the two subsets' complaints concatenate to the full check's list in order and never overlap. A predicate that ran at both moments or at neither fails this test."""
     for unit in _fixture_units():
         variants = [unit] + [broken for key in list(unit) for broken in _broken(unit, key)]
         for variant in variants:
@@ -836,7 +836,7 @@ def test_the_two_check_moments_partition_the_whole_contract(mode):
 
 
 def test_every_scaffold_key_is_either_held_at_the_write_or_checked_there():
-    """Where a scaffold key is classified: every key `unit_scaffold` writes is either held by `hold_scaffold` at the write (`_HELD_SCAFFOLD_KEYS`, so the drafting-time check's reading of it is the reading of the bytes that ship) or is one of the two the parent's reduces assign after drafting, `echo` and `cluster`, and no key is both. The unheld keys, with the secondary seams the patch re-emits beside them, are then exactly what the write-time subset answers for: corrupting any of them draws no complaint from `DRAFTED` and a complaint from `PATCHED`. A key added to the scaffold fails here until it is placed on one side or the other."""
+    """Every key `unit_scaffold` writes is either checked by `hold_scaffold` at the write (`_HELD_SCAFFOLD_KEYS`, so the drafting-time check read the same value that ships) or is one of the two keys the parent's reduces assign after drafting, `echo` and `cluster`, and no key is both. Deleting or corrupting `echo`, `cluster`, or `secondary_seams` (which the patch also writes) draws no complaint from `DRAFTED`. A wrong value in any of them draws one from `PATCHED`, and so does a missing `echo` or `cluster`. A key added to the scaffold fails this test until it is assigned to one side."""
     scaffold_keys = _SCAFFOLD_HEAD + _SCAFFOLD_TAIL
     unheld = {"echo", "cluster"}
     assert set(_HELD_SCAFFOLD_KEYS) | unheld == set(scaffold_keys)
@@ -867,7 +867,7 @@ def _build_mini(out: Path, mini_bundle) -> None:
 
 
 def test_a_fragment_the_worker_drafts_wrong_fails_the_build(mini_bundle, monkeypatch, tmp_path):
-    """The drafting side of the split, through a real serial build: a pin the after font refuted, written onto every human fragment as `unit_to_json` lays it down, is refused by the `DRAFTED` subset where the fragment is drafted and fails the build at the write, in the parent's own `contract check failed` list with the predicate's wording. Serial, because a spawned worker never sees the monkeypatch; the pooled path runs the same `_phase1_unit`."""
+    """Tests the drafting-time subset through a real serial build. A failing pin written onto every human fragment by `unit_to_json` is caught by `DRAFTED` where the fragment is drafted, and fails the build at the write in the parent's `contract check failed` list with the predicate's message. The build is serial because a spawned worker does not see the monkeypatch; the pooled path runs the same `_phase1_unit`."""
     unit_to_json = review_build.unit_to_json
 
     def refuted(*args, **kwargs):
@@ -884,7 +884,7 @@ def test_a_fragment_the_worker_drafts_wrong_fails_the_build(mini_bundle, monkeyp
 
 
 def test_an_echo_the_parent_nulls_still_fails_the_build(mini_bundle, monkeypatch, tmp_path):
-    """The write side of the split, through the same serial build: an echo the parent's reduce leaves null on every human unit — a field settled after drafting, which no drafting-time check could have seen — is refused by the `PATCHED` subset at the write and fails the build with the predicate's wording."""
+    """Tests the write-time subset through the same serial build. A null echo on every human unit, a field the parent assigns after drafting, is caught by `PATCHED` at the write and fails the build with the predicate's message."""
     monkeypatch.setattr(review_build.unit_cache, "echo_id_for", lambda key: None)
     with pytest.raises(SystemExit) as raised:
         _build_mini(tmp_path / "surface", mini_bundle)

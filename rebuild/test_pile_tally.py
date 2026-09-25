@@ -1,4 +1,4 @@
-"""The debug pile tally: off unless asked for by exactly the documented variable, an estimate that is a scaled sample rather than a full walk, and the one line format the module docstring promises a grep can read back."""
+"""Tests for the debug pile tally in rebuild/tools/pile_tally.py: it is off unless `AMS_SURFACE_PILE_TALLY` is exactly `1`, its estimates scale a sample by the count, and its lines match the formats the module docstring documents."""
 
 import io
 import re
@@ -119,7 +119,7 @@ _PINNED_SHAPE = pile_tally.Record(
 
 
 class _CountedPile(list):
-    """A pile that counts the passes made over it, so a test can say how many times the string table's walk reads every member."""
+    """A list that counts the passes made over it, so a test can check how many times the string-table walk reads every member."""
 
     def __init__(self, members) -> None:
         super().__init__(members)
@@ -141,7 +141,7 @@ class _CountedView:
 
 
 class _CountedMap(dict):
-    """A mapping that counts the passes made over the items view it hands out, so a test can say the string table's walk reads the view itself rather than a list copied off it."""
+    """A dict that counts the passes made over its items view, so a test can check that the string-table walk reads the view and does not copy it into a list."""
 
     def __init__(self, members) -> None:
         super().__init__(members)
@@ -231,7 +231,7 @@ def test_a_boundary_prints_the_documented_lines_sorted_largest_first():
 
 
 def test_a_column_census_charges_a_shared_string_table_to_one_line():
-    """A packed pile's walked figure is its columns plus its string table, unless the pile names into a table another pile's line holds, when it is the columns alone; the table is printed beside the packed figure either way, so the two readings differ in `est_bytes` and nowhere else."""
+    """A packed pile's walked figure is its columns plus its string table, or its columns alone when another pile's line already holds the table (`holds_table=False`). The table is reported beside the packed figure in both cases, so the two readings differ only in `est_bytes`."""
     table = columns.StringTable()
     for value in ("ink", "picture", "junior"):
         table.id(value)
@@ -290,7 +290,7 @@ def test_a_drifted_declaration_raises_rather_than_pricing_the_wrong_field():
 
 
 def test_a_hex_column_charges_its_width_whether_the_digest_is_there_or_not():
-    """A fixed-width column has no holes: a member whose digest is None or empty costs the same bytes as one that carries it, or a packed figure would step by the column's width every time a boundary sampled a member that had not been keyed yet. The declared width is also the cross-check — a digest of another length is a column declared for the wrong field, and it raises."""
+    """A member whose digest is None or empty costs the same bytes as one that has it. Otherwise the packed figure would jump by the column width whenever a boundary sampled a member that had no key yet. A digest of a different length raises, because it means the column was declared for the wrong field."""
     digest = pile_tally.Hex()
     assert pile_tally.packed_size(digest, "ab" * 32) == pile_tally.HEX_WIDTH == 32
     assert pile_tally.packed_size(digest, None) == 32
@@ -303,7 +303,7 @@ def test_a_hex_column_charges_its_width_whether_the_digest_is_there_or_not():
 
 
 def test_a_derived_column_prices_an_absent_value_without_reading_it():
-    """A derived width follows the value, so an absent value has no width to derive and the callable never sees it: it costs the count slot such a column writes for an empty one. The shape that reaches this is a window of codepoints under an identity triple, where a member with no window is a member with a count of zero rather than a crash."""
+    """An absent value is never passed to the callable and costs the column's `absent` width, by default the `COUNT_WIDTH` count slot. The build's `checker.identity` shape in rebuild/review/build.py is a codepoint window in a `Positional` triple, and a member with no window must cost a zero count there instead of raising."""
     window = pile_tally.Derived(lambda values: 1 + 2 * len(values))
     assert pile_tally.packed_size(window, (0xE650, 0xE651)) == 5
     assert pile_tally.packed_size(window, None) == pile_tally.COUNT_WIDTH
@@ -313,7 +313,7 @@ def test_a_derived_column_prices_an_absent_value_without_reading_it():
 
 
 def test_a_nested_pile_takes_no_packed_shape_at_the_call_site_or_at_the_boundary():
-    """A nested pile's count is the rows of the tables under it while a packed row prices one member, so the two disagree about what the count means and a line carrying both would divide bytes by a count that does not describe them. The refusal lands where the pile is held, not at the boundary an hour later."""
+    """A nested pile's count is the rows of its tables, while a packed shape describes one member, so a line with both would divide bytes by the wrong count. `measure` and `hold` raise at once, not at a later boundary."""
     tables = {"default": {"E650": _Row("r", ("qsPea",))}}
     with pytest.raises(ValueError):
         pile_tally.measure(tables, nested=True, packed=_STATE_SHAPE)
@@ -323,7 +323,7 @@ def test_a_nested_pile_takes_no_packed_shape_at_the_call_site_or_at_the_boundary
 
 
 def test_a_pinned_record_prices_to_the_width_it_is_declared_at():
-    """One member of every shape in the vocabulary, priced to the byte: eight flags as one flag byte, a digest in its thirty-two raw bytes, a window as a count byte and a `u16` a codepoint, an id as four, a variable-length field as an offset and count plus its elements, a mapping as the pair plus a key and a value an entry, and a positional address as its three slots. An absent member costs every fixed column under it and the offset-and-count pair of every variable one."""
+    """A member with one field of each shape kind costs a known number of bytes: eight flags take one byte, a digest its thirty-two raw bytes, a window a count byte plus two bytes per codepoint, an id four bytes, a variable-length field an offset and a count plus its elements, a mapping the same pair plus a key and a value per entry, and a positional address its three slots. An absent member costs every fixed column under it and the offset-and-count pair of every variable one."""
     assert pile_tally.packed_size(_PINNED_SHAPE, _pinned()) == 80
     assert pile_tally.packed_size(_PINNED_SHAPE, None) == 60
     cost = pile_tally.packed_estimate([_pinned()] * 64, _PINNED_SHAPE, sample_size=8)
@@ -356,7 +356,7 @@ def test_the_packed_rows_scale_with_the_sample_and_the_strings_are_counted_over_
 
 
 def test_the_bare_ids_of_one_record_come_off_one_pass_over_the_members():
-    """The string table is exact rather than sampled, so its cost is passes over the whole pile — and the bare `Id` fields of one record are read by one getter, which makes them one pass between them rather than one apiece. Here three id columns cost two passes, beside the one the sampled walk takes."""
+    """The string table is counted over every member, so each id column costs a pass over the whole pile. The bare `Id` fields of one record share a getter and so share one pass. Here the three id columns take two passes, plus one pass to take the sample."""
     shape = pile_tally.Record(
         {
             "cluster": pile_tally.Id(),
@@ -388,7 +388,7 @@ def test_a_mapping_is_priced_by_its_values_unless_a_table_prices_its_entries():
 
 
 def test_the_string_table_reads_the_items_view_rather_than_a_list_of_the_entries():
-    """A packed figure is read inside the process it is measuring, so the walk holds nothing per member: it reads the mapping's own items view again for each id column instead of copying the entries into a list first, which over a pile of a million units would be a hundred megabytes of tuples standing inside the reading. Five id columns here, and the sample's own pass."""
+    """The tally runs inside the process it measures, so the string-table walk must not hold anything per member. It reads the mapping's items view once per id column; copying the entries into a list first would add about 70 MB of tuples for a pile of a million units. Here there are five id columns plus the pass that takes the sample."""
     pile = _CountedMap({f"{index:064x}": _state(index) for index in range(64)})
     cost = pile_tally.packed_estimate(pile, pile_tally.Table(pile_tally.Hex(), _STATE_SHAPE), sample_size=8)
     assert pile.passes == 6

@@ -1,4 +1,4 @@
-"""Tests for the section 6.3a explain CLI: sequence parsing, the Rust-backed per-position candidate table, elimination attribution to file and record, and the rank-comparison line."""
+"""Tests for the explain CLI (`doc/rebuild-design.md` §6.3, item (a)): sequence parsing, the Rust-backed per-position candidate table, elimination attribution to file and record, and the rank-comparison line."""
 
 from rebuild.pipeline import explain as explain_module
 from rebuild.pipeline import fixtures, kernel_exec
@@ -25,7 +25,7 @@ def test_report_settles_and_renders_candidates():
 
 
 def test_eliminations_are_attributed_to_records():
-    # qsMay's grounded baseline exit toward qsIt dies to the authored refusal; the report names the record's file and key path.
+    # qsMay's refuse[0] removes the grounded-loop baseline exit before qsIt, and the report names the record's file and key path.
     report = explain(SPEC, parse_sequence(SPEC, "qsMay:qsIt"), frozenset())
     text = report.render()
     assert "glyph_data/runes/qsMay.yaml:policy.refuse[0]" in text
@@ -48,7 +48,7 @@ def test_boundary_positions_render():
 
 
 def test_an_overlay_configuration_explains_the_bare_stream_without_the_crate(monkeypatch):
-    """Under ss10 nothing settles, so the report is the registry's answer — every letter its default-stance cell with no seam, a ligature's components unformed, boundaries as boundaries — decided by the overlay stage, rendered as such, and reached without a kernel invocation; a batch that mixes overlay and settling requests keeps its order."""
+    """Under ss10 nothing settles, so the report gives each letter its default-stance cell with no seam, leaves a ligature's components unformed, and keeps boundaries as boundaries. Each letter is decided by the overlay stage without calling the kernel. A batch that mixes overlay and settling requests keeps its order."""
     from rebuild.pipeline.settle import ISOLATED_OVERLAY_STAGE
 
     crate = kernel_exec.settle_sequences
@@ -83,7 +83,7 @@ def test_cli_prints_the_rust_backed_report(monkeypatch, capsys):
 
 
 def _panel_report() -> ExplainReport:
-    """Every line `render` can emit, assembled by hand: a letter position with a ranked ladder, an elimination carrying a record pointer and one carrying none, a joint floor, a note, and a runner-up; a boundary position that splits the run; a letter position that was the only candidate; and a boundary position that does not."""
+    """A hand-built report that exercises every line `render` can emit: a letter position with a ranked ladder, an elimination with a record pointer and one without, a joint floor, a note, and a runner-up; a boundary position that splits the run; a letter position with only one candidate; and a boundary position that does not split the run."""
     loop = Candidate("loop", None, "x-height", 0, 0)
     grounded = Candidate("grounded", None, "baseline", 1, 1)
     hapax = Candidate("hapax", "x-height", None, 0, 0)
@@ -159,12 +159,12 @@ position 3: namer-dot
 
 
 def test_a_report_renders_every_line_the_panel_reads():
-    """The rendering is the whole author-facing product of this module, and every line of it is reachable from literal trace values — no kernel, no spec load. Pinning the exact string is what catches a stray space, a reordered field, or a line that quietly stopped being emitted."""
+    """The rendered text is what authors read, and every line of it can be produced from literal trace values without the kernel or a spec load. Comparing the exact string catches a stray space, a reordered field, or a line that is no longer emitted."""
     assert _panel_report().render() == PANEL
 
 
 def test_explain_many_batches_same_config_sequences_by_position(monkeypatch):
-    """The waves are `kernel_exec.settle_sequences`', and what they cost is one invocation per feature configuration per position — not one per sequence — which is why a surface build explaining thousands of units is affordable at all."""
+    """`kernel_exec.settle_sequences` makes one `settle_cases` call per feature configuration per position, not one per sequence, which keeps the surface build's explain step affordable."""
     calls: list[tuple[frozenset[str], int]] = []
     original = kernel_exec.settle_cases
 

@@ -1,4 +1,4 @@
-"""The chain keeps only ids and echo fields, reuses the echo projection, and supplies fresh streams to standing fill and the complaint docket."""
+"""Tests for `rebuild/tools/verdict_chain.py`: the chain keeps only unit ids and echo records, reuses the echo records across steps, and gives the standing fill and the complaint docket fresh streams of human index records."""
 
 import json
 import pathlib
@@ -23,7 +23,7 @@ def _write_out(argv):
 
 
 def test_a_step_opens_a_phase_and_the_timing_that_follows_closes_it(capsys):
-    """The cycle surfaces the chain's steps the way it surfaces every other child's: the phase line says which step is running and the `[t]` line carrying the same label closes it with the duration, which is the pairing `console.Digest` prints one line for. A step that refused keeps the `[chain] ` prefix instead, because that is a result rather than a phase and it is what the driver still splits the plumbing report on."""
+    """Each step prints a `[phase]` line naming it and then a `[t]` line with the same label and its duration, which `console.Digest` matches by label. A failed step also prints a `[chain] failed:` line; that prefix marks a result, and `plumbing_sections` in `rebuild/tools/artifact_cycle.py` splits the chain's output on it."""
     assert vc._run("carry", lambda: 0) == 0
     assert vc._run("merge", lambda: 3) == 3
     lines = capsys.readouterr().out.splitlines()
@@ -37,7 +37,7 @@ IDS = frozenset({"u-1", "u-2", "u-machine"})
 
 
 def _chain(tmp_path, monkeypatch, extra=(), complaints=False):
-    """The chain over a stub surface with every step but the standing fill stubbed out, returning its exit code, the human source records, the standing fill's calls, where the fill was told to write, the docket's calls (none unless `complaints` asks for the step) and what each echo round was handed."""
+    """Run `verdict_chain.main` over a stub surface with every step stubbed. Return the exit code, the human index records, the standing fill's calls, the fill's `--out` path, the docket's calls (empty unless `complaints` is set), and the units each echo round received."""
     surface = tmp_path / "review"
     surface.mkdir()
     (surface / "manifest.json").write_text(json.dumps({"generated_at": STAMP}))
@@ -104,7 +104,7 @@ def _chain(tmp_path, monkeypatch, extra=(), complaints=False):
 
 
 def test_the_chain_runs_the_standing_fill_in_its_open_only_form(tmp_path, monkeypatch):
-    """The narrowing and the refusal are both the tool's, so the chain still supplies fresh streams over the human records entire and merely names the form — and hands it the memo beside the surface directory, outside it, so a surface rebuild never clears it."""
+    """The chain passes `--open-only --require-reach` and leaves the narrowing to the standing fill, so it still supplies fresh streams over all human records. The default memo sits beside the surface directory, outside it, so a surface rebuild does not delete it."""
     code, index, calls, standing_out, dockets, _echoes = _chain(tmp_path, monkeypatch)
     assert code == 0
     assert dockets == []
@@ -121,7 +121,7 @@ def test_the_chain_runs_the_standing_fill_in_its_open_only_form(tmp_path, monkey
 def test_the_echo_fill_takes_the_human_records_and_the_docket_takes_the_id_set_beside_them(
     tmp_path, monkeypatch
 ):
-    """Echo fill reads nothing a machine record could carry, so it gets the human records alone; the docket's absent-unit warning counts verdict records against every id on the surface, so it gets the id set beside them."""
+    """Every echo round gets the same list of human echo records, because the echo fill reads nothing from machine records. The docket gets the human records and the set of every surface id, because its absent-unit warning checks verdicts against machine units too."""
     code, index, _calls, _out, dockets, echoes = _chain(tmp_path, monkeypatch, complaints=True)
     assert code == 0
     assert len(echoes) >= 2
@@ -134,7 +134,7 @@ def test_the_echo_fill_takes_the_human_records_and_the_docket_takes_the_id_set_b
 
 
 def test_the_chain_forwards_the_cycles_standing_fill_width(tmp_path, monkeypatch):
-    """`--standing-fill-jobs` is the cycle's width for the fill's refill pool, reaching the fill as its `--jobs`; the chain derives none of its own, and without one the fill is serial."""
+    """The chain passes `--standing-fill-jobs` to the standing fill as `--jobs` and computes no width of its own."""
     code, _index, calls, _out, _dockets, _echoes = _chain(
         tmp_path, monkeypatch, ("--standing-fill-jobs", "6")
     )
@@ -144,7 +144,7 @@ def test_the_chain_forwards_the_cycles_standing_fill_width(tmp_path, monkeypatch
 
 
 def test_the_chain_passes_a_named_memo_and_the_fresh_form_through(tmp_path, monkeypatch):
-    """`--standing-memo` names where the fill keeps its decisions and `--fresh-standing-memo` — the cycle's `--fresh` — has it evaluate everything and rewrite the file."""
+    """The chain passes `--standing-memo` to the fill as `--memo`, and `--fresh-standing-memo` (which the cycle sets under `--fresh`) as `--fresh-memo`."""
     memo = tmp_path / "elsewhere" / "memo.ndjson.gz"
     code, _index, calls, _out, _dockets, _echoes = _chain(
         tmp_path, monkeypatch, ("--standing-memo", str(memo), "--fresh-standing-memo")
@@ -156,7 +156,7 @@ def test_the_chain_passes_a_named_memo_and_the_fresh_form_through(tmp_path, monk
 
 
 def _carrying_chain(tmp_path, monkeypatch, extra=()):
-    """The chain in its carrying form, the carry itself stubbed out to record what it was handed, returning the exit code, the carry's calls, and the merge's."""
+    """Run the chain with `--verdicts` and `--carry-out`, with every step stubbed. Return the exit code, the human index records, the carry's calls, and the merge's calls."""
     surface = tmp_path / "review"
     surface.mkdir()
     (surface / "manifest.json").write_text(json.dumps({"generated_at": STAMP}))
@@ -207,7 +207,7 @@ def _carrying_chain(tmp_path, monkeypatch, extra=()):
 
 
 def test_the_carry_step_hands_the_verdicts_file_and_the_loaded_index_to_the_carry(tmp_path, monkeypatch):
-    """The carry lands verdicts by unit id, so the chain hands it the verdicts file, the human echo projection it holds and every id on the surface beside them — its stranded figure counts against the machine ids too, and no surface beyond the live one is named — and merges what it wrote."""
+    """The chain passes the carry the verdicts file, the human echo records, and every surface id, because the stranded count also checks machine ids. It names only the live surface as `--current-surface`, then merges the carried file."""
     code, index, carries, merges = _carrying_chain(tmp_path, monkeypatch)
     assert code == 0
     [(argv, units, unit_ids)] = carries

@@ -1,4 +1,4 @@
-"""surface unit tests over the real loaded spec: cell enumeration under feature configurations, binding resolution per the explicit-cells > side-bindings > base order, and the side-binding disagreement error."""
+"""Tests for rebuild/pipeline/surface.py: cell enumeration under feature configurations, bitmap binding resolution in the order explicit `cells:` row, then side bindings, then the base drawing, and the error for disagreeing side bindings. Most tests use the checked-in spec; the tests built on DISAGREEING_RUNE use a synthetic rune."""
 
 import textwrap
 import warnings
@@ -141,7 +141,7 @@ def test_resolve_side_bindings_and_overrides(spec):
         "#  #",
         " ## ",
     ]
-    # The token-less exit-none cell is the boundary rendering: the exit was never declined, so the base drawing (connector ink and all) stands. ·May's pulled-back binding is entry-side only, so there is no exit ex-bind rendering.
+    # The exit-none cell with no adjustment tokens is the boundary rendering: its exit was never declined, so the base drawing is used, connector ink included. ·May's pulled-back binding is on the entry side only, so there is no ex-bind rendering on the exit side.
     plan = surface.resolve_cell(spec, CellId("qsMay", "loop", None, None, ()))
     assert plan.bitmap is None
     plan = surface.resolve_cell(spec, CellId("qsMay", "loop", "baseline", "x-height", ()))

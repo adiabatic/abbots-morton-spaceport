@@ -1,4 +1,4 @@
-"""The `make test` self-skip wrapper: skip on a matching green record, run and record otherwise, never leave a record a red or moved closure has contradicted, and file the run's verdict in the timings journal unless a cycle is already filing one for the same invocation."""
+"""Tests for `rebuild/tools/make_test_gate.py`, the `make test` wrapper. It skips when the green record matches and otherwise runs the suite and records a pass. It never writes or keeps a green record that a failing run or a closure change during the run contradicts. It writes the run's check line to the timings journal unless a cycle is recording the same invocation."""
 
 import json
 import os
@@ -20,7 +20,7 @@ def green_store(tmp_path, monkeypatch):
 
 
 def _checks():
-    """The check lines this run filed. The journal constant is read here rather than captured, because rebuild/conftest.py's autouse redirect is what points it under tmp_path and record_check resolves it at call time for exactly that reason — the same fixture that takes the cycle's run id off the environment, without which a run of this suite inside a real cycle would see this wrapper stand down in every test below."""
+    """Return the check lines written during this test. `ct.JOURNAL` is read at call time because the autouse fixture in rebuild/conftest.py redirects it under tmp_path. The same fixture removes the cycle's run id from the environment; without that, running this suite inside a cycle would make the wrapper skip recording in every test below."""
     return ct.load_checks(ct.JOURNAL)
 
 
@@ -117,8 +117,8 @@ def test_runs_unconditionally_without_git(green_store, monkeypatch):
 
 
 def test_the_font_suite_pool_names_itself_in_the_childs_environment(green_store, monkeypatch):
-    """The name rides on the child's own environment dict and nowhere else, so the controller can file its per-worker peaks under `font-suite` while nothing this process spawns later inherits the label."""
-    # Deleted first because this very suite may be running inside a lane that named its own pool: what is being pinned is that main() leaves the variable exactly as it found it, so it has to start from a known absence.
+    """The pool name is set only in the child's environment dict, so the child's controller records its per-worker peaks under `font-suite` and nothing this process spawns later inherits the name."""
+    # Removed first because this suite may run inside a pool that set its own name; the test checks that main() leaves the variable unset.
     monkeypatch.delenv(ct.POOL_UNIT_ENV, raising=False)
     _fingerprints(monkeypatch, ["fp-2", "fp-2"])
     spawned, envs = _pytest_stub(monkeypatch, returncode=0)
@@ -131,7 +131,7 @@ def test_the_font_suite_pool_names_itself_in_the_childs_environment(green_store,
 
 
 def test_a_green_run_files_a_green_check(green_store, monkeypatch):
-    """The invocation lands in the journal under the name the cycle's own step uses for it, carrying the argv it spawned and the seconds it took, and with no run — nobody drove this one."""
+    """The check line uses the name the cycle uses for this check and carries the spawned argv and the elapsed seconds. It has no `run` field because no cycle started this invocation."""
     _fingerprints(monkeypatch, ["fp-2", "fp-2"])
     _pytest_stub(monkeypatch, returncode=0)
     assert mtg.main([]) == 0
@@ -146,7 +146,7 @@ def test_a_green_run_files_a_green_check(green_store, monkeypatch):
 
 
 def test_a_red_run_files_the_exit_code_as_its_status(green_store, monkeypatch):
-    """rc is the whole judgment for this suite, so the status is the cycle's own label for a nonzero one. failed_ids stays empty because the child keeps its TTY and its output was never captured — the ids are on the terminal, not in this process."""
+    """The exit code alone decides this suite's verdict, and the status is the cycle's label for a nonzero exit. `failed_ids` stays empty because the child's output goes straight to the terminal and is never captured."""
     _fingerprints(monkeypatch, ["fp-2"])
     _pytest_stub(monkeypatch, returncode=3)
     assert mtg.main([]) == 3
@@ -171,7 +171,7 @@ def test_the_skip_path_files_a_skipped_check_with_no_timing(green_store, monkeyp
 
 
 def test_a_cycle_spawned_run_files_nothing(green_store, monkeypatch):
-    """The cycle spawns this wrapper as gate:make-test and records that check itself, so the child stands down on the run id it inherited: one writer per invocation is what keeps --by-outcome counting checks rather than processes with an opinion."""
+    """The cycle runs this wrapper as gate:make-test and records the check itself, so the wrapper writes nothing when it inherits a run id. With one writer per invocation, `--by-outcome` counts each check once."""
     monkeypatch.setenv(ct.CYCLE_RUN_ENV, "cafef00d1234")
     _fingerprints(monkeypatch, ["fp-2", "fp-2"])
     spawned, _ = _pytest_stub(monkeypatch, returncode=0)

@@ -1,8 +1,8 @@
-"""Tests for the persisted per-row oracle cache's keys (issue 24; rebuild/pipeline/oracle_cache.py is the contract). What is pinned here is the half of the design that decides *whether* a row may be served — the whole-store stamp, the per-family key, the staleness mask, the anti-laundering clauses, the promotion refusal and the reader's refusal of any store it cannot parse whole — while rebuild/test_conform.py owns the half that decides what a served row then writes.
+"""Tests for the keys of the persisted per-row oracle cache in rebuild/pipeline/oracle_cache.py. They cover whether a row may be served: the whole-store stamp, the per-family key, the staleness mask, the age cap and verification sample that stop a wrong record from being re-served indefinitely, the promotion refusal, and the reader's refusal of any store it cannot parse whole. rebuild/test_conform.py covers what the oracle writes when it serves a row.
 
-Every claim below is about a key or a store rather than about any glyph, so nothing here needs the live build: the rune tree, schema, and registry come from the frozen mini bundle's pin, materialized into a tmp root that each test may edit, and the spec is the hand-built mini one. This is the contracts lane and must stay in it.
+No test here depends on a glyph, so none needs the live build. The rune tree, schema, and registry are copied from the mini bundle into a tmp root that each test may edit, and the spec is `fixtures.mini_spec()`. Like every rebuild test, these must not read `rebuild/out/`.
 
-The stamp tests are the load-bearing ones. A per-family key can only decompose the routes that stay inside one rune file; every route that reaches across the registry — a predicate class gaining a member, a rune-local group, a ligature's declared sequence, a capability unlock, the registry's own families and heights, the engine's settlement flags — has to move the whole-store stamp instead, because `specificity::family_set` expands a `class:` reference to its full member set and `compare_axes` ranks by set size, so a rune joining or leaving a class can flip the settlement of a window naming no such rune. Each of those routes is asserted to move a *named* stamp line, not merely to move the value: a route that quietly stops being covered and a route covered twice over look identical from the value alone, and only the first is a cache that serves stale rows in silence.
+The stamp tests matter most. A per-family key covers only the routes that stay inside one rune file. Every route that crosses the registry (a predicate class gaining a member, a rune-local group, a ligature's declared sequence, a capability unlock, the registry's families and heights, the engine's settlement flags) must move the whole-store stamp instead. `specificity::family_set` expands a `class:` reference to its full member set and `compare_axes` ranks two records by whether each axis set of one is a subset of the other's, so a rune joining or leaving a class can change the settlement of a window that names no such rune. Each route is checked to move its own named stamp line and no other.
 """
 
 import gzip
@@ -20,7 +20,7 @@ from rebuild.validation.rowmodel import Row
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 
-# An alias map in the live file's shape, cut down to heads the pinned rune tree holds a file for, plus the two boundary heads that deliberately have no family key of their own.
+# An alias map in the live file's shape, cut down to heads the mini rune tree has a file for, plus the two boundary heads, which have no family key.
 ALIAS_MAP = {
     "space": "boundary",
     "periodcentered": "boundary",
@@ -51,7 +51,7 @@ def _script(root: Path) -> Path:
 
 
 def _rewrite_script(root: Path, edit=None) -> None:
-    """Round-trip the registry through the YAML loader, applying `edit` to the parsed document. Every variant a stamp test compares is written this way, so the `data` line's raw byte hash sees the edit and nothing else — a surgical text patch beside an untouched original would move the digest for its formatting alone and prove nothing."""
+    """Round-trip the registry through the YAML loader, applying `edit` to the parsed document. Every variant a stamp test compares is written this way, so the `data` line's raw byte hash changes only for the edit. A text patch compared against the unformatted original would also change the hash through formatting alone."""
     document = yaml.safe_load(_script(root).read_text(encoding="utf-8"))
     if edit is not None:
         edit(document)
@@ -60,7 +60,7 @@ def _rewrite_script(root: Path, edit=None) -> None:
 
 @pytest.fixture
 def repo(mini_bundle, tmp_path) -> Path:
-    """A repo root this test may edit: the pinned spec root's runes, schema, and registry copied under `tmp_path`, with an alias map written beside them. The registry arrives already round-tripped so a later edit is the only thing that moves it."""
+    """Return an editable repo root: the mini bundle's runes, schema, and registry copied under `tmp_path`, with an alias map beside them. The registry is already round-tripped, so only a later edit changes its bytes."""
     root = tmp_path / "root"
     shutil.copytree(mini_bundle.spec_root, root)
     _rewrite_script(root)
@@ -85,7 +85,7 @@ def _stamp(root: Path, spec, config: str = "default") -> oracle_cache.Environmen
 
 
 def _perturb_rune(path: Path) -> None:
-    """A real geometric edit to a rune file: the first stance that draws anything gains or loses a pixel at the top left. It has to be geometry, because the digest a family key rides is prose-blind — a comment, a `ductus` rewrite, or a new `notes` paragraph would leave the key exactly where it was, which is the point of that digest and the trap for a test that reaches for the cheapest edit."""
+    """Make a geometric edit to a rune file: the first stance with a bitmap gains or loses its top-left pixel. The edit must be geometry, because the rune digest a family key uses is prose-blind. A comment, a `ductus` rewrite, or a new `notes` paragraph would leave the key unchanged."""
     document = yaml.safe_load(path.read_text(encoding="utf-8"))
     stance = next(stance for stance in document["stances"].values() if stance.get("bitmap"))
     row = stance["bitmap"][0]
@@ -160,7 +160,7 @@ SPEC_GLOBAL_ROUTES = {
 
 @pytest.mark.parametrize("route", sorted(SPEC_GLOBAL_ROUTES))
 def test_the_stamp_moves_with_each_spec_global_route(route, repo, monkeypatch):
-    """The honesty test for exactly the effects a per-family key cannot decompose. Each route names the stamp line it is supposed to travel on, and the assertion is that it moves that line and only that line: a route whose own line stopped covering it but which happens to disturb a neighboring digest would still move the stamp today and would stop moving it the first time the neighbor was narrowed."""
+    """Each route a per-family key cannot cover must move its own stamp line and only that line. A route whose own line stopped covering it, but which happens to change a neighboring line, would still move the stamp value today and would stop moving it once the neighbor was narrowed."""
     spec = fixtures.mini_spec()
     base = _stamp(repo, spec)
     assert _stamp(repo, spec).lines == base.lines
@@ -172,7 +172,7 @@ def test_the_stamp_moves_with_each_spec_global_route(route, repo, monkeypatch):
 
 
 def test_the_stamp_carries_the_configuration_and_its_features(repo):
-    """The stores — one per acceptance configuration — are written side by side under one run's keys, so nothing but these two lines keeps a configuration's records from being served to another. Both are here rather than left to the subset digest, which would be the only other thing separating them and which is a property of a file the run does not control."""
+    """The stores for all acceptance configurations are written side by side under one run's keys, so the `config` and `features` lines are what keep one configuration's records from being served to another. They are stamped directly because the only other difference would be the subset table's digest, and the run does not control that file."""
     spec = fixtures.mini_spec()
     stamps = {config: _stamp(repo, spec, config) for config in conform.ACCEPTANCE_CONFIGS}
     assert len({stamp.value for stamp in stamps.values()}) == len(conform.ACCEPTANCE_CONFIGS)
@@ -181,7 +181,7 @@ def test_the_stamp_carries_the_configuration_and_its_features(repo):
 
 
 def test_the_stamp_folds_none_of_the_inputs_the_comparison_re_reads_every_pass(repo):
-    """The other half of the stamp's honesty, and the half a value comparison cannot see: an input the comparison re-reads over every row on every pass can move without staling one record, so folding it in only collapses the store for nothing. The alias map rides per-family keys and its own boundary line, the divergence ledger is re-read by classification, the kern sidecar is re-read by the position channel — and each is asserted to be a data input the exclusion actually reaches, not merely a path the fold happens to miss."""
+    """The stamp must not include an input the comparison re-reads on every pass, because such an input can change without making any record stale, and including it would drop the whole store for nothing. A value comparison cannot detect this. The alias map is covered by the per-family keys and its own `alias_boundary` line, the divergence ledger is re-read by classification, and the kern sidecar is re-read by the position channel. Each is checked to be a data input that `stamped_data_paths` actually excludes, not merely a path the stamp does not reach."""
     spec = fixtures.mini_spec()
     base = _stamp(repo, spec)
     (repo / "glyph_data" / "senior_quikscript_kerning.yaml").write_text("pairs: []\n", encoding="utf-8")
@@ -200,7 +200,7 @@ def test_the_stamp_folds_none_of_the_inputs_the_comparison_re_reads_every_pass(r
 
 
 def test_blessing_a_contact_signature_leaves_the_whole_store_stamp_untouched(repo):
-    """The allow-list is the input this stamp reads the least and would pay the most for: no oracle stage opens it — it is the defect gate's — and it moves often enough that stamping it would collapse the whole store on a two-line bless. It needs no exclusion here, because it sits outside `fingerprint.data_paths` outright, which is asserted rather than assumed: an exclusion list naming a path the fold can no longer reach would go on reading as protection long after the fold had grown a second door."""
+    """No oracle stage reads the contact allow-list (the defect gate does), and it changes often, so stamping it would drop the whole store on a two-line bless. It needs no exclusion because it is outside `fingerprint.data_paths`, and the test asserts that directly instead of relying on an exclusion entry. An exclusion entry for a path the stamp never reads would keep passing even if the stamp later started reading the file some other way."""
     spec = fixtures.mini_spec()
     allow = repo / fingerprint.CONTACT_ALLOW_LABEL
     allow.write_text("- {signature: 'contact:qsPea.full.ex-y0:qsTea.full.en-y0:y1'}\n", encoding="utf-8")
@@ -216,7 +216,7 @@ def test_blessing_a_contact_signature_leaves_the_whole_store_stamp_untouched(rep
 
 
 def test_a_ligature_rune_edit_invalidates_only_rows_carrying_all_its_components():
-    """A ligature rune declares a `sequence` and no codepoint, so no row's codepoints ever name it — yet `settle.form_ligatures` routes the pair through its file, which is the correctness hole a key over "the families in the row's codepoints" leaves open. The clause fires on the components' bits together and is order-blind: a row holding the components in the other order can never form the ligature, and is stale anyway, because over-invalidation is the safe direction and a mask cheap enough to run on every row cannot afford to know about order."""
+    """A ligature rune declares a `sequence` and no codepoint, so no row's codepoints name it, yet `settle.form_ligatures` routes the pair through its file. A key over only the families of a row's codepoints would therefore miss a ligature edit. The ligature clause fires when all the components' bits are present and ignores order: a row with the components in the other order can never form the ligature but is marked stale anyway. Over-invalidation is the safe direction, and a mask cheap enough to test on every row cannot check order."""
     spec = fixtures.mini_spec()
     tea_oy = (TEA, OY)
     tea_pea = (TEA, PEA)
@@ -237,7 +237,7 @@ def test_a_ligature_rune_edit_invalidates_only_rows_carrying_all_its_components(
 
 
 def test_a_ligature_rune_edit_stales_the_windows_carrying_its_formed_label():
-    """The settle memo's grain (issue 202): its windows hold formed labels, so a window of ·Tea+Oy labels names the ligature rune and neither component, and the component clause alone would serve every such window across an edit to `qsTea_qsOy.yaml`. The formed label's bit must read as moved on its own; a component's label alone still must not, and an edit to a component must not retire a window naming only the formed ligature, whose file the edit never touched."""
+    """Settle-memo windows hold formed labels, so a window with a `qsTea_qsOy` label names the ligature rune and neither component, and the component clause alone would serve that window after an edit to `qsTea_qsOy.yaml`. The formed label's bit must read as moved on its own, while a single component's bit must not. An edit to a component must not make stale a window that names only the formed ligature, because the edit did not touch the ligature's file."""
     spec = fixtures.mini_spec()
     ligature = oracle_cache.StaleMask(spec, {"qsTea_qsOy"})
     formed = ligature.bit_of("qsTea_qsOy")
@@ -253,7 +253,7 @@ def test_a_ligature_rune_edit_stales_the_windows_carrying_its_formed_label():
 
 
 def test_a_moved_family_the_registry_cannot_place_stales_every_row():
-    """The escape hatch under the mask: a moved name carrying neither a codepoint nor a sequence — a rune file appearing for a family the registry has not been taught yet — reaches rows by a route the bits cannot describe, so it stales all of them rather than none."""
+    """A moved name with neither a codepoint nor a sequence, such as a rune file for a family the registry does not list yet, can reach rows in ways the bits cannot describe, so it makes every row stale."""
     spec = fixtures.mini_spec()
     mask = oracle_cache.StaleMask(spec, {"qsNotInTheRegistry"})
     assert mask.everything
@@ -262,7 +262,7 @@ def test_a_moved_family_the_registry_cannot_place_stales_every_row():
 
 
 def test_an_alias_edit_stales_only_the_families_its_keys_name(repo):
-    """The alias map is read per family, so retitling one family's entries re-derives that family's rows and nothing else. The two boundary heads are the exception the guard is built around: they can never reach a verdict, they have no family key to move, and so they ride the whole-store stamp's own `alias_boundary` line instead."""
+    """The alias map is keyed per family, so changing one family's entries re-derives that family's rows and nothing else. The two boundary heads are the exception: they can never reach a verdict and have no family key, so they are stamped by the whole-store stamp's `alias_boundary` line."""
     spec = fixtures.mini_spec()
     before = _keys(repo, spec)
     base = _stamp(repo, spec)
@@ -279,9 +279,9 @@ def test_an_alias_edit_stales_only_the_families_its_keys_name(repo):
 
 
 def test_an_alias_head_with_no_family_key_raises(repo):
-    """The guard the unmigrated registry families exist to defeat: such a family would pass any "does this head name a family" check, but the rune tree holds no file for it, so it has no key — and a head with no key can never be reported moved, which would leave its entries stamped by nothing at all. The refusal is what keeps the alias map's heads and the family keys the same set.
+    """An alias head that names a registry family with no rune file must raise. Such a head would pass a check that it names a family, but it has no key, so it could never be reported moved and its alias entries would be stamped by nothing. This check keeps the alias map's heads within the family keys.
 
-    The family is chosen rather than named, because naming one makes the test an exemplar that dissolves the day that letter migrates — which is how it dissolved once already. Every registry family the pinned rune tree has no key for does equally well here, and the migration that empties that set is the migration that retires the guard.
+    The test picks the family instead of naming one, because a named family stops showing the property once the mini bundle gains a rune file for it. Any registry family without a rune file in the mini tree works. If every registry family has a rune file, `next` raises `StopIteration` and this test must change.
     """
     spec = fixtures.mini_spec()
     unmigrated = next(name for name in sorted(spec.registry.families) if name not in _keys(repo, spec))
@@ -295,7 +295,7 @@ def test_an_alias_head_with_no_family_key_raises(repo):
 
 
 def test_a_cited_family_absent_from_the_recorded_keys_is_a_miss(repo, tmp_path):
-    """`recorded[name]`, never `recorded.get(name) == current.get(name)` — under `.get` two absences compare equal, and the case that matters is precisely a name present on one side only: a new ligature rune file for two letters already in the alphabet is exactly that, and reading it as agreement serves the pre-ligature verdict for every row of the pair."""
+    """A family present in only one of the two key maps counts as moved. Comparing with `recorded.get(name) == current.get(name)` would treat two absences as equal, and the case that matters is a name present on one side only: a new ligature rune file for two letters already in the alphabet. Reading that as agreement would serve the pre-ligature verdict for every row of the pair."""
     recorded = {"qsPea": "p0", "qsTea": "t0"}
     current = {"qsPea": "p0", "qsTea": "t0", "qsTea_qsOy": "to0"}
     assert oracle_cache.moved_families(recorded, current) == frozenset({"qsTea_qsOy"})
@@ -335,7 +335,7 @@ def _promoted(out_dir: Path) -> set[str]:
 def test_the_stamp_is_snapshotted_before_the_work_and_reverified_at_promotion(
     repo, tmp_path, monkeypatch, capsys
 ):
-    """The mid-run edit, which is the one failure that reads as green forever rather than failing once. The keys are cut before the first row is compared and cut again at promotion; a rune, an alias map, or a registry edited in between means the run built verdicts nothing on disk describes, and the answer is to promote nothing and name what moved. A run whose inputs held still promotes all six — the control, without which "nothing was promoted" proves only that promotion is broken."""
+    """An input edited during the run must stop promotion, because otherwise the store would be accepted as current indefinitely. The keys are computed before the first row is compared and again at promotion. If a rune, the alias map, or the registry changed in between, the run's verdicts match nothing on disk, so promotion writes nothing and names what moved. A run whose inputs did not change promotes every acceptance configuration; without that control, "nothing was promoted" would only show that promotion is broken."""
     monkeypatch.setattr(run_m1, "REPO_ROOT", repo)
     monkeypatch.setattr(run_m1, "ALIAS_YAML", _alias(repo))
     spec = fixtures.mini_spec()
@@ -375,7 +375,7 @@ def test_the_stamp_is_snapshotted_before_the_work_and_reverified_at_promotion(
 def test_an_alias_map_edited_into_a_shape_the_guard_refuses_promotes_nothing(
     repo, tmp_path, monkeypatch, capsys
 ):
-    """The same refusal by the other door: an alias head that loses its family key mid-run makes the promotion-time re-read raise rather than report a movement, and a raise out of the key computation must land as the same "nothing was written" rather than as a traceback that takes the whole run down after the audit has already been promoted. A map edited into something no parser will read at all takes the same door, since it arrives as `yaml`'s own error rather than as a `ValueError`."""
+    """If an alias head loses its family key during the run, the key computation at promotion raises instead of reporting a change. That raise must end in the same "not written" result, not a traceback that stops the run after the audit has been promoted. An alias map edited into invalid YAML raises `yaml`'s own error instead of `ValueError` and must be handled the same way."""
     monkeypatch.setattr(run_m1, "REPO_ROOT", repo)
     monkeypatch.setattr(run_m1, "ALIAS_YAML", _alias(repo))
     spec = fixtures.mini_spec()
@@ -395,7 +395,7 @@ def test_an_alias_map_edited_into_a_shape_the_guard_refuses_promotes_nothing(
     assert "not written" in capsys.readouterr().out
 
 
-# --- the anti-laundering clauses ---------------------------------------------------------
+# --- the age cap and the verification sample ---------------------------------------------
 
 
 def _row(index: int, glyph: str = "g") -> Row:
@@ -405,9 +405,9 @@ def _row(index: int, glyph: str = "g") -> Row:
 
 
 def test_the_verification_sample_covers_every_serving_family_and_rotates():
-    """Every family that served a row is checked on every pass, which is what catches a family-wide poisoning with probability one instead of with probability sample-over-served — the shape a rune edited mid-run produces. A family with fewer served rows than the cap contributes all of them; the draw is a pure function of the stamp, the family, and the pass ordinal, so the order rows are offered in cannot move it; and seeding on the ordinal makes consecutive passes cover different rows rather than re-proving the same fraction of a percent forever.
+    """Every family that served a row is sampled on every pass, which catches an error affecting a whole family with probability one instead of with probability sample size over served rows. A rune edited during the run produces that kind of error. A family with fewer served rows than the cap contributes all of them. The draw is a pure function of the stamp, the family, and the pass ordinal, so the order rows are offered in cannot change it, and seeding on the ordinal makes consecutive passes check different rows.
 
-    What rotation is asserted as is coverage accumulating, not as disjointness: eight draws out of a hundred collide on this very case, and the claim the design rests on is that a row not checked this pass is checked a few passes later, which is what the union over eleven consecutive ordinals says.
+    Rotation is checked as coverage that accumulates, not as disjoint draws: the draws of eight rows out of a hundred at ordinals 0 and 1 overlap in this case. The requirement is that a row not checked on one pass is checked a few passes later, which the union over ordinals 0 and 2 through 11 shows.
     """
     stamp = "stamp-value"
     served: dict[int, tuple[str, ...]] = {index: ("qsPea", "qsTea") for index in range(100)}
@@ -452,7 +452,7 @@ def test_the_verification_sample_covers_every_serving_family_and_rotates():
 
 
 def test_the_verification_sample_hands_back_the_rows_it_drew():
-    """The winners carry the parsed rows the main loop offered them with, so neither verifier re-reads the table: `sampled_rows()` answers the very objects offered, once per index however many families drew it, in the index order `indexes()` answers in. The row stays out of the draw — two samples fed the same indexes under different rows draw the same families — and stays out of the heap's comparison too: `Row` has no ordering, so the distinct index in every `(score, index, row)` entry is what keeps a tuple comparison from ever reaching it."""
+    """Each drawn entry keeps the parsed row it was offered with, so neither verifier re-reads the table. `sampled_rows()` returns the offered objects, once per index however many families drew it, in the order `indexes()` returns. The row does not affect the draw: two samples fed the same indexes with different rows draw the same families. It also never takes part in heap comparisons. `Row` has no ordering, and the distinct index in every `(score, index, row)` entry stops a tuple comparison before it reaches the row."""
     stamp = "stamp-value"
     served: dict[int, tuple[str, ...]] = {index: ("qsPea", "qsTea") for index in range(100)}
     served.update({100: ("qsSee", "qsZoo"), 101: ("qsSee", "qsZoo"), 102: ("qsSee", "qsZoo")})
@@ -492,7 +492,7 @@ def _store_at(tmp_path: Path, repo: Path, spec, pass_ordinal: int, ages, name: s
 
 
 def test_a_record_older_than_the_age_cap_is_re_derived(repo, tmp_path):
-    """No verdict may stand for `MAX_RECORD_AGE` passes without being recomputed, whatever its families did — the bound on how long a wrong record could survive a store that otherwise re-emits it verbatim forever. Two clauses carry it: the ordinal clause retires one row in the cap every pass, so the whole table is renewed within a cap's worth of passes and the renewal is spread rather than arriving all at once, and the age clause catches a record whose pass ordinals skipped."""
+    """No verdict may stand for `MAX_RECORD_AGE` passes without being recomputed, whatever its families did. This bounds how long a wrong record can survive in a store that otherwise re-writes it unchanged on every pass. Two clauses enforce it. The ordinal clause retires one row in `MAX_RECORD_AGE` on every pass, so the whole table is renewed within that many passes and the renewal is spread out. The age clause catches a record whose pass ordinals skipped."""
     spec = fixtures.mini_spec()
     rows = 2 * oracle_cache.MAX_RECORD_AGE
     fresh = [1] * rows
@@ -516,7 +516,7 @@ def test_a_record_older_than_the_age_cap_is_re_derived(repo, tmp_path):
 
 
 def test_a_read_only_pass_rotates_the_slice_it_retires(repo, tmp_path):
-    """Nothing a read-only pass does moves the ordinal on disk, so without a rotation every such pass would retire the same twentieth of the table and draw the same verification sample — forever, on the one entry point that serves every row it reads. The rotation moves both, and a cap's worth of them still covers the table exactly once. What it must not touch is the age arithmetic: a rotated `current` would read every record as past the cap and retire the whole table, which is the savings this pass exists for."""
+    """A read-only pass does not change the ordinal on disk, so without rotation every such pass would retire the same slice of the table and draw the same verification sample. Rotation moves both, and `MAX_RECORD_AGE` rotations still cover the table exactly once. Rotation must not change the age arithmetic: a rotated current ordinal would read every record as past the cap and retire the whole table, which would remove the saving the store provides."""
     spec = fixtures.mini_spec()
     rows = 2 * oracle_cache.MAX_RECORD_AGE
     stamp = _stamp(repo, spec)
@@ -550,7 +550,7 @@ def test_a_read_only_pass_rotates_the_slice_it_retires(repo, tmp_path):
 
 
 def test_a_served_row_keeps_the_age_it_was_derived_at(repo, tmp_path):
-    """The age measures how long a verdict has stood, not how long the file has, so a pass that only served a row writes the age it read rather than its own ordinal. Writing its own would hand a stale verdict fresh provenance on every pass, which is the laundering the cap exists to stop and which nothing inside the store can detect after the fact."""
+    """The age measures how long a verdict has stood, not how old the file is, so a pass that only served a row writes the age it read and not its own ordinal. Writing its own ordinal would give a stale verdict a fresh age on every pass, which the age cap exists to prevent and which the store cannot detect afterward."""
     spec = fixtures.mini_spec()
     first = _store_at(repo=repo, tmp_path=tmp_path, spec=spec, pass_ordinal=0, ages=[0, 0], name="first")
     stamp = _stamp(repo, spec)
@@ -566,7 +566,7 @@ def test_a_served_row_keeps_the_age_it_was_derived_at(repo, tmp_path):
 
 
 def test_a_segment_writer_writes_records_only_and_the_join_puts_the_frame_around_them(repo, tmp_path):
-    """A row range of a cut configuration stages a segment: one gzip member of records, no header and no trailer, so the parent can put a header member ahead of every segment and a trailer member behind them without decompressing a byte. The joined payload is the single-member store's payload exactly, `load_store` reads it across the members, and two ranges opened against the same store agree on the ordinal the joined header records."""
+    """A row range of a cut configuration writes a segment: one gzip member of records with no header and no trailer, so the parent can put a header member before the segments and a trailer member after them without decompressing anything. The joined payload equals the single-member store's payload, `load_store` reads it across members, and the joined header records the pass ordinal the segments were written under."""
     spec = fixtures.mini_spec()
     stamp = _stamp(repo, spec)
     keys = _keys(repo, spec)
@@ -595,11 +595,11 @@ def test_a_segment_writer_writes_records_only_and_the_join_puts_the_frame_around
     assert oracle_cache.join_store_segments(scratch, "default", 3, stamp, "subset-digest", 4, keys, 6) is None
 
 
-# --- the reader's over-invalidation contract ---------------------------------------------
+# --- the reader's refusals --------------------------------------------------------------
 
 
 def _whole_store(tmp_path: Path, repo: Path, spec, rows: int = 2):
-    """A well-formed store of `rows` records plus what `load_store` needs to read it, the fixture every malformation below is cut from."""
+    """Write a well-formed store of `rows` records and return it with the stamp and keys `load_store` needs. The malformation tests below edit this store."""
     stamp = _stamp(repo, spec)
     keys = _keys(repo, spec)
     path = tmp_path / "store.tsv.gz"
@@ -610,7 +610,7 @@ def _whole_store(tmp_path: Path, repo: Path, spec, rows: int = 2):
 
 
 def _rewrite_payload(path: Path, edit) -> None:
-    """Recompress `path` around `edit` applied to its decompressed bytes; the member's mtime is not pinned because nothing here compares the compressed bytes."""
+    """Recompress `path` after applying `edit` to its decompressed bytes. The member's mtime is not pinned because no test here compares the compressed bytes."""
     rewritten = edit(gzip.decompress(path.read_bytes()))
     with gzip.open(path, "wb") as stream:
         stream.write(rewritten)
@@ -626,7 +626,7 @@ SLICE_IDS = ("whole", "head", "tail", "past-the-end")
 
 @pytest.mark.parametrize("recompressed", [False, True], ids=["as-written", "recompressed-unedited"])
 def test_a_whole_two_record_store_loads_and_serves(repo, tmp_path, recompressed):
-    """The positive control for the refusal tests beside it: the store loads as written and again after `_rewrite_payload` puts it back unedited, so each refusal fails only on its malformation and never on the helper that applies it. These tests together pin the over-invalidation contract `load_store`'s docstring states, so the #261 reader rewrite can be held to it."""
+    """Control for the refusal tests below: the store loads as written and also after `_rewrite_payload` rewrites it unchanged, so each refusal test fails only because of its malformation and not because of the helper. Together these tests check the refusals `load_store`'s docstring lists."""
     spec = fixtures.mini_spec()
     path, stamp, keys = _whole_store(tmp_path, repo, spec)
     if recompressed:
@@ -644,7 +644,7 @@ def test_a_whole_two_record_store_loads_and_serves(repo, tmp_path, recompressed)
 
 @pytest.mark.parametrize("bounds", SLICES, ids=SLICE_IDS)
 def test_a_whole_zero_record_store_loads_empty(repo, tmp_path, bounds):
-    """A header line and the `#rows\t0` trailer with nothing between them, the store a writer that appended no row leaves: whole, so it loads, holding no row. This is the one legitimate body with no newline ahead of the trailer, so a reader that guards the trailer search by its index alone refuses it."""
+    """A header line and the `#rows\t0` trailer with nothing between them, as left by a writer that appended no row, is a whole store and loads with no rows. It is the only valid body with no newline before the trailer, so a reader that locates the trailer by index alone would refuse it."""
     spec = fixtures.mini_spec()
     path, stamp, keys = _whole_store(tmp_path, repo, spec, rows=0)
     payload = gzip.decompress(path.read_bytes())
@@ -676,7 +676,7 @@ def test_a_store_whose_header_is_the_whole_file_loads_as_none(repo, tmp_path, bo
 
 @pytest.mark.parametrize("bounds", SLICES, ids=SLICE_IDS)
 def test_a_store_missing_its_trailer_loads_as_none(repo, tmp_path, bounds):
-    """Two whole records with the row-count trailer line dropped: the last line is a record, not the trailer that vouches for the length."""
+    """Two whole records with the row-count trailer line dropped: the last line is a record, not the trailer that confirms the length."""
     spec = fixtures.mini_spec()
     path, stamp, keys = _whole_store(tmp_path, repo, spec)
 
@@ -706,7 +706,7 @@ def test_a_truncated_store_loads_as_none(repo, tmp_path, bounds):
 
 @pytest.mark.parametrize("bounds", SLICES, ids=SLICE_IDS)
 def test_a_store_short_a_record_under_its_trailer_loads_as_none(repo, tmp_path, bounds):
-    """The trailer still counts two records over a body holding one: a store whose records and count disagree."""
+    """The trailer counts two records over a body holding one, so the records and the count disagree."""
     spec = fixtures.mini_spec()
     path, stamp, keys = _whole_store(tmp_path, repo, spec)
 
@@ -723,7 +723,7 @@ def test_a_store_short_a_record_under_its_trailer_loads_as_none(repo, tmp_path, 
 
 
 def _aged_store(tmp_path: Path, repo: Path, spec, rows: int = 7):
-    """A store of `rows` records under pass ordinal 3 whose row ages and position ages differ from row to row, so a record served off the wrong offset or an age read off the wrong slot answers differently from the right one."""
+    """Write a store of `rows` records under pass ordinal 3 whose row ages and position ages vary by row, so a record served from the wrong offset or an age read from the wrong slot gives a different result."""
     stamp = _stamp(repo, spec)
     keys = _keys(repo, spec)
     path = tmp_path / "aged.tsv.gz"
@@ -739,7 +739,7 @@ RANGE_IDS = ("start", "middle", "open-ended-tail")
 
 @pytest.mark.parametrize("bounds", RANGES, ids=RANGE_IDS)
 def test_a_sliced_load_serves_its_range_as_a_whole_load_does(repo, tmp_path, bounds):
-    """The refusal tests above load under `SLICES` beside the whole because the ranges of one configuration have to agree on whether the store loads at all, so a malformation outside a range refuses its load exactly as one inside it does; this is the other half, that what a range keeps is served exactly as the whole load serves it, under the row's absolute ordinal, for a range at the table's start, one in its middle and the open-ended last one."""
+    """What a range keeps is served the same as the whole load serves it, under the row's absolute ordinal, for a range at the start of the table, one in the middle, and the open-ended last one. The refusal tests above cover the other half: all ranges of one configuration must agree on whether the store loads, so a malformation outside a range refuses the load as one inside it does."""
     spec = fixtures.mini_spec()
     path, stamp, keys = _aged_store(tmp_path, repo, spec)
     whole = oracle_cache.load_store(path, stamp, "subset-digest", spec, keys)
@@ -765,7 +765,7 @@ def test_a_sliced_load_serves_its_range_as_a_whole_load_does(repo, tmp_path, bou
     "bounds", RANGES + ({"first_row": 7}, {"first_row": 9}), ids=RANGE_IDS + ("empty", "past-the-end")
 )
 def test_a_sliced_store_answers_the_tables_count_and_refuses_rows_outside_its_range(repo, tmp_path, bounds):
-    """`rows` is the table's count under every slice, because the oracle classifies an index at or above it as fresh and never asks the store about it: an index the whole load calls fresh is fresh under the slice, and no in-table index the slice calls fresh is served by the whole load. An in-table index outside the slice raises rather than serving another row's record — a negative relative index would otherwise read a Python array from its end."""
+    """`rows` is the table's row count under every slice, because the oracle treats an index at or above it as fresh and never asks the store about it. An index the whole load treats as fresh is fresh under the slice, and no in-table index the slice treats as fresh is served by the whole load. An in-table index outside the slice raises instead of serving another row's record; without the check, a negative relative index would read the array from its end."""
     spec = fixtures.mini_spec()
     path, stamp, keys = _aged_store(tmp_path, repo, spec)
     whole = oracle_cache.load_store(path, stamp, "subset-digest", spec, keys)
@@ -787,7 +787,7 @@ def test_a_sliced_store_answers_the_tables_count_and_refuses_rows_outside_its_ra
 
 
 def test_a_wrong_anchor_inside_the_range_still_aborts_the_serve(repo, tmp_path):
-    """A misaligned anchor inside a slice is the same loud abort it is in a whole store, not a miss: the range changes which rows a store holds, never what a mismatched record means about the table under it."""
+    """A misaligned anchor inside a slice aborts the serve as it does in a whole store; it is not a miss. The range changes which rows a store holds, not what a mismatched record means about the table."""
     spec = fixtures.mini_spec()
     path, stamp, keys = _aged_store(tmp_path, repo, spec)
     sliced = oracle_cache.load_store(path, stamp, "subset-digest", spec, keys, first_row=2, stop_row=4)
@@ -798,7 +798,7 @@ def test_a_wrong_anchor_inside_the_range_still_aborts_the_serve(repo, tmp_path):
 
 
 def test_a_store_given_no_count_holds_a_range_that_runs_to_the_tables_end(repo, tmp_path):
-    """`rows` defaults to the range's own end, never to the slice's length: a store built at `first_row` with no count is one whose range reaches the table's end, so every row it holds is below `rows` and none of them is classified fresh."""
+    """Without an explicit count, `rows` defaults to the range's end, not the slice's length. A store built at `first_row` with no count holds a range that runs to the table's end, so every row it holds is below `rows` and none is treated as fresh."""
     spec = fixtures.mini_spec()
     path, stamp, keys = _aged_store(tmp_path, repo, spec)
     sliced = oracle_cache.load_store(path, stamp, "subset-digest", spec, keys, first_row=4)
@@ -821,7 +821,7 @@ def test_a_store_given_no_count_holds_a_range_that_runs_to_the_tables_end(repo, 
 
 
 def test_a_range_whose_kept_bytes_outrun_the_offsets_width_refuses_the_load(repo, tmp_path, monkeypatch):
-    """The packed offsets are unsigned 32-bit, so a range keeping more record bytes than they address raises out of the array rather than out of a parse; it lands in the same place as every other refusal, a `None` and one cold oracle, never a build taken down by its own cache."""
+    """The packed offsets are unsigned 32-bit, so a range that keeps more record bytes than they can address raises from the array, not from parsing. That error must also make `load_store` return `None`, which costs one uncached oracle run, and must not stop the build."""
 
     class Narrow(array):
         def append(self, value: int) -> None:
@@ -839,7 +839,7 @@ def test_a_range_whose_kept_bytes_outrun_the_offsets_width_refuses_the_load(repo
 
 @pytest.mark.parametrize("bounds", SLICES, ids=SLICE_IDS)
 def test_a_record_whose_age_will_not_parse_refuses_the_load_from_any_range(repo, tmp_path, bounds):
-    """The age fields are the reader's validation of every record, in range or out: a record whose age is not an integer refuses the load whether the range holds it, holds only rows ahead of it, or starts past the table's end."""
+    """The reader parses the age fields of every record, in range or out, so a record whose age is not an integer refuses the load whether the range holds it, holds only earlier rows, or starts past the table's end."""
     spec = fixtures.mini_spec()
     path, stamp, keys = _whole_store(tmp_path, repo, spec, rows=3)
 
@@ -858,7 +858,7 @@ def test_a_record_whose_age_will_not_parse_refuses_the_load_from_any_range(repo,
 
 
 def test_the_store_is_not_an_m1_artifact(tmp_path):
-    """The store sits in `rebuild/out/m1` beside the artifacts and is not one of them: it rides neither `M1_ARTIFACT_NAMES` nor the subset-table glob, so it enters neither the validators-lane key nor the artifacts-present check and a cycle that deletes it loses time and nothing else. Asserted against the two live readers rather than against the string, because the name is a contract only insofar as those globs miss it."""
+    """The store sits in `rebuild/out/m1` beside the artifacts but is not one of them. Its name matches neither `M1_ARTIFACT_NAMES` nor the subset-table glob, so it is in neither the run_m1 skip key (`run_m1_skip_lines`) nor the `m1_artifacts_present` check, and deleting it costs only time. The test checks the name against `M1_ARTIFACT_NAMES` and `_subset_tables` directly, not against a fixed string."""
     m1 = tmp_path / "rebuild" / "out" / "m1"
     m1.mkdir(parents=True)
     for name in artifact_cycle.M1_ARTIFACT_NAMES:
@@ -881,7 +881,7 @@ MINI_FONT = REPO_ROOT / "rebuild" / "review" / "fixtures" / "mini" / "M1.otf"
 
 
 def _font_edited(source: Path, target: Path, touches) -> Path:
-    """A copy of `source` in which every glyph `touches` names is advanced by a pixel-odd amount, so a family's compiled digest moves through its metrics alone while every outline stays. Written through fontTools rather than patched, so the copy is a font the shaper and the digest both read."""
+    """Return a copy of `source` in which every glyph `touches` selects has its advance increased by 37 units, so a family's compiled digest changes through its metrics alone and every outline stays the same. The copy is written through fontTools, so both the shaper and the digest can read it."""
     from fontTools.ttLib import TTFont
 
     font = TTFont(str(source))
@@ -899,7 +899,7 @@ def _position(repo: Path, spec, font: Path, kern: Path | None = None):
 
 
 def test_a_glyph_edit_moves_only_its_family_s_position_key(repo, tmp_path):
-    """The position key's own grain: a family's compiled glyphs — outlines, advances, cursive anchors — move that family's key and no other, while the font's helper glyphs, cmap and GPOS wiring ride the whole-store position stamp instead. Advances are the edit here because they move a position without moving a name or a cell, which is exactly the channel the row key is blind to."""
+    """A family's compiled glyphs (outlines, advances, cursive anchors) move that family's position key and no other, while the font's helper glyphs, cmap, and GPOS wiring move the whole-store position stamp. The edit changes advances because that moves a position without changing a glyph name or a cell, which the row key cannot see."""
     spec = fixtures.mini_spec()
     base_keys, base_stamp = _position(repo, spec, MINI_FONT)
     glyphs, _helpers = fingerprint.after_font_glyph_digests(MINI_FONT)
@@ -917,7 +917,7 @@ def test_a_glyph_edit_moves_only_its_family_s_position_key(repo, tmp_path):
 
 
 def test_the_position_key_embeds_the_row_key(repo):
-    """A position is served only where the row verdict is, and the key says so by construction rather than by a second test at serve time: a rune edit that moves a family's row key moves its position key with it, and the roster is the union of the two sides so a family the font holds glyphs for and the rune tree holds no file for still carries a key."""
+    """The position key embeds the row key, so a rune edit that moves a family's row key also moves its position key. The keys cover the union of the row-key and glyph-digest families, so a family the font has glyphs for but the rune tree has no file for still has a key."""
     spec = fixtures.mini_spec()
     row_keys = _keys(repo, spec)
     glyphs, _helpers = fingerprint.after_font_glyph_digests(MINI_FONT)
@@ -930,7 +930,7 @@ def test_the_position_key_embeds_the_row_key(repo):
 
 
 def test_the_position_stamp_names_the_channel_s_code_the_toolchain_and_the_kern_sidecar(repo, tmp_path):
-    """The whole-store position stamp, line by line: the position channel's own module (the drift, the kern normalization, the record codec, the verifier, the sidecar evaluator and the shaper factory live there), the toolchain lock that pins the shaper, and the kern sidecar's bytes, each asserted to move its own named line and only that. Nothing the row stamp already holds is repeated, so a store loads or drops on the row stamp alone and the position stamp decides only whether the positions beside the rows may be served. The classifier's module is staged beside the channel's and perturbed the same way to prove the other half at the stamp's own grain: a classifier edit moves no line, so every stored position is served through it. Both module edits are a statement rather than a trailing newline, for `_perturb_rune`'s reason: the code line's digest is prose-blind (`fingerprint.code_file_digest`), so a comment, a docstring reword or a blank line leaves it where it was."""
+    """Checks each line of the whole-store position stamp: the position channel's module, the toolchain lock that pins the shaper, and the kern sidecar's bytes each move their own named line and no other. The position stamp repeats nothing from the row stamp except `format`, so a store loads or is dropped on the row stamp alone, and the position stamp decides only whether the stored positions may be served. The classifier's module is copied beside the channel's and edited the same way, and the edit moves no line, so a classifier edit keeps every stored position. Both module edits add a statement, not a blank line, because `fingerprint.code_file_digest` is prose-blind and ignores comments, docstrings, and blank lines."""
     spec = fixtures.mini_spec()
     kern = tmp_path / "kern.yaml"
     kern.write_text("global:\n  value: 0\n", encoding="utf-8")
@@ -968,7 +968,7 @@ def test_the_position_stamp_names_the_channel_s_code_the_toolchain_and_the_kern_
 
 
 def test_a_record_carries_both_verdicts_and_their_ages():
-    """The codec over every shape a position record takes — never shaped, shaped clean, and drifted with descriptions that carry commas of their own — beside both shapes of row verdict, each half with its own pass."""
+    """Round-trips every form of position verdict (not shaped, shaped with no drift, and drifted with descriptions that contain commas) alongside both forms of row verdict, each with its own age."""
     drifted = oracle_cache.CachedPosition(
         drifts=(
             "slot 1 (qsTea.en-y0): origin want (150, 0), got (100, 0)",
@@ -1001,7 +1001,7 @@ def test_a_record_carries_both_verdicts_and_their_ages():
 
 
 def test_a_moved_position_stamp_keeps_the_rows_and_retires_every_position(repo):
-    """What the position stamp and keys decide, and what they do not: a store loads on the row stamp alone, and each position verdict is served only where its own stamp and every key the row reaches still stand. A moved stamp retires every position and not one row; a moved key retires the positions of the rows reaching that family; a pass with no position keys at all serves none. `UNSHAPED` is never served whatever the keys say."""
+    """A store loads on the row stamp alone, and each position verdict is served only where the position stamp and every position key the row reaches are unchanged. A moved stamp makes every position stale and no row; a moved key makes stale the positions of the rows that reach that family; a pass with no position keys serves no position. `serve` returns `UNSHAPED` as stored, and the oracle never uses it as a served position."""
     spec = fixtures.mini_spec()
     stamp, keys = _stamp(repo, spec), _keys(repo, spec)
     position_keys, position_stamp = _position(repo, spec, MINI_FONT)
@@ -1048,7 +1048,7 @@ def test_a_moved_position_stamp_keeps_the_rows_and_retires_every_position(repo):
 
 
 def test_the_position_keys_are_reverified_at_promotion(repo, tmp_path, monkeypatch, capsys):
-    """The mid-run edit on the position side: a font recompiled or a kern sidecar edited while the oracle shaped means positions nothing on disk describes, and promotion refuses them by name exactly as it refuses a rune edited mid-run. The control promotes all six under a font and sidecar that held still."""
+    """A font recompiled or a kern sidecar edited while the oracle was shaping means the positions match nothing on disk, so promotion writes nothing and names what moved, as it does for a rune edited during the run. The control promotes every acceptance configuration when the font and sidecar did not change."""
     monkeypatch.setattr(run_m1, "REPO_ROOT", repo)
     monkeypatch.setattr(run_m1, "ALIAS_YAML", _alias(repo))
     kern = tmp_path / "kern.yaml"
@@ -1095,7 +1095,7 @@ def test_the_position_keys_are_reverified_at_promotion(repo, tmp_path, monkeypat
 
 
 def test_the_settle_memo_keys_ignore_the_alias_map_and_move_per_family(repo):
-    """The memo's per-family key is the row key without the alias line: the walk that fills the memo never reads the alias map, so retitling a family's aliases retires no settlement, while a geometric edit to one rune moves that family's key and no other."""
+    """The memo's per-family key is the row key without the alias line. The walk that fills the memo never reads the alias map, so changing a family's aliases keeps every settlement, while a geometric edit to one rune moves that family's key and no other."""
     spec = fixtures.mini_spec()
     base = oracle_cache.settle_family_keys(oracle_cache.settle_memo_inputs(repo), spec)
     assert set(base) == set(fingerprint.rune_digests(repo))
@@ -1108,7 +1108,7 @@ def test_the_settle_memo_keys_ignore_the_alias_map_and_move_per_family(repo):
 
 
 def test_the_settle_memo_stamp_moves_with_the_walk_s_routes_and_not_the_comparison_s(repo, monkeypatch):
-    """The memo's whole-store stamp is the row stamp less what only the comparison reads: it moves with the configuration, its features, the walk's code closure, the non-rune data, the spec structure and the settlement flags, and with nothing the alias map, the ledger, the kern sidecar or a subset table can do — each asserted by the named line it moves or leaves."""
+    """The memo's whole-store stamp is the row stamp without the lines only the comparison reads. It moves with the configuration, its features, the walk's code closure, the non-rune data, the spec structure, and the settlement flags, and not with any edit to the alias map, the ledger, the kern sidecar, or a rune file. Each case is checked by the named line it moves or leaves unchanged."""
     spec = fixtures.mini_spec()
     inputs = oracle_cache.settle_memo_inputs(repo)
     base = oracle_cache.settle_memo_stamp(inputs, spec, "default", frozenset())
@@ -1149,7 +1149,7 @@ _POSITION_LOCK = (
 
 
 def test_the_position_stamps_toolchain_line_reads_the_lock_by_its_dependency_pins(repo, tmp_path):
-    """The lock's project block pins no shaper, so a version bump leaves the position stamp — and every stored position — where it was; a moved uharfbuzz pin moves the `toolchain` line alone, and the per-family keys are untouched either way, since neither edit reaches a rune or a glyph."""
+    """The lock's project block pins no shaper, so a project version bump leaves the position stamp, and every stored position, unchanged. A changed uharfbuzz pin moves only the `toolchain` line. Neither edit reaches a rune or a glyph, so the per-family keys stay the same in both cases."""
     spec = fixtures.mini_spec()
     kern = tmp_path / "kern.yaml"
     kern.write_text("global:\n  value: 0\n", encoding="utf-8")

@@ -1,4 +1,7 @@
-"""The window enumerations the build stage serializes so nothing downstream rebuilds a fixpoint the same sources already produced — `run_m1.serialized_tables`' header read, which mints the sweep's glyph inventory and hands the build's witness stage its certificates, and the full rows the conform replay reads: what `table.read_windows` gets back off the artifact, the fingerprint guard that decides between loading and rebuilding, and the drop that keeps a million rows per configuration out of the build's parent process. Every fixture here is a real build's artifact rather than something Python composed, because since the fold moved into the crate the writer is `artifacts::write_windows` and the packer is `run_m1._pack_windows`; a fixture that needs a stamp the build did not give it edits the build's own file through `restamp`."""
+"""Tests for the window enumerations the build writes (`windows-<config>.tsv.gz`), which later steps load instead of recomputing the fixpoint. `run_m1.build_tables` reads each enumeration's head with `read_windows(windows=False)`, which gives the witness stage its certificates. `run_m1.serialized_tables` reads the same heads to give the conformance sweep and `--gates-only` their glyph inventory. The shipped-order walk (`kernel_exec.replay_emitted`) reads the full rows. The tests cover what `table.read_windows` reads back, the fingerprint guard that decides whether the files on disk can be loaded, and keeping the rows out of the build's parent process.
+
+Every fixture is a real build's artifact, because the crate writes the payload (`artifacts::write_windows`) and `run_m1._pack_windows` packs it. A fixture that needs a different stamp edits the build's file through `restamp`.
+"""
 
 import gzip
 import json
@@ -28,7 +31,7 @@ def build_b(tmp_path_factory):
 
 @pytest.fixture(scope="module")
 def built():
-    """The default configuration's whole table in memory, rows included — which the build's own parent never holds — so the artifact is checked against a second reading of the kernel rather than against itself."""
+    """The default configuration's table built in memory with its rows, which the build's parent never holds, so the artifact is compared with a separate kernel run instead of with itself."""
     return kernel_exec.build_tables(SPEC, frozenset())[0]
 
 
@@ -39,7 +42,7 @@ def written(build_a):
 
 
 def restamp(source, dest, inputs):
-    """One enumeration under a different fingerprint: the head's `inputs` field rewritten in the payload and the whole thing repacked through `run_m1._pack_windows` itself, so the fixture carries the build's own stamp and level. The plain body passes through a scratch file beside `dest`, removed once packed, because `_pack_windows` reads its payload from a path."""
+    """Copy an enumeration to `dest` with its head's `inputs` stamp replaced, repacked with `run_m1._pack_windows` so the gzip header and level match the build's. The plain payload goes through a scratch file beside `dest` because `_pack_windows` reads from a path."""
     marker, _, payload = gzip.decompress(source.read_bytes()).decode().partition("\t")
     head, _, rows = payload.partition("\n")
     record = json.loads(head)
@@ -78,7 +81,7 @@ class TestRoundTrip:
         assert head.reachable_cells() == built.reachable_cells()
 
     def test_the_head_carries_one_certificate_per_rule(self, built, written):
-        """The certificates ride the head beside the rules, one token stream per rule in rule order, spelled in the windows vocabulary — rune names and the three boundary glyph labels, never the edge or `#NA` — and every one names its rule's input somewhere along it."""
+        """The head carries one certificate per rule, in rule order. Each certificate is a token list of rune names and the three boundary glyph labels, with no edge or `#NA` token, and contains its rule's input rune."""
         _inputs, head = table_module.read_windows(written, windows=False)
         assert head.certificates == built.certificates
         assert len(head.certificates) == len(head.rules)
@@ -95,7 +98,7 @@ class TestRoundTrip:
         assert table_module.windows_digest(stripped) == table_module.windows_digest(built)
 
     def test_two_builds_of_one_spec_write_the_same_bytes(self, build_a, build_b):
-        """Diff-stability where it is actually stated — over two whole builds rather than over two calls to one writer — since the settlement and treaty TSVs are the crate's bytes and the enumeration is the crate's payload under this side's zeroed gzip stamp."""
+        """Two whole builds of one spec write byte-identical settlement TSVs, treaty TSVs, and windows files. The check runs over whole builds because the crate writes the TSVs and the windows payload, and the Python side adds only the gzip wrapper with a zeroed timestamp."""
         first, _tables, _digests = build_a
         for config in conform.SETTLEMENT_CONFIGS:
             for name in (f"settlement-{config}.tsv", f"treaties-{config}.tsv"):
@@ -104,7 +107,7 @@ class TestRoundTrip:
             assert packed.read_bytes() == table_module.windows_path(build_b, config).read_bytes(), config
 
     def test_the_pack_level_is_outside_what_the_artifact_claims(self, written, tmp_path):
-        """Identity is stated at the decompressed bytes, so the compression level is the clock's to choose: the build's payload packed at zlib's fastest and at its maximum is two different files, and each reads back to the artifact's stamp and digest."""
+        """Identity is defined on the decompressed bytes, so the compression level can change freely. The payload packed at levels 1 and 9 gives two different files, and both read back to the artifact's stamp and digest."""
         repacked = {}
         for level in (1, 9):
             repacked[level] = tmp_path / f"repacked-{level}.tsv.gz"
@@ -132,7 +135,7 @@ class TestRoundTrip:
 
 
 class TestWindowsDigest:
-    """The row-level table digest: it must survive everything a rune edit can move without moving the table (the inputs stamp), and move with anything the settlement rows themselves carry (the rules, the windows, the class map)."""
+    """`windows_digest` ignores the inputs stamp, which changes with any edit to the fixpoint's inputs, and changes with the rules, the windows, and the deep-class map."""
 
     def test_the_loaded_table_digests_like_the_built_one(self, built, written):
         _inputs, loaded = table_module.read_windows(written)
@@ -214,7 +217,7 @@ class TestFingerprintGuard:
 
 
 class TestBuildStageHandoff:
-    """What the build stage hands its parent since the fold moved into the crate: the head of each configuration's enumeration and its treaty rows, with the enumeration itself on disk under the stamp that names its sources. The rows never cross into the parent at all — a million per configuration is a resident peak nothing after the build spends — so what the parent holds is what `read_windows(windows=False)` answers."""
+    """`run_m1.build_tables` returns each configuration's enumeration head and treaty rows, and writes the full enumeration to disk under the stamp of its sources. The window rows never enter the parent process, so the parent holds only what `read_windows(windows=False)` returns."""
 
     def test_a_stamped_build_serializes_every_settlement_configuration_and_keeps_none(self, build_a):
         out_dir, tables, digests = build_a
@@ -235,7 +238,7 @@ class TestBuildStageHandoff:
         assert sorted(path.name for path in tmp_path.glob("settlement-*"))
 
     def test_the_overlay_configuration_gets_no_table_and_a_stale_one_is_swept(self, build_a, tmp_path):
-        """Nothing settles under the overlay, so no table is enumerated for it — and a table left under its name by an earlier build is removed before this one writes, so a directory globbed afterward holds this build's tables alone."""
+        """Nothing settles under an overlay configuration, so the build writes no table for it and removes any table an earlier build left under its name."""
         out_dir, _tables, _digests = build_a
         for config in conform.OVERLAY_CONFIGS:
             assert not [path.name for path in out_dir.glob(f"*-{config}.tsv*")]
@@ -250,7 +253,7 @@ class TestBuildStageHandoff:
 
     @pytest.mark.parametrize("config", conform.SETTLEMENT_CONFIGS)
     def test_the_crates_artifacts_are_what_this_sides_writers_write_back(self, build_a, tmp_path, config):
-        """Both TSVs are the crate's bytes now, so what keeps this side's copies of those writers and of `table_digest` honest is that they reproduce them: read the enumeration and the treaty rows back, write them out again here, and require the same bytes and the same digest the crate reported at build time. A rule-ordering divergence between the two sides shows in the settlement TSV, which is the shipped GSUB order."""
+        """The crate writes both TSVs, and the Python writers and `table_digest` must reproduce them. The test reads the enumeration and the treaty rows back, writes them again, and requires the same bytes and the digest the crate reported. A difference in rule order between the two sides shows up in the settlement TSV, whose order is the shipped GSUB order."""
         out_dir, _tables, digests = build_a
         _inputs, decision = table_module.read_windows(table_module.windows_path(out_dir, config))
         treaty = table_module.read_treaty_tsv(out_dir / f"treaties-{config}.tsv")

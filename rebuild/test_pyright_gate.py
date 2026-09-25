@@ -1,4 +1,4 @@
-"""The type check's self-skip (rebuild/tools/pyright_gate.py is the contract): what its closure holds, when the record answers before anything spawns, and what a finished check leaves behind. The spawn is stubbed — a real pyright is the suite's own gate, not a test's — and the record lives under tmp_path through the autouse redirect of every green constant."""
+"""Tests for the pyright check's self-skip in `rebuild/tools/pyright_gate.py`: which files its closure covers, when a matching green record skips the check before anything spawns, and what a finished check records. The spawn is stubbed, because the suite's own pyright run is the real check. rebuild/conftest.py's autouse fixture redirects every green record under tmp_path."""
 
 import subprocess
 from pathlib import Path
@@ -26,7 +26,7 @@ class _Process:
 
 
 def _spawn_stub(monkeypatch, returncode: int | None):
-    """Capture every spawn's argv and environment; a None return code makes any spawn a test failure."""
+    """Capture every spawn's argv and environment. With a None return code, any spawn fails the test."""
     spawned: list[tuple[list[str], dict | None]] = []
 
     def fake_popen(argv, cwd, env=None):
@@ -39,13 +39,13 @@ def _spawn_stub(monkeypatch, returncode: int | None):
 
 
 def _fingerprints(monkeypatch, values):
-    """One entry per call the gate makes: the key it begins over, then the key it re-reads before recording."""
+    """Stub the closure fingerprint with one value per call: the key `begin` reads, then the key `conclude` reads again before recording."""
     sequence = iter(values)
     monkeypatch.setattr(pg, "closure_fingerprint", lambda root=ROOT: next(sequence))
 
 
 def test_the_closure_is_what_pyright_is_pointed_at_and_nothing_else():
-    """The roots come from `[tool.pyright]` as pyproject.toml states them, and the closure over them is Python sources and stubs only, plus the two files that configure the checker and pin what it resolves against — no data, no prose, and nothing under a live tree."""
+    """The roots are the `[tool.pyright]` paths in pyproject.toml. The closure holds only Python sources and stubs under them, plus pyproject.toml and uv.lock, and nothing under rebuild/out/ or glyph_data/."""
     assert pg.checked_roots(ROOT) == sorted({"conftest.py", "rebuild", "test", "tools", "typings"})
     files = pg.closure_files(ROOT)
     assert files is not None
@@ -62,7 +62,7 @@ def test_the_closure_is_what_pyright_is_pointed_at_and_nothing_else():
 
 
 def test_the_closure_follows_pyproject_and_git_rather_than_a_hand_list(tmp_path):
-    """A synthetic repo says which files count: sources under the configured roots whether tracked or not, stubs under the stub path, never an ignored file, never a non-source, and the config pair always."""
+    """In a synthetic repo, the closure holds tracked and untracked sources under the configured roots, stubs under the stub path, and pyproject.toml and uv.lock. It leaves out ignored files and non-source files."""
     root = tmp_path / "repo"
     (root / "src").mkdir(parents=True)
     (root / "typings").mkdir()
@@ -139,7 +139,7 @@ def test_force_spawns_over_a_matching_record(monkeypatch):
 
 
 def test_a_red_check_over_its_recorded_closure_deletes_the_record(monkeypatch, capsys):
-    """A forced red over content the record calls green contradicts the record, so the record goes; the exit code is the caller's to fail the run on."""
+    """A forced red run over the recorded closure contradicts the record, so the record is deleted. The caller fails the run on the exit code."""
     ac.record_green(cycle_paths.PYRIGHT_GREEN, "p-1")
     _fingerprints(monkeypatch, ["p-1"])
     _spawn_stub(monkeypatch, 1)
@@ -150,7 +150,7 @@ def test_a_red_check_over_its_recorded_closure_deletes_the_record(monkeypatch, c
 
 
 def test_an_abandoned_check_is_ended_and_judges_nothing(monkeypatch, capsys):
-    """The interrupted run's path: the process is terminated and joined, its nonzero exit contradicts no record, and the line says the check was abandoned rather than red."""
+    """An interrupted run terminates and joins the process, keeps the green record despite the nonzero exit, and prints that the check was abandoned instead of failed."""
     ac.record_green(cycle_paths.PYRIGHT_GREEN, "p-1")
     _fingerprints(monkeypatch, ["p-1"])
     spawned = _spawn_stub(monkeypatch, 130)
@@ -189,7 +189,7 @@ def test_without_git_the_check_runs_and_records_nothing(monkeypatch, capsys):
 
 
 class _FakeCheck:
-    """A parked check that records how often it was joined and how often abandoned, and answers a join with the exit code it was built with."""
+    """A stand-in check that counts its `wait` and `abandon` calls and returns the exit code it was built with from `wait`."""
 
     def __init__(self, returncode: int):
         self.returncode = returncode
@@ -205,7 +205,7 @@ class _FakeCheck:
 
 
 class _RootStubConfig:
-    """What the root conftest's two hooks ask a controller's `Config` for and nothing else: the argv paths, the invocation directory they resolve against, and `--dist`; no `workerinput`, unless the test asks for a worker's. The twin of `_StubConfig` in rebuild/test_memory_budget.py, stubbed for the reason its docstring gives."""
+    """The parts of a `Config` the root conftest's two hooks read: the argv paths, the invocation directory they resolve against, and `--dist`. It has `workerinput` only when `worker` is set. It is modeled on `_StubConfig` in rebuild/test_memory_budget.py, whose docstring says why a real `Config` is not built."""
 
     def __init__(self, *args: str, dist: str = "load", worker: bool = False) -> None:
         self.args = list(args)
@@ -226,7 +226,7 @@ def _drive_sessionfinish(
     inner: BaseException | None = None,
     exitstatus: int = pytest.ExitCode.OK,
 ):
-    """Run the wrapper hook the way pluggy does: up to its yield, then back through with the inner impls' result — or the exception an inner impl raised — and return whatever the wrapper hands back. `exitstatus` is the session's, as pytest's `wrap_session` passes it."""
+    """Run the wrapper hook the way pluggy does: up to its yield, then resume it with the inner hooks' result or the exception an inner hook raised, and return what the wrapper returns. `exitstatus` is the session's, as pytest's `wrap_session` passes it."""
     session = SimpleNamespace(config=config, exitstatus=exitstatus)
     gen = root.pytest_sessionfinish(session=session, exitstatus=exitstatus)
     next(gen)
@@ -241,7 +241,7 @@ def _drive_sessionfinish(
 
 
 class TestWhenTheCheckIsJoined:
-    """The root conftest's two hooks, driven on the plugin pytest itself loaded (`_loaded_conftest` in rebuild/test_memory_budget.py argues why the live object and not an import). `pyright_gate.begin` is stubbed to hand back a fake check, the conftest's `subprocess` is stubbed so a `make all` on the wrong branch fails the test, and the parking list and shaping cache are swapped for fresh containers so driving the live plugin cannot leak into the session running this test."""
+    """Drive the root conftest's `pytest_configure` and `pytest_sessionfinish` on the plugin object pytest loaded (`_loaded_conftest` in rebuild/test_memory_budget.py says why it is not imported). `pyright_gate.begin` is stubbed to return a fake check, and the conftest's `subprocess` is stubbed to record any `make all` instead of running it. `_deferred_pyright` and `_shaping_cache` are replaced with fresh containers so the test cannot change the state of the session running it."""
 
     @pytest.fixture
     def root(self, pytestconfig: pytest.Config, monkeypatch: pytest.MonkeyPatch) -> ModuleType:
@@ -268,7 +268,7 @@ class TestWhenTheCheckIsJoined:
     def test_a_rebuild_only_run_with_its_fonts_present_parks_the_check_and_waits_on_nothing(
         self, root: ModuleType, builds: list[list[str]], monkeypatch: pytest.MonkeyPatch
     ):
-        """The lane `make test-rebuild` spawns: no font build, no wait before the workers, and the one join at session end."""
+        """In the pytest run that `make test-rebuild` spawns, no fonts are built, nothing waits on the check before the workers start, and the check is waited on once at session end."""
         check = _FakeCheck(0)
         self._begin(monkeypatch, check)
         monkeypatch.setattr(root, "_rebuild_suite_fonts_present", lambda: True)
@@ -282,7 +282,7 @@ class TestWhenTheCheckIsJoined:
     def test_a_deferred_red_fails_the_run(
         self, root: ModuleType, builds: list[list[str]], monkeypatch: pytest.MonkeyPatch
     ):
-        """The exit both wrappers already read as hard: nonzero, with no FAILED/ERROR line of its own."""
+        """A red deferred check exits the session nonzero with no FAILED or ERROR line, which the gate wrappers treat as a hard failure."""
         self._begin(monkeypatch, _FakeCheck(1))
         monkeypatch.setattr(root, "_rebuild_suite_fonts_present", lambda: True)
         root.pytest_configure(_RootStubConfig("rebuild/"))
@@ -324,7 +324,7 @@ class TestWhenTheCheckIsJoined:
         args: tuple[str, ...],
         fonts_present: bool,
     ):
-        """`make test FORCE=1`'s promise, and the same branch for a rebuild-only run whose site fonts are absent: the build runs, the check is waited on beside it, and a red raises before a worker exists, with nothing parked for session end."""
+        """When the run builds the fonts (`make test FORCE=1`, or a rebuild-only run whose site fonts are absent), the check runs alongside the build and a red check raises before any worker starts. Nothing is deferred to session end."""
         check = _FakeCheck(1)
         self._begin(monkeypatch, check)
         monkeypatch.setattr(root, "_rebuild_suite_fonts_present", lambda: fonts_present)
@@ -338,7 +338,7 @@ class TestWhenTheCheckIsJoined:
     def test_a_worker_begins_no_check_and_still_reports_its_peak(
         self, root: ModuleType, builds: list[list[str]], monkeypatch: pytest.MonkeyPatch
     ):
-        """The pin for the worker half of the wrapper: the peak is written into workeroutput before the hook yields, so xdist's own wrapper ships it back however the two nest, and every worker is counted in the peak-RSS summary line and the kind:"pool" journal records."""
+        """A worker writes its peak RSS into workeroutput before the hook yields, so xdist's wrapper sends it to the controller however the two wrappers nest. That puts every worker in the peak-RSS summary line and the kind:"pool" journal record."""
         self._begin(monkeypatch, _FakeCheck(1))
         config = _RootStubConfig("rebuild/", worker=True)
         root.pytest_configure(config)
@@ -355,7 +355,7 @@ class TestWhenTheCheckIsJoined:
     def test_a_session_interrupted_by_ctrl_c_abandons_the_check_and_keeps_its_own_exit(
         self, root: ModuleType, builds: list[list[str]], monkeypatch: pytest.MonkeyPatch
     ):
-        """The shape a Ctrl-C takes at this hook: pytest's `wrap_session` catches the KeyboardInterrupt and calls the hook normally with exitstatus INTERRUPTED. The parked check is abandoned, not judged — the same SIGINT killed pyright, so its exit would read as a false red and clear a green record that still holds — and the wrapper raises nothing, so INTERRUPTED stands."""
+        """On Ctrl-C, pytest's `wrap_session` catches the KeyboardInterrupt and calls the hook with exitstatus INTERRUPTED. The deferred check is abandoned and its exit code ignored, because the same SIGINT killed pyright, and treating that exit as a failure would clear a valid green record. The wrapper raises nothing, so the session keeps its INTERRUPTED status."""
         check = _FakeCheck(130)
         self._begin(monkeypatch, check)
         monkeypatch.setattr(root, "_rebuild_suite_fonts_present", lambda: True)
@@ -370,7 +370,7 @@ class TestWhenTheCheckIsJoined:
     def test_an_inner_impl_that_raises_still_reaps_the_check_without_judging_it(
         self, root: ModuleType, builds: list[list[str]], monkeypatch: pytest.MonkeyPatch
     ):
-        """An inner sessionfinish impl that raises — an exploding teardown — still reaps the parked check, so no pyright is orphaned; a check whose session did not finish is abandoned, and the exception is what propagates."""
+        """When an inner sessionfinish hook raises, the wrapper still abandons the deferred check so no pyright process is left running, and the exception propagates."""
         check = _FakeCheck(0)
         self._begin(monkeypatch, check)
         monkeypatch.setattr(root, "_rebuild_suite_fonts_present", lambda: True)
@@ -383,7 +383,7 @@ class TestWhenTheCheckIsJoined:
     def test_a_deferred_red_still_fails_a_session_whose_tests_failed(
         self, root: ModuleType, builds: list[list[str]], monkeypatch: pytest.MonkeyPatch
     ):
-        """Only INTERRUPTED abandons the check: a session that ran to its end with failures is judged like a green one."""
+        """Only INTERRUPTED abandons the check. A session that finished with test failures still waits on the check and fails on a red one."""
         check = _FakeCheck(1)
         self._begin(monkeypatch, check)
         monkeypatch.setattr(root, "_rebuild_suite_fonts_present", lambda: True)
@@ -393,7 +393,7 @@ class TestWhenTheCheckIsJoined:
         assert (check.waits, check.abandons) == (1, 0)
 
     def test_the_controller_half_is_the_outermost_sessionfinish_wrapper(self, root: ModuleType):
-        """The flag the saving hinges on: the TerminalReporter registers its own sessionfinish wrapper after the conftests, so without `tryfirst` this one would run inside the summary and pyright's remaining wait would land inside the summary's clock and above its line. Pluggy stores the hookimpl options on the function, so the pin reads them there."""
+        """The TerminalReporter registers its own sessionfinish wrapper after the conftests. Without `tryfirst`, the conftest's wrapper would run inside the summary, so the wait for pyright would count toward the summary's time and the `pyright:` line would print above the summary. Pluggy stores the hookimpl options on the function, so the test reads them there."""
         opts = root.pytest_sessionfinish.pytest_impl
         assert opts["wrapper"] and opts["tryfirst"]
 
@@ -406,7 +406,7 @@ _GATE_LOCK = (
 
 
 def test_the_closure_reads_the_lock_by_its_dependency_pins_and_every_source_raw(tmp_path):
-    """A version bump edits the lock's project block and leaves the key standing; a moved pin — the checker's own, say — moves it; and a `# pyright: ignore` comment in a source still moves it, because the source files stay raw. The roster of files is the same in every arm."""
+    """A version bump in the lock's project block leaves the key unchanged. A changed dependency pin, such as pyright's own, changes it. A `# pyright: ignore` comment in a source also changes it, because sources are hashed raw. The file list is the same in every case."""
     root = tmp_path / "repo"
     (root / "src").mkdir(parents=True)
     (root / "pyproject.toml").write_text('[tool.pyright]\ninclude = ["src"]\n')

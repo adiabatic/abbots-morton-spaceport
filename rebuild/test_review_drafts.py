@@ -1,6 +1,6 @@
-"""Tests for the three verdict drafters against real M1 units: the semantic validator's teeth, the policy drafter's branch table on worked-example windows (contract for a gained extension, refuse for a new join, prefer on a name-grain divergence and on an empty trace, and the decline), any-of candidate ordering, and duplicate detection against a synthetic corpus index.
+"""Tests for the three verdict drafters on real M1 units: the semantic validator rejecting a wrong pin, the record each branch of `draft_policy` drafts on worked-example windows (contract for a gained extension, refuse for a new join, prefer on a name-grain divergence and on an empty trace, and no draft), the order of any-of candidates, and duplicate detection against a synthetic corpus index.
 
-No whole-corpus sweep lives here: what every drafted pin and policy record must satisfy — the pin parses and replays "pass", the record is schema-valid, the any-of candidates are distinct and parseable — the drafter refuses to produce anything else, raising `DraftError` where the draft is made rather than recording a failure for `check_unit` to reject downstream, so no sweep of shipped fragments could witness a violation that exists. (A machine-approved or verdict-exempt unit is never drafted at all and its fragment omits `drafts`; that a record names only trace provenance in a real file is `check_unit`'s and `check_shards`'.) The worked examples take their windows from `example_units`, a filtered load of the frozen mini bundle's audit, and shape them in the bundle's own font — how the drafter words a record is a property of the drafter, so nothing here reaches the live corpus.
+There is no sweep over the whole corpus. The drafter raises `DraftError` where it makes a pin that does not parse or does not replay as "pass", a policy record the rune schema rejects, or an any-of candidate that does not parse, so a shipped fragment cannot carry a failing draft. A machine-approved or verdict-exempt unit is never drafted, so its slim fragment has no `drafts`. `check_unit` checks that a policy record names only the unit's own provenance, and `check_shards` checks that the record's file exists. The worked examples take their windows from `example_units`, a filtered load of the frozen mini bundle's audit, and shape them in the bundle's font, so no test here reads the live corpus.
 """
 
 import warnings
@@ -37,7 +37,7 @@ def drafter():
 
 
 def test_pins_are_whole_word_with_no_variant_assertions():
-    """A drafted pin asserts the word and its joins, never which stance a letter took: `expect_string` emits bare letter names, so no token it produces can carry a variant, a negated variant, or an exact-glyph assertion. Asserted over the emitter rather than over a corpus of drafts, because it is the emitter's property — a sweep of 451k units restated it 451k times."""
+    """A drafted pin asserts the word and its joins but not which stance a letter took. `expect_string` emits bare letter names, so no token it produces carries a variant, a negated variant, or an exact-glyph assertion. The test checks the emitter directly because the property belongs to the emitter."""
     ts = _import_test_shaping()
     cases = (
         ((0x200C, 0xE652, 0xE679), ((0, 1), (1, 3)), ("break",)),
@@ -101,7 +101,7 @@ def test_policy_draft_refuses_when_the_divergence_includes_a_new_join(drafter, e
 
 
 def test_refuse_drafts_never_target_seam_identical_units(drafter, enricher, example_units):
-    """A refuse draft says "do not take this new join", so it must never land on a unit whose seams did not move. Branch 4 of `draft_policy` implies it; the new-join branch does not, and this is the witness that its glyph-index seam equality and the codepoint-gap lookup cannot disagree. Sampled over the worked-example windows rather than swept over the corpus — the property is about the two derivations agreeing, not about how many units agree."""
+    """A refuse draft forbids a new join, so it must never target a unit whose seams did not change. The fourth branch of `draft_policy` is reached only when the seam-identical branch was not taken, so it cannot target one. The new-join branch relies on the codepoint-gap lookup in `_new_join_side` agreeing with the glyph-seam comparison in `_seam_identical`, and this test checks that agreement on the worked-example windows."""
     for unit in example_units.values():
         enriched = enricher.enrich(unit)
         policy = drafter.draft_policy(enriched)
@@ -129,7 +129,7 @@ def test_policy_draft_declines_unexpressible_name_grain_divergence(drafter, enri
 
 
 def test_policy_draft_uses_prefer_when_provenance_is_empty(drafter, enricher, example_units):
-    """The bare-name ·Fee·No window: a live join the runes never spoke about, so the trace names no record and `draft_policy` falls to its prefer branch. Pinned to one window rather than sampled from the class, so a window that grows provenance fails here loudly instead of skipping the branch and reporting green."""
+    """The bare-name ·Fee·No window has a join that no rune record decided, so the trace names no record and `draft_policy` takes its final prefer branch. The test uses one fixed window instead of sampling the class, so if that window gains provenance the test fails instead of silently skipping the branch."""
     unit = example_units[("E658:E666", "default")]
     assert unit.class_id == "bare-name-live-join"
     enriched = enricher.enrich(unit)

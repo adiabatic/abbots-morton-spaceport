@@ -77,7 +77,7 @@ def test_parse_inner_timings_reads_a_trailing_rss_token():
 
 
 def test_parse_inner_timings_reads_the_surface_builds_phase_lines():
-    """The surface build's phase lines carry the peak token, then the current-reading token where the box answers one, ahead of a tab-separated note, which is the shape `--inner` has to read a per-phase peak and resident set out of for the step whose high-water mark issue #156 wants attributed."""
+    """The surface build's phase lines carry the peak token, then the current-RSS token when the platform reports one, then a tab-separated note. `--inner` reads each phase's peak and current RSS from this form."""
     text = (
         "[t] review.build load 12.3s rss_gb=1.23 rss_now_gb=1.20\t(signatures: 40 cached, 2 shaped across 8 workers)\n"
         "[t] review.build units 900.0s rss_gb=15.40 rss_now_gb=9.75\t(jobs=1, fresh=1,000,000, verified=0 served)\n"
@@ -259,7 +259,7 @@ def test_record_check_writes_one_parentless_check_line(tmp_path):
 
 
 def test_a_check_line_carries_its_own_box_context(tmp_path):
-    """The denormalization that makes an interactive record readable: no run line is coming to say which machine this was."""
+    """A check line records its own host, cores, and memory, because an interactive check has no run line to say which machine it ran on."""
     path = tmp_path / "j.ndjson"
     ct.record_check(_verdict(), path=path)
     (entry,) = _lines(path)
@@ -297,7 +297,7 @@ def test_record_check_carries_the_parent_and_the_cost_when_given_them(tmp_path):
 
 
 def test_a_check_line_never_journals_recordable(tmp_path):
-    """recordable is this pass's permission to write a green record, not history — a reader months later could do nothing with it."""
+    """`recordable` only tells the current pass whether it may write a green record, so it is not journaled."""
     path = tmp_path / "j.ndjson"
     ct.record_check(_verdict(recordable=True), path=path)
     (entry,) = _lines(path)
@@ -305,7 +305,7 @@ def test_a_check_line_never_journals_recordable(tmp_path):
 
 
 def test_record_check_resolves_the_journal_when_the_call_is_made(tmp_path, monkeypatch):
-    """What rebuild/conftest.py's autouse redirect depends on: no default binds JOURNAL at import, so pointing the constant somewhere disposable reaches this writer too."""
+    """rebuild/conftest.py's autouse redirect patches `JOURNAL`, which works only because no default argument binds it at import."""
     journal = tmp_path / "redirected.ndjson"
     monkeypatch.setattr(ct, "JOURNAL", journal)
     ct.record_check(_verdict())
@@ -368,7 +368,7 @@ def test_load_checks_reads_a_missing_journal_as_no_checks(tmp_path):
 
 
 def test_load_journal_ignores_check_lines_parented_or_not(tmp_path):
-    """A check is a judgment, not a step, and a line that only points at a run must not conjure one."""
+    """Check lines are not steps, and a check line that names a run does not create a run entry."""
     path = tmp_path / "j.ndjson"
     _write_journal(
         path,
@@ -386,7 +386,7 @@ def test_load_journal_ignores_check_lines_parented_or_not(tmp_path):
 
 
 def _mixed_journal(path):
-    """A journal holding both kinds of writer: one cycle's step and run lines, and two pool lines from pytest controllers that know nothing about that cycle."""
+    """A journal with one cycle's step and run lines and two pool lines from pytest controllers unrelated to that cycle."""
     timings = ct.CycleTimings(path)
     ct.record_pool(
         "rebuild-contracts",
@@ -433,7 +433,7 @@ def test_record_pool_writes_one_pool_line(tmp_path):
 
 
 def test_a_pool_record_carries_no_run_id(tmp_path):
-    """The deliberate omission, which the run id a spawned child now inherits does not change: a pool belongs to one suite invocation, and a cycle pass spawns several, so a run is the wrong grain to file one under."""
+    """A pool belongs to one suite invocation and a cycle pass spawns several, so a pool line has no run id even when the child inherits `CYCLE_RUN_ENV`."""
     path = tmp_path / "j.ndjson"
     ct.record_pool("font-suite", width=2, worker_peaks={"gw0": 1}, controller_peak_bytes=1, path=path)
     (entry,) = _lines(path)
@@ -451,7 +451,7 @@ def test_record_pool_round_trips_through_load_pool_records(tmp_path):
 
 
 def test_a_conform_belt_record_keys_its_workers_by_configuration(tmp_path):
-    """The belt's pool record names its workers by acceptance configuration rather than by gateway, and `gateway_order` sorts those names by the digits in them: `default` has none and sorts first, and `ss03+ss05` reads as 305 and sorts last. So a reader matching a peak to its configuration reads it by key, never by position."""
+    """The belt's pool record keys its workers by acceptance configuration, and `gateway_order` sorts those keys by their digits: `default` has none and sorts first, and `ss03+ss05` reads as 305 and sorts last. Match a peak to its configuration by key, not by position."""
     path = tmp_path / "j.ndjson"
     configs = ("default", "ss03", "ss04", "ss05", "ss03+ss05", "ss10")
     peaks = {config: 300_000_000 + index for index, config in enumerate(configs)}
@@ -546,7 +546,7 @@ def test_main_reports_a_missing_journal(tmp_path, capsys):
 
 
 def test_main_does_not_report_an_empty_journal_when_only_checks_are_recorded(tmp_path, capsys):
-    """The early-out is about a box that has recorded nothing, and a box that only ever runs checks interactively has recorded plenty."""
+    """The empty-journal message is only for a journal with no records, and a journal with only check lines is not empty."""
     path = tmp_path / "j.ndjson"
     _write_journal(
         path,
@@ -607,7 +607,7 @@ def test_main_default_view_lists_steps_slowest_first(tmp_path, capsys):
 
 
 def test_main_default_view_omits_ram_for_a_run_record_that_predates_it(tmp_path, capsys):
-    """A record written before the box became a field is older, not a record whose probe failed — so it renders with no ram= clause at all, where cpus=? would be the honest reading for a key that has always been written."""
+    """A run record without `mem_total_bytes` predates that field, so it shows no `ram=` clause. A missing `cpu_count` shows `cpus=?`, because that key has always been written."""
     path = tmp_path / "j.ndjson"
     _write_journal(
         path,
@@ -710,7 +710,7 @@ def test_main_by_step_reports_the_max_recorded_rss_per_step(tmp_path, capsys):
 
 
 def _check_timing_journal(tmp_path):
-    """One cycle's gate:make-test step with the check line that judged it, plus the same suite run interactively three times — twice with a wall to report, once skipped."""
+    """One cycle's gate:make-test step with its check line, plus three interactive runs of the same suite: two with an elapsed time and one skipped."""
     path = tmp_path / "j.ndjson"
     _write_journal(
         path,
@@ -740,7 +740,7 @@ def _check_timing_journal(tmp_path):
 
 
 def test_main_by_step_gives_an_interactive_check_a_row_of_its_own(tmp_path, capsys):
-    """A gate sharing the box with a cycle pass and the same suite alone on the box are different measurements, so the gate:* row and the check's row stay apart."""
+    """A gate that shares the machine with a cycle pass and the same suite run alone are different measurements, so the gate:* row and the check's row are kept separate."""
     path = _check_timing_journal(tmp_path)
     assert ct.main(["--journal", str(path), "--by-step"]) == 0
     out = capsys.readouterr().out
@@ -749,7 +749,7 @@ def test_main_by_step_gives_an_interactive_check_a_row_of_its_own(tmp_path, caps
 
 
 def test_main_by_step_counts_neither_a_parented_check_nor_a_skipped_one(tmp_path, capsys):
-    """The parented one's seconds are already the step line's; the skipped one has none, and a zero there would drag the median toward a run that never happened."""
+    """The parented check's seconds are already in its step line. The skipped check has none, and counting it as zero would pull the median down."""
     path = _check_timing_journal(tmp_path)
     assert ct.main(["--journal", str(path), "--by-step"]) == 0
     out = capsys.readouterr().out
@@ -758,7 +758,7 @@ def test_main_by_step_counts_neither_a_parented_check_nor_a_skipped_one(tmp_path
 
 
 def test_main_by_step_keeps_the_run_m1_check_out_of_the_run_m1_build_row(tmp_path, capsys):
-    """The one name a check and a step spell identically: the cycle spawns the M1 build as the step `run_m1` and its judge files the check `run_m1`, and an interactive `--gates-only` re-adjudication files that same check with no step of its own. Merged, it would inflate the build row's count and hand `latest` the re-adjudication as the most recent cost of a full build."""
+    """`run_m1` is both a step name and a check name, and an interactive `--gates-only` run records the check with no step. Merging the rows would inflate the build row's count and report the `--gates-only` run as the latest full build's cost."""
     path = tmp_path / "j.ndjson"
     _write_journal(
         path,
@@ -831,7 +831,7 @@ def test_main_by_outcome_reads_check_lines_only(tmp_path, capsys):
 
 
 def test_parse_inner_timings_finds_every_label_when_two_branches_interleave():
-    """run_m1's table-only branch and its glyph chain print into one step log at once; each producer writes a whole line in one write, so however the lines interleave every label is found."""
+    """run_m1's table-only branch and its glyph chain print to one step log at the same time. Each producer writes whole lines in one write, so every label is found however the lines interleave."""
     text = "\n".join(
         [
             "[t] build_tables_total 247.9s rss_gb=16.13",

@@ -1,8 +1,8 @@
-"""The surface cache against the move it exists for: a recompiled after font.
+"""Tests that the surface cache keeps serving across a recompiled after font.
 
-Issue 20's per-unit cache had never served a unit in any recorded build, and rebuild/test_unit_cache.py was green throughout, because every case it perturbs is an *audit* edit — the one direction the per-unit content keys were already built for. What actually happens on a rune-edit cycle is that the after font is recompiled: its GSUB lookup list moves whether or not any window's shaping does, and the edited letter's compiled glyphs move with it. Both whole-store stamps folded the GSUB wiring in, so the store was discarded wholesale every time.
+A rune edit recompiles the after font: its GSUB lookup list changes whether or not any window's shaping does, and the edited letter's compiled glyphs change with it. The audit edits in rebuild/test_unit_cache.py do not cover this case.
 
-So this module perturbs the font. The edited font here does both things at once — it appends a GSUB lookup no feature references, and it widens every glyph of one family — because that is the shape of a real cycle, and the two halves must land differently: the wiring must not reach the stamp at all, and the family must invalidate exactly the windows that can reach it. The bundle under rebuild/review/fixtures/mini/ is what makes this a contracts-lane test; see its regenerate.py for what it holds and when it needs remaking.
+The edited font here makes both changes at once, as a real cycle does: it appends a GSUB lookup that no feature references, and it widens every glyph of one family. The GSUB change must not reach either whole-store stamp, and the widened family must invalidate only the windows that can reach it. The bundle under rebuild/review/fixtures/mini/ keeps this module in the contracts lane; its regenerate.py describes what the bundle holds.
 """
 
 import copy
@@ -39,7 +39,7 @@ def _mini_build(out: Path, after_font: Path, bundle, **kwargs) -> dict:
 
 
 def _with_extra_gsub_lookup(source: Path, target: Path) -> Path:
-    """The font again, plus one GSUB lookup nothing references. It moves the wiring digest — the lookup-type list grows — and cannot move a single shaped run, which is exactly the perturbation a rune edit hands the cache for free."""
+    """Copy the font with one extra GSUB lookup that nothing references. This changes the GSUB lookup list, as a rune edit's recompile does, and cannot change any shaped run."""
     font = TTFont(str(source))
     lookups = font["GSUB"].table.LookupList  # pyright: ignore[reportAttributeAccessIssue]
     lookups.Lookup.append(copy.deepcopy(lookups.Lookup[0]))
@@ -49,7 +49,7 @@ def _with_extra_gsub_lookup(source: Path, target: Path) -> Path:
 
 
 def _with_a_widened_family(source: Path, target: Path) -> Path:
-    """The font again, with every glyph of one family advancing wider. The family's compiled-glyph digest moves, so every window that can reach that letter must be recomputed — and every window that cannot must still be served."""
+    """Copy the font with every glyph of `MOVED_FAMILY` given a wider advance. The family's compiled-glyph digest changes, so every window that can reach that letter must be recomputed, and every window that cannot must still be served."""
     font = TTFont(str(source))
     metrics = font["hmtx"].metrics  # pyright: ignore[reportAttributeAccessIssue]
     widened = 0
@@ -64,7 +64,7 @@ def _with_a_widened_family(source: Path, target: Path) -> Path:
 
 
 def _recompiled(source: Path, target: Path) -> Path:
-    """Both halves at once: the shape of a real cycle's after font."""
+    """Apply both changes, as a real cycle's after font has them."""
     scratch = target.with_name("wiring-" + target.name)
     return _with_a_widened_family(_with_extra_gsub_lookup(source, scratch), target)
 
@@ -95,12 +95,12 @@ def _served(capfd) -> tuple[int, int]:
 
 @pytest.fixture(scope="module")
 def spec(mini_bundle):
-    """The bundle's own spec, which is also the root the stamps below are taken over: the keys are compared with themselves across a font recompile, so any root holding the families serves, and the bundle's keeps the live runes out of these tests' closure."""
+    """Load the bundle's own spec. The stamps below are taken over the bundle's spec root. Each test compares keys from the same root before and after a font change, so any root that has the families would work, and the bundle's root keeps the live runes out of these tests' closure."""
     return load_spec(mini_bundle.spec_root)
 
 
 def test_a_gsub_only_recompile_leaves_every_cache_key_alone(tmp_path, spec, mini_bundle):
-    """The finding this module exists for, stated at the grain it is decided at: appending a GSUB lookup moves nothing the cache stamps. Before this, it moved `after_helpers`, which both whole-store stamps carry, so the whole store went."""
+    """Appending a GSUB lookup changes nothing the cache stamps: not the family keys, not the helpers digest, and not either whole-store stamp."""
     root = mini_bundle.spec_root
     families, helpers = unit_cache.family_content_keys(root, spec, MINI_FONT)
     rewired = _with_extra_gsub_lookup(MINI_FONT, tmp_path / "rewired.otf")
@@ -115,7 +115,7 @@ def test_a_gsub_only_recompile_leaves_every_cache_key_alone(tmp_path, spec, mini
 
 
 def test_a_widened_family_moves_that_family_key_and_leaves_the_environment(tmp_path, spec, mini_bundle):
-    """The other half of a recompile, which must land the opposite way: a family whose compiled glyphs moved invalidates at per-unit grain through its own key, and touches no whole-store stamp."""
+    """Widening one family's glyphs changes only family keys that name that family, and leaves unchanged the helpers digest that both whole-store stamps include."""
     root = mini_bundle.spec_root
     families, helpers = unit_cache.family_content_keys(root, spec, MINI_FONT)
     widened = _with_a_widened_family(MINI_FONT, tmp_path / "widened.otf")
@@ -129,7 +129,7 @@ def test_a_widened_family_moves_that_family_key_and_leaves_the_environment(tmp_p
 def test_a_recompiled_font_serves_the_untouched_units_and_lands_on_a_from_scratch_build(
     mini_surface, mini_bundle, tmp_path, capfd
 ):
-    """The end-to-end claim, at the only scale a test can afford: rebuild the mini surface over a font recompiled the way a rune edit recompiles one, and the store must serve the windows the moved family cannot reach — some, not all, and not none — while the tree it writes stays byte-for-byte what a cache-blind build of the same inputs writes. The content keys are asserted first and on their own, because they are what carry a recorded verdict across the cycle: a served fragment whose key drifted would strand every verdict recorded against it, and `patch_fragment` re-stamps twelve fields over a served fragment without recomputing that key. The base copied here is conftest's `mini_surface`, a build over the unmodified `MINI/M1.otf`; the recompile belongs to the fonts handed to `_mini_build`, never to that base."""
+    """End to end at mini scale: rebuild the mini surface over a font recompiled the way a rune edit recompiles one. The store must serve the windows the widened family cannot reach (some units, not all and not none), and the tree it writes must be byte-identical to a from-scratch build of the same inputs. The content keys are compared first and separately, because they carry a recorded verdict across the cycle: a served fragment with a wrong key would strand every verdict recorded against it, and `patch_fragment` rewrites a served fragment's scaffold fields without recomputing that key. The base copied here is conftest's `mini_surface`, built over the unmodified `MINI/M1.otf`; only the fonts passed to `_mini_build` are recompiled."""
     incremental = tmp_path / "surface"
     shutil.copytree(mini_surface, incremental)
     recompiled = _recompiled(MINI_FONT, tmp_path / "recompiled.otf")
@@ -147,7 +147,7 @@ def test_a_recompiled_font_serves_the_untouched_units_and_lands_on_a_from_scratc
 
 
 def _with_a_version_bump(source: Path, target: Path) -> Path:
-    """The font again, with `head.fontRevision` and every `name` record rewritten — what `make all` does to both site fonts on a version bump, and the one recompile that must move neither whole-store stamp."""
+    """Copy the font with `head.fontRevision` and every `name` record changed, as `make all` changes both site fonts on a version bump. This change must move neither whole-store stamp."""
     font = TTFont(str(source))
     head = font["head"]
     head.fontRevision = head.fontRevision + 0.001  # pyright: ignore[reportAttributeAccessIssue]
@@ -158,7 +158,7 @@ def _with_a_version_bump(source: Path, target: Path) -> Path:
 
 
 def test_a_version_bump_of_the_before_font_leaves_both_whole_store_stamps(tmp_path, spec, mini_bundle):
-    """The site fonts reach both stamps table by table outside `head` and `name`, so the fonts a bump's `make all` rewrites leave the unit store and the ink-signature store serving, while a widened glyph in the same font — an outline the before side renders — drops both. The bumped font differs from the fixture byte for byte, which is what a digest over the whole file would see."""
+    """Both stamps hash the site fonts table by table, leaving out `head` and `name`, so the fonts a version bump's `make all` rewrites leave the unit store and the ink-signature store serving, while widening a glyph advance in the same font changes both stamps. The bumped font's bytes differ from the fixture's, so a digest over the whole file would have changed."""
     root = mini_bundle.spec_root
     _families, helpers = unit_cache.family_content_keys(root, spec, MINI_FONT)
     bumped = _with_a_version_bump(MINI_FONT, tmp_path / "bumped.otf")

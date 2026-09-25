@@ -1,6 +1,6 @@
-"""Tests for the verdict-family grouper (rebuild/review/families.py): the seam-gain/seam-loss discriminator over hand-built enriched stubs, and the determinism of an assignment over the frozen mini bundle.
+"""Tests for the verdict-family grouper (rebuild/review/families.py): the seam-gain and seam-loss branches of `assign_family` over hand-built stubs, and the determinism of an assignment over the frozen mini bundle.
 
-The live partition is not asserted here any more. That every UNMATCHED window lands in exactly one family, and that the sidecar's family records index precisely the UNMATCHED positions of the pre-merge list, is `census.derive_premerge`'s to enforce over the same capture it writes — it raises on a window without a family and asserts one flag per captured unit — and how many windows each family holds is the census's to report, which the artifact cycle diffs into rebuild/review-census-pins.json. What is left is the code: the discriminator's branch table, over stubs carrying exactly the attributes it reads, and that two independently constructed Enrichers agree.
+The partition of the live corpus is checked elsewhere. `census.derive_premerge` records one family for each UNMATCHED row of the pre-merge list and raises on a row that resolves to no family. The census reports how many windows each family holds, and the artifact cycle diffs those counts into rebuild/review-census-pins.json.
 """
 
 import warnings
@@ -35,7 +35,7 @@ def _enriched(
     cells: tuple[str, ...],
     config_classes: dict[str, str],
 ) -> _StubEnriched:
-    """A minimal stand-in carrying exactly the attributes assign_family reads, which is all its FamilyInput protocol asks for — no enrichment, no fonts, no audit rows."""
+    """Return a stub with only the attributes the `FamilyInput` protocol asks for, which are all that `assign_family` reads."""
     return _StubEnriched(
         unit=_StubUnit(config_classes=dict(config_classes), configs=tuple(config_classes)),
         before_seams=before,
@@ -75,7 +75,7 @@ def test_gain_families_by_pair():
 
 
 def test_seam_family_uses_the_ligature_trailing_component():
-    """The seam is the left cell's EXIT (its trailing component for a ligature) joining the right cell's ENTRY. ·Tea·Oy·It joins ·It via the trailing ·Oy of the Tea+Oy ligature at the baseline, so it is an oy-it-baseline window, not a tea-it-xheight one — even though the ligature's lead is ·Tea."""
+    """A seam is named by the left cell's exit, which for a ligature is its trailing component, and the right cell's entry. In `·Tea+Oy ~b~ ·It` the ligature joins ·It through its trailing ·Oy, so the window is in oy-it-baseline even though the ligature's lead is ·Tea."""
     cells = (*_cells("qsTea_qsOy"), *_cells("qsIt", "qsNo"))
     assert assign_family(_enriched(("break", "y0"), ("y0", "y5"), cells, DEFAULT)) == "oy-it-baseline"
 
@@ -89,7 +89,7 @@ def test_loss_and_cell_only_families():
         assign_family(_enriched(("y5",), ("y0",), _cells("qsUtter", "qsNo"), DEFAULT))
         == "seam-loss-withdrawal"
     )
-    # No seam changed; the lead settled a different cell -> the extension-non-summing window.
+    # No seam changed, so the window is in extension-non-summing.
     assert (
         assign_family(_enriched(("y0",), ("y0",), _cells("qsTea_qsOy", "qsDay"), DEFAULT))
         == "extension-non-summing"
@@ -122,7 +122,7 @@ def test_stylistic_set_only_windows_defer():
 
 
 def test_assignment_is_deterministic(mini_bundle):
-    """Two independently constructed Enrichers assign the same family to the same window. That is a property of the code, not of any window, so it runs over the frozen mini-M1 bundle: no live audit to scan for a sample, no live subset tables to parse, and the whole thing lands in the contracts lane."""
+    """Two independently constructed Enrichers assign the same family to the same window. The property belongs to the code, so the test runs over the frozen mini-M1 bundle instead of the live audit and subset tables."""
     mini = REPO_ROOT / "rebuild" / "review" / "fixtures" / "mini"
     workload = load_workload(mini / "audit.tsv", mini_bundle.ledger, dict(LETTERS))
     unit = next(item for item in workload.units() if item.class_id == "UNMATCHED")

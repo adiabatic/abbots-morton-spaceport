@@ -1,6 +1,8 @@
-"""The verdict plumbing's green record claims that re-running the chain would write nothing, and that claim is only as good as the key's coverage of the chain's own code. This walks the import graph from the one entry point — rebuild.tools.verdict_chain, which runs every step — and requires every repo module it reaches to sit in one of the fingerprints the key already carries. Hashing the whole of rebuild/tools/ would be sound but would make a commit touching any unrelated tool re-run the chain; naming the closure is only safe while something checks the name, and this is that check. The cycle driver is not an entry point even though it builds the chain's argv: every argument it hands over names an input the key already hashes — the surface, the master, the store — or a flag that disables the skip outright, or a width (`--standing-fill-jobs`) the chain's output cannot depend on, and the chain's own flag parsing lives in verdict_chain.
+"""Checks that the verdict plumbing's green-record key hashes all the code the verdict chain runs.
 
-One scoping choice, the same one rebuild/test_review_code_closure.py makes at the rebuild/tools boundary and for the same reason: the walk records a module whose file rides `fingerprint.pipeline_code_paths` but does not expand it. The plumbing key carries that component whole through its manifest line, so what a pipeline module reaches beyond it is that component's coverage question rather than this roster's — kernel_exec takes memory_budget and peak_rss out of rebuild/tools as a fan-out width and a cost reading, neither of which can move a byte the chain writes, and `pipeline_code_paths` deliberately leaves both out. Stopping there is safe because of the direction rule: rebuild/review and rebuild/tools import rebuild/pipeline and never the reverse, so nothing on the chain's own side can hide behind the boundary. `oracle_cache.ORACLE_ROW_CODE_PATHS` chose the other way and hashes both yardsticks into its store's key, which is right for a store whose rows are keyed on the width a fan-out ran at; this key belongs to a chain that fans nothing out and takes no reading, so a width or telemetry edit leaves it where it was.
+The plumbing skips the chain when the key matches its green record, so the key must hash every module the chain executes. This test walks the import graph from `PLUMBING_ENTRY_POINTS` (rebuild.tools.verdict_chain, which runs every step) and requires every repo module it reaches to be in a fingerprint the key includes. `PLUMBING_TOOL_MODULES` lists the chain's tools instead of hashing all of rebuild/tools/, so that an edit to an unrelated tool does not re-run the chain, and this test keeps that list equal to the walked closure. The cycle driver is not an entry point: every argument it passes the chain names an input the key already hashes (the surface, the master, the store), a flag that disables the skip, or a width (`--standing-fill-jobs`) the chain's output does not depend on. The chain parses its own flags in verdict_chain.
+
+The walk records a module in `fingerprint.pipeline_code_paths` but does not follow its imports, like rebuild/test_review_code_closure.py does at the rebuild/tools boundary. The plumbing key includes the pipeline_code component whole through its manifest line, so what a pipeline module imports beyond that component is outside this test's scope. That boundary is not sealed: pipeline modules import some rebuild/tools modules (fingerprint.py imports lock_digest and site_fonts, kernel_exec.py imports memory_budget), which `pipeline_code_paths` does not hash and this walk does not see. `oracle_cache.ORACLE_ROW_CODE_PATHS` names those modules because its closure test follows imports through the pipeline.
 """
 
 from __future__ import annotations
@@ -24,7 +26,7 @@ def _module_path(module: str) -> Path | None:
 
 
 def _imports(path: Path) -> set[str]:
-    """Every repo module the file names in an import, absolute form only — this tree has no relative imports, and a `from X import y` is recorded both as X and as X.y so a submodule import is followed."""
+    """Return every repo module the file imports. Only absolute imports are read. The modules whose imports this walk follows have no relative imports; rebuild/validation/shaping.py has some, but the walk stops at it because it is in the pipeline_code component. A `from X import y` is recorded as both X and X.y so that a submodule import is followed."""
     found: set[str] = set()
     for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
         if isinstance(node, ast.Import):
@@ -36,7 +38,7 @@ def _imports(path: Path) -> set[str]:
 
 
 def reachable_modules(entry_points: tuple[str, ...]) -> dict[str, Path]:
-    """The transitive closure of repo modules the entry points import, keyed by module name, recording but not expanding a module that rides the manifest fingerprint's pipeline_code component (see the module docstring for why the walk stops at that boundary)."""
+    """Return the repo modules the entry points import transitively, keyed by module name. A module in the pipeline_code component is recorded but its imports are not followed (see the module docstring)."""
     seen: dict[str, Path] = {}
     pipeline = set(fingerprint.pipeline_code_paths(REPO_ROOT))
     queue = list(entry_points)
@@ -77,7 +79,7 @@ def test_the_plumbing_key_covers_every_module_its_chain_reaches():
 
 
 def test_the_named_tool_closure_holds_no_module_the_chain_never_reaches():
-    """The other direction, so the list stays the closure rather than drifting back into 'everything under rebuild/tools': every file it names must actually be reachable from the entry points."""
+    """Every file `PLUMBING_TOOL_MODULES` names must be reachable from the entry points, so that the list does not grow into all of rebuild/tools/."""
     reached = {path for path in reachable_modules(ac.PLUMBING_ENTRY_POINTS).values()}
     strays = sorted(
         str(path.relative_to(REPO_ROOT)) for path in ac.plumbing_code_paths(REPO_ROOT) if path not in reached
@@ -91,7 +93,7 @@ def test_every_named_path_exists():
 
 
 def test_the_driver_and_the_width_and_telemetry_tools_stay_outside_the_chain():
-    """Naming the closure only buys anything while the four modules it was named to shed stay shed: the cycle driver, the timings journal every run files a verdict through, and the two width yardsticks the pipeline takes its fan-out from are all edited for reasons that can never move a verdict, and each of them inside the key would re-run the whole chain. A chain tool that starts importing the driver again should fail here rather than be answered by putting the driver back on the roster."""
+    """The cycle driver, the timings journal, and the memory-budget and peak-RSS modules must stay outside the chain's closure. Their edits cannot change a verdict, and any of them inside the key would re-run the whole chain on such an edit. A chain tool that starts importing one should fail here; adding the module to `PLUMBING_TOOL_MODULES` is not the fix."""
     outside = ("artifact_cycle", "cycle_timings", "memory_budget", "peak_rss")
     reached = reachable_modules(ac.PLUMBING_ENTRY_POINTS)
     inside = sorted(name for name in outside if f"rebuild.tools.{name}" in reached)

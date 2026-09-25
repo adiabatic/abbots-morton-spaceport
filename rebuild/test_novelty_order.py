@@ -1,4 +1,4 @@
-"""Tests for the novelty ordering: blank-rep selection (one rep per echo group, lowest blank id, skips counting as blank), the greedy max-min walk (consecutive reps change class where id order would repeat it, rare classes surface first, deterministic across runs), and the emitted worklist URL's `order=given` form with the manifest-stamp guard."""
+"""Tests for `rebuild/tools/novelty_order.py`: rep selection (one rep per echo group among the blank human units, the member earliest in triage order, a skip counting as blank), the greedy max-min walk (consecutive reps change class where id order would repeat it, the rarest class comes first, the same input gives the same order), and the printed worklist URL in its `order=given` form, with the check that the verdicts file is stamped for the same manifest."""
 
 import json
 
