@@ -1,8 +1,6 @@
-"""CoreText-vs-HarfBuzz smoke driver for the M1 mini-font — the prototype recipe carried forward (M1-PLAN section 5, Group 3).
+"""Shape the M1 smoke sequences with CoreText and with HarfBuzz, and report every slot where the two disagree (M1-PLAN section 5, Group 3).
 
-Compiles the Swift harness once per session (swiftc -O), shapes the curated M1 sequence set (rebuild/pipeline/smoke_sequences_m1.txt) through CoreText via the binary and through uharfbuzz directly, and diffs GID-for-GID and position-for-position. CoreText reports cumulative pen positions in points at 100 pt; positions are compared after converting to font units (× upem / 100, rounded). Glyph names come from fontTools, never HarfBuzz's truncating API. ZWNJ slots are never compared by GID — only by the structural contract (zero advance on both sides, no ink).
-
-Every sequence runs under each of the acceptance configurations FEATURE_CONFIGURATIONS lists.
+The Swift harness (`coretext_smoke.swift`) is compiled with `swiftc -O` when its binary is missing or older than the source. Each sequence in `smoke_sequences_m1.txt` runs under every configuration in `FEATURE_CONFIGURATIONS`, through the harness and through uharfbuzz, and the two glyph streams are compared glyph ID by glyph ID and position by position. CoreText reports cumulative pen positions in points at 100 pt, which are converted to font units (× upem / 100, rounded) before the comparison. Glyph names come from fontTools because HarfBuzz's glyph-name API truncates. A ZWNJ slot is not compared by glyph ID: both shapers must give it zero advance and no ink. A run also fails when CoreText falls back to another font. The summary is written to `coretext_summary.json` beside the font.
 
 Run as: uv run python -m rebuild.pipeline.coretext_smoke --font rebuild/out/m1/M1.otf
 """

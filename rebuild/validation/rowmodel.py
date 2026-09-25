@@ -1,6 +1,6 @@
 """Row model and table I/O for the §13.1 baseline, per rebuild/BASELINE-PLAN.md §3.
 
-This is the validation suite's implementation of the plan's shared row contract. The TSV format itself, not this Python class, is the cross-implementer interface: any table the extractor writes per plan §3 parses here, and any Row this module serializes is byte-identical to the extractor's serialization of the same shaping outcome.
+This is the validation suite's copy of the row format; the extractor's is rebuild/baseline/model.py. The TSV format is the interface between them: any table the extractor writes parses here, and a Row serialized here is byte-identical to the extractor's serialization of the same shaping outcome.
 """
 
 from __future__ import annotations
@@ -95,7 +95,7 @@ def open_table(path: Path | str) -> IO[str]:
 
 
 def read_header(path: Path | str) -> dict[str, str]:
-    """Parse the plan §3 leading comment lines into a key → value dict; the version line lands under "tool"."""
+    """Parse the table's leading comment lines (plan §3) into a key-to-value dict. The version line, which has no colon, is stored under "tool"."""
     header: dict[str, str] = {}
     with open_table(path) as fh:
         for line in fh:
@@ -118,7 +118,7 @@ def header_config_token(header: dict[str, str]) -> str:
 
 
 def iter_rows(path: Path | str, start: int = 0, stop: int | None = None) -> Iterator[Row]:
-    """The table's rows in file order, parsed from data line `start` up to but not including `stop`. The lines before `start` are read past without being parsed, so a caller walking one range of a table pays the decompression of the prefix and none of its parsing; the default range is the whole table."""
+    """Yield the table's rows in file order, from data line `start` up to but not including `stop`; the default is the whole table. Lines before `start` are decompressed but not parsed."""
     with open_table(path) as fh:
         seen = 0
         for line in fh:
@@ -132,7 +132,7 @@ def iter_rows(path: Path | str, start: int = 0, stop: int | None = None) -> Iter
 
 
 def iter_line_chunks(path: Path | str, chunk_size: int, limit: int | None = None) -> Iterator[list[str]]:
-    """Yield data lines (header and blank lines dropped) in chunks, preserving file order so parallel consumers stay deterministic."""
+    """Yield the data lines, without header and blank lines, in chunks of `chunk_size` in file order, stopping after `limit` lines."""
     chunk: list[str] = []
     seen = 0
     with open_table(path) as fh:

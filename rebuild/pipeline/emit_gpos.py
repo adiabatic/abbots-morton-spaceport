@@ -1,8 +1,6 @@
-"""GPOS emission: four per-height cursive lookups in today's verbatim shape (M1-PLAN section 5, Group 3).
+"""GPOS emission: one cursive lookup for each height in `CURS_HEIGHT_YS` that has anchors (M1-PLAN section 5, Group 3).
 
-One `curs` lookup per registered height (y6 is live in M1 via ·Pea·Pea, so all four are emitted), NULL anchors for cross-height cells, NULL/NULL coverage-parity registrations for locked twins at every height where the twin's rune declares an entry row, and coordinates in the drawn frame: glyph-space pixels × 50 plus the one-pixel ink-centering offset.
-
-The plan's signature takes only the glyph mapping; the parity registrations need the rune surfaces, so `spec` rides as a keyword argument (recorded signature extension) — left None, parity registration is skipped with a comment.
+Each `curs` lookup registers every glyph with an anchor at that height. A glyph that enters or exits at another height gets a NULL anchor on that side. When `spec` is given, every locked twin also gets a NULL/NULL registration at each height where its rune declares an entry row; without `spec` these are skipped and the output says so in a comment. Coordinates are glyph-space pixels × 50, with x shifted by the one-pixel ink offset.
 """
 
 from __future__ import annotations
@@ -45,7 +43,7 @@ def _entry_heights(spec: ResolvedSpec, rune_name: str) -> set[int]:
 def cursive_registrations(
     glyphs: Mapping[CellId, GlyphRecord], spec: ResolvedSpec | None = None
 ) -> dict[int, dict[str, Registration]]:
-    """Per registered height, every glyph's (entry, exit) anchor pair in font units — what `emit_gpos` renders and what `rebuild/pipeline/readback.py` holds the compiled GPOS to. An absent side is None, and a locked twin's parity registration is (None, None)."""
+    """Per registered height, every glyph's (entry, exit) anchor pair in font units. `emit_gpos` renders it and `rebuild/pipeline/readback.py` checks the compiled GPOS against it. An absent side is None, and a locked twin's parity registration is (None, None)."""
     per_height: dict[int, dict[str, Registration]] = {y: {} for y in CURS_HEIGHT_YS}
     for cell, record in glyphs.items():
         for y in CURS_HEIGHT_YS:
@@ -79,7 +77,7 @@ def emit_gpos(glyphs: Mapping[CellId, GlyphRecord], spec: ResolvedSpec | None = 
             for name, (entry, exit) in sorted(per_height[y].items())
         ]
         if not statements:
-            # A height with no anchors in this glyph set emits no lookup (the prototype shape). The real M1 build keeps all four live: y6 via qsPea, top via qsTea's GPOS-parity entry.
+            # A height with no anchors in this glyph set emits no lookup. The M1 runes declare rows at all four heights.
             continue
         blocks.append(
             f"    lookup m1_cursive_y{y} {{\n" + "\n".join(statements) + f"\n    }} m1_cursive_y{y};"

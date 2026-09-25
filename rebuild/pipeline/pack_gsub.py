@@ -1,12 +1,16 @@
-"""Post-compile GSUB surgery: repack the settlement lookup's per-rule format-3 chained-context subtables into shared-ClassDef format-2 subtables, because feaLib has no syntax or knob that emits chain-context format 2 and its per-rule format-3 fallback costs ten uint16-space bytes per rule — which pushed the flag-on simulated-prospect table (issue #28 stage 2) to 5,096 subtables and 12,783 bytes of subtable-offset headroom, under the 16,384-byte subtable-offset headroom floor read-back now holds the font to (`readback.SUBTABLE_OFFSET_HEADROOM_FLOOR`), with a measured ceiling proving no liveness-filter tightening can recover it. Packing is the design's sanctioned shape: section 7 draws the soundness line at subtables, never per-family lookups — subtables share the one left-to-right pass, so backtrack still sees settled neighbors — and format 2 spends its ten bytes per *group* of class-compatible rules rather than per rule, which also gives the alphabet's remaining migrations their growth runway.
+"""Repack the settlement lookup's per-rule format-3 chained-context subtables into shared-ClassDef format-2 subtables after compilation.
 
-The pass is encoding-only by construction. It reads each qualifying lookup's format-3 subtables (each is one rule: coverage sets per slot plus SubstLookupRecords already pointing at the inner single-substitution lookups the emitter defines by name, one per distinct (input glyph, outcome) pair), considers disjoint singleton-input streams largest first while preserving each glyph's rule order, and groups compatible rules with an order-preserving greedy — within a group every backtrack set must be equal-or-disjoint with every other (they share the group's backtrack ClassDef), likewise all lookahead sets against the single lookahead ClassDef and all input sets against the input ClassDef, and a rule may only land in a group at or after the last group any of its input glyphs used, so cross-subtable fallthrough preserves per-glyph first-match-wins — then replaces each group with one ChainContextSubst format 2, reusing the original SubstLookupRecords verbatim and re-wrapping in Extension when the lookup rides type 7. A run containing any multi-glyph input keeps its original traversal order. A rule whose own slots defeat shared ClassDefs — the real table carries lookahead pairs like a {qsNo} singleton beside a broad class that also holds qsNo — is inexpressible in format 2 and passes through as its original format-3 subtable, a singleton group in its input stream's sequence position (`_self_compatible`); the two formats mix freely inside one lookup. Generated rules never reference class 0 (the unclassed-glyph catch-all), every referenced glyph is explicitly classed, and rule order within a ChainSubClassSet is the original per-glyph order. A qualifying lookup is chained-context with format-2 or format-3 subtables, a single input slot, and all substitutions at sequence index 0, at or above `min_subtables` — at M1 scale exactly `m1_settle`; the formation-guard lookup's multi-input forming rows disqualify it by shape.
+FEA has no syntax that requests chain-context format 2. feaLib builds each ruleset (the rules between `subtable;` breaks) in every format it can and keeps the smallest. Format 2 is possible only when all the ruleset's class sets fit shared ClassDefs; when they do not, feaLib writes one format-3 subtable per rule. In the Extension-wrapped settlement lookup each subtable costs 10 bytes of uint16 offset space. Unpacked, the simulated-prospect table measured 5,096 subtables and 12,783 bytes of subtable-offset headroom, below the 16,384-byte floor that read-back enforces (`readback.SUBTABLE_OFFSET_HEADROOM_FLOOR`), and a measured ceiling showed that tightening the liveness filter could not recover the difference. Format 2 spends those 10 bytes once per group of class-compatible rules, which also leaves room for the letters not yet migrated. Section 7 of `doc/rebuild-design.md` permits this split: the settlement lookup may be divided into subtables but not into per-family lookups, because subtables share the lookup's single left-to-right pass, so backtrack still sees settled neighbors.
 
-Verification is read-back's, and empirical rather than trusted: `rebuild/pipeline/readback.py` decompiles the settlement lookup off the written font through `per_glyph_sequences` and holds every input glyph's ordered rule sequence to the plan's, so the packing is proven over the bytes that shipped rather than by replaying its own output in memory, and the compiled font then faces the same conform sweep as before — the packing changes what read-back measures, never what shapes.
+The pass changes only the encoding. Each format-3 subtable is one rule: a coverage set per slot, plus SubstLookupRecords that point at the single-substitution lookups the emitter defines by name, one per distinct (input glyph, outcome) pair. The pass groups class-compatible rules and replaces each group with one ChainContextSubst format 2 subtable that reuses those SubstLookupRecords unchanged, wrapped in Extension when the lookup is type 7. Within a group, every backtrack set must be equal to or disjoint from every other, because they share the group's one backtrack ClassDef. The same holds for the lookahead sets and for the input sets. A rule may join only a group at or after the last group any of its input glyphs used, so each input glyph still meets its rules in their original order. Generated rules never reference class 0 (the class of unclassed glyphs), every referenced glyph is explicitly classed, and the rules in a ChainSubClassSet keep their original per-glyph order.
 
-Singleton-input streams place new groups and passthrough subtables immediately after their previous group, or at the beginning for their first rule. This earliest legal insertion leaves existing unrelated groups available for later rules in the same stream to share. Streams run in descending size order with stable first-seen ties; rules inside each stream retain their original order.
+A rule whose own slot sets cannot share ClassDefs cannot be written in format 2. The real table has such rules: one lookahead slot holds the singleton {qsNo} and another holds a broad class that also contains qsNo. Such a rule keeps its original format-3 subtable as a singleton group at its position in its input stream (`_self_compatible`). The two formats can mix inside one lookup.
 
-feaLib can emit native format-2 subtables among the format-3 rules. These remain in place as barriers: each contiguous format-3 run packs independently, so no rule crosses a native subtable. Both formats qualify when every rule has one input glyph and substitutions only at sequence index 0; a lookup already entirely in format 2 needs no packing.
+When every rule in a run has a single input glyph, the rules split into one stream per input glyph. Streams are processed largest first, with ties in first-seen order, and each stream keeps its rules in their original order. A new group or format-3 passthrough goes immediately after the stream's previous group, or at the beginning for the stream's first rule. This is the earliest legal position, and it leaves the groups after it free for the stream's later rules to share. A run that contains any multi-glyph input keeps its original order and appends new groups.
+
+Native format-2 subtables from feaLib stay in place as barriers. Each contiguous run of format-3 subtables packs on its own, so no rule crosses a native subtable. A lookup qualifies when it is chained-context, has at least `min_subtables` subtables, all of format 2 or 3 and at least one of format 3, and every rule has one input slot and substitutes only at sequence index 0. At M1 scale only `m1_settle` qualifies; the guarded-formation lookup's multi-input forming rows disqualify it.
+
+Read-back checks the packing on the written font: `rebuild/pipeline/readback.py` decompiles the settlement lookup through `per_glyph_sequences` and compares each input glyph's ordered rules with the plan. gate:conform then shapes the packed font like any other build.
 """
 
 from __future__ import annotations
@@ -23,7 +27,7 @@ class PackError(Exception):
 
 @dataclass(frozen=True)
 class LogicalRule:
-    """One chained-context rule as slot glyph-sets: backtrack closest-first exactly as stored, one input set, lookahead near-to-far, and the substitution records as (sequence index, lookup index) pairs."""
+    """One chained-context rule as slot glyph-sets: backtrack closest-first as stored, one input set, lookahead near-to-far, and the substitution records as (sequence index, lookup index) pairs."""
 
     backtrack: tuple[frozenset[str], ...]
     input: frozenset[str]
@@ -60,7 +64,7 @@ def _class_sets(class_defs: dict[str, int]) -> dict[int, frozenset[str]]:
 
 
 def _classed(sets: dict[int, frozenset[str]], klass: int, slot: str) -> frozenset[str]:
-    """The glyphs a packed rule's class number stands for, refused as a `PackError` when the ClassDef classes no glyph under that number — a rule no glyph can ever satisfy, which read-back reports as a divergence rather than a traceback."""
+    """Return the glyphs a packed rule's class number stands for. Raise `PackError` when the ClassDef assigns no glyph to that class, since no glyph could ever match the rule; read-back catches the error and reports it as a divergence."""
     members = sets.get(klass)
     if members is None:
         raise PackError(f"packed rule references {slot} class {klass}, which classes no glyph")
@@ -68,7 +72,7 @@ def _classed(sets: dict[int, frozenset[str]], klass: int, slot: str) -> frozense
 
 
 def _format2_rules(subtable: Any) -> dict[str, list[LogicalRule]]:
-    """The per-input-glyph logical rule sequences a format-2 subtable expresses, which is what read-back decompiles the packed lookup back through: rules of one ChainSubClassSet apply, in order, to every covered glyph of that input class."""
+    """Return the ordered rules a format-2 subtable applies to each input glyph. The rules of one ChainSubClassSet apply, in order, to every covered glyph of that input class."""
     backtrack_sets = _class_sets(subtable.BacktrackClassDef.classDefs)
     input_sets = _class_sets(subtable.InputClassDef.classDefs)
     lookahead_sets = _class_sets(subtable.LookAheadClassDef.classDefs)
@@ -99,7 +103,7 @@ def _format2_rules(subtable: Any) -> dict[str, list[LogicalRule]]:
 
 
 def per_glyph_sequences(lookup: Any) -> dict[str, list[LogicalRule]]:
-    """The lookup's semantics at the grain that first-match-wins actually runs on: for each glyph that can sit at the input slot, the ordered rules that cover it. Rules whose input sets never share a glyph cannot compete, so this is the whole behavioral content of subtable and rule order."""
+    """Return, for each glyph that can occupy the input slot, the ordered rules that cover it. First-match-wins only orders rules that share an input glyph, so these sequences capture everything subtable and rule order decide."""
     out: dict[str, list[LogicalRule]] = {}
     for subtable in _inner_subtables(lookup):
         if subtable.Format == 3:
@@ -179,7 +183,7 @@ class _Group:
 
 
 def _self_compatible(rule: LogicalRule) -> bool:
-    """Whether one rule's own slot sets can live in shared per-position ClassDefs at all: within each position kind, every pair of sets must be equal or disjoint. The real settlement table does carry violators — a rule whose second lookahead is a singleton and whose third is a broad class containing that same glyph — and such a rule is inexpressible in format 2, so it keeps its original format-3 subtable as a singleton group."""
+    """Whether one rule's own slot sets fit shared ClassDefs: within the backtrack slots, and within the lookahead slots, every pair of sets must be equal or disjoint. The real settlement table has rules that fail this, such as one whose second lookahead is a singleton and whose third is a broad class holding the same glyph. Such a rule cannot be written in format 2, so it keeps its original format-3 subtable as a singleton group."""
     for sets in (rule.backtrack, rule.lookahead):
         owner: dict[str, frozenset[str]] = {}
         for candidate in sets:
@@ -192,7 +196,7 @@ def _self_compatible(rule: LogicalRule) -> bool:
 
 
 def _group_rules(entries: list[tuple[LogicalRule, Any]]) -> list[_Group | Any]:
-    """Order-preserving greedy over (logical rule, original subtable) pairs. Disjoint singleton-input streams run largest first, with ties in first-seen order and each stream in original rule order. Each rule shares the earliest compatible group at or after its stream's last group, or inserts a new group immediately after that position (at the beginning for a stream's first rule). Self-incompatible rules insert their original subtables at the same earliest legal position. Stream lists hold references to the entries, not copies of rules or subtables. A run containing any multi-glyph input keeps its original traversal and appends new groups, because intersecting input sets can compete."""
+    """Group (logical rule, original subtable) pairs greedily, preserving per-glyph rule order. Singleton-input streams run largest first, with ties in first-seen order and each stream in original rule order. Each rule joins the earliest compatible group at or after its stream's last group, or inserts a new group immediately after that position (at the beginning for a stream's first rule). A rule that fails `_self_compatible` inserts its original subtable at that same position. A run containing any multi-glyph input keeps its original order and appends new groups, because input sets that intersect can compete."""
     groups: list[_Group | Any] = []
     if all(len(rule.input) == 1 for rule, _original in entries):
         streams: dict[frozenset[str], list[tuple[LogicalRule, Any]]] = {}
@@ -309,7 +313,7 @@ def _format2_subtable(group: _Group, order: dict[str, int]) -> Any:
 
 
 def pack_lookup(lookup: Any, glyph_order: list[str]) -> tuple[int, int, int]:
-    """Repack one qualifying lookup in place around native format-2 barriers; returns (rule count, total format-2 subtable count, kept format-3 count)."""
+    """Repack one qualifying lookup in place, leaving native format-2 subtables as barriers. Returns (rule count, format-2 subtable count including native ones, kept format-3 count)."""
     ot = _ot()
 
     order = {glyph: index for index, glyph in enumerate(glyph_order)}
@@ -355,7 +359,7 @@ def pack_lookup(lookup: Any, glyph_order: list[str]) -> tuple[int, int, int]:
 
 
 def pack_font(font: Any, min_subtables: int = MIN_SUBTABLES) -> dict:
-    """Pack every qualifying chained-context lookup in the font's GSUB; returns the per-lookup packing stats — rules, format-2 groups, kept format-3 subtables — that the tests read."""
+    """Pack every qualifying chained-context lookup in the font's GSUB in place. Returns, per packed lookup, its index and its counts of rules, format-2 subtables, and kept format-3 subtables."""
     packed: list[dict] = []
     if "GSUB" in font:
         lookups = font["GSUB"].table.LookupList.Lookup

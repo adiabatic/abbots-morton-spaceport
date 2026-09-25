@@ -1,8 +1,10 @@
 """Corpus-pin replay per rebuild/BASELINE-PLAN.md §7.
 
-Collects every data-expect run from the three corpora with the existing test-suite collector and parser (imported read-only), filters to senior runs whose input falls inside the 47-symbol basis alphabet and whose stylistic-set configuration is one of the plan §5 eleven, and replays each pin's per-seam expectations against this suite's black-box shaping and seam classification. The pins are ground truth the existing test suite already enforces against this exact font, so any live disagreement is a validation-suite bug until proven otherwise. Nothing here reads a baseline table: the rows are a pure function of the font bytes, the alphabet and the extractor code, and `rebuild.pipeline.baseline_subset.prove_font_provenance` pins the font half by weighing every table header's `font_sha256` against the font that header names on every `ensure_fresh`, so a live shaping and a table row cannot be describing different fonts.
+Collects every data-expect run from the corpora in `CORPUS_FILES` with the test suite's collector and parser (imported read-only from test/test_shaping.py). Keeps the Senior runs whose text is inside the 47-symbol basis alphabet and whose stylistic-set configuration is one of the plan §5 configurations (`rowmodel.CONFIGS`). Replays each pin's per-seam expectations against this suite's own shaping and seam classification. The test suite already checks these pins against the same font, so a disagreement is treated as a validation-suite bug until shown otherwise.
 
-Variant assertions other than the `half`/`alt` traits (which appear verbatim in compiled glyph names) check compiled-YAML compat metadata in the original suite; replaying them here would require old-pipeline archaeology, so they are skipped and counted instead — the existing suite keeps enforcing them.
+Nothing here reads a baseline table. A table row is a pure function of the font bytes, the alphabet, and the extractor code, and `rebuild.pipeline.baseline_subset.prove_font_provenance`, which runs on every `ensure_fresh`, checks each table header's `font_sha256` against the font that header names. So a live shaping and a table row describe the same font.
+
+Only the `half` and `alt` variant assertions are replayed, because those traits appear in compiled glyph names. The test suite checks the other variant assertions against compat metadata from the compiled YAML, which this module does not load, so they are skipped and counted here and the test suite keeps checking them.
 """
 
 from __future__ import annotations
@@ -140,7 +142,7 @@ def _check_interpretation(
     row: Row,
     report: ReplayReport,
 ) -> tuple[str | None, int, int, int]:
-    """Check one maybe-ligature interpretation against a shaped row; returns (first failure or None, seam assertions, identity assertions, variant assertions skipped)."""
+    """Check one expansion of a pin's maybe-ligatures against a shaped row, and return (first failure or None, seam assertions checked, identity assertions checked, variant assertions skipped)."""
     ts = _import_test_shaping()
     spans = ts._token_char_spans(text, tokens)
     seam_checks = 0

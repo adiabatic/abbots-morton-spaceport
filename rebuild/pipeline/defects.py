@@ -1,14 +1,14 @@
-"""The section 9 hard gates over the M1 subset (M1-PLAN section 5, Group 3).
+"""The design section 9 defect gates over the M1 subset (M1-PLAN section 5, Group 3).
 
-`run_gates` runs against the decision/treaty tables plus the realized glyph records, before any font exists. Errors fail the build; flags report. Every gate carries a signature so the declared-OK channel (the `allow` parameter) can re-bless a reviewed finding asymmetrically: a new failure fails, an allowed signature reports as blessed.
+`run_gates` checks the decision and treaty tables and the realized glyph records before any font exists. Errors fail the build and flags are only reported. Every defect carries a signature. A defect whose signature is in the `allow` set (the reviewed entries of `rebuild/m1-contact-allow.yaml`) is reported as blessed instead of as an error or flag. The dead-policy check produces lists, not defects, and takes no allow set.
 
-Table duck-typing: `tables_by_config` maps a feature configuration to either a `(DecisionTable, TreatyTable)` pair (the shape `table.build_tables` returns) or a single object carrying both roles. From the decision side this module reads `reachable_cells()` and `rules` (each rule's `provenance` strings feed the dead-policy gate); from the treaty side it reads `rows`, each row exposing `left` / `right` (CellId or None at boundaries), `join` (a Height or None for a break), and `extension` (the summed connector pixels on the seam).
+`tables_by_config` maps each feature configuration to a `(DecisionTable, TreatyTable)` pair, as `kernel_exec.build_tables` returns, or to one object that serves as both. From the decision side this module reads `cited_provenance` and each rule's `provenance`, for the dead-policy check. From the treaty side it reads `rows`. Each row gives `left` and `right` (a CellId, a cell label or glyph name, or None at a boundary), the join height under `join`, `junction`, `height`, or `seam` (None or "break" for a break), and `extension`, the summed connector pixels on the seam.
 
-The extension-band check is deliberately coarse at M1 (which record applied is settlement's knowledge, not the treaty row's): per-record static sanity (`ok[0] <= by <= ok[1]`) is exact; per-seam, the summed extension is checked against the union of candidate bands on the pair's two runes at the seam's side and height — below every band is the error, above every band the flag.
+The extension-band check is coarse because a treaty row does not say which extend record applied. A seam with a positive summed extension is checked against every band that an extend record on either rune declares at the seam's side and height, whatever its `when:`. An extension below every band, or on a seam where no record declares a band, is an error. Any other extension outside every band is a flag.
 
-E-ANCHOR has one implementation, and it is here: `_check_anchors` holds every realized record's live, non-exempt sides against the drawing it actually ships, and `_check_parity_anchors` holds the `selectable: false` rows — which realize into no cell at all — against their stance's base drawing. A row's `x_off_convention` flag exempts that side alone; a `trim` adjustment exempts the side it trimmed. Like every gate in this module, E-ANCHOR is blessable by an `anchor:` signature through the allow channel: the flag is the authored exemption, the ledger the reviewed one.
+E-ANCHOR is checked only here. `_check_anchors` checks the live, non-exempt sides of every realized record against the drawing that record ships. `_check_parity_anchors` checks the `selectable: false` rows, which realize into no cell, against their stance's base drawing. A row's `x_off_convention` flag exempts that side alone, and a `trim` adjustment exempts the side it trimmed. An `anchor:` signature in the allow set blesses an E-ANCHOR finding like any other.
 
-The dead-policy gate partitions unexercised records by scope: a record none of whose referencable families is a modeled rune is deferred-partner (reported, never failed); a record naming at least one modeled family that never fires is genuinely dead within the alphabet (warning, asserted empty or explained in the report). Exercised-ness is firing evidence: the settlement engine records the YAML provenance of every record that demonstrably fired while tabulating a configuration (refusals that killed a candidate, including inside the lookahead closure; unlocks that granted capability; row scopes that admitted a side; extends/contracts/prefers that shaped a committed cell), exposed as `DecisionTable.cited_provenance`; decision-rule and treaty-row provenance strings are unioned in for duck-typed tables.
+The dead-policy check splits unexercised records by scope. A record is exercised when its provenance is cited. The settlement engine cites the provenance of every record that fired while tabulating a configuration (refusals that removed a candidate, including inside the lookahead closure, unlocks that granted a capability, row scopes that admitted a side, and extends, contracts, and prefers that shaped a committed cell), and the table exposes them as `DecisionTable.cited_provenance`. Rule and treaty-row provenance strings are added to the cited set too. An unexercised record is deferred-partner when one of its `when:` conditions names only families that are not modeled runes. A row scope is deferred-partner when every one of its conditions names only such families. Otherwise the record or scope is dead within the alphabet. `run_m1` writes both lists to `pipeline_summary.json`, and neither fails the build.
 """
 
 from __future__ import annotations
@@ -69,7 +69,7 @@ def _row_join(row):
 
 
 def _cell_label(cell: CellId) -> str:
-    """Mirror of table.cell_label, computed locally so the treaty-row string endpoints resolve without a cross-group import."""
+    """The cell's label with heights as names (`en-baseline`). `_endpoint_index` also indexes the `settle.cell_label` form, with heights as y values."""
     parts = [cell.rune, cell.stance]
     if cell.entry is not None:
         parts.append(f"en-{cell.entry}")
@@ -168,7 +168,7 @@ def _check_anchors(report: DefectReport, allow: frozenset[str], glyphs: Mapping[
 
 
 def _check_parity_anchors(report: DefectReport, allow: frozenset[str], spec: ResolvedSpec) -> None:
-    """The E-ANCHOR half `_check_anchors` cannot reach: a `selectable: false` entry row realizes into no cell — the crate never offers it to settlement — and its anchor reaches GPOS only as `GlyphRecord.entry_curs_only`, so the convention is held against the stance's base drawing here, the one place nothing else covers. Declared rows only: an unlock-synthesized row is always selectable."""
+    """Check the entry anchor of every declared `selectable: false` row against the stance's base drawing. Such a row realizes into no cell, because settlement never offers it, so `_check_anchors` never sees it; its anchor reaches GPOS only as `GlyphRecord.entry_curs_only`. Rows added by unlocks are always selectable, so only declared rows are checked."""
     for rune_name, rune in spec.runes.items():
         for stance in rune.stances.values():
             for height, row in stance.surface.entries.items():
@@ -285,7 +285,9 @@ def _check_contact(report, allow, left: GlyphRecord, right: GlyphRecord, join) -
             if left.advance_width is not None
             else len(max(left.bitmap, key=len, default="")) + 2
         )
-        offset = advance - 1  # right ink frame starts one pixel inside its advance, mirroring the left
+        offset = (
+            advance - 1
+        )  # tools/build_font.py compiles a Senior Quikscript letter with no explicit advance one pixel narrower than width + 2
         seam_y = None
     left_ink = geometry.ink_cells(left)
     right_ink = geometry.ink_cells(right, x_origin=offset)
@@ -316,7 +318,7 @@ def _check_contact(report, allow, left: GlyphRecord, right: GlyphRecord, join) -
 
 
 def _condition_positive_families(spec: ResolvedSpec, rune_name: str, condition: Condition) -> set[str]:
-    """The families a condition positively requires (family literals plus resolved class/group members). `except:` carve-outs only narrow a positive set and never make one, so they are not collected here."""
+    """The families a condition requires: its family literals plus the members of the classes and groups it names. `except:` entries only narrow this set, so they are not collected."""
     families = set(condition.family)
     rune = spec.runes.get(rune_name)
     for klass in condition.klass:
@@ -328,7 +330,7 @@ def _condition_positive_families(spec: ResolvedSpec, rune_name: str, condition: 
 
 
 def _when_axes(spec: ResolvedSpec, rune_name: str, when: When | None) -> list[set[str]]:
-    """The family-constrained axes of a `when:`, one positive set per constrained condition (left, right, and any `then:` hop). The axes conjoin, so a record fires only if every axis has a modeled member — one wholly-unmodeled axis makes the whole record deferred-partner."""
+    """One required-family set per family-constrained condition of a `when:` (left, right, and each `then:` hop). A record can fire only when every set has a modeled member, so one set with no modeled member makes the record deferred-partner."""
     axes: list[set[str]] = []
     if when is None:
         return axes

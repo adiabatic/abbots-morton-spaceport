@@ -1,12 +1,12 @@
-"""Determinism check (rebuild/BASELINE-PLAN.md §2 and §8).
+"""Check that baseline extraction output is byte-identical across two runs (rebuild/BASELINE-PLAN.md §2 and §3).
 
 Usage:
     uv run python rebuild/check_determinism.py [--config default] [--lengths 1,2]
     uv run python rebuild/check_determinism.py --command 'uv run python -m rebuild.baseline.cli extract --config default --out {out}' --artifact baseline-default.tsv.gz
 
-Default mode runs this script's own sample extraction (the full length-1 and length-2 basis through the shared shaping, classification, and row-serialization path) twice in fresh subprocesses with different PYTHONHASHSEED values and asserts byte-identical stdout — the §8 diff-stability property on the validation suite's own mechanics. The --command mode runs an arbitrary extractor command twice into fresh output directories ({out} is substituted) and compares the named artifact's bytes (uncompressed when it ends in .gz), so the same driver can gate the real extractor.
+By default, runs this script's own sample extraction (every string of the given lengths, through the shared shaping, classification, and row-serialization code) twice in fresh subprocesses with different PYTHONHASHSEED values, and compares the two outputs byte for byte. With --command, runs the command twice, each time with {out} replaced by a fresh output directory, and compares the named artifact's bytes, decompressed when its name ends in .gz.
 
-The example command states no --workers, so it runs at whatever width the extractor's own SHARD_WORKERS_DEFAULT derives for the box in hand: both runs of a --command pass share one command and so one width, the width never enters the comparison, and a number pinned here would only be a second copy of a width to drift out of agreement with the shipped default. The cross-width arm is elsewhere and stays there — rebuild/test_extractor.py extracts one subset at two workers and at one and compares the gzip payloads.
+The example command passes no --workers, so both runs use the extractor's SHARD_WORKERS_DEFAULT. rebuild/test_extractor.py compares output across worker counts, extracting one subset with two workers and with one.
 """
 
 from __future__ import annotations

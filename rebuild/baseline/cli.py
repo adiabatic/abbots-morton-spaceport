@@ -1,4 +1,4 @@
-"""Argparse front end for the baseline extraction: `extract` writes the per-configuration baseline tables, `summarize` digests them."""
+"""Command line for the baseline extraction: `extract` writes the per-configuration baseline tables, their digests, and digests.tsv, and `summarize` writes SUMMARY.md from the digests."""
 
 from __future__ import annotations
 

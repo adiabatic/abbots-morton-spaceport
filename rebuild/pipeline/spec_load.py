@@ -1,6 +1,6 @@
-"""YAML → ResolvedSpec: schema validation with file/line errors, the Python lints (stance-ID naming, ductus parity, refuse right.then rejection, the right-side then-chain depth cap, reference resolution), predicate-class evaluation, and rune-local group resolution (rebuild/M1-PLAN.md section 5, Group 1).
+"""Load the rune files and the script registry into a `ResolvedSpec` (rebuild/M1-PLAN.md §5, Group 1). Loading runs schema validation, the Python lints (stance and motion naming, the `hapax` sentinel, ductus parity, no `right.then` on refusals, the right-side `then:` chain depth cap, registry and reference checks), left-condition `bitmap:` resolution, predicate-class evaluation, rune-local group resolution, ligature outgoing inheritance, and left-facing ligature expansion.
 
-Schema validation is driven directly by the JSON Schema files under rebuild/schema/ through a small built-in evaluator covering the keyword subset those schemas use, so `uv run pytest rebuild/` needs no third-party validator; when `jsonschema` is importable (the plan's `uv run --with jsonschema` path) a cross-check test asserts the two layers agree. Every error carries the YAML file, key path, and line; all errors are collected before SpecError is raised.
+Schema validation reads the JSON Schema files under rebuild/schema/ through a small built-in evaluator for the keywords those files use, so the project needs no third-party validator. When `jsonschema` is importable (`uv run --with jsonschema`), `test_jsonschema_agrees_with_builtin_checker` checks that the two agree. Every error carries the YAML file, key path, and line. Errors are collected within each loading stage, and a stage that found any raises them together as one SpecError.
 """
 
 from __future__ import annotations
@@ -94,7 +94,7 @@ class SpecWarning(UserWarning):
 
 
 class _SchemaChecker:
-    """Evaluates the keyword subset rebuild/schema/*.json actually uses; an unrecognized keyword is a hard error so a schema edit cannot silently skip validation."""
+    """Evaluates the keyword subset rebuild/schema/*.json uses. An unrecognized keyword raises ValueError, so a schema edit cannot skip validation silently."""
 
     _KEYWORDS = frozenset(
         {
@@ -442,7 +442,7 @@ def _policy_record(kind: str, raw: dict, provenance: Provenance) -> PolicyRecord
 
 
 def _resolve_record(context: _FileContext, raw: dict, path: str, provenance: Provenance) -> PolicyRecord:
-    """The section 5.8 against-a-named-record slice: `{against: {rune, id}, when, pick, why}`. The floor form (`at:`) and case-group promotion are designed but not yet implemented, and a resolve's `when:` may not carry `self:` — the record is consulted at the seat where two prefers collided, before any cell of the seat is chosen, so there is no self state to read."""
+    """Build a resolve record in the §5.8 against-a-named-record form, `{against: {rune, id}, when, pick, why}`. The floor form (`at:`) and case-group promotion are designed but not implemented. A resolve's `when:` may not carry `self:`, because the record is consulted where two prefers collided, before any cell at that position is chosen, so there is no self state to read."""
     against_raw = raw.get("against")
     if "at" in raw or against_raw is None:
         context.error(
@@ -483,7 +483,7 @@ def _walk_conditions(raw: object, path: str):
 
 
 def _right_chain_reach(raw: dict) -> int:
-    """How many raw slots past its own a right condition's then: chains read: a then: hop advances one slot, and an except: entry tests its parent's slot, so its hops count from there."""
+    """Return how many raw slots past its own slot a right condition's `then:` chains read. A `then:` hop advances one slot. An `except:` entry tests its parent's slot, so its hops count from there."""
     reach = 0
     if isinstance(raw.get("then"), dict):
         reach = max(reach, 1 + _right_chain_reach(raw["then"]))
@@ -533,7 +533,7 @@ class _Linter:
         return rows
 
     def run_shallow(self) -> None:
-        """Lints safe on any document shape — run even when the schema layer already rejected the file, so the readable design-rule messages always accompany the mechanical ones."""
+        """Run the lints that are safe on any document shape. They run even when schema validation already failed, so the design-rule messages always appear beside the schema errors."""
         self._lint_identifiers()
         self._lint_single_stance_sentinel()
         self._lint_single_motion_sentinel()
@@ -879,7 +879,7 @@ def _left_facing_conditions(raw: dict):
 
 
 def _resolve_left_bitmaps(contexts: list[_FileContext], rune_raws: dict[str, dict]) -> None:
-    """The `bitmap:` axis of a left condition, resolved to the `stance:` axis it stands for (design section 3.4). The engine remembers a settled left as its rune, stance and seam, never which of a stance's sibling drawings the cell picked, so a drawing is addressable only when it is the one thing its stance draws: the name must be a stance of every family the condition names, and that stance must carry no `bitmaps:` siblings. Resolved in place on the raw record before `_condition` reads it, so the kernel's spec never sees the axis and a rune written with `stance:` hashes the same."""
+    """Rewrite the `bitmap:` axis of each left condition to the `stance:` it stands for (design §3.4). The engine remembers a settled left as its rune, stance, and seam, not which of a stance's sibling drawings the cell used. So a drawing is addressable only when it is its stance's only drawing: the name must be a stance of every family the condition names, and that stance must have no `bitmaps:` siblings. The rewrite happens in place on the raw record before `_condition` reads it, so the kernel's spec never has the axis and a rune written with `stance:` hashes the same."""
     for context in contexts:
         for path, condition in _left_facing_conditions(context.data):
             bitmap = condition.get("bitmap")
@@ -974,7 +974,7 @@ def _evaluate_predicate_classes(registry_raw: dict, rune_raws: dict[str, dict]) 
 
 
 def _ligatures_by_trailing(rune_raws: dict[str, dict]) -> dict[str, tuple[str, ...]]:
-    """Registered ligature runes keyed by trailing component, the index behind left-facing family transparency (`_expand_ligature_lefts`). Only modeled runes count: a registry family with a sequence but no rune file joins the index when it migrates."""
+    """Return the modeled ligature runes keyed by trailing component, for left-facing family transparency (`_expand_ligature_lefts`). A registry family with a sequence but no rune file is not included."""
     by_trailing: dict[str, list[str]] = {}
     for name in sorted(rune_raws):
         sequence = rune_raws[name].get("sequence") or ()
@@ -1032,7 +1032,7 @@ def _expanded_records(
 def _expand_ligature_lefts(
     runes: dict[str, Rune], by_trailing: dict[str, tuple[str, ...]]
 ) -> dict[str, Rune]:
-    """Left-facing family transparency: a family named in an entry `from:` scope or a `when.left` also matches every registered ligature rune whose sequence ends in that family, so a new ligature inherits its trailing component's standing with every follower instead of demanding a hand edit in each of their runes. The same expansion covers the family atoms of rune-local group unions (`_resolve_groups`), where the raw atoms are still visible so `minus` can stay literal. This is the settled-world restatement of the shipped font's `expand_selectors_for_ligatures` (tools/quikscript_ir.py), and it keeps that pass's doctrine: expansion is positive-only — `except:` entries and group `minus` atoms stay literal, so carving a ligature out still means naming it — and right-facing lists (`toward:` scopes, `when.right` chains) are untouched, since nothing joins into today's entryless ligatures and lead-side semantics is an open design question. Literal ligature names in a list stay legal and redundant-safe, and extensional specificity stays coherent because the expansion is applied before any record comparison."""
+    """Apply left-facing family transparency: a family named in an entry `from:` scope or a `when.left` also matches every modeled ligature rune whose sequence ends in that family. A new ligature therefore gets its trailing component's treatment from every follower without an edit to each follower's rune. `_resolve_groups` applies the same expansion to the family atoms of rune-local group unions, where the raw atoms are still available so `minus` stays literal. This is the rebuild's equivalent of the shipped font's `expand_selectors_for_ligatures` (tools/quikscript_ir.py) and follows the same rules. The expansion only adds: `except:` entries and group `minus` atoms stay literal, so excluding a ligature means naming it. Right-facing lists (`toward:` scopes, `when.right` chains) are not expanded; lead-side semantics is an open design question. Naming a ligature explicitly in a list is still legal and harmless. Specificity stays consistent because the expansion runs before any records are compared."""
     if not by_trailing:
         return runes
     expanded: dict[str, Rune] = {}
@@ -1054,7 +1054,7 @@ def _expand_ligature_lefts(
 
 
 def outgoing_policy_record(record: PolicyRecord, source: Stance, target_stance: str) -> PolicyRecord | None:
-    """Project an exit-side policy onto a ligature stance: a record naming one of the source's exits, an exit-only preference, or a refusal naming neither side, which vetoes the only seam an entryless ligature has. Incoming state, word position, stance selection, and mixed-side votes belong to the component's placement, not its preserved outgoing stroke. Bitmap bindings need an explicit exception and a ligature-local replacement at the caller."""
+    """Return a trailing component's exit-side policy record projected onto a ligature stance, or None when it does not apply. It applies when it is an extend or contract naming one of the source's exits, a prefer whose `cell` (and `over`, if present) name only the exit side, or a refuse naming one of the source's exits or neither side. A refusal naming neither side vetoes the only seam an entryless ligature has. Records that name an entry or another stance, or read the left neighbor, word position, or self entry, stay with the component. The caller handles bitmap bindings, which need an explicit exception and a ligature-local replacement."""
     if record.stance not in (None, source.name) or record.entry is not None:
         return None
     when = record.when
@@ -1081,7 +1081,7 @@ def outgoing_policy_record(record: PolicyRecord, source: Stance, target_stance: 
 
 
 def _inherit_ligature_outgoing(runes: dict[str, Rune], contexts: dict[str, _FileContext]) -> dict[str, Rune]:
-    """Resolve preserved outgoing strokes before left-family transparency. Local drawings stay local; missing geometry, unacknowledged scope overrides, stale exceptions, and unportable bitmap policies are errors, independent of the formation guard's unformed-component probe."""
+    """Give each ligature stance the outgoing stroke it preserves from its trailing component (the stance's `outgoing:` declaration): the exit scopes, the exit-only unlocks with no left, word-position, or self-entry condition, and the applicable policy records (`outgoing_policy_record`). This runs before left-family transparency. The ligature keeps its own drawings. A missing exit row, a `toward:` override without an exception, an exception that matches nothing, and an inherited policy that binds a component bitmap are errors. These checks do not depend on the formation guard's probe of the unformed components."""
     resolved: dict[str, Rune] = {}
     visiting: set[str] = set()
 
@@ -1513,7 +1513,7 @@ def load_default_spec() -> ResolvedSpec:
 
 
 def spec_structure_digest(spec: ResolvedSpec) -> str:
-    """The resolved-spec facts a consumer can read without consulting any rune file it names: the alphabet and its ligature sequences (formation pairs, the enumeration set, and `_expand_ligature_lefts`' rewrite of every other rune's left conditions), the registry predicate classes (whose membership every rune's surface contributes to), and the resolved rune-local groups (whose membership can move through class atoms and ligature expansion). Stamp grade: any of these moving invalidates everything stamped with it — the review unit cache's whole-store stamp."""
+    """Return a hash of the resolved-spec facts that cross rune boundaries, which can change a result even when none of the rune files it names changed: the alphabet and its ligature sequences (which determine formation pairs, the enumeration set, and `_expand_ligature_lefts`' rewrite of other runes' left conditions), the registry predicate classes (whose membership depends on every rune's surface), and the resolved rune-local groups (whose membership can change through class atoms and ligature expansion). A change to any of these invalidates everything stamped with it: the review unit cache's whole-store stamp, the oracle row cache's and settle memo's stamps, and `run_m1.locality_lines`."""
     payload = {
         "runes": {name: list(rune.sequence) if rune.sequence else None for name, rune in spec.runes.items()},
         "classes": {name: sorted(members) for name, members in spec.registry.predicate_classes.items()},
@@ -1527,7 +1527,7 @@ def spec_structure_digest(spec: ResolvedSpec) -> str:
 
 
 def capability_features(spec: ResolvedSpec) -> list[str]:
-    """Every feature tag any stance unlocks, sorted: the universe of capability routes a settlement can take, which no single rune's digest carries and which a stamp therefore has to hold whole. Lifted here from the review unit cache so the two caches that stamp it read one definition rather than two copies of it."""
+    """Return every feature tag any stance unlocks, sorted: all the capability routes a settlement can take. No single rune's digest covers this set, so the stamps that depend on it hash it whole."""
     return sorted(
         {
             unlock.feature
@@ -1539,7 +1539,7 @@ def capability_features(spec: ResolvedSpec) -> list[str]:
 
 
 def rune_closure(spec: ResolvedSpec) -> dict[str, frozenset[str]]:
-    """For each rune, itself, its trailing component and transitive `resolve.against` targets. Ligature outgoing inheritance reads the trailing component's policy and permissions even in windows containing only the formed glyph; opt-outs conservatively keep that dependency too. Other cross-rune routes ride the resolved spec structure and are stamped whole-store."""
+    """Return, for each rune, itself plus its trailing component and `resolve.against` targets, followed transitively. Ligature outgoing inheritance reads the trailing component's policy and permissions even in windows that contain only the formed glyph, and a stance that opts out with an exception keeps the dependency too, which can only cause extra invalidation. Other cross-rune dependencies go through the resolved spec structure, which is stamped whole-store (`spec_structure_digest`)."""
     edges: dict[str, set[str]] = {}
     for name, rune in spec.runes.items():
         targets = set()

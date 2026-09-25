@@ -1,10 +1,10 @@
-"""The section 6.3a explain CLI: replay settlement for a rune sequence and a stylistic-set configuration, printing the full candidate table per position, every elimination attributed to its file and record, and the rank comparison that chose the winner.
+"""The explain CLI from design section 6.3, item (a): settle a rune sequence under a stylistic-set configuration and print, per position, the candidate table, every elimination with the file and record that caused it, and the ranking stage that chose the winner.
 
 Usage: uv run python -m rebuild.pipeline.explain E665:E670:E665 --features ss03
 
-Sequence positions are colon-separated and may be hex codepoints (E665, 0xE665, U+E665) or qs-names (qsMay), mixed freely; `space`, `zwnj`, and `namer-dot` name the boundary tokens. The CLI loads the real rune files through spec_load, falling back to the hand-built fixtures spec with a notice when the loader is unavailable.
+Sequence positions are separated by colons. Each is a hex codepoint (E665, 0xE665, U+E665), a qs-name (qsMay), or a boundary token name (`space`, `zwnj`, `namer-dot`), in any mix. The CLI loads the rune files through spec_load, and if loading raises it prints a notice and uses the hand-built fixtures spec.
 
-The settling is `kernel_exec.settle_sequences`; what this module owns is the report — tokenize, form the ligatures against the crate's guard surface, and dress the traces that come back as the per-position rendering an author reads. `explain_many` takes a whole batch because the review surface explains units by the thousand and the batching is the kernel driver's, not this module's.
+`kernel_exec.settle_sequences` does the settling. This module tokenizes, forms the ligatures against the crate's formation guard, and renders the returned traces. `explain_many` takes a batch because the review surface explains thousands of units, and `settle_sequences` batches them into few kernel processes.
 """
 
 from __future__ import annotations
@@ -114,7 +114,7 @@ def explain_many(
     requests: Sequence[tuple[Sequence[int], frozenset[str]]],
     guard_verdicts: FormationGuard | None = None,
 ) -> list[ExplainReport]:
-    """Settle a batch of sequences through the Rust kernel and dress each one as a report. Formation happens here, against the crate's guard surface — swept once for the whole batch when the caller has none in hand — and everything after it is `kernel_exec.settle_sequences`, which groups every same-depth window by feature configuration so a surface build pays for a handful of `settle-cases` processes rather than one per review unit. A request whose features activate an isolated overlay (ss10) never reaches the crate: nothing settles under it, so its report is `settle.isolated_overlay_traces` over the raw tokens, unformed."""
+    """Settle a batch of sequences through the Rust kernel and return one report per request, in request order. Ligatures are formed here against `guard_verdicts`, which is fetched once with `kernel_exec.guard_sweep` when the caller passes none. `kernel_exec.settle_sequences` then settles the batch one position at a time, with one `settle-cases` call per feature configuration per position (split every `SETTLE_CASE_BATCH_SIZE` windows), so a surface build does not start one process per review unit. A request whose features turn on the isolated overlay (ss10) is not sent to the kernel, because nothing settles under it: its report is `settle.isolated_overlay_traces` over the raw, unformed tokens."""
     if not requests:
         return []
     reports: list[ExplainReport | None] = [None] * len(requests)

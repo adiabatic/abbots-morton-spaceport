@@ -1,8 +1,8 @@
-"""Build-time preservation of each ligature stance's declared outgoing contract.
+"""Build-time check that each ligature stance keeps the outgoing joins of the trailing-component stance it maps to (`outgoing.stance`; doc/rebuild-design.md §5.7, "Preserved outgoing strokes").
 
-The check asks the Rust settlement engine about the formed rune's outgoing capability, independently of its incoming requirements and of the unformed trailing component's internal left neighbor. Each mapped stance is compared with the same ligature carrying its source stance's outgoing scopes and applicable policy. A formation guard rescuing an omitted exit does not discharge this contract. The ordinary conformance sweep proves the realized, fully contextual stream; this check proves the author's per-stance outgoing declaration before tables are built.
+For each mapped stance, the check settles two single-stance versions of the ligature in the Rust engine: the ligature as authored, and the same ligature carrying the source stance's outgoing exits, unlocks, and applicable policy (with declared replacements standing in for excepted records). Both drop the stance's entry requirement and are settled after a boundary, so incoming requirements and the unformed trailing component's internal left neighbor do not affect the result. A formation guard that rescues an omitted exit does not satisfy this check. The conformance sweep checks the built font's full contextual stream; this check checks each stance's outgoing declaration before the tables are built.
 
-The domain contains every modeled follower and second token, the splitting boundaries and namer dot, and witnesses for authored deeper condition chains, including the follower's chains shifted one position into the window. The seam, its height included, and yielding must agree, so a local record that drops a join, moves it to another height, or joins where the source yields is refused. Windows stream through the existing settlement batch bound, with one projection pair resident at a time. The isolated overlay preempts formation and is reported separately.
+The right-hand windows cover every modeled letter and boundary token in the first two slots, plus windows that satisfy each authored right-side condition chain, including each rune's chains shifted one slot right with that rune as the follower. The seam and its height must match, and a yield must stay a yield, so a local record that drops a join, moves it to another height, or joins where the source yields fails the build. Windows are settled in batches of `kernel_exec.SETTLE_CASE_BATCH_SIZE`, with one pair of projected specs in memory at a time. Configurations under the isolated overlay pre-empt formation, so they are not checked and are listed in the summary's `formation_preempted`.
 """
 
 from __future__ import annotations
@@ -200,7 +200,7 @@ def _capability_answer(result: Mapping) -> Settled | None:
 
 
 def validate_ligature_outgoing(spec: ResolvedSpec, rune_raws: Mapping[str, dict]) -> dict:
-    """Raise with the mapped stance, configuration and window when formation loses an unexcepted source join or yield. Returned counters belong in the build summary, never in checked-in prose."""
+    """Checks every mapped ligature stance in each configuration of `conform.ACCEPTANCE_CONFIGS` that the spec supports, skipping configurations under the isolated overlay. Raises `LigatureOutgoingError` naming the stance, configuration, and window of the first window whose seam differs from the source's, after the declared exceptions are applied. Returns counts for the build summary, which `run_m1.run_ligature_outgoing` writes to `ligature_outgoing_summary.json`."""
     mappings = []
     for name, rune in spec.runes.items():
         if not rune.sequence:

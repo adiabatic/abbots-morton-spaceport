@@ -1,4 +1,4 @@
-"""HarfBuzz shaping for the validation suite: one hb.Font plus a parallel TTFont glyph order for full-name recovery (HarfBuzz's glyph_to_string truncates compiled names at 63 bytes), one reused buffer per Shaper."""
+"""HarfBuzz shaping for the validation suite. Each Shaper holds one hb.Font, the TTFont glyph order of the same file for full glyph names (HarfBuzz's glyph_to_string truncates names to 63 bytes), and one reused buffer."""
 
 from __future__ import annotations
 
@@ -30,7 +30,7 @@ class Shaper:
         self._buf = hb.Buffer()
 
     def glyph_name(self, glyph_id: int) -> str:
-        """Full compiled glyph name via the TTFont glyph order, never hb.Font.glyph_to_string — HarfBuzz truncates names to 63 bytes and this font has longer ones."""
+        """Return the full compiled glyph name from the TTFont glyph order. hb.Font.glyph_to_string truncates names to 63 bytes, and this font has longer ones."""
         return self._glyph_order[glyph_id]
 
     def shape(self, text: str, features: dict[str, bool] | None = None) -> ShapeResult:

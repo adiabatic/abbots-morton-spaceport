@@ -1,8 +1,8 @@
 import CoreText
 import Foundation
 
-// Usage: coretext_smoke FONT.otf [--features TAG[,TAG...]] HEXCP [HEXCP ...]. This is the recon harness (prototype/recon/coretext_shape.swift) extended with the optional --features argument, which applies raw OpenType feature tags through kCTFontFeatureSettingsAttribute using kCTFontOpenTypeFeatureTag/kCTFontOpenTypeFeatureValue (the extension point named in prototype/recon/shapers.md section 2), plus a per-glyph string-index column and a typographic-width header line so the Python driver can verify zero-advance ZWNJ slots even at the end of the line.
-// Output: one header line "WIDTH <typographic width in points>", then one line per shaped glyph: glyph ID, UTF-16 string index, x position, y position, and the PostScript name of the font CoreText actually used for that run (silent fallback to a system font stays visible instead of corrupting the comparison). Every codepoint this harness is fed is in the Basic Multilingual Plane, so UTF-16 string indices equal scalar indices.
+// Usage: coretext_smoke FONT.otf [--features TAG[,TAG...]] HEXCP [HEXCP ...]. --features turns on raw OpenType feature tags through kCTFontFeatureSettingsAttribute.
+// Output: a header line "WIDTH <typographic width in points>", then one tab-separated line per shaped glyph: glyph ID, UTF-16 string index, x position, y position, and the PostScript name of the font CoreText used for that run, so a silent fallback to a system font shows up in the comparison. The width line lets the Python driver check the advance of a ZWNJ at the end of the line. Every codepoint fed to the harness is in the Basic Multilingual Plane, so UTF-16 string indices equal scalar indices.
 // Codepoints are passed as hex on argv because PUA literals do not reliably survive shell quoting.
 
 let arguments = CommandLine.arguments

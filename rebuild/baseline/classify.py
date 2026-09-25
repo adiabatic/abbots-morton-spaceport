@@ -1,4 +1,4 @@
-"""Black-box seam classification from the built font's GPOS: walk the curs feature to its cursive-attachment lookups (one per join height), record the per-height exit and entry glyph sets, and classify an adjacent output-glyph pair as joined-at-height or break. Equivalent to the test suite's anchor-Y intersection; per-height lookups are why cross-height attachment is structurally impossible."""
+"""Classify seams from the built font's GPOS: follow the curs feature to its cursive-attachment lookups (one per join height), record each height's exit and entry glyph sets, and classify an adjacent pair of output glyphs as joined at a height or as a break. This is equivalent to the test suite's anchor-Y intersection. Because each lookup holds anchors at one height, a glyph cannot attach to a neighbor at a different height."""
 
 from __future__ import annotations
 

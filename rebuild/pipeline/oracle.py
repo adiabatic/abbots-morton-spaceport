@@ -1,10 +1,14 @@
-"""The section 6 baseline oracle (M1-PLAN section 6, Group 3): the settlement function against the section 13.1 baseline, one configuration at a time, with every divergent row classified into the divergence ledger and, for the rows the ledger calls ink-identical, the drawn positions diffed against the kern-normalized old positions through the position channel in rebuild/pipeline/oracle_positions.py.
+"""The baseline oracle (M1-PLAN section 6): compare settlement with the section 13.1 baseline one configuration at a time, and match each divergent row against the divergence ledger (rebuild/m1-divergences.yaml). For the rows the ledger calls ink-identical, also compare the drawn positions with the kern-normalized old positions through the position channel in rebuild/pipeline/oracle_positions.py.
 
-This is the comparison side of the pipeline, split from conform.py so that it can sit outside the stamp a serialized window enumeration carries (`fingerprint.tables_value`, keyed on `fingerprint.table_code_paths`): nothing here builds a decision table or a font, and everything here runs against tables and an M1.otf that are already built. What licenses that is `rebuild/test_build_code_closure.py`, which walks the import graph from every build-side module and from `run_m1.run` and fails the moment either reaches this module. The consequence is the workflow `run_m1 --gates-only` exists for: an edit to `classify_divergence`, a predicate, `SS10_UNCOVERED_BY_OLD_FONT`, `compile_ledger`, `_match_compiled`, or to the position channel in oracle_positions.py leaves every enumeration on disk exactly as fresh as it was, so the oracle re-adjudicates against them rather than waiting on a rebuild that would return the same bytes. The whole-run record does not narrow: both files are still in `fingerprint.pipeline_code_paths`, so the Stage A `pipeline_code` component, the artifact cycle's run_m1 green and the review surface's stamp all still move on an edit here.
+Nothing here builds a table or a font; everything runs against tables and an M1.otf that are already built. So this module is left out of the stamp a serialized window enumeration carries (`fingerprint.table_code_paths` subtracts `fingerprint.COMPARISON_CODE_MODULES`), and rebuild/test_build_code_closure.py fails if the import graph from any build-side module or from `run_m1.run` reaches it. An edit to `classify_divergence`, a predicate, `SS10_UNCOVERED_BY_OLD_FONT`, `compile_ledger`, `_match_compiled`, or the position channel therefore keeps every enumeration on disk, and `run_m1 --gates-only` re-runs the oracle over them. Both files stay in `fingerprint.pipeline_code_paths`, so an edit here still changes the Stage A `pipeline_code` component, the artifact cycle's run_m1 skip key, and the Stage A record the review surface's manifest copies.
 
-The producer of what the oracle classifies stays in conform.py: `_compare_row` and the memoized `_SettledWindowWalk` are the two entry points the oracle row cache's stamp is cut from (`oracle_cache.ORACLE_ROW_CODE_PATHS`), and the codec between a fresh `DivergentRow` and a stored record (`_cached_verdict`, `_served_verdict`) and the served-sample verification live beside them. This module imports those and is imported by nothing under that stamp, which is what lets a classifier edit serve every row from the store: `rebuild/test_oracle_code_closure.py` holds conform.py to that. The position channel — `_position_drift`, `_kern_normalized_positions`, `KernEvaluator`, the position record codec and the served-position verifier — is rebuild/pipeline/oracle_positions.py, the one module `oracle_cache.POSITION_CODE_PATHS` names, and it never imports this file, so the same classifier edit serves every stored position too; the same test walks from it and holds that direction. `_compare_config` reaches the channel through the module name rather than through imported symbols, so a monkeypatch over `oracle_positions._position_drift` reaches the renewal slice and the verifier alike.
+The rows the oracle classifies are produced in conform.py. `_compare_row` and `_SettledWindowWalk` are the entry points whose import graph `oracle_cache.ORACLE_ROW_CODE_PATHS` must cover, and the record codec (`_cached_verdict`, `_served_verdict`) and `_verify_served_sample` sit beside them. No module under that stamp imports this one, so after a classifier edit every row verdict is still served from the store; rebuild/test_oracle_code_closure.py fails if conform.py's import graph reaches this module. The position channel is rebuild/pipeline/oracle_positions.py, the only module `oracle_cache.POSITION_CODE_PATHS` names. It never imports this module either, so a classifier edit also keeps every stored position, and the same test checks that direction. `_compare_config` calls the channel through the `oracle_positions` module, not through imported names, so monkeypatching `oracle_positions._position_drift` affects both the rows this pass shapes and `_verify_served_positions` (rebuild/test_conform.py relies on this).
 
-`compare_against_baseline` streams the filtered sub-tables, settles every row through a walk of its own (or, when the caller hands down an `OracleRowCache`, takes the row's pre-position verdict off the previous pass's store and walks only what an edit can still reach — see rebuild/pipeline/oracle_cache.py for what that key does and does not cover), compares ligation, seams and cells against the alias map, classifies each divergent row through `_match_compiled` against the `CompiledLedger` each worker builds once from `rebuild/m1-divergences.yaml` (`compile_ledger`), and shapes the rows the ledger calls ink-identical against M1.otf to diff drawn positions — or takes that answer off the same store, under the position key that adds the font's per-family glyphs and the kern sidecar, and re-shapes only the rows an edit can still reach. The unit run_m1 fans out is a row range of one configuration's table (`OracleShard`, planned by `oracle_shard_plan` over the box's width): `oracle_config_worker` runs `_compare_config` over that range in its own process, writing its own audit segment under `oracle_audit_scratch` for `join_oracle_audit` to concatenate in row order and its own store segment for `oracle_cache.join_store_segments` to join the same way, and `merge_config_shards` folds the ranges' tallies back into one configuration's result. The split changes no byte and no number, because `_compare_config` is addressed by absolute row index throughout — the store's records, the renewal slice and the verification draws all key on the row's ordinal in the table — so a range is a self-contained segment of the same store and the same audit. The overlay configuration (ss10) is compared against a stream no table produced: its rows walk through `conform.IsolatedOverlayWalk`, which answers every letter bare from the registry alone, and its position channel shapes through `conform.IsolatedOverlayShaper`, the twins' `hmtx` advances in place of HarfBuzz — both licensed by read-back's isolation proof and the belt's overlay arm — so the old font's ss10 rows are held against "all bare", a function of the baseline and the alphabet, with no settlement and no shaping spent on them.
+`compare_against_baseline` is the serial path. For each configuration it streams the subset table and settles each row, or, given an `OracleRowCache`, serves the row verdict from the previous pass's store and walks only the rows an edit can reach (rebuild/pipeline/oracle_cache.py documents what the keys cover). It compares ligation, seams, and cells through the alias map and matches each divergent row against the `CompiledLedger` (`compile_ledger`). Rows the ledger calls ink-identical are shaped against M1.otf to compare positions, or have their position verdict served from the same store under the position key.
+
+run_m1's parallel path splits the work into row ranges of one configuration's table (`OracleShard`, planned by `oracle_shard_plan` for the worker count). `oracle_config_worker` runs `_compare_config` over one range in its own process and writes its own audit segment under `oracle_audit_scratch` and its own store segment. `join_oracle_audit` and `oracle_cache.join_store_segments` join those in row order, and `merge_config_shards` sums the ranges' counts. The output is the same as the serial path's, because `_compare_config` addresses every row by its absolute index in the table: the store records, the renewal slice, and the verification samples all key on it.
+
+For the overlay configuration (ss10), no settlement table produces the new side. Its rows are walked by `conform.IsolatedOverlayWalk`, which returns every letter bare from the registry alone, and shaped by `conform.IsolatedOverlayShaper`, which uses the twins' `hmtx` advances instead of HarfBuzz. Read-back's isolation check and the belt's overlay sweep are what make both valid. So the old font's ss10 rows are compared with an all-bare stream, and no settlement or shaping runs for them.
 """
 
 from __future__ import annotations
@@ -44,17 +48,17 @@ from rebuild.pipeline.spec_load import DEFAULT_REGISTRY_PATH
 from rebuild.tools.peak_rss import peak_rss_self_bytes
 from rebuild.validation.rowmodel import format_codepoints, iter_rows
 
-# The same bound on the oracle's side, where the texts arrive as baseline rows rather than as a product.
+# Baseline rows read and walked at a time: the oracle's counterpart of `conform.TEXT_CHUNK`.
 ORACLE_ROW_CHUNK = 65536
-# How many unmatched rows a configuration keeps whole. Every one of them is written to its audit shard regardless; this is only how many the summary can quote.
+# How many unmatched rows a result keeps for `oracle_summary.json` to quote. Every unmatched row is written to the audit regardless.
 ORACLE_UNMATCHED_EXEMPLARS = 20
-# What a row costs the oracle under the overlay configuration against one under a settlement configuration: the overlay's walk answers from the registry and its shaper from `hmtx`, so its worker walls at half a settlement configuration's over the same rows (`[t] oracle ss10` against `[t] oracle default` in the cycle journal), and `oracle_shard_plan` weighs the row counts by it.
+# The time an overlay-configuration row costs relative to a settlement-configuration row, which `oracle_shard_plan` weights row counts by. The overlay's walk reads the registry and its shaper reads `hmtx`, so its worker takes about half the wall-clock time over the same rows (measured from the `[t] oracle ss10` and `[t] oracle default` lines in the cycle journal).
 OVERLAY_ROW_COST = 0.5
 
 
 @dataclass(frozen=True)
 class OracleShard:
-    """One unit of the oracle's fan-out: rows `[first_row, stop_row)` of one configuration's subset table, the `index`-th of `of` ranges that configuration is cut into. `stop_row` None is the table's end. A configuration cut into one range is the unsharded shape, and every path it takes — the audit segment, the store, the `[t]` label — is byte-identical to the shape that predates the split."""
+    """Rows `[first_row, stop_row)` of one configuration's subset table, the `index`-th of the `of` ranges the configuration is cut into. `stop_row` None is the table's end. With `of == 1` the range is the whole table, and its audit segment, store, and `[t]` label are named as an unsharded run names them."""
 
     config: str
     first_row: int = 0
@@ -69,14 +73,14 @@ class OracleShard:
 
     @property
     def label(self) -> str:
-        """What the range's `[t]` lines are labeled: the configuration alone when it is uncut, else the configuration and the range's ordinal, so a configuration's rows keep the same set of labels from pass to pass at the same width."""
+        """The range's `[t]` label: the configuration alone when it is uncut, else the configuration and `k/n`."""
         return self.config if self.of == 1 else f"{self.config} {self.index + 1}/{self.of}"
 
 
 def oracle_shard_plan(
     jobs: int, rows_by_config: Mapping[str, int | None], configs: Iterable[str] = ACCEPTANCE_CONFIGS
 ) -> list[OracleShard]:
-    """How `jobs` workers divide the oracle's rows: every configuration with a known row count laid end to end, each row weighed at its configuration's cost, and the line cut at every multiple of a worker's share of the whole, so that the pieces sum to one share per worker whatever the configurations' own sizes are. The pieces come back heaviest first, which is the order a pool should start them: with dynamic assignment, the small pieces at the tail fill in behind whichever workers finish early, and the wall lands within one piece of the share. A configuration's last range is open-ended (`stop_row` None) rather than cut at the count, so a count that undershoots the table costs the balance and never a row. The plan is pure over its arguments, so a caller with an invented box and invented counts can hold it to that. A configuration whose row count is unknown (None or zero — a hand-made table directory, a caller that never refiltered) stays one range over the whole table rather than a guessed one, and comes first in the order as if it were the heaviest; `jobs` of one cuts nothing."""
+    """Split the oracle's rows into ranges for `jobs` workers. The configurations with a known row count are laid end to end, each row weighted by its configuration's cost, and the sequence is cut at every multiple of one worker's share of the total. The ranges are returned heaviest first, the order a pool should start them: the small ranges at the end fill in behind whichever workers finish early, so the wall-clock time comes within one range of a share. A configuration's last range has `stop_row` None, so a row count lower than the table's makes the balance worse but never skips a row. A configuration with an unknown row count (None or zero, as with a hand-made table directory) stays one range over its whole table and sorts first, as if it were the heaviest. `jobs` of one cuts nothing."""
     configs = tuple(configs)
 
     def cost(config: str) -> float:
@@ -123,7 +127,7 @@ class BaselineReport:
     divergent_rows: int = 0
     positions_compared: int = 0
     positions_excluded: int = (
-        0  # rows skipped by the position channel: seam/ligation divergence, or a matched class that legitimately redraws ink
+        0  # divergent rows not sent through the position channel: a seam or ligation divergence, or no single ink-identical ledger match
     )
     positions_served: int = 0
     counts_by_entry: dict[str, int] = field(default_factory=dict)
@@ -135,7 +139,7 @@ class BaselineReport:
 
 @dataclass
 class OracleConfigResult:
-    """One configuration's oracle tally — or one row range's of it, before `merge_config_shards` folds the ranges — which travels home from `oracle_config_worker` down a process pipe. The unmatched rows ride as a count plus the first `ORACLE_UNMATCHED_EXEMPLARS` of them, and the rows two or more ledger entries match ride as a count alone (`multi_matched_count`), rather than either as a whole list: `oracle_summary.json` reads a count for each and quotes exemplars of the unmatched rows only, and the run_m1 gate compares the multi-matched count with zero, so pickling every such `DivergentRow` back to the parent would spend an audit's worth of objects on a number — and on a ledger whose entries overlap, a corpus's worth. Nothing is lost: the worker has already written every one of those rows to its own audit shard, one line each, a multi-matched row with its matched ids joined by `+`, and `divergence-audit.tsv` is where they are read. `positions_served` counts the rows among `positions_compared` whose verdict came off the store rather than out of HarfBuzz. `pass_ordinal` is the ordinal the range's store segment was written under, None when no store was written, and is what the parent stamps a joined store's header with; `peak_rss_bytes` is the worker's own peak, filed as a pool observation so `make job-costs` can price a shard."""
+    """One configuration's oracle counts, or one row range's before `merge_config_shards` combines them, returned to the parent process by `oracle_config_worker`. Unmatched rows are kept as a count plus the first `ORACLE_UNMATCHED_EXEMPLARS` of them, and multi-matched rows as a count alone (`multi_matched_count`). `oracle_summary.json` needs only those, and pickling every such `DivergentRow` to the parent would cost memory in proportion to the audit. The worker has already written every row to its audit shard, a multi-matched row with its matched ids joined by `+`, so `divergence-audit.tsv` has them all. `positions_served` counts the rows among `positions_compared` whose position verdict came from the store instead of from shaping. `pass_ordinal` is the ordinal the range's store segment was written under, or None when no store was written; the parent writes it into a joined store's header. `peak_rss_bytes` is the worker's peak memory, recorded in the pool record that `make job-costs` reads."""
 
     config: str
     rows_compared: int = 0
@@ -154,7 +158,7 @@ class OracleConfigResult:
 
 @dataclass(frozen=True)
 class OracleRowCache:
-    """What one oracle run hands each of its configurations — `ACCEPTANCE_CONFIGS`, unless the caller narrows them — so each can read the previous pass's row verdicts and stage this pass's. The stamps and the family keys are cut once in the parent, before the first row is compared, and travel down the pool pipe: a worker that re-digested the rune tree for itself would be reading files the run has already been holding for minutes, which is the very race `run_oracle` re-checks at promotion. `position_environment` and `position_keys` are the position store's pair, cut off the font the same way; a run with neither (no font to shape against, or a font whose digests would not cut) records every position as unshaped and serves none. `read_dir` is where a promoted store lives and `write_dir` where a fresh one is staged; either may be absent on its own, and a pass that may read but not write (`--gates-only`, which recompiled nothing and so may not write a build input) simply leaves `write_dir` None. Such a pass also carries a nonzero `rotation`, because everything that keeps a record from laundering itself advances on the pass ordinal and the ordinal advances only when a store is written — see `oracle_cache.RowStore`."""
+    """The row cache settings one oracle run passes to each configuration, so each can read the previous pass's verdicts and stage this pass's. The parent computes the stamps and family keys once, before the first row is compared, and passes them to the workers. A worker that re-read the rune tree could see files edited mid-run, which is the race `run_oracle` checks for again at promotion. `position_environment` and `position_keys` are the position store's stamp and keys, computed from the font the same way; without them no position verdict is served. `read_dir` is where a promoted store lives and `write_dir` is where a new one is staged, and either may be None. A pass that may read but not write (`--gates-only`, which recompiles nothing and so may not write a build input) leaves `write_dir` None and sets a nonzero `rotation`: the pass ordinal advances only when a store is written, so the rotation is what moves the renewal slice and the verification sample on such a pass (see `oracle_cache.RowStore`)."""
 
     environment: Mapping[str, oracle_cache.EnvironmentStamp]
     family_keys: Mapping[str, str]
@@ -174,7 +178,7 @@ def open_row_cache(
     first_row: int = 0,
     stop_row: int | None = None,
 ) -> tuple["oracle_cache.RowStore | None", "oracle_cache.RowWriter | None"]:
-    """This configuration's loaded store, holding the records of the rows `[first_row, stop_row)`, and its staged successor, opened by whichever of the two oracle paths is running so the pair stays byte-equal between them. The subset digest is read off the stamp's own `subset` line rather than hashed a second time — the stamp already carries the bytes of the table this configuration is about to stream. A range of a cut configuration names its `segment` and its row bounds: it stages a segment writer (records only, no header and no trailer) for `oracle_cache.join_store_segments` to join, and loads its own rows of the store and no others, under the one header every range reads whole, so the ranges agree on the ordinal the joined header records."""
+    """Return this configuration's loaded store, holding the records of rows `[first_row, stop_row)`, and the writer for its successor, or Nones without a cache. Both oracle paths call this, so they open the pair the same way. The subset digest is read from the stamp's `subset` line instead of hashing the table again. A range of a cut configuration passes its `segment` and row bounds: it stages a segment writer (records only, with no header or trailer) for `oracle_cache.join_store_segments` to join, and loads only its own rows. Every range reads the same store header, so all ranges agree on the pass ordinal the joined header records."""
     if cache is None:
         return None, None
     stamp = cache.environment[config]
@@ -209,7 +213,7 @@ def open_row_cache(
 
 
 def unaliased_subset_names(subset_dir: Path, alias_path: Path) -> dict[str, list[str]]:
-    """Every old glyph name in any subset baseline row that resolves through neither the alias map nor BOUNDARY_GLYPH_NAMES, mapped to the sorted configs it appears in. The alias map's contract is completeness over these rows, and a hole is a silent wrong-number generator rather than a loud failure — a ligation-grain row never reaches the per-glyph alias check in `_compare_row`, so its counts ride ledger classes as if the name were understood — which is why run_m1 refuses to build while this is non-empty. A `pending` entry acknowledges a name mid-migration without claiming a denotation: it resolves here and still reads as unaliased in the comparison. The names themselves are read from the sidecar the refilter wrote (`baseline_subset.read_subset_names`) rather than streamed out of every subset row of every configuration: the roster can only change when the tables are refiltered, so this costs milliseconds and runs on the `--gates-only` path as readily as on a build."""
+    """Map every old glyph name in the subset baseline rows that neither the alias map nor `BOUNDARY_GLYPH_NAMES` resolves to the sorted configurations it appears in. A missing alias does not always fail loudly: a ligation row never reaches the per-glyph alias check in `_compare_row`, so it is counted under a ledger class as if the name were understood. run_m1 therefore stops before building while this is non-empty. A `pending` alias passes this check but still counts as unaliased in the comparison. The names come from the sidecar the refilter writes (`baseline_subset.read_subset_names`), which changes only when the tables are refiltered, so this check is cheap enough to run on the `--gates-only` path too."""
     known = set(load_alias_map(alias_path)) | BOUNDARY_GLYPH_NAMES
     missing: dict[str, set[str]] = {}
     for config, names in baseline_subset.read_subset_names(subset_dir).items():
@@ -221,7 +225,7 @@ def unaliased_subset_names(subset_dir: Path, alias_path: Path) -> dict[str, list
 
 @functools.cache
 def ss10_formable_pairs(registry_path: Path = DEFAULT_REGISTRY_PATH) -> frozenset[str]:
-    """Every ligature the registry declares, as the colon-joined codepoints of its component sequence (`E653:E67A` for qsDay_qsUtter). `rebuild/script.yaml` is the authority on which sequences form, so the ss10 suppression arm of `classify_divergence` reads its roster from there rather than from a hand-kept list a newly migrated ligature would have to remember to extend."""
+    """Return every ligature the registry (`rebuild/script.yaml`) declares, as the colon-joined code points of its component sequence (`E653:E67A` for qsDay_qsUtter). `classify_divergence`'s ss10 ligature check reads this, so a newly migrated ligature needs no edit here."""
     families = yaml.safe_load(registry_path.read_text(encoding="utf-8"))["families"]
     return frozenset(
         format_codepoints(tuple(int(families[name]["codepoint"]) for name in info["sequence"]))
@@ -231,31 +235,31 @@ def ss10_formable_pairs(registry_path: Path = DEFAULT_REGISTRY_PATH) -> frozense
 
 
 def classify_divergence(row: DivergentRow) -> str | None:
-    """Assign a divergent row to exactly one ledger class from its phenomenon set (computed by `_compare_row` against the alias map). The set is a partition by construction: each row gets the single highest-precedence class, with the precedence documented in rebuild/m1-divergences.yaml. None = unexplained, which fails conformance."""
+    """Return the one ledger class for a divergent row, chosen from its phenomenon set (which `_compare_row` computes through the alias map), or None when no class applies. The order of the checks below is the precedence, and the ledger's header comment summarizes it. A row with no class can still match a function predicate or an unconditional ledger entry; otherwise it is unmatched and waits for a verdict on the review surface."""
     phenomena = set(row.phenomena)
     if not phenomena or any(item.startswith("unaliased") for item in phenomena):
         return None
     if any(item.startswith("position") for item in phenomena):
-        # Position drift never rides a cell-grain class (the ink-identity claim it would hide is exactly what the position channel tests); position-only rows go through the kern-attribution predicate instead.
+        # A cell-grain class claims the ink is identical, and the position channel is the test of that claim, so a row with position drift must not take one. Such rows are left to the function predicates (`kern_channel_out_of_scope`, `may_ligature_seam_loosened`).
         return None
     if {"0020", "200C"} & set(row.codepoints.split(":")):
-        # The ratified boundary-equals-word-boundary rule (design section 3.4): the new font renders every segment of a window containing a run-splitting boundary (space or ZWNJ) identically to that segment standing alone — enforced per build by the belt's own split-buffer check — so a boundary row can only diverge from the baseline where the old font was itself inconsistent across the boundary, and every segment-internal divergence resurfaces on the segment's own enumerated row. Boundary rows therefore carry no adjudicable information and are absorbed wholesale, ahead of every other cell/seam-grain class.
+        # Design section 3.4: the new font renders each segment of a window split by a space or ZWNJ the same as that segment alone, and the belt's split-buffer check verifies this on every build. So a boundary row can diverge from the baseline only where the old font was inconsistent across the boundary, and every divergence inside a segment also appears on that segment's own row. Boundary rows need no review of their own and take this class ahead of every other.
         return "boundary-echo"
     if "ligation" in phenomena:
-        # Under the isolated overlay the new font never forms the ligature at all (the ss10 pre-empt replaces every letter before formation) while the old font keeps drawing its own ligature, so the suppression class outranks the marker-staging one (whose 00B7 arm would otherwise swallow the namer-dot ss10 windows). The formable pairs are the registry's ligature sequences, so a newly migrated ligature never leaves its ss10 rows unmatched.
+        # Under ss10 the new font never forms a ligature (the ss10 pre-empt replaces every letter before formation), while the old font still draws its own. This check comes before the marker-staging ones, whose 00B7 case would otherwise take the namer-dot ss10 windows. The pairs come from the registry's ligature sequences, so a newly migrated ligature's ss10 rows are covered.
         if row.config == "ss10" and any(pair in row.codepoints for pair in ss10_formable_pairs()):
             return "ss10-ligature-suppressed"
         if "E67B:E652" in row.codepoints and "ss03" in row.config:
             return "ss03-out-tea-ligature-kept"
         if "E652:E679" in row.codepoints and ("200C" in row.codepoints or "ss03" in row.config):
             return "marker-staging-ligature-formation"
-        # The qsDay_qsUtter ligature forms unconditionally in the old font too (bare E653:E67A renders as the ligature in every config), so only the post-marker windows diverge: the old pipeline renames the lead to .noentry / leaks a bare name after a ZWNJ or the namer dot, and never forms the ligature there. Same staging phenomenon as ·Tea·Oy.
+        # The old font also forms qsDay_qsUtter in every configuration, so only the windows after a ZWNJ or the namer dot diverge: there the old font renames the lead to its .noentry form or leaves a bare name, and never forms the ligature. This is the same staging phenomenon as ·Tea·Oy above.
         if "E653:E67A" in row.codepoints and ("200C" in row.codepoints or "00B7" in row.codepoints):
             return "marker-staging-ligature-formation"
         return None
     gains = {item for item in phenomena if item.startswith("seam-gain:")}
     if "seam-moved" in phenomena:
-        # A pure seam move (no gain, no loss) on a row whose old glyph was a post-ZWNJ .noentry shadow is the word-initial unification choosing a different seam height than the shadow stance drew: the old .noentry shadow joined its follower at one height, but settling the post-ZWNJ letter as word-initial (identical to its post-space form) lands the join elsewhere. Routed only when the sole seam change is the move, so a post-ZWNJ row that also gains or loses a seam still falls through to its own class.
+        # The old font drew a letter after a ZWNJ with a .noentry variant that joined its follower at one height. The new model settles that letter as word-initial, the same as after a space, and the join is at another height. This class applies only when the move is the row's only seam change. Any other row with a moved seam gets no class, including one that also gains or loses a seam.
         if "old-noentry" in phenomena and not gains and "seam-loss" not in phenomena:
             return "zwnj-word-initial-seam-moved"
         return None
@@ -294,21 +298,21 @@ def classify_divergence(row: DivergentRow) -> str | None:
         and phenomena <= {"-ex-con-1", "+en-trim-1"}
         and "E65A:E67B" in row.codepoints
     ):
-        # The grounded ·See·Out fusion re-spells the old pull-back across the seam: the old pipeline's ex-con-1 tucks ·Out into ·See's still-whole tail (anchor-only, ink kept), while the runes keep the tail's anchor at convention and pull the raked redraw's foot instead, so the composite ink is identical and only the names differ. The subset guard keeps any row where real ink moved elsewhere out of the class.
+        # The grounded ·See·Out fusion names the old pull-back differently. The old font's ex-con-1 tucks ·Out into ·See's whole tail (only the anchor moves). The runes keep the tail's anchor at its convention position and pull back the raked redraw's foot instead. The combined ink is identical and only the glyph names differ. The subset test keeps out any row where ink also moved elsewhere.
         return "see-out-fusion-respelled"
     if (
         "+ex-ext-2" in phenomena
         and phenomena <= {"+ex-ext-2", "-ex-ext-1", "-en-ext-2", "exit-dropped"}
         and "E665:E65D" in row.codepoints
     ):
-        # The ·May·J'ai seam replaces the old split extension with qsMay's single by-2 exit record in every follower context; the rune's why records the binding one-pixel spacing choice. The -en-ext-2 token is the ·J'ai side of the same consolidation now that its alias spells the old name faithfully. The subset guard keeps any row where unrelated ink moved elsewhere out of the class.
+        # At the ·May·J'ai seam, qsMay's single by-2 exit record replaces the old font's split extension (·May's exit by 1, ·J'ai's entry by 2) in every follower context. The -en-ext-2 token is the ·J'ai side of the same change: ·J'ai's alias keeps the old glyph's en-ext-2, which the new cell lacks. The subset test keeps out any row where unrelated ink also moved.
         return "may-jai-extension-consolidated"
     if (
         phenomena
         and phenomena <= {"+en-con-1", "+en-con-2"}
         and ("E65D" in row.codepoints or "E65F" in row.codepoints)
     ):
-        # The old pipeline's exit contractions before ·J'ai are tucks — the left keeps its ink and only the anchor moves in, overlapping the follower — which M1 re-spells as ·J'ai's own entry contraction: the crown gives up the overlapped columns and abuts instead, so the placed composite, every origin, and every advance are unchanged and only ·J'ai's cell name gains the con token. The unentered half-·Tea exit tuck before ·Jay is the same phenomenon on the same crown shape, re-spelled as ·Jay's entry contraction. The subset guard keeps any row where real ink moved elsewhere out of the class.
+        # The old font's exit contractions before ·J'ai are tucks: the left letter keeps its ink and only its anchor moves in, overlapping the follower. M1 draws the same result as ·J'ai's own entry contraction: the crown drops the overlapped columns and abuts instead. The combined drawing, every origin, and every advance are unchanged, and only ·J'ai's cell name gains the con token. The unentered half-·Tea exit tuck before ·Jay is the same case on the same crown shape, drawn as ·Jay's entry contraction. The subset test keeps out any row where ink also moved elsewhere.
         return "jai-entry-contraction-respelled"
     if (
         phenomena == {"+en-con-1", "-en-trim-1"}
@@ -331,9 +335,9 @@ def classify_divergence(row: DivergentRow) -> str | None:
             for left, right in zip(row.baseline_glyphs, row.baseline_glyphs[1:])
         )
     ):
-        # ·Zoo's entry contraction places the same crown as the old ·Tea exit tuck plus ·Zoo entry trim. The unrelated ·It·Roe redraw changes ink without moving origins or advances, so the position channel cannot reject it and this class excludes that old pair explicitly.
+        # ·Zoo's entry contraction places the same crown as the old ·Tea exit tuck plus ·Zoo entry trim. The unrelated ·It·Roe redraw changes ink without moving origins or advances, so the position channel cannot catch it, and this class excludes that old pair explicitly.
         return "zoo-entry-contraction-respelled"
-    # The may-exit-withdrawal-generalized class retired with qsMay's pulled-back exit; a row resurrecting these phenomena carries an ink delta, so it must surface UNMATCHED rather than fall through to the name-grain classes below.
+    # A row with these tokens has an ink change that no class covers, so it must get no class instead of reaching the name-grain classes below.
     if any(item.startswith("+ex-bind-") for item in phenomena) or "-ex-ext-1" in phenomena:
         return None
     if "+locked" in phenomena or "old-noentry" in phenomena:
@@ -363,7 +367,7 @@ def _class_predicate(class_id: str) -> Callable[[DivergentRow], bool]:
     return matches
 
 
-# The ledger entries whose predicate is nothing but "classify_divergence chose this class". `compile_ledger` files each such entry under its class id straight out of this map and `_match_compiled` classifies each row once and looks the class up, where letting every one of these closures re-classify cost the oracle its slowest microsecond per divergent row; the three predicates below, which ask something classification cannot, keep functions of their own.
+# Predicate name to class id, for the ledger predicates that only test "classify_divergence chose this class". `compile_ledger` groups these entries by class id, and `_match_compiled` classifies each row once and looks the class up, instead of calling one closure per entry that each re-classifies the row. The three predicates below test something classification does not, so they stay functions.
 CLASS_PREDICATE_IDS: dict[str, str] = {}
 
 for _class_id in (
@@ -398,11 +402,11 @@ for _class_id in (
 
 @predicate("kern_channel_out_of_scope")
 def _kern_channel_out_of_scope(row: DivergentRow) -> bool:
-    """Position-only rows whose drifted slot the comparison marked kern-attributable (the old pair carries a nonzero sidecar kern, or the drift sits on a ZWNJ adjacency). Everything else position-shaped stays unmatched and fails — non-kern position drift is chased to ground, never absorbed here."""
+    """Match position-only rows whose drift the position channel marked kern-attributable (`oracle_positions._position_drift` sets this when every drift comes after a slot whose old advance carries a nonzero sidecar kern or that sits next to a ZWNJ). Other position drift is not matched here, so it stays unmatched for review unless another predicate matches it."""
     return row.kinds == ("position",) and "position-kern-attributable" in row.phenomena
 
 
-# Cell-grain tokens that ride the ink-identical name-grain classes; anything outside this set on a seam-loosened candidate means real ink moved elsewhere in the row, so the row stays unmatched and fails.
+# The cell-grain tokens of the ink-identical name-grain classes. Any other cell-grain token on a `may_ligature_seam_loosened` candidate means ink moved elsewhere in the row, so that predicate does not match it.
 _NAME_GRAIN_TOKENS = frozenset(
     {"stance", "entry-added", "entry-moved", "entry-dropped", "exit-added", "exit-moved", "exit-dropped"}
 )
@@ -410,7 +414,7 @@ _NAME_GRAIN_TOKENS = frozenset(
 
 @predicate("may_ligature_seam_loosened")
 def _may_ligature_seam_loosened(row: DivergentRow) -> bool:
-    """The adjudicated ·Day·Utter→·May x-height seam: the old font tucks ·May's x-height entry one pixel into the ligature's exit, the new model seats it at the anchor-aligned column and draws no connector, and the looser seat is the intended design (the may-ligature-seam-loosened ledger entry carries the adjudication). Matches non-kern position drift on rows whose old names carry that exact pair and whose cell-grain residue (if any) is pure name grain."""
+    """Match the reviewed `·Day+Utter ~x~ ·May` seam. The old font tucks ·May's x-height entry one pixel into the ligature's exit; the new model places it at the anchor-aligned column and draws no connector, which is the intended design (the may-ligature-seam-loosened ledger entry records the decision). Matches non-kern position drift on rows whose old glyph names contain that pair and whose other cell-grain tokens, if any, are all in `_NAME_GRAIN_TOKENS`."""
     if "position-drift" not in row.phenomena or "position-kern-attributable" in row.phenomena:
         return False
     cell_grain = {item for item in row.phenomena if not item.startswith("position")}
@@ -423,28 +427,28 @@ def _may_ligature_seam_loosened(row: DivergentRow) -> bool:
     )
 
 
-# The migrated runes whose joins the old shipped font never wired into the ss10 isolated overlay, so the old font keeps drawing their cursive joins under ss10 while the new model isolates every letter by design.
-# Membership is not automatic for a newly-migrated rune: qsFee was weighed and deliberately left out, because the old ss10 overlay substitutes every qsFee variant to the bare cmap glyph, which carries no cursive anchors, so the old font already isolates ·Fee correctly and its ss10 seam-loss rows ride the existing ss10_isolation_completed class instead.
-# qsAh is a member because its baseline entry and x-height exit anchors ride the base cmap glyph (the ·Pea/·Oy→·Ah and ·Ah→·Day joins are bare-glyph GPOS attachments with no calt variant), so the old ss10 overlay has nothing to substitute away and keeps drawing those joins.
-# qsOut is a member on the qsAh precedent, entry side only: its baseline entry anchor rides the bare cmap glyph (E650:E67B stays a y0 join under the old ss10), while its x-height exits live on calt variants the old overlay does substitute away. qsOut_qsTea inherits the same bare-glyph entry from its lead, the qsDay_qsUtter shape.
-# qsAwe is a member on the qsAh precedent, both sides at once: the old record has no stances, so its x-height entry and baseline exit both ride the base cmap glyph, and bare qsAwe is the only ·Awe glyph the old font emits under ss10 — keeping the y5 joins into it and the y0 joins out of it wherever the neighbor's anchor also survives the overlay.
-# qsOx joined at its own migration on the identical shape: no stances in the old record, so both anchors ride the base cmap glyph and bare qsOx keeps its seams under ss10 (qsMay|qsOx stays y5, qsOx|qsVie stays y0).
-# qsEight joined at its own migration on the same shape: no stances in the old record, so both anchors ride the base cmap glyph and bare qsEight keeps its seams under ss10 (qsMay|qsEight stays y5, qsEight|qsVie stays y0).
-# qsAt joined on direct pair evidence: the old overlay leaves bare qsAt in place, so qsPea|qsAt stays joined at the baseline and qsAt|qsDay stays joined at the x-height; the contextual before-·May and before-·J'ai forms are covered and isolate correctly.
-# qsOoze joined at its own migration on the qsAwe shape: no stances in the old record, so its baseline entry and baseline exit both ride the base cmap glyph and bare qsOoze keeps its seams under ss10 (qsPea|qsOoze stays y0, qsOoze|qsVie stays y0).
-# qsBay joined on direct pair evidence, the qsAt shape: the old overlay leaves bare qsBay's baseline exit live (qsBay|qsVie stays y0, likewise qsSee/qsLow/qsRoe/qsAt/qsAh/qsOut/qsOoze), while the contextual en-y5 entry form is substituted away correctly, so every entry into qsBay isolates (qsI|qsBay breaks under ss10).
-# qsKey joined at its own migration on the qsAwe shape: no stances in the old record, so its top entry and baseline exit both ride the base cmap glyph and bare qsKey keeps its seams under ss10 (qsSee|qsKey stays y8, qsKey|qsVie stays y0), while the receivers the old font serves through contextual forms (qsTea.en-y0.en-ext-1, qsDay.half, qsMay.en-y0.ex-y5, qsNo.alt) are substituted away and isolate correctly.
-# qsThaw joined at its own migration on the qsOut precedent, entry side only: its baseline entry anchor rides the bare cmap glyph, so every left whose exit anchor also survives the overlay keeps joining it under the old ss10 (qsBay|qsThaw stays y0, likewise qsDay/qsEt/qsEight/qsAwe/qsOx/qsOy/qsOoze — and qsPea|qsThaw rejoins under ss10 alone, because the after-tall break is itself a calt substitution the overlay disables), while its one exit lives on a calt stance the overlay does substitute away (qsThaw|qsIng breaks under ss10).
-# Bare qsZoo retains its x-height entry and baseline exit under the old ss10 overlay (qsMay|qsZoo stays y5 and qsZoo|qsVie stays y0); its half form is substituted away and loses the baseline entry.
-# qsI is a member on the qsAwe shape, both sides: its baseline entry and x-height exit ride the base cmap glyph (qsPea|qsI stays y0, qsI|qsEt and qsI|qsRoe stay y5), and its one stance carries the same two anchors.
-# qsEt is a member on the qsAwe shape: no stances in the old record, so its x-height entry and baseline exit both ride the base cmap glyph (qsMay|qsEt stays y5, qsEt|qsVie stays y0).
-# qsSee is a member on both sides: its baseline entry and top exit ride the base cmap glyph (qsPea|qsSee stays y0, qsSee|qsKey stays y8, the one receiver with a top entry), while the y6 and baseline exits live on stances the overlay substitutes away (qsSee|qsVie breaks under ss10).
-# qsRoe is a member on the qsOut precedent, entry side only: both its entries ride the base cmap glyph (qsPea|qsRoe stays y0, qsMay|qsRoe stays y5), while every exit lives on a stance the overlay substitutes away (qsRoe|qsVie breaks under ss10).
-# qsVie is a member on the qsOut precedent, entry side only: its baseline entry rides the base cmap glyph (qsPea|qsVie and qsEt|qsVie stay y0), while its one exit lives on a stance the overlay substitutes away (qsVie|qsAh breaks under ss10).
-# Membership is every migrated letter whose bare old glyph carries a live anchor; the overlay's other surviving exits — bare qsPea, qsMay and qsOy — only ever land on a member's entry, so every join the old font draws under ss10 touches a member.
-# Bare qsCheer keeps its x-height entry and baseline exit under the old ss10 overlay: `·May ~x~ ·Cheer` and `·Cheer ~b~ ·Vie` retain their joins.
-# qsJay joined on the qsBay shape, exit side only: its baseline exit rides the bare cmap glyph and survives the old overlay (`·Jay ~b~ ·Vie` stays joined under ss10), while its x-height entry lives on the en-y5 stance the overlay substitutes away (`·Pea | ·Jay` under ss10).
-# qsYe joined on the same shape, exit side only: its baseline exit rides the bare cmap glyph (`·Ye ~b~ ·Vie` stays joined under ss10, and the overlay even rejoins `·Ye ~b~ ·Thaw` and `·Ye ~b~ ·See`, whose after-Tall and after-·Ye breaks are themselves calt substitutions the overlay disables), while both entries live on the en-y0 and en-y5 stances the overlay substitutes away (`·Bay | ·Ye` and `·May | ·Ye` under ss10).
+# The migrated runes whose joins the old font's ss10 isolated overlay does not remove. The old font keeps drawing their cursive joins under ss10, while the new model isolates every letter.
+# Membership is decided for each letter when it is migrated. qsFee is not a member: the old ss10 overlay substitutes every qsFee variant with the bare cmap glyph, which has no cursive anchors, so the old font already isolates ·Fee, and its ss10 seam-loss rows are matched by the existing ss10_isolation_completed predicate.
+# qsAh: its baseline entry and x-height exit anchors are on the base cmap glyph (`·Pea ~b~ ·Ah`, `·Oy ~b~ ·Ah` and `·Ah ~x~ ·Day` are bare-glyph GPOS attachments with no calt variant), so the old ss10 overlay has nothing to substitute away and keeps drawing those joins.
+# qsOut, entry side only, as with qsAh: its baseline entry anchor is on the bare cmap glyph (`·Pea ~b~ ·Out` stays joined under the old ss10), while its x-height exits are on calt variants the old overlay substitutes away. qsOut_qsTea inherits the same bare-glyph entry from its lead, as qsDay_qsUtter does.
+# qsAwe, both sides, as with qsAh: the old record has no stances, so its x-height entry and baseline exit are both on the base cmap glyph, and bare qsAwe is the only ·Awe glyph the old font uses under ss10. It keeps the y5 joins into it and the y0 joins out of it wherever the neighbor's anchor also survives the overlay.
+# qsOx, the qsAwe case: no stances in the old record, so both anchors are on the base cmap glyph and bare qsOx keeps its seams under ss10 (`·May ~x~ ·Ox` and `·Ox ~b~ ·Vie` stay joined).
+# qsEight, the qsAwe case: no stances in the old record, so both anchors are on the base cmap glyph and bare qsEight keeps its seams under ss10 (`·May ~x~ ·Eight` and `·Eight ~b~ ·Vie` stay joined).
+# qsAt, from direct pair evidence: the old overlay leaves bare qsAt in place, so `·Pea ~b~ ·At` and `·At ~x~ ·Day` stay joined. Its contextual forms before ·May and before ·J'ai are substituted away and isolate correctly.
+# qsOoze, the qsAwe case: no stances in the old record, so its baseline entry and baseline exit are both on the base cmap glyph and bare qsOoze keeps its seams under ss10 (`·Pea ~b~ ·Ooze` and `·Ooze ~b~ ·Vie` stay joined).
+# qsBay, from direct pair evidence, the qsAt case: the old overlay leaves bare qsBay's baseline exit live (`·Bay ~b~ ·Vie` stays joined; likewise qsSee, qsLow, qsRoe, qsAt, qsAh, qsOut and qsOoze), while its contextual en-y5 entry form is substituted away, so every entry into qsBay isolates (`·I | ·Bay` under ss10).
+# qsKey, the qsAwe case: no stances in the old record, so its top entry and baseline exit are both on the base cmap glyph and bare qsKey keeps its seams under ss10 (`·See ~t~ ·Key` and `·Key ~b~ ·Vie` stay joined). The receivers the old font serves through contextual forms (qsTea.en-y0.en-ext-1, qsDay.half, qsMay.en-y0.ex-y5, qsNo.alt) are substituted away and isolate correctly.
+# qsThaw, entry side only, as with qsOut: its baseline entry anchor is on the bare cmap glyph, so every left letter whose exit anchor also survives the overlay keeps joining it under the old ss10 (`·Bay ~b~ ·Thaw`, and likewise after qsDay, qsEt, qsEight, qsAwe, qsOx, qsOy and qsOoze). In the old font, `·Pea ~b~ ·Thaw` joins only under ss10, because the after-Tall break is itself a calt substitution the overlay disables. Its one exit is on a calt stance the overlay substitutes away (`·Thaw | ·-ing` under ss10).
+# qsZoo: bare qsZoo keeps its x-height entry and baseline exit under the old ss10 overlay (`·May ~x~ ·Zoo` and `·Zoo ~b~ ·Vie` stay joined); its half form is substituted away and loses the baseline entry.
+# qsI, both sides, the qsAwe case: its baseline entry and x-height exit are on the base cmap glyph (`·Pea ~b~ ·I`, `·I ~x~ ·Et` and `·I ~x~ ·Roe` stay joined), and its one stance carries the same two anchors.
+# qsEt, the qsAwe case: no stances in the old record, so its x-height entry and baseline exit are both on the base cmap glyph (`·May ~x~ ·Et` and `·Et ~b~ ·Vie` stay joined).
+# qsSee, both sides: its baseline entry and top exit are on the base cmap glyph (`·Pea ~b~ ·See` and `·See ~t~ ·Key` stay joined; ·Key is the one receiver with a top entry), while the y6 and baseline exits are on stances the overlay substitutes away (`·See | ·Vie` under ss10).
+# qsRoe, entry side only, as with qsOut: both its entries are on the base cmap glyph (`·Pea ~b~ ·Roe` and `·May ~x~ ·Roe` stay joined), while every exit is on a stance the overlay substitutes away (`·Roe | ·Vie` under ss10).
+# qsVie, entry side only, as with qsOut: its baseline entry is on the base cmap glyph (`·Pea ~b~ ·Vie` and `·Et ~b~ ·Vie` stay joined), while its one exit is on a stance the overlay substitutes away (`·Vie | ·Ah` under ss10).
+# Members are the migrated letters whose bare old glyph carries a live anchor, except bare qsPea, qsMay and qsOy: their surviving exits only ever meet a member's entry, so every join the old font draws under ss10 touches a member.
+# qsCheer: bare qsCheer keeps its x-height entry and baseline exit under the old ss10 overlay (`·May ~x~ ·Cheer` and `·Cheer ~b~ ·Vie` stay joined).
+# qsJay, exit side only, the qsBay case: its baseline exit is on the bare cmap glyph and survives the old overlay (`·Jay ~b~ ·Vie` stays joined under ss10), while its x-height entry is on the en-y5 stance the overlay substitutes away (`·Pea | ·Jay` under ss10).
+# qsYe, exit side only, the same case: its baseline exit is on the bare cmap glyph (`·Ye ~b~ ·Vie` stays joined under ss10, and the overlay even joins `·Ye ~b~ ·Thaw` and `·Ye ~b~ ·See`, whose after-Tall and after-·Ye breaks are themselves calt substitutions the overlay disables), while both entries are on the en-y0 and en-y5 stances the overlay substitutes away (`·Bay | ·Ye` and `·May | ·Ye` under ss10).
 SS10_UNCOVERED_BY_OLD_FONT = frozenset(
     {
         "qsAh",
@@ -478,7 +482,7 @@ SS10_UNCOVERED_BY_OLD_FONT = frozenset(
 
 @predicate("ss10_isolation_completed")
 def _ss10_isolation_completed(row: DivergentRow) -> bool:
-    """Under ss10 the new model renders every position bare (the overlay forces the default stance with no seam), so a join the old font still drew there reads as a seam-loss. The old font's ss10 overlay was authored before the runes in `SS10_UNCOVERED_BY_OLD_FONT` (whose anchors ride the base cmap glyph, so the old overlay keeps their joins too) and never isolates them, so it keeps joining the new letters under ss10; the new font's complete isolation is the intended correction. Matches ss10 rows whose only seam change is losses, each on a seam touching one of those runes; a lost seam between two non-members stays unmatched, and since the overlay's surviving exits outside the set (bare qsPea, qsMay and qsOy) only ever land on a member's entry, the old font draws no such seam and any that appears is a regression to surface. Space and ZWNJ rows are excluded so the boundary-echo blanket keeps the partition exact."""
+    """Match ss10 rows whose only seam changes are losses, each on a seam that touches a rune in `SS10_UNCOVERED_BY_OLD_FONT`. Under ss10 the new model renders every letter bare, with no seam, so a join the old font still draws there appears as a seam loss. The old font's ss10 overlay does not isolate those runes, because their anchors are on the base cmap glyph; the new font's complete isolation is the intended behavior. A lost seam between two non-members is not matched: the old font draws no such seam (see the comment on `SS10_UNCOVERED_BY_OLD_FONT`), so one that appears is a regression. Rows with a space or ZWNJ are excluded so that they match boundary-echo alone."""
     if {"0020", "200C"} & set(row.codepoints.split(":")):
         return False
     if row.config != "ss10" or "seam" not in row.kinds:
@@ -504,7 +508,7 @@ def _ss10_isolation_completed(row: DivergentRow) -> bool:
 
 @dataclass(frozen=True)
 class CompiledLedger:
-    """The divergence ledger read once and filed by what each entry's `match` asks, so the per-row match is a class lookup rather than a walk of every entry's dicts. Every filed entry carries its ledger index, because the match list is reported in ledger order and a two-plus match is filed as a multi-match from it, and the buckets are separate so a hit in two of them is put back in that order before it is returned. `by_class` is keyed on the class id a `CLASS_PREDICATE_IDS` entry names; `functions` holds the entries whose predicate is a function of the row; `unconditional` holds the entries with no predicate at all, which match every row their `window` and `seam_change` admit — an empty `match` matches every row, and `_compare_config`'s ink-identical fixture ledger in rebuild/test_conform.py is one. `configs` is `None` for an entry open to every configuration and otherwise the container `row.config` is tested against. The object holds bound functions, so it is built on the worker's side of the pipe (`oracle_config_worker`) and never pickled."""
+    """The divergence ledger grouped by what each entry's `match` tests, so matching a row is a class lookup instead of a pass over every entry. Every entry keeps its ledger index, so `_match_compiled` can return matches from several groups in ledger order. `by_class` is keyed on the class id a `CLASS_PREDICATE_IDS` entry names. `functions` holds the entries whose predicate is a function of the row. `unconditional` holds the entries with no predicate, which match every row their `window` and `seam_change` admit; an empty `match` matches every row (rebuild/test_conform.py's ink-identical fixture ledger is one). An entry's `configs` is None when it applies to every configuration, and otherwise a container `row.config` is tested against. Each worker builds its own (`oracle_config_worker`)."""
 
     by_class: Mapping[str, tuple[tuple[int, str, Container[str] | None], ...]]
     functions: tuple[tuple[int, str, Container[str] | None, Callable[[DivergentRow], bool]], ...]
@@ -512,7 +516,7 @@ class CompiledLedger:
 
 
 def compile_ledger(entries: Sequence[Mapping]) -> CompiledLedger:
-    """The raw ledger (`yaml.safe_load` of rebuild/m1-divergences.yaml) as a `CompiledLedger`. An entry without an `id` is filed as `<unnamed>`. `configs: all` compiles to `None`; a list compiles to a frozenset; a bare string is kept as it is, so it keeps the `in` test the raw walk gives it; anything else (a `configs:` with no value) is refused here, when the ledger compiles, rather than matching every configuration in silence. An entry whose predicate is in neither `CLASS_PREDICATE_IDS` nor `PREDICATES` is filed nowhere: it can match no row, and dropping it here is the same answer the raw walk gives it, not a lost entry."""
+    """Compile the raw ledger (`yaml.safe_load` of rebuild/m1-divergences.yaml) into a `CompiledLedger`. An entry without an `id` is named `<unnamed>`. `configs: all` compiles to None and a list to a frozenset. A bare string is kept as a string, so it gets the same substring `in` test as the reference walk in rebuild/test_conform.py. Any other value, such as a `configs:` with no value, raises TypeError instead of silently matching every configuration. An entry whose predicate is in neither `CLASS_PREDICATE_IDS` nor `PREDICATES` is dropped, because it can match no row."""
     by_class: dict[str, list[tuple[int, str, Container[str] | None]]] = {}
     functions: list[tuple[int, str, Container[str] | None, Callable[[DivergentRow], bool]]] = []
     unconditional: list[tuple[int, str, Container[str] | None, str | None, bool]] = []
@@ -552,7 +556,7 @@ def compile_ledger(entries: Sequence[Mapping]) -> CompiledLedger:
 
 
 def _match_compiled(compiled: CompiledLedger, row: DivergentRow) -> list[str]:
-    """Every ledger entry this row matches, in ledger order — all of them, so the caller can still tell a single match from the two-plus that fail the ledger. The row is classified once and the class looked up in `by_class`; the function-predicate entries run only where their `configs` admit the row's configuration; the unconditional entries apply their `window` and `seam_change` tests. Hits are sorted back into ledger order only when more than one bucket answered."""
+    """Return the ids of every ledger entry this row matches, in ledger order, so the caller can tell a single match from a multi-match. The row is classified once and its class looked up in `by_class`. Function predicates run only when their `configs` admit the row's configuration, and unconditional entries apply their `window` and `seam_change` tests."""
     classified = classify_divergence(row)
     config = row.config
     hits: list[tuple[int, str]] = []
@@ -577,7 +581,7 @@ def _match_compiled(compiled: CompiledLedger, row: DivergentRow) -> list[str]:
 
 
 def _match_ledger(ledger: Sequence[Mapping], row: DivergentRow) -> list[str]:
-    """Every ledger entry this row matches, in ledger order, straight from the raw ledger: `compile_ledger` then `_match_compiled`, so the answer is the compiled matcher's by construction. This is the form for a test or a probe holding a raw list; `_compare_config` takes the `CompiledLedger` its caller built once and calls `_match_compiled` directly."""
+    """Return the ids of every ledger entry this row matches, compiling the raw ledger first. This is for tests and probes that hold a raw list; `_compare_config` uses a `CompiledLedger` built once."""
     return _match_compiled(compile_ledger(ledger), row)
 
 
@@ -585,24 +589,24 @@ ORACLE_AUDIT_HEADER = "config\tcodepoints\tkinds\tmatched_entry\tbaseline\tnew"
 
 
 def oracle_audit_scratch(out_dir: Path) -> Path:
-    """This oracle run's own directory for the audit's shards and its staging copy, beside the artifact they become. The pid in the name is what lets two runs share an out_dir — a `--gates-only` pass beside a cycle is the shape that happens here — without splicing rows into one another's shards or sweeping them out from under one another's concatenation. Nothing reads a directory in `rebuild/out/m1`, and the name misses `M1_ARTIFACT_NAMES` and every glob over the tables there, so what a killed run leaves behind cannot be mistaken for an artifact."""
+    """Return this run's scratch directory for the audit shards and the staged audit, beside `divergence-audit.tsv`. The pid in the name lets two runs share an `out_dir` (a `--gates-only` pass during a cycle, for example) without mixing or deleting each other's shards. The name matches neither `artifact_cycle.M1_ARTIFACT_NAMES` nor any glob over the tables, so nothing a killed run leaves here is taken for an artifact."""
     return Path(out_dir) / f"divergence-audit.parts.{os.getpid()}"
 
 
 def oracle_audit_shard(scratch_dir: Path, config: str, segment: int | None = None) -> Path:
-    """Where one configuration's header-free audit rows go while the oracle runs — or one row range's of them, when `segment` names which. The pool is spawned, so a configuration's rows reach the parent as a file rather than as a pickled list: the audit is much the largest thing this build writes and it grows with every migrated letter, so carrying it through the pipe stood the whole of it up in the parent right where the phase's own peak already sat. `+` is already at home in a filename here, beside `baseline-ss02+ss03.subset.tsv.gz`."""
+    """Return the file for one configuration's audit rows, without the header, or for one row range's rows when `segment` is given. Workers pass their rows to the parent as a file instead of a pickled list because the audit is the largest output of the build and grows with every migrated letter; returning it through the pool would hold all of it in the parent's memory on top of the phase's existing peak."""
     name = f"{config}.part" if segment is None else f"{config}.{segment}.part"
     return Path(scratch_dir) / name
 
 
 def settle_memo_part(scratch_dir: Path, config: str, segment: int) -> Path:
-    """Where one row range of the pooled oracle, cut configuration or not, files the settle memo windows it settled fresh, under the run's pid-named scratch beside its audit segment, so a killed run's parts are swept with everything else it staged and `conform.absorb_settle_memo_parts` finds every range's part in one directory."""
+    """Return the file where one row range of the pooled oracle, whether its configuration is cut or not, writes the settle memo windows it settled. It is under the run's scratch directory, so a killed run's parts are deleted with its other scratch files and `conform.absorb_settle_memo_parts` finds every range's part in one directory."""
     return Path(scratch_dir) / "settle-memo" / f"{config}.{segment}.gz"
 
 
 @contextmanager
 def _staged_oracle_audit(out_dir: Path) -> Iterator[Path]:
-    """Hand out the path this run writes its audit to, and let it become `divergence-audit.tsv` only once the last configuration has been written. A short audit is the failure to design against: it is a fingerprinted artifact its readers parse straight off disk, and a truncated one hashes differently rather than reading as stale, so it comes back as a fresh build with fewer units in it and every gate downstream stays green. Whatever kills an oracle partway — a Ctrl-C, the harness timeout the long builds here collect, a full disk — therefore has to leave the previous complete audit standing rather than a well-formed prefix of this one. The staging copy sits in this run's scratch directory so one sweep takes it and the shards together."""
+    """Yield the staging path for this run's audit, and move it to `divergence-audit.tsv` only when the block exits normally. The audit is a fingerprinted artifact, and a truncated one would read as a new build with fewer units while every downstream gate passes. So an oracle killed partway (Ctrl-C, a timeout, a full disk) must leave the previous complete audit in place. The staging file is in this run's scratch directory, so the same cleanup deletes it with the shards."""
     out = Path(out_dir)
     scratch = oracle_audit_scratch(out)
     scratch.mkdir(parents=True, exist_ok=True)
@@ -623,7 +627,7 @@ def join_oracle_audit(
     expect_rows: int,
     segments: Mapping[str, int] | None = None,
 ) -> None:
-    """Stream the shards into `divergence-audit.tsv` behind the header, in the caller's configuration order — and within a configuration `segments` says was cut into more than one row range, in row order — and promote nothing the workers' own counts do not vouch for. Shard to target is binary, so nothing is decoded on the way through and the parent's high-water is a copy buffer rather than an audit; the bytes are the ones `_compare_config` writes when it writes the file directly — the header line, then each row's line, each closed by a newline. The two refusals are what keep a partial concatenation from reading as a complete audit: every shard is found before a byte is copied, so a missing one is named rather than skipped, and the rows that land are counted against the `divergent_rows` the same workers reported, which is the only cross-check the parent can make between the counts that came home through the pipe and the bytes that came home on disk. The trade for keeping an audit off the heap is a second copy of it on disk while the join runs. Sweeping the scratch directory back off disk is the caller's job rather than this function's, because the failure worth cleaning up after is usually a worker's rather than this concatenation's."""
+    """Concatenate the shards into `divergence-audit.tsv` after the header, in the caller's configuration order and, within a configuration that `segments` says is cut into several ranges, in row order. The copy is binary with a 1 MiB buffer, so the parent never holds the audit in memory, and the bytes match what `_compare_config` writes on the serial path. Two checks keep a partial join from replacing the audit: every shard must exist before any byte is copied (FileNotFoundError names the missing ones), and the number of lines copied must equal `expect_rows`, the workers' own `divergent_rows` total (ValueError otherwise). The join needs disk space for a second copy of the audit while it runs. Deleting the scratch directory is left to the caller, because the failure it cleans up after is usually a worker's."""
     scratch = Path(scratch_dir)
     shards: list[tuple[str, Path]] = []
     for config in configs:
@@ -654,7 +658,7 @@ def join_oracle_audit(
 
 
 def _oracle_audit_owner_is_running(pid: str) -> bool:
-    """Whether the process that named a scratch directory is still around. A pid this process may not signal, or one too large to be one at all, counts as running: the sweep only ever errs toward leaving another run's directory standing, and it must not raise on a name nobody here wrote."""
+    """Return whether the process whose pid names a scratch directory is still running. A name that is not a positive integer counts as not running. A pid this process may not signal, or one too large to be a pid, counts as running, so the cleanup leaves the directory in place instead of raising."""
     if not pid.isdigit() or int(pid) < 1:
         return False
     try:
@@ -667,7 +671,7 @@ def _oracle_audit_owner_is_running(pid: str) -> bool:
 
 
 def discard_oracle_audit_scratch(out_dir: Path) -> None:
-    """Take this run's scratch directory back off disk whether the oracle finished with it or died holding it, and any earlier run's whose process is gone along with it — between them the shards are a whole audit's worth of disk, and the `finally` that would have swept them is exactly what a kill skips. A directory whose pid is still alive belongs to another oracle and is left standing, which is the same reason the name carries a pid at all. Nothing here raises, so a sweep in a `finally` cannot displace the failure it is cleaning up after."""
+    """Delete this run's scratch directory, and any earlier run's whose process has exited, since a killed run skips the `finally` that would have deleted its shards and they can take as much disk as the audit. A directory whose pid is still running belongs to another oracle and is kept. Nothing here raises, so calling it in a `finally` cannot replace the exception being handled."""
     out = Path(out_dir)
     shutil.rmtree(oracle_audit_scratch(out), ignore_errors=True)
     with suppress(OSError):
@@ -696,7 +700,7 @@ def _compare_config(
     stop_row: int | None = None,
     label: str | None = None,
 ) -> OracleConfigResult:
-    """One configuration's rows compared, classified, audited and position-checked — the rows `[first_row, stop_row)` of its table, which is the whole table by default. `guard_verdicts` is the crate's formation surface the walk forms under, and `None` only for the overlay configuration, whose walk forms nothing; `shaper` is likewise the overlay's synthetic shaper there, and a real one everywhere else. `label` is what the `[t]` lines name, the configuration unless a range of a cut configuration says otherwise."""
+    """Compare, classify, audit, and position-check rows `[first_row, stop_row)` of one configuration's table (the whole table by default). `guard_verdicts` is the crate's formation guard the walk forms under, and is None only for the overlay configuration, whose walk forms nothing. `shaper` is the overlay's synthetic shaper under the overlay, HarfBuzz otherwise, and None when there is no font. `label` names the `[t]` lines and defaults to the configuration."""
     result = OracleConfigResult(config=config, pass_ordinal=None if writer is None else writer.pass_ordinal)
     label = config if label is None else label
     start_row = first_row
@@ -704,7 +708,7 @@ def _compare_config(
     if not table_path.exists():
         result.notes.append(f"{config}: subset table missing at {table_path}")
         return result
-    # The oracle's rows are the same texts the belt sweeps, so they settle through the window memo the belt's walk shares by file (`settle_memo`) rather than from scratch a row at a time: a chunk of rows walks in waves, and each row is compared against the settled stream that walk already handed back rather than being walked a second time. Names go unread here — the row's own cells are what `_compare_row` reads — so the walk gets no glyph inventory; its keys are the same either way. The overlay configuration's walk is the registry's answer and settles nothing.
+    # The oracle's rows are texts the belt also sweeps, so they settle through the belt's shared settle memo file (`settle_memo`). The rows of each chunk that need walking are settled in one `walk_many` call, and each row is compared with the stream that call returned. `_compare_row` reads cells, not glyph names, so the walk gets an empty `glyph_names`; its memo keys are the same either way. The overlay configuration's walk reads the registry and settles nothing.
     walker: _SettledWindowWalk | IsolatedOverlayWalk
     if isolated_overlay_active(spec, features):
         walker = IsolatedOverlayWalk(spec)
@@ -713,7 +717,7 @@ def _compare_config(
         walker = _SettledWindowWalk(spec, features, {}, guard_verdicts, memo=settle_memo)
     config_started = time.perf_counter()
     rows = iter_rows(table_path, first_row, stop_row)
-    # Only the stale rows are walked; a served row's pre-position verdict comes back off the store and enters `_match_compiled` in the same state a fresh one does, and the chunk is re-read in table order afterward so the audit's bytes cannot depend on the partition. The verification samples ride on serving rather than on writing, because a pass that may read the store and not write one (`--gates-only`) is exactly a pass whose verdicts all came out of it. The position verdict is served by the same record under its own key, and only where this pass's ledger still sends the row through the channel; a row the ledger excludes carries its stored verdict forward unread, so a later ledger edit that admits it again finds it.
+    # Only stale rows are walked. A served row's verdict comes from the store in the same form as a fresh one before `_match_compiled` sees it, and the second loop visits the chunk in table order, so the audit bytes do not depend on which rows were served. Verification samples are drawn from served rows, not from written ones, because a read-only pass (`--gates-only`) serves verdicts without writing any. A served position verdict is used only when this pass's ledger sends the row through the position channel. For a row the ledger excludes, the stored position verdict is written forward unchanged, so a later ledger edit that includes the row again can use it.
     sample = (
         oracle_cache.VerificationSample(store.environment.value, store.coverage_ordinal)
         if store is not None
@@ -743,7 +747,7 @@ def _compare_config(
                 continue
             reachable = store.mask.families_of(mask)
             if oracle_cache.unreachable_glyph_heads(row.glyphs, reachable):
-                # The row consulted alias entries belonging to a family no key it cites covers, so no key on this store could report them moved. Nothing in the live subset does this; a row that starts to is walked rather than served.
+                # The row uses alias entries of a family none of its keys cover, so no key on this store could report them changed. Nothing in the live subset does this; a row that does is walked instead of served.
                 fresh_at.append(offset)
                 continue
             record = store.serve(index, row.codepoints)
@@ -810,7 +814,7 @@ def _compare_config(
                                 phenomena=divergent.phenomena + phenomena + ("position-drift",),
                             )
                         rematch = _match_compiled(ledger, divergent)
-                        # A kern-attributable position residue is out of scope (the kern channel), so it never demotes a cell-grain row that already matched a single ink-identical class — that row's ink-identity claim survives the kern bookkeeping. A non-kern-attributable drift is a genuine ink shift and is allowed to override the prior match (so the position channel can chase it to ground).
+                        # Kern-attributable drift is out of scope, so when nothing matches after it is added, a row that already matched a single ink-identical class keeps that match. In every other case, including drift that is not kern-attributable (a real ink shift), the match list computed with the drift replaces the old one.
                         if not rematch and kern_attributable and prior_ink_match is not None:
                             matches = [prior_ink_match]
                         else:
@@ -882,7 +886,7 @@ def oracle_config_worker(
     guard_verdicts: settle.FormationGuard | None = None,
     shard: OracleShard | None = None,
 ) -> OracleConfigResult:
-    """One config's oracle compare in its own process — or one row range's of it, when `shard` names the range — its audit rows written to that range's segment under `audit_dir` so only counts ride the result home. The section 5.7 verdict surface is swept here when the caller has none to pass down, exactly as the belt's worker sweeps its own — except by the overlay configuration's worker, which forms nothing and shapes through `IsolatedOverlayShaper` instead of HarfBuzz; a caller fanning out several ranges hands the sweep it made once down every submission instead. The row cache is opened here rather than handed in already open for the same reason the segment is: a spawned worker inherits no file handles, and opening it on this side of the pipe is what keeps this path and the serial one byte-equal. `settle_memo` is the belt's shared settle memo file for this configuration, read and written on this side of the pipe for the same reason; a range of the pooled oracle carries one whose `write_path` is its own part, which the parent absorbs into the shared file once every range has landed and the witness stage has returned."""
+    """Run `_compare_config` for one configuration, or one row range when `shard` is given, in a pool worker. Audit rows go to the range's segment under `audit_dir`, so the result carries only counts. When the caller passes no `guard_verdicts`, the worker runs the section 5.7 guard sweep itself, as the belt's worker does; the overlay configuration's worker forms nothing and skips it. A caller that fans out several ranges runs the sweep once and passes it to every range. The worker opens the row cache itself, through the same `open_row_cache` call the serial path makes, and reads and writes `settle_memo` itself, because a spawned worker inherits no open files. For a range of the pooled oracle, `settle_memo.write_path` is the range's own part, which the parent absorbs into the shared file after every range has finished and the witness stage has returned."""
     shard = OracleShard(config) if shard is None else shard
     aliases = load_alias_map(alias_path)
     entries = yaml.safe_load(Path(ledger_path).read_text()) or []
@@ -925,7 +929,7 @@ def oracle_config_worker(
 
 
 def merge_config_shards(results: Sequence[OracleConfigResult]) -> OracleConfigResult:
-    """One configuration's result folded back out of its row ranges' results, handed in row order: the counts sum, `counts_by_entry` sums per entry, `unmatched_exemplars` concatenates and then truncates to `ORACLE_UNMATCHED_EXEMPLARS` — which is the uncut result's first that many in table order exactly, since a range's own list is complete for its rows whenever it is shorter than the cap — and `notes` concatenate with repeats dropped, since a table missing from the directory would otherwise be noted once per range. The ranges of one configuration wrote their store segments under one ordinal, having read the same store's header; a disagreement there is a fault in the fan-out and refused rather than folded. `peak_rss_bytes` is the widest range's."""
+    """Combine one configuration's row-range results, given in row order, into one result. Counts and `counts_by_entry` are summed. `unmatched_exemplars` are concatenated and cut to `ORACLE_UNMATCHED_EXEMPLARS`, which gives the same rows an uncut run keeps, because a range's list holds all of its unmatched rows whenever it is shorter than the cap. `notes` are concatenated without repeats, since a missing table is noted once per range. All ranges must report the same `pass_ordinal`, because they read the same store header; a mismatch is a fan-out bug and raises ValueError. `peak_rss_bytes` is the largest range's."""
     if not results:
         raise ValueError("merge_config_shards folds at least one range")
     configs = {result.config for result in results}

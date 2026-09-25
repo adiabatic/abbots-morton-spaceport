@@ -1,8 +1,8 @@
 """Per-cell bitmap and anchor realization (M1-PLAN section 5, Group 3).
 
-`realize` turns a CellPlan plus generated adjustments into a GlyphRecord, in the design section 3.2 resolution order: the plan's resolved binding (explicit `cells:` row > side bindings > base bitmap, chosen by surface.resolve_cell) supplies the starting drawing; stub arithmetic applies per side liveness; then the adjustments grammar (model.py) applies extend/contract/trim connector arithmetic and `bind:` substitutions; then anchors land per the standing conventions (`entry.x = min_ink_x_at_entry_y`, `exit.x = max_ink_x_at_exit_y + 1`), with per-cell overrides honored. A row's `x_off_convention` flag exempts its own side of E-ANCHOR and no other. A `trim` adjustment exempts the side it trims, because the anchor deliberately stays where the pre-trim ink put it.
+`realize` turns a CellPlan and its adjustments into a GlyphRecord in the design section 3.2 order. The starting drawing is the plan's bitmap binding, which `surface.resolve_cell` takes from an explicit `cells:` row first, then from a side binding, and otherwise leaves as the base bitmap. Stubs are then inked or blanked on each live side. The anchors start at the plan's override x or the stance's declared row x. The adjustment tokens (grammar in `model.parse_adjustment`) then apply in order: `ext` and `con` add or remove connector ink and shift the anchors to match, `trim` removes ink and leaves the anchor where it was, `bind` swaps in another bitmap and re-places both anchors by convention (`entry.x = min_ink_x_at_entry_y`, `exit.x = max_ink_x_at_exit_y + 1`), and `locked` drops the entry anchor. A row's `x_off_convention` flag exempts its own side of E-ANCHOR and no other. A `trim` adjustment exempts the side it trims, because its anchor stays where the pre-trim ink put it.
 
-`seam_gap` is the section 9 gap arithmetic over two realized records; `verify_withdrawal_safe` discharges `withdrawal: safe` claims (no reaching connector ink at the declined row: the terminal ink pixel at the row must continue vertically into an adjacent row, or the row must be empty).
+`seam_gap` is the design section 9 gap arithmetic over two realized records. `verify_withdrawal_safe` checks a `withdrawal: safe` claim.
 """
 
 from __future__ import annotations
@@ -24,8 +24,7 @@ PIXEL = 50
 INK_X_OFFSET = 1
 MAX_GLYPH_NAME_BYTES = 63
 
-# The closed height table (design section 2); registry-validated by spec_load, mirrored here so the
-# plan-frozen seam_gap/verify_withdrawal_safe signatures can take height names without a registry handle.
+# A copy of the height table in rebuild/script.yaml (design section 2), so seam_gap and verify_withdrawal_safe can take height names without a registry.
 HEIGHT_Y = {"baseline": 0, "x-height": 5, "y6": 6, "top": 8}
 
 
@@ -75,20 +74,20 @@ def ink_span(bitmap_rows: tuple[str, ...], y_offset: int, y: int) -> tuple[int, 
 
 
 def _base_live_exit(stance) -> Height | None:
-    """The exit height whose connector ink is part of the stance's base drawing — signaled by a withdrawal binding to a different form. None when the base drawing is already the withdrawn form everywhere (withdrawal: safe or undeclared)."""
+    """The exit height whose connector ink is part of the stance's base drawing, which a withdrawal binding to another bitmap marks. None when no exit, or more than one, declares such a binding."""
     live = [height for height, row in stance.surface.exits.items() if row.withdrawal not in (None, "safe")]
     return live[0] if len(live) == 1 else None
 
 
 def isolated_cell(spec: ResolvedSpec, rune_name: str) -> CellId:
-    """The cell the raw cmap glyph renders: the default stance with no entry, keeping exactly the exit the isolated drawing's own ink carries."""
+    """The cell the raw cmap glyph renders: the default stance with no entry, and with the exit whose ink the base drawing carries."""
     rune = spec.runes[rune_name]
     default = rune.default_stance
     return CellId(rune_name, default, None, _base_live_exit(rune.stances[default]), ())
 
 
 def display_name(spec: ResolvedSpec, cell: CellId) -> str:
-    """The generated display name for a cell: the bare rune name for the isolated cell (the raw cmap glyph), otherwise rune, non-default stance, anchor heights as y values, a `ex-wd` marker when the exit is withdrawn relative to the stance's base drawing, and the adjustments. Capped at 63 bytes with hash overflow; never parsed back by anything."""
+    """The compiled glyph name for a cell. The isolated cell (the raw cmap glyph) gets the bare rune name. Any other cell joins the rune, a non-default stance, the anchor heights as y values, an `ex-wd` marker when the cell has no exit but the base drawing does, and the adjustments. A name over 63 bytes is cut and ends in a hash of the full name."""
     rune = spec.runes[cell.rune]
     if cell == isolated_cell(spec, cell.rune):
         return cell.rune
@@ -294,7 +293,7 @@ def realize(
 
 
 def seam_gap(left: GlyphRecord, right: GlyphRecord, height: Height | int) -> int:
-    """The section 9 arithmetic: with the two anchors aligned by curs, the count of blank pixels between the left glyph's last ink and the right glyph's first ink at the seam row. A left exit row carrying `ink_y` is read at that row instead, since its anchor stands off the stroke's own row (·They's hook reaches the baseline anchor from y=-1). 0 = the join physically realizes; negative = overlap."""
+    """The number of blank pixels between the left glyph's last ink and the right glyph's first ink at the seam row, with the two anchors aligned. 0 means the join closes and a negative count means overlap. When the left record has an `exit_ink_y`, its ink is read at that row, because its anchor sits off the stroke's own row (·They's hook reaches the baseline anchor from y=-1)."""
     y = _height_y(height)
     if left.exit is None or right.entry is None:
         raise GeometryError("seam_gap needs a live exit on the left and a live entry on the right")
@@ -307,7 +306,7 @@ def seam_gap(left: GlyphRecord, right: GlyphRecord, height: Height | int) -> int
 
 
 def verify_withdrawal_safe(record: GlyphRecord, side: str, height: Height | int) -> bool:
-    """True when the declined side's row has no reaching connector ink: the row is empty, or its terminal ink pixel (rightmost for an exit, leftmost for an entry) continues vertically into an adjacent row — i.e. it belongs to a stroke, not a connector."""
+    """True when the declined side's row has no connector ink reaching toward the missing neighbor. That holds when the row is empty, or when its outermost ink pixel (rightmost for an exit, leftmost for an entry) has ink directly above or below it, which makes it part of a stroke."""
     y = _height_y(height)
     span = ink_span(record.bitmap, record.y_offset, y)
     if span is None:
@@ -324,7 +323,7 @@ def verify_withdrawal_safe(record: GlyphRecord, side: str, height: Height | int)
 
 
 def ink_cells(record: GlyphRecord, x_origin: int = 0) -> frozenset[tuple[int, int]]:
-    """All (x, y) ink pixels in glyph space, shifted by x_origin — the overlay primitive for the off-anchor contact gate."""
+    """All (x, y) ink pixels in glyph space, shifted right by x_origin. The E-CONTACT gate overlays two glyphs with it."""
     cells: set[tuple[int, int]] = set()
     for row_index, row in enumerate(record.bitmap):
         y = record.y_offset + (len(record.bitmap) - 1 - row_index)
