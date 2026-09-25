@@ -2553,17 +2553,11 @@ impl<'i> Engine<'i> {
         tokens
     }
 
-    /// The window join count: the seam behind us, the seam we offer, and what the seam past us is worth.
-    fn score(
-        &mut self,
-        rune_name: Sym,
-        candidate: Candidate,
-        committed: Option<Sym>,
-        slots: Slots,
-    ) -> Result<i64, SettleError> {
+    /// The window join count: the seam behind us, the seam we offer, and what the seam past us is worth, which the caller asks [`Engine::prospect`] for once and passes in.
+    fn score(candidate: Candidate, committed: Option<Sym>, prospect: i64) -> i64 {
         let left_term = i64::from(committed.is_some());
         let own_term = i64::from(candidate.seam.is_some());
-        Ok(left_term + own_term + self.prospect(rune_name, candidate, slots)?)
+        left_term + own_term + prospect
     }
 
     /// Turn the winning candidate into the cell it settles as: the ZWNJ lock first, then each live side's extend and contract, then the exit side's extension in pixels, then, for a declined join mid-word, the withdrawal bindings.
@@ -2886,8 +2880,8 @@ impl<'i> Engine<'i> {
         let mut ranked_order: Vec<Candidate> = Vec::new();
         let mut ranked: HashMap<Candidate, RankedCandidate> = HashMap::default();
         for candidate in &survivors {
-            let join_count = self.score(rune_name, *candidate, committed, slots)?;
             let prospect = self.prospect(rune_name, *candidate, slots)?;
+            let join_count = Self::score(*candidate, committed, prospect);
             let scored = RankedCandidate {
                 candidate: *candidate,
                 join_count,
@@ -6840,6 +6834,48 @@ mod tests {
             !estimating.prospect_cache.is_empty(),
             "the estimate runs no cascade, so no trace memo could answer its next ask"
         );
+    }
+
+    /// The ranking asks each surviving candidate's prospect once: a base that holds every follower window but not the ranked window itself supplies one window per ranked candidate.
+    #[test]
+    fn the_ranking_asks_each_candidates_prospect_once() {
+        let modes = EngineModes {
+            trace_memo: true,
+            ..EngineModes::default()
+        };
+        let edge = LeftContext::boundary(TokenKind::Edge);
+        let index = prospect_spec();
+        let token = letter_token(&index, "qsPea");
+        let slots = Slots::new(
+            letter_token(&index, "qsTea"),
+            letter_token(&index, "qsMay"),
+            letter_token(&index, "qsIt"),
+            EDGE,
+        );
+        let mut source = Engine::with_modes(&index, no_features(), modes);
+        source
+            .transition_trace(&edge, token, slots)
+            .expect("the fixture settles");
+        let ranked_key = Engine::trace_key(&edge, token.letter_ordinal(), slots);
+        let mut memo = source.take_memo().expect("the source journals");
+        memo.entries = memo
+            .entries
+            .iter()
+            .filter(|(key, _)| **key != ranked_key)
+            .map(|(key, entry)| (*key, *entry))
+            .collect::<HashMap<_, _>>()
+            .into();
+        let mut engine = Engine::with_modes(&index, no_features(), modes);
+        engine.seed_bases(vec![MemoBase {
+            memo: std::sync::Arc::new(memo),
+            excluded: crate::memo::Exclusion::none(),
+        }]);
+        let trace = engine
+            .transition_trace(&edge, token, slots)
+            .expect("the fixture settles");
+        let ranked = trace.ladder().ranked.len();
+        assert!(ranked > 1, "the fixture ranks several candidates");
+        assert_eq!(engine.base_hits(), ranked as u64);
     }
 
     #[test]
