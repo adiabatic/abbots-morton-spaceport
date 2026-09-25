@@ -1,9 +1,12 @@
 from functools import cache
+import io
 from pathlib import Path
 import re
 import sys
 import warnings
 from typing import Any
+
+from fontTools.feaLib.parser import Parser as FeaParser
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "tools"))
@@ -1109,6 +1112,89 @@ def test_senior_feature_emitter_uses_join_glyphs_and_noentry_links():
     assert "feature curs {" in fea
     assert "pos cursive qsLead <anchor 0 0> <anchor 50 0>;" in fea
     assert "pos cursive qsLead.noentry <anchor NULL> <anchor 50 0>;" in fea
+
+
+def _parse_senior_fea(join_glyphs: dict[str, JoinGlyph]) -> str:
+    fea = emit_quikscript_senior_features(join_glyphs, 50, 50)
+    assert fea is not None
+    FeaParser(io.StringIO(fea), glyphNames=set(join_glyphs)).parse()
+    return fea
+
+
+def test_pair_override_whose_followers_all_leak_emits_no_lookup():
+    join_glyphs, _ = compile_quikscript_ir(
+        {
+            "metadata": {},
+            "glyphs": {},
+            "glyph_families": {
+                "qsHead": {"prop": {"bitmap": ["#"], "anchors": {"exit": [1, 0]}}},
+                "qsLead": {
+                    "prop": {"bitmap": ["#"], "anchors": {"exit": [1, 0]}},
+                    "stances": {
+                        "entry_baseline": {
+                            "anchors": {"entry": [0, 0], "exit": [1, 0]},
+                            "select": {"after": [{"family": "qsHead"}]},
+                            "modifiers": ["en-y0"],
+                        },
+                    },
+                },
+                "qsMid": {
+                    "prop": {"bitmap": ["#"], "anchors": {"entry": [0, 5]}},
+                    "stances": {
+                        "after_lead": {
+                            "anchors": {"entry": [0, 0], "exit": [1, 5]},
+                            "select": {"after": [{"family": "qsLead"}], "before": [{"family": "qsTail"}]},
+                            "modifiers": ["after-lead"],
+                        },
+                    },
+                },
+                "qsTail": {"prop": {"bitmap": ["#"], "anchors": {"entry": [0, 0]}}},
+                "qsOther": {
+                    "prop": {"bitmap": ["#"], "anchors": {"entry": [0, 0]}},
+                    "stances": {"entry_xheight": {"anchors": {"entry": [0, 5]}, "traits": ["alt"]}},
+                },
+            },
+            "context_sets": {},
+            "kerning": {},
+        },
+        "senior",
+    )
+
+    fea = _parse_senior_fea(join_glyphs)
+
+    assert "lookup calt_pair_qsMid_en-y0_ex-y5_after-lead {" not in fea
+    assert "lookup calt_post_context_pair_qsMid_en_y0_ex_y5_after_lead {" not in fea
+
+
+def test_explicit_reverse_upgrade_whose_after_context_expands_to_nothing_emits_no_lookup():
+    join_glyphs, _ = compile_quikscript_ir(
+        {
+            "metadata": {},
+            "glyphs": {},
+            "glyph_families": {
+                "qsHead": {"prop": {"bitmap": ["#"], "anchors": {"exit": [1, 0]}}},
+                "qsSrc": {
+                    "prop": {"bitmap": ["#"], "anchors": {"entry": [0, 0]}},
+                    "stances": {
+                        "exit_xheight": {"anchors": {"exit": [1, 5]}, "modifiers": ["ex-y5"]},
+                        "after_head": {
+                            "anchors": {"entry": [0, 5], "exit": [1, 5]},
+                            "select": {"after": [{"family": "qsHead"}]},
+                            "derive": {"reverse_upgrade_from": [{"family": "qsSrc", "modifiers": ["ex-y5"]}]},
+                            "modifiers": ["after-head"],
+                        },
+                    },
+                },
+            },
+            "context_sets": {},
+            "kerning": {},
+        },
+        "senior",
+    )
+
+    fea = _parse_senior_fea(join_glyphs)
+
+    assert "calt_reverse_upgrade_explicit_qsSrc_en-y5_ex-y5_after-head" not in fea
 
 
 def test_contextual_noentry_substitutions_stay_entryless():
