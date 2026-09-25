@@ -179,8 +179,8 @@ def _analyze_quikscript_joins(join_glyphs: dict[str, JoinGlyph]) -> _JoinAnalysi
             continue
         if meta.is_noentry:
             continue
-        if "ex-noentry" in meta.modifiers:
-            # `ex-noentry` stances are chosen by the post-liga cleanup, which moves the predecessor of a `noentry_after` ligature onto one, and by forward-pair rules. In `bk_replacements` or `fwd_upgrades` they would displace the regular entry-only stances from pre-liga selection.
+        if "ex-noentry" in meta.modifiers and not (meta.after and meta.generated_from is None):
+            # `ex-noentry` stances are chosen by the post-liga cleanup, which moves the predecessor of a `noentry_after` ligature onto one, and by forward-pair rules; in `bk_replacements` or `fwd_upgrades` they would displace the regular entry-only stances from pre-liga selection. `after:` admits an authored backward override (`qsPea.en-y0.ex-noentry` after ·Et and ·Awe), which the `calt_after` branch below files under `pair_overrides`. `generated_from is None` skips derived stances that carry an `after:`, such as `qsIt.en-y0.ex-noentry.en-ext-1` after ·Key, which would otherwise become a new backward override.
             continue
         if not meta.is_entry_variant:
             if not meta.entry and not meta.after:
@@ -4046,8 +4046,11 @@ def _emit_quikscript_calt(analysis: _JoinAnalysis) -> str | None:
         return guards
 
     def _pending_override_can_precede(pending_variant: str, right_base_name: str) -> bool:
-        """Return whether the pair override `pending_variant` can fire before `right_base_name`: its `before` is empty or names that family. An override that can't fire there can't displace the candidate, so it adds no guard."""
-        before = _meta(pending_variant).before
+        """Return whether the pair override `pending_variant` can fire before `right_base_name`: its `not_before` doesn't name that family, and its `before` is empty or names it. An override that can't fire there can't displace the candidate, so it adds no guard."""
+        pending_meta = _meta(pending_variant)
+        if right_base_name in pending_meta.not_before:
+            return False
+        before = pending_meta.before
         if not before:
             return True
         return any(_base_name(glyph) == right_base_name for glyph in before)

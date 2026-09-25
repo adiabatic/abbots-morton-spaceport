@@ -8,6 +8,7 @@ periodcentered: boundary
 periodcentered.lowered: boundary
 
 qsPea: {rune: qsPea, stance: full}
+qsPea.en-y0.ex-noentry: {rune: qsPea, stance: full, entry: baseline}
 qsPea.en-y5.ex-y0: {rune: qsPea, stance: full, entry: x-height, exit: baseline}
 qsPea.en-y6: {rune: qsPea, stance: full, entry: y6}
 qsPea.en-y6.ex-y0: {rune: qsPea, stance: full, entry: y6, exit: baseline}
