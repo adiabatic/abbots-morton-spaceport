@@ -1,11 +1,14 @@
 from functools import cache
+import inspect
 import io
 from pathlib import Path
 import re
 import sys
+from types import ModuleType
 import warnings
 from typing import Any
 
+import pytest
 from fontTools.feaLib.parser import Parser as FeaParser
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -73,9 +76,9 @@ def _real_senior_compiled():
 _SENIOR_FEA_PATH = ROOT / "site" / "AbbotsMortonSpaceportSansSenior-Regular.fea"
 
 
-@cache
-def _real_senior_fea() -> str:
-    """Return the Senior feature file the last build wrote, with every hoisted class written back inline so an assertion can read a rule's neighbor lists on the rule's own line. Under xdist the root conftest builds the fonts before any test runs, so this is the current emitter output. A `-n 0` run does not build first and reads whatever the last build wrote. Reading the file keeps the emitter's peak memory out of the worker that runs these tests."""
+@pytest.fixture(scope="session")
+def real_senior_fea(built_fonts: None) -> str:
+    """Return the Senior feature file the build writes, with every hoisted class written back inline so an assertion can read a rule's neighbor lists on the rule's own line. The `built_fonts` fixture makes sure `make all` has run in this session before the file is read, so this is the current emitter output with or without xdist. Reading the file keeps the emitter's peak memory out of the worker that runs these tests."""
     return expand_hoisted_classes(_SENIOR_FEA_PATH.read_text())
 
 
@@ -847,15 +850,32 @@ def test_hoist_repeated_classes_names_repeated_bodies_after_the_emitter_definiti
     assert expand_hoisted_classes(hoisted) == fea
 
 
-def test_the_built_senior_fea_round_trips_through_the_class_hoist():
+def test_the_font_build_for_a_file_reader_runs_once_and_loads_no_fonts(
+    pytestconfig: pytest.Config, monkeypatch: pytest.MonkeyPatch
+):
+    root_conftest = pytestconfig.pluginmanager.get_plugin(str(ROOT / "conftest.py"))
+    assert isinstance(root_conftest, ModuleType), "pytest has not loaded the root conftest as a plugin"
+    commands: list[list[str]] = []
+    monkeypatch.setattr(root_conftest, "_shaping_cache", {})
+    monkeypatch.setattr(root_conftest.subprocess, "run", lambda args, **kwargs: commands.append(args))
+
+    root_conftest._ensure_fonts_built()
+    root_conftest._ensure_fonts_built()
+
+    assert commands == [["make", "all"]]
+    assert root_conftest._shaping_cache == {"_built": True}
+    assert "built_fonts" in inspect.signature(real_senior_fea).parameters
+
+
+def test_the_built_senior_fea_round_trips_through_the_class_hoist(real_senior_fea: str):
     built = _SENIOR_FEA_PATH.read_text()
 
     assert "    @ams0001 = [" in built
-    assert hoist_repeated_classes(_real_senior_fea()) == built
+    assert hoist_repeated_classes(real_senior_fea) == built
 
 
-def test_senior_feature_emitter_includes_join_and_gate_features():
-    fea = _real_senior_fea()
+def test_senior_feature_emitter_includes_join_and_gate_features(real_senior_fea: str):
+    fea = real_senior_fea
 
     assert "feature curs {" in fea
     assert "feature calt {" in fea
@@ -917,9 +937,9 @@ def test_format_post_liga_cleanup_rules_groups_ligature_contexts():
     ]
 
 
-def test_senior_feature_emitter_excludes_not_after_families_from_pair_after_class():
+def test_senior_feature_emitter_excludes_not_after_families_from_pair_after_class(real_senior_fea: str):
     join_glyphs = _real_senior_join_glyphs()
-    fea = _real_senior_fea()
+    fea = real_senior_fea
 
     start = fea.index("lookup calt_pair_qsThaw_after-tall {")
     end = fea.index("} calt_pair_qsThaw_after-tall;", start)
@@ -941,8 +961,8 @@ def test_senior_feature_emitter_excludes_not_after_families_from_pair_after_clas
     )
 
 
-def test_senior_feature_emitter_requires_concrete_exit_reachability_for_after_class():
-    fea = _real_senior_fea()
+def test_senior_feature_emitter_requires_concrete_exit_reachability_for_after_class(real_senior_fea: str):
+    fea = real_senior_fea
 
     start = fea.index("lookup calt_pair_qsPea_en-y5_ex-y0 {")
     end = fea.index("} calt_pair_qsPea_en-y5_ex-y0;", start)
@@ -975,8 +995,8 @@ def test_senior_feature_emitter_requires_concrete_exit_reachability_for_after_cl
     )
 
 
-def test_senior_feature_emitter_uses_upgrade_for_terminal_qs_owe_pair_exit():
-    fea = _real_senior_fea()
+def test_senior_feature_emitter_uses_upgrade_for_terminal_qs_owe_pair_exit(real_senior_fea: str):
+    fea = real_senior_fea
 
     pair_lookup = "lookup calt_pair_qsOwe_en-y5_en-ext-1 {"
     upgrade_lookup = "lookup calt_upgrade_qsOwe_en-y5_ex-y5_en-ext-1 {"
@@ -987,14 +1007,14 @@ def test_senior_feature_emitter_uses_upgrade_for_terminal_qs_owe_pair_exit():
     assert fea.index(pair_lookup) < fea.index(upgrade_lookup)
 
 
-def test_senior_feature_emitter_keeps_thaw_exit_baseline_before_ing_entry_extended():
-    fea = _real_senior_fea()
+def test_senior_feature_emitter_keeps_thaw_exit_baseline_before_ing_entry_extended(real_senior_fea: str):
+    fea = real_senior_fea
 
     assert fea.index("lookup calt_fwd_pair_qsThaw_ex-y0 {") < fea.index("lookup calt_pair_qsIng_en-ext-1 {")
 
 
-def test_fwd_pair_skips_entry_variant_with_unreachable_exit():
-    fea = _real_senior_fea()
+def test_fwd_pair_skips_entry_variant_with_unreachable_exit(real_senior_fea: str):
+    fea = real_senior_fea
 
     assert "sub qsIt.en-y5.ex-y0' [qsCheer" not in fea
     assert "sub qsIt.en-y5.ex-y0.en-ext-1' [qsCheer" not in fea
@@ -1197,9 +1217,9 @@ def test_explicit_reverse_upgrade_whose_after_context_expands_to_nothing_emits_n
     assert "calt_reverse_upgrade_explicit_qsSrc_en-y5_ex-y5_after-head" not in fea
 
 
-def test_contextual_noentry_substitutions_stay_entryless():
+def test_contextual_noentry_substitutions_stay_entryless(real_senior_fea: str):
     compiled = _real_senior_compiled()
-    fea = _real_senior_fea()
+    fea = real_senior_fea
 
     contextual_sub = re.compile(r"sub ([A-Za-z0-9_.-]+)' .* by ([A-Za-z0-9_.-]+);")
     for line in fea.splitlines():
