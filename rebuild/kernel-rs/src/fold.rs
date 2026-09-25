@@ -8,6 +8,7 @@
 //!
 //! The replay that checks the outcome partition also records, for each rule, up to [`crate::certificate::ROW_CAP`] of the replayed rows that first-match it, preferring the rows with the shortest producer chains. [`crate::certificate`] closes the chain of one of those rows into a string the rule first-matches at the row's own position. These certificates, one per rule, are written into the windows head beside the rules, and the witness stage settles each one to show that every rule is reachable.
 
+use std::ops::Range;
 use std::rc::Rc;
 use std::time::{Duration, Instant};
 
@@ -441,16 +442,23 @@ fn near_slots(row: &TransitionRow) -> [Label; 4] {
 
 /// Compares every row's optimistic prospect with the follower's actual settled choice and flags divergent rows joint (design section 6.1 step 4.2).
 ///
-/// The successor index is keyed on the follower's (left, input, right1), which is the row's own (outcome, right1, right2), so the scan skips every window those three slots rule out. The pass reads only the seam each successor settled (through the product's `seats` table), never a successor's joint flag, so the result does not depend on row order and the flags are applied together at the end.
+/// A row's followers are the rows whose (left, input, right1) is the row's own (outcome, right1, right2). When the row carries a right3, only the followers whose right2 is that label count, and when it carries a right4, only those whose right3 is that label. The expansion is in key order, so the rows sharing an (input, left, right1) are one contiguous run, sorted by right2. The index maps each run to its range of the expansion. A row that carries a right3 narrows the range to that label's rows by binary search, and a row whose right3 is `#NA` walks the whole range. Either way, a carried right4 is checked against each follower's right3. The pass reads only the seam each follower settled (through the product's `seats` table), never a follower's joint flag, so the order the rows are visited in does not change the result, and the flags are applied together at the end.
 fn flag_prospect_joints(product: &FixpointProduct, fold: &mut [FoldRow]) {
     let class = &product.transitions;
-    let mut successors: HashMap<(Label, Label, Label), Vec<u32>> = HashMap::default();
-    for (seat, row) in fold.iter().enumerate() {
-        let base = &class[row.seat as usize];
-        successors
-            .entry((base.left, base.input_glyph, base.right1))
-            .or_default()
-            .push(seat as u32);
+    let prefix_of = |row: &FoldRow| {
+        let [input, left, right1, _] = near_slots(&class[row.seat as usize]);
+        [left, input, right1]
+    };
+    let mut prefixes: HashMap<[Label; 3], Range<usize>> = HashMap::default();
+    let mut start = 0;
+    while start < fold.len() {
+        let prefix = prefix_of(&fold[start]);
+        let mut end = start + 1;
+        while end < fold.len() && prefix_of(&fold[end]) == prefix {
+            end += 1;
+        }
+        prefixes.insert(prefix, start..end);
+        start = end;
     }
     let mut flagged: Vec<u32> = Vec::new();
     for (seat, row) in fold.iter().enumerate() {
@@ -463,26 +471,27 @@ fn flag_prospect_joints(product: &FixpointProduct, fold: &mut [FoldRow]) {
         {
             continue;
         }
-        let Some(candidates) = successors.get(&(
-            product.outcomes[base.settled.index()],
-            base.right1,
-            base.right2,
-        )) else {
+        let outcome = product.outcomes[base.settled.index()];
+        let Some(prefix) = prefixes.get(&[outcome, base.right1, base.right2]) else {
             continue;
         };
-        for &candidate in candidates {
-            let successor = &fold[candidate as usize];
-            let followed = &class[successor.seat as usize];
-            if &*row.right3 != NA_LABEL && *product.labels.text(followed.right2) != row.right3 {
-                continue;
+        let mut followers = &fold[prefix.clone()];
+        if &*row.right3 != NA_LABEL {
+            let right2 =
+                |follower: &FoldRow| &**product.labels.text(class[follower.seat as usize].right2);
+            let start = followers.partition_point(|follower| right2(follower) < &*row.right3);
+            let end = followers.partition_point(|follower| right2(follower) <= &*row.right3);
+            followers = &followers[start..end];
+        }
+        let diverges = followers.iter().any(|follower| {
+            if &*row.right4 != NA_LABEL && follower.right3 != row.right4 {
+                return false;
             }
-            if &*row.right4 != NA_LABEL && successor.right3 != row.right4 {
-                continue;
-            }
-            if i8::from(product.seats[followed.settled.index()].seam.is_some()) != base.prospect {
-                flagged.push(seat as u32);
-                break;
-            }
+            let followed = &class[follower.seat as usize];
+            i8::from(product.seats[followed.settled.index()].seam.is_some()) != base.prospect
+        });
+        if diverges {
+            flagged.push(seat as u32);
         }
     }
     for seat in flagged {
@@ -1565,6 +1574,61 @@ mod tests {
         );
         let folded = fold_product(&bench.index, product).expect("the hand-built product folds");
         assert!(folded.decision.transitions.iter().all(|row| !row.joint));
+    }
+
+    /// A row that carries a right3 compares its prospect only with the followers whose right2 is that label, and a row whose right3 is `#NA` compares it with every follower.
+    #[test]
+    fn a_prospect_meets_only_the_followers_its_right3_admits() {
+        let bench = Bench::new();
+        let leader = |right3: &'static str| {
+            bench.row(
+                ["qsIt", "#EDGE", "qsMay", "C", right3, "#NA", "qsIt.x"],
+                1,
+                true,
+            )
+        };
+        let product = bench.product(
+            vec![
+                leader("#NA"),
+                leader("D"),
+                leader("E"),
+                bench.row(
+                    ["qsMay", "qsIt.x", "C", "D", "#NA", "#NA", "qsMay.y"],
+                    0,
+                    true,
+                ),
+                bench.row(
+                    ["qsMay", "qsIt.x", "C", "E", "#NA", "#NA", "qsMay.y"],
+                    0,
+                    false,
+                ),
+            ],
+            Vec::new(),
+        );
+        let mut rows = expand(&product);
+        flag_prospect_joints(&product, &mut rows);
+        let flagged: Vec<(&str, &str, &str, bool)> = rows
+            .iter()
+            .map(|row| {
+                let base = &product.transitions[row.seat as usize];
+                (
+                    &**product.labels.text(base.input_glyph),
+                    &**product.labels.text(base.right2),
+                    &*row.right3,
+                    row.joint,
+                )
+            })
+            .collect();
+        assert_eq!(
+            flagged,
+            [
+                ("qsIt", "C", "#NA", true),
+                ("qsIt", "C", "D", false),
+                ("qsIt", "C", "E", true),
+                ("qsMay", "D", "#NA", false),
+                ("qsMay", "E", "#NA", false),
+            ]
+        );
     }
 
     /// A product with two deep classes at the third slot, each settling to its own outcome, plus the boundary rows the fold needs. Each class should compile to one look3 rule holding its whole member set. Returns the bench, the product, and the two class tokens.
