@@ -3,7 +3,7 @@ export const VERDICT_KINDS = ['approve', 'reject', 'either', 'identical', 'neith
 export const EXPORT_FORMAT = 'ams-review-verdicts/1';
 export const DELTA_FORMAT = 'ams-review-verdicts-delta/1';
 
-// `unexported` is every unit changed since the last download, the count the status bar and the beforeunload nag read; `dirty` is every unit changed since the last autosave the server accepted, drained by each flush and refilled when one fails. The two sets move together on a mutation and apart on the events that clear them.
+// `unexported` holds the units changed since the last download; the status bar's unexported count and the beforeunload prompt read it. `dirty` holds the units changed since the last autosave the server accepted; each flush empties it, and a failed flush puts the ids back. `touch` adds a unit to both, and different events clear each one.
 export function createStore() {
   return { records: new Map(), undoStack: [], unexported: new Set(), dirty: new Set() };
 }
@@ -106,7 +106,7 @@ export function markExported(store) {
   store.unexported.clear();
 }
 
-// The autosave body for a set of changed units: each one's current record under `sets`, or its id under `clears` when it holds no record any more. The units are the store's `dirty` set at flush time; the caller empties it and, on a failed save, puts the same ids back.
+// The autosave body for a set of units: each unit's current record under `sets`, or its id under `clears` when it has no record. The caller takes the ids from the store's `dirty` set and puts them back if the save fails.
 export function assembleDelta(store, manifestGeneratedAt, unitIds) {
   const sets = [];
   const clears = [];

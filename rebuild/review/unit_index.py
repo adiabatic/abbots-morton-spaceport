@@ -1,10 +1,10 @@
-"""The surface's slim per-unit index: one record per unit carrying exactly the fields the verdict plumbing reads, written beside the manifest as `units-index.ndjson.gz`.
+"""Writes and reads the surface's per-unit index, `units-index.ndjson.gz`: one record per unit with the fields the verdict plumbing reads, written beside the manifest.
 
-The shards are the authority and this file is a projection of them — never a second source. It exists because the four plumbing tools (carry, echo fill, standing fill, the complaint docket) and the two sitting-prep tools (the docket data, the novelty order) each reach a few slim fields per unit, and reading them off the shards means `json.loads` over gigabytes, once per tool per cycle, two thirds of it `explain`, `drafts` and `summary` prose that no plumbing consumer opens. `index_record` is the whole of the projection and `rebuild/test_unit_index.py` holds it against the shipped shards field for field, so a field added to a shard and wanted by a tool has to be added here rather than silently read as absent.
+The shards are the authority, and this file is a projection of them. It exists because the plumbing tools (carry, echo fill, standing fill, the complaint docket) and the review-session preparation tools (the docket data, the novelty order) each read a few fields per unit. Reading those from the shards would mean parsing gigabytes of JSON once per tool per cycle, much of it `explain` and `drafts`, of which the index keeps only the policy draft's file, key path, and suggested record. `index_record` defines the projection. rebuild/test_unit_index.py checks it against the fixture shards field for field and pins the field set. A field a tool needs must be added here: `UnitRecord.get` returns the default for a name outside `INDEX_FIELDS`, so a missing field would silently read as absent.
 
-Two fields are counted rather than copied, because counting is all any reader does with them: `render_groups` is the number of groups (standing fill wants "exactly one") and `secondary_seams` the number of seams (standing fill wants "none"). Two more are the manifest's rather than the shard's: `order` is the unit's position in the manifest's triage index (`human_unit_ids`) and `batch` the slice of `batch_size` that position falls in, both null for a unit outside the index — a fragment carries neither, because a unit's place in the queue is not a fact about the unit, and `human_positions` is how every reader derives them. Everything else is the shard's own value.
+Two fields are counts, because counting is all any reader does with them: `render_groups` is the number of render groups (standing fill requires exactly one) and `secondary_seams` the number of secondary seams (standing fill requires none). Two fields come from the manifest instead of the shard: `order` is the unit's position in the manifest's triage index (`human_unit_ids`), and `batch` is the `batch_size` slice that position falls in. Both are null for a unit outside the index. A fragment carries neither, because a unit's place in the queue is not a property of the unit, and every reader derives them through `human_positions`. Every other field is the shard's own value.
 
-The file is stamped with the manifest's identity digest (`manifest_sha256`), exactly as the unit store is, so a surface half-written by a crashed build can never be read as describing the shards beside it — and a reader that finds no index, or one stamped for another manifest, falls back to streaming the shards through the same projection, so a surface whose index is missing or stale still reads as its shards say.
+The file is stamped with the manifest's identity digest (`manifest_sha256`), as the unit store is, so an index a crashed build did not rewrite is not read as describing the shards beside it. A reader that finds no index, or one stamped for another manifest, falls back to reading the shards through the same projection.
 """
 
 from __future__ import annotations
@@ -32,12 +32,12 @@ def index_path(surface: Path) -> Path:
 
 
 def class_shard_key(class_id: str) -> str:
-    """The sort key every walk of the surface orders classes by. `write_index` sorts on it too, so the index's records and a shard walk run in the same order — and a class written as numbered parts sorts where its bare form would, because the character after the class id is `.` either way."""
+    """Return the key every walk of the surface sorts classes by. `write_index` sorts by it too, so the index's records and a shard walk are in the same order. A class written as numbered parts sorts where its bare form would, because the character after the class id is `.` in both forms."""
     return f"{class_id}.json"
 
 
 def class_shards(meta: Mapping[str, Any]) -> list[str]:
-    """One manifest class entry's shard parts, in part order. A `ams-review-manifest/1` entry carries a single `shard` string instead of the `shards` list, and reading either is load-bearing rather than politeness: the unit cache reads the prior surface's shards, which are the older shape until they are rebuilt."""
+    """Return one manifest class entry's shard parts, in part order. An `ams-review-manifest/1` entry has a single `shard` string instead of the `shards` list. Both forms must be read, because the unit cache reads the prior surface's manifest, which keeps the older form until that surface is rebuilt."""
     shards = meta.get("shards")
     if shards is None:
         return [str(meta["shard"])]
@@ -45,14 +45,14 @@ def class_shards(meta: Mapping[str, Any]) -> list[str]:
 
 
 def human_positions(manifest: Mapping[str, Any]) -> dict[str, int]:
-    """Each human unit's position in the manifest's triage index, keyed by id — the one place a unit's `order` comes from, with `audit.batch_of` turning a position into its batch. A manifest without the index (none this build writes) puts every unit outside it."""
+    """Return each human unit's position in the manifest's triage index, keyed by id. This is the only source of a unit's `order`; its batch is that position divided by `batch_size`, computed inline by `workload_slot` and by `audit.batch_of` elsewhere. A manifest without the index puts every unit outside it; every manifest this build writes has one."""
     return {unit_id: position for position, unit_id in enumerate(manifest.get("human_unit_ids") or ())}
 
 
 def workload_slot(
     positions: Mapping[str, int], batch_size: int, fragment: Mapping[str, Any]
 ) -> dict[str, int | None]:
-    """A unit's `order` and `batch` as the index states them, both None for a unit the index does not hold — unless the fragment itself carries a `batch`, which only a surface written before fragments stopped carrying one does, and then that batch stands with no `order`, since such a surface paged in id order and its index, where it has one, says the same."""
+    """Return a unit's `order` and `batch` as the index gives them, or None for both when the index does not hold the unit. The exception is a fragment that carries its own `batch`, which only a fragment from an older surface does: that batch is returned with `order` None, since such a surface paged in id order and its index, where it has one, gives the same batch."""
     order = positions.get(fragment["id"])
     if order is not None:
         return {"order": order, "batch": order // batch_size}
@@ -60,7 +60,7 @@ def workload_slot(
 
 
 def index_record(fragment: dict, *, order: int | None = None, batch: int | None = None) -> dict:
-    """One shard fragment projected onto the fields the plumbing reads, with the unit's place in the manifest's triage index handed in beside it. Key order is fixed so two builds of the same surface write the same bytes, and so that every line opens with `id`, `order` and `batch` at the seams `ID_OPEN`, `ORDER_SEAM` and `CLASS_SEAM` name, where `respool_index_line` splices a new head on and `load_human_units` reads the id and the unit's place in the queue off the head without parsing the line; `rebuild/test_unit_index.py` holds that opening."""
+    """Project one shard fragment onto the fields the plumbing reads, with the unit's place in the manifest's triage index passed in. The key order is fixed so that two builds of the same surface write the same bytes, and so that every line starts with `id`, `order`, and `batch` at the delimiters `ID_OPEN`, `ORDER_SEAM`, and `CLASS_SEAM`. `respool_index_line` joins a new head onto a line there, and `load_human_units` reads the id and the unit's place in the queue from the head without parsing the line. rebuild/test_unit_index.py checks this opening."""
     before = fragment.get("before") or {}
     after = fragment.get("after") or {}
     policy = (fragment.get("drafts") or {}).get("policy")
@@ -109,7 +109,7 @@ _CONTAINER_POOL_LIMIT = 16_384
 
 @dataclass(frozen=True, slots=True, eq=False)
 class UnitRecord(Mapping[str, Any]):
-    """An immutable field projection with shared schema. Both subscription and `.get` raise KeyError for a known index field omitted by the projection, preventing a matcher's undeclared field from silently reading as absent. Nested JSON lists and dictionaries are pooled and read-only by convention; callers making edits must copy them first. Convert the outer mapping with `dict(record)` for JSON serialization."""
+    """An immutable mapping over one record's selected fields, sharing its schema with every record from the same reader. Subscription and `.get` both raise KeyError for an index field the reader did not select, so a matcher that reads a field it did not declare fails instead of reading it as absent. Nested lists and dicts are pooled across records and must not be modified; copy them first. Use `dict(record)` to get an outer mapping that JSON can serialize."""
 
     _values: tuple[Any, ...]
     _schema: dict[str, int]
@@ -130,7 +130,7 @@ class UnitRecord(Mapping[str, Any]):
 
 
 class _RecordReader:
-    """One reader's projection and bounded nested-container pool. Pool keys name canonical child containers by identity, keeping key storage shallow; the pool retains every child it names. The cap bounds retained discarded records during streaming."""
+    """Projects index documents onto one field selection and pools nested containers across the records it reads. A pool key names child containers by `id()`, which keeps the keys shallow and is safe because the pool keeps every child it names. The pool stops growing at `_CONTAINER_POOL_LIMIT` entries, which bounds what it retains from records a streaming caller has already dropped."""
 
     def __init__(self, fields: Iterable[str] | None) -> None:
         selected = _INDEX_FIELD_SET if fields is None else frozenset(fields)
@@ -172,7 +172,7 @@ class _RecordReader:
 
 
 def manifest_sha256(surface: Path) -> str:
-    """The manifest's identity: everything it says about which units and shards it describes, hashed over its parsed content with `ASSET_COMPONENTS` projected out of `inputs_fingerprint`. Those components are the fingerprint the copied review UI assets ride, and no shard, sidecar, unit or plumbing step reads them, so they are outside the surface's identity and outside every hard freshness check — this roster is what every site that treats a component as soft reads. Projecting them out is exactly what lets an assets refresh rewrite that one field in place and leave every sidecar beside it, and the unit-cache store with them, stamped for the manifest they describe. A manifest that will not parse is hashed by its raw bytes instead, the way `fingerprint._projected_digest` falls back, so a broken file mismatches rather than passing for something."""
+    """Return the manifest's identity: the sha256 of its parsed content with `ASSET_COMPONENTS` removed from `inputs_fingerprint`. Those components fingerprint the copied review UI assets, which no shard, sidecar, unit, or plumbing step reads, so they are outside the surface's identity and every hard freshness check. Every place that treats a component as soft reads `ASSET_COMPONENTS`. Removing them lets an assets refresh rewrite that one field in place and leave every sidecar, and the unit-cache store, stamped for the manifest they describe. A manifest that does not parse is hashed by its raw bytes, as `fingerprint._projected_digest` does, so a broken file mismatches instead of matching anything."""
     raw = (Path(surface) / "manifest.json").read_bytes()
     try:
         document = json.loads(raw)
@@ -191,7 +191,7 @@ def manifest_sha256(surface: Path) -> str:
 
 
 def shard_paths(surface: Path) -> list[Path]:
-    """The shard parts in the order every reader walks them: classes by `class_shard_key`, each class's parts in the order its manifest lists them. The manifest is the authority rather than a glob over `units/`, because only it says which parts belong to a class and in what order they concatenate. The index is written in this order too, so a tool that resolves ties by "first seen" answers the same either way. A surface with no readable manifest has no shards to name."""
+    """Return the shard parts in the order every reader walks them: classes by `class_shard_key`, and each class's parts in the order its manifest lists them. The manifest is used instead of a glob over `units/` because only it says which parts belong to a class and in what order. The index is written in this order too, so a tool that breaks ties by first occurrence gets the same result from either source. A surface with no readable manifest has no shard parts."""
     surface = Path(surface)
     try:
         manifest = json.loads((surface / "manifest.json").read_text(encoding="utf-8"))
@@ -203,22 +203,22 @@ def shard_paths(surface: Path) -> list[Path]:
 
 
 def index_line(fragment: dict, *, order: int | None = None, batch: int | None = None) -> bytes:
-    """One index record as the line the file holds it on. The build streams these into a spool as its fragments go by, so the whole of what `write_index` would have held is on disk instead."""
+    """Return one index record as its line in the file. The build writes these lines to a spool as the fragments pass, so what `write_index` would hold in memory is on disk instead."""
     return (json.dumps(index_record(fragment, order=order, batch=batch), ensure_ascii=False) + "\n").encode()
 
 
 def line_head(unit_id: str, order: int | None, batch: int | None) -> bytes:
-    """The opening of an index or app-index line — the id and the unit's place in the queue — as `json.dumps` writes it, up to and not including the closing brace, so a line whose remaining fields did not move can be respooled by splicing this onto its tail."""
+    """Return the start of an index or app-index line, the id and the unit's place in the queue, as `json.dumps` writes it, without the closing brace. A line whose other fields did not change can be respooled by joining this to its tail."""
     return json.dumps({"id": unit_id, "order": order, "batch": batch}, ensure_ascii=False).encode()[:-1]
 
 
 def respool_index_line(line: bytes, *, unit_id: str, order: int | None, batch: int | None) -> bytes:
-    """A previous surface's index line for a served unit, rewritten to this surface's queue: only `order` and `batch` come from the queue, and every field after them is the fragment's own, which a unit served verbatim carries unchanged — so the line is the id and the new place spliced onto the old tail, byte for byte what `index_line` writes for the same fragment."""
+    """Return a previous surface's index line for a served unit, with this surface's `order` and `batch`. Every field after those two is the fragment's own, and a unit served verbatim has an unchanged fragment, so the result is the id and the new place joined to the old tail, byte for byte what `index_line` writes for the same fragment."""
     return line_head(unit_id, order, batch) + line[line.index(CLASS_SEAM) :]
 
 
 class LineCursor:
-    """A forward-only reader over one of a surface's gzipped NDJSON files — a sidecar, or the unit store — handing out the line whose leading `field` carries a requested value and skipping every line before it. Each of those files is written in an order every term of which is content-derived (shard order for the sidecars, triage order for the store), so a served unit keeps its place in it from one surface to the next and the build walks the previous file once, in step with what it writes, never holding it. A line skipped is a unit this build re-projects; a value the file does not reach — a file from another build, or none at all — answers None from then on, which is the caller's cue to project the unit itself instead."""
+    """A forward-only reader over one of a surface's gzipped NDJSON files (a sidecar or the unit store) that returns the line whose leading `field` has a requested value, skipping every line before it. Each of these files is written in an order whose terms are all content-derived (shard order for the sidecars, triage order for the store), so a served unit keeps its relative place from one surface to the next, and the build reads the previous file once, in step with what it writes, without holding it. A skipped line belongs to a unit this build projects again. Once a requested value is not found, as with a file from another build or no file at all, the cursor returns None for every later request, and the caller projects the unit itself."""
 
     def __init__(self, path: Path, field: str = "id") -> None:
         self._field = field
@@ -254,7 +254,7 @@ def _manifest(surface: Path) -> dict:
 
 
 def slot_reader(surface: Path):
-    """A function from a fragment to its `order`/`batch` pair on this surface, the index read once off the manifest beside it."""
+    """Return a function that maps a fragment to its `order` and `batch` on this surface, reading the triage index once from the manifest beside it."""
     manifest = _manifest(surface)
     positions = human_positions(manifest)
     batch_size = manifest.get("batch_size")
@@ -268,7 +268,7 @@ def slot_reader(surface: Path):
 
 
 def write_index_lines(surface: Path, lines: Iterable[bytes]) -> Path:
-    """Write the index from already-projected lines in the order they arrive, stamped with the manifest beside it — so this runs after the manifest is written. Level 1 and a pinned gzip mtime, like the unit store: written once and read once per cycle, where level 9's seconds cost more than its megabytes save."""
+    """Write the index from already-projected lines in the order given, stamped with the manifest beside it, so this must run after the manifest is written. It uses gzip level 1 and a fixed mtime, like the unit store: the file is written once per cycle, and level 9's extra seconds cost more than the megabytes it saves."""
     header = {"format": INDEX_FORMAT, "manifest_sha256": manifest_sha256(surface)}
     path = index_path(surface)
     with open(path, "wb") as handle:
@@ -280,7 +280,7 @@ def write_index_lines(surface: Path, lines: Iterable[bytes]) -> Path:
 
 
 def write_index(surface: Path, shards: Iterable[tuple[str, list[dict]]]) -> Path:
-    """Write the index from fragments a caller holds whole. `shards` is (class id, fragments) in any order; the file is written in shard-path order, each unit's place in the queue read off the manifest beside it, so it is `write_index_lines` over the same projection the build spools a fragment at a time, and the two write the same bytes."""
+    """Write the index from fragments the caller holds in memory. `shards` is (class id, fragments) pairs in any order. The file is written in shard-path order, with each unit's place in the queue read from the manifest beside it, so this is `write_index_lines` over the same projection the build spools one fragment at a time, and both write the same bytes."""
     ordered = sorted(shards, key=lambda item: class_shard_key(item[0]))
     slot = slot_reader(surface)
     return write_index_lines(
@@ -294,7 +294,7 @@ def write_index(surface: Path, shards: Iterable[tuple[str, list[dict]]]) -> Path
 
 
 def index_header(surface: Path) -> dict | None:
-    """The index's header line alone, or None when there is none to read. Separate from `load_index` because the build's own contract check wants to know the file is there and stamped for the manifest beside it without parsing four hundred thousand records to find out."""
+    """Return the index's header line, or None when there is none to read. It is separate from `load_index` so the build's output check can confirm the file exists and is stamped for the manifest beside it without parsing every record."""
     path = index_path(surface)
     if not path.is_file():
         return None
@@ -318,7 +318,7 @@ def index_is_current(surface: Path) -> bool:
 
 
 def load_index(surface: Path, *, fields: Iterable[str] | None = None) -> list[UnitRecord] | None:
-    """The index's records, or None when there is no usable index: absent, unreadable, format-mismatched, or stamped for a manifest other than the one on disk. A None costs the caller one fallback pass over the shards, so over-invalidation stays the safe direction here too."""
+    """Return the index's records, or None when there is no usable index: absent, unreadable, a different format, or stamped for a manifest other than the one on disk. A None costs the caller one pass over the shards, so over-invalidation is the safe direction here too."""
     reader = _RecordReader(fields)
     if not index_is_current(surface):
         return None
@@ -331,14 +331,14 @@ def load_index(surface: Path, *, fields: Iterable[str] | None = None) -> list[Un
 
 
 def iter_shard_fragments(surface: Path) -> Iterator[dict]:
-    """The fallback source: the shards' own fragments, one part at a time so only one is ever resident. That bound is the whole point — the corpus runs to gigabytes and no one part is larger than `build.SHARD_PART_BYTES` — where concatenating them all would hold the whole corpus at once."""
+    """Yield the shards' own fragments, reading one part at a time so that only one part is in memory. The corpus is gigabytes and no part is larger than `build.SHARD_PART_BYTES`, so this bound matters: reading every part at once would hold the whole corpus."""
     for path in shard_paths(surface):
         shard = json.loads(path.read_text(encoding="utf-8"))
         yield from shard
 
 
 def stream_shards(surface: Path, *, fields: Iterable[str] | None = None) -> Iterator[UnitRecord]:
-    """The fallback: the shards themselves, projected the way the sidecar would have been, each unit's place in the queue read off the manifest."""
+    """Yield the shards' fragments projected as the index would hold them, with each unit's place in the queue read from the manifest. This is the fallback when the index is missing or stale."""
     reader = _RecordReader(fields)
     return _stream_shards(surface, reader)
 
@@ -350,7 +350,7 @@ def _stream_shards(surface: Path, reader: _RecordReader) -> Iterator[UnitRecord]
 
 
 def iter_units(surface: Path, *, fields: Iterable[str] | None = None) -> Iterator[UnitRecord]:
-    """Every unit on a surface, projected, one at a time: the index when it is there and stamped for this manifest, the shards otherwise. A caller that keeps only a slice of the corpus reads it this way rather than through `load_units`, so the records it drops never coexist with the ones it keeps; `load_human_units` is that case for the plumbing's slice, and reads the index by a byte test on each line's head instead of parsing every record only to drop it."""
+    """Yield every unit on a surface, projected, one at a time: from the index when it is present and stamped for this manifest, from the shards otherwise. A caller that keeps only part of the corpus should read it this way instead of through `load_units`, so the records it drops are never in memory with the ones it keeps. `load_human_units` does this for the plumbing's human units, and classifies each index line with a byte test on its head instead of parsing every record."""
     reader = _RecordReader(fields)
     return _iter_units(surface, reader)
 
@@ -377,7 +377,7 @@ def load_units(surface: Path, *, fields: Iterable[str] | None = None) -> list[Un
 def iter_human_units(
     surface: Path, *, unit_ids: set[str] | None = None, fields: Iterable[str] | None = None
 ) -> Iterator[UnitRecord]:
-    """Yield human index records in shard order, optionally accumulating every surface id in the same walk. Machine index lines contribute only their heads and never pass through the JSON parser. An absent or stale index streams projected shards with the same legacy workload rules; a corrupt current index raises instead of restarting a partially consumed stream and duplicating units. The id set is complete only when the iterator is exhausted."""
+    """Yield the human units' index records in shard order. When `unit_ids` is given, every unit id on the surface is added to it during the same walk; the set is complete only once the iterator is exhausted. Machine units' lines contribute only their heads and are not parsed as JSON. An absent or stale index falls back to the projected shards, which classify each unit through `workload_slot`. A corrupt current index raises, because restarting a partly consumed stream from the shards would yield units twice."""
     reader = _RecordReader(fields)
     return _iter_human_units(surface, reader, unit_ids)
 
@@ -419,7 +419,7 @@ def _stream_human_shards(
 def load_human_units(
     surface: Path, *, fields: Iterable[str] | None = None
 ) -> tuple[list[UnitRecord], set[str]]:
-    """The human records on a surface — the units the manifest's triage index holds, `batch` not None — parsed, beside the id of every unit on it, machine ones included. The plumbing's consumers read the human records and nothing of a machine record but its id: carry's stranded figure and the complaint docket's absent-unit warning both count prior verdicts against every id on the surface, and those two readers are the whole reason the id set rides beside the list. Over a current index the classification is a byte test rather than a parse: `index_record` opens every record with `id`, `order` and `batch` in that order (`rebuild/test_unit_index.py` holds the order), so a line's head cut at `CLASS_SEAM` ends with `MACHINE_TAIL` exactly when the unit is outside the index, and only the human lines go through `json.loads`. An index that fails partway through is refused whole and the shards answer instead, as `load_index` refuses rather than half-answers; that fallback parses every fragment to project it, so a stale index costs the whole parse whatever this drops."""
+    """Return the human units' records on a surface (the units the manifest's triage index holds, with `batch` not None) and the id of every unit on it, machine units included. The plumbing's consumers read the human records and only the id of a machine record: carry's stranded count and the complaint docket's absent-unit warning check prior verdicts against every id on the surface, which is why the id set is returned. Over a current index the classification is a byte test: `index_record` starts every record with `id`, `order`, and `batch` in that order (rebuild/test_unit_index.py checks the order), so a line's head up to `CLASS_SEAM` ends with `MACHINE_TAIL` exactly when the unit is outside the index, and only the human lines are parsed. An index that fails partway through is discarded and the shards are read instead, as `load_index` does. That fallback parses every shard part, so a corrupt index costs a full parse of the corpus."""
     reader = _RecordReader(fields)
     ids: set[str] = set()
     if index_is_current(surface):

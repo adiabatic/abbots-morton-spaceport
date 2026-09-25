@@ -1,6 +1,6 @@
-"""Dev server for the generated review app — a sibling of tools/serve.py over rebuild/out/review/ on port 7294, so it runs alongside the site server on 7293.
+"""Dev server for the generated review app. It serves rebuild/out/review/ with livereload on port 7294, as tools/serve.py serves site/ on port 7293, so the two can run at the same time.
 
-The app keeps its verdicts on the server through /autosave, so a reload or crash never loses in-progress blessing work. The server holds the store resident (rebuild.review.verdict_store) and speaks it in changes: the app POSTs a delta of the verdicts it set or cleared after every mutation, GETs the whole store once at boot along with a sync token, and thereafter GETs `?since=<token>` to pick up only what other sessions changed. A whole-store POST is accepted too. The file behind it lives at the repo root (not under rebuild/out/review/, where livereload's JSON watch would turn every save into a page reload) as verdicts-autosave.json, next to the exported masters and covered by the same gitignore pattern. When an incoming save carries a newer manifest generation than the file on disk, the old file is stashed aside as verdicts-autosave-<stamp>.json instead of being overwritten — a stale-manifest autosave is the only copy of un-exported work from before a surface rebuild, and its unit ids must never be silently joined to the new surface. The reverse direction is refused outright with a 409: a tab still open from before a rebuild would otherwise clobber the freshly merged store with its pre-rebuild copy on its next flush or pagehide beacon. Every accepted save is appended to verdicts-journal.ndjson (rebuild.review.journal) as the verdicts it set and cleared, so any verdict change — including clears, which the store files cannot represent — can be replayed and recovered.
+The app saves its verdicts to the server through /autosave, and the server keeps the store in memory (rebuild.review.verdict_store). At boot the app GETs the whole store with a sync token. After that it GETs `?since=<token>` to fetch only what other tabs changed, and after each debounced change it POSTs a delta of the verdicts it set or cleared. A whole-store POST is also accepted. The store's file is verdicts-autosave.json at the repo root, which the `/verdicts-*.json` pattern in .gitignore covers. It is kept outside rebuild/out/review/ because livereload watches the JSON files there and would reload the page on every save. When a save carries a newer manifest stamp than the file on disk, the old file is moved aside to verdicts-autosave-<stamp>.json. That file may be the only copy of unexported verdicts from before a surface rebuild, and its unit ids must not be applied to the new surface. A save with an older stamp gets a 409, so that a tab left open from before a rebuild cannot overwrite the newly merged store on its next flush or pagehide beacon. The sets and clears of every accepted save are appended to verdicts-journal.ndjson (rebuild.review.journal), so every verdict change can be replayed, including clears, which the store file cannot record.
 
 Usage: uv run python -m rebuild.review.serve
 """
@@ -33,7 +33,7 @@ STATUS_TTL_S = 10.0
 
 
 def static_headers_for(path: str) -> dict[str, str]:
-    """The headers every static file goes out with. `Cache-Control: no-store` on everything, because a rebuild reuses every name; and the precompressed NDJSON sidecars beside the manifest go out as gzip-encoded `application/x-ndjson`, so the browser decompresses them on arrival while the file on disk keeps an honest name. The shards are deliberately not in that set: the app addresses them by byte range, which only means anything while they are served identity-encoded. The locator's rows file is out of it for the same reason — the app fetches one gzip member of it at a time by the span the locator table names, and Chrome refuses a partial response that declares a content encoding — so that file goes out as the bytes on disk and the app decompresses the member itself."""
+    """Return the headers for a static file. Every file gets `Cache-Control: no-store`, because a rebuild reuses every file name. The precompressed `.ndjson.gz` sidecars are sent as gzip-encoded `application/x-ndjson`, so the browser decompresses them. The unit shards and the locator's rows file (`app_index.LOCATOR_ROWS_NAME`) are sent as the bytes on disk with no content encoding, because the app reads them by byte range. The app fetches one gzip member of the rows file at a time and decompresses it itself, and Chrome refuses a partial response that declares a content encoding."""
     headers = {"Cache-Control": "no-store"}
     if path.endswith(NDJSON_SUFFIX) and not path.endswith(app_index.LOCATOR_ROWS_NAME):
         headers["Content-Type"] = "application/x-ndjson"
@@ -42,7 +42,7 @@ def static_headers_for(path: str) -> dict[str, str]:
 
 
 def receive_autosave(raw: bytes, path: Path, journal_path: Path | None = None) -> tuple[int, dict]:
-    """One save against the file at `path`, through a store read for the call: the shape the tests and any one-shot caller use, where the server itself keeps one store for its lifetime."""
+    """Apply one autosave POST body to the file at `path` through a store loaded for this call, and return the HTTP status and response body. The server itself keeps one store for its lifetime."""
     return VerdictStore(path, journal_path).receive(raw)
 
 
@@ -79,14 +79,14 @@ def main() -> None:
                 self.set_header(name, value)
 
         def compute_etag(self) -> str | None:
-            """No etag at all. Tornado's default hashes the whole file to compute one — a quarter-gigabyte shard sha512'd on the first Range request the explain panel makes, memoized in a class dict that no rebuild invalidates — and `Cache-Control: no-store` already means nothing would use the answer."""
+            """Return no etag. Tornado's default computes a sha512 of the whole file, which for a shard of a quarter gigabyte runs on the first Range request the explain panel makes, and caches it in a class dict that a rebuild never clears. With `Cache-Control: no-store`, no client would use the etag."""
             return None
 
         def should_return_304(self) -> bool:
-            """A conditional Range request that satisfied `If-Modified-Since` would otherwise come back 304 with no body, and the app would have nothing to parse."""
+            """Always send the body. Otherwise a Range request whose `If-Modified-Since` is satisfied would get a 304 with no body, and the app would have nothing to parse."""
             return False
 
-    # The status is the freshness fingerprint over the review code plus the frontier pick, CPU the app asks for on every focus and every hash change; status.pick_frontier answers the pick from a memo of what each verdicts file answered, keyed on the file's stat. It is computed off the loop, so the shard Range requests a card is waiting on go out while it runs, and one answer serves every request inside STATUS_TTL_S — nothing it reads moves between a cycle and the next, and a cycle restarts this server.
+    # /status recomputes the input fingerprints to check that the surface is current, and picks the frontier (status.pick_frontier memoizes each verdicts file by its stat). The app requests it on every focus, visibility change, and hash change. It runs in the executor so that the shard Range requests a card waits on are not blocked. Concurrent requests share one computation, and a result is reused for STATUS_TTL_S seconds, so the status can lag a change on disk by up to that long.
     class StatusCache:
         at: float = 0.0
         result: dict | None = None

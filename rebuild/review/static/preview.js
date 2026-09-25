@@ -60,7 +60,7 @@ function hexChar(piece) {
   const bare = explicit ? null : piece.match(/^[0-9a-f]{4}$/i);
   if (!explicit && !bare) return null;
   const code = parseInt(explicit ? explicit[1] : piece, 16);
-  // Bare hex is only honored inside the BMP private use area, so an ordinary word that happens to be hex ("deed") stays an unknown-name hint instead of a surrogate or a random character.
+  // Bare four-digit hex counts only inside the BMP Private Use Area, so an ordinary word that is also hex ("deed") is reported as an unknown name instead of becoming a surrogate or an unrelated character.
   if (!explicit && !(code >= 0xe000 && code <= 0xf8ff)) return null;
   if (code > 0x10ffff || (code >= 0xd800 && code <= 0xdfff)) return null;
   return String.fromCodePoint(code);
@@ -75,7 +75,7 @@ function resolveToken(piece) {
 }
 
 function piecesOf(word) {
-  // Plain dots work as separators too (.day.utter), but only when every piece is a recognized token — otherwise the dot is literal text (3.14, actual punctuation in pasted Quikscript).
+  // A plain dot also separates letters (.day.utter), but only when every piece is a recognized token. Otherwise the dot is literal text, as in 3.14 or punctuation in pasted Quikscript.
   if (word.includes('.')) {
     const dotSplit = word.split(/[·.]|(?=◊)/u);
     if (dotSplit.every((piece) => piece === '' || resolveToken(piece) !== null)) return dotSplit;

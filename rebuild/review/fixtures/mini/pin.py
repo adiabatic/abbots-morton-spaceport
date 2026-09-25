@@ -1,6 +1,6 @@
-"""The spec the frozen mini-M1 bundle settled under, pinned rather than copied. The enricher re-settles every frozen window from the runes, so the bundle's rows describe a rebuild that still happens only under the spec they settled under — which is why the bundle has to name one at all. Naming it as a second copy of the runes in the tree, though, invites editing the wrong file: the copy looks like source, reads like source, and nothing complains until a cycle much later.
+"""Pin the spec the frozen mini-M1 bundle settled under by git object ids, instead of keeping a copy of it in the tree.
 
-Git already holds those bytes, content-addressed, so `pin.json` records the tree and blob shas of `PINNED_PATHS` at the commit the bundle was regenerated on and `materialize` writes them back out of the object store on demand. The pin survives any rebase that leaves those files' bytes alone, because a sha names content rather than history; a pin whose objects this repository no longer holds fails loudly, naming the command that regenerates the bundle, rather than silently settling under whatever the working tree happens to say today.
+The enricher re-settles every frozen window from the runes, so the bundle's rows are valid only under the spec they settled under. A checked-in copy of that spec would look like source and invite edits to the wrong file. `pin.json` records the tree and blob shas of `PINNED_PATHS` at the commit the bundle was regenerated on, and `materialize` writes those objects out of git on demand. A sha names content, so the pin survives any rebase that leaves those files' bytes unchanged. When the repository no longer holds a pinned object, `materialize` raises `MissingPinnedObjects` with the command that regenerates the bundle.
 """
 
 import io
@@ -32,18 +32,18 @@ def _git(args: list[str], repo_root: Path) -> bytes:
 
 
 def current_objects(repo_root: Path = REPO_ROOT) -> dict[str, str]:
-    """The sha each pinned path resolves to at HEAD, in `PINNED_PATHS` order — a tree for the first two, a blob for the last two."""
+    """Return the sha each pinned path resolves to at HEAD, in `PINNED_PATHS` order: a tree for the first two, a blob for the last two."""
     return {rel: _git(["rev-parse", f"HEAD:{rel}"], repo_root).decode().strip() for rel in PINNED_PATHS}
 
 
 def dirty_paths(repo_root: Path = REPO_ROOT) -> list[str]:
-    """The porcelain status lines of the pinned paths — non-empty exactly when HEAD's bytes are not the working tree's, which is the condition that makes a pin taken from HEAD a lie."""
+    """Return the porcelain status lines for the pinned paths, untracked files included. The list is empty only when the working tree matches HEAD there; otherwise a pin taken from HEAD would name a spec the build did not use."""
     status = _git(["status", "--porcelain", "--untracked-files=all", "--", *PINNED_PATHS], repo_root).decode()
     return [line for line in status.splitlines() if line.strip()]
 
 
 def write_pin(repo_root: Path = REPO_ROOT, pin_path: Path = PIN_PATH) -> dict:
-    """Record HEAD and the pinned objects. `head` is informational — which commit the bundle was regenerated at — and materialization resolves through `objects` alone, so a rewritten history costs the pin nothing as long as the content survives."""
+    """Write HEAD and the pinned objects to `pin_path` and return the record. `head` only records which commit the bundle was regenerated at; `materialize` reads `objects` alone, so rewritten history does not break the pin while the objects remain in the repository."""
     record = {
         "head": _git(["rev-parse", "HEAD"], repo_root).decode().strip(),
         "objects": current_objects(repo_root),
@@ -57,7 +57,7 @@ def read_pin(pin_path: Path = PIN_PATH) -> dict:
 
 
 def _preserve_authored_outgoing(dest: Path) -> None:
-    """A pinned schema without `outgoing` describes complete ligature-local policy. Declare that contract explicitly for the current loader, including single-stance trailing components, without borrowing policy or schema from the working tree. A pin whose schema supports inheritance already states its contract and passes through unchanged."""
+    """Adapt a pinned schema that has no `outgoing` stance property to the current loader. Such a schema means each ligature rune states its complete outgoing policy itself, so this adds an `outgoing` property that allows only a fixed exception and sets that exception on every stance of every rune with a `sequence`, including single-stance trailing components. It takes no policy or schema from the working tree. A pinned schema that already has `outgoing` is left unchanged."""
     schema_path = dest / "rebuild/schema/rune.schema.json"
     schema = json.loads(schema_path.read_text(encoding="utf-8"))
     properties = schema["$defs"]["stance"]["properties"]
@@ -81,7 +81,7 @@ def _preserve_authored_outgoing(dest: Path) -> None:
 
 
 def materialize(dest: Path, pin_path: Path = PIN_PATH, repo_root: Path = REPO_ROOT) -> Path:
-    """Write the pinned objects under `dest` at the paths they live at in the repo — `<dest>/glyph_data/runes/`, `<dest>/rebuild/schema/`, `<dest>/rebuild/script.yaml`, `<dest>/rebuild/m1-divergences.yaml`, the two trees arriving whole rather than filtered down to the files a reader happens to want. That is the layout `rebuild.review.enrich.load_spec` and `rebuild.pipeline.fingerprint.rune_digests` read under a root, so `dest` is a spec root. Every pinned object is probed before any of them is written, so a repository missing one leaves no half-built spec root behind. `_preserve_authored_outgoing` makes complete ligature-local contracts explicit when the pinned schema needs that compatibility declaration. Nothing is cached: the caller picks where the bytes land and how long they live."""
+    """Write the pinned objects under `dest` at their repository paths, the trees whole, apply `_preserve_authored_outgoing`, and return `dest`. The result is a spec root that `rebuild.review.enrich.load_spec` and `rebuild.pipeline.fingerprint.rune_digests` can read. Every pinned object is checked before any is written, so a missing object leaves no partial spec root. Nothing is cached; the caller chooses where the files go and how long they stay."""
     dest = Path(dest)
     objects = read_pin(pin_path)["objects"]
     missing = [

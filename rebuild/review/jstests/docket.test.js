@@ -20,7 +20,7 @@ import {
   SINGLETON_CHUNK,
 } from '../static/docket.js';
 
-// Ids here are synthetic; what orders them is `order`, the row's place in the manifest's triage index, which the digits stand in for.
+// The ids are synthetic. The sort key is `order`, the row's place in the manifest's triage index, which makeUnit takes from the id's digits.
 const makeUnit = (id, over = {}) => ({
   id,
   order: Number.parseInt(id.slice(2), 10),
@@ -173,7 +173,7 @@ test('buildClusters is order-independent and sorts members by their triage posit
   assert.deepEqual(forward[0].reps, ['u-0001']);
 });
 
-// The sort key is the row's triage position, never anything read off the id: content ids carry no order, and a lexicographic shortcut over these synthetic ones would put u-10 ahead of u-9 and hand the cluster a different exemplar, a different rep, and a different evidence sample.
+// Real ids carry no order. A string sort of these synthetic ids would put u-10 before u-9 and change the cluster's exemplar, rep, and evidence sample.
 test('buildClusters orders members by triage position, not by id text', () => {
   const ids = ['u-9', 'u-10', 'u-100', 'u-2', 'u-1078641', 'u-21'];
   const units = ids.map((id) => makeUnit(id, { echo: 'e-0001' }));

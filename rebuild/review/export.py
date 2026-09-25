@@ -1,4 +1,4 @@
-"""The verdicts-to-triage-YAML CLI (rebuild/REVIEW-PLAN.md §4.2): join an exported verdicts.json to the built review directory's units, re-validate every selected draft, and write one triage YAML with five sections (pins, policy_edits, any_of, neither, identical) for human placement. Nothing is auto-applied to the corpus or the rune files.
+"""Write a triage YAML from an exported verdicts.json (rebuild/REVIEW-PLAN.md §4.2). The CLI joins the verdicts to the built review directory's units, re-parses the expect strings of the selected pin and any-of drafts, and writes five draft sections (pins, policy_edits, any_of, neither, identical) after the review and machine_approved records. A person places the drafts; nothing is applied to the corpus or the rune files.
 
 Usage: uv run python -m rebuild.review.export verdicts.json --out tmp/review-triage.yaml
 """
@@ -41,7 +41,14 @@ TRIAGE_KEYS = (
 
 
 def _triage_projection(unit: dict, shard: str, *, batch: int | None = None) -> dict:
-    """One shard unit narrowed to the fields the triage YAML is written from. A key this file reads but the shard does not carry is a build and this reader disagreeing about the unit shape, which as a silent `.get(...) or None` writes a triage YAML that is wrong rather than missing — so it stops here instead, naming the key. `TRIAGE_KEYS` is the export's read-set exactly and not a safe-to-pad allowlist in either direction: a key declared but never read costs a refusal on any surface that legitimately omits it, and a key read but never declared is the null this refusal exists to prevent. Two keys are read from somewhere other than the fragment: `batch` is the manifest's triage index speaking (`unit_index.slot_reader`), handed in by the caller, since a fragment carries no batch; and a slim fragment's (`audit.slim_fragment`) omitted keys — a machine-approved or exempt unit ships without `drafts`, and the export never drafts from one, its verdicts being counted as inert history — are read as null there rather than refused. `test_load_units_keeps_exactly_the_fields_the_triage_export_reads` names the set independently, and `test_export_round_trip` runs `build_triage` over the projection so the reads and the declaration are held together."""
+    """Return one shard unit narrowed to `TRIAGE_KEYS`, exiting with the key's name when the shard lacks one.
+
+    A missing key means the surface was built by a version whose unit shape this reader does not know. Reading it with `.get` would put a null in the triage YAML that looks like a real absence. `TRIAGE_KEYS` must list the keys the export reads and no others: an extra key fails on a surface that omits it, and an unlisted key the export reads becomes that silent null.
+
+    Two kinds of key do not come from the fragment. `batch` comes from the manifest's triage index (`unit_index.slot_reader`) and is passed in, because a fragment carries no batch. `drafts`, which a slim fragment (`audit.slim_fragment`) omits, is read as null there, because the export never drafts from a machine-approved or exempt unit and only counts its verdicts.
+
+    `test_load_units_keeps_exactly_the_fields_the_triage_export_reads` lists the set independently, and `test_export_round_trip` runs `build_triage` over the projection.
+    """
     omitted = set(SLIM_OMITTED_KEYS) if slim_fragment(unit) else set()
     missing = [key for key in TRIAGE_KEYS if key != "batch" and key not in unit and key not in omitted]
     if missing:
@@ -56,7 +63,10 @@ def _triage_projection(unit: dict, shard: str, *, batch: int | None = None) -> d
 
 
 def load_units(review_dir: Path) -> tuple[dict, dict[str, dict]]:
-    """The manifest and every unit on the surface, narrowed to `TRIAGE_KEYS` one shard part at a time, each unit's batch read off the manifest's triage index. The corpus runs to gigabytes, of which the triage export reads under a third — `explain` alone is two fifths of it and nothing here opens it — so each part is released before the next is parsed and only the projection is kept."""
+    """Return the manifest and every unit on the surface narrowed to `TRIAGE_KEYS`, with each unit's batch read from the manifest's triage index.
+
+    The shards run to gigabytes and the export reads under a third of that (`explain` alone is two fifths, and nothing here reads it), so each part is released before the next is parsed and only the projection is kept.
+    """
     manifest = json.loads((review_dir / "manifest.json").read_text(encoding="utf-8"))
     slot = unit_index.slot_reader(review_dir)
     units: dict[str, dict] = {}
@@ -80,7 +90,7 @@ def load_verdicts(path: Path) -> dict:
 
 
 def _reparse_status(expect: str) -> str:
-    """Re-run the repo's real parser on an expect string when the test tree is importable; otherwise carry the generation-time status."""
+    """Return "pass" or "fail: <error>" from running `parse_expect` in `test/test_shaping.py` on an expect string, or "unavailable" when that module cannot be imported or the parser raises anything other than ValueError."""
     try:
         from rebuild.review.drafts import _import_test_shaping
 
@@ -94,17 +104,17 @@ def _reparse_status(expect: str) -> str:
 
 
 def rows_covered(unit: dict) -> int:
-    """A verdict always covers the whole unit — every config its audit rows carry."""
+    """Return the number of configs in the unit, since a verdict covers all of them."""
     return len(unit.get("configs", ()))
 
 
 def _machine_unit_ids(unit_ids: list[str]) -> list[str]:
-    """The machine-approved ids in id order — content ids have no runs to collapse, so the list is the list."""
+    """Return the machine-approved ids sorted."""
     return sorted(unit_ids)
 
 
 def machine_approved_section(manifest: dict, units: dict[str, dict]) -> dict:
-    """The triage YAML's machine_approved record: machine-verdicted units (ink-identical, picture-identical, or junior-equivalent) are reported as counts, per-class counts, the verification method, and their ids — never as drafted pins, which remain a human-verdict artifact."""
+    """Return the triage YAML's machine_approved record: the count, rows covered, per-class counts, verification method, and ids of the ink-identical, picture-identical, and Junior-equivalent units. Pins are drafted only from human verdicts."""
     machine = [unit for unit in units.values() if machine_approved(unit)]
     by_class: dict[str, int] = {}
     for unit in machine:
@@ -225,7 +235,7 @@ def build_triage(manifest: dict, units: dict[str, dict], verdicts: dict) -> dict
                 }
             )
         elif verdict == "neither":
-            # Neither behavior is right: no pin, no policy edit, no any-of is drafted — the unit needs follow-up authoring work, so it carries only the reviewer's note and the provenance records that are the follow-up author's levers.
+            # Neither behavior is right, so nothing is drafted. The entry keeps the reviewer's note and the provenance records a follow-up edit would start from.
             neither.append(
                 {
                     "unit": unit["id"],
@@ -236,7 +246,7 @@ def build_triage(manifest: dict, units: dict[str, dict], verdicts: dict) -> dict
                 }
             )
         elif verdict == "identical":
-            # The reviewer cannot see the flagged difference: nothing is drafted — these claims are signal for the ink-comparator and highlight tooling, which flagged a difference no human can spot.
+            # The reviewer cannot see the flagged difference, so nothing is drafted. These entries are reports against the ink comparator and the highlight tooling.
             identical.append(
                 {
                     "unit": unit["id"],

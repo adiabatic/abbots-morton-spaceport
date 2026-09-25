@@ -1,10 +1,10 @@
-"""Verdict-family grouping for the review surface: partition the UNMATCHED windows (new joins the engine makes that the old shipped font did not) into the taste-call families a human adjudicates, so each family gets its own sidebar shard. This is a presentation-only grouping computed on the review side from each unit's settled seams — it touches no pipeline shaping logic and authors no ledger predicate; the oracle stays dirty until the families are adjudicated. assign_family is total over every UNMATCHED unit (the unmatched-misc catch-all guarantees no window is ever dropped).
+"""Group the UNMATCHED windows (joins the rebuild makes that the old font did not) into verdict families, so each family gets its own class and shard on the review surface. The grouping is for presentation only: it reads each unit's settled seams, changes no shaping, and writes no ledger predicate, and the oracle stays dirty until the families are adjudicated. `assign_family` returns a family for every UNMATCHED unit, with `unmatched-misc` as the catch-all.
 
-Two axes decide a family:
+Two things decide a family:
 
-- Config gating. A window whose novel behavior appears only under a stylistic set (ss04 Group A, the ss10 isolation residue, the ss02/ss03/ss05 tail) is deferred for a later pass — sorted last, labeled by its set — so the default pass focuses on the default letter-joins of ordinary writing. A window reachable under the default config is a default family.
+- Config gating. A window that is novel only under a stylistic set goes to a deferred family named for the set (ss04, ss10, or ss03 for the ss02/ss03/ss05 cases), which sorts last. A window that is novel under the default config gets a default family.
 
-- The primary changed seam. Among the default families, the gap whose before/after seam tokens differ names the family by its (left rune, right rune) and direction: a gained join (break -> yN, or a raised seam) versus a lost join (yN -> break, or a lowered seam). Tea -> It and Oy -> It gains and the May/Utter reach-backs are their own families; the remaining gains pool as the No-chain join-maximizer gains; every loss pools as the withdrawal / seam-loss family (the context-dependent, partly engine-limited one). A window whose seams are unchanged but whose cell settled differently is the extension-non-summing family.
+- The first changed seam. Among the default families, the first gap whose before and after seam tokens differ names the family by its left and right letters and by whether the join was gained (`break` to `yN`, or a raised seam) or lost (`yN` to `break`, or a lowered seam). Gains at ·Tea·It, at ·Oy·It, and between ·May and ·Utter each have a family, other gains that touch ·No go to `no-chain-gains`, and the remaining gains go to `unmatched-misc`. Every loss goes to `seam-loss-withdrawal`. A window with no changed seam, or whose seam and cell counts do not line up, goes to `extension-non-summing`.
 """
 
 from __future__ import annotations
@@ -15,7 +15,7 @@ UNMATCHED = "UNMATCHED"
 
 
 class UnitConfigs(Protocol):
-    """The config-gating axis of a unit — the only part of it grouping reads. A real audit Unit satisfies this; so does anything else that can name which configs a window is novel under."""
+    """The part of a unit that config gating reads. `audit.Unit` satisfies it."""
 
     @property
     def config_classes(self) -> Mapping[str, str]: ...
@@ -25,7 +25,7 @@ class UnitConfigs(Protocol):
 
 
 class FamilyInput(Protocol):
-    """Exactly what assign_family reads off an enriched unit: the config-gating axis and the three tuples the primary-change scan walks. Structural rather than the concrete EnrichedUnit, so the grouper states its own inputs and a caller can satisfy it without building the twenty-odd fields enrichment produces for the surface."""
+    """What `assign_family` reads from an enriched unit: the unit's configs and the seam and cell tuples `_primary_change` scans. A test stub can satisfy it without building a whole `EnrichedUnit`."""
 
     @property
     def unit(self) -> UnitConfigs: ...
@@ -72,14 +72,14 @@ def _config_features(config: str) -> frozenset[str]:
 
 
 def _unmatched_configs(unit: UnitConfigs) -> list[str]:
-    """The configs in which this unit's window is UNMATCHED (novel) — the behavior under adjudication. Falls back to every config when the per-config map is absent (a fully-UNMATCHED triple)."""
+    """Return the configs in which the unit's window is UNMATCHED, or every config when `config_classes` is empty (a fully UNMATCHED triple)."""
     if unit.config_classes:
         return [config for config, cls in unit.config_classes.items() if cls == UNMATCHED]
     return list(unit.configs)
 
 
 def deferred_family(unit: UnitConfigs) -> str | None:
-    """The deferred stylistic-set bucket for a window whose novel behavior never appears under the default config, or None when it is default-reachable. ss04 takes precedence over ss10 over the ss02/ss03/ss05 tail when a window is gated by more than one set."""
+    """Return the deferred family for a window that is UNMATCHED only under stylistic sets, or None when it is UNMATCHED under the default config. When several sets apply, ss04 wins over ss10, and ss10 over any other set, which goes to `deferred-ss03`."""
     novel = _unmatched_configs(unit)
     if any(_config_features(config) == frozenset() for config in novel):
         return None
@@ -92,12 +92,12 @@ def deferred_family(unit: UnitConfigs) -> str | None:
 
 
 def _entry_family(cell_token: str) -> str:
-    """The family that owns a cell's entry (left) side — its lead component, e.g. qsTea_qsOy/... -> qsTea. This is the glyph a predecessor joins into."""
+    """Return the family on a cell's entry side, which is a ligature's first component: `qsTea_qsOy/...` gives `qsTea`."""
     return cell_token.split("/", 1)[0].split("_", 1)[0]
 
 
 def _exit_family(cell_token: str) -> str:
-    """The family that owns a cell's exit (right) side — its trailing component, e.g. qsTea_qsOy/... -> qsOy. This is the glyph that joins into a follower, so it names the left side of the seam that follows the cell."""
+    """Return the family on a cell's exit side, which is a ligature's last component: `qsTea_qsOy/...` gives `qsOy`."""
     return cell_token.split("/", 1)[0].rsplit("_", 1)[-1]
 
 
@@ -113,7 +113,7 @@ def _seam_rank(token: str) -> int:
 
 
 def _primary_change(enriched: FamilyInput) -> tuple[str, str, str, str] | None:
-    """The first inter-cell gap whose seam token changed, as (left family, right family, before token, after token). None when the seams are unchanged (or their lengths disagree, e.g. a ligature formed/dissolved — left to the catch-all)."""
+    """Return the first gap between cells whose seam token changed, as (left family, right family, before token, after token). Return None when no seam changed, or when the seam counts differ or do not match the cell count, as when a ligature forms or splits."""
     before = enriched.before_seams
     after = enriched.after_seams
     cells = enriched.after_cells
@@ -127,7 +127,7 @@ def _primary_change(enriched: FamilyInput) -> tuple[str, str, str, str] | None:
 
 
 def assign_family(enriched: FamilyInput) -> str:
-    """The verdict family id for one UNMATCHED unit. Total: every unit resolves to a family, with unmatched-misc as the catch-all."""
+    """Return the verdict family id for one UNMATCHED unit."""
     deferred = deferred_family(enriched.unit)
     if deferred is not None:
         return deferred

@@ -1,4 +1,4 @@
-"""The three verdict-export drafters (rebuild/REVIEW-PLAN.md §4.3): the approve pin (whole-word data-expect, syntax-checked with the repo's real parser and semantics-checked against the after font through the rebuild-side shaping harness), the reject policy edit (the smallest one-line refuse/contract/prefer counter-lever naming the provenance records that decided the new outcome, or no draft when a name-grain divergence has no one-line counter-lever), and the fine-either-way any-of record (both behaviors as full expect strings)."""
+"""The three verdict-export drafters (rebuild/REVIEW-PLAN.md §4.3). An approval drafts a whole-word data-expect pin, checked with `test_shaping.parse_expect` and against the after font through the rebuild-side shaping harness. A rejection drafts the smallest one-line refuse, contract, or prefer record that reverses the change (the counter-lever) and names the provenance records that decided the new outcome, or no draft when a name-grain divergence has no one-line counter-lever. "Fine either way" drafts an any-of record with both behaviors as full expect strings."""
 
 from __future__ import annotations
 
@@ -41,7 +41,7 @@ _test_shaping: Any = None
 
 
 class DraftError(ValueError):
-    """A draft the build cannot stand behind: a pin the repo's own parser will not read or the after font refutes, a policy record the rune schema rejects, or an any-of candidate that does not parse. The drafter raises where the draft is made rather than recording a `fail: …` value on the fragment for `check_unit` to reject downstream, so the only values a shipped fragment can carry are the passing ones and no re-read of the surface has to prove it."""
+    """A draft that fails its check: a pin `parse_expect` cannot read or the after font contradicts, a policy record the rune schema rejects, or an any-of candidate that does not parse. It is raised where the draft is made, so a shipped fragment carries only passing drafts."""
 
 
 def _import_test_shaping() -> Any:
@@ -111,7 +111,7 @@ class AnyOfDraft:
 
 
 def stylistic_set_value(configs: tuple[str, ...]) -> str | None:
-    """The pin's data-stylistic-set attribute value: null when the unit holds under the default configuration, else the first config as zero-padded space-separated set numbers ("ss02+ss03" → "02 03")."""
+    """The pin's data-stylistic-set attribute value: None when the unit's configs include the default, else the first config's set numbers, space-separated ("ss02+ss03" → "02 03")."""
     if "default" in configs:
         return None
     return " ".join(tag.removeprefix("ss") for tag in configs[0].split("+"))
@@ -139,7 +139,7 @@ def expect_string(
     spans: tuple[tuple[int, int], ...],
     seams: tuple[str, ...],
 ) -> str:
-    """A whole-word expect string at glyph grain: bare letter tokens (no variant assertions), ◊space/◊ZWNJ/\\· boundary tokens, +-joined ligature tokens, and the seam-to-connector map (break → |, y5 → ~x~, y0 → ~b~, y6 → ~6~, y8 → ~t~)."""
+    """A whole-word expect string with one token per glyph: bare letter tokens (no variant assertions), ◊space/◊ZWNJ/\\· boundary tokens, and +-joined ligature tokens, with each seam's connector from `CONNECTORS` between them."""
     parts = [_token_for_span(codepoint_values, spans[0])]
     for index, seam in enumerate(seams):
         parts.append(CONNECTORS[seam])
@@ -148,7 +148,7 @@ def expect_string(
 
 
 class _PinCollector(HTMLParser):
-    """A light data-expect cell scanner for duplicate discipline: records (text content, attribute kind, cell stylistic_set, line) for every td/span/dd carrying either expect attribute. Coarser than the test suite's run-aware collector on purpose — duplicate detection needs text plus cell-grain feature context only."""
+    """A data-expect cell scanner for duplicate detection: records (text content, attribute, cell stylistic set, line) for every td, span, or dd carrying either expect attribute. It is coarser than the test suite's run-aware collector because duplicate detection needs only the text and the cell's feature context."""
 
     _TAGS = {"td", "span", "dd"}
 
@@ -194,7 +194,7 @@ class _PinCollector(HTMLParser):
 
 
 def build_corpus_index(repo_root: Path = REPO_ROOT, files: tuple[str, ...] = CORPUS_FILES) -> dict:
-    """(text, config token) → {"source": "file:line", "attribute": ...} for every pinned corpus cell."""
+    """(text, config token) → {"source": "file:line", "attribute": ...} for every pinned corpus cell, keeping the first cell for each key."""
     index: dict[tuple[str, str], dict] = {}
     for rel in files:
         path = repo_root / rel
@@ -270,14 +270,14 @@ class Drafter:
         )
 
     def validate_semantics(self, text: str, expect: str, features: dict | None) -> str:
-        """Shape `text` against the after font and replay the expect string's assertions through the validation suite's interpretation checker. The old corpus convention maps ◊ZWNJ to the `space` glyph; the rebuild font gives U+200C its own `uni200C` glyph, so shaped uni200C slots are normalized to `space` before the check."""
+        """Shape `text` with the after font and check the expect string's assertions with the validation suite's interpretation checker. Returns "pass" or a "fail: …" message. The corpus convention maps ◊ZWNJ to the `space` glyph, while the rebuild font gives U+200C its own `uni200C` glyph, so shaped `uni200C` glyphs are renamed to `space` before the check."""
         ts = _import_test_shaping()
         try:
             tokens, connections = ts.parse_expect(expect)
         except ValueError as error:
             return f"fail: unparseable: {error}"
         row = row_for(self.after_shaper, self.after_classifier, text, kern_neutral(features))
-        # Under ss10 the pre-empt lookup renders every letter as its anchor-free `.ss10` twin with per-letter clusters (the seams were already classified on the twins, which carry no anchors, so every gap reads as a break); the expect checker knows letters by their bare cmap names, so strip the twin suffix alongside the uni200C-to-space convention.
+        # Under ss10 the pre-empt lookup replaces every letter with its anchor-free `.ss10` twin, so every seam is already classified as a break. The expect checker knows letters by their bare cmap names, so the twin suffix is stripped too.
         row = replace(
             row,
             glyphs=tuple("space" if g == "uni200C" else g.removesuffix(SS10_TWIN_SUFFIX) for g in row.glyphs),
@@ -365,7 +365,7 @@ class Drafter:
         )
 
     def _new_join_side(self, enriched: EnrichedUnit, position: int) -> str | None:
-        """When a gap adjacent to the divergent cell is joined in the new behavior but was a break in the baseline, the smallest counter-lever is a refuse on the anchor that reaches across that gap (REVIEW-PLAN §4.3: positive-record outcomes get a refuse) — a contract could only shrink an extension, never restore the break. Returns "exit" or "entry" for the side carrying the new join, or None."""
+        """The side ("exit" or "entry") of the divergent cell whose gap is joined in the new behavior but was a break in the baseline, or None. That case gets a refuse on the anchor across the gap (REVIEW-PLAN §4.3), because a contract would shorten an extension but keep the join."""
         cell = enriched.report.positions[position].settled.cell
         if (
             position < len(enriched.after_seams)
@@ -384,7 +384,7 @@ class Drafter:
         return None
 
     def _seam_identical(self, enriched: EnrichedUnit) -> bool:
-        """A name-grain divergence: both behaviors group the codepoints identically and agree on every seam, so the units differ only in which cell renders at some position."""
+        """Whether the divergence is name-grain: both behaviors have the same number of glyphs and the same seams, which the drafter treats as differing only in which cell renders at some position. The glyph spans are not compared."""
         return len(enriched.before_glyphs) == len(enriched.after_cells) and tuple(
             enriched.before_seams
         ) == tuple(enriched.after_seams)
@@ -392,7 +392,7 @@ class Drafter:
     def _baseline_cell_pin(
         self, enriched: EnrichedUnit, position: int, cell: CellId, why: str
     ) -> dict | None:
-        """The prefer record pinning the baseline cell on a seam-identical name-grain divergence (a refuse here would break a join both fonts share). Expressible when the alias map's cell for the baseline glyph differs from the new cell in entry/exit anchors or stance; adjustment-grain differences (locked twins, bind pullbacks, suppressed extensions) have no one-line counter-lever and yield no draft."""
+        """The prefer record that pins the baseline cell on a name-grain divergence, where a refuse would break a join both fonts share. It exists when the alias map's cell for the baseline glyph differs from the new cell in its entry, exit, or stance. Differences only in adjustments (locked twins, bind pullbacks, suppressed extensions) have no one-line counter-lever and return None."""
         span_start = enriched.after_spans[position][0]
         before_index = 0
         for index, (start, end) in enumerate(enriched.before_spans):
@@ -420,7 +420,7 @@ class Drafter:
 
     @staticmethod
     def _gained_extension_side(enriched: EnrichedUnit, position: int) -> tuple[str, str, int] | None:
-        """When the divergent cell carries an en-ext/ex-ext adjustment the baseline glyph at the same position lacks, the smallest counter-lever is a contract record on that side, not a refuse: returns (side keyword, height name, pixels). The caller checks `_new_join_side` first — an extension riding a join the baseline didn't have needs a refuse, because contracting it would keep the unwanted join."""
+        """(side keyword, height name, pixels) for an en-ext or ex-ext adjustment the divergent cell has and the baseline glyph at the same position lacks, or None. That case gets a contract on that side. The caller checks `_new_join_side` first, because an extension on a join the baseline did not have needs a refuse: contracting it would keep the unwanted join."""
         settled = enriched.report.positions[position].settled
         cell = settled.cell
         span_start = enriched.after_spans[position][0]
@@ -449,7 +449,7 @@ class Drafter:
         return None
 
     def _window_for_side(self, enriched: EnrichedUnit, position: int, side: str) -> dict:
-        """The window across the gap the record targets: an exit-side lever scopes to the right neighbor, an entry-side lever to the left, falling back to `_window_when` when that neighbor is a boundary."""
+        """The `when` window across the gap the record targets: an exit-side record is scoped to the right neighbor and an entry-side record to the left one, falling back to `_window_when` when that neighbor is a boundary."""
         positions = enriched.report.positions
         if side == "exit" and position + 1 < len(positions):
             right = positions[position + 1].settled
@@ -474,7 +474,7 @@ class Drafter:
         return {"word": "isolated"}
 
     def _baseline_exit(self, enriched: EnrichedUnit, position: int) -> str:
-        """The before behavior's exit state at the divergent position, read from the before seam at the codepoint gap that follows the divergent cell ("none" when the baseline broke there too)."""
+        """The baseline's exit height at the divergent position, read from the before seam at the codepoint gap after the divergent cell ("none" when the baseline broke there too)."""
         gap = enriched.after_spans[position][1] - 1
         if gap < len(enriched.unit.codepoint_values) - 1:
             seam = self._before_seam_at_gap(enriched, gap)

@@ -170,7 +170,7 @@ test('isUnitId accepts exactly the content-addressed shape: u- and eleven base58
   }
 });
 
-// A table in the shape the build writes: shard order, so each class's blocks are contiguous and ascending by id, while the classes' id ranges overlap one another. Ids are content-derived strings, so the order is string order and nothing else.
+// A table in the shape the build writes: in shard order, with each class's blocks contiguous and ascending by id, and with id ranges that overlap across classes. Ids compare as strings.
 const locatorTable = [
   { class: 'alpha', byte_start: 0, byte_length: 100, first: 'u-1111111111A', last: 'u-1111111111K', units: 4 },
   { class: 'alpha', byte_start: 100, byte_length: 100, first: 'u-1111111111P', last: 'u-1111111111Z', units: 4 },
@@ -338,7 +338,7 @@ test('machineFoldPlan marks its totals provisional under a filter the manifest c
       JSON.stringify(filter),
     );
   }
-  // The class filter is the one the plan applies itself, so it leaves the totals exact.
+  // The plan applies the class filter itself, so the totals stay exact.
   assert.equal(
     machineFoldPlan(manifest, viewState({ class: 'marker-staging-ligature-formation' }))[0].provisional,
     false,
