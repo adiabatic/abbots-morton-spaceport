@@ -465,6 +465,13 @@ export function searchUnits(units, query, limit = 50) {
   return { matches: ranked.slice(0, limit).map((entry) => entry.unit), total: ranked.length };
 }
 
+export function echoGroupOfQuery(query, echoIndex) {
+  // Echo ids are content-addressed base58, where case is significant, so the lookup keeps the query's case.
+  const id = (query ?? '').trim();
+  const members = echoIndex.get(id);
+  return members ? { id, members } : null;
+}
+
 export function isLetterToken(token) {
   return typeof token === 'string' && token.length > 1 && token.startsWith('·');
 }

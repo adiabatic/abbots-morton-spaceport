@@ -45,6 +45,7 @@ import {
   tokenSeparators,
   searchHaystack,
   searchUnits,
+  echoGroupOfQuery,
   echoChip,
   echoFillTargets,
 } from '../static/render.js';
@@ -1198,6 +1199,16 @@ test('searchUnits finds units by echo group id and by cluster id', () => {
     searchUnits(allUnits, 'c-0da49c11').matches.map((unit) => unit.id).sort(),
     ['u-CKS1rpqQsLb', 'u-JSRuJ51yvVj'],
   );
+});
+
+test('echoGroupOfQuery offers the echo group for a content-addressed id, keeping its case', () => {
+  const echoIndex = new Map([['e-3mJ7kPq2Xw9', ['u-CKS1rpqQsLb', 'u-JSRuJ51yvVj']]]);
+  assert.deepEqual(echoGroupOfQuery('  e-3mJ7kPq2Xw9 ', echoIndex), {
+    id: 'e-3mJ7kPq2Xw9',
+    members: ['u-CKS1rpqQsLb', 'u-JSRuJ51yvVj'],
+  });
+  assert.equal(echoGroupOfQuery('e-3mj7kpq2xw9', echoIndex), null, 'base58 ids are case-significant');
+  assert.equal(echoGroupOfQuery('e-3mJ7', echoIndex), null);
 });
 
 test('searchUnits finds a unit by its exact id across every shard', () => {
