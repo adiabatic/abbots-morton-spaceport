@@ -357,6 +357,7 @@
     </style>
     <script type="module">
       import { LETTERS, initToggles } from "./shared.js";
+      import { ruleBody, partitionPair, reconstructOverrides } from "./kerning-rules.js";
 
       // Punctuation kerned against the letters and against each other, including the namer dot (periodcentered) that prefixes proper nouns. It stays out of shared.js's LETTERS, which every other page uses. Punctuation has no contextual variants, so each entry's `family` is its compiled glyph name, and `glyph: true` makes its cells serialize as explicit `left:`/`right:` selectors instead of `*_family`. qsAngleParenLeft and qsAngleParenRight have only a mono record, which the proportional build uses, so they render in Sans too.
       const PUNCT = [
@@ -469,19 +470,6 @@
         return `${sideKey(junction.left)}|${sideKey(junction.right)}`;
       }
 
-      // The lines for one side of a kern rule: `left:`/`right:` for punctuation, `*_stance` for a stance prefix, and `*_family` plus an `except_*` carve-out for a family that must exclude its alternates.
-      function selectorLines(side, which) {
-        if (side.glyph) return [`${which}: [${side.family}]`];
-        if (side.stance) return [`${which}_stance: [${side.stance}]`];
-        const lines = [`${which}_family: [${side.family}]`];
-        if (side.except && side.except.length) lines.push(`except_${which}: [${side.except.join(", ")}]`);
-        return lines;
-      }
-
-      function ruleBody(left, right, value) {
-        return [...selectorLines(left, "left"), ...selectorLines(right, "right"), `value: ${value}`].join("\n");
-      }
-
       // A bare grid token is either a letter family (qsPea) or a punctuation glyph name (period); the latter serializes as an explicit `left:`/`right:` selector.
       function sideForToken(token) {
         return { family: token, stance: null, except: null, glyph: KNOWN_GLYPHS.has(token) };
@@ -551,6 +539,8 @@
 
         const known = knownJunctions();
         const leftover = [];
+        // "qsLeft|qsRight" -> the rules with a stance prefix or a hidden-junction selector, for a pair without alt-axis quadrants.
+        const pairRules = new Map();
 
         // Parses one side of a rule into a list of {family, stance, except} selectors, or null if it names an unknown family or glyph. `*_stance` gives one stance selector per entry; `*_family` gives one family selector per family, all sharing the side's `except_*` list.
         function parseSide(which, fields) {
@@ -604,6 +594,18 @@
                 if (value === 0) cellValues.delete(match.pairKey);
                 else cellValues.set(match.pairKey, value);
               } else if (match || left.stance || right.stance) {
+                const pairKey = cellKey(left.family, right.family);
+                if (!altQuadrants(pairKey).length) {
+                  // serialize() cuts such a pair into disjoint pieces, so its rules are read back together once every document is parsed.
+                  const exceptOf = (which) => (`except_${which}` in fields ? parseInlineList(fields[`except_${which}`]) : []);
+                  if (!pairRules.has(pairKey)) pairRules.set(pairKey, []);
+                  pairRules.get(pairKey).push({
+                    left: { node: left.stance, except: exceptOf("left") },
+                    right: { node: right.stance, except: exceptOf("right") },
+                    value,
+                  });
+                  continue;
+                }
                 // A precomputed hidden junction, or any other rule with a stance prefix, is a per-junction override.
                 if (value === 0) stanceOverrides.delete(key);
                 else stanceOverrides.set(key, { left, right, value });
@@ -613,6 +615,16 @@
                 else cellValues.set(cellKey(left.family, right.family), value);
               }
             }
+          }
+        }
+
+        for (const [pairKey, rules] of pairRules) {
+          const [lf, rf] = pairKey.split("|");
+          for (const region of reconstructOverrides(lf, rf, cellValues.get(pairKey) || 0, rules)) {
+            if (region.value === 0) continue;
+            const left = region.left === null ? sideForToken(lf) : { family: lf, stance: region.left, except: null };
+            const right = region.right === null ? sideForToken(rf) : { family: rf, stance: region.right, except: null };
+            stanceOverrides.set(junctionKey({ left, right }), { left, right, value: region.value });
           }
         }
 
@@ -667,23 +679,10 @@
               if (!emitted.has(overrideKey)) bodies.push(ruleBody(override.left, override.right, override.value));
             }
           } else if (overrides && overrides.size) {
-            // A pair with overrides and no alt-axis quadrants: the whole-family cell with the overridden stance prefixes carved out, then one rule per override.
-            if (cellValue !== 0) {
-              const exceptLeft = new Set();
-              const exceptRight = new Set();
-              for (const [, override] of overrides) {
-                if (override.left.stance) exceptLeft.add(override.left.stance);
-                if (override.right.stance) exceptRight.add(override.right.stance);
-              }
-              const lines = [`left_family: [${lf}]`, `right_family: [${rf}]`];
-              if (exceptLeft.size) lines.push(`except_left: [${[...exceptLeft].join(", ")}]`);
-              if (exceptRight.size) lines.push(`except_right: [${[...exceptRight].join(", ")}]`);
-              lines.push(`value: ${cellValue}`);
-              bodies.push(lines.join("\n"));
-            }
-            for (const [, override] of [...overrides].sort((a, b) => a[0].localeCompare(b[0]))) {
-              bodies.push(ruleBody(override.left, override.right, override.value));
-            }
+            // A pair with overrides and no alt-axis quadrants: disjoint rules that give each glyph pair its most specific override, or the cell value where no override matches. kerning-rules.js says how the pieces are cut.
+            const sorted = [...overrides].sort((a, b) => a[0].localeCompare(b[0]));
+            const regions = sorted.map(([, o]) => ({ left: o.left.stance || null, right: o.right.stance || null, value: o.value }));
+            bodies.push(...partitionPair(sideForToken(lf), sideForToken(rf), cellValue, regions));
           } else if (cellValue !== 0) {
             bodies.push(ruleBody(sideForToken(lf), sideForToken(rf), cellValue));
           }

@@ -1,9 +1,13 @@
 import json
 import re
+import subprocess
 import sys
+import textwrap
 from pathlib import Path
+from typing import Any
 
 import uharfbuzz as hb
+import yaml
 
 from quikscript_shaping_helpers import (
     _assert_no_failures,
@@ -317,3 +321,102 @@ def test_generate_kern_fea_both_sides_partition_is_disjoint() -> None:
     for left in no_glyphs:
         for right in utter_glyphs:
             assert (left, right) in cover, f"{(left, right)} kerned by no quadrant"
+
+
+KERNING_PAGE_GLYPHS = [
+    "qsExcite",
+    "qsExcite.en-y0",
+    "qsExcite.en-y0.noexit",
+    "qsGay",
+    "qsGay.ex-y0",
+    "qsGay.ex-y0.ex-ext-1",
+    "qsGay.ex-y5",
+]
+
+KERNING_PAGE_OVERRIDES = [
+    {"left": "qsExcite.en-y0.noexit", "right": None, "value": -3},
+    {"left": "qsExcite.en-y0.noexit", "right": "qsGay.ex-y0", "value": 1},
+    {"left": "qsExcite.en-y0.noexit", "right": "qsGay.ex-y0.ex-ext-1", "value": 2},
+    {"left": None, "right": "qsGay.ex-y5", "value": -2},
+]
+
+
+def _kerning_page(call: str, payload: object) -> Any:
+    script = textwrap.dedent("""
+        import { readFileSync } from 'node:fs';
+        import { partitionPair, reconstructOverrides } from './site/kerning-rules.js';
+        const input = JSON.parse(readFileSync(0, 'utf8'));
+        const excite = { family: 'qsExcite', stance: null, except: null, glyph: false };
+        const gay = { family: 'qsGay', stance: null, except: null, glyph: false };
+        process.stdout.write(JSON.stringify(%s));
+        """) % call
+    result = subprocess.run(
+        ["node", "--input-type=module", "-e", script],
+        input=json.dumps(payload),
+        capture_output=True,
+        text=True,
+        check=True,
+        cwd=ROOT,
+    )
+    return json.loads(result.stdout)
+
+
+def _partition_docs(cell_value: int) -> list[dict]:
+    bodies = _kerning_page(
+        "partitionPair(excite, gay, input.cell, input.overrides)",
+        {"cell": cell_value, "overrides": KERNING_PAGE_OVERRIDES},
+    )
+    return [yaml.safe_load(body) for body in bodies]
+
+
+def _prefix_depth(prefix: str | None) -> int:
+    return -1 if prefix is None else len(prefix)
+
+
+def _intended_value(left: str, right: str, cell_value: int) -> int:
+    matching = [
+        o
+        for o in KERNING_PAGE_OVERRIDES
+        if (o["left"] is None or _matches_stance(left, o["left"]))
+        and (o["right"] is None or _matches_stance(right, o["right"]))
+    ]
+    if not matching:
+        return cell_value
+    best = max(matching, key=lambda o: (_prefix_depth(o["left"]), _prefix_depth(o["right"])))
+    return best["value"]
+
+
+def test_kerning_page_partition_gives_each_glyph_pair_one_intended_value() -> None:
+    """The kerning page writes a pair's cell and its nested, left-only and right-only junction overrides as rules that kern every glyph pair once, with the most specific override's value or the cell value."""
+    docs = _partition_docs(-1)
+    fea = generate_kern_fea({f"d{i}": doc for i, doc in enumerate(docs)}, {}, KERNING_PAGE_GLYPHS, 50)
+    cover = _coverage(fea)
+    for left in (g for g in KERNING_PAGE_GLYPHS if g.startswith("qsExcite")):
+        for right in (g for g in KERNING_PAGE_GLYPHS if g.startswith("qsGay")):
+            assert (left, right) in cover, f"{(left, right)} kerned by no rule"
+            assert _value(fea, cover[(left, right)]) == 50 * _intended_value(
+                left, right, -1
+            ), f"{(left, right)} kerned by {cover[(left, right)]}"
+
+
+def test_kerning_page_reads_its_partition_back_as_the_same_overrides() -> None:
+    """The kerning page reads the carved rules it wrote back into the overrides it wrote them from, ignoring a carve-out that names another family's stance, as a rule written for several families at once does."""
+    docs = _partition_docs(-1)
+    cell_docs = [d for d in docs if "left_family" in d and "right_family" in d]
+    assert [d["value"] for d in cell_docs] == [-1]
+
+    def side(doc: dict, which: str) -> dict:
+        node = doc.get(f"{which}_stance", [None])[0]
+        foreign = ["qsTea.alt"] if node is None else []
+        return {"node": node, "except": doc.get(f"except_{which}", []) + foreign}
+
+    rules = [
+        {"left": side(d, "left"), "right": side(d, "right"), "value": d["value"]}
+        for d in docs
+        if d not in cell_docs
+    ]
+    overrides = _kerning_page(
+        "reconstructOverrides('qsExcite', 'qsGay', input.cell, input.rules)", {"cell": -1, "rules": rules}
+    )
+    key = lambda o: (str(o["left"]), str(o["right"]))
+    assert sorted(overrides, key=key) == sorted(KERNING_PAGE_OVERRIDES, key=key)
