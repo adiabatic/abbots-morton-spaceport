@@ -1,8 +1,6 @@
-"""Slim, side-effect-free reachability view over compiled Quikscript IR.
+"""Join-consistency checks, join warnings, and pending-entry guard tables for compiled Quikscript glyphs.
 
-The validator added in subtask A2 of the parent plan needs structural facts about ``dict[str, JoinGlyph]`` (which families exist, which variants of a family carry which entry/exit Ys, which pair-overrides apply under which contexts) without dragging in the FEA emitter's lookup-DAG and cycle-detection machinery in ``quikscript_fea._analyze_quikscript_joins``.
-
-``JoinReachability`` is the narrow waist for that. Field shapes mirror the corresponding entries on ``_JoinAnalysis`` for downstream familiarity, but the population logic intentionally reads ``JoinGlyph`` attributes directly. Lookup ordering, cycle detection, and the FEA emitter's policy-specific gates stay in ``quikscript_fea`` where they belong.
+``JoinReachability`` indexes a ``dict[str, JoinGlyph]`` by family, anchor Y, and pair selector. Its fields are named after the matching ``_JoinAnalysis`` fields in ``quikscript_fea``, but it is built from ``JoinGlyph`` attributes alone, without the FEA emitter's lookup ordering, cycle detection, and policy gates. ``glyph_compiler.compile_glyph_set`` runs ``validate_join_consistency`` and ``warn_join_contract_issues`` on the Senior build, and ``quikscript_fea._emit_quikscript_calt`` takes its guard tables from ``derive_pending_bk_entry_guards`` and ``derive_pending_fwd_strip_guards``.
 """
 
 import warnings
@@ -32,11 +30,14 @@ class JoinContractWarning(UserWarning):
 
 
 class OrphanAnchorWarning(UserWarning):
-    """An entry or exit anchor at some Y has no counterpart at that Y on any other glyph, so no cursive attachment can ever fire there."""
+    """An entry or exit anchor at some Y has no opposite anchor at that Y on any glyph, so no cursive attachment can happen there."""
 
 
 class NonJoiningNeighborSelectionWarning(UserWarning):
-    """The `calt` emitter would have selected a contextual exit/entry variant for an adjacent neighbor it cannot cursively join, with no directional `before-<family>`/`after-<family>` modifier naming the neighbor — a single-rule isolation leak. The derived join contract drops these from their rules' context; this warning summarizes how many were dropped. Raised by the enforcement pass in `_emit_quikscript_calt` (doc/history/2026-06-03--leak-cleanup/leak-prevention-plan.md), which also dumps the full partition under `tmp/`."""
+    """The derived join contract dropped a different number of selections than `_EXPECTED_CONTRACT_DROP_COUNT` in `quikscript_fea`.
+
+    A dropped selection is one where the `calt` emitter would pick a variant whose exit (forward) or entry (backward) cannot join the neighbor, with no `before-<family>` / `after-<family>` modifier naming that neighbor. `_JoinContractRecorder.flush` always writes the full list to `tmp/leak-contract-emit.txt`. It emits this warning only when the glyph set contains every letter in `_BASELINE_REPERTOIRE_SENTINELS`, which marks the production glyph set, because the unit tests' small glyph sets drop other counts.
+    """
 
 
 __all__ = [
@@ -62,9 +63,9 @@ class DerivedBkGuard:
 
 @dataclass(frozen=True)
 class FwdStripGuard:
-    """A predecessor glyph (whose substitution would land an exit anchor at ``predecessor_exit_y``) is followed by bare ``mid_base``, which itself forward-substitutes to a stripped stance (no entry anchors). The reach lands on nothing, so the predecessor's substitution should be suppressed.
+    """A bare base that, when it follows a predecessor, should suppress the predecessor's substitution.
 
-    Used by ``_emit_narrow_mid_entry_strip_guards`` to relax the bare-base skip on a per-(source, variant, exit_y) basis without the over-suppression that an unconditional relaxation would cause.
+    ``mid_base``'s forward substitution picks a stance with no entry at the predecessor's exit Y, so the predecessor's exit would join nothing. ``_emit_narrow_mid_entry_strip_guards`` uses these guards to relax its bare-base skip for each ``(source, variant, exit_y)`` key separately, because relaxing it for every predecessor suppresses too much.
     """
 
     mid_base: str
@@ -92,7 +93,7 @@ class _PairIntent:
     y: int
 
 
-# Curated `ignore sub` narrowings consumed by `_emit_pending_bk_entry_guards` in `tools/quikscript_fea.py`. Each entry says "when forward-subbing `source` to `replacement` at `entry_y`, suppress the substitution after these `guard_glyphs`, optionally narrowed by `before_bases`." The per-replacement `before_bases` values depend on the FEA emitter's per-call-site right-context narrowing, which can't be derived from `JoinReachability` alone — that's why these tables are curated rather than computed. When adding entries, mirror the runtime behavior at the relevant call site in `_emit_quikscript_calt` and verify with a FEA byte-diff.
+# Hand-written `ignore sub` guards for `_emit_pending_bk_entry_guards` in `tools/quikscript_fea.py`. A key `(source, replacement, entry_y)` names the substitution of `source` by `replacement`, where `replacement` has no entry at `entry_y`. For each guard the emitter writes `ignore sub [guard_glyphs] source' [right context]`, so the substitution does not happen after a guard glyph. `before_bases`, when set, limits the right context to variants of those bases. The right context depends on the FEA emitter's call sites and cannot be derived from `JoinReachability`, so the table is written by hand. When adding an entry, match the behavior at the relevant call site in `_emit_quikscript_calt` and check the generated FEA with a byte diff.
 _PENDING_BK_ENTRY_GUARDS: dict[tuple[str, str, int], tuple[DerivedBkGuard, ...]] = {
     ("qsTea", "qsTea.ex-y0", 0): (
         DerivedBkGuard(("qsEt",)),
@@ -233,11 +234,9 @@ class JoinReachability:
 
 
 def validate_join_consistency(join_glyphs: Mapping[str, JoinGlyph]) -> None:
-    """Steady-state cursive-join consistency check.
+    """Raise ``ValueError`` listing every join-selector mismatch in ``join_glyphs``.
 
-    For every stance F that declares a contextual selector (``select.before`` or ``select.after``) and carries the matching cursive anchor, assert that some reachable variant of each named target family carries a compatible anchor on the other side at the same Y. Validates the default state plus each distinct stylistic-set gate observed in the corpus.
-
-    Raises ``ValueError`` listing every mismatch. Orphan anchors (an exit Y with no matching entry Y anywhere, or vice versa) are warned to stderr only.
+    For each stance with a ``select.before`` or ``select.after`` selector and the matching anchor, some reachable variant of each named family must have the opposite anchor at the same Y. This is checked with no stylistic set on and under each stylistic set that gates a pair override. ``_check_concrete_selector_consistency`` then checks each selector against the glyphs it expands to under ``_analyze_quikscript_joins``. Orphan anchors (a Y with an exit but no entry anywhere, or the reverse) are reported as ``OrphanAnchorWarning`` warnings, not errors.
     """
     reachability = JoinReachability.from_join_glyphs(join_glyphs)
     glyph_meta_dict = dict(reachability.glyph_meta)
@@ -349,11 +348,9 @@ def _has_default_join_coverage(
     *,
     direction: str,
 ) -> bool:
-    """Whether ``family`` has a default stance that joins with ``opposite_family`` at y.
+    """Return whether ``family`` has a default stance that joins ``opposite_family`` at ``y``.
 
-    A default stance is one that carries the right anchor (``exit`` for ``direction="exit"``, ``entry`` / ``entry_curs_only`` for ``"entry"``) but no matching ``before:`` / ``after:`` selector — meaning the stance fires whenever its base does, with no per-pair gating. Such a stance silently covers every right-hand (or left-hand) family that isn't excluded by ``not_before:`` / ``not_after:``.
-
-    On the entry-direction (forward-intent) branch, candidates whose ``noentry_after`` lists ``opposite_family`` are also rejected: at runtime they're displaced to their ``.noentry`` counterpart whenever the opposite family precedes, so they don't actually cover the join.
+    A default stance has an anchor at ``y`` on the ``direction`` side (``exit``, or ``entry`` / ``entry_curs_only``) and no ``before:`` / ``after:`` selector on that side, so it applies to every neighbor its ``not_before:`` / ``not_after:`` does not exclude. Generated and ``.noentry`` variants are not considered. For ``direction="entry"``, a stance whose ``noentry_after`` names ``opposite_family`` does not count, because it becomes its ``.noentry`` form after that family.
     """
     variant_names = reachability.base_to_variants.get(family, frozenset())
     for variant_name in variant_names:
@@ -388,9 +385,9 @@ def _right_family_displaces_via_noentry(
     left_family: str,
     y: int,
 ) -> bool:
-    """Whether the right family's entry-y=`y` variants are displaced by ``noentry_after``.
+    """Return whether a ``right_family`` variant with an entry at ``y`` lists ``left_family`` in its ``noentry_after``.
 
-    The backward-intent suppression call to ``_has_default_join_coverage`` inspects the *left* family (looking for a default exit at ``y``). `noentry_after` lives on the *right* family, so this helper provides the parallel check: if any right-family variant carrying entry y=`y` lists ``left_family`` in its ``noentry_after``, the receiver is displaced to its ``.noentry`` counterpart whenever ``left_family`` precedes — so the left family's "default exit" does not actually support the join, and the one-sided-selection warning should not be suppressed.
+    Such a variant becomes its ``.noentry`` form after ``left_family``, so a default exit on the left family does not make the join, and the backward one-sided warning must not be suppressed. This is the right-side counterpart of the ``noentry_after`` check in ``_has_default_join_coverage``, which inspects only the left family for backward intents.
     """
     for variant_name in reachability.base_to_variants.get(right_family, frozenset()):
         meta = reachability.glyph_meta.get(variant_name)
@@ -462,14 +459,16 @@ def _collect_one_sided_join_warnings(
 def _collect_noentry_shape_leak_warnings(
     reachability: JoinReachability,
 ) -> list[str]:
-    """Variants whose joining shape is wasted because of a ``noentry_after``.
+    """Return a warning for each left variant whose joining stub has nothing to attach to because the right letter's ``noentry_after`` removes its entry.
 
-    For every variant ``V_R`` carrying ``noentry_after: [F_1, …]`` and at least one entry-side anchor at Y, find every variant ``V_L`` of every named family ``F_i`` that
+    Take a variant ``V_R`` with an entry at Y and ``noentry_after: [F, …]``. ``V_R`` becomes its ``.noentry`` form after ``F``. A variant ``V_L`` of ``F`` is reported when all of these hold:
 
-    - exits at Y, and
-    - is plausibly selected when ``F_i`` precedes ``V_R``'s family — i.e. ``V_R.base_name`` is not in ``V_L.not_before``, and either ``V_L.before`` is empty or contains ``V_R.base_name``, and ``V_L`` is not itself a generated/``.noentry`` stance.
+    - it exits at Y;
+    - it can be selected before ``V_R``'s base: its ``before`` is empty or names that base, and its ``not_before`` does not;
+    - it is neither generated nor ``.noentry``;
+    - it has no entry-preserving exit-noentry sibling.
 
-    These ``V_L`` variants choose a joining shape whose join is voided at runtime by the ``noentry_after`` substitution — the joining stub is visually rendered with nothing to attach to. Pairs are deduped on ``(V_L, R_base, y)`` so multiple ``V_R`` siblings of one right family surface a single warning.
+    Warnings are deduplicated on ``(V_L, right base, Y)``, so several ``V_R`` variants of one family give one warning.
     """
     pairs: dict[tuple[str, str, int], str] = {}
 
@@ -591,7 +590,7 @@ def _collect_bitmap_gap_warnings(
                             and right_meta.generated_from is not None
                             and _ink_bounds_at_y(right_meta, y) is None
                         ):
-                            # The trim removed every ink cell at the join row. Fall back to the pre-trim parent bitmap so the gap check sees the ink position the predecessor's exit is meant to overlap, instead of flagging the empty row as a missing-side join.
+                            # The trim removed all ink in the join row, so measure against the untrimmed parent's bitmap, where the predecessor's exit is meant to overlap. Otherwise the empty row is reported as a join with no ink on one side.
                             parent = reachability.glyph_meta.get(right_meta.generated_from)
                             if parent is not None:
                                 right_bounds_meta = parent
@@ -624,7 +623,7 @@ def _collect_bitmap_gap_warnings(
 def _default_default_pair_keys(
     reachability: JoinReachability,
 ) -> set[tuple[str, str, int]]:
-    """Family triples where both sides could theoretically join at y, with no explicit `before:` / `after:` gating. The intent-keyed pass only walks pairs where one side declared a pair selector; this fills in the rest so the bitmap-gap collector sees default-default joins too."""
+    """Return every ``(left family, right family, y)`` where some variant of the left family exits at ``y`` and some variant of the right family enters at ``y``, ignoring ``.noentry`` variants. The intent-keyed pass covers only pairs where one side has a pair selector, so these keys add the joins between default stances to the bitmap-gap check."""
     exit_ys: dict[str, set[int]] = {}
     entry_ys: dict[str, set[int]] = {}
     for family, variants in reachability.base_to_variants.items():
@@ -708,7 +707,7 @@ def _ligature_base_mutates_at_exit(
     meta: JoinGlyph,
     opposite_family: str,
 ) -> bool:
-    """A base ligature glyph (no exit/entry suffix) never appears at runtime when its trailing component has an `extend_exit_before` or `contract_exit_before` rule that fires for the right-side family — the rule mutates the trailing component pre-liga, then `calt_liga` collapses into the corresponding ligature variant. Skipping such bases here keeps the bitmap-gap warning collector from flagging theoretical pairs that can't form at runtime."""
+    """Return whether a ligature with no exit extension or contraction suffix cannot appear before ``opposite_family`` because its trailing component has an ``extend_exit_before`` or ``contract_exit_before`` rule targeting that family. The rule changes the trailing component before ligation, and ``calt_liga`` then forms the matching ligature variant instead, so the bitmap-gap check skips this pair."""
     if not meta.sequence:
         return False
     if meta.extended_exit_suffix or meta.contracted_exit_suffix:
@@ -898,8 +897,8 @@ def _ligature_component_propagates_context(
     opposite_family: str,
     side: str,
 ) -> bool:
-    # `_add_entry_contraction_variants` / `_add_entry_extension_variants` (and the symmetric exit-side helpers) in `quikscript_ir` propagate a component's contract / extend rule onto the matching ligature variant but leave the variant's own `after` / `before` empty (the propagated context is intersected with the base ligature's, which is `()`). At runtime `calt_liga` still routes through that variant whenever the component stance's contraction / extension fires, so accept it as a swap candidate when the relevant component family carries a matching rule whose targets include `opposite_family`. The lead component drives entry-side propagation; the trailing component drives exit-side.
-    # Ligature inheritance (mirroring `expand_selectors_for_ligatures`) applies to the rule's `targets` list too: a target family `qsZ` matches `opposite_family` directly *or* matches when `opposite_family` is a ligature whose lead (entry side) or trailing (exit side) component is `qsZ`, because runtime context lookups see that boundary component pre-liga.
+    # `_add_entry_contraction_variants`, `_add_entry_extension_variants`, and the exit-side helpers in `quikscript_ir` copy a component's contract or extend rule onto the matching ligature variant but leave that variant's own `after` / `before` empty, because the copied context is intersected with the base ligature's empty context. `calt_liga` still forms that variant whenever the component's rule fires, so accept it when the component family has a matching rule whose targets include `opposite_family`. The lead component decides the entry side and the trailing component the exit side.
+    # As in `expand_selectors_for_ligatures`, a target `qsZ` also matches when `opposite_family` is a ligature whose component next to the candidate is `qsZ` (its trailing component on the entry side, its lead component on the exit side), because context lookups run before ligation.
     if source_meta is None or not source_meta.sequence:
         return False
     if side == "entry":
@@ -979,7 +978,7 @@ def _first_anchor_at(anchors: tuple[tuple[int, int], ...], y: int) -> tuple[int,
 
 
 def _effective_exit_x(meta: JoinGlyph, anchor_x: int, right_family: str | None) -> int:
-    # `extend_exit_before` widens the bitmap rightward by the same amount it shifts the exit anchor, so the visible gap is unchanged — skip it.
+    # `extend_exit_before` widens the bitmap to the right by as much as it moves the exit anchor, so it does not change the visible gap and is not modeled.
     if right_family is None:
         return anchor_x
     if meta.contract_exit_before and right_family in meta.contract_exit_before.targets:
@@ -1771,7 +1770,7 @@ def _heal_curated_guards_table(
     table: dict[tuple[str, str, int], tuple[DerivedBkGuard, ...]],
     reachability: JoinReachability,
 ) -> dict[tuple[str, str, int], tuple[DerivedBkGuard, ...]]:
-    """Route every curated glyph-name reference through `heal_glyph_name` so the table survives `_synthesize_anchor_modifiers` renames without hand-editing each entry."""
+    """Return ``table`` with every glyph name passed through `heal_glyph_name`, so hand-written names resolve to the compiled names that `_synthesize_anchor_modifiers` produces."""
     from quikscript_ir import family_names_from_compiled, heal_glyph_name
 
     available = frozenset(reachability.glyph_meta)
@@ -1797,10 +1796,7 @@ def _heal_curated_guards_table(
 def derive_pending_bk_entry_guards(
     reachability: JoinReachability,
 ) -> dict[tuple[str, str, int], tuple[DerivedBkGuard, ...]]:
-    """Return the curated `_PENDING_BK_ENTRY_GUARDS` table.
-
-    The curated names predate `_synthesize_anchor_modifiers`; we route each through `heal_glyph_name` so renames like `qsExcite.ex-y0.before-vertical` → `qsExcite.en-y0.ex-y0.before-vertical` resolve transparently.
-    """
+    """Return `_PENDING_BK_ENTRY_GUARDS` with its glyph names healed to compiled names, such as `qsExcite.ex-y0.before-vertical` to `qsExcite.en-y0.ex-y0.before-vertical`."""
     return _heal_curated_guards_table(
         {key: tuple(guards) for key, guards in _PENDING_BK_ENTRY_GUARDS.items()},
         reachability,
@@ -1810,11 +1806,9 @@ def derive_pending_bk_entry_guards(
 def derive_pending_fwd_strip_guards(
     reachability: _FwdStripReachability,
 ) -> dict[tuple[str, str, int], tuple[FwdStripGuard, ...]]:
-    """Forward-strip guards for predecessor substitutions.
+    """Return forward-strip guards keyed by predecessor ``(source_base, variant, exit_y)``.
 
-    For each predecessor ``(source, variant, exit_y)`` whose exit anchor at ``exit_y`` would land on a follower's stripped stance, return the bare bases ``B`` whose ``fwd_replacements[exit_y]`` is itself entry-stripped. The FEA emitter uses these guards to suppress the predecessor's substitution when bare ``B`` follows and its forward upgrade would strip its only matching entry, leaving the predecessor's reach pointing at nothing.
-
-    Predecessors come from both ``fwd_replacements`` and ``fwd_pair_overrides``; the runtime emission decides whether to actually emit per call site.
+    Predecessors come from ``fwd_replacements`` and ``fwd_pair_overrides`` and must pass ``_predecessor_visually_reaches``. A predecessor's guards name each bare base ``B`` whose forward substitution at ``exit_y`` has no entry at ``exit_y`` while another variant of ``B`` has one (``_bases_with_stripped_fwd_per_y``). The FEA emitter uses them to suppress the predecessor's substitution when bare ``B`` follows, since the predecessor's exit would then join nothing. ``_emit_narrow_mid_entry_strip_guards`` decides at each call site whether to emit a guard.
     """
     return _compute_derived_fwd_strip_guards(reachability)
 
@@ -1871,9 +1865,9 @@ def _revert_keeps_reaching_exit(
     predecessor_variant: str,
     exit_y: int,
 ) -> bool:
-    """Whether reverting ``predecessor_variant`` to its bare ``source_base`` would leave the very same reaching exit stroke in place.
+    """Return whether keeping ``source_base`` in place of ``predecessor_variant`` would leave the same reaching exit stroke.
 
-    A forward-strip guard exists to erase a predecessor's dangling exit connector by demoting it back to the bare base when the follower strips its entry. That only helps when the bare base's exit at ``exit_y`` is shorter (or absent). For a deep half stance that shares its full base's lower body — ``qsDay.half`` / ``qsZoo.half``, whose riser is trimmed but whose baseline exit connector is byte-identical to the full stance — demoting half→full removes nothing on the right yet costs the left-side join (the full stance enters at the x-height, so it can no longer attach to a baseline-exiting predecessor). When that is the case the guard is futile and harmful, so callers skip it and let the half stance stand.
+    ``source_base`` is the input glyph of the substitution that produces ``predecessor_variant``. It is often a bare base, but it can also be a variant or a ``.noentry`` stance. A forward-strip guard blocks that substitution to remove a dangling exit connector. That only helps when ``source_base``'s exit at ``exit_y`` is shorter or absent. In ``·It ~b~ ·Day.half``, ``qsDay.half.en-y0.ex-y0`` has the same rows as ``qsDay`` from its baseline exit down, so keeping ``qsDay`` removes nothing on the right and breaks the join with ·It, because ``qsDay`` enters at the x-height. When this returns True, the caller skips the guard and keeps the half stance.
     """
     bare_meta = glyph_meta.get(source_base)
     variant_meta = glyph_meta.get(predecessor_variant)
@@ -1883,7 +1877,7 @@ def _revert_keeps_reaching_exit(
         return False
     if not _predecessor_visually_reaches(glyph_meta, source_base):
         return False
-    # The revert must also cost a left-side join: the variant carries an entry at a Y the bare base can't offer (the half stance's baseline entry vs. the full stance's x-height entry). Without this the variant is just an exit-only or noentry sibling, and dropping its guard would change shaping for stances that don't need rescuing.
+    # Blocking the substitution must also lose a left-side join: the variant has an entry Y that `source_base` lacks (the half stance's baseline entry against the full stance's x-height entry). Otherwise the variant is an exit-only or noentry sibling, and skipping its guard would change shaping where no join is at stake.
     if not set(variant_meta.all_entry_ys) - set(bare_meta.all_entry_ys):
         return False
     y = exit_y
@@ -1901,17 +1895,13 @@ def _predecessor_visually_reaches(
     glyph_meta: Mapping[str, JoinGlyph],
     variant_name: str,
 ) -> bool:
-    """Whether the predecessor variant's exit stroke is a connector that visually reaches toward the next glyph (deep-letter terminal arm, or explicit exit extension).
+    """Return whether the variant's exit stroke is a connector reaching toward the next glyph, which is left dangling when the follower's stance has no entry.
 
-    Three paths qualify:
+    Three cases qualify:
 
-    * Deep-letter terminal arms: when the variant has ink below the exit anchor's row, the exit stroke is a connector. ``qsGay.ex-y0`` exits at y=0 with body continuing below, so its y=0 stroke is a connector reaching out to join the next glyph. A short letter that exits at its bottom row (e.g. ``qsUtter.alt``) has no ink below — its y=0 stroke is just the bottom edge, terminating at its own bounding box; it sits cleanly next to whatever follows even without a cursive join.
-
-    * Explicit exit extensions: ``.ex-ext-1`` (and friends) widen the glyph's bitmap toward the follower, materializing real ink that strands when the follower can't receive it. Short letters that gain an extension (e.g. ``qsEight.ex-ext-1``) qualify here even though no ink sits below the exit row in the source bitmap.
-
-    * Tall baseline-exit stances: these flatten or carry a tall body's lower stroke into a baseline connector. If the follower later strips its baseline entry, that connector becomes a visible isolation leak even without an explicit extension suffix.
-
-    Only the connector variants leave a visibly dangling stroke when the follower's runtime stance strips its entry anchor.
+    * An exit extension (``.ex-ext-N``) adds ink toward the follower, even on a Short letter such as ``qsEight.ex-ext-1``.
+    * A stance of 9 or more rows with the ``ex-y0`` modifier and its exit at y=0 carries its body's lower stroke into a baseline connector.
+    * Ink below the exit row means the exit stroke leaves the body as a connector, as in ``qsGay.ex-y0``. A Short letter that exits at its bottom row, such as ``qsUtter.alt.ex-y0``, has no ink below, so its exit is only the glyph's bottom edge and does not count.
     """
     meta = glyph_meta.get(variant_name)
     if meta is None or not meta.exit or not meta.bitmap:
@@ -1937,7 +1927,7 @@ def _predecessor_visually_reaches(
 def _bases_with_stripped_fwd_per_y(
     reachability: _FwdStripReachability,
 ) -> dict[int, frozenset[str]]:
-    """Index bare bases by exit Y where the bare base's forward upgrade strips entries AND the base's family still has a sibling with an entry at that Y. Both conditions are required for a guard to make sense: the strip is what lands the predecessor's reach on nothing, and the family's entry-bearing sibling is what makes the bare base appear in the predecessor's @entry_y class in the first place."""
+    """Map each Y to the bare bases whose forward substitution at Y gives a stance with no entry at Y while another variant of the base has an entry at Y. The first condition is what leaves the predecessor's exit with nothing to join. The second is what puts the bare base in the predecessor's @entry_y class. A pair-override replacement whose ink at Y starts in the same column as an entry-bearing variant's is skipped."""
     glyph_meta = reachability.glyph_meta
     by_y: dict[int, set[str]] = {}
     family_entry_ys_by_base: dict[str, set[int]] = {}

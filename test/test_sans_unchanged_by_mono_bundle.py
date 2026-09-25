@@ -1,6 +1,6 @@
-"""Guard that bundling Departure Mono into the mono font didn't leak into the proportional fonts.
+"""Check that Departure Mono's glyphs, which the mono font bundles, do not appear in the Sans fonts.
 
-The mono build now carries the whole of Departure Mono — its glyphs and its GDEF/GSUB/GPOS. The Sans (Junior/Senior) families derive their own Latin and marks from the `.prop` data instead, so none of Departure's distinctive glyph names should appear in them. The Sans fonts keep their own GSUB/GPOS (cursive joining, kerning), so we assert only that the Departure-specific glyphs are absent — not that Sans lacks layout tables.
+The mono font carries Departure Mono's glyphs and its GDEF, GSUB, and GPOS tables. The Sans fonts (Junior and Senior) build their Latin letters and marks from the `.prop` data and have their own GSUB and GPOS for joining and kerning. So the tests check only that a sample of Departure-only glyph names is absent from Sans, and that Mono has those glyphs and its GDEF, GSUB, and GPOS tables.
 """
 
 from pathlib import Path
@@ -11,7 +11,7 @@ from fontTools.ttLib import TTFont
 ROOT = Path(__file__).resolve().parent.parent
 SITE_DIR = ROOT / "site"
 
-# Glyph names that belong to Departure Mono and have no counterpart in the Sans `.prop`-derived design.
+# Departure Mono glyph names that the Sans `.prop` data has no counterpart for.
 DEPARTURE_ONLY_GLYPHS = [
     "gravecomb",
     "acutecomb",

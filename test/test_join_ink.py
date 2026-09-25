@@ -1,10 +1,10 @@
-"""Shaped-ink join check.
+"""Check that shaped ink meets at every intended join.
 
-Drive HarfBuzz with every plain ·X·Y pair surrounded by 1 left + 1 right context glyph (the same 45-entry context set the other pair sweeps use), then for each adjacent pair in the shaped output verify that wherever the design intends a connection — either both sides have cursive anchors at the same Y, OR one side carries an extension suffix at a Y that has no matching partner anchor — the rendered ink columns actually touch.
+The test shapes every plain ·X·Y pair with one context glyph on each side, drawn from `_context_chars()`. For each adjacent pair in the output it finds the rows where the design intends a connection: both sides have cursive anchors at that Y, or one side has an extension suffix at a Y where the other side has no matching anchor. At each such row the left glyph's ink must reach the right glyph's ink.
 
-The companion `_collect_bitmap_gap_warnings` in `tools/quikscript_join_analysis.py` performs the cursive-meet case structurally (no shaping). The shaped pass is the ground truth: it sees the exact glyph variant calt selects in context, and the cursive shifts GPOS actually applies. The stranded-extension cases mirror what `test_no_stranded_extension_joins_anywhere` flags by anchor metadata, but expressed as a measured ink gap.
+`_collect_bitmap_gap_warnings` in `tools/quikscript_join_analysis.py` checks the cursive case from bitmaps and anchors without shaping. This test shapes, so it sees the variant `calt` selects in context and the offsets GPOS applies. The stranded-extension cases are the ones `test_no_stranded_extension_joins_anywhere` flags from anchor data, measured here as an ink gap.
 
-Every intended join currently meets with no gap, so `_ACCEPTED_SHAPED_INK_GAPS` is empty. It's an escape hatch for `(left_variant, right_variant, join_y)` triples whose rendered ink overlap or gap is genuinely intended — add an entry only after verifying the visual rendering, never to silence a real regression.
+`_ACCEPTED_SHAPED_INK_GAPS` lists `(left_variant, right_variant, join_y)` triples whose gap or overlap is intended. Add an entry only after checking the rendering.
 """
 
 from functools import cache
@@ -28,10 +28,6 @@ from quikscript_shaping_helpers import (
 PIXEL_SIZE = 50  # from glyph_data/metadata.yaml
 
 
-# (left_glyph_name, right_glyph_name, join_y) tuples whose rendered ink
-# is a known-accepted gap or overlap. Add entries here only after
-# verifying the visual rendering is genuinely intended; don't use this as
-# a silencer for real regressions.
 _ACCEPTED_SHAPED_INK_GAPS: frozenset[tuple[str, str, int]] = frozenset()
 
 
@@ -73,9 +69,9 @@ def _bitmap_width_cols(meta) -> int:
 
 
 def _bitmap_origin_x_offset(glyph_name: str, meta) -> int:
-    """Font-unit X of bitmap column 0 relative to the glyph's drawing origin.
+    """Return the font-unit X of bitmap column 0 relative to the glyph's origin.
 
-    Mirrors the centering computed in `tools/build_font.py` — `(advance_width - bitmap_width) // 2`. The advance_width there is the pre-shaping hmtx value, not the cursive-modified runtime advance.
+    This repeats the centering in `tools/build_font.py`, `(advance_width - bitmap_width) // 2`, using the font's hmtx advance. For a Senior Quikscript letter with no explicit `advance_width`, build_font centers on the advance before it trims one pixel off the right sidebearing, so this result is 25 units left of the real one. The error cancels in a gap when both glyphs are trimmed.
     """
     advance = _hmtx_widths().get(glyph_name, 0)
     bitmap_w = _bitmap_width_cols(meta) * PIXEL_SIZE
@@ -84,7 +80,7 @@ def _bitmap_origin_x_offset(glyph_name: str, meta) -> int:
     return (advance - bitmap_w) // 2
 
 
-# Invariant for callers of `_BUF`: materialize `buf.glyph_infos` / `buf.glyph_positions` into a list (comprehension or `list(...)`) before the function returns. Never return the property itself or a generator over it — the next `_shape()` call will `clear_contents()` and overwrite the buffer, invalidating any unmaterialized view.
+# `_shape()` reuses this buffer. Copy `glyph_infos` and `glyph_positions` into lists before returning, because the next call clears and overwrites the buffer.
 _BUF: hb.Buffer = hb.Buffer()
 
 
@@ -119,9 +115,9 @@ def _check_ink_gap_at_y(
     right_origin: int,
     meta_map,
 ) -> tuple[int | None, str] | None:
-    """Return (gap_in_px, detail_for_no_ink_case) or None if the gap is OK.
+    """Return `(gap, detail)` for the ink at *join_y*.
 
-    Negative gaps (overlap) and zero gaps are acceptable; positive gaps are failures. Returns (None, side) when one side has no ink at the row — that's the worst kind of failure: the stroke reaches into empty space.
+    `gap` is in pixels, and a zero or negative gap (an overlap) is acceptable. When the gap is not a whole number of pixels, `gap` is in font units and `detail` is `"non-int"`. When one side has no ink on the row, the result is `(None, side)`.
     """
     left_exits_here = any(anchor[1] == join_y for anchor in left_meta.exit)
     left_scan_y = left_meta.exit_ink_y if left_exits_here and left_meta.exit_ink_y is not None else join_y
@@ -132,7 +128,7 @@ def _check_ink_gap_at_y(
         and right_meta.transform_kind == "entry-trimmed"
         and right_meta.generated_from is not None
     ):
-        # Mirror `_collect_bitmap_gap_warnings` in quikscript_join_analysis.py: an entry-trim that strips every ink cell at the join row is the trim transform's intended geometry — the predecessor's exit is sized to meet the parent's ink position, then the trim lets the connection slope into the upper rows. Fall back to the parent's bitmap so we measure the gap against the position the trim was sized against.
+        # As in `_collect_bitmap_gap_warnings`: an entry trim can remove every ink cell on the join row. The predecessor's exit is sized to meet the untrimmed parent's ink, so measure against the parent's bitmap.
         parent_meta = meta_map.get(right_meta.generated_from)
         if parent_meta is not None:
             parent_ink = _ink_bounds_at_y(parent_meta, join_y)
@@ -153,11 +149,11 @@ def _check_ink_gap_at_y(
 
 
 def _intended_join_ys(left_meta, right_meta) -> set[tuple[int, str]]:
-    """Ys where the design intends a connection, tagged with intent kind.
+    """Return the Ys where the design intends a connection, each tagged with its kind.
 
-    - 'cursive': both sides have anchors at this Y — cursive will align them.
-    - 'stranded-exit': left has an extension suffix and an exit at this Y, but right has no entry there — left's extended stroke dangles.
-    - 'stranded-entry': symmetric — right's extended entry has no partner.
+    - 'cursive': both sides have anchors at this Y.
+    - 'stranded-exit': the left glyph has an extension suffix and an exit at this Y, and the right glyph has no entry there.
+    - 'stranded-entry': the right glyph has an extension suffix and an entry at this Y, and the left glyph has no exit there.
     """
     left_exit_ys = {anchor[1] for anchor in left_meta.exit}
     right_entry_ys = {anchor[1] for anchor in right_meta.entry} | {
@@ -173,9 +169,9 @@ def _intended_join_ys(left_meta, right_meta) -> set[tuple[int, str]]:
 
 
 def _collect_shaped_ink_gaps(before_first: str) -> list[str]:
-    """Walk every ·X·Y pair surrounded by 1+1 context chars whose first `before` slot is the named context glyph, report ink-join gaps.
+    """Return the ink-gap failures for every ·X·Y pair shaped between a *before_first* context glyph and each context glyph after it.
 
-    Failures are deduped on (left_variant, right_variant, join_y) — the same variant pair has the same geometry in every context, so the first sighting is enough to triage.
+    Failures are reported once per (left_variant, right_variant, join_y), because a variant pair has the same geometry in every context.
     """
     meta_map = _compiled_meta()
     letters = _plain_quikscript_letters()

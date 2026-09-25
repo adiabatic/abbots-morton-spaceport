@@ -9,7 +9,7 @@
       :root {
         --font-stack: "Abbots Morton Spaceport Sans Senior", "Departure Mono", monospace;
         --font-size: 22px;
-        /* The calt toggle flips this between `normal` and `"calt" 0`. Turning calt off drops every contextual alternate — cursive joins, ligatures, and the lowered namer dot — back to the isolated forms. */
+        /* The calt toggle sets this to `normal` or `"calt" 0`. With calt off, every contextual alternate (the cursive-join stances, the ligatures, and the lowered namer dot) falls back to its isolated form. */
         --font-features: normal;
       }
 
@@ -27,7 +27,7 @@
         margin: 0 0 0.5rem;
       }
 
-      /* On this page the controls ride in the normal flow as a top toolbar, so they don't sit over the textarea panel. */
+      /* shared.css fixes the controls to the top right. Here they sit in the page flow as a toolbar so they don't cover the textarea panel. */
       .kern-page .toggle-buttons {
         position: static;
         flex-direction: row;
@@ -58,7 +58,7 @@
 
       .kern-side {
         flex: 0 0 auto;
-        /* Width ≈ 40 characters of the textarea. `ch` here resolves against this column's own font (--font-size, 22px by default), not the textarea's 13px, so the 22/13 denominator scales the textarea font size up to the surrounding font size — converting those 40 textarea-characters into the column's larger ch. Calibrated to the default size; CSS calc() can't divide a length by a length, so the ratio can't track --font-size live. */
+        /* About 40 textarea characters wide. `ch` here is measured in this column's font at --font-size (22px by default), and the textarea's font is 13px, so 40 textarea characters are about 40ch × 13/22. calc() can't divide a length by a length, so the ratio is fixed for the default size and doesn't follow --font-size. */
         width: calc(40ch / (22 / 13));
         min-height: 0;
         display: flex;
@@ -178,7 +178,7 @@
           background: light-dark(#e0ecff, #233a5a);
         }
 
-        /* The desired value differs from what the loaded font already bakes in: this pair is being faked and needs a rebuild to become real. */
+        /* The desired value differs from the loaded font's kerning, so the page fakes the difference and the pair needs a rebuild. */
         td.pending {
           outline: 2px dashed light-dark(#e0a000, #d0a020);
           outline-offset: -2px;
@@ -198,7 +198,7 @@
           pointer-events: none;
         }
 
-        /* Cells with precomputed stance-junctions get a corner triangle; clicking it opens the drill-down panel. */
+        /* Cells whose pair has precomputed stance-junctions get a corner triangle. Clicking it opens the drill-down panel. */
         td.has-hard-cases .hard-case-badge {
           position: absolute;
           top: 0;
@@ -229,7 +229,7 @@
         }
       }
 
-      /* Offscreen harness for measuring the loaded font's own kerning. Rendered at a large fixed size (kerning scales with size, so the font-pixel result is size-independent) in the matrix's current family/weight. */
+      /* Offscreen elements for measuring the loaded font's own kerning in the matrix's current family and weight. Kerning scales with font size, so a large fixed size gives the same font-pixel result as any display size, with less rounding error. */
       .kern-measure {
         position: absolute;
         left: -99999px;
@@ -304,7 +304,7 @@
             background: light-dark(#e0ecff, #233a5a);
           }
 
-          /* An override differs from what the loaded font bakes in, so it needs a rebuild to become real. */
+          /* A junction with an override. */
           &.pending {
             outline: 2px dashed light-dark(#e0a000, #d0a020);
             outline-offset: -2px;
@@ -358,7 +358,7 @@
     <script type="module">
       import { LETTERS, initToggles } from "./shared.js";
 
-      // Typographic punctuation, kerned against the letters and each other — including the namer dot (periodcentered) that prefixes proper nouns. Local to this page: these stay out of shared.js's LETTERS, which feeds every other page. Each entry's `family` holds the literal compiled glyph name — punctuation has no contextual variants — so cells touching punctuation serialize as the YAML's explicit `left:`/`right:` selectors rather than `*_family`. The `glyph: true` flag marks them. The angle brackets are the PUA Quikscript qsAngleParenLeft/Right; they have only a mono record, but the proportional build falls back to it, so they render in Sans too.
+      // Punctuation kerned against the letters and against each other, including the namer dot (periodcentered) that prefixes proper nouns. It stays out of shared.js's LETTERS, which every other page uses. Punctuation has no contextual variants, so each entry's `family` is its compiled glyph name, and `glyph: true` makes its cells serialize as explicit `left:`/`right:` selectors instead of `*_family`. qsAngleParenLeft and qsAngleParenRight have only a mono record, which the proportional build uses, so they render in Sans too.
       const PUNCT = [
         { code: 0x0021, name: "exclam", family: "exclam", glyph: true },
         { code: 0x0022, name: "quotedbl", family: "quotedbl", glyph: true },
@@ -418,7 +418,7 @@
       const textarea = document.getElementById("kern-yaml");
       const junctionPanel = document.getElementById("junction-panel");
 
-      // "qsLeft|qsRight" family-pair key -> array of precomputed stance-junctions that bare letters can't reproduce. Missing file means no badges and a disabled panel.
+      // "qsLeft|qsRight" -> the pair's precomputed stance-junctions, which the isolated two-letter rendering can't show. tools/build_kerning_hardcases.py writes the file. Without it, no cell gets a badge and the drill-down panel never opens.
       const hardCases = await fetch("./kerning-hardcases.json")
         .then((r) => r.json())
         .catch(() => ({}));
@@ -432,19 +432,19 @@
       const CONSONANT_LAST_CODE = 0xe66c;
       // One font pixel = pixel_size / units_per_em = 50 / 550 em = 1/11 em.
       const PIXEL_DENOMINATOR = 11;
-      // Measure the font's own kerning at a large fixed size so the rounded font-pixel result is crisp; kerning scales with size, so this holds at every display size.
+      // Kerning scales with font size, so measuring at a large fixed size gives the same pixel count as any display size and rounds cleanly.
       const MEASURE_FONT_PX = 220;
       const MEASURE_PIXEL = MEASURE_FONT_PX / PIXEL_DENOMINATOR;
 
       // "qsLeft|qsRight" -> integer pixels (negative tightens, positive loosens).
       let cellValues = new Map();
-      // "qsLeft|qsRight" -> integer pixels the loaded font already bakes into its kern feature. We fake only (desired - baked) so baked kerning is shown once by the font itself, not doubled by letter-spacing.
+      // "qsLeft|qsRight" -> integer pixels of kerning the loaded font already applies. The page fakes only the desired value minus this, so the font's own kerning isn't applied twice.
       let bakedDeltas = new Map();
-      // junctionKey -> {left, right, value}: the per-side selectors and desired absolute integer pixels for a single stance-junction. Carries the selectors (not just the value) so serialize can re-emit either/both sides as a stance-prefix or a plain-with-carve-out without re-deriving intent.
+      // junctionKey -> {left, right, value}: the two side selectors and the desired integer pixels for one stance-junction. The selectors are kept so serialize() can write each side as a stance prefix or as a family with a carve-out.
       let stanceOverrides = new Map();
-      // Verbatim bodies of documents we can't represent on the grid; re-emitted unchanged.
+      // Bodies of documents the grid can't represent, written back unchanged.
       let passthrough = [];
-      // Everything before the first `---` (the file's comment header); preserved verbatim.
+      // Everything before the first `---` (the file's comment header), written back unchanged.
       let preamble = "";
 
       const keyToCell = new Map();
@@ -458,7 +458,7 @@
         return sel.split(".")[0];
       }
 
-      // One side of a junction is a selector {family, kind, stance, except}. Its canonical key distinguishes a stance-prefix (qsNo.alt), a plain-with-carve-out (qsNo minus its qsNo.alt sub-family), and a bare whole family — so a parsed YAML doc and a precomputed junction collapse to the same key.
+      // One side of a junction is a selector {family, stance, except}. sideKey distinguishes a stance prefix (qsNo.alt), a family minus its alternates (qsNo minus qsNo.alt), and a whole family, so a selector parsed from YAML and the same selector from a precomputed junction get the same key.
       function sideKey(side) {
         if (side.stance) return side.stance;
         const except = (side.except || []).slice().sort();
@@ -469,7 +469,7 @@
         return `${sideKey(junction.left)}|${sideKey(junction.right)}`;
       }
 
-      // The YAML body for one disjoint kern lookup: a stance-prefix emits `*_stance`, a plain side emits `*_family` plus an `except_*` carve-out when it must exclude its own alternate sub-families.
+      // The lines for one side of a kern rule: `left:`/`right:` for punctuation, `*_stance` for a stance prefix, and `*_family` plus an `except_*` carve-out for a family that must exclude its alternates.
       function selectorLines(side, which) {
         if (side.glyph) return [`${which}: [${side.family}]`];
         if (side.stance) return [`${which}_stance: [${side.stance}]`];
@@ -487,7 +487,7 @@
         return { family: token, stance: null, except: null, glyph: KNOWN_GLYPHS.has(token) };
       }
 
-      // junctionKey -> {pairKey, isolated, left, right} for every precomputed junction (hidden rows and the isolated/residual quadrant alike), so the YAML round-trip can tell a hidden-junction override from the family-cell value an alt pair stores in its isolated quadrant.
+      // junctionKey -> {pairKey, isolated, left, right} for every precomputed junction, including each isolated quadrant. Parsing uses it to tell a hidden-junction override from the cell value an alt pair stores in its isolated quadrant.
       function knownJunctions() {
         const known = new Map();
         for (const [pairKey, junctions] of hardCasesByPair) {
@@ -503,7 +503,7 @@
         return known;
       }
 
-      // The full quadrant partition an alt pair carves into: every precomputed alt-axis junction (hidden rows plus the isolated residual). Empty for table-derived-only pairs, which keep the legacy whole-family-cell-plus-stance-override serialization.
+      // Every alt-axis junction of the pair: the hidden rows plus the isolated quadrant. Empty for a pair with no alt-axis junctions, including one whose junctions all come from the demote and restore tables.
       function altQuadrants(pairKey) {
         const junctions = hardCasesByPair.get(pairKey) || [];
         return junctions.filter((j) => j.origin === "alt-axis");
@@ -552,7 +552,7 @@
         const known = knownJunctions();
         const leftover = [];
 
-        // Parse one side of a doc into a list of {family, stance, except} selectors, or null if a referenced family is unknown. A `*_stance` list yields one stance-selector per entry; a `*_family` list yields one plain-selector per family, sharing the side's `except_*` carve-out.
+        // Parses one side of a rule into a list of {family, stance, except} selectors, or null if it names an unknown family or glyph. `*_stance` gives one stance selector per entry; `*_family` gives one family selector per family, all sharing the side's `except_*` list.
         function parseSide(which, fields) {
           if (`${which}_stance` in fields) {
             const stances = parseInlineList(fields[`${which}_stance`]);
@@ -567,7 +567,7 @@
             return families.map((family) => ({ family, stance: null, except: except.length ? except : null }));
           }
           if (which in fields) {
-            // Explicit `left:`/`right:` glyph names, no variant expansion — how punctuation cells are stored.
+            // Explicit glyph names with no variant expansion. Punctuation cells use this form.
             const glyphs = parseInlineList(fields[which]);
             if (!glyphs.length || !glyphs.every((g) => KNOWN_GLYPHS.has(g))) return null;
             return glyphs.map((family) => ({ family, stance: null, except: null, glyph: true }));
@@ -600,15 +600,15 @@
               const key = junctionKey({ left, right });
               const match = known.get(key);
               if (match && match.isolated) {
-                // The isolated/residual quadrant of an alt pair carries that pair's family-cell value.
+                // The isolated quadrant of an alt pair holds the pair's cell value.
                 if (value === 0) cellValues.delete(match.pairKey);
                 else cellValues.set(match.pairKey, value);
               } else if (match || left.stance || right.stance) {
-                // A precomputed hidden junction, or any other stance-prefix rule, is a per-junction override.
+                // A precomputed hidden junction, or any other rule with a stance prefix, is a per-junction override.
                 if (value === 0) stanceOverrides.delete(key);
                 else stanceOverrides.set(key, { left, right, value });
               } else {
-                // A plain family×family rule (optionally with a carve-out the serializer re-derives) is the grid cell.
+                // A plain family × family rule is the grid cell. serialize() recomputes any carve-out.
                 if (value === 0) cellValues.delete(cellKey(left.family, right.family));
                 else cellValues.set(cellKey(left.family, right.family), value);
               }
@@ -616,7 +616,7 @@
           }
         }
 
-        // serialize() spreads an alt pair's family-cell value across its non-overridden quadrants, so on reload those quadrants look like explicit overrides equal to the cell. Strip them back to "default" so the panel only shows genuine overrides.
+        // serialize() writes an alt pair's cell value on every quadrant without an override, so after a reload those quadrants parse as overrides equal to the cell value. Drop them so the panel lists only the overrides the user set.
         for (const [key, override] of [...stanceOverrides]) {
           const match = known.get(key);
           if (match && !match.isolated && altQuadrants(match.pairKey).length && override.value === cellValues.get(match.pairKey)) {
@@ -636,7 +636,6 @@
       }
 
       function serialize() {
-        // Group every stance override under its owning family pair.
         const overridesByPair = new Map();
         for (const [key, override] of stanceOverrides) {
           if (override.value === 0) continue;
@@ -655,7 +654,7 @@
           const quadrants = altQuadrants(pairKey);
 
           if (quadrants.length && overrides && overrides.size) {
-            // Alt pair with overrides: emit one disjoint lookup per quadrant so the family-cell value (carried on every non-overridden quadrant) never overlaps an override. Each quadrant's selectors already partition the family×family space.
+            // An alt pair with overrides: write one rule per quadrant, using the override where there is one and the cell value elsewhere. The quadrants partition the family × family space, so no two rules overlap.
             const emitted = new Set();
             for (const quadrant of quadrants) {
               const quadrantKey = junctionKey(quadrant);
@@ -663,12 +662,12 @@
               const value = overrides.has(quadrantKey) ? overrides.get(quadrantKey).value : cellValue;
               if (value !== 0) bodies.push(ruleBody(quadrant.left, quadrant.right, value));
             }
-            // A ligature-isolated alt pair (no residual quadrant) can still carry overrides on selectors outside the partition; keep them verbatim.
+            // An alt pair whose isolated rendering is a ligature has no isolated quadrant, and it can have overrides on selectors outside the quadrants. Write those unchanged.
             for (const [overrideKey, override] of overrides) {
               if (!emitted.has(overrideKey)) bodies.push(ruleBody(override.left, override.right, override.value));
             }
           } else if (overrides && overrides.size) {
-            // Legacy table-derived pair: a whole-family cell carved to exclude the overridden stance-prefixes, then each stance-override doc.
+            // A pair with overrides and no alt-axis quadrants: the whole-family cell with the overridden stance prefixes carved out, then one rule per override.
             if (cellValue !== 0) {
               const exceptLeft = new Set();
               const exceptRight = new Set();
@@ -702,7 +701,7 @@
 
       function applyCellVisual(td, value) {
         const baked = bakedDeltas.get(td.dataset.key) || 0;
-        // The font already moves baked pixels; fake only the rest so the displayed total equals the desired value without doubling.
+        // The loaded font already applies `baked` pixels. Fake only the difference so the total matches the desired value.
         const fake = value - baked;
         td.style.letterSpacing = fake ? `calc(${fake} * 1em / ${PIXEL_DENOMINATOR})` : "";
         td.classList.toggle("tighter", value < 0);
@@ -740,7 +739,7 @@
         return String.fromCodePoint(FAMILY_TO_LETTER.get(lf).code, FAMILY_TO_LETTER.get(rf).code);
       }
 
-      // Render every pair offscreen with kerning on and off; the width difference is what the loaded font's kern feature already does, rounded to whole font pixels.
+      // Renders every pair offscreen with kerning on and off. The width difference, rounded to whole font pixels, is the kerning the loaded font already applies.
       function measureBakedDeltas() {
         const onDiv = document.createElement("div");
         onDiv.className = "kern-measure kern-on";
@@ -772,7 +771,7 @@
         return deltas;
       }
 
-      // The baked-in kerning for a single two-glyph junction string, measured the same way as measureBakedDeltas but for one ad-hoc pair.
+      // Measures baked kerning the way measureBakedDeltas does, for one two-glyph string.
       function measureBakedPixels(twoGlyphString) {
         const onSpan = document.createElement("span");
         onSpan.className = "kern-measure kern-on";
@@ -795,7 +794,7 @@
       async function recomputeBakedDeltas() {
         const sig = bakedFontSig;
         await document.fonts.ready;
-        // A newer font switch already superseded this measurement; let its run win.
+        // A later font switch started a newer measurement, which writes the result instead.
         if (sig !== bakedFontSig) return;
         bakedDeltas = measureBakedDeltas();
         refreshAllCells();
@@ -893,7 +892,7 @@
         rowEl.classList.toggle("tighter", effective < 0);
         rowEl.classList.toggle("looser", effective > 0);
         rowEl.classList.toggle("pending", !!override);
-        // The rendered run already carries the font's `baked` kerning between the two junction glyphs; fake only the remainder so the gap shows the desired total without doubling.
+        // The rendered run already includes the font's `baked` kerning between the two junction glyphs. Fake only the difference.
         const fake = effective - baked;
         const kernSpan = rowEl.querySelector(".junction-kern");
         if (kernSpan) kernSpan.style.marginLeft = fake ? `calc(${fake} * 1em / ${PIXEL_DENOMINATOR})` : "";
@@ -910,7 +909,7 @@
         textarea.value = serialize();
       }
 
-      // A junction side reads as its stance-prefix, or "qsX (plain)" when it is the family minus its alternate sub-families, or the bare family otherwise.
+      // A side reads as its stance prefix, as "qsX (plain)" when it is the family minus its alternates, or as the bare family.
       function describeSide(side) {
         if (side.stance) return side.stance;
         return side.except && side.except.length ? `${side.family} (plain)` : side.family;
@@ -919,7 +918,7 @@
       function openJunctionPanel(pairKey) {
         const all = hardCasesByPair.get(pairKey);
         if (!all) return;
-        // The isolated/residual quadrant is the grid cell itself, not a hidden junction, so it never gets its own row.
+        // The isolated quadrant is the grid cell itself, so it gets no row.
         const junctions = all.filter((j) => !j.isolated);
         if (!junctions.length) return;
         openJunctionPairKey = pairKey;
@@ -948,7 +947,7 @@
           const prefix = document.createElement("span");
           prefix.className = "dimmed";
           prefix.textContent = context.slice(0, beforeEnd);
-          // The junction is two glyphs. We fake the kerning between them as a left margin on the right glyph (not as trailing space on the left glyph): a margin breaks only the junction boundary itself, leaving the prefix→left-glyph bond intact, so a left stance triggered by its preceding context (e.g. qsNo.alt after qsBay) keeps its shape instead of flipping to the bare letter, and the right glyph still shapes with its own following context (e.g. qsUtter.alt before qsThaw).
+          // The kerning between the two junction glyphs is faked as a left margin on the right glyph, not as spacing after the left glyph. The margin separates only those two glyphs, so the left glyph still shapes with its preceding context (qsNo.alt after qsBay keeps its alt form) and the right glyph with its following context (qsUtter.alt before qsThaw).
           const leftGlyph = document.createElement("span");
           leftGlyph.textContent = context.slice(beforeEnd, beforeEnd + 1);
           const rightGlyph = document.createElement("span");
@@ -1014,7 +1013,7 @@
         try {
           await navigator.clipboard.writeText(textarea.value);
         } catch {
-          // Clipboard may be blocked (insecure context or denied permission). Still flash the label so the gesture registers.
+          // The clipboard can be blocked (insecure context or denied permission). Flash the label anyway so the click gets feedback.
         }
         copyButton.textContent = "Copied!";
         clearTimeout(copyResetTimer);
@@ -1043,7 +1042,7 @@
       function applyCalt() {
         document.documentElement.style.setProperty("--font-features", caltOn ? "normal" : '"calt" 0');
         caltToggle.textContent = caltOn ? "calt on" : "calt off";
-        // aria-pressed reflects "is calt suppressed?" — the button's pressed state is the non-default (off) one.
+        // aria-pressed is true when calt is off, the non-default state.
         caltToggle.setAttribute("aria-pressed", String(!caltOn));
       }
 
@@ -1054,7 +1053,7 @@
         levelToggle: "level-toggle",
         weightToggle: "weight-toggle",
         onApply: (state) => {
-          // Baked kerning depends on which family/level is shown (the kern feature is Sans-Senior-only and weight-independent) and on whether calt is active (turning joins off changes which glyphs render, and so their advances), so re-measure when any of those change — but not on size or weight.
+          // Baked kerning depends on the family and level and on calt, which changes which glyphs render. It doesn't change with size or weight (Bold keeps Regular's kerning), so those don't trigger a re-measure.
           const sig = `${state.isSans}|${state.isSenior}|${caltOn}`;
           if (sig !== bakedFontSig) {
             bakedFontSig = sig;
@@ -1066,7 +1065,7 @@
       caltToggle.addEventListener("click", () => {
         caltOn = !caltOn;
         applyCalt();
-        // Re-run the toggle state so onApply re-measures baked kerning against the new calt setting, then repaint everything that draws from it.
+        // Re-apply the toggle state so onApply re-measures baked kerning with the new calt setting, then repaint the cells and the open panel.
         toggles.applyState();
         refreshAllCells();
         refreshOpenPanel();

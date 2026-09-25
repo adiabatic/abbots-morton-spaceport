@@ -1,6 +1,6 @@
-"""Read-only oracle for a derived demote-geometry contract.
+"""Report how many rows of the hand-written demote tables can be derived from compiled anchor geometry.
 
-This spike asks whether the hand-authored `predecessor_demote_overrides` and `trailing_demote_overrides` rows can be reproduced from compiled anchor geometry; the default run builds a temporary Senior font under `tmp/` with those two authored tables omitted, shapes letter sequences through depth 4, derives demote triples from the non-joining adjacent pairs that survive, and diffs that derived set against the healed authored rows without editing glyph YAML or emitter source.
+It compares the rows of `predecessor_demote_overrides` and `trailing_demote_overrides` with triples derived from anchors. By default it builds a Senior font under `tmp/` with those two tables emptied, shapes every sequence of two to four plain letters, derives demote triples from the adjacent glyph pairs that do not join, and compares the derived triples with the healed hand-written rows. `--pair-source static-calt` instead estimates the reachable pairs from the non-demote `calt` rules, which over-approximates them. The report is written to `tmp/derived-demote-oracle.txt` unless `--dump` names another path. Glyph data and emitter source are not changed.
 """
 
 from __future__ import annotations

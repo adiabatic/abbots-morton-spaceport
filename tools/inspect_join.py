@@ -6,7 +6,7 @@ Examples:
     uv run python tools/inspect_join.py qsHe qsRoe qsAt --features ss03
     uv run python tools/inspect_join.py --variants qsRoe
 
-Reads `site/AbbotsMortonSpaceportSansSenior-Regular.otf` (built by `make`) for HarfBuzz shaping, and `glyph_data/` for compiled metadata. Prints the chosen variant per input position, every variant's anchors, the join Y (or the mismatch when none), and the bitmap-row gap math used by the analyzer.
+Shapes with `site/AbbotsMortonSpaceportSansSenior-Regular.otf` (built by `make all`) and compiles `glyph_data/` for the glyph metadata. Prints the glyph chosen at each position with its anchors and bitmap, then for each adjacent pair the join Y (or the unmatched exit and entry Ys) and the bitmap-row gap from `tools/quikscript_join_analysis.py`.
 """
 
 from __future__ import annotations

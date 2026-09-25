@@ -1,6 +1,6 @@
 """Suggest family-scoped anchor selectors for overbroad Quikscript selectors.
 
-The tool is read-only: it reports selectors such as ``{family: qsMay}`` where the selected stance requires a specific opposite anchor Y and some concrete variants in that family do not provide it.
+It reports each ``select.after`` or ``select.before`` selector, such as ``{family: qsMay}``, where the stance has one anchor Y on the selector's side and only some of the selected compiled variants have the opposite anchor at that Y. For each, it suggests adding ``exit_y`` or ``entry_y``. Only selectors whose keys are ``family``, ``traits``, and ``modifiers`` are checked. It changes no files.
 
 Usage::
 

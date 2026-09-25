@@ -1,4 +1,4 @@
-"""The namer dot (·) drops one pixel to center on the x-height when it begins a word that starts with a short letter. The substitution is gated behind `calt` and only exists in the proportional fonts (Senior and Junior); Mono keeps Departure Mono's single dot. See emit_namer_dot_calt in tools/quikscript_fea.py."""
+"""When the namer dot (·) starts a word whose first letter is Short, it drops one pixel so it is centered on that letter. The substitution is in `calt` and exists only in the proportional fonts (Senior and Junior). Mono keeps Departure Mono's single dot. `emit_namer_dot_calt` in tools/quikscript_fea.py emits the lookup."""
 
 from functools import cache
 
@@ -9,10 +9,10 @@ from fontTools.ttLib import TTFont
 from quikscript_shaping_helpers import ROOT
 
 DOT = "·"  # · periodcentered, the namer dot
-NO = ""  # ·No (short)
-IT = ""  # ·It (short)
-PEA = ""  # ·Pea (tall)
-BAY = ""  # ·Bay (deep)
+NO = ""  # ·No (Short)
+IT = ""  # ·It (Short)
+PEA = ""  # ·Pea (Tall)
+BAY = ""  # ·Bay (Deep)
 
 LOWERED = "periodcentered.lowered"
 PLAIN = "periodcentered"
@@ -61,7 +61,7 @@ def test_namer_dot_unchanged_before_tall_or_deep(variant: str, tall_or_deep: str
 @pytest.mark.parametrize("variant", _PROPORTIONAL)
 @pytest.mark.parametrize("prefix", ["a", "1", "Z"])
 def test_midword_middot_stays_plain(variant: str, prefix: str) -> None:
-    # A · wedged between a letter or digit and a short letter is a multiplication dot or Catalan ela geminada, not a namer dot, so it keeps its height.
+    # A · after an orthodox letter or digit is a multiplication dot or a Catalan ela geminada, so it keeps its height.
     names = _shape(variant, prefix + DOT + NO)
     assert LOWERED not in names
     assert names.count(PLAIN) == 1
@@ -70,19 +70,19 @@ def test_midword_middot_stays_plain(variant: str, prefix: str) -> None:
 @pytest.mark.parametrize("variant", _PROPORTIONAL)
 @pytest.mark.parametrize("text", [DOT + NO, " " + DOT + NO, "(" + DOT + NO, "‌" + DOT + NO])
 def test_namer_dot_lowers_at_word_start(variant: str, text: str) -> None:
-    # Start of run, after a space, after punctuation, and after ZWNJ all count as a word start.
+    # The start of a run, and a position after a space, punctuation, or ZWNJ, all count as a word start.
     assert _shape(variant, text).count(LOWERED) == 1
 
 
 @pytest.mark.parametrize("variant", _PROPORTIONAL)
 def test_consecutive_names(variant: str) -> None:
-    # ·Bay·No: the first dot precedes a deep letter (stays plain); the second precedes a short letter (lowers). A Quikscript letter must not block the following namer dot.
+    # In ·Bay·No the first dot precedes a Deep letter and stays plain, and the second precedes a Short letter and lowers. A Quikscript letter before a namer dot does not block the substitution.
     names = _shape(variant, DOT + BAY + DOT + NO)
     assert names == [PLAIN, "qsBay", LOWERED, "qsNo"]
 
 
 def test_mono_has_no_lowered_namer_dot() -> None:
-    # Mono inherits Departure Mono's single dot and has no calt; the lowered variant is proportional-only.
+    # Mono uses Departure Mono's dot and has no `calt` feature, so it has no lowered dot.
     assert LOWERED not in _tt("mono").getGlyphOrder()
     names = _shape("mono", DOT + NO)
     assert LOWERED not in names

@@ -345,17 +345,15 @@
       const MAX_ROWS = 12;
       let cols = 5;
 
-      // State
       let glyphName = "";
       let glyphComment = "";
       let bitmap = [];
       let yOffset = 0;
-      let rowComments = []; // Store per-row comments
-      let leadingIndent = ""; // Preserve leading whitespace from input
+      let rowComments = [];
+      let leadingIndent = ""; // the input's indentation, reapplied to every output line
       let isDragging = false;
       let paintState = "#"; // '#' for on, ' ' for off
 
-      // DOM elements
       const inputYaml = document.getElementById("input-yaml");
       const outputYaml = document.getElementById("output-yaml");
       const lightboard = document.getElementById("lightboard");
@@ -366,13 +364,12 @@
       const columnButtonsLeft = document.getElementById("column-buttons-left");
       const columnButtonsRight = document.getElementById("column-buttons-right");
 
-      // Row marker positions (0-indexed grid rows)
+      // 0-based lightboard grid rows
       const TALL_HEIGHT_ROW = 0;
       const CAP_HEIGHT_ROW = 1;
       const X_HEIGHT_ROW = 3;
       const BASELINE_ROW = 8;
 
-      // Initialize row markers
       function initRowMarkers() {
         for (const el of document.querySelectorAll(".row-marker")) el.remove();
 
@@ -389,20 +386,18 @@
             marker.className = "row-marker";
             marker.textContent = label;
             marker.title = title;
-            // Position: row * (cell height + gap) + padding offset
+            // 36px cell plus 2px gap per row, plus the grid's 2px padding
             marker.style.top = `${row * (36 + 2) + 2}px`;
             container.appendChild(marker);
           }
         }
       }
 
-      // Calculate the starting row for the bitmap in the lightboard
-      // so that the baseline aligns with BASELINE_ROW
+      // The grid row of the bitmap's top row, placing the glyph's y=0 row on BASELINE_ROW.
       function getBitmapStartRow() {
         return BASELINE_ROW - yOffset - (bitmap.length - 1);
       }
 
-      // Initialize lightboard grid
       function initLightboard() {
         lightboard.innerHTML = "";
         lightboard.style.gridTemplateColumns = `repeat(${cols}, 36px)`;
@@ -438,11 +433,9 @@
         }
       }
 
-      // Parse YAML input
       function parseYaml(text) {
         const lines = text.split("\n");
 
-        // Extract glyph name and comment from first line (allow leading whitespace)
         const nameMatch = lines[0]?.match(/^(\s*)([\w.]+):\s*(#.*)?$/);
         if (!nameMatch) {
           return null;
@@ -452,14 +445,12 @@
         glyphName = nameMatch[2];
         glyphComment = nameMatch[3] || "";
 
-        // Extract y_offset if present
         yOffset = 0;
         const yOffsetMatch = text.match(/y_offset:\s*(-?\d+)/);
         if (yOffsetMatch) {
           yOffset = parseInt(yOffsetMatch[1], 10);
         }
 
-        // Extract bitmap lines
         bitmap = [];
         rowComments = [];
         const bitmapLines = text.match(/^\s*-\s*["']([^"']+)["']\s*(#.*)?$/gm);
@@ -473,7 +464,6 @@
           }
         }
 
-        // Detect column count from first bitmap row
         if (bitmap.length > 0) {
           cols = bitmap[0].length;
         }
@@ -488,7 +478,6 @@
         };
       }
 
-      // Update lightboard display
       function updateLightboard() {
         const cells = lightboard.querySelectorAll(".lightboard-cell");
         const startRow = getBitmapStartRow();
@@ -517,7 +506,7 @@
         yOffsetInput.value = yOffset;
       }
 
-      // Set a cell to a specific state (used during drag painting)
+      // Paints one cell during a drag. The previews and the output update on mouseup.
       function setCellState(row, col, state) {
         if (row >= bitmap.length) return;
         if (bitmap[row][col] === state) return;
@@ -529,9 +518,8 @@
         updateLightboard();
       }
 
-      // Render preview canvas
-      const DISPLAY_SCALE = 4; // CSS display multiplier for visibility
-      const PADDING = 1; // 1 column padding on each side
+      const DISPLAY_SCALE = 4; // CSS size multiplier
+      const PADDING = 1; // gray columns on each side of the preview
       function renderPreview(canvas, bitmapData, scale) {
         const ctx = canvas.getContext("2d");
         const width = (cols + PADDING * 2) * scale;
@@ -542,16 +530,13 @@
         canvas.style.width = width * DISPLAY_SCALE + "px";
         canvas.style.height = height * DISPLAY_SCALE + "px";
 
-        // Clear canvas with background color
         ctx.fillStyle = "#f0f0f0";
         ctx.fillRect(0, 0, width, height);
 
-        // Draw gray padding columns
         ctx.fillStyle = "#ccc";
-        ctx.fillRect(0, 0, PADDING * scale, height); // left
-        ctx.fillRect(width - PADDING * scale, 0, PADDING * scale, height); // right
+        ctx.fillRect(0, 0, PADDING * scale, height);
+        ctx.fillRect(width - PADDING * scale, 0, PADDING * scale, height);
 
-        // Draw pixels (offset by padding)
         ctx.fillStyle = "#222";
         for (let y = 0; y < bitmapData.length; y++) {
           for (let x = 0; x < cols; x++) {
@@ -588,7 +573,6 @@
         }
       }
 
-      // Update all preview canvases
       function updatePreviews() {
         const halfCanvas = document.getElementById("preview-half");
         if (bitmap.length === 0) {
@@ -613,7 +597,6 @@
         }
       }
 
-      // Generate YAML output
       function generateYaml() {
         if (!glyphName || bitmap.length === 0) {
           return "";
@@ -641,12 +624,10 @@
         return output;
       }
 
-      // Update output textarea
       function updateOutput() {
         outputYaml.value = generateYaml();
       }
 
-      // Column manipulation functions
       function addColumnLeft() {
         if (bitmap.length === 0) return;
         bitmap = bitmap.map((row) => " " + row);
@@ -687,7 +668,6 @@
         updateOutput();
       }
 
-      // Row manipulation functions
       function addRowTop() {
         if (bitmap.length === 0 || bitmap.length >= MAX_ROWS) return;
         bitmap.unshift(" ".repeat(cols));
@@ -724,7 +704,7 @@
         updateOutput();
       }
 
-      // End drag painting on mouseup anywhere
+      // A drag can end outside the lightboard, so listen on the document.
       document.addEventListener("mouseup", () => {
         if (isDragging) {
           isDragging = false;
@@ -733,7 +713,6 @@
         }
       });
 
-      // Event listeners
       inputYaml.addEventListener("input", () => {
         const oldCols = cols;
         const parsed = parseYaml(inputYaml.value);
@@ -770,7 +749,7 @@
       document.getElementById("add-row-bottom").addEventListener("click", addRowBottom);
       document.getElementById("remove-row-bottom").addEventListener("click", removeRowBottom);
 
-      // Show ½× preview only on 2×+ displays
+      // The ½× preview is only visible on 2× and denser displays.
       const halfRow = document.getElementById("preview-half-row");
       const hiDpiQuery = matchMedia("(resolution >= 2dppx)");
       hiDpiQuery.addEventListener("change", (e) => {
@@ -778,7 +757,6 @@
       });
       halfRow.hidden = !hiDpiQuery.matches;
 
-      // Initialize
       initRowMarkers();
       initLightboard();
       updatePreviews();

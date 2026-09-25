@@ -1,10 +1,12 @@
 """Reflow the data YAML to the project's flow-vs-block style rules.
 
-Two policies live here. `glyph_data/quikscript.yaml` keeps the width rule: a mapping or list stays inline (flow style) while the whole line fits within 100 columns; past that, the outermost flow collection on the line breaks into block style and the rule re-applies to the resulting lines. The break is at the *outermost* collection because YAML forbids a block collection nested inside a flow one — once any child must be block, its whole map goes block too.
+The policy depends on the file's directory. A file in a directory named `runes` (`glyph_data/runes/`) gets the structural rule. Every other file, `glyph_data/quikscript.yaml` among them, gets the width rule.
 
-The rune files under `glyph_data/runes/` use a structural rule instead: every collection is block style, except three leaf shapes that stay flow — an empty collection (`{}` or `[]`), a single-key mapping whose value is a scalar (`{family: qsDay_qsUtter}`), and a pair of numbers (`[1, 1]`). Width never enters the structural rule, so an edit can't flip a neighboring collection's style and diffs stay local to the changed values.
+Width rule: a mapping or list stays inline (flow style) while its whole line fits in `MAX_WIDTH` (100) columns. Past that, the outermost flow collection on the line becomes block style and the rule is applied again to the resulting lines. The break is at the outermost collection because YAML does not allow a block collection inside a flow one.
 
-Shared invariants under both policies: a collection whose subtree carries comments stays block regardless (flow style can't hold per-item line comments, and inlining a `bitmap:` list would destroy its `#` row markers), and a long scalar (a `ductus`, a paragraph-length `why:`) can't be broken and is left over-width. The pass is idempotent: running it on already-reflowed YAML is a no-op. It round-trips through ruamel, so comments, block scalars, and quoting survive.
+Structural rule: every collection is block style except three leaf shapes that stay flow: an empty collection (`{}` or `[]`), a single-key mapping whose value is a single-line scalar (`{family: qsDay_qsUtter}`), and a pair of numbers (`[1, 1]`). Width plays no part, so an edit cannot change a neighboring collection's style, and diffs stay limited to the changed values. This rule also rewrites every multi-line string that is not already a `|` block scalar as one.
+
+Under both rules, a collection with a comment anywhere in its subtree stays block, because flow style cannot hold per-item comments and inlining a `bitmap:` list would drop its `#` row markers. A long scalar (a `ductus`, a paragraph-length `why:`) is never wrapped and may exceed the width. Running the pass on already-reflowed YAML changes nothing. The file is round-tripped through ruamel, so comments, block scalars, and quoting are kept.
 
 Usage::
 
@@ -57,7 +59,7 @@ def _has_comments(node):
 
 
 def _decide_by_width(node, start_col, anchor):
-    """Set node's flow/block style under the width rule. anchor is the column of node's own key/dash; start_col is where its inline content would begin."""
+    """Set `node`'s flow or block style under the width rule. `anchor` is the column of the node's own key or list dash; `start_col` is the column where its inline form would begin."""
     if not isinstance(node, (CommentedMap, CommentedSeq)):
         return
     if not _has_comments(node) and start_col + _inline_len(node) <= MAX_WIDTH:
@@ -78,7 +80,7 @@ def _is_number(value):
 
 
 def _stays_flow(node):
-    """Under the structural rule, only three comment-free leaf shapes stay flow: an empty collection, a single-key mapping with a single-line scalar value, and a pair of numbers. A multi-line value (a `ductus` block scalar) keeps its mapping block so the scalar keeps its `|` style."""
+    """Return whether `node` is one of the structural rule's three comment-free flow shapes: an empty collection, a single-key mapping with a single-line scalar value, or a pair of numbers. A mapping with a multi-line value (a `ductus` block scalar) stays block so the scalar keeps its `|` style."""
     if _has_comments(node):
         return False
     if len(node) == 0:

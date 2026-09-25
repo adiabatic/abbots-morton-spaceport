@@ -1,14 +1,13 @@
 name: Build and Deploy
 
 on:
-  # Manual trigger
   workflow_dispatch:
-  # On version tags
+  # Release tags are named release/<version>. The release job reads the version from the tag.
   push:
     tags:
       - 'release/*'
 
-# Sets permissions for GitHub Pages deployment
+# `contents: write` lets the release job create a GitHub release. `pages` and `id-token` let the deploy job publish to GitHub Pages.
 permissions:
   contents: write
   pages: write

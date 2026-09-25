@@ -1,6 +1,6 @@
-"""Reconcile the human triage verdicts in doc/history/2026-06-03--leak-cleanup/leak-emergent-verdicts.txt against the join-contract classification.
+"""Compare the human triage verdicts in doc/history/2026-06-03--leak-cleanup/leak-emergent-verdicts.txt with the join-contract classes and with `leak_classify`.
 
-Read-only. Reuses leak_contract_report's parse_snapshot + classify so the signature mapping is identical to the report and to site/check.html. Confirms every verdict lands on an "emergent" snapshot row (the contract cannot reach it), buckets the verdicts into the actionable "broken" backlog vs the accepted residue, and flags any verdict that does not map cleanly. See doc/history/2026-06-03--leak-cleanup/leak-triage.md.
+It uses `leak_contract_report.parse_snapshot` and `classify`, so signatures match the report and site/check.html. It prints the verdict counts by bucket, a table of verdict bucket against contract class, the verdicts not on an `emergent` row (expected to be none), the emergent rows with no verdict, and the confusion matrix of `leak_classify.classify` against the verdicts. doc/history/2026-06-03--leak-cleanup/leak-triage.md has the triage.
 """
 
 from __future__ import annotations
@@ -20,7 +20,7 @@ from leak_static_analysis import parse_calt  # noqa: E402
 
 VERDICTS_PATH = ROOT / "doc" / "history" / "2026-06-03--leak-cleanup" / "leak-emergent-verdicts.txt"
 
-# Canonical preset verdict text -> short bucket. Anything else is a free-text "custom" verdict.
+# Preset verdict text -> bucket. Any other text is a "custom" verdict.
 PRESET = {
     "in context is outright broken": "broken",
     "in context is just better than halves-shaped-separately": "in-context-better",
@@ -29,7 +29,7 @@ PRESET = {
 
 
 def signature_of(snapshot_line: str) -> rep.Signature:
-    """Parse one verbatim snapshot line into its (il, lc, ir, rc) signature, matching rep.parse_snapshot's per-line logic."""
+    """Parse one snapshot line into its (il, lc, ir, rc) signature, as `rep.parse_snapshot` does."""
     _label, _, diff = snapshot_line.partition(" :: ")
     il = lc = ir = rc = ""
     for clause in diff.split(" | "):
@@ -102,7 +102,10 @@ def main() -> None:
 
 
 def confusion_matrix(rows: list[tuple[str, rep.Signature, str, str]]) -> None:
-    """Score the bad/benign proxy in leak_classify against the human verdicts: every "broken" verdict should classify bad, every accepted one benign. Print precision/recall and the two override-seed lists (the disagreements) so the proxy is trusted *with* its overrides before the loop acts on it. Every verdict comes from the depth-4 snapshot, which only records visible (diff) leaks, so visible=True throughout."""
+    """Print how `leak_classify.classify` agrees with the human verdicts: a "broken" verdict should classify bad and any other verdict benign.
+
+    It prints precision and recall and lists each disagreement, which is a candidate entry for `site/leak-force-bad.yaml` or `site/leak-force-benign.yaml`. It passes `visible=True` because the snapshot records only visible leaks.
+    """
     force_bad = leak_classify.force_bad_signatures()
     force_benign = leak_classify.force_benign_signatures()
     tp = fp = tn = fn = 0

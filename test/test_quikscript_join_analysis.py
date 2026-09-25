@@ -405,7 +405,7 @@ def test_generated_forward_variant_covers_backward_selection():
 
 
 def test_noentry_after_leak_warns_default_left_variant():
-    """A left variant whose default selector permits the right family but whose joining shape will be voided by the right family's `noentry_after` should produce a `join-noentry-shape-leak` warning."""
+    """A left variant that can exit into a right family whose `noentry_after` lists the left family produces a `join-noentry-shape-leak` warning."""
     qs_he_half = _make_glyph(
         name="qsHe.half",
         base_name="qsHe",
@@ -446,7 +446,7 @@ def test_noentry_after_leak_warns_default_left_variant():
 
 
 def test_default_join_coverage_respects_noentry_after():
-    """Forward-intent suppression must not treat a covering default stance as valid coverage when that stance's `noentry_after` displaces it for the specific opposite family driving the intent."""
+    """A default right stance does not count as coverage for a left variant's forward intent when its `noentry_after` lists the left family, so the one-sided warning still fires."""
     qs_pea = _make_glyph(
         name="qsPea",
         base_name="qsPea",
@@ -494,7 +494,7 @@ def test_default_join_coverage_respects_noentry_after():
 
 
 def test_backward_intent_warns_when_right_family_has_noentry_after():
-    """Backward-intent suppression must not treat a left-side default exit as valid coverage when the receiver carries `noentry_after` listing the left family — the receiver is displaced to its `.noentry` counterpart and the join is voided."""
+    """A left default exit does not count as coverage for a right variant's backward intent when the right family's `noentry_after` lists the left family, because the right glyph becomes its `.noentry` form and the join does not happen."""
     qs_he_half = _make_glyph(
         name="qsHe.half",
         base_name="qsHe",
@@ -869,7 +869,7 @@ def test_real_join_warning_collector_is_clean():
 
 
 def test_default_default_pair_warns_on_bitmap_gap():
-    """Two families with no explicit `before:` / `after:` selectors but with matching exit / entry Ys must still be checked for bitmap gaps. Before the default-default sweep landed, this case slipped through silently because no pair-intent key referenced it. The synthetic shapes mirror the real qsHe.half → qsJai.en-y5.ex-y0 pair: a left exit with the anchor two columns past its rightmost ink, and a right bitmap whose leftmost ink sits right at the entry anchor."""
+    """Two families with no `before:` or `after:` selectors but a shared exit and entry Y are checked for bitmap gaps. The left exit anchor sits two columns past the left glyph's rightmost ink, and the right glyph's leftmost ink sits at its entry anchor, which leaves a one-pixel gap."""
     qs_left = _make_glyph(
         name="qsLeft",
         base_name="qsLeft",
@@ -901,7 +901,7 @@ def test_default_default_pair_warns_on_bitmap_gap():
 
 
 def test_residual_bitmap_gaps_are_real():
-    """`_RESIDUAL_BITMAP_GAPS` is a known-bug list, not a wishlist: every entry must correspond to a pair the analyzer would otherwise flag. When a Phase B fix lands, the corresponding line should be removed from the table; this test catches stale entries that no longer suppress anything."""
+    """Every entry in `_RESIDUAL_BITMAP_GAPS` names real glyphs with anchors at its Y and a gap the analyzer would otherwise flag, so an entry that no longer suppresses anything fails."""
     glyph_meta = _real_join_glyphs()
     spurious: list[tuple[str, str, int]] = []
     for left_name, right_name, y in sorted(_RESIDUAL_BITMAP_GAPS):
@@ -1196,7 +1196,7 @@ def test_ligature_only_path_with_mismatched_anchor_raises():
 
 
 def test_noentry_after_strip_creates_a_mismatch():
-    """When the only entry-bearing variant of T loses its entry under F, the validator must surface the resulting mismatch."""
+    """The validator reports a mismatch when the right family's only entry-bearing variant has `noentry_after` listing the left family."""
     qs_see = _make_glyph(
         name="qsSee",
         base_name="qsSee",
@@ -1282,13 +1282,13 @@ def test_ss_gated_swap_adds_a_mismatch():
     assert "qsTea" in message
 
 
-# Regression-example tests — each fixture distills the kind of steady-state join mismatch that the named historical commit was working around. For the four FEA-only fixes (every commit below except 075d485, which mutated YAML), the pre-fix YAML was structurally consistent and the bug lived in the FEA emitter; these fixtures express the hypothetical YAML where the FEA-side guard had not yet been introduced. The validator is designed to make that situation impossible.
+# Each regression-example test models the join mismatch that the named commit fixed. Commit 075d485 changed the YAML. The other four changed the FEA emitter, so their fixtures show YAML that needs the emitter's guard. The validator reports each fixture as a mismatch.
 
 
 def test_regression_075d485_fee_exits_xheight_before_utter():
     """075d485 — Fix ·Fee→·Utter and ·See→·At cursive connections.
 
-    Pre-fix: qsFee.ex-y5 declared ``before: qsUtter`` and exits at y=5, but qsUtter's only y=5 entry-bearing variant is a backward-pair override (``after: qsAh, qsTea``) that cannot select after qsFee. Modeled here as qsUtter having no y=5 entry at all — the validator is family-level and surfaces the same missing-y mismatch.
+    qsFee.ex-y5 lists ``before: qsUtter`` and exits at y=5. In the real data at that commit, qsUtter's only y=5 entry was on a backward-pair override (``after: qsAh, qsTea``) that cannot follow qsFee. The fixture gives qsUtter no y=5 entry at all, which produces the same family-level mismatch.
     """
     qs_fee = _make_glyph(
         name="qsFee",
@@ -1329,7 +1329,7 @@ def test_regression_075d485_fee_exits_xheight_before_utter():
 def test_regression_8c7c486_no_alt_after_it_and_vie_overreaches():
     """8c7c486 — Fix backward after matching for incompatible joins.
 
-    Pre-fix (FEA-only): qsNo.alt.after-it-and-vie was selected even when the predecessor's exit didn't actually match its entry y, because backward ``after:`` expansion was family-level. Fixture: qsNo.alt.after-it-and-vie enters at y=0 listing ``after: [qsIt, qsVie]``, but neither family has any reachable exit at y=0.
+    qsNo.alt.after-it-and-vie enters at y=0 and lists ``after: [qsIt, qsVie]``, but neither family has a reachable exit at y=0.
     """
     qs_it = _make_glyph(
         name="qsIt",
@@ -1379,7 +1379,7 @@ def test_regression_8c7c486_no_alt_after_it_and_vie_overreaches():
 def test_regression_d641641_tea_x_must_not_pick_joining_x():
     """d641641 — ·Tea·X shouldn't pick a joining X when they don't join anyway.
 
-    Pre-fix (FEA-only): qsTea.ex-y0 could preselect an X variant that, after later substitutions, no longer carried the matching y=0 entry. Fixture: qsTea.ex-y0 exits y=0 listing ``before: qsExample``, but qsExample's only variant has ``noentry_after: [qsTea]``, so the entry is stripped specifically when qsTea is the predecessor — no reachable y=0 entry remains.
+    qsTea.ex-y0 exits at y=0 and lists ``before: qsExample``, but qsExample's only variant has ``noentry_after: [qsTea]``, so after qsTea it has no y=0 entry.
     """
     qs_tea = _make_glyph(
         name="qsTea",
@@ -1423,7 +1423,7 @@ def test_regression_d641641_tea_x_must_not_pick_joining_x():
 def test_regression_714a2d5_tea_oy_ligature_after_tea():
     """714a2d5 — ·Tea·Oy also counts as a ·Tea you can't join to at the baseline.
 
-    Pre-fix (FEA-only): the qsTea_qsOy ligature consumes qsTea, and the ligature's effective entry sits at x-height while predecessors that joined a bare baseline qsTea expected y=0. Fixture: qsX.before-tea-oy exits y=0 listing the ligature directly as the right context, but the only reachable variant of family qsTea_qsOy enters at y=5.
+    qsX.before-tea-oy exits at y=0 and lists the qsTea_qsOy ligature as its right context, but the ligature's only reachable variant enters at y=5.
     """
     qs_x = _make_glyph(
         name="qsX",
@@ -1479,7 +1479,7 @@ def test_regression_714a2d5_tea_oy_ligature_after_tea():
 def test_regression_77ca573_ing_before_may_thaw_ligature():
     """77ca573 — Have ·May·Thaw look right after ·-ing.
 
-    Pre-fix (FEA-only): forward calt on qsIng targeting the qsMay+qsThaw ligature didn't agree on entry height. Fixture: qsIng.ex-ext-1 exits y=5 listing ``before: qsMay_qsThaw``, but the ·May+Thaw ligature has only a y=0 entry — no y=5 entry on any reachable candidate.
+    qsIng.ex-ext-1 exits at y=5 and lists ``before: qsMay_qsThaw``, but the ·May+Thaw ligature has only a y=0 entry.
     """
     qs_ing = _make_glyph(
         name="qsIng",
@@ -1533,7 +1533,7 @@ def test_regression_77ca573_ing_before_may_thaw_ligature():
 
 
 def test_derive_fwd_strip_guards_emits_qsgay_qstea_at_baseline():
-    """·Gay·Tea·Ah is the motivating bug: qsGay's ex-y0.ex-ext-1 reaches at y=0 onto qsTea, whose forward upgrade to qsTea.ex-y0 strips the entry. The structural pass must emit a guard so the FEA emitter can suppress qsGay's substitution when the predecessor's connector arm would land on a stripped follower."""
+    """In ·Gay·Tea·Ah, qsGay.ex-y0.ex-ext-1 exits at y=0 toward qsTea, whose forward upgrade to qsTea.ex-y0 has no entry. The pass emits a guard keyed on qsGay with qsTea as a middle base, so the FEA emitter can suppress qsGay's substitution there."""
     glyph_meta = _real_join_glyphs()
     reach = JoinReachability.from_join_glyphs(glyph_meta)
 
@@ -1546,7 +1546,7 @@ def test_derive_fwd_strip_guards_emits_qsgay_qstea_at_baseline():
 
 
 def test_derive_fwd_strip_guards_emits_qsout_qsfee_at_xheight():
-    """·Out·Fee·Jai is the same orphaned-exit pattern through a pair-specific forward strip: qsOut's x-height reach is valid for bare ·Out·Fee, but not when qsFee immediately switches to an exit-only stance for the next letter."""
+    """·Out·Fee·Jai shows the same pattern at the x-height. qsOut's y=5 exit joins a bare qsFee, but qsFee's forward upgrade for the next letter, qsFee.en-y8.ex-y5, has no y=5 entry."""
     glyph_meta = _real_join_glyphs()
     reach = JoinReachability.from_join_glyphs(glyph_meta)
 
@@ -1559,7 +1559,7 @@ def test_derive_fwd_strip_guards_emits_qsout_qsfee_at_xheight():
 
 
 def test_derive_fwd_strip_guards_skips_qstea_qsit_at_xheight():
-    """·Tea·It·Et must keep joining at x-height: qsIt's forward upgrade is to qsIt.ex-y5 (stripped) but its `bk_replacements[5]` upgrade to qsIt.en-y5.ex-y0 wins at runtime when qsTea's exit y=5 precedes. The plain `qsTea.half.ex-y5` predecessor has no extended exit arm, so the structural pass should not emit a guard against qsIt for it."""
+    """·Tea·It·Et keeps its x-height join. qsIt's forward upgrade at y=5, qsIt.en-y0.ex-y5, has no y=5 entry, but after qsTea's y=5 exit its backward upgrade `bk_replacements[5]`, qsIt.en-y5.ex-y0, applies. `qsTea.half.ex-y5` has no exit extension and no ink below its exit row, so the pass emits no guard against qsIt for it."""
     glyph_meta = _real_join_glyphs()
     reach = JoinReachability.from_join_glyphs(glyph_meta)
 
@@ -1571,7 +1571,7 @@ def test_derive_fwd_strip_guards_skips_qstea_qsit_at_xheight():
 
 
 def test_derive_fwd_strip_guards_skips_terminus_predecessors():
-    """qsUtter.alt is a short letter sitting cleanly at the baseline — its exit y=0 stub has no ink below the exit row, so even when followed by qsMay's stripped fwd_replacement the visual outcome is fine. The structural pass should treat qsUtter.alt as a terminus and emit no guard keyed on it."""
+    """qsUtter's alt stance is a Short letter whose y=0 exit is on its bottom row, with no ink below it. Nothing dangles when its follower loses its entry, so the pass keys no guard on it."""
     glyph_meta = _real_join_glyphs()
     reach = JoinReachability.from_join_glyphs(glyph_meta)
 

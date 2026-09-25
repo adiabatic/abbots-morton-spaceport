@@ -1,28 +1,28 @@
 # Senior-only Quikscript kerning.
 #
-# This file is a series of `---`-separated YAML documents. Each document is one kerning rule — just the body, with no name. The build gives every rule its own unique lookup under the hood, so rules never need naming.
+# This file is a series of `---`-separated YAML documents. Each document is one kerning rule with no name; the build gives each rule its own lookup.
 #
-# Rules here compile into the `kern` GPOS feature for the Sans Senior fonts only (both weights). They are not applied to Sans Junior or Mono. Shared, all-proportional kerning still lives under the `kerning` key in opentype-features.yaml and applies to Junior and Senior alike; put a pair here only when it should affect the ligated Senior cut and not the unligated Junior one.
+# Rules here compile into the `kern` GPOS feature of the Sans Senior fonts only (both weights), not Sans Junior or Mono. Kerning shared by all proportional fonts lives under the `kerning` key in opentype-features.yaml and applies to Junior and Senior alike. Put a pair here only when it should affect the ligated Senior fonts and not the unligated Junior ones.
 #
-# `value` is in pixels (one pixel = 50 font units), multiplied by the pixel width at build time. Negative tightens, positive loosens.
+# `value` is in pixels (one pixel is 50 font units) and is multiplied by the pixel width at build time. Negative values tighten; positive values loosen.
 #
 # Left side, pick one:
 #   left_family: [qsPea, ...]   # expands to the bare family glyph plus every contextual variant (qsPea, qsPea.en-y0, ...)
 #   left_stance: [qsNo.alt, ...]  # like left_family but matches a stance sub-family: qsNo.alt and qsNo.alt.*, not qsNo or qsNo.en-ext-1 (override rule)
 #   left: [qsPea, ...]          # explicit glyph names, no variant expansion
-#   (omit all)                  # every glyph except those carrying this rule's per-glyph kerning tag
+#   (omit all)                  # every glyph except those whose `kerning:` list names this rule's key, `senior_<index>`
 #
 # Right side, pick one:
 #   right_family: [qsTea, ...]  # expands to the bare family glyph plus every contextual variant
 #   right_stance: [qsNo.alt, ...] # like right_family but matches a stance sub-family (override rule)
 #   right: [qsTea, ...]         # explicit glyph names, no variant expansion
-#   right_group: noentry        # every glyph whose name ends in `.noentry`; emits the contextual before-ZWNJ stance
+#   right_group: noentry        # kerns the left glyphs when a ZWNJ follows; the rule is skipped when no glyph name ends in `.noentry`
 #
 # After computing either side's glyph set, optionally carve out a sub-family:
 #   except_left: [qsNo.alt, ...]   # drop every glyph matching qsNo.alt or qsNo.alt.* from the left set (pairs with a left_stance override of the same prefix)
-#   except_right: [qsNo.alt, ...]  # same on the right side
+#   except_right: [qsNo.alt, ...]  # same on the right side; ignored with right_group
 #
-# Both sides may carry a stance-prefix and/or a carve-out at once. The kerning drill-down in site/kerning.html emits exactly this when it splits an alternate-stance pair (e.g. ·No·Utter) into disjoint quadrants: a "plain" side is the family minus its alternates (left_family + except_left: [qsNo.alt]), and an alternate side is its stance-prefix (right_stance: [qsUtter.alt]). The four quadrants partition the family×family space, so no glyph pair is kerned by two lookups. For example, the (plain ·No, alt ·Utter) quadrant:
+# Both sides may carry a stance prefix, a carve-out, or both. The kerning drill-down in site/kerning.html writes this when it splits an alternate-stance pair (for example ·No·Utter) into disjoint quadrants: a plain side is the family minus its alternates (left_family with except_left: [qsNo.alt]), and an alternate side is its stance prefix (right_stance: [qsUtter.alt]). The four quadrants partition the family-by-family pairs, so no glyph pair is kerned by two lookups. For example, the (plain ·No, alternate ·Utter) quadrant:
 #
 # ---
 # left_family: [qsNo]

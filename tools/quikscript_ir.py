@@ -7,7 +7,7 @@ from typing import Any, NotRequired, TypedDict, cast
 
 
 class LigatureEntryInheritanceWarning(UserWarning):
-    """A ligature's explicit `entry` anchor duplicates (or contradicts) what `_inherit_ligature_entries_from_lead` would supply. Surface it so we can eventually strip the redundant declarations."""
+    """Warning that a ligature stance declares its own `entry` anchor. `_inherit_ligature_entries_from_lead` issues it, and the message says whether inheritance from the lead would give the same anchor, a different one, or none, so redundant declarations can be found and removed."""
 
 
 Anchor = tuple[int, int]
@@ -32,13 +32,13 @@ _CONTRACTION_SUFFIX = {
     6: "con-6",
 }
 
-# Sentinel used by `expand_selectors_for_ligatures` to mark a ligature-glyph endpoint addition. The novelty filter inside `_additions` subtracts this set from the candidate Y intersection; an empty set leaves the intersection alone so the addition fires whenever the ligature has an anchor Y the source can meet. Pre-liga literal endpoints carry the canonical component's Ys here instead, which lets the novelty filter suppress redundant additions.
+# The `canonical_ys` that `expand_selectors_for_ligatures` stores for a ligature-glyph endpoint. `_additions` subtracts `canonical_ys` from the anchor Ys the source shares with the ligature, so an empty set adds the ligature whenever it has an anchor Y the source can meet. Lead- and trailing-component endpoints store that component's own Ys instead, so they are added only for a Y the component does not already reach.
 _LIG_ENDPOINT_BYPASS: frozenset[int] = frozenset()
 
 
 @dataclass(frozen=True)
 class ExtensionSpec:
-    """One rule of an `extend_*` / `contract_*` directive. `extend_exit_before` and `extend_entry_after` carry `tuple[ExtensionSpec, ...]` so a single stance can target different reaches at different followers; the `contract_*` siblings still hold at most one rule each."""
+    """One `by` / `targets` rule of an `extend_*` or `contract_*` directive. `extend_exit_before` and `extend_entry_after` hold a tuple of these, so one stance can extend by different amounts toward different neighbors. Each `contract_*` directive holds at most one."""
 
     by: int
     targets: tuple[str, ...]
@@ -106,11 +106,11 @@ class JoinGlyph:
     entry_explicitly_none: bool = False
     not_before_from_noentry_after: tuple[str, ...] = ()
     strip_entry_before: bool = False
-    # Marks the touch/default body among a base's competing reverse-upgrade or pair-override stances as the one that claims the no-follower (word-final) remainder. The FEA emitter sorts competing lookups by declared precedence (this flag first) instead of compiled-glyph-name order, so a follower-honest rename can't silently hand word-final to a sibling whose name happens to sort earlier. See `qsOut.exit_xheight_after_see_before_other`.
+    # Marks the stance that takes the no-follower (word-final) input among a base's competing reverse-upgrade or pair-override stances. The FEA emitter puts it first among those siblings, so renaming a sibling cannot hand word-final to whichever compiled name sorts first. See `qsOut.exit_xheight_after_see_before_other`.
     terminal_default: bool = False
-    # Lead-component glyphs that `expand_selectors_for_ligatures` added to `before` as pre-liga proxies for a ligature whose trailing component matched the source's original selector. Each lead glyph must be followed by a specific trailing-component variant for the calt rule to fire meaningfully; without that constraint the rule over-fires whenever the lead appears alone (e.g., qsIt' qsDay alone, when qsDay isn't about to become qsDay_qsUtter). `_emit_fwd_pairs` splits these glyphs out of the bulk lookahead into per-lead two-position rules. Keyed by lead glyph name, each value is the trailing-component family base name(s) one of whose variants must follow.
+    # `(lead glyph, trailing families)` pairs. `expand_selectors_for_ligatures` adds a lead glyph to `before` when the source's selector names a later component of a ligature that glyph leads, and records that component's family here. The FEA emitter gives each lead its own two-position rule that requires a variant of one of those families next, so `qsIt' qsDay` does not fire when the `qsDay` will not become `qsDay_qsUtter`.
     before_lig_lead_followups: tuple[tuple[str, tuple[str, ...]], ...] = ()
-    # Set (to N) on a backward-entry-upgrade target stance to extend its exit by N pixels, gated on the predecessor that supplied the entry join. The FEA emitter's final `calt_when_entered_*` lookup matches this stance (and its entry-extension siblings) directly — they only ever appear after the entry join — and swaps in the `ex-ext-N` variant when a glyph that literally enters at the stance's own exit Y follows. Unlike `extend_exit_before`, it never routes through the bare pre-lookup stance, so the extension can't leak onto the word-initial bare glyph (see `qsMay.entry_baseline`).
+    # N pixels to extend the exit of a backward-entry-upgrade target stance, only after the predecessor that gave it its entry join. The FEA emitter's `calt_when_entered_*` lookups match this stance and its entry-extension siblings, which appear only after that join, and swap in the `ex-ext-N` variant when the follower has an entry anchor at this stance's exit Y. Unlike `extend_exit_before`, it never matches the bare stance, so the extension cannot reach a word-initial glyph (see `qsMay.entry_baseline`).
     extend_exit_when_entered: int | None = None
 
     @property
@@ -259,7 +259,7 @@ def _merge_family_records(base: dict[str, Any], override: dict[str, Any]) -> dic
             for nested_key, nested_value in value.items():
                 if nested_value is None:
                     if key == "anchors":
-                        # Preserve None as an explicit opt-out sentinel so downstream code can distinguish "this stance declares no entry/exit" from "this stance said nothing about entry/exit". Drives entry_explicitly_none.
+                        # Keep an explicit None so later code can tell "declares no anchor" from "says nothing about it" (`entry_explicitly_none`).
                         merged[key][nested_key] = None
                     else:
                         merged[key].pop(nested_key, None)
@@ -668,7 +668,7 @@ def _normalize_source_modifiers(
     return tuple(modifiers)
 
 
-# CFF1 truncates PostScript names to 63 bytes when read by HarfBuzz, so two stances whose names share the same 63-byte prefix collide at shaping time. The cap here is conservative — it only governs the base-stance name; downstream variant generation (`.noentry`, `.en-ext-1`, …) may still push specific variants past the limit, but those variants are typically not the ones HarfBuzz routes a plain-text shape to. If a real shaping collision shows up at a tighter budget, lower this value.
+# HarfBuzz reads CFF1 PostScript names truncated to 63 bytes, so two stances whose names share a 63-byte prefix collide at shaping time. The cap applies only to a stance's base compiled name. Generated variants (`.noentry`, `.en-ext-1`, …) can still exceed it, but they are usually not the glyphs a plain-text shape produces. Lower the cap if a real collision appears.
 _SYNTHESIZED_NAME_LENGTH_CAP = 63
 
 
@@ -676,11 +676,11 @@ def _synthesize_anchor_modifiers(
     anchors: dict[str, Any] | None,
     authored: Sequence[str],
 ) -> tuple[str, ...]:
-    """Fill in en-<label> / ex-<label> modifiers derived from the resolved stance's anchors.
+    """Return the stance's modifiers with `en-<label>` / `ex-<label>` added for each anchor whose Y has a label in `_EXTENDED_HEIGHT_LABELS`.
 
-    Fires on every stance: whenever the resolved entry/exit anchor lands on a Y with a known label in `_EXTENDED_HEIGHT_LABELS`, the matching `en-<label>` / `ex-<label>` modifier is added to the compiled name. Trait-only stances (`qsNo.alt`, `qsTea.half`, etc.) pick up the anchor-Y modifiers too, so the compiled name always reflects where the stance joins. Legacy literal references to the pre-synthesis name (in YAML overrides or curated tables) are routed through `_heal_renamed_selector` / `heal_glyph_name`.
+    Trait-only stances (`qsNo.alt`, `qsTea.half`) get these modifiers too, so every compiled name shows where the stance joins. Hand-written names that lack them are resolved by `_heal_renamed_selector` and `heal_glyph_name`.
 
-    The Y→label map is `_EXTENDED_HEIGHT_LABELS`. An author-written `en-<something>-at-<Y>` (or `ex-` equivalent) suppresses the bare label on that side, since the qualifier already encodes the Y. Any author copy of a synthesized token is deduped so the final tuple matches the canonical order `[en-<label>, ex-<label>, *remaining_author]`.
+    An authored `en-…-at-<Y>` (or `ex-…-at-<Y>`) suppresses the label on that side, since it already encodes the Y. The result is ordered `[en-<label>, ex-<label>, *other authored modifiers]`, with authored copies of the added labels removed. When the authored list already contains every label, it is returned unchanged.
     """
     synthesized: list[str] = []
     if anchors:
@@ -819,9 +819,9 @@ _SYNTHESIZED_MODIFIER_TOKENS = frozenset(
 def _split_selector_extensions(
     modifiers: Sequence[str],
 ) -> tuple[tuple[str, ...], tuple[str, ...]]:
-    """Partition a selector's modifier list into (base_modifiers, runtime_extension_modifiers).
+    """Split a selector's modifiers into `(base_modifiers, extension_modifiers)`.
 
-    Runtime extensions like `ex-ext-1` / `en-con-2` / `en-trim-2` name variants generated late in `build_join_glyphs`; they aren't in `available_names` at selector-resolution time. The healer matches the base part against `available_names` and then re-attaches the extensions to the healed name.
+    Extension modifiers (`ex-ext-1`, `en-con-2`, `en-trim-2`) name variants that `expand_join_transforms` generates after selectors are resolved, so they are not yet in `available_names`. `_heal_renamed_selector` matches the base part and then appends the extensions to the healed name.
     """
     base: list[str] = []
     extensions: list[str] = []
@@ -842,15 +842,16 @@ def _heal_renamed_selector(
     family_names: set[str],
     available_names: frozenset[str] | None,
 ) -> str:
-    """When a selector references a stance by its pre-synthesis compiled name, find the post-synthesis stance whose (traits, modifiers) supersets the selector's and return its name instead.
+    """Return the compiled stance name a selector refers to.
 
-    Without this, a YAML selector like `{family: qsOut, modifiers: [ex-y5, ex-ext-1]}` keeps constructing `qsOut.ex-y5.ex-ext-1` even after `_synthesize_anchor_modifiers` has renamed the underlying stance to `qsOut.en-y0.ex-y5`. The selector is a CONSTRAINT — its modifier list is the minimum the matching stance must carry.
+    `candidate` is the name built from the selector. It is returned as is when it is in `available_names`. Otherwise it usually lacks anchor-Y modifiers that `_synthesize_anchor_modifiers` added to the stance's name, and this function finds that stance.
 
-    Two passes:
+    For example, `{family: qsOut, modifiers: [ex-y5, ex-ext-1]}` builds `qsOut.ex-y5.ex-ext-1`, but the stance compiles as `qsOut.en-y0.ex-y5`. A match must have the selector's traits exactly and every selector modifier, and its extra modifiers may only be anchor-Y tokens (`_SYNTHESIZED_MODIFIER_TOKENS`).
 
-    1. Treat the selector's full modifier set as a constraint and look for a post-synth stance whose own full modifier set supersets it, with the extras only being synthesized anchor-Y tokens. This catches authored stances that carry runtime-extension modifiers in their YAML and got an anchor-Y added by synthesis (`modifiers: [ex-ext-1]` on a stance with `exit: […, 0]` becomes `qsX.ex-y0.ex-ext-1`).
+    1. The first pass matches the full modifier set. This finds authored stances whose YAML lists an extension modifier (`modifiers: [ex-ext-1]` with an exit at y=0 compiles as `qsX.ex-y0.ex-ext-1`).
+    2. Otherwise the extension modifiers (`_split_selector_extensions`) are set aside, the base modifiers are matched against stances without extension modifiers, and the extensions are appended to the result in their original order.
 
-    2. If pass 1 finds nothing, split off any runtime-extension modifier (e.g. `ex-ext-1`) from the selector and search again over base modifiers only — since the extended variants haven't been generated at selector-resolution time. Re-attach the extensions to the healed base name in the original order. Among compatible base stances we pick the one with the fewest extra modifiers (the "closest" match) so a bare-modifier selector doesn't accidentally grab an extension/contraction variant.
+    Each pass picks the match with the fewest extra modifiers and raises `ValueError` on a tie. When nothing matches, `candidate` is returned unchanged.
     """
     if available_names is None or candidate in available_names:
         return candidate
@@ -914,12 +915,12 @@ def _heal_renamed_selector(
             continue
         name_traits_set = frozenset(name_traits)
         name_base_set = frozenset(name_base_modifiers)
-        # Traits (`half` / `alt`) are categorical: a selector with no traits names the non-trait variant, not a `half` or `alt` sibling. Require exact equality so a `qsTea.en-y5` selector doesn't accidentally match `qsTea.half.en-y5`.
+        # A selector without traits names the plain stance, so `qsTea.en-y5` must not match `qsTea.half.en-y5`.
         if selector_traits != name_traits_set:
             continue
         if not (selector_base <= name_base_set):
             continue
-        # The healer's job is specifically to absorb the rename caused by `_synthesize_anchor_modifiers`: the candidate stance differs from the selector only by tokens that synthesis would have inserted. Refuse matches where the extra modifiers go beyond that vocabulary so a bare-anchor-Y selector doesn't accidentally pick up a semantically-distinct sibling like an `ex-noentry` variant.
+        # Only anchor-Y tokens may differ, so a selector cannot pick up a distinct sibling such as an `ex-noentry` stance.
         extra_modifiers = name_base_set - selector_base
         if not extra_modifiers <= _SYNTHESIZED_MODIFIER_TOKENS:
             continue
@@ -952,9 +953,9 @@ def heal_glyph_name(
     family_names: set[str],
     available_names: frozenset[str] | set[str],
 ) -> str:
-    """Heal a bare compiled glyph name string written before `_synthesize_anchor_modifiers` renamed its underlying stance.
+    """Return the compiled name for a hand-written glyph name that may lack the anchor-Y modifiers `_synthesize_anchor_modifiers` adds.
 
-    Used by `build_font.py` for author-written name references in `predecessor_demote_overrides` / `trailing_demote_overrides` / `restore_isolated_form_overrides` and by curated tables like `_PENDING_BK_ENTRY_GUARDS` that name compiled stances by literal string instead of going through selector resolution. The logic mirrors `_heal_renamed_selector`: parse the name, look it up, and if missing find the post-synth stance whose modifiers superset it (modulo `_SYNTHESIZED_MODIFIER_TOKENS`).
+    It serves names written as plain strings instead of selectors, such as the entries in `predecessor_demote_overrides`. A name that exists or names no known family is returned unchanged; any other name is resolved by `_heal_renamed_selector`.
     """
     if not isinstance(available_names, frozenset):
         available_names = frozenset(available_names)
@@ -1200,7 +1201,7 @@ def _family_stance_to_glyph_def(
                 available_names=available_names,
             )
 
-    # When a stance mixes `after: [{context_set: …}]` with `not_after: [{family: X}]` (and likewise for `before` / `not_before`), the context_set's expansion can include the negatively-listed family; subtract it now so downstream emitters can treat `after` as a clean trigger list. The build's literal-overlap check rejects the case where both lists name the same family directly, so we only have to handle the context_set-vs-literal mismatch here.
+    # A `context_set` in `after` can expand to a name that `not_after` also lists (likewise `before` / `not_before`). Remove those names from the positive list so the emitters can use it as the trigger list. `_check_select_family_overlap` already rejects a family named literally in both.
     for positive_key, negative_key in (
         ("calt_after", "calt_not_after"),
         ("calt_before", "calt_not_before"),
@@ -1378,7 +1379,7 @@ def _iter_compiled_family_stances(
             modifiers = _synthesize_anchor_modifiers(resolved.get("anchors", {}), authored_modifiers)
             output_name = _compiled_family_glyph_name(family_name, traits, modifiers)
             if len(output_name) > _SYNTHESIZED_NAME_LENGTH_CAP and modifiers != authored_modifiers:
-                # Synthesis would push the compiled base name past HarfBuzz's 63-byte name budget; two such names would become indistinguishable to anything that inspects glyph names. Keep the author's name so shaping can still route through this stance distinctly.
+                # The added anchor-Y modifiers would push the name past `_SYNTHESIZED_NAME_LENGTH_CAP`, so keep the authored name.
                 modifiers = authored_modifiers
                 output_name = _compiled_family_glyph_name(family_name, traits, modifiers)
             if output_name == family_name:
@@ -1421,7 +1422,7 @@ def compile_glyph_families(
     family_names = set(glyph_families)
     context_sets = context_sets or {}
 
-    # Materialize records before resolving selectors so superset-matching in `_resolve_family_selector_name` can adapt selectors that name a pre-synthesis stance (e.g. `qsOut.ex-y5`) to the post-synthesis stance that supersets it (`qsOut.en-y0.ex-y5`).
+    # Collect every compiled name before resolving selectors, so `_heal_renamed_selector` can map a name without anchor-Y modifiers (`qsOut.ex-y5`) to its compiled stance (`qsOut.en-y0.ex-y5`).
     records = list(_iter_compiled_family_stances(glyph_families, variant, context_sets=context_sets))
     available_names = frozenset(record["output_name"] for record in records)
 
@@ -1568,7 +1569,7 @@ def _glyph_def_to_join_glyph(
     resolved_modifiers = (
         tuple(modifiers) if modifiers is not None else tuple(_glyph_name_modifiers(glyph_name))
     )
-    # `is_entry_variant` semantically means "the author chose to author this stance as an entry-side restriction"; an `_synthesize_anchor_modifiers` insertion shouldn't flip it. When the caller can supply the pre-synthesis modifier list, use that — otherwise fall back to the resolved modifiers, which preserves the legacy behavior for callers that never touched synthesis.
+    # `is_entry_variant` means the author wrote an `en-*` modifier. The `en-*` tokens `_synthesize_anchor_modifiers` adds must not set it, so classify from `authored_modifiers` when the caller passes them.
     classifier_source = tuple(authored_modifiers) if authored_modifiers is not None else resolved_modifiers
     resolved_contextual = _is_contextual_variant(glyph_name) if contextual is None else bool(contextual)
     resolved_is_noentry = ("noentry" in resolved_modifiers) if is_noentry is None else bool(is_noentry)
@@ -2144,7 +2145,7 @@ def derive_join_glyph(
     resolved_extend_exit_before_gated = (
         source.extend_exit_before_gated if extend_exit_before_gated is _UNSET else extend_exit_before_gated
     )
-    # Clear on derived variants by default: the directive is meant only for the authored backward-upgrade target. Letting it ride along onto `.ex-ext-1` / `.en-ext-1` / `.noentry` siblings would risk re-processing the already-extended stance.
+    # Unlike most fields, this is not inherited from `source`. It applies only to the authored backward-upgrade target, and copying it onto the `.ex-ext-1`, `.en-ext-1`, or `.noentry` variants could extend an already extended stance again.
     resolved_extend_exit_when_entered = (
         None if extend_exit_when_entered is _UNSET else extend_exit_when_entered
     )
@@ -2161,7 +2162,7 @@ def derive_join_glyph(
     )
     resolved_noentry_for = source.noentry_for if noentry_for is _UNSET else noentry_for
 
-    # When the caller explicitly sets `after` (or `before`) but lets the negative selector inherit from `source`, drop any inherited `not_after` / `not_before` family that overlaps the explicit positive list. The explicit selector is the stance's reason to exist; an inherited negative for the same family would silently suppress it. Extension generators (e.g. `_add_entry_extension_variants`) hit this: `qsDay.half.en-ext-1` gets `after = (qsTea, qsYe, …)` from the `extend_entry_after` directive while inheriting `qsDay.half`'s `not_after = (qsTea, qsYe, qsWay)`, leaving `not_after = (qsWay,)`.
+    # When the caller sets `after` (or `before`) and leaves the negative list inherited, drop inherited `not_after` / `not_before` names that the new positive list contains, since they would suppress it. For example, `_add_entry_extension_variants` gives `qsDay.half.en-y0.ex-y0.en-ext-1` `after = (qsTea, qsYe, qsTea_qsOy)`, and its inherited `not_after = (qsTea, qsYe, qsWay)` becomes `(qsWay,)`.
     if (
         after is not _UNSET
         and not_after is _UNSET
@@ -2211,7 +2212,7 @@ def derive_join_glyph(
         preferred_over=resolved_preferred_over,
         word_final=resolved_word_final,
         is_contextual=contextual,
-        # Preserve the source's authorial classification; an extension/contraction transform only flips it to True when the transform adds its own en-* modifier (e.g. `en-ext-1`). Synthesized en-* tokens already on the source don't count — they're carried by `source.is_entry_variant` if applicable.
+        # Inherited from `source`, or set when this derivation adds an `en-*` modifier (such as `en-ext-1`). The `en-*` tokens already in the source's name do not count on their own.
         is_entry_variant=source.is_entry_variant
         or any(modifier.startswith("en-") for modifier in add_modifiers),
         entry_suffix=_entry_suffix_from_modifiers(list(resolved_modifiers)),
@@ -2328,7 +2329,7 @@ def _iter_related_extension_targets(
     anchor_attr = side
     targets = [(source_name, source_glyph, True)]
     base_name = source_glyph.base_name
-    # Entry-side rules flow from the lead component (sequence[0]) of a ligature; exit-side rules flow from the trailing component (sequence[-1]). The other end of the ligature is buried internally and its anchor never reaches a joining boundary, so propagating there would only generate dead variants.
+    # A ligature takes entry-side rules from its lead component and exit-side rules from its trailing component. Its other components are inside the ligature and never join a neighbor, so variants for them could never be used.
     ligature_position = -1 if side == "exit" else 0
 
     for other_name, other_join_glyph in sorted(join_glyphs.items()):
@@ -2343,7 +2344,7 @@ def _iter_related_extension_targets(
         other_sequence = other_join_glyph.sequence
         is_variant = other_base == base_name and bool(other_join_glyph.modifiers)
         is_ligature = bool(other_sequence) and other_sequence[ligature_position] == base_name
-        # A ligature that declares its own `noentry_after` is taking explicit responsibility for its exit-side behavior; the post-liga cleanup that routes `lig → lig.noentry` after specific predecessors is only emitted for the base ligature glyph, so propagating an extension/contraction here would generate a variant that bypasses that cleanup. Stick with the explicit YAML-declared rules in that case.
+        # The FEA emitter's `lig → lig.noentry` rule for a ligature's `noentry_after` matches only the base ligature glyph, so an extended or contracted exit variant of such a ligature would escape it. Those ligatures get only the variants their YAML declares.
         if is_ligature and side == "exit" and other_join_glyph.noentry_after:
             continue
         if is_variant or is_ligature:
@@ -2888,11 +2889,11 @@ def _add_entry_trimmed_variant(
             "transform_kind": "entry-trimmed",
         }
         kwargs.update(_cleared_extension_context())
-        # An entry-side trim leaves the glyph's exit untouched, so its forward (exit-side) join gates still describe the trimmed glyph. Inherit them from the source instead of clearing, so the after-·See en-trim column mirrors the non-trim column's baseline-default-plus-reverse-upgrade structure rather than collapsing every receiver onto a single catch-all that draws the connecting nub indiscriminately.
+        # An entry-side trim leaves the exit unchanged, so the receiver's `before`, `not_before`, and `reverse_upgrade_from` still apply and are inherited. Clearing them would let one trimmed stance match every follower and draw its connecting stroke whatever follows.
         for inherited in ("before", "not_before", "reverse_upgrade_from"):
             kwargs.pop(inherited)
         kwargs["after"] = (source_contracted_name,)
-        # `reverse_upgrade_from` targets are resolved glyph names, so retarget them at the trimmed sibling: a non-trim source never appears after a contracted lead.
+        # `reverse_upgrade_from` holds glyph names. After a contracted lead, each of those glyphs appears only as its `en-trim` variant, so point each name at that variant.
         if receiver_glyph.reverse_upgrade_from:
             kwargs["reverse_upgrade_from"] = tuple(
                 f"{target}.{modifier}" for target in receiver_glyph.reverse_upgrade_from
@@ -2917,9 +2918,9 @@ def _contraction_source_matches_after(
     source_name: str,
     source_family: str | None,
 ) -> bool:
-    """True if the contraction source belongs in an extended receiver's after-list.
+    """True if `after_tuple` names the contracting source glyph or its family.
 
-    A receiver variant whose `extended_entry_suffix` is set has a bitmap authored for a specific set of left-context families/stances (the receiver's `extend_entry_after.targets`). The trim sibling is only meaningful when the contracting source is one of those — otherwise the trimmed bitmap geometry doesn't correspond to the actual left context the trim will fire in.
+    An entry-extended receiver's `after` lists the left neighbors its extension was made for. A trimmed copy of it fits only when the contracting source is one of them.
     """
     if source_name in after_tuple:
         return True
@@ -3032,13 +3033,13 @@ def _generate_contracted_variants(
 def expand_selectors_for_ligatures(
     join_glyphs: dict[str, JoinGlyph],
 ) -> dict[str, JoinGlyph]:
-    """Expand positive calt selectors so they fire on the first/last component of any ligature whose non-first/non-last components were named explicitly.
+    """Return the glyphs with `before`, `gated_before`, and `after` extended so a selector that names a ligature component also matches the ligature's neighbor-facing glyphs.
 
-    `before:` / `gated_before:` are forward-context lookups in `calt`, which runs before `calt_liga` collapses sequences into ligature glyphs. So a selector that names a ligature's second (or later) component misses, because the immediate next glyph in the pre-liga stream is the ligature's *first* component. Likewise backward-context `after:` lookups only see the ligature's *last* component pre-liga.
+    The `calt` lookups that run before `calt_liga` see the uncollapsed components. A `before` selector naming a ligature's second or later component therefore misses, because the next glyph is the ligature's lead component. An `after` selector likewise sees only the trailing component. After `calt_liga`, the neighbor is the ligature glyph itself. This pass adds the lead (or trailing) component and the ligature's variants, so a selector such as "before qsUtter" also covers each ligature that contains ·Utter.
 
-    This pass adds the missing endpoints so the YAML can stay declarative ("fire before qsUtter") and stay correct as new ligatures land. Each candidate addition is gated by Y compatibility: an endpoint family is only added when at least one of its reachable variants (or the ligature's canonical record) carries a matching cursive anchor on the side the source needs. This keeps spurious entries out of the join-consistency check while still covering the cases where the ligature's half/baseline stance actually accepts the source.
+    An addition needs an anchor Y that the source shares with the ligature. A lead or trailing component is added only for a shared Y that the component does not already reach on its own. Additions are also skipped when a `before` addition's `noentry_after` names the source's family, when a ligature variant's extension or contraction suffix differs from the one the source triggers on that component, and when the added glyph has its own `after` (or `before`) list that leaves out the source's family.
 
-    Negative selectors (`not_before:` / `not_after:`) are left untouched: the intent of those lists is almost always literal ("don't fire before this specific glyph"), and expanding them tends to suppress shaping in cases where the original author wanted the lookup to keep firing. If a negative-side ligature exception is genuinely needed it can be authored by hand.
+    Negative selectors (`not_before`, `not_after`) are not expanded, because they usually mean one literal glyph and expanding them would suppress joins the author wanted. A negative ligature exception is written by hand.
     """
     ligature_records: list[JoinGlyph] = []
     for record in join_glyphs.values():
@@ -3086,7 +3087,7 @@ def expand_selectors_for_ligatures(
         canonical_ys = frozenset(anchor[1] for anchor in (*canonical.entry, *canonical.entry_curs_only))
         if canonical_ys:
             return canonical_ys
-        # Some families (e.g., qsJai) carry no anchors on the canonical record itself and split entry coverage across stances. Fall back to the union of stance-level anchors so the novelty filter still recognizes Ys that the family already reaches as a non-ligature.
+        # Some families (such as qsJai) have no entry anchor on the base record, only on stances, so use the union of the stances' entry Ys.
         ys: set[int] = set()
         for variant_name in base_to_variants.get(family, ()):
             variant = join_glyphs[variant_name]
@@ -3108,8 +3109,7 @@ def expand_selectors_for_ligatures(
                 ys.add(anchor[1])
         return frozenset(ys)
 
-    # Forward expansion entries: keyed by component name (base or variant), value is a list of (first_component_family, candidate_entry_ys, canonical_entry_ys) triples.
-    # candidate_entry_ys are the Ys reachable through the *ligature's* own variants — those are the Ys the source actually meets after `calt_liga` collapses the components. canonical_entry_ys are the Ys the first component's own variants already provide pre-liga (across the canonical record and any stances). The expansion only earns its keep when the ligature opens up a Y the first component's variants do not already cover; otherwise the lookup would just over-fire on adjacent first-components without unlocking any new join, crowding out broader fallback stances in the process.
+    # Keyed by component name (base or variant). Each value lists `(endpoint, candidate_ys, canonical_ys)`: `candidate_ys` are the Ys the ligature's variants reach, which the source meets after `calt_liga`, and `canonical_ys` are the Ys the endpoint component already reaches on its own. A component endpoint is added only for a Y the ligature reaches and the component does not. Otherwise the rule would fire on the bare component without enabling a new join, and would take precedence over broader fallback stances.
     forward_entries_by_component: dict[str, list[tuple[str, frozenset[int], frozenset[int]]]] = {}
     backward_entries_by_component: dict[str, list[tuple[str, frozenset[int], frozenset[int]]]] = {}
 
@@ -3134,8 +3134,7 @@ def expand_selectors_for_ligatures(
                     (last, lig_exit_ys, last_canonical_exit_ys)
                 )
 
-        # Post-liga matching: register every variant of the ligature itself under the component-variant key it represents, so a successor's selector that names that component variant matches the ligature glyph after `calt_liga` collapses it. Without this, the post-liga cleanup at `quikscript_fea.py::_collect_post_liga_right_cleanup_rules` finds no ligature glyph in the source's `after_glyphs` and downgrades the variant back to base. Adding the ligature glyphs also unlocks the calt-post-liga forward-rule emission, which only fires when a ligature glyph already appears in `after_glyphs`.
-        # Each ligature variant is keyed under the trailing component's base name (covers `after: [qsY]` which means "any qsY variant") and, if the variant carries an exit-side suffix (`extended_exit_suffix` or `contracted_exit_suffix`), also under the trailing component variant carrying that same suffix (covers `after: [qsY.ex-ext-1]` etc., which discriminate by component state). Symmetric for entry-side suffix and the lead component on the forward side. This mirrors the `calt_liga` glyph-selection rule that maps `(qsX, qsY.<suffix>)` to `qsX_qsY.<suffix>`: the same suffix carries from component-variant to ligature-variant, so the inverse mapping is unambiguous.
+        # Register each ligature variant under the components it represents, so a selector naming a component also matches the ligature glyph after `calt_liga`. Without this, `_collect_post_liga_right_cleanup_rules` in `quikscript_fea.py` finds no ligature in the source's `after` and demotes the source, and the `calt_post_liga_*` rules, which are emitted only for an `after` list that contains a ligature, are never written.
         for lig_variant_name in sorted(base_to_variants.get(record.base_name, {record.name})):
             lig_variant = join_glyphs[lig_variant_name]
             lig_variant_entry_ys = frozenset(
@@ -3143,11 +3142,11 @@ def expand_selectors_for_ligatures(
             )
             lig_variant_exit_ys = frozenset(anchor[1] for anchor in lig_variant.exit)
 
-            # Register under every component-base name in the sequence so a selector that mentions any component matches the ligature post-liga. For example, a 3-component ligature qsA_qsB_qsC is exposed under qsA, qsB, and qsC equally — pre-liga, calt only ever sees qsA at the boundary, but post-liga the ligature glyph should satisfy any of the component selectors.
+            # A three-component `qsA_qsB_qsC` is registered under `qsA`, `qsB`, and `qsC`, since after `calt_liga` a selector naming any of them should match it.
             forward_keys: set[str] = set(sequence)
             backward_keys: set[str] = set(sequence)
 
-            # Suffix-aware keying lets a selector that names a specific component variant (e.g., `qsUtter.ex-con-2`) match only the ligature variants that represent the same state — `calt_liga` maps `(qsX, qsUtter.ex-con-2)` to `qsX_qsUtter.ex-con-2`, so the same suffix carries through. Without this, a base ligature like `qsX_qsUtter` would also match `qsUtter.ex-con-2` selectors and leave bitmap-misalignment warnings.
+            # `calt_liga` carries a component's suffix onto the ligature (`qsX` + `qsUtter.ex-con-2` becomes `qsX_qsUtter.ex-con-2`). A variant with an entry-extension suffix is also registered under the lead component with that suffix, and one with an exit-extension or exit-contraction suffix under the trailing component with that suffix. A selector naming `qsUtter.ex-con-2` then matches only ligature variants in the same state; matching the base `qsX_qsUtter` would cause bitmap-misalignment warnings.
             entry_suffix = lig_variant.extended_entry_suffix or ""
             if entry_suffix:
                 first_variant = first + entry_suffix
@@ -3172,7 +3171,7 @@ def expand_selectors_for_ligatures(
                     )
 
     def _expected_runtime_exit_suffix(source_family: str, last_family: str) -> str:
-        """When source family `source_family` follows a glyph in family `last_family`, what exit suffix does `last_family`'s base stance mutate into at runtime? Return "" if no rule applies. Used to filter ligature endpoints so a source whose family triggers contraction/extension on the trailing component only matches ligature variants representing the same runtime state. Without this filter, a base ligature like `qsX_qsUtter` would be added to `qsJai`'s after list even though the runtime `qsUtter.ex-con-2` always wins before `qsJai`."""
+        """Return the exit suffix (`.ex-con-N` or `.ex-ext-N`) that `last_family`'s base stance takes when `source_family` follows it, or "" if none. Ligature variants in any other state are not added, so `qsJai`'s `after` gets `qsX_qsUtter.ex-con-2` but not `qsX_qsUtter`, because ·Utter always contracts before ·J’ai."""
         last_meta = join_glyphs.get(last_family)
         if last_meta is None:
             return ""
@@ -3188,7 +3187,7 @@ def expand_selectors_for_ligatures(
         return ""
 
     def _expected_runtime_entry_suffix(source_family: str, first_family: str) -> str:
-        """Mirror of `_expected_runtime_exit_suffix` for the lead-component side. When source family `source_family` precedes a ligature whose first component is in family `first_family`, this is the entry suffix that `first_family`'s base stance mutates into."""
+        """Return the entry suffix (`.en-con-N` or `.en-ext-N`) that `first_family`'s base stance takes when `source_family` precedes it, or "" if none."""
         first_meta = join_glyphs.get(first_family)
         if first_meta is None:
             return ""
@@ -3219,7 +3218,7 @@ def expand_selectors_for_ligatures(
         return families
 
     def _endpoint_accepts_source_family(endpoint_meta: JoinGlyph, source_family: str, side: str) -> bool:
-        """When the source's `before` adds a ligature endpoint, the source precedes the ligature. The ligature must accept the source as a left-side neighbor — i.e., source_family must be in the ligature's own `after` (positive selector) or the ligature must have no `after` constraint at all. Mirror for the `after` side."""
+        """True if the endpoint accepts the source as its neighbor. For an entry-side (`before`) addition, the endpoint's `after` must be empty or name the source's family. For an exit-side addition, the same holds for its `before`."""
         if side == "entry":
             if endpoint_meta.after:
                 if source_family not in _selector_families(endpoint_meta.after):
@@ -3258,7 +3257,7 @@ def expand_selectors_for_ligatures(
     ) -> tuple[set[str], dict[str, set[str]]]:
         existing = set(field)
         additions: set[str] = set()
-        # Map each newly added pre-liga lead-component endpoint to the set of trailing-component family base names whose variants must follow at runtime for the join to actually materialize. Only populated on the entry side, since calt_liga collapses forward pairs and the symmetric backward case (`after:` selectors) has no equivalent two-position downstream lookup that benefits from this metadata.
+        # Lead-component endpoint -> the families, one of which must follow it for the join to happen. Filled only on the entry side, since only the FEA emitter's forward rules use it (`before_lig_lead_followups`).
         lead_followups: dict[str, set[str]] = {}
         for glyph in field:
             scoped_anchor = _scoped_anchor_selector(glyph)
@@ -3267,7 +3266,7 @@ def expand_selectors_for_ligatures(
             else:
                 assert scoped_anchor.family_scope is not None
                 lookup_key = scoped_anchor.family_scope
-            # `lookup_key`'s base name identifies the component that the source's selector originally targeted. Pre-liga lead-component endpoints are registered under non-first ligature components, so when `lookup_key`'s base differs from the endpoint's base, the endpoint was added as a pre-liga proxy and needs trailing-component lookahead at FEA emission time. lookup_key may itself be a variant (e.g., qsUtter.ex-ext-1); strip to its family.
+            # `lookup_base` is the family of the component the selector names; `lookup_key` may be a variant such as `qsUtter.ex-ext-1`. A non-ligature endpoint from another family is a lead component added for a ligature, and it is recorded in `lead_followups` below.
             lookup_meta = join_glyphs.get(lookup_key)
             lookup_base = lookup_meta.base_name if lookup_meta is not None else lookup_key.split(".", 1)[0]
             for endpoint, candidate_ys, canonical_ys in index.get(lookup_key, ()):
@@ -3285,15 +3284,15 @@ def expand_selectors_for_ligatures(
                 if source_family is not None:
                     if endpoint_meta is not None:
                         if side == "entry" and source_family in endpoint_meta.noentry_after:
-                            # The ligature drops its entry when this source family precedes it, so the source can never actually join forward into it. Adding it to the source's `before` would just confuse the join validator and emit dead post-liga rules.
+                            # The endpoint drops its entry after this source family, so the source can never join into it. Adding it would give the join validator a join that never happens and emit post-liga rules that never fire.
                             continue
                         if endpoint_meta.sequence and not _ligature_variant_matches_runtime(
                             endpoint_meta, source_family, side
                         ):
-                            # The trailing (or lead) component's base stance mutates into a specific suffix variant when this source family follows (or precedes), so only the matching ligature variant can actually appear in the buffer at runtime. Skip ligature variants whose state can't be reached.
+                            # This source family extends or contracts the component, so only the ligature variant with that suffix can appear next to it.
                             continue
                         if not _endpoint_accepts_source_family(endpoint_meta, source_family, side):
-                            # Some ligatures carry their own `select.after` / `select.before` constraint that gates whether the ligature ever fires (e.g., `qsThey_qsUtter` only collapses when its `after` lists a context-set match). If the source's family isn't in that list, the ligature never appears in the buffer next to this source — adding it to the selector list would generate a one-sided join warning.
+                            # The endpoint's own `select.after` / `select.before` leaves out the source's family (as `qsThey_qsUtter`'s `after` does for most families), so it never appears next to this source. Adding it would cause a one-sided join warning.
                             continue
                 additions.add(endpoint)
                 if (
@@ -3302,7 +3301,7 @@ def expand_selectors_for_ligatures(
                     and not endpoint_meta.sequence
                     and endpoint_meta.base_name != lookup_base
                 ):
-                    # The endpoint is a non-ligature glyph whose family differs from the lookup_key's family. That means the ligature-expansion mechanism added it as a pre-liga proxy for a ligature whose trailing component matched the source's selector. Record the trailing family so the FEA emitter can require an actual trailing-component glyph at the buffer position past the lead before promoting the source.
+                    # Record the named component's family so the FEA emitter requires a glyph of that family right after the lead before it substitutes the source.
                     lead_followups.setdefault(endpoint, set()).add(lookup_base)
         return additions, lead_followups
 
@@ -3314,7 +3313,7 @@ def expand_selectors_for_ligatures(
         source_family: str | None,
         side: str,
     ) -> tuple[tuple[str, ...], dict[str, set[str]]]:
-        # An empty anchor set means the source has no cursive anchor on the side the selector cares about, so a ligature-bridged join can never form. Skip expansion entirely; the selector keeps its original literal interpretation.
+        # A source with no anchor on this side cannot join a ligature, so its selector stays as written.
         if not field or not anchor_ys:
             return field, {}
         new_additions, lead_followups = _additions(
@@ -3526,7 +3525,7 @@ def _bitmaps_align_at_y(
     target_glyph: JoinGlyph,
     y: int,
 ) -> bool:
-    """Check that ``source_glyph`` and ``target_glyph`` share the same leftmost-ink column at glyph-space ``y``. Used as a safety guard before copying an entry anchor's x-coordinate from one glyph onto another: if the lead's entry coordinates land in different bitmap territory on the ligature, the join would leave a visible bitmap gap."""
+    """True if both glyphs have a row at glyph-space ``y`` and their leftmost ink in it is in the same column. An entry anchor copied between glyphs that fail this check would leave a visible gap at the join."""
     source_row = _bitmap_row_at_y(source_glyph.bitmap, source_glyph.y_offset, y)
     target_row = _bitmap_row_at_y(target_glyph.bitmap, target_glyph.y_offset, y)
     if source_row is None or target_row is None:
@@ -3539,24 +3538,20 @@ def _find_lead_entry_source(
     lead_family: str,
     ligature_after: frozenset[str] = frozenset(),
 ) -> tuple[tuple[Anchor, ...], JoinGlyph] | None:
-    """Pick the entry anchor a ligature should inherit from its lead.
+    """Return ``(entries, source_glyph)`` for the entry anchor a ligature should inherit from its lead, or ``None``.
 
-    Preference order:
-      1. The compiled lead-prop glyph (named exactly ``lead_family``) if its entry is non-empty. The prop is the unrestricted default stance, so its entry coordinates are always safe to copy.
-      2. The compiled glyph named ``f"{lead_family}.en-y5"`` if it exists and has an entry, when one of:
-           a. It has no ``after`` constraint (the stance is unrestricted).
-           b. The ligature carries a ``select.after`` whose compiled set equals the lead's ``en-y5.after`` set. Mirroring the restriction means the ligature only fires for the same predecessors the lead's en-y5 fires for, so the inherited entry is context-equivalent.
-         An ``after``-restricted ``en-y5`` whose restriction the ligature does NOT mirror is rejected: copying its anchor would silently grant the ligature an entry for predecessors the lead wouldn't accept.
+    The candidates, in order:
 
-    More-specific entry stances (e.g. ``qsTea.en-y5.after-fee``) are intentionally **not** candidates: they layer extra context on top of the canonical stance. We only need *one* unconditional anchor to seed the ligature; ``_iter_related_extension_targets`` will still propagate `extend_entry_after` rules from any compatible source by matching on ``base_name``.
+    1. The lead's base glyph (named ``lead_family``), if it has an entry. It is the unrestricted default stance.
+    2. The lead's ``en-y5`` stance (found through ``heal_glyph_name``), if it has an entry and either has no ``after`` or has the same ``after`` set as the ligature. An ``en-y5`` restricted to other predecessors is rejected, because copying its anchor would give the ligature an entry after predecessors the lead does not accept.
 
-    Returns ``(entries, source_glyph)`` or ``None`` if no inheritable entry exists.
+    Stances with other authored modifiers, such as ``qsTea.en-y5.ex-y0.after-fee``, are not candidates. One anchor is enough to give the ligature an entry, and ``_iter_related_extension_targets`` then applies the lead's ``extend_entry_after`` rules to it.
     """
     lead_prop = join_glyphs.get(lead_family)
     if lead_prop is not None and lead_prop.entry:
         return lead_prop.entry, lead_prop
 
-    # `_synthesize_anchor_modifiers` may have renamed the canonical en-y5 stance to e.g. `qsJai.en-y5.ex-y0`. Route the literal lookup through `heal_glyph_name` so the inheritance survives the rename.
+    # The en-y5 stance may compile with more anchor-Y modifiers, such as `qsJai.en-y5.ex-y0`.
     canonical_name = heal_glyph_name(
         f"{lead_family}.en-y5",
         family_names_from_compiled(set(join_glyphs)),
@@ -3575,17 +3570,13 @@ def _find_lead_entry_source(
 def _inherit_ligature_entries_from_lead(
     join_glyphs: dict[str, JoinGlyph],
 ) -> dict[str, JoinGlyph]:
-    """Fill in missing entry anchors on ligatures from the lead component.
+    """Return the glyphs with an entry anchor copied from the lead component (``_find_lead_entry_source``) onto each authored ligature stance that has none.
 
-    For every JoinGlyph whose ``sequence`` has length ≥ 2 and whose ``entry`` is empty, copy the entry anchor from the lead component's compiled glyph (see ``_find_lead_entry_source`` for the lookup rule). This lets the existing ``_iter_related_extension_targets`` machinery propagate ``extend_entry_after`` rules onto the ligature without YAML duplication.
+    The copied entry lets ``_iter_related_extension_targets`` apply the lead's ``extend_entry_after`` rules to the ligature without repeating them in the YAML. It is copied only when ``_bitmaps_align_at_y`` passes at the entry's Y.
 
-    Also emits ``LigatureEntryInheritanceWarning`` for every ligature that declares its own ``entry`` anchor — the explicit declaration is now a candidate for cleanup (matching inheritance) or a drift hazard (mismatched). The warning is informational; the explicit YAML always wins until manually removed.
+    A ligature stance that declares its own entry keeps it and gets a ``LigatureEntryInheritanceWarning`` saying whether inheritance would give the same anchor, a different one, or none (the lead has no candidate stance, or the bitmaps do not align).
 
-    Half/alt-trait ligature variants (e.g. ``qsDay_qsUtter.half``) are skipped: their entry coordinates legitimately differ from the lead's prop entry (a half lead exits at the baseline, not x-height), so prop inheritance is never the right rule for them.
-
-    Bitmap alignment is checked at the entry's Y row: if the ligature's leftmost ink column at that row differs from the lead's, inheritance would create a join with a visible gap, so we skip it. The ligature stays entry-less unless its YAML explicitly declares one.
-
-    A ligature can opt out of inheritance entirely by writing ``entry: null`` in its ``prop.anchors``. This is distinct from omitting the key (which means "inherit if possible"); ``null`` means "this ligature has no entry anchor, do not inherit, do not warn." Use this when the ligature legitimately has no entry even though the lead has one (e.g. stroke direction in the joined form precludes any incoming join).
+    Stances with a trait (``qsDay_qsUtter.half``) are skipped, because their entry differs from the lead's: a half lead exits at the baseline, not the x-height. Writing ``entry: null`` in the ligature's anchors also skips it with no warning, for a ligature that has no entry even though its lead does.
     """
     updated = dict(join_glyphs)
     for name, glyph in sorted(join_glyphs.items()):
@@ -3664,7 +3655,7 @@ def has_entry_preserving_exit_noentry_sibling(
     base_to_variants: dict[str, set[str]],
     join_glyphs: dict[str, JoinGlyph],
 ) -> bool:
-    """True if ``l_meta`` has a sibling stance that preserves its entry side and drops the exit (the ``.ex-noentry`` companion). The post-liga cleanup routes here cleanly when a downstream ``noentry_after`` ligature voids the right-hand join, so the calt_cycle guard that would otherwise block the upgrade is unnecessary."""
+    """True if ``l_meta`` has an ``ex-noentry`` sibling: a stance with the same entry anchors, no exit, no selectors, and ``l_meta``'s modifiers with the ``ex-*`` ones replaced by ``ex-noentry``. When a following ``noentry_after`` glyph voids the join, the post-liga cleanup can switch to that sibling, so ``l_meta`` needs no ``not_before`` for it."""
     expected_modifiers = frozenset(m for m in l_meta.modifiers if not m.startswith("ex-")) | {"ex-noentry"}
     for sibling_name in base_to_variants.get(l_meta.base_name, frozenset()):
         sibling = join_glyphs.get(sibling_name)
@@ -3688,11 +3679,11 @@ def has_entry_preserving_exit_noentry_sibling(
 def _propagate_noentry_after_to_not_before(
     join_glyphs: dict[str, JoinGlyph],
 ) -> dict[str, JoinGlyph]:
-    """Mirror `derive.noentry_after` into `not_before` on the left families.
+    """Add each ``noentry_after`` glyph's family to ``not_before`` on the left glyphs whose join it voids.
 
-    For every glyph ``V_R`` carrying ``noentry_after: [F_1, …]`` and at least one entry-side anchor at Y, append ``V_R``'s family name to ``not_before`` on every variant of every named family ``F_i`` whose exit Y matches — making the joining-shape selection on the left side impossible whenever ``V_R``'s `.noentry` substitution would void the join. This subsumes the manual ``not_before`` edits that previously had to accompany each `noentry_after` directive.
+    For an authored glyph R with ``noentry_after: [F, …]``, every authored stance of each family F whose exit Y matches one of R's entry Ys gets R's family in ``not_before`` (and in ``not_before_from_noentry_after``). This keeps F from taking a joining stance before R when R's ``.noentry`` substitution would void the join. A stance with a ``before`` list that does not name R's family is left alone.
 
-    Skipped when the left variant has an entry-preserving ``.ex-noentry`` sibling: the post-liga cleanup will route there cleanly, so blocking calt_cycle's selection would only deprive the predecessor of a usable baseline join with no benefit on the right.
+    A stance with an ``ex-noentry`` sibling (``has_entry_preserving_exit_noentry_sibling``) is also left alone. The post-liga cleanup switches it to the sibling, and a ``not_before`` would only cost its predecessor the join into it.
     """
     base_to_variants: dict[str, set[str]] = {}
     for name, glyph in join_glyphs.items():

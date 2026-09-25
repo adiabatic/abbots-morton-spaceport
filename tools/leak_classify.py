@@ -1,20 +1,14 @@
-"""The mechanical bad/benign classifier for shaping leaks.
+"""Classify a shaping-leak signature as bad or benign.
 
-`doc/definitions/shaping-leakage.md` defines a *leak* as a cross-break shape difference and overlays a *bad* vs *benign* severity. This module is that overlay: a pure, shaping-free `signature -> verdict` function the sweep and the gates both import.
+`doc/definitions/shaping-leakage.md` defines leaks and the bad/benign split (decisions 6, 10, and 11). `classify` implements that split without shaping, and the leak sweep and the gates both use it.
 
-A leak is **bad** ⇔ it is **visible** (the rendered run differs from the concatenation of its boundary-faithful halves) *and* a changed flanking stance is an **additive dangle** — it gained, in context, a break-facing connector the isolated form lacked, so the stroke reaches toward a neighbor that isn't there. Everything else is **benign**: subtractive trims that make a letter more self-contained, standalone variant swaps, and all invisible swaps. A little benign leakage is welcome — it is the faux-organic variation the script wants.
+A leak is **bad** when it is visible (the shaped run differs from its two halves shaped separately, each keeping the boundary token) and a changed side is an additive dangle: relative to its isolated form, the chosen stance gained a connector modifier on its break-facing edge, which is the left glyph's exit or the right glyph's entry. Every other leak is **benign**. A side whose break-facing edge is removed (`noexit` or `ex-noentry` on the left, `noentry` on the right) has nothing to dangle, so `qsThey_qsUtter.noentry.ex-con-1` is benign even though it changed.
 
-### The additive signal is the *gained break-facing anchor*, not a static token
+Overrides, from highest precedence:
 
-`doc/definitions/shaping-leakage.md` decision 6's table filed the additive class under `ex-ext-N`/`en-ext-N`. Measured against the 99 human-verified "broken" leaks that fires on **zero** of them: the real dangle in this font is the in-context stance **gaining a break-facing connecting anchor** vs its isolated form — `ex-y0`/`ex-y5`/`ex-y6` on the left glyph's exit (reaching right into the break), `en-y0`/`en-y5`/`en-y6`/`en-y8` on the right glyph's entry (reaching left into the break). 97 of 100 broken rows involve such an anchor. This matches the decision's *prose* ("reaches connector ink toward the across-break neighbor"); only the token bucketing was wrong. So the test is a **delta** — what the chosen stance gained relative to the isolated form on the break-facing edge — and the `ex-ext`/`en-ext` length tokens (and `extended`) stay in the additive set because they co-occur and are genuinely additive.
-
-A break-facing *subtractive* edge wins over any additive token on that same edge: a left stance carrying `noexit`/`ex-noentry` has no exit to dangle; a right stance carrying `noentry` has no entry to dangle. So `qsThey_qsUtter.noentry.ex-con-1` (subtractive on the entry) reads benign even though it changed.
-
-### Overrides (decision 11, plus one symmetric completion)
-
-- **Force-benign**, per stance: a directional `before-<fam>`/`after-<fam>` cosmetic interaction with the across-break neighbor (decided by `leak_contract_report._is_cosmetic`, which pins the opt-out to the neighbor's family via the stance's resolved trigger list, so `before-vertical`-style stems and `after-baseline-letter`-style class tokens are handled correctly).
-- **Force-benign**, per signature: `site/leak-force-benign.yaml`. A symmetric completion of decision 11 — some human-accepted standalone-variant swaps (e.g. `qsNo -> qsNo.alt.en-y0.ex-y0`) gain a facing anchor and trip the proxy yet carry no cosmetic modifier; this allowlist demotes the exact swap without weakening the proxy elsewhere.
-- **Force-bad**, per signature: `site/leak-force-bad.yaml`. The proxy is structurally blind to the cross-lookup-compose leaks where the changed side strips to bare while an *unchanged* ligature neighbor absorbs the join; this blocklist condemns the exact swap. Force-bad outranks every force-benign signal.
+- **Force-bad**, per signature: `site/leak-force-bad.yaml`. It covers swaps the modifier test reads as benign. Most are leaks from several lookups combined, where the changed side reverts to its bare form while an unchanged ligature neighbor takes the join. The rest are ·Excite swaps into its `before-vertical` stances.
+- **Force-benign**, per signature: `site/leak-force-benign.yaml`. It covers accepted standalone-variant swaps that gain a break-facing anchor but have no cosmetic modifier, such as `qsNo -> qsNo.alt.en-y0.ex-y0`.
+- **Force-benign**, per stance: a `before-<fam>` or `after-<fam>` modifier for the neighbor across the break, as `leak_contract_report._is_cosmetic` decides it.
 """
 
 from __future__ import annotations
@@ -45,7 +39,7 @@ FORCE_BENIGN_PATH = SITE_DIR / "leak-force-benign.yaml"
 # Break-facing additive connectors, by side. The left glyph's break-facing edge is its exit; the right glyph's is its entry. `extended` widens the body toward whichever side it sits on, so it counts on both.
 _LEFT_ADDITIVE_RE = re.compile(r"^(ex-y[0-9]|ex-ext-\d+|extended)$")
 _RIGHT_ADDITIVE_RE = re.compile(r"^(en-y[0-9]|en-ext-\d+|extended)$")
-# Break-facing edge removed entirely — nothing left to dangle.
+# Modifiers that remove the break-facing edge, so nothing can dangle.
 _LEFT_EDGE_REMOVED = {"noexit", "ex-noentry"}
 _RIGHT_EDGE_REMOVED = {"noentry"}
 
@@ -56,7 +50,7 @@ def _modifiers(name: str) -> frozenset[str]:
 
 
 def _is_additive_dangle(isolated: str, chosen: str, *, side: str) -> bool:
-    """Whether the break-facing edge of *chosen* (vs the isolated form) is an additive reach into the break. ``side`` is ``"left"`` (exit faces the break) or ``"right"`` (entry faces the break)."""
+    """Return whether *chosen* gained, relative to *isolated*, a connector modifier on its break-facing edge (the exit for ``side="left"``, the entry for ``side="right"``) and does not remove that edge."""
     if isolated == chosen:
         return False
     chosen_mods = _modifiers(chosen)

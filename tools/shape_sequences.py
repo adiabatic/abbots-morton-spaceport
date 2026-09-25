@@ -1,8 +1,8 @@
-"""Dump the compiled glyph variant chosen for each sequence in a fixture file.
+"""Print the glyph variants HarfBuzz picks for each sequence in a fixture file.
 
-Reads sequences from a plain-text fixture (one per line; `#` starts a comment; each line is whitespace-separated family names like `qsMay qsPea`), shapes each through HarfBuzz against the built Senior font, and prints one line per sequence showing the chosen variant for each output glyph along with its entry/exit anchors.
+Each fixture line holds whitespace-separated family names (`qsMay qsPea`), and `#` starts a comment. Each sequence is shaped with the Senior font given by `--font`, and each output glyph is printed with its entry and exit anchors. To check a YAML change, capture the output before the change and diff it against the output after.
 
-The output is stable and diff-friendly: capture a baseline before a YAML change, then diff the post-change run against it.
+The anchors come from compiling `glyph_data/`, not from the font, so a font built from older YAML can show glyph names with the wrong anchors or none.
 
 Examples:
 
@@ -15,9 +15,9 @@ Fixture line format:
     qsSee qsPea qsKey    # multi-glyph sequence
     # full-line comment, ignored
 
-Each output line is:
+Each output line looks like this:
 
-    qsMay qsPea -> qsMay/exit=(6,5) | qsPea.en-y5/entry=(1,5)/exit=(5,0)
+    qsMay qsPea -> qsMay/exit=(5,5) | qsPea.en-y5.ex-y0/entry=(0,5)/exit=(4,0)
 """
 
 from __future__ import annotations

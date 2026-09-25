@@ -1,10 +1,10 @@
-"""Standalone enforcement oracle for the derived join contract (see doc/history/2026-06-03--leak-cleanup/leak-prevention-plan.md).
+"""Apply the join contract to every rule in the emitted Senior `calt`, as a pass over the FEA would, and compare the result with `leak_contract_report`.
 
-Read-only. Applies the contract predicate to every Quikscript `sub` rule in the emitted Senior `calt` and predicts what Phase-2 enforcement would do: which adjacent Quikscript neighbors get dropped (the selected variant V cannot cursive-join them) and which rule context positions would empty out (refuse-to-emit). It then cross-checks against the snapshot partition from leak_contract_report.
+The contract is described in doc/history/2026-06-03--leak-cleanup/leak-prevention-plan.md. For the nearest lookahead and backtrack position of every `sub` rule that outputs a Quikscript glyph, it counts the neighbors the output does not join and has no cosmetic modifier for, and the positions that dropping them would leave empty. It then prints the `leak_contract_report` classes of the recorded leaks and lists the droppable leaks whose explaining rule the sweep did not touch.
 
-The point is twofold. Scoped to the snapshot rows it independently reproduces the report's 164 droppable. But the all-rules sweep shows that a *blind* FEA rewrite would touch almost every rule and empty thousands of positions -- empirical proof that enforcement must live inside the emitter (where the selection-driving neighbor is known), not as a post-hoc FEA pass. See doc/history/2026-06-03--leak-cleanup/leak-triage.md.
+The sweep drops far more neighbors than the droppable leaks account for, because most neighbors in a rule's context do not drive its selection. That is why the emitter enforces the contract (`_JoinContractRecorder` in `tools/quikscript_fea.py`), where the neighbor that drives each selection is known.
 
-Guard: police only Quikscript neighbors (names starting "qs"). `space` / ZWNJ (`uni200C`) / punctuation / Latin are boundary context, never join neighbors -- they have no anchors and must never be dropped.
+Only neighbors whose names start with `qs` are checked. `space`, ZWNJ (`uni200C`), punctuation, and Latin glyphs have no anchors, so they are boundary context and never dropped.
 """
 
 from __future__ import annotations
@@ -32,7 +32,7 @@ def _base_family(glyph: str) -> str:
 
 
 def _is_cosmetic(variant: str, neighbor: str, direction: str) -> bool:
-    """A `before-<fam>` modifier exempts a follower; `after-<fam>` exempts a predecessor (the no-new-YAML opt-out)."""
+    """Return whether *variant* has a `before-` modifier (for a follower) or an `after-` modifier (for a predecessor) whose trigger list names *neighbor* or its family."""
     meta = _compiled_meta().get(variant)
     if meta is None:
         return False

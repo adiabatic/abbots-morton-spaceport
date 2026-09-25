@@ -8,7 +8,7 @@
   <style>
     :root {
       --font-stack: "Abbots Morton Spaceport Mono", "Departure Mono", monospace;
-      --font-size: 22px; /* Departure Mono is pixel-perfect at multiples of 11px */
+      --font-size: 22px; /* a font pixel is 1/11 em, so multiples of 11px render pixel-perfect */
     }
 
     body {
@@ -40,7 +40,7 @@
       white-space: pre-wrap;
     }
 
-    /* Narrow: one continuous table so the columns line up top to bottom. Wide: hide it and show two halves side by side instead, split between ·Roe and ·Loch. The two layouts hold the same data. */
+    /* In a narrow container, one table holds every row so the columns line up top to bottom. In a wide one, two tables split between ·Roe and ·Loch sit side by side instead. Both layouts hold the same rows. */
     #sample-quikscript-full,
     #sample-quikscript-split table {
       border-spacing: 1ch 0;

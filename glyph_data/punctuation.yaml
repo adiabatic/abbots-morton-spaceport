@@ -726,28 +726,28 @@ glyphs:
       - "# #"
       - "# #"
 
-  quotedblleft.prop:  # " U+201C
+  quotedblleft.prop:  # “ U+201C
     y_offset: 5
     bitmap:
       - " # #"
       - "# # "
       - "# # "
 
-  quotedblright.prop:  # " U+201D
+  quotedblright.prop:  # ” U+201D
     y_offset: 5
     bitmap:
       - " # #"
       - " # #"
       - "# # "
 
-  quoteleft.prop:  # ' U+2018
+  quoteleft.prop:  # ‘ U+2018
     y_offset: 5
     bitmap:
       - " #"
       - "# "
       - "# "
 
-  quoteright.prop:  # ' U+2019
+  quoteright.prop:  # ’ U+2019
     y_offset: 5
     bitmap:
       - " #"
@@ -1106,8 +1106,8 @@ glyphs:
       - "#"
       - "#"
 
-  # The namer dot, dropped one pixel so it centers on the x-height of a following short letter. Substituted in by `calt` (see emit_namer_dot_calt); no codepoint of its own.
-  periodcentered.lowered.prop:  # · U+00B7, lowered before short letters
+  # The namer dot lowered one pixel so it is vertically centered on a Short letter. `emit_namer_dot_calt` substitutes it for `periodcentered` at the start of a word whose first letter is Short. It has no code point.
+  periodcentered.lowered.prop:  # ·, lowered before Short letters
     y_offset: 2
     bitmap:
       - "#"

@@ -1,18 +1,16 @@
-"""Audit cursive-anchor geometry against the leftmost / rightmost ink at the anchor's Y.
+"""Audit cursive-anchor geometry against the leftmost or rightmost ink at the anchor's Y.
 
-The font's tight convention is:
+The font's convention is:
 
     entry.x = min_ink_x_at_entry_y
     exit.x  = max_ink_x_at_exit_y + 1
 
-This script walks every compiled stance (post-inheritance, post-derive expansion) and reports the gap between each anchor's x and what the convention would put it at.
+This script compiles every Senior stance, including inherited and derived ones, and reports each anchor's gap from the convention.
 
-Reading the report, two derive-generated buckets look anomalous but are intentional and follow from a tight source:
+Two groups of derived variants deviate from the convention as a result of their derivation:
 
-    * `*.en-con-1` / `*.ex-con-1` variants land at gap = +N (entry side) or gap = -N (exit side) by design — the contract shifts the anchor inward by N to shorten the join, leaving the bitmap unchanged on that side.
-    * `*.en-trim-N` variants land at gap = entry.x - N, which is -N only when the entry sat at x=0 (qsZoo, qsJay); for an already-inset entry the gap is less negative — qsJai's entry sits at x=1, so its `en-trim-3` lands at gap -2 and its `en-trim-2` at gap -1. The receiver's leftmost N bitmap columns are blanked at the entry's row (whether or not they held ink) to make room for the predecessor's overlapping exit stroke; the entry stays at the base bitmap's attachment point so the predecessor's exit meets the receiver where the untrimmed ink begins.
-
-Both follow mechanically from the source declaration. Tighten the source, and those two buckets either move with it (contract) or stay correct (trim).
+    * `*.en-con-N` (such as `*.en-con-1`) has gap +N and `*.ex-con-N` has gap -N. The contraction moves the anchor N pixels inward to shorten the join and leaves the bitmap unchanged.
+    * `*.en-trim-N` has gap entry.x - N. That is -N when the entry is at x=0 (qsZoo, qsJay) and less negative for an inset entry: qsJai's entry is at x=1, so its `en-trim-2` has gap -1. The trim blanks the receiver's leftmost N columns in the entry row to make room for the predecessor's exit stroke, which overlaps the receiver by N pixels after the predecessor's `ex-con-N` contraction. The entry stays at the base bitmap's anchor, so the predecessor's exit meets the receiver where the untrimmed ink begins.
 
 Usage::
 
@@ -79,9 +77,9 @@ def _normalize_anchors(raw):
 
 
 def collect(side, defs, meta, family_filter=None):
-    """Side is 'entry' or 'exit'. Returns list of (gap, name, (x, y), family, ink_x, row, ink_y).
+    """Return `(rows, skipped_no_bitmap, skipped_no_ink)` for one side, 'entry' or 'exit'. Each row is `(gap, name, (x, y), family, ink_x, row, ink_y)`.
 
-    ``ink_y`` is the bitmap row that was scanned for ink. For entries it always equals the anchor's y. For exits it equals the stance's ``exit_ink_y`` override when the JoinGlyph carries one (compiled from YAML ``exit_ink_y`` / dict key ``cursive_exit_ink_y``), otherwise the exit anchor's y; this lets a glyph like qsZoo say "judge my exit's tightness against the row at y=-1 rather than y=0" without the audit flagging it as loose.
+    ``ink_y`` is the bitmap row scanned for ink. It is the anchor's y, except for an exit on a stance that declares ``exit_ink_y`` (qsZoo measures its y=0 exit against the row at y=-1).
     """
     if side == "entry":
         fields = ("cursive_entry", "cursive_entry_curs_only")

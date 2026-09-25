@@ -112,7 +112,7 @@ def test_context_reshapes_to_junction() -> None:
 
 
 def _check_side(failures: list[str], label: str, side: str, selector: dict, family: str, glyph: str) -> None:
-    """Assert the rendered ``glyph`` matches the junction's per-side selector: the right base family, and a kind that agrees with the glyph's discrete-alternate trait (``alt``/``half``/``plain``) or with the explicit stance-prefix for table-derived ``stance`` selectors."""
+    """Append a failure unless the shaped ``glyph`` belongs to ``family`` and matches the side's selector: its stance prefix for a ``stance`` selector, or its alternate kind from ``_glyph_kind`` otherwise."""
     if selector["family"] != family:
         failures.append(f"{label} {side}: selector family {selector['family']!r} != key family {family!r}")
     if _base_name(glyph) != family:
@@ -138,7 +138,7 @@ def _check_side(failures: list[str], label: str, side: str, selector: dict, fami
 
 
 def test_no_utter_alt_combos() -> None:
-    """·No·Utter must surface all three hidden alternate-stance combinations and reserve (alt, plain) as the isolated grid cell."""
+    """·No·Utter lists the three hidden alternate-stance combinations, and (alt, plain) is its one isolated grid cell."""
     data = _load_data()
     junctions = data["qsNo|qsUtter"]
     hidden = {(j["left"]["kind"], j["right"]["kind"]) for j in junctions if not j["isolated"]}
@@ -259,7 +259,7 @@ def test_generate_kern_fea_left_stance_and_except_left() -> None:
 
 
 def _coverage(fea: str) -> dict[tuple[str, str], str]:
-    """Map each (left, right) glyph pair to the single lookup tag that kerns it, asserting no pair is claimed twice."""
+    """Map each (left, right) glyph pair to the lookup tag that kerns it, and assert that no pair is kerned by two lookups."""
     pattern = re.compile(
         r"lookup kern_(?P<tag>\w+) \{\s*pos \[(?P<left>[^\]]*)\] \[(?P<right>[^\]]*)\] -?\d+;"
     )
@@ -277,7 +277,7 @@ def _coverage(fea: str) -> dict[tuple[str, str], str]:
 
 
 def test_generate_kern_fea_both_sides_partition_is_disjoint() -> None:
-    """The four quadrant lookups the page emits for an alt pair (plain/alt on either side, carved with both-sided except) must partition the family×family space without overlap."""
+    """The four quadrant rules `site/kerning.html` writes for an alt pair (plain or alt on each side, using `except_left` and `except_right`) kern every family × family glyph pair exactly once."""
     all_glyph_names = [
         "qsNo",
         "qsNo.alt",
@@ -312,7 +312,6 @@ def test_generate_kern_fea_both_sides_partition_is_disjoint() -> None:
     fea = generate_kern_fea(quadrants, {}, all_glyph_names, 50)
     cover = _coverage(fea)
 
-    # Every (qsNo*, qsUtter*) pair is covered exactly once across the four quadrants.
     no_glyphs = [g for g in all_glyph_names if g.startswith("qsNo")]
     utter_glyphs = [g for g in all_glyph_names if g.startswith("qsUtter")]
     for left in no_glyphs:

@@ -58,7 +58,7 @@ NAME_TO_CP["Jai"] = NAME_TO_CP["J'ai"];
 
 const PIXEL_FONT_RE = /Abbots Morton Spaceport|Departure Mono/;
 
-// Smoothing must travel with the font: any code that sets --font-stack must set the --font-smoothing* trio alongside it. The pixel fonts want smoothing off; everything else wants the platform default.
+// Any code that sets --font-stack must also set --font-smoothing, --font-smoothing-osx, and --font-smooth to match. The first font in the stack decides: pixel fonts get smoothing off, and any other font gets the platform default.
 function applyFontSmoothing(el, fontStack) {
   const pixel = PIXEL_FONT_RE.test(fontStack.split(',')[0]);
   el.style.setProperty('--font-smoothing', pixel ? 'none' : 'subpixel-antialiased');
