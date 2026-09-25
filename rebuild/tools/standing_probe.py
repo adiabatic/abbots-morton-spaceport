@@ -12,7 +12,7 @@
 
 `--shapes` prints the symptom-to-shape menu, generated from the standing approvals' SHAPES table, so a new shape appears in the menu when it is added to the table. A run that describes no unit and lists nothing prints the menu too. Every list of pivot cells, followers or follower cells is printed in code-point order, the order the rules file and the skill are written in. The tool writes nothing to the surface or the store.
 
-`--daemon auto|always|never` and `--socket PATH` decide which process loads the surface. When a standing daemon answers at the socket and holds this surface, it runs this same `main` over the objects it holds, and the output is byte-identical to an in-process run. `rebuild/tools/standing_daemon.py` documents what the daemon holds and when it declines. Otherwise the surface loads in this process. `always` exits instead of loading, `never` does not ask the daemon, a bare `--shapes` never asks, and a caller that passes `main` its own `units` or `context` is never served.
+`--daemon auto|always|never` and `--socket PATH` decide which process loads the surface. When a standing daemon answers at the socket and holds this surface, it runs this same `main` over the objects it holds, and the output is byte-identical to an in-process run. `rebuild/tools/standing_daemon.py` documents what the daemon holds and when it declines. Otherwise the surface loads in this process as the same projection the daemon holds: the human records streamed by `iter_human_units` and projected onto `standing_daemon.UNIT_FIELDS`, with no set of the surface's unit ids. `always` exits instead of loading, `never` does not ask the daemon, a bare `--shapes` never asks, and a caller that passes `main` its own `units` or `context` is never served.
 """
 
 import argparse
@@ -30,9 +30,10 @@ sys.path.insert(0, str(ROOT))
 
 from rebuild.pipeline.geometry import HEIGHT_Y  # noqa: E402
 from rebuild.review.ink import features_for  # noqa: E402
-from rebuild.tools import standing_client  # noqa: E402
+from rebuild.review.unit_index import iter_human_units  # noqa: E402
+from rebuild.tools import standing_client, standing_daemon  # noqa: E402
 from rebuild.tools import standing_verdicts as sv  # noqa: E402
-from rebuild.tools.review_docket import latest_verdicts, load_human_units  # noqa: E402
+from rebuild.tools.review_docket import latest_verdicts  # noqa: E402
 from rebuild.validation.classify import PIXEL_SIZE  # noqa: E402
 
 SURFACE = ROOT / "rebuild/out/review"
@@ -620,7 +621,7 @@ def main(argv=None, *, units=None, context=None):
             )
     blankness = Blankness(records, stale)
     rules = sv.load_rules(pathlib.Path(args.rules))
-    human = _human(load_human_units(surface)[0] if units is None else units)
+    human = _human(iter_human_units(surface, fields=standing_daemon.UNIT_FIELDS) if units is None else units)
     listed = False
     if args.extension_cells:
         _extension_cells(human, blankness, *args.extension_cells)

@@ -1,4 +1,4 @@
-"""Tests for rebuild/tools/standing_probe.py, the read-only tool used to write standing-approval rules. They check that every family and cell list prints in code-point order, the order the rules file is written in, so a survey can be pasted from directly, and that an `--extension-cells` header for a contraction names only the contraction it lists. They check that a verdicts file stamped for another manifest prints every verdict as UNKNOWN_VERDICT instead of BLANK, and that a surface with no font pair says which columns and which composed line are missing and why. They check that `--shapes` lists every entry of `standing_verdicts.SHAPES` with the opening words of its matcher's docstring, that a run whose unit ids all miss the surface prints the same list, and that a listing run such as `--extension-cells` does not. They check that `--find` is a substring match over notations that lists blanks first and is capped with the total stated. They check that `--survey` groups every position under a before-glyph prefix by before form, after cell, left family, seam changes, and follower, each with a verdict tally and in code-point order, that it can narrow to one after cell, that it counts the windows it cannot place, and that it says when no window carries the glyph. They check that `--coverage` re-runs a rule's enumeration without the rule's named lists and prints, once, the followers, forms, and cells the rule does not name, for every shape except ligature and ink-delta, and that it says so when a rule's shape has no enumeration. They also check `_cell_glyph_name` against `cell_label` over the mini spec, and that the dropped and added pixels in a redrawn reading are never truncated. Every test uses a synthetic surface and rules file under tmp_path, or the frozen mini bundle, and reads no live build artifact."""
+"""Tests for rebuild/tools/standing_probe.py, the read-only tool used to write standing-approval rules. They check that every family and cell list prints in code-point order, the order the rules file is written in, so a survey can be pasted from directly, and that an `--extension-cells` header for a contraction names only the contraction it lists. They check that a verdicts file stamped for another manifest prints every verdict as UNKNOWN_VERDICT instead of BLANK, and that a surface with no font pair says which columns and which composed line are missing and why. They check that `--shapes` lists every entry of `standing_verdicts.SHAPES` with the opening words of its matcher's docstring, that a run whose unit ids all miss the surface prints the same list, and that a listing run such as `--extension-cells` does not. They check that `--find` is a substring match over notations that lists blanks first and is capped with the total stated. They check that a run with no daemon loads the daemon's projection of the human records, `standing_daemon.UNIT_FIELDS`, and builds no set of the surface's unit ids. They check that `--survey` groups every position under a before-glyph prefix by before form, after cell, left family, seam changes, and follower, each with a verdict tally and in code-point order, that it can narrow to one after cell, that it counts the windows it cannot place, and that it says when no window carries the glyph. They check that `--coverage` re-runs a rule's enumeration without the rule's named lists and prints, once, the followers, forms, and cells the rule does not name, for every shape except ligature and ink-delta, and that it says so when a rule's shape has no enumeration. They also check `_cell_glyph_name` against `cell_label` over the mini spec, and that the dropped and added pixels in a redrawn reading are never truncated. Every test uses a synthetic surface and rules file under tmp_path, or the frozen mini bundle, and reads no live build artifact."""
 
 import json
 
@@ -7,7 +7,8 @@ import pytest
 from rebuild.pipeline.geometry import HEIGHT_Y
 from rebuild.pipeline.model import CellId
 from rebuild.pipeline.settle import cell_label
-from rebuild.review import enrich
+from rebuild.review import enrich, unit_index
+from rebuild.tools import standing_daemon
 from rebuild.tools import standing_probe as probe
 from rebuild.tools import standing_verdicts as sv
 from rebuild.validation.classify import PIXEL_SIZE
@@ -439,6 +440,31 @@ def test_find_matches_the_notation_as_plain_text(tmp_path, capsys):
     assert "1 human units whose notation contains '~b~'" in out
     assert "  f-1  " in out
     assert "  f-2  " not in out
+
+
+def test_an_in_process_run_holds_the_daemons_projection_and_no_id_set(tmp_path, capsys, monkeypatch):
+    """With no daemon, the probe loads what the standing daemon holds: the human records projected onto `standing_daemon.UNIT_FIELDS`, with no set of every unit id on the surface built beside them."""
+    held = []
+    id_sets = []
+    human = probe._human
+    stream = unit_index._stream_human_shards
+
+    def holding(units):
+        records = human(units)
+        held.extend(records)
+        return records
+
+    def streaming(surface, reader, unit_ids):
+        id_sets.append(unit_ids)
+        return stream(surface, reader, unit_ids)
+
+    monkeypatch.setattr(probe, "_human", holding)
+    monkeypatch.setattr(unit_index, "_stream_human_shards", streaming)
+    out = _run(tmp_path, capsys, _find_units(), ["--find", "·Vie", "--daemon", "never"])
+    assert f"{FIND_TOTAL} human units whose notation contains '·Vie'" in out
+    assert len(held) == FIND_TOTAL + 1
+    assert all(set(record) <= standing_daemon.UNIT_FIELDS for record in held)
+    assert id_sets == [None]
 
 
 COVERAGE_WINDOWS = [
