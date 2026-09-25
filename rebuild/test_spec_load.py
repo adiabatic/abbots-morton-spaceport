@@ -920,6 +920,27 @@ def test_resolve_record_slice_validation(tmp_path):
     assert "already used" in str(load_tmp_error(tmp_path, {"qsIt": duplicate}))
 
 
+def test_resolve_when_references_are_checked(tmp_path):
+    text = MINIMAL_RUNE + textwrap.dedent("""\
+        policy:
+          prefer:
+          - id: target
+            stance: hapax
+            when: {right: {family: qsDay}}
+            why: x
+          resolve:
+          - against: {rune: qsIt, id: target}
+            when: {right: {class: never-defined}}
+            pick: {exit: baseline}
+            why: x
+        """)
+    error = load_tmp_error(tmp_path, {"qsIt": text})
+    assert any(
+        "unknown class 'never-defined'" in issue.message and "policy.resolve[0].when.right" in issue.path
+        for issue in error.issues
+    )
+
+
 class TestStructureDigest:
     def test_stable_over_an_unchanged_spec(self):
         assert spec_load.spec_structure_digest(MINI_SPEC) == spec_load.spec_structure_digest(MINI_SPEC)
