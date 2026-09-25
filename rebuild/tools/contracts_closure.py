@@ -1,12 +1,18 @@
-"""The contracts lane's per-test input closure: what each test can read, recorded while it runs, and the selection that keeps a test off a run whose diff its closure cannot reach. It is `make_test_exempt`'s argument at test grain — a gate re-proves only what an edit can have moved — and `rebuild/conftest.py` is the recorder that feeds it.
+"""The contracts lane's per-test input closures, and the selection that skips a test whose closure the diff does not reach. `rebuild/conftest.py` records the closures while the tests run.
 
-A test's closure is the union of four things. Its **reads**: every repo file the audit hook saw opened during the test's setup, call, and teardown — a font HarfBuzz mapped included, which the conftest announces to the hook itself — with a `.pyc` mapped back to the source it was compiled from and the reads a shared fixture made during its own setup credited to every test that requests the fixture (the setup runs once per scope, so the hook sees it under one test only). Its **static import closure**: the repo modules reachable from the test module through `import` statements at any nesting, absolute or relative, `if TYPE_CHECKING:` included, resolved against the repo root and the sibling `test/` and `tools/` directories that go on `sys.path`. The same closure of every module the test imported **dynamically** — the `import` audit event fires for an import statement's first load in a worker, and a source file the test opened is followed as a module too, which is how `importlib.import_module` shows up, since it raises no import event and loads the source through `open` — and of both conftests, which run for every test. The **import-time reads** of every module in that closure: a file a module opens while its body executes is opened once per process, under whichever test or collection imported it first, so the recorder credits it to the module and the closure folds it back in for every test that can reach the module. And the four global inputs in `GLOBAL_LABELS`, which every test depends on without opening: the conftests, pyproject.toml, and uv.lock, plus the `fonts` label, which the lane key hashes as one value.
+A test's closure is the union of these:
 
-Selection is sound by construction or it is nothing, so every doubt resolves to running the test. A test with no recorded closure runs, which covers a new or renamed test id. A test that spawned a child runs — the hook sees nothing a subprocess or a multiprocessing worker reads — with two argued exceptions: a `git` command that reads the object store or a ref and never the working tree (`hermetic_child`), since nothing in the diff can reach those bytes, and the M1 kernel or the `cargo build` that makes it (`kernel_child`), whose reads outside the scratch files its parent wrote are the crate's own sources, so every tracked file under `KERNEL_PREFIX` joins that test's closure instead. A diff that adds or removes any input runs the whole lane rather than reasoning about which directory listings or existence checks might have noticed, because `Path.exists()` and `os.stat` raise no audit event. A diff that touches a global label runs the whole lane. What is left is a test whose recorded closure misses every changed file, and that test's outcome is a function of inputs whose bytes are the ones it already passed against.
+- Its reads: every repo file the audit hook saw opened during the test's setup, call, and teardown. This includes a font HarfBuzz maps, which the conftest reports to the hook. A `.pyc` is mapped back to its source. What a fixture scoped wider than a function reads during its setup is credited to every test that requests the fixture, because the setup runs once, under one test.
+- The static import closure of the test module: the repo modules reachable through `import` statements at any nesting, absolute or relative, `if TYPE_CHECKING:` included, resolved against the repo root, the importer's directory, and the `test/` and `tools/` directories the suite puts on `sys.path`.
+- The static import closure of every module the test imported dynamically, and of both conftests. The `import` audit event fires on a module's first load in a worker. `importlib.import_module` raises no such event but opens the source file, so every `.py` file a test read is also treated as an imported module.
+- The import-time reads of every module in that closure. A module's body runs once per process, under whichever test imported it first, so the recorder credits what the body reads to the module, and every test that can reach the module gets those reads.
+- The labels in `GLOBAL_LABELS`, which every test depends on without opening: the two conftests, pyproject.toml, uv.lock, and the `fonts` label, which the lane key hashes as one value.
 
-The record lives in the lane's green record beside the key (`rebuild_gate` and the artifact cycle both write it through `record_payload`): `files` is the per-label digest map the selection diffs against, widened past the lane's roster by any path a test read outside it, and `closures` holds `static` (module file to its import closure), `module_reads` (module file to what its body reads when imported) and `tests` (test id to its reads, dynamic modules, whether it spawned the kernel, and the unclosable flag). A narrowed run merges its sidecar into the previous record: tests that ran replace their entries, tests the selection kept off keep theirs — their inputs did not move, so neither did what they read — and ids the run no longer collected are dropped.
+Selection runs a test whenever skipping it cannot be shown safe. A test with no recorded closure runs, which covers a new or renamed test id. A test that spawned a child runs, because the hook sees nothing a subprocess or multiprocessing worker reads, with two exceptions. A `git` command that reads only the object store or a ref (`hermetic_child`) cannot see the diff. The M1 kernel and the `cargo build` that makes it (`kernel_child`) read only the crate's sources beyond the scratch files the parent wrote, so every tracked file under `KERNEL_PREFIX` is added to that test's closure. A diff that adds or removes any input runs the whole lane, because `Path.exists()` and `os.stat` raise no audit event and a test may depend on a directory listing or an existence check. A diff that touches a global label runs the whole lane. Any other test whose closure contains no changed file is skipped, because every input it reads is byte-identical to the run it passed.
 
-The recorder's own vocabulary — the read normalization, the two spawn judgments, the selection and sidecar files — lives in `rebuild.tools.closure_record` and is re-exported here, because both conftests are global inputs of every test's closure: `closure_of` folds their static import closures into each test, so a conftest that imported this module would carry its function-local `artifact_cycle` imports, and through them the whole of rebuild/pipeline/ and rebuild/review/, into every closure, and a pipeline edit would keep no test off the lane. Both conftests are therefore held to leaf imports — `rebuild/test_contracts_closure.py` pins their edge sets and that neither reaches a pipeline or review module — and the selection half here, which needs the driver's digests and labels, is what the conftest never imports.
+The record is stored in the lane's green record beside the key; `rebuild_gate` and the artifact cycle both write it through `record_payload`. `files` is the per-label digest map the selection diffs against: the lane's roster plus any path a test read outside it. `closures` holds `static` (module file to its import closure), `module_reads` (module file to what its body reads when imported), and `tests` (test id to its reads, its dynamically imported modules, whether it spawned the kernel, and whether it is unclosable). A narrowed run merges its sidecar into the previous record: tests that ran replace their entries, tests the selection skipped keep theirs, and ids the run did not collect are dropped.
+
+The recorder's helpers (read normalization, the two spawn checks, and the selection and sidecar files) are defined in `rebuild.tools.closure_record` and re-exported here. The conftests import that leaf module, not this one, because the selection functions here import the cycle driver, and through it rebuild/pipeline/ and rebuild/review/. `closure_of` adds the conftests' static import closures to every test's closure, so a conftest that imported this module would put a pipeline edit in every closure and no test could be skipped. `rebuild/test_contracts_closure.py` checks the conftests' import edges and that neither reaches a pipeline or review module.
 """
 
 from __future__ import annotations
@@ -41,12 +47,12 @@ SIBLING_ROOTS = ("test", "tools")
 
 
 def kernel_files(files: dict[str, str]) -> frozenset[str]:
-    """The crate's tracked files among a record's labels: what a test that spawned the kernel depends on beyond its own reads. A crate file added since the record is an input added, which runs the whole lane before this set is consulted."""
+    """Return the crate's files among a record's labels, which a test that spawned the kernel depends on beyond its own reads. A crate file added since the record counts as an added input, so it runs the whole lane before this set is used."""
     return frozenset(label for label in files if label.startswith(KERNEL_PREFIX))
 
 
 def _module_files(name: str, importer: Path, root: Path, level: int) -> list[Path]:
-    """Every file importing `name` from `importer` can execute: the module itself (a `.py` or a package's `__init__.py`) and each package `__init__.py` on the way down. An absolute name resolves against the repo root first and then the sibling roots the suite puts on `sys.path` — `test/`, for the pins module's `import test_shaping`, and `tools/`, whose modules import each other bare — and against the importer's own directory, which is what a bare sibling import means from inside `tools/`. A relative name walks up `level - 1` directories from the importer's package. Every hit is kept rather than the first, because a resolver that guesses which `sys.path` entry wins is a resolver that can guess wrong, and an extra file in a closure only ever re-runs a test."""
+    """Return every file that importing `name` from `importer` can execute: the module itself (a `.py` or a package's `__init__.py`) and each package `__init__.py` above it. An absolute name is resolved against the repo root, the importer's own directory (a bare sibling import inside `tools/`), and the sibling roots the suite puts on `sys.path`: `test/`, for `rebuild/validation/pins.py`'s `import test_shaping`, and `tools/`, whose modules import each other by bare name. A relative name walks up `level - 1` directories from the importer's package. Every match is kept, not only the one `sys.path` order would pick, because an extra file in a closure can only make a test run."""
     parts = [part for part in name.split(".") if part]
     if level:
         base = importer.parent
@@ -70,7 +76,7 @@ def _module_files(name: str, importer: Path, root: Path, level: int) -> list[Pat
 
 
 def direct_imports(root: Path, rel: str) -> frozenset[str]:
-    """The repo files one module's `import` statements can load, at any nesting. `from X import y` is resolved both as X and as X.y, so a submodule import is followed; a file that does not parse contributes nothing beyond itself, which is the conservative reading of a module that cannot run."""
+    """Return the repo files one module's `import` statements can load, at any nesting. `from X import y` is resolved as both X and X.y, so a submodule import is followed. A file that cannot be read or parsed has no edges, so its closure is the file itself."""
     path = root / rel
     try:
         tree = ast.parse(path.read_text(encoding="utf-8"))
@@ -99,7 +105,7 @@ def _relative(root: Path, path: Path) -> str:
 
 
 class ImportGraph:
-    """Memoized reachability over `direct_imports`, for one tree: the parent computes a closure per test module, per conftest and per dynamically imported module, and the modules they share are parsed once."""
+    """Memoized reachability over `direct_imports` for one tree, so a module shared by many closures is parsed once."""
 
     def __init__(self, root: Path) -> None:
         self.root = root
@@ -129,7 +135,7 @@ def test_file_of(nodeid: str) -> str:
 
 
 def closure_of(closures: dict, nodeid: str, kernel: frozenset[str] = frozenset()) -> frozenset[str] | None:
-    """One test's whole closure out of a record, or None when the record cannot vouch for it: the test is unclosable, it has no entry, or a static closure it needs is missing. Every None is a test that runs. `kernel` is the crate's files, folded in for a test that spawned the kernel."""
+    """Return one test's closure from a record, or None when the test must run: it is unclosable, it has no entry, or a static closure it needs is missing. `kernel` is the crate's files, added for a test that spawned the kernel."""
     entry = closures.get("tests", {}).get(nodeid)
     static = closures.get("static", {})
     module_reads = closures.get("module_reads", {})
@@ -152,7 +158,7 @@ def closure_of(closures: dict, nodeid: str, kernel: frozenset[str] = frozenset()
 
 @dataclass(frozen=True)
 class Selection:
-    """What a narrowed run keeps off: `skip` is the ids the record proves unaffected, `changed` the labels that moved, and `reason` why nothing could be skipped when `skip` is empty. `known` counts the ids the record holds a closure for, which is the denominator a note reports against."""
+    """What a narrowed run skips: `skip` is the test ids the diff cannot affect, `changed` is the labels that moved, and `reason` says why nothing was skipped when `skip` is empty. `known` is the number of test ids the record has entries for."""
 
     skip: frozenset[str] = frozenset()
     changed: tuple[str, ...] = ()
@@ -170,7 +176,7 @@ class Selection:
 
 
 def select(record: dict | None, current: dict[str, str]) -> Selection:
-    """The tests a green record proves unaffected by the diff between its `files` and `current`. Empty, with the reason, whenever soundness cannot be argued from the record: no record or no closures in it, an input added or removed, or a global label moved."""
+    """Return the tests the diff between a green record's `files` and `current` cannot affect. The selection is empty, with a reason, when there is no record or it has no closures, when an input was added or removed, or when a global label moved."""
     from rebuild.tools.artifact_cycle import capped_labels, moved_input_labels
 
     if (
@@ -204,7 +210,7 @@ def select(record: dict | None, current: dict[str, str]) -> Selection:
 
 
 def merge_closures(root: Path, previous: dict | None, sidecar: dict | None) -> dict | None:
-    """The `closures` payload a green run records: the sidecar's entries for the tests that ran, the previous record's for the collected tests the selection kept off, a fresh static closure for every module any entry leans on, and the import-time reads of every module those closures reach, unioned across the previous record and this run — a module the run never re-imported keeps what it was seen to read, and one it did adds to that. None when the run left no sidecar, which records the green without closures and puts the next run back to the whole lane."""
+    """Return the `closures` payload a green run records. It holds the sidecar's entries for the tests that ran, the previous record's entries for the collected tests the selection skipped, a fresh static closure for every module any entry names, and the import-time reads of every module those closures reach. Import-time reads are the union of the previous record's and this run's, so a module this run did not import keeps its recorded reads. Returns None when the run left no sidecar; the green is then recorded without closures and the next run runs the whole lane."""
     if sidecar is None:
         return None
     stale = previous.get("tests", {}) if isinstance(previous, dict) else {}
@@ -243,7 +249,7 @@ def merge_closures(root: Path, previous: dict | None, sidecar: dict | None) -> d
 
 
 def extra_paths(closures: dict | None, roster: dict[str, str]) -> list[str]:
-    """Every path a recorded closure names that the lane's roster does not hash — the reads the selection must still be able to see move."""
+    """Return every path a recorded closure names that the lane's roster does not hash, so the selection can see those paths change."""
     if not isinstance(closures, dict):
         return []
     named: set[str] = set()
@@ -257,7 +263,7 @@ def extra_paths(closures: dict | None, roster: dict[str, str]) -> list[str]:
 
 
 def current_files(root: Path, roster: dict[str, str], record: dict | None) -> dict[str, str]:
-    """The lane's per-label digests widened by the extras a previous record named, so the selection diffs every path a recorded closure can name and not only the roster."""
+    """Return the lane's per-label digests plus a digest of every extra path a previous record's closures name, so the selection diffs every path a closure can contain."""
     from rebuild.tools.artifact_cycle import _closure_digest
 
     closures = record.get("closures") if isinstance(record, dict) else None
@@ -277,7 +283,7 @@ class RecordPayload:
 def record_payload(
     root: Path, before: dict[str, str], after_roster: dict[str, str], previous: dict | None, sidecar: Path
 ) -> RecordPayload:
-    """What a green contracts run writes beside its key. `before` is the widened digest map the selection was taken over and `after_roster` the lane's roster as it stands now; every label both hold must agree, or the run tested content that is no longer on disk and `moved` names it so the caller can decline to record. Paths the run read for the first time outside the roster are digested here, which is the earliest anyone knows about them."""
+    """Return what a green contracts run writes beside its key. `before` is the digest map the selection was taken over, and `after_roster` is the lane's roster now. Every label in `before` must still have the same digest; `moved` names any that changed, because the run tested content no longer on disk and the caller should not record a green. Paths the run read for the first time outside the roster are digested here, since the sidecar is the first place they appear."""
     from rebuild.tools.artifact_cycle import _closure_digest
 
     closures = merge_closures(

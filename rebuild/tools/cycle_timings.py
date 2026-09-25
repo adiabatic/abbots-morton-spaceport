@@ -1,20 +1,18 @@
-"""Append-only telemetry for the checks this repo runs — what each one judged and what it cost — and the reporter that reads it back.
+"""Append-only telemetry for the repo's checks and the artifact cycle, recording what each check decided and what it cost, and the reporter that reads it back.
 
-The journal is rebuild/out/cycle-timings.ndjson (gitignored with the rest of rebuild/out, never touched by the retention pass, so each machine accumulates its own history), and its organizing unit is the check invocation. Every judged check appends one "check" line naming the check (run_m1, conform, rebuild-contracts, make-test, js), the verdict the judge reached — green, red, or skipped — the human status string that same judge printed, the prose failures a cycle rolls up into its summary, and the ids of the tests that actually failed. A cycle run is an optional parent that some of those lines name: the artifact cycle's parent process tags every check it judges with its own run id, while the interactive entry points — rebuild.tools.rebuild_gate, rebuild.tools.make_test_gate, and run_m1's CLI — record theirs with no run at all, which is what finally puts the ordinary interactive check run on the record instead of leaving it invisible. Exactly one process records any one invocation: the two entry points a cycle spawns suppress their own line when AMS_CYCLE_RUN (CYCLE_RUN_ENV) is in the environment they inherited, and the cycle writes it in their place.
+The journal is rebuild/out/cycle-timings.ndjson. It is gitignored with the rest of rebuild/out and the retention pass does not prune it, so each machine keeps its own history. It holds four kinds of line.
 
-A check line denormalizes its own context — host, cpu count, box size — rather than pointing at a run line for it, because the parentless line is the common case and a record nobody can interpret without a parent it does not have is not a record. rc is not a verdict, and this journal is where that stays honest: a check line records what the judge decided and never what the process returned, so a run that died before its judge and a run the judge failed are told apart. The rule runs backwards too — a "step" line carries a return code and no verdict, and no reader here manufactures one from it, so the history from before check lines existed stays what it is, unjudged, rather than being back-filled with a guess that would read exactly like a measurement.
+A "check" line records one judged check invocation: the check's name, the verdict (green, red, or skipped), the status string the judge printed, the failure messages the cycle adds to its summary, and the ids of the tests that failed. The artifact cycle tags each check it judges with its run id. The interactive entry points (rebuild.tools.rebuild_gate, rebuild.tools.make_test_gate, rebuild.tools.deep_replay, and run_m1's CLI) record their checks with no run. Each invocation is recorded by one process: run_m1's CLI and make_test_gate, which a cycle spawns, record nothing when AMS_CYCLE_RUN (`CYCLE_RUN_ENV`) is set, and the cycle records their line instead. A check line carries its own host, cpu count, and total memory, because most check lines have no run line to take them from. The verdict is what the judge decided, never the process's return code, so a run that died before its judge and a run the judge failed can be told apart.
 
-What a cycle spent is still recorded as it always was: one "step" line per subprocess the driver actually spawned, and one "run" line when the cycle finishes, interrupted finishes included. A step line carries the driver's step name (run_m1, gate:conform, merge, ...), the argv, the return code, the wall seconds, the step's peak RSS in bytes (measured by the driver as it reaps the child, so it covers the child's whole process tree — see peak_rss.reap_peak_rss_bytes), and — parsed out of the child's captured stdout/stderr — any inner "[t] <label> <secs>s" phase lines the child printed, which is how the per-config conform sweeps and run_m1's phase breakdown survive even for gates whose output is never streamed to the console. An inner line may carry its own peak-RSS figure as a trailing "rss_gb=<n>" token (peak_rss.rss_token is the writer; decimal GB, like every figure here), which rides into the journal beside the label's seconds, and beside it a current reading as "rss_now_gb=<n>" (peak_rss.rss_now_token), the set the process holds as the phase closes rather than the mark it has reached, which rides in as rss_now_gb; either token may be absent and the entry then carries no such field. A run line carries the run's identity — hostname, cpu count, and the size of the box it ran on — start/finish stamps, total wall seconds, the cycle summary's exit/gates/plan blocks, and the carry's figures (human units, key hits, unhit, stranded; `artifact_cycle.carry_figures` reads them off the carry's own line), so a slow step can be read in context — which machine, and which skips were in effect — and so what a surface rebuild cost the verdict store is on the record beside what it cost in time.
+A "step" line records one subprocess the cycle spawned: the driver's step name (run_m1, gate:conform, merge, ...), the argv, the return code, the wall seconds, and the step's peak RSS in bytes. The driver measures the peak as it reaps the child (`peak_rss.reap_peak_rss_bytes`), and it is the largest of the child and its descendants. The line also carries every `[t] <label> <secs>s` phase line parsed from the child's captured output, so the per-configuration conform sweeps and run_m1's phases are kept even for steps whose output is not shown on the console. A phase line may end with a peak-RSS token `rss_gb=<n>` (`peak_rss.rss_token`) and a current-RSS token `rss_now_gb=<n>` (`peak_rss.rss_now_token`), both in decimal GB, which are stored as `rss_gb` and `rss_now_gb`. A step line has a return code and no verdict, and no reader here derives a verdict from it. A skipped stage spawns nothing and so writes no step line; the run line's plan and gates blocks say which stages were skipped.
 
-The box is worth its own field because a per-step peak read months later means nothing without the machine's size beside it: whether a step that held 9 GB was comfortable or was most of the box is a fact about the box, not about the step, and the journal is the only place the two are ever written down together. `make job-costs` divides that same figure by a checked-in per-unit peak to state the width that constant implies here, which is the second reason it is recorded rather than probed at read time — a figure probed on the reader's box would answer for the wrong machine.
+A "run" line is written when a cycle finishes, including an interrupted one. It carries the host, cpu count, total memory, start and finish stamps, total wall seconds, the cycle summary's exit, failures, gates, plan, and argv, and the carry's figures (`artifact_cycle.carry_figures` parses them from the carry's own output line). The total memory is recorded because a step's peak read months later needs the size of the machine it ran on beside it.
 
-Skipped stages never spawn and so never produce a step line; whether a stage was skipped or genuinely absent is read from the run line's plan and gates blocks, not from the step list. A check the cycle never even reached produces no check line either — a skipped check is one that was judged skipped, not one that was never asked.
+A "pool" line records one finished worker pool: its unit name, width, and the controller's and every worker's peak. A pytest controller writes one when AMS_POOL_UNIT (`POOL_UNIT_ENV`) is set, which the two gate wrappers and the cycle's rebuild-lane spawns do. run_m1's conform belt and oracle shards and the review build's signature and surface pools write them too. `load_pool_records` reads them, and `make job-costs` compares the peaks with the checked-in per-worker constants.
 
-A fourth kind of line, "pool", is written by something that is not the cycle at all: any pytest run whose pool has a unit name to declare — AMS_POOL_UNIT (POOL_UNIT_ENV), set on the child's own environment by the two gate wrappers and by the cycle's rebuild-lane spawns — has its xdist controller append one line at terminal summary naming the unit, the width the pool resolved to, the controller's own peak, and every worker's. load_pool_records is the reader, and `make job-costs` is what finally holds those measurements against the checked-in per-worker constants they are supposed to price.
+The reporter is `make cycle-timings` (`uv run python -m rebuild.tools.cycle_timings`). By default it shows recent runs with steps slowest first. `--inner` expands the phase lines. `--by-step` reports count, median, max, and latest seconds per step and host. `--by-outcome` reports, per check, how many times it ran, how it came out, and which test ids it failed on. `--journal` reads another journal, such as journals from two machines concatenated.
 
-The reporter is `make cycle-timings` (`uv run python -m rebuild.tools.cycle_timings`): recent runs with steps slowest-first by default, --inner to expand the phase lines, --by-step to aggregate count/median/max/latest per step and host — the host column is what makes a laptop and a desktop directly comparable — and --by-outcome to ask of each check how often it ran, how it came out, and which test ids it failed on. --by-step gives an unparented check line a row of its own, named check:<name>, rather than merging it into the cycle's row for the same work, because a check sharing the box with a whole cycle pass and that same work alone on the box are two different measurements and an average of them describes neither — and because one check name, run_m1, is spelled exactly like the step the cycle spawns to do the build it judges. Journals from two machines can be concatenated and read with --journal.
-
-The file, the module, and the `make cycle-timings` target all keep the "cycle-timings" spelling although the cycle is no longer the only writer nor the unit anything is filed under. The journal is gitignored and per-machine, so nothing but the file itself holds a box's history: a rename would buy a better name at the price of orphaning every machine's accumulated record, and this paragraph is cheaper.
+The file, the module, and the `make cycle-timings` target keep the "cycle-timings" name although the cycle is not the only writer. The journal is per-machine and gitignored, so renaming the file would leave each machine's existing history behind.
 """
 
 from __future__ import annotations
@@ -40,9 +38,9 @@ from rebuild.tools.peak_rss import format_gb
 ROOT = Path(__file__).resolve().parents[2]
 JOURNAL = ROOT / "rebuild" / "out" / "cycle-timings.ndjson"
 FORMAT = "ams-cycle-timings/2"
-# The one spelling of the variable a pytest controller reads to learn what its pool is called. Both gate wrappers and the root conftest reach it from here rather than typing the string, so the journal's `unit` field, the units `make job-costs` calibrates, and whoever sets the variable can never disagree about a name.
+# The variable a pytest controller reads for its pool's unit name. Both gate wrappers and the root conftest import the name from here, so they agree with the journal's `unit` field and the units `make job-costs` checks.
 POOL_UNIT_ENV = "AMS_POOL_UNIT"
-# The one spelling of the variable a spawned check reads to learn that a cycle is already recording on its behalf. The cycle sets it when it arms its CycleTimings and every child inherits it; the gate wrappers that a cycle can spawn read it from here rather than typing the string, so the writer that sets the variable and the writers that stand down for it can never disagree about a name.
+# The variable that tells a spawned check a cycle is recording its check line. The cycle sets it to its run id and every child inherits it; the entry points that check it import the name from here.
 CYCLE_RUN_ENV = "AMS_CYCLE_RUN"
 
 _RSS_TOKEN = re.compile(r"\brss_gb=(\d+(?:\.\d+)?)")
@@ -58,7 +56,7 @@ def _utc_stamp() -> str:
 
 
 def _append_entry(path: Path, entry: dict) -> str | None:
-    """Append one JSON line under the module-wide lock, answering None on success and the failure's repr when the journal could not be written. The lock is module-wide rather than per-instance because two writers now share this file inside one process — the cycle's step and run lines from its gate-pool threads, and a pool line from whichever pytest controller this process happens to be — and a per-instance lock would serialize each of them against itself while leaving them free to interleave with each other. Failure comes back as a string rather than as a raise because a journal that cannot be written is never an error a caller has to handle, only one worth saying once, and each caller owns its own warn-once flag."""
+    """Append one JSON line under the module-wide lock, and return None on success or the failure's repr when the journal cannot be written. The lock is module-wide because several writers can share the file in one process (a cycle's gate-pool threads, and the module-level `record_pool` and `record_check`), and a per-instance lock would not serialize them against each other. A failure is returned, not raised, because an unwritable journal should never fail a caller; each caller warns once."""
     line = json.dumps(entry)
     try:
         with _JOURNAL_LOCK:
@@ -71,7 +69,7 @@ def _append_entry(path: Path, entry: dict) -> str | None:
 
 
 def gateway_order(item: tuple[str, int]) -> tuple[int, str]:
-    """Sort key for a (gateway id, peak) pair: gw2 before gw10, and anything without a number first. Public because the root conftest's terminal line sorts its workers with it too — the printed line and the pool record are supposed to list the same workers in the same order, and one sort key shared between them makes that true by construction rather than by two copies of four lines staying in step."""
+    """Sort key for a (gateway id, peak) pair: gw2 before gw10, and an id without a number first. The root conftest sorts its printed worker line with it too, so the line and the pool record list workers in the same order."""
     digits = "".join(ch for ch in item[0] if ch.isdigit())
     return (int(digits) if digits else -1, item[0])
 
@@ -84,13 +82,11 @@ def record_pool(
     controller_peak_bytes: int,
     path: Path | None = None,
 ) -> None:
-    """Append one kind:"pool" line for a finished xdist pool: which unit it was a pool of, how wide it ran, and what the controller and each worker held at their peaks. It is a module function rather than a CycleTimings method because there is no run and no instance behind it — the writer is a pytest controller, which knows nothing about a cycle and may not be inside one at all.
+    """Append one kind:"pool" line for a finished worker pool: the unit it measured, the width it ran at, and the controller's and each worker's peak RSS. The writers are pytest controllers, run_m1's pools, and the review build's pools, none of which needs a cycle.
 
-    The record carries no run id, deliberately, and CYCLE_RUN_ENV does not change that: a run is the wrong grain for a pool, not merely an id a controller had no way to learn. What a pool belongs to is one suite invocation, and a cycle pass spawns several of them, so a run id would file several different measurements under one name while a standalone `make test` still had nothing to be filed under. So the pool line is filed under nothing, load_journal never indexes it, and load_pool_records is how a reader finds it.
+    The line carries no run id, even under CYCLE_RUN_ENV, because one cycle pass runs several pools and a standalone pool has no run. `load_journal` ignores pool lines, and `load_pool_records` reads them.
 
-    `width` is the width the pool was asked for — the resolved `numprocesses`, not the length of `worker_peaks` — because the two are different facts and both are worth having: a node that dies without handing back its workeroutput leaves the peaks dict short by one, so the dict's own length says how many workers answered while `width` says how many ran. Averaging them into a single number would lose the discrepancy that is the interesting part.
-
-    Peaks are ordered by gateway number, matching the order the controller's own terminal line prints them in, so the record and the line a human just read agree — the same `gateway_order` key does both, so the two can never drift apart. `path` is resolved when the call is made rather than bound as a default, so a test that redirects the module's JOURNAL is redirected here too instead of quietly appending to the live one. Nothing here raises: this is called from a terminal-summary hook, where a raise would disfigure the report of a suite that passed, so an unwritable journal warns once per process and is thereafter silent.
+    `width` is recorded separately from `worker_peaks` because the two counts can differ: an xdist worker that dies without returning its workeroutput has no entry in `worker_peaks`. Peaks are ordered with `gateway_order`, the order the root conftest prints them in. `path` is resolved at call time, not bound as a default, so a test that patches `JOURNAL` redirects this write too. Nothing here raises, because a terminal-summary hook calls it and a raise would disrupt the report of a suite that passed; an unwritable journal warns once per process.
     """
     journal = JOURNAL if path is None else path
     entry = {
@@ -113,9 +109,9 @@ def record_pool(
 
 @dataclass
 class CheckVerdict:
-    """What one judged check invocation decided, in the single shape every judge answers in and every writer records from. `verdict` is the trichotomy a reader can group on — green, red, skipped — and `status` is the human label the console and the cycle summary have always printed for that same judgment ("green", a FAILED clause carrying the unexplained count, "FAILED (no conform_summary.json)"). They are separate fields because the status strings are output nobody may reword and each judge words its own, while a report that counts how a check tends to come out has to compare judges to each other; deriving either from the other would mean either rewriting console output to be parseable or parsing prose to recover a verdict.
+    """What one judged check invocation decided, in the shape every judge returns and every writer records. `verdict` is green, red, or skipped, which a report can group on. `status` is the label the console and the cycle summary print for the same judgment ("green", a FAILED clause with the unexplained count, "FAILED (no conform_summary.json)"). Each judge words its own status, and that output must not change, so the two are separate fields and neither is derived from the other.
 
-    `failures` is the prose the cycle rolls up into its summary and `failed_ids` is the test ids themselves, which is the field this record exists for: a failure sentence answers "did this pass", a list of ids answers "which test earns its keep" across every invocation on the record. `recordable` is green-record machinery the caller consults and is deliberately not journaled — whether this pass may write a green record is a fact about this pass and its inputs, not history a later reader could use.
+    `failures` is the text the cycle adds to its summary, and `failed_ids` is the failing test ids, which `--by-outcome` counts across invocations. `recordable` says whether this pass may write a green record; the caller reads it, and it is not written to the journal.
     """
 
     check: str
@@ -139,11 +135,9 @@ def record_check(
     peak_rss_bytes: int | None = None,
     path: Path | None = None,
 ) -> None:
-    """Append one kind:"check" line for a judged check invocation. `run` is the optional parent: the artifact cycle passes its run id (through CycleTimings.record_check) and an interactive entry point passes nothing, which is the whole reason this is a module function as well as a method — the majority of this repo's check runs happen with no cycle in sight and had no way to be recorded before.
+    """Append one kind:"check" line for a judged check invocation. `run` is the optional parent run id: the artifact cycle passes it through `CycleTimings.record_check`, and an interactive entry point passes nothing.
 
-    host, cpu_count, and mem_total_bytes are read here rather than left to a parent run line to supply, because the parentless line is the common case and a record that can only be read next to a run record it does not have is not a record. That denormalization is also what lets a parented and an unparented line be compared directly, which --by-outcome does.
-
-    `recordable` never reaches the journal: it tells the caller whether a green record may be written for this pass and is meaningless to a reader months later. Rounding elapsed_s to a tenth matches the step lines, so the two can be read in one column. Nothing here raises — the callers are gate wrappers and a cycle's reporting path, where a journal that cannot be written is worth saying once and is never worth failing a check that already reached a verdict. `path` resolves at call time rather than binding JOURNAL as a default, so a test that redirects the module constant is redirected here too instead of quietly appending to the live journal.
+    The host, cpu count, and total memory are read here because most check lines have no run line to take them from, and so parented and unparented lines can be compared directly. `recordable` is not written. `elapsed_s` is rounded to a tenth, as step lines are. Nothing here raises, because the callers are gate wrappers and the cycle's reporting path, where an unwritable journal should warn once and never fail a check that already has a verdict. `path` is resolved at call time, not bound as a default, so a test that patches `JOURNAL` redirects this write too.
     """
     journal = JOURNAL if path is None else path
     entry: dict = {
@@ -189,7 +183,7 @@ def parse_inner_timings(text: str) -> list[dict]:
 
 
 class CycleTimings:
-    """One instance per cycle run. wrap_spawn decorates the driver's spawn callable so every real subprocess records a step line as it completes; record_check files a judgment under this run; finish records the run line from the already-built cycle summary payload. Appends are lock-serialized (the gate tasks spawn from pool threads) and a journal that cannot be written warns once and never fails the cycle. What a caller adds to a spawn beyond the four arguments timing cares about — a per-child environment, say — passes straight through, because this decorator's business is the clock and not the child's terms."""
+    """The journal writer for one cycle run. `wrap_spawn` wraps the driver's spawn callable so each subprocess that ran records a step line when it completes; `record_check` records a verdict under this run; `finish` records the run line from the built cycle summary. Appends are serialized by the module lock, because the gate tasks spawn from pool threads, and an unwritable journal warns once and never fails the cycle. Any other keyword argument a caller passes to a spawn, such as a per-child environment, is passed through unchanged."""
 
     def __init__(self, path: Path) -> None:
         self.path = path
@@ -229,7 +223,7 @@ class CycleTimings:
         self._append(entry)
 
     def record_check(self, verdict: CheckVerdict, **kw) -> None:
-        """The cycle's own check lines, tagged with this run so a reader can put a judgment beside the step that produced it. The cycle records every check it judges — including the ones whose work a child process did — because a child that a cycle spawned stands down on CYCLE_RUN_ENV, and one writer per invocation is what keeps the counts in --by-outcome counts of invocations rather than of processes that happened to have an opinion."""
+        """Record a check line tagged with this run. The cycle records every check it judges, including checks whose work a child process did, because a child the cycle spawned records nothing when CYCLE_RUN_ENV is set; one line per invocation keeps the `--by-outcome` counts accurate."""
         record_check(verdict, run=self.run_id, path=self.path, **kw)
 
     def finish(self, summary: dict) -> None:
@@ -262,7 +256,7 @@ class CycleTimings:
 
 
 def load_journal(path: Path) -> tuple[dict[str, dict], dict[str, list[dict]], list[str]]:
-    """Returns (run lines by run id, step lines by run id, run ids in first-seen order) — the cycle's own two kinds and nothing else. A check line is skipped whether or not it names a run: it is a judgment rather than a subprocess, its seconds may be the very seconds a step line already reports, and letting a parented one file itself here would make it a step while letting it create an order entry would conjure a run out of a line that only points at one. load_checks is its reader. Malformed lines are skipped: the journal is written by concurrent threads across many runs, and one torn line must not make the whole history unreadable."""
+    """Return the run lines by run id, the step lines by run id, and the run ids in first-seen order. Only "run" and "step" lines are read. Check lines are skipped even when they name a run, because a check is not a subprocess, its seconds may duplicate a step line's, and it must not create a run entry; `load_checks` reads them. Malformed lines are skipped, because concurrent writers can leave a torn line and one bad line must not make the history unreadable."""
     runs: dict[str, dict] = {}
     steps: dict[str, list[dict]] = {}
     order: list[str] = []
@@ -292,7 +286,7 @@ def load_journal(path: Path) -> tuple[dict[str, dict], dict[str, list[dict]], li
 
 
 def load_checks(path: Path) -> list[dict]:
-    """Every kind:"check" line in the journal, in file order, parented and unparented alike. A separate loader from load_journal for the same reason load_pool_records is one: a check is not filed under a run, since most of them have none and the ones that do are pointing at a parent rather than belonging to it. Malformed lines are skipped and a journal that does not exist reads as no checks, because a box that has never run one has nothing to say and that is not a failure."""
+    """Return every kind:"check" line in the journal in file order, with or without a run. Malformed lines are skipped, and a missing journal reads as no checks."""
     records: list[dict] = []
     if not path.exists():
         return records
@@ -310,7 +304,7 @@ def load_checks(path: Path) -> list[dict]:
 
 
 def load_pool_records(path: Path) -> list[dict]:
-    """Every kind:"pool" line in the journal, in file order. A separate loader from load_journal because a pool record carries no run id and so cannot be filed under one: the pool a pytest controller measured belongs to a suite invocation, which a standalone `make test` has and a cycle run does not uniquely own — a single pass spawns several of them. Malformed lines are skipped for the same reason load_journal skips them, since the journal is appended to by concurrent threads across processes and one torn line must not make the whole history unreadable, and a journal that does not exist reads as no records rather than as an error, because a box that has never run a pool has nothing to say and that is not a failure."""
+    """Return every kind:"pool" line in the journal in file order. Pool lines carry no run id, so `load_journal` does not read them. Malformed lines are skipped, because concurrent writers can leave a torn line, and a missing journal reads as no records."""
     records: list[dict] = []
     if not path.exists():
         return records
@@ -357,7 +351,7 @@ def render_runs(
                 f"host={run.get('host', '?')}",
                 f"cpus={run.get('cpu_count', '?')}",
             ]
-            # `cpus=?` is defensible where the count is missing, because that key has always been written and its absence therefore means a probe that failed. The box's size postdates most of this journal, so a record without it is simply older than the field — say nothing rather than `ram=?`, which would read as a probe that failed on a run where nothing was ever asked.
+            # A run line without `mem_total_bytes` predates the field, so print nothing rather than `ram=?`, which would suggest a failed probe. `cpu_count` has always been written, so `cpus=?` does mean a failed probe.
             mem = run.get("mem_total_bytes")
             if isinstance(mem, int | float):
                 bits.append(f"ram={format_gb(mem)}GB")
@@ -387,9 +381,9 @@ def render_runs(
 
 
 def render_by_step(steps: dict[str, list[dict]], order: list[str], checks: list[dict]) -> list[str]:
-    """Count/median/max/latest seconds per step and host, over the cycle's step lines plus every check that timed itself outside a cycle. A parented check is excluded because its cost is already the step line of the same run — counting both would double an observation the journal holds once. A skipped check excludes itself by carrying no seconds, which is the right answer rather than a zero: nothing ran, and a zero would drag a median toward a run that never happened. What is left is the interactive invocations, and they land in rows of their own rather than merging into the cycle's rows for the same work, because a check sharing the box with a whole cycle pass and that same work alone on the box are different measurements whose average would describe neither.
+    """Return the count, median, max, and latest seconds per step and host, over the cycle's step lines plus every check line recorded outside a cycle. A check line with a run is left out, because the same run's step line already counts its seconds. A skipped check has no seconds and is left out too, so it does not pull a median toward zero.
 
-    A check row is named `check:<name>` — the same namespacing idiom the step names already use for `gate:*` — so that separation is structural rather than a property of the names in play. Every check name but one differs from every step name, and the exception is the expensive one: a cycle spawns the M1 build as the step `run_m1` while `evaluate_run_m1_gate` files its judgment under the check `run_m1`, so a bare name would drop an interactive build's check — or a seconds-long `run_m1 --gates-only` re-adjudication, which files that same check name — into the row that is supposed to say what a full M1 build costs on this box. That row is the one this view exists to answer with, and poisoning it is worse than merely miscounting: `latest` would report the re-adjudication as the most recent cost of the build, so a ledger-edit loop would quietly rewrite the number a reader is about to size a timeout from.
+    A check line gets its own row, named `check:<name>`, because a check run alone on the machine and the same work run beside a whole cycle pass are different measurements. The prefix also keeps the check `run_m1` apart from the step `run_m1`. That check is recorded both for an interactive full build and for a seconds-long `run_m1 --gates-only`, and in the step's row it would make `latest` report the re-adjudication as the most recent cost of a full M1 build.
     """
     buckets: dict[tuple[str, str], list[float]] = {}
     rss_peaks: dict[tuple[str, str], list[float]] = {}
@@ -429,9 +423,9 @@ def render_by_step(steps: dict[str, list[dict]], order: list[str], checks: list[
 
 
 def render_by_outcome(checks: list[dict]) -> list[str]:
-    """Per check, across every host and whether or not a cycle was its parent: how many invocations are on the record, how they came out, and which test ids they failed on. This is the report the check line exists for — a green count answers whether a check ever catches anything and the id histogram answers which test is doing the catching, so a suite's cost can be argued against what it has actually found rather than against an impression of it. Failed ids are ordered by how often each has failed, ties by id, so the recurring one is at the top of the check it belongs to; checks are ordered by name, so a row stays where a reader last found it instead of moving whenever a verdict lands.
+    """Return, per check, the number of invocations, the green, red, and skipped counts, and the test ids it failed on, across every host and with or without a parent run. This shows whether a check ever fails and which tests fail, so a suite's cost can be weighed against the failures it has found. Failed ids are ordered by how often each failed, ties by id. Checks are ordered by name, so rows stay in place as verdicts are added.
 
-    Parented lines are counted here, unlike in --by-step: the double-counting that view avoids is of seconds a step line already reports, while a verdict is reported nowhere else, and a check's history would be a strange thing to split by whether a cycle happened to be driving.
+    Check lines with a run are counted here, unlike in `--by-step`, because a verdict is recorded nowhere else; only the seconds duplicate a step line.
     """
     counts: dict[str, dict[str, int]] = {}
     totals: dict[str, int] = {}

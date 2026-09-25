@@ -1,10 +1,10 @@
-"""The client half of the standing daemon: how the standing probe and the standing dry run ask a running `rebuild/tools/standing_daemon.py` to run them over the surface it already holds, and what they do when nothing answers. Stdlib-only, because both tools import it at the top and it therefore sits on the memo's code roster (`standing_verdicts.MEMO_CODE_MODULES`) and on the verdict chain's plumbing closure (`artifact_cycle.PLUMBING_TOOL_MODULES`); the server side, which imports the tools, the width arithmetic and the cost reading, is the other module so that neither roster grows past it.
+"""The client side of the standing daemon: how the standing probe and the standing dry run ask a running `rebuild/tools/standing_daemon.py` to run them over the surface it already holds, and what they do when no daemon replies. Both tools import this module at the top, so it is in the fill memo's code list (`standing_verdicts.MEMO_CODE_MODULES`) and in the verdict chain's plumbing closure (`artifact_cycle.PLUMBING_TOOL_MODULES`). It therefore imports only the standard library. The server side, which imports the tools, `memory_budget` and `peak_rss`, is a separate module so that neither list includes those.
 
-The protocol is one request per connection over a Unix-domain stream socket, newline-delimited JSON both ways. A `probe` or `fill` request carries the tool's argv as the user typed it, the client's working directory (so every relative path in the argv — the verdicts file, `--out`, `--memo`, `--rules` — resolves under the daemon exactly as it would in this process) and the surface path resolved absolute (so the daemon can decline a surface it does not hold). The reply is `{"ok": true, "code", "stdout", "stderr"}` — the tool's exit code and its captured streams, which `relay` writes to this process's streams unchanged, so a served run prints byte for byte what an in-process run prints — or `{"ok": false, "reason"}` when the daemon declines. A `status` request answers with what the daemon holds and a `stop` request has it exit; both are `standing_daemon.main`'s verbs.
+The protocol is one request per connection over a Unix-domain stream socket, with newline-delimited JSON both ways. A `probe` or `fill` request carries the tool's argv as typed; the client's working directory, so every relative path in the argv (the verdicts file, `--out`, `--memo`, `--rules`) resolves in the daemon as it would in this process; and the absolute surface path, so the daemon can decline a surface it does not hold. The reply is either `{"ok": true, "code", "stdout", "stderr"}`, the tool's exit code and captured streams, or `{"ok": false, "reason"}` when the daemon declines. `relay` writes the streams to this process's streams unchanged, so a served run prints the same bytes as an in-process run. A `status` request returns what the daemon holds, and a `stop` request makes it exit; both are subcommands of `standing_daemon.main`.
 
-`--daemon auto` (the default) asks and falls back to loading the surface in this process when no daemon answers or the daemon declines, saying so on stderr only when there was a socket to ask; `always` refuses to load in this process and exits with the reason; `never` refuses to ask. A caller that hands a tool's `main` its own `units` or `context` is by definition not a command-line run — the verdict chain's in-process call is the one such caller — and is never routed here.
+`--daemon auto`, the default, asks the daemon and falls back to loading the surface in this process when no daemon replies or the daemon declines. It says so on stderr only when there was a socket to ask. `always` exits with the reason instead of loading the surface in this process. `never` does not ask. A call that passes a tool's `main` its own `units` or `context` is not a command-line run and is never routed here; the verdict chain and the daemon itself make such calls.
 
-The socket is bound and connected by basename under a momentary `contextlib.chdir` into its directory, because `sun_path` holds about a hundred bytes and both the repo's `var/` path and pytest's temporary root can exceed it; a caller therefore hands these helpers any path it likes and must capture `os.getcwd()` and any absolute path it needs before calling them. The default socket sits under `var/`, never `tmp/`, which may be wiped under a running daemon.
+The socket is bound and connected by its basename, under a brief `contextlib.chdir` into its directory, because `sun_path` holds only about a hundred bytes and both the repo's `var/` path and pytest's temporary root can be longer. A caller can therefore pass any path, but must read `os.getcwd()` and resolve any path it needs before calling these helpers. The default socket is under `var/`, not `tmp/`, because `tmp/` may be wiped while a daemon runs.
 """
 
 from __future__ import annotations
@@ -28,7 +28,7 @@ START_HINT = "start one with make standing-daemon"
 
 
 class Served(NamedTuple):
-    """What a daemon-run tool handed back: its exit code and its two captured streams, verbatim."""
+    """A daemon-run tool's exit code and its two captured streams, unchanged."""
 
     code: int
     stdout: str
@@ -36,7 +36,7 @@ class Served(NamedTuple):
 
 
 def add_arguments(parser: argparse.ArgumentParser) -> None:
-    """The two flags every tool that can be served takes. The socket default is read when the parser is built, so a test that points `SOCKET` elsewhere is seen."""
+    """Add the `--daemon` and `--socket` flags every servable tool takes. The socket default is read when the parser is built, so a test that points `SOCKET` elsewhere takes effect."""
     parser.add_argument(
         "--daemon",
         choices=MODES,
@@ -49,7 +49,7 @@ def add_arguments(parser: argparse.ArgumentParser) -> None:
 
 
 def connect(path: str | os.PathLike[str]) -> socket.socket:
-    """A connected client socket, or the OSError the connect raised — a missing directory, no socket file, a file that is not a socket, or a socket nothing listens on all surface as one."""
+    """Return a connected client socket, or raise OSError. A missing directory, a missing socket file, a file that is not a socket, and a socket nothing listens on all raise OSError."""
     path = Path(path)
     sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
     try:
@@ -64,7 +64,7 @@ def connect(path: str | os.PathLike[str]) -> socket.socket:
 
 
 def bind(path: str | os.PathLike[str]) -> socket.socket:
-    """A listening server socket at `path`; the caller unlinks a dead socket file first and removes the live one at exit."""
+    """Return a listening server socket at `path`. The caller unlinks a stale socket file first and removes its own socket file at exit."""
     path = Path(path)
     sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
     try:
@@ -78,7 +78,7 @@ def bind(path: str | os.PathLike[str]) -> socket.socket:
 
 
 def exchange(socket_path: str | os.PathLike[str], request: dict) -> dict | None:
-    """One request and its reply, or None when no daemon answers at the socket: nothing to connect to, a connection the daemon closed before replying, or a reply that is not a JSON line."""
+    """Send one request and return the reply, or None when no daemon replies at the socket: nothing to connect to, a connection the daemon closed before replying, or a reply that is not a JSON object on one line."""
     try:
         sock = connect(socket_path)
     except OSError:
@@ -107,7 +107,7 @@ def ask(
     mode: str,
     socket_path: str | os.PathLike[str],
 ) -> Served | None:
-    """Ask the daemon to run `tool` over `argv`, or None when this process should load the surface itself: `never` mode, no daemon answering in `auto` mode, or a daemon declining in `auto` mode — the last two with one stderr line when there was a socket to ask. In `always` mode both of those exit with the reason instead. Stdout is never written here, so a served and an in-process run diff clean on it."""
+    """Ask the daemon to run `tool` over `argv` and return the served result. Returns None when this process should load the surface itself: in `never` mode, or in `auto` mode when no daemon replies or the daemon declines, in which case one stderr line says so if there was a socket to ask. In `always` mode those two cases exit with the reason. Nothing is written to stdout here, so a served run and an in-process run have identical stdout."""
     if mode == "never":
         return None
     path = Path(socket_path)
@@ -137,7 +137,7 @@ def ask(
 
 
 def relay(served: Served) -> int:
-    """Write a served run's streams to this process's streams and answer its exit code."""
+    """Write a served run's streams to this process's streams and return its exit code."""
     sys.stdout.write(served.stdout)
     sys.stdout.flush()
     sys.stderr.write(served.stderr)

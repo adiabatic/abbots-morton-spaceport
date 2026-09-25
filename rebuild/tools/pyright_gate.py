@@ -1,8 +1,8 @@
-"""Pyright's self-skip: the type check a `make test` or `make test-rebuild` run carries spawns only when a file pyright can read has changed since its last green run.
+"""Pyright's self-skip: the type check that a `make test` or `make test-rebuild` run requests starts only when a file pyright reads has changed since its last green run.
 
-The check's input closure is what `[tool.pyright]` in pyproject.toml points it at — every `.py` and `.pyi` under `include`, `extraPaths` and `stubPath`, tracked or untracked-unignored — plus pyproject.toml itself, which carries the checker's own settings, and uv.lock, which pins the checker and every package it resolves imports against — hashed by its dependency pins (`rebuild.tools.lock_digest`), since the project's own block names nothing pyright resolves, while every source and pyproject.toml hash raw, because a `# pyright: ignore` comment changes the answer being gated. Nothing else pyright opens is content an edit in this tree can move. A rune edit, a glyph edit, a Markdown edit and a verdict all leave that closure where it was, so the suite they re-arm runs its tests without a type check standing ahead of them; the green record (`cycle_paths.PYRIGHT_GREEN`) is written only after a pass whose closure still matches what was checked, and a red pass whose closure matches its record deletes the record. `AMS_RUN_PYRIGHT=1` asks for the check under the skip; `AMS_RUN_PYRIGHT=force`, which the make targets spell as `FORCE=1`, runs it regardless. Without git there is no closure to key on, so the check runs and records nothing.
+The check's input closure is every `.py` and `.pyi` file under the `include`, `extraPaths` and `stubPath` of `[tool.pyright]` in pyproject.toml, tracked or untracked but not ignored, plus pyproject.toml, which holds the checker's settings, and uv.lock, which pins the checker and the packages it resolves imports against. uv.lock is hashed by its dependency pins (`rebuild.tools.lock_digest`), because the project's own block names nothing pyright resolves. The sources and pyproject.toml are hashed raw, because a `# pyright: ignore` comment changes the result. Nothing else pyright reads can change through an edit in this repository. A rune, glyph or Markdown edit, or a verdict, leaves the closure unchanged, so the suite that such an edit re-runs has no type check ahead of it. The green record (`cycle_paths.PYRIGHT_GREEN`) is written only after a passing run whose closure still matches the one it checked, and a failing run whose closure matches the record deletes the record. `AMS_RUN_PYRIGHT=1` requests the check subject to the skip, and `AMS_RUN_PYRIGHT=force`, which the make targets set for `FORCE=1`, runs it regardless. Without git there is no closure to key on, so the check runs and records nothing.
 
-The root conftest is the caller, and its two hooks split the check between them. `pytest_configure` begins it before the workers spawn, whatever the run. A run that builds the fonts waits on it there, overlapping the build, so a type error fails the run before a test has started; a run that skips the build — a rebuild-only collection whose site fonts are present, which is what `make test-rebuild` spawns — parks it and `pytest_sessionfinish` joins it, so the check runs beside the xdist pool and a red lands as a nonzero exit after the suite, printed below the pytest summary; a run that reaches that hook interrupted abandons the check instead of judging it (`Check.abandon`), since the Ctrl-C that stopped the suite stopped pyright too and its exit says nothing about the tree. That caller is why this module's own imports stop at two leaves, `cycle_paths` for the record's place and `green_record` for its shape: the conftest's static import closure is folded into every rebuild test's closure, and a gate that imported the cycle driver would carry the whole pipeline in with it (`rebuild.tools.cycle_paths` has the argument).
+The root conftest calls this module from two hooks. In an xdist controller, `pytest_configure` starts the check before the workers spawn. A run that builds the fonts waits for the check there, beside the build, so a type error fails the run before any test starts. A run that skips the build (a rebuild-only run whose site fonts are present, which is what `make test-rebuild` starts) defers the check, and `pytest_sessionfinish` joins it. The check then runs beside the xdist pool, and a failure is reported as a nonzero exit after the suite, printed below the pytest summary. If the run was interrupted, that hook abandons the check (`Check.abandon`) instead of judging it, because the Ctrl-C that stopped the suite also stopped pyright. Because the conftest imports this module, its repo imports are limited to the leaf modules `cycle_paths`, `green_record` and `lock_digest`. The conftest's static import closure is added to every rebuild test's closure, so importing the cycle driver here would add the whole pipeline to it (`rebuild.tools.cycle_paths` explains why that matters).
 """
 
 from __future__ import annotations
@@ -38,7 +38,7 @@ SOURCE_SUFFIXES = (".py", ".pyi")
 
 
 def checked_roots(root: Path) -> list[str]:
-    """The paths `[tool.pyright]` has the checker read: `include`, `extraPaths` and `stubPath`, as pyproject.toml states them."""
+    """Return the paths `[tool.pyright]` in pyproject.toml has the checker read: `include`, `extraPaths` and `stubPath`."""
     with open(Path(root) / "pyproject.toml", "rb") as handle:
         config = tomllib.load(handle).get("tool", {}).get("pyright", {})
     roots = [*config.get("include", []), *config.get("extraPaths", [])]
@@ -49,7 +49,7 @@ def checked_roots(root: Path) -> list[str]:
 
 
 def closure_files(root: Path) -> list[str] | None:
-    """Every repo-relative file the check can read, sorted: the sources under the checked roots plus the two config files. None when git is unavailable."""
+    """Return every repo-relative file the check can read, sorted: the sources under the checked roots plus the two config files. Returns None when git is unavailable."""
     try:
         result = subprocess.run(
             [
@@ -74,7 +74,7 @@ def closure_files(root: Path) -> list[str] | None:
 
 
 def closure_fingerprint(root: Path = ROOT) -> str | None:
-    """Content key over the closure, read from the worktree so uncommitted edits count; a deleted-but-tracked file hashes as absent. Every file raw but the lock, which hashes by its dependency pins. None without git."""
+    """Return a content key over the closure, read from the worktree so uncommitted edits count. A tracked file that has been deleted hashes as absent. Every file is hashed raw except the lock, which is hashed by its dependency pins. Returns None without git."""
     files = closure_files(root)
     if files is None:
         return None
@@ -96,14 +96,14 @@ def requested(environ: Mapping[str, str]) -> bool:
 
 @dataclass
 class Check:
-    """One requested check: the process when it spawned, the key it was spawned over, and the line to print for how it ended."""
+    """One requested check: its process, or None when the green record skipped it, the closure key it started over, and the repo root."""
 
     process: subprocess.Popen | None
     before: str | None
     root: Path
 
     def wait(self) -> int:
-        """The check's exit code, its green recorded or its record cleared, and the outcome printed; zero for a check the record answered before it spawned."""
+        """Wait for the check, record or clear its green record, print the outcome, and return the exit code. Returns zero for a check the green record skipped."""
         if self.process is None:
             return 0
         returncode = self.process.wait()
@@ -111,7 +111,7 @@ class Check:
         return returncode
 
     def abandon(self) -> None:
-        """Reap a check the run stopped waiting for: the process is ended and joined, nothing is judged, and the record stays where it was. A Ctrl-C reaches pyright and the suite alike, and a check killed that way is not a red."""
+        """Terminate and reap a check the run stopped waiting for, without judging it or touching the green record. A Ctrl-C reaches pyright as well as the suite, and a check killed that way has not failed."""
         if self.process is None:
             return
         self.process.terminate()
@@ -122,7 +122,7 @@ class Check:
 def begin(
     environ: Mapping[str, str], root: Path = ROOT, env: Mapping[str, str] | None = None
 ) -> Check | None:
-    """Start the check when the environment asks for one, unless its green record already vouches for this exact closure; None when it was not asked for. The skip is printed here, so the caller sees why no pyright output follows."""
+    """Start the check when the environment requests one, unless its green record already covers this closure. Returns None when no check was requested. A skip is printed here, so the caller sees why no pyright output follows."""
     if not requested(environ):
         return None
     before = closure_fingerprint(root)
@@ -144,7 +144,7 @@ def begin(
 
 
 def conclude(root: Path, before: str | None, returncode: int) -> str:
-    """What a finished check leaves behind: a green whose closure still matches records it, a red over a recorded closure deletes the record, and either way the line that says so."""
+    """Update the green record for a finished check and return the line that reports it. A passing check whose closure is unchanged is recorded, and a failing check over the recorded closure deletes the record."""
     record = cycle_paths.PYRIGHT_GREEN
     if returncode != 0:
         clear_contradicted_green(record, before)

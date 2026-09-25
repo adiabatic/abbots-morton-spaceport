@@ -1,4 +1,7 @@
-"""Answer one question from the shell: is the review surface ready to adjudicate right now? Renders rebuild.review.status.compute_status over the production paths, adds a live check that the review server is actually listening on port 7294, and prints a readable checklist (or the raw dict under --json). Exit 0 only when every blocking check passes and the server is up, so it drops cleanly into a Makefile guard. The artifact cycle prints this same checklist at the end of every green pass through `readiness` and `checklist` below, so the CLI is the form for asking the question on its own rather than a step anyone is sent to after a cycle."""
+"""Print whether the review surface is ready to adjudicate now.
+
+It runs `rebuild.review.status.compute_status` over the production paths, adds a check that the review server is listening on port 7294, and prints a checklist, or the status dict as JSON under `--json`. It exits 0 only when every blocking check passes and the server is up, so it can serve as a Makefile guard. The artifact cycle calls `readiness` and `checklist` to print the same checklist at the end of every green pass that is not a rehearsal, so this CLI is for asking the question between passes.
+"""
 
 import argparse
 import json
@@ -30,7 +33,7 @@ def readiness(
     recompute: Callable | None = None,
     listening: Callable[[], bool] = server_listening,
 ) -> tuple[dict, bool]:
-    """The status dict and whether the whole checklist passes. The server row is optional because the artifact cycle asks this question at the end of a `make review-cycle` pass, where the recipe answers the server question itself on the next line — restarting the server it stopped, or saying it was left down — and a row read before that answer would report a server the recipe is about to start as absent."""
+    """Return the status dict and whether the whole checklist passes. `with_server=False` leaves out the server row. The artifact cycle passes it at the end of a `make review-cycle` pass, because the recipe restarts the server afterwards, or reports that it left it down, and a row read earlier would report as absent a server that is about to start."""
     result = status.compute_status(
         repo_root, review_dir, m1_out, autosave_path, cycle_summary_path, recompute=recompute
     )

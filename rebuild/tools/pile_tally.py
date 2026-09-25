@@ -1,18 +1,33 @@
-"""A debug tally of the piles a surface build holds, read at its phase boundaries, so a peak the journal records can be attributed to the pile that made it (issue #156). Off unless the caller's environment carries `AMS_SURFACE_PILE_TALLY=1` (`TALLY_ENV`), which the artifact cycle never sets and which reaches the build child through the environment it inherits; with the variable unset `from_environment` answers None and the build's call sites are a handful of `if tally:` misses, so the shards and every other line the build prints are exactly what they were.
+"""A debug tally of the large collections (piles) a surface build holds, read at its phase boundaries, so that a peak in the timings journal can be attributed to the pile that caused it. It is off unless the environment sets `AMS_SURFACE_PILE_TALLY=1` (`TALLY_ENV`). The artifact cycle never sets it; the build child inherits it from the caller's environment. With it unset, `from_environment` returns None, the build skips its `if tally:` branches, and the shards and the build's other output are unchanged.
 
-The figures are attribution, never precision. Each pile is a `sys.getsizeof` walk over a bounded, evenly spaced sample of its members (`SAMPLE_SIZE` of them), scaled by the member count and added to the container's own size — seconds over a corpus of a million units, where a walk over every member would be minutes. The walk descends into the stdlib containers, into `__dict__` and every slot, and stops at strings, bytes and numbers; an object seen once in a sample is counted once, so members that share a pooled tuple or an interned name are charged for one copy between them, which is the same discount the process gets. A pile can name leaf types the walk counts shallow rather than entering, which is how one pile is kept from subsuming another it holds pointers into — a pile of records that each point at a member of a pile reported on its own line would otherwise outrank that pile by construction. A pile whose members are themselves tables — the enricher's subset rows, one whole table per configuration — is held `nested`, so each sampled member is estimated by the same bounded sample rather than walked whole, its count is the members' rows summed, and a boundary stays seconds-cheap over tables of a million rows apiece. A pile held (`hold`) is re-estimated at every boundary after it, since the build mutates and drains what it holds, and a pile the build empties reads as empty at the boundaries past that point rather than dropping off the record — the audit's row columns once the content keys have read them, the fresh spool's addresses once the runner has closed; one read (`hold_reading`) is a callable answering (count, bytes) itself, or a `Measure`, for an instrument like `ink.shape_memo_census` that already keeps its own exact census, or `column_census` over a pile the build keeps as packed columns (the unit store's own reading, and `build.row_columns_census` over the audit's row columns), or for a pile the build holds only through what else it holds. The roster is the build's own: `build_m1`, `_FreshRunner.hold_piles`, `_write_surface` and `_surface_worker` in `rebuild/review/build.py` name what they hold, and what the fresh units leave in any process past their batch is the spool address per unit — a column of the parent's packed unit store (`unit_store`, which reports its own exact census), a field of the projections a pooled worker holds until it has answered with them (`worker.projections`) — never a pile of enrichments: a fresh unit's fragment goes to the spool as it is drafted.
+The figures are for attribution and are approximate. A held pile's estimate is the container's own `sys.getsizeof` plus a deep `sys.getsizeof` walk over a sample of up to `SAMPLE_SIZE` members, scaled by the member count. `_sample` takes every nth member from the start, with n the count divided by `SAMPLE_SIZE` and rounded down, so for a pile larger than `SAMPLE_SIZE` whose count is not a multiple of it, the sample covers only the first part of the pile, as little as about half. That takes seconds over a corpus of a million units, where walking every member would take minutes. The walk descends into the stdlib containers, `__dict__`, and every slot, and stops at strings, bytes, and numbers. An object reached twice within one pile's sample is counted once, so members that share a pooled tuple or an interned name are charged for one copy, as the process is. `leaf_types` names types the walk counts without entering, so a pile of records that point into another pile does not also count that pile's members and outrank it. `nested` is for a pile whose members are themselves tables: each sampled member is estimated by its own bounded sample instead of walked whole, and the count is the members' lengths summed, so a boundary stays cheap over tables of a million rows each.
 
-A pile can also declare the packed shape of one member (`hold(..., packed=)`, or a `Measure` from `measure(..., packed=)` under `hold_reading`), and its line then carries what a packed row of the same fields would take beside what the walk found (issue #299): the shape is a tree of the small declarations below, one per field of the record, and `packed_estimate` prices it over the same evenly spaced sample the walk reads, so the ratio compares like with like. `Slot(width)` is a fixed-width column whatever the value holds — a flag byte, an ordinal, an integer of a stated width, the two cell indices of a pair; `Flag()` is one bit of a flag byte; `Id()` is an `ID_WIDTH` id into one string table, the string itself charged to the table and never to the row; `Hex(width)` is a hex digest as its raw bytes, `HEX_WIDTH` of them for the sha256 the build keys by, charged whether the value is there or not, since a fixed-width column has no holes and a member missing its digest costs the slot like any other; a present digest whose length disagrees with the declared width raises, which is the cross-check that keeps a column declared for one digest from quietly pricing another. `Derived(bytes, absent)` is whatever the callable answers for the value, for a column whose width follows the value, like a window of two to four codepoints inline; an absent value costs `absent`, the `COUNT_WIDTH` count slot such a column writes for an empty one, rather than reaching the callable. `Many(element)` is a variable-length field as an `OFFSET_WIDTH` offset and a `COUNT_WIDTH` count into a side column of its elements, each priced by the element shape, so a field that is empty on most members costs the pair and nothing else; `Table(key, value)` is the same over a mapping's entries. `Record(fields)` prices an object's named attributes, `Keyed(fields)` a dict's named keys, and `Positional(shapes)` a tuple's slots in order; an absent value (None) still costs every slot under it, since a column has no holes, but puts nothing in the string table. A shape over a mapping pile prices the values, the key being the ordinal a packed store indexes by, unless the shape is a `Table`, which then prices the pile's own entries as key beside value. The string table is the one term a sample cannot stand for — a vocabulary saturates rather than scaling with the count — so it is counted over every member of the pile, and a boundary's cost is that walk: one pass over all of them per id-bearing column, with the bare `Id` fields of one record read together by a multi-argument getter so a record's dozen names cost one pass rather than a dozen, every pass through `map`, `filter` and `chain` alone so it runs at C speed, and the distinct strings held in one set for the width of it. A pile of a million members with five id columns is therefore five million reads and a set of the vocabulary, seconds and a few megabytes, against the seconds the sampled walk takes — the price of an exact table, paid at every boundary the pile is held at. Each distinct string is charged once at its UTF-8 length plus an `OFFSET_WIDTH` offset, and the table is reported beside the row bytes rather than folded into them, since one table would serve every pile at once. Absent and empty strings alike put nothing in the table.
+A pile registered with `hold` is re-estimated at every later boundary, because the build mutates and drains what it holds. A pile the build has emptied reads as empty at later boundaries and stays in the output. `hold_reading` registers a callable instead, returning `(count, bytes)` or a `Measure`. It serves a pile that keeps its own exact figures (`ink.shape_memo_census`), a pile stored as packed columns (`column_census`, as used by `UnitStore.census` and `build.row_columns_census`), and a pile the build holds only through another object. `build_m1`, `_FreshRunner.hold_piles`, `_write_surface` and `_surface_worker` in `rebuild/review/build.py` register what they hold. A fresh unit's fragment is written to the spool as it is drafted, so no process holds a pile of enrichments. What remains of a fresh unit after its batch is its spool address: a column of the parent's packed unit store (`unit_store`), and a field of the projections a pooled worker holds until it has sent them (`worker.projections`).
 
-The format, one line per pile per boundary and sorted largest first within a boundary, then one line naming the largest — every line prefixed `[tally] ` (`TALLY`) and whitespace-tokenized, so a `grep '^\\[tally\\]'` over the cycle's per-step log (`var/build-logs/<run>/<nn>-surface-build.log`, where the build's stdout lands) reads the whole record back:
+A pile can also declare the packed layout of one member (`hold(..., packed=)`, or `measure(..., packed=)` under `hold_reading`). Its line then also reports what a packed row of the same fields would take. `packed_estimate` sizes the layout over the same sample the walk reads, so the ratio compares like with like. A layout is a tree of these declarations, one per field of the record:
+
+- `Slot(width)`: a fixed-width column, such as a flag byte, an ordinal, an integer of a stated width, or the two cell indices of a pair.
+- `Flag()`: one bit of a flag byte.
+- `Id()`: an `ID_WIDTH` id into the string table. The string itself is charged to the table, not to the row.
+- `Hex(width)`: a hex digest stored as raw bytes, `HEX_WIDTH` of them for the sha256 the build keys by. It is charged whether or not the value is present, because a fixed-width column has no gaps. A present digest whose length disagrees with the declared width raises, so a column declared for one digest cannot silently size another.
+- `Derived(bytes, absent)`: whatever the callable returns for the value, for a column whose width depends on the value, such as a window of two to four codepoints stored inline. An absent value costs `absent`, by default the `COUNT_WIDTH` count slot such a column writes for an empty value, and the callable is not called.
+- `Many(element)`: a variable-length field, stored as an `OFFSET_WIDTH` offset and a `COUNT_WIDTH` count into a side column of elements, each sized by `element`. A field that is empty costs only the offset and count.
+- `Table(key, value)`: the same as `Many`, over a mapping's entries.
+- `Record(fields)`, `Keyed(fields)`, `Positional(shapes)`: an object's named attributes, a dict's named keys, and a tuple's slots in order. An absent value (None) still costs every slot under it, because a column has no gaps, but adds nothing to the string table.
+
+Over a mapping pile, the layout sizes the values, and the key is taken to be the ordinal a packed store indexes by. A `Table` layout instead sizes the pile's own entries as key and value.
+
+The string table is not sampled, because a vocabulary saturates instead of growing with the count. It is counted over every member of the pile, in one pass per id-bearing column. The bare `Id` fields of one record are read together by one multi-argument getter, so a record with a dozen names costs one pass. Every pass uses only `map`, `filter`, `chain` and the `operator` getters, so it runs in C, and the distinct strings are held in one set during the pass. A pile of a million members with five id columns therefore costs five million reads and a set of the vocabulary, which is seconds and a few megabytes at every boundary the pile is held at. Each distinct string is charged once, at its UTF-8 length plus an `OFFSET_WIDTH` offset. Absent and empty strings add nothing to the table.
+
+Each boundary prints one line per pile, largest first, then one line naming the largest. Every line starts with `[tally] ` (`TALLY`) and is whitespace-separated, so a `grep '^\\[tally\\]'` over the cycle's surface-build step log (`var/build-logs/<run>/<nn>-surface-build.log`, which receives the build's stdout) recovers the whole record:
 
     [tally] <boundary> <pile> count=<n> est_bytes=<n> est_gb=<x.xx>
     [tally] <boundary> <pile> count=<n> est_bytes=<n> est_gb=<x.xx> packed_bytes=<n> packed_per=<x.x> walked_per=<x.x> ratio=<x.xx|-> strings=<n> string_bytes=<n>
     [tally] <boundary> largest=<pile>
 
-The first is a pile with no packed shape declared; the second a pile with one, where `packed_bytes` is the packed rows over the whole count, `packed_per` and `walked_per` are bytes per member for the packed row and the walk, `ratio` is `walked_per` over `packed_per` (`-` when either is zero, which is what an empty pile prints), and `strings` and `string_bytes` are the pile's string table, distinct strings and their bytes. The ratio is the rows alone: the table is not in `packed_bytes` or in either per-member figure, because one table serves every pile at once and folding it into each would charge the same strings several times over. It is printed beside the ratio so a reader can add it back where it matters — on the corpus the build measures it is under a megabyte against piles of gigabytes, which is why the headline figure is the rows'. `<boundary>` is the build phase whose end the reading was taken at (`load`, `plan`, `units`, `manifest+check`, `census-facts`, `cache`), or `w<i>/<phase>` for a pooled worker's own piles at the end of one of its phases; neither carries whitespace. `est_gb` is `peak_rss`'s decimal gigabyte, the unit every peak in the journal is stated in, so a pile's figure reads beside the `rss_gb=` token on the same phase's `[t]` line without conversion. A boundary with nothing held prints only the `largest=` line, with `-` for the name, so the boundary is still on the record.
+The first form is a pile with no packed layout declared, and the second is a pile with one. `packed_bytes` is the packed rows over the whole count. `packed_per` and `walked_per` are bytes per member for the packed row and for the walk. `ratio` is `walked_per` divided by `packed_per`, or `-` when either is zero, as for an empty pile. `strings` and `string_bytes` are the pile's string table: the number of distinct strings and their bytes. The table is left out of `packed_bytes` and of both per-member figures, because one table would serve every pile, and adding it to each would count the same strings several times. It is printed so a reader can add it back where it matters; on the corpus the build measures, it is under a megabyte against piles of gigabytes. `<boundary>` is the build phase at whose end the reading was taken (`load`, `plan`, `units`, `manifest+check`, `census-facts`, `cache`), or `w<i>/phase1-<n>` for a pooled worker's own piles after its nth batch. Neither contains whitespace. `est_gb` is in decimal gigabytes, the unit of the `rss_gb=` token on the same phase's `[t]` line. A boundary with nothing held prints only the `largest=` line, with `-` as the name.
 
-Stdlib-only, like `peak_rss`: the build imports this beside its other cost readings, and rebuild/test_review_code_closure.py pins it among the width and telemetry modules that may not move a byte of a unit's products.
+The module imports only the standard library. rebuild/test_review_code_closure.py lists it in `WIDTH_AND_TELEMETRY_MODULES`, the rebuild/tools modules the build may import that cannot change a unit's output.
 """
 
 from __future__ import annotations
@@ -47,7 +62,7 @@ def enabled(environ: Mapping[str, str] = os.environ) -> bool:
 
 
 def deep_size(root: object, seen: set[int], leaf_types: tuple[type, ...] = ()) -> int:
-    """The bytes reachable from `root` that `seen` has not already charged: the container sizes, the slots and instance dicts, and the leaves under them. `seen` is the caller's, shared across one sample so a shared object is charged once per pile rather than once per member."""
+    """Return the bytes reachable from `root` that `seen` has not already counted: container sizes, slots and instance dicts, and the leaves under them. The caller shares `seen` across one sample, so an object shared by several members is counted once per pile."""
     total = 0
     stack: list[object] = [root]
     while stack:
@@ -97,7 +112,7 @@ def estimate(
     sample_size: int = SAMPLE_SIZE,
     nested: bool = False,
 ) -> tuple[int, int]:
-    """(count, estimated bytes) for one pile: the container's own size plus the deep size of an evenly spaced sample of its members, scaled by the count. A mapping's sample is its items, so keys and values are both charged. `nested` reads a pile of tables: each sampled member that is a collection is estimated by its own bounded sample instead of walked in full, and the count answered is the members' lengths summed, so the figure is the rows the pile holds rather than the tables."""
+    """Return (count, estimated bytes) for one pile: the container's own size plus the deep size of a sample of its members (`_sample`), scaled by the count. A mapping's sample is its items, so keys and values are both counted. With `nested`, each sampled member that is a collection is estimated by its own bounded sample instead of walked in full, and the count is the members' lengths summed, which is the number of rows the pile's tables hold."""
     members = len(pile)
     total = sys.getsizeof(pile)
     if members == 0:
@@ -121,7 +136,7 @@ def estimate(
 
 
 class Shape:
-    """One node of a packed-row declaration; the module docstring lists the shapes and what each prices."""
+    """One node of a packed-row declaration. The module docstring lists the shapes and how each is sized."""
 
 
 @dataclass(frozen=True)
@@ -177,7 +192,7 @@ class Positional(Shape):
 
 
 def packed_size(shape: Shape, value: object) -> float:
-    """The bytes a packed row holds for `value` under `shape` — the row's own columns and its share of every side column, never the string table. A value the shape cannot read (a name that is not a string under `Id`, a tuple of the wrong length under `Positional`) raises, so a declaration that has drifted from its record goes red in the tests that build with the tally on rather than pricing the wrong field quietly."""
+    """Return the bytes a packed row holds for `value` under `shape`: the row's own columns and its share of every side column, excluding the string table. A value the shape cannot read (a name that is not a string under `Id`, a tuple of the wrong length under `Positional`) raises, so a declaration that no longer matches its record fails the tests that build with the tally on instead of sizing the wrong field."""
     if isinstance(shape, Slot):
         return shape.width
     if isinstance(shape, Flag):
@@ -237,7 +252,7 @@ _Column = Callable[[Iterable], Iterable]
 
 
 def _string_columns(shape: Shape, take: _Column) -> list[_Column]:
-    """The column readers for the `Id`s under `shape`: each a callable that turns an iterable of values shaped like `shape` into the strings its id columns hold, built from `map`, `filter` and `chain` alone so the pass over a corpus runs at C speed. There is one reader per id column, except that the bare `Id` members of one record or tuple share a reader (`_fold_members`), since one getter reads them all off the member at once. `take` is the path from the pile's members down to this shape's values; an absent value along the path (`filter(None, ...)`) contributes nothing."""
+    """Return the column readers for the `Id`s under `shape`. Each reader turns an iterable of values shaped like `shape` into the strings its id columns hold, and is built from `map`, `filter`, `chain` and `operator` getters only, so the pass over a corpus runs in C. There is one reader per id column, except that the bare `Id` members of one record or tuple share a reader (`_fold_members`), because one getter reads them all at once. `take` maps the pile's members to this shape's values; an absent value along the path (`filter(None, ...)`) contributes nothing."""
     if isinstance(shape, Id):
         return [lambda values: filter(None, take(values))]
     if isinstance(shape, Many):
@@ -261,7 +276,7 @@ def _string_columns(shape: Shape, take: _Column) -> list[_Column]:
 def _fold_members(
     members: list[tuple[Any, Shape]], getter: Callable[..., Any], take: _Column
 ) -> list[_Column]:
-    """The columns under one record's or tuple's members, with the members that are bare `Id`s read together by a multi-argument getter so their strings come off one pass rather than one pass apiece — the saving the module docstring prices, and the reason a record of a dozen names costs the same walk as a record of one."""
+    """Return the column readers under one record's or tuple's members. The members that are bare `Id`s are read together by one multi-argument getter, so a record of a dozen names costs one pass, the same as a record of one."""
     plain = [key for key, field in members if isinstance(field, Id)]
     columns: list[_Column] = []
     if len(plain) == 1:
@@ -291,7 +306,7 @@ class PackedCost:
 
 
 def packed_estimate(pile: Collection, shape: Shape, *, sample_size: int = SAMPLE_SIZE) -> PackedCost:
-    """What a packed store of `pile` takes: the rows, priced over the same evenly spaced sample `estimate` walks and scaled by the count, and the string table, counted over every member (the module docstring says why the table is not sampled). Over a mapping, the shape prices the values and the key is the ordinal, unless it is a `Table`, which prices the entries."""
+    """Return what a packed store of `pile` takes: the rows, sized over the same sample `estimate` walks and scaled by the count, and the string table, counted over every member (the module docstring says why the table is not sampled). Over a mapping, the shape sizes the values and the key is the ordinal, unless the shape is a `Table`, which sizes the entries."""
     members = len(pile)
     if members == 0:
         return PackedCost(0, 0, 0)
@@ -331,7 +346,7 @@ class Measure:
 
 
 class Vocabulary(Protocol):
-    """A string table as `column_census` prices one: the distinct strings' UTF-8 bytes summed, and their number under `len` (`columns.StringTable`)."""
+    """A string table as `column_census` reads one: `chars` is the distinct strings' UTF-8 bytes summed, and `len` is their number (`columns.StringTable`)."""
 
     chars: int
 
@@ -339,7 +354,7 @@ class Vocabulary(Protocol):
 
 
 class Pool(Protocol):
-    """A pool of name tuples as `pool_bytes` prices one: the distinct tuples' elements summed, and their number under `len` (`columns.TuplePool`)."""
+    """A pool of name tuples as `pool_bytes` reads one: `elements` is the distinct tuples' lengths summed, and `len` is their number (`columns.TuplePool`)."""
 
     elements: int
 
@@ -351,7 +366,7 @@ def bytes_of(column: array | bytearray) -> int:
 
 
 def pool_bytes(pool: Pool) -> int:
-    """What a packed side column over the pool takes: each distinct tuple once, at an `ID_WIDTH` id per element plus an `OFFSET_WIDTH` offset, its strings charged to the string table they intern through and never here."""
+    """Return what a packed side column over the pool takes: each distinct tuple once, at an `ID_WIDTH` id per element plus an `OFFSET_WIDTH` offset. The strings are charged to the string table they are interned in, not here."""
     return pool.elements * ID_WIDTH + len(pool) * OFFSET_WIDTH
 
 
@@ -363,7 +378,7 @@ def column_census(
     *,
     holds_table: bool = True,
 ) -> Measure:
-    """The exact reading of a packed pile for the tally: `n` rows, the columns' bytes plus `extra_bytes` (a tuple pool's under `pool_bytes`, or object-held lines the pile keeps beside its arrays) as the packed figure, with the string table reported beside them as `packed_estimate` counts one — each distinct string once at its UTF-8 length plus an offset — and the walked figure the packed one plus the table, so the line's ratio is the table's share of the columns, which reads `1.00` wherever the columns are gigabytes against a table of kilobytes. A pile that indexes a table another pile's line already holds passes `holds_table=False`: its walked figure is then its rows alone, with the table still printed beside them, so one table shared by several piles (the workload table's, which the audit's row columns, the unit store and the pre-merge snapshot name into) is charged to one line and a boundary's `largest=` compares what each pile holds on its own."""
+    """Return the exact reading of a packed pile: `n` rows, with the columns' bytes plus `extra_bytes` (a tuple pool's `pool_bytes`, or lines the pile keeps as objects beside its arrays) as the packed figure. The string table is reported beside it, counted as `packed_estimate` counts one: each distinct string once at its UTF-8 length plus an offset. The walked figure is the packed figure plus the table, so the line's ratio shows the table's share, which reads `1.00` when the columns are gigabytes and the table kilobytes. A pile whose table another pile's line already counts passes `holds_table=False`, and its walked figure is then its rows alone, with the table still printed beside them. The workload table's strings are shared this way by the audit's row columns, the unit store and the pre-merge snapshot, so they are counted on one line, and a boundary's `largest=` compares what each pile holds on its own."""
     rows = sum(bytes_of(column) for column in columns) + extra_bytes
     strings = table.chars + len(table) * OFFSET_WIDTH
     return Measure(n, rows + strings if holds_table else rows, PackedCost(rows, len(table), strings))
@@ -377,7 +392,7 @@ def measure(
     nested: bool = False,
     packed: Shape | None = None,
 ) -> Measure:
-    """`estimate` and, given a shape, `packed_estimate` over one pile, as the one record a reading carries. A nested pile takes no packed shape: its count is the rows of the tables under it while the packed figure is one row per member, so a line carrying both would divide bytes by a count that does not describe them."""
+    """Return `estimate` and, given a shape, `packed_estimate` over one pile as one `Measure`. A nested pile cannot take a packed shape: its count is the rows of the tables under it, while the packed figure is one row per member, so the per-member figures would divide bytes by the wrong count."""
     _refuse_nested_packed(nested, packed)
     count, est_bytes = estimate(pile, leaf_types=leaf_types, sample_size=sample_size, nested=nested)
     cost = None if packed is None else packed_estimate(pile, packed, sample_size=sample_size)
@@ -406,7 +421,7 @@ class Reading:
 
 
 class PileTally:
-    """The piles one process holds, named as they come into being and read at every boundary after. `out` is resolved at write time, never bound, for the reason `rebuild.tools.console` gives: the cycle tees `sys.stdout` after the module is imported."""
+    """The piles one process holds, registered as they are created and read at every later boundary. With `out` unset, each write goes to the `sys.stdout` of that moment, for the reason `rebuild.tools.console` gives: the cycle replaces `sys.stdout` with a tee after this module is imported."""
 
     def __init__(self, *, out: IO[str] | None = None, sample_size: int = SAMPLE_SIZE) -> None:
         self._out = out
@@ -464,5 +479,5 @@ class PileTally:
 def from_environment(
     environ: Mapping[str, str] = os.environ, *, out: IO[str] | None = None
 ) -> PileTally | None:
-    """The tally the build works through when `AMS_SURFACE_PILE_TALLY=1` is in its environment, and None otherwise — the None is the whole of the off switch, so a build that has one prints nothing and estimates nothing."""
+    """Return a tally when `AMS_SURFACE_PILE_TALLY=1` is in the environment, and None otherwise. The None is the only off switch: a build given None prints and estimates nothing."""
     return PileTally(out=out) if enabled(environ) else None

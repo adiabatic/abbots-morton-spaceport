@@ -1,69 +1,75 @@
-"""Apply the checked-in standing approvals (rebuild/standing-approvals.yaml) to the live review surface: for every rule, find the blank human units whose before→after delta matches the rule's pattern and emit fill records for them into an importable verdicts file.
+"""Apply the checked-in standing approvals (rebuild/standing-approvals.yaml) to the live review surface: for every rule, find the blank human units whose before-to-after change matches the rule, and write fill records for them to an importable verdicts file.
 
-Each expressible delta shape is a row in SHAPES, and a rule declares exactly one of them — which one is keyed by the field its `match.after` carries.
+A rule declares one shape, a row in `SHAPES`, by the field its `match.after` carries. Each matcher's docstring states what its shape checks, and no shape checks anything about the window beyond that. The shapes are:
 
-- The `ligature` shape is a pivot letter whose backward join drops as it ligates with its follower; it holds the seams flanking the delta fixed.
+- `ligature` (declared by `ligature`): the pivot and its follower become the named ligature, and the seams on either side of that change are unchanged. It does not check that the unit's judged pair is this pivot's (see `_matches_ligature`).
 
-- The `follower_cells` shape is a pivot letter that gives up a named stretch of exit — the whole of a named `ex-ext-N` the before glyph carried, or the columns down to a shorter one its after cell keeps, or the columns a named `ex-con-N` on the after cell pulls back from a default that never carried an exit-extension token: the two sides must line up letter for letter over an identical seam vector, the follower must be one of the families the rule names, the pivot and the follower must settle into cells the rule names in full — rune, stance, entry, exit and the whole adjustment set, which is what says how much of the stretch went — and the unit's own primary judged adjacency must be exactly that pivot–follower seam with no secondary seam anywhere else in the window. That last requirement is the load-bearing one, because an unchanged seam vector is not unchanged ink: a window can hold every seam still and be asking about a different letter's stroke entirely, and only the surface's own judgment fields say which letter the unit is about.
+- `extension-dropped` (declared by `follower_cells`): the pivot gives up a named stretch of exit. That is a whole `ex-ext-N` the before glyph carried, the columns down to a shorter extension its after cell keeps, or a named `ex-con-N` on an after cell whose before glyph carried no exit extension. The two sides must line up letter for letter over identical seams, the follower must be in a family the rule names, and the pivot and follower must settle into cells the rule names in full (rune, stance, entry, exit, and the whole adjustment set), which fixes how much of the stretch went. The unit's primary judged pair must be that pivot and follower, with no secondary seam anywhere in the window. That last condition is required because identical seams do not mean identical ink: a window can keep every seam and still be about a different letter's stroke, and only the surface's judgment fields say which letter the unit is about. This shape reads names only.
 
-- The `ink_deltas` shape works from the opposite end and is pixel-exact rather than structural: it names the surface's own per-config localized ink-delta digests (rebuild/review/ink.py's `delta_digest` over `config_diff`, persisted on every unit), so a unit matches only when the pixels that appear and disappear across the window, under every config it diverges on, are byte-identical to a blessed delta — every structural difference the unit still carries is then name-grain only, a re-spelling that paints no different pixel rides along inside the same digest, and any visible ink anywhere else fails the match closed.
+- `ink-delta` (declared by `ink_deltas`): the unit's persisted per-config ink-delta digests (`delta_digest` over `InkComparator.config_diff` in rebuild/review/ink.py) must all be among the rule's digests. The match is pixel-exact. A name-only difference paints no different pixel, so it is part of the same digest, and any other visible ink change under any config fails the match.
 
-- The `slide` shape judges the same rendered pixels for a letter re-spaced: it re-shapes the window in the surface's own font pair and matches when the whole visible change is its named pivot letter and everything after it sliding by a declared column count, whatever the two fonts name the glyphs.
+- `slide` (declared by `slide`): the window is re-shaped in the surface's font pair, and its whole visible change must be the named pivot and everything after it moving by the declared column count, whatever the two fonts name the glyphs.
 
-- The `gained` shape judges the same rendered pixels for a letterform that keeps cells the old font omitted: the old-font pivot form gives way to a named new form that is the same picture plus a named set of own-frame cells, and everything after the pivot moves by the declared column count — zero when the fuller form keeps its advance, positive when the added ink lengthens it. So a window whose only change is ·Roe keeping the baseline bar the old shortened-bottom form dropped matches at zero, ·Gay's extra exit cell carrying ·No one column right matches at one, and a window that also carries a blessed slide still needs the composed reading.
+- `ink-gain` (declared by `gained`): the pivot's new form is its old picture plus a named set of own-frame cells, and everything after the pivot moves by the declared count: zero when the fuller form keeps its advance, positive when the added ink lengthens it. ·Roe keeping the baseline bar the old shortened-bottom form dropped matches at zero, and ·Gay's extra exit cell moving ·No one column right matches at one.
 
-- The `gap` shape judges a named join that is now a break: the pivot keeps its exact picture and own-frame origin — or, where the rule names in full the cells both letters settle into, keeps only that origin and redraws in place inside those names, which is what a ·No the letter in front of it has raised to the x-height does as it loses the reach down to ·Thaw — the follower keeps its exact picture and origin and sits a declared number of columns further — none at all only where the pivot is free to redraw, which is what the flipped ·No does as it loses its x-height reach into ·Cheer and leaves that letter standing — and everything after the follower sits the same extra gap away — which is what a cursive attachment going away looks like, as distinct from a sidebearing change (the slide shape, whose origin moves with the letter). A rule may also declare the columns its follower hands back: the form that inserted them at its left edge to take the join gives them up as the join dies, so that letter's own-frame origin moves right by exactly that count and it redraws inside the receiver cells the rule names — a created join's follower reach running the other way, which is what ·Gay does when the ·No in front of it is raised past reaching it.
+- `join-dropped` (declared by `gap`): a named join becomes a break. The pivot keeps its picture and own-frame origin, or, where the rule names in full the cells both letters settle into, only its origin, so it may redraw in place (as a ·No raised to the x-height does when it loses its reach down to ·Thaw). The follower keeps its picture and origin and sits the declared number of columns further away, and everything after it moves by the same gap. The gap may be zero only where the pivot may redraw (the flipped ·No losing its x-height join into ·Cheer leaves ·Cheer where it was). A rule may also declare `follower_give_back`: the follower's joining form had inserted columns at its left edge, so as the join goes its own-frame origin moves right by that count and it redraws inside the named receiver cells (·Gay when the ·No in front of it is raised past reaching it). The unmoved origin is what separates a dropped join from a sidebearing change, which is the `slide` shape.
 
-- The `entry_drop` shape judges the same rendered pixels for a letter that gives up a named stretch of left-side entry: the old-font pivot form gives way to a named new form whose own-frame picture is the old one compacted left by that many columns — every dropped cell sitting in the columns that came off, the remaining cells shifting left by the same count, origin and placement standing still — and everything after the pivot sliding closer by that count, so a window whose only change is ·Low losing the extra baseline pixel the old font drew after ·See matches, and a window that also carries a blessed slide still needs the composed reading.
+- `entry-extension-dropped` (declared by `entry_drop`): the pivot gives up a named stretch of left-side entry. Either its own-frame picture is the old one compacted left by that many columns, with every dropped cell in the removed columns and its origin and placement unchanged, or its after form names an `en-con-N` that brings the letter that many columns closer. Everything after the pivot moves closer by the count. ·Low losing the extra baseline pixel the old font drew after ·See matches.
 
-- The `entry-contracted` shape judges the same rendered pixels for one or more named left–pivot pairs whose pivot pulls its entry inward by a declared number of columns: the letter comes that many columns closer, carried by however the after form's own frame took the contraction — a frame that moved its own-frame origin right by the whole count holds its placement still, one that moved its origin not at all carries its placement the whole count left, and the ink lands in the same place either way. The left-side loss stays inside the contracted columns, any far-right tail change is exactly the difference between the exit extensions named by the before and after glyphs, and everything after the pivot moves by the contraction combined with that exact exit-extension delta. A name-grain respelling in the suffix may ride along when the pivot still paints every cell it appears to lose, so the visible pivot-plus-suffix union remains exact; any visible ink change fails closed for the composed reading. The rule may decline nested before forms that carry a separate count or redraw, leaving those positions to a companion rule instead of claiming both readings at once.
+- `entry-contracted` (declared by `entry_contraction`): one or more named left-pivot pairs whose pivot contracts its entry by the declared count. The letter comes that many columns closer however its after form took the contraction: a form that moved its own-frame origin right by the whole count keeps its placement, one that did not move its origin moves its placement the whole count left, and the ink ends up in the same place either way. The lost left-side ink stays inside the contracted columns, any change at the far right is exactly the difference between the exit extensions the before and after glyph names carry, and everything after the pivot moves by the contraction plus that difference. A name-only change after the pivot is allowed where the pivot still paints every cell it appears to lose. `except_pivots` declines before forms that nest under a pivot prefix but need another count or redraw, leaving them to another rule. A named pivot may also lead an existing ligature: the incoming seam must match any named entry height, the compound must carry every other named modifier except exit heights, and the same compound family must stand at the position on both sides. The whole compound's pixels and displacement are judged, so an unrelated change in the rest of the compound fails the match. A pivot outside a ligature is matched by prefix over its whole family.
 
-- The `stub_drop` shape judges the same rendered pixels for a letter that gives up a named left-side stub while the ink it keeps stays where it was: the old-font pivot form gives way to a named new form whose own-frame picture is the old one compacted left by that many columns, its own-frame origin standing still while its placement moves right by the same count — the left edge catching up to the ink that remains — and every other pixel in the window unmoved, which is what tells stub-dropped from entry-extension-dropped, whose remaining ink slides closer while its placement stands still: a window whose only change is ·May losing the leftover left pixel after ·Ah matches, and a window that also carries a blessed join-drop still needs the composed reading. A pivot here is a position, not a name: a second ·May keeping its old loop beside the one that lost the stub rides as span ink, because only the before side's named form says which of the two after loops is the drop.
+- `stub-dropped` (declared by `stub_drop`): the pivot gives up a named left-side stub while the ink it keeps stays in place. Its own-frame picture is the old one compacted left by the count, its placement moves right by the count, and every other pixel in the window is unmoved. The placement move is what separates it from `entry-extension-dropped`, whose remaining ink moves closer. ·May losing the leftover left pixel after ·Ah matches. A pivot is a position whose before and after names both carry the named prefixes: a second ·May that keeps its old loop is judged as ordinary ink, because only the before form says which of the two after loops lost the stub.
 
-- The `redrawn` shape judges the same rendered pixels for a letter redrawn in place to a named new form: the old-font pivot form gives way to a named new form whose own-frame picture is the old one with the named cells gone and the named cells added — both sets read at one common column offset, because an entry extension inserts a column at the pivot's left edge and carries the whole frame right with it, so an entry-extended variant shows the same trade one column over — the own-frame origin standing still unless the new form names an entry contraction, which its frame may take up to in full while the ink it keeps stays where it was, and everything after the pivot sliding by the declared count, which may be zero when the new form keeps the pivot's advance: ·Eight's bowl pulling in one column before ·Tea and ·It, beside the dropped connector extension that slides ·It closer, is the founding example, and a window that also carries a second blessed change still needs the composed reading. The pivot's own placement stands still too, unless its new form names an entry contraction, which lets the letter sit closer to whatever precedes it by as much of that contraction as its own frame did not take — and no further than the seam behind it had left to give, since a left neighbor the old font had already drawn that tight leaves nothing to close — and everything after the pivot carries whatever it took there on top of the declared count: ·J'ai's crown coming in after a half-height ·Pea or ·Tea moves the letter and the rest of the word, while the same crown after an ·At the old font had already contracted moves only what the dropped tail moves, and ·Gay's baseline entry pulling in after ·No leaves the letter standing where it was, its frame having taken the whole contraction. Its added set may be empty, which is a form that only gives ink up — ·Key's foot dropping its terminal pixel before ·May, ·No and ·It, its follower coming a column closer — and that is the shape an exit contraction wants whenever the survey's windows carry anything else at all, because the `follower_cells` shape reads only names and would bless whatever else the window did.
+- `redrawn` (declared by `dropped`): the pivot's new form is its old picture with the named `dropped` cells removed and the named `added` cells present, both read at one common column offset, because an entry extension inserts a column at the pivot's left edge and an entry-extended variant shows the same trade one column over. The own-frame origin and the placement stay where they were unless the new form names more entry contraction than the old one: the frame may take up to all of that extra contraction, and the placement may move left by the part the frame did not take. Everything after the pivot moves by the declared shift plus that placement move. ·Eight's bowl pulling in one column before ·Tea and ·It is one example. ·J'ai's crown coming in after a half-height ·Pea or ·Tea moves the letter and the rest of the word, while the same crown after an ·At the old font had already contracted moves only what the dropped tail moves, and ·Gay's baseline entry pulling in after ·No leaves the letter where it was, because its frame takes the whole contraction. `added` may be empty for a form that only loses ink (·Key's foot losing its terminal pixel before ·May, ·No, and ·It). This is the shape for an exit contraction whenever its windows carry any other change, because `extension-dropped` reads only names and would approve whatever else the window did.
 
-- The `join-created` shape judges a named pair that newly joins: the pivot and follower may redraw, the pivot keeping its own-frame origin while the follower either keeps its own or reaches back over its old left edge by a declared column count, the pivot stays under the standing displacement, the follower moves by a second declared count, everything after it moves by that count combined with the follower's own declared advance delta, and the recorded break becomes the named height. A follower reaches back when the form that takes the join inserts columns at its left edge — ·Gay's reachable-at-the-baseline stroke does, which is why a rule has to say so rather than let a moved origin read as a slide. The shift and the advance are two counts because a follower that redraws wider gives back what the join closed — the reaches-way-back ·Utter comes a column nearer ·May and leaves the rest of the word standing — and one number cannot say both. A rule may also declare a stub drop the pivot itself takes: the left-side entry the old font stacked in front of the join comes off, so the pivot's ink starts up to that many columns later while its own frame stands, and the follower and everything past it carry whatever it took on top of the declared shift and advance — which is what ·May's own entry coming off in front of its new baseline join into ·Gay looks like, in the same windows where a ·May the old font drew without that entry stands exactly where it was. Its pivot side may name several families at once, which is how one letter's new entry is recorded in a single rule for every left neighbor that now reaches it, and it may name the before forms it declines to speak for, which is what keeps two counts on one seam apart when the forms nest inside one another: the ·J'ai the old font drew with a stacked crown entry hands the follower a column where the ·J'ai drawn without one gains a reach that cancels it, and a prefix-named pivot cannot otherwise tell the two apart — a window with any other ink change needs the composed reading.
+- `join-retargeted` (declared by `retarget`): a named join changes height. The pivot and follower may both redraw but keep their own-frame origins, the pivot keeps its placement, the follower moves by `follower_shift` (zero where the new join leaves it standing, -2 where ·Utter reaching ·May at the x-height pulls ·May back), and everything after the follower moves by `shift`. Half-·Tea joining ·No at the x-height becoming full ·Tea joining flipped ·No at the baseline is an example.
 
-- The `retarget` shape judges a named join that has changed height: the pivot and the follower may both redraw, they keep their own-frame origin, the pivot keeps its column placement, the follower comes a declared number of columns nearer — none at all where the new seam leaves it standing, two where ·Utter reaching ·May at the x-height pulls it back into itself — and everything after the follower sits a second declared number of columns over. Half-·Tea joining ·No at the x-height becoming full ·Tea joining flipped ·No at the baseline is what that looks like, as distinct from a join becoming a break (the gap shape, whose pictures stay and whose follower sits further).
+- `join-created` (declared by `joined`): a named pair that was a break now joins at the named height, and the pivot and follower may redraw. The pivot keeps its own-frame origin, and its placement stays or moves up to `pivot_stub_drop` columns right when the left-side entry the old font drew in front of the join comes off (·May's own entry in front of its new baseline join into ·Gay). The follower keeps its own-frame origin, or moves it left by `follower_reach` when its joining form inserts columns at its left edge (·Gay's stroke that reaches the baseline). The follower moves by `shift` plus the pivot's placement move, and everything after it by that plus `follower_advance`. Two counts are needed because a follower that redraws wider gives back what the join closed: the reaches-way-back ·Utter comes a column nearer ·May and leaves the rest of the word where it was. The pivot may name several families, which records one letter's new entry for every left neighbor that now reaches it. `except_pivots` declines before forms that nest under a pivot prefix but need another count: the ·J'ai the old font drew with a stacked crown entry gives the follower a column, while the ·J'ai drawn without one gains a reach that cancels it.
 
-Each shape's own docstring states exactly what it proves, and none claims to bound the window beyond that.
+The composed reading, which no rule declares, runs before any single rule is checked. It asks whether two or more approved changes together account for every rendered pixel of one window. For example, where the grounded ·See slides a column closer to what precedes it and ·J'ai also gives up its exit extension, neither rule covers the window alone: `slide` fails on the extension pixel, and `extension-dropped` does not look at ink outside its judged seam.
 
-A pair-specific entry contraction also follows its right-hand letter into an existing ligature beginning with that letter. The incoming seam proves any named entry height, the compound retains every other named modifier apart from the lead letter's internal exit height, and the same compound family occupies the position on both sides. The entry contract judges the whole compound's pixels and displacement, so an unrelated change in its continuation refuses the approval. Unary form approvals retain their whole-family scope.
+Only shapes whose `SHAPES` row sets `composable` take part. Each names a local change the walk can check at one position: a displacement, named own-frame cells gained or traded on the pivot, a join that is dropped, created, or changes height, or a left-side stretch or stub the pivot gives up. `ligature` reads the whole window's names and `ink-delta` its whole ink change, so neither says anything about one position.
 
-Above them sits a reading no rule declares — the composed one, which runs first and asks whether two or more blessed changes together account for every rendered pixel of one window. The founding example makes it unavoidable: a window where the grounded ·See slides a column closer to what precedes it *and* ·J'ai gives up its exit extension carries two separately-blessed changes at once, and neither rule can speak for it alone — the slide shape fails closed on the extension pixel, the extension shape is structurally blind to ink outside its judged seam.
+Each composable rule's candidate positions come from the index record without shaping (`_candidates`), and a window with fewer than two candidate positions in total is never shaped.
 
-Which shapes compose is the `composable` flag on their SHAPES row, and what earns it is naming a local pixel change the walk can prove — a displacement, a named set of own-frame cells appearing on or traded on the pivot, a named join becoming a gap, a named left-side stretch or stub the pivot gives up, or a named join being created or changing height; a shape that reads a whole window's name-grain structure, or its whole ink change byte for byte, says nothing about any one position and so has nothing to contribute to a walk.
+The walk (`_composed_walk`) re-shapes the window in the surface's font pair and carries a running column displacement from left to right. At each event:
 
-A name-grain pre-gate keeps the pass cheap: each composable rule's candidate positions come straight off the index record, and a window holding fewer than two candidate positions is never shaped at all.
+- slide: the pivot leads the next span, and the displacement grows by the declared slide.
+- extension: the pivot sits at the running displacement and loses, on the row its `seam_out` height names, the tail the rule names (the named extension less any shorter one its after cell keeps, or the named contraction). The displacement shrinks by that width. The follower leads the next span, which must be a translation, the same picture compacted left by the follower's dropped entry extension, or, when the follower redrew inside its named cell, a translation of the span without the follower.
+- join (dropped): the pivot sits at the running displacement, and the displacement grows by the gap. The follower leads the next span, or, where the rule declares `follower_give_back`, is judged by the event and left out of the span.
+- gain: the pivot sits at the running displacement, and the displacement grows by the declared shift.
+- entry: the pivot sits left of the running displacement by the part of its entry contraction its own frame did not take (zero for a dropped entry extension), and the displacement moves closer by the entry count, adjusted for an `entry-contracted` rule by any exit-extension change on the pivot. The next span is compared together with the pivot's after picture, so a cell handed between them does not count as a change.
+- redrawn: the pivot sits at the running displacement, or left of it by up to the part of its new form's extra entry contraction its frame did not take, and the displacement grows by the declared shift plus that placement move.
+- stub: the pivot's placement moves right by the stub count, and the displacement is unchanged.
+- retarget: the pivot sits at the running displacement, the follower moves by `follower_shift`, and everything after the follower moves by the full `shift`.
+- joined (created): the pivot sits at the running displacement or up to `pivot_stub_drop` columns right of it, the follower moves by `shift` plus that offset, and everything after the follower moves by that plus `follower_advance`.
 
-The walk then re-shapes the window in the surface's font pair and carries a running column displacement across it:
+Every span between events must render as its before picture moved by the displacement at its start.
 
-- a slide event moves it by the declared count with the pivot leading the next span
-- an extension event drops off the named seam row the tail the pivot gave up — the named extension, less any shorter one its after cell keeps, or the named contraction — and moves again with the named follower leading — that span a translation, or the same picture compacted left by a dropped entry extension, or the named follower skipped when it redrew some other way
-- a join-dropped event leaves the pivot in place under the standing displacement, adds the declared gap, and moves again with the follower leading — the follower's own picture the event's subject rather than the next span's head wherever the rule declares the columns it hands back — or, when its pivot is a join-retargeted event's follower, chains behind that event: the retarget judges that letter's incoming seam and the gap its outgoing one, the retarget handing on nothing of the shift it declared beyond its follower's own move, since the gap is read with its own pivot standing and so already holds that letter's advance, which is what lets ·Gay's raised join into ·No and the break ·No now leaves in front of ·Thaw explain one window between them
-- an ink-gain event adds the named cells on the pivot, judged piece by piece, and moves by the declared count with the next glyph leading the next span
-- an entry-drop event leaves the pivot under the standing displacement, or the part of a contraction its own frame did not take further left still, compacting its remaining ink left by the named columns, and moves the displacement closer with the next glyph leading the next span
-- a redrawn event trades the named cells on the pivot under the standing displacement, or the part of an entry contraction its new form names that its own frame did not take further left still, and moves the displacement by its declared count plus whatever the pivot took there, with the next glyph leading the next span — or, when its pivot is a join-retargeted event's follower, chains behind that event: the retarget judges that letter's incoming seam and its placement with it, the trade judges the picture it settles into and the column it carries on, and the letter itself stands where the retarget put it, so a new form naming an entry contraction there refuses the reading rather than pulling the letter closer
-- a join-created event leaves the pivot under the standing displacement, or up to the stub drop its rule declares to the right of it, while its follower leads the declared shift with whatever the pivot took there and the glyphs past the follower lead that shift combined with the follower's advance delta — or, when its pivot is itself an entry-contraction event, chains behind that event: the contraction judges the pivot's entry and origin, the created join judges only its follower, and the follower leads by both shifts combined, which is what lets ·Ah's contracted entry after ·J'ai and its new x-height join into ·Gay explain one window between them, and behind an ink-gain or a redrawn event at that same position, the earlier event judging the picture the pivot settles into and the created join the seam that picture opens, which is what lets ·Tea's full bar under ss03 and the baseline join it takes explain one window between them, and ·Eight's smaller loop and the baseline join into ·It that only that loop reaches another — and it chains the same way when its pivot is a join-retargeted event's follower, the retarget judging that letter's incoming seam and the created join its outgoing one, which is what lets ·It's lowered join into ·No and ·No's new join into ·Gay explain one window between them; and its own follower may in turn be the next event rather than the head of a span — a join that letter goes on to create, a retarget on its outgoing seam, the exit extension it gives up, or the trade its own new form makes — which is what lets ·Pea's lowered join into ·No, ·No's new join into ·Ah and ·Ah's dropped tail before ·Bay explain one window between the three of them, and ·No's new baseline join into ·Ah beside ·Ah's own new x-height join into ·Gay another; it holds however the join itself arose, so ·Ah's new x-height join into ·Gay and ·Gay's own redraw, which meets that seam and gives its baseline tail up in one stroke, explain one window between them, and with ·J'ai leading, ·Ah's contracted entry reads as a third event in the same window
-- a join-retargeted event leaves the pivot in place under the standing displacement — both it and the follower may redraw — brings the follower the columns it declares nearer, which is none at all where the retargeted join leaves it standing, moves the displacement the rest of the way to the declared shift, and moves again with the glyph after the follower leading the next span — or, when its pivot is a join-created event's follower, chains behind that event the other way round: the created join judges that letter's incoming seam and the retarget its outgoing one, so the glyph after the retarget's follower leads by both shifts combined, with no more of the join's declared advance than the columns it declared its follower reaching back over its own pen, because a retarget's counts are read with its pivot standing and so already hold whatever that letter's own advance did — which is what puts ·May three columns back where ·Bay's new baseline join into ·Utter meets ·Utter's raised join into ·May, and what lets ·Et's new baseline join into ·Gay and ·Gay's raised join into ·No explain one window between them, and the join's declared reach stands for that letter's own-frame origin there, so a ·Gay that reached back over its old left edge to take ·May's new join still carries its own raised join into ·No; a redrawn trade on that same follower chains behind the retarget the way a created join does, the retarget judging the letter's incoming seam and the trade the picture it settles into and what it carries onward, which is what lets ·Utter's raised join into ·May and the loop ·May draws with no exit left explain one window between them; and a retarget on that same follower chains behind it too, the earlier event judging that letter's incoming seam and the later its outgoing one, with the earlier handing on nothing of the shift it declared beyond its follower's own move, since that count is the letter's own advance and the later event's counts, read with its own pivot standing, already hold it — which is what lets ·Gay's raised join into ·No and ·No's own raised join into ·Day or ·No explain one window between them, and a dropped join chains behind it on that same reading of its own count
+Two events may share a letter only in these chains:
 
-Every stretch between events is a span whose before picture, displaced by whatever has accumulated, must equal its after picture exactly.
+- A created join behind an entry, ink-gain, or redrawn event at the same position. The earlier event judges the picture the pivot settles into, and the created join judges the seam that picture opens and its follower. Examples: ·Ah's contracted entry after ·J'ai and its new x-height join into ·Gay; ·Tea's full bar under ss03 and the baseline join it takes; ·Eight's smaller loop and the baseline join into ·It that only that loop reaches.
+- A created join, redrawn trade, dropped join, or further retarget whose pivot is a retarget's follower. The retarget judges that letter's incoming seam and its placement. A further retarget or dropped join takes nothing of the first retarget's `shift` beyond its follower's move, because its own counts are measured with its pivot standing and already include that letter's advance. A redrawn trade there must leave the letter where the retarget put it, so a new form naming an entry contraction fails. Examples: ·Gay's raised join into ·No with the break ·No now leaves before ·Thaw, or with ·No's own raised join into ·Day or ·No; ·It's lowered join into ·No and ·No's new join into ·Gay; ·Utter's raised join into ·May and the loop ·May draws with no exit left.
+- A created join, retarget, extension drop, ink gain, or redrawn trade whose pivot is a created join's follower. The created join judges that letter's incoming seam. A following retarget receives only the created join's `follower_reach`, for the same reason as above, and any other following event receives the whole `follower_advance`. Such a retarget may have moved its pivot's own-frame origin, because the created join's `follower_reach` declared that move. Examples: ·Bay's new baseline join into ·Utter and ·Utter's raised join into ·May, which puts ·May three columns back; ·Et's new baseline join into ·Gay and ·Gay's raised join into ·No; ·Pea's lowered join into ·No, ·No's new join into ·Ah, and ·Ah's dropped tail before ·Bay; ·Ah's new x-height join into ·Gay and ·Gay's own redraw, which meets that seam and gives up its baseline tail.
+- A dropped join or extension drop whose follower is itself an event. That event is judged next, under the displacement the first one applied (·At's dropped x-height join and ·It's dropped exit extension).
 
-A join-dropped or extension event whose follower is itself an event chains instead of consuming that follower: the follower is the next event under the displacement the first event just applied, which is what lets ·At's dropped x-height join and ·It's dropped exit extension explain one window between them.
+Any other pair of events at one position, or a created join or retarget whose follower position is also an event, makes the walk return None. A created join whose pivot moved its own-frame origin is an event only behind an entry, ink-gain, or redrawn event at that position. A retarget whose pivot moved its origin is an event only behind a created join at the position before it, or behind an entry, ink-gain, or redrawn event at the same position, which the walk chains the way it chains a created join there.
 
-A candidate whose own contract fails is simply not an event and its ink is judged as ordinary span ink, so adding a rule to this file can never un-explain a window; two rules claiming one position, or a join-retargeted or join-created event whose follower position is itself claimed, is ambiguous and refuses. The sanctioned shares of a position are the chains above — a created join behind an entry contraction is a claim on the letter's seam beside a claim on its entry, a created join behind an ink gain is a claim on the letter's outgoing seam beside a claim on the picture it settles into, a created join behind a redrawn trade the same claim beside the trade that picture makes, and a created join, a redrawn trade, a dropped join or a further retarget behind a retarget on that retarget's follower, or a further created join, a retarget, an exit-extension drop or a redrawn trade behind a created join on that join's follower, is a claim on the letter's outgoing seam beside a claim on its incoming one, none of them two claims on the same thing — and a created join whose pivot moved its origin is not an event at all without a contraction to chain behind, as a retarget whose pivot moved its origin is none without a created join in front of it whose reach declared that move. An extension's follower is the named after cell, not a pixel-identity translation, so a named redraw (·May losing the entry the old font stacked on the same seam, ·I's smaller loop after ·Tea) is the rule's own subject and does not block composition.
+A candidate whose own contract fails is not an event, and its ink is judged as ordinary span ink, so a rule that fails at a position does not stop the other rules from explaining the window. The pivot is judged piece by piece rather than as part of a union, so a pivot whose after form also drops a cell off the seam row (·J'ai's crown contracting under an ·At tuck) never composes.
 
-One refusal stays deliberate: because the pivot is judged piece by piece rather than in a union, a pivot whose after form also drops a cell off the seam row (·J'ai's crown contracting under an ·At tuck) never composes. An ink-gain whose after form loses a cell or gains one the rule did not name never fires as an event, which leaves that ink to be judged as ordinary span ink; an entry-drop whose remaining cells do not equal the old picture shifted left by the named columns, or that drops a cell outside those columns, never fires either; a redrawn candidate whose trade is not exactly the named cells at one common column offset never fires either.
+Credit needs two or more events. One rule credited at two positions counts, as in a window where ·Ah gives up its exit tail twice, and a single event belongs on that rule's own line. A composed fill's verdict is `either` when any credited rule's verdict is `either` or a non-composable `either` rule also matches the window, and `approve` otherwise. Its note names the credited ids in rules-file order.
 
-Credit needs two or more events — a window one rule accounts for at a single position belongs to that rule's own line, while one rule speaking at two positions is two blessed changes explaining a window between them exactly as two rules are, which is what reaches a window where ·Ah gives up its exit tail twice — and a composed fill's verdict is the weakest over the credited rules and over every non-composable rule that matches the window too, its note naming the credited ids in rules-file order.
+A rule's except_left guard refuses the whole unit, never one position, so a guarded context is never filled beside an unguarded one. Most shapes read the guard across the whole window; `extension-dropped` and `ligature` read it at the left neighbor of each matched pivot. A composed reading reads each credited rule's guard in that rule's `guard_scope`, and a guard that holds a composed window holds the whole unit: it is counted on the composed line, never filled, and never passed to the single-rule pass. A rule's except_left families name the contexts the user still wants to review: units in those contexts are held, so they still reach the docket.
 
-Any rule's `except_left` family, met anywhere in the window, refuses the whole unit rather than the one position, so a guarded context can never ride along beside an unguarded one; a composed reading reads each credited rule's guard in that rule's own shape's scope, and any refusal holds the whole unit — counted on the composed line, never filled, and never handed back to the single-rule pass.
+Standing fills complement echo_verdicts.py. The echo fill copies the user's verdicts to units whose change is pixel-identical, while a standing rule applies a recorded decision to units the user has never seen, such as windows with new left letters created by later migrations, so those units never queue.
 
-This is the zero-touch sibling of echo_verdicts.py: echo fill extends the user's past verdicts to pixel-identical lookalikes, while a standing rule extends a recorded once-and-for-all decision to instances the user has never seen (new left letters minted by later migrations), so those units never queue. The guard list is the point of authoring a guarded rule at all: a rule's except_left families are held for review, so the one context the user does want to see still reaches the docket.
+Each fill record's `at` is the manifest's generated_at, so a human verdict recorded on this surface is newer and wins on merge. A parked unit carries a skip verdict, so it is not blank and is never filled. The verdict chain (rebuild/tools/verdict_chain.py) runs this after the echo fill and merges its file with merge_verdicts. The report also gives each rule's total reach, its own line plus its composed credit; the totals do not sum across rules, because a window two rules explain counts toward both.
 
-Records are stamped with the manifest's generated_at, so any human verdict beats a standing fill on merge, and a parked unit (a skip verdict) is not blank and is never filled. The artifact cycle runs this after the echo fill, with a merge_verdicts pass to land the file. The run's report rolls every composed line's credit back up per rule, so each rule's whole reach reads in one place — deliberately not a column that sums across rules, since a window two rules explain between them counts toward each of them.
+Every decision depends only on the unit's index record, the two fonts' rendering of its window, and the rules file; the verdict store only decides which decisions become fills. `Decider.decide` computes the decision and `_decision_reach` aggregates a run from the decisions. The memo (`Memo`, the `--memo` flag, which the verdict chain passes) keeps decisions across passes, so a pass evaluates only the units whose key is new and the units a changed rule can reach. `unit_key`, `memo_environment`, `rules_roster`, and `Decider._serve` define the unit keys, the memo stamp, and when a stored decision is served. A stored decision holds rule ids and no note text, so a reworded note re-evaluates nothing and every fill quotes the new wording. When the misses reach `_STANDING_POOL_THRESHOLD`, `_prefill` decides them across a spawn pool at the width `--jobs` gives. The tool derives no width of its own; the verdict chain forwards the artifact cycle's. The fills and the report are byte-identical served or computed, pooled or serial, and rebuild/test_standing_verdicts.py checks this over the frozen mini bundle. The `--require-reach` rollup reads the same decisions, so its pass over the whole domain costs no second evaluation.
 
-Every decision above is per-unit pure: what the composed reading credits a window with, whether a guard holds it, and which rules' own matchers accept or hold it are a function of the unit's index record, the two fonts' rendering of its window, and the rules file, and of nothing else — the verdict store only decides which of those decisions become fills. `Decider.decide` is that function, `rule_reach` assembles a run out of its answers, and the memo (`Memo`, the `--memo` flag; the verdict chain passes it) persists the answers across passes so a surface-moving pass evaluates only the units whose key is new. A unit's key is its build-time `content_key` stamp, joined with the persisted `ink_deltas` that stamp deliberately leaves out and with the after font's compiled-glyph digest for every family the window's after cells name (`fingerprint.after_font_glyph_digests`, the same per-family grain the review unit cache and the oracle's position store invalidate at, so a drawing or anchor change reaches exactly the windows that can feel it); a unit the surface never stamped is evaluated every pass and never stored. The memo's own stamp is the code that decides (`MEMO_CODE_MODULES`, held to this module's import closure by rebuild/test_standing_verdicts.py), the before font outside its `head` and `name` tables, the after font's family-blind remainder, and `uv.lock`'s dependency pins for the shaper; any of those moving drops the memo entirely, and over-invalidation is the safe direction. The rules file reaches the memo per entry instead: the header carries the file's `Roster` (each rule's match digest and verdict, the non-composable rules a composed reading reads for every window, and whether a composed reading is on), each entry carries the composable rules with a candidate position in its window, and a stored decision holds rule ids and no prose, so a rules commit re-evaluates only the units the moved rules can reach (`Decider._serve`) and a reworded note re-evaluates nothing while every fill quotes the new wording. The misses — a dropped memo's whole domain, or the units a moved rule can reach, which a broad rule carries past the pool's threshold — are refilled across a spawn pool at the width the caller states (`--jobs`; the verdict chain forwards the artifact cycle's, a hand run states the one the cycle's plan prints, and the tool derives none of its own), in this process or in the daemon serving the run alike, each worker deciding a chunk of the misses over its own `SlideContext` and handing back the memo's own wire records (`_prefill`), while a pass whose misses stay under the threshold — the ordinary served pass, or a narrow rule's landing — stays serial. What is written back is bounded to the units on this surface, so it never outgrows the human domain, and the fills and the report are byte-identical served or computed, pooled or serial, which rebuild/test_standing_verdicts.py proves over the frozen mini bundle. The `--require-reach` rollup reads the same answers, so its pass over the whole domain costs no second evaluation. A `--targeted` run — the authoring loop's form, taking its rule from `--explain` and further windows from `--unit` — evaluates only the units the rule could speak for at the name grain (`_reachable`) plus the listed ones, prints that rule's own line, the composed lines crediting it, its rollup line, its tripwire and its explain block byte-identical to the whole-domain run's, and one line per listed unit with the decision the run counted, and writes neither a fill file nor the memo; it costs the surface load rather than the domain, and the whole-domain run stays the final pass and the cycle's form. rebuild/test_standing_verdicts.py holds the identity, and the candidate invariant behind it for every checked-in rule, over the same frozen mini bundle. Either form can be served instead of loaded: with `--daemon auto|always|never` and `--socket PATH`, a standing daemon (`rebuild/tools/standing_daemon.py`, the authority on what it holds and when it declines) that answers at the socket and holds this surface runs this same `main` — the same `Decider`, the same lines — over the objects it holds and hands back the streams and the exit code, byte-identical to the in-process run, which rebuild/test_standing_daemon.py holds over the mini bundle; the verdict chain's in-process call hands `main` its `unit_source` and is never served. Normal CLI and chain fills consume that source once, keep unit ids and decisions for reporting, and spool pool misses to temporary gzipped NDJSON; pool submission holds a bounded wave of chunks, and temporary storage closes on success or failure.
+A `--targeted` run is the form for authoring a rule. It takes the rule from `--explain` and extra units from `--unit`, evaluates only the rule's name-grain candidates (`_reachable`) plus the listed units, prints that rule's lines byte-identical to the whole-domain run's plus one line per listed unit (`targeted_report`), and writes neither a fill file nor the memo. The whole-domain run is the final pass and the cycle's form.
+
+With `--daemon auto|always|never` and `--socket PATH`, either form can be served by the standing daemon (rebuild/tools/standing_daemon.py, the authority on what it holds and when it declines), which runs this same `main` over the surface it holds and returns the streams and exit code byte-identical to an in-process run; rebuild/test_standing_daemon.py checks this over the mini bundle. The verdict chain calls `main` in process with a `unit_source` and is never served. A fill reads its unit source once, keeps only unit ids and decisions for the report, and spools pool misses to a temporary gzipped NDJSON file.
 """
 
 import argparse
@@ -97,7 +103,7 @@ OUT = ROOT / "verdicts-standing-fill.json"
 FORMAT = "ams-standing-approvals/1"
 MEMO_FORMAT = "ams-standing-fill-memo/2"
 MEMO_NAME = "standing-fill-memo.ndjson.gz"
-# The code a fill decision is a function of: this module and every repo module it reaches that reads a unit or shapes a window. rebuild/test_standing_verdicts.py holds the roster to the walked import graph, stopping at the key side — the pipeline modules, whose edits move the keys or the stamp rather than a decision.
+# The repo code a fill decision depends on, hashed into the memo stamp: this module's import closure without rebuild/pipeline/, whose modules change the unit keys or the stamp itself rather than a decision. test_the_memo_code_roster_is_this_modules_import_closure checks the list.
 MEMO_CODE_MODULES = (
     "rebuild/review/ink.py",
     "rebuild/review/unit_index.py",
@@ -124,17 +130,17 @@ def _fail(message) -> NoReturn:
 
 
 def _family(glyph_name):
-    """The whole family of an old-font glyph name — everything before the first modifier dot, a ligature's compound name included (`qsTea_qsOy.en-y0` reads `qsTea_qsOy`)."""
+    """Return the family of an old-font glyph name: everything before the first dot, including a ligature's compound name (`qsTea_qsOy.en-y0` gives `qsTea_qsOy`)."""
     return glyph_name.split(".", 1)[0]
 
 
 def _joining_family(glyph_name):
-    """The single family at the end of an old-font glyph name (`qsDay_qsMay.alt` reads `qsMay`). On a left neighbor this is the letter whose stroke actually touches the pivot, which is what makes it the right reading for the except_left guard."""
+    """Return the last family in an old-font glyph name (`qsDay_qsMay.alt` gives `qsMay`). For a left neighbor this is the letter whose stroke touches the pivot, so the except_left guard reads it."""
     return _family(glyph_name).rsplit("_", 1)[-1]
 
 
 def _modifiers(glyph_name):
-    """The dot-separated modifier tokens of an old-font glyph name (`qsTea.en-y8.ex-ext-1` reads `['en-y8', 'ex-ext-1']`)."""
+    """Return the dot-separated modifier tokens of an old-font glyph name (`qsTea.en-y8.ex-ext-1` gives `['en-y8', 'ex-ext-1']`)."""
     return glyph_name.split(".")[1:]
 
 
@@ -143,7 +149,7 @@ def _is_pivot(glyph_name, pivot):
 
 
 def _cell_parts(token):
-    """The five slash-separated fields of a review-surface cell string: rune, stance, entry, exit, and the +-joined adjustments, which are often empty."""
+    """Split a review-surface cell string into its slash-separated fields: rune, stance, entry, exit, and the +-joined adjustments, which are often empty."""
     return token.split("/")
 
 
@@ -162,12 +168,12 @@ def _is_cell(token):
 
 
 def _extension_columns(token):
-    """How many columns an ex-ext-N token names."""
+    """Return the column count N that ends an `ex-ext-N`, `ex-con-N`, `en-ext-N`, or `en-con-N` token."""
     return int(token.rsplit("-", 1)[1])
 
 
 def _kept_extension(cell):
-    """The exit extension a review-surface cell still carries, as a column count — zero when its adjustment set names none."""
+    """Return the exit extension a review-surface cell carries, as a column count, or zero when its adjustment set names none."""
     return max(
         (_extension_columns(token) for token in _cell_adjustments(cell) if EXIT_EXTENSION.fullmatch(token)),
         default=0,
@@ -175,7 +181,7 @@ def _kept_extension(cell):
 
 
 def _cell_contraction(cell):
-    """The exit contraction a review-surface cell carries, as a column count — zero when its adjustment set names none."""
+    """Return the exit contraction a review-surface cell carries, as a column count, or zero when its adjustment set names none."""
     return max(
         (_extension_columns(token) for token in _cell_adjustments(cell) if EXIT_CONTRACTION.fullmatch(token)),
         default=0,
@@ -183,7 +189,7 @@ def _cell_contraction(cell):
 
 
 def _dropped_entry(glyph, cell):
-    """How many columns of entry extension the before glyph carried that the after cell does not keep."""
+    """Return how many columns of entry extension the before glyph carried that the after cell does not keep."""
     before = max(
         (_extension_columns(part) for part in _modifiers(glyph) if ENTRY_EXTENSION.fullmatch(part)),
         default=0,
@@ -196,7 +202,7 @@ def _dropped_entry(glyph, cell):
 
 
 def _glyph_adjustment(glyph, pattern):
-    """The largest column count carried by a glyph-name modifier matching `pattern`, or zero when it carries none."""
+    """Return the largest column count on a glyph-name modifier matching `pattern`, or zero when there is none."""
     return max(
         (_extension_columns(part) for part in _modifiers(glyph) if pattern.fullmatch(part)),
         default=0,
@@ -213,18 +219,18 @@ def _carries_named_drop(token, glyph, cell):
 
 
 def _drop_columns(token, cell):
-    """How many columns the named token says the pivot gave up at this after cell — the named extension less any shorter one the cell keeps, or the named contraction in full."""
+    """Return how many columns the named token says the pivot gave up at this after cell: the named extension less any shorter one the cell keeps, or the named contraction in full."""
     named = _extension_columns(token)
     return named if EXIT_CONTRACTION.fullmatch(token) else named - _kept_extension(cell)
 
 
 def _families(value):
-    """A rule field that names families: one family name, or a list of them, read as the list either way."""
+    """Return a rule field that names one family or a list of families as a list."""
     return list(value) if isinstance(value, list) else [value]
 
 
 def _components(name):
-    """How many input codepoints a glyph or cell name covers, counting a ligature's underscore-joined members."""
+    """Return how many input codepoints a glyph or cell name covers, counting a ligature's underscore-joined members."""
     return name.count("_") + 1
 
 
@@ -232,12 +238,12 @@ _alignment_cache: dict[int, tuple[dict, bool]] = {}
 
 
 def release_alignment_cache() -> None:
-    """Empty the per-unit alignment cache: the standing daemon does this behind every request and a pooled worker behind every chunk, so neither holds a unit past the pass that asked about it."""
+    """Empty the per-unit alignment cache. The standing daemon calls this after every request and a pooled worker after every chunk, so neither keeps a unit after the pass that asked about it."""
     _alignment_cache.clear()
 
 
 def _letter_for_letter(unit):
-    """Whether a before-glyph index and an after-cell index name the same letters all the way along the window, which is what the pivot/follower comparisons and the surface's own after-indexed `pair` both rely on. The two sides line up exactly when they merge the same codepoints at the same positions; requiring each side's components to sum to the window's own codepoint count makes the check fail closed should a name ever spell something other than a ligature. Every matcher and the composed walk ask this of a unit several times over, so the answer is cached per unit object for the run: the entry is keyed on the unit's `id()` and keeps the unit itself beside the answer, which is what makes that key sound, since no other object can take the address while the entry holds it."""
+    """Whether each before-glyph index and after-cell index name the same letters along the whole window, which the pivot and follower comparisons and the surface's after-indexed `pair` rely on. The sides line up when they merge the same codepoints at the same positions. Requiring each side's components to sum to the window's codepoint count makes the check fail if a name ever covers codepoints some other way than as a ligature. The matchers and the composed walk ask this of a unit several times, so the answer is cached per unit object. The entry is keyed on the unit's `id()` and holds the unit itself beside the answer, so no other object can reuse that address while the entry exists."""
     cached = _alignment_cache.get(id(unit))
     if cached is not None:
         return cached[1]
@@ -253,7 +259,7 @@ def _letter_for_letter(unit):
 
 
 def _matches_ligature(match, unit, excluded, context=None):
-    """A pivot letter whose backward join drops as it ligates with its follower: the pivot sits between the two named seams, the follower is swallowed into the named ligature, and the seams flanking the whole delta are unchanged. Unchanged flanking seams bound the join structure and nothing more — they do not prove the unit's judged question is this pivot's — so this shape is only as safe as the single checked-in rule that uses it, and a second rule in this shape wants the localization refusals the extension shape carries. The follower is read here as the right neighbor's `_joining_family`, where the extension shape reads the whole `_family`; the two can only disagree when that neighbor is itself a ligature, and ligature formation is this shape's whole subject, so it keeps the reading it shipped with."""
+    """A pivot letter whose backward join drops as it ligates with its follower: the pivot sits between the two named seams, the pivot and follower become the named ligature, and the seams on either side of that change are unchanged. Unchanged seams on either side constrain the joins and nothing else. They do not show that the unit's judged question is about this pivot, so a second rule in this shape would need the judged-pair and secondary-seam checks the extension-dropped shape makes. The follower is read as the right neighbor's `_joining_family`, where the extension-dropped shape reads the whole `_family`; the two differ only when that neighbor is itself a ligature."""
     glyphs, seams = unit["before"]["glyphs"], unit["before"]["seams"]
     cells, after_seams = unit["after"]["cells"], unit["after"]["seams"]
     mb, ma = match["before"], match["after"]
@@ -279,7 +285,7 @@ def _matches_ligature(match, unit, excluded, context=None):
 
 
 def _matches_extension(match, unit, excluded, context=None):
-    """A pivot letter that gives up the named stretch of exit into a seam that holds its named height, with the whole seam vector standing still, the follower drawn from the families the rule names, and the pivot and follower settling into cells the rule names in full. Naming the cells in full is what makes the delta exact: rune, stance, entry and exit pin the bitmap binding on both sides of the seam, and the whole adjustment set pins what the pivot is left carrying — no extension at all, the shorter one the rule names, or the contraction the rule names — so a rule speaks for exactly the columns between the stretch it names and the one its pivot cell keeps, and an extension traded for a shorter one is never read as one dropped outright, nor a contraction as a dropped extension, nor the reverse. Because an unchanged seam vector says nothing about ink elsewhere, localization is taken from the surface's own judgment fields rather than inferred: the unit's primary judged adjacency must be exactly this pivot–follower seam, and any window carrying a secondary seam is visibly asking about somewhere else too and is refused outright. Nothing ligates here — that is enforced, not assumed — which is also why the follower's whole name is the right thing to compare against: a ligature in that slot breaks the letter-for-letter requirement and never reaches this loop. The follower's after cell must be that same family's, so a rule naming several followers can never read one family's cell as standing in for another's. A word-initial pivot has no left neighbor and so nothing for except_left to hold."""
+    """A pivot letter that gives up the named stretch of exit into a seam that keeps its named height, with every seam in the window unchanged, the follower in one of the named families, and the pivot and follower settling into cells the rule names in full. Naming the cells in full makes the change exact. Rune, stance, entry, and exit fix the bitmaps on both sides of the seam, and the adjustment set fixes what the pivot still carries (no extension, a shorter one, or the named contraction), so a rule covers only the columns between the stretch it names and the one its pivot cell keeps. Identical seams say nothing about ink elsewhere, so the unit's own judgment fields decide where the change is: the unit's primary judged pair must be this pivot and follower, and a window with any secondary seam is refused. The two sides must line up letter for letter, and the follower is compared by its whole family name, so a ligature in that slot matches only a rule that names the compound. The follower's after cell must belong to that same family, so a rule naming several followers never accepts one family's cell for another's. A word-initial pivot has no left neighbor, so except_left never holds it."""
     glyphs, seams = unit["before"]["glyphs"], unit["before"]["seams"]
     cells, after_seams = unit["after"]["cells"], unit["after"]["seams"]
     mb, ma = match["before"], match["after"]
@@ -306,7 +312,7 @@ def _matches_extension(match, unit, excluded, context=None):
 
 
 def _matches_ink_delta(match, unit, excluded, context=None):
-    """A window whose entire before→after ink change is one the user has blessed: the unit's persisted `ink_deltas` — one digest per config with any visible change, computed by the surface build over InkComparator.config_diff — must be a nonempty subset of the rule's named digests. Matching asserts exactly what the digest asserts: once the rigidly-slid tail is pulled back, the pixels that appear and disappear across the window's rendered union are the blessed ones and nothing else, under every config the unit diverges on — so every other difference the unit carries is name-grain only, a stroke handed to a neighbor that still paints it included, and a window showing any unlisted pixel under any config fails closed. No judged-pair localization is needed because the delta is the whole window's pixel change by construction. There is no pivot position either, so except_left reads against the whole window: an excluded family joining anywhere in it refuses the unit."""
+    """A window whose entire before→after ink change is one the user has approved: the unit's persisted `ink_deltas`, one digest per config with a visible change (InkComparator.config_diff, computed by the surface build), must all be among the rule's named digests. A digest records the pixels that appear and disappear across the window's rendered union, localized to the changed region and with the shift of what follows taken out, so every other difference the unit carries is a name-only one (such as a stroke handed to a neighbor that still paints it), and a window with any unlisted pixel under any config fails. No judged-pair check is needed, because the digest covers the whole window's pixel change. There is no pivot position, so except_left reads the whole window: an excluded family joining anywhere in it refuses the unit."""
     deltas = unit.get("ink_deltas")
     if not isinstance(deltas, dict) or not deltas:
         return False
@@ -316,7 +322,7 @@ def _matches_ink_delta(match, unit, excluded, context=None):
 
 
 def _validate_ink_delta(rule_id, match) -> None:
-    """The ink-delta shape's own coherence, checked once at load: no digest may repeat, and none may be the empty delta — an ink-identical window is machine-approved already, so a rule blessing it could only ever mask a digest typo."""
+    """Check an ink-delta rule at load: no digest may repeat, and none may be the empty delta. An ink-identical window is machine-approved already, so a rule naming the empty delta could only hide a digest typo."""
     digests = match["after"]["ink_deltas"]
     if len(set(digests)) != len(digests):
         _fail(f"rule {rule_id!r}: match.after.ink_deltas repeats a digest")
@@ -328,7 +334,7 @@ def _validate_ink_delta(rule_id, match) -> None:
 
 
 def _validate_extension(rule_id, match) -> None:
-    """The extension shape's own coherence, checked once at load so a rule can never quietly mean something else: the named token has to be an exit-side extension or contraction, since an entry-side token would pin the seam on the far side of the pivot from the `seam_out` the rule names; the cells have to belong to the letters the rule names — the pivot's family, and one of the follower families — and every pivot cell has to actually give up columns. An `ex-ext-N` rule forbids a cell keeping an exit extension as long as the named one, because this shape speaks for the whole extension or the difference down to the shorter one a cell keeps, never for a tail that stayed or grew. An `ex-con-N` rule requires every pivot cell to carry exactly that contraction and none of an exit extension, because the contraction *is* the named drop and a leftover `ex-ext` would be a different stretch than the one the rule claimed."""
+    """Check an extension-dropped rule at load. The named token must be an exit-side extension or contraction, since an entry-side token would refer to the seam on the other side of the pivot from `seam_out`. The pivot cells must belong to the pivot's family and the follower cells to one of the follower families. Every pivot cell must give up columns: under an `ex-ext-N` rule no pivot cell may keep an exit extension of N or more columns, because the shape covers the whole extension or the part down to a shorter one, never a tail that stayed or grew. Under an `ex-con-N` rule every pivot cell must carry exactly that contraction and no exit extension, because the contraction is the named drop and a remaining `ex-ext` would be a different stretch."""
     extension = match["before"]["exit_extension"]
     contracted = bool(EXIT_CONTRACTION.fullmatch(extension))
     if not (EXIT_EXTENSION.fullmatch(extension) or contracted):
@@ -380,7 +386,7 @@ def _named_pivot(glyph_name, pivots):
 
 
 def _named_contracted_pivot(glyph_name, pivots, seam):
-    """A pair-specific entry pivot may lead an existing ligature: the incoming seam proves its named entry height, while its outgoing height belongs inside the compound and does not constrain the compound's exit. Every other named modifier remains required. Unary form approvals keep `_named_pivot`'s whole-family reading."""
+    """Whether a glyph name falls under an entry-contracted rule's pivot prefixes, where a named pivot may also lead an existing ligature. For a ligature, any entry height on the glyph or the pivot must match the incoming `seam`, exit heights are ignored because the lead letter's exit lies inside the compound, and every other modifier the pivot names is still required. A glyph that is not a ligature is matched by `_named_pivot` alone."""
     if _named_pivot(glyph_name, pivots):
         return True
     family = _family(glyph_name)
@@ -404,13 +410,13 @@ def _named_contracted_pivot(glyph_name, pivots, seam):
 
 
 def _split_at(run, indices):
-    """The run cut into spans at the given piece indices: everything before the first pivot, then one span per pivot running from that pivot up to the next. Each pivot leads the span it starts, so its own ink is judged under the same displacement as everything it drags along."""
+    """Cut the run into spans at the given piece indices: everything before the first pivot, then one span per pivot running from that pivot up to the next. Each pivot leads its span, so its ink is judged under the same displacement as the glyphs after it."""
     bounds = [0, *indices, len(run)]
     return [run[start:stop] for start, stop in zip(bounds, bounds[1:])]
 
 
 def _span_cells(intern, span):
-    """The pixel picture one span of placed pieces paints: the union of each shape's rasterized cells translated to its placement, or None when any shape is not a grid-rectilinear picture or any placement is off-grid — which a caller reads as no picture claim being possible."""
+    """Return the pixel cells one span of placed pieces paints: the union of each shape's rasterized cells translated to its placement. Return None when any shape is not rectilinear on the grid or any placement is off the grid; callers treat that as no match."""
     cells = set()
     for _name, key, x, y, _origin in span:
         shape_cells = intern.cells(key)
@@ -421,7 +427,7 @@ def _span_cells(intern, span):
 
 
 def _slide_geometry(match, unit, comparator):
-    """Whether the window's rendered before→after change is exactly the declared slide, re-derived from the fonts: shape the window under one of the unit's configs, cut both ink runs at their pivot positions, and require each corresponding span's pixel picture to be identical once displaced by the cumulative slide — the span before the first pivot by nothing, the span the first pivot leads by the full slide, and one more slide for every further pivot. Each pivot piece must also keep its exact shape at its height with its own-frame origin displaced by exactly the slide, which pins the mechanism to the pivot's sidebearing rather than to any drift that happens to land the same pixels. Anything the contract cannot hold — no pivot on the before side, pivot counts that disagree, a shaped run that contradicts the unit's recorded glyphs, an off-grid placement, a non-rectilinear outline — reads as no match, so the unit queues."""
+    """Whether the window's rendered before→after change is the declared slide, shaped under the unit's first config. Both ink runs are cut at their pivot positions, and each pair of spans must paint the same pixels once displaced by the cumulative slide: the span before the first pivot by nothing, the span the first pivot leads by one slide, and one more slide for each further pivot. Each pivot must also keep its shape and height with its own-frame origin moved by the slide, which ties the change to the pivot's sidebearing and not to some other movement that produces the same pixels. No pivot on the before side, pivot counts that differ, a before run that differs from the recorded glyphs, an off-grid placement, or a non-rectilinear outline returns False, so the unit queues."""
     codepoints = unit.get("codepoints") or ""
     if not codepoints:
         return False
@@ -469,7 +475,7 @@ def _slide_geometry(match, unit, comparator):
 
 
 def _matches_slide(match, unit, excluded, context=None):
-    """A letter re-spaced against what precedes it, matched at the rendered-pixel grain: the old-font pivot form gives way to a named new form and the window's whole visible change is the pivot and everything after it sliding by the declared column count — every pixel before the pivot stands still, and everything from the pivot on renders pixel-for-pixel identical once slid. Judging pixels rather than per-glyph pieces is the shape's point: a name-grain re-spelling to the pivot's right that hands ink from one glyph to a neighbor without changing the union (the ·At·J'ai tuck riding under a slid ·See is the founding example) is invisible in the picture and must not refuse the rule — while a change that shows so much as one pixel anywhere in the window fails *this* match closed. That last is where the composed reading picks up rather than the end of the story: a window this shape refuses only because a second separately-blessed change moved a pixel it has no vocabulary for may still be explained by both rules together, and the composed pass has already claimed such a window before this matcher ever sees it. One shaped config speaks for all of them: a unit's glyph runs are constant across its configs by the surface's own dedupe, so its per-config deltas can only agree, and the matcher holds that as a precondition (one distinct persisted digest covering exactly the unit's config set) instead of assuming it. except_left reads as the ink-delta shape's does: no pivot position bounds the window, so an excluded family joining anywhere in it refuses the unit."""
+    """A letter re-spaced against what precedes it, matched at the rendered-pixel grain: the old-font pivot form becomes a named new form, and the window's whole visible change is the pivot and everything after it moving by the declared column count (`_slide_geometry`). Every pixel before the pivot stays, and everything from the pivot on renders identically once moved. Pixels are compared instead of per-glyph pieces, so a name-only change to the right of the pivot that moves ink from one glyph to a neighbor without changing the union (the ·At·J'ai tuck under a moved ·See) does not stop the match. Any other ink change in the window fails this match; the composed reading, which runs first, handles a window that also carries a second approved change. The unit's ink-delta digest must be the same under every config it lists, so shaping the first config stands for all of them. except_left reads the whole window."""
     deltas = unit.get("ink_deltas")
     if not isinstance(deltas, dict) or not deltas:
         return False
@@ -494,7 +500,7 @@ def _matches_slide(match, unit, excluded, context=None):
 
 
 def _validate_slide(rule_id, match) -> None:
-    """The slide shape's own coherence, checked once at load: the slide must actually move (zero columns is the identity, which is machine-approved already, so a rule declaring it could only mask a typo), and every pivot form named on either side must belong to one family — a slide rule speaks for one letter's re-spacing, so a second family in the lists could only be a paste error."""
+    """Check a slide rule at load: the slide must not be zero, since an unmoved window is ink-identical and machine-approved already, and every pivot form on either side must belong to one family, since a slide rule describes one letter's re-spacing."""
     if match["after"]["slide"] == 0:
         _fail(
             f"rule {rule_id!r}: match.after.slide is 0; an unmoved window is ink-identical and "
@@ -509,19 +515,19 @@ def _validate_slide(rule_id, match) -> None:
 
 
 def _gained_cells(match):
-    """The named own-frame cells an ink-gain rule says the after form keeps, as a set of (column, row) pairs."""
+    """Return the named own-frame cells an ink-gain rule says the after form adds, as a set of (column, row) pairs."""
     return {tuple(point) for point in match["after"]["gained"]}
 
 
 def _split_around(run, indices):
-    """The run cut into the spans that sit strictly between the given piece indices: everything before the first, everything between one and the next, and everything after the last. The indexed pieces themselves are omitted, so a caller that judges those pieces on their own can ask whether the rest of the window is an identity without the indexed ink in the picture."""
+    """Cut the run into the spans strictly between the given piece indices: everything before the first, everything between one and the next, and everything after the last. The indexed pieces are left out, so a caller that judges them separately can compare the rest of the window without their ink."""
     starts = [0, *[index + 1 for index in indices]]
     stops = [*indices, len(run)]
     return [run[start:stop] for start, stop in zip(starts, stops)]
 
 
 def _gain_holds(match, before, after, intern):
-    """Whether one pivot piece is the named ink-gain: same own-frame origin, both sides on the grid, and the placed before picture standing still inside the after frame plus exactly the named cells. The after frame may extend vertically around the old picture, so the before cells are translated into the after frame by the pieces' vertical placement difference before the exact comparison."""
+    """Whether one pivot piece is the named ink gain: same own-frame origin, both sides on the grid, and the after picture equal to the before picture plus exactly the named cells. The after frame may extend vertically around the old picture, so the before cells are moved into the after frame by the difference in the pieces' vertical placement before the comparison. The caller checks the horizontal placement."""
     if before[4] != after[4]:
         return False
     if before[2] % PIXEL_SIZE or after[2] % PIXEL_SIZE or before[3] % PIXEL_SIZE or after[3] % PIXEL_SIZE:
@@ -535,7 +541,7 @@ def _gain_holds(match, before, after, intern):
 
 
 def _gain_geometry(match, unit, comparator):
-    """Whether the window's rendered before→after change is exactly the named cells appearing on the named pivot, re-derived from the fonts: shape the window under one of the unit's configs, judge each pivot piece as the placed old picture standing still inside the new frame plus those cells at the same horizontal placement and own-frame origin, and require every span strictly between the pivots to render identically under the cumulative declared shift. The new frame may extend vertically around the old picture; `_gain_holds` aligns the two frames from their placed Y coordinates before comparing them. Anything the contract cannot hold — no pivot on the before side, pivot counts that disagree, a shaped run that contradicts the unit's recorded glyphs, an off-grid placement, a non-rectilinear outline, a lost cell, an unnamed extra cell, or following ink that moves by another amount — reads as no match, so the unit queues."""
+    """Whether the window's rendered before→after change is the named cells appearing on the named pivot, shaped under the unit's first config. Each pivot must pass `_gain_holds` at its placement under the running displacement, and every span strictly between the pivots must render identically under the cumulative declared shift. No pivot on the before side, pivot counts that differ, a before run that differs from the recorded glyphs, an off-grid placement, a non-rectilinear outline, a lost cell, an unnamed extra cell, or following ink that moves by another amount returns False, so the unit queues."""
     codepoints = unit.get("codepoints") or ""
     if not codepoints:
         return False
@@ -575,7 +581,7 @@ def _gain_geometry(match, unit, comparator):
 
 
 def _matches_ink_gain(match, unit, excluded, context=None):
-    """A letterform that keeps a named set of cells the old font omitted, matched at the rendered-pixel grain: the old-font pivot form gives way to a named new form whose placed old pixels stand still inside the new own frame plus those cells, and everything after the pivot moves by the declared column count. The new frame may extend vertically around the old picture; same horizontal placement and own-frame origin pin the extra ink to the letterform rather than to a slide or a sidebearing change, and any other ink change anywhere in the window fails this match closed — which is where the composed reading picks up, so a window this shape refuses only because a second separately-blessed change moved a pixel it has no vocabulary for may still be explained by both rules together. One shaped config speaks for all of them, on the same digest-agreement precondition the slide shape holds. except_left reads the whole window, as the slide and ink-delta shapes do."""
+    """A letterform that keeps a named set of cells the old font omitted, matched at the rendered-pixel grain: the old-font pivot form becomes a named new form whose picture is the old one plus those cells, and everything after the pivot moves by the declared column count (`_gain_geometry`). The new frame may extend vertically around the old picture. The unchanged horizontal placement and own-frame origin tie the extra ink to the letterform and not to a slide or a sidebearing change. Any other ink change in the window fails this match; the composed reading handles a window that also carries a second approved change. The unit's ink-delta digest must be the same under every config it lists, so shaping the first config stands for all of them. except_left reads the whole window."""
     deltas = unit.get("ink_deltas")
     if not isinstance(deltas, dict) or not deltas:
         return False
@@ -603,7 +609,7 @@ def _matches_ink_gain(match, unit, excluded, context=None):
 
 
 def _validate_ink_gain(rule_id, match) -> None:
-    """The ink-gain shape's own coherence, checked once at load: every pivot form named on either side must belong to one family — a gain rule speaks for one letter's extra cells, so a second family in the lists could only be a paste error — and it has to name at least one of them, since the gain is the whole change this shape blesses. The required shift may be zero because a fuller form can keep its advance."""
+    """Check an ink-gain rule at load: every pivot form on either side must belong to one family, since the rule describes one letter's extra cells, and `gained` must name at least one cell. The shift may be zero, because a fuller form can keep its advance."""
     families = {_family(name) for name in match["before"]["pivots"] + match["after"]["pivots"]}
     if len(families) != 1:
         _fail(
@@ -618,7 +624,7 @@ def _validate_ink_gain(rule_id, match) -> None:
 
 
 def _join_pairs(match, unit):
-    """Glyph indices where the named join dropped: the pivot prefix, the follower's family, and the named height becoming a break, letter for letter, with the follower's after cell still that same family's — and, where the rule names the cells the two letters settle into, both of those cells among the names it gave."""
+    """Return the before-glyph indices where the named join became a break. The unit must line up letter for letter. At each index the glyph carries the pivot prefix, the next glyph is in a named follower family, the before seam between them is `seam_out` and the after seam is a break, and each after cell belongs to its before glyph's family. Where the rule names `pivot_cells` and `receiver_cells`, the two after cells must be among them."""
     if not _letter_for_letter(unit):
         return []
     glyphs, seams = unit["before"]["glyphs"], unit["before"]["seams"]
@@ -644,7 +650,7 @@ def _join_pairs(match, unit):
 
 
 def _join_piece_holds(before, after):
-    """Whether one piece of a dropped join kept its picture: same shape, same height, same own-frame origin, both on the grid. Placement under the running displacement is the walk's job, not this contract's."""
+    """Whether one piece of a dropped join kept its picture: same shape, height, and own-frame origin, on the grid. The caller checks its placement against the running displacement."""
     if before is None or after is None:
         return False
     if before[1] != after[1] or before[3] != after[3] or before[4] != after[4]:
@@ -653,14 +659,14 @@ def _join_piece_holds(before, after):
 
 
 def _join_pivot_holds(match, before, after):
-    """Whether a dropped join's pivot held what its own rule asks of it: its exact picture and own-frame origin where the rule names no cells, and its own-frame origin alone where it names the cells both letters settle into, which frees the letter to redraw in place as the join goes away — bounded by those names rather than by the picture, exactly as a retargeted join's pivot is."""
+    """Whether a dropped join's pivot passes its rule's check: its picture and own-frame origin are unchanged where the rule names no cells, and only its origin where the rule names the cells both letters settle into. In the second case the letter may redraw in place, limited by those cell names as a retargeted join's pivot is."""
     if match["after"].get("pivot_cells"):
         return _retarget_piece_holds(before, after)
     return _join_piece_holds(before, after)
 
 
 def _join_follower_holds(match, before, after):
-    """Whether a dropped join's follower held what its own rule asks of it: its exact picture and own-frame origin where the rule declares no give-back, and, where it declares one, only its own-frame origin moving right by exactly those columns — the reach a form inserted at its left edge to take the join handing that column back as the join dies, which is a created join's follower reach running the other way — with the picture bounded by the receiver cells the rule names rather than held."""
+    """Whether a dropped join's follower passes its rule's check: its picture and own-frame origin are unchanged where the rule declares no `follower_give_back`. Where it declares one, its own-frame origin moves right by that many columns and its picture may change within the receiver cells the rule names. That is the reverse of a created join's `follower_reach`: the columns the joining form inserted at its left edge come off as the join goes."""
     give_back = match["after"].get("follower_give_back", 0)
     if give_back:
         return _retarget_piece_holds(before, after, -give_back)
@@ -668,7 +674,7 @@ def _join_follower_holds(match, before, after):
 
 
 def _join_geometry(match, unit, comparator):
-    """Whether the window's rendered before→after change is exactly the named join becoming a gap, re-derived from the fonts: shape the window under one of the unit's configs, find every pivot–follower pair whose recorded seam dropped from the named height to a break, require both letters to keep their exact shape at their height with their own-frame origin unmoved — the pivot free to redraw in place where the rule names the cells both letters settle into, the follower free to redraw and move its origin right by the columns the rule says it hands back — and require each span's pixel picture to be identical once displaced by the cumulative gap — the span before the first follower by nothing, the span the first follower leads by the full gap, and one more gap for every further pair. Anything the contract cannot hold — no pair, a shaped run that contradicts the unit's recorded glyphs, a redrawn pivot or follower, an origin shift, an off-grid placement — reads as no match, so the unit queues."""
+    """Whether the window's rendered before→after change is the named join becoming a gap, shaped under the unit's first config. For every pair `_join_pairs` finds, the pivot must pass `_join_pivot_holds` and the follower `_join_follower_holds`. Each span must paint the same pixels once displaced by the cumulative gap: the span before the first follower by nothing, the span the first follower leads by one gap, and one more gap for each further pair. A pivot that may redraw, or a follower with a give-back, is left out of the spans and only its placement is checked. No pair, a before run that differs from the recorded glyphs, a glyph count that differs from the recorded cells, a piece that fails its check, or an off-grid placement returns False, so the unit queues."""
     codepoints = unit.get("codepoints") or ""
     if not codepoints:
         return False
@@ -727,7 +733,7 @@ def _join_geometry(match, unit, comparator):
 
 
 def _matches_join_dropped(match, unit, excluded, context=None):
-    """A named join that is now a break, matched at the rendered-pixel grain: the pivot letter keeps its own-frame origin, and its exact picture too unless the rule names in full the cells both letters settle into, the follower keeps its exact picture and origin — or, where the rule declares the columns it hands back, only moves that origin right by them and redraws inside the receiver cells — and sits the declared number of columns further, and everything after the follower sits the same extra gap away. Origin unmoved is the shape's point: this is a cursive attachment going away, not a sidebearing change, so a slide of the follower would fail the origin check by design. Any other ink change anywhere in the window fails this match closed — which is where the composed reading picks up, so a window this shape refuses only because a second separately-blessed change moved a pixel it has no vocabulary for may still be explained by both rules together. One shaped config speaks for all of them, on the same digest-agreement precondition the slide shape holds. except_left reads the whole window, as the slide and ink-gain shapes do."""
+    """A named join that is now a break, matched at the rendered-pixel grain: the pivot keeps its own-frame origin, and its picture too unless the rule names in full the cells both letters settle into. The follower keeps its picture and origin, or, where the rule declares `follower_give_back`, moves its origin right by that count and redraws inside the receiver cells. The follower sits the declared number of columns further away, and everything after it moves by the same gap (`_join_geometry`). The origin check separates a cursive attachment going away from a sidebearing change, so a slide of the follower fails it. Any other ink change in the window fails this match; the composed reading handles a window that also carries a second approved change. The unit's ink-delta digest must be the same under every config it lists, so shaping the first config stands for all of them. except_left reads the whole window."""
     deltas = unit.get("ink_deltas")
     if not isinstance(deltas, dict) or not deltas:
         return False
@@ -758,7 +764,7 @@ def _matches_join_dropped(match, unit, excluded, context=None):
 
 
 def _validate_join_dropped(rule_id, match) -> None:
-    """The join-dropped shape's own coherence, checked once at load: the gap must be a widening (a dropped join sits the letters further apart, never closer), and it may stand at zero only where the rule names the cells both letters settle into — zero columns with both pictures held is the identity, which is machine-approved already, so a rule declaring it could only mask a typo, while a pivot freed to redraw can lose its join and leave the follower exactly where it stood, as the flipped ·No does in front of ·Cheer — and the named seam must be a yK height — a break has nothing to drop. The two cell lists are optional and come as a pair, since it is naming what both letters settle into that lets the pivot redraw at all, and their cells have to belong to the letters the rule names. A declared follower give-back has to be at least a column and needs those names, since a follower that keeps its own pen says so by leaving the field off and one that reaches back over it is a created join's business."""
+    """Check a join-dropped rule at load. The gap must not be negative, because a dropped join moves the letters apart. It may be zero only where the rule names the cells both letters settle into: with both pictures unchanged a zero gap is ink-identical and machine-approved already, while a pivot that may redraw can lose its join and leave the follower where it stood (the flipped ·No before ·Cheer). `seam_out` must be a yK height, since a break has no join to drop. `pivot_cells` and `receiver_cells` are optional but come as a pair, because naming both is what lets the pivot redraw, and their cells must belong to the named pivot and follower families. A declared `follower_give_back` must be at least 1 and needs `receiver_cells`: a follower that keeps its left edge leaves the field off, and one that reaches back over it belongs to the join-created shape."""
     if match["after"]["gap"] == 0 and "pivot_cells" not in match["after"]:
         _fail(
             f"rule {rule_id!r}: match.after.gap is 0 with both pictures held; an unmoved window is "
@@ -807,13 +813,13 @@ def _validate_join_dropped(rule_id, match) -> None:
 
 
 def _entry_columns(match):
-    """The column count named by either entry-shortening shape."""
+    """Return the column count an entry-extension-dropped or entry-contracted rule names."""
     after = match["after"]
     return after.get("entry_drop", after.get("entry_contraction"))
 
 
 def _entry_shift(match, before_name, after_name):
-    """The net follower displacement after one entry shortening: the named contraction or drop, plus any independently named change in the pivot's exit extension."""
+    """Return how far the glyphs after the pivot move for one entry shortening: minus the named count, plus, for an entry-contracted rule, the change in the pivot's exit extension between the before and after glyph names."""
     shift = -_entry_columns(match)
     if "entry_contraction" in match["after"]:
         shift += _glyph_adjustment(after_name, EXIT_EXTENSION) - _glyph_adjustment(
@@ -823,7 +829,7 @@ def _entry_shift(match, before_name, after_name):
 
 
 def _entry_drop_holds(match, before, after, intern):
-    """How far the pivot's own placement moves under the named entry shortening, or None when the piece is not one: same height, both on the grid, and either an old entry extension comes off under a fixed own-frame origin or a named after-side entry contraction pulls the letter in. In the fixed-origin case the after picture is the before picture compacted left by the named columns and the placement stands still. In the contraction case the two pictures are aligned by however far the after form moved its own-frame origin, and the placement makes up the rest of the contraction: a frame that took the whole contraction into its origin leaves the placement standing still, one that took none of it carries the letter the whole contraction closer, and the ink lands in the same place either way. The only left-side loss is inside the contracted columns, and any far-right difference must be exactly the exit-extension count the glyph names say changed. No other cell may disappear or appear."""
+    """Return the pivot's placement offset, in columns (zero or negative), under the named entry shortening, or None when the piece is not one. Both pieces must have the same height and sit on the grid. In the first case, an old entry extension comes off: the own-frame origin is unchanged, the after picture is the before picture compacted left by the named columns, and the offset is zero. In the second case, the after glyph names an `en-con-N` of the named count and the before glyph no entry extension. The pictures are aligned by however far the after form moved its own-frame origin (0 to N columns), and the placement moves left by the rest, so the ink ends up in the same place either way. The lost left-side cells must lie inside the contracted columns, and any far-right difference must be a one-row run exactly as wide as the change in exit extension the glyph names state. No other cell may disappear or appear."""
     if before[3] != after[3]:
         return None
     if before[2] % PIXEL_SIZE or after[2] % PIXEL_SIZE or before[3] % PIXEL_SIZE:
@@ -881,7 +887,7 @@ def _entry_drop_holds(match, before, after, intern):
 
 
 def _entry_geometry(match, unit, comparator, pivot_positions=None):
-    """Whether the window's rendered before→after change is exactly the named left-side entry shortening on the named pivot, re-derived from the fonts: shape the window under one of the unit's configs, judge each pivot piece by `_entry_drop_holds` at the placement that contract answers for, and require every span strictly between the pivots to render identically once displaced by the cumulative drop — the span before the first pivot by nothing, the span after the first pivot by the full drop, and one more drop for every further pivot. Each post-pivot span is compared together with that pivot's already-validated after picture, so a suffix glyph may give up cells the pivot still paints without turning an invisible ownership handoff into another visual question. A pair-specific caller passes the positions already scoped by its named left family; the general entry-drop shape leaves them unset and judges every named pivot. Anything the contract cannot hold — no pivot on the before side, pivot counts that disagree, a shaped run that contradicts the unit's recorded glyphs, an off-grid placement, a non-rectilinear outline, a dropped cell outside the named columns, an unnamed visible cell — reads as no match, so the unit queues."""
+    """Whether the window's rendered before→after change is the named left-side entry shortening on the named pivots, shaped under the unit's first config. Each pivot must pass `_entry_drop_holds` and sit at the placement it returns under the running displacement, and every span strictly between the pivots must render identically once displaced by the cumulative shift (`_entry_shift`): the span before the first pivot by nothing, and one more shift after each pivot. Each span after a pivot is compared together with that pivot's after picture, so a following glyph may give up cells the pivot still paints without that counting as a change. The entry-contracted matcher passes the positions its named left families select; the entry-extension-dropped matcher leaves `pivot_positions` unset and every named pivot is judged. No pivot on the before side, pivot counts that differ, a before run that differs from the recorded glyphs, an off-grid placement, a non-rectilinear outline, a dropped cell outside the named columns, or an unnamed visible cell returns False, so the unit queues."""
     codepoints = unit.get("codepoints") or ""
     if not codepoints:
         return False
@@ -946,7 +952,7 @@ def _entry_geometry(match, unit, comparator, pivot_positions=None):
 
 
 def _matches_entry_drop(match, unit, excluded, context=None):
-    """A letter that gives up a named stretch of left-side entry, matched at the rendered-pixel grain: either the old form's extra entry columns come off under a fixed origin, or a named after-side entry contraction pulls the letter that many columns closer — taken into the after form's own-frame origin, into its placement, or shared between them; everything after the pivot slides closer by that count. The contraction reading admits only the exact far-right tail difference named by the before and after glyphs' exit-extension modifiers. Any other ink change anywhere in the window fails this match closed — which is where the composed reading picks up, so a window this shape refuses only because a second separately-blessed change moved a pixel it has no vocabulary for may still be explained by both rules together. One shaped config speaks for all of them, on the same digest-agreement precondition the slide shape holds. except_left reads the whole window, as the slide and ink-gain shapes do."""
+    """A letter that gives up a named stretch of left-side entry, matched at the rendered-pixel grain: either the old form's extra entry columns come off under an unchanged own-frame origin, or a named `en-con-N` on the after form brings the letter that many columns closer, taken into its own-frame origin, its placement, or both (`_entry_geometry`). Everything after the pivot moves closer by that count. Any other ink change in the window fails this match; the composed reading handles a window that also carries a second approved change. The unit's ink-delta digest must be the same under every config it lists, so shaping the first config stands for all of them. except_left reads the whole window."""
     deltas = unit.get("ink_deltas")
     if not isinstance(deltas, dict) or not deltas:
         return False
@@ -973,7 +979,7 @@ def _matches_entry_drop(match, unit, excluded, context=None):
 
 
 def _contracted_entry_candidates(match, unit):
-    """The non-declined pivot positions where the rule's named family, alone or leading an existing ligature, stands immediately after one of its named left families. A ligature preserves component alignment and proves any named entry height against the incoming seam."""
+    """Return the positions where a named pivot, alone or leading an existing ligature (`_named_contracted_pivot`), stands immediately after one of the rule's named left families and is not one of its `except_pivots`. A ligature position also requires the unit to line up letter for letter."""
     glyphs = unit["before"]["glyphs"]
     left_families = set(_families(match["before"]["left"]))
     declined = match["before"].get("except_pivots", ())
@@ -990,7 +996,7 @@ def _contracted_entry_candidates(match, unit):
 
 
 def _matches_entry_contracted(match, unit, excluded, context=None):
-    """One or more named left–pivot pairs whose pivot contracts its entry by the declared columns, using `_entry_geometry` for the same rendered-pixel contract as the contraction arm of the entry-extension-dropped shape. Naming the immediate left families keeps a pair-specific decision pair-specific; the after glyph must carry the declared `en-con-N`, the letter must come that many columns closer however its own frame took the contraction — origin, placement, or the two between them — and the exact exit-extension delta named by the before and after glyphs is the only far-right change admitted. Everything after the pivot must move by the contraction combined with that exit-extension delta, and any other ink change fails closed for the composed reading to consider."""
+    """One or more named left–pivot pairs whose pivot contracts its entry by the declared columns, matched at the rendered-pixel grain by `_entry_geometry`, as in the contraction case of the entry-extension-dropped shape. The named left families limit the rule to those pairs. The after glyph must carry the declared `en-con-N`, and the letter must come that many columns closer however its frame took the contraction (own-frame origin, placement, or both). The only far-right change allowed is the exit-extension change the before and after glyph names state. Everything after the pivot must move by the contraction plus that exit-extension change. Any other ink change in the window fails this match; the composed reading handles a window that also carries a second approved change."""
     deltas = unit.get("ink_deltas")
     if not isinstance(deltas, dict) or not deltas:
         return False
@@ -1022,7 +1028,7 @@ def _matches_entry_contracted(match, unit, excluded, context=None):
 
 
 def _stub_geometry(match, unit, comparator):
-    """Whether the window's rendered before→after change is exactly the named left-side stub coming off the named pivot with the remaining ink sitting still: same own-frame compact as an entry drop, but the after form's placement moves right by the declared column count (the left edge catching up to the remaining ink) and every span strictly between the pivots renders identically with no displacement. Walked position by position the way the composed walk does, because a pivot here is a position, not a name — the same after form can stand at one position as the stub-dropped letter and at another as an untouched same-family letter (a second ·May keeping its old loop beside the one that lost its leftover left pixel), and only the before side's named form says which is which. A pivot position is one whose before name carries a before prefix and whose after name carries an after prefix; it is judged as the compact with its placement moved by the declared count and its origin standing still, and every span between pivots must render identically with no displacement. Anything the contract cannot hold — no pivot position at all, a shaped run that contradicts the unit's recorded glyphs, sides that spell different letters, an off-grid placement, a non-rectilinear outline, a dropped cell outside the named columns — reads as no match, so the unit queues."""
+    """Whether the window's rendered before→after change is the named left-side stub coming off the named pivot while its remaining ink stays in place, shaped under the unit's first config. The pivot's picture is compacted left as in an entry drop (`_entry_drop_holds`), its placement moves right by the declared column count so the ink it keeps does not move, and every span between pivots renders identically with no displacement. A pivot is a position whose before name carries a before prefix and whose after name carries an after prefix. The walk goes by position because the same after form can be the stub-dropped letter at one position and an unchanged letter of the same family at another (a second ·May keeping its old loop), and only the before name says which. No pivot position, a before run that differs from the recorded glyphs, a different glyph count on the two sides, an off-grid placement, a non-rectilinear outline, or a dropped cell outside the named columns returns False, so the unit queues."""
     codepoints = unit.get("codepoints") or ""
     if not codepoints:
         return False
@@ -1074,7 +1080,7 @@ def _stub_geometry(match, unit, comparator):
 
 
 def _matches_stub_drop(match, unit, excluded, context=None):
-    """A letter that gives up a named left-side stub while its remaining ink stays put, matched at the rendered-pixel grain: the old-font pivot form gives way to a named new form whose own-frame picture is the old one compacted left by the declared column count, origin standing still, placement moving right by that count, everything else in the window unmoved. Placement moving with the compact is what distinguishes this from an entry drop (whose remaining ink slides closer and whose placement stands still). Any other ink change anywhere in the window fails this match closed — which is where the composed reading picks up. One shaped config speaks for all of them, on the same digest-agreement precondition the slide shape holds. except_left reads the whole window, as the slide and ink-gain shapes do."""
+    """A letter that gives up a named left-side stub while its remaining ink stays put, matched at the rendered-pixel grain: the old-font pivot form becomes a named new form whose own-frame picture is the old one compacted left by the declared column count, with its placement moved right by that count and everything else in the window unmoved (`_stub_geometry`). The placement move separates this from an entry drop, whose remaining ink moves closer while its placement stays. Any other ink change in the window fails this match; the composed reading handles a window that also carries a second approved change. The unit's ink-delta digest must be the same under every config it lists, so shaping the first config stands for all of them. except_left reads the whole window."""
     deltas = unit.get("ink_deltas")
     if not isinstance(deltas, dict) or not deltas:
         return False
@@ -1101,7 +1107,7 @@ def _matches_stub_drop(match, unit, excluded, context=None):
 
 
 def _validate_stub_drop(rule_id, match) -> None:
-    """The stub-dropped shape's own coherence, checked once at load: the drop must actually move, it must be a shortening, and every pivot form named on either side must belong to one family — a stub-drop rule speaks for one letter's lost left-side pixel, so a second family in the lists could only be a paste error."""
+    """Check a stub-dropped rule at load: the drop must be positive, and every pivot form on either side must belong to one family, since the rule describes one letter's lost left-side stub."""
     if match["after"]["stub_drop"] == 0:
         _fail(
             f"rule {rule_id!r}: match.after.stub_drop is 0; an unmoved window is ink-identical and "
@@ -1121,7 +1127,7 @@ def _validate_stub_drop(rule_id, match) -> None:
 
 
 def _validate_entry_drop(rule_id, match) -> None:
-    """The entry-shortening shapes' shared coherence, checked once at load: the drop must actually move (zero columns is the identity, which is machine-approved already, so a rule declaring it could only mask a typo), it must be a shortening (the lost stretch sits the letters closer, never further), and every pivot form named on either side must belong to one family — an entry rule speaks for one letter's lost left-side stretch, so a second family in the lists could only be a paste error."""
+    """Check an entry-extension-dropped rule at load, and the part of an entry-contracted rule the two shapes share: the count must be positive, since zero is ink-identical and machine-approved already and a lost stretch brings the letters closer, and every pivot form on either side must belong to one family, since the rule describes one letter's lost left-side stretch."""
     columns = _entry_columns(match)
     if columns == 0:
         _fail(
@@ -1142,7 +1148,7 @@ def _validate_entry_drop(rule_id, match) -> None:
 
 
 def _validate_entry_contracted(rule_id, match) -> None:
-    """The entry-contracted shape's pair-specific coherence, layered on the shared entry-shortening checks."""
+    """Check an entry-contracted rule at load: the checks `_validate_entry_drop` makes, then that `left` names bare Quikscript family names and that every `except_pivots` form falls under a pivot prefix."""
     _validate_entry_drop(rule_id, match)
     left = match["before"]["left"]
     families = _families(left)
@@ -1161,7 +1167,7 @@ def _validate_entry_contracted(rule_id, match) -> None:
 
 
 def _redrawn_trade(match):
-    """The named cell trade a redrawn rule blesses: the own-frame cells the after form gives up and the ones it takes on, each as a set of (column, row) pairs."""
+    """Return the cell trade a redrawn rule names: the own-frame cells the after form gives up and the ones it adds, each as a set of (column, row) pairs."""
     return (
         {tuple(point) for point in match["after"]["dropped"]},
         {tuple(point) for point in match["after"]["added"]},
@@ -1169,7 +1175,7 @@ def _redrawn_trade(match):
 
 
 def _redrawn_holds(match, before, after, intern):
-    """How many columns the pivot's own frame took of the named redraw, or None when the piece is not one: same height, both on the grid, and the after picture is the before picture with the named dropped cells gone and the named added cells present — both sets read at one common column offset, derived from the dropped cells themselves rather than declared, because an entry extension inserts a column at the pivot's left edge and carries the whole frame right with it, so an entry-extended variant shows the same trade one column over. Deriving the offset from the losses is what lets an added set be empty at all; the offset a pure loss leaves free is bounded instead by the after form the rule names, which is a settled glyph and not a picture. The own-frame origin stands still unless the after form names an entry contraction, which lets a form that takes the contraction into its own frame carry its origin right by up to that many columns while the ink it keeps stays where it was: the two pictures are aligned by that move before the trade is read, and what the frame took is room the placement no longer has. The offset picture equality is exact: a cell lost or gained anywhere outside the named trade fails, whatever the offset."""
+    """Return how many columns of entry contraction the pivot's own frame took, or None when the piece is not the named redraw. Both pieces must have the same height and sit on the grid, and the after picture must be the before picture with the named dropped cells gone and the named added cells present. Both sets are read at one common column offset, derived from the lost cells, because an entry extension inserts a column at the pivot's left edge and moves the whole frame right, so an entry-extended variant shows the same trade one column over. Deriving the offset from the losses lets `added` be empty. The own-frame origin stays unless the after form names more entry contraction than the before form (`_contraction_room`); then the origin may move right by up to that difference while the ink it keeps stays where it was. The pictures are aligned by that move before the trade is read, and the caller subtracts what the frame took from the room the placement has. A cell lost or gained outside the named trade fails."""
     if before[3] != after[3]:
         return None
     if before[2] % PIXEL_SIZE or after[2] % PIXEL_SIZE or before[3] % PIXEL_SIZE:
@@ -1197,7 +1203,7 @@ def _redrawn_holds(match, before, after, intern):
 
 
 def _contraction_room(before, after):
-    """How many columns of entry contraction the after form names beyond the before glyph's — the most a redrawn letter may sit closer to what precedes it, since a seam the old font had already drawn that tight has nothing left to close."""
+    """Return how many more columns of entry contraction the after glyph names than the before glyph, or zero. This is the most a redrawn pivot may move toward its left neighbor, because contraction the old font already drew leaves nothing more to close."""
     return max(
         0,
         _glyph_adjustment(after[0], ENTRY_CONTRACTION) - _glyph_adjustment(before[0], ENTRY_CONTRACTION),
@@ -1205,7 +1211,7 @@ def _contraction_room(before, after):
 
 
 def _pull(before, after, expected, room):
-    """How far a pivot's own placement sits ahead of where the walk expects it: zero when it stands exactly there, up to `room` columns closer when its new form pulls its entry in that far, and None anywhere else — off the grid, further left than the contraction can account for, or further right at all."""
+    """Return the pivot's placement offset from where the walk expects it, in columns: zero, or negative down to `-room` when its new form pulls its entry in. Return None when the offset is off the grid, more than `room` columns left, or to the right at all."""
     offset = after[2] - before[2] - expected * PIXEL_SIZE
     if offset % PIXEL_SIZE or not -room * PIXEL_SIZE <= offset <= 0:
         return None
@@ -1213,7 +1219,7 @@ def _pull(before, after, expected, room):
 
 
 def _push(before, after, expected, room):
-    """How far a pivot's own placement sits to the right of where the walk expects it: zero when it stands exactly there, up to `room` columns further right when the left-side entry the old font drew in front of the join comes off and the letter's remaining ink starts that much later, and None anywhere else — off the grid, further right than the drop can account for, or further left at all."""
+    """Return the pivot's placement offset from where the walk expects it, in columns: zero, or up to `room` columns right when the left-side entry the old font drew in front of the join comes off and the remaining ink starts later. Return None when the offset is off the grid, more than `room` columns right, or to the left at all."""
     offset = after[2] - before[2] - expected * PIXEL_SIZE
     if offset % PIXEL_SIZE or not 0 <= offset <= room * PIXEL_SIZE:
         return None
@@ -1221,7 +1227,7 @@ def _push(before, after, expected, room):
 
 
 def _redrawn_geometry(match, unit, comparator):
-    """Whether the window's rendered before→after change is exactly the named trade on the named pivot, re-derived from the fonts: shape the window under one of the unit's configs and walk it position by position the way the composed walk does, because a pivot here is a position, not a name — the same before name can stand at one position as the pivot and at another as the untouched letter (a second ·Eight keeping its normal loop beside the one that pulls in), and only the after side's settled form says which is which. A pivot position is one whose before name carries a before prefix and whose after name carries an after prefix; it is judged as the named redraw at the same height, its own frame standing still or taking up to the entry contraction its new form names, with its placement carrying the displacement accumulated so far, or as much of that contraction as the frame left closer than that, and every span between pivots must render identically under that displacement, which grows by the declared shift and by whatever the pivot took at each pivot. Anything the contract cannot hold — no pivot position at all, a shaped run that contradicts the unit's recorded glyphs, sides that spell different letters, an off-grid placement, a non-rectilinear outline, a cell traded outside the named sets — reads as no match, so the unit queues."""
+    """Whether the window's rendered before→after change is the named redraw at every pivot position, shaped under the unit's first config. A pivot is a position whose before name carries a before prefix and whose after name carries an after prefix. The walk is by position because the same before name can be a pivot at one position and unchanged at another (a second ·Eight that keeps its normal loop), and only the after name says which. Each pivot must pass `_redrawn_holds`, and its placement may sit left of the running displacement by at most the contraction room its own frame did not take (`_pull`). At each pivot the displacement grows by the declared shift plus that offset, and every span between pivots must render identically under it. No pivot position, a before run that differs from the recorded glyphs, a different glyph count on the two sides, an off-grid placement, a non-rectilinear outline, or a cell traded outside the named sets returns False, so the unit queues."""
     codepoints = unit.get("codepoints") or ""
     if not codepoints:
         return False
@@ -1277,7 +1283,7 @@ def _redrawn_geometry(match, unit, comparator):
 
 
 def _matches_redrawn(match, unit, excluded, context=None):
-    """A letter redrawn in place to a named new form, matched at the rendered-pixel grain: the old-font pivot form gives way to a named new form whose own-frame picture is the old one with the named cells traded at one common column offset, the own-frame origin standing still and the placement with it unless the new form names an entry contraction, which its frame may take up to in full and which otherwise lets the letter sit that much closer to what precedes it, carrying whatever the placement took on past it; everything after the pivot slides by the declared count — which may be zero when the new form keeps the pivot's advance, since the trade itself is the change. The added set may be empty, which is a form that only gives ink up: ·Key's foot dropping its terminal pixel and its follower coming a column closer is the pure-loss reading, as distinct from the exit stretch the extension-dropped shape names at the name grain, which cannot see what the rest of the window did. Any other ink change anywhere in the window fails this match closed — which is where the composed reading picks up, so a window this shape refuses only because a second separately-blessed change moved a pixel it has no vocabulary for may still be explained by both rules together. One shaped config speaks for all of them, on the same digest-agreement precondition the slide shape holds. except_left reads the whole window, as the slide and ink-gain shapes do."""
+    """A letter redrawn in place to a named new form, matched at the rendered-pixel grain: the before pivot form becomes an after pivot form whose own-frame picture is the old one with the named cells dropped and added at one common column offset (`_redrawn_geometry`). The own-frame origin and the placement stay where they were unless the new form names more entry contraction than the old one. The frame may take up to all of that extra contraction, and the placement may move left by the part the frame did not take. Everything after the pivot moves by the declared shift plus that placement change; the shift may be zero when the new form keeps the pivot's advance. The added set may be empty, for a form that only loses ink: ·Key's foot dropping its terminal pixel and its follower coming a column closer. The extension-dropped shape reads only names and so cannot see the rest of the window, which is why this shape is the one for an exit contraction in a window that carries anything else. Any other ink change in the window fails this match; the composed reading handles a window that also carries a second approved change. The unit's ink-delta digest must be the same under every config it lists, so shaping the first config stands for all of them. except_left reads the whole window."""
     deltas = unit.get("ink_deltas")
     if not isinstance(deltas, dict) or not deltas:
         return False
@@ -1306,7 +1312,7 @@ def _matches_redrawn(match, unit, excluded, context=None):
 
 
 def _validate_redrawn(rule_id, match) -> None:
-    """The redrawn shape's own coherence, checked once at load: every pivot form named on either side must belong to one family — a redrawn rule speaks for one letter's new form, so a second family in the lists could only be a paste error — the dropped set has to name at least one cell, since a form that gives up nothing and takes on nothing is not redrawn at all, and the dropped and added sets must not share a cell, since a cell traded for itself names no change either. The added set may be empty: a form that only gives ink up is redrawn as much as one that trades, which is what ·Key's foot losing its terminal pixel before ·May, ·No and ·It looks like at this grain."""
+    """Check a redrawn rule at load: all pivot forms on both sides belong to one family, since the rule describes one letter's new form; `dropped` names at least one cell; and no cell is in both `dropped` and `added`. `added` may be empty, for a form that only loses ink (·Key's foot losing its terminal pixel before ·May, ·No, and ·It)."""
     families = {_family(name) for name in match["before"]["pivots"] + match["after"]["pivots"]}
     if len(families) != 1:
         _fail(
@@ -1328,7 +1334,7 @@ def _validate_redrawn(rule_id, match) -> None:
 
 
 def _retarget_pairs(match, unit):
-    """Glyph indices where the named pair changed its join state: any of the pivot prefixes and none of the before forms the rule declines, the follower's family, the named before seam becoming the named after seam, letter for letter, with the pivot and follower settling into cells the rule names in full and the follower's after cell still that same family's. A declined form is how a rule steps aside from a before form that nests inside one of its prefixes and carries a count of its own, since prefixes alone cannot separate a form from its own extensions."""
+    """Return the before-glyph indices where the named pair changed its join state. The unit must line up letter for letter. At each index the glyph carries one of the pivot prefixes and none of the `except_pivots` forms, the next glyph is in a named follower family, the before seam between them is `seam_out` and the after seam is the rule's `retarget` or `joined` height, the two after cells are in `pivot_cells` and `receiver_cells`, and each after cell belongs to its before glyph's family. `except_pivots` lets a rule skip a before form that falls under one of its prefixes but needs a different count, since a prefix also matches every longer form."""
     if not _letter_for_letter(unit):
         return []
     glyphs, seams = unit["before"]["glyphs"], unit["before"]["seams"]
@@ -1355,7 +1361,7 @@ def _retarget_pairs(match, unit):
 
 
 def _retarget_piece_holds(before, after, reach=0):
-    """Whether one piece of a newly joined or retargeted pair kept its own-frame origin — or moved it left by exactly the columns the caller declares its new form reaches back — both on the grid. Height and picture may change; that is the shapes' point, with both letters free to redraw. Placement under a running displacement is the walk's job, not this contract's."""
+    """Whether one piece of a created or retargeted join kept its own-frame origin, or moved it left by exactly `reach` columns (right, for a negative `reach`), with its placements on the pixel grid. Its height and picture may change. The caller checks its placement against the running displacement."""
     if before is None or after is None:
         return False
     if after[4] != before[4] - reach * PIXEL_SIZE:
@@ -1364,7 +1370,7 @@ def _retarget_piece_holds(before, after, reach=0):
 
 
 def _retarget_geometry(match, unit, comparator, follower_shift, onward, follower_reach=0, pivot_room=0):
-    """Whether the window's rendered before→after change is exactly the named pair gaining a join or changing its join height, re-derived from the fonts: shape the window under one of the unit's configs, find every pivot–follower pair whose recorded seam moved from the named state to the named after seam and whose after cells the rule names, require the pivot to keep its own-frame origin and the follower to keep its own or reach back over its old left edge by the declared columns, require the pivot to keep its column placement — or to sit up to the columns of left-side entry the caller says it may give up further right — and the follower to move by the columns the caller declares plus whatever the pivot took there — none at all for a retarget whose follower stands still, the declared count for one whose follower comes closer and for every new join — and require each span strictly outside those pairs to render identically once displaced by the cumulative carry — the span before the first pair by nothing, the span after the first pair by what that pair carries onward (the retarget's declared shift, or a new join's shift with its follower's advance delta) plus what the pivot took, and one more of that for every further pair. Anything the contract cannot hold — no pair, a shaped run that contradicts the unit's recorded glyphs, sides that spell different letters, a pivot or follower that moved contrary to the declared shape, an off-grid placement — reads as no match, so the unit queues."""
+    """Whether the window's rendered before→after change is the named pair gaining a join or changing its join height, shaped under the unit's first config. For every pair `_retarget_pairs` finds, the pivot keeps its own-frame origin and its placement stays put or sits up to `pivot_room` columns further right (`_push`). The follower keeps its own-frame origin or moves it left by `follower_reach`, and its placement moves by `follower_shift` plus the pivot offsets so far, this pair's included. Each span outside the pairs must render identically, displaced by `onward` for each pair before it plus the pivot offsets so far. A retarget passes its `follower_shift` and `shift`; a created join passes its `shift` as `follower_shift`, and its `shift` plus `follower_advance` as `onward`. No pair, a before run that differs from the recorded glyphs, a mismatched glyph count, a piece that moved in a way the rule does not declare, or an off-grid placement returns False, so the unit queues."""
     codepoints = unit.get("codepoints") or ""
     if not codepoints:
         return False
@@ -1429,7 +1435,7 @@ def _retarget_geometry(match, unit, comparator, follower_shift, onward, follower
 
 
 def _matches_join_retarget(match, unit, excluded, context=None):
-    """A named join that has changed height, matched at the rendered-pixel grain: the pivot and the follower may both redraw, they keep their own-frame origin, the pivot keeps its column placement, the follower comes the declared number of columns nearer — none at all where the retarget leaves it standing — the named seam becomes the named new height, and everything after the follower sits the declared shift over. An origin unmoved on both letters and a column unmoved on the pivot pin the change to the join's row and the two letters' forms rather than to a slide or a dropped attachment, and any other ink change anywhere in the window fails this match closed — which is where the composed reading picks up, so a window this shape refuses only because a second separately-blessed change moved a pixel it has no vocabulary for may still be explained by both rules together. One shaped config speaks for all of them, on the same digest-agreement precondition the slide shape holds. except_left reads the whole window, as the slide and join-dropped shapes do."""
+    """A named join that has changed height, matched at the rendered-pixel grain: the named seam becomes the `retarget` height, the pivot and follower may both redraw but keep their own-frame origins, the pivot keeps its placement, the follower's placement moves by `follower_shift` (negative is nearer, zero leaves it standing), and everything after the follower moves by `shift` (`_retarget_geometry`). The unmoved origins and the unmoved pivot tie the change to the join and the two letters' forms, which rules out a slide or a dropped join. Any other ink change in the window fails this match; the composed reading handles a window that also carries a second approved change. The unit's ink-delta digest must be the same under every config it lists, so shaping the first config stands for all of them. except_left reads the whole window."""
     deltas = unit.get("ink_deltas")
     if not isinstance(deltas, dict) or not deltas:
         return False
@@ -1463,7 +1469,7 @@ def _matches_join_retarget(match, unit, excluded, context=None):
 
 
 def _matches_join_created(match, unit, excluded, context=None):
-    """A named pair — or any of several named pivots into one follower — that has newly joined, matched at the rendered-pixel grain: the pivot and follower may both redraw, the pivot keeps its own-frame origin and the follower either keeps its own or reaches back by the declared columns, the pivot keeps its column placement or sits up to the declared stub drop further right, the follower moves by the declared shift plus whatever the pivot took there, everything after it moves by that shift combined with the follower's declared advance delta, and the recorded break becomes the named join height. Those placement constraints distinguish a created join from a retarget, whose follower stands still, and from a general redraw; any other ink change anywhere in the window fails this match closed, which is where the composed reading picks up. One shaped config speaks for all of them, on the same digest-agreement precondition the slide shape holds. except_left reads the whole window, as the join-retargeted shape does."""
+    """A named pair, or any of several named pivots into one follower, that has newly joined, matched at the rendered-pixel grain: the recorded break becomes the `joined` height, and the pivot and follower may both redraw (`_retarget_geometry`). The pivot keeps its own-frame origin, and its placement stays put or sits up to `pivot_stub_drop` columns further right. The follower keeps its own-frame origin or moves it left by `follower_reach`, and its placement moves by `shift` plus the pivot's offset. Everything after the follower moves by that plus `follower_advance`. Any other ink change in the window fails this match; the composed reading handles a window that also carries a second approved change. The unit's ink-delta digest must be the same under every config it lists, so shaping the first config stands for all of them. except_left reads the whole window."""
     deltas = unit.get("ink_deltas")
     if not isinstance(deltas, dict) or not deltas:
         return False
@@ -1507,7 +1513,7 @@ def _matches_join_created(match, unit, excluded, context=None):
 
 
 def _validate_join_retarget(rule_id, match) -> None:
-    """The join-retargeted shape's own coherence, checked once at load: both seams must be yK heights and they must differ — a break has nothing to retarget, and a seam that holds its height is the extension shape's subject, not this one's — the cells have to belong to the letters the rule names, and a retarget onto a break is the gap shape's job."""
+    """Check a join-retargeted rule at load: `seam_out` and `retarget` must both be yK heights and must differ, and the pivot and receiver cells must belong to the named pivot and follower families. A break before has no join to retarget, a break after belongs to the join-dropped shape, and an unchanged height belongs to the extension-dropped shape."""
     if not SEAM_ROW.fullmatch(match["before"]["seam_out"]):
         _fail(
             f"rule {rule_id!r}: match.before.seam_out names {match['before']['seam_out']!r}, "
@@ -1537,7 +1543,7 @@ def _validate_join_retarget(rule_id, match) -> None:
 
 
 def _validate_join_created(rule_id, match) -> None:
-    """The join-created shape's own coherence, checked once at load: the before seam must be a break and the after seam a yK height, because a pair that already joined belongs to the retarget or extension shape, while a new break belongs to the gap shape. The follower's declared reach cannot be negative, since a form that pulls its left edge in is an entry contraction rather than a new join's receiver, and a declared pivot stub drop has to be at least a column, since a pivot that gives nothing up is the plain created join and says so by leaving the field off. Every before form the rule declines has to fall under one of the pivots it names, since a declined form outside them refuses nothing and hides the rule's real scope. The cells have to belong to the letters the rule names, on either side — a rule may name several pivots, which is what lets one letter's new entry be recorded once for every left neighbor that now reaches it."""
+    """Check a join-created rule at load. `seam_out` must be `break` and `joined` a yK height, since a pair that already joined belongs to the retarget or extension shape and a new break to the join-dropped shape. `follower_reach` must not be negative, since a follower that pulls its left edge in is an entry contraction. A declared `pivot_stub_drop` must be at least 1; a rule without a stub drop leaves the field off. Every `except_pivots` form must fall under one of the named pivots, since a declined form outside them declines nothing and misstates the rule's scope. The pivot and receiver cells must belong to the named pivot and follower families. Naming several pivot families lets one rule record a letter's new entry for every left neighbor that now reaches it."""
     if match["before"]["seam_out"] != "break":
         _fail(
             f"rule {rule_id!r}: match.before.seam_out names {match['before']['seam_out']!r}; "
@@ -1580,7 +1586,14 @@ def _validate_join_created(rule_id, match) -> None:
 
 
 class Event(NamedTuple):
-    """One position a composable rule was credited at in a composed walk: the rule's id, which shape spoke there (`slide`, `extension`, `gain`, `join`, `entry`, `stub`, `redrawn`, `retarget`, or `joined`), the columns the window's running displacement moves by at that position — the declared slide, minus the extension's column count, the declared join gap, an entry shortening combined with any exit-extension delta on that pivot, the declared created-join shift or the columns a retarget brings its follower nearer, the stub-drop's placement bump (followers unmoved), or the declared ink-gain or redrawn shift — how far the pivot's own placement sits ahead of the span behind it, which only an entry contraction whose after frame did not take it into its origin is ever anything but zero, how much room the pivot's own placement has beyond where the walk expects it — to the left for a redrawn trade by whatever of an entry contraction its new form names its own frame did not take, to the right for a created join whose pivot gives up a left-side stub as it takes the join — whether the event's own contract judged its pivot, which only a created join and a retarget ever answer no to: a created join whose pivot moved its origin has judged its follower alone and is an event only behind an entry-contraction event at the same position, and a retarget whose pivot moved its origin only where a created join in front of it has declared that move as its follower's reach, the columns the displacement moves by again once the walk is past the follower, which a created join whose follower redrew to a different advance carries and a retarget carries whatever its declared shift leaves over its follower's own move, and the columns a created join's follower reached back over its own pen, which is the part of that advance a chained retarget still needs — or, on a dropped join, the columns its follower hands that reach back as the join dies, which is what says the follower's picture is the event's own subject rather than the head of the next span."""
+    """One position where a composable rule's contract held in a composed walk.
+
+    `kind` names the shape: `slide`, `extension`, `gain`, `join` (dropped), `entry`, `stub`, `redrawn`, `retarget`, or `joined` (created). `shift` is the columns the running displacement moves at this position: the declared slide, minus the extension's dropped columns, the declared gap, the entry shortening plus any exit-extension change on the pivot, the created join's shift, the columns a retarget moves its follower, or the declared ink-gain or redrawn shift. For `stub`, `shift` is the pivot's own placement offset instead, and the followers do not move.
+
+    `pivot_judged` is False only for a `retarget` or `joined` event whose pivot moved its own-frame origin. The walk keeps either kind only when it chains behind an entry, gain, or redrawn event at the same position, which has judged the pivot, and also keeps such a retarget behind a created join at the previous position, whose `follower_reach` has already checked that move.
+
+    `lead` is an entry event's expected placement offset from the running displacement, zero or negative; it is nonzero only for an entry contraction the after form's own frame did not fully take into its origin. `room` is how far the pivot's placement may sit from the running displacement: to the left for a redrawn event, by the part of its new form's entry contraction its frame did not take, and to the right for a created join, by its `pivot_stub_drop`. `advance` is the further displacement applied once the walk is past the follower: a created join's `follower_advance`, or what a retarget's `shift` leaves after its `follower_shift`. `reach` is a created join's `follower_reach`, the part of its advance a retarget chained behind it still needs. On a dropped join it is `follower_give_back`, which makes the follower's picture part of the event instead of the head of the next span.
+    """
 
     rule_id: str
     kind: str
@@ -1593,7 +1606,7 @@ class Event(NamedTuple):
 
 
 def _shape_of(match):
-    """The one delta shape a rule's match declares, read off the `match.after` field that keys it — the reading `load_rules` holds every rule to, so a loaded rule always has exactly one and the flags on its row answer for it. None only for a match that declares no shape at all, which nothing that has been through the loader can be."""
+    """Return the SHAPES row whose `keyed_by` field the rule's `match.after` carries, or None when it carries none. `load_rules` requires exactly one, so a loaded rule always has a shape."""
     for shape in SHAPES.values():
         if shape.keyed_by in match["after"]:
             return shape
@@ -1601,7 +1614,7 @@ def _shape_of(match):
 
 
 def _is_composable(rule):
-    """Whether a rule's shape can take part in a composed reading, which its row's `composable` flag answers. What earns a shape that flag is naming a local pixel change the walk can prove — a displacement, a named set of own-frame cells appearing on or traded on the pivot, a named join becoming a gap, a named left-side stretch or stub the pivot gives up, or a named join changing height — so a walk across a window can carry it. A shape that reads a whole window's name-grain structure, or its whole ink change byte for byte, says nothing about any one position and so has nothing to contribute to a walk."""
+    """Whether a rule's shape has the `composable` flag, so a composed walk may credit it. The module docstring says which shapes compose and why."""
     shape = _shape_of(rule["match"])
     return shape is not None and shape.composable
 
@@ -1648,19 +1661,19 @@ def _is_created_join_match(match):
 
 
 def _composable_digest(rules):
-    """A hashable identity for a set of composable rules — each one's id with what it matches on — so a composed reading memoized against one rules file is never served to another: the memo lives on the context, a caller may hold two rule sets against one context, and the memoized value names rule ids, so two sets that match alike under different ids must not share an entry either."""
+    """Return a hashable key for a list of composable rules: each rule's id with its match as sorted JSON. `SlideContext.composed` is keyed on it, so a context shared by two rule sets never returns one set's walk for the other. The ids are part of the key because the stored walk names rule ids."""
     return tuple((rule["id"], json.dumps(rule["match"], sort_keys=True)) for rule in rules)
 
 
 def _candidate_counts(rules, unit):
-    """How many positions each composable rule could speak for in one window (`_candidates`), by id in rules-file order — the terms of the composed pre-gate, computed once so the composed reading and the unit's memo entry read the same counts. Empty for a window with no shaped side, which no rule can speak for."""
+    """Return each rule's number of candidate positions in the window (`_candidates`), by id in rules-file order, or an empty dict when the unit lacks a before or after record. `Decider.evaluate` computes it once and uses it for both the composed pre-gate and the memo entry's `relevant` rules."""
     if not unit.get("before") or not unit.get("after"):
         return {}
     return {rule["id"]: len(_candidates(rule["match"], unit)) for rule in rules}
 
 
 def _candidates(match, unit):
-    """The window positions one composable rule could speak for, read off the index record before anything is shaped: a slide, ink-gain, entry-drop, stub-drop, or redrawn rule's are the glyphs whose recorded before name carries one of its pivot prefixes; an entry-contracted rule additionally requires one of the named families immediately on the pivot's left and declines any before forms it sets aside; a join-dropped rule's are the positions where the named pivot's recorded seam into the named follower dropped from the named height to a break, and into whichever after cells it names; a join-retargeted or join-created rule's are the positions where the named pivot's recorded seam into the named follower moved from the named before state to the named new height and both after cells the rule names, less any position whose before glyph falls under a form the rule declines; an extension rule's are `_extension_positions` — the positions meeting every per-position precondition the single-rule matcher reads — and none at all unless the named seam is a yK height, since the walk has to know which row a dropped tail sits on. Deliberately name-grain and cheap, because this is the pre-gate that decides whether a window is worth shaping at all: a rule with no candidate here can never be credited, and a window holding fewer than two candidate positions is never shaped."""
+    """Return the window positions where a composable rule could hold, read from the unit's index record without shaping. Slide, ink-gain, entry-drop, stub-drop, and redrawn rules use every position whose before glyph carries a before pivot prefix. Entry-contracted rules use `_contracted_entry_candidates`, join-dropped rules `_join_pairs`, and join-retargeted and join-created rules `_retarget_pairs`. Extension rules use `_extension_positions`, and return none when `seam_out` is not a yK height, because the walk needs a row for the dropped tail. This is the composed pre-gate: a rule with no candidate is never credited, and a window with fewer than two candidate positions across all rules is never shaped."""
     glyphs = unit["before"]["glyphs"]
     if (
         _is_slide_match(match)
@@ -1682,7 +1695,7 @@ def _candidates(match, unit):
 
 
 def _extension_positions(match, unit):
-    """The positions an extension-dropped rule could speak for, read off the index record: the positions meeting every per-position precondition the single-rule matcher reads — the named drop (an `ex-ext-N` on the before glyph, or an `ex-con-N` on the after cell whose before glyph never carried an exit extension), the named seam standing still at that position on both sides, the pivot and follower after cells, and the follower's own family answering for its own cell. Whether the named seam is a row the walk can place a dropped tail on is `_candidates`' question, not this one's, so a rule whose seam is not a yK height is still judged here the way its own matcher judges it."""
+    """Return the positions where an extension-dropped rule's per-position conditions hold, read from the index record. The pivot carries the pivot prefix and the named drop (`_carries_named_drop`), the seam is `seam_out` on both sides, the pivot and follower after cells are in the named lists, and the follower is in a named family with an after cell of that family. Unlike `_candidates`, this does not require a yK seam, so `_reachable` judges a rule whose seam the walk cannot place the way the rule's own matcher does."""
     glyphs, seams = unit["before"]["glyphs"], unit["before"]["seams"]
     cells, after_seams = unit["after"]["cells"], unit["after"]["seams"]
     mb, ma = match["before"], match["after"]
@@ -1703,7 +1716,7 @@ def _extension_positions(match, unit):
 
 
 def _reachable(match, unit):
-    """Whether a rule could speak for a unit at all, read at the name grain before anything is shaped: a composable shape's candidate positions (`_candidates`, with the extension shape read through `_extension_positions` so a rule whose seam is not a yK row is judged the way its own matcher judges it), a glyph carrying the pivot prefix for the ligature shape, and every persisted digest among the named ones for the ink-delta shape. Each is a precondition its shape's matcher reads guarded or unguarded, and the composed walk asks a rule only at its candidate positions, so a unit this refuses stands on none of the rule's lines — filled, already verdicted, held, or composed credit — which is what lets a targeted run evaluate only the units it admits and print that rule's lines byte-identical to the whole domain's; rebuild/test_standing_verdicts.py holds that for every checked-in rule over the frozen mini bundle."""
+    """Whether a rule could accept or hold the unit, judged from names alone without shaping. A composable rule needs a candidate position (`_candidates`, or `_extension_positions` for an extension rule); a ligature rule needs a glyph with its pivot prefix; an ink-delta rule needs the unit's persisted digests to be a nonempty subset of its own. Each condition is necessary for the rule's matcher, guarded or not, and for composed credit, since the walk tries a rule only at its candidates. So a unit this rejects appears on none of the rule's report lines: filled, already verdicted, held, or composed. `--targeted` relies on this to evaluate only the admitted units and still print the rule's lines as the whole-domain run would. test_a_rules_lines_never_name_a_unit_outside_its_name_grain_candidates in rebuild/test_standing_verdicts.py checks it for every checked-in rule over the frozen mini bundle."""
     if not unit.get("before") or not unit.get("after"):
         return False
     shape = _shape_of(match)
@@ -1724,7 +1737,7 @@ def _reachable(match, unit):
 
 
 def _pieces_by_glyph(names, run):
-    """Each glyph position of a shaped run mapped to its ink piece, by walking the names and consuming the run's pieces in order: an inkless glyph — a space, a ZWNJ, an empty marker — draws nothing and is simply absent, which is what lets a marker ride through a window without ever being an event. None when the pieces are not all consumed, the one way the two can disagree, which a caller reads as no picture claim being possible."""
+    """Map each glyph position of a shaped run to its ink piece, consuming the run's pieces in order as the names match. An inkless glyph (a space, a ZWNJ, an empty marker) has no piece and is left out, so it is never an event. Return None when a piece is left unconsumed, which callers treat as no match."""
     pieces = {}
     index = 0
     for position, name in enumerate(names):
@@ -1735,7 +1748,7 @@ def _pieces_by_glyph(names, run):
 
 
 def _slide_event(match, rule_id, index, after_names, before_pieces, after_pieces):
-    """Whether one slide candidate's own contract holds at the rendered grain, one position at a time and in `_slide_geometry`'s own reading: the after side settles into one of the rule's named after forms, and the pivot keeps its exact shape at its exact height with its own-frame origin displaced by exactly the declared column count, which pins the mechanism to the pivot's sidebearing rather than to drift that happens to land the same pixels. None when it does not hold, which leaves the piece to be judged as ordinary span ink."""
+    """Return a slide Event at `index` when the after glyph carries an after pivot prefix and the pivot keeps its picture and vertical placement while its own-frame origin moves by the declared slide, or None, which leaves the piece to be judged as span ink. The origin check ties the change to the pivot's sidebearing, so an unrelated shift that happens to produce the same pixels does not count. This is `_slide_geometry`'s pivot check for one position."""
     before, after = before_pieces.get(index), after_pieces.get(index)
     if before is None or after is None:
         return None
@@ -1750,7 +1763,7 @@ def _slide_event(match, rule_id, index, after_names, before_pieces, after_pieces
 
 
 def _gain_event(match, rule_id, index, after_names, intern, before_pieces, after_pieces):
-    """Whether one ink-gain candidate's own contract holds at the rendered grain, one position at a time: the after side settles into one of the rule's named after forms, the pivot keeps its horizontal own-frame origin, and its placed old picture stands still inside the after frame plus exactly the named cells — no cell lost, no unnamed cell gained, though the frame may extend vertically around it. Horizontal placement under the running displacement is the walk's job, not this contract's, mirroring `_slide_event` leaving the span equality to the walk. None when any of that fails, which leaves the piece to be judged as ordinary span ink."""
+    """Return a gain Event at `index` when the after glyph carries an after pivot prefix and `_gain_holds` passes, or None, which leaves the piece to be judged as span ink. The pivot keeps its own-frame origin, and its after picture is its before picture plus exactly the named cells; the after frame may extend vertically. The walk checks the pivot's placement against the running displacement."""
     before, after = before_pieces.get(index), after_pieces.get(index)
     if before is None or after is None:
         return None
@@ -1762,7 +1775,7 @@ def _gain_event(match, rule_id, index, after_names, intern, before_pieces, after
 
 
 def _entry_event(match, rule_id, index, after_names, intern, before_pieces, after_pieces, seam=None):
-    """Whether one entry-shortening candidate's own contract holds at the rendered grain, one position at a time: the after side settles into one of the rule's named after forms, and `_entry_drop_holds` proves either the fixed-origin entry drop or the named entry contraction and says how far the pivot's own placement sits ahead of the span behind it. Placement under the running displacement is the walk's job, not this contract's, mirroring `_gain_event` leaving the span equality to the walk. None when any of that fails, which leaves the piece to be judged as ordinary span ink."""
+    """Return an entry Event at `index` when the after glyph is a named after pivot and `_entry_drop_holds` passes, or None, which leaves the piece to be judged as span ink. For an entry-contracted rule the pivot must keep its family, and the after glyph is matched by `_named_contracted_pivot` against the after seam into it, `seam`. The event's `lead` is the pivot's placement offset that `_entry_drop_holds` returns, and its shift is `_entry_shift`. The walk checks the placement against the running displacement."""
     before, after = before_pieces.get(index), after_pieces.get(index)
     if before is None or after is None:
         return None
@@ -1780,7 +1793,7 @@ def _entry_event(match, rule_id, index, after_names, intern, before_pieces, afte
 
 
 def _stub_event(match, rule_id, index, after_names, intern, before_pieces, after_pieces):
-    """Whether one stub-drop candidate's own contract holds at the rendered grain, one position at a time: the after side settles into one of the rule's named after forms, and the pivot keeps its height and own-frame origin while its after picture is its before picture compacted left by the declared column count. Placement under the running displacement is the walk's job, not this contract's. None when any of that fails, which leaves the piece to be judged as ordinary span ink."""
+    """Return a stub Event at `index` when the after glyph carries an after pivot prefix and its picture is the before picture compacted left by the declared columns (`_entry_drop_holds` read as an entry drop of that count), or None, which leaves the piece to be judged as span ink. The walk checks that the pivot's placement moved right by that count."""
     before, after = before_pieces.get(index), after_pieces.get(index)
     if before is None or after is None:
         return None
@@ -1793,7 +1806,7 @@ def _stub_event(match, rule_id, index, after_names, intern, before_pieces, after
 
 
 def _redrawn_event(match, rule_id, index, after_names, intern, before_pieces, after_pieces):
-    """Whether one redrawn candidate's own contract holds at the rendered grain, one position at a time: the after side settles into one of the rule's named after forms, and the pivot keeps its height while its after picture is its before picture with the named cells traded at one common column offset, its own frame standing still or carrying up to the entry contraction the new form names. Placement under the running displacement is the walk's job, not this contract's, mirroring `_entry_event` leaving the span equality to the walk, and so is how much of the entry contraction the pivot takes there — the contract says only how much room the frame left it. None when any of that fails, which leaves the piece to be judged as ordinary span ink."""
+    """Return a redrawn Event at `index` when the after glyph carries an after pivot prefix and `_redrawn_holds` passes, or None, which leaves the piece to be judged as span ink. The event's `room` is the contraction room its own frame did not take; the walk decides how much of it the pivot's placement uses (`_pull`)."""
     before, after = before_pieces.get(index), after_pieces.get(index)
     if before is None or after is None:
         return None
@@ -1807,7 +1820,7 @@ def _redrawn_event(match, rule_id, index, after_names, intern, before_pieces, af
 
 
 def _extension_event(match, rule_id, index, intern, before_pieces, after_pieces, cell):
-    """Whether one extension candidate's own contract holds at the rendered grain: the pivot stands on the grid at the same height on the same own-frame origin and draws the same picture minus a tail, where the tail is every cell the after form has given up, each of them past the after form's rightmost column, on the very row the named seam holds, and exactly as many columns wide as the pivot gave up — the named extension, less the shorter one its after cell keeps when it keeps one, or the named contraction in full. The grid check is the pivot's own because it is the one piece no span ever pictures — `_span_cells` refuses an off-grid placement everywhere else — and the seam row is read by dividing its height by the pixel size, which only names the right row on the grid. The follower has to exist as ink on both sides so the walk can skip it or chain it, but its picture is not this contract's: the rule already named the after cell, and a named redraw (·May losing the stacked entry, ·I's smaller loop) is the rule's own subject. None when any of that fails, which leaves both pieces to be judged as ordinary span ink."""
+    """Return an extension Event at `index` when the pivot drops exactly the named exit tail, or None, which leaves the pivot and follower to be judged as span ink. The pivot keeps its vertical placement and own-frame origin, sits on the pixel grid, and paints its before picture minus a tail. Every dropped cell lies right of the after picture's rightmost column, on the row the `seam_out` height names, and the tail is as wide as `_drop_columns` says: the named extension less any shorter one the after cell keeps, or the named contraction in full. The pivot needs its own grid check because no span ever includes it, and `_span_cells` checks every other piece. The seam row is the height divided by the pixel size, which is only correct on the grid. The follower must have ink on both sides so the walk can skip or chain it, but its picture is not checked here, because the rule names its after cell and a redraw inside that cell (·May losing the stacked entry, ·I's smaller loop) is part of what the rule approves."""
     seam = SEAM_ROW.fullmatch(match["before"]["seam_out"])
     if seam is None:
         return None
@@ -1836,7 +1849,7 @@ def _extension_event(match, rule_id, index, intern, before_pieces, after_pieces,
 
 
 def _join_event(match, rule_id, index, before_pieces, after_pieces):
-    """Whether one join-dropped candidate's own contract holds at the rendered grain: the pivot keeps its own-frame origin, on the grid, with its exact shape at its exact height too unless the rule named the cells both letters settle into, and the follower exists as ink on both sides, its own-frame origin moving right by exactly the columns the rule says it hands back where it declares any. Placement under the running displacement is the walk's job, not this contract's, mirroring `_slide_event` leaving the span equality to the walk. The follower's picture is this contract's only where the rule declares that give-back, which is what makes the redrawn follower the event's own subject: without one, a follower that is itself an event is judged by the next event and one that is not goes into the next span, so a redrawn follower still fails as unexplained span ink. None when any of that fails, which leaves both pieces to be judged as ordinary span ink."""
+    """Return a join Event at `index` when the pivot passes `_join_pivot_holds` and the follower has ink on both sides, or None, which leaves both pieces to be judged as span ink. When the rule declares `follower_give_back`, the follower must also pass `_join_follower_holds`, and the walk treats the follower as part of this event instead of the head of the next span. Without a give-back, a follower that is itself an event is judged by that event, and any other follower heads the next span, so a redrawn follower still fails there."""
     if not _join_pivot_holds(match, before_pieces.get(index), after_pieces.get(index)):
         return None
     if before_pieces.get(index + 1) is None or after_pieces.get(index + 1) is None:
@@ -1848,7 +1861,7 @@ def _join_event(match, rule_id, index, before_pieces, after_pieces):
 
 
 def _retarget_event(match, rule_id, index, before_pieces, after_pieces):
-    """Whether one join-retargeted candidate's own contract holds at the rendered grain: both the pivot and the follower keep their own-frame origin, both on the grid. Height and picture may change. A pivot that draws ink on both sides but moved its origin comes back with `pivot_judged` false rather than as no event, exactly as a created join's does: the walk honors that only where the pivot is a created join's follower, because the join's declared reach has already judged that origin move, and drops it otherwise, so a letter that redrew its own left edge never rides through a retarget alone. Placement under the running displacement is the walk's job, not this contract's, mirroring `_join_event` leaving the span equality to the walk. The event carries the two counts the walk needs apart — how far the follower itself comes, which is nothing for a retarget that leaves it standing, and how much further the displacement moves once the walk is past it. Both are read with the pivot standing, so they already hold whatever that letter's own advance did, a created join in front of this event hands it nothing of its declared advance but the columns its follower reached back over its own pen, and a retarget in front of it hands on nothing at all. None when the follower fails or the pivot draws nothing, which leaves both pieces to be judged as ordinary span ink."""
+    """Return a retarget Event at `index` when the pivot has ink on both sides and the follower keeps its own-frame origin on the grid (`_retarget_piece_holds`), or None, which leaves both pieces to be judged as span ink. Height and picture may change. `pivot_judged` is False when the pivot moved its own-frame origin; the walk keeps such an event only behind a created join at the previous position, whose follower reach has already checked that move, or behind an entry, gain, or redrawn event at the same position, so a letter that redrew its own left edge never passes through a retarget alone. `shift` is how far the follower moves and `advance` is the rest of the declared shift, applied past the follower. Both are measured with the pivot standing, so they already include the pivot's own advance: a created join in front passes on only its follower reach (`_handed_on`), and a retarget in front passes on nothing."""
     if before_pieces.get(index) is None or after_pieces.get(index) is None:
         return None
     if not _retarget_piece_holds(before_pieces.get(index + 1), after_pieces.get(index + 1)):
@@ -1864,7 +1877,7 @@ def _retarget_event(match, rule_id, index, before_pieces, after_pieces):
 
 
 def _created_join_event(match, rule_id, index, before_pieces, after_pieces):
-    """Whether one join-created candidate's own contract holds at the rendered grain: the follower keeps its own-frame origin or reaches back by the columns the rule declares, on the grid, and the pivot keeps its own. Height and picture may change. A pivot that exists as ink on both sides but moved its origin comes back with `pivot_judged` false rather than as no event: the walk honors that only behind an entry-contraction event at the same position — the contraction has judged the pivot's entry and origin, so the created join needs only its follower — and drops it otherwise, so a redrawn pivot never rides through a created join alone. Placement under the running displacement is the walk's job, with the pivot standing under the old displacement or up to the declared stub drop right of it, the follower leading the new one, and the follower's advance delta carried on past it. None when the follower fails or the pivot draws nothing, which leaves both pieces to be judged as ordinary span ink."""
+    """Return a created-join (`joined`) Event at `index` when the follower keeps its own-frame origin or moves it left by `follower_reach`, on the grid, and the pivot has ink on both sides, or None, which leaves both pieces to be judged as span ink. Height and picture may change. `pivot_judged` is False when the pivot moved its own-frame origin; the walk keeps such an event only when it chains behind an entry, gain, or redrawn event at the same position, which has judged the pivot. In the walk the pivot sits at the running displacement or up to `pivot_stub_drop` columns right of it, the follower moves by the shift plus that offset, and the follower's advance delta is carried past it."""
     if not _retarget_piece_holds(
         before_pieces.get(index + 1), after_pieces.get(index + 1), match["after"]["follower_reach"]
     ):
@@ -1884,7 +1897,7 @@ def _created_join_event(match, rule_id, index, before_pieces, after_pieces):
 
 
 def _span_settled(intern, before_span, after_span, displacement, after_anchor=None):
-    """Whether one span between events renders as the same picture once displaced: the union of the before pieces' cells at their placements, moved by the displacement the walk has accumulated so far, must equal the after pieces' union exactly. When an already-validated after piece anchors both unions, cells handed invisibly between it and the span do not become a second change. A span or anchor the walk cannot picture — a non-rectilinear outline, an off-grid placement — refuses, so a window no cell reading can be made of never composes."""
+    """Whether one span between events renders as the same picture once displaced: the union of the before pieces' cells, moved by the running displacement, must equal the union of the after pieces' cells. When `after_anchor`, an after piece the walk has already validated, is added to both unions, cells handed invisibly between it and the span do not count as a change. A span or anchor with a non-rectilinear outline or an off-grid placement returns False."""
     painted = _span_cells(intern, before_span)
     rendered = _span_cells(intern, after_span)
     anchored = set() if after_anchor is None else _span_cells(intern, [after_anchor])
@@ -1895,7 +1908,7 @@ def _span_settled(intern, before_span, after_span, displacement, after_anchor=No
 
 
 def _span_compacted(intern, before_span, after_span, displacement, columns):
-    """Whether one span is the displaced before picture compacted left by `columns`: the leftmost that many columns of ink are gone and the remaining cells have shifted left by the same count. That is the stacked entry coming off the named extension follower, which `_span_settled` cannot see because it is not a translation — the left edge stays and the right edge moves in."""
+    """Whether one span is the displaced before picture compacted left by `columns`: ink comes off only within the leftmost `columns` columns, and the remaining cells move left by the same count. This is the stacked entry coming off an extension rule's named follower, which `_span_settled` cannot see because it is not a translation."""
     painted = _span_cells(intern, before_span)
     rendered = _span_cells(intern, after_span)
     if painted is None or rendered is None or not rendered:
@@ -1914,7 +1927,7 @@ def _span_compacted(intern, before_span, after_span, displacement, columns):
 def _span_explained(
     intern, before_span, after_span, displacement, compact=0, skippable=False, after_anchor=None
 ):
-    """Whether one span is accounted for: a pure translation under the standing displacement, optionally unioned on both sides with an already-validated after piece; or that picture compacted left by a dropped entry extension; or — for an extension's named follower — the span without that follower as a translation, which is the named-cell blessing when the follower redrew in some other way."""
+    """Whether one span is accounted for: a translation under the running displacement (`_span_settled`, with `after_anchor` if given), or, without an anchor, that picture compacted left by `compact` columns, or, when `skippable`, a translation of the span without its first piece. The last two apply to an extension's named follower, which may drop a stacked entry or redraw inside its named cell."""
     if _span_settled(intern, before_span, after_span, displacement, after_anchor=after_anchor):
         return True
     if after_anchor is not None:
@@ -1927,12 +1940,17 @@ def _span_explained(
 
 
 def _handed_on(event, follower_event):
-    """What a created join hands the walk past its follower, which the event that takes that letter next decides: the whole declared advance delta wherever the next event's own count leaves that letter's advance still to spend — a join it goes on to create, the exit extension it gives up, the ink it gains, or the trade its new form makes — and only the columns the follower's new form reached back over its own pen where a retarget takes the letter's outgoing seam, since a retarget's counts are read with its pivot standing and so already hold whatever that letter's own advance did."""
+    """Return the displacement a created join carries past its follower when that follower is the next event: only the follower's reach when the next event is a retarget, whose counts are measured with its pivot standing and so already include that letter's advance, and otherwise the whole declared advance."""
     return event.reach if follower_event.kind == "retarget" else event.advance
 
 
 def _composed_walk(rules, unit, context):
-    """The composed reading itself, re-derived from the surface's own fonts: shape both sides of the window, hold each shaped run against what the index recorded, evaluate every composable rule's candidates at the rendered grain, and walk the window left to right carrying a running column displacement — each span between events judged as a picture under the displacement standing when it began, each event judged as its own contract plus a placement offset, and each event's pivot (a slide's) or follower (an extension's or a join-dropped's — or that follower itself as the next event, when it is one) or next glyph (an ink-gain's, an entry shortening's, or a redrawn trade's) leading the next span under the new displacement. A retargeted pair keeps its pivot under the standing displacement and brings its follower the columns it declares nearer before the declared shift leads the following span; a newly joined pair keeps its pivot under the standing displacement, or up to the stub drop its rule declares to the right of it, while its follower leads the new one and hands the follower's advance delta on to whatever comes after it — and when that pivot is an entry-contraction, ink-gain or redrawn event's, or is a retarget event's follower, the created join chains behind it, the earlier event judging the pivot — its entry and origin, or the picture it settles into — and the join judging only the follower, which then leads by both shifts combined, while a further created join, a retarget, an exit-extension drop, an ink gain or a redrawn trade whose pivot is a created join's follower chains the other way round, the join leading that letter and the later event carrying the glyphs after it by both shifts, the join handing on its whole declared advance to a later created join, exit-extension drop, ink gain or redrawn trade and only its follower's declared reach to a later retarget, whose own counts are read with its pivot standing and so already hold that letter's advance — which a created join chained behind a contraction hands on the same way, so all three can stand in one window. A redrawn trade whose pivot is a retarget event's follower chains behind that retarget too, the retarget having judged that letter's placement and the trade carrying the glyphs after it by its own declared count, and so does a second retarget on that letter's outgoing seam, or the gap a dropped join opens there, the earlier one handing on nothing of the shift it declared beyond its follower's own move. An extension follower's span may also compact left by a dropped entry extension, so the stacked entry coming off ·May is the same seam as ·It's dropped tail, not a third change. A candidate whose own contract fails is simply not an event and its ink is judged as ordinary span ink, so adding a rule to the file can never un-explain a window that was explained without it; two rules claiming one position, or a join-retargeted or join-created event whose follower position is itself claimed, is ambiguous and refuses outright — the chains behind a contraction, behind an ink gain, behind a redrawn trade, behind a retarget and behind a created join being the sanctioned shares, a created join whose pivot moved its origin being no event at all without a contraction under it, and a retarget whose pivot moved its origin none without the created join in front of it whose reach declared that move. A join-dropped or extension event whose follower is itself an event chains: the follower is the next event under the new displacement rather than consumed. Returns each credited rule's event positions, or None when no such reading of the window exists. It carries no arity threshold of its own — a single-event reading is a real reading of a window, and it is `_composed` that requires two — which is what lets it be held directly against each single-shape matcher."""
+    """Walk the window left to right under a running column displacement and return each credited rule's event positions, or None when the composable rules cannot account for every rendered pixel together. The module docstring describes each event kind's placement and the chains in which two events share a letter; this function implements them.
+
+    The unit's ink-delta digest must be the same under every config, and the window is shaped under the first. Both shaped runs must match the index record letter for letter. Every candidate of every rule is tested against its event contract (`_slide_event` and the others). A candidate that fails is not an event, and its ink is judged as span ink, so a rule that fails at a position does not stop the other rules from explaining the window. Two judged events at one position, or a retarget or created-join event whose follower position is also an event, return None unless they form one of the chains the module docstring lists. Every span between events must pass `_span_explained` under the displacement at its start.
+
+    There is no minimum event count here, so tests can compare a single-event walk with each single-shape matcher. `_composed` requires two events.
+    """
     deltas = unit.get("ink_deltas")
     if not isinstance(deltas, dict) or not deltas:
         return None
@@ -2198,7 +2216,7 @@ def _composed_walk(rules, unit, context):
 
 
 def _composed(rules, unit, context, digest=None, counts=None):
-    """The composed reading a fill may be written from: the name-grain pre-gate first, where two or more candidate positions must stand across the rules or the window is never shaped at all; then the walk, memoized per (rules, unit) so a window is shaped once however many times it is asked about; then the two-event threshold, because a window one rule accounts for at a single position belongs to that rule's own line and not to a composition, while the same rule speaking at two positions is a composition — the walk has held every pixel of the window against two blessed changes, which is more than any single-shape matcher's own localization asks for. Returns each credited rule's event positions before any guard is read, since the guards are scoped per credited rule and the caller has to know which positions earned the credit. `digest` is `_composable_digest(rules)` computed once by a caller that asks per unit (`Decider` holds it for the run) and `counts` is `_candidate_counts(rules, unit)` from a caller that also keys the unit's memo entry on them; left off, each is computed here."""
+    """Return the composed reading a fill may use: each credited rule's event positions, before any guard is read, or None. It returns None without shaping when the rules have fewer than two candidate positions in total, and None when the walk credits fewer than two events. A single event belongs on that rule's own line, while one rule credited at two positions counts as a composition. The walk is memoized per rules digest and unit id in `context.composed`. A caller that already has `digest` (`_composable_digest(rules)`) or `counts` (`_candidate_counts(rules, unit)`) passes them, as `Decider.evaluate` does; otherwise they are computed here."""
     if not unit.get("before") or not unit.get("after"):
         return None
     if counts is None:
@@ -2213,7 +2231,7 @@ def _composed(rules, unit, context, digest=None, counts=None):
 
 
 def _composed_held(rules, unit, events, context):
-    """Whether any rule's except_left guard refuses this window, each read in the scope its shape's row declares: a credited window-scope rule's guard reads the whole window, exactly as the single-rule shape does, because such a shape bounds nothing to its left; a credited left-neighbor-scope rule's reads only the left neighbor of each position it was credited at, again exactly as the single-rule shape does; and a rule that took no part in the walk but whose own matcher accepts the window unguarded and refuses it guarded holds it too, since that rule would have held the window in the single-rule pass and a composition must not lift a hold. A refusal holds the whole unit rather than dropping the one rule's credit, which is the file's standing principle that a guarded context never rides along beside an unguarded one."""
+    """Whether an except_left guard holds this composed window. A credited rule's guard is read in its shape's `guard_scope`: across the whole window for `window`, or at the left neighbor of each credited position for `left-neighbor`. A non-composable rule holds the window when its own matcher accepts it unguarded and rejects it guarded, since it would have held the window in the single-rule pass. A hold applies to the whole unit, not only to one rule's credit."""
     glyphs = unit["before"]["glyphs"]
     for rule in rules:
         match = rule["match"]
@@ -2237,7 +2255,7 @@ def _composed_held(rules, unit, events, context):
 
 
 def _composed_verdict(rules, unit, events, context):
-    """The verdict one composed fill carries and the id of the rule outside the credited set that weakened it, None when none did: the weakest verdict over the credited rules and over every non-composable rule whose own matcher accepts the window as well, since a window some blessed-either rule also speaks for cannot be approved outright on the strength of the others. The note is `_composed_note`'s, read from the live rules when the fill is written."""
+    """Return the composed fill's verdict and the id of the non-credited rule that weakened it, or None for the id. The verdict is `either` when any credited rule's verdict is `either`, or when a non-composable `either` rule's own matcher also accepts the window; otherwise it is `approve`. `_composed_note` writes the fill's note from the live rules."""
     credited = [rule for rule in rules if rule["id"] in events]
     verdict = "either" if any(rule["verdict"] == "either" for rule in credited) else "approve"
     weakened = None
@@ -2252,7 +2270,7 @@ def _composed_verdict(rules, unit, events, context):
 
 
 class SlideContext:
-    """The font-backed state the slide shape and the composed reading match with: one InkComparator over the surface's shipped font pair, a per-run memo of each rule's geometric verdict per unit so the guarded and unguarded passes over one rule shape a window once, and a second memo of each composed walk per unit, keyed on the composable rules' ids and matches so a window is shaped once however many times the same rules ask about it and a caller holding a second rule set against the same context is never served the first set's reading. `fonts` keeps the pair it was built over, so a pooled worker (`_standing_pool_init`) builds its own context over provably the parent's fonts. Every key in both memos names the unit it was computed for and `Decider._decided` answers any repeat ask, so `Decider._release` empties both at no cost behind every unit `Decider.decide` serves or computes and every memo entry `Decider._serving` holds against the live rules, and a pooled worker, which asks `evaluate` directly and passes through neither, empties them behind every chunk (`_standing_pool_chunk`), which is what makes its peak chunk-shaped rather than slice-shaped."""
+    """The font-backed state for the shapes that re-shape windows and for the composed walk. `comparator` is an InkComparator over the surface's before and after fonts, and `fonts` keeps that pair so `_prefill` can build each pool worker's context over the same fonts (`_standing_pool_init`). `memo` caches each font-backed matcher's geometric result per rule parameters and unit, so the guarded and unguarded passes over one rule shape a window once. `composed` caches each composed walk per rules digest and unit. Every key names one unit, so `Decider._release` empties both after each unit it decides or serves, and a pool worker empties them after each chunk (`_standing_pool_chunk`), which keeps a worker's peak memory to one chunk's windows."""
 
     def __init__(self, before_font, after_font) -> None:
         self.fonts = (before_font, after_font)
@@ -2262,7 +2280,7 @@ class SlideContext:
 
 
 class Shape(NamedTuple):
-    """One expressible delta shape: the match.after field that declares it, the field names match.before and match.after must carry exactly (an empty tuple means the block itself must be absent), the further match.after and match.before fields a rule may carry but need not — an arm a window only sometimes shows, which every rule without it declares by leaving it off — which of those fields are lists of cell strings, of delta digests, or of glyph-name prefixes — or integer column counts, or a family name that may also be a list of them — rather than plain scalars, the matcher that reads a unit for it, and its own coherence check. The row also carries the three facts a run has to know about a shape before it reads any unit — whether it can take part in a composed reading, whether it re-shapes windows in the surface's own font pair, and whether it reads the surface's persisted ink deltas, which are independent of one another — and the scope its except_left guard is read in when a composed reading credits it: the whole window, or the left neighbor of each credited position, and None for a shape that never composes."""
+    """One row of SHAPES: a delta shape a rule can declare. `keyed_by` is the `match.after` field that declares it. `before` and `after` are the fields `match.before` and `match.after` must carry, and an empty `before` means that block must be absent; `optional` and `before_optional` are fields they may also carry. `cell_lists`, `digest_lists`, `name_lists`, `int_fields`, `family_fields`, and `point_lists` tell `load_rules` how to check a field's type: a list of cell strings, a list of ink-delta digests, a list of glyph-name prefixes, an integer column count, a family name or list of them, or a list of [column, row] cells. Any other field must be a nonempty string. `matcher` reads a unit and `validate` checks the rule at load. `composable` says whether a composed walk may credit the shape, `font_backed` whether its matcher re-shapes windows in the surface's fonts, and `needs_ink_deltas` whether it reads the units' persisted ink deltas. `guard_scope` is where a composed reading reads the rule's except_left guard: `window`, `left-neighbor`, or None for a shape that never composes."""
 
     keyed_by: str
     before: tuple[str, ...]
@@ -2450,7 +2468,7 @@ SHAPES = {
 
 
 def _shape_names(chosen, conjunction):
-    """The delta shapes one of the Shape rows' flags picks out, named in the order SHAPES declares them and joined for prose, so a message about what a run needs of the surface is read off the rows rather than typed out beside them."""
+    """Name the shapes whose SHAPES row satisfies `chosen`, in SHAPES order, as an English list ending in `conjunction`, so error messages stay in step with the rows."""
     names = [name for name, shape in SHAPES.items() if chosen(shape)]
     return f"{', '.join(names[:-1])}, {conjunction} {names[-1]}" if len(names) > 1 else "".join(names)
 
@@ -2571,7 +2589,7 @@ def load_rules(path) -> list:
 
 
 def _guard_is_inert(match):
-    """Whether a rule's except_left guard can refuse anything at all. `guard` reaches `_matches` through exactly one expression — the `excluded` set — so a match naming no except_left families makes the guarded and unguarded passes the same pure function of the same arguments, and a held set defined as matching unguarded while refusing guarded is empty by construction. Every caller that skips a guard pass rests on that identity, which is why the predicate lives here beside `_matches` rather than inline at any one call site: a future shape that lets `guard` reach anything beyond `excluded` has one place to falsify."""
+    """Whether a rule's except_left guard is empty. `guard` affects `_matches` only through the `excluded` set, so for such a rule the guarded and unguarded passes return the same result, and callers skip the unguarded one. A shape that lets `guard` affect anything else must update this predicate."""
     return not match.get("except_left")
 
 
@@ -2587,7 +2605,7 @@ def _matches(match, unit, *, guard=True, context=None):
 
 
 class Reach(NamedTuple):
-    """What one rule reached on a run: the unit ids its own matcher spoke for, split into the blanks it filled and the ones a verdict already covers, the ids its except_left held back, and — as their own numbers rather than folded into the rest — how many units a composed reading credited it at and how many composed lines those spread over. Composed credit has to stand apart because the composed pass claims a window before any single rule is asked about it, so a rule that only ever earns composed credit shows nothing at all on its own line and is not thereby dead. Over a run narrowed by `open_units`, `verdicted` holds exactly the disputed matched units the tripwire names, since no accepted one was offered."""
+    """One rule's reach on a run: the unit ids its own matcher accepted, split into the blanks it filled and the units that already had a verdict; the ids its except_left held back; and its composed credit, counted separately as the number of units composed lines credited it at and the number of those composed lines. The composed pass claims a window before any single rule is checked, so a rule that is only ever credited in compositions shows nothing on its own line and is still in use. Under `--open-only`, `verdicted` holds only matched units whose verdict is outside ACCEPTING_VERDICTS, which are the units the tripwire names."""
 
     filled: list[str]
     verdicted: list[str]
@@ -2597,7 +2615,7 @@ class Reach(NamedTuple):
 
 
 class Run(NamedTuple):
-    """One pass of the standing approvals over a surface: the fill records to write, the composed pass's counts per credited-id tuple in rules-file order (filled, already verdicted, held), and each rule's Reach by id."""
+    """One pass of the standing approvals over a surface: the fill records to write, the composed pass's [filled, already verdicted, held] counts per credited-id tuple in rules-file order, and each rule's Reach by id."""
 
     fills: list[dict]
     composed_counts: dict[tuple[str, ...], list[int]]
@@ -2605,7 +2623,7 @@ class Run(NamedTuple):
 
 
 class Composed(NamedTuple):
-    """What the composed reading decided about one window: the credited rule ids in rules-file order, whether a guard holds the whole unit, and — for a window no guard holds — the verdict a fill of it carries and the id of the non-composable `either` rule that weakened it, None when none did. A held window's verdict is never computed, because nothing can write it. No prose: the note a fill carries is read from the live rules on the way out (`_composed_note`), which is what lets a stored decision outlive a reworded note."""
+    """The composed reading's decision for one window: the credited rule ids in rules-file order, whether a guard holds the whole unit, and, for a window no guard holds, the verdict a fill carries and the id of the non-composable `either` rule that weakened it (None when none did). A held window's verdict is not computed, because nothing writes it. The decision holds no note text: `_composed_note` reads the notes from the live rules when the fill is written, so a reworded note does not invalidate a stored decision."""
 
     credited: tuple[str, ...]
     held: bool
@@ -2614,14 +2632,14 @@ class Composed(NamedTuple):
 
 
 def _composed_note(by_id, composed: Composed) -> str:
-    """The note a composed fill carries, read from the live rules on the way out exactly as a single-rule fill's is: the credited ids in rules-file order, their own notes joined in the same order, and the rule outside the credited set that weakened the verdict when one did."""
+    """The note a composed fill carries, read from the live rules like a single-rule fill's: the credited ids and their notes in rules-file order, plus the rule outside the credited set that weakened the verdict, if one did."""
     ids = " + ".join(composed.credited)
     note = f"[standing: {ids}] " + "; ".join(by_id[rule_id]["note"] for rule_id in composed.credited)
     return note + (f" (either: {composed.weakened})" if composed.weakened else "")
 
 
 class Decision(NamedTuple):
-    """Everything a run needs to know about one unit, and nothing the verdict store decides: the composed reading when one claims the window, else which rules' own matchers accept it and which rules' except_left hold it. A claimed window carries no per-rule answers, because the single-rule pass never sees it. `relevant` is no part of the verdict but the memo entry's own key: the composable rules with a candidate position in this window (`_candidate_counts`), by id in rules-file order — the only rules that put a term into the composed pre-gate or an event into `_composed_walk`, so a rule outside it cannot move the composed part however it changes. Empty when no composed reading is on at all (`Decider.gate`)."""
+    """Everything a run needs about one unit apart from the verdict store: the composed reading when one claims the window, else the rules whose own matchers accept it and the rules whose except_left holds it. A claimed window has no per-rule results, because the single-rule pass never sees it. `relevant` is not part of the verdict; it is part of the memo entry's key: the composable rules with a candidate position in this window (`_candidate_counts`), in rules-file order. Only these rules add a term to the composed pre-gate or an event to `_composed_walk`, so a change to any other rule cannot change the composed part. It is empty when the composed reading is off (`Decider.gate`)."""
 
     composed: Composed | None
     matched: frozenset[str]
@@ -2630,7 +2648,7 @@ class Decision(NamedTuple):
 
 
 def unit_key(unit, family_digests) -> str | None:
-    """The memo key of one unit, or None for a unit the build never stamped, which is evaluated every pass and never stored. The build's `content_key` pins the window, its configs, both fonts' rendered names, the settled cells and seams, and the judged adjacency; `ink_deltas` rides beside it because the stamp leaves it out as derived presentation while the ink-delta shape reads it directly; and the after font's compiled-glyph digest for every family the after cells name pins the outlines, advances and cursive anchors every font-backed shape re-shapes the window through — the review unit cache's grain, so a drawing change reaches exactly the windows that can feel it and no other. The before font is in the memo's stamp, table by table outside `head` and `name`. Truncated to thirty-two hex characters, since it is written once per human unit and sixty-four bits over the corpus is far from any collision."""
+    """The memo key of one unit, or None for a unit the build never stamped, which is evaluated every pass and never stored. The build's `content_key` covers the window, its configs, both sides' glyphs, cells, and seams, and the judged `pair`. `ink_deltas` is hashed beside it because the stamp excludes it while the ink-delta shape reads it. The after font's compiled-glyph digest for every family the after cells name covers the outlines, advances, and cursive anchors every font-backed shape uses to shape the window, so a drawing change re-evaluates only the windows that use the changed family. The before font is covered by the memo's stamp (`memo_environment`). The key is truncated to 32 hex characters (128 bits), far from any collision at one key per human unit."""
     stamp = unit.get("content_key")
     if not stamp:
         return None
@@ -2645,7 +2663,7 @@ def memo_code_paths(root=ROOT) -> list[pathlib.Path]:
 
 
 def memo_environment(surface, root=ROOT) -> tuple[str, dict[str, str]]:
-    """The memo's whole-store stamp and the after font's per-family digests the unit keys cite. Any line moving drops the memo entirely: the deciding code (`memo_code_paths`); the before font table by table outside `head` and `name` (`fingerprint.font_content_digest`, so the `make all` a version bump runs leaves the line while any outline, advance, anchor or layout change moves it), the after font's family-blind remainder (its helper glyphs, cmap and GPOS wiring), and `uv.lock`'s dependency pins (`fingerprint.lock_digest`), which pin the HarfBuzz the shaper is. The rules file is not in it: it reaches the memo per entry, through the `Roster` in the header and each entry's `relevant` ids, so a rules commit drops the entries the moved rules can reach and a reworded note drops none. A surface carrying no fonts stamps the sentinel for both, which is the regime where no rule can shape a window at all."""
+    """Return the memo's stamp and the after font's per-family digests that `unit_key` uses. The stamp hashes the memo format; the deciding code (`memo_code_paths`); the before font without its `head` and `name` tables (`fingerprint.font_content_digest`, so the `make all` of a version bump leaves it unchanged while any outline, advance, anchor, or layout change moves it); the after font's family-independent remainder (helper glyphs, cmap, and GPOS wiring); and `uv.lock`'s dependency pins (`fingerprint.lock_digest`), which fix the HarfBuzz version the shaper uses. A change to any of these drops the whole memo. The rules file is not in the stamp. The `Roster` in the header and each entry's `relevant` ids track it per entry, so a rules commit drops only the entries the changed rules can reach, and a reworded note drops none. A surface without fonts gets `-` for both font lines; no rule can shape a window on such a surface."""
     before_font = pathlib.Path(surface) / "fonts" / "before.otf"
     after_font = pathlib.Path(surface) / "fonts" / "after.otf"
     family_digests: dict[str, str] = {}
@@ -2663,7 +2681,7 @@ def memo_environment(surface, root=ROOT) -> tuple[str, dict[str, str]]:
 
 
 class Roster(NamedTuple):
-    """What the memo's header records about the rules file, and what a `Decider` holds the live file against: every rule's match digest and verdict by id, in rules-file order; the ids of the non-composable rules a composed reading reads for every window it claims, whatever the window holds — a non-inert except_left (`_composed_held`) or an `either` verdict (`_composed_verdict`) — in the same order; and whether a composed reading is on at all (`Decider.gate`). With an entry's own `relevant` ids this is the whole of what a stored decision is a function of past its unit key, and none of it is prose."""
+    """What the memo header records about the rules file, and what a `Decider` compares the live file against. `rules` maps each id, in rules-file order, to the rule's match digest and verdict. `always` lists, in the same order, the non-composable rules the composed reading consults for every window it claims, because they have a non-empty except_left (`_composed_held`) or an `either` verdict (`_composed_verdict`). `composed_gate` says whether the composed reading is on (`Decider.gate`). Together with an entry's `relevant` ids, this is everything a stored decision depends on besides its unit key, and it contains no note text."""
 
     rules: dict[str, tuple[str, str]]
     always: tuple[str, ...]
@@ -2675,7 +2693,7 @@ def _match_digest(match) -> str:
 
 
 def rules_roster(rules, composed_gate) -> Roster:
-    """The roster of a loaded rules file. Each match digest is key-order blind and covers `except_left`, which `load_rules` keeps inside `match`; it is deliberately not `fingerprint.standing_approvals_digest`, which is one digest over the whole file in the file's own key order."""
+    """The roster of a loaded rules file. Each match digest ignores key order and includes `except_left`, which `load_rules` keeps inside `match`. It is not `fingerprint.standing_approvals_digest`, which is one digest over the whole file in the file's own key order."""
     return Roster(
         {rule["id"]: (_match_digest(rule["match"]), rule["verdict"]) for rule in rules},
         tuple(
@@ -2689,7 +2707,7 @@ def rules_roster(rules, composed_gate) -> Roster:
 
 
 def _roster_from_header(header) -> Roster | None:
-    """The roster a memo header carries, or None for a header carrying none or a malformed one, which `Decider` reads as every rule having moved."""
+    """The roster a memo header carries, or None for a missing or malformed one, which `Decider` treats as every rule having changed."""
     rules, always, gate = header.get("rules"), header.get("always"), header.get("composed_gate")
     if not isinstance(rules, dict) or not isinstance(always, list) or not isinstance(gate, bool):
         return None
@@ -2716,7 +2734,7 @@ def _decision_record(decision: Decision) -> list:
 
 
 def _decision_from_record(record: list) -> Decision:
-    """A decision back off its record, its rule ids interned: the domain holds a few hundred thousand entries naming a hundred rules, and `json` hands every line its own copies."""
+    """Rebuild a decision from its memo record, interning the rule ids: the memo holds one entry per human unit, the entries repeat a small set of rule ids, and `json` gives every line its own copies."""
     composed, matched, held, relevant = record
     return Decision(
         (
@@ -2731,7 +2749,12 @@ def _decision_from_record(record: list) -> Decision:
 
 
 class Memo:
-    """The persisted decisions: one line per unit key under a header carrying the stamp `memo_environment` computes and the `Roster` of the rules file the decisions were made under. A memo stamped for any other environment, or unreadable, is an empty one — over-invalidation is the safe direction, and a miss only costs the evaluation the memo would have saved — and a header with no readable roster is one under which every rule has moved, which `Decider` serves nothing from. `write` keeps exactly the entries whose key belongs to a unit on the surface it was asked about — served, fresh, or carried from the file unread — so the file is bounded by the human domain and never sheds an entry a later pass could still serve, and writes the roster the run decided under into the header. An entry is carried unread only while that roster is the stored one: a narrowed run that never asks about a closed unit cannot vouch for its entry under rules that moved, and heading such an entry with the live roster would serve it on the next pass as if it had been held against them, so a run under a moved roster keeps only what it computed or served. Pinned gzip mtime and level 1, like the unit store: written once and read once per pass."""
+    """The persisted decisions: a header holding the stamp from `memo_environment` and the `Roster` of the rules file the decisions were made under, then one line per unit key.
+
+    A memo with another stamp, or one that cannot be read, opens empty; a miss only costs the evaluation the memo would have saved. A header without a readable roster means every rule has changed, and `Decider` serves nothing from it.
+
+    `write` keeps only the entries whose key belongs to a unit on the surface it was given, whether served, freshly computed, or carried unread from the file, so the file stays bounded by the human domain. It writes the roster the run used into the header. An unread entry is carried only when that roster equals the stored one. A narrowed run never checks a closed unit's entry against changed rules, and writing that entry under the live roster would let the next pass serve it as if it had been checked, so a run under a changed roster keeps only what it computed or served. The gzip mtime is pinned and the level is 1, as in the unit store, because the file is written once and read once per pass.
+    """
 
     def __init__(self, path, environment, family_digests, entries=None, stored: Roster | None = None) -> None:
         self.path = pathlib.Path(path)
@@ -2773,7 +2796,7 @@ class Memo:
         return self._write_keys((self.key_for(unit) for unit in units), roster)
 
     def write_primed(self, roster: Roster | None = None) -> int:
-        """Write entries for the complete domain whose keys the streaming pass primes."""
+        """Write back the entries for every unit whose key `key_for` has computed; the CLI computes a key for every unit in the domain as it streams them."""
         return self._write_keys(self._keys.values(), roster)
 
     def _write_keys(self, keys, roster: Roster | None) -> int:
@@ -2806,9 +2829,9 @@ class Memo:
 
 
 class Decider:
-    """The per-unit pure function behind a run, answered once per unit however many times a run asks — the narrowed pass and the `--require-reach` pass over the whole domain share every answer — and served from the memo when one is open and holds, under the unit's key, an entry the live rules still stand behind (`_serve`). `served`, `computed` and `unkeyed` are the run's own reading of what the memo bought it.
+    """The per-unit decision function behind a run. Each unit is decided once per run however many times it is asked about, so the narrowed pass and the `--require-reach` pass over the whole domain share results. A decision is served from the memo when the memo holds an entry under the unit's key that the live rules still support (`_serve`). `served`, `computed` and `unkeyed` count how each decision was reached.
 
-    What the live rules are held against is derived once here from the memo's stored `Roster`, which is what turns a rules commit from a whole-domain recompute into a probe of the rules that moved: `_stale` is every stored id whose match digest or verdict moved or that the live file no longer holds; `_dropped` the subset that vanished or whose match moved, since a verdict-only change leaves a rule's own matcher answers standing; `_probe` the live rules that are new or whose match moved, the only rules any per-unit candidate or reach check runs this pass; `_always_moved` whether the rules a composed reading reads for every window changed in any way; and `_gate_moved` whether the composed reading came on or went off. A memo with no stored roster has every rule moved.
+    The comparison of the live rules with the memo's stored `Roster` is computed once here, so a rules commit re-checks only the rules that changed instead of the whole domain. `_stale` holds every stored id whose match digest or verdict changed or that the live file no longer has. `_dropped` is the subset that vanished or whose match changed, since a verdict-only change leaves the rule's matcher results valid. `_probe` holds the live rules that are new or whose match changed, the only rules any per-unit candidate or reach check runs this pass. `_always_moved` says whether the rules the composed reading consults for every window changed at all, and `_gate_moved` whether the composed reading was switched on or off. A memo with no stored roster counts every rule as changed.
     """
 
     def __init__(self, rules, context, memo: Memo | None = None) -> None:
@@ -2853,7 +2876,7 @@ class Decider:
         self.unkeyed = 0
 
     def evaluate(self, unit) -> Decision:
-        """The decision itself, computed: the composed reading first, because it claims a window before any single rule is asked about it, then — for an unclaimed window — each rule's own matcher, and for a guarded rule that refuses, its unguarded form, which is what says the guard held it. The candidate counts the composed pre-gate reads are taken once and also name the entry's relevant rules."""
+        """Compute the decision. The composed reading runs first, because it claims a window before any single rule is checked. For an unclaimed window each rule's own matcher runs, and a guarded rule that fails is run again unguarded to find whether its guard held the window. The candidate counts for the composed pre-gate are computed once and also give the entry's `relevant` rules."""
         composed = None
         relevant: tuple[str, ...] = ()
         if self.gate:
@@ -2879,7 +2902,15 @@ class Decider:
         return Decision(composed, frozenset(matched), frozenset(held_by), relevant)
 
     def _serve(self, unit, entry: Decision) -> tuple[Decision, bool] | None:
-        """The decision a memo entry still stands for under the live rules, with whether a matcher ran to repair it, or None when nothing short of `evaluate` can answer. Four refusals, every uncertain case falling to recompute: the composed gate moved, so no entry stands; a claimed window whose relevant ids include a stale rule, whose always-read rules moved, or whose relevant ids no longer sit in the file's order — a rule that had a candidate here and then moved or vanished can change the pre-gate sum, the walk's ambiguity refusal, a credit, a guard or the verdict, and the credited tuple is written in file order; an unclaimed window whose relevant ids include a dropped rule, for the same reasons short of the guard and the verdict; and any probed composable rule with a candidate position here, which would take part in the walk. What is left is served: a claimed window as it stands, an unclaimed one repaired at the rule grain — the dropped rules taken off its matched and held sets, and each probed rule its shape's name-grain precondition admits (`_reachable`; a composable rule with no candidate is admitted only when it is an extension rule whose seam the walk cannot place, read through `_extension_positions` as `_reachable` reads it) asked guarded and, for a non-inert guard, unguarded. The repair rests on `_reachable` admitting every unit a rule's own matcher accepts or holds, which rebuild/test_standing_verdicts.py holds over the frozen mini bundle (test_a_rules_lines_never_name_a_unit_outside_its_name_grain_candidates). A window with no shaped side is served as it stands, since no matcher accepts one."""
+        """Return the decision a memo entry still stands for under the live rules, with whether a matcher ran to repair it, or None when only `evaluate` can decide. Every uncertain case returns None:
+
+        - The composed gate changed, so no entry stands.
+        - A claimed window whose `relevant` ids include a stale rule, whose always-consulted rules changed, or whose `relevant` ids are no longer in rules-file order. A rule that had a candidate here and then changed or vanished can change the pre-gate sum, the walk's ambiguity check, a credit, a guard, or the verdict, and the credited tuple is stored in file order.
+        - An unclaimed window whose `relevant` ids include a dropped rule, for the same reasons apart from the guard and the verdict.
+        - A probed composable rule has a candidate position here, so it would take part in the walk.
+
+        Otherwise the entry is served. A claimed window is served unchanged. An unclaimed one is repaired per rule: the dropped rules are removed from its matched and held sets, and each probed rule that its shape's name-grain precondition admits (`_reachable`) is run guarded and, for a non-empty guard, unguarded. A composable rule with no candidate is admitted only when it is an extension rule whose seam the walk cannot place, checked through `_extension_positions` as `_reachable` does. The repair is correct only if `_reachable` admits every unit a rule's own matcher accepts or holds; test_a_rules_lines_never_name_a_unit_outside_its_name_grain_candidates in rebuild/test_standing_verdicts.py checks that over the frozen mini bundle. A window with no shaped side skips the probe check and is served unchanged, since no matcher accepts one.
+        """
         if self._gate_moved:
             return None
         relevant = set(entry.relevant)
@@ -2920,13 +2951,13 @@ class Decider:
         return Decision(None, frozenset(matched), frozenset(held), entry.relevant), bool(repairs)
 
     def _release(self) -> None:
-        """Empty the context's shape and walk memos. Every key in them names the unit it was computed for, and `_decided` and `_servings` answer any repeat ask, so emptying them behind a unit costs nothing: `decide` does it behind every unit it serves or computes, `_serving` behind every memo entry it holds against the live rules, which `_prefill` asks for outside `decide`, and a pooled worker behind every chunk (`_standing_pool_chunk`). The alignment cache is not one of these memos: it spans the run on the serial path, and `release_alignment_cache` names the boundaries that empty it."""
+        """Empty the context's shape and walk memos. Every key in them is for one unit, and `_decided` and `_servings` answer repeat requests, so emptying them after each unit loses nothing. `decide` calls this after every unit it serves or computes, `_serving` after every memo entry it checks (which `_prefill` does outside `decide`), and a pooled worker after every chunk (`_standing_pool_chunk`). The alignment cache is separate: on the serial path it lasts the whole run, and `release_alignment_cache` says where it is emptied."""
         if self.context is not None:
             self.context.memo.clear()
             self.context.composed.clear()
 
     def _serving(self, unit) -> tuple[Decision, bool] | None:
-        """`_serve` over the unit's memo entry, answered once per unit however many times `_prefill` and `decide` ask, its key marked served in the memo so `Memo.write` keeps it under a moved roster, and written back over the entry when it repaired or trimmed it, so the file never keeps a rule the live file dropped. The context's memos are released behind the `_serve` it runs (`_release`), so a repair asked for outside `decide` leaves no window in them."""
+        """Run `_serve` on the unit's memo entry once per unit, however often `_prefill` and `decide` ask. A served key is added to `Memo.served`, so `Memo.write` keeps it under a changed roster, and a repaired or trimmed decision replaces the stored entry, so the file never keeps a rule the live file dropped. The context's memos are released after `_serve` (`_release`), so a check made outside `decide` leaves no window in them."""
         unit_id = unit["id"]
         if unit_id not in self._servings:
             serving = None
@@ -2946,13 +2977,13 @@ class Decider:
         return self._servings[unit_id]
 
     def take(self, unit, decision: Decision) -> Decision:
-        """Count a decision computed for this run — here, by a pooled worker handing it back through `_prefill`, or by `_serve` repairing an entry — exactly as `decide` counts one it computed itself: a keyed unit's into the memo's fresh entries and `computed`, an unkeyed unit's into `unkeyed`, and either into `_decided`."""
+        """Record a decision `decide` computed this run, by `evaluate` or by `_serve` repairing an entry: compute the unit's memo key, then record the decision as `take_id` does."""
         if self.memo is not None:
             self.memo.key_for(unit)
         return self.take_id(unit["id"], decision)
 
     def take_id(self, unit_id: str, decision: Decision) -> Decision:
-        """Count a worker answer using the key primed before its record was spooled."""
+        """Record a decision for a unit whose memo key is already computed: a keyed unit's goes into the memo's fresh entries and `computed`, an unkeyed unit's into `unkeyed`, and both into `_decided`. `_prefill` calls this for pooled results."""
         key = self.memo._keys[unit_id] if self.memo is not None else None
         if key is None:
             self.unkeyed += 1
@@ -2964,7 +2995,7 @@ class Decider:
         return decision
 
     def decide(self, unit) -> Decision:
-        """The unit boundary: the decision, served or computed, answered from `_decided` on a repeat ask, and the context's shape and walk memos released behind every unit it serves or computes (`_release`), so a run's context holds one unit's windows rather than the domain's."""
+        """Return the unit's decision: from `_decided` on a repeat request, else served or computed. The context's memos are released after every unit (`_release`), so the context holds one unit's windows at a time."""
         decision = self._decided.get(unit["id"])
         if decision is not None:
             return decision
@@ -2982,22 +3013,22 @@ class Decider:
             self._release()
 
 
-# Below this many misses a pool's startup — spawn, the module import, the rules and two font loads, about 0.2 s a worker — outruns what it saves: a miss costs about 1.3 ms serially and about 11 us to pickle each way, so the break-even at width four sits near five hundred misses, and a warm pass over unmoved rules, which computes tens of units, never comes near this; a pass landing a rule broad enough to reach thousands of units does. See rebuild/out/cycle-timings.ndjson for the plumbing rows these rates were read off.
+# Below this many misses, starting a pool costs more than it saves. Startup (spawn, the module import, the rules, and two font loads) takes about 0.2 s per worker. A miss costs about 1.3 ms serially and about 11 us to pickle each way, which puts the break-even near five hundred misses at width four. A warm pass over unchanged rules computes tens of units and stays far below this; a pass that commits a rule reaching thousands of units goes above it. The plumbing rows in rebuild/out/cycle-timings.ndjson are where these rates were measured.
 _STANDING_POOL_THRESHOLD = 2_000
-# Units per pooled task: enough that the pickling and the message are a small fraction of the work, few enough that the tasks load-balance across the workers and that a worker's peak is one chunk's windows rather than its whole share of the domain, since it releases its context memos and its alignment cache behind each one. STANDING_FILL_WORKER_BYTES in rebuild/tools/artifact_cycle.py is priced at this chunk width.
+# Units per pooled task: large enough that pickling and messaging are a small part of the work, and small enough that tasks balance across the workers and a worker's peak is one chunk's windows, since each worker releases its context memos and its alignment cache after every chunk. STANDING_FILL_WORKER_BYTES in rebuild/tools/artifact_cycle.py is measured at this chunk width.
 _STANDING_POOL_CHUNK = 2_000
 
 _standing_pool_state: dict = {}
 
 
 def _standing_pool_init(rules, fonts) -> None:
-    """One worker's state for the whole pool: a `Decider` with no memo over the parent's rules and a `SlideContext` over the parent's font pair, or none when the parent had none, which is the regime where no rule shapes a window."""
+    """Build one worker's state: a memo-less `Decider` over the parent's rules, with a `SlideContext` over the parent's font pair, or no context when the parent had none, in which case no rule shapes a window."""
     context = None if fonts is None else SlideContext(*fonts)
     _standing_pool_state["decider"] = Decider(rules, context)
 
 
 def _standing_pool_chunk(units) -> list[tuple[str, list]]:
-    """One pooled task: each unit's id beside its decision as `_decision_record` spells it — the composed part, the matched ids, the held ids and the relevant ids — the memo's own wire shape, so `_decision_from_record` is the one reader of both. The worker's memos are emptied behind every chunk, so what it holds at its peak is one chunk's windows."""
+    """Decide one pooled chunk and return each unit's id with its `_decision_record`, the format the memo stores, so `_decision_from_record` reads both. The worker's memos are emptied after every chunk, so its peak holds one chunk's windows."""
     decider = _standing_pool_state["decider"]
     try:
         return [(unit["id"], _decision_record(decider.evaluate(unit))) for unit in units]
@@ -3007,7 +3038,7 @@ def _standing_pool_chunk(units) -> list[tuple[str, list]]:
 
 
 def _prefill(decider: Decider, asked, jobs: int) -> None:
-    """Consume the requested records once, deciding hits immediately and spooling pool misses. A miss is a unit not decided yet that the memo cannot serve: no entry under its key, or an entry `_serve` refuses. An entry `_serve` repairs is a hit, decided here, since the repair is a matcher or two. Pool submission holds at most one wave of `jobs` chunks; only ids and decisions survive the pass. `_serving` and `decide` each release the context's memos behind the unit they ask about (`Decider._release`), so the spool pass holds no unit's windows past it."""
+    """Decide every unit in `asked` in one pass over it. With `jobs` at 1 each unit is decided serially. Otherwise a unit that is already decided or that the memo can serve is decided immediately (an entry `_serve` repairs counts as servable, since the repair runs only a matcher or two), and each miss is written to a temporary gzipped spool. Fewer than `_STANDING_POOL_THRESHOLD` misses are decided serially from the spool. More go to a spawn pool, which is given at most one wave of `width` chunks at a time, and only ids and decisions are kept from its results. `_serving` and `decide` release the context's memos after each unit (`Decider._release`), so the spool pass holds no unit's windows after it."""
     if jobs <= 1:
         for unit in asked:
             decider.decide(unit)
@@ -3042,14 +3073,14 @@ def _prefill(decider: Decider, asked, jobs: int) -> None:
 
 
 def rule_reach(rules, units, records, stamp, context=None, decide=None) -> Run:
-    """The whole pass in one place, so the records a run writes and the tally it reports can never disagree about what any rule reached: every unit's decision (`decide`, a `Decider.decide` by default, which is where the memo sits), the composed claims first, because they take a window before any single rule is asked about it, then each rule's own answers over what is left. A caller outside the CLI — the standing probe, or a test holding checked-in rules against a synthetic surface — gets the same numbers the run printed, without re-deriving a single matcher decision."""
+    """Decide every unit with `decide` (by default a memo-less `Decider.decide`) and aggregate the results with `_decision_reach`, the aggregation the CLI uses, so the result holds the numbers a run prints."""
     if decide is None:
         decide = Decider(rules, context).decide
     return _decision_reach(rules, ((unit["id"], decide(unit)) for unit in units), records, stamp)
 
 
 def _decision_reach(rules, decisions, records, stamp) -> Run:
-    """Aggregate ids and decisions in surface order without retaining unit records."""
+    """Aggregate `(unit id, decision)` pairs, in surface order, into a `Run` without keeping unit records. The fills and the per-rule tallies come from the same decisions, so the records a run writes and the report it prints agree."""
     order = {rule["id"]: index for index, rule in enumerate(rules)}
     by_id = {rule["id"]: rule for rule in rules}
     fills = []
@@ -3104,7 +3135,7 @@ def _decision_reach(rules, decisions, records, stamp) -> Run:
 
 
 def open_units(units, records):
-    """The units a run can still move, which is the whole of what a report's fill records and its warning are read off: a fill comes only from a blank, and every matcher decision is per-unit pure, so dropping a unit changes no other unit's result — the composed claim included, since a window is claimed on its own contents. The tripwire names only matched units carrying a verdict outside the accepting set, and those come along too. What the full domain buys over this is the already-verdicted column and the reach rollup, both of them readings of the store rather than of the fills."""
+    """The units a run can still change: blanks, which are the only units a fill is written for, and units whose verdict is outside ACCEPTING_VERDICTS, which the tripwire reports. Every decision depends only on its own unit, the composed claim included, so leaving the other units out changes no fill. The full domain adds only the already-verdicted column and the reach rollup, which describe the verdict store, not the fills."""
     return [
         unit
         for unit in units
@@ -3113,23 +3144,23 @@ def open_units(units, records):
 
 
 def _count(number, noun):
-    """`1 composed line`, `3 composed lines` — the report says its numbers in prose, and a plural s is the whole of the grammar it needs."""
+    """`number` followed by `noun`, with an s added unless the number is 1."""
     return f"{number} {noun}" if number == 1 else f"{number} {noun}s"
 
 
 def _own_line_total(reach):
-    """Everything one rule's own report line accounts for: what it filled, what a verdict already covered, and what its except_left held."""
+    """The units one rule's own report line counts: filled, already verdicted, and held by except_left."""
     return len(reach.filled) + len(reach.verdicted) + len(reach.held)
 
 
 def _tally_line(name, filled, verdicted, held, open_only):
-    """One report line for a rule or a credited tuple. Under a narrowed run the already-verdicted column is absent rather than zero, because the run was never offered the units it would have counted."""
+    """One report line for a rule or a credited tuple. Under `--open-only` the already-verdicted column is omitted, not shown as zero, because the run never saw the units it would count."""
     column = "" if open_only else f"{verdicted} already verdicted, "
     return f"  {name}: {filled} filled, {column}{held} held for review by except_left"
 
 
 def _tally_lines(rules, run, open_only):
-    """A line per rule in rules-file order, then a line per composed reading, which is what the run is read off at a glance."""
+    """One line per rule in rules-file order, then one line per composed reading."""
     lines = []
     for rule in rules:
         reach = run.reaches[rule["id"]]
@@ -3142,7 +3173,7 @@ def _tally_lines(rules, run, open_only):
 
 
 def _rollup_lines(rules, reaches):
-    """Every rule's whole reach in one block — what its own line accounts for, what composed lines credited it, the two together, and how many composed lines it appears on — followed by a loud line for each rule that reached nothing at all, which a block of zeros states too quietly to notice."""
+    """Each rule's total reach: the units its own line counts, the units composed lines credited it at, their sum, and how many composed lines name it. Then a REACHED NOTHING line for each rule that reached nothing, since a row of zeros is easy to miss."""
     lines = [
         "  per-rule reach (a window a composed line explains counts toward every rule that line credits, "
         "so these totals deliberately do not sum to the run):"
@@ -3167,7 +3198,7 @@ def _rollup_lines(rules, reaches):
 
 
 def _tripwire_lines(reaches, records):
-    """Matched units carrying a verdict outside the accepting set, named on one line when there are any and silent when there are none: a standing rule reaching a window the user judged some other way is what an over-broad rule looks like from the outside, and the run says so where it cannot be missed. The blessed set is wider than the set a rule may write, because `identical` accepts the new rendering just as approve and either do — the reviewer merely found the highlighted portion visually unchanged — and a rule agreeing with such a verdict is no accident at all."""
+    """A WARNING line naming the matched units whose verdict is outside ACCEPTING_VERDICTS, or no line when there are none. A standing rule that matches a window the user judged some other way is the sign of an over-broad rule. ACCEPTING_VERDICTS is wider than ALLOWED_VERDICTS because `identical` also accepts the new rendering (the reviewer found the highlighted part visually unchanged), so a rule matching such a unit agrees with the user."""
     caught = [
         f"{unit_id} under {rule_id} ({records[unit_id]['verdict']})"
         for rule_id, reach in reaches.items()
@@ -3184,7 +3215,7 @@ def _tripwire_lines(reaches, records):
 
 
 def _vocabulary_lines(rules, units):
-    """The one typo a reached-nothing line cannot see: an except_left family no window on this surface joins from. Such a rule goes on matching everything it always did — it is only the guard that is dead, and silently — so this is informational and never a refusal. It is not a reading of how much a guard held, either: a live guard that legitimately holds nothing on this pass says nothing here, because the family it names is still one the surface's windows carry."""
+    """Report each except_left family that no window on this surface joins from, a typo the REACHED NOTHING line cannot catch. The rule still matches what it always did and only its guard is inactive, so the line is informational and nothing fails. A guard that names a family the surface carries but holds nothing on this pass is not reported."""
     joining = {
         _joining_family(name) for unit in units for name in (unit.get("before") or {}).get("glyphs") or ()
     }
@@ -3203,7 +3234,7 @@ def _joining_vocabulary_lines(rules, joining):
 
 
 def _explain_lines(rule_id, reach, records):
-    """One rule's matched unit ids in the three columns its own report line counts: the blanks it filled, the ones a verdict already covers with that verdict named, and the ones its except_left held. On a caught-up store a rule's whole reach sits in the middle column, whose ids nothing else emits."""
+    """One rule's matched unit ids in the three columns its report line counts: the blanks it filled, the units already verdicted (with the verdict), and the units its except_left held. When every matched unit has a verdict, the whole reach is in the middle column, and no other output lists those ids."""
     verdicted = [f"{unit_id} ({records[unit_id]['verdict']})" for unit_id in reach.verdicted]
     return [
         f"  explain {rule_id}:",
@@ -3214,7 +3245,7 @@ def _explain_lines(rule_id, reach, records):
 
 
 def _listed_lines(rules, rule, listed, records, decide):
-    """One line per listed unit, in the order listed: the verdict the store holds on it (`blank` when none), whether it is a name-grain candidate of the targeted rule (`_reachable`), and what the run decided about it — the composed reading that claims it, with the verdict a fill carries or `held` when a guard holds the window, else the rules whose own matchers accept it and the rules whose except_left hold it, in rules-file order, else that no rule speaks for it. This is the answer to why a specimen is missing from the explain block, and it reads the same `Decision` the run counted, so listing a unit never changes a line above it."""
+    """One line per listed unit, in the order listed: the verdict the store holds (`blank` when none), whether the unit is a name-grain candidate of the targeted rule (`_reachable`), and what the run decided. That is the composed reading that claims it, with the fill's verdict or `held` when a guard holds the window; else the rules whose own matchers accept it and the rules whose except_left holds it, in rules-file order; else that no rule matches it. It shows why a unit the user named is missing from the explain block. It reads the same `Decision` the run counted, so listing a unit changes no other line."""
     order = {each["id"]: index for index, each in enumerate(rules)}
     lines = []
     for unit in listed:
@@ -3240,7 +3271,7 @@ def _listed_lines(rules, rule, listed, records, decide):
 
 
 def targeted_report(rules, rule, units, listed_ids, records, stamp, decide):
-    """The report of a `--targeted` run: the whole-domain report restricted to the lines about one rule, read over the units the rule could speak for at the name grain (`_reachable`) plus the listed ids, kept in surface order because `Reach` and the explain block list ids in iteration order and the lines have to read as the whole-domain run's. Every unit the whole-domain run would put on this rule's lines is in the subset, and every decision is per-unit pure, so the rule's own line, the composed lines crediting it, its rollup line, its tripwire and its explain block come out byte for byte the same; other rules' lines are left out, because over this subset they would read only what these windows happen to carry and the rollup would call every other rule dead. The vocabulary line reads the whole surface as always, since it is name-grain and reads no decision, and each listed unit gets a line of its own (`_listed_lines`)."""
+    """The report of a `--targeted` run: the lines of the whole-domain report that concern one rule, computed over only the units the rule could match at the name grain (`_reachable`) plus the listed ids. Units stay in surface order, because `Reach` and the explain block list ids in iteration order and the lines must match the whole-domain run's. The subset contains every unit the whole-domain run would put on this rule's lines, and every decision depends only on its own unit, so the rule's own line, the composed lines crediting it, its rollup line, its tripwire, and its explain block are byte-identical to the whole-domain run's. Other rules' lines are left out, because over this subset they would be partial and the rollup would report every other rule as reaching nothing. The vocabulary line still reads the whole surface, since it uses glyph names and no decisions, and each listed unit gets its own line (`_listed_lines`)."""
     listed = list(dict.fromkeys(listed_ids))
     wanted = set(listed)
     match = rule["match"]

@@ -1,4 +1,4 @@
-"""The two site fonts the rebuild suite shapes against and the surface's `fonts` stamp component hashes: the compiled Senior and Junior faces under site/. A leaf, so the root conftest can ask whether they are present ahead of a rebuild-only run without importing rebuild.pipeline into every rebuild test's closure (`rebuild.tools.cycle_paths` says why that matters); `fingerprint.font_paths` is this function."""
+"""The paths of the two compiled site fonts under site/, Senior and Junior. The rebuild suite shapes against them, and the surface's `fonts` stamp component hashes them (`fingerprint.font_paths` is this function). The module imports nothing from the repo, so the root conftest can check that the fonts exist before a rebuild-only run without adding rebuild.pipeline to every rebuild test's closure; `rebuild.tools.cycle_paths` explains why that matters."""
 
 from __future__ import annotations
 

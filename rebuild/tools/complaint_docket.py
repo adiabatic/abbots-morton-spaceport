@@ -1,4 +1,11 @@
-"""Cluster the open complaints (reject/neither verdicts) on the live review surface by the rune records that decided them, so N complaints about one flaw collapse into one fix-worklist entry, and invert those pointers over the still-blank queue to list the lookalike windows worth parking until the fix lands. Rejects with a mechanical policy draft group by the draft's fix site (file + keypath); draftless rejects and all neithers group by their exact provenance-pointer tuple, with a neither strand attaching to the reject group whose pointer basis it overlaps most. Parking rides skip semantics: a park file is bulk skip verdicts (never echo-filling, blank-but-deferred in the docket) stamped with the manifest's generated_at so they never beat a human verdict, landed through the app's Import dialog; the next cycle's carry drops skips, so parked windows return to the queue exactly when the fix makes them worth re-judging. Writes tmp/complaints-data.json as the machine-readable feed; --park g-XXXXXXXX emits verdicts-park-*.json for a group."""
+"""Group the open complaints (reject and neither verdicts) on the live review surface by the rune records that decided them, and list the blank units those records also decide as park candidates: each group becomes one entry in the fix worklist, and its park candidates can be set aside until the fix is committed.
+
+A reject with a policy draft is grouped by the draft's fix site (file and keypath). A reject without a draft is grouped by its exact tuple of provenance pointers, and complaints with no pointers form one unattributed group. Neithers are collected by pointer tuple too, and each tuple joins the reject group whose pointers overlap it most, or forms its own group when none overlaps.
+
+Parking uses skip verdicts. A park file holds one skip verdict per park candidate, with `at` set to the manifest's `generated_at`, so any verdict the user records on this surface is newer and wins. The echo fill ignores skips, and the docket counts a skipped unit as blank but defers its echo group. The user imports the file through the app's Import dialog. The carry drops skip verdicts, so parked units return to the blank queue on the first cycle that rebuilds the surface.
+
+Writes tmp/complaints-data.json. `--park g-XXXXXXXX` also writes a verdicts-park-*.json for that group.
+"""
 
 import argparse
 import collections
@@ -31,7 +38,7 @@ CHURN_KINDS = tuple(sorted(ACCEPTING_VERDICTS))
 
 
 def _triage_position(unit):
-    """Where the unit sits in the surface's triage index (the index record's `order`), which is the order the docket lists lookalikes in; a human record carrying no order (a surface written before the index) sorts last."""
+    """Return the unit's position in the surface's triage index (the record's `order`), which orders lookalikes in the docket. A record without an order sorts last."""
     order = unit.get("order")
     return order if isinstance(order, int) else sys.maxsize
 
@@ -245,7 +252,10 @@ def emit_park(group, marker_target, *, stamp, park_dir, note_text):
 
 
 def main(argv=None, *, units: Iterable[Mapping[str, Any]] | None = None, unit_ids: set[str] | None = None):
-    """`units` and `unit_ids` hand over a single-pass human record stream and every surface id together: the absent-unit warning includes machine units. Only complaint fields and compact blank/churn projections survive consumption of the stream."""
+    """Write the complaint docket data, and park files for any `--park` groups.
+
+    `units` and `unit_ids` are passed together or not at all: a single-pass stream of human unit records, and every surface id, machine units included, for the absent-unit warning. Only the complaint fields and small projections of the blank and churn units are kept from the stream.
+    """
     parser = argparse.ArgumentParser(description=(__doc__ or "").split(":")[0] + ".")
     parser.add_argument(
         "verdicts",
