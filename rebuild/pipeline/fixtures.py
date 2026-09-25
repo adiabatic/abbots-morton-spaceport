@@ -1,12 +1,12 @@
-"""A hand-built mini ResolvedSpec over the real M1 rune data (the moral successor of prototype/spec.py, per M1-PLAN section 5's parallelization note).
+"""A hand-built mini ResolvedSpec over the real M1 rune data.
 
-Bitmaps, anchors, bindings, pairings, and the policy records below are transcribed from glyph_data/runes/*.yaml so Group 2/3 tests run against the fixture families' real geometry without depending on Group 1's spec_load. spec_load is the real loader; divergence between the two is a finding, not a license to edit either side silently.
+Bitmaps, anchors, bindings, pairings, and policy records are transcribed from glyph_data/runes/*.yaml, so tests of settlement and realization can use these families' real geometry without depending on spec_load. spec_load is the real loader. When the two differ, report the difference instead of quietly editing either one to match.
 
-What every rune here transcribes is the loader's resolved output for this rune set, not the raw YAML — so left-facing family transparency (spec_load's `_expand_ligature_lefts`) is applied throughout, over the mini world's own ligature inventory rather than the live alphabet's. A `when.left` or entry `from:` scope naming qsUtter therefore also names qsDay_qsUtter, in the older records as much as the newer ones. Adding a ligature to this fixture means walking the left-facing conditions of every rune already here.
+Each rune transcribes spec_load's resolved output for this rune set, not the raw YAML. Left-facing family transparency (spec_load's `_expand_ligature_lefts`) is therefore applied throughout, over this fixture's own ligatures. A `when.left` or entry `from:` scope naming qsUtter also names qsDay_qsUtter. Adding a ligature to this fixture means updating the left-facing conditions of every rune already here.
 
-Two ligature worlds live here. qsTea_qsOy forms unconditionally, so it keeps the plain type-4 formation shape; qsDay/qsUtter/qsLow/qsSee/qsDay_qsUtter carry the section 5.7 late-formation guard's worked example, so the guard's own FEA rows and the raw labels it reshapes have a mini world to assert against instead of the loaded spec. That second world is transcribed with one deliberate omission: every policy record whose `when:` carries a `then:` chain is left out, because a chained record opens a depth-3/4 window and the mini world stays at depth 2 so its table builds stay cheap and rebuild/test_conform.py's deep-slot tests keep the real spec as their deep-window authority. Kept records hold their real YAML indices in `Provenance.path`, which is how a subset announces itself here.
+There are two sets of ligatures. qsTea_qsOy forms unconditionally, so it tests the plain type-4 formation lookup. qsDay, qsUtter, qsLow, qsSee, and qsDay_qsUtter carry the design section 5.7 late-formation guard example, so the guard's FEA rows and the raw labels it changes can be tested without the loaded spec. That second set leaves out every policy record whose `when:` has a `then:` chain. A chained record opens a depth-3 or depth-4 window, and the mini spec stays at depth 2 so its table builds stay cheap; rebuild/test_conform.py's deep-slot tests use the real spec. The records that are kept carry their real YAML indices in `Provenance.path`, so gaps in the indices show which were left out.
 
-`synthetic_spec` and `prospect_spec` beside the mini world are a different kind of fixture: three and four invented letters carrying no geometry anyone renders, built to isolate one ranking stage each where the real records leave it unexercised. They live here rather than in a test file because the crate keeps twins of both under the same names, and because more than one caller now settles them.
+`synthetic_spec` and `prospect_spec` are a different kind of fixture: three and four invented letters with no rendered geometry, each built to isolate one ranking stage that the real records leave unexercised. They live here because the crate has matching fixtures (`ranking_spec` and `prospect_spec` in `engine.rs`) and because several test modules settle them.
 """
 
 from __future__ import annotations
@@ -294,7 +294,7 @@ def _tea() -> Rune:
     policy = Policy(
         order=("full", "half"),
         refuse=(
-            # Load-bearing inside the M1 alphabet (Tea·Tea, Pea·Tea, and the entered-It·Tea windows): full ·Tea never enters at the baseline after these predecessors.
+            # Full ·Tea does not enter at the baseline after these letters. Without this refusal the ·Tea·Tea, ·Pea·Tea, and entered-·It·Tea windows settle differently inside the M1 alphabet.
             PolicyRecord(
                 kind="refuse",
                 stance="full",
@@ -1203,7 +1203,7 @@ def mini_spec() -> ResolvedSpec:
 
 
 def synthetic_spec(prefer_a=(), prefer_b=(), contract_b=()) -> ResolvedSpec:
-    """Three letters: A exits at the x-height toward anything; B enters at the x-height (entered B is exitless by pairing) and exits at the baseline only when unentered; C enters at the baseline. The A.B seam therefore ties join-vs-prospect at one window join each — the floor and prefer testbed. The crate states the same testbed in its own four-family vocabulary as `engine.rs`'s `ranking_spec`."""
+    """Three letters for testing the structural floor and prefer records. A exits at the x-height. B enters at the x-height and exits at the baseline, and a pairing stops an entered B from exiting. C enters at the baseline. At the A·B seam, joining and the prospect of B's onward join each count one join in the window, so they tie. The crate's version of this fixture is `ranking_spec` in `engine.rs`, which names A, B, and C qsPea, qsTea, and qsMay."""
     a = Rune(
         name="A",
         codepoint=0xE001,
@@ -1268,7 +1268,7 @@ def synthetic_spec(prefer_a=(), prefer_b=(), contract_b=()) -> ResolvedSpec:
 
 
 def prospect_spec() -> ResolvedSpec:
-    """Four letters replaying the issue-28 signature (the ·No·No·Tea·Day shape). A exits at both heights and prefers x-height over baseline as a yielding tie-break; B enters at both heights, is exitless when entered at the x-height, and yields its baseline exit before C·D; entered C is exitless, so B joining C forecloses C·D while B declining buys it. The optimistic prospect therefore scores A's baseline candidate as if B's onward join will happen, but B's own cascade provably yields it one seat later — the simulated prospect sees the yield from A's seat. The crate states the same shape in its own vocabulary as `engine.rs`'s `prospect_spec`."""
+    """Four letters with the shape of ·No·No·Tea·Day from issue 28. A exits at both heights and prefers the x-height exit over the baseline one, as a prefer that yields to joins. B enters at both heights, has no exit when entered at the x-height, and prefers no exit over its baseline exit before C·D. An entered C has no exit, so B joining C prevents the C·D join, and B declining allows it. The optimistic prospect scores A's baseline candidate as if B will join onward, but B's own settlement one position later declines that join. The simulated prospect sees this from A's position. The crate's version of this fixture is `prospect_spec` in `engine.rs`."""
     a = Rune(
         name="A",
         codepoint=0xE011,

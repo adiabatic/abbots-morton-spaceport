@@ -1,4 +1,4 @@
-"""Extraction orchestration: shard the basis by (length, first symbol), shape each shard in a worker process, then concatenate shards in canonical order into a gzipped table whose uncompressed bytes are independent of scheduling. Also owns the per-configuration digest, digests.tsv, and SUMMARY.md generation."""
+"""Run the baseline extraction: shard the basis by (length, first symbol), shape each shard in a worker process, and concatenate the shards in canonical order into a gzipped table whose uncompressed bytes do not depend on scheduling. Also writes the per-configuration digest, digests.tsv, and SUMMARY.md."""
 
 from __future__ import annotations
 
@@ -34,7 +34,14 @@ MULTI_HEIGHT_EXAMPLE_CAP = 5
 
 
 def _shard_workers_default(*, cgroup_root: str | Path = "/") -> int:
-    """How many shard workers one extraction fans out to unless a caller states a width: the cores this process may actually run on, which is what `usable_cores()` answers, since it reads the affinity mask and any cgroup CPU quota that `os.cpu_count()` reads straight past. A core clamp rather than a memory division because what one of these workers holds — a `Shaper` and a `SeamClassifier` over the same font, one open shard file, two `Counter`s and a capped list of multi-height examples — has never been measured and nothing in the tree reports it, so there is no per-unit peak to divide this box by and inventing a divisor would look like evidence. That measurement is owed, and when it lands it belongs here, as a `memory_budget.how_many_fit` in the shape `kernel_exec.DELTA_PEAK_BYTES` states, with these cores staying on as its cap. The width is free to move because it cannot move the bytes: every worker writes its own shard file and the writer concatenates them in shard-index order, which is the property `rebuild/test_extractor.py` holds by extracting one subset at two workers and at one and comparing the gzip payloads. `cgroup_root` is an injection point rather than a lookup, the shape `kernel_exec.kernel_threads_default` states its box in and for the same reason — an assertion about a CPU-quota-limited container has to be a pure function over an invented one, and `usable_cores` already takes the filesystem root it reads that quota under, so threading the keyword through is the whole of what the symmetry costs."""
+    """Return the default number of shard workers: the cores this process may run on, from `usable_cores()`, which reads the affinity mask and any cgroup CPU quota that `os.cpu_count()` ignores.
+
+    The width is not derived from a memory budget because a worker's peak memory (a `Shaper` and a `SeamClassifier` over the font, one open shard file, two `Counter`s, and a capped list of multi-height examples) has not been measured. Once it is, the width should become `memory_budget.how_many_fit` over a peak constant, as `kernel_exec.kernel_threads_default` does over `DELTA_PEAK_BYTES`, capped at these cores.
+
+    The width cannot change the output: each worker writes its own shard file and the writer concatenates them in shard-index order. `rebuild/test_extractor.py` checks this by extracting one subset with two workers and with one and comparing the gzip payloads.
+
+    `cgroup_root` is the filesystem root `usable_cores` reads the CPU quota under, so a test can point it at a sample container tree (rebuild/test_memory_budget.py does).
+    """
     return usable_cores(cgroup_root)
 
 
@@ -74,7 +81,7 @@ def build_row(
     codepoints: tuple[int, ...],
     features: dict[str, bool],
 ) -> Row:
-    """Shape one basis string and classify each input seam. The flanking output-glyph pair at seam k is the last glyph covering input k and the first glyph covering input k+1; when one glyph covers both inputs the seam was consumed by ligation."""
+    """Shape one basis string and classify each input seam. The output glyphs on either side of seam k are the last glyph covering input k and the first glyph covering input k+1. When one glyph covers both inputs, the seam is a ligature (`lig`)."""
     result = shaper.shape(alphabet.string_text(codepoints), features)
     seams: list[str] = []
     for k in range(len(codepoints) - 1):
@@ -98,7 +105,7 @@ def sample_modulus(sample: int, max_length: int = alphabet.MAX_LENGTH) -> int:
 
 
 def sample_includes(codepoints: tuple[int, ...], modulus: int) -> bool:
-    """Deterministic fixed-key sampling: a string is in the sample iff the leading 8 bytes of the SHA-256 of its codepoints field hit residue 0. Keyed on the codepoints alone so the sample is identical across runs and configurations."""
+    """Return whether a string is in the sample: the first 8 bytes of the SHA-256 of its codepoints field, read as an integer, are 0 modulo `modulus`. The key is the code points alone, so the sample is the same across runs and configurations."""
     digest = hashlib.sha256(codepoints_field(codepoints).encode("ascii")).digest()
     return int.from_bytes(digest[:8], "big") % modulus == 0
 

@@ -1,16 +1,16 @@
-"""Decision-table and treaty-table data model and readers (M1-PLAN section 5, Group 2), promoted from prototype/table.py per the Recon B promotion map.
+"""The decision-table and treaty-table data model, and the readers and digests for the table artifacts the crate writes (rebuild/M1-PLAN.md §5, Group 2).
 
-Both halves of the table build run in the crate under `rebuild/kernel-rs`: the fixpoint since issue 40's port landed and issue 78 left it the only one there is, and the fold since the crate grew its `build-tables` verb. Nothing here folds anything — `src/fold.rs` and `src/rulefold.rs` carry the prospect-divergence pass, the per-input rule fold and the treaty fold, `src/artifacts.rs` writes the settlement TSV, the treaty TSV and the windows payload, and `src/fold.rs` states this module as the contract it was transcribed from. What stays here is the vocabulary the rest of the rebuild speaks and the reading end of those artifacts: the window, rule and table data model; `read_windows` off the payload the kernel wrote and `read_treaty_tsv` off the treaty artifact, which is how `run_m1.build_tables` gets its rules, its reachable cells and its treaty rows back; and the digests table identity is stated at. What the rest of this docstring states is the semantics of the enumeration those artifacts record; the crate is where those rules execute, `rebuild/test_table.py` replays the crate's ordered rules against the crate's own rows on the mini fixture as an independent second opinion on the fold, and `gate:conform` is the standing independent check that settlement executes as described.
+The crate under `rebuild/kernel-rs` builds both tables and nothing here folds. `src/fixpoint.rs` enumerates the windows. `src/fold.rs` and `src/rulefold.rs` hold the prospect-divergence pass, the per-input rule fold, and the treaty fold, and `src/artifacts.rs` writes the settlement TSV, the treaty TSV, and the windows payload. `run_m1.build_tables` reads its rules, reachable cells, and treaty rows back through `read_windows` and `read_treaty_tsv`. `rebuild/test_table.py` replays the crate's rules against its rows on the mini fixture as an independent check of the fold, and `gate:conform` checks that the compiled font agrees with settlement.
 
-The kernel tabulates settlement over every (settled-left state, rune, raw-right-1, raw-right-2) window reachable under settlement for one feature configuration, by fixpoint over reachable left states rather than string enumeration, so the table is exact. Windows that formation makes impossible are excluded — but a ligature pair survives unformed exactly where the section 5.7 late-formation guard fires, so pair windows are enumerated under precisely the guard-firing follower contexts: the lead's window is admitted per guard-firing right2, and the trail's window inherits the matching allowed-right2 set through the worklist, keeping the fixpoint exact. The mirror facet holds for formed-ligature tokens at any slot: a ligature input's window, and any window with a ligature at right1, is admitted only where that ligature's own guard does NOT fire over the raw tokens its post-formation neighbors stand for, existentially over the beyond-window slot. ZWNJ-locked entry-bearing inputs enumerate under the chokepoint twin's glyph name (`model.locked_glyph_name`, the `<raw>.noentry` shape the emitter's chokepoint actually produces), locked before settlement — which keeps each plain input's boundary-left outcomes in a single block, exactly as the prototype encoded it.
+The kernel tabulates settlement over every (settled left, rune, right1, right2) window reachable for one feature configuration, by fixpoint over reachable left states, so the table is exact. Windows that formation makes impossible are left out, except that a ligature's component pair is enumerated where the §5.7 late-formation guard blocks the ligature. A window with a formed ligature as its input or at right1 is enumerated only where that ligature's guard does not block. A ZWNJ-locked entry-bearing input is enumerated under its chokepoint twin's name (`model.locked_glyph_name`).
 
-Outcome-partition compression is DFA-style per input and per slot: two fillers land in one class iff their full outcome signatures over the other slots are identical. The crate replays reachable transitions against the ordered rules under first-match-wins semantics as it folds — the hard build invariant of prototype follow-up 1 — over one left per signature block, which `fold::assert_outcome_partition` argues is the same claim as replaying them all. The fold, the joint-flag pass, the treaty fold, the replay, and every serialized-rules consumer read the expanded label-grain row stream (`DecisionTable.expanded_transitions` on this side): a class-grain enumeration expands each row to its full member product before anything downstream runs, so those consumers are byte-identical to a label-grain build by construction, and `Rule` objects carry label vocabulary only — no class id ever reaches the rule fold, `write_tsv`, or a serialized rules head. Rule ordering per input follows the proven discipline: boundary-outcome rows with `uni200C` explicit in the class first, three-lookahead-slot rows before two-slot rows before one-slot rows, identity rows omitted, the slot-dropped fallback last, plus ZWNJ backtrack-slot coverage guards for never-locked inputs.
+Rows carry two deep slots, `right3` and `right4`. The kernel splits a window by the third raw token only where both nearer slots are letters and the window's outcome can still depend on that token, and by the fourth token likewise one slot deeper. Elsewhere the slot holds `#NA`. The crate's `census.rs` and `liveness.rs` decide which windows are split. In the pinned world only runes with a `prefer` or `resolve` record whose right chain reaches the slot can be split. Under the simulated prospect or the vote slots every rune can be. Under class grain (`kernel_exec.class_grain`) a deep slot holds a class id (`deep_class_id`) standing for the letters that settle identically there, listed in `deep_classes`. Class rows are expanded back to labels before folding (`expanded_transitions` on this side), and the fold, the joint-flag pass, the treaty fold, and the rules all read that expanded stream, so `Rule` objects hold labels only. doc/rebuild-design.md §3.4 describes the deep slots. `_assert_window_arity` checks at import that `Transition` and `Rule` have `model.RIGHT_WINDOW_SLOTS` right slots.
 
-Rows carry a fourth window slot, `right3`, enumerated lazily and only where live: an input the kernel's own census admits — in the pinned candidacy world, exactly the runes carrying a prefer or resolve record whose right condition chains two hops; under the simulated prospect or the shifted vote slots, every rune, because any input's third join-count term can then read the slot through its follower's replayed cascade — gets its windows split by the raw third lookahead, only where both nearer slots are letters, and only where the kernel's liveness verdict still finds the window undecided over them: some own-rune depth-3 chain unknown over (right1, right2), or some candidate shape's simulated follower choice or some follower vote's verdict moved by the third token. A window judged definite settles identically under every third token, so everywhere else the slot stays `#NA`, mirroring the established convention that no record peeks past a boundary. An enumerated window's settled left state is reachable only alongside right2 equal to that window's right3, so the worklist pins the successor's allowed-right2 set to that singleton — the same exactness plumbing the late-formation guard already rides — and the right3 options replay the right2 filters shifted one slot (formation-impossible adjacent pairs, guard-firing follower sets, the formed-ligature guard with the second slot now pinned). The fifth slot, `right4`, repeats the pattern one deeper: only an input whose chain reaches that far (again, every rune under the deep-reading modes) with letters at all three nearer slots, and only where the same verdict finds the window live over those three slots, enumerates it. Where it does enumerate, its options replay the same filters shifted once more, and the worklist pins the successor's right3 to the producing window's right4. Under those deep-reading modes with class grain asked for (`kernel_exec.DEEP_CLASSES_DEFAULT`, and `kernel_exec.class_grain` for the rule that decides it), both deep slots enumerate at class grain (issue 26): the same option lists, their letters split by the kernel's outcome fibers — the liveness verdicts themselves are untouched and the #NA biconditional keeps its exact statement over tokens — one row per (base, fiber pair) holding a content-addressed member set (`deep_classes`, `deep_class_id`), the successor pins carrying the admitted member sets instead of singletons, and `expanded_transitions` restoring the label-grain stream for everything downstream. `_assert_window_arity` ties the Transition/Rule slot count to `model.RIGHT_WINDOW_SLOTS` at import, so the chain cap and the table can only widen together.
+`src/rulefold.rs` specifies how each input's rows are compressed into rules and the order of those rules. The crate checks the rules by replaying the rows against them under first-match-wins (`fold::assert_outcome_partition`).
 
-Joint rows combine both section 6.1 flags: ranking ties broken by the structural floor between candidates differing in seam realization, and windows whose deliberately optimistic prospect diverges from the follower's actual settled choice. Both TSV artifacts are diff-stable (section 8): sorted rows, provenance pointers, deterministic labels.
+A row is joint when either §6.1 flag applies: the structural floor broke a ranking tie between candidates that differ in seam, or the optimistic prospect differs from the follower's settled choice. Both TSV artifacts are diff-stable (§8): a deterministic row order, provenance pointers, and deterministic labels.
 
-The windows artifact the kernel writes and `read_windows` reads back persists a built table so the font-vs-settle sweep never rebuilds what the same sources already produced: the rules, the reachable cells, one realizing certificate per rule and the enumerated windows, stamped with `fingerprint.tables_value` over the sources the fixpoint read. The windows come back as `Window` rows — labels only, which is everything a replay consults — so the file is a fraction of the resident table and the head alone answers "which cells are reachable" and hands the build's witness stage its certificates. Neither digest below reads the certificates: they are evidence the rules are realizable, closed off the rows' own producer chains in the crate's `certificate.rs`, not part of what the rules say.
+The windows artifact stores a built table so the conformance sweep does not rebuild from unchanged sources: the rules, the reachable cells, one certificate per rule, and the enumerated windows, stamped with `fingerprint.tables_value` over the sources the fixpoint read. `read_windows` returns the windows as `Window` rows, labels only, which is all a replay reads. The head alone gives the reachable cells and the witness stage's certificates. Neither digest in this module reads the certificates, because they are evidence that the rules can fire, not part of what the rules say.
 """
 
 from __future__ import annotations
@@ -39,7 +39,7 @@ DEEP_CLASS_PREFIX = "#C"
 
 
 def deep_class_id(members: tuple[str, ...]) -> str:
-    """Content-addressed id for a deep-slot member set: `#C` plus the first 12 hex digits of sha256 over the sorted member tuple. Identical member sets therefore share one id across contexts, across configurations, and across builds — which is what keeps cross-config artifact comparison and the ss04 row-identity pin meaningful — and the `#` prefix keeps ids outside the glyph namespace; ids are never members of BOUNDARYISH. The crate mints the ids; this function is the contract it mints them to, and `rebuild/test_table.py` checks the tokens on a kernel-built table against it."""
+    """Return the content-addressed id for a deep-slot member set: `#C` plus the first 12 hex digits of the SHA-256 of the tab-joined members, which the caller passes sorted. Identical member sets therefore share one id across contexts, configurations, and builds, which keeps cross-configuration artifact comparison meaningful. The `#` prefix keeps ids out of the glyph namespace, and no id is in `BOUNDARYISH`. The crate mints the ids (`fixpoint::deep_class_id`), and `rebuild/test_table.py` checks a kernel-built table's tokens against this function."""
     digest = hashlib.sha256("\t".join(members).encode()).hexdigest()
     return f"{DEEP_CLASS_PREFIX}{digest[:12]}"
 
@@ -50,7 +50,7 @@ class PartitionError(RuntimeError):
 
 @dataclass(frozen=True, slots=True)
 class Window:
-    """The label view of one settlement window: the slots that key it, and what settles there. This is everything a replay consults, so it is all the serialized enumeration keeps and all `read_windows` hands back."""
+    """The label view of one settlement window: the slots that key it and the outcome. This is all a replay reads, so it is all the windows artifact stores and all `read_windows` returns."""
 
     input_glyph: str
     left: str
@@ -71,7 +71,7 @@ class Window:
 
 @dataclass(frozen=True, slots=True)
 class Transition(Window):
-    """A window plus what the fixpoint alone reads: the settled cells the treaty table is folded from, the optimistic prospect the joint flag is scored against, and the provenance the dead-policy gate counts as firing evidence."""
+    """A window plus the fields only the fold reads: the settled cells the treaty table is folded from, the optimistic prospect the joint flag is scored against, and the provenance pointers the rule fold copies onto rules."""
 
     settled: Settled
     left_settled: Settled | None
@@ -126,11 +126,11 @@ class DecisionTable:
     identity_guard_rules: int = 0
     cited_provenance: frozenset[str] = (
         frozenset()
-    )  # YAML pointers of every authored record the engine fired while tabulating this configuration (Engine.fired); the dead-policy gate's exercised-ness channel
+    )  # YAML pointers of every record the engine fired while tabulating this configuration (Engine.fired); the dead-policy check reads them to decide which records are exercised
     deep_classes: Mapping[str, tuple[str, ...]] = field(default_factory=dict)
     certificates: tuple[tuple[str, ...], ...] = (
         ()
-    )  # one realizing token stream per rule, in rule order, closed by the crate off the shortest chain of rows that produces a row the rule first-matches (certificate.rs); `witness.check_rule_certificates` settles each and asserts its rule fires
+    )  # one token stream per rule, in rule order, built by the crate to make that rule fire (certificate.rs); `witness.check_rule_certificates` settles each and checks that its rule fires
     _cells: frozenset[CellId] = field(default_factory=frozenset)
 
     def reachable_cells(self) -> frozenset[CellId]:
@@ -140,17 +140,17 @@ class DecisionTable:
         return frozenset(index for index, rule in enumerate(self.rules) if rule.joint)
 
     def token_members(self, token: str) -> tuple[str, ...]:
-        """The member labels a deep-slot field stands for: the class map's entry for a class id, else the label itself — bare labels, boundary labels, and #NA included, so a caller can expand any right3/right4 field uniformly."""
+        """Return the member labels a deep-slot field stands for: the class's members for a class id, else the label itself (bare labels, boundary labels, and `#NA` included), so a caller can expand any right3 or right4 field the same way."""
         members = self.deep_classes.get(token)
         return members if members is not None else (token,)
 
     def token_representative(self, token: str) -> str:
-        """The first member of a class id, else the label itself: the one concrete label a consumer pins a deep slot with. Exact rather than heuristic for rule-membership tests, because `_assert_deep_class_unions` proves every emitted look class holds a token's members all-in or all-out."""
+        """Return the first member of a class id, else the label itself: one concrete label to put in a deep slot. This is exact for rule-membership tests, because `fold::assert_deep_class_unions` checks that every emitted look class holds all of a token's members or none."""
         members = self.deep_classes.get(token)
         return members[0] if members else token
 
     def expanded_transitions(self) -> Iterator[Window]:
-        """The label-grain row stream every fold-side consumer reads (the issue-26 expansion boundary): each class row expanded to the full member product at right3 x right4 — boundary labels and #NA pass through — with every expanded row carrying the class row's settled fields verbatim, legitimate because the fiber key makes them member-uniform (the row's `joint` is the OR over its members, so per-member flags live only inside the build's own fold input). Yields in `Window.key` order with no duplicate keys — member sets at one base are disjoint, which the kernel's own class-grain partition assertion holds it to — so a consumer that sorts label-grain rows by key today reads the identical stream; on a label-grain table this is exactly `transitions`."""
+        """Yield the label-grain row stream: each class row expanded to its full member product at right3 × right4, with boundary labels and `#NA` passed through. Each expanded row copies the class row's outcome, which is valid because a class's members settle identically. Rows come in `Window.key` order with no duplicate keys, because the member sets at one base are disjoint. On a label-grain table this is `transitions` unchanged."""
         if not self.deep_classes:
             yield from self.transitions
             return
@@ -212,7 +212,7 @@ TREATY_COLUMNS = ("left", "right", "junction", "extension", "kern")
 
 
 def read_treaty_tsv(path: Path) -> TreatyTable:
-    """The `TreatyTable.write_tsv` inverse. The kernel's `build-tables` verb writes the artifact and the build reads it straight back, because the treaty table the defect gates want is a few thousand rows and re-deriving it would cost the fixpoint that produced it. Raises OSError when the file is absent and ValueError when it is not a treaty table this build understands."""
+    """Read a treaty TSV back: the inverse of `TreatyTable.write_tsv`. The kernel's `build-tables` subcommand writes the file, and the build reads it back because deriving the treaty table again would repeat the fixpoint. Raises OSError when the file is missing and ValueError when it is not a treaty table in this format."""
     lines = path.read_text().splitlines()
     if not lines or not lines[0].startswith("# treaty table, config "):
         raise ValueError(f"{path}: not a treaty table")
@@ -260,9 +260,9 @@ def _rule_of(row: list) -> Rule:
 
 
 def read_windows(source: Path | IO[str], windows: bool = True) -> tuple[str, DecisionTable]:
-    """The windows artifact read back: the fingerprint of the sources the table was built from, and the table itself with `Window` rows for transitions. The writer is the kernel's — `artifacts::write_windows` in the crate, whose payload `run_m1.build_tables` packs into the `.gz` this reads — so the format lives on both sides of the boundary and `WINDOWS_FORMAT` is what a drift is caught at. `windows=False` stops after the head, so a caller that wants only the rules and the reachable cells pays for one line — gzip streams, so the enumeration is never decompressed. Raises OSError when the file is absent and ValueError when it is not an enumeration this build understands; a caller deciding whether to trust the artifact compares the returned fingerprint itself.
+    """Read the windows artifact back: return the fingerprint of the sources the table was built from, and the table with `Window` rows as its transitions. The crate's `artifacts::write_windows` writes the payload and `run_m1.build_tables` gzips it, so the format is defined on both sides and `WINDOWS_FORMAT` is where a mismatch is caught. `windows=False` stops after the head, so a caller that wants only the rules and the reachable cells reads one line and the rest of the gzip stream is never decompressed. Raises OSError when the file is missing and ValueError when it is not an enumeration in this format. A caller that must decide whether to trust the artifact compares the returned fingerprint itself.
 
-    A path is opened as the gzip the persisted artifact wears; an already-open text stream is read as it stands, which is how the build reads back the head of the plain payload the kernel just wrote without first packing hundreds of megabytes into a shape the reader would only unpack again.
+    A path is opened as gzip. An open text stream is read as is, which lets the build read the head of the plain payload the kernel just wrote without compressing it first.
     """
     if isinstance(source, Path):
         with gzip.open(source, "rt") as handle:
@@ -301,7 +301,7 @@ def _windows_of(handle: IO[str], windows: bool, name: str) -> tuple[str, Decisio
 
 
 def windows_digest(decision: DecisionTable) -> str:
-    """Content hash of one configuration's settlement rows: the ordered rules, the deep-class map, and the enumerated windows, in exactly the forms the windows artifact serializes them, but without the inputs stamp. The stamp moves on any hashed source edit; this digest moves only when settlement itself does, which is what makes it the answer to "did the ink-only rune edit change any window at all". The class map is hashed between the rules and the rows, so a moved map moves the digest — a token's member set is part of what a row says."""
+    """Return a hash of one configuration's settlement rows: the ordered rules, the deep-class map, and the enumerated windows, in the forms the windows artifact stores them, without the inputs stamp. The stamp changes on any hashed source edit, but this digest changes only when settlement does, so it answers whether an ink-only rune edit changed any window. The class map is hashed because a token's member set is part of what a row says."""
     digest = hashlib.sha256()
     digest.update(decision.config.encode())
     digest.update(json.dumps([_rule_row(rule) for rule in decision.rules], separators=(",", ":")).encode())
@@ -322,7 +322,7 @@ def windows_digest(decision: DecisionTable) -> str:
 
 
 def table_digest(decision: DecisionTable, treaty: TreatyTable) -> str:
-    """The canonical differential digest, at full contract grain: one scalar saying whether two builds of one configuration agree on the ordered rules with their provenance and joint flags, every enumerated window row as stored, the treaty rows, the reachable cells, the cited provenance and the identity-guard count. That is the whole observable product of one configuration's build, so a port, a lever or a refactor that claims to change nothing is checked against this and nothing narrower. `windows_digest` stays the narrower row-level check — it omits the treaty, the cells, the provenance and the guards on purpose, so that it answers only whether the settlement rows themselves moved. The deep-class map needs no section of its own here: class ids are content-addressed over their member sets, so a moved map moves the row fields that cite it."""
+    """Return a hash of everything one configuration's build produces: the ordered rules with their provenance and joint flags, every stored window row, the treaty rows, the reachable cells, the cited provenance, and the identity-guard count. Two builds that should agree, such as before and after a port or a refactor, are compared with this digest. `windows_digest` is narrower: it leaves out the treaty, the cells, the cited provenance, and the guard count, so it answers only whether the settlement rows changed. The deep-class map is not hashed separately, because class ids are content-addressed, so a changed member set changes the ids in the rows that cite it."""
     h = hashlib.sha256()
     h.update(f"config\t{decision.config}\n".encode())
     for rule in decision.rules:
@@ -376,7 +376,7 @@ def table_digest(decision: DecisionTable, treaty: TreatyTable) -> str:
 
 @dataclass(frozen=True)
 class FixpointProduct:
-    """Everything one configuration's fixpoint produces and nothing it consulted: the key-sorted enriched transition stream, the deep-class map its class tokens resolve through, the provenance pointers the engine fired while tabulating, and the cells the stream settles into. `joint` on these rows is the trace's own `joint_floor` alone — the prospect-divergence pass runs in the crate's fold, over the expanded stream — and `cells` is stated at class grain, which equals the expanded set because a class row's members share its settled fields. This value is the kernel boundary — `kernel_exec.enumerate_transitions` is where one comes from — and it carries everything a fold reads and nothing else the engine touched, which is what makes it readable at the enumeration's own grain rather than the grain a table settles for. No build takes this path and no tool asks for it: the crate folds the product it still holds, so the stream survives as the boundary's other half, exercised by the rebuild suite alone."""
+    """Everything one configuration's fixpoint produces that a fold reads: the key-sorted transition stream, the deep-class map its class tokens resolve through, the provenance pointers the engine fired while tabulating, and the cells the stream settles into. `joint` on these rows is the trace's `joint_floor` alone, because the prospect-divergence pass runs later, in the crate's fold. `cells` is computed at class grain, which equals the expanded set because a class row's members share its settled fields. `kernel_exec.enumerate_transitions` returns one. No build or tool uses this type, because the crate folds the product it already holds; only the rebuild tests read it."""
 
     config: str
     transitions: tuple[Transition, ...]

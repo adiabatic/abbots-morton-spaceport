@@ -1,4 +1,4 @@
-"""Shared row model for the section 13.1 baseline: the Row dataclass, TSV serialization and parsing, canonical row ordering, the configuration registry, and header rendering. Both the extractor and the validation suite import from here so the row format cannot drift between them."""
+"""The extractor's row model for the section 13.1 baseline: the Row dataclass, TSV serialization and parsing, canonical row order, the configuration registry, and header rendering. The validation suite keeps its own copy of the row format and configuration registry in rebuild/validation/rowmodel.py; the TSV format in rebuild/BASELINE-PLAN.md §3 is the interface between the two."""
 
 from __future__ import annotations
 
@@ -91,7 +91,7 @@ def render_header(
     tool_version: str = TOOL_VERSION,
     subset: str | None = None,
 ) -> list[str]:
-    """The fixed-order header lines of a baseline table (plan section 3). The optional subset line marks smoke runs (--limit / --sample) so a partial table can never be mistaken for the full oracle."""
+    """Return a baseline table's header lines in their fixed order (plan section 3). The optional subset line marks a smoke run (--limit or --sample) so a partial table cannot be mistaken for the full baseline."""
     lines = [
         f"# baseline-extract v{tool_version}",
         f"# git_sha: {git_sha}",
@@ -136,6 +136,6 @@ def current_git_sha() -> str:
 
 @cache
 def font_sha256(font_path: str | Path = FONT_PATH) -> str:
-    """rebuild.baseline is the before side of the comparison and imports nothing from rebuild.pipeline, so the streamed read is spelled out here rather than borrowing fingerprint.file_sha256."""
+    """Return the SHA-256 of the font file. rebuild.baseline is the before side of the comparison and imports nothing from rebuild.pipeline, so it does not use fingerprint.file_sha256."""
     with open(font_path, "rb") as handle:
         return hashlib.file_digest(handle, "sha256").hexdigest()

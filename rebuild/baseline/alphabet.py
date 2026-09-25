@@ -1,4 +1,4 @@
-"""The 47-symbol basis alphabet (44 Quikscript runes, space, ZWNJ, namer dot), basis enumeration in the canonical row order, and shard partitioning by (length, first symbol). Concatenating shards in shard-key order reproduces the canonical order exactly, which is what makes the parallel extraction deterministic."""
+"""The 47-symbol basis alphabet (44 Quikscript letters, space, ZWNJ, namer dot), enumeration of the basis in canonical row order, and its partition into shards by (length, first symbol). Concatenating the shards in shard-key order gives the canonical order, so the parallel extraction's output does not depend on scheduling."""
 
 from __future__ import annotations
 
@@ -31,7 +31,7 @@ def alphabet_sha256() -> str:
 
 @cache
 def symbol_names() -> dict[int, str]:
-    """Codepoint-to-name mapping for the human-readable legend in SUMMARY.md. Rune names come from postscript_glyph_names.yaml; the three boundary-ish symbols get their PostScript-style names directly."""
+    """Return the code-point-to-name map for the legend in SUMMARY.md. Letter names come from postscript_glyph_names.yaml, and space, the namer dot, and ZWNJ get PostScript-style names here."""
     with (REPO_ROOT / "postscript_glyph_names.yaml").open() as f:
         ps_names = yaml.safe_load(f)
     by_codepoint = {codepoint: name for name, codepoint in ps_names.items()}

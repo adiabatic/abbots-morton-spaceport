@@ -1,12 +1,12 @@
-"""The Manual-pin conformance gate: replay every corpus data-expect pin whose text falls inside the migrated alphabet against the freshly built M1 font, and fail on any disagreement.
+"""The Manual-pin gate: replays every data-expect pin from `MANDATING_CORPORA` whose text uses only migrated letters against the built M1 font, and reports each disagreement.
 
-The mandating corpora (`MANDATING_CORPORA`: site/index.html and site/the-manual.html) are the repo's transcription of what The Manual mandates letters look like, and the legacy test suite enforces them against the shipped Senior font on every `make test`. This gate extends the same guarantee to the rebuild: as each rune batch migrates, every pin whose input sequence the migrated alphabet can express is replayed against M1.otf with the validation suite's black-box shaper and GPOS seam classifier. There is deliberately no waiver channel — a disagreement means either the rune data breaks a Manual mandate (fix the runes) or the corpus pin itself mistranscribes The Manual (fix the pin, which the legacy suite will cross-check against the shipped font).
+The mandating corpora are the repository's transcription of what The Manual requires letters to look like, and `test/test_shaping.py` checks them against the shipped Senior font. This gate replays each in-scope pin against M1.otf with the validation suite's shaper and GPOS seam classifier, and `run_m1` fails the build on any disagreement, when no pin is in scope, or when an in-scope pin was not replayed (`run_m1.manual_pin_gate_failure`). There is no waiver list. A disagreement means either the rune data breaks a Manual requirement (fix the runes) or the pin mistranscribes The Manual (fix the pin, which `test/test_shaping.py` then checks against the shipped font).
 
-The third corpus the legacy suite reads, site/extra-senior-words.html, is deliberately outside this gate: it is a supplementary word list rather than a transcription of Read's manual, so a pin there carries no Manual mandate and a disagreement with it is not grounds to block a rune batch. Such a disagreement is real information — it means M1 and the shipped font part ways on that word — but it belongs to the review sitting and, ultimately, to cutover, when `test/test_shaping.py` replays all three corpora against the M1-built font. `rebuild/validation/pins.py` keeps reading all three, because its job is fidelity against the shipped font rather than Manual conformance.
+The third corpus `test/test_shaping.py` reads, site/extra-senior-words.html, is left out. It is a supplementary word list, not a transcription of The Manual, so a disagreement with it shows that M1 and the shipped font differ on that word but should not block a rune batch. `rebuild/validation/pins.py` still reads all three corpora, because it checks fidelity to the shipped font.
 
-Semantics follow rebuild/validation/pins.py with two M1-specific fidelity fixes. First, `.half` / `.alt` trait assertions resolve through the loaded spec — a shaped cell label is parsed back to rune + stance and the stance's declared traits are consulted — because M1 stance keys (`flipped`, `alternate`) need not spell the trait the way legacy glyph names did. Second, the `.∅` exact-glyph assertion accepts the bare cmap glyph or the settled isolated cell's label, both of which render the rune's no-contextual-variant drawing. Compat-only variant assertions (`en-y0`, `noentry`, `extended`, ...) are skipped and counted, exactly as in the baseline replay: their design content is already pinned by the seam-height assertions, and legacy compat metadata has no faithful M1 translation.
+The checks follow `rebuild/validation/pins.py` with two differences. First, `.half` and `.alt` assertions look up the stance's declared traits: the shaped glyph name is split back into rune and stance, because M1 stance names (`flipped`, `alternate`) need not contain the trait name the way the old glyph names did. Second, the `.∅` exact-glyph assertion accepts either the bare cmap glyph or the label of the rune's isolated cell, both of which draw the letter with no contextual variant. Other variant assertions (`en-y0`, `noentry`, `extended`, and so on) are skipped and counted, as in the baseline replay, because the seam-height assertions already cover their design content and the old font's compat metadata has no M1 equivalent.
 
-Out-of-scope pins are counted per blocking letter so the summary doubles as batch-prioritization signal: the letters whose migration would unlock the most pins surface first. A pin marked with a stylistic set outside `conform.ACCEPTANCE_CONFIGS` is skipped and counted (`skipped_config`) rather than replayed: the M1 font does not implement that feature, while the legacy replay in `rebuild/validation/pins.py` still enforces the pin against the shipped font, which does.
+Pins that use letters outside the alphabet are counted per missing letter (`blocked_by`, `sole_blocker`), so the summary shows which letters' migration would bring the most pins into scope. A pin whose stylistic-set configuration is not in `conform.ACCEPTANCE_CONFIGS` is skipped and counted in `skipped_config`, because the M1 font does not implement that feature. `rebuild/validation/pins.py` still checks such a pin against the shipped font.
 """
 
 from __future__ import annotations
@@ -29,7 +29,7 @@ from rebuild.validation.shaping import Shaper, last_glyph_covering, row_for
 REPO_ROOT = Path(__file__).resolve().parents[2]
 PS_NAMES_PATH = REPO_ROOT / "postscript_glyph_names.yaml"
 
-# Only the corpora that transcribe The Manual bind this gate. site/extra-senior-words.html is a supplementary word list, not a transcription of Read's manual, so a disagreement there is not a Manual mandate and must not block a rune batch — the legacy suite still enforces it against the shipped font, and cutover replays it against M1.
+# The module docstring says why site/extra-senior-words.html is left out.
 MANDATING_CORPORA = ("site/index.html", "site/the-manual.html")
 
 BOUNDARY_GLYPH_EQUIVALENTS = {"space": frozenset({"space", "uni200C"})}
@@ -100,7 +100,7 @@ def _check_interpretation(
     connections: list[dict],
     row: Row,
 ) -> tuple[str | None, int, int, int, int]:
-    """Check one maybe-ligature interpretation against a shaped row; returns (first failure or None, seam assertions, identity assertions, trait assertions, variant assertions skipped)."""
+    """Checks one interpretation of a pin's optional ligatures against a shaped row. Returns (first failure or None, seam assertions, identity assertions, trait assertions, variant assertions skipped)."""
     ts = _import_test_shaping()
     spans = ts._token_char_spans(text, tokens)
     seam_checks = 0

@@ -1,16 +1,16 @@
-"""The kernel boundary's serializations (the Rust port of the M1 settlement kernel, issue 40): every format the future Rust kernel reads or writes, authored and tested while both sides are still Python, so each later step of the port is measured against a contract that was frozen before the port began.
+"""Serialization at the boundary between the Python pipeline and the Rust kernel (`rebuild/kernel-rs/`): the resolved-spec dump the kernel reads and the transition stream it writes.
 
-The boundary has two halves and this module carries both. The resolved-spec dump — `spec_json` / `spec_of` and their file wrappers — carries a whole `model.ResolvedSpec`, `spec_load`'s entire product of runes and registry, through canonical JSON and back: it is what the kernel reads before it starts. The enriched transition stream — `write_transitions` / `read_transitions` — carries a whole `table.FixpointProduct`: it is what the kernel hands back. Neither is the windows artifact, whose label-grain rows are a projection for the sweep rather than a boundary.
+The resolved-spec dump (`spec_json` / `spec_of` and the file wrappers `write_spec` / `read_spec`) carries a whole `model.ResolvedSpec` through canonical JSON and back. The transition stream (`write_transitions` / `read_transitions`) carries a whole `table.FixpointProduct`. The windows artifact that `table.read_windows` reads is a separate format.
 
-Canonical here means byte-reproducible, not merely value-equivalent: every dataclass field is emitted explicitly (defaults included, `None` as `null`), separators are compact, the encoding is ASCII, and every mapping rides in its own iteration order. Never `sort_keys`. Collection order inside a resolved spec is load-bearing in three separate places — stance declaration order ranks candidates, exit declaration order is the structural floor's final tiebreak, and a rune's policy lists gather in declaration order — so a key-sorted dump would quietly describe a different alphabet from the one `spec_load` resolved. The one place order genuinely carries nothing is a resolved membership set (`Policy.groups`, `ScriptRegistry.predicate_classes`), whose `frozenset` values have no order to lose; those are emitted sorted precisely so the dump stays stable across runs of the same sources.
+Canonical means byte-reproducible. Every dataclass field is written, defaults included and `None` as `null`. Separators are compact and the output is ASCII. Mappings keep their iteration order and are never key-sorted, because collection order in a resolved spec affects settlement: stance declaration order ranks the stances `policy.order` omits, exit declaration order is the structural floor's final tiebreak, and a rune's policy lists are gathered in declaration order. The resolved membership sets (the values of `Policy.groups` and `ScriptRegistry.predicate_classes`) are `frozenset`s and have no order, so they are written sorted to keep the dump stable across runs.
 
-The codec is driven by `dataclasses.fields` and the resolved type hints rather than a hand-written field list. A field added to `model.py` therefore rides the dump with no edit here — which matters, because that module's docstring already calls any change to it a cross-group coordination event, and a dump that silently omitted a new field would make the Rust side disagree with Python about what a spec is. A type shape the codec has no rule for raises at dump time instead of dropping the field into silence, and so does a value whose runtime shape has drifted from its declared one. `Provenance` is the single leaf spelled by hand, as `[file, path]`.
+The codec walks `dataclasses.fields` and the resolved type hints, so a field added to `model.py` enters the dump with no edit here. A type the codec has no rule for, or a value whose runtime type does not match its declared type, raises at dump time instead of being dropped. `Provenance` is the one type written by hand, as `[file, path]`.
 
-Fidelity is total: the prose fields (`ductus`, `notes`, `why`) ride along verbatim even though settlement never reads one, because the dump is the resolved tree rather than a kernel-shaped projection of it. A consumer that wants less is free to drop what it does not need; the boundary itself keeps everything, so a dump plus this module reconstructs the spec `spec_load` produced.
+The dump includes the prose fields (`ductus`, `notes`, `why`) verbatim even though settlement does not read them, so a dump read back through this module reproduces the spec `spec_load` built.
 
-The transition stream is the return leg, and it is the one shape that carries a whole product across in a way a windows file cannot: the windows artifact records the label view of each row alongside rules the crate had already folded, and nothing reading it back can re-derive those rules, because the rule fold reads per-transition provenance and joints while the treaty fold reads the settled cell, seam, and extension the TSV drops. What the stream carries is the whole `FixpointProduct` at exactly the grain the fixpoint left it in: rows in the product's own key order, deep right slots still at class grain, `joint` still the trace's `joint_floor` with the prospect-divergence pass unrun, plus the deep-class map those class tokens resolve through, the provenance the engine fired, and the reachable cells stated at that same class grain. It is what a consumer of the enumeration's own grain would read: the crate folds its product where it stands, so no build stage and no tool asks for the stream today, and `rebuild/test_kernel_io.py` and `rebuild/test_kernel_exec.py` are what keep the round trip honest.
+The transition stream carries what the windows artifact cannot. The windows artifact keeps each row's labels and outcome beside rules the crate has already folded, and those folds cannot be rerun from it: the rule fold reads each transition's provenance and joint flag, and the treaty fold reads the settled cell, seam, and extension, none of which the windows TSV keeps. The stream carries the `FixpointProduct` at the grain the fixpoint produced it: rows in the product's key order, deep right slots still at class grain, and `joint` still the trace's `joint_floor` before the prospect-divergence pass, plus the deep-class map, the provenance the engine fired, and the reachable cells at the same class grain. Only the rebuild tests parse the stream, through `kernel_exec.enumerate_transitions`; the build's `build-tables` folds the product in memory without writing a stream. `rebuild/test_kernel_io.py` and `rebuild/test_kernel_exec.py` test the round trip.
 
-Its layout follows the artifact idiom next door: gzip with a zeroed stamp, a `# ams-m1-transitions/1\\t<head json>` first line, then one compact JSON array per transition. A cell is spelled once in the head and referenced from the rows by its index there, sorted the way `table._cell_key` sorts the windows file's cells — and every row's settled cell, plus every non-None left-settled one, must be among them, checked while writing so a kernel that invented a cell fails at the boundary rather than deep inside the fold. Order is load-bearing on this side too: the rows keep the key order the fold expands and flags in — `fold::assert_key_sorted` refuses a product that lost it — and a row's provenance keeps the first-seen order the rule fold joins pointers in.
+Stream layout: gzip with a zeroed timestamp, a first line `# ams-m1-transitions/1\\t<head json>`, then one compact JSON array per transition. Each cell is written once in the head, sorted by `table._cell_key` as the windows file sorts its cells, and rows refer to it by index. Every row's settled cell, and every non-None left-settled cell, must be in the head. The writer checks this, so a kernel that produced an unknown cell fails here instead of inside the fold. Order matters in the stream too: rows keep the key order the fold expands and flags in (`fold::assert_key_sorted` fails on a product out of that order), and each row's provenance keeps the first-seen order the rule fold joins pointers in.
 """
 
 from __future__ import annotations
@@ -43,7 +43,7 @@ def _hints(cls: Any) -> dict[str, Any]:
 
 
 def _optional_member(hint: Any) -> Any:
-    """The one non-None member of an optional hint, or None when the hint is not a union at all. Any other union raises: the spec tree has no shape-discriminated unions, and one arriving without a codec rule written for it must fail rather than have a member guessed for it."""
+    """Returns the non-None member of an optional hint, or None when the hint is not a union. Raises TypeError for any other union, because the codec has no rule for choosing which member a value belongs to."""
     if typing.get_origin(hint) not in (types.UnionType, typing.Union):
         return None
     members = typing.get_args(hint)
@@ -165,17 +165,17 @@ def _decode(hint: Any, value: Any) -> Any:
 
 
 def rune_payload(rune: Rune) -> Any:
-    """One rune as the dump spells it — the codec's own view, mappings in their own order — for a caller that wants to hash a rune's resolved content rather than its file: `run_m1.rune_content_digests` reads records with every cross-file `against:` already resolved in and every ligature-transparent left already expanded, which is exactly what the crate reads, so a digest over this moves when what the engine reads moves and not otherwise."""
+    """Returns one rune in the dump's form, for hashing a rune's resolved content instead of its file. The resolved rune already has cross-file `against:` targets and ligature-transparent lefts resolved in, as the crate reads it. The payload includes the prose fields, so `run_m1.rune_content_digests` removes `run_m1.PROSE_KEYS` before hashing it."""
     return _encode(Rune, rune)
 
 
 def spec_json(spec: ResolvedSpec) -> str:
-    """The canonical dump of a resolved spec: `{"format": SPEC_FORMAT, "runes": ..., "registry": ...}`, compact separators, ASCII, mappings in their own order and never sorted. Two calls on one spec return identical text, and the text of a spec that round-tripped through `spec_of` is identical to the text it came from — the fixpoint the Rust side will diff against. Raises TypeError when a field's type or runtime shape is one the codec has no rule for, so a change to `model.py` that outgrows this codec fails at the boundary instead of dumping a spec with a field missing."""
+    """Returns the canonical dump of a resolved spec, `{"format": SPEC_FORMAT, "runes": ..., "registry": ...}`. Two calls on one spec return identical text, and a spec read back through `spec_of` dumps to the same text. The crate's `spec-echo` must reproduce this text byte for byte (`rebuild/test_kernel_io.py`). Raises TypeError when a field's declared type or runtime value has no codec rule, so a `model.py` change the codec cannot handle fails here instead of producing a dump with a field missing."""
     return json.dumps({"format": SPEC_FORMAT, **_encode(ResolvedSpec, spec)}, separators=(",", ":"))
 
 
 def spec_of(text: str) -> ResolvedSpec:
-    """The `spec_json` inverse: the frozen dataclass tree back in the exact types `model.py` declares — tuples rather than lists, frozensets rather than sorted lists, plain dicts holding the dump's key order, which is the order the spec was resolved in. Raises ValueError when the format marker is missing or names another format, and when a record's fields are not exactly the ones its dataclass declares; a dump from an older `model.py` is a wrong dump, not a partial one."""
+    """Parses a `spec_json` dump back into the dataclass tree, with the container types `model.py` declares: tuples, frozensets, and dicts in the dump's key order. Raises ValueError when the format marker is missing or wrong, or when a record's fields are not exactly its dataclass's fields, so a dump from an older `model.py` fails instead of loading partially."""
     payload = json.loads(text)
     if not isinstance(payload, dict):
         raise ValueError(f"not an {SPEC_FORMAT} dump: the text is not a JSON object")
@@ -185,7 +185,7 @@ def spec_of(text: str) -> ResolvedSpec:
 
 
 def write_spec(spec: ResolvedSpec, path: Path) -> None:
-    """Write one canonical dump as plain text — no gzip, unlike the artifacts under `rebuild/out/`: a spec dump is read once at kernel start and is worth being greppable and diffable in the tree it is dumped into."""
+    """Writes the canonical dump as plain text with a trailing newline. It is not gzipped like the artifacts under `rebuild/out/`, so it can be read with grep and diff."""
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(spec_json(spec) + "\n")
 
@@ -196,7 +196,7 @@ def read_spec(path: Path) -> ResolvedSpec:
 
 
 def write_transitions(product: FixpointProduct, path: Path) -> None:
-    """Serialize one configuration's fixpoint product: a head line carrying the config, the reachable cells sorted as the windows file sorts them, the deep-class map and the cited provenance, then one compact JSON row per transition in the product's own key order. Rows name their settled cell by its index in the head, so the cell vocabulary is spelled once however many rows land in it; a row naming a cell the product does not carry raises `PartitionError` here, at the boundary, rather than surfacing later as a disagreement between the fold's cells and the product's. Byte-stable like the artifacts beside it — sorted head collections, a zeroed gzip stamp — so two writes of one product are identical files."""
+    """Writes one configuration's fixpoint product as an `ams-m1-transitions/1` stream, laid out as the module docstring describes. The head holds the configuration, the reachable cells, the deep-class map, and the cited provenance. Raises `PartitionError` when a row's settled or left-settled cell is not among the product's cells. Two writes of one product produce identical files."""
     cells = sorted(product.cells, key=_cell_key)
     seats = {cell: seat for seat, cell in enumerate(cells)}
     head = {
@@ -246,9 +246,9 @@ def write_transitions(product: FixpointProduct, path: Path) -> None:
 
 
 def read_transitions(source: Path | IO[str]) -> FixpointProduct:
-    """The `write_transitions` inverse: a `FixpointProduct` equal to the one written. Every label — glyph names, heights, class tokens, provenance pointers — is interned to one instance the way `table.read_windows` interns its rows, and the settled (cell, seam, extension) triples pool the same way, because a stream states the same few hundred names on every one of its rows and a parsed product otherwise costs several times the resident size of the one the fixpoint built. Raises OSError when the file is absent and ValueError when it is not a stream this build understands.
+    """Reads a `write_transitions` stream back into an equal `FixpointProduct`. Every label (glyph names, heights, class tokens, provenance pointers) is interned to one string object, as `table.read_windows` does, and equal settled (cell, seam, extension) triples share one `Settled`. A stream repeats a small vocabulary on every row, and without this pooling a parsed product takes several times the memory of the one the fixpoint built. Raises OSError when the file is absent and ValueError when it is not a stream this build understands.
 
-    A path is opened as the gzip every artifact under `rebuild/out/` wears; an already-open text stream is read as it stands, which is how a caller holding the crate's plain ndjson — `kernel_exec.read_stream` — reads it without first packing hundreds of megabytes into a shape the reader would only unpack again.
+    A `Path` is opened as gzip. An open text stream is read as it is, which lets `kernel_exec.read_stream` read the crate's plain ndjson output without compressing it first.
     """
     if isinstance(source, Path):
         with gzip.open(source, "rt") as handle:

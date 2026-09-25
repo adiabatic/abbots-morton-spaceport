@@ -1,10 +1,10 @@
-"""The settlement vocabulary of design section 6.1: the types a window is stated in, the boundary semantics that split runs, the tokenizer that turns codepoints into tokens, and the type-4 formation that stages before settlement. Settlement itself belongs to the crate under `rebuild/kernel-rs`, reached through `rebuild.pipeline.kernel_exec`; nothing here calls it, and this module imports nothing from it.
+"""The settlement vocabulary of doc/rebuild-design.md §6.1: the types a window and its trace are stated in, boundary semantics, the tokenizer from codepoints to tokens, and ligature formation, which runs before settlement. Settlement itself runs in the crate under `rebuild/kernel-rs`, reached through `rebuild.pipeline.kernel_exec`. This module does not import `kernel_exec`.
 
-The types are the shape of a window as both sides of that boundary state it. A `RightToken` is one raw lookahead slot; a `LeftContext` is the resolved neighbor to the left; a `Candidate` is the pair being ranked at a position (the cell of rune i, and the seam state toward i+1); `RankedCandidate` and `Elimination` are the ladder and the graveyard an author-facing trace carries; a `TransitionTrace` is the whole answer for one position. `kernel_exec` decodes the crate's answers into exactly these, so an explain report, a review unit, and a conform window all read one set of objects.
+A `RightToken` is one raw lookahead slot. A `LeftContext` is the settled neighbor to the left. A `Candidate` is one option ranked at a position: a stance of the rune there, with its entry and the seam toward the next letter. `RankedCandidate` and `Elimination` are the ranked and eliminated candidates an explain trace lists, and a `TransitionTrace` is the full result for one position. `kernel_exec` decodes the crate's results into these types, so explain reports, review units, and conform windows all read the same objects.
 
-Boundary semantics: space and ZWNJ split runs and derive word position; the namer dot does not split runs but is addressable as `is: namer-dot` and, having no join surface, breaks adjacency naturally. A boundary position settles to `boundary_settled` — a model constant, answered here rather than asked of the kernel — and `word_position` derives the design section 3.4 position from the splitting kinds alone.
+Space and ZWNJ split runs and determine word position. The namer dot does not split runs. A condition can address it as `is: namer-dot`, and because it has no join surface it breaks adjacency. A boundary position settles to `boundary_settled`, which this module computes without asking the kernel. `word_position` derives the §3.4 word position from the splitting kinds alone.
 
-Formation stages before everything else, markers included: `form_ligatures` walks the modeled ligature runes greedily left to right, longest sequence first, and every match yields per window to the section 5.7 late-formation guard over the two raw tokens past the sequence. Those verdicts are the crate's, swept whole by `kernel_exec.guard_sweep`, so the complete surface is an argument here and `guard_blocks` is the single place that reads it.
+`form_ligatures` runs before every other stage, the stylistic-set markers included. It matches the modeled ligature runes greedily left to right, longest sequence first, and each match is subject to the §5.7 late-formation guard over the two raw tokens after the sequence. The guard verdicts come from the crate through `kernel_exec.guard_sweep`, are passed in as an argument, and are read only in `guard_blocks`.
 """
 
 from __future__ import annotations
@@ -23,7 +23,7 @@ _NO_EXIT_INDEX = 9999
 
 
 class SettleError(Exception):
-    """A window that could not settle. `bucket` is the crate's own raise identity — `E-INCOMPARABLE`, `E-AMBIGUOUS`, `E-UNREACHABLE` — carried across by `kernel_exec` so a caller can sort a refusal without parsing its sentence, while the message stays the crate's sentence verbatim. This module's own raises are about a codepoint the registry does not model rather than about settlement, and carry no bucket."""
+    """A window that could not settle. `bucket` is the crate's error code (`E-INCOMPARABLE`, `E-AMBIGUOUS`, or `E-UNREACHABLE`), passed through by `kernel_exec` so a caller can sort refusals without parsing the message, which is the crate's message verbatim. The errors this module raises are for codepoints the registry or the spec does not model, and have no bucket."""
 
     def __init__(self, message: str, bucket: str | None = None) -> None:
         super().__init__(message)
@@ -36,7 +36,7 @@ class RightToken(NamedTuple):
 
     @property
     def letter(self) -> str:
-        """The rune name, for the `kind == "letter"` reads that have already established there is one."""
+        """Return the rune name, for callers that have already checked `kind == "letter"`. Raises ValueError when there is none."""
         if self.rune is None:
             raise ValueError(f"{self.kind} token has no rune")
         return self.rune
@@ -108,7 +108,7 @@ ISOLATED_OVERLAY_STAGE = "isolated-overlay"
 
 
 def isolated_overlay_settled(spec: ResolvedSpec, tokens: Sequence[RightToken]) -> list[Settled]:
-    """The stream an `overlay: isolated` taste set (ss10) renders for raw tokens: every letter its rune's default-stance cell with no entry, no exit, and no seam, every boundary token its boundary cell. Nothing settles under the overlay because the emitted font's pre-empt lookup has replaced every letter by its anchor-free twin before formation could see the buffer (the twins sit in no formation sequence, marker line, chokepoint class, or settlement input, which read-back proves per build), so the stream is a function of the tokens and the registry alone, and formation is never applied — a ligature's components stand as separate letters."""
+    """Return the stream the `overlay: isolated` stylistic set (ss10) renders for raw tokens: each letter as its rune's default-stance cell with no entry, exit, or seam, and each boundary token as its boundary cell. Nothing settles under the overlay, because the emitted font's pre-empt lookup replaces every letter with its anchor-free twin before formation runs. Read-back checks on every build that no twin appears in a formation sequence, marker line, chokepoint class, or settlement input. So the stream depends only on the tokens and the spec, and no ligature forms: a ligature's components stay separate letters."""
     stream: list[Settled] = []
     for token in tokens:
         if token.kind != "letter":
@@ -122,7 +122,7 @@ def isolated_overlay_settled(spec: ResolvedSpec, tokens: Sequence[RightToken]) -
 
 
 def isolated_overlay_traces(spec: ResolvedSpec, tokens: Sequence[RightToken]) -> list[TransitionTrace]:
-    """`isolated_overlay_settled` dressed as one trace per position, decided by `ISOLATED_OVERLAY_STAGE` with no candidates and no eliminations, so an explain report or a review unit reads the overlay as what it is rather than as a settlement nobody rendered."""
+    """Return `isolated_overlay_settled` as one trace per position, decided by `ISOLATED_OVERLAY_STAGE` (or `boundary` at a boundary) with no candidates or eliminations, so explain reports and review units do not show the overlay as a settlement."""
     return [
         TransitionTrace(
             settled=settled,
@@ -139,7 +139,7 @@ def isolated_overlay_traces(spec: ResolvedSpec, tokens: Sequence[RightToken]) ->
 
 
 def cell_label(spec: ResolvedSpec, cell: CellId) -> str:
-    """A deterministic textual form of a CellId for the diff-stable TSV artifacts and explain output. Not the compiled display name (that is geometry's, with the 63-byte cap); same shape on purpose so the alias map reads naturally."""
+    """Return a deterministic text form of a CellId, used in the diff-stable TSV artifacts and explain output. `run_m1.mint_cell_glyphs` also names each settled cell's compiled glyph with it and fails on a label over `geometry.MAX_GLYPH_NAME_BYTES`. `geometry.display_name` is a different form, which `geometry.realize` uses only when no name is passed."""
     if cell.stance == BOUNDARY_STANCE:
         return {"space": "space", "zwnj": "uni200C", "namer-dot": "periodcentered"}[cell.rune]
     parts = [cell.rune, cell.stance]
@@ -152,7 +152,7 @@ def cell_label(spec: ResolvedSpec, cell: CellId) -> str:
 
 
 def is_entry_bearing(spec: ResolvedSpec, rune_name: str) -> bool:
-    """Whether the ZWNJ chokepoint locks this rune: it has at least one selectable declared entry row, or any entry unlock, on any stance. Feature-agnostic, like the chokepoint itself."""
+    """Whether the ZWNJ chokepoint locks this rune: some stance has a selectable declared entry row or an entry unlock. Features are ignored, as they are by the chokepoint."""
     rune = spec.runes[rune_name]
     for stance in rune.stances.values():
         if any(row.selectable for row in stance.surface.entries.values()):
@@ -163,7 +163,7 @@ def is_entry_bearing(spec: ResolvedSpec, rune_name: str) -> bool:
 
 
 def word_position(left_kind: str, right1_kind: str) -> str | None:
-    """Word position derived from run-splitting boundaries only (design section 3.4): the namer dot does not split, so it leaves position medial on both sides. None when the right token is unknown."""
+    """Return the word position (design §3.4) derived from run-splitting boundaries only. The namer dot does not split runs, so it leaves the position medial on both sides. Returns None when the right token is unknown."""
     initial = left_kind in SPLITTING_KINDS
     if right1_kind == "unknown":
         return None
@@ -198,13 +198,13 @@ def tokens_from_codepoints(spec: ResolvedSpec, codepoints: Sequence[int]) -> lis
 
 
 def guard_blocks(verdicts: FormationGuard, liga: str, right1: RightToken, right2: RightToken) -> bool:
-    """Whether the section 5.7 guard withholds `liga` where the two raw slots past its sequence are `right1` and `right2`. A non-letter first slot never blocks — the guard exists to keep a ligature from stranding a follower, and a boundary is no follower — and every other triple is an indexed read of the crate's sweep, so a surface that does not cover the window raises `KeyError` here instead of quietly reading as free."""
+    """Whether the §5.7 guard blocks `liga` where the two raw slots after its sequence are `right1` and `right2`. A non-letter first slot never blocks, because the guard keeps formation from costing the following letter a join, and a boundary is not a letter. Every other case is looked up in the crate's verdicts, so a window the verdicts do not cover raises `KeyError` instead of reading as unblocked."""
     if right1.kind != "letter":
         return False
     return verdicts[(liga, right1, right2)]
 
 
-# The modeled ligature runes' sequences in the order formation tries them, keyed by the rune a sequence opens on and held per spec identity. Formation asks for the order at every position of every text, and a sweep or a surface build forms texts by the hundred thousand under one spec, so the sort is paid once and a position reads only the sequences its own rune can open; an entry holds the spec strongly so its id is never recycled underneath it, and the table keeps the last few specs a process formed under.
+# The modeled ligature runes' sequences in the order formation tries them (longest first), grouped by first component and cached per spec identity. Formation reads the order at every position of every text, and a sweep or a surface build forms many texts under one spec, so the sort runs once per spec and a position reads only the sequences its own rune can start. Each entry holds the spec itself so its id cannot be reused while cached. The cache clears when it reaches `_LIGATURE_ORDERS_CAP` specs.
 _LIGATURE_ORDERS: dict[int, tuple[ResolvedSpec, dict[str, list[tuple[Sequence[str], str]]]]] = {}
 _LIGATURE_ORDERS_CAP = 4
 
@@ -229,7 +229,7 @@ def _ligature_order(spec: ResolvedSpec) -> dict[str, list[tuple[Sequence[str], s
 def form_ligatures(
     spec: ResolvedSpec, tokens: list[RightToken], guard_verdicts: FormationGuard
 ) -> list[RightToken]:
-    """Type-4 formation over the modeled ligature runes, greedy left to right, longest sequence first — staged before everything else, markers included, each match yielding per window to the section 5.7 late-formation guard over the two raw tokens past the sequence (design section 5.7). `guard_verdicts` is the crate's complete verdict surface for this spec, which `kernel_exec.guard_sweep` answers in one invocation. It is required rather than optional because a caller with no sweep in hand would otherwise form every ligature the emitted lookup withholds, and form it silently."""
+    """Apply type-4 formation over the modeled ligature runes, greedy left to right, longest sequence first. Each match is subject to the §5.7 late-formation guard over the two raw tokens after the sequence. `guard_verdicts` is the crate's full verdict map for this spec, from one `kernel_exec.guard_sweep` call. It is required because a caller without it would form, with no error, every ligature the emitted lookup blocks."""
     by_lead = _ligature_order(spec)
     formed: list[RightToken] = []
     i = 0

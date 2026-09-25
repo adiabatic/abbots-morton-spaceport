@@ -1,26 +1,30 @@
-"""The persisted per-row oracle cache (issue 24): the section 13.1 baseline oracle's pre-position verdicts carried across runs, keyed per family, so an edit to any number of runes re-derives the subset rows that can reach one of them and serves the rest from the previous pass.
+"""Stores the baseline oracle's per-row verdicts between runs, keyed per rune family. After a rune edit, only the subset rows that can reach an edited family are compared again; the rest are served from the previous pass's store.
 
-Two verdicts are cached per row, each under its own key, and the split between them is the whole design. The row verdict is exactly `conform._compare_row`'s answer — the `DivergentRow | None` a row's settled stream and the alias map produce — and its key is font-blind: `_compare_row(spec, aliases, config, features, row, settled)` takes no font and no shaper, so `M1.otf`, the GSUB fold and `glyph_data/senior_quikscript_kerning.yaml` are outside it entirely, which is what lets a rune edit serve every row that reaches no edited family. The position verdict is `oracle_positions._position_drift`'s answer for the same row — the drift descriptions and the kern-attribution flag, or the clean answer — stored beside the row verdict under a second key that adds exactly what shaping reads. Per family, `position_family_keys` folds the after font's compiled glyphs for that family (`fingerprint.after_font_glyph_digests`: decomposed outlines, advances, cursive anchors) onto the row key; whole store, `position_stamp` carries the position channel's own module (`POSITION_CODE_PATHS`, rebuild/pipeline/oracle_positions.py — the drift, the kern normalization, the record codec, the served-position verifier, the sidecar evaluator and the shaper factory, and nothing of the classifier), the toolchain lock that pins uharfbuzz and fontTools, the font's non-family glyphs, cmap and GPOS wiring, and the kern sidecar. `_position_drift(shaper, kern, features, row)` takes no settled stream, which is why the position key need not fold the settlement beyond the row key it embeds. The after font's GSUB wiring is deliberately in neither key, and the argument is `fingerprint.after_font_glyph_digests`' argument at row grain: a position is served only when the row's own key still stands, so its settled cells are unchanged, and `gate:conform` proves every cycle that the compiled font selects exactly the settlement's cells — so which glyph a served row shapes to is a function of cells the row key covers and of glyph content the per-family digests cover. The review surface's unit cache measured the alternative: folding the GSUB wiring into a stamp produced "a store that never once served a unit", because a rune edit moves the lookup list on essentially every cycle. The position channel's only mutation of a row is appending `"position"` to `kinds` and `("position-drift",)` — plus optionally `"position-kern-attributable"` — to `phenomena`, so a served row and a fresh one enter that channel in the same state, and the verdict is stored raw — before the ledger decides whether the row is eligible for the channel at all — so a row the previous pass never shaped is recorded as `UNSHAPED` and shaped when a ledger edit makes it eligible, while one it did shape is served whether or not this pass's ledger still asks. If any of those signature facts stops holding, this cache is silently dishonest and its format version must move.
+Each row has two verdicts, each under its own key. The row verdict is `conform._compare_row`'s result, a `DivergentRow` or None. `_compare_row(spec, aliases, config, features, row, settled)` takes no font and no shaper, so the row key covers no font: `M1.otf`, the GSUB fold and `glyph_data/senior_quikscript_kerning.yaml` are outside it, and a rune edit serves every row that reaches no edited family. The position verdict is `oracle_positions._position_drift`'s result for the same row: the drift descriptions and the kern-attribution flag, or None. Its per-family key (`position_family_keys`) adds the after font's compiled-glyph digest for that family (`fingerprint.after_font_glyph_digests`: decomposed outlines, advances, cursive anchors) to the row key. Its whole-store stamp (`position_keys`) covers `POSITION_CODE_PATHS`, the toolchain lock that pins uharfbuzz and fontTools, the font's non-family glyphs, cmap and GPOS wiring, and the kern sidecar. `_position_drift(shaper, kern, features, row)` takes no settled stream, so the position key needs no settlement input beyond the row key it contains.
 
-Classification is outside the key by construction rather than by argument: `classify_divergence` and `_match_compiled` run over every row on every pass, served or fresh, so `rebuild/m1-divergences.yaml` and every ledger predicate are re-applied to the served verdict. A pure ledger edit therefore serves every row and still rewrites every `matched_entry` — the workflow `run_m1 --gates-only` advertises, and the one this cache actually pays for. The classifier's *code* is outside both stamps for the same reason: `classify_divergence`, the predicates and the ledger match live in `rebuild/pipeline/oracle.py`, a module neither `conform.py` nor `oracle_positions.py` imports, so a classifier edit serves every row verdict and every position verdict and spends the pass on the ledger match and the audit alone. The producer — `_compare_row`, `_cell_deltas`, the walk, and the record codec — stays in `conform.py`, which stays in `ORACLE_ROW_CODE_PATHS` permanently, and `rebuild/test_build_code_closure.py` holds the roster to never naming the comparison side.
+The after font's GSUB wiring is in neither key, for the reason `fingerprint.after_font_glyph_digests` gives: a rune edit changes the lookup list on nearly every cycle, and the glyphs a row shapes to are already covered. A position is served only while the row's key is unchanged, so its settled cells are unchanged, and `gate:conform` checks every cycle that the compiled font selects the settlement's cells.
 
-The staleness test is per family and has no threshold. A row is served when no family it can reach carries a key different from the one recorded beside it; reachable means the families of the row's codepoints plus every ligature rune all of whose components appear among them. That second clause is not decoration: `rebuild/script.yaml` declares the ligature runes with a `sequence:` and no codepoint, so "the families in the row's codepoints" never names one, yet `settle.form_ligatures` routes a `qsTea qsOy` window through `qsTea_qsOy.yaml`. A family key is the family's prose-blind rune digest joined with the digests of its static `resolve.against` closure and with the alias map's entries for that family — the three routes by which a named family's own content reaches a row's verdict. A cited family absent from the recorded keys is a miss, never a match: absence compares equal under `.get()`, and the registry holds far more families than the rune tree holds files.
+The position channel adds `"position"` to a row's `kinds` and `"position-drift"`, and optionally `"position-kern-attributable"`, to its `phenomena`, and changes nothing else, so a served row verdict and a fresh one enter the channel in the same state. The position verdict is stored before the ledger decides whether the row goes through the channel. A row the previous pass never shaped is recorded as `UNSHAPED` and is shaped when a ledger edit makes it eligible, and a shaped row's position verdict is written forward even when this pass's ledger excludes the row. If any of the facts above stops holding, the cache serves wrong verdicts without any error, and `STORE_FORMAT` must change.
 
-The row key is deliberately not `review.unit_cache.family_content_keys`, and the divergence is the point rather than an oversight. That key folds a `glyphs` line over the after font's compiled outlines, which is right for a cache whose product is a rendered review card and wrong for one whose product never reads a font — folding it into the row key would drop the row verdicts on exactly the workflow the store exists for. The position key is the analogue that does fold it, over the same per-family digest, because its product is shaped through that font; a glyph edit therefore re-shapes the rows reaching the family and re-derives none. The import direction settles where the sibling lives: `rebuild/review/` imports `rebuild/pipeline/`, never the reverse, so the shared halves (the per-family rune digests — `fingerprint.rune_digests` here, its explain-aware sibling `fingerprint.rune_explain_digests` in the unit cache — `fingerprint.after_font_glyph_digests`, `spec_load.rune_closure`, `spec_load.capability_features`, `spec_load.spec_structure_digest`) live in the pipeline and both callers reach for them there.
+Classification is outside both keys because it always runs: `classify_divergence` and `_match_compiled` run over every row on every pass, served or fresh, so `rebuild/m1-divergences.yaml` and every ledger predicate are applied again to the served verdict. A ledger-only edit therefore serves every row and still rewrites every `matched_entry`; this is the `run_m1 --gates-only` workflow. The classifier's code is outside both stamps for the same reason. It lives in `rebuild/pipeline/oracle.py`, which neither `conform.py` nor `oracle_positions.py` imports, so a classifier edit serves every row verdict and every position verdict. The producer (`_compare_row`, `_cell_deltas`, the walk, and the record codec) is in `conform.py`, which is always in `ORACLE_ROW_CODE_PATHS`. `rebuild/test_build_code_closure.py` checks that the roster names no comparison-side module.
 
-Deliberately outside the row store's whole-store stamp, each for a reason worth stating. `M1.otf` and the kern sidecar: they are the position stamp's, and moving either re-shapes every position while every row verdict is still served. `rebuild/m1-divergences.yaml`: classification always recomputes. `rebuild/m1-contact-allow.yaml`: no oracle stage reads it — it is the defect gate's allow-list — and it is outside `fingerprint.data_paths` entirely, so the stamp cannot reach it even by accident; it moves often enough that stamping it would have collapsed the whole store on a two-line bless. The rune files: they invalidate at per-family grain through the keys. What is inside is everything that can move a verdict without moving a named family — the comparison's own code closure, the remaining data inputs, the resolved spec structure and the capability-feature universe (a predicate class gaining a member, a rune-local group, a ligature sequence, a feature unlock: cross-rune routes the per-family grain cannot decompose, since `specificity::family_set` expands a class reference to its whole member set and ranks by set size, so a rune joining a class can flip a window holding no such rune), the engine's semantics flags, the configuration's feature set, and the subset table's own bytes. The position stamp rides on top of it: a store whose row stamp moved is not loaded at all, and one whose position stamp alone moved serves rows and re-shapes positions.
+The staleness test is per family and has no threshold. A row is served when no family it can reach has a key different from the one recorded for it. A row reaches the families of its codepoints plus every ligature rune whose components all appear among them. The ligature clause is needed because `rebuild/script.yaml` declares the ligature runes with a `sequence:` and no codepoint, yet `settle.form_ligatures` routes a `qsTea qsOy` window through `qsTea_qsOy.yaml`. A family key (`family_keys`) combines the family's prose-blind rune digest, the digests of the runes in its `spec_load.rune_closure`, and the alias map's entries for that family. A family present in only one of the recorded and current key maps counts as moved (`moved_families`).
 
-Window grain was measured and rejected, and the numbers belong here so it is not re-litigated from intuition: a settled window spans six slots over rows of at most four letters, so windows are letter-denser than rows — 287,280 of 499,989 distinct windows name four letters — and window grain serves 45.4% of the work at four edited runes against row grain's 48.6%, covers only the settlement slice rather than settlement plus the comparison, and keys its left slot on the previous window's output, so an edit propagates downstream keys into never-before-seen misses. Stacked on top of a row store its marginal value was 1.40% of lookups.
+The row key is not `review.unit_cache.family_content_keys`. That key includes a `glyphs` line over the after font's compiled outlines, which suits a cache of rendered review cards. The row verdict never reads a font, so that line would drop row verdicts on every font change. The position key includes the same per-family glyph digest because its verdict is shaped through that font, so a glyph edit re-shapes the rows that reach the family and re-derives none. `rebuild/review/` imports `rebuild/pipeline/` and not the reverse, so the parts both caches use (`fingerprint.rune_digests` here and `fingerprint.rune_explain_digests` in the unit cache, `fingerprint.after_font_glyph_digests`, `spec_load.rune_closure`, `spec_load.capability_features`, `spec_load.spec_structure_digest`) live in the pipeline.
 
-Records are positional and carry no per-row key, because the subset table is the complete product over the M1 alphabet in canonical order and the ordinal is therefore the key. What every record does carry is a twelve-hex truncated digest of its row's codepoints, checked on every serve: a positional store whose alignment is guaranteed only by a whole-file digest and a row count fails by serving every row wrong and silently, and the anchor converts that into a loud abort. `baseline_glyphs`, `baseline_seams` and `codepoints` are re-read from the table rather than stored — the table is on disk either way and the store is the thing that has to stay small.
+The row store's whole-store stamp (`environment_stamp`) leaves out `M1.otf` and the kern sidecar, which the position stamp covers; `rebuild/m1-divergences.yaml`, because classification always runs again; `rebuild/m1-contact-allow.yaml`, which no oracle stage reads and which is not in `fingerprint.data_paths`; and the rune files, which the per-family keys cover. It covers everything that can change a verdict without changing a named family's key: the comparison's code closure, the other data inputs, the resolved spec structure and the capability-feature set, the engine's settlement flags, the configuration's feature set, and the subset table's bytes. The spec structure and the capability features cover cross-rune routes that the per-family keys cannot split: a predicate class gaining a member, a rune-local group, a ligature sequence, a feature unlock. For example, the kernel's specificity order (`rebuild/kernel-rs/src/specificity.rs`) expands a class reference to its whole member set before it compares records, so a rune joining a class can change the result in a window that contains no such rune. The position stamp is checked after the row stamp: a store whose row stamp moved is not loaded, and one whose position stamp alone moved serves rows and re-shapes positions.
 
-Two mechanisms keep a wrong record from laundering itself forever, because nothing else would: a served record is re-emitted under the current stamp, so provenance alone can never age it out, and `gate:conform` — which does re-settle the identical universe every cycle — proves the font reproduces a fresh settlement and never compares a cached verdict against a fresh one, so it is not a backstop for this. First, every record keeps the `derived_at_pass` each of its two verdicts was *derived* at rather than the pass that last re-emitted it, and `RowStore.stale` and `RowStore.position_stale` force a re-derivation once that age reaches `MAX_RECORD_AGE`, spread by row ordinal so one row in that many re-derives every pass rather than the whole table on the pass the cap comes due. Second, `VerificationSample` draws up to `VERIFICATION_SAMPLE_PER_FAMILY` served rows for every family that served any, seeded on the stamp, the family and the ordinal of the pass the store is being read into, so the covered slice rotates instead of re-proving the same fraction of a percent forever — and since that ordinal advances only when a store is written, a pass forbidden to write one rotates on the clock instead of standing still, which is what keeps `--gates-only` from re-proving a single frozen sample every time it runs; the caller re-walks those rows and compares the full record, and a second sample of the same shape is drawn over the rows whose positions were served and re-shaped through HarfBuzz. Stratifying by family is what catches a family-wide poisoning with probability one rather than with probability sample-over-served, and a family-wide poisoning is the shape the mid-run rune edit produces.
+Keying by settled window instead of by row was measured and rejected. A settled window spans six slots and a row has at most four letters, so windows name more letters than rows (287,280 of 499,989 distinct windows name four letters). With four edited runes, window keys served 45.4% of the work against row keys' 48.6%. Window keys cover only settlement, not the comparison, and a window's left slot is keyed on the previous window's output, so an edit changes keys downstream and produces misses. Added on top of a row store, window keys served 1.40% more lookups.
 
-The one assumption the key rests on that nothing else in the pipeline pins: every old compiled glyph name in a row belongs to a family the row's codepoints already reach, so the alias entries a served row would have consulted are all inside its own key. It holds over the whole live subset — twenty-seven distinct glyph heads, every one a rune file — and `unreachable_glyph_heads` is here so the caller can assert it per row rather than trusting it.
+Records are positional and carry no row key: the subset table is the complete product over the M1 alphabet in canonical order, so the ordinal is the key. Each record starts with an anchor (`row_anchor`), a digest prefix of its row's codepoints that is checked on every serve. A store whose alignment was checked only by a whole-file digest and a row count would serve every row wrong with no error if the table changed under it; the anchor makes that an abort. `baseline_glyphs`, `baseline_seams` and `codepoints` are read from the table instead of stored, to keep the store small.
 
-Everything degrades toward a full pass. `load_store` answers `None` for an absent, unreadable, format-mismatched, stamp-mismatched, digest-mismatched, short or trailer-less store, and a `None` costs one cold oracle and nothing else; a store whose position stamp or position keys will not compare loads with every position stale, which costs one pass of shaping and nothing else.
+Two mechanisms stop a wrong record from being served indefinitely. They are needed because a served record is written again under the current stamp, so its provenance never ages it out, and `gate:conform` checks the font against a fresh settlement but never compares a cached verdict with a fresh one. First, each record keeps the pass at which each of its two verdicts was derived, not the pass that last wrote it, and `RowStore.due` and `RowStore.position_due` force a re-derivation once that age reaches `MAX_RECORD_AGE`. The renewal is spread by row ordinal, so one row in `MAX_RECORD_AGE` re-derives on every pass instead of the whole table on one pass. Second, `VerificationSample` draws up to `VERIFICATION_SAMPLE_PER_FAMILY` served rows for every family that served any, seeded on the stamp, the family and the pass's coverage ordinal, so the checked rows change from pass to pass. A pass that writes no store, such as `--gates-only`, advances that ordinal by the clock (see `RowStore`). The caller re-derives the sampled rows and compares whole records, and a second sample of the same shape re-shapes the rows whose positions were served. Because every family that served rows is sampled, a family whose records are all wrong is always caught, not with probability equal to the sample size over the rows served. A rune edited during a run produces that kind of error.
 
-The settle memo the oracle shares with the conform belt (`conform.SettleMemoFile`) keys its entries the same way, and its key primitives live here beside the row store's because they are the same primitives: `settle_family_keys` is `family_keys` without the alias line, since the walk never reads the alias map, and `settle_memo_stamp` is the row stamp without the subset and alias-boundary lines, since a memo entry is a settlement and nothing more. A memo entry's reach is read off its window's labels rather than off a row's codepoints — the six slots' families, a formed ligature label naming its rune directly, plus every ligature rune all of whose components appear among them — and `StaleMask.bit_of` is the label-grain door into the same mask. `SettleMemoInputs` is the disk-derived half of both, snapshotted before the spec they describe is loaded, on `run_m1.tables_inputs`' discipline: a key cut before the load can only name content the settlements are at least as new as, so a rune edited during a run lands under a key the next pass reports moved, whichever side of the load the edit fell on.
+The key relies on one assumption that nothing else in the pipeline checks: every old compiled glyph name in a row belongs to a family the row's codepoints reach, so the alias entries a served row used are inside its own key. `unreachable_glyph_heads` lets the caller check it for each row.
+
+Every failure falls back toward a full pass. `load_store` returns None for an absent, unreadable, format-mismatched, stamp-mismatched, digest-mismatched, short or trailer-less store, and None costs one uncached oracle pass. A store whose position stamp or position keys do not match loads with every position stale, which costs one pass of shaping.
+
+The settle memo that the oracle shares with the conform belt (`conform.SettleMemoFile`) keys its entries with the same primitives, so they live here too. `settle_family_keys` is `family_keys` without the alias line, because the walk never reads the alias map. `settle_memo_stamp` is the row stamp without the format, subset and alias-boundary lines, because a memo entry is only a settlement. A memo entry's reach is read from its window's labels instead of a row's codepoints: the six slots' families, the rune a formed ligature label names, and every ligature rune whose components all appear among them. `StaleMask.bit_of` maps one label to its bit. `SettleMemoInputs` is the disk-derived half of both keys, read before the spec is loaded, as `run_m1.tables_inputs` is. The settlements are then at least as new as the content the keys name, so a rune edited during a run ends up under a key the next pass reports as moved, whichever side of the load the edit happened on.
 """
 
 from __future__ import annotations
@@ -53,15 +57,15 @@ ANCHOR_WIDTH = 12
 MAX_RECORD_AGE = 20
 VERIFICATION_SAMPLE_PER_FAMILY = 8
 
-# The code the position channel runs that the row closure does not already stamp: `_position_drift`, `_kern_normalized_positions`, the record codec, `_verify_served_positions`, `KernEvaluator` and `_shaper_for`, which picks the shaper every stored position comes from, in a module of their own at the module grain `ORACLE_ROW_CODE_PATHS` already uses, held by the import walk in rebuild/test_oracle_code_closure.py rather than by a function-grain digest nothing checks. The classifier in oracle.py is outside this stamp, so a classifier edit serves every position beside every row verdict, and only an edit to the channel itself re-shapes them. `Shaper` and `geometry.PIXEL` are already inside `ORACLE_ROW_CODE_PATHS`, so the row stamp covers them for both verdicts.
+# The position channel's code that the row stamp does not cover: `_position_drift`, `_kern_normalized_positions`, the position record codec, `_verify_served_positions`, `KernEvaluator` and `_shaper_for`, which picks the shaper every stored position comes from. They share one module so this stamp works at module grain, like `ORACLE_ROW_CODE_PATHS`, and rebuild/test_oracle_code_closure.py walks that module's imports. The classifier in oracle.py is outside this stamp, so a classifier edit re-shapes no position. `Shaper` and `geometry.PIXEL` are in `ORACLE_ROW_CODE_PATHS`, so the row stamp covers them for both verdicts.
 POSITION_CODE_PATHS = ("rebuild/pipeline/oracle_positions.py",)
-# The lock that pins uharfbuzz and fontTools, which is what turns the same font bytes into the same positions; `artifact_cycle.comparison_side_label` refuses it for the same reason, and a bump here rebuilds anyway. It rides the stamp by its dependency pins (`fingerprint.lock_digest`), blind to the project's own version block, which pins no shaper.
+# The lock that pins uharfbuzz and fontTools, which decide the positions the same font bytes shape to. It is hashed by its dependency pins (`fingerprint.lock_digest`), so a change to the project's own version block does not move the stamp. For the same reason `artifact_cycle.comparison_side_label` does not count it as a comparison-side input, so a toolchain bump rebuilds the tables and the font.
 TOOLCHAIN_LOCK = "uv.lock"
 
-# The two alias heads that name a boundary glyph rather than a family. Their entries can never reach a verdict — `_compare_row` skips every name in `labels.BOUNDARY_GLYPH_NAMES` before it consults the map — so they ride the whole-store stamp instead of a family key, and `alias_family_digests` refuses any other head that has no rune digest beside it.
+# The two alias heads that name a boundary glyph instead of a family. `_compare_row` skips every name in `labels.BOUNDARY_GLYPH_NAMES` before it reads the alias map, so these entries never reach a verdict. They are hashed into the whole-store stamp instead of a family key, and `alias_family_digests` raises on any other head that has no rune digest.
 BOUNDARY_ALIAS_HEADS = frozenset({"space", "periodcentered"})
 
-# The closure of what `_compare_row` and `_SettledWindowWalk` read, module by module rather than as the whole of rebuild/pipeline/: the comparison and its settlement, the stream vocabulary both spell their windows in (`labels`), the crate that decides the settlement, the spec loader that resolves what both read, the fingerprints the keys are cut from, and this module. rebuild/test_oracle_code_closure.py walks the import graph from those two entry points on every contracts run and fails when anything reachable is outside this list, so it cannot go stale the way a hand-written roster otherwise would. conform.py is here permanently: it holds the producer this cache serves — `_compare_row`, the walk, and the codec between a verdict and a record. The classifier that re-runs over every served row is not: it lives in oracle.py, and the sibling test's stray check is what keeps it out — conform.py must never import oracle.py. The position channel in oracle_positions.py is not either: it is `POSITION_CODE_PATHS`, stamped on top of this roster, and the sibling test walks from it too and holds the other direction — oracle_positions.py must never reach oracle.py, or the classifier would ride the position stamp. The witness stage's rule replay is not either: it lives in witness.py, which imports conform.py and the GSUB emitter's rule fold, so emit_gsub.py sits outside this closure and an edit to it alone leaves the store standing. The two tools files are here because `kernel_exec` derives its fan-out width from them (issue #63, sub-issue #86), which the comparison never consults and which cannot move a verdict at all — the streams are byte-identical at any width — so they buy the store nothing and cost it a drop whenever either moves. They stay anyway: the walk is at module grain, the sibling test forbids naming a module the comparison cannot reach, and between them the two have a couple of commits against `kernel_exec.py`'s many, so the churn this admits is close to none. The third and fourth tools files, `site_fonts` and `lock_digest`, are here on the same terms: the two-path leaf `fingerprint.font_paths` is read from and the lock projection `fingerprint.lock_digest` is, both reached through the fingerprints the keys are cut from, and neither anything the comparison consults.
+# The modules that `_compare_row` and `_SettledWindowWalk` import, directly or transitively: the comparison and its settlement, the stream vocabulary (`labels`), the crate driver, the spec loader, the fingerprints the keys are computed from, and this module. rebuild/test_oracle_code_closure.py walks the import graph from conform.py on every contracts run and fails when a reachable module is missing here or a listed module is unreachable. conform.py holds the producer this cache serves: `_compare_row`, the walk, and the record codec. The classifier in oracle.py must stay out: if conform.py reached it, this test would fail until it was listed, and rebuild/test_build_code_closure.py fails when this list names it. The position channel in oracle_positions.py is `POSITION_CODE_PATHS`, stamped on top of this list, and the test also checks that it never reaches oracle.py, which would put the classifier in the position stamp. The witness stage's rule replay is in witness.py, which imports conform.py and emit_gsub.py, so emit_gsub.py is outside this closure and an emitter edit keeps the store. The four rebuild/tools modules cannot change a verdict: `kernel_exec` imports `memory_budget` to size its fan-out, `memory_budget` imports `peak_rss`, and the streams are byte-identical at any width; `fingerprint` imports `site_fonts.font_paths` and `lock_digest.lock_digest`. They are listed because the walk works at module grain and the test fails on an omission, and they change rarely, so the whole-store drops they cause are rare.
 ORACLE_ROW_CODE_PATHS = (
     "rebuild/pipeline/conform.py",
     "rebuild/pipeline/fingerprint.py",
@@ -83,7 +87,7 @@ ORACLE_ROW_CODE_PATHS = (
 
 
 def oracle_code_paths(repo_root: Path) -> list[Path]:
-    """`ORACLE_ROW_CODE_PATHS` resolved against a checkout, plus the kernel crate's whole build-input surface — the crate decides every settlement this cache stores, and tracking its modules piecemeal goes wrong the next time one is added."""
+    """Return `ORACLE_ROW_CODE_PATHS` resolved against a checkout, plus the kernel crate's manifest, lock and every Rust source file. The crate decides every settlement this cache stores, and a hand-kept list of its modules would miss the next one added."""
     root = Path(repo_root)
     kernel = root / "rebuild" / "kernel-rs"
     return (
@@ -94,12 +98,12 @@ def oracle_code_paths(repo_root: Path) -> list[Path]:
 
 
 def store_path(out_dir: Path, config: str) -> Path:
-    """Where a promoted store lives: beside the m1 artifacts, but not one of them. The name misses `artifact_cycle.M1_ARTIFACT_NAMES` and every glob over the tables there, so it rides no gate key and not the artifacts-present check — this is a cache, and a cycle that deletes it must lose nothing but time."""
+    """Return where a promoted store lives: beside the M1 artifacts but not one of them. The name matches neither `artifact_cycle.M1_ARTIFACT_NAMES` nor any glob over the tables there, so the file is hashed into no gate key and is not part of the artifacts-present check. It is a cache, and a cycle that deletes it loses only time."""
     return Path(out_dir) / f"{STORE_STEM}-{config}.tsv.gz"
 
 
 def scratch_store_path(scratch_dir: Path, config: str, segment: int | None = None) -> Path:
-    """Where a store is staged while the oracle runs: a subdirectory of this run's pid-named audit scratch, so `discard_oracle_audit_scratch` sweeps a killed run's stores the way it already sweeps its shards, and so `join_oracle_audit`'s missing-shard diagnostic lists one directory rather than a store per acceptance configuration. A row range of a cut configuration stages its `segment` beside the whole store's path, for `join_store_segments` to join into it."""
+    """Return where a store is staged while the oracle runs: a subdirectory of this run's pid-named audit scratch. `discard_oracle_audit_scratch` therefore removes a killed run's stores along with its shards, and `join_oracle_audit`'s missing-shard message lists one directory instead of a store per acceptance configuration. A row range of a cut configuration stages its `segment` beside the whole store's path, for `join_store_segments` to join."""
     name = f"{config}.tsv.gz" if segment is None else f"{config}.{segment}.tsv.gz"
     return Path(scratch_dir) / SCRATCH_SUBDIR / name
 
@@ -112,7 +116,7 @@ def _sha256_file(path: Path, digest: Callable[[Path], str] = fingerprint.file_sh
 
 
 def stamped_data_paths(repo_root: Path) -> list[Path]:
-    """The data inputs the whole-store stamp folds: `fingerprint.data_paths` less the rune files, which invalidate at family grain through the keys instead, and less the three the comparison never consults — the alias map, whose family heads are stamped per family and whose two boundary heads ride their own line; the divergence ledger, since classification re-reads it over every row on every pass; and the kern sidecar, which the position stamp carries so that an edit to it re-shapes every position and re-derives nothing. The contact-allow list needs no exclusion: it left `fingerprint.data_paths` with the defect gate's own key, so nothing here has to name a path that set no longer contains. It is exported because `artifact_cycle.oracle_cache_note` has to say what a moved input will cost the store before the oracle has run, and a second hand-kept copy of this list is precisely the thing that would drift out of agreement with the stamp it is describing."""
+    """Return the data inputs the whole-store stamp hashes: `fingerprint.data_paths` without the rune files, the alias map, the divergence ledger and the kern sidecar, each of which is covered another way. The rune files are covered per family by the keys. The alias map's family heads are covered per family, and its two boundary heads have their own stamp line. The divergence ledger is read again by classification on every pass. The kern sidecar is in the position stamp, so an edit to it re-shapes every position and re-derives no row verdict. The contact allow-list is not in `fingerprint.data_paths`, so it needs no exclusion here. `artifact_cycle.oracle_cache_note` calls this to report what a moved input will cost the store before the oracle runs, so there is no second copy of this list to keep in step with the stamp."""
     root = Path(repo_root)
     runes = set(fingerprint.rune_paths(root))
     excluded = {
@@ -128,7 +132,7 @@ def stamped_data_paths(repo_root: Path) -> list[Path]:
 
 
 def alias_family_digests(alias_path: Path, family_names: Collection[str]) -> dict[str, str]:
-    """`rebuild/m1-aliases.yaml`'s entries bucketed by the `.`-split head of each key, one digest per head over that bucket's sorted `key\\tdenotation` lines. The heads are what a family key can cite, so every head must be either a name in `family_names` or one of `BOUNDARY_ALIAS_HEADS`; anything else raises, because a head with no key can never be reported moved and would leave its alias entries stamped by nothing. That guard is the invariant, not a name check against the registry: the script registry holds far more families than the rune tree holds files, so "is a registry family" would place a head and then find no digest for it."""
+    """Group `rebuild/m1-aliases.yaml`'s entries by the part of each key before the first `.` and return one digest per head, over that group's sorted `key\\tdenotation` lines. Every head must be a name in `family_names` or one of `BOUNDARY_ALIAS_HEADS`. Any other head raises, because no key covers it, so a change to its entries could never be reported. The check is against the rune digests' names and not the script registry, because the registry has many families with no rune file and therefore no digest."""
     raw = yaml.safe_load(Path(alias_path).read_text()) or {}
     known = set(family_names)
     buckets: dict[str, list[str]] = {}
@@ -143,13 +147,13 @@ def alias_family_digests(alias_path: Path, family_names: Collection[str]) -> dic
 
 
 def _reach_lines(name: str, digests: Mapping[str, str], closure: Mapping[str, frozenset[str]]) -> list[str]:
-    """The `member\\tdigest` lines of a family's own rune digest and its static `resolve.against` closure's — the one route by which a rune's records read another rune file's content directly."""
+    """Return the `member\\tdigest` lines for the family and every rune in its `spec_load.rune_closure` (the runes reachable from it through ligature trailing components and `resolve.against` targets, transitively), which are the runes whose content its records read directly."""
     reach = sorted({name} | set(closure.get(name, frozenset())))
     return [f"{member}\t{digests.get(member, '-')}" for member in reach]
 
 
 def family_keys(repo_root: Path, spec: ResolvedSpec, alias_path: Path) -> dict[str, str]:
-    """Per rune family, the digest a row's staleness test cites for it: the family's prose-blind rune digest joined with the digests of its `spec_load.rune_closure` — the trailing component whose outgoing stroke a ligature preserves and the static `resolve.against` targets, the routes by which its records read another rune file's content directly — and with the alias map's entries for that family, which are what the comparison reads to turn an old compiled name into a cell. A family with no alias entries records `-` rather than being omitted, so the key still moves the day entries appear for it. Every other cross-rune route rides the whole-store stamp."""
+    """Return, per rune family, the key a row's staleness test compares: a digest over the family's prose-blind rune digest, the digests of its `spec_load.rune_closure` (the runes reachable through the trailing component whose outgoing stroke a ligature keeps and through `resolve.against` targets, transitively), and the alias map's entries for the family, which the comparison reads to turn an old compiled name into a cell. A family with no alias entries records `-`, so its key changes when entries are added for it. The whole-store stamp covers every other cross-rune route."""
     digests = fingerprint.rune_digests(Path(repo_root))
     closure = spec_load.rune_closure(spec)
     aliases = alias_family_digests(Path(alias_path), digests.keys())
@@ -162,7 +166,7 @@ def family_keys(repo_root: Path, spec: ResolvedSpec, alias_path: Path) -> dict[s
 
 
 def position_family_keys(row_keys: Mapping[str, str], glyph_digests: Mapping[str, str]) -> dict[str, str]:
-    """Per family, the digest a row's position verdict cites for it: the family's row key — so a position is stale wherever the row verdict is — joined with the after font's compiled-glyph digest for that family (`fingerprint.after_font_glyph_digests`). Cut over the union of the two rosters, so a family the font holds glyphs for and the rune tree holds no key for, or the reverse, still carries a key that can be reported moved; a name absent from one side records `-` on that side."""
+    """Return, per family, the key a row's position verdict compares: a digest of the family's row key and the after font's compiled-glyph digest for the family (`fingerprint.after_font_glyph_digests`). Including the row key makes a position stale wherever the row verdict is. Keys are computed over the union of both maps' names, with `-` for a name missing on one side, so a family with glyphs but no rune file, or the reverse, still has a key that can move."""
     return {
         name: fingerprint.digest_lines(
             (f"row\t{row_keys.get(name, '-')}", f"glyphs\t{glyph_digests.get(name, '-')}")
@@ -174,7 +178,7 @@ def position_family_keys(row_keys: Mapping[str, str], glyph_digests: Mapping[str
 def position_keys(
     repo_root: Path, row_keys: Mapping[str, str], font_path: Path, kern_sidecar_path: Path | None
 ) -> tuple[dict[str, str], EnvironmentStamp]:
-    """The position store's two keys as one read of the font: the per-family keys over `position_family_keys`, and the whole-store position stamp — the position channel's own module (`POSITION_CODE_PATHS`), the toolchain lock's dependency pins, the font's non-family glyphs, cmap and GPOS wiring (`fingerprint.after_font_glyph_digests`' helpers digest) and the kern sidecar's bytes. The row stamp is not repeated here: a store is loaded at all only when that one matches, so the position stamp rides on top of it rather than beside it. A caller with no kern sidecar records `-` for it."""
+    """Return the position store's per-family keys (`position_family_keys`) and its whole-store position stamp, from one read of the font. The stamp covers the position channel's module (`POSITION_CODE_PATHS`), the toolchain lock's dependency pins, the digest `fingerprint.after_font_glyph_digests` returns for the font's non-family glyphs, cmap and GPOS wiring, and the kern sidecar's bytes, or `-` when there is no sidecar. The row stamp is not repeated here, because a store is loaded only when its row stamp matches."""
     root = Path(repo_root)
     glyph_digests, helpers = fingerprint.after_font_glyph_digests(Path(font_path))
     lines = (
@@ -189,7 +193,7 @@ def position_keys(
 
 @dataclass(frozen=True)
 class SettleMemoInputs:
-    """The disk-derived half of the settle memo's keys, cut before the spec they describe is loaded — `run_m1.tables_inputs`' discipline, so a key can only ever name content the settlements are at least as new as. The spec-derived half (`spec_structure`, `capability_features`) is cut off the loaded spec itself in `settle_memo_stamp`, which is the spec that settles."""
+    """The disk-derived half of the settle memo's keys, computed before the spec they describe is loaded, as `run_m1.tables_inputs` is, so the settlements are at least as new as the content these keys name. `settle_memo_stamp` computes the spec-derived half (`spec_structure`, `capability_features`) from the loaded spec that settles."""
 
     rune_digests: Mapping[str, str]
     oracle_code: str
@@ -206,7 +210,7 @@ def settle_memo_inputs(repo_root: Path) -> SettleMemoInputs:
 
 
 def settle_family_keys(inputs: SettleMemoInputs, spec: ResolvedSpec) -> dict[str, str]:
-    """Per rune family, the digest a memo entry's staleness test cites for it: `family_keys` without the alias line, because the walk that fills the memo never reads the alias map — a settlement is a function of the rune files a window names and of their `resolve.against` closure, and of nothing the comparison adds on top."""
+    """Return, per rune family, the key a memo entry's staleness test compares: `family_keys` without the alias line. The walk that fills the memo never reads the alias map, and a settlement depends only on the rune files a window names and their `spec_load.rune_closure`."""
     closure = spec_load.rune_closure(spec)
     return {
         name: fingerprint.digest_lines(_reach_lines(name, inputs.rune_digests, closure))
@@ -217,7 +221,7 @@ def settle_family_keys(inputs: SettleMemoInputs, spec: ResolvedSpec) -> dict[str
 def settle_memo_stamp(
     inputs: SettleMemoInputs, spec: ResolvedSpec, config: str, features: Collection[str]
 ) -> EnvironmentStamp:
-    """Everything that can move a memoized settlement without moving a named family's key: `environment_stamp` less the lines only the comparison reads (the subset table, the alias map's boundary heads) and less the store format, which the memo file carries in its own header. `settlement_flags` rather than `kernel_exec.enumeration_tokens`, because the walk settles windows one at a time and never enumerates, so the deep-class grain cannot reach it."""
+    """Return the stamp over everything that can change a memoized settlement without changing a named family's key. It is `environment_stamp` without the lines only the comparison reads (the subset table and the alias map's boundary heads) and without the store format, which the memo file records in its own header. It uses `settlement_flags` and not `kernel_exec.enumeration_tokens`, because the walk settles windows one at a time and never enumerates, so deep-class grain cannot affect it."""
     lines = (
         f"config\t{config}",
         "features\t" + json.dumps(sorted(features)),
@@ -239,7 +243,7 @@ def environment_stamp(
     alias_path: Path,
     family_names: Collection[str],
 ) -> EnvironmentStamp:
-    """Everything that can move a row's pre-position verdict without moving a named family's key. `family_names` is passed in rather than re-read for the reason `run_oracle` snapshots the keys before the first row: one read of the rune tree per run, not one per configuration. `features` is the caller's `labels.features_for_config(config)`, taken as a parameter so the stamp names the feature set the caller shapes under instead of resolving the configuration a second time. The alias map appears here only through its boundary heads; every family head is stamped at family grain by `family_keys`. See the module docstring for what is deliberately absent and why."""
+    """Return the stamp over everything that can change a row's pre-position verdict without changing a named family's key. The caller passes `family_names` so the rune tree is read once per run and not once per configuration, and passes `features` (its `labels.features_for_config(config)`) so the stamp names the feature set the caller shapes under. The alias map enters only through its boundary heads; `family_keys` covers every family head. The module docstring lists what the stamp leaves out and why."""
     root = Path(repo_root)
     boundary = alias_family_digests(Path(alias_path), family_names)
     lines = (
@@ -261,7 +265,7 @@ def environment_stamp(
 
 
 def moved_families(recorded: Mapping[str, str], current: Mapping[str, str]) -> frozenset[str]:
-    """Every family whose key differs between what a store recorded and what this run computes, counting a name present in one map and absent from the other as moved. The symmetric difference is here rather than a `recorded.get(name) == current.get(name)` walk because two absences compare equal that way, and a family with no key on either side is exactly the case where nothing could ever be reported moved — the registry holds thirty families the rune tree holds no file for, and a new rune file appearing must read as a miss rather than as agreement."""
+    """Return every family whose key differs between the recorded and current maps. A name present in only one map counts as moved, so a rune file that appears or disappears is a miss and never a match."""
     moved = set(current.keys() ^ recorded.keys())
     for name in current.keys() & recorded.keys():
         if current[name] != recorded[name]:
@@ -270,7 +274,7 @@ def moved_families(recorded: Mapping[str, str], current: Mapping[str, str]) -> f
 
 
 class StaleMask:
-    """The per-row staleness test, as a bitmask over the families a row can reach. One bit per family in sorted registry order; `mask_of` folds a row's codepoints, and `stale` answers whether any moved family is inside — directly, for a family carrying a codepoint, or through the ligature clause, which fires only when every component of a moved ligature rune appears in the row. That clause is `unit_cache.UnitKeyer._relevant_families` inverted at row grain and read off `spec.registry.families[...].sequence` rather than off a `_`-split of the name, because the sequence is the declaration `settle.form_ligatures` actually routes on. A moved ligature rune also carries its own bit, because the settle memo keys windows on formed labels: a window whose slot holds `qsThey_qsUtter` names that rune directly and no component, so the component clause alone would serve it across an edit to the ligature's file. A moved family the registry can place neither by codepoint nor by sequence stales every row: over-invalidation is the safe direction, and there is no such family today."""
+    """The per-row staleness test, as a bitmask over the families a row can reach. There is one bit per family, in sorted registry order. `mask_of` builds a row's mask from its codepoints, and `stale` returns whether any moved family is inside it: directly, for a family with a codepoint, or through the ligature clause, which applies only when every component of a moved ligature rune is in the row. The ligature clause is the rule `unit_cache.UnitKeyer._relevant_families` applies, read from `spec.registry.families[...].sequence` instead of a `_`-split of the name, because `settle.form_ligatures` routes on the sequence. A moved ligature rune also sets its own bit, because the settle memo keys windows on formed labels: a window whose slot holds `qsThey_qsUtter` names that rune and none of its components, so the component clause alone would serve it after an edit to the ligature's file. A moved family that the registry places by neither codepoint nor sequence makes every row stale, since over-invalidation is the safe direction."""
 
     def __init__(self, spec: ResolvedSpec, moved: Collection[str] = ()) -> None:
         families = spec.registry.families
@@ -313,7 +317,7 @@ class StaleMask:
         return mask
 
     def bit_of(self, family: str) -> int:
-        """The bit one family name folds into a mask, zero for a name the registry does not place — a boundary label, a window edge, or an unknown family — which is the label-grain door the settle memo reads through, since a memo window names families by label rather than by codepoint. A formed ligature label folds the ligature rune's own bit, which `stale` reads directly when that rune moved."""
+        """Return the bit for one family name, or zero for a name the registry does not place (a boundary label, a window edge, or an unknown family). The settle memo uses this because its windows name families by label, not by codepoint. A formed ligature label maps to the ligature rune's own bit, which `stale` checks directly when that rune moved."""
         return self._bit.get(family, 0)
 
     def stale(self, mask: int) -> bool:
@@ -324,7 +328,7 @@ class StaleMask:
         return any((mask & bits) == bits for bits in self._stale_ligatures)
 
     def families_of(self, mask: int) -> tuple[str, ...]:
-        """Every family a row with this mask can reach: the letters its codepoints name, plus each ligature rune all of whose components are among them. Memoized on the mask, because rows of at most four letters over a two-dozen-symbol alphabet share their masks heavily."""
+        """Return every family a row with this mask can reach: the letters its codepoints name, plus each ligature rune whose components are all among them. Memoized on the mask, because many rows share a mask."""
         cached = self._reach.get(mask)
         if cached is None:
             names = [name for name, bit in self._bit.items() if mask & bit]
@@ -335,7 +339,7 @@ class StaleMask:
 
 
 def unreachable_glyph_heads(glyph_names: Iterable[str], reachable: Collection[str]) -> tuple[str, ...]:
-    """The `qs` family heads of a row's old compiled glyph names that its reachable family set does not contain — empty for every row of the live subset, and the assertion for the one assumption this key rests on that nothing else pins. A non-empty answer means the row consulted alias entries stamped by no key it cites, and the caller must refuse to serve it."""
+    """Return the `qs` family heads of a row's old compiled glyph names that are not in its reachable family set. A non-empty result means the row used alias entries that no key it compares covers, so the caller must derive the row instead of serving it. This checks the assumption the row key rests on (see the module docstring)."""
     known = set(reachable)
     heads = {name.split(".", 1)[0] for name in glyph_names}
     return tuple(sorted(head for head in heads if head.startswith("qs") and head not in known))
@@ -343,7 +347,7 @@ def unreachable_glyph_heads(glyph_names: Iterable[str], reachable: Collection[st
 
 @dataclass(frozen=True, slots=True)
 class CachedRow:
-    """One row's pre-position comparison verdict: `conform._compare_row`'s `DivergentRow` minus the three fields the subset table already holds (`codepoints`, `baseline_glyphs`, `baseline_seams`) and minus `config`, which is the store's. The verdict alone, with no provenance in it, so `==` is verdict equality and the verification sample needs nothing else. When a record was derived is store bookkeeping and lives beside it, in `RowStore.age`."""
+    """One row's pre-position comparison verdict: `conform._compare_row`'s `DivergentRow` without the three fields the subset table holds (`codepoints`, `baseline_glyphs`, `baseline_seams`) and without `config`, which the store records. It holds no provenance, so `==` is verdict equality, which the verification sample relies on. The pass a record was derived at is kept separately, in `RowStore.age`."""
 
     kinds: tuple[str, ...]
     position: int
@@ -354,14 +358,14 @@ class CachedRow:
 
 @dataclass(frozen=True, slots=True)
 class CachedPosition:
-    """One row's position-channel verdict for a row that drifted: `oracle_positions._position_drift`'s drift descriptions, which the audit prints as a position-only row's new cells, and whether every drifted slot sits downstream of a kern-attributable one. A row whose drawn positions matched is stored as `None`, and a row the channel never shaped as `UNSHAPED`; only the first two may ever be served, and `==` over them is the verification sample's whole check."""
+    """One row's position-channel verdict when the row drifted: `oracle_positions._position_drift`'s drift descriptions, which the audit prints as a position-only row's new cells, and whether every drifted slot follows a kern-attributable one. A row whose positions matched is stored as `None`, and a row the channel never shaped as `UNSHAPED`. Only a `CachedPosition` or `None` may be served, and `==` over them is the verification sample's check."""
 
     drifts: tuple[str, ...]
     kern_attributable: bool
 
 
 class _Unshaped:
-    """The position record of a row the previous pass never shaped — excluded by the ledger's ink-identity claim, or compared with no font open. Distinct from `None`, which is a shaped row that matched, because serving the one as the other would count a row the channel never saw as clean."""
+    """The position record of a row the previous pass never shaped, because the row was kept out of the channel (a ligation or seam divergence, or a divergence without exactly one ledger match that claims identical ink) or no font was open. It is distinct from `None`, a shaped row that matched, so that a row the channel never saw is not counted as clean."""
 
     __slots__ = ()
 
@@ -375,7 +379,7 @@ PositionVerdict = CachedPosition | None | _Unshaped
 
 @dataclass(frozen=True, slots=True)
 class StoredRecord:
-    """One row's whole record as the store holds it: both verdicts and the pass each was derived at. The ages are per verdict because the two re-derive on different keys — a font compile that moves a family's outlines re-shapes its rows' positions while every row verdict stands."""
+    """One row's full record in the store: both verdicts and the pass each was derived at. The ages are per verdict because the two re-derive on different keys: a font compile that changes a family's outlines re-shapes its rows' positions while every row verdict is still served."""
 
     row: CachedRow | None
     row_age: int
@@ -388,7 +392,7 @@ def _split(text: str, separator: str) -> tuple[str, ...]:
 
 
 def row_anchor(codepoints: Sequence[int]) -> str:
-    """A record's alignment anchor: the leading `ANCHOR_WIDTH` hex characters of the digest of the row's canonical codepoint string. Checked on every serve, which is what turns a concurrently refiltered or reordered table from every row served wrong and silent into a loud abort."""
+    """Return a record's alignment anchor: the first `ANCHOR_WIDTH` hex characters of the SHA-256 of the row's canonical codepoint string. It is checked on every serve, so a table that was refiltered or reordered under the store causes an abort instead of every row being served wrong."""
     return hashlib.sha256(format_codepoints(tuple(codepoints)).encode()).hexdigest()[:ANCHOR_WIDTH]
 
 
@@ -399,7 +403,7 @@ def encode_record(
     position: PositionVerdict = UNSHAPED,
     position_at_pass: int = 0,
 ) -> str:
-    """One store line: the anchor; then `-` for a clean row or `P` and the row verdict's five fields; then `?` for a position never shaped, `-` for one that matched, or `D`, the drift descriptions `|`-joined and `k` or `n` for the kern-attribution flag; then the two passes, the row verdict's first. `|` separates cells and `,` separates the token tuples, matching what `divergence-audit.tsv` already does with the same values; the drift descriptions carry commas of their own, which is why they are joined on `|` alone and the flag rides its own field."""
+    """Return one store line: the anchor; then `-` for a clean row, or `P` and the row verdict's five fields; then `?` for a position never shaped, `-` for one that matched, or `D`, the `|`-joined drift descriptions and `k` or `n` for the kern-attribution flag; then the two derivation passes, the row verdict's first. `|` separates cells and `,` separates the token tuples, as in `divergence-audit.tsv`. The drift descriptions contain commas, so they are joined on `|` alone and the flag has its own field."""
     fields = [row_anchor(codepoints)]
     if cached is None:
         fields.append("-")
@@ -452,9 +456,9 @@ def decode_record(line: str) -> StoredRecord:
 
 
 class RowStore:
-    """One row range's share of a configuration's loaded store: the records of the rows in `[first_row, first_row + len(ages))`, held as one buffer and three packed arrays — a record's offset into the buffer and the two ages its staleness tests read — indexed by `index - first_row`, so a worker holds its own range's records and nothing else of the store. Every method still takes the row's absolute ordinal in the table, which is what keeps a cut configuration's ranges self-contained segments of one store (rebuild/pipeline/oracle.py): an index outside the range raises rather than serving a neighbor's record, since a misaddressed serve is the anchor check's kind of fault and Python's arrays would otherwise read a negative index from the end. `rows` is the table's count, never the slice's — given none, it is the range's own end, the count of a store whose range runs to the table's end — because the oracle classifies an index at or above it as fresh (`oracle._compare_config`), and a slice whose count shrank to its own length would re-derive every row above its range and write a store an uncut pass never writes. Only the rows a pass actually serves are ever decoded, and the ages ride the parallel arrays so the partition scan never touches the buffer at all.
+    """One row range's part of a configuration's loaded store: the records of rows `[first_row, first_row + len(ages))`, held as one buffer and three packed arrays (each record's offset into the buffer and its two ages), indexed by `index - first_row`, so a worker holds only its own range's records. Every method takes the row's absolute ordinal in the table, so a cut configuration's ranges are self-contained segments of one store (rebuild/pipeline/oracle.py). An index outside the range raises instead of serving another row's record, since Python's arrays would otherwise read a negative index from the end. `rows` is the table's row count, not the range's. When it is not given it is the range's end, which is the table's count when the range runs to the table's end. The oracle treats an index at or above `rows` as fresh (`oracle._compare_config`), so a range given its own length as the count would re-derive every row above its range and write a store an uncut pass never writes. Only the rows a pass serves are decoded, and the staleness scan reads only the age arrays, never the buffer.
 
-    `rotation` is what a pass that will never write one of these declares about itself. Both anti-laundering mechanisms advance on the pass ordinal, and the ordinal only advances when a store is written — so a read-only pass, repeated, would retire the same twentieth of the table and re-prove the same sample every time, forever, which is the shape `--gates-only` takes in the re-adjudication loop it exists for. A writing pass leaves this at zero and rides its own ordinal; a read-only one rotates on the clock, and the coverage moves whether or not anything on disk does.
+    `rotation` is set by a pass that will not write a store. The renewal slice and the verification sample both advance with the pass ordinal, and the ordinal advances only when a store is written. A read-only pass run repeatedly, which is how `--gates-only` is used when re-adjudicating the ledger, would otherwise re-derive the same rows and check the same sample every time. A writing pass leaves this at zero and uses its own ordinal. A read-only pass sets it from the clock, so the rows covered change even when nothing on disk does.
     """
 
     def __init__(
@@ -496,7 +500,7 @@ class RowStore:
 
     @property
     def rows(self) -> int:
-        """The table's row count, as the store's trailer vouches for it, whatever range this store holds."""
+        """The table's row count, as recorded in the store's trailer, whatever range this store holds."""
         return self._rows
 
     @property
@@ -509,7 +513,7 @@ class RowStore:
         return self.mask.moved
 
     def _at(self, index: int) -> int:
-        """The arrays' position for the table's row `index`, refused loudly for a row outside this store's range."""
+        """Return the arrays' position for the table's row `index`, raising `IndexError` for a row outside this store's range."""
         at = index - self.first_row
         if at < 0 or at >= len(self._ages):
             raise IndexError(
@@ -518,7 +522,7 @@ class RowStore:
         return at
 
     def age(self, index: int) -> int:
-        """The pass this row's verdict was derived at — carried forward verbatim by every pass that only served it, so it measures how long the verdict has stood rather than how long the file has."""
+        """Return the pass this row's verdict was derived at. A pass that only serves the verdict writes this value forward unchanged, so it measures how long the verdict has stood, not how long the file has."""
         return self._ages[self._at(index)]
 
     def position_age(self, index: int) -> int:
@@ -526,7 +530,7 @@ class RowStore:
 
     @property
     def coverage_ordinal(self) -> int:
-        """The ordinal the renewal slice and the verification sample are drawn against, as against `pass_ordinal + 1`, which is what the writer will record. They differ only for a pass that records nothing: see `rotation`."""
+        """The ordinal the renewal slice and the verification sample are drawn against. It equals `pass_ordinal + 1`, the ordinal the writer records, except on a pass that writes nothing (see `rotation`)."""
         return self.pass_ordinal + 1 + self.rotation
 
     def _due(self, index: int, age: int) -> bool:
@@ -535,22 +539,22 @@ class RowStore:
         return self.coverage_ordinal % MAX_RECORD_AGE == index % MAX_RECORD_AGE
 
     def due(self, index: int) -> bool:
-        """Whether this row's verdict must re-derive regardless of its families. The ordinal clause retires one row in `MAX_RECORD_AGE` every pass, so no verdict can stand that many passes without being recomputed and the renewal is spread across passes rather than arriving all at once on the pass the cap comes due; the age clause is the belt to those braces, and catches a store whose pass ordinals skipped. Only the slice rotates for a read-only pass — the age arithmetic stays on the true ordinal, because a rotated `current` would read every record as older than the cap and retire the whole table."""
+        """Whether this row's verdict must be re-derived regardless of its families. The ordinal clause selects one row in `MAX_RECORD_AGE` on every pass, so no verdict stands that many passes and the renewal is spread across passes. The age clause is a second check that catches a store whose pass ordinals skipped. Only the slice uses the rotated ordinal. The age arithmetic uses the true one, because a rotated ordinal would make every record look older than the cap and re-derive the whole table."""
         return self._due(index, self._ages[self._at(index)])
 
     def position_due(self, index: int) -> bool:
-        """`due` over the position verdict's own age: the same slice retires both verdicts of a row on the same pass, and the age clause reads the pass the position was shaped at."""
+        """`due` over the position verdict's own age. The same slice re-derives both of a row's verdicts on the same pass, and the age clause reads the pass the position was shaped at."""
         return self._due(index, self._position_ages[self._at(index)])
 
     def stale(self, index: int, mask: int) -> bool:
         return self.mask.stale(mask) or self.due(index)
 
     def position_stale(self, index: int, mask: int) -> bool:
-        """Whether this row's position verdict must re-shape: wherever its row verdict must re-derive — the position key embeds the row key, and a served position over a fresh settlement would be shaping the previous pass's cells — or wherever a family it reaches moved its glyphs, the position stamp moved, or the renewal clause is due."""
+        """Whether this row's position verdict must be shaped again: wherever its row verdict must be re-derived (the position key includes the row key, and a served position over a fresh settlement would describe the previous pass's cells), or wherever a family it reaches changed its glyphs, the position stamp moved, or the renewal clause is due."""
         return self.stale(index, mask) or self.position_mask.stale(mask) or self.position_due(index)
 
     def serve(self, index: int, codepoints: Sequence[int]) -> StoredRecord:
-        """This row's whole record, after proving it is this row's; the caller decides which of its two verdicts the keys allow it to use and counts the position under `positions_served` itself. A mismatched anchor is not a miss and must not be treated as one — it means the table under this store was replaced or reordered, and every other record is wrong the same way."""
+        """Return this row's full record after checking its anchor. The caller decides which of the two verdicts the keys allow it to use, and counts a served position in `positions_served` itself. A mismatched anchor is not a miss: it means the table under this store was replaced or reordered and every other record is wrong in the same way, so it exits."""
         at = self._at(index)
         start = self._offsets[at]
         end = self._offsets[at + 1] - 1
@@ -564,7 +568,7 @@ class RowStore:
 
 
 def read_header(path: Path) -> dict | None:
-    """A store's header alone, for the caller that wants to name what moved after `load_store` has already declined it. `None` when there is nothing readable there."""
+    """Return a store's header alone, for a caller that reports what moved without loading the store. `None` when nothing readable is there."""
     try:
         with gzip.open(Path(path), "rt", encoding="utf-8") as stream:
             header = json.loads(next(stream))
@@ -580,7 +584,7 @@ def position_stale_mask(
     position_environment: EnvironmentStamp | None,
     current_position_keys: Mapping[str, str] | None,
 ) -> StaleMask:
-    """The position channel's staleness mask for a loaded store: over the families whose position keys moved when the store's position stamp still matches this run's, and over every row — `everything` — when either side has no position keys or stamp, the stamp moved, or the header's position fields will not read. `moved` is the row channel's moved set and seeds the mask so a family the row mask stales is stale here too whatever the position keys say."""
+    """Return the position channel's staleness mask for a loaded store. When the store's position stamp matches this run's, the mask covers the families whose position keys moved. It covers every row (`everything`) when either side has no position keys or stamp, the stamp moved, or the header's position fields cannot be read. `moved` is the row channel's moved set and is always included, so a family stale for row verdicts is stale for positions too."""
     everything = StaleMask(spec, moved)
     everything.everything = True
     if position_environment is None or current_position_keys is None:
@@ -611,7 +615,7 @@ def load_store(
     first_row: int = 0,
     stop_row: int | None = None,
 ) -> RowStore | None:
-    """The previous pass's records for the rows `[first_row, stop_row)` of one configuration — `stop_row` None is the table's end — or `None` when there is no store this run may trust: absent, unreadable, format- or stamp-mismatched, written against another subset table, or missing the trailer that vouches for its own length. Over-invalidation is the only safe direction here — a `None` costs one cold oracle and nothing else — so every parse failure lands in the same place, `zlib`'s own included: a corrupt deflate body raises out of the compression layer rather than as an `OSError`, and would otherwise take the build down for a file whose only job is to save time. The member is read line by line and scanned to its end whatever the range asks for: the trailer is its last line and the count the store is held to, and every record's two age fields are parsed, in range or out, so that the ranges of one configuration agree on whether the store loads at all — two that disagreed would write ages an uncut pass never writes. What the range decides is what is kept: one buffer of its own records and three packed arrays over them, the record bytes of the rows outside it never kept; a range whose kept bytes outrun the packed offsets' width is refused the same way as any other parse failure. The position stamp and keys decide less: a store that loads serves its row verdicts whatever they say, and `position_stale_mask` decides whether any of its position verdicts may be served beside them. `rotation` is handed to the store unread; see `RowStore` for what a pass that may not write declares with it."""
+    """Return the previous pass's records for rows `[first_row, stop_row)` of one configuration (`stop_row` None means the table's end), or `None` when the store cannot be trusted: absent, unreadable, format- or stamp-mismatched, written against another subset table, or missing its row-count trailer. `None` costs one uncached oracle pass, so every parse failure returns `None`, including `zlib.error`, which a corrupt deflate body raises instead of `OSError`. The file is read to its end whatever the range: the trailer is the last line and holds the count the store is checked against, and every record's two ages are parsed in range or out, so all ranges of one configuration agree on whether the store loads. Only the range's records are kept, in one buffer with three packed arrays. A range whose kept bytes exceed the packed offsets' width returns `None` like any other parse failure. The position stamp and keys do not affect loading: `position_stale_mask` decides which position verdicts may be served. `rotation` is passed to the store unread; see `RowStore`."""
     store_file = Path(path)
     if not store_file.is_file():
         return None
@@ -688,7 +692,7 @@ def store_header(
     position_environment: EnvironmentStamp | None = None,
     position_keys: Mapping[str, str] | None = None,
 ) -> bytes:
-    """A store's first line: the format, the two stamps and the two key maps `load_store` compares, the pass ordinal and the subset digest, as one JSON object with sorted keys, so two writers over the same inputs put the same bytes first."""
+    """Return a store's first line: the format, the two stamps and the two key maps `load_store` compares, the pass ordinal and the subset digest, as one JSON object with sorted keys, so two writers over the same inputs write the same bytes."""
     header = {
         "format": STORE_FORMAT,
         "environment": list(environment.lines),
@@ -704,12 +708,12 @@ def store_header(
 
 
 def _open_member(raw: IO[bytes]) -> gzip.GzipFile:
-    """One gzip member over `raw`, with the parameters every member of a store is written with: the mtime pinned so consecutive identical passes stay byte-identical, and level 1, because a store is written once and read once per run and level 9's seconds would come off every cycle."""
+    """Open one gzip member over `raw` with the settings every member of a store uses: the mtime fixed at zero, so identical passes write identical bytes, and compression level 1, because a store is written once and read once per run and a higher level would add seconds to every cycle."""
     return gzip.GzipFile(filename="", fileobj=raw, mode="wb", mtime=0, compresslevel=1)
 
 
 class RowWriter:
-    """One configuration's store being written, one record per subset row in table order. The row count is a trailer rather than a header field, which is what lets the header go out before the count is known and, better, makes a truncated store fail to load instead of loading short: a store whose last bytes are missing has no trailer at all. The finished bytes land through a temporary file and `os.replace`, so a store on disk is always a whole one. A `segment` writer is one row range's share of a cut configuration's store: its own gzip member holding records and nothing else — no header, no trailer — for `join_store_segments` to put between a header member and a trailer member once every range has landed; a store over one range is written whole, and the bytes are the ones a store has always had."""
+    """One configuration's store being written, one record per subset row in table order. The row count is a trailer instead of a header field, so the header can be written before the count is known, and a truncated store has no trailer and fails to load. The file is written to a temporary path and moved into place with `os.replace`, so a store on disk is always complete. A `segment` writer writes one row range of a cut configuration as its own gzip member, with records only and no header or trailer, for `join_store_segments` to place between a header member and a trailer member once every range has finished. A store with one range is written whole."""
 
     def __init__(
         self,
@@ -745,7 +749,7 @@ class RowWriter:
         position: PositionVerdict = UNSHAPED,
         position_at_pass: int = 0,
     ) -> None:
-        """Record one row, divergent or clean — every subset row gets a record, in table order, because the ordinal is the key and a clean row with no age would be the one thing the renewal cap could not retire. `derived_at_pass` is the pass the row verdict was computed at: `RowStore.age(index)` for a record this pass only served, `self.pass_ordinal` for one it derived; `position_at_pass` is the same for the position verdict, read off `RowStore.position_age(index)` when it was served. Passing this pass for a served verdict is the laundering the age exists to prevent."""
+        """Record one row, divergent or clean. Every subset row gets a record, in table order, because the ordinal is the key and a clean row with no age could never be renewed. `derived_at_pass` is the pass the row verdict was computed at: `RowStore.age(index)` for a verdict this pass only served, `self.pass_ordinal` for one it derived. `position_at_pass` is the same for the position verdict, from `RowStore.position_age(index)` when it was served. Recording this pass for a served verdict would reset its age and defeat the renewal cap."""
         self._stream.write(
             (encode_record(codepoints, cached, derived_at_pass, position, position_at_pass) + "\n").encode()
         )
@@ -759,7 +763,7 @@ class RowWriter:
         os.replace(self._scratch, self.path)
 
     def abandon(self) -> None:
-        """Drop a partially written store without promoting it — what a failed configuration owes the next pass."""
+        """Delete a partly written store without promoting it, so a failed configuration leaves nothing for the next pass to load."""
         try:
             self._stream.close()
             self._raw.close()
@@ -789,7 +793,7 @@ def join_store_segments(
     position_environment: EnvironmentStamp | None = None,
     position_keys: Mapping[str, str] | None = None,
 ) -> Path | None:
-    """One cut configuration's staged store, assembled from the `segments` its row ranges wrote: a header member, then each segment's compressed bytes copied through verbatim in row order, then a trailer member counting `rows`, landed at `scratch_store_path(scratch_dir, config)` through a temporary file and `os.replace` so `promote_stores` finds it where an uncut configuration's writer would have left it. Nothing is decompressed on the way through, so the parent's cost is a copy. The joined file is a multi-member gzip stream and therefore not byte-identical to the single-member store the same records would make — its decompressed payload is, which is what `load_store` reads (a `gzip.open(...)` stream's `readline` and iteration span members, an empty member included), so the trailer check, the anchor check and the ages all hold, and a store short a segment's tail still loads as None. That the framing differs is safe exactly because `store_path`'s docstring already records that nothing hashes this file. `None` when a segment is missing, which is a range that never wrote one, and then nothing is staged for the configuration."""
+    """Assemble one cut configuration's staged store from the `segments` its row ranges wrote, and return its path. The file is a header member, then each segment's compressed bytes copied in row order, then a trailer member counting `rows`. It is written through a temporary file and `os.replace` to `scratch_store_path(scratch_dir, config)`, where `promote_stores` finds it as it would an uncut configuration's store. Nothing is decompressed, so the parent's cost is a copy. The result is a multi-member gzip stream and is not byte-identical to the single-member store the same records would make, but its decompressed content is. `gzip.open(...)` reads across members, empty ones included, so `load_store`'s trailer check, anchor check and ages work unchanged, and a store missing a segment's tail still loads as `None`. The different framing is safe because nothing hashes this file (see `store_path`). Returns `None`, and stages nothing, when a segment is missing."""
     paths = [scratch_store_path(scratch_dir, config, segment) for segment in range(segments)]
     if any(not path.is_file() for path in paths):
         return None
@@ -812,7 +816,7 @@ def join_store_segments(
 
 
 def promote_stores(scratch_dir: Path, out_dir: Path, configs: Iterable[str]) -> list[str]:
-    """Move a finished run's staged stores into place beside the m1 artifacts, all of them or none. Called only after `join_oracle_audit` has promoted the audit and only after the caller has re-verified that neither the stamp nor any family key moved while the run held them — a run whose inputs shifted under it wrote nothing reusable, and recording the digests it did not build from is the one failure that reads as green forever. Returns the configurations promoted."""
+    """Move a finished run's staged stores into place beside the M1 artifacts, all of them or none, and return the configurations promoted. The caller calls this only after `join_oracle_audit` has written the audit and after it has checked that neither the stamps nor any family key moved during the run. A store recorded under digests the run did not build from would be served as current on every later pass."""
     staged = [(config, scratch_store_path(scratch_dir, config)) for config in configs]
     if any(not path.is_file() for _, path in staged):
         return []
@@ -823,7 +827,7 @@ def promote_stores(scratch_dir: Path, out_dir: Path, configs: Iterable[str]) -> 
 
 
 def discard_stores(out_dir: Path, configs: Iterable[str]) -> None:
-    """Take the promoted stores off disk — what `--fresh-oracle-cache` does before a pass that will write replacements, so the next one trusts only what the distrusting pass wrote. A pass that may not write a store never calls this: declining to read one costs the same pass the same full derivation, while deleting it would spend the *next* pass's savings too."""
+    """Delete the promoted stores. `--fresh-oracle-cache` does this before a pass that will write replacements, so the next pass trusts only what that pass wrote. A pass that may not write a store never calls this: skipping the read already costs that pass a full derivation, and deleting the store would cost the next pass one as well."""
     for config in configs:
         store_path(out_dir, config).unlink(missing_ok=True)
 
@@ -835,7 +839,7 @@ def _mix64(value: int) -> int:
 
 
 class VerificationSample:
-    """The stratified served-vs-recomputed sample, drawn while the pass runs. Every family that served at least one row contributes up to `per_family` of them, chosen by the smallest mixes of a per-family seed with the row's ordinal — so the draw is a pure function of the store's stamp, the family and the pass ordinal, independent of the order rows are offered in and of how many there turn out to be. Seeding on the pass ordinal is what makes coverage accumulate instead of re-proving the same fraction of a percent forever, and stratifying by family is what catches a family-wide poisoning with probability one rather than with probability sample-over-served: a rune edited while the oracle runs poisons a whole family at once, which is the failure this sample exists for. Every winner carries the `Row` it was offered with, so `sampled_rows()` hands the caller the parsed rows in index order and no verifier re-parses the table to find them; the caller re-walks those through the live walker and compares each served `CachedRow` with the one a fresh `_compare_row` returns, and the record holds the verdict alone, so `==` is the whole check. A heap entry is `(score, index, row)`, and `Row` has no ordering: an index is offered once per family per pass, so no two entries tie on the first two fields and a tuple comparison never reaches the row."""
+    """The stratified sample of served rows that the caller checks again, drawn while the pass runs. Every family that served at least one row contributes up to `per_family` rows, chosen by the smallest mix of a per-family seed with the row's ordinal. The draw therefore depends only on the store's stamp, the family and the pass ordinal, not on the order or the number of rows offered. Seeding on the pass ordinal makes the checked rows change from pass to pass. Because every family that served rows is sampled, a family whose records are all wrong is always caught, not with probability equal to the sample size over the rows served. A rune edited while the oracle runs produces that error. Each kept entry holds the `Row` it was offered with, so `sampled_rows()` returns the parsed rows in index order and the verifier does not re-read the table. For the row sample the caller re-walks those rows and compares each served `CachedRow` with a fresh `_compare_row` result, and for the position sample it shapes them again. A heap entry is `(score, index, row)` and `Row` has no ordering. An index is offered once per family per pass, so no two entries tie on the first two fields and the comparison never reaches the row."""
 
     def __init__(
         self, stamp: str, pass_ordinal: int, per_family: int = VERIFICATION_SAMPLE_PER_FAMILY

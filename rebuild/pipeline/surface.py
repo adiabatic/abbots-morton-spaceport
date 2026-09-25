@@ -1,6 +1,6 @@
-"""Cell enumeration and binding resolution (rebuild/M1-PLAN.md section 5, Group 1): declared rows ∪ {none} per side filtered by pairings/require/unlocks, explicit cells: bindings over side bindings over the base bitmap, and per-cell anchor overrides.
+"""Cell enumeration and binding resolution (rebuild/M1-PLAN.md §5, Group 1). Each side's options are its declared rows plus `none`, filtered by pairings, `require`, and unlocks. A cell's bitmap comes from a matching explicit `cells:` binding, else from the side bindings, else the base bitmap, and a `cells:` binding can also override the anchor x positions.
 
-Pairings constrain two-sided cells only; one-sided and isolated cells always exist unless require removes them (doc/rebuild-design.md section 3.2). A mid-word declined exit arrives as an `ex-bind-<bitmap>` adjustment from settlement and resolves to the withdrawal binding; the token-less exit-none cell is the boundary rendering, where the exit was never declined and the base drawing stands.
+Pairings constrain two-sided cells only. One-sided and isolated cells always exist unless `require` removes them (doc/rebuild-design.md §3.2). A mid-word declined exit reaches this module as settlement's `ex-bind-<bitmap>` adjustment and resolves to the exit rows' `withdrawal:` binding. The exit-none cell with no adjustment token is the boundary rendering: its exit was never declined, so `withdrawal:` bindings do not apply and the base drawing stands.
 """
 
 from __future__ import annotations
@@ -26,7 +26,7 @@ def _all_features(spec: ResolvedSpec) -> frozenset[str]:
 def effective_rows(
     spec: ResolvedSpec, rune: str, stance: str, features: frozenset[str] | None = None
 ) -> tuple[dict[str, SurfaceRow], dict[str, SurfaceRow], dict[tuple[str, Height | None], tuple[Unlock, ...]]]:
-    """Declared rows plus unlock-added rows active under `features` (None = every registered feature). Returns (entries, exits, granted) where granted maps ("entry"|"exit", height) to the unlock records gating that row. The key's height is optional so a caller can ask about a side the cell does not use — a guaranteed miss, which is the right answer: a cell with no entry has no entry unlocks."""
+    """Return the declared rows plus the unlock-added rows active under `features` (None means every registered feature), as (entries, exits, granted). `granted` maps ("entry" or "exit", height) to the unlock records that gate that row. Its height may be None, so a caller can look up a side the cell does not use and get no records."""
     if features is None:
         features = _all_features(spec)
     stance_obj = spec.runes[rune].stances[stance]
@@ -152,7 +152,7 @@ def resolve_cell(spec: ResolvedSpec, cell: CellId) -> CellPlan:
     exit_row = exits.get(cell.exit) if cell.exit is not None else None
 
     bitmap_name: str | None = None
-    # A `withdrawal:` binding applies when the bound exit's base-drawing ink must come off: a live exit at a different height, or a mid-word decline (which settlement records as an `ex-bind-<bitmap>` adjustment). The token-less exit-none cell is the boundary rendering, where the exit was never declined and the base drawing stands, dangling anchor and all (the kernel's run semantics; prototype anchor_kept_at_boundary).
+    # A `withdrawal:` binding applies when the bound exit's base-drawing ink must come off: when the cell exits live at a different height, or on a mid-word decline (settlement's `ex-bind-<bitmap>` adjustment). The exit-none cell with no adjustment token is the boundary rendering: its exit was never declined, so the base drawing stands, dangling anchor included. This matches settlement, which adds withdrawal tokens only for a mid-word decline.
     withdrawn_exit = cell.exit is not None or any(token.startswith("ex-bind-") for token in cell.adjustments)
     if explicit is not None:
         bitmap_name = explicit.bitmap

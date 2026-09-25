@@ -92,7 +92,7 @@ FONT_COMPILE_TOOL_MODULES = frozenset(
 
 
 def font_compile_tool_paths(repo_root: Path) -> list[Path]:
-    """Return the tools/ modules the M1 font compile runs: the import closure of tools/build_font.py within tools/, which rebuild/pipeline/compile_font.py calls to build the mini font. compile_font puts tools/ on sys.path, so these modules import each other by bare name. Most of tools/ is authoring and audit scripts that no build runs, so this is a fixed list instead of the whole directory, and rebuild/test_build_code_closure.py checks that it equals the walked import closure. Paths are returned whether or not they exist; `hash_paths` skips missing files."""
+    """Return the tools/ modules the M1 font compile runs. rebuild/pipeline/compile_font.py calls tools/build_font.py to build the mini font and puts tools/ on sys.path, so these modules import each other by bare name. Most of tools/ is authoring and audit scripts that no build runs, so this is a fixed list instead of the whole directory. rebuild/test_build_code_closure.py checks that it equals the import closure within tools/ of every tools/ module the pipeline imports, tools/build_font.py among them. Paths are returned whether or not they exist; `hash_paths` skips missing files."""
     return sorted(Path(repo_root) / "tools" / name for name in FONT_COMPILE_TOOL_MODULES)
 
 
@@ -100,6 +100,8 @@ def pipeline_code_paths(repo_root: Path) -> list[Path]:
     """Return the code the `pipeline_code` component hashes: rebuild/pipeline, rebuild/validation, the kernel crate's manifest, lock, and sources, and the font compile's tools/ modules (`font_compile_tool_paths`). rebuild/validation holds the shaper, row model, seam classifier, and Manual-pin replays, which are the before side of the M1 comparison. Whole trees are hashed instead of a list of imported modules, because such a list goes stale when an import or a Rust module is added, and over-invalidating is the safe error.
 
     The tools/ modules are included because compile_font passes the mini font to tools/build_font.py, so an edit to the glyph compiler, the IR, the FEA emitter, or the join analysis changes M1.otf. They are build-side, so `table_code_paths` keeps them as well.
+
+    tools/build_font.py also imports `rebuild.tools.memory_budget`, and through it `rebuild.tools.peak_rss`, to size its worker pool. Neither module is in this list or in any other component this module computes.
     """
     root = Path(repo_root)
     kernel = root / "rebuild" / "kernel-rs"

@@ -1,10 +1,14 @@
-"""Read-back verification: the font that was just written, re-parsed from its own bytes and structurally proven against the plan the emitters held in memory (issue #73).
+"""Re-parse the font just written and check its structure against the plan the emitters held in memory.
 
-The build stage before this one hands feaLib a block of FEA text and gets an OTF back, and everything between those two — feaLib's parse, its lookup and subtable format choices, `pack_gsub`'s repack of the settlement lookup, fontTools' serialization, and the re-parse — is machinery no gate downstream reads structurally. `gate:conform` proves the font *shapes* what settlement says, through HarfBuzz, which is the behavioral claim and the one that matters; but it can only see what its sweep reaches, and it says nothing about a rule that is present and inert, a feature registered under the wrong tag, or a lookupFlag that skips a class nobody probed. This stage makes the transcription claim instead: every lookup's decompiled content equals what the emitter planned, every feature and script registration is the one the plan implies, the cross-feature LookupList order that pins application order on both shapers is the definition order the emitters chose, and every lookupFlag is zero. The two glyphs a word boundary is made of are proven inert on the same bytes: no substituted position of any lookup admits `uni200C` or `space` — a format-2 class 0 resolved to the complement of its ClassDef, so a rule that reaches a slot through the unnamed class is visible here — `uni200C` is zero-advance in `hmtx`, and neither glyph draws an outline, so gate:conform's belt no longer has to weigh a ZWNJ slot per shaped text. The isolated overlay is proven on the same bytes (`_check_isolation`): the ss10 pre-empt covers every letter cmap glyph, no `.ss10` twin has a cmap entry of its own, sits in any formation sequence, marker line, chokepoint class or settlement input, or carries a cursive anchor — so under ss10 nothing forms, nothing settles and nothing attaches, which is what lets the overlay configuration go without a settlement table, take a two-letter arm of gate:conform's belt, and be oracled against the bare stream at the twins' `hmtx` advances. Zero divergences means the compiled font provably holds the rules the plan intended.
+Between the FEA text and the written OTF lie feaLib's parse and its choice of lookup and subtable formats, `pack_gsub`'s repack of the settlement lookup, fontTools' serialization, and the re-parse. gate:conform checks through HarfBuzz that the font shapes what settlement says, but only over the texts its sweep reaches. It cannot see a rule that is present but never fires, a feature registered under the wrong tag, or a lookupFlag that skips a class no text probes. This stage checks the transcription instead: every lookup's decompiled content equals the emitter's plan, every feature and script registration is the one the plan implies, the LookupList order, which sets application order across features, is the emitters' definition order, and every lookupFlag is zero.
 
-It is deliberately a transcription round-trip and nothing more. `pack_gsub`'s repack is proven here, over the written bytes, by decompiling the settlement lookup through `pack_gsub.per_glyph_sequences` and holding each input glyph's ordered rules to the plan the emitters held — the pass itself no longer replays its own output in memory. It predicts no cascade: it never asks what a buffer would do, never composes stages, never resolves which of two competing rules wins. Ordered rules are compared at the grain first-match-wins actually runs on (per input glyph for settlement, per lead glyph for formation), because rules that cannot share an input cannot compete and feaLib is free to regroup them — it picks whichever of the three chained-context subtable formats compiles smallest, so the guarded formation rides format 1 in a small font and format 3 in the shipped one, and the settlement lookup arrives packed into a format-2/format-3 mix. Shaping behavior stays gate:conform's.
+On the same bytes it checks that the two word-boundary glyphs are inert. No substituted position of any lookup admits `uni200C` or `space`, `uni200C` has zero advance in `hmtx`, and neither glyph has an outline. A format-2 class 0 is resolved to every glyph its ClassDef does not name, so a rule that reaches a slot through class 0 is caught. gate:conform's belt relies on this check and does not test the ZWNJ glyph's advance or outline in each shaped text.
 
-The failure contract: `verify_font` never raises for a divergence, it accumulates human-readable strings and reports `pass`; `run_m1` writes the whole report to `readback_summary.json` and only then raises `ReadbackError`, so the evidence outlives the failure. The GSUB offset budget rides that same contract — the uint16 subtable-offset headroom the packing exists to protect is read straight off the raw table bytes in the parse this stage already makes, recorded under `checked["gsub_budget"]`, and a headroom under `SUBTABLE_OFFSET_HEADROOM_FLOOR` is one more divergence. The overflow itself can never ship, because fontTools' save refuses a lookup-level offset-array overflow outright, so the floor is an early warning rather than the wall: in the Extension-promoted settlement lookup each subtable costs 2 bytes of offset entry plus an 8-byte ExtensionSubst record, which puts a 16,384-byte floor roughly 1,500 subtables ahead of the wall. It has fired for real twice — on the depth-4 rules, which is what moved the lookup to Extension, and on the flag-on prospect table, which is what produced the format-2 repack — both times on a font fontTools would have written silently, and it is held at that value on that record.
+It also checks that the ss10 overlay is isolated (`_check_isolation`, `_check_anchorless_twins`). The ss10 pre-empt covers every letter cmap glyph, and no `.ss10` twin has its own cmap entry, appears in any formation sequence, marker line, chokepoint class, or settlement input, or carries a cursive anchor. So under ss10 nothing forms, settles, or attaches. That is why the overlay configuration needs no settlement table, why gate:conform's belt covers it with texts of at most two letters, and why the oracle can compare it against the bare stream at the twins' `hmtx` advances.
+
+The stage is a transcription round-trip only. It does not simulate shaping: it does not apply lookups to a buffer, compose stages, or decide which of two competing rules wins. It checks `pack_gsub`'s repack on the written bytes by decompiling the settlement lookup through `pack_gsub.per_glyph_sequences` and comparing each input glyph's ordered rules with the plan. Ordered rules are compared per input glyph for settlement and per lead glyph for formation, because first-match-wins only orders rules that share an input glyph, and feaLib may regroup the others. feaLib compiles each chained-context ruleset in whichever of the three formats is smallest, so the guarded formation is format 1 in a small font and format 3 in the shipped one, and the settlement lookup arrives as a packed mix of formats 2 and 3.
+
+`verify_font` does not raise on a divergence. It collects messages and reports `pass`. `run_m1` writes the report to `readback_summary.json` and then raises `ReadbackError`, so the evidence survives the failure. The GSUB offset budget is reported the same way: `gsub_offset_budget` reads the uint16 subtable-offset headroom from the raw table bytes of this same parse, the report records it under `checked["gsub_budget"]`, and headroom below `SUBTABLE_OFFSET_HEADROOM_FLOOR` is a divergence. An actual overflow cannot ship, because fontTools' save fails on an overflow of a lookup's subtable-offset array, so the floor is an early warning. In the Extension-wrapped settlement lookup each subtable costs a 2-byte offset entry plus an 8-byte ExtensionSubst record, so the 16,384-byte floor sits about 1,600 subtables short of the overflow. The floor has twice caught a font that fontTools would have saved without error: the depth-4 rules, which led `m1_settle` to use Extension, and the simulated-prospect table, which led to `pack_gsub`. Those two catches are why it stays at this value.
 """
 
 from __future__ import annotations
@@ -33,7 +37,7 @@ class ReadbackError(Exception):
 
 @dataclass(frozen=True)
 class _ChainRow:
-    """One chained-context rule decompiled to slot glyph-sets, whichever subtable format carried it: backtrack closest-first as stored, the input slots in order, lookahead near-to-far, and the substitutions as (sequence index, lookup index) pairs."""
+    """One chained-context rule decompiled to slot glyph-sets from any subtable format: backtrack closest-first as stored, the input slots in order, lookahead near-to-far, and the substitutions as (sequence index, lookup index) pairs."""
 
     backtrack: tuple[frozenset[str], ...]
     input: tuple[frozenset[str], ...]
@@ -42,7 +46,7 @@ class _ChainRow:
 
 
 def gsub_offset_budget(data: bytes) -> dict:
-    """The uint16 offset space the raw GSUB table is living on, walked off its own bytes rather than a decoded table: the LookupList's offsets to each lookup and each lookup's offsets to its own subtables are uint16 fields, so the headroom left under 65,535 is what any further growth has to fit in. A table too short to hold a header reports empty counts and full headroom rather than raising — the decoded-table checks already speak for a malformed GSUB."""
+    """Return the uint16 offset headroom of the raw GSUB table bytes. The LookupList's offsets to each lookup and each lookup's offsets to its subtables are uint16 fields, so the headroom under 65,535 is the room left for growth. A table too short to hold a header reports zero counts and full headroom without raising; the decoded-table checks report a malformed GSUB."""
     if len(data) < 10:
         return {
             "gsub_bytes": len(data),
@@ -108,7 +112,7 @@ def _stage_lookup(lookups: list[Any], index: int, stage: str, divergences: list[
 
 
 def _single_mapping(lookup: Any) -> dict[str, str] | None:
-    """The lookup's whole single-substitution mapping, or None when it is not one."""
+    """The lookup's single-substitution mapping, or None when it is not a single-substitution lookup."""
     mapping: dict[str, str] = {}
     subtables = _unwrapped(lookup)
     if not subtables:
@@ -136,7 +140,7 @@ def _ligature_map(lookup: Any) -> dict[tuple[str, ...], str] | None:
 
 
 def _chain_rows(lookup: Any, all_glyphs: frozenset[str]) -> tuple[list[_ChainRow], list[str]]:
-    """Every chained-context rule the lookup expresses, in subtable order, across all three subtable formats — feaLib compiles each ruleset in whichever format is smallest, so a stage's shape on disk is not the shape its FEA was written in, and a format-2 class 0 resolves to its OpenType meaning, every glyph in the font's glyph order the ClassDef does not name, rather than to the empty set."""
+    """Every chained-context rule the lookup holds, in subtable order, from any of the three subtable formats. feaLib compiles each ruleset in whichever format is smallest, so a stage's format on disk can differ from the form its FEA was written in. A format-2 class 0 resolves to its OpenType meaning: every glyph in the font's glyph order that the ClassDef does not name."""
     rows: list[_ChainRow] = []
     problems: list[str] = []
     for index, subtable in enumerate(_unwrapped(lookup)):
@@ -204,7 +208,7 @@ def _row_text(row: Row) -> str:
 
 
 def _compare_rows(stage: str, expected: list[Row], got: list[Row], divergences: list[str]) -> None:
-    """Hold the two ordered row lists to the grain first-match-wins runs on: rows sharing a lead glyph must agree in order, rows that cannot share one cannot compete — which is also exactly what survives feaLib's format-1 regrouping of rules by coverage glyph."""
+    """Compare the two ordered row lists per lead glyph. Rows that share a lead glyph must agree in order; rows with different lead glyphs cannot compete. This is also the order that feaLib's format-1 grouping of rules by coverage glyph preserves."""
     by_lead_expected: dict[str, list[Row]] = {}
     for row in expected:
         by_lead_expected.setdefault(row[0][0], []).append(row)
@@ -225,7 +229,7 @@ def _compare_rows(stage: str, expected: list[Row], got: list[Row], divergences: 
 
 
 def _check_script_list(table: Any, label: str, divergences: list[str]) -> None:
-    """The one-script registration every M1 build compiles to, there being no `languagesystem` statement anywhere: DFLT with a DefaultLangSys, no language systems of its own, no required feature, and every feature in the list registered on it."""
+    """Check the script registration every M1 build compiles to, since the emitted FEA has no `languagesystem` statement: DFLT alone, with a DefaultLangSys, no language systems of its own, no required feature, and every feature in the list registered on it."""
     records = list(table.ScriptList.ScriptRecord or [])
     if len(records) != 1 or records[0].ScriptTag != "DFLT":
         divergences.append(
@@ -253,7 +257,7 @@ def _check_script_list(table: Any, label: str, divergences: list[str]) -> None:
 
 
 def _check_lookup_flags(table: Any, label: str, divergences: list[str]) -> int:
-    """Every lookup in the table, the anonymous inner ones included, must carry a zero flag and no mark filtering set — nothing the emitters write asks for either, so a nonzero flag is a rule silently skipping glyphs."""
+    """Check that every lookup in the table, anonymous inner lookups included, has a zero LookupFlag and no mark filtering set. The emitters never ask for either, so a nonzero flag means a rule skips glyphs without saying so. Returns the number of lookups checked."""
     lookups = list(table.LookupList.Lookup or [])
     for index, lookup in enumerate(lookups):
         if lookup.LookupFlag:
@@ -270,7 +274,7 @@ def _check_lookup_flags(table: Any, label: str, divergences: list[str]) -> int:
 def _check_boundary_glyphs(
     font: Any, lookups: list[Any], all_glyphs: frozenset[str], divergences: list[str]
 ) -> dict:
-    """The two glyphs a word boundary is made of, proven inert on the bytes: no substituted position of any lookup admits `uni200C` or `space`, `uni200C` carries a zero advance in `hmtx`, and neither draws an outline. That is proven once per build, off the bytes, rather than per shaped text at every ZWNJ slot the conform sweep reaches. The state is unreachable from a rune edit — every substituted position is minted from rune names by `emit_gsub`, and `compile_font` supplies both boundary glyphs inkless with `uni200C` zero-advance — so the only way a ZWNJ slot could gain ink or an advance is an emitter, packer, compiler or shaper edit, and every one of those lands in the written lookups or in `hmtx`/`CFF `, on the very parse this stage already makes."""
+    """Check that the word-boundary glyphs are inert: no substituted position of any lookup admits `uni200C` or `space`, `uni200C` has zero advance in `hmtx`, and neither glyph has an outline. A rune edit cannot break this, because `emit_gsub` mints every substituted position from rune names and `compile_font` adds both boundary glyphs without ink, `uni200C` at zero advance, when the inventory lacks them. Only an emitter, packer, or compiler change could give a ZWNJ slot ink or an advance, and any such change shows up in the written lookups or in `hmtx` and `CFF `, which this check reads."""
     from fontTools.pens.boundsPen import BoundsPen
 
     stage = "boundary glyphs"
@@ -345,7 +349,7 @@ def _check_isolation(
     exempt: frozenset[int],
     divergences: list[str],
 ) -> dict:
-    """The overlay's isolation claim, proven on the bytes rather than asserted in ledger prose: the pre-empt's mapping covers exactly the letter cmap glyphs (every cmap entry but the boundary glyphs and the namer dot), none of its twins is reachable from a codepoint, and no twin appears at any position of any other GSUB lookup — the keys and values of every single substitution, every ligature's components and result, and every input slot of every chained-context rule, a format-2 class 0 resolved to its complement so a slot reached through the unnamed class is visible. `exempt` names the lookups allowed to see twins, which is the namer-dot stage alone: its follower class holds the Short twins on purpose, so the dot still lowers under ss10. Backtrack and lookahead slots are not held, because a twin there can match nothing — under ss10 every input is a twin and no input slot admits one, and outside ss10 no twin is ever in the buffer. GPOS is the other half, checked beside the cursive registrations: no twin carries an anchor."""
+    """Check the GSUB half of the overlay's isolation. The pre-empt's mapping covers exactly the letter cmap glyphs (every cmap entry except the boundary glyphs and the namer dot), no twin has a cmap entry, and no twin appears at any position of any other GSUB lookup: the keys and values of every single substitution, every ligature's components and result, and every input slot of every chained-context rule, with a format-2 class 0 resolved to the glyphs its ClassDef does not name. `exempt` names the lookups allowed to see twins, which is only the namer-dot stage: its follower class holds the Short twins so that the dot still lowers under ss10. Backtrack and lookahead slots are not checked, because a twin there can never match: under ss10 every letter is a twin and no input slot admits one, and outside ss10 no twin is ever in the buffer. `_check_anchorless_twins` checks the GPOS half."""
     stage = "isolation"
     cmap = font.getBestCmap() or {}
     boundary: set[str] = set(BOUNDARY_GLYPHS)
@@ -405,7 +409,7 @@ def _check_isolation(
 
 
 def _check_anchorless_twins(gpos: Any, twins: frozenset[str], divergences: list[str]) -> int:
-    """The GPOS half of the isolation claim: no twin is covered by any cursive-attachment subtable, so a twin next to anything attaches to nothing and its slot's pen is its `hmtx` advance alone."""
+    """Check the GPOS half of the overlay's isolation: no cursive-attachment subtable covers a twin, so a twin attaches to nothing and advances the pen by its `hmtx` advance alone. Returns the number of twins without anchors."""
     stage = "isolation"
     anchored: set[str] = set()
     for index, lookup in enumerate(gpos.LookupList.Lookup or []):
@@ -429,7 +433,7 @@ def _feature_indices(table: Any) -> dict[str, list[int]]:
 
 
 def _check_feature_list(plan: GsubPlan, gsub: Any, divergences: list[str]) -> dict[str, list[int]] | None:
-    """The GSUB feature registration the plan implies: calt always, one stylistic-set feature per marker lookup, ss10 exactly when the pre-empt stage is live — and feaLib sorts the records by tag, which is what pins each set's own lookup ahead of nothing and behind everything."""
+    """Check the GSUB feature registration the plan implies: calt always, one stylistic-set feature per marker lookup, and ss10 when the plan has a pre-empt. feaLib writes the feature records sorted by tag, so an unsorted list is also a divergence. Returns each tag's lookup indices, or None when the tags or their lookup counts do not match the plan."""
     tags = [record.FeatureTag for record in gsub.FeatureList.FeatureRecord or []]
     expected = sorted(["calt", *plan.marker_lines] + (["ss10"] if plan.ss10_preempt else []))
     if sorted(tags) != expected:
@@ -453,7 +457,7 @@ def _check_feature_list(plan: GsubPlan, gsub: Any, divergences: list[str]) -> di
 def _check_definition_order(
     plan: GsubPlan, indices: dict[str, list[int]], divergences: list[str]
 ) -> dict[str, int]:
-    """Every stage's LookupList index, and the proof that they run in the order the emitters defined them: the pre-empt first so ss10 beats formation to the buffer, the formation stages next, the marker substitutions after them so enabling a set cannot un-form a ligature, then the chokepoint, settlement, and the namer dot. Application order on both shapers is LookupList order, so this chain is the whole staging claim."""
+    """Check that the stages run in the order the emitters defined them, and return each calt stage's LookupList index. The order is the pre-empt first, so ss10 substitutes before formation; the formation stages; the marker substitutions, after formation so that enabling a set cannot undo a ligature; then the chokepoint, settlement, and the namer dot. Shapers apply lookups in LookupList order, so increasing indices are all this check needs."""
     stages = dict(zip(plan.calt_stages, indices["calt"]))
     chain: list[tuple[str, int]] = []
     if plan.ss10_preempt:
@@ -493,7 +497,7 @@ def _check_single_stage(stage: str, lookup: Any, expected: Mapping[str, str], di
 def _check_guarded_formation(
     plan: GsubPlan, lookup: Any, lookups: list[Any], all_glyphs: frozenset[str], divergences: list[str]
 ) -> int:
-    """The late-formation guard's rows as the font holds them: literal input slots, no backtrack, and either no substitution (an `ignore sub` guard row) or one at sequence index 0 resolving through the anonymous ligature lookup feaLib deduped the forming rows into."""
+    """Check the late-formation guard's rows against the plan. Each row has literal input slots, no backtrack, and either no substitution (an `ignore sub` guard row) or one at sequence index 0 that resolves through the anonymous ligature lookup feaLib deduped the forming rows into."""
     stage = "formation guarded"
     rows, problems = _chain_rows(lookup, all_glyphs)
     for problem in problems:
@@ -560,7 +564,7 @@ def _check_plain_formation(plan: GsubPlan, lookup: Any, divergences: list[str]) 
 def _check_chokepoint(
     plan: GsubPlan, lookup: Any, lookups: list[Any], all_glyphs: frozenset[str], divergences: list[str]
 ) -> int:
-    """The ZWNJ chokepoint: one row that matches every entry-live raw glyph behind a ZWNJ and substitutes its locked twin, so nothing downstream of a word boundary can join leftward."""
+    """Check the ZWNJ chokepoint: one row that matches every entry-live raw glyph after a ZWNJ and substitutes its locked twin, so no letter after a word boundary can join leftward."""
     stage = "zwnj chokepoint"
     rows, problems = _chain_rows(lookup, all_glyphs)
     for problem in problems:
@@ -593,7 +597,7 @@ def _check_chokepoint(
 
 
 def _check_settle(plan: GsubPlan, lookup: Any, lookups: list[Any], divergences: list[str]) -> tuple[int, int]:
-    """Settlement compared per input glyph, the grain first-match-wins runs on: for each glyph the ordered (backtrack, lookahead, outcome) triples the font holds, against the ones the plan emitted. Decompiling the on-disk lookup through `pack_gsub.per_glyph_sequences` is also what proves the repack — over the written bytes, at the grain the packing had to preserve."""
+    """Compare settlement per input glyph: for each glyph, the ordered (backtrack, lookahead, outcome) triples the font holds against the ones the plan emitted. Decompiling the written lookup through `pack_gsub.per_glyph_sequences` also checks the repack, since per-glyph order is what the packing must preserve. Returns the rule count and the number of input glyphs."""
     stage = "settle"
     expected: dict[str, list[tuple]] = {}
     for rule in plan.settle_rules:
@@ -654,7 +658,7 @@ def _check_settle(plan: GsubPlan, lookup: Any, lookups: list[Any], divergences: 
 def _check_namer_dot(
     plan: GsubPlan, lookup: Any, lookups: list[Any], all_glyphs: frozenset[str], divergences: list[str]
 ) -> int:
-    """The namer-dot mini-calt: the ZWNJ guard row that keeps the dot from lowering across a word boundary, then the row that lowers it before a Short letter."""
+    """Check the namer-dot lookup: the ZWNJ guard row that keeps the dot from lowering across a word boundary, then the row that lowers it before a Short letter."""
     stage = "namer dot"
     assert plan.namer_dot_stage is not None
     dot, lowered, followers = plan.namer_dot_stage
@@ -696,7 +700,7 @@ def _check_cursive(
     cursive: Mapping[int, Mapping[str, Registration]],
     divergences: list[str],
 ) -> dict[str, int]:
-    """One `curs` lookup per registered height that has any anchors, in height order, each a format-1 CursivePos whose entry/exit records equal the emitter's registrations glyph for glyph."""
+    """Check that GPOS has one `curs` lookup per registered height that has any anchors, in height order, each a format-1 CursivePos whose entry and exit records equal the emitter's registrations for every glyph."""
     counts: dict[str, int] = {}
     tags = [record.FeatureTag for record in gpos.FeatureList.FeatureRecord or []]
     if tags != ["curs"]:
@@ -757,7 +761,7 @@ def verify_font(
     plan: GsubPlan,
     cursive: Mapping[int, Mapping[str, Registration]],
 ) -> dict:
-    """Re-parse the font at `font_path` and compare every GSUB/GPOS registration, lookup order, lookupFlag and lookup body against the emitters' plan, prove the boundary glyphs inert (no substituted position admits `uni200C` or `space`, zero advance, no outline), prove the overlay isolated (the pre-empt covers every letter cmap glyph and its twins sit in no other stage and carry no anchor), and read the GSUB's uint16 offset budget off the raw table bytes in the same parse; returns the JSON-ready report `run_m1` writes to `readback_summary.json`. Divergences are collected, never raised."""
+    """Re-parse the font at `font_path` and run every check in this module against the emitters' plan: registrations, lookup order, lookupFlags, lookup contents, the boundary glyphs, the overlay's isolation, and the GSUB offset budget. Returns the JSON-ready report `run_m1` writes to `readback_summary.json`. Divergences are collected in the report, not raised."""
     from fontTools.ttLib import TTFont
 
     divergences: list[str] = []

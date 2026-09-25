@@ -1,12 +1,20 @@
-"""GSUB emission in the prototype-proven section 7 shape (M1-PLAN section 5, Group 3).
+"""GSUB emission in the design section 7 shape (M1-PLAN section 5, Group 3).
 
-Stage order, fixed by lookup definition order (which fixes LookupList indices and hence cross-feature application order on both shapers): the ss10 isolated-input pre-empt (single substitutions replacing every letter's raw cmap glyph by its anchor-free `.ss10` twin; defined first so that under ss10 it applies before formation can see the buffer — the twins appear in no formation sequence, marker line, chokepoint class, or settlement input, so under ss10 no ligature ever forms, nothing settles, and each letter keeps its own cluster) → formation (type-4 over the registry's ligature sequences; a ligature the section 5.7 late-formation guard ever blocks moves into its own chaining-context lookup `m1_formation_guarded`, staged first, whose generated `ignore sub` rows realize the guard over the two raw lookahead slots — with ZWNJ-explicit forming rows ordered ahead of them so a skipped ZWNJ can never satisfy a guard class, per the table builder's boundary-row discipline — and whose verdicts come from one `guard-sweep` invocation against the kernel crate, config-blind by that verb's construction, so the pre-marker staging loses nothing) → ss marker substitutions (unconditional, per set, staged after formation so enabling a set cannot un-form a ligature; composite markers render multi-set union states) → the ZWNJ chokepoint (`sub uni200C @entry-live' by @entry-locked`) → one plain single-substitution lookup per distinct (input glyph, outcome) pair the settlement rows carry, registered in no feature and reached only by name from those rows (feaLib resolves a `lookup NAME` reference at parse time through a dict, where an inline `by` costs it a rescan of every rule since the last `subtable;` for a compatible inner lookup, quadratic in the rows per family) → ONE settlement lookup of chained-context rows, each `sub <backtrack> X' lookup NAME <lookahead>;`, with per-family `subtable;` breaks, positive rules only, `useExtension` so its per-rule format-3 subtables ride 32-bit Extension offsets (the depth-4 rules pushed the uint16 subtable-offset headroom under the floor read-back holds it to, `readback.SUBTABLE_OFFSET_HEADROOM_FLOOR`) — then, post-settlement, the namer-dot mini-calt (supplied here because `_namer_dot_calt_fea` is a no-op on the `senior_fea` path; its follower class includes the ss10 twins of the Short letters so the dot still lowers under ss10).
+Lookups are defined in the order they must apply, because definition order fixes their LookupList indices, and both HarfBuzz and CoreText apply lookups from different features in index order.
 
-Rule consumption is duck-typed against Group 2's `table.DecisionTable`: each rule exposes `input_glyph`, `backtrack` / `look1` / `look2` / `look3` / `look4` (tuples of glyph labels or None; `look3` and `look4` are read via getattr so pre-depth duck-typed tables keep working), `outcome`, `joint`, `provenance`. A rule with a live `look3` compiles to one further lookahead class after `look2` — the raw third slot a depth-3 prefer record reads — and a live `look4` to one more after that, the raw fourth slot a depth-4 record reads. When `tables_by_config` carries several configurations, their rule lists are folded by exact-duplicate union with a conflict assertion — sound exactly when the table builder already disambiguates inputs by marker labels per configuration (the prototype's feature-fold invariant); a same-window different-outcome collision raises.
+1. The ss10 isolated-input pre-empt: single substitutions from each letter's raw cmap glyph to its anchor-free `.ss10` twin. It comes first so that under ss10 it runs before formation. The twins appear in no formation sequence, marker line, chokepoint class, or settlement input, so under ss10 no ligature forms, nothing settles, and each letter keeps its own cluster.
+2. Formation: a type-4 lookup over the registry's ligature sequences. A ligature that the design section 5.7 late-formation guard ever blocks moves into its own chaining-context lookup, `m1_formation_guarded`, which runs first. Its generated `ignore sub` rows implement the guard over the two raw lookahead slots. ZWNJ-explicit forming rows come before them, because HarfBuzz skips a ZWNJ in contextual matching and a guard class could otherwise match across one. The verdicts come from one `guard-sweep` call to the kernel crate, which does not depend on the configuration, so formation can run before the marker substitutions.
+3. The stylistic-set marker substitutions: unconditional, one lookup per set, after formation so that turning on a set cannot undo a ligature. Composite markers represent several sets on at once.
+4. The ZWNJ chokepoint: `sub uni200C @m1_entry_live' by @m1_entry_locked`.
+5. One single-substitution lookup per distinct (input glyph, outcome) pair in the settlement rows, registered in no feature and referenced by name from those rows. feaLib resolves `lookup NAME` through a dict, while an inline `by` makes it rescan every rule since the last `subtable;` for a compatible inner lookup, which is quadratic in the rows per family.
+6. One settlement lookup, `m1_settle`, of chained-context rows of the form `sub <backtrack> X' lookup NAME <lookahead>;`, with a `subtable;` break between input families and positive rules only. It is marked `useExtension` so that its per-rule format-3 subtables sit behind 32-bit Extension offsets. Without it, the depth-4 rules push the uint16 subtable-offset headroom below `readback.SUBTABLE_OFFSET_HEADROOM_FLOOR`.
+7. The namer-dot calt, after settlement. It is emitted here because `tools/build_font.py`'s own namer-dot calt emits nothing for the mini font: `compile_font` passes no context sets, so there is no `shorts` set. Its follower class includes the ss10 twins of the Short letters, so the dot still lowers under ss10.
 
-Invariants asserted before returning: no locked twin and no chokepoint output appears in any raw lookahead class; every glyph named by any rule exists in the supplied glyph inventory; zero selection-semantics `ignore sub` (the namer-dot stage's guard and the generated late-formation guard rows are the sanctioned exemptions — both are formation/boundary machinery, not selection semantics).
+The rules are read by duck typing against `table.Rule`: `input_glyph`, `backtrack`, `look1` to `look4` (tuples of glyph labels or None), `outcome`, `joint`, and `provenance`. `look3` and `look4` are read with `getattr`, so tables without them still work. A live `look3` compiles to a third lookahead class after `look2`, the raw third slot a depth-3 record reads, and a live `look4` to a fourth. The rule lists of all configurations in `tables_by_config` are folded into one by exact-duplicate union, after each configuration's raw labels are renamed to its marker twins (`model.raw_rename_map`). Two rules with the same window key and different outcomes raise EmitError.
 
-Beside the FEA text the plan carries a structured mirror of every stage — the pre-empt map, the guarded formation rows and the plain ligatures, the per-feature marker substitutions, the settlement rows, the namer-dot row pair, and the calt lookup order — built at the same statement sites that append the lines, so line order and row order cannot drift. `rebuild/pipeline/readback.py` compares the compiled font against exactly that mirror, and `behavior_classes` enumerates the HarfBuzz-facing shapes it holds so the periodic deep sweep knows when a build has asked the shaper something new; nothing else reads it, and nothing in it is parsed back out of the emitted text.
+Before returning, `emit_gsub` asserts that no locked twin or chokepoint output appears in a raw lookahead class, that every glyph a rule names is in the planned glyph set, that the only `ignore sub` rows are the namer-dot guard and the generated late-formation guard rows, and that every emitted row and every table rule are matched to each other (`_assert_fold_sources`).
+
+Besides the FEA text, the plan holds a structured copy of every stage: the pre-empt map, the guarded formation rows and plain ligatures, the per-feature marker substitutions, the settlement rows, the namer-dot row pair, and the calt lookup order. Each structured row is recorded where its FEA line is appended, so the two are always in the same order. `rebuild/pipeline/readback.py` checks the compiled font against this copy, and `behavior_classes` summarizes the HarfBuzz-facing shapes in it for the deep sweep. Nothing is parsed back out of the FEA text.
 """
 
 from __future__ import annotations
@@ -58,7 +66,7 @@ _CALT_STAGE_NAMES = frozenset(
 
 @dataclass(frozen=True)
 class FormationRow:
-    """One emitted row of the guarded formation lookup as slot glyph-sets: the marked input sequence, the lookahead slots near-to-far (a literal glyph is a singleton set), and the rune the row forms — None for a guard's `ignore sub` row."""
+    """One emitted row of the guarded formation lookup as glyph sets: the marked input sequence, the lookahead slots nearest first (a literal glyph is a one-member set), and the rune the row forms, or None for an `ignore sub` row."""
 
     sequence: tuple[str, ...]
     lookahead: tuple[frozenset[str], ...]
@@ -67,7 +75,7 @@ class FormationRow:
 
 @dataclass(frozen=True)
 class SettleRule:
-    """One emitted settlement row as slot glyph-sets: the single input glyph, the backtrack class when the row carries one, the non-empty lookahead slots in emitted order, and the outcome. `sources` names the per-configuration table rules that folded into this row, as `(configuration name, rule index within that configuration's table)` pairs in fold order — the witness gate's link from what ships back to what the table builder derived, so coverage can be counted over the emitted list rather than over the tables behind it."""
+    """One emitted settlement row as glyph sets: the input glyph, the backtrack class if any, the non-empty lookahead slots in emitted order, and the outcome. `sources` lists the table rules folded into this row as `(configuration name, rule index in that configuration's table)` pairs, in fold order."""
 
     input_glyph: str
     backtrack: frozenset[str] | None
@@ -94,9 +102,9 @@ class GsubPlan:
 
 
 def behavior_classes(plan: GsubPlan) -> tuple[str, ...]:
-    """The deep sweep's arming enumeration: every HarfBuzz-facing shape the emitted lookup contains, stated as class tokens rather than as rules. A slot count, a guard arity, a ZWNJ in a backtrack, a locked input, the fall-through across per-family subtable breaks — each is a distinct way the shaper can be asked to behave, and two builds whose token sets agree ask nothing of HarfBuzz that the other did not. That is what lets a deep sweep's green survive a rune edit: the edit moves rules, but if it mints no new token it samples nothing the deep sweep has not already shaped.
+    """The sorted class tokens for every HarfBuzz-facing shape in the plan, which arm the deep sweep. A token names a shape, such as a slot count, a guard arity, a ZWNJ in a backtrack, a locked input, or fall-through across per-family subtable breaks, and never a rule. When two builds produce the same tokens, neither asks HarfBuzz for a behavior the other did not, so a rune edit that adds no token leaves the deep sweep's green record valid. Which rules exist and where they sit is checked by read-back (rebuild/pipeline/readback.py) on every build.
 
-    Fail-closed on the `classify_divergence` hard-None idiom, one level up: an unrecognized field on GsubPlan, a lookahead depth past the emitter's own ceiling, a guard arity nobody has emitted, a calt stage under an unknown name — each raises EmitError rather than passing silently, because a shape that enumerates to nothing would arm nothing and the deep sweep's green would quietly stop meaning what it says. The tokens name shapes, never contents: which rules exist and where they sit is read-back's claim (rebuild/pipeline/readback.py), re-proved on every build.
+    An unknown GsubPlan field, a lookahead depth over four, a guard row shape the emitter does not produce, or an unknown calt stage raises EmitError, because a shape that produces no token would never arm the deep sweep.
     """
     for candidate in dataclasses.fields(plan):
         if candidate.name not in _KNOWN_PLAN_FIELDS:
@@ -189,7 +197,7 @@ def _fea_safe(label: str) -> str:
 
 
 def marker_states(rune_name: str, features: tuple[str, ...]) -> dict[str, frozenset[str]]:
-    """Every marker glyph name the rune can wear, keyed by glyph name, valued by the active relevant set."""
+    """Each marker glyph name of the rune, mapped to the set of features it stands for: one entry per non-empty subset of `features`."""
     states: dict[str, frozenset[str]] = {}
     for mask in range(1, 1 << len(features)):
         active = frozenset(feature for index, feature in enumerate(features) if mask & (1 << index))
@@ -200,7 +208,7 @@ def marker_states(rune_name: str, features: tuple[str, ...]) -> dict[str, frozen
 def _marker_lookups(
     spec: ResolvedSpec,
 ) -> tuple[dict[str, list[str]], dict[str, str], dict[str, dict[str, str]]]:
-    """Per stylistic set, the marker substitution lines; plus the marker-glyph registry and the same substitutions as source→target mappings for the read-back. The lookup for set F maps every union state over the sets emitted before F (and the bare rune) to the state plus F, so multi-set configurations compose in definition order."""
+    """Return the marker substitution lines per stylistic set, the marker glyphs mapped to their runes, and the same substitutions as source-to-target maps for read-back. The lookup for set F maps the bare rune and every marker state over the sets before F to that state plus F, so several sets on at once compose in definition order."""
     per_feature: dict[str, list[str]] = {}
     per_feature_pairs: dict[str, dict[str, str]] = {}
     marker_glyphs: dict[str, str] = {}
@@ -227,7 +235,7 @@ def _marker_lookups(
 
 
 def _marker_names(spec: ResolvedSpec) -> frozenset[str]:
-    """Every marker twin and its chokepoint twin: the labels whose presence in a lookahead slot sorts a rule ahead of the bare-label rules that would otherwise swallow its windows."""
+    """Every marker twin and its locked twin. A rule with one of these in a lookahead slot is sorted ahead of the bare-label rules that would otherwise match its windows first."""
     _per_feature, marker_glyphs, _pairs = _marker_lookups(spec)
     return frozenset(marker_glyphs) | frozenset(locked_glyph_name(name) for name in marker_glyphs)
 
@@ -237,7 +245,17 @@ def _formation_lines(
     registry: _ClassRegistry,
     guard_verdicts: Mapping[tuple[str, RightToken, RightToken], bool],
 ) -> tuple[list[str], list[str], list[str], list[FormationRow], list[tuple[tuple[str, ...], str]]]:
-    """Formation lines split by the section 5.7 late-formation guard: (guarded chaining-context lookup lines, plain type-4 lookup lines, the generated `ignore sub` statements for the invariant exemption, the guarded rows as slot glyph-sets, the plain (components, ligature) pairs). Each structured row is appended beside the line it describes, so the read-back's expectation cannot drift from the emitted text. `guard_verdicts` is the crate's complete `guard-sweep` answer over the two raw slots past the sequence, so model, table, and font read the engine of record directly. A blocked follower whose second-slot verdicts cover every letter and every boundary gets a one-slot ignore; a follower blocked only under specific second slots gets a two-slot ignore over a letter class (a boundary or text-edge second slot then falls through to the forming fallback, matching its False verdict); a follower blocked at every boundary second slot but released under specific letter seconds inverts the discipline — explicit two-slot forming rows for the released letters, behind a ZWNJ-explicit two-slot ignore so a skipped ZWNJ cannot satisfy a released slot, ahead of a blanket one-slot ignore whose match-at-anything (text edge included) realizes the boundary blocks. A verdict that differs among the boundary second slots themselves remains inexpressible and errors. ZWNJ-explicit forming rows precede the ignores because HarfBuzz skips default-ignorables in contextual matching — without them a guard class could match across a skipped ZWNJ that the model treats as a boundary."""
+    """Formation lines split by the design section 5.7 late-formation guard. Returns the guarded chaining-context lookup lines, the plain type-4 lookup lines, the generated `ignore sub` statements (exempt from the no-`ignore sub` check), the guarded rows as glyph sets, and the plain (components, ligature) pairs. Each structured row is appended next to the line it describes.
+
+    `guard_verdicts` is the crate's full `guard-sweep` result over the two raw slots after the sequence. For each follower of a ligature:
+
+    - Blocked before every letter and every boundary: a one-slot `ignore sub` over a class of such followers.
+    - Blocked only before some letters, and before no boundary: a two-slot `ignore sub` over a class of those letters. A boundary or text edge in the second slot falls through to the forming fallback, which matches its False verdict.
+    - Blocked before every boundary but not before some letters: two-slot forming rows for the released letters, after a ZWNJ-explicit two-slot `ignore sub` and before a one-slot `ignore sub` that matches anything, text edge included.
+    - Blocked before some boundaries but not others: EmitError, because the lookup cannot express it.
+
+    ZWNJ-explicit forming rows come before the `ignore sub` rows because HarfBuzz skips default-ignorables in contextual matching. Without them a guard class could match across a ZWNJ that the model treats as a boundary.
+    """
     from rebuild.pipeline.settle import EDGE, NAMER_DOT, SPACE, ZWNJ
 
     letters = sorted(name for name, rune in spec.runes.items() if not rune.sequence)
@@ -354,7 +372,7 @@ def _config_features(config) -> frozenset[str]:
 
 
 def _config_name(config) -> str:
-    """A configuration key spelled the way `conform.ACCEPTANCE_CONFIGS` spells it, whether the caller keyed its tables by name or by feature set: a name passes through, the empty set is `default`, and a non-empty set joins its members with `+` in sorted order — so a source recorded against a folded row names a configuration a reader can look up."""
+    """The configuration's name as `conform.ACCEPTANCE_CONFIGS` writes it. A name passes through, the empty feature set is `default`, and any other set is its members sorted and joined with `+`."""
     if isinstance(config, str):
         return config
     features = sorted(config)
@@ -405,7 +423,7 @@ def _as_folded(rule, sources: tuple[tuple[str, int], ...]) -> _FoldedRule:
 
 
 def _fold_rules(tables_by_config: Mapping, spec: ResolvedSpec | None = None) -> list[_FoldedRule]:
-    """The per-configuration tables folded into the single rule list the settlement lookup ships, every returned row carrying the sources it was folded from: a row's `sources` name every configuration whose table contributed that same window key, in fold order, so a row that ships can be traced back to the table rules that derived it — and through them to their witnesses."""
+    """Fold the per-configuration tables into the one rule list the settlement lookup ships. Each row's `sources` names every table rule with the same window key, in fold order."""
     rules: list[_FoldedRule] = []
     positions: dict[tuple, int] = {}
     for config in sorted(tables_by_config, key=lambda c: sorted(_config_features(c))):
@@ -439,7 +457,7 @@ def _fold_rules(tables_by_config: Mapping, spec: ResolvedSpec | None = None) -> 
 
 
 def _ordered_settle_rules(rules: Iterable, marker_names: frozenset[str] = frozenset()) -> list:
-    """The folded rules in the exact order the settlement lines are emitted from — the order the read-back rebuilds its per-input-glyph expectations in, and so the order first-match-wins runs the shipped lookup in."""
+    """The folded rules in the order the settlement lines are emitted, which is the order read-back expects per input glyph and the order the shipped lookup matches in."""
 
     def mentions_marker(rule) -> bool:
         return any(
@@ -453,14 +471,14 @@ def _ordered_settle_rules(rules: Iterable, marker_names: frozenset[str] = frozen
         by_input.setdefault(rule.input_glyph, []).append(rule)
     by_family: dict[str, list] = {}
     for input_glyph, input_rules in by_input.items():
-        # First-match-wins discipline across the config fold: backtracked (committed-left and ZWNJ-guard) rules keep their precedence over slot-dropped boundary-left rules, and within each block a rule whose lookahead names a marker twin sorts ahead of the bare-label rules that would otherwise swallow its windows via a dropped slot — sound because the marker substitution is unconditional, so a marker label and the bare label it shadows never occur in the same stream. Stable, preserving every config's internal ordering.
+        # The first matching rule wins, so across the configuration fold, rules with a backtrack (a committed left or a ZWNJ guard) stay ahead of rules that drop the left slot at a boundary. Within each of those two blocks, a rule whose lookahead names a marker twin goes ahead of bare-label rules that would otherwise match its windows through a dropped slot. This is safe because the marker substitution is unconditional, so a marker label and the bare label it replaces never occur in the same stream. The sort is stable, so each configuration's own order is kept.
         ordered = sorted(input_rules, key=lambda rule: (rule.backtrack is None, not mentions_marker(rule)))
         by_family.setdefault(input_glyph.split(".")[0], []).extend(ordered)
     return [rule for family_rules in by_family.values() for rule in family_rules]
 
 
 def _settle_outcome_lookups(grouped: Iterable) -> tuple[dict[tuple[str, str], str], list[str]]:
-    """One single-substitution lookup per distinct (input glyph, outcome) pair the ordered rules carry, in first-seen order so the emitted text is byte-deterministic: the name each settlement row references, keyed by pair, beside the FEA blocks that define them. The names are unique by construction, which `Builder.start_lookup_block` demands: the per-glyph counter is keyed on the `_fea_safe` base the name carries, not on the raw glyph name, because that fold is lossy."""
+    """One single-substitution lookup per distinct (input glyph, outcome) pair, in first-seen order so the FEA text is deterministic. Returns the lookup name per pair and the FEA blocks that define them. feaLib's `Builder.start_lookup_block` requires unique names, so the counter is keyed on the `_fea_safe` form of the glyph name, which can map two glyph names to one."""
     names: dict[tuple[str, str], str] = {}
     counters: dict[str, int] = {}
     blocks: list[str] = []
@@ -480,7 +498,7 @@ def _settle_outcome_lookups(grouped: Iterable) -> tuple[dict[tuple[str, str], st
 def _settle_lines(
     grouped: Iterable, registry: _ClassRegistry, outcome_lookups: Mapping[tuple[str, str], str]
 ) -> list[str]:
-    """One FEA line per rule over an already-ordered rule list, with a `subtable;` break wherever the input family changes. Each row names its outcome through `outcome_lookups`, the single-substitution lookup `_settle_outcome_lookups` minted for its (input glyph, outcome) pair, placed right after the marked input glyph as FEA requires. Emission only: which rule ships where is settled upstream in `_ordered_settle_rules`, so the lines and the rows the plan carries are read off one list and cannot drift apart."""
+    """One FEA line per rule of an already ordered list, with a `subtable;` break wherever the input family changes. Each line names the lookup `outcome_lookups` holds for its (input glyph, outcome) pair, right after the marked input glyph as FEA requires."""
     lines: list[str] = []
     counters: dict[str, int] = {}
     current_family: str | None = None
@@ -515,7 +533,7 @@ def _settle_lines(
 
 
 def _settle_rule_of(rule) -> SettleRule:
-    """One folded rule as the plan's structured row: the slots as glyph-sets, and the sources the fold recorded, carried through so the record beside the build names the table rules behind every emitted row."""
+    """One folded rule as the plan's structured row, with its slots as glyph sets and the sources the fold recorded."""
     return SettleRule(
         input_glyph=rule.input_glyph,
         backtrack=frozenset(rule.backtrack) if rule.backtrack else None,
@@ -535,7 +553,7 @@ def _settle_rule_of(rule) -> SettleRule:
 
 
 def ordered_fold(spec: ResolvedSpec, tables_by_config: Mapping) -> list[_FoldedRule]:
-    """The folded rules in the exact order the settlement lookup ships them — the same fold, the same marker renaming and the same ordering `emit_gsub` writes — with the fold's accounting asserted, exposed on its own so a reader of the shipped order can hold it to the stamped tables without minting a glyph inventory or emitting FEA text."""
+    """The folded rules in the order the settlement lookup ships them, using the same fold, marker renaming, and ordering as `emit_gsub`, after `_assert_fold_sources`. It needs no glyph inventory and emits no FEA text."""
     grouped = _ordered_settle_rules(_fold_rules(tables_by_config, spec), _marker_names(spec))
     _assert_fold_sources(grouped, tables_by_config)
     return grouped
@@ -554,7 +572,7 @@ def _slot_text(members: tuple[str, ...] | None) -> str:
 
 
 def emitted_order_tsv(spec: ResolvedSpec, tables_by_config: Mapping) -> str:
-    """The shipped settlement order as a settlement TSV the crate reads back (`artifacts::read_settlement_tsv`): one line per emitted row in FEA order, in the marker-folded label space the stream wears, with the provenance column naming the table rules the row folded from as `<configuration>#<rule index>` so a refusal can name them. This is the file the crate's `replay-emitted` verb walks each configuration's rows against (`run_m1.run_emitted_order`); `EMITTED_ORDER_CONFIG` is the configuration its head names, since the order belongs to every configuration at once."""
+    """The shipped settlement order as a settlement TSV that the crate reads with `artifacts::read_settlement_tsv`. It has one line per emitted row in FEA order, with marker-renamed labels as they appear in the glyph stream. The provenance column lists the table rules the row was folded from as `<configuration>#<rule index>`, so an error can name them. The crate's `replay-emitted` subcommand checks each configuration's rows against this file (`run_m1.run_emitted_order`). The header names `EMITTED_ORDER_CONFIG` as its configuration because the order covers all of them."""
     lines = [
         f"# settlement table, config {EMITTED_ORDER_CONFIG}",
         "input\tbacktrack\tlookahead1\tlookahead2\tlookahead3\tlookahead4\toutcome\tjoint\tprovenance",
@@ -579,7 +597,7 @@ def emitted_order_tsv(spec: ResolvedSpec, tables_by_config: Mapping) -> str:
 
 
 def emitted_context_tsv(spec: ResolvedSpec, config, decision) -> str:
-    """What one configuration's stream does to the labels its table spells, for the crate's `replay-emitted` verb (`shipped_order::read_context`): a `rename` record per raw label the marker fold renames under this configuration (`model.raw_rename_map`, the same map the fold renamed the configuration's rules through), and a `class` record per deep class the table's rows stand at, its members in the table's raw label space."""
+    """The label context of one configuration for the crate's `replay-emitted` subcommand (`shipped_order::read_context`). It has a `rename` record for each raw label that the marker renaming changes under this configuration (`model.raw_rename_map`, the map `_fold_rules` uses), and a `class` record for each deep class in the table's rows, with its members as raw labels."""
     lines = [
         f"rename\t{raw}\t{twin}"
         for raw, twin in sorted(raw_rename_map(spec, _config_features(config)).items())
@@ -590,7 +608,7 @@ def emitted_context_tsv(spec: ResolvedSpec, config, decision) -> str:
 
 
 def _assert_fold_sources(rules: Iterable, tables_by_config: Mapping) -> None:
-    """The fold's accounting, held at build time rather than re-derived by a test afterwards: every emitted row names at least one table rule it folded from, every table rule of every configuration handed in sources exactly one row, and the configurations the rows name are exactly the ones with rules to contribute (which is what the record beside the build writes down as its `configs`). Together that is what makes the shipped lookup — not the per-configuration tables behind it — the unit coverage is counted over: a row with no source could ship unwitnessed, and a rule that sourced no row would be a table rule the font never got."""
+    """Check that every emitted row names at least one table rule it was folded from, that every table rule of every configuration is the source of exactly one row, and that the rows name exactly the configurations that have rules. A row with no source would ship a rule no table derived, and a table rule with no row would be missing from the font."""
     rules = list(rules)
     unsourced = [rule for rule in rules if not getattr(rule, "sources", ())]
     if unsourced:
@@ -674,7 +692,7 @@ def emit_gsub(
     ss10_twins: Mapping[str, str] | None = None,
     namer_dot: tuple[str, str] | None = ("periodcentered", "periodcentered.lowered"),
 ) -> GsubPlan:
-    """`glyphs` feeds the settlement outcomes and the namer-dot follower class; `ss10_twins` (raw cmap glyph name → anchor-free `.ss10` twin name) feeds the ss10 pre-empt lookup; each stage is skipped with a comment when its input is absent (a recorded M1-PLAN section 5 signature extension — the plan's two-argument form cannot reach the glyph inventory)."""
+    """Emit the GSUB feature code and its structured plan. `glyphs` supplies the glyph names that the rules are checked against and the namer-dot follower class. Without it, the namer-dot stage is left out. `ss10_twins` maps raw cmap glyph names to their anchor-free `.ss10` twins for the ss10 pre-empt. Without it, the pre-empt is left out and the FEA says so in a comment."""
     registry = _ClassRegistry()
     rules = _fold_rules(tables_by_config, spec)
     per_feature_markers, marker_glyphs, marker_pairs = _marker_lookups(spec)
@@ -749,7 +767,7 @@ def emit_gsub(
             namer_lines.append(f"@m1_namer_short_followers = [{' '.join(followers)}];")
             namer_lines.append(
                 "lookup m1_namer_dot_word_start {\n"
-                # HarfBuzz skips default-ignorables (ZWNJ) in contextual matching unless a rule names them, so without this ignore the dot would lower "through" a ZWNJ, breaking the ZWNJ-equals-word-boundary invariant (design section 3.4).
+                # HarfBuzz skips default-ignorables such as ZWNJ in contextual matching unless a rule names them. Without this ignore the dot would lower across a ZWNJ, which must act as a word boundary (design section 3.4).
                 f"    ignore sub {dot_glyph}' uni200C;\n"
                 f"    sub {dot_glyph}' @m1_namer_short_followers by {lowered_glyph};\n"
                 "} m1_namer_dot_word_start;"

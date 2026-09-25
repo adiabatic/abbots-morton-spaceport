@@ -1,10 +1,12 @@
-"""Streaming filter of the baseline tables to the M1 sub-alphabet (M1-PLAN section 5, Group 3).
+"""Filter the baseline tables to the M1 alphabet (M1-PLAN section 5, Group 3).
 
-Streams each `rebuild/out/baseline-<config>.tsv.gz` once via `rebuild.validation.rowmodel.open_table`, keeps rows whose codepoints are a subset of the M1 alphabet, and writes `rebuild/out/m1/baseline-<config>.subset.tsv.gz` preserving the header lines and the canonical (length, codepoints) row order.
+Streams each `rebuild/out/baseline-<config>.tsv.gz` once through `rebuild.validation.rowmodel.open_table`, keeps the rows whose code points are all in `M1_ALPHABET`, and writes `rebuild/out/m1/baseline-<config>.subset.tsv.gz` with the header lines and the source's (length, codepoints) row order unchanged.
 
-Two claims about those tables are proven here rather than on every run that reads them, because a refilter is the only thing that can change either answer. The first is that every `DEFAULT_COVERED_CONFIGS` sub-table is row-identical to `IDENTITY_REFERENCE`'s: the acceptance gate covers ss06, ss07 and ss06+ss07 by running default alone, and that only holds while their filtered rows are the same rows. The digest each filter pass already folds over its kept data lines turns that proof into a comparison of hex strings — no second read of the three covered sub-tables — and a mismatch raises `SubsetIdentityError` before the stamp is written, so a diverged configuration is never stamped fresh and the next run refilters into the same refusal rather than adjudicating against tables nobody proved. The second is the roster of old glyph names the kept rows carry: `refresh` writes it to `subset-names.json`, sorted and distinct per configuration, off the tokens the filter already splits — so the oracle's alias-completeness guard answers from a short roster of names instead of streaming every subset row of every configuration, on the `--gates-only` path as cheaply as on a full build. A third claim rides the opposite schedule, proven on every `ensure_fresh` rather than once per refilter: that every source table was extracted from the site font on disk, its header's `font_sha256` weighed against the font the header itself names. `make all` rewrites that font outside every stamp this module keeps, so a rebuilt or re-extracted font moves no key a freshness check would notice, and only a proof that runs whether the tables read fresh or stale can keep the oracle from adjudicating against rows some other font shaped. The proof has two steps, because a version bump's `make all` rewrites the font's `head` and `name` tables and nothing a shaper reads: a header whose raw digest matches the font on disk is proven outright, and a header whose raw digest does not is proven when the font it names and the font on disk agree table by table outside `head` and `name` (`fingerprint.font_content_digest`). The header records only the raw digest, so the projection of the extraction font is recorded here instead, in `rebuild/out/baseline-font-projections.json` — written by every fully proven call, keyed by the font path and the raw digest a header names — and a bump on a machine that never proved the tables before the font moved still refuses with the re-extract remedy, which is the safe direction.
+Each refilter also checks two facts that only a refilter can change. First, every `DEFAULT_COVERED_CONFIGS` sub-table must be row-identical to the `IDENTITY_REFERENCE` sub-table, because the acceptance gate covers ss06, ss07 and ss06+ss07 by running default alone. The check compares the digests the filter pass computes over the kept rows, so no table is read a second time. A mismatch or a missing table raises `SubsetIdentityError` before the stamp is written, so the tables are never stamped fresh and every later run fails the same way. Second, `refresh` writes the distinct old glyph names of each configuration's kept rows to `subset-names.json`. The oracle's alias-completeness check reads that file instead of streaming every subset row, which keeps the check cheap on the `--gates-only` path.
 
-run_m1 calls ensure_fresh() before its gates, so an M1_ALPHABET edit can never feed the oracle stale subset tables: subset_stamp.json records a key over the alphabet, the source tables, and this module, plus each output's content hash, its kept-row count (`subset_row_counts` is the reader, and the oracle cuts each table into row ranges by it without streaming the table first) and the names sidecar's hash, and the refilter is skipped only when the key matches and the outputs on disk are exactly the stamped set with the stamped bytes — a truncated table, an edited table, a missing or edited sidecar, or an orphan left by a vanished source all read as stale, and refresh() prunes orphans. The alias map is deliberately outside the key even though the sidecar feeds the alias check: it is hand-edited far more often than the tables move, and folding it in would turn every alias edit into a full refilter of every configuration. Subset gzip members are written with mtime=0 so refiltering unchanged sources reproduces each table byte for byte.
+`ensure_fresh` checks a third fact on every call, fresh or stale: that each source table was extracted from the site font on disk. `make all` rewrites that font without changing any key this module stamps, so only a check that runs on every call can catch a rebuilt font. A header whose `font_sha256` matches the font on disk passes. A version bump's `make all` rewrites only the font's `head` and `name` tables, so a header whose digest does not match still passes when the font it was extracted from and the font on disk are identical outside those two tables (`fingerprint.font_content_digest`). The header records only the raw digest, so this module records the extraction font's `head`- and `name`-blind digest in `rebuild/out/baseline-font-projections.json`, keyed by font path and raw digest, on each call where every table passes. A machine that never checked the tables before the font changed has no such entry and fails with the re-extract remedy.
+
+`run_m1` calls `ensure_fresh` before its gates, so an `M1_ALPHABET` edit cannot feed the oracle stale subset tables. `subset_stamp.json` records a key over the alphabet, the source tables, and this module's code, plus each output's content hash, each output's kept-row count (see `subset_row_counts`), and the names sidecar's hash. The refilter is skipped only when the key matches and the outputs on disk are the stamped set with the stamped bytes. A truncated or edited table, a missing or edited names sidecar, and an orphan left by a removed source all read as stale, and `refresh` deletes orphans. Subset gzip members are written with mtime=0, so refiltering unchanged sources reproduces each table byte for byte.
 
 Run by hand (unconditional refilter) as: uv run python -m rebuild.pipeline.baseline_subset
 """
@@ -83,16 +85,16 @@ _EXTRACT_REMEDY = "re-extract with `uv run python -m rebuild.baseline.cli extrac
 
 
 class SubsetIdentityError(RuntimeError):
-    """A DEFAULT_COVERED_CONFIGS sub-table that no longer matches the reference — raised before the stamp is written, so the refusal cannot be skipped by a freshness check."""
+    """Raised when a `DEFAULT_COVERED_CONFIGS` sub-table does not match the reference sub-table. It is raised before the stamp is written, so a freshness check cannot skip it."""
 
 
 class BaselineProvenanceError(RuntimeError):
-    """A source baseline table whose header names a font other than the one on disk — raised before any freshness check, so a re-extracted or rebuilt site font can never feed the oracle rows shaped by a different font."""
+    """Raised when a source baseline table cannot be shown to come from the site font on disk. `ensure_fresh` checks this before its freshness check, so the oracle never compares against rows another font shaped."""
 
 
 @dataclass(frozen=True)
 class FilteredTable:
-    """What one filter pass learned about the table it wrote: the kept-row count, every old glyph name those rows name, and a digest over the kept data lines exactly as written."""
+    """What one filter pass records about the table it wrote: the kept-row count, the old glyph names in those rows, and a digest over the kept data lines as written."""
 
     kept: int
     glyph_names: frozenset[str]
@@ -107,14 +109,14 @@ def _codepoints_in_alphabet(field: str, alphabet: frozenset[int]) -> bool:
 
 
 def _open_writer(destination: Path):
-    """gzip members carry mtime=0 so a refilter of unchanged sources is byte-identical — the run-m1 green fingerprint hashes these tables, and a timestamp-only rewrite must not move it."""
+    """Open a text writer, gzip-compressed for a `.gz` path. Gzip members use mtime=0 so a refilter of unchanged sources is byte-identical: `run_m1_skip_fingerprint` in rebuild/tools/artifact_cycle.py hashes these tables, and a timestamp-only change would force a run_m1 rerun."""
     if destination.suffix == ".gz":
         return io.TextIOWrapper(gzip.GzipFile(str(destination), "wb", mtime=0), encoding="utf-8", newline="")
     return open(destination, "w", encoding="utf-8", newline="")
 
 
 def filter_table(source: Path, destination: Path, alphabet: frozenset[int] = M1_ALPHABET) -> FilteredTable:
-    """Filter one baseline table (header lines preserved verbatim), folding the kept rows' digest and their glyph names out of the same pass that writes them."""
+    """Filter one baseline table, copying its header lines unchanged, and return the kept rows' count, glyph names, and digest, all computed in the same pass that writes them."""
     destination.parent.mkdir(parents=True, exist_ok=True)
     kept = 0
     names: set[str] = set()
@@ -145,7 +147,7 @@ def _subset_path(out_dir: Path, config: str) -> Path:
 
 
 def stamp_key(repo_root: Path = REPO_ROOT) -> str:
-    """The content key the stamp records: everything the subset tables are a pure function of — the alphabet, the source tables (by the same size-plus-digests proxy as fingerprint.baselines_value, so no 42MB table is ever read to answer a freshness check), and this module's own code through `fingerprint.code_file_digest`, so a filter-logic change refilters rather than trusting output the old code wrote while a docstring reword trusts it."""
+    """The content key the stamp records: a hash of the alphabet, the source tables, and this module's code. The source tables enter through the size-plus-digests proxy of `fingerprint.baselines_value`, so a freshness check reads no source table. The code enters through the prose-blind `fingerprint.code_file_digest`, so a code change forces a refilter and a docstring edit does not."""
     lines = [
         "alphabet\t" + ",".join(f"{codepoint:04X}" for codepoint in sorted(M1_ALPHABET)),
         f"baselines\t{fingerprint.baselines_value(Path(repo_root))}",
@@ -163,7 +165,7 @@ def _data_lines(reader: Iterable[str]) -> Iterator[str]:
 
 
 def _first_differing_row(left: Path, right: Path) -> tuple[str | None, str | None]:
-    """The one read the happy path never pays for: two subset outputs walked in step for the first data line that differs, so a refusal can name a row rather than only a pair of digests."""
+    """Return the first pair of data lines that differ between two subset tables, so the error can name a row. It runs only after the digests disagree."""
     with open_table(left) as left_reader, open_table(right) as right_reader:
         for pair in itertools.zip_longest(_data_lines(left_reader), _data_lines(right_reader)):
             if pair[0] != pair[1]:
@@ -172,7 +174,7 @@ def _first_differing_row(left: Path, right: Path) -> tuple[str | None, str | Non
 
 
 def _prove_default_covered(out_dir: Path, filtered: Mapping[str, FilteredTable]) -> None:
-    """Every DEFAULT_COVERED_CONFIGS sub-table against IDENTITY_REFERENCE's, by the digest the filter pass already folded. Proven here because a refilter is the only event that can change the answer, and raised before the stamp so a diverged configuration can never be stamped fresh."""
+    """Raise `SubsetIdentityError` unless every `DEFAULT_COVERED_CONFIGS` sub-table was written and has the same row digest as the `IDENTITY_REFERENCE` sub-table."""
     for config in DEFAULT_COVERED_CONFIGS:
         for name in (config, IDENTITY_REFERENCE):
             if name not in filtered:
@@ -188,7 +190,7 @@ def _prove_default_covered(out_dir: Path, filtered: Mapping[str, FilteredTable])
 
 
 def _write_subset_names(out_dir: Path, filtered: Mapping[str, FilteredTable]) -> Path:
-    """The alias check's whole input, written once per refilter: the distinct old glyph names of each configuration's kept rows, sorted."""
+    """Write the names sidecar, the alias check's only input: each configuration's distinct old glyph names from its kept rows, sorted."""
     payload = {
         "format": NAMES_FORMAT,
         "names": {config: sorted(table.glyph_names) for config, table in sorted(filtered.items())},
@@ -199,7 +201,7 @@ def _write_subset_names(out_dir: Path, filtered: Mapping[str, FilteredTable]) ->
 
 
 def read_subset_names(out_dir: Path = OUT_DIR) -> dict[str, list[str]]:
-    """The names sidecar as `{config: sorted names}`. Unlike is_fresh this is loud: a caller that reaches for the sidecar has already been told the tables are fresh, so a missing or malformed one is a broken invariant rather than a state to refilter out of."""
+    """Return the names sidecar as `{config: sorted names}`. Unlike `is_fresh`, it raises on a missing or malformed file: callers read it only after `ensure_fresh`, so a bad file means a broken invariant, not a state to refilter from."""
     path = Path(out_dir) / NAMES_NAME
     try:
         payload = json.loads(path.read_text())
@@ -216,7 +218,7 @@ def read_subset_names(out_dir: Path = OUT_DIR) -> dict[str, list[str]]:
 
 
 def refresh(repo_root: Path = REPO_ROOT) -> dict[str, str]:
-    """Refilter every source table into rebuild/out/m1, prune any subset output no longer backed by a source, prove the default-covered configurations identical, write the names sidecar, and write the stamp; returns the output names mapped to their content hashes. The key is snapshotted before the filter loop (the _settle_green discipline): a source edited mid-refilter stamps under the pre-edit key and reads as stale next check, never as fresh tables it does not describe. The identity proof runs after the prune and before the stamp, so a refusal leaves the outputs on disk with no stamp vouching for them."""
+    """Refilter every source table into rebuild/out/m1, delete subset outputs that have no source, check the default-covered configurations, write the names sidecar, and write the stamp, in that order. Returns the output names mapped to their content hashes. The key is computed before filtering, so a source edited mid-refilter is stamped under the old key and reads as stale on the next check. The identity check runs before the stamp is written, so a failure leaves the outputs on disk with no stamp that matches them."""
     baseline_dir, out_dir = _dirs(repo_root)
     out_dir.mkdir(parents=True, exist_ok=True)
     key = stamp_key(repo_root)
@@ -246,7 +248,7 @@ def refresh(repo_root: Path = REPO_ROOT) -> dict[str, str]:
 
 
 def subset_row_counts(out_dir: Path = OUT_DIR) -> dict[str, int]:
-    """The kept-row count of every subset table, as `{config: rows}` off the stamp, so a caller that needs a table's length ahead of streaming it — the oracle, cutting each table into row ranges — pays one JSON read. `{}` for a stamp that is missing, malformed, of another format or without counts, which is what a hand-made table directory answers, and what a caller then treats as one range over the whole table. Fresh tables carry the counts by construction: `stamp_key` folds this module's own bytes, so the first `ensure_fresh` under this code refilters and writes them, and every later stamp of this format is written by `refresh`."""
+    """Return each subset table's kept-row count as `{config: rows}`, read from the stamp, so the oracle can cut a table into row ranges without streaming it. Returns `{}` when the stamp is missing, malformed, of another format, or has no counts, as in a hand-made table directory; the caller then treats each table as one range."""
     try:
         stamp = json.loads((Path(out_dir) / STAMP_NAME).read_text())
     except OSError, ValueError:
@@ -263,7 +265,7 @@ def subset_row_counts(out_dir: Path = OUT_DIR) -> dict[str, int]:
 
 
 def is_fresh(repo_root: Path = REPO_ROOT) -> bool:
-    """Whether the stamped subset tables still describe the alphabet and sources on disk: the stamp is of this format, its key matches a recomputation, the subset outputs on disk are exactly the stamped set (an orphan or a stray extra reads as stale), every output's bytes hash to the stamped digest (a truncated or edited table reads as stale), and the names sidecar the stamp records is still on disk with the bytes it recorded. A missing or malformed stamp of any shape — including every state predating this format — reads as stale, never raises."""
+    """Return whether the stamped subset tables still match the alphabet and sources on disk. That requires a stamp of this format whose key matches a fresh computation, subset outputs on disk that are exactly the stamped set, and outputs and a names sidecar whose bytes hash to the stamped digests. A missing or malformed stamp reads as stale and never raises."""
     _, out_dir = _dirs(repo_root)
     try:
         stamp = json.loads((out_dir / STAMP_NAME).read_text())
@@ -293,7 +295,7 @@ def is_fresh(repo_root: Path = REPO_ROOT) -> bool:
 
 
 def read_font_projections(baseline_dir: Path) -> dict[str, dict[str, str]]:
-    """The provenance sidecar as `{font relative path: {raw sha256 a header records: head- and name-blind projection of that font}}`. Quiet like `is_fresh`: a missing, malformed or differently formatted sidecar reads as empty, which makes every raw mismatch a refusal rather than a guess."""
+    """Return the provenance sidecar as `{font relative path: {raw sha256 a header records: head- and name-blind digest of that font}}`. A missing, malformed, or other-format sidecar reads as empty, so every raw-digest mismatch then fails."""
     try:
         payload = json.loads((Path(baseline_dir) / FONT_PROJECTION_SIDECAR).read_text())
     except OSError, ValueError:
@@ -311,7 +313,7 @@ def read_font_projections(baseline_dir: Path) -> dict[str, dict[str, str]]:
 
 
 def _write_font_projections(baseline_dir: Path, fonts: Mapping[str, Mapping[str, str]]) -> None:
-    """Staged under a sibling name and renamed last, so a call cut short leaves the previous sidecar whole rather than a truncated one the next proof reads as empty."""
+    """Write the provenance sidecar to a staging file and rename it into place, so an interrupted call leaves the previous sidecar intact."""
     payload = {
         "format": FONT_PROJECTION_FORMAT,
         "fonts": {font: dict(sorted(entries.items())) for font, entries in sorted(fonts.items())},
@@ -323,9 +325,11 @@ def _write_font_projections(baseline_dir: Path, fonts: Mapping[str, Mapping[str,
 
 
 def prove_font_provenance(repo_root: Path = REPO_ROOT) -> dict[str, str]:
-    """Every `rebuild/out/baseline-*.tsv.gz` header's recorded `font_sha256` weighed against the font that same header names, returned as `{table name: font_sha256}` for the tables proven. A baseline row is a pure function of the font bytes, the alphabet and the extractor code: the header's `alphabet_sha256` pins the second and rebuild/test_extractor.py's determinism and header tests pin the third, so this is what pins the first, and it is why no stage re-shapes a table row to check it. Twelve gzip headers and two hashes of a half-megabyte font cost milliseconds, which is what lets it run on every call rather than ride a stamp. An empty tree proves nothing and refuses nothing — the no-tables case is `_prove_default_covered`'s to refuse, downstream.
+    """Check that every `rebuild/out/baseline-*.tsv.gz` was extracted from the font now on disk at the path its header names, and return `{table name: font_sha256}` for the tables checked.
 
-    The proof is two steps. A header whose recorded raw digest is the font's on disk is proven, and the font's head- and name-blind projection (`fingerprint.font_content_digest`) is noted for the sidecar under that raw digest. A header whose recorded digest is not is proven only when the sidecar holds a projection for the font it names and the font on disk projects to the same value — the shape a version bump's `make all` leaves, `head` and `name` rewritten and every other table byte for byte — and refused otherwise, the message naming both raw digests and whether the two fonts also differ outside those tables or no projection was ever recorded for the extraction font. The sidecar (`FONT_PROJECTION_SIDECAR`, under rebuild/out beside the tables) is written once at the end of a fully proven call and only when what it would hold differs from what it holds: one entry per `(font, raw digest)` pair a header names, so it never outgrows the extraction fonts in use, and a refusal writes nothing.
+    A baseline row depends only on the font bytes, the alphabet, and the extractor code. The header's `alphabet_sha256` records the alphabet, and the determinism and header tests in rebuild/test_extractor.py cover the extractor. This check covers the font, so no stage needs to re-shape table rows to verify them. Reading each table's header and hashing the font takes milliseconds, so the check runs on every call instead of being keyed to the stamp. With no tables it checks nothing and raises nothing; `_prove_default_covered` fails on that case during the refilter.
+
+    A header whose `font_sha256` matches the font on disk passes, and the font's `head`- and `name`-blind digest (`fingerprint.font_content_digest`) is recorded under that raw digest. A header whose digest does not match passes only when `FONT_PROJECTION_SIDECAR` holds a digest for the font it names and the font on disk has the same `head`- and `name`-blind digest, which is the case a version bump's `make all` leaves. Otherwise the call raises `BaselineProvenanceError`, and the message says whether the two fonts differ outside `head` and `name` or no digest was recorded for the extraction font. The sidecar is written at the end of a call where every table passes, and only when its contents change. It holds one entry per (font, raw digest) pair that a current header names, so it does not accumulate old fonts, and a failing call writes nothing.
     """
     baseline_dir, _ = _dirs(repo_root)
     proven: dict[str, str] = {}
@@ -371,7 +375,7 @@ def prove_font_provenance(repo_root: Path = REPO_ROOT) -> dict[str, str]:
 
 
 def ensure_fresh(repo_root: Path = REPO_ROOT) -> bool:
-    """run_m1's pre-gate guard: prove the source tables' font provenance, then refilter when stale and no-op when fresh. Returns whether a refilter ran, raises BaselineProvenanceError when a source table's header names a font other than the one on disk, and raises SubsetIdentityError when the refilter finds a default-covered configuration that has diverged. The provenance proof runs first and on every call, fresh or stale, because the site font is `make all` output rather than an input to the filter: it can be rebuilt or re-extracted under a stamp key that never moves, so a proof that rode the stamp would be a proof that never ran again."""
+    """Check the source tables' font provenance, then refilter if the subset tables are stale, and return whether a refilter ran. Raises `BaselineProvenanceError` from the provenance check and `SubsetIdentityError` from the refilter. The provenance check runs on every call because the site font is `make all` output and not a stamp input, so it can change while the stamp key stays the same."""
     prove_font_provenance(repo_root)
     if is_fresh(repo_root):
         return False

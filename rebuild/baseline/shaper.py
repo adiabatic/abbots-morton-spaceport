@@ -1,4 +1,4 @@
-"""Per-process shaping state: one hb.Font, one parallel TTFont for full glyph-name recovery (HarfBuzz's glyph_to_string truncates names to 63 bytes), and one reused hb.Buffer. Buffer-reuse invariant: glyph_infos and glyph_positions are materialized before shape() returns."""
+"""Per-process shaping state: one hb.Font, a TTFont of the same file for full glyph names (HarfBuzz's glyph_to_string truncates names to 63 bytes), and one reused hb.Buffer. Because the buffer is reused, shape() copies glyph_infos and glyph_positions into tuples before it returns."""
 
 from __future__ import annotations
 
@@ -25,7 +25,7 @@ class Shaper:
         self._buffer = hb.Buffer()
 
     def glyph_name(self, glyph_id: int) -> str:
-        """Full compiled glyph name via TTFont, never hb.Font.glyph_to_string — HarfBuzz truncates names to 63 bytes and this font has longer ones."""
+        """Return the full compiled glyph name from the TTFont. hb.Font.glyph_to_string truncates names to 63 bytes, and this font has longer ones."""
         return self._tt_font.getGlyphName(glyph_id)
 
     def shape(self, text: str, features: dict[str, bool] | None = None) -> ShapeResult:
@@ -49,7 +49,7 @@ class Shaper:
         split_offsets: tuple[int, ...],
         features: dict[str, bool] | None = None,
     ) -> ShapeResult:
-        """Shape each segment of text (split at the given character offsets) in its own buffer and concatenate, with clusters reported in whole-text coordinates. By construction no contextual lookup can fire across a split."""
+        """Shape each segment of text, split at the given character offsets, on its own and concatenate the results, with clusters in whole-text coordinates. No contextual lookup can match across a split."""
         names: list[str] = []
         clusters: list[int] = []
         positions: list[tuple[int, int, int]] = []

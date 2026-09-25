@@ -1,6 +1,6 @@
-"""The spelling every reader of a settled stream shares: the spec's alphabet, a configuration's feature set, a formed stream's labels in the configuration's renamed space, the boundary glyphs and boundary kinds those labels name, and the alias map from the old font's compiled names into cell identity.
+"""Labels shared by the modules that read a settled stream: the spec's alphabet, a configuration's feature set, a formed stream's labels after the configuration's marker renaming, the boundary glyph names, and the alias map from the old font's glyph names to cells.
 
-This module is a leaf on purpose. It imports `model`, `settle` and `rowmodel` and nothing else under the repo, so the review surface's build reaches this vocabulary without reaching the conformance sweep, the baseline oracle's row cache, the GSUB emitter or the pixel geometry that also read it, which `unit_cache.PIPELINE_NON_SURFACE_MODULES` keeps off both per-unit store stamps. rebuild/test_review_code_closure.py pins the import list, so a later import here cannot quietly regrow the surface's closure.
+This module imports only `model`, `settle`, and `rowmodel` from the repository. That lets the review surface build use these labels without importing the conformance sweep or the other modules in `unit_cache.PIPELINE_NON_SURFACE_MODULES`, which are left out of the per-unit store stamps. `rebuild/test_review_code_closure.py` checks the import list.
 """
 
 from __future__ import annotations
@@ -31,7 +31,7 @@ def features_for_config(config: str) -> frozenset[str]:
 
 
 def formed_labels(spec: ResolvedSpec, formed: list[settle.RightToken], features: frozenset[str]) -> list[str]:
-    """The post-formation stream's labels in the config's renamed space: marker fold, then the ZWNJ chokepoint's `.noentry` suffix on entry-bearing letters. Interned, so the window keys built from millions of texts share one string object per label instead of holding a fresh fold per text alive."""
+    """Returns the formed stream's labels under the configuration's renaming: each letter becomes its marker twin when the configuration's features change its capability, and a letter that follows a ZWNJ and has an entry gets the `.noentry` suffix of the ZWNJ chokepoint. Labels are interned so that window keys built from many texts share one string per label."""
     labels: list[str] = []
     for position, token in enumerate(formed):
         if token.kind != "letter":
@@ -55,7 +55,7 @@ def formed_labels(spec: ResolvedSpec, formed: list[settle.RightToken], features:
 
 
 def load_alias_map(path: Path) -> dict[str, CellId | str]:
-    """rebuild/m1-aliases.yaml: old compiled glyph name -> CellId fields, or the literal strings "boundary" / "ignore" / "pending" (an acknowledged not-yet-authored entry: the completeness gate lets it through, but the comparison still treats the name as unaliased)."""
+    """Reads `rebuild/m1-aliases.yaml`, which maps each old compiled glyph name to CellId fields or to one of the strings "boundary", "ignore", or "pending". A "pending" entry acknowledges a name that has no alias yet: the completeness check accepts it, but the comparison still treats the name as unaliased."""
     raw = yaml.safe_load(Path(path).read_text()) or {}
     aliases: dict[str, CellId | str] = {}
     for old_name, value in raw.items():
