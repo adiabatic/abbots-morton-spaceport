@@ -150,11 +150,15 @@ def pytest_terminal_summary(terminalreporter, exitstatus, config: pytest.Config)
         )
 
 
+def _ensure_fonts_built() -> None:
+    if "_built" not in _shaping_cache:
+        subprocess.run(["make", "all"], cwd=ROOT, check=True, env=_make_env())
+        _shaping_cache["_built"] = True
+
+
 def _ensure_shaping_cache() -> dict[str, Any]:
     if "fonts" not in _shaping_cache:
-        if "_built" not in _shaping_cache:
-            subprocess.run(["make", "all"], cwd=ROOT, check=True, env=_make_env())
-            _shaping_cache["_built"] = True
+        _ensure_fonts_built()
         from test_shaping import load_font, build_anchor_map
 
         fonts = {}
@@ -174,6 +178,12 @@ def _ensure_shaping_cache() -> dict[str, Any]:
 @pytest.fixture(scope="session")
 def shaping_env() -> dict[str, Any]:
     return _ensure_shaping_cache()
+
+
+# For a test that reads a file the build writes to site/ without shaping with the fonts. A run without xdist skips the up-front build in pytest_configure, so this runs `make all` once per session unless something already has. It loads no fonts.
+@pytest.fixture(scope="session")
+def built_fonts() -> None:
+    _ensure_fonts_built()
 
 
 def pytest_collect_file(parent: pytest.Collector, file_path: Path) -> "ShapingFile | None":
