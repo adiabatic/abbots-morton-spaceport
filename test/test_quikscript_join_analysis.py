@@ -1571,11 +1571,17 @@ def test_derive_fwd_strip_guards_skips_qstea_qsit_at_xheight():
 
 
 def test_derive_fwd_strip_guards_skips_terminus_predecessors():
-    """qsUtter's alt stance is a Short letter whose y=0 exit is on its bottom row, with no ink below it. Nothing dangles when its follower loses its entry, so the pass keys no guard on it."""
+    """qsUtter's alt stances without an exit extension are Short letters whose y=0 exit is on their bottom row, with no ink below it. Nothing dangles when their follower loses its entry, so the pass keys no y=0 guard on any of them."""
     glyph_meta = _real_join_glyphs()
     reach = JoinReachability.from_join_glyphs(glyph_meta)
 
     fwd_strip = derive_pending_fwd_strip_guards(reach)
 
-    key = ("qsUtter", "qsUtter.alt", 0)
-    assert key not in fwd_strip, fwd_strip.get(key, ())
+    terminus_alts = {
+        name
+        for name, meta in glyph_meta.items()
+        if meta.base_name == "qsUtter" and "alt" in meta.traits and meta.extended_exit_suffix is None
+    }
+    assert reach.fwd_replacements["qsUtter"][0] in terminus_alts
+    alt_keys = [k for k in fwd_strip if k[1] in terminus_alts and k[2] == 0]
+    assert not alt_keys, alt_keys
