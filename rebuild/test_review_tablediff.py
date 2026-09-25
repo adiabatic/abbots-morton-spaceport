@@ -8,7 +8,7 @@ from pathlib import Path
 
 import pytest
 
-from rebuild.pipeline import explain
+from rebuild.pipeline import conform, explain
 from rebuild.pipeline.labels import features_for_config
 from rebuild.pipeline.settle import cell_label
 from rebuild.review import tablediff
@@ -233,3 +233,40 @@ def test_snapshot_round_trip(tmp_path):
     assert "settlement-default.tsv" in snapshot["files"]
     assert snapshot["files"]["M1.otf"]["sha256"]
     assert tablediff.diff_dirs(snapshot_dir, MINI) == []
+
+
+def test_the_settled_configurations_match_the_builds():
+    """The review package cannot import `conform`, so `tablediff.SETTLED_CONFIGS` restates the build's settled configurations; this ties the two lists together."""
+    assert tablediff.SETTLED_CONFIGS == conform.SETTLEMENT_CONFIGS
+
+
+def test_a_diff_ignores_tables_of_a_configuration_outside_the_settled_set(table_dirs):
+    """Tables left under the name of a configuration the build does not settle, on either side, add no entries to a diff that takes its configurations from the directories."""
+    old_dir, new_dir = table_dirs
+    for unsettled in ("ss02+ss03", *conform.OVERLAY_CONFIGS):
+        assert unsettled not in conform.SETTLEMENT_CONFIGS
+        (old_dir / f"settlement-{unsettled}.tsv").write_text(SETTLEMENT_OLD)
+        (old_dir / f"treaties-{unsettled}.tsv").write_text(TREATY_OLD)
+        (new_dir / f"settlement-{unsettled}.tsv").write_text(SETTLEMENT_NEW)
+        (new_dir / f"treaties-{unsettled}.tsv").write_text(TREATY_NEW)
+    (new_dir / "settlement-ss02.tsv").write_text(SETTLEMENT_NEW)
+    (new_dir / "treaties-ss02.tsv").write_text(TREATY_NEW)
+    assert tablediff.table_configs(old_dir) == tablediff.table_configs(new_dir) == ["default"]
+    assert {entry.config for entry in tablediff.diff_dirs(old_dir, new_dir)} == {"default"}
+
+
+def test_a_snapshot_leaves_out_tables_of_a_configuration_outside_the_settled_set(table_dirs, tmp_path):
+    """`write_snapshot` copies only the tables of settled configurations, so a stale configuration's tables never become part of the accepted state."""
+    _old_dir, new_dir = table_dirs
+    for unsettled in ("ss02+ss03", *conform.OVERLAY_CONFIGS):
+        (new_dir / f"settlement-{unsettled}.tsv").write_text(SETTLEMENT_NEW)
+        (new_dir / f"treaties-{unsettled}.tsv").write_text(TREATY_NEW)
+    font = tmp_path / "M1.otf"
+    font.write_bytes(b"font")
+    snapshot_dir = tmp_path / "accepted"
+    snapshot = tablediff.write_snapshot(new_dir, font, snapshot_dir, REPO_ROOT)
+    assert sorted(snapshot["files"]) == ["M1.otf", "settlement-default.tsv", "treaties-default.tsv"]
+    assert sorted(path.name for path in snapshot_dir.glob("*.tsv")) == [
+        "settlement-default.tsv",
+        "treaties-default.tsv",
+    ]

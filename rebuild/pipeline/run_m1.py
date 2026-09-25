@@ -341,7 +341,7 @@ def build_tables(
 ) -> tuple[dict[str, tuple], dict[str, str]]:
     """Build the decision and treaty tables for the named settlement configurations, all of them unless `configs` narrows the set. The resolved spec is dumped once, then one crate `build-tables` process (`kernel_exec.build_table_files`) enumerates `default`'s fixpoint and folds it, then enumerates each other configuration as a delta over `default`'s finished memo and folds it as it finishes. The crate writes the settlement TSV, the treaty TSV and the window enumeration itself; nothing is folded on the Python side.
 
-    A narrowed set is for `rebuild/tools/scratch_build.py`, which searches for a record to change. The crate writes only the configurations it is asked for and deletes nothing, so a narrowed build into a directory another build wrote leaves that build's files for the other configurations in place. `scratch_build.scratch_out_dir` keeps such builds out of `rebuild/out/m1`. A set that does not include `default` enumerates each member from scratch, since there is no finished memo to build a delta over. The build and the artifact cycle ask for the whole set. Overlay configurations get no tables, and any table files left under their names are removed first, so a whole-set build leaves only its own tables in the directory.
+    A narrowed set is for `rebuild/tools/scratch_build.py`, which searches for a record to change. The crate writes only the configurations it is asked for and deletes nothing, so a narrowed build into a directory another build wrote leaves that build's files for the other settlement configurations in place. `scratch_build.scratch_out_dir` keeps such builds out of `rebuild/out/m1`. A set that does not include `default` enumerates each member from scratch, since there is no finished memo to build a delta over. The build and the artifact cycle ask for the whole set. Overlay configurations get no tables. Any table files named for a configuration outside `conform.SETTLEMENT_CONFIGS`, an overlay configuration's or one that has left the set, are removed first (`stale_table_files`), so a whole-set build leaves only its own tables in the directory.
 
     Per configuration, Python reads the enumeration's head back for the rules, the reachable cells and the fired provenance every downstream stage needs, parses the treaty TSV back for the defect gates, and packs the plain window payload into its `.gz` artifact. The head reads run on a thread pool at the table build's width once the crate has exited, and this call waits for them. The packing (`_pack_config`, memo file included) runs on a `Packing` pool at `_core_bound_threads` width, one packer per configuration up to the cores, whatever the crate's width, because a packer holds only a zlib stream and a copy buffer and the compressor releases the interpreter lock. When `packing` is passed, the tables are returned as soon as the heads are read, and the caller waits on each pack through `Packing.wait` and closes the pool. Without it, packing finishes before the return.
 
@@ -366,9 +366,8 @@ def build_tables(
         kernel_io.write_spec(spec, spec_path)
         tables_dir = directory / "tables" if out_dir is None else out_dir
         tables_dir.mkdir(parents=True, exist_ok=True)
-        for config in conform.OVERLAY_CONFIGS:
-            for path in overlay_table_files(tables_dir, config):
-                path.unlink(missing_ok=True)
+        for path in stale_table_files(tables_dir):
+            path.unlink(missing_ok=True)
 
         stamp = memo_stamp(spec) if out_dir is not None else None
         seed = None
@@ -426,13 +425,29 @@ def build_tables(
     return {config: built[config] for config in configs}, {config: digests[config] for config in configs}
 
 
-def overlay_table_files(tables_dir: Path, config: str) -> tuple[Path, ...]:
-    """Return the three table files a settlement configuration writes under `tables_dir`, named for `config`. `build_tables` deletes them for an overlay configuration, so a stale table never stands in for a configuration that settles nothing."""
+def config_table_files(tables_dir: Path, config: str) -> tuple[Path, ...]:
+    """Return the three table files a settlement configuration writes under `tables_dir`, named for `config`."""
     return (
         tables_dir / f"settlement-{config}.tsv",
         tables_dir / f"treaties-{config}.tsv",
         table_module.windows_path(tables_dir, config),
     )
+
+
+def stale_table_files(tables_dir: Path) -> list[Path]:
+    """Return the table files under `tables_dir` named for a configuration outside `conform.SETTLEMENT_CONFIGS`: an overlay configuration, which settles nothing, or one that has left the set since an earlier build wrote its tables. `build_tables` deletes them, so a table never outlives the configuration that produced it or stands in for one that settles nothing."""
+    tables_dir = Path(tables_dir)
+    configs = {
+        path.name.removeprefix(prefix).removesuffix(suffix)
+        for prefix, suffix in (("settlement-", ".tsv"), ("treaties-", ".tsv"), ("windows-", ".tsv.gz"))
+        for path in tables_dir.glob(f"{prefix}*{suffix}")
+    }
+    return [
+        path
+        for config in sorted(configs - set(conform.SETTLEMENT_CONFIGS))
+        for path in config_table_files(tables_dir, config)
+        if path.exists()
+    ]
 
 
 def _pack_windows(payload: Path, path: Path) -> None:

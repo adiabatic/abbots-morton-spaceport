@@ -10,6 +10,9 @@ from pathlib import Path
 from typing import Literal, Self
 
 from rebuild.pipeline import fingerprint
+from rebuild.review.audit import ACCEPTANCE_CONFIGS
+
+SETTLED_CONFIGS = tuple(config for config in ACCEPTANCE_CONFIGS if config != "ss10")
 
 DIFF_BUCKETS = ("added", "removed", "regrouped", "changed", "provenance-only")
 
@@ -147,7 +150,9 @@ def _config_from_path(path: Path, prefix: str) -> str:
 
 
 def table_configs(directory: Path) -> list[str]:
-    return sorted(path.stem.removeprefix("settlement-") for path in Path(directory).glob("settlement-*.tsv"))
+    """Return the configurations with a settlement table under `directory`, keeping only those in `SETTLED_CONFIGS`, so a table left behind by a configuration the build does not settle never enters a diff."""
+    configs = (path.stem.removeprefix("settlement-") for path in Path(directory).glob("settlement-*.tsv"))
+    return sorted(config for config in configs if config in SETTLED_CONFIGS)
 
 
 def diff_settlement(
@@ -374,12 +379,14 @@ class WitnessIndex:
 
 
 def write_snapshot(tables_dir: Path, font: Path, to: Path, repo_root: Path | None = None) -> dict:
-    """Copy the per-config settlement/treaty TSVs and the OTF they shipped with into an accepted-state directory the next migration diffs against, with sha256s, source paths, and the repo HEAD recorded in snapshot.json."""
+    """Copy the per-config settlement/treaty TSVs and the OTF they shipped with into an accepted-state directory the next migration diffs against, with sha256s, source paths, and the repo HEAD recorded in snapshot.json. Only the tables of configurations in `SETTLED_CONFIGS` are copied, so tables left behind by a configuration the build does not settle never become part of the accepted state."""
     tables_dir, font, to = Path(tables_dir), Path(font), Path(to)
     to.mkdir(parents=True, exist_ok=True)
     files: dict[str, dict] = {}
-    for pattern in ("settlement-*.tsv", "treaties-*.tsv"):
-        for source in sorted(tables_dir.glob(pattern)):
+    for prefix in ("settlement-", "treaties-"):
+        for source in sorted(tables_dir.glob(f"{prefix}*.tsv")):
+            if _config_from_path(source, prefix) not in SETTLED_CONFIGS:
+                continue
             target = to / source.name
             shutil.copyfile(source, target)
             files[source.name] = {"source": str(source), "sha256": _sha256(target)}
