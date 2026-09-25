@@ -268,14 +268,21 @@ def slot_reader(surface: Path):
 
 
 def write_index_lines(surface: Path, lines: Iterable[bytes]) -> Path:
-    """Write the index from already-projected lines in the order given, stamped with the manifest beside it, so this must run after the manifest is written. It uses gzip level 1 and a fixed mtime, like the unit store: the file is written once per cycle, and level 9's extra seconds cost more than the megabytes it saves."""
+    """Write the index from already-projected lines in the order given, stamped with the manifest beside it, so this must run after the manifest is written. It uses gzip level 1 and a fixed mtime, like the unit store: the file is written once per cycle, and level 9's extra seconds cost more than the megabytes it saves. The file is written under a sibling `.partial` name and renamed at the end, so a write that raises or is killed partway leaves the previous index whole. A write that raises also removes the staging file; a killed build leaves it behind, and the next write reopens the staging name and overwrites it. A truncated gzip still yields its header line, so `index_is_current` would accept a truncated index at the final path and every reader past the cut would raise `EOFError`. The gzip header records the final file name, since `GzipFile` would otherwise write the staging handle's name into the bytes."""
     header = {"format": INDEX_FORMAT, "manifest_sha256": manifest_sha256(surface)}
     path = index_path(surface)
-    with open(path, "wb") as handle:
-        with gzip.GzipFile(fileobj=handle, mode="wb", mtime=0, compresslevel=1) as stream:
-            stream.write((json.dumps(header) + "\n").encode())
-            for line in lines:
-                stream.write(line)
+    staging = path.with_name(path.name + ".partial")
+    try:
+        with open(staging, "wb") as handle:
+            with gzip.GzipFile(
+                filename=path.name, fileobj=handle, mode="wb", mtime=0, compresslevel=1
+            ) as stream:
+                stream.write((json.dumps(header) + "\n").encode())
+                for line in lines:
+                    stream.write(line)
+        staging.replace(path)
+    finally:
+        staging.unlink(missing_ok=True)
     return path
 
 

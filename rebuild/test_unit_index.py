@@ -231,6 +231,23 @@ def test_writing_the_index_twice_writes_the_same_bytes(tmp_path):
     assert _write(surface).read_bytes() == first
 
 
+def test_a_failed_index_write_leaves_the_previous_index_whole(tmp_path):
+    """The index is staged under a sibling name and renamed last, so the previous index stays readable, with no truncated gzip at the final path, whether the write raises or the build is killed during it. A write that raises, as this one does, also leaves no staging file behind. The gzip header names the final file, not the staging one."""
+    surface = _fixture_surface(tmp_path)
+    path = _write(surface)
+    intact = path.read_bytes()
+    assert b".partial" not in intact
+
+    def lines():
+        yield b'{"id": "u-0"}\n'
+        raise RuntimeError("the write stops here")
+
+    with pytest.raises(RuntimeError, match="stops here"):
+        unit_index.write_index_lines(surface, lines())
+    assert path.read_bytes() == intact
+    assert not path.with_name(path.name + ".partial").exists()
+
+
 def test_iter_units_and_load_units_agree(tmp_path):
     surface = _fixture_surface(tmp_path)
     _write(surface)
