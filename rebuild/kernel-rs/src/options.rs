@@ -48,7 +48,7 @@ pub fn formation_pairs(index: &SpecIndex) -> HashSet<FormationPair> {
     pairs
 }
 
-/// The §5.7 late-formation guard translated into the table's post-formation label space. For each formation pair, including the via-lead pairs of [`formation_pairs`], it maps each follower of the pair's trail to the right2 options under which the pair survives unformed ([`FollowerMap`]). The guard reads raw slots, so a ligature label at either slot is queried through its raw components: [`raw_of`] on the option side, and the follower's own last two sequence entries on the follower side.
+/// The §5.7 late-formation guard translated into the table's post-formation label space. For each formation pair, including the via-lead pairs of [`formation_pairs`], it maps each follower of the pair's trail to the right2 options under which the pair survives unformed ([`FollowerMap`]). The guard reads raw slots, so a ligature label at either slot is queried through its raw components: [`raw_of`] on the option side, and the follower's first two sequence entries on the follower side, the two raw slots its components fill, as in [`WindowOptions::liga_formed_before`].
 ///
 /// A follower whose allowed set is empty is left out, and a pair whose whole map is empty is not stored. The enumeration reads that absence as "this window is inadmissible outright", which differs from an empty allowance.
 pub fn survivable_formation_windows(
@@ -66,9 +66,9 @@ pub fn survivable_formation_windows(
         let mut follower_map = FollowerMap::default();
         for follower in right_letters {
             if let Some(follower_sequence) = sequence_of(index, follower.letter()) {
-                let lead = component_token(index, follower_sequence[follower_sequence.len() - 2]);
-                let trail = component_token(index, follower_sequence[follower_sequence.len() - 1]);
-                if guard.formation_blocked(*name, lead, trail)? {
+                let first = component_token(index, follower_sequence[0]);
+                let second = component_token(index, follower_sequence[1]);
+                if guard.formation_blocked(*name, first, second)? {
                     follower_map.insert(follower.letter(), None);
                 }
                 continue;
@@ -838,11 +838,41 @@ mod tests {
             names.sort();
             names
         };
-        // Declared last, the three-part ligature's map replaces the other: it survives only behind a `qsMay`, where its own refusal leaves it nothing to reach with.
+        // Declared last, the three-part ligature's map replaces the other: it survives only where the raw stream continues with a `qsMay`, bare or as the first component of the formed three-part follower, since its own refusal leaves it nothing to reach that with.
         let index = shared_pair_alphabet(false);
-        assert_eq!(followers(&index), ["qsMay"]);
+        assert_eq!(followers(&index), ["qsMay", "qsMay_qsPea_qsTea"]);
         // With the two-part ligature declared last, its broader map is kept. The spec is the same; only the stored order differs.
         let index = shared_pair_alphabet(true);
-        assert_eq!(followers(&index), ["qsMay", "qsPea", "qsTea"]);
+        assert_eq!(
+            followers(&index),
+            ["qsMay", "qsMay_qsPea_qsTea", "qsPea", "qsTea"]
+        );
+    }
+
+    #[test]
+    fn a_ligature_follower_is_queried_through_its_first_two_components() {
+        let index = shared_pair_alphabet(true);
+        let mut options = WindowOptions::new(&index).expect("the static structures build");
+        let liga = fixtures::sym(&index, "qsPea_qsTea");
+        let follower = fixtures::sym(&index, "qsMay_qsPea_qsTea");
+        let map = options
+            .survivable
+            .get(&(
+                fixtures::sym(&index, "qsPea"),
+                fixtures::sym(&index, "qsTea"),
+            ))
+            .expect("the shared pair survives somewhere")
+            .clone();
+        // Behind the pair the raw stream holds the follower's first two components, `qsMay qsPea`, which form nothing. Its last two, `qsPea qsTea`, would form `qsPea_qsTea` and give the other verdict.
+        let first_two = options
+            .guard
+            .formation_blocked(liga, letter(&index, "qsMay"), letter(&index, "qsPea"))
+            .expect("the verdict computes");
+        let last_two = options
+            .guard
+            .formation_blocked(liga, letter(&index, "qsPea"), letter(&index, "qsTea"))
+            .expect("the verdict computes");
+        assert_ne!(first_two, last_two);
+        assert_eq!(map.get(&follower).cloned(), first_two.then_some(None));
     }
 }
