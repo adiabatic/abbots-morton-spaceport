@@ -307,6 +307,59 @@ def test_the_seed_stamp_is_the_committer_time_of_the_constants_own_line(tmp_path
     assert cb.constant_seeded_at(source, "DELTA_PEAK_BYTES", root=tree) == "2026-09-06T01:02:03Z"
 
 
+def test_a_constant_moves_only_when_its_value_differs_from_heads(tmp_path):
+    import os
+    import shutil
+    import subprocess
+
+    tree = tmp_path / "tree"
+    for source in {source for source, _ in cb.watched_constants()}:
+        (tree / source).parent.mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(cb.ROOT / source, tree / source)
+    env = {
+        "GIT_AUTHOR_NAME": "t",
+        "GIT_AUTHOR_EMAIL": "t@example.invalid",
+        "GIT_COMMITTER_NAME": "t",
+        "GIT_COMMITTER_EMAIL": "t@example.invalid",
+        "PATH": os.environ["PATH"],
+    }
+    git = lambda *args: subprocess.run(["git", *args], cwd=tree, env=env, check=True, capture_output=True)
+    git("init", "-q")
+    git("add", ".")
+    git("commit", "-q", "-m", "seed")
+    kernel = tree / cb.KERNEL_SOURCE
+    text = kernel.read_text(encoding="utf-8")
+    kernel.write_text('"""A rewritten docstring."""\n' + text, encoding="utf-8")
+    assert cb.moved_constants(tree) == []
+    delta = cb._module_assignment(text, cb.KERNEL_DELTA_NAME)
+    assert delta is not None
+    value, lineno = delta
+    lines = text.splitlines(keepends=True)
+    lines[lineno - 1] = f"{cb.KERNEL_DELTA_NAME} = {value + 1_000_000_000}\n"
+    kernel.write_text("".join(lines), encoding="utf-8")
+    assert cb.moved_constants(tree) == [(cb.KERNEL_DELTA_NAME, value, value + 1_000_000_000)]
+
+
+def test_the_moved_listing_names_each_constant_where_the_cycle_reads_it(capsys, monkeypatch):
+    from rebuild.tools import artifact_cycle as ac
+
+    moved = [
+        ("DELTA_PEAK_BYTES", 5_500_000_000, 6_500_000_000),
+        ("TABLE_BUILD_PEAK_BYTES", 19_000_000_000, 21_000_000_000),
+    ]
+    monkeypatch.setattr(cb, "moved_constants", lambda root=cb.ROOT: moved)
+    assert cb.main(["--moved"]) == 0
+    out = capsys.readouterr().out
+    assert (
+        out
+        == "DELTA_PEAK_BYTES: 5.50 GB at HEAD, 6.50 GB in the working tree\nTABLE_BUILD_PEAK_BYTES: 19.00 GB at HEAD, 21.00 GB in the working tree\n"
+    )
+    assert [match[1] for line in out.splitlines() if (match := ac._MOVED_CONSTANT.match(line))] == [
+        "DELTA_PEAK_BYTES",
+        "TABLE_BUILD_PEAK_BYTES",
+    ]
+
+
 def test_a_tree_that_is_not_a_checkout_has_no_bound(tmp_path):
     source = tmp_path / "kernel_exec.py"
     source.write_text("DELTA_PEAK_BYTES = 4_000_000_000\n", encoding="utf-8")

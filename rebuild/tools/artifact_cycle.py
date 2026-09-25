@@ -4,7 +4,7 @@ The cycle recompiles M1.otf and checks it, rebuilds the review surface in place,
 
 The terminal shows a digest: one banner per step with that step's description, the phases and counters its child prints, every warning, and a closing line. All child output is written under var/build-logs/<stamp>-<short sha>/: one log per step with stdout and stderr merged in arrival order, plan.txt, and a copy of the terminal output. var/build-logs/latest points at the newest run, and a failed step's log is replayed under its banner. rebuild.tools.console defines the line protocol children print and the renderer that reads it.
 
-The job-costs step never fails the pass, for the same reason the census pins are not a gate: a stale constant makes a pool the wrong width, which costs time but makes no artifact wrong. It is reported, and committing the re-seeded constant accepts it. When the check reports an overrun, the driver prints the working tree's `git diff` of the files that hold those constants, so a constant already re-seeded shows up.
+The job-costs step never fails the pass, for the same reason the census pins are not a gate: a stale constant makes a pool the wrong width, which costs time but makes no artifact wrong. It is reported, and committing the re-seeded constant accepts it. When the check reports an overrun, the driver asks `calibrate_budgets --moved` which of those constants differ from their values at `HEAD`, so a constant already re-seeded shows up by name.
 
 The plumbing is one step run by one child process, rebuild.tools.verdict_chain. It carries prior verdicts forward onto the fresh manifest, merges the carried file into the live autosave (--no-merge opts out), writes echo-fill verdicts for the blanks in unanimously judged echo groups, writes standing-approval verdicts from the rules in rebuild/standing-approvals.yaml, merges each fill as it is written, repeats the echo pass until it writes nothing, and clusters the open complaints. The chain reads the build's per-unit index sidecar, and its one process holds one copy of it. Each chain step opens with a `[phase] <step>` line and closes with `[t] <step>`. The digest pairs the two into one line per step, and the cycle-timings journal reads the step's cost from the `[t]` line. The `[chain] fixpoint:` and `[chain] failed:` lines are results, not phases: `plumbing_sections` starts a section at each `[phase]` line and closes it at either `[chain]` line.
 
@@ -2889,6 +2889,9 @@ def _do_census(
     _close_step(emit, report, "census", refresh, "ok")
 
 
+_MOVED_CONSTANT = re.compile(r"^([A-Z][A-Z0-9_]*): ")
+
+
 def _do_job_costs(
     report: CycleReport, *, spawn, emit: console.Digest, registry: _ChildRegistry, plan: Plan
 ) -> None:
@@ -2896,7 +2899,7 @@ def _do_job_costs(
 
     It never fails the pass: a wrong width costs wall-clock time or swap but cannot make an artifact wrong. The summary line and `job_costs_ok` report an overrun, and committing the re-seeded constant accepts it, as committing the census pins accepts a census. A check that cannot run is reported as informational too.
 
-    On an overrun the step prints the working tree's `git diff` of the files that hold the constants, which shows whether a constant has already been re-seeded. The diff is printed only then because those files hold much else, and a diff printed on every pass would teach a reader to ignore it.
+    On an overrun the step runs `calibrate_budgets --moved`, which prints each checked constant whose working-tree value differs from its value at `HEAD`, and the status names those constants as already moved. The comparison is of values, not of the files' text, so an uncommitted edit elsewhere in a constant's file moves nothing. It runs only on an overrun because only then does the reader need to know whether the acceptance is already drafted.
     """
     check = spawn("job-costs", plan.argv("job-costs"), emit=emit, registry=registry, stream=False)
     if check.returncode == 0:
@@ -2912,15 +2915,7 @@ def _do_job_costs(
     emit.substep(SUBSTEP_PARENTS["job-costs-diff"], "job-costs-diff")
     diff = spawn(
         "job-costs-diff",
-        [
-            "git",
-            "diff",
-            "--",
-            "conftest.py",
-            "rebuild/conftest.py",
-            "rebuild/pipeline/kernel_exec.py",
-            "rebuild/tools/artifact_cycle.py",
-        ],
+        ["uv", "run", "python", "-m", "rebuild.tools.calibrate_budgets", "--moved"],
         emit=emit,
         registry=registry,
         stream=True,
@@ -2929,8 +2924,9 @@ def _do_job_costs(
         "OVERRUN (a measured peak outruns its checked-in constant — see above; re-seed the constant and "
         "commit it, and that commit is the acceptance)"
     )
-    if diff.stdout.strip():
-        status += " — a constant has already moved in the working tree"
+    moved = [match[1] for line in diff.stdout.splitlines() if (match := _MOVED_CONSTANT.match(line))]
+    if diff.returncode == 0 and moved:
+        status += f" — {' and '.join(moved)} {'has' if len(moved) == 1 else 'have'} already moved in the working tree"
     report.job_costs_status = status
     report.job_costs_ok = False
     _close_step(emit, report, "job-costs", check, "ok")

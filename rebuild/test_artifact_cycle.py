@@ -5708,7 +5708,7 @@ def test_do_job_costs_reports_a_clean_check():
 
 
 def test_do_job_costs_diffs_the_constants_when_the_check_trips():
-    """When the check trips, the step diffs the files that hold the constants, to learn whether a constant has already been re-seeded in the working tree (so the commit in hand is already the acceptance). Unlike the census diff, this one runs only on a trip: these files hold much besides their constants, so an unconditional diff would print unrelated work on every pass."""
+    """When the check trips, the step asks `calibrate_budgets --moved` which constants differ from their values at `HEAD`, to learn whether one has already been re-seeded in the working tree (so the commit in hand is already the acceptance), and the status names each one. Unlike the census diff, this one runs only on a trip."""
     calls: list[str] = []
     seen: dict[str, list[str]] = {}
 
@@ -5717,30 +5717,37 @@ def test_do_job_costs_diffs_the_constants_when_the_check_trips():
         seen[name] = argv
         if name == "job-costs":
             return _step(name, 1, stdout="  OVERRUN   : max 13.10 GB exceeds the constant by 9%")
-        return _step(name, 0, stdout="-DELTA_PEAK_BYTES = 5_500_000_000\n+DELTA_PEAK_BYTES = 6_500_000_000\n")
+        return _step(
+            name,
+            0,
+            stdout="DELTA_PEAK_BYTES: 5.50 GB at HEAD, 6.50 GB in the working tree\nTABLE_BUILD_PEAK_BYTES: 19.00 GB at HEAD, 21.00 GB in the working tree\n",
+        )
 
     report = ac.CycleReport()
     ac._do_job_costs(report, spawn=spawn, emit=ac._Emitter(), registry=ac._ChildRegistry(), plan=_plan())
     assert calls == ["job-costs", "job-costs-diff"]
     assert seen["job-costs-diff"] == [
-        "git",
-        "diff",
-        "--",
-        "conftest.py",
-        "rebuild/conftest.py",
-        "rebuild/pipeline/kernel_exec.py",
-        "rebuild/tools/artifact_cycle.py",
+        "uv",
+        "run",
+        "python",
+        "-m",
+        "rebuild.tools.calibrate_budgets",
+        "--moved",
     ]
     assert report.job_costs_status.startswith("OVERRUN")
-    assert "a constant has already moved in the working tree" in report.job_costs_status
+    assert report.job_costs_status.endswith(
+        " — DELTA_PEAK_BYTES and TABLE_BUILD_PEAK_BYTES have already moved in the working tree"
+    )
     assert report.job_costs_ok is False
 
 
 def test_a_tripped_check_over_an_unmoved_tree_says_only_that_it_tripped():
-    """The already-moved clause depends on the working tree, not on the trip: with the constants unchanged, the status must not suggest that the acceptance is already drafted."""
+    """The already-moved clause depends on the constants' values, not on the trip or on other edits to their files: with the constants unchanged and a docstring in one of those files rewritten, the status must not suggest that the acceptance is already drafted."""
 
     def spawn(name, argv, *, emit, registry, stream):
-        return _step(name, 1 if name == "job-costs" else 0)
+        if name == "job-costs":
+            return _step(name, 1)
+        return _step(name, 0, stdout='-    """Old docstring."""\n+    """New docstring."""\n')
 
     report = ac.CycleReport()
     ac._do_job_costs(report, spawn=spawn, emit=ac._Emitter(), registry=ac._ChildRegistry(), plan=_plan())
