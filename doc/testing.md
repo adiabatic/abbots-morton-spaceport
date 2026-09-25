@@ -79,7 +79,7 @@ The run's log reports what each pass served:
 
 - The `[t] oracle` and `[t] settle_memo` lines report what each pass served, retired, and pruned. Above `--jobs 1` there is one pair per row range, labeled `<config> k/n` when a configuration is cut into ranges (`oracle.oracle_shard_plan`). The parent joins the ranges back in row order, so the summary, the audit, and every store match what a `--jobs 1` run writes.
 - `oracle_summary.json` records `positions_served` beside `positions_compared`.
-- The witness stage's walk loads only the rows its certificate texts can ask for (`conform._SettledWindowWalk.load_only_asked_by`). Its `[t] rule_witnesses[<config>]` line carries `served=` (the rows the load kept), `unasked=` (the rows it dropped), and `fresh=`, and `witness_summary.json` records the same three per configuration.
+- The witness stage's walk loads only the rows its certificate texts can ask for (`conform._SettledWindowWalk.load_only_asked_by`). Its `[t] rule_witnesses[<config>]` line carries `served=`, `unasked=`, and `fresh=`, and `witness_summary.json` records the same three per configuration. `served=` counts the rows the load kept, including stale rows: rows that name a family whose key changed, which the walk never serves. `unasked=` counts the rows the load dropped.
 
 ## The kernel's own gate
 

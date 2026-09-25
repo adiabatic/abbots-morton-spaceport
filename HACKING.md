@@ -8,7 +8,7 @@ make all
 
 Dependencies are managed with `uv` and defined in `pyproject.toml`.
 
-The M1 rebuild’s table-build kernel _is_ the Rust crate under `rebuild/kernel-rs/`, so a Rust toolchain — `cargo`, from [rustup](https://rustup.rs) — joins `uv` as a prerequisite for that side of the tree, and what it holds up is every table build: the crate is the only fixpoint since issue #78, so a box without `cargo` cannot build the M1 artifacts, settle a window, or run the rebuild test suite at all. `make kernel-build` builds it in release mode (the pipeline builds it itself before every fan-out). The font build itself needs none of this.
+The M1 rebuild’s table build runs in the Rust crate under `rebuild/kernel-rs/`, so that side of the tree needs a Rust toolchain (`cargo`, from [rustup](https://rustup.rs)) besides `uv`. Without `cargo` you cannot build the M1 artifacts, settle a window, or run the rebuild test suite. `make kernel-build` builds the crate in release mode, and the pipeline builds it before it first runs it. The font build does not need `cargo`.
 
 ## Testing
 
@@ -31,7 +31,7 @@ Each array item is a whitespace-separated sequence of Quikscript letter names us
 
 The matcher scans `[data-expect]`, `.pairings td`, `.pairings dd`, `.word-list td`, and `.word-list dd`. A sequence marks an element as WIP if either its `data-expect` contains the requested tokens in order or its text content contains the raw PUA substring built from the base letter names.
 
-When there is no active WIP list, `site/wip.json` is intentionally checked in as `[]` rather than deleted: the highlighting machinery stays loaded on standby, and adding a new WIP entry is a one-line edit instead of restoring a deleted file.
+With no active WIP list, `site/wip.json` stays checked in as `[]`, so adding an entry is a one-line edit.
 
 ## Quikscript data
 
@@ -43,22 +43,22 @@ Within that pipeline, `tools/glyph_compiler.py` owns the canonical variant-level
 
 ## Shaping leaks: what you have to drive
 
-A “shaping leak” is a letter changing shape across a pen-lift (a non-join) because of a neighbor it cannot actually connect to — the canonical case is a stroke reaching out to join a letter that isn’t there, dangling into space. The full definition and the design decisions behind it are in [doc/definitions/shaping-leakage.md](doc/definitions/shaping-leakage.md). The detection-and-classification machinery is built and runs on its own; this section is the part that needs _you_, because the calls it makes are judgment calls a human owns.
+A “shaping leak” is a letter changing shape across a pen-lift (a non-join) because of a neighbor it cannot connect to. The typical case is a stroke reaching out to join a letter that isn’t there, dangling into space. [doc/definitions/shaping-leakage.md](doc/definitions/shaping-leakage.md) has the full definition and the design decisions behind it. The detection and classification tools run on their own; this section covers the decisions a human has to make.
 
-The machinery sorts every visible leak into **bad** (a real defect — a dangle) or **benign** (a subtractive trim, a standalone-variant swap, or an intentional cosmetic tuck — the slightly-hand-drawn variation we actually want). That sort is mechanical, validated to agree with your past triage exactly, but it is a proxy: when it is wrong, you correct it with an override (below). The two sets live in two checked-in files:
+The tools sort every visible leak into **bad** (a defect: a dangle) or **benign** (a subtractive trim, a standalone-variant swap, or an intended cosmetic tuck, the slightly hand-drawn variation we want). The sort is mechanical and is validated against your past triage, but it is a proxy: when it is wrong, you correct it with an override (below). The two sets live in two checked-in files:
 
 - `site/bad-leak-backlog.txt` — the defects still outstanding. This is the to-do list.
 - `site/benign-leak-census.txt` — the welcome variation. This is a census, not a defect list.
 
 ### When a gate complains
 
-- **`make test` (every run) fails with “NEW bad isolation leak(s)”.** A change you made grew a dangle. Either fix it — make the break-facing edge subtractive (or revert it) for that one context, using the levers in the tweak-an-old-font-join skill (`.claude/skills/tweak-an-old-font-join/SKILL.md`) — or, if you decide the new bad leak is actually acceptable, re-bless (next bullet) so it joins the backlog. Resolving an _existing_ backlog entry never fails the gate; it just prints a “nice — re-bless” notice.
-- **`make test-leaks` (the deep, ≈1-minute gate) fails on the benign census.** The set of benign variation shifted. This is informational, never a defect on its own — but look at the diff so you _notice_ the organic-variation set moving, then re-bless.
-- **Re-bless after any intended change:** `make leak-snapshot` regenerates both files. Always `git diff` them before committing — that diff is the whole point of the gate, and reviewing it is your job.
+- **`make test` fails with “NEW bad isolation leak(s)”.** A change you made added a dangle. Either fix it by making the break-facing edge subtractive (or reverting it) for that one context, with the recipes in the tweak-an-old-font-join skill (`.claude/skills/tweak-an-old-font-join/SKILL.md`), or, if you decide the new bad leak is acceptable, re-bless (next bullet) so it joins the backlog. Resolving an _existing_ backlog entry never fails the gate; it prints a “nice — re-bless” notice.
+- **`make test-leaks` (the deep, ≈1-minute gate) fails on the benign census.** The set of benign variation changed. This is informational, not a defect on its own, but read the diff so you _notice_ the set changing, then re-bless.
+- **Re-bless after any intended change:** `make leak-snapshot` regenerates both files. Always `git diff` them before committing. Reviewing that diff is the purpose of the gate.
 
 ### When the bad/benign call is wrong (overrides)
 
-The proxy occasionally mislabels a leak. You correct it per-signature, never by weakening the proxy:
+The proxy occasionally mislabels a leak. Correct it per signature instead of changing the proxy:
 
 - `site/leak-force-bad.yaml` — a leak the proxy calls benign but you find ugly. Add its 4-tuple signature here and it counts as a defect.
 - `site/leak-force-benign.yaml` — a leak the proxy calls bad but you’ve decided is fine (a legitimate standalone variant). Add its signature here and it stops failing the gate.
@@ -67,20 +67,20 @@ A signature is the `[isolated_left, left_chosen, isolated_right, right_chosen]` 
 
 ### Eyeballing leaks
 
-`make check-html-after` regenerates `site/check.html`; open it and scroll to “Auto-generated: isolation leaks”. Each row is tagged `bad` or `benign` and shows the in-context shaping beside the two halves shaped separately. Reach for the `bad` rows first — those are the defects. See [doc/isolation-leaks.md](doc/isolation-leaks.md) for the full workflow.
+`make check-html-after` regenerates `site/check.html`; open it and scroll to “Auto-generated: isolation leaks”. Each row is tagged `bad` or `benign` and shows the in-context shaping beside the two halves shaped separately. Start with the `bad` rows, which are the defects. See [doc/isolation-leaks.md](doc/isolation-leaks.md) for the full workflow.
 
 ### Fixing the backlog in bulk (the loop)
 
-Draining a backlog of bad leaks one at a time is the kind of grind meant to be handed to an autonomous loop — but it is _not yet built_, and when it is, it still needs you at the ends: you launch it, and you approve the batch it produces. The brief for that loop (how it diagnoses each dangle, the per-fix verify gate, and the fact that it accumulates fixes and stops for one approval rather than committing on its own) is [doc/definitions/shaping-leak-loop.md](doc/definitions/shaping-leak-loop.md). Until it exists, fixing bad leaks is the same manual loop: pick a backlog entry, apply a subtractive fix, `make test-leaks`, re-bless, repeat.
+The autonomous loop that would fix a backlog of bad leaks in bulk is _not yet built_. When it is, you will still launch it and approve the batch it produces. Its brief (how it diagnoses each dangle, the per-fix verify gate, and how it accumulates fixes and stops for one approval instead of committing on its own) is [doc/definitions/shaping-leak-loop.md](doc/definitions/shaping-leak-loop.md). Until it exists, fix bad leaks by hand: pick a backlog entry, apply a subtractive fix, run `make test-leaks`, re-bless, and repeat.
 
 ## What makes a good tester page
 
-A tester page is any side-by-side render harness you generate to eyeball glyph changes and record a verdict — `site/check.html`, a one-off fix gallery, an ad-hoc before/after comparison. A good one removes all ambiguity about _what to look at_ and makes giving a verdict fast enough that you actually do it. The non-negotiables and the niceties, learned from `site/check.html` and the fix-gallery harness:
+A tester page is any side-by-side render harness you generate to inspect glyph changes and record a verdict: `site/check.html`, a one-off fix gallery, an ad-hoc before/after comparison. A good one makes it clear _what to look at_ and makes recording a verdict fast enough that you do it. The requirements and the extras below come from `site/check.html` and the fix-gallery harness.
 
 ### Showing the glyphs
 
-- **Put a checkered background behind the rendered glyphs.** Advance width and overhang are invisible against a flat fill, and how long a glyph is — how far it reaches past its own ink — is often exactly what you are checking.
-- **Make it unmistakable which two letters are under review.** A test sequence is usually four or five letters, but only one join — two adjacent letters — is the point; the rest is context. Highlight that pair so there is no doubt and mute the surrounding letters. Feedback about the wrong two letters misroutes the fix, so the page must leave zero ambiguity about where to look.
+- **Put a checkered background behind the rendered glyphs.** Advance width and overhang are invisible against a flat fill, and how far a glyph reaches past its own ink is often what you are checking.
+- **Make it clear which two letters are under review.** A test sequence is usually four or five letters, but only one join, between two adjacent letters, is the point; the rest is context. Highlight that pair and mute the surrounding letters. Feedback about the wrong two letters sends the fix to the wrong place.
 - **Render before and after side by side** by embedding both font builds with `@font-face` (the baseline build lives in `site/before/`; the before/after workflow is the one the auto-generated `site/check.html` documents). The “before” shows the dangle; the “after” shows the fix.
 
 ### Recording verdicts fast (the keyboard review loop)

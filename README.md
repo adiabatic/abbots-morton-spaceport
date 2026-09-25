@@ -176,7 +176,7 @@ Also run this once after cloning to install the pre-push hook that keeps unforma
 uv run pre-commit install
 ```
 
-On every `git push`, the hook runs `black --check` against the tree. If anything would be reformatted, the push is aborted; run `make prettier` to fix it, commit the result, and push again.
+On every `git push`, the hook runs `black --check` on the Python files the pushed commits change. If anything would be reformatted, the push is aborted; run `make prettier` to fix it, commit the result, and push again.
 
 ## Licensing
 

@@ -1,8 +1,8 @@
 # `data-expect` attribute format
 
-The `data-expect` attribute on `<td>`, `<span>`, and `<dd>` elements in the test corpus HTML files (`site/index.html`, `site/the-manual.html`, and `site/extra-senior-words.html`) describes the expected HarfBuzz shaping output for the Senior Sans font. The test runner (`test_shaping.py`) parses these attributes and verifies glyph selection and cursive attachment against compiled glyph metadata.
+The `data-expect` attribute on `<td>`, `<span>`, and `<dd>` elements in the test corpus HTML files (`site/index.html`, `site/the-manual.html`, and `site/extra-senior-words.html`) describes the expected HarfBuzz shaping output. The root `conftest.py` collects each attribute as a pytest item, and `test/test_shaping.py` parses it (`parse_expect`) and checks glyph selection and cursive attachment against the compiled glyph metadata. Text is shaped with the Senior Sans font, except text inside a `force-junior` span, which is shaped with the Junior font and checked for glyph identity only.
 
-The `data-expect-noncanonically` attribute uses the exact same syntax and test semantics as `data-expect`. It marks noncanonical Senior Quikscript joins that are valuable to test but are not found in Read’s manual.
+The `data-expect-noncanonically` attribute has the same syntax and test behavior as `data-expect`. It marks Senior Quikscript joins that are worth testing but do not appear in Read’s manual.
 
 ## Glyph tokens
 
@@ -13,9 +13,11 @@ The `data-expect-noncanonically` attribute uses the exact same syntax and test s
 | `\X`          | Literal character (via glyph names or `uniXXXX`) | `\.`     |
 | `◊name`       | Special glyph by name (`◊space`, `◊ZWNJ`)        | `◊space` |
 
+`◊ZWNJ` matches the `space` glyph in the shaped output (`LOZENGE_MAP` in `test/test_shaping.py`).
+
 ## Variant assertions
 
-Append dot-separated modifiers to assert properties of the selected glyph variant. Only `.alt` and `.half` are stable semantic assertions; they map to real Quikscript concepts and are checked via compiled glyph traits.
+Append dot-separated modifiers to assert properties of the selected glyph variant. Only `.alt` and `.half` are stable semantic assertions. They name real Quikscript concepts and are checked against the compiled glyph’s traits.
 
 | Modifier | Meaning                                 | Example     |
 | -------- | --------------------------------------- | ----------- |
@@ -30,9 +32,9 @@ Prefix a modifier with `!` to assert the selected glyph does **not** carry that 
 | `.!alt`  | `·No.!alt`   |
 | `.!half` | `·Pea.!half` |
 
-The `.∅` assertion uses U+2205 EMPTY SET and is exact: `·May.∅` passes only when the shaped glyph is literally `qsMay`, not `qsMay.noentry`, `qsMay.ex-y0`, or another sibling. It cannot be combined with other variant assertions.
+The `.∅` assertion uses U+2205 EMPTY SET. `·May.∅` passes only when the shaped glyph is named `qsMay`, and fails on `qsMay.noentry`, `qsMay.ex-y0`, or any other variant. It cannot be combined with other variant assertions.
 
-Other modifiers used by the corpus, such as `entry`, `exit`, `extended`, `noentry`, `en-y0`, `ex-y0`, `ex-y5`, and `reaches-way-back`, are compatibility-only. They are matched against compiler-provided compatibility metadata, not against glyph-name substrings.
+Other modifiers in the corpus, such as `entry`, `exit`, `extended`, `noentry`, `en-y0`, `ex-y0`, `ex-y5`, and `reaches-way-back`, are compatibility tags. They are matched against the compatibility tags the compiler records for each glyph (`compat_assertions`), not against substrings of the glyph name.
 
 Variant assertions are optional. Without them, any variant of the base letter satisfies the check.
 
@@ -46,7 +48,7 @@ Use `+` to assert that two letters are shaped as a single ligature glyph:
 
 This expects one output glyph whose compiled metadata sequence records both `qsDay` and `qsUtter`.
 
-Variant assertions go at the end of the ligature token, after the last letter name. For example, `·Day+Utter.half` asserts a Day+Utter ligature with the `half` trait, even though the half stance is on the first letter in the pair.
+Variant assertions go at the end of the ligature token, after the last letter name. For example, `·Day+Utter.half` asserts a ·Day+·Utter ligature with the `half` trait, even though the half stance belongs to the first letter of the pair.
 
 ### Maybe-ligature assertions
 
@@ -58,11 +60,11 @@ Use `+?` or `+|` when the font may or may not ligate two letters:
 | `·Day+?Utter`  | May ligate; if separate, connection between them unasserted |
 | `·Day+\|Utter` | May ligate; if separate, assert a break between them        |
 
-The test runner tries both interpretations (ligated and separated) and passes if either matches. When the token carries variant assertions, those assertions apply to the ligature glyph in the ligated interpretation and are dropped in the separated interpretation.
+The test runner tries both interpretations (ligated and separated) and passes if either matches. Variant assertions on the token apply to the ligature glyph in the ligated interpretation and are dropped in the separated one.
 
 ## Connection assertions
 
-Tokens are separated by connection operators that describe how adjacent glyphs attach or don’t:
+Connection operators between tokens say whether and how adjacent glyphs attach:
 
 | Operator    | Meaning                                  |
 | ----------- | ---------------------------------------- |
@@ -75,19 +77,19 @@ Tokens are separated by connection operators that describe how adjacent glyphs a
 | `\|?\|`     | Break, with shape isolation NOT asserted |
 | `?`         | Maybe connects, or doesn’t               |
 
-A “join” means the preceding glyph’s exit anchor and the following glyph’s entry anchor share the specified Y coordinate. A “break” means no matching anchor pair exists. A “maybe” skips the connection assertion entirely — the test passes whether or not the glyphs join. Use this for cases where the source material is ambiguous, such as an accidental pen-lift in the original manuscript.
+A join means the preceding glyph’s exit anchor and the following glyph’s entry anchor share the specified Y coordinate. A break means no exit and entry share a Y coordinate. A `|` break also fails when the left glyph is a half stance with an exit its base stance lacks and the right letter has an entry at that Y in some variant, since that suggests a forward lookup chose the half stance across the break. A maybe skips the connection assertion, so the test passes whether or not the glyphs join. Use it where the source material is ambiguous, such as an accidental pen-lift in the original manuscript.
 
 ### Break-isolation invariant
 
-When `|` separates two Quikscript letter tokens — and likewise when `?` separates a pair that turns out not to join — the test runner additionally asserts that **neither letter influences the other’s shape choice**. It re-shapes the two sides as separate HarfBuzz buffers and verifies that the glyph chosen for each token matches the in-context glyph. A disagreement means a `calt` lookup is reaching across the non-join, and the test fails with a diagnostic naming both glyph choices.
+When `|` separates two Quikscript letter tokens, or `?` separates a pair that does not join, the test runner also asserts that **neither letter influences the other’s shape choice**. It shapes the two sides in separate HarfBuzz buffers and checks that the glyph at each token beside the break has the same outline and the same position record (offsets and advances) as in the full shaping. A glyph with a different name but the same outline and position passes. A difference means a `calt` lookup is reaching across the non-join, and the failure message names the in-context and split glyphs. The check runs only on text shaped with the Senior font (`_check_break_isolation` in `test/test_shaping.py`).
 
-Concretely: there’s no need to spell out `.!half`, `.!alt`, `.!wide`, etc. on either side of a `|` to pin down “this glyph wasn’t chosen because of the other one”. The runner enforces that automatically, scoped to letter-vs-letter pairs (boundary tokens like `◊space`, `◊ZWNJ`, and escaped punctuation are excluded — those exist precisely to influence neighboring shape).
+So there is no need to write `.!half`, `.!alt`, `.!wide`, and so on beside a `|` to assert that one glyph was not chosen because of the other. The runner checks this for letter-to-letter pairs only. Boundary tokens such as `◊space`, `◊ZWNJ`, and escaped punctuation are excluded, because they exist to influence the shape of their neighbors.
 
 ### When the font legitimately leaks across a non-join: `|?|`
 
-A few font shapes are intentional “looks-better-when-adjacent” rules that fire on glyph-name signature alone — for instance, `qsThaw.after-tall` removes Thaw’s entry stub when a tall is to the left, even though no cursive join could form. In production this is naturally gated to literal adjacency: the `after:` (or `before:`) selector compiles to an OpenType backward (or forward) context lookup whose match list contains only the named families. A real space or ZWNJ between the two words sits in the immediate slot the lookup is checking, so the rule doesn’t fire. But in test, `|` doesn’t insert any character — the runner just concatenates the codepoints — so the lookup still fires and the isolation check correctly flags the cross-break shape choice.
+A few rules intentionally change a letter because of its neighbor even when the two do not join. For example, `qsThaw.after-tall` drops ·Thaw’s baseline entry anchor when a Tall letter precedes it. In real text such a rule fires only on literal adjacency: the `after:` (or `before:`) selector compiles to a backward (or forward) context lookup whose match list contains only the named families, so a space or ZWNJ between two words occupies the slot the lookup checks and the rule does not fire. In a test, `|` inserts no character, because the runner concatenates the code points, so the lookup still fires. If the change alters the glyph’s outline or position, the isolation check reports it.
 
-Use `|?|` instead of `|` for these specific cases. It still asserts that the two glyphs do not cursive-attach (no shared entry/exit Y), but skips the isolation invariant. Reach for `|?|` only when the cross-break shape difference is purely cosmetic / glyph-name-only (same bitmap, same effective cursive position), and adjacent letters in real text would naturally suppress the rule because of the intervening space or ZWNJ glyph.
+Use `|?|` instead of `|` for these cases. It still asserts that the two glyphs do not cursive-attach (no shared entry and exit Y), but skips the isolation check. Use it only when the change is intended and a space or ZWNJ between the letters in real text would stop the rule from firing. A change of glyph name alone, with the same outline and position, already passes `|`, so `|?|` is needed only when the outline or position differs.
 
 ## Duplicates
 
@@ -101,9 +103,9 @@ Three levels of duplicate exist between two elements that both carry a `data-exp
 
 “Same assertions” means the `data-expect` values are identical after collapsing runs of whitespace to a single space and trimming leading/trailing whitespace.
 
-When the same word (text content) appears more than once in the test corpus, only one occurrence should carry the `data-expect` attribute, preferably the earliest. Later occurrences keep their text content but lose the attribute, and bare `<span>` wrappers are unwrapped.
+When the same word (text content) appears more than once in the test corpus, only one occurrence should carry the `data-expect` attribute, preferably the earliest. Later occurrences keep their text but lose the attribute, and a `<span>` left with no attributes is unwrapped.
 
-Feature context is part of the test case. The same text content under a different `data-stylistic-set`, inner feature span, or mixed Senior/Junior run is not automatically redundant; remove the later assertion only when the shaped context and expected semantics are the same.
+Feature context is part of the test case. The same text under a different `data-stylistic-set`, inner feature span, or mixed Senior/Junior run is not automatically redundant. Remove the later assertion only when the shaping context and the expected result are the same.
 
 ## Full examples
 
@@ -111,28 +113,28 @@ Feature context is part of the test case. The same text content under a differen
 ·Bay ~b~ ·Roe
 ```
 
-Bay followed by Roe, connected at the baseline.
+·Bay followed by ·Roe, joined at the baseline.
 
 ```text
 ·No ~x~ ·Owe
 ```
 
-No followed by Owe, connected at x-height.
+·No followed by ·Owe, joined at the x-height.
 
 ```text
 ·Tea ~b~ ·See
 ```
 
-Tea followed by See, connected at the baseline.
+·Tea followed by ·See, joined at the baseline.
 
 ```text
 ·Day+Utter | ·Low
 ```
 
-Day-Utter ligature, then a break, then Low.
+A ·Day+·Utter ligature, then a break, then ·Low.
 
 ```text
 ·Low ~x~ ·Day+?Utter ~x~ ·Roe
 ```
 
-Ligated path (3 glyphs): Low joined at x-height to Day+Utter ligature, joined at x-height to Roe. Separated path (4 glyphs): Low joined at x-height to Day, connection to Utter unasserted, Utter joined at x-height to Roe.
+Ligated reading (3 glyphs): ·Low joined at the x-height to the ·Day+·Utter ligature, which joins ·Roe at the x-height. Separated reading (4 glyphs): ·Low joined at the x-height to ·Day, the ·Day·Utter connection unasserted, and ·Utter joined at the x-height to ·Roe.
