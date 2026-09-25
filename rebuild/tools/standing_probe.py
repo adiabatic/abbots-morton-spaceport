@@ -272,12 +272,14 @@ def _pair_lines(pairs):
 
 def _extension_cells(units, blankness, pivot, token, seam):
     pairs = _extension_pairs(units, blankness, pivot, token, seam)
-    drop = (
-        f"into a cell carrying {token} or a longer contraction"
-        if sv.EXIT_CONTRACTION.fullmatch(token)
-        else "into a cell without it or with a shorter one"
-    )
-    print(f"windows where a {pivot} glyph carrying {token} exits at {seam} on both sides {drop}:")
+    if sv.EXIT_CONTRACTION.fullmatch(token):
+        print(
+            f"windows where a {pivot} glyph with no exit extension exits at {seam} on both sides into a cell carrying {token}:"
+        )
+    else:
+        print(
+            f"windows where a {pivot} glyph carrying {token} exits at {seam} on both sides into a cell without it or with a shorter one:"
+        )
     _pair_lines(pairs)
     print("pivot cells:", [value for value, _tally in _tallied(pairs, 0)])
     print("followers:", [value for value, _tally in _tallied(pairs, 1)])

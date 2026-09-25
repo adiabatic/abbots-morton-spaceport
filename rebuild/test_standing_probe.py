@@ -1,4 +1,4 @@
-"""Tests for rebuild/tools/standing_probe.py, the read-only tool used to write standing-approval rules. They check that every family and cell list prints in code-point order, the order the rules file is written in, so a survey can be pasted from directly. They check that a verdicts file stamped for another manifest prints every verdict as UNKNOWN_VERDICT instead of BLANK, and that a surface with no font pair says which columns and which composed line are missing and why. They check that `--shapes` lists every entry of `standing_verdicts.SHAPES` with the opening words of its matcher's docstring, that a run whose unit ids all miss the surface prints the same list, and that a listing run such as `--extension-cells` does not. They check that `--find` is a substring match over notations that lists blanks first and is capped with the total stated. They check that `--survey` groups every position under a before-glyph prefix by before form, after cell, left family, seam changes, and follower, each with a verdict tally and in code-point order, that it can narrow to one after cell, that it counts the windows it cannot place, and that it says when no window carries the glyph. They check that `--coverage` re-runs a rule's enumeration without the rule's named lists and prints, once, the followers, forms, and cells the rule does not name, for every shape except ligature and ink-delta, and that it says so when a rule's shape has no enumeration. They also check `_cell_glyph_name` against `cell_label` over the mini spec, and that the dropped and added pixels in a redrawn reading are never truncated. Every test uses a synthetic surface and rules file under tmp_path, or the frozen mini bundle, and reads no live build artifact."""
+"""Tests for rebuild/tools/standing_probe.py, the read-only tool used to write standing-approval rules. They check that every family and cell list prints in code-point order, the order the rules file is written in, so a survey can be pasted from directly, and that an `--extension-cells` header for a contraction names only the contraction it lists. They check that a verdicts file stamped for another manifest prints every verdict as UNKNOWN_VERDICT instead of BLANK, and that a surface with no font pair says which columns and which composed line are missing and why. They check that `--shapes` lists every entry of `standing_verdicts.SHAPES` with the opening words of its matcher's docstring, that a run whose unit ids all miss the surface prints the same list, and that a listing run such as `--extension-cells` does not. They check that `--find` is a substring match over notations that lists blanks first and is capped with the total stated. They check that `--survey` groups every position under a before-glyph prefix by before form, after cell, left family, seam changes, and follower, each with a verdict tally and in code-point order, that it can narrow to one after cell, that it counts the windows it cannot place, and that it says when no window carries the glyph. They check that `--coverage` re-runs a rule's enumeration without the rule's named lists and prints, once, the followers, forms, and cells the rule does not name, for every shape except ligature and ink-delta, and that it says so when a rule's shape has no enumeration. They also check `_cell_glyph_name` against `cell_label` over the mini spec, and that the dropped and added pixels in a redrawn reading are never truncated. Every test uses a synthetic surface and rules file under tmp_path, or the frozen mini bundle, and reads no live build artifact."""
 
 import json
 
@@ -270,6 +270,41 @@ def test_family_and_cell_listings_come_out_in_code_point_order(tmp_path, capsys)
     assert _line(out, "pivot cells:") == (
         "pivot cells: ['qsTea/full/None/baseline/', 'qsTea/full/x-height/baseline/']"
     )
+
+
+def test_a_contraction_survey_header_names_only_the_contraction_it_lists(tmp_path, capsys):
+    """An `ex-con-N` survey lists only pivot cells carrying exactly that contraction after a glyph with no exit extension, and its header says just that."""
+    units = [
+        window(
+            "c-1",
+            ["qsEt", "qsVie"],
+            ["qsEt/full/None/baseline/ex-con-1", "qsVie/normal/baseline/None/"],
+            ["y0"],
+            ["y0"],
+        ),
+        window(
+            "c-2",
+            ["qsEt", "qsVie"],
+            ["qsEt/full/None/baseline/ex-con-2", "qsVie/normal/baseline/None/"],
+            ["y0"],
+            ["y0"],
+        ),
+        window(
+            "c-3",
+            ["qsEt.ex-ext-1", "qsVie"],
+            ["qsEt/full/None/baseline/ex-con-1", "qsVie/normal/baseline/None/"],
+            ["y0"],
+            ["y0"],
+        ),
+    ]
+    out = _run(tmp_path, capsys, units, ["--extension-cells", "qsEt", "ex-con-1", "y0"])
+    assert _line(out, "windows where") == (
+        "windows where a qsEt glyph with no exit extension exits at y0 on both sides into a cell carrying ex-con-1:"
+    )
+    assert _line(out, "      1  qsEt/full/None/baseline/ex-con-1  →  qsVie") == (
+        "      1  qsEt/full/None/baseline/ex-con-1  →  qsVie  qsVie/normal/baseline/None/  {'BLANK': 1}"
+    )
+    assert _line(out, "pivot cells:") == "pivot cells: ['qsEt/full/None/baseline/ex-con-1']"
 
 
 def test_the_retarget_survey_orders_its_cells_the_same_way(tmp_path, capsys):
