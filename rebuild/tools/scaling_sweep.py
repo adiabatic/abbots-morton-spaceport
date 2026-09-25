@@ -126,17 +126,17 @@ def exponent(slope: float | None) -> str:
 
 
 def report(rows: list[dict]) -> None:
-    """Print the consecutive-pair exponents against runes, then the whole-ladder fit against runes and against letters. A pair with a zero CPU time prints `n/a` instead of an exponent."""
+    """Print the consecutive-pair exponents against runes, then the whole-ladder fit against runes and against letters. A pair whose two rungs have the same rune count prints `n/a` for both exponents, and a pair with a zero CPU time prints `n/a` for its CPU exponent. Rung counts from the command line can repeat, or resolve to the same rune count when they reach past the alphabet."""
     print("\nrunes_a->runes_b   window exponent   cpu exponent")
     for a, b in zip(rows, rows[1:]):
         span = math.log(b["runes"] / a["runes"])
-        windows = math.log(b["windows"] / a["windows"]) / span
+        windows = f"windows {math.log(b['windows'] / a['windows']) / span:5.2f}" if span else "windows   n/a"
         cpu = (
             f"cpu {math.log(b['cpu'] / a['cpu']) / span:5.2f}"
-            if a["cpu"] > 0 and b["cpu"] > 0
+            if span and a["cpu"] > 0 and b["cpu"] > 0
             else "cpu   n/a"
         )
-        print(f"{a['runes']:2d}->{b['runes']:2d}   windows {windows:5.2f}   {cpu}")
+        print(f"{a['runes']:2d}->{b['runes']:2d}   {windows}   {cpu}")
     if len(rows) < 2:
         print(f"\nthe whole-ladder fit needs two rungs; this run has {len(rows)}")
         return
