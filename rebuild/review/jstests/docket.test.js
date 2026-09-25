@@ -478,6 +478,21 @@ test('nextDocketDecision reaches the singleton run as a fresh decision while eve
   assert.equal(nextDocketDecision(units, blank, new Set(), shown).cluster.id, 'c-big');
 });
 
+test('the last open singleton, once shown, waits behind clusters postponed before it', () => {
+  const units = [...threeClusters(), makeUnit('u-0030', { cluster: 'c-one', echo: 'e-0030' })];
+  const shown = new Set(['c-big', 'c-mid', 'c-small']);
+  const decision = nextDocketDecision(units, blank, new Set(), shown);
+  assert.equal(decision.kind, 'singletons');
+  assert.deepEqual(decision.unitIds, ['u-0030']);
+  const key = decisionKey([units.at(-1)], decision.key);
+  shown.delete(key);
+  shown.add(key);
+  const next = nextDocketDecision(units, blank, new Set(), shown);
+  assert.equal(next.kind, 'cluster');
+  assert.equal(next.cluster.id, 'c-big');
+  assert.equal(next.revisit, true);
+});
+
 test('decisionKey names the cluster behind a rep worklist and the singleton run behind anything else', () => {
   assert.equal(decisionKey([makeUnit('u-0001', { cluster: 'c-big' }), makeUnit('u-0003', { cluster: 'c-big' })]), 'c-big');
   assert.equal(decisionKey([makeUnit('u-0030', { cluster: 'c-one' }), makeUnit('u-0031', { cluster: 'c-two' })]), SINGLETON_DECISION);
