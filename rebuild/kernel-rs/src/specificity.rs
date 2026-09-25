@@ -1,10 +1,10 @@
-//! The section 6.2 extensional specificity order, and the only implementation of it. Every ranking question settlement asks — which prefer applies first, which extend a window's demand comes from, whether two records co-match and disagree — is answered here.
+//! The §6.2 extensional specificity order, and its only implementation. Settlement uses it for every ranking question: the order prefers apply in, which extend or contract record supplies a window's adjustment, and whether two records that match the same window conflict.
 //!
-//! A record's specificity is not a number and not a declaration order; it is the set of windows the record's `when:` matches. Every constrained axis expands to its concrete match set over the finite registry, and record A outranks B when A's set is contained in B's on every axis B constrains, strictly so on at least one. That is what makes a literal family list, a predicate class, and a mixed literal-plus-class condition comparable for free — narrowness within an axis is set inclusion after expansion, so nothing has to know that `qsTea` happens to be a member of some class. Non-nested overlap with conflicting demands is the hard error E-INCOMPARABLE, because the records provably co-match a window and the kernel refuses to guess which one the author meant.
+//! A record's specificity is the set of windows its `when:` matches. Each constrained axis expands to its concrete match set over the finite registry. Record A outranks B when A's set is a subset of B's on every axis B constrains, and a strict subset on at least one. This makes a literal family list, a predicate class, and a mixed literal-plus-class condition comparable without special cases: within an axis, narrowness is set inclusion after expansion, so no code needs to know that `qsTea` is a member of some class. Extend or contract records that match the same window, overlap without nesting, and demand different things raise E-INCOMPARABLE ([`pick_most_specific`]), because the kernel does not guess which one the author meant.
 //!
-//! The port's one structural decision is how an axis is keyed. The Python original keyed the expansion by a dotted path — `left.family`, `right.then.then.is` — and only ever used those keys to line two records' axes up against each other, so the spelling never reached an output. [`AxisKey`] is that path as a packed value instead: which side, how many `then:` hops deep, and which of the five condition axes. It has to distinguish exactly what the strings distinguish, arbitrarily deep chains included, which is why the depth is a counter rather than a `then`-or-not flag: a fact stated two hops out and the same fact stated one hop out are different constraints, and collapsing them would silently make one record outrank another it merely resembles.
+//! [`AxisKey`] identifies an axis by side, `then:` depth, and condition axis. The depth is a counter, not a flag, because a fact stated two hops out and the same fact stated one hop out are different constraints. Treating them as one would let a record outrank another that only resembles it.
 //!
-//! Evaluation is stratified and stays that way here: predicate-class membership arrives pre-resolved from the registry through [`SpecIndex::class_members`], so expanding a policy condition never re-enters settlement. The one place expansion is deliberately approximate is `except:` — a carve-out that constrains anything beyond the family axis is ignored rather than modeled, an over-approximation that can only push a pair toward INCOMPARABLE, which is the refuse-to-guess direction.
+//! Evaluation is stratified: predicate-class membership comes pre-resolved from the registry through [`SpecIndex::class_members`], so expanding a policy condition never calls back into settlement. `except:` is the one approximation. A carve-out that constrains anything besides the family axis is ignored, which over-approximates the match set. That can only push a pair toward INCOMPARABLE, so the kernel reports a conflict instead of guessing.
 
 use std::collections::BTreeSet;
 
@@ -30,7 +30,7 @@ pub enum WhenSide {
     Right,
 }
 
-/// Which of a condition's five expandable axes this is. `family:` and `class:` share one axis because they are conjunctive constraints on the same set of families; `stance:`, `joined_at:`, `stroke:` and `is:` each get their own.
+/// One of a condition's five expandable axes. `family:` and `class:` share one axis because both constrain the same set of families and they intersect. `stance:`, `joined_at:`, `stroke:`, and `is:` each have their own.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum ConditionAxis {
     Family,
@@ -40,7 +40,7 @@ pub enum ConditionAxis {
     Is,
 }
 
-/// One expanded axis's identity — Python's dotted key, packed. `Side` carries the `then:` depth, so `right.family` is `depth 0` and `right.then.then.is` is `depth 2`.
+/// The identity of one expanded axis. `Side` records the `then:` depth: `right.family` is depth 0 and `right.then.then.is` is depth 2.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum AxisKey {
     Side {
@@ -54,7 +54,7 @@ pub enum AxisKey {
     Feature,
 }
 
-/// Every constrained axis of one `when:`, expanded. An absent key means the axis is unconstrained, which is the axis universe and not the empty set — the asymmetry the comparison in [`compare_axes`] turns on.
+/// Every constrained axis of one `when:`, expanded. A missing key means the axis is unconstrained, so it stands for every value, not for the empty set. [`compare_axes`] depends on this.
 pub type AxisSets = HashMap<AxisKey, BTreeSet<Sym>>;
 
 /// Expand every constrained axis of a `when:` to its concrete match set. `owner` is the rune whose local groups a `class:` reference may resolve through.
@@ -128,7 +128,7 @@ fn side_axes(
     side_axes(index, cond.then.as_deref(), owner, side, depth + 1, axes)
 }
 
-/// The family-axis match set, or `None` when the axis is unconstrained. `family:` and `class:` on one condition are conjunctive, and `except:` entries that constrain only the family axis subtract from the result — a carve-out with any other axis is conservatively ignored, since modeling it would need the window that is not in hand.
+/// The family-axis match set, or `None` when the axis is unconstrained. `family:` and `class:` on one condition intersect. `except:` entries that constrain only the family axis are subtracted. An entry that constrains any other axis is ignored, because modeling it would need the window, which is not available here.
 fn family_set(
     index: &SpecIndex,
     cond: &Condition,
@@ -173,7 +173,7 @@ fn condition_constrains_only_family(cond: &Condition) -> bool {
         && cond.except_.is_empty()
 }
 
-/// The `is:` axis's match set. `boundary` is the one value that expands rather than standing for itself, and it expands to the four boundary kinds — which is what makes `is: boundary` comparable with `is: space`.
+/// The `is:` axis's match set. `boundary` expands to the four boundary kinds, which makes `is: boundary` comparable with `is: space`. Every other value stands for itself.
 fn is_set(index: &SpecIndex, cond: &Condition) -> Option<BTreeSet<Sym>> {
     let token = cond.is_token?;
     let vocab = index.vocab();
@@ -201,7 +201,7 @@ pub fn outranks(
     Ok(compare_axes(&axes_a, &axes_b))
 }
 
-/// The comparison itself, over axes already expanded. Split out from [`outranks`] because the ranking stage compares every applicable record against every other one, so a caller that expands each record's axes once and calls this pairwise does the same work Python does without expanding the same `when:` a quadratic number of times.
+/// Compares two records' already-expanded axes. The ranking stage compares every applicable record with every other, so a caller can expand each record's axes once and call this for each pair instead of re-expanding each `when:` per pair.
 pub fn compare_axes(a: &AxisSets, b: &AxisSets) -> Ordering {
     let mut a_le_b = true;
     let mut b_le_a = true;
@@ -246,7 +246,7 @@ pub fn compare_axes(a: &AxisSets, b: &AxisSets) -> Ordering {
     Ordering::Incomparable
 }
 
-/// What a record asks for, as the tie-collapsing comparison in [`pick_most_specific`] reads it: two maximal records demanding the same thing are not a conflict, whichever one is written first.
+/// What a record asks for. [`pick_most_specific`] compares demands so that two maximal records asking for the same thing are not a conflict.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct Demand {
     pub by: Option<i64>,
@@ -259,7 +259,7 @@ pub struct Demand {
     pub exit: Option<Sym>,
 }
 
-/// The demand a record makes — what [`pick_most_specific`] collapses several maximal records by when they all ask for the same thing. `ok:` defaults to `[by, by]` per design section 3.3, so a record spelling that band out loud demands exactly what a record leaving it implicit does, and the two collapse instead of colliding.
+/// The demand a record makes. `ok:` defaults to `[by, by]` (design §3.3), so a record that writes that band explicitly makes the same demand as one that leaves it implicit, and the two do not conflict.
 pub fn default_demand(record: &PolicyRecord) -> Demand {
     Demand {
         by: record.by,
@@ -273,9 +273,9 @@ pub fn default_demand(record: &PolicyRecord) -> Demand {
     }
 }
 
-/// Among records that all matched one concrete window, the unique most-specific one. Nesting resolves silently, because the narrow record wins by membership; several maximal records demanding the same thing collapse to the first in declaration order; several maximal records demanding different things are E-INCOMPARABLE, and the overlap is a fact rather than a possibility because the records have already co-matched.
+/// Among records that all matched one concrete window, returns the unique most-specific one. Of two nested records, the narrower one wins. Several maximal records with the same demand collapse to the first in `records` order. Several maximal records with different demands raise E-INCOMPARABLE; the overlap is certain because the records have already matched the same window.
 ///
-/// `records` and `owners` are parallel, and a record is identified by its address, so the same record handed in twice is skipped against itself rather than compared with its twin. An empty `records` panics rather than answering: it is a caller bug, and returning a settlement error instead would hand it to the prospect's fallback, which swallows settlement errors and would therefore hide the bug in a wrong prospect rather than a crash.
+/// `records` and `owners` are parallel. Records are compared by address, so a record passed twice is not compared with its own copy. An empty `records` panics because it is a caller bug: a settlement error would reach the prospect's fallback, which catches settlement errors and would hide the bug as a wrong prospect.
 pub fn pick_most_specific<'r>(
     index: &SpecIndex,
     records: &[&'r PolicyRecord],
@@ -339,7 +339,7 @@ mod tests {
 
     const HOST: &str = "qsHost";
 
-    /// One `qsHost` policy record with an id, a pointer built from that id, and `by: 1` — each of which an override may replace, since the caller's fields are read first.
+    /// One `qsHost` policy record with an id, a provenance pointer built from that id, and `by: 1`. An override replaces any of these, because the first value given for a field wins and the caller's come first.
     fn authored(id: &str, overrides: &[(&str, &str)]) -> String {
         let named = fixtures::quote(id);
         let pointer = fixtures::names(&["qsHost.yaml", &format!("policy.extend.{id}")]);
@@ -361,7 +361,7 @@ mod tests {
         fixtures::when(&[("right", &fixtures::condition(overrides))])
     }
 
-    /// The spec every test in this module reads: one rune, `qsHost`, whose `extend` list carries the conditions the section 6.2 cases are stated over, against the shared four-family registry, its one predicate class, and the one ligature family a literal name is compared through.
+    /// The spec every test here reads: one rune, `qsHost`, whose `extend` list holds the conditions the §6.2 cases use, over the shared four-family registry with its one predicate class and one ligature family.
     fn host_spec() -> SpecIndex {
         let halves = fixtures::names(&["halves-that-exit-at-x-height"]);
         let tea = fixtures::names(&["qsTea"]);
@@ -629,7 +629,7 @@ mod tests {
             .expect("every fixture class resolves")
     }
 
-    /// The names one expanded axis holds, sorted so the assertion reads as a set rather than as interning order.
+    /// The names one expanded axis holds, sorted so the assertion does not depend on interning order.
     fn axis(index: &SpecIndex, id: &str, key: AxisKey) -> Vec<String> {
         let axes = axes_of(index, id);
         let set = axes
@@ -820,7 +820,7 @@ mod tests {
             ["edge", "namer-dot", "space", "zwnj"]
         );
         assert_eq!(axes_of(&index, "right-chain").len(), 3);
-        // The deeper hop is a constraint of its own, so the longer chain is strictly narrower rather than equal.
+        // The deeper hop is a constraint of its own, so the longer chain is strictly narrower.
         assert_eq!(
             ranked(&index, "right-chain", "right-chain-shallow"),
             Ordering::AOutranks
@@ -974,7 +974,7 @@ mod tests {
         let index = host_spec();
         let winner = picked(&index, &["left-tea"]).expect("a single record is maximal");
         assert_eq!(winner.id, Some(fixtures::sym(&index, "left-tea")));
-        // The same record handed in twice is skipped against itself rather than compared with its twin.
+        // The same record passed twice is not compared with its own copy.
         let record = fixtures::extend(&index, HOST, "left-tea");
         let owners = vec![Some(fixtures::sym(&index, HOST)); 2];
         let winner = pick_most_specific(&index, &[record, record], &owners)

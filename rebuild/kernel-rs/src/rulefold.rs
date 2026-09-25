@@ -1,8 +1,8 @@
-//! One input's ordered rules — the largest and subtlest part of the fold, and the one whose output *is* the shipped GSUB ordering, so a divergence here is invisible to every count-based check and visible only in `settlement-<config>.tsv` and `M1.generated.fea`. Transcribed from `table._rules_for_input` and not re-derived, down to which sample row a rule takes its provenance from and which raise fires first; that function was held byte-identical to this one and then deleted, so what states the ordering now is the discipline below and the artifacts it writes.
+//! One input's ordered rules. This order is the order of the shipped GSUB rules, so an ordering mistake changes no count and shows only in `settlement-<config>.tsv` and `M1.generated.fea`. No other code states the ordering, so this module is its specification, including which sample row gives a rule its provenance and which error is reported first.
 //!
-//! The discipline the ordering follows, restated from that function's own comment because it is what the transcription has to preserve: within one (input, backtrack) group the boundary-outcome row with `uni200C` explicit in the class comes first, so no later row of the window can match across a skipped ZWNJ; then the third- and fourth-slot bundles, each replaying the same shape one slot over, so deeper rules precede every shallower one; then the letter-constrained two-slot rules, where an identity outcome becomes an identity guard whenever a slot-dropped fallback follows; then the fallback, which catches the run edge that no positive lookahead class can match. Across groups the ZWNJ backtrack-slot guards lead, then the committed blocks, then the default block.
+//! Within one (input, backtrack) group, the boundary-outcome rule comes first. Its lookahead class names `uni200C` explicitly, so no later rule for the window can match across a skipped ZWNJ. The letter rules follow, and the group's fallback comes last. The fallback has no lookahead, so it catches the run edge, which no positive lookahead class can match. Inside a first-slot block whose outcome depends on later slots, the same order repeats one slot further on: the second-slot boundary rule, then the third- and fourth-slot bundles (which repeat it again), then the two-slot rules, then the block's fallback. So within a block, every deeper rule precedes every shallower one. An identity outcome becomes an identity guard when a fallback that ignores its slot follows it. Across groups, the ZWNJ backtrack-slot guards come first, then the committed blocks, then the default block.
 //!
-//! Two structural facts make this cheaper here than in Python without changing an answer. The rows arrive key-sorted, so an input's rows are grouped by left and each left's rows are already in `(r1, r2, r3, r4)` order — which was both the insertion order the Python original's `group_rows` dict had and the order its `sorted(group_rows.items())` calls asked for, so one sorted slice answers both and a prefix range is a binary search rather than a scan. And a signature is a sorted, deduplicated vector rather than a hash set, which is the same equivalence relation `frozenset` imposes with an order that makes it hashable.
+//! Two facts make this cheaper than a direct implementation without changing any result. The rows arrive in `table.Window.key` order, so each left's rows are contiguous and already in `(r1, r2, r3, r4)` order, and a prefix range is a binary search. A signature is a sorted, deduplicated vector, which compares like a set and can also be hashed and ordered.
 
 use std::cmp::Ordering;
 use std::hash::Hash;
@@ -12,27 +12,27 @@ use crate::fold::{BOUNDARY_LOOKAHEAD_CLASS, LabelRows, NA_LABEL, Rule, boundaryi
 use crate::hash::{HashMap, HashSet};
 use crate::stream::{python_repr, python_tuple};
 
-/// What one input's fold produced: its ordered rules, how many of them are identity guards, and the lefts a first-match-wins replay has to cover to cover them all.
+/// What one input's fold produced: its ordered rules, how many of them are identity guards, and the lefts a first-match replay must try to reach every rule (one per committed block and every left of the default block).
 pub struct RuleFold {
     pub rules: Vec<Rule>,
     pub identity_guards: i64,
     pub replay_lefts: HashSet<Rc<str>>,
 }
 
-/// A set of left blocks, which is what the outermost grouping partitions into a default one and the committed ones.
+/// A list of blocks, each a sorted list of labels that share a signature.
 type Blocks = Vec<Vec<Rc<str>>>;
 
-/// One member of a signature: the other slots' labels and the outcome they settle to. Four coordinates at every nesting depth but the outermost, which carries all four right slots.
+/// A signature: for each present row, the other slots' labels and the outcome they settle to. The left grouping uses five coordinates (the four right slots and the outcome), and every deeper grouping uses four (the three other right slots and the outcome).
 type Signature<const N: usize> = Vec<[Rc<str>; N]>;
 
-/// The canonical form of a signature — sorted and deduplicated, which is `frozenset`'s equivalence relation with an order it can be hashed and compared by.
+/// Sorts and deduplicates a signature, so two signatures with the same members are equal.
 fn canonical<const N: usize>(mut members: Signature<N>) -> Signature<N> {
     members.sort();
     members.dedup();
     members
 }
 
-/// Group the values by signature, sort each group's members, and sort the groups. Callers pass signatures built from present rows only, never the full other-slot label product: every value's product is the same per grouping, so identical present-maps imply identical missing-key sets, and grouping by the sparse signature yields exactly the partition the (missing -> None) product signature would — at O(rows) instead of O(label product), which is what keeps folding from regrowing quartically as depth-3/4 windows are authored. Class tokens are sound signature coordinates for the same reason the premise needs: ids are content-addressed by member set, so identical token signatures imply identical member sets, never two spellings of one set.
+/// Groups the values by signature, sorts each group's members, and sorts the groups. Callers build signatures from present rows only, not from the full product of the other slots' labels. Every value in one grouping has the same product, so equal sparse signatures mean equal sets of missing keys, and grouping by the sparse signature gives the same partition as grouping by the full product with missing entries as `None`. The sparse form costs O(rows) instead of O(label product). Deep-class tokens are valid signature coordinates because class ids are content-addressed by member set, so equal tokens mean equal member sets.
 fn signature_blocks<K: Eq + Hash>(
     values: &[Rc<str>],
     mut signature_of: impl FnMut(&Rc<str>) -> K,
@@ -55,7 +55,7 @@ fn signature_blocks<K: Eq + Hash>(
     blocks
 }
 
-/// One key against a prefix of labels, which is the comparison every lookup and range search in a group is one of.
+/// Compares a key's leading labels with `prefix`. Every lookup and range search in a group uses this comparison.
 fn compare(held: &[Rc<str>; 4], prefix: &[&Rc<str>]) -> Ordering {
     for (seat, wanted) in prefix.iter().enumerate() {
         let order = Ord::cmp(&held[seat], *wanted);
@@ -66,14 +66,14 @@ fn compare(held: &[Rc<str>; 4], prefix: &[&Rc<str>]) -> Ordering {
     Ordering::Equal
 }
 
-/// One left's rows as the group logic reads them: the four right labels in sorted order, and the seat of the row in the input's slice.
+/// One left's rows as the group logic reads them: for each row, its four right labels and its index in the input's slice, sorted by the labels.
 struct GroupRows<'a> {
     rows: LabelRows<'a>,
     keys: Vec<([Rc<str>; 4], usize)>,
 }
 
 impl<'a> GroupRows<'a> {
-    /// The rows of one left, which the key sort already leaves contiguous and in `(r1, r2, r3, r4)` order.
+    /// The rows of one left, which the key order leaves contiguous and in `(r1, r2, r3, r4)` order.
     fn of(rows: LabelRows<'a>, span: (usize, usize)) -> Self {
         let keys = (span.0..span.1)
             .map(|row| {
@@ -91,7 +91,7 @@ impl<'a> GroupRows<'a> {
         Self { rows, keys }
     }
 
-    /// One row by its four right labels, `group_rows[(r1, r2, r3, r4)]`.
+    /// The row with these four right labels, if there is one.
     fn at(&self, key: [&Rc<str>; 4]) -> Option<usize> {
         self.keys
             .binary_search_by(|(held, _)| compare(held, &key))
@@ -122,7 +122,7 @@ impl<'a> GroupRows<'a> {
     }
 }
 
-/// One input's ordered rules, how many of them are identity guards, and the lefts a first-match-wins replay has to cover to cover them all. `rows` is the input's own slice of the label-grain stream; `never_locked` is `not settle.is_entry_bearing(spec, rune)`, the one verdict the fold reads off the spec.
+/// Folds one input's rows into its ordered rules. `rows` is the input's slice of the label-grain stream. `never_locked` is true when the input's rune is not entry-bearing (`SpecIndex::is_entry_bearing`), so the chokepoint never replaces it after a ZWNJ.
 pub fn rules_for_input(
     input_glyph: &Rc<str>,
     rows: &LabelRows<'_>,
@@ -133,7 +133,7 @@ pub fn rules_for_input(
         .map(|label| Rc::from(*label))
         .collect();
 
-    // The rows of one input are key-sorted, so each left's rows are one contiguous run and the runs arrive in the `sorted(rows_by_left)` order.
+    // The rows of one input are in key order, so each left's rows are one contiguous run and the runs arrive sorted by left.
     let mut spans: Vec<(Rc<str>, (usize, usize))> = Vec::new();
     let mut start = 0;
     while start < rows.len() {
@@ -197,7 +197,7 @@ pub fn rules_for_input(
         state.emit_group(&group, None, &mut default_rules)?;
     }
 
-    // ZWNJ coverage at the backtrack slot: an input the chokepoint never locks can sit immediately after ZWNJ as its raw self, and a backtrack-classed rule could match across the skipped ZWNJ. Defense: replicate the boundary-left behavior with uni200C explicit in the backtrack slot, ordered ahead of every backtrack-classed rule, then an identity catch-all. Lockable inputs need none of this: after ZWNJ they are locked twins whose rows enumerate under the twin's own input label.
+    // An input the chokepoint never locks can follow a ZWNJ unchanged, and a rule with a backtrack class could match across the skipped ZWNJ. So when any committed rule has a backtrack class, the default block's rules are repeated with `uni200C` in the backtrack slot, ahead of every backtrack rule, followed by an identity rule. A lockable input needs none of this: after a ZWNJ it is its locked twin, whose rows are enumerated under the twin's own input label.
     let mut guards: Vec<Rule> = Vec::new();
     if never_locked
         && committed_rules.iter().any(|rule| {
@@ -423,7 +423,7 @@ impl Emission {
                 continue;
             }
 
-            // Outcome depends on a later lookahead slot; see the module docstring for the ordering discipline the split replays at each depth.
+            // The outcome depends on a later lookahead slot. The module doc gives the order the split repeats at each depth.
             let mut slot_fallback: Option<Rule> = None;
             let mut boundary_slot_rule: Option<Rule> = None;
             let mut deep_rules: Vec<Rule> = Vec::new();
@@ -671,7 +671,7 @@ impl Emission {
         Ok(())
     }
 
-    /// The dedup one bundle's rules pass through before they are emitted: an identity outcome is dropped unless a slot-dropped fallback follows it, in which case it is the identity guard that keeps the fallback from swallowing the window; and a rule the fallback would say the same thing about is redundant. A bundle with no fallback screens nothing away but its identities.
+    /// Filters one bundle's rules before emission. With no fallback, a rule with an identity outcome is dropped. With a fallback, that rule is kept and counted as an identity guard, so the fallback does not match its window, and a rule with the fallback's outcome is dropped as redundant.
     fn screen(&mut self, rules: Vec<Rule>, fallback: Option<&Rule>, out: &mut Vec<Rule>) {
         for rule in rules {
             if rule.outcome == self.input_glyph {
@@ -700,7 +700,7 @@ fn count_boundaryish(block: &[Rc<str>]) -> usize {
     block.iter().filter(|label| boundaryish(label)).count()
 }
 
-/// One block as Python's tuple repr, which is what a raise message names it by.
+/// Formats one block as Python's tuple repr, for error messages.
 fn label_tuple(block: &[Rc<str>]) -> String {
     let members: Vec<String> = block.iter().map(|label| python_repr(label)).collect();
     python_tuple(&members)
@@ -712,7 +712,7 @@ fn block_list(blocks: &Blocks) -> String {
     format!("[{}]", listed.join(", "))
 }
 
-/// A set of labels as Python's set repr, sorted so a raise reads the same twice. An empty one spells `set()`, which is what Python's repr says; `{}` is its empty dict.
+/// Formats labels as Python's set repr, in the order given; callers pass them sorted so the message is stable. An empty set is `set()`, as in Python, where `{}` is an empty dict.
 fn python_set(values: &[&str]) -> String {
     if values.is_empty() {
         return "set()".to_owned();
@@ -725,7 +725,7 @@ fn python_set(values: &[&str]) -> String {
 mod tests {
     use super::*;
 
-    /// What no replay over every row of every configuration could catch, since it is a property of the grouping and not of any input: [`signature_blocks`] groups its values in a map keyed by signature, so the blocks partition the values and each one is exactly one signature's preimage. Stated here over hand-made signatures, at no cost to a build.
+    /// [`signature_blocks`] partitions the values, and each block holds exactly the values with one signature. This is a property of the grouping, not of any input, so no replay of built tables can check it.
     #[test]
     fn the_blocks_are_a_disjoint_cover_grouped_by_signature() {
         let signatures: Vec<(&str, u32)> =

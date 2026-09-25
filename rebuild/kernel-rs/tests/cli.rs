@@ -1,19 +1,19 @@
-//! The binary as its callers see it: argument vector in, exit status and two streams out.
+//! Tests of the binary through its command line: arguments in; exit status, stdout, and stderr out.
 //!
-//! The unit suites reach the same code as functions, which is where the fixpoint and the fan-out are proved; what only a process can prove is the wiring around them — that `enumerate` and `enumerate-configs` really do write the same bytes to two different places, that a clean fan-out says nothing at all, that `--timings` reaches stderr in the shape `cycle_timings.py` parses, and that a refused command line is a 2 while a refused run is a 1. The spec is the same four-family fixture the unit suites read, written to disk because a path is all the binary takes.
+//! The unit tests call the same code as functions and test the fixpoint and the fan-out there. These tests check behavior that only a process shows: that `enumerate` and `enumerate-configs` write the same bytes to different places, that a clean fan-out writes nothing to stdout or stderr, that `--timings` writes to stderr in the format `cycle_timings.py` parses, and that a usage error exits 2 while a failed run exits 1. The spec is the four-family fixture the unit tests use (`fixtures::mini_dump`), written to disk because the binary takes only a path.
 
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
 
 use ams_m1_kernel::index::fixtures;
 
-/// The binary this crate builds, handed over by Cargo, so the tests run whatever was just compiled rather than whatever is on the path.
+/// The binary Cargo built for this crate, so the tests run what was just compiled and not whatever is on the path.
 const KERNEL: &str = env!("CARGO_BIN_EXE_ams-m1-kernel");
 
-/// The two configurations the fixture can tell apart, and the flag one `enumerate` names each by: it unlocks a `qsMay` entry under `ss03` and nothing under nothing.
+/// The two configurations the fixture distinguishes, and the flag `enumerate` takes for each: `ss03` unlocks a `qsMay` entry, and `default` has no features.
 const CONFIGS: [(&str, Option<&str>); 2] = [("default", None), ("ss03", Some("--features=ss03"))];
 
-/// A scratch directory of this test's own, cleared first so nothing a previous run left can stand in for what this one was supposed to write. It lives under `target/`, which is gitignored, rather than in the system temp directory.
+/// This test's own scratch directory, cleared first so that files from a previous run cannot pass for this run's output. It is under `target/`, which is gitignored.
 fn scratch(name: &str) -> PathBuf {
     let directory = Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("target/test-scratch")
@@ -23,14 +23,14 @@ fn scratch(name: &str) -> PathBuf {
     directory
 }
 
-/// The fixture spec on disk, which is the only form the binary accepts one in.
+/// Writes the fixture spec to disk, the only form in which the binary accepts one.
 fn spec_at(root: &Path) -> PathBuf {
     let path = root.join("spec.json");
     std::fs::write(&path, fixtures::mini_dump()).expect("the scratch directory takes a spec");
     path
 }
 
-/// One path as the binary would be handed it.
+/// A path as a command-line argument.
 fn word(path: &Path) -> &str {
     path.to_str().expect("a scratch path is Unicode")
 }
@@ -42,12 +42,12 @@ fn run(arguments: &[&str]) -> Output {
         .expect("the binary this crate just built runs")
 }
 
-/// The complaint a failed run made, for the assertions that read it.
+/// A run's stderr, for the assertions that read it.
 fn complaint(output: &Output) -> String {
     String::from_utf8_lossy(&output.stderr).into_owned()
 }
 
-/// One `[t]` line's phase, split the way `^\[t\] (.+?) (\d+(?:\.\d+)?)s$` splits it and panicking on a line that shape does not match — hand-rolled rather than matched, because this crate carries serde_json and nothing else, and a test that added a regex dependency would be paying for the assertion in build time forever.
+/// Returns the phase label of one `[t]` line, parsed as `console.INNER_LINE` (the pattern `cycle_timings.py` uses) parses it, but without the optional trailing fields that pattern allows. Panics on a line that does not match. The parser is hand-written because the crate's only dependency is serde_json, and adding a regex dependency would lengthen every build.
 fn timing_phase(line: &str) -> &str {
     let body = line
         .strip_prefix("[t] ")
@@ -73,7 +73,7 @@ fn digits(text: &str) -> bool {
     !text.is_empty() && text.bytes().all(|byte| byte.is_ascii_digit())
 }
 
-/// The exit bar itself, through two processes rather than two calls: what a fan-out files under a configuration's name is what `enumerate` writes to stdout for that configuration, at one thread and at more threads than there are configurations.
+/// The file a fan-out writes for a configuration has the bytes `enumerate` writes to stdout for that configuration, at one thread and at more threads than there are configurations. The check runs two processes, not two function calls.
 #[test]
 fn a_fan_out_files_what_one_enumeration_writes_to_stdout() {
     let root = scratch("cli-identity");
@@ -111,7 +111,7 @@ fn a_fan_out_files_what_one_enumeration_writes_to_stdout() {
     }
 }
 
-/// A fan-out that was not asked to time itself says nothing on either stream, which is what lets the identity harness read any stderr on a clean exit as a failure.
+/// A fan-out run without `--timings` writes nothing to stdout or stderr. `kernel_exec._forward_stderr` relies on this: it treats any stderr on a clean exit without timings as a failure.
 #[test]
 fn a_clean_fan_out_says_nothing_at_all() {
     let root = scratch("cli-silence");
@@ -127,7 +127,7 @@ fn a_clean_fan_out_says_nothing_at_all() {
     assert!(output.stderr.is_empty(), "and nothing else is said");
 }
 
-/// The `--timings` lines are the shape `cycle_timings.py` recovers a child's phases from, and they arrive in the order the command line named its configurations however wide the run was.
+/// The `--timings` lines have the format `cycle_timings.py` reads a child's phases from, and they come in the order the command line named the configurations, whatever the thread count.
 #[test]
 fn the_timings_lines_are_the_shape_the_cycle_parses_in_the_order_named() {
     let root = scratch("cli-timings");
@@ -157,7 +157,7 @@ fn the_timings_lines_are_the_shape_the_cycle_parses_in_the_order_named() {
     );
 }
 
-/// A command line the verb will not spell exits 2 without reading anything, and a configuration the spec will not answer exits 1 having read it — the difference between a caller that asked wrongly and a caller that asked for something this spec has not got.
+/// A command line the subcommand cannot parse exits 2 without reading anything, and a configuration the spec cannot provide exits 1 after reading the spec. The first is a caller that asked wrongly; the second asked for something this spec does not have.
 #[test]
 fn a_malformed_command_line_is_a_two_and_an_unanswerable_one_is_a_one() {
     let root = scratch("cli-refusals");
@@ -193,7 +193,7 @@ fn a_malformed_command_line_is_a_two_and_an_unanswerable_one_is_a_one() {
     );
 }
 
-/// The case replay echoes each question ahead of its answer under both shapes — the whole trace bare, the settled record's seven fields under `--settled-only` — and the liveness verb, which has no trace to leave out, refuses the flag as the usage error it is there.
+/// The case replay echoes each question before its answer in both shapes: the full trace by default, and the settled record's seven fields under `--settled-only`. `liveness-cases` has no trace to leave out, so it rejects the flag as a usage error.
 #[test]
 fn a_case_replay_answers_in_either_shape_and_the_liveness_verb_refuses_the_flag() {
     let root = scratch("cli-cases");
@@ -224,7 +224,7 @@ fn a_case_replay_answers_in_either_shape_and_the_liveness_verb_refuses_the_flag(
     assert_eq!(refused.status.code(), Some(2), "{}", complaint(&refused));
 }
 
-/// The guard answers one named configuration through the same verb that answers the powerset, in the same shape, `default` among the names so the no-feature configuration is askable, and refuses what its pinned world cannot honor: a token that is not a configuration's canonical spelling is the usage error `--configs=` makes of it, `--features=` is outside this verb's vocabulary, and a mode flag is a usage error too, because the guard's modes are `guard.rs`'s to pin. A feature the spec never mentions is a refused run rather than a quiet default, exactly as `settle-cases` refuses it.
+/// `guard-sweep --config=` writes one configuration's late-formation surface with as many rows as the default sweep over the feature powerset, and accepts `default` for the no-feature configuration. Each of these is a usage error (exit 2): an empty or non-canonical configuration token, as `--configs=` parses it; a repeated `--config=`; `--features=`, which this subcommand does not take; and any mode flag, because `guard.rs` fixes the guard's modes. A feature the spec never mentions fails the run (exit 1), as it does in `settle-cases`.
 #[test]
 fn a_guard_sweep_answers_one_configuration_and_refuses_a_world_flag() {
     let root = scratch("cli-guard");
@@ -284,7 +284,7 @@ fn a_guard_sweep_answers_one_configuration_and_refuses_a_world_flag() {
     );
 }
 
-/// A directory globbed after a clean exit holds this run's answer and nothing else: a stream left by a configuration this run was not asked about is gone, and anything that is not a stream is where its owner left it.
+/// After a clean exit the output directory holds only this run's streams: a stream left by a configuration this run was not asked for is removed, and files that are not streams are left alone.
 #[test]
 fn a_clean_fan_out_sweeps_the_streams_it_did_not_name() {
     let root = scratch("cli-sweep");
@@ -310,7 +310,7 @@ fn a_clean_fan_out_sweeps_the_streams_it_did_not_name() {
     assert!(outdir.join("transitions-default.ndjson").exists());
 }
 
-/// A seat that cannot write its stream fails the whole run, and the complaint is the earliest-seated failure rather than whichever worker got there first — the first configuration is always claimed, so a run with every seat blocked reports that one every time.
+/// A configuration whose stream cannot be written fails the whole run, and the error names the earliest configuration in `--configs` order, not whichever worker failed first. The first configuration is always started, so with every stream blocked the run names it every time.
 #[test]
 fn a_seat_that_cannot_write_fails_the_run_naming_the_earliest_one() {
     let root = scratch("cli-blocked");
@@ -340,7 +340,7 @@ fn a_seat_that_cannot_write_fails_the_run_naming_the_earliest_one() {
     );
 }
 
-/// The table build as its caller sees it: three files per configuration under the directory it named, one digest line per configuration on stdout in the order they were named, and the stamp the command line gave riding the windows head where `read_windows` will look for it.
+/// A table build writes three files per configuration in the directory it was given, prints one digest line per configuration in the order named, and writes the `--inputs=` stamp into the windows head, where `table.read_windows` reads it.
 #[test]
 fn a_table_build_files_three_artifacts_and_answers_one_digest_per_configuration() {
     let root = scratch("cli-tables");
@@ -387,7 +387,7 @@ fn a_table_build_files_three_artifacts_and_answers_one_digest_per_configuration(
     }
 }
 
-/// The configuration delta is invisible in the artifacts: a table build reading `default`'s memo for the other configurations files the same three artifacts per configuration, byte for byte, as one told to enumerate every configuration from scratch, and answers the same digests.
+/// Seeding from `default`'s memo does not change the artifacts: a table build that reuses `default`'s memo for the other configurations writes the same three files per configuration, byte for byte, and the same digests as a build with `--config-seed-off`, which enumerates every configuration from scratch.
 #[test]
 fn a_seeded_table_build_files_the_bytes_a_from_scratch_one_files() {
     let root = scratch("cli-config-seed");
@@ -422,7 +422,7 @@ fn a_seeded_table_build_files_the_bytes_a_from_scratch_one_files() {
     }
 }
 
-/// The seed across builds through the binary: a build over an edited spec, reading the previous build's memo files with the edited rune named, files the bytes a from-scratch build of the edited spec files — for every configuration, the deltas included — and leaves memo files of its own under the stamp it was handed.
+/// Seeding across builds: a build of an edited spec that reads the previous build's memo files, with the edited rune named, writes the bytes a from-scratch build of the edited spec writes for every configuration, and writes memo files of its own under the stamp it was given.
 #[test]
 fn a_build_seeded_from_the_previous_memo_files_the_bytes_a_from_scratch_one_files() {
     let root = scratch("cli-memo-seed");
@@ -568,7 +568,7 @@ fn family_word(family: &str) -> &str {
     }
 }
 
-/// The build's own phases, which the cycle reads the same way it reads a stream run's, including the two proof-search phases retained beside the aggregate fold.
+/// A table build's timed phases, which the cycle reads like a stream run's, including `fold.prefixes` and `fold.partition` before each `fold` line.
 #[test]
 fn a_timed_table_build_names_the_enumerate_and_fold_phases_per_configuration() {
     let root = scratch("cli-tables-timings");
@@ -602,7 +602,7 @@ fn a_timed_table_build_names_the_enumerate_and_fold_phases_per_configuration() {
     );
 }
 
-/// The stamp is required rather than defaulted, because a serialized enumeration is trusted or refused on it; the rest of the verb's vocabulary is refused the same way the fan-out's is.
+/// The `--inputs=` stamp is required, not defaulted, because `run_m1.serialized_tables` accepts or rejects a serialized enumeration by comparing it. An empty or repeated stamp, a missing `--configs=`, and `--features=` are usage errors too.
 #[test]
 fn a_table_build_without_a_stamp_is_a_usage_error() {
     let root = scratch("cli-tables-refusals");
@@ -627,7 +627,7 @@ fn a_table_build_without_a_stamp_is_a_usage_error() {
     }
 }
 
-/// The shipped-order walk through the binary: a table's own settlement TSV handed back as the order answers every row of its enumeration, from a file and from standard input alike; a context file that is not renames and classes is a 1 naming the file; a command line missing one of the three files, or spelling a world flag, is a 2.
+/// `replay-emitted` through the binary. Given as its order a table's own settlement TSV, with the marker renames the context file declares applied, it accounts for every row of the table's enumeration, whether the windows come from a file or from stdin. A context file with a line that is neither a `rename` nor a `class` record exits 1 naming the file. A command line missing one of the three files, or with a mode flag, exits 2.
 #[test]
 fn a_shipped_order_walk_answers_a_tables_rows_from_a_file_or_stdin() {
     let root = scratch("cli-emitted");
@@ -773,7 +773,7 @@ fn a_shipped_order_walk_answers_a_tables_rows_from_a_file_or_stdin() {
     assert_eq!(worldly.status.code(), Some(2));
 }
 
-/// The replay's window memo through the binary: `--memo-dir=` files one `replay-windows-<config>.bin` per configuration under the head `replay::MEMO_FORMAT` spells, the answer lines are the bytes the same walk prints without the flag, a walk without the flag files nothing, the timed run names the emission beside the walk, and a directory the walk cannot write into fails the run naming the configuration.
+/// The replay's window memo through the binary: `--memo-dir=` writes one `replay-windows-<config>.bin` per configuration with the head `replay::MEMO_FORMAT` names. The answer lines are the bytes the same walk prints without the flag, a walk without the flag writes no memo, a timed run reports the memo phase beside the walk, and a directory the walk cannot write into fails the run naming the configuration.
 #[test]
 fn a_replay_with_a_memo_directory_files_one_window_memo_per_configuration() {
     let root = scratch("cli-replay-memo");
@@ -867,7 +867,7 @@ fn a_replay_with_a_memo_directory_files_one_window_memo_per_configuration() {
     );
 }
 
-/// The replay's cache census through the binary: `--cache-census` leaves the answer lines byte for byte as the bare walk prints them and writes only `[c]` lines to stderr without `--timings` — the walk's own memo, every engine memo with the trace memo's ladder pool empty, no elimination text, and the resident size once the walk is done, for each configuration — and beside `--timings` those lines ride ahead of the configuration's `replay[<config>]` phase. Under a memo ceiling a third of the walk's window count, each release reports the walk memo and the engine's memos under `release=<k>` with the resident size on both sides, the walk counts its releases, and no `walk_memo` row reads past the ceiling.
+/// The replay's cache census through the binary. `--cache-census` leaves the answer lines byte for byte as the plain walk prints them. Without `--timings` it writes only `[c]` lines to stderr: for each configuration, the walk's own memo, every engine memo with the trace memo's ladder pool empty, an elimination-text size of zero, and the resident size after the walk. With `--timings`, a configuration's census lines come before its `replay[<config>]` phase line. Under a memo ceiling of a third of the walk's window count, each release reports the walk memo and the engine's memos under `release=<k>` with the resident size before and after, the walk reports its release count, and no `walk_memo` row exceeds the ceiling.
 #[test]
 fn a_censused_replay_writes_its_census_to_stderr_and_leaves_the_answer_alone() {
     let root = scratch("cli-replay-census");
@@ -1021,7 +1021,7 @@ fn answers(output: &Output) -> std::collections::BTreeMap<String, Walked> {
         .collect()
 }
 
-/// The memo ceiling through the binary: a walk that releases before every text answers the texts and skipped counts the uncapped walk answers for every configuration, with more window settles, and a ceiling beside a memo directory is a usage error that writes nothing to stdout and files no memo.
+/// The memo ceiling through the binary: a walk that releases its memo before every text reports the same texts and skipped counts as the uncapped walk for every configuration, and settles more windows. A ceiling together with a memo directory is a usage error that writes nothing to stdout and no memo file.
 #[test]
 fn a_replay_with_a_memo_ceiling_answers_the_texts_an_uncapped_walk_answers() {
     let root = scratch("cli-replay-ceiling");

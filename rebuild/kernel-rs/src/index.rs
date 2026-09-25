@@ -1,12 +1,12 @@
 //! The engine-facing view over a parsed [`Spec`]: every lookup settlement performs, resolved once, so that the kernel never scans a [`Table`] to find a rune, a stance, or a surface row.
 //!
-//! The model is deliberately lookup-free — `model.rs` says so, and says the sub-issue that needs indexed access should build the index it needs. This is that index. It exists because Python gets these lookups for free from `dict`: `spec.runes[name]`, `stance.surface.entries.get(height)`, `spec.registry.heights[height]` are all constant-time reads of a mapping that also remembers its insertion order, and the Rust model splits those two properties apart — the [`Table`] keeps the order and this module adds the lookup. Nothing here changes a semantic; every accessor answers exactly what the corresponding Python subscript answers, including which answer is "absent".
+//! The model's [`Table`] keeps insertion order but offers no lookup, and this module adds the lookups. Each accessor returns what the corresponding Python read (`spec.runes[name]`, `stance.surface.entries.get(height)`, `spec.registry.heights[height]`) returns, except that a few return `None` or `false` where Python raises `KeyError`; those accessors say so.
 //!
-//! The index also keeps the read journal (issue #184): a thread-local log of every rune whose resolved content and every predicate class whose membership an accessor here handed out while the engine had a capture open. A memo entry across configurations and across builds is invalidated by what its evaluation *read*, and the accessors are the one place every such read passes through, so the journal is kept here rather than at the engine's call sites — a rune's stances, rows, order, strokes, entry-bearing flag and groups all journal the rune, a predicate class's membership journals the class, and the alphabet, the registry's heights and tokens, and a symbol's text journal nothing, being the whole-store structure a memo is stamped with instead. The log is per thread because the index is shared across a fan-out's threads and holds nothing mutable of its own; an engine is confined to one thread, and it is the engine's captures that arm and drain the log ([`crate::engine`]).
+//! The index also keeps the read journal: a thread-local log of every rune whose content, and every predicate class whose membership, an accessor returned while the engine had a capture open. A memo entry reused across configurations and builds is invalidated by what its evaluation read, and every such read passes through these accessors, so the journal is kept here. A rune's stances, rows, order, strokes, entry-bearing flag and groups journal the rune. A predicate class's membership journals the class. The rune list, the registry's heights and tokens, the ordinals, and a symbol's text journal nothing, because a memo is stamped with that structure instead. The log is per thread because the index is shared across a fan-out's threads and holds nothing mutable. Each engine runs on one thread, and its captures switch the log on and clear it ([`crate::engine`]).
 //!
-//! Two further things live here because they are pure functions of the spec that a per-engine cache would only recompute, and a per-spec answer is the same answer. The stance order index — `policy.order` extended by declaration order, with `order.index(...)`'s exact arithmetic including the seats that names not naming a stance still occupy — is resolved once at build time rather than per engine, and so are `is_entry_bearing` and the per-rune entry-stroke set, both feature-blind reads of the surface. `settle.is_entry_bearing` answers the first of those on the Python side too, for the callers that ask it before a window reaches this crate.
+//! Three pure functions of the spec are computed once when the index is built, instead of in each engine: the stance order index ([`SpecIndex::order_index`]), `is_entry_bearing`, and the per-rune entry-stroke set. The last two are feature-blind reads of the surface. `settle.is_entry_bearing` computes the same flag on the Python side.
 //!
-//! The index takes ownership of the [`Spec`] rather than borrowing it, which buys two things. There are no lifetimes to thread through the engine, the guard, and the caches; and the interner is reachable mutably at build time, so [`Vocab`] and the withdrawn-state symbols can be interned into the spec's own pool instead of living in a second one. Interning into that pool cannot disturb emission, which walks the tree and never the pool.
+//! The index owns the [`Spec`]. That keeps a spec lifetime out of the engine, the guard, and the caches, and it lets the build intern [`Vocab`] and the withdrawn-state symbols into the spec's own pool. Adding symbols to the pool does not change emission, which walks the tree and never the pool.
 
 use std::cell::{Cell, RefCell};
 use std::collections::BTreeSet;
@@ -19,10 +19,10 @@ use crate::model::{
 };
 use crate::types::{RightToken, Vocab, WITHDRAWN_SUFFIX};
 
-/// One memo-key field's value: a symbol's seat, counted from one, in the table this index mints for that field — the modeled runes in declaration order and then the registry's other families for a rune field, the stance names the runes declare in first-declaration order for a stance field, and the heights the spec ever puts in an entry or a seam field for those two. A key names a rune, a stance or a height out of the handful the spec offers for that position, so two bytes hold the field where a [`Sym`] into the whole pool takes four, and `NonZeroU16` keeps zero free so that `Option<Ordinal>` is two bytes as well (issue #266). An ordinal means nothing without the index that minted it, and the inverses here are the one way back to the symbol. Each table is a mint over its own field alone, so a stance ordinal is injective without the rune beside it and a question may spell a left of one rune in another rune's stance, as a forged case does.
+/// One memo-key field's value: a symbol's position, counted from one, in the table this index builds for that field. The rune field's table is the modeled runes in declaration order, then the registry's other families. The stance field's table is every stance name in first-declaration order. The entry and seam fields' tables are every height the spec can put in that field. Each field holds one of a handful of symbols, so two bytes are enough where a [`Sym`] takes four, and `NonZeroU16` keeps zero free so that `Option<Ordinal>` is also two bytes. An ordinal is meaningful only with the index that minted it, and the `*_at_ordinal` methods map it back to the symbol. Each table covers its own field alone, so a stance ordinal does not depend on the rune beside it, and a case can pair a left of one rune with another rune's stance, as a forged case does.
 pub type Ordinal = NonZeroU16;
 
-/// The ordinal for a table's `seat`-th entry. The seat's successor is the integer, which keeps zero free for the niche, and the narrowing is checked at every mint.
+/// The ordinal for a table's `seat`-th entry: `seat + 1`, which keeps zero free for the niche. The conversion to `u16` is checked.
 fn ordinal_at(seat: usize) -> Ordinal {
     let raw = u16::try_from(seat)
         .ok()
@@ -31,7 +31,7 @@ fn ordinal_at(seat: usize) -> Ordinal {
     Ordinal::new(raw).expect("a seat's successor is never zero")
 }
 
-/// A height's ordinal in one of the two height tables. A scan rather than a map, because the table is the registry's few heights and a compare per entry costs less than one hash.
+/// A height's ordinal in one of the two height tables. A linear scan, because the table holds only a few heights and a few comparisons cost less than one hash.
 fn height_ordinal(table: &[Sym], height: Sym) -> Option<Ordinal> {
     table
         .iter()
@@ -62,7 +62,7 @@ fn gather_heights(table: &mut Vec<Sym>, runes: &Table<Rune>, entry: bool) {
     }
 }
 
-/// One stance's identity within a spec: the rune's declaration seat and the stance's seat inside it. This is what the exit-sources and pairing-set caches key on, in place of a stance's address: a seat pair is `Copy`, hashes on two integers, and cannot be recycled the way an address can, which is why an address-keyed cache needs identity re-checks and a small cap and this needs neither.
+/// One stance's identity within a spec: the rune's declaration seat and the stance's seat inside it. The engine's exit-sources and pairing-set caches key on it.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct StanceId {
     pub rune: u32,
@@ -70,7 +70,7 @@ pub struct StanceId {
 }
 
 impl StanceId {
-    /// The identity of the stance at `stance` inside the rune at `rune`. Both seats are declaration order, which is what the caller has in hand when it iterates `rune.stances` — the intended idiom, since iterating the [`Table`] is the one traversal the index does not replace.
+    /// The identity of the stance at seat `stance` inside the rune at seat `rune`, both in declaration order, as a caller iterating `rune.stances` has them.
     pub fn new(rune: u32, stance: u32) -> Self {
         Self { rune, stance }
     }
@@ -141,7 +141,7 @@ fn journal(read: Read) {
     }
 }
 
-/// The indexed view over one parsed dump. Built once, read everywhere; nothing on it is mutable, so every engine, the guard's whole engine powerset, and the corpus replay share one.
+/// The indexed view over one parsed dump. Nothing on it is mutable, so every engine and thread shares one.
 pub struct SpecIndex {
     spec: Spec,
     ids: HashMap<String, Sym>,
@@ -155,7 +155,7 @@ pub struct SpecIndex {
     group_owner: HashMap<Sym, u32>,
     boundary_tokens: HashMap<Sym, u32>,
     empty: BTreeSet<Sym>,
-    /// The rune-field ordinal table: the modeled runes in declaration order, so a modeled rune's ordinal is its seat counted from one, then every registry family the spec does not model, in registry order — a slot may name a registered letter the spec has yet to model, and the engine reads such a slot as the unmodeled family it is. [`SpecIndex::rune_ordinals`] is the mint over it.
+    /// The rune-field ordinal table: the modeled runes in declaration order, so a modeled rune's ordinal is its seat counted from one, then every registry family the spec does not model, in registry order. The unmodeled families are included because a slot may name a registered letter the spec does not model yet, and the engine reads that slot as an unmodeled family. [`SpecIndex::rune_ordinals`] maps each name to its ordinal.
     rune_field: Vec<Sym>,
     rune_ordinals: HashMap<Sym, Ordinal>,
     /// The stance-field ordinal table: every stance name some rune declares, in the order the runes first declare them. [`SpecIndex::stance_ordinals`] is the mint over it.
@@ -306,7 +306,7 @@ impl SpecIndex {
         &self.spec
     }
 
-    /// The resolved spec — `spec_load`'s whole product, the argument every Python function here takes.
+    /// The resolved spec, the Rust form of `spec_load`'s output.
     pub fn root(&self) -> &ResolvedSpec {
         &self.spec.root
     }
@@ -326,7 +326,7 @@ impl SpecIndex {
         self.spec.symbols.resolve(symbol)
     }
 
-    /// The symbol some text interns to, or `None` when this spec never mentioned it. A name absent from the pool cannot equal any authored value, so `None` is the honest answer to "does this spec know this name" as well as to "what is its symbol".
+    /// The symbol some text interns to, or `None` when this spec never mentioned it. A name absent from the pool cannot equal any authored value, so `None` also means the spec does not know the name.
     pub fn sym_of(&self, text: &str) -> Option<Sym> {
         self.ids.get(text).copied()
     }
@@ -363,7 +363,7 @@ impl SpecIndex {
         self.rune_entry(seat).0
     }
 
-    /// Whether this spec models the rune — `name in spec.runes` as `model.ResolvedSpec` spells it, the check that guards every letter-token read.
+    /// Whether this spec models the rune: `name in spec.runes`, the check that guards every letter-token read.
     pub fn is_modeled(&self, name: Sym) -> bool {
         self.runes.contains_key(&name)
     }
@@ -378,13 +378,13 @@ impl SpecIndex {
         self.rune_field[usize::from(ordinal.get()) - 1]
     }
 
-    /// The letter token for a registered family, carrying its rune-field ordinal, or `None` for a name that is no family. This is the one place a letter token is minted: a token names a family out of the registry, and the ordinal it carries is what every memo key it reaches is spelled in.
+    /// The letter token for a registered family, carrying its rune-field ordinal, or `None` for a name that is no family. Outside tests, this is the only place a letter token is created, and every memo key stores the ordinal it carries.
     pub fn letter(&self, name: Sym) -> Option<RightToken> {
         self.rune_ordinal(name)
             .map(|ordinal| RightToken::Letter(name, ordinal))
     }
 
-    /// A stance name's ordinal in the stance field of a memo key, or `None` for a name no rune declares a stance by. A structural read: which names are stances is not any rune's content, so nothing is journaled.
+    /// A stance name's ordinal in the stance field of a memo key, or `None` for a name no rune declares a stance by. Nothing is journaled, because the set of stance names is spec structure and not one rune's content.
     pub fn stance_ordinal(&self, stance: Sym) -> Option<Ordinal> {
         self.stance_ordinals.get(&stance).copied()
     }
@@ -440,15 +440,15 @@ impl SpecIndex {
         self.rune_index[seat as usize].order_index.len()
     }
 
-    /// The stance's rank in its rune's declared order — the third stage of the ranking, resolved once when the index is built rather than memoized on first ask.
+    /// The stance's rank in its rune's declared order, which the `Order` ranking stage reads after the yielding prefers. Computed when the index is built.
     ///
-    /// The arithmetic is load-bearing: the order list is `policy.order` when it is non-empty and declaration order otherwise, then every stance the list omits is appended in declaration order, and each stance's index is its first position in that list. A name in `policy.order` that is not a stance still occupies its seat, so the stances after it rank one lower than a naive enumeration would give them.
+    /// The order list is `policy.order` when it is non-empty and declaration order otherwise, then every stance the list omits is appended in declaration order, and each stance's index is its first position in that list. A name in `policy.order` that is not a stance still takes a position, so each stance after it gets an index one higher than a count of stances alone would give.
     pub fn order_index(&self, id: StanceId) -> usize {
         journal(Read::Rune(self.rune_name_at(id.rune)));
         self.rune_index[id.rune as usize].order_index[id.stance as usize]
     }
 
-    /// The stance a rune defaults to, `model.Rune.default_stance`: the first name in `policy.order`, or the first declared stance when there is no order. The first branch echoes `policy.order[0]` whether or not it names a stance, exactly as the Python property does.
+    /// The stance a rune defaults to, `model.Rune.default_stance`: the first name in `policy.order`, or the first declared stance when there is no order. Like the Python property, it returns `policy.order[0]` even when that name is not a stance.
     pub fn default_stance(&self, rune: Sym) -> Option<Sym> {
         let rune = self.rune(rune)?;
         rune.policy
@@ -470,18 +470,18 @@ impl SpecIndex {
         Some((seat, row_at(&self.stance(id).surface.exits, seat)))
     }
 
-    /// Whether the stance declares an exit at this height — `height in stance.surface.exits` as `model.Surface` spells it, the shadowing test an unlock exit has to pass.
+    /// Whether the stance declares an exit at this height: `height in stance.surface.exits`. An unlock exit counts only at a height the stance does not declare.
     pub fn declares_exit(&self, id: StanceId, height: Sym) -> bool {
         journal(Read::Rune(self.rune_name_at(id.rune)));
         self.rows(id).exits.contains_key(&height)
     }
 
-    /// A height's glyph-space y, `registry.y_of` — `None` for a height the registry does not declare, where Python raises `KeyError`.
+    /// A height's glyph-space y, `registry.y_of`. `None` for a height the registry does not declare, where Python raises `KeyError`.
     pub fn y_of(&self, height: Sym) -> Option<i64> {
         self.heights.get(&height).copied()
     }
 
-    /// The state symbol a `cells:` row names this height's withdrawn exit with — the height's own text plus [`WITHDRAWN_SUFFIX`]. Every registry height has one interned at build time; a height from outside the registry falls back to a pool lookup, and `None` then means no authored row can be naming it.
+    /// The state symbol a `cells:` row uses for this height's withdrawn exit: the height's text plus [`WITHDRAWN_SUFFIX`]. Every registry height has one interned at build time. For any other height this looks the text up in the pool, and `None` then means no authored row names it.
     pub fn withdrawn_state(&self, height: Sym) -> Option<Sym> {
         if let Some(state) = self.withdrawn.get(&height) {
             return Some(*state);
@@ -489,7 +489,7 @@ impl SpecIndex {
         self.sym_of(&format!("{}{WITHDRAWN_SUFFIX}", self.resolve(height)))
     }
 
-    /// Every family the registry knows about, modeled or not — the set an `except:` carve subtracts from when the condition it carves has no family axis of its own.
+    /// Every family the registry declares, modeled or not. An `except:` subtracts from this set when its condition has no family axis of its own.
     pub fn families(&self) -> &BTreeSet<Sym> {
         &self.families
     }
@@ -518,9 +518,9 @@ impl SpecIndex {
         self.rune_index[seat as usize].groups.get(&name)
     }
 
-    /// Resolve a `class:` reference to family names: registry predicate classes first, then the owning rune's local groups, then any rune's groups in rune declaration order — `spec_load` lints cross-rune duplicates, so the last step is unambiguous on a linted spec.
+    /// Resolve a `class:` reference to family names: registry predicate classes first, then the owning rune's local groups, then the group of that name on the first rune in declaration order that declares one.
     ///
-    /// An unresolvable name is a spec defect rather than a settlement outcome: `spec_load` refuses a dangling class reference, so this cannot fire on a spec the pipeline built. It surfaces as [`SettleError::Plain`] because that is the only shape the kernel's callers already handle.
+    /// An unresolvable name is a spec defect, not a settlement outcome. `spec_load` rejects a dangling class reference, so this cannot happen on a spec the pipeline built. It is returned as [`SettleError::Plain`] because the kernel's callers already handle that variant.
     pub fn class_members(
         &self,
         name: Sym,
@@ -558,7 +558,7 @@ impl SpecIndex {
         }
     }
 
-    /// Whether the ZWNJ chokepoint locks this rune, `settle.is_entry_bearing`: some stance offers a selectable declared entry row, or some stance carries an entry unlock. Feature-blind, like the chokepoint itself. An unmodeled rune answers `false`, where Python raises `KeyError`; every call site checks first.
+    /// Whether the ZWNJ chokepoint locks this rune, as `settle.is_entry_bearing` computes it: some stance has a selectable declared entry row, or some stance has an entry unlock. Feature-blind, like the chokepoint itself. An unmodeled rune returns `false`, where Python raises `KeyError`; every call site checks first.
     pub fn is_entry_bearing(&self, rune: Sym) -> bool {
         self.rune_seat(rune).is_some_and(|seat| {
             journal(Read::Rune(rune));
@@ -663,9 +663,9 @@ fn entry_bearing_of(rune: &Rune) -> bool {
 
 /// Hand-authored `ams-m1-spec/1` dumps for the settlement modules' tests, and the two specs they share.
 ///
-/// Strict ingest means a test dump has to spell every field `model.py` declares, which a hand-written JSON literal does at ruinous length. The builders here start from each record's all-defaults spelling and take only the fields a test actually cares about, so a condition or a policy record reads as the two or three things that make it interesting. They live in this module rather than a test-only file because `parse::parse_spec` plus [`SpecIndex::new`] is what every settlement test needs a spec through, and the other modules' tests reach them as `crate::index::fixtures`.
+/// Ingest is strict, so a test dump must write every field `model.py` declares. The builders here start from each record with every field at its default and take only the fields a test sets. The other modules' tests reach them as `crate::index::fixtures`.
 ///
-/// The `fixtures` feature is how the integration tests reach the same dumps: an integration test links the library as any other caller would, where `cfg(test)` does not hold. It is a test scaffold and not part of the crate's surface — nothing but this crate's own `tests/` enables it, and a release build compiles none of it.
+/// The integration tests in `tests/` link the library without `cfg(test)`, so they reach these builders through the `fixtures` feature. Only this crate's dev-dependency on itself enables that feature, so a release build compiles none of it.
 #[cfg(any(test, feature = "fixtures"))]
 #[doc(hidden)]
 pub mod fixtures {
@@ -775,7 +775,7 @@ pub mod fixtures {
         ("families", "{}"),
     ];
 
-    /// One record's JSON: every field its dataclass declares, in declaration order, with the first override of a field winning. An override naming a field the dataclass does not declare is a typo in the test, and panics rather than producing a dump the parser would refuse for the wrong reason.
+    /// One record's JSON: every field its dataclass declares, in declaration order, with the first override of a field winning. An override naming an undeclared field panics, so a typo in a test does not produce a dump the parser rejects for an unrelated reason.
     fn object(declared: &[(&str, &str)], overrides: &[(&str, &str)]) -> String {
         for (key, _) in overrides {
             assert!(
@@ -848,7 +848,7 @@ pub mod fixtures {
         format!(r#"{{"format":"ams-m1-spec/1","runes":{runes},"registry":{registry}}}"#)
     }
 
-    /// A JSON object over raw values, for the mappings whose keys are load-bearing.
+    /// A JSON object with the given keys and raw values.
     pub fn map(entries: &[(&str, &str)]) -> String {
         let fields: Vec<String> = entries
             .iter()
@@ -868,12 +868,12 @@ pub mod fixtures {
         format!("[{}]", quoted.join(","))
     }
 
-    /// One JSON string. The fixtures spell only plain names, so quoting is all the escaping they need.
+    /// One JSON string. The fixtures use only plain names, so they need no escaping beyond the quotes.
     pub fn quote(value: &str) -> String {
         format!("\"{value}\"")
     }
 
-    /// The index one dump builds, panicking on a dump the parser refuses — a refused fixture is a broken test, not a finding.
+    /// The index one dump builds. Panics if the parser rejects the dump, since that means the test itself is broken.
     pub fn index_of(text: &str) -> SpecIndex {
         SpecIndex::new(parse_spec(text).expect("a fixture dump parses"))
     }
@@ -920,7 +920,7 @@ pub mod fixtures {
 
     /// The small four-family spec the vocabulary and lookup tests read.
     ///
-    /// `qsPea` is the plain case: one stance, a selectable baseline entry, an x-height exit. `qsTea` is the awkward one on purpose — two stances declared `half` then `full` under a `policy.order` of `["ghost", "full"]`, so the order index has to reproduce the seat a name that is not a stance still occupies; its entry rows carry one selectable stroke and one unselectable one, and it declares a `pulled-back` sibling bitmap and a refusal with provenance. `qsMay` bears its entry only through an unlock, and `qsIt` bears none at all and carries the two local groups the class resolution order is tested against — one of which deliberately shadows a registry predicate class.
+    /// `qsPea` is the plain case: one stance, a selectable baseline entry, an x-height exit. `qsTea` has two stances declared `half` then `full` under a `policy.order` of `["ghost", "full"]`, so the order index must count the position of a name that is not a stance. Its entry rows have one selectable stroke and one unselectable one, and it declares a `pulled-back` sibling bitmap and a refusal with provenance. `qsMay` is entry-bearing only through an unlock. `qsIt` has no entry at all and declares the two local groups the class resolution order is tested against, one of which has the same name as a registry predicate class.
     pub fn mini() -> SpecIndex {
         index_of(&mini_dump())
     }
@@ -1058,7 +1058,7 @@ pub mod fixtures {
         dump(&runes, &four_family_registry())
     }
 
-    /// The letters the fixture registries share, as a registry spells them.
+    /// The letters the fixture registries share, in registry form.
     const FOUR_FAMILIES: &[(&str, &str)] = &[
         ("qsPea", r#"{"codepoint":58960,"sequence":null}"#),
         ("qsTea", r#"{"codepoint":58962,"sequence":null}"#),
@@ -1071,7 +1071,7 @@ pub mod fixtures {
         registry_over(FOUR_FAMILIES)
     }
 
-    /// [`four_family_registry`] plus the one ligature family, `qsPea_qsTea`, which carries a sequence where a letter carries a code point and is an ordinary literal name everywhere an axis reads one.
+    /// [`four_family_registry`] plus one ligature family, `qsPea_qsTea`, which has a sequence where a letter has a code point, and is an ordinary name everywhere an axis reads one.
     pub fn ligature_family_registry() -> String {
         let mut families = FOUR_FAMILIES.to_vec();
         families.push((
@@ -1302,7 +1302,7 @@ mod tests {
     fn the_vocabulary_is_interned_against_the_specs_own_pool() {
         let index = fixtures::mini();
         let vocab = index.vocab();
-        // The dump mentions "space" and "zwnj" as boundary tokens, so the vocabulary must have resolved to those very symbols rather than minting twins.
+        // The dump mentions "space" and "zwnj" as boundary tokens, so the vocabulary must resolve to those same symbols instead of interning new ones.
         assert_eq!(Some(vocab.space), index.sym_of("space"));
         assert_eq!(Some(vocab.zwnj), index.sym_of("zwnj"));
         // Nothing in the dump says "live", and the vocabulary interned it anyway.
@@ -1355,7 +1355,7 @@ mod tests {
         );
     }
 
-    /// The memo keys' ordinals (issue #266): each field's mint is injective over every symbol the field can hold — every registered family, every stance name a rune declares, every height the registry declares and the surfaces name — every ordinal reads back as the symbol it was minted for, and a symbol outside the field's table has none.
+    /// Each memo-key field's ordinals are injective over every symbol the field can hold (every registered family, every stance name a rune declares, every height the registry declares and the surfaces name), every ordinal maps back to its symbol, and a symbol outside the field's table has none.
     #[test]
     fn each_key_field_mints_an_injective_ordinal_that_reads_back() {
         let index = fixtures::mini();

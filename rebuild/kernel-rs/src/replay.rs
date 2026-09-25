@@ -1,10 +1,12 @@
-//! The string replay behind the `replay-strings` verb: every text of the sweep universe walked window by window, the folded rules applied first-match with the settled left fed forward, and each window's rule outcome held to this engine's own settlement of it. It is `conform._SettledWindowWalk` and `witness._first_matching_rule` transcribed over the persisted product instead of the compiled font, and what it answers is the one data-dependent fact the enumeration can still get wrong after read-back and the fold's partition assertion have done their work: completeness. A live raw window the fixpoint left at `#NA` or never reached is one the font answers with a wildcard or a default rule, and this walk is where that answer meets the engine's.
+//! The string replay behind the `replay-strings` subcommand. It walks every text of the sweep universe window by window, applies the folded rules first-match with each settled left fed forward, and checks each window's rule outcome against this engine's settlement of the same window. It restates `conform._SettledWindowWalk` and `witness._first_matching_rule` over the persisted rules instead of the compiled font. After read-back and the fold's partition assertion, the one data-dependent property left to check is completeness: a live raw window that the fixpoint left at `#NA` or never reached gets a wildcard or default rule in the font, and this walk compares that rule's result with the engine's.
 //!
-//! Three things hold the walk to the belt's own reading of a window, `conform._window_rights`. The slots a window is keyed on are the raw labels of the formed token stream out to the fourth, `#EDGE` past the end and `#NA` from the first slot after a boundary on, because no record peeks past a boundary; the engine is handed the raw tokens themselves, edge-padded, exactly as `_SettledWindowWalk._rights` hands them across the seam; and the left slot is the settled cell's label, which the fixpoint's own partition premise holds injective over settled lefts. Ligatures form before anything else, greedy and longest-first over the modeled sequences, each match yielding to the section 5.7 guard over the two raw tokens past it — `settle.form_ligatures` restated over [`GuardState`], so the token stream the walk settles is the one the emitted formation lookup produces.
+//! The walk reads a window as the belt's `conform._window_rights` does. The right slots are the raw labels of the formed token stream, out to the fourth slot. The first slot past the end is `#EDGE`, and every slot after a boundary, the edge, or `#NA` is `#NA`, because no record reads past a boundary. The engine receives the raw tokens themselves, padded with the edge, as `_SettledWindowWalk._rights` passes them. The left slot is the settled cell's label. The fixpoint's partition premise is that each such label names one left state, and `fixpoint`'s `partition_complaint` fails the build when it does not.
 //!
-//! The memo is also the build's settle memo. `write_window_memo` files it per configuration once the walk is green, one row per distinct window keyed on the input rune, the settled left and the four raw rights after the cascade, with every distinct settled record beside it — the same partition `conform._SettledWindowWalk` keys on, spelled in this crate's own vocabulary: the input as `right_token_label` or, after a ZWNJ, the chokepoint's locked name; the rights as raw labels; the left as a boundary label where the reach stops and otherwise as a seat into the record table, since `cell_label` and `geometry.display_name` are two spellings of one function of the cell and the Python side respells a seat through its own. The marker fold is the Python side's too (`conform.absorb_replay_memo`, over `model.raw_rename_map`): this crate never learns a configuration's marker names, and the seam's contract is that the file names raw labels and seats and nothing renamed. The file is written uncompressed, as every artifact this crate writes is, and is consumed and deleted by `run_m1.run_replay_strings` in the same phase.
+//! Ligatures form first, greedy and longest-first over the modeled sequences, and a match is skipped when the section 5.7 guard blocks it over the two raw tokens after it. This restates `settle.form_ligatures` over [`GuardState`], so the walk settles the token stream the emitted formation lookup produces.
 //!
-//! As a speed device for the walk itself the memo is what the belt's is: a window key answers once per configuration and every recurrence across the universe is a hash probe, until the walk's ceiling, when it has one, releases the walk memo and the engine's memos together. A window met again after a release is settled again and answers the same, since every memo here is a pure cache and a left label names one left state (the fixpoint's partition premise), so the verdict is the same whether every window misses or every window hits. A walk that files its memo never releases it. What makes the universe affordable here rather than in Python is that a miss costs one engine call in the same process instead of a batched round trip and no shaper runs beside it; the walk is still priced in distinct raw windows, which grow as the alphabet to the horizon, so the per-build depth is the belt's own (`run_m1.REPLAY_HORIZON`) and a deeper walk is the periodic sweep's. Under the locality theorem `doc/rebuild-design.md` §10 states, a walk restricted to the texts naming an edited family covers every window whose answer or reachability that edit could have moved, which is the O(delta) form a rune edit takes.
+//! The walk's memo is also the build's settle memo. After a passing walk, [`Replay::write_window_memo`] writes it per configuration: one row per distinct window, keyed on the input rune, the settled left, and the four raw rights, with every distinct settled record beside it. That is the key `conform._SettledWindowWalk` uses, in this crate's labels. The input is its `right_token_label`, or after a ZWNJ the chokepoint's locked name. The rights are raw labels. The left is a boundary label where the reach stops and otherwise an index into the record table, because `cell_label` and `geometry.display_name` are two formats of one function of the cell and the Python side converts an index to its own label. The marker fold also happens on the Python side (`conform.absorb_replay_memo`, over `model.raw_rename_map`), so the crate never needs a configuration's marker names and the file holds only raw labels and record indexes. The file is uncompressed, like every file this crate writes, and `run_m1.run_replay_strings` reads and deletes it in the same phase.
+//!
+//! Within the walk, each window key is settled once per configuration, and every later occurrence is a memo lookup. When the universe sets a ceiling, the walk clears its memo and the engine's memos together before any text that could exceed it. A window met again after a release is settled again with the same result, because every memo here is a pure cache and a left label names one left state. A walk can write its memo only if it never released it. A miss costs one engine call in the same process, with no batched round trip and no shaper, which is why the universe is affordable here and not in Python. The cost still grows with the number of distinct raw windows, which is the alphabet size to the power of the horizon, so each build walks to the belt's horizon (`run_m1.REPLAY_HORIZON`) and deeper walks belong to the periodic sweep. Under the window-locality theorem in `doc/rebuild-design.md` §10, a rune edit needs only the texts naming an edited family or a rune whose records read one, so `run_m1` passes those families and the walk skips every other text.
 
 use std::io::Write as _;
 use std::path::Path;
@@ -23,7 +25,7 @@ use crate::types::{
     settled_json,
 };
 
-/// What one configuration's walk answered: how many texts it walked, how many window settles it made and checked, and how many texts the family filter left out. `windows` counts every distinct window once on a walk that never releases its memo, and a window again each time it is met after a release.
+/// One configuration's walk totals: the texts walked, the window settles made and checked, and the texts the family filter left out. `windows` counts each distinct window once on a walk that never releases its memo, and again each time a window is met after a release.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Report {
     pub texts: u64,
@@ -31,15 +33,15 @@ pub struct Report {
     pub skipped: u64,
 }
 
-/// How many disagreements a walk names before it stops: enough to see a shape, few enough that the complaint stays one screen.
+/// How many disagreements a walk names before it stops: enough to show a pattern while keeping the error message short.
 const NAMED_DISAGREEMENTS: usize = 5;
 
-/// The texts one walk covers: every text of length 1 through `horizon` over the alphabet, narrowed to the texts naming one of `families` when a set is given — the O(delta) form a rune edit takes under the locality theorem — and the whole universe when none is; and the ceiling the walk holds its memos under.
+/// The texts one walk covers and the ceiling on its memos. The texts are every text of length 1 through `horizon` over the alphabet, narrowed to the texts naming one of `families` when a set is given.
 #[derive(Clone, Copy, Debug)]
 pub struct Universe<'a> {
     pub horizon: usize,
     pub families: Option<&'a [Sym]>,
-    /// The most windows the walk holds memoized, or one text's windows where the ceiling sits below the horizon: a text of `length` raw tokens settles at most `length` new windows, since formation only merges tokens, so before any text that could carry the walk memo past the ceiling the walk releases that memo and its engine's memos and walks on. `None` never releases.
+    /// The most windows the walk keeps memoized, or one text's windows when the ceiling is below the horizon. A text of `length` raw tokens settles at most `length` new windows, because formation only merges tokens, so before any text that could push the walk memo past the ceiling, the walk releases that memo and its engine's memos. `None` never releases.
     pub memo_windows: Option<usize>,
 }
 
@@ -63,7 +65,7 @@ impl<'a> Universe<'a> {
     }
 }
 
-/// The sweep universe's alphabet, `labels.spec_alphabet`: every modeled letter with a code point and every registered boundary token, in code point order, which is the order the universe is walked in and therefore the order a disagreement is found in. A rune's code point is its own record's, or the registry family's where the record leaves it unspelled — the two agree wherever both are spelled, since `spec_load` refuses a rune whose code point disagrees with its family's.
+/// The sweep universe's alphabet, after `labels.spec_alphabet`: every modeled letter with a code point and every registered boundary token, in code point order. The universe is walked in this order, so disagreements are found in it too. A rune's code point is its own record's, or its registry family's when the record has none; `labels.spec_alphabet` reads only the record's. Where both are set they agree, because `spec_load` rejects a rune whose code point differs from its family's.
 pub fn alphabet(index: &SpecIndex) -> Result<Vec<RightToken>, String> {
     let mut seated: Vec<(i64, RightToken)> = Vec::new();
     for (name, _) in index.runes() {
@@ -105,7 +107,7 @@ fn codepoint_of(index: &SpecIndex, name: Sym) -> Option<i64> {
     })
 }
 
-/// Which alphabet seats a text has to carry to name one of `families`: a letter's own seat, and for a ligature the seats of its components, since a ligature is named by any text carrying its sequence and a text carrying a component is the superset that is cheap to test. A family with neither a code point nor a sequence is named by no text at all.
+/// Which alphabet seats a text must contain to name one of `families`: a letter's own seat, and for a ligature the seats of its components. A text containing the ligature's sequence names the ligature, and a text containing any component is a superset that is cheap to test. A family with neither a code point nor a sequence is named by no text.
 fn wanted_seats(index: &SpecIndex, alphabet: &[RightToken], families: &[Sym]) -> Vec<bool> {
     let mut wanted = vec![false; alphabet.len()];
     let mut mark = |rune: Sym| {
@@ -129,7 +131,7 @@ fn wanted_seats(index: &SpecIndex, alphabet: &[RightToken], families: &[Sym]) ->
     wanted
 }
 
-/// `settle.form_ligatures`' order: the modeled ligature sequences longest first, ties in declaration order, grouped by the rune a sequence opens on so a position reads only the sequences its own rune can open.
+/// The modeled ligature sequences in `settle.form_ligatures`' order, longest first with ties in declaration order, grouped by first rune so a position reads only the sequences its own rune can start.
 struct Formation<'i> {
     by_lead: HashMap<Sym, Vec<(Vec<Sym>, Sym)>>,
     guard: GuardState<'i>,
@@ -160,7 +162,7 @@ impl<'i> Formation<'i> {
         }
     }
 
-    /// Type-4 formation over one raw token run, greedy left to right and longest sequence first, each match yielding to the guard over the two raw tokens past it.
+    /// Ligature formation (GSUB lookup type 4) over one raw token run, greedy left to right and longest sequence first. A match is skipped when the guard blocks it over the two raw tokens after it.
     fn form(&mut self, tokens: &[RightToken], formed: &mut Vec<RightToken>) -> Result<(), String> {
         formed.clear();
         let mut at = 0;
@@ -212,7 +214,7 @@ impl<'i> Formation<'i> {
     }
 }
 
-/// The label pool one walk keys its windows and rules through: every spelling once, its id the key's word for it, and whether that spelling is one of the five that end a window's reach. The shipped-order walk (`shipped_order.rs`) keys through the same pool.
+/// The label pool a walk keys its windows and rules through: each label text once, its id, and whether it is one of the five labels that end a window's reach. The shipped-order walk (`shipped_order.rs`) uses the same pool.
 pub(crate) struct Labels {
     ids: HashMap<Rc<str>, u32>,
     texts: Vec<Rc<str>>,
@@ -270,13 +272,13 @@ impl Labels {
         self.ids.capacity()
     }
 
-    /// `_window_rights`' cascade past `slot`: `#NA` the moment the slot before it was a boundary, the edge, or itself `#NA`.
+    /// Whether a slot holding this label ends the window's reach, so that every later slot is `#NA` (`conform._window_rights`). True for a boundary, the edge, and `#NA`.
     fn stops_reach(&self, id: u32) -> bool {
         self.boundaryish[id as usize]
     }
 }
 
-/// One rule as the walk matches it: the five constrained slots as sorted id lists, `None` for an unconstrained one, and the outcome's id.
+/// One rule as the walk matches it: the backtrack and four lookahead slots as sorted id lists, `None` for an unconstrained slot, and the outcome's id.
 struct IndexedRule {
     slots: [Option<Vec<u32>>; 5],
     outcome: u32,
@@ -291,7 +293,7 @@ impl IndexedRule {
     }
 }
 
-/// The rules of one configuration keyed by input label, in emission order under each input — the whole of what first-match-wins reads.
+/// The rules of one configuration keyed by input label, in emission order under each input.
 struct RuleIndex {
     by_input: HashMap<u32, Vec<IndexedRule>>,
 }
@@ -326,7 +328,7 @@ impl RuleIndex {
         Self { by_input }
     }
 
-    /// The outcome first-match-wins predicts for one window, or the input label itself where no rule matches — the glyph the font leaves untouched.
+    /// The outcome of the first rule that matches one window, or the input label when no rule matches, since the font then leaves the glyph unchanged.
     fn predict(&self, input: u32, window: [u32; 5]) -> u32 {
         self.by_input
             .get(&input)
@@ -335,23 +337,23 @@ impl RuleIndex {
     }
 }
 
-/// The head token of the window memo file `write_window_memo` writes; `kernel_exec.REPLAY_MEMO_FORMAT` is its Python spelling.
+/// The head token of the window memo file `write_window_memo` writes. `kernel_exec.REPLAY_MEMO_FORMAT` is the Python copy.
 pub const MEMO_FORMAT: &str = "ams-m1-replay-memo/1";
 
-/// How many rows the emitter encodes between writes: a block's bytes are the only thing held beyond the memo itself.
+/// How many rows are encoded between writes, so the writer holds one block's bytes beyond the memo itself.
 const MEMO_BLOCK_ROWS: usize = 1 << 14;
 
-/// One memoized window: the input rune, the settled left's label, and the four right labels after the cascade.
+/// One memoized window: the input rune, the settled left's label, and the four right labels, `#NA` after a boundary or the edge.
 type WindowKey = (Sym, u32, [u32; 4]);
 
-/// What a memoized window answers: the seat of the settled record and the label the next window's left slot reads.
+/// A memoized window's result: the seat of the settled record and the label the next window's left slot reads.
 #[derive(Clone, Copy)]
 struct Outcome {
     seat: crate::types::SettledSeat,
     label: u32,
 }
 
-/// One configuration's walk over the universe, or the disagreements it found spelled as the complaint the verb exits with.
+/// One configuration's walk over the universe, with the disagreements it has found.
 pub struct Replay<'i> {
     index: &'i SpecIndex,
     engine: Engine<'i>,
@@ -364,16 +366,16 @@ pub struct Replay<'i> {
     input_labels: HashMap<Sym, u32>,
     locked_labels: HashMap<Sym, u32>,
     disagreements: Vec<String>,
-    /// Every window a disagreement has been named for, which keeps a window met again after a release from being named twice.
+    /// Every window a disagreement has been named for, so a window met again after a release is not named twice.
     disagreed: HashSet<WindowKey>,
     /// How many times the walk has released its memos under the universe's ceiling.
     releases: u64,
-    /// The configuration a censused walk reports under and the `[c]` lines it has gathered so far, which are the ones each release takes, or `None` for a walk nobody asked to census.
+    /// For a walk with the census on, the configuration its lines report under and the `[c]` lines gathered at each release so far. `None` when the census is off.
     census: Option<(String, Vec<String>)>,
 }
 
 impl<'i> Replay<'i> {
-    /// A walk over `rules` in the world `modes` names, for the features one configuration resolved to. The engine keeps its trace memo, since the universe re-reaches windows in the millions and a hit replays its journaled delta so warm and cold owe the same answer. It keeps no explain ladder, since the walk reads the settled record alone.
+    /// A walk over `rules` in the world `modes` names, for the features one configuration resolved to. The engine keeps its trace memo, because the universe reaches the same windows many times, and a memo hit replays the window's fired delta, so a warm engine returns what a cold one would. It keeps no explain ladder, because the walk reads only the settled record.
     pub fn new(
         index: &'i SpecIndex,
         features: Vec<Sym>,
@@ -413,7 +415,7 @@ impl<'i> Replay<'i> {
         self.census = Some((config.to_owned(), Vec::new()));
     }
 
-    /// A censused walk's `[c]` lines, the gathered ones and then the walk's state as it stands: the walk memo and the tables the walk keeps beside it, every engine memo, the elimination text they hold, how many times the walk released its memos, and the process's resident size. Empty for a walk that was never censused, and for one whose census was already taken.
+    /// The census's `[c]` lines: the ones gathered at releases, then the current state of the walk memo and the walk's other tables, every engine memo, the elimination text they hold, the release count, and the process's resident size. Empty when the census is off or was already taken.
     pub fn take_census(&mut self) -> Vec<String> {
         let Some((config, mut lines)) = self.census.take() else {
             return Vec::new();
@@ -459,7 +461,7 @@ impl<'i> Replay<'i> {
         lines
     }
 
-    /// The walk memo and the engine's memos let go of together, which is all a release is: the pool, the labels and the named disagreements stay. A window settled again afterward seats the same record under the same label on the partition premise the fixpoint raises on (`fixpoint`'s `partition_complaint`): the walk memo keys a window on its left's label and a label names one left state, so whichever left record reaches the window after a release settles it as the first one did. Clearing keeps the walk memo's buckets, so a memo held at or under a ceiling at a capacity step stays at that step for the whole walk rather than regrowing through every doubling after each release. A censused walk takes the memos' sizes and the resident size before the release, and the resident size after it, under `release=<k>`.
+    /// Clears the walk memo and the engine's memos. The pool, the labels, and the named disagreements stay. A window settled again afterward gets the same record under the same label, because the walk memo keys a window on its left's label and, by the fixpoint's partition premise (`fixpoint`'s `partition_complaint`), a label names one left state. Clearing keeps the walk memo's allocated buckets, so the memo does not grow through every capacity doubling again after each release. With the census on, it records the memos' sizes and the resident size before the release, and the resident size after it, under `release=<k>`.
     fn release(&mut self) {
         let release = self.releases + 1;
         if let Some((config, lines)) = self.census.as_mut() {
@@ -486,7 +488,7 @@ impl<'i> Replay<'i> {
         }
     }
 
-    /// Every text of `universe` walked and checked, under the universe's memo ceiling when it names one. A disagreement between the rules and the engine is the error, naming the texts it was found in; a window the engine refuses is one too, since the belt raises on it as well.
+    /// Walks and checks every text of `universe`, under its memo ceiling if it has one. A disagreement between the rules and the engine is an error that names the texts it was found in. A window the engine returns an error for is also an error, as it is in the belt. The walk stops early once it has named `NAMED_DISAGREEMENTS` disagreements.
     pub fn walk_universe(&mut self, universe: Universe<'_>) -> Result<Report, String> {
         let alphabet = alphabet(self.index)?;
         if alphabet.is_empty() {
@@ -543,7 +545,7 @@ impl<'i> Replay<'i> {
         }
     }
 
-    /// One text: formed, then settled left to right through the memo, every miss checked against the rules as it is answered and a disagreeing window named only the first time it is met.
+    /// Forms one text's ligatures, then settles it left to right through the memo. Each memo miss is checked against the rules when it is settled, and a disagreeing window is named only the first time it is met.
     pub fn walk_text(
         &mut self,
         raw: &[RightToken],
@@ -641,7 +643,7 @@ impl<'i> Replay<'i> {
         label
     }
 
-    /// The label an input carries immediately after a ZWNJ: the chokepoint twin's for an entry-bearing rune, whose rows the enumeration keys under that label (`fixpoint`'s locked input), and its raw label for a rune the chokepoint never locks. This is `labels.formed_labels`' `.noentry` rename, applied to the input slot alone — the `#NA` cascade keeps a post-ZWNJ letter out of every right slot.
+    /// The label an input has immediately after a ZWNJ: the chokepoint twin's label for an entry-bearing rune, which is the label the enumeration keys its rows under (`fixpoint`'s locked input), and the raw label for a rune the chokepoint never locks. This is the `.noentry` rename in `labels.formed_labels`, applied to the input slot only, because every right slot after a ZWNJ is `#NA`, so a letter after a ZWNJ never appears in one.
     fn locked_label(&mut self, rune: Sym, raw: u32) -> u32 {
         if !self.index.is_entry_bearing(rune) {
             return raw;
@@ -674,7 +676,7 @@ impl<'i> Replay<'i> {
         rights
     }
 
-    /// The seat and left label one settled record answers with, the label minted on the record's first seating.
+    /// The seat and label of one settled record. The label is interned when the record is first seated.
     fn seat(&mut self, settled: &Settled) -> Outcome {
         let seat = self.pool.seat(settled);
         if seat.index() == self.seat_labels.len() {
@@ -687,7 +689,14 @@ impl<'i> Replay<'i> {
         }
     }
 
-    /// The memo filed at `path` for the Python side to absorb: a `# ams-m1-replay-memo/1<tab><head json>` line naming the configuration, the horizon, the row count, the label and record counts and the column width; then the label table, one referenced spelling per line in id order; then one `settled_json` line per seated record in seat order; then the rows, seven little-endian integers each, `u16` where every index fits and `u32` otherwise. A row is the input label, the left, the four rights and the record index. The input is the rune's raw label, or its locked name where the left is the ZWNJ and the chokepoint locks the rune — the `#NA` cascade keeps a post-ZWNJ letter out of every right slot, so the left alone decides it. The left is a label index where its spelling stops the reach (the edge and the three boundaries) and otherwise the record table's seat offset past the label count, so the two kinds share one column and the reader tells them apart by the count in the head. Two seats sharing one `cell_label` collapse to the first, which is the collapse the walk's own key made. Nothing but the block in flight is held beyond the memo. A walk that released its memo under a ceiling refuses to file it before anything is created, since what it holds is only what it settled since the last release.
+    /// Writes the memo to `path` for the Python side to absorb. The file has:
+    ///
+    /// 1. A `# ams-m1-replay-memo/1<tab><head json>` line naming the configuration, the horizon, the row count, the label and record counts, and the column width.
+    /// 2. The label table, one referenced label per line in id order.
+    /// 3. One `settled_json` line per seated record, in seat order.
+    /// 4. The rows, seven little-endian integers each, `u16` when every index fits and `u32` otherwise.
+    ///
+    /// A row is the input label, the left, the four rights, and the record index. The input is the rune's raw label, or its locked name when the left is the ZWNJ and the chokepoint locks the rune. The left alone decides this, because every right slot after a ZWNJ is `#NA`, so a letter after a ZWNJ never appears in one. The left is a label index when its label stops the reach (the edge and the three boundaries), and otherwise the record's seat plus the label count, so both kinds share one column and the reader tells them apart by the label count in the head. Two seats with the same `cell_label` are written as the first, as the walk's own key already merged them. The rows are written in blocks, so the only large buffer beyond the memo is one block. A walk that released its memo under a ceiling returns an error before creating the file, because its memo holds only what it settled since the last release.
     pub fn write_window_memo(
         &mut self,
         path: &Path,
@@ -836,7 +845,7 @@ impl<'i> Replay<'i> {
     }
 }
 
-/// One raw text as a complaint names it: its tokens' spellings joined by spaces, a letter by its rune name and a boundary by its kind.
+/// One raw text as error messages write it: its tokens joined by spaces, a letter by its rune name and a boundary by its kind.
 fn spell_text(index: &SpecIndex, raw: &[RightToken]) -> String {
     let words: Vec<String> = raw
         .iter()
@@ -880,7 +889,7 @@ mod tests {
         assert_eq!(tokens[5], fixtures::letter(&index, "qsIt"));
     }
 
-    /// The fixture's own table agrees with its engine over every string to the belt's horizon and one past it, which is the green the build states on every pass.
+    /// The fixture's own table agrees with its engine over every text up to one past the belt's horizon.
     #[test]
     fn the_fixtures_table_agrees_with_its_engine_over_the_universe() {
         let index = fixtures::mini();
@@ -894,7 +903,7 @@ mod tests {
         assert!(report.windows > 0);
     }
 
-    /// The walk's engine keeps its trace memo and no explain ladder, whatever modes its caller hands in: the helper passes the default modes, which carry the ladder, and the walk still memoizes windows without recording one or holding any elimination sentence.
+    /// The walk's engine keeps its trace memo and no explain ladder, whatever modes the caller passes. The helper passes the default modes, which include the ladder, and the walk still memoizes windows without recording a ladder or holding any elimination text.
     #[test]
     fn a_replays_engine_keeps_no_explain_ladder() {
         let index = fixtures::mini();
@@ -915,7 +924,7 @@ mod tests {
         assert_eq!(walk.engine.elimination_text_bytes(), 0);
     }
 
-    /// A rule whose outcome disagrees with settlement is found, and the complaint names the text and the window it was found in. The first rule is the one perturbed because every table's first rule wins some window; the outcome is renamed to a spelling no cell carries so the disagreement cannot be masked by a tie.
+    /// A rule whose outcome disagrees with settlement is found, and the error names the text and the window. The first rule is perturbed because every table's first rule is the first match for some window. Its outcome is renamed to a label no cell has, so it cannot equal the settled outcome.
     #[test]
     fn a_perturbed_rule_is_caught_and_the_offending_text_named() {
         let index = fixtures::mini();
@@ -931,7 +940,7 @@ mod tests {
         assert!(complaint.contains("at position"), "{complaint}");
     }
 
-    /// One walk of the fixture over `universe` under `ceiling`, which the fixture's table answers clean at any ceiling.
+    /// One walk of the fixture over `universe` under `ceiling`. The fixture's table has no disagreement at any ceiling.
     fn capped<'i>(
         index: &'i SpecIndex,
         rules: &[Rule],
@@ -969,7 +978,7 @@ mod tests {
             .collect()
     }
 
-    /// Every window `walk` holds memoized answers as `uncapped`'s memo answers it: at the same seat, under the same label.
+    /// Every window in `walk`'s memo has the seat and label `uncapped`'s memo has for it.
     fn memo_agrees(walk: &Replay<'_>, uncapped: &Replay<'_>, at: &str) {
         for (key, outcome) in &walk.memo {
             let expected = uncapped
@@ -981,7 +990,7 @@ mod tests {
         }
     }
 
-    /// A walk under a memo ceiling answers what the uncapped walk answers: the same texts and skipped count, the same records seated in the same order under the same labels, and every window it ends holding memoized at the same seat under the same label, whether the ceiling releases before every text (1), now and then (7), a few times (half the window count), or never (the window count plus the horizon, a ceiling the release rule can never fire under). White box, every text walked from released memos settles each of its windows at the seat and label the uncapped walk memoized, which holds every window of the universe to the uncapped answer. Only `windows` moves, counting each re-settle. The memo never holds more than the ceiling, or one text's windows where the ceiling sits below the horizon; a censused walk's rows, taken at every release and at the end of the walk, read the same bound, and the census moves no release point.
+    /// A walk under a memo ceiling returns what the uncapped walk returns: the same texts and skipped count, the same records seated in the same order under the same labels, and the uncapped seat and label for every window left in its memo. The ceilings tested release before every text (1), now and then (7), a few times (half the window count), and never (the window count plus the horizon, a ceiling at which the release rule never fires). A white-box pass walks each text from released memos and checks that each of its windows settles at the uncapped walk's seat and label, which covers every window of the universe. Only `windows` differs, because it counts each re-settle. The memo never holds more than the ceiling, or one text's windows when the ceiling is below the horizon. The census rows, taken at every release and at the end of the walk, show the same bound, and turning the census on does not change when releases happen.
     #[test]
     fn a_capped_walk_answers_every_text_an_uncapped_walk_answers() {
         let index = fixtures::mini();
@@ -1080,7 +1089,7 @@ mod tests {
         out
     }
 
-    /// A disagreeing window is named once however often the walk meets it: a release forgets the window's answer, so the walk settles and checks it again when it next meets it, but the window was already named. White box, the first text that disagrees is walked again after a release, re-settling its windows, and names nothing new; black box, a walk that releases before every text stops with the complaint the uncapped walk stops with, byte for byte.
+    /// A disagreeing window is named once however often the walk meets it. A release forgets the window's result, so the walk settles and checks it again, but does not name it again. White box: the first disagreeing text is walked again after a release, its windows are settled again, and nothing new is named. Black box: a walk that releases before every text fails with the same error, byte for byte, as the uncapped walk.
     #[test]
     fn a_disagreement_met_again_after_a_release_is_named_once() {
         let index = fixtures::mini();
@@ -1157,7 +1166,7 @@ mod tests {
         let _ = elsewhere.walk_universe(Universe::naming(3, &[it]));
     }
 
-    /// A ligature is named by its components' seats, so a walk narrowed to the ligature still reaches every text that could form it — and the ligature itself, carrying no code point, takes no seat of its own.
+    /// A ligature is named through its components' seats, so a walk narrowed to the ligature still reaches every text that could form it. The ligature has no code point, so it has no seat of its own.
     #[test]
     fn a_ligature_family_is_named_through_its_components() {
         let baseline = fixtures::map(&[("baseline", &fixtures::row("baseline", &[]))]);
@@ -1228,7 +1237,7 @@ mod tests {
         directory
     }
 
-    /// One filed window memo read back whole: the head's JSON, the label table, the record lines, and the rows as seven integers each, decoded at the width the head states.
+    /// One written window memo read back whole: the head's JSON, the label table, the record lines, and the rows as seven integers each, decoded at the width the head states.
     struct FiledMemo {
         head: serde_json::Value,
         labels: Vec<String>,
@@ -1283,7 +1292,7 @@ mod tests {
         }
     }
 
-    /// The filed memo is complete over what the walk settled: one row per window the report counted, the head's count agreeing, every input and right inside the label table, every left inside the label table or the record table past it, and every record index seated.
+    /// The written memo covers everything the walk settled: one row per window the report counted, a head row count that agrees, every input and right inside the label table, every left inside the label table or the record table after it, and every record index seated.
     #[test]
     fn the_window_memo_files_one_row_per_settled_window_inside_its_tables() {
         let index = fixtures::mini();
@@ -1314,7 +1323,7 @@ mod tests {
         assert!(filed.labels.iter().any(|label| label == EDGE_LABEL));
     }
 
-    /// A walk that released its memo refuses to file it, and creates nothing on the way, since the memo holds only what the walk settled since the last release. A walk whose ceiling never fired files every window it settled, one row per window as an uncapped walk does, which is the dump path the ceiling leaves alone.
+    /// A walk that released its memo fails to write it and creates no file, because the memo holds only what the walk settled since the last release. A walk whose ceiling never caused a release writes every window it settled, one row per window, as an uncapped walk does.
     #[test]
     fn a_walk_that_released_its_memo_refuses_to_file_it() {
         let index = fixtures::mini();
@@ -1345,7 +1354,7 @@ mod tests {
         assert_eq!(filed.head["rows"], filed.rows.len());
     }
 
-    /// The spellings the Python conversion depends on: an entry-bearing letter after a ZWNJ is filed under its locked name and a letter the chokepoint never locks under its raw one, the left of both is the ZWNJ's label, and the `#NA` cascade holds in the file exactly as it does in the key — every slot past a boundary or the edge is `#NA`.
+    /// The labels the Python conversion depends on. After a ZWNJ, an entry-bearing letter is written under its locked name and a letter the chokepoint never locks under its raw name, and the left of both is the ZWNJ's label. The file follows the key in making every slot after a boundary or the edge `#NA`.
     #[test]
     fn a_post_zwnj_input_is_filed_locked_and_nothing_reaches_past_a_boundary() {
         let index = fixtures::mini();
@@ -1429,7 +1438,7 @@ mod tests {
         }
     }
 
-    /// The left's transport: a left is filed as a label exactly when its spelling stops the reach, and as a seat otherwise, and a seat's record round-trips through `settled_json` to the record the walk seated under the label the walk keyed on.
+    /// A left is written as a label when its label stops the reach and as a seat otherwise, and a seat's record round-trips through `settled_json` to the record the walk seated under the label it keyed on.
     #[test]
     fn a_left_is_a_boundary_label_where_the_reach_stops_and_a_seat_otherwise() {
         let index = fixtures::mini();
@@ -1474,7 +1483,7 @@ mod tests {
         }
     }
 
-    /// `_window_rights`' cascade: a boundary at the first slot blanks every deeper one, the edge does the same, and a letter run reads all four.
+    /// `_window_rights`: a boundary at the first slot makes every deeper one `#NA`, the edge does the same, and a letter run reads all four.
     #[test]
     fn the_right_slots_stop_reaching_past_a_boundary_or_the_edge() {
         let index = fixtures::mini();

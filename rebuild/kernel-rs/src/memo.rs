@@ -1,12 +1,12 @@
-//! A finished trace memo detached from the engine that filled it, and the rule under which another engine may read it. The memo is a pure function of the raw window: an entry records what one engine settled for one collapsed left, one input and four raw slots, together with the pointers that evaluation fired, and by the window-locality theorem (`doc/rebuild-design.md` §10) that answer is a function of the crate, the script registry and the rune files the key names, and of nothing else. So a memo one enumeration finished can answer another enumeration's windows wherever the two enumerations agree on every rune a key names — and the configuration corollary says exactly where a configuration disagrees with `default`: on the windows naming a rune with an unlock, a `feature:`-conditioned record, or an unlock gate under that configuration, and on nothing else.
+//! A finished trace memo detached from the engine that filled it, and the rule under which another engine may read it. An entry records what one engine settled for one window (a collapsed left, an input and four raw slots), with the pointers that evaluation fired and the runes and classes it read. By the window-locality theorem (`doc/rebuild-design.md` §10), that result depends only on the crate, the script registry and the rune files the key names. So one enumeration's memo can answer another enumeration's windows wherever the two agree on every rune a key names. By the configuration corollary, a configuration can differ from `default` only on the windows naming a rune with an unlock, a `feature:`-conditioned record, or an unlock gate under that configuration.
 //!
-//! That is the whole mechanism of the per-configuration delta enumeration (issue #178). `default` enumerates first and its engine hands its memo over as a [`MemoSnapshot`]; every other configuration's engine takes that snapshot as a [`MemoBase`] whose [`Exclusion`] names the configuration's unlocking runes ([`unlocking_runes`]), runs the same worklist from the same seeds in the same order, and finds every window naming no unlocking rune already answered. Nothing about the worklist is seeded: reachability is re-derived by the traversal itself, which is what keeps a cell another configuration reaches first, or reaches only there, out of the theorem's way — the memo answers what a window settles to, never whether the window exists. The fired journal survives the same way a hit on the engine's own memo survives it: a base entry carries the delta its evaluation journaled, and a hit replays it, so a delta configuration's `cited_provenance` is the union over the windows it visited exactly as a from-scratch enumeration's is.
+//! This is how the per-configuration delta enumeration works. `default` enumerates first and returns its memo as a [`MemoSnapshot`]. Every other configuration's engine takes that snapshot as a [`MemoBase`] whose [`Exclusion`] names the configuration's unlocking runes ([`unlocking_runes`]), runs the same worklist from the same seeds in the same order, and reads from the base every window whose key names no unlocking rune and whose evaluation read none. The worklist is not seeded: each traversal re-derives reachability, because the memo records what a window settles to, never whether the window exists. So a cell that another configuration reaches first, or reaches only there, is still found. The fired journal carries over as it does for a hit on the engine's own memo: a base entry stores the delta its evaluation journaled and a hit replays it, so a delta configuration's `cited_provenance` is the union over the windows it visited, as in a from-scratch enumeration.
 //!
-//! The same rule carries a memo across builds (issue #179). A table build writes each configuration's finished memo beside its tables as `memo-<config>.tsv` ([`write_memo`]), and the next build reads it back as a base whose exclusion names every rune edited in between ([`read_memo`]): a window naming no edited rune settles as it settled last time, and only the rest are traced. The file is at the raw-window grain of the memo itself rather than at the rows' — it holds the probe windows the liveness and fiber derivations trace, with their virtual lefts and unknown coordinates, beside the rows' own — so the derivations that quantify over the whole alphabet are re-run every build and answered out of the base wherever a probe names no edited rune, which is what keeps a verdict that aggregates over every letter exact without persisting the verdict itself. Which runes count as edited, and whether the file may be read at all, is `run_m1`'s decision: the head carries the configuration, the world and an opaque stamp the writer chose, the crate refuses a file whose configuration or world is not the one asked for, and everything about the stamp — the structure it names and the rune digests it records — is read on the Python side.
+//! The same rule carries a memo across builds. A table build writes each configuration's finished memo beside its tables as `memo-<config>.tsv` ([`write_memo`]), and the next build reads it back as a base whose exclusion names every rune edited in between ([`read_memo`]). A window naming no edited rune settles as it did last time, and only the rest are traced. The file holds every window the memo holds, not only the rows' windows: it includes the probe windows the liveness and fiber derivations trace, with their virtual lefts and unknown coordinates. So those derivations, which quantify over the whole alphabet, run every build and are read from the base wherever a probe names no edited rune, and a verdict that aggregates over every letter stays exact without being stored. `run_m1` decides which runes count as edited and whether the file may be read at all. The head carries the configuration, the world and an opaque stamp the writer chose. The crate fails on a file whose configuration or world is not the one asked for; the stamp, with the structure it names and the rune digests it records, is read only on the Python side.
 //!
-//! Which windows a base may answer is decided by what each entry's evaluation read (issue #184). The index journals every rune whose resolved content and every predicate class whose membership its accessors hand out while a capture is open ([`crate::index`]), and the entry keeps that set beside its fired delta, so an [`Exclusion`] naming runes and classes refuses exactly the entries that read one of them — a window whose deep slots name a rune its evaluation never consulted stays answerable when that rune moves, and a class whose membership moved invalidates only the windows that consulted it rather than the whole store. The six runes a key names are still refused as well, a belt under the journal: over-invalidation costs a trace, under-invalidation a wrong table.
+//! Which windows a base may answer is decided by what each entry's evaluation read. While a capture is open, the index journals every rune whose resolved content and every predicate class whose membership its accessors return ([`crate::index`]), and the entry stores that set beside its fired delta. An [`Exclusion`] naming runes and classes therefore rejects the entries that read one of them. A window whose deep slots name a rune its evaluation never consulted can still be read from the base when that rune changes, and a class whose membership changed invalidates only the windows that consulted it. The six runes a key names are also rejected, as a redundant check on the journal: over-invalidation costs a trace, and under-invalidation costs a wrong table.
 //!
-//! The snapshot is shared behind an [`Arc`] rather than copied per configuration, because the memo is the enumeration's high-water mark and a copy per delta configuration would put the fan-out back on the memory bound the delta was meant to lift. It therefore holds no `Rc`, no reference into any engine, and no ladder — the fixpoint never records one — and a base is read-only from the moment it is built.
+//! The snapshot is shared behind an [`Arc`] instead of copied per configuration, because the memo is the largest structure the enumeration holds, and a copy per delta configuration would again limit by memory how many delta configurations run at once. So it holds no `Rc`, no reference into any engine, and no ladder (the fixpoint never records one), and a base is read-only once built.
 
 use std::fmt::Write as _;
 use std::hash::{Hash, Hasher};
@@ -25,7 +25,7 @@ use crate::types::{
     TransitionTrace, adjustment_from_text, adjustment_text, boundary_settled,
 };
 
-/// Immutable full-key records partitioned by a hash prefix, with sorted keys inside each bucket. The target of sixteen records per bucket rounds the bucket count up to a power of two, giving eight to sixteen records per bucket on average once the table exceeds one bucket. The index costs four bytes per bucket plus its final offset. A lookup hashes once, then compares complete keys within its bucket; the hash never stands in for equality.
+/// Immutable full-key records partitioned into buckets by a hash prefix, with keys sorted inside each bucket. The bucket count is the record count over sixteen, rounded up to a power of two, which gives eight to sixteen records per bucket on average once there is more than one bucket. The index costs four bytes per bucket plus a final offset. A lookup hashes once, then binary-searches complete keys within its bucket; the hash never stands in for equality.
 #[derive(Debug, Default)]
 pub(crate) struct SnapshotEntries {
     records: Box<[(TraceKey, TraceEntry)]>,
@@ -43,7 +43,7 @@ impl SnapshotEntries {
         (hash.finish() >> (64 - prefix_bits)) as usize
     }
 
-    /// Construction holds four bytes of source position per record beside the records themselves. Counting and in-place bucket partitioning hash each key a bounded number of times; small bucket insertion sorts use the source positions to preserve last-input-wins even though partitioning rearranges equal keys. A bucket above sixty-four records uses a temporary decorated sort to bound collision-heavy sorting time. The source positions and partition cursors are released before the final array is boxed; duplicates that reduce the required prefix rebuild its index over the surviving records.
+    /// Construction holds a four-byte source position per record beside the records. Counting and in-place bucket partitioning hash each key a bounded number of times. Each bucket is sorted on key and source position, so a duplicate key keeps its last input even though partitioning reorders equal keys. Buckets of up to sixty-four records are insertion-sorted; larger ones use a temporary decorated sort, which bounds the sorting time when many keys collide. The positions and partition cursors are freed before the final array is boxed. If removing duplicates lowers the bucket count needed, the index is rebuilt over the surviving records.
     fn from_records(mut records: Vec<(TraceKey, TraceEntry)>) -> Result<Self, String> {
         let count = u32::try_from(records.len())
             .map_err(|_| "a memo holds fewer than 2^32 windows".to_owned())?;
@@ -188,7 +188,7 @@ impl std::ops::Index<&TraceKey> for SnapshotEntries {
     }
 }
 
-/// One engine's finished trace memo: compact immutable entries with the four tables their seats index. The tables are the memo's own pools flattened, so an entry read through the snapshot resolves exactly as it resolved through the engine that recorded it. The live engine's growing memo remains a hash map; a finished snapshot carries neither hash-table slack nor control bytes.
+/// One engine's finished trace memo: compact immutable entries and the four tables their seats index. The tables are the engine memo's own pools flattened, so an entry read through the snapshot resolves as it did in the engine that recorded it. The live engine's memo is a hash map; the snapshot has no hash-table slack or control bytes.
 #[derive(Debug, Default)]
 pub struct MemoSnapshot {
     pub(crate) entries: SnapshotEntries,
@@ -199,7 +199,7 @@ pub struct MemoSnapshot {
 }
 
 impl MemoSnapshot {
-    /// How many windows this snapshot answers.
+    /// How many windows this snapshot holds.
     pub fn len(&self) -> usize {
         self.entries.len()
     }
@@ -208,7 +208,7 @@ impl MemoSnapshot {
         self.entries.is_empty()
     }
 
-    /// The trace one entry stands for, rebuilt out of the tables exactly as the recording engine's miss returned it, less the ladder no fixpoint records.
+    /// The trace one entry stands for, rebuilt from the tables as the recording engine's miss returned it, without the ladder, which the fixpoint never records.
     pub(crate) fn trace(&self, entry: TraceEntry) -> TransitionTrace {
         TransitionTrace {
             settled: self.settled[entry.settled.index()].clone(),
@@ -220,33 +220,33 @@ impl MemoSnapshot {
         }
     }
 
-    /// The settled record one entry names, where it sits.
+    /// The settled record one entry names.
     pub(crate) fn settled(&self, entry: TraceEntry) -> &Settled {
         &self.settled[entry.settled.index()]
     }
 
-    /// The fired delta one entry names, where it sits.
+    /// The fired delta one entry names.
     pub(crate) fn delta(&self, entry: TraceEntry) -> &[Pointer] {
         &self.deltas[entry.delta.index()]
     }
 
-    /// The runes and classes one entry's evaluation read, where they sit.
+    /// The runes and classes one entry's evaluation read.
     pub(crate) fn reads(&self, entry: TraceEntry) -> &[Read] {
         &self.reads[entry.reads.index()]
     }
 }
 
-/// What a base may not answer for: an entry whose evaluation read any of these runes' content or any of these classes' membership is a miss on that base, whatever the base holds, and so is an entry whose key names one of the runes — the six a [`TraceKey`] carries, the left cell's, the input's and the four raw slots' — which the journal makes redundant and the module doc keeps as a belt.
+/// What a base may not answer for. An entry whose evaluation read any of these runes' content or any of these classes' membership is a miss on that base. So is an entry whose key names one of the runes: the left cell's, the input's, or a raw slot's ([`TraceKey::runes_named`]). The read journal makes that second test redundant; the module doc says why it is kept.
 #[derive(Clone, Debug, Default)]
 pub struct Exclusion {
     runes: HashSet<Sym>,
     classes: HashSet<Sym>,
-    /// The runes as the keys name them: one flag per rune-field [`crate::index::Ordinal`], indexed by the ordinal and running to the highest one named, resolved once here so that [`Exclusion::admits`] tests a key's six ordinals against a slice on every base probe rather than resolving or hashing anything. A name the registry knows no family by has no ordinal and no flag; no key can name it.
+    /// The runes as the keys name them: one flag per rune-field [`crate::index::Ordinal`], indexed by ordinal up to the highest one named, so that [`Exclusion::admits`] tests a key's ordinals against a slice on every base probe without resolving or hashing. A name the registry knows no family by has no ordinal and no flag, and no key can name it.
     named: Box<[bool]>,
 }
 
 impl Exclusion {
-    /// An exclusion over exactly these runes and no classes.
+    /// An exclusion over these runes and no classes.
     pub fn of(index: &SpecIndex, runes: impl IntoIterator<Item = Sym>) -> Self {
         let runes: HashSet<Sym> = runes.into_iter().collect();
         let mut named: Vec<bool> = Vec::new();
@@ -272,12 +272,12 @@ impl Exclusion {
         self
     }
 
-    /// An exclusion naming nothing, under which a base answers every key it holds.
+    /// An exclusion naming nothing, under which a base supplies every key it holds.
     pub fn none() -> Self {
         Self::default()
     }
 
-    /// Whether `key` names any of this exclusion's runes, on its left or in any slot.
+    /// Whether `key` names any of this exclusion's runes, on its left, as its input, or in any slot.
     pub(crate) fn names(&self, key: &TraceKey) -> bool {
         key.runes_named()
             .any(|ordinal| self.named.get(usize::from(ordinal.get())).copied() == Some(true))
@@ -313,9 +313,9 @@ pub struct MemoBase {
     pub excluded: Exclusion,
 }
 
-/// Every rune whose settlement can differ between `default` and the configuration enabling `features`: a rune with an unlock under one of them, or with any record — an unlock's own gate, a refusal, a prefer, an extension, a contraction or a resolution — whose `when:` names one. The scan reads every `when:` a rune can carry rather than the record kinds `rebuild/test_spec_load.py` pins feature conditions to, so a kind gaining a feature gate widens this set without an edit here.
+/// Every rune whose settlement can differ between `default` and the configuration enabling `features`: a rune with an unlock for one of them, or with any record whose `when:` names one (an unlock's own gate, a refusal, a prefer, an extension, a contraction or a resolution). The scan reads every `when:` a rune can carry rather than the record kinds `rebuild/test_spec_load.py` pins feature conditions to, so a kind that gains a feature gate widens this set without an edit here.
 ///
-/// A rune outside this set carries no record that reads the feature set at all, so every window naming only such runes settles identically under both configurations; that is the configuration corollary of the window-locality theorem, and the reason the delta enumeration excludes exactly this set from its base.
+/// A rune outside this set has no record whose outcome depends on these features, so every window naming only such runes settles identically under both configurations. That is the configuration corollary of the window-locality theorem, and the reason the delta enumeration excludes this set from its base.
 pub fn unlocking_runes(index: &SpecIndex, features: &[Sym]) -> HashSet<Sym> {
     let enabled: HashSet<Sym> = features.iter().copied().collect();
     let gated = |when: &When| {
@@ -342,10 +342,10 @@ pub fn unlocking_runes(index: &SpecIndex, features: &[Sym]) -> HashSet<Sym> {
         .collect()
 }
 
-/// The marker a memo file's head line carries. A file naming anything else is another format, not a newer spelling of this one.
+/// The marker on a memo file's head line. A file with any other marker is a different format.
 pub const MEMO_FORMAT: &str = "ams-m1-memo/1";
 
-/// What a memo file's head says about the memo: the configuration it was traced under, the world it was traced in (the enumeration's semantics tokens, [`crate::fixpoint::EnumerationModes::world_token`]), and the stamp its writer chose. The crate holds a file to the first two; the stamp is opaque here and is what `run_m1` reads back to decide which runes moved.
+/// What a memo file's head records: the configuration it was traced under, the world it was traced in (the enumeration's semantics tokens, [`crate::fixpoint::EnumerationModes::world_token`]), and the stamp its writer chose. The crate checks the first two. The stamp is opaque here; `run_m1` reads it to decide which runes changed.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct MemoHead {
     pub config: String,
@@ -353,7 +353,7 @@ pub struct MemoHead {
     pub stamp: String,
 }
 
-/// What separates the members of a list inside one field — a notes list, a fired delta — which is the ASCII unit separator because a note is prose (`unlocked by ss03`) and may carry a space, while nothing the engine writes carries this byte; a writer meeting one in a note refuses rather than writes a list that would read back split.
+/// The separator between the members of a list inside one field: a notes list, a fired delta, or a read set. It is the ASCII unit separator because a note is prose (`unlocked by ss03`) and may contain a space, while nothing the engine writes contains this byte. The writer returns an error for a note that contains it instead of writing a list that would read back split.
 const LIST_SEPARATOR: char = '\u{1f}';
 
 /// Where one configuration's memo file sits under a directory.
@@ -361,7 +361,7 @@ pub fn memo_path(dir: &Path, token: &str) -> PathBuf {
     dir.join(format!("memo-{token}.tsv"))
 }
 
-/// One symbol as the file spells it: its seat in the file's own `Y` table, minted the first time a window, a record or a pointer names it, so every rune, stance, height and pointer half is written once as text and every later mention is an integer.
+/// The file's `Y` table while it is written. A symbol gets its seat the first time a window, a record or a pointer names it, so every rune, stance, height and pointer half is written once as text and every later mention is an integer.
 struct Symbols {
     seats: HashMap<Sym, u32>,
     lines: Vec<String>,
@@ -393,7 +393,7 @@ impl Symbols {
         )
     }
 
-    /// One slot as the file spells it: `#` and the kind's first letter for a non-letter, the rune's symbol seat for a letter.
+    /// One slot as the file writes it: `#` and the kind's first letter for a non-letter, the rune's symbol seat for a letter.
     fn slot(&mut self, index: &SpecIndex, kind: TokenKind, rune: Option<Sym>) -> String {
         match rune {
             Some(rune) => self.seat(index, rune).to_string(),
@@ -402,7 +402,7 @@ impl Symbols {
     }
 }
 
-/// The one letter each kind is spelled by in the file — the first of its own spelling, which the six kinds keep distinct.
+/// The letter the file writes for each kind: the first letter of its name, which differs across the six kinds.
 fn kind_letter(kind: TokenKind) -> char {
     kind.as_str()
         .chars()
@@ -423,7 +423,7 @@ fn kind_of_letter(letter: &str) -> Option<TokenKind> {
     .find(|kind| kind_letter(*kind).to_string() == letter)
 }
 
-/// The file's interning of one kind of record while it is written: every distinct value once, at the seat its `S`, `N` or `D` line holds in the file.
+/// The file's interning of one kind of record while it is written: each distinct value once, at the seat of its `S`, `N`, `D` or `R` line.
 struct FileTable<T> {
     seats: HashMap<T, u32>,
     lines: Vec<String>,
@@ -503,7 +503,7 @@ fn reads_line(index: &SpecIndex, symbols: &mut Symbols, reads: &[Read]) -> Strin
     format!("R\t{}", spelled.join(&LIST_SEPARATOR.to_string()))
 }
 
-/// One notes list as its `N` line, or the refusal a note the format cannot carry earns.
+/// One notes list as its `N` line, or an error for a note the format cannot hold.
 fn notes_line(list: &[String]) -> Result<String, String> {
     for note in list {
         if note.contains([LIST_SEPARATOR, '\t', '\n']) {
@@ -513,7 +513,7 @@ fn notes_line(list: &[String]) -> Result<String, String> {
     Ok(format!("N\t{}", list.join(&LIST_SEPARATOR.to_string())))
 }
 
-/// One window of the file while it is written (issue #264): the key by reference, four seats — the source's pool seats until the first pass mints the file's, which overwrite them in place — the three bytes of the entry the `E` line spells, and the source that holds the window. Thirty-two bytes at align eight, one per window of the union from the collection loop to the last byte out, in a vector reserved once at the summed source entry counts — the bound the union cannot exceed, so no push moves it — and the `const` beside it pins the size so a field added here cannot widen the row unnoticed. The issue's caveats say why the four seats are not packed into one `u64` and why the entry's three bytes ride here rather than being fetched again at write time.
+/// One window of the file while it is written: the key by reference; four seats, which hold the source's pool seats until the first pass overwrites them with the file's seats; the three bytes of the entry that the `E` line writes; and the index of the source that holds the window. A row is thirty-two bytes at align eight, and the `const` below checks that size so an added field cannot widen it unnoticed. One row per window of the union lives from the collection loop until the last byte is written, in a vector reserved once at the summed source entry counts, which the union cannot exceed, so no push reallocates. Issue #264 explains why the four seats are not packed into one `u64` and why the entry's three bytes are copied here instead of fetched again at write time.
 struct Row<'a> {
     key: &'a TraceKey,
     seats: [u32; 4],
@@ -525,21 +525,23 @@ struct Row<'a> {
 
 const _: () = assert!(std::mem::size_of::<Row<'static>>() == 32);
 
-/// A pool seat as a [`Row`] carries it, checked at the crossing as every seat mint is: the seat types are four bytes wide, and a pool that outgrew the row's slot would be a wrong file rather than a refusal without the check.
+/// A pool seat as a [`Row`] holds it. The conversion is checked, as every seat mint is, so an index past `u32` panics instead of writing a wrong file.
 fn pool_seat(index: usize) -> u32 {
     u32::try_from(index).expect("a memo pool seats fewer than 2^32 records")
 }
 
-/// The memo file one configuration's build writes: where, under which head, and which bases' admitted windows ride along with its own so the file is the union a later build reads. [`crate::fixpoint::enumerate_for_tables`] writes it at the enumeration's release point, from the finished snapshot the engine hands over once its other memos are freed and before that snapshot is let go of, so a configuration nobody reads holds no memo past its enumeration.
+/// The memo file one configuration's build writes: its path, its head, and the bases whose admitted windows are written with its own, so the file is the union a later build reads. [`crate::fixpoint::enumerate_for_tables`] writes it at the enumeration's release point, from the finished snapshot the engine returns after freeing its other memos and before that snapshot is dropped, so a configuration that does not keep its memo for other enumerations (`keep_memo`) holds none past its enumeration.
 pub struct MemoFile {
     pub path: PathBuf,
     pub head: MemoHead,
     pub carried: Vec<MemoBase>,
 }
 
-/// One configuration's memo written as `memo-<config>.tsv`: the head line, then the five tables — `Y` for every symbol the file names, `S` for the settled records, `N` for the notes lists, `D` for the fired deltas, `R` for the read sets, each seated in file order, the lists' members set apart by [`LIST_SEPARATOR`] — then one `E` line per window naming its key by symbol seats, its four record seats, its prospect, its joint flag and its stage. The windows are `own`'s and, after them, every window of each carried base that the base's exclusion admits and no earlier source held, so the file is the union a later build may read and never a copy of a window twice, and they go out in key order rather than in the order the maps happen to hold them, so two builds of one memo write one file. Every name is spelled as text once, in the `Y` table, because a symbol is an interning order this spec happens to have and the next spec need not; the windows stream to the file, and what is held per window until the last byte is out is one [`Row`] rather than the records themselves, since a configuration's memo runs to millions of them.
+/// Writes one configuration's memo as `memo-<config>.tsv`: the head line, then five tables, then one `E` line per window. The tables are `Y` for every symbol the file names, `S` for the settled records, `N` for the notes lists, `D` for the fired deltas and `R` for the read sets, each seated in file order, with list members separated by [`LIST_SEPARATOR`]. An `E` line names its key by symbol seats, then its four record seats, its prospect, its joint flag and its stage.
 ///
-/// The stamp may carry neither a tab nor a newline, since the head is one tab-separated line; a writer handing one over is refused rather than written around.
+/// The windows are `own`'s, then every window of each carried base that the base's exclusion admits and that no earlier source both holds and admits, so the file is the union a later build may read, with each window written once. They are written in key order, so two builds of the same memo write the same file. Every name is written as text once, in the `Y` table, because a symbol's integer is this spec's interning order and the next spec's may differ. The windows are streamed to the file, and per window only one [`Row`] is held until the last byte is written, because a configuration's memo holds millions of windows.
+///
+/// Neither the stamp nor the configuration may contain a tab or a newline, since the head is one tab-separated line; the writer returns an error for either.
 pub fn write_memo(
     index: &SpecIndex,
     path: &Path,
@@ -718,7 +720,7 @@ fn parse_head(line: &str) -> Option<MemoHead> {
     })
 }
 
-/// A seat into the file's symbol table resolved to this spec's symbol, `None` for an absent field, and `Err` for a seat the table never seated or a name this spec never interned.
+/// A seat in the file's symbol table resolved to this spec's symbol: `None` for an absent field (`-`), and `Err` for a malformed seat, a seat the table never assigned, or a name this spec never interned.
 fn symbol_at(table: &[Option<Sym>], text: &str) -> Result<Option<Sym>, ()> {
     if text == "-" {
         return Ok(None);
@@ -731,7 +733,15 @@ fn seat_at(text: &str) -> Option<usize> {
     text.parse().ok()
 }
 
-/// One memo file read back as a snapshot over this spec, holding only the windows `keep` admits. A byte scan counts window lines before parsing so the record vector reserves once rather than doubling its allocation during a large load; rejected windows leave untouched capacity that boxing releases. The configuration and the world are held to `expected`'s (its stamp is not read, being the caller's business); a window naming a symbol this spec never interned — a rune, a stance or a height that left the spec, or a pointer whose record did — is dropped rather than refused, because such a window names something that moved and would be excluded by the caller's rule in any case, and so is a window naming a rune the spec no longer models, a stance its rune no longer declares or a height no key field holds, since the file spells each as text and the key is its field's [`crate::index::Ordinal`], which this spec's index may no longer mint for it, and so is a window seated on a settled record whose cell no left of this spec keys ([`LeftOrdinals::of`]), since a stale record would otherwise reach a left. A line the format does not spell is a refusal naming it.
+/// One memo file read back as a snapshot over this spec, keeping only the windows `keep` admits. A first byte scan counts the window lines so the record vector is allocated once instead of growing by doubling during a large load; capacity left unused by rejected windows is released when the records are boxed. The head's configuration and world must match `expected`'s; the stamp is the caller's concern and is not read.
+///
+/// Some windows are dropped instead of failing the read, because each names something that changed and the caller's exclusion would reject it anyway:
+///
+/// - a window naming a symbol this spec never interned: a rune, stance or height that left the spec, or a pointer whose record did;
+/// - a window naming a rune the registry knows no family by, a stance name no rune declares, or a height no seam field holds, because the key stores each as its field's [`crate::index::Ordinal`] and this spec's index has none for it;
+/// - a window seated on a settled record whose cell no left of this spec keys ([`LeftOrdinals::of`]), so that a stale record cannot reach a left, or whose adjustment tokens this spec cannot parse.
+///
+/// A line the format does not define fails the read with an error naming the line.
 pub(crate) fn read_memo(
     index: &SpecIndex,
     path: &Path,
@@ -1059,7 +1069,7 @@ mod tests {
         directory
     }
 
-    /// The mini dump with `qsTea`'s refusal struck, which is the edit the seed tests invalidate `qsTea` for.
+    /// The mini dump with `qsTea`'s refusal removed, the edit the seeding tests exclude `qsTea` for.
     fn mini_dump_without_the_tea_refusal() -> String {
         let refusal = format!(
             "\"refuse\":{}",
@@ -1246,7 +1256,7 @@ mod tests {
         (enumeration.product, enumeration.memo.expect("kept"))
     }
 
-    /// The file is the memo: written and read back over the same spec it holds every window with its record, its notes, its delta and its stage, an enumeration reading it back as a base answers every window out of it and reaches the same product, and a union written over two bases that both hold every window is the same file, each window written once out of the first.
+    /// Written and read back over the same spec, the file holds every window with its record, notes, delta, read set and stage. An enumeration using it as a base reads every window from it and reaches the same product. A union of two bases that both hold every window writes the same file as the memo alone, with each window written once, from the first base.
     #[test]
     fn a_memo_file_reads_back_as_the_memo_that_wrote_it() {
         let index = fixtures::mini();
@@ -1311,7 +1321,7 @@ mod tests {
         );
     }
 
-    /// The seed across builds (issue #179): the edited spec enumerated over the previous spec's memo, behind an exclusion naming the edited rune, reaches the edited spec's from-scratch product — and the edit is a real one, since the two specs' products differ.
+    /// Seeding across builds: the edited spec enumerated over the previous spec's memo, with an exclusion naming the edited rune, reaches the edited spec's from-scratch product. The two specs' products differ, so the edit changes the output.
     #[test]
     fn an_edited_spec_seeded_from_the_previous_memo_reaches_its_from_scratch_product() {
         let before = fixtures::mini();
@@ -1354,7 +1364,7 @@ mod tests {
         );
     }
 
-    /// Filtering named edited runes while reading saves entries without changing the product, base hits, or memo union bytes written for the next build. Lookup still checks each surviving entry's reads.
+    /// Dropping keys that name edited runes while reading keeps fewer entries without changing the product, the base hits, or the union bytes written for the next build. Lookup still checks each remaining entry's reads.
     #[test]
     fn filtering_edited_keys_preserves_products_hits_and_memo_bytes() {
         let before = fixtures::mini();
@@ -1427,7 +1437,7 @@ mod tests {
         }
     }
 
-    /// Which source a window held by two sources is written from: the first source that admits it, `own` being the first of all. Over the previous spec's memo and the edited spec's, the file is the edited memo's whichever order the two are carried in so long as the previous memo is held behind the edited rune, since every window it holds beyond the edited memo names or reads that rune; carried ahead and admitted whole, the previous memo wins every window it holds, and the file differs from the edited memo's exactly on the windows that name or read the rune. Written from `own` beside one base, the file is the one two bases in that order write, so the shape every seeded build writes — a fresh `own` beside the previous build's memo — is pinned with the rest.
+    /// A window held by two sources is written from the first source that admits it, and `own` is the first source. With the previous spec's memo and the edited spec's, the file equals the edited memo's file in either carry order as long as the previous memo excludes the edited rune, since every window it holds beyond the edited memo names or reads that rune. Carried first with no exclusion, the previous memo supplies every window it holds, so the windows that name or read the rune come from it, and at least one of them differs from the edited memo's. `own` beside one base writes the same file as two bases in that order, so the shape every seeded build writes (a fresh `own` beside the previous build's memo) is covered too.
     #[test]
     fn a_window_two_bases_hold_is_written_from_the_first_source_that_admits_it() {
         let before = fixtures::mini();
@@ -1570,7 +1580,7 @@ mod tests {
         assert!(moved > 0, "striking the refusal moves some qsTea window");
     }
 
-    /// What the reader refuses and what it drops: another configuration's file is a refusal naming both, and a window naming a stance the spec no longer has is dropped while its neighbors read.
+    /// Reading another configuration's file fails with an error naming both configurations, and a window naming a stance the spec no longer has is dropped while the other windows read.
     #[test]
     fn a_memo_for_another_configuration_is_refused_and_a_stale_window_is_dropped() {
         let index = fixtures::mini();
@@ -1591,7 +1601,7 @@ mod tests {
         assert!(!back.is_empty());
     }
 
-    /// A file seating more records or lists than a trace entry's two-byte seat can name is refused at the first line past the range, naming it, rather than read into a seat that wrapped (issue #266); a file seating exactly the range reads.
+    /// A file with more settled records or notes lists than a trace entry's two-byte seat can index fails at the first line past the range, naming that line, instead of wrapping the seat. A file with exactly the range reads.
     #[test]
     fn a_memo_seating_more_than_a_trace_seat_names_is_refused() {
         let index = fixtures::mini();
@@ -1628,7 +1638,7 @@ mod tests {
         }
     }
 
-    /// A window whose prospect is not a seam count of zero or one is refused at its line (issue #266), since the entry folds the term into one bit.
+    /// A window whose prospect is not zero or one fails at its line, because the entry stores the prospect in one bit.
     #[test]
     fn a_window_with_a_prospect_past_one_is_refused() {
         let index = fixtures::mini();
@@ -1667,7 +1677,7 @@ mod tests {
         }
     }
 
-    /// The writer's crossing to the same range (issue #266): a union whose distinct settled records or notes lists outrun a trace entry's two-byte seat is refused at the write, naming the file, rather than written as a file the next build refuses at the read, while a union at exactly the range writes and reads back whole. Each source here sits inside the range on its own, so the crossing is the union's alone.
+    /// The same range at the writer: a union with more distinct settled records or notes lists than a trace entry's two-byte seat can index fails at the write, naming the file, instead of producing a file the next build would reject. A union at exactly the range writes and reads back whole. Each source here is within the range on its own, so only the union exceeds it.
     #[test]
     fn a_union_seating_more_than_a_trace_seat_names_is_refused_at_the_write() {
         let index = fixtures::mini();
@@ -1751,7 +1761,7 @@ mod tests {
         }
     }
 
-    /// A settled record naming a cell no left of this spec keys — here its stance seat pointed at a rune's name, a symbol the spec interns but no stance field mints — drops the windows seated on it while the rest read, so no such record reaches a left.
+    /// A settled record naming a cell no left of this spec keys drops the windows seated on it while the rest read. Here the record's stance seat points at a rune's name, which the spec interns but which has no stance ordinal.
     #[test]
     fn a_window_seated_on_a_record_no_left_keys_is_dropped() {
         let index = fixtures::mini();
@@ -1786,7 +1796,7 @@ mod tests {
         assert!(!back.is_empty());
     }
 
-    /// The mini fixture unlocks a `qsMay` entry under `ss03` and nothing else under anything, so `ss03` names `qsMay` alone and a feature nothing unlocks names no rune.
+    /// The mini fixture unlocks a `qsMay` entry under `ss03` and nothing else under any feature, so `ss03` names `qsMay` alone and an empty feature set names no rune.
     #[test]
     fn the_unlocking_runes_of_a_configuration_are_the_ones_reading_its_features() {
         let index = fixtures::mini();
@@ -1801,7 +1811,7 @@ mod tests {
         assert!(unlocking_runes(&index, &[]).is_empty());
     }
 
-    /// An exclusion is a miss on any key naming one of its runes, on the left or on any raw slot, and an empty exclusion admits everything.
+    /// An exclusion rejects any key naming one of its runes, on the left, as the input, or in any raw slot, and an empty exclusion admits everything.
     #[test]
     fn an_exclusion_refuses_a_key_naming_any_of_its_runes_anywhere() {
         let index = fixtures::mini();
@@ -1829,7 +1839,7 @@ mod tests {
         );
     }
 
-    /// The journal is what the exclusion reads (issue #184): an entry whose evaluation read an excluded rune or class is refused whatever its key names, and one that read neither is admitted though its deep slots name the rune.
+    /// The exclusion tests the read journal: an entry whose evaluation read an excluded rune or class is rejected even though its key names neither, and one that read neither is admitted.
     #[test]
     fn an_exclusion_refuses_an_entry_by_what_it_read() {
         let index = fixtures::mini();

@@ -1,10 +1,8 @@
-//! The crate's two error families, which are deliberately not one family.
-//!
-//! [`IngestError`] is ordinary: a dump was unreadable, so the run stops. [`SettleError`] is a kernel outcome that later work observes rather than merely reports, and it is defined here now — before anything raises it — so the discriminant it carries is fixed before the code that keys on it exists.
+//! The crate's two error types. An [`IngestError`] means a dump could not be read, and the run stops. A [`SettleError`] is the outcome for one window that does not settle, and callers record it as a value.
 
 use std::fmt;
 
-/// A dump this build cannot read: bad JSON, a wrong format marker, a record whose fields are not the ones `rebuild/pipeline/model.py` declares, a value of the wrong JSON type, a number that is not an integer inside `i64`. The path names where in the tree the trouble was found, innermost step last.
+/// A dump this build cannot read: bad JSON, a wrong format marker, a record whose fields are not the ones `rebuild/pipeline/model.py` declares, a value of the wrong JSON type, or a number that is not an integer inside `i64`. The path names where in the tree the error was found, and prints with the innermost step last.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct IngestError {
     message: String,
@@ -20,14 +18,14 @@ impl IngestError {
         }
     }
 
-    /// Name one enclosing step — a field name, a mapping key, an array index — as the error propagates outward.
+    /// Adds one enclosing step (a field name, a mapping key, or an array index) as the error propagates outward.
     #[must_use]
     pub fn at(mut self, step: impl Into<String>) -> Self {
         self.path.push(step.into());
         self
     }
 
-    /// The complaint on its own, without the path.
+    /// The message without the path.
     pub fn message(&self) -> &str {
         &self.message
     }
@@ -45,24 +43,24 @@ impl fmt::Display for IngestError {
 
 impl std::error::Error for IngestError {}
 
-/// What settlement raises when a window will not settle. The four variants are four distinct outcomes downstream and must stay distinguishable: the class-grain fiber keys treat E-INCOMPARABLE, E-AMBIGUOUS, and the plain settle error as three separate values, so collapsing any two of them would silently merge fibers that the review surface and the treaty fold read apart. E-STRANDED is the skippable flavor — the liveness probes catch it on their own terms — which is why it is a variant here rather than a plain error with a different sentence in it.
+/// The error settlement returns for a window that does not settle.
 ///
-/// All four are raised by [`crate::engine`] and by the specificity order under it, and [`crate::cases`] is where the discriminant is read: it buckets the four into the corpus's three, which is what `settle.SettleError.bucket` carries on the Python side and why collapsing any two of them here would go unnoticed there. Ingest failures are [`IngestError`] and never belong here.
+/// [`crate::cases`] and [`crate::fiber`] read the variant through [`SettleError::kind`] and sort it into three outcomes: E-INCOMPARABLE, E-AMBIGUOUS, and unreachable, which covers both E-STRANDED and [`SettleError::Plain`]. `cases` writes these as the buckets `E-INCOMPARABLE`, `E-AMBIGUOUS`, and `E-UNREACHABLE`, which `settle.SettleError.bucket` carries on the Python side. Merging E-INCOMPARABLE with E-AMBIGUOUS, or either of them with the unreachable pair, would merge fibers that the review surface and the treaty fold tell apart. [`crate::liveness`] sorts the variants into two outcomes: a raise (E-INCOMPARABLE or E-AMBIGUOUS) and unreachable. Outside the tests, no reader distinguishes E-STRANDED from the plain error.
 ///
-/// The four ride one `Result` rather than a type hierarchy, so a call site that must catch all four — the prospect's fallback is the one that does — says so in its own `match` arms instead of in this type. `settle.SettleError` is one class on the Python side for the same reason, with the bucket as a field rather than as a subclass.
+/// The variants share one type so a caller can catch all four in one arm, as the simulated prospect's fallback in [`crate::engine`] does.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum SettleError {
-    /// E-INCOMPARABLE: two policy records whose conditions overlap without nesting — neither one's match set contains the other's — while demanding different outcomes, both of them matching the window at hand. The overlap is a fact rather than a possibility, so the raise asks for an authored `resolve:` instead of guessing.
+    /// E-INCOMPARABLE: policy records that all match the window demand different outcomes, no record's conditions are narrower than another's, and no `resolve:` record settles the conflict. The same error covers resolve records that conflict with each other in one window, and a matching resolve whose pick admits no surviving candidate.
     Incomparable(String),
-    /// E-AMBIGUOUS: a genuine record-vs-record tie — two policy records with equal match sets demanding different outcomes. The prefer stage raises it a shade wider than that: two records of one rune collide here whether their conditions are equal or merely non-nested, because the `resolve:` that would settle a non-nested crossing names another rune's record and so has nothing to say about a collision inside a single rune.
+    /// E-AMBIGUOUS: two prefer records of the same rune match the window and demand conflicting outcomes, and their conditions are equal or overlap without nesting. A `resolve:` record names another rune's record, so it cannot settle a conflict inside one rune.
     Ambiguous(String),
-    /// E-STRANDED: a window with nothing to settle into, which the liveness probes account for separately.
+    /// E-STRANDED: the left neighbor committed an exit that this letter has no cell to accept.
     Stranded(String),
-    /// The plain settle error, which is its own outcome and not a fallback bucket for the other three.
+    /// Any other window that does not settle, such as a letter with no candidate cells, or a spec defect found during settlement.
     Plain(String),
 }
 
-/// The fieldless discriminant of a [`SettleError`], carried apart from the message so outcomes can be counted, compared, and used as map keys without the sentence riding along.
+/// The variant of a [`SettleError`] without its message, so outcomes can be counted, compared, and used as map keys.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum SettleErrorKind {
     Incomparable,

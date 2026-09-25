@@ -1,12 +1,12 @@
-//! The table build's worklist fixpoint, and since issue #78 the only one: every window one configuration's alphabet can reach, each settled exactly once, recorded as the row [`crate::fold`] folds into the two tables a build persists. This is the half of the build the port replaced first — every line here consults the settlement engine — and the fold that once stood on the Python side of the boundary has since come across too, so the return type below is a value handed to the next module rather than a value serialized out of the process.
+//! The table build's worklist fixpoint: it settles every window one configuration's alphabet can reach, once each, and returns the rows [`crate::fold`] folds into the two tables a build persists.
 //!
-//! The worklist is the exactness argument rather than a traversal detail, and what follows is its specification, ported from the Python fixpoint retired at issue #78; git history holds it. An item is a left state together with the pins that left was reached under: a settled left is reachable only alongside the right1 that was the producing window's right2, because an entry refusal or an unlock conditioned on the follower makes any other combination contradictory — the left would never have committed there. The right2 allowed-set carries the late-formation guard's second slot onto a surviving pair's trail window, and the right3 allowed-set carries a producing window's enumerated right4 the same way, pinning a depth-4-decided left's successor windows to the third lookahead that was actually behind them. `None` is unrestricted in both, and both are frozen sets compared by content, never by identity.
+//! A worklist item is a left state together with the pins it was reached under. A settled left is reachable only alongside the right1 that was the producing window's right2, because an entry refusal or an unlock conditioned on the follower makes any other combination contradictory: the left would never have committed there. The right2 allowed-set carries the producing window's enumerated right3 when it has one, and otherwise the late-formation guard's allowed second slots for a surviving formation pair, intersected with any right3 pin the producing window could not use. The right3 allowed-set carries a producing window's enumerated right4 the same way, which pins the successor windows of a left decided at depth 4 to the third lookahead that was actually behind them. `None` means unrestricted in both, and both sets compare by content.
 //!
-//! The product is a function of the row set and not of the traversal that reached it, at either grain. At label grain the dedup is by window key, a hit reuses the recorded settled because the left label is injective into the trace's inputs, and the fired set is the union over a window set no traversal order can change. At class grain the row a fiber writes is traced at the fiber's canonical representative — the least member under the label order, which is the first member of the fiber's own sorted list — whichever worklist item reaches the fiber first and whatever subset of it that item's pins admit, so the set of windows traced, and with it the fired set, is the same under every order; the admitted members accumulate as a union across items, which is order-blind too. LIFO discipline with the `seen` check at pop time is still held fixed, because a traversal that is a function of the plan is cheaper to reason about than one that is merely equivalent, and the permuted-seed tests below are what hold the claim at both grains.
+//! The product depends only on the set of rows, not on the traversal order, at either grain. At label grain the dedup is by window key, and a hit reuses the recorded settled state because the left label is injective into the trace's inputs, so the fired set is a union over a window set that no order changes. At class grain a fiber's row is traced at the fiber's representative, its least member under the label order (the first entry of the fiber's sorted member list), whichever item reaches the fiber first and whatever subset of it that item's pins admit. The admitted members accumulate as a union across items, which is also order-independent. The worklist is LIFO with the `seen` check at pop time, so the traversal is a fixed function of the seeds, and the two permuted-seed tests below check order-independence at each grain.
 //!
-//! Both grains live here. Where the deep world holds and the deep-classes flag is on, the deep slots enumerate at class grain (issue 26): the same static option lists, their letters split by [`crate::fiber::DeepFiberDeriver`]'s outcome fibers, one in-flight row per `(base, fiber identity pair)` accumulating the union of admitted members across worklist items, successor pins carrying those member sets instead of singletons, and a content-addressed id per multi-member set in the product's `deep_classes` map. Two standing guards ride with it: the section 2.6 echo check re-traces a second member of every multi-member row at the row's real left and demands the identical row-visible record, and the class-grain partition assertion `DeepPartitionCheck` runs is replayed over the finished product before it is handed back. Where the flag is off, or in the pinned world where class grain cannot arise at all, the label-grain path is the whole function and the deep slots still enumerate — the censuses and the filters are what decide that, not the grain.
+//! In the deep world with the deep-classes flag on, the deep slots enumerate at class grain: the same static option lists, their letters split into the outcome fibers of [`crate::fiber::DeepFiberDeriver`], one in-flight row per base and fiber identity accumulating the admitted members across items, successor pins carrying those member sets instead of singletons, and a content-addressed id per multi-member set in the product's `deep_classes` map. Two checks run with it. The echo check re-traces a second member of every multi-member row at the row's real left and requires the same row-visible record. `DeepPartitionCheck` runs over the finished product before it is returned. With the flag off, or in the pinned world where class grain cannot arise, only the label-grain path runs, and the deep slots still enumerate: the censuses and the filters decide which deep slots are live.
 //!
-//! One engine settles everything, and the two slot filters, the liveness probe and the fiber deriver all borrow it rather than building their own. That is load-bearing twice over: the trace memo makes a re-reached window free, and `Engine::fired` is the product's `cited_provenance`, so a probe running through a second engine would silently shrink what the dead-policy gate is told fired. The same argument makes the liveness probe a single instance lent to both filters and to the deriver.
+//! One engine settles everything, and the two slot filters, the liveness probe and the fiber deriver all borrow it. The trace memo makes a re-reached window free, and `Engine::fired` becomes the product's `cited_provenance`, so a probe running on a second engine would silently drop entries from what the dead-policy gate sees as fired. For the same reason one liveness probe is lent to both filters and to the deriver.
 
 use std::collections::BTreeSet;
 use std::rc::Rc;
@@ -29,13 +29,13 @@ use crate::types::{
     TokenKind, TransitionTrace, cell_label,
 };
 
-/// The label a slot the window does not carry is spelled with, `table.NA_LABEL`. A boundary at right1 puts it in the second slot as well: nothing follows a run edge inside one window.
+/// The label of a slot the window does not carry, `table.NA_LABEL`. A boundary at right1 puts it in the second slot as well, because nothing follows a boundary inside one window.
 const NA_LABEL: &str = "#NA";
 
-/// The label the run edge carries, `table.EDGE_LABEL`. The other three boundaries label as the glyphs they ship as, which is why only this one needs a name of its own.
+/// The label of the run edge, `table.EDGE_LABEL`. The other three boundaries are labeled with the glyphs they ship as, so only this one needs its own constant.
 pub const EDGE_LABEL: &str = "#EDGE";
 
-/// The prefix every deep-class id carries, `table.DEEP_CLASS_PREFIX`. The `#` keeps ids outside the glyph namespace, which is what lets a slot label be read as "class or letter" by looking at its first character.
+/// The prefix of every deep-class id, `table.DEEP_CLASS_PREFIX`. The `#` keeps ids outside the glyph namespace, so a slot label's first character tells a class id from a letter.
 const DEEP_CLASS_PREFIX: &str = "#C";
 
 /// Every label a window slot can carry that is not a letter, `table.BOUNDARYISH`. A deep-class id is never a member of it.
@@ -49,9 +49,9 @@ const SEED_KINDS: [TokenKind; 4] = [
     TokenKind::NamerDot,
 ];
 
-/// The world one enumeration answers, and at which grain. Python reads all three from module-level defaults an environment variable moves — `kernel_exec.SIMULATED_PROSPECT_DEFAULT`, `kernel_exec.VOTE_SLOTS_DEFAULT` and `kernel_exec.DEEP_CLASSES_DEFAULT` — and this crate has no environment, so the caller passes them and [`Default`] is the shipping configuration. [`EnumerationModes::world_token`] is the world's one spelling, `kernel_exec.enumeration_tokens` joined, which a memo file's head carries so a memo traced in one world is never read in another.
+/// The world one enumeration runs in, and at which grain. Python reads the three flags from module-level defaults that environment variables override (`kernel_exec.SIMULATED_PROSPECT_DEFAULT`, `kernel_exec.VOTE_SLOTS_DEFAULT` and `kernel_exec.DEEP_CLASSES_DEFAULT`). This crate reads no environment, so the caller passes them, and [`Default`] is the shipping configuration. [`EnumerationModes::world_token`] names the world; a memo file's head carries it so a memo traced in one world is never read in another.
 ///
-/// The two engine modes are also the deep-world verdict: either one on widens both deep-slot censuses to every rune and hands the filters their liveness arm. `deep_classes` is the issue-26 flag and is an intersection with that verdict rather than a switch, so in the pinned world it is accepted and does nothing, there being no fiber source there to enumerate at class grain.
+/// Either engine mode on makes a deep world: both deep-slot censuses widen to every rune and the filters get their liveness probe. `deep_classes` only takes effect in a deep world. In the pinned world it is accepted and does nothing, because there is no fiber source to enumerate at class grain.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct EnumerationModes {
     pub simulated_prospect: bool,
@@ -70,7 +70,7 @@ impl Default for EnumerationModes {
 }
 
 impl EnumerationModes {
-    /// The world spelled as `kernel_exec.enumeration_tokens` spells it — each flag's token while it is on, `+`-joined, and `pinned` where none is — so the two sides name a world with one string.
+    /// The world's name as `kernel_exec.enumeration_tokens` forms it: each enabled flag's token, `+`-joined, or `pinned` when none is on, so Python and Rust name a world with the same string.
     pub fn world_token(self) -> String {
         let mut tokens: Vec<&str> = Vec::new();
         if self.simulated_prospect {
@@ -89,7 +89,7 @@ impl EnumerationModes {
     }
 }
 
-/// What one enumeration may read before it settles a window itself, and whether it hands its own memo back when it is done ([`crate::memo`]). The bases answer windows in the order given; `keep_memo` is what a configuration other enumerations will read sets, and it means only that the snapshot comes back to the caller, at the cost of holding it through the drain and the sort rather than releasing it ahead of them. Writing the memo to a file is orthogonal to it: [`enumerate_for_tables`] takes the file beside the seed and writes it at the release point whether or not the snapshot is kept.
+/// What one enumeration may read before settling a window itself, and whether it returns its own memo ([`crate::memo`]). The bases are consulted in the order given. `keep_memo` is set for the configuration other enumerations will read; it returns the snapshot to the caller, at the cost of holding it through the drain and the sort. Writing the memo to a file is independent of it: [`enumerate_for_tables`] writes the file at the release point whether or not the snapshot is kept.
 #[derive(Debug, Default)]
 pub struct Seed {
     pub bases: Vec<MemoBase>,
@@ -98,20 +98,20 @@ pub struct Seed {
 
 /// The content-addressed id one deep-slot member set carries, `table.deep_class_id`: `#C` plus the first twelve hex digits of the SHA-256 of the tab-joined members.
 ///
-/// Identical member sets share one id across contexts, across configurations and across builds, which is what keeps cross-config artifact comparison and the ss04 row-identity pin meaningful. The members arrive in the order they are to be hashed in — sorted by letter, as the emission sorts them — because the digest is over the joined text and not over a set.
+/// Identical member sets share one id across contexts, configurations and builds, which is what keeps cross-config artifact comparison and the ss04 row-identity pin meaningful. The caller passes the members sorted by letter, as the emission sorts them, because the digest is over the joined text.
 pub fn deep_class_id(members: &[String]) -> String {
     let digest = sha256::digest_hex(members.join("\t").as_bytes());
     format!("{DEEP_CLASS_PREFIX}{}", &digest[..12])
 }
 
-/// What a worklist pin allows: a set compared and hashed by content so two items pinned to the same tokens are one item, behind an [`Rc`] so an item is cheap to clone into the `seen` set. The ordering the `BTreeSet` imposes is interning order and is never read — membership, intersection and equality are the only questions asked.
+/// A worklist pin's allowed tokens: a set compared and hashed by content, so two items pinned to the same tokens are one item, behind an [`Rc`] so an item is cheap to clone into the `seen` set. The `BTreeSet` order is interning order and is never read.
 type Allowed = Rc<BTreeSet<RightToken>>;
 
-/// The six labels one window is keyed by, `table.Window.key`: the input glyph, the left, and the four right slots, each as the id the pool minted for its spelling.
+/// The six labels one window is keyed by, `table.Window.key`: the input glyph, the left, and the four right slots, each as the id the pool minted for its text.
 type WindowKey = [Label; 6];
 
 impl LabelPool {
-    /// One right slot's label, interned — [`right_token_label`] without minting the `String` that function returns.
+    /// One right slot's label, interned: [`right_token_label`] without allocating the `String` that function returns.
     fn token(&mut self, index: &SpecIndex, token: RightToken) -> Label {
         match token {
             RightToken::Letter(rune, _) => {
@@ -125,7 +125,7 @@ impl LabelPool {
         }
     }
 
-    /// A deep slot's label, interned, with an absent slot spelling [`NA_LABEL`].
+    /// A deep slot's label, interned, with an absent slot labeled [`NA_LABEL`].
     fn slot(&mut self, index: &SpecIndex, token: Option<RightToken>) -> Label {
         match token {
             Some(token) => self.token(index, token),
@@ -134,7 +134,7 @@ impl LabelPool {
     }
 }
 
-/// One worklist item: the left state, the input rune, the right1 the left was reached alongside, and the two allowed-sets pinning the slots past it. Its equality is the `seen` key exactly — a [`LeftContext`] is a kind and a settled cell and nothing else, so the derived equality compares the pair the key is meant to be.
+/// One worklist item: the left state, the input rune, the right1 the left was reached alongside, and the two allowed-sets pinning the slots past it. Its equality is the `seen` key. A [`LeftContext`] holds a kind, a settled record and ordinals computed from that record, so its derived equality amounts to comparing the kind and the settled left.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 struct Item {
     left: LeftContext,
@@ -144,7 +144,7 @@ struct Item {
     right3_allowed: Option<Allowed>,
 }
 
-/// What a recorded window carries beyond the six labels that key it — `table.Transition`'s remaining fields, kept apart from the key so the labels are stored once rather than in both the map's key and its value. The two settled records are seats into the run's [`SettledPool`]: a configuration reaches a few thousand distinct records over millions of rows, so a row holding its record by value was holding a copy — adjustments allocation and all — that hundreds of thousands of its neighbors held too (issue #162). The provenance is a seat into the run's [`NotesPool`] by the same argument, the prospect is the byte its zero-or-one range needs, and the joint flag sits beside it, so the row is sixteen bytes with no padding and no heap of its own (issue #163). The outcome is not carried at all: it is the settled cell's label, a property of the seat, and is resolved once per seat when the product is materialized rather than once per row while the worklist runs.
+/// A recorded window's fields other than the six labels that key it (the rest of `table.Transition`). The settled records and the provenance are indexes into the run's [`SettledPool`] and [`NotesPool`]: a configuration reaches millions of rows but only a few thousand distinct records, so holding each record by value would copy its heap allocations into hundreds of thousands of rows. The prospect fits in a byte. The row is sixteen bytes, two of them padding, with no heap allocation of its own. The outcome is not stored: it is the settled cell's label, resolved once per settled record when the product is built.
 struct Row {
     settled: SettledSeat,
     left_settled: Option<SettledSeat>,
@@ -153,12 +153,12 @@ struct Row {
     joint: bool,
 }
 
-/// The prospect term as a row holds it. The engine answers in the `i64` its join-count arithmetic sums, but the term itself is a seam count — one when the follower's seam is claimed and zero otherwise, in either candidacy world — so a byte carries it, and a wider answer is an engine that stopped answering with a count.
+/// The prospect term as a row stores it. The engine returns an `i64` because its join-count arithmetic sums these terms, but the term itself is zero or one (whether the follower's seam is claimed) in either candidacy world, so it fits in a byte. A wider value means the engine is no longer returning a count, and the conversion panics.
 fn prospect_byte(prospect: i64) -> i8 {
     i8::try_from(prospect).expect("a prospect is a seam count, zero or one")
 }
 
-/// One third-slot entry of a class-grain window: the boundary token where the entry is a boundary, the seat of the fiber where it is a fiber, and the members this item's pins admitted.
+/// One third-slot entry of a class-grain window: the boundary token when the entry is a boundary, the fiber's index in the context when it is a fiber, and the members this item's pins admitted.
 type Slot3Entry = (Option<RightToken>, Option<usize>, Vec<RightToken>);
 
 /// One fourth-slot entry of a class-grain window: the r4 group, or `None` where the fourth slot is dead and the row carries `#NA` there.
@@ -167,9 +167,9 @@ type Slot4Entry = Option<Vec<RightToken>>;
 /// What an in-flight class-grain row is keyed by while the worklist runs: the four near labels, the third slot's identity, and the fourth's full member group.
 type PendingKey = (Label, Label, Label, Label, Identity3, Slot4Entry);
 
-/// The third slot's identity inside a [`PendingKey`]: the boundary token itself where the entry is a boundary, and the fiber's full member tuple where it is a fiber. Naming the two alternatives is that distinction made checkable rather than left to a coincidence of representation.
+/// The third slot's identity inside a [`PendingKey`]: the boundary token for a boundary entry, and the fiber's full member list for a fiber.
 ///
-/// The members are the fiber's whole membership rather than the admitted subset, which is what lets two worklist items whose pins admit different subsets of one fiber accumulate into a single row.
+/// The members are the fiber's whole membership, not the admitted subset, so two worklist items whose pins admit different subsets of one fiber accumulate into a single row.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 enum Identity3 {
     Boundary(RightToken),
@@ -178,7 +178,7 @@ enum Identity3 {
 
 /// One in-flight class-grain row: the representative trace's row-visible record, the r3 members accumulating across worklist items, and the frame the echo traces replay after the drain.
 ///
-/// The representative is the fiber's least member under the label order, [`crate::fiber::Fiber::members`]' first entry, whether or not the first item to reach the row admitted it; the r4 members carry no pins and so are full from the first item, which is why they are a plain group here where the third slot's are a set.
+/// The representative is the fiber's least member under the label order, the first entry of [`crate::fiber::Fiber::members`], whether or not the first item to reach the row admitted it. The r4 members carry no pins and so are complete from the first item, which is why they are a plain group here while the third slot's are a set.
 struct PendingDeepRow {
     left_context: LeftContext,
     left_label: Label,
@@ -199,7 +199,7 @@ struct PendingDeepRow {
 }
 
 impl PendingDeepRow {
-    /// Whether an echo trace's record is the representative's, over exactly the four fields a row carries: the settled triple and the notes — the representative's, each read back through the pool its seat names — the prospect and the joint-floor flag. Nothing about the ranking that reached them is compared, because nothing about it reaches the row.
+    /// Whether an echo trace's record matches the representative's in the four fields a row carries: the settled triple and the notes (each read back through its pool), the prospect, and the joint-floor flag. The ranking that reached them is not compared because the row does not store it.
     fn echoes(&self, seats: &SettledPool, notes: &NotesPool, echo: &TransitionTrace) -> bool {
         echo.settled == *seats.get(self.settled)
             && echo.prospect == i64::from(self.prospect)
@@ -208,9 +208,9 @@ impl PendingDeepRow {
     }
 }
 
-/// One configuration's whole fixpoint, and the value [`crate::fold::fold_product`] folds: the rows in their key order, the deep-class map their class tokens resolve through, the cells they settle into, and the provenance the engine fired while tabulating. Serialized it is `table.FixpointProduct`, which `kernel_exec.enumerate_transitions` parses back — the enumeration at the grain a table drops on its way to a window row. No build stage and no tool asks for it; the rebuild suite is what keeps that path exercised.
+/// One configuration's whole fixpoint, the value [`crate::fold::fold_product`] folds: the rows in key order, the deep-class map their class tokens resolve through, the cells they settle into, and the provenance the engine fired while tabulating. Serialized, it is `table.FixpointProduct`, which `kernel_exec.enumerate_transitions` parses. No build stage or tool calls it; only the rebuild suite exercises it.
 ///
-/// The engine is built here rather than handed in, out of `modes` — which is also what decides whether the censuses widen, whether the filters carry their liveness arm, and whether the deep slots enumerate at class grain, because none of those three is meaningful without the others.
+/// The engine is built here from `modes`, which also decide whether the censuses widen, whether the filters get their liveness probe, and whether the deep slots enumerate at class grain, because none of the three is meaningful without the others.
 pub fn enumerate_transitions(
     index: &SpecIndex,
     features: &[Sym],
@@ -228,7 +228,7 @@ pub fn enumerate_transitions(
     .map(|enumeration| enumeration.product)
 }
 
-/// What [`enumerate_for_tables`] hands back: the fixpoint, the [`WindowOptions`] it ran over, the engine's finished memo when the seed asked to keep it, and how long the memo file took to write when one was named — clocked here because the write runs inside the enumeration, so the caller can put it under its own label.
+/// What [`enumerate_for_tables`] returns: the fixpoint, the [`WindowOptions`] it ran over, the engine's finished memo when the seed asked to keep it, and how long the memo file took to write when one was named. The write runs inside the enumeration, so it is timed here for the caller to report under its own label.
 pub struct TablesEnumeration<'i> {
     pub product: FixpointProduct,
     pub options: WindowOptions<'i>,
@@ -236,7 +236,7 @@ pub struct TablesEnumeration<'i> {
     pub memo_write: Option<Duration>,
 }
 
-/// [`enumerate_transitions`] handing back the [`WindowOptions`] it ran over as well, with the census lines when `census` is given, and the engine's finished memo when the seed asked for it: the table build folds the product it still holds, and the fold's certificates read the formation guard through the same options — whose verdict memo the worklist already warmed — rather than sweeping the guard a second time. The seed is what lets one configuration's enumeration answer another's windows ([`crate::memo`]). With a `file`, the finished memo is written there at the release point, after the engine's other memos are freed and before the snapshot is let go of, so a configuration whose seed did not keep it holds no memo through its drain or its sort.
+/// [`enumerate_transitions`] that also returns the [`WindowOptions`] it ran over, the census lines when `census` is given, and the engine's finished memo when the seed asks for it. The table build folds the product it holds, and the fold's certificates read the formation guard through the same options, whose verdict memo the worklist already filled, instead of sweeping the guard again. The seed lets one configuration's enumeration read another's settled windows ([`crate::memo`]). With a `file`, the finished memo is written there at the release point, after the engine's other memos are freed, so a configuration whose seed does not keep the memo holds none through its drain or its sort.
 pub fn enumerate_for_tables<'i>(
     index: &'i SpecIndex,
     features: &[Sym],
@@ -248,9 +248,9 @@ pub fn enumerate_for_tables<'i>(
     enumerate_seeded(index, features, modes, contract_seeds, census, seed, file)
 }
 
-/// [`enumerate_transitions`] with the `--cache-census` diagnostic switched on: the same product, plus a `[c]` line per collection on the way past the drain saying how many entries it held and in how many buckets, the elimination text the memos were carrying, and the process's resident size sampled before the memo release, after it — the engine's other memos freed and the trace memo still held, as a snapshot, wherever a file is to be written from it or the seed keeps it — then after the memo file is written and the snapshot let go of, when one is named, and past the sort. Nothing here reaches the stream — the lines are the caller's to put on stderr — and nothing is computed unless the caller asked, so the shipping path pays nothing for it.
+/// [`enumerate_transitions`] that also appends the `--cache-census` lines to `census`: each collection's length and capacity once the worklist finishes, the size of the elimination text the memos hold, the memo base hits in total and per base, and the process's resident size before the memo release, after it, after the memo file is written (when [`enumerate_for_tables`] names one), and after the sort. The caller writes the lines to stderr. None of this is computed unless asked for.
 ///
-/// The instrument exists because every RAM decision this crate faces reduces to entry counts, and a count read off a live alphabet settles in one run what a struct-size argument can only estimate.
+/// Memory decisions in this crate come down to entry counts, and a count read from a live alphabet settles in one run what a struct-size argument can only estimate.
 pub fn enumerate_censused(
     index: &SpecIndex,
     features: &[Sym],
@@ -269,7 +269,7 @@ pub fn enumerate_censused(
     .map(|enumeration| enumeration.product)
 }
 
-/// [`enumerate_transitions`] with the seeding left open, which is how the order-independence of the pinned world is testable at all. Production always passes [`contract_seeds`]; a test passes a permutation and asserts the same product, which is a statement about that world rather than about the discipline, since class grain makes the first visitor of a fiber decide its representative.
+/// [`enumerate_transitions`] with the seeding passed in, so a test can permute the seed order and check that the product does not change. Production always passes [`contract_seeds`]. The permuted-seed tests cover both the pinned world and class grain, where each fiber's row is traced at its least member regardless of which item reaches it first.
 fn enumerate_seeded<'i>(
     index: &'i SpecIndex,
     features: &[Sym],
@@ -286,7 +286,7 @@ fn enumerate_seeded<'i>(
             simulated_prospect: modes.simulated_prospect,
             vote_slots: modes.vote_slots,
             trace_memo: true,
-            // The rows this fixpoint writes read the settled triple, the prospect, the joint floor and the notes; nothing here ever asks a trace how it was decided, and the ladder that would answer costs more than every other explain-only allocation together.
+            // The rows read only the settled triple, the prospect, the joint floor and the notes, never how a trace was decided, and the explain ladder costs more than every other explain-only allocation together.
             explain_ladder: false,
             ..EngineModes::default()
         },
@@ -294,7 +294,7 @@ fn enumerate_seeded<'i>(
     engine.seed_bases(seed.bases);
     let config = feature_config_token(index, features.iter().copied());
     let mut options = WindowOptions::new(index).map_err(complaint)?;
-    // The deep-world verdict over this engine's own modes, which is the one place the two flags are read as a single question.
+    // Either engine mode makes a deep world. This is the only place the enumeration combines the two flags.
     let deep_world = modes.simulated_prospect || modes.vote_slots;
     let deep_inputs = third_slot_inputs(index, deep_world);
     let deep4_inputs = fourth_slot_inputs(index, deep_world);
@@ -308,14 +308,14 @@ fn enumerate_seeded<'i>(
     let mut seats = SettledPool::default();
     let mut notes = NotesPool::default();
     let mut transitions: HashMap<WindowKey, Row> = HashMap::default();
-    // The pending class-grain rows, split from the seats their keys hold, so that the echo pass walks them in the order they were created.
+    // The in-flight class-grain rows in creation order, which the echo pass walks, and a map from each row's key to its index.
     let mut pending_rows: Vec<PendingDeepRow> = Vec::new();
     let mut pending_seats: HashMap<PendingKey, usize> = HashMap::default();
     let mut seen: HashSet<Item> = HashSet::default();
     let mut worklist = seeds(&options);
 
     while let Some(item) = worklist.pop() {
-        // The `seen` set is tested at pop time and added to there too; one insertion answers both, since a set that already held the item is exactly the skip.
+        // One insert both tests and updates `seen` at pop time: an item already present is skipped.
         if !seen.insert(item.clone()) {
             continue;
         }
@@ -341,10 +341,10 @@ fn enumerate_seeded<'i>(
         } else {
             labels.intern(boundary_left_label(left.kind))
         };
-        // A letter left is the settled record of a row already recorded, so this is a hit on every item past the seeds; it is asked once per item and compared by integer on every window the item reaches.
+        // A letter left is the settled record of a row already recorded, so past the seeds this lookup always hits. It runs once per item, and each window the item reaches compares the resulting index as an integer.
         let left_seat: Option<SettledSeat> =
             left.settled.as_ref().map(|settled| seats.seat(settled));
-        // The trace reads the raw letter whatever the label says: locking is a fact about the glyph the emitted lookup substitutes, not about what settles.
+        // The trace reads the raw letter whatever the label says: locking is a property of the glyph the emitted lookup substitutes, not of what settles.
         let token = index
             .letter(rune)
             .expect("a worklist item's input is a modeled rune");
@@ -448,7 +448,7 @@ fn enumerate_seeded<'i>(
                         }
                     }
                     for (boundary3, fiber3, admitted3) in slot3_entries {
-                        // The census gate is applied here rather than inside the deriver: a fiber's own `fourth_matters` is the raw filter verdict, and only the enumeration knows whether this input is censused deep enough to spend it.
+                        // The census check is applied here, not inside the deriver: a fiber's own `fourth_matters` is the raw filter result, and only the enumeration knows whether this input is in the depth-4 census.
                         let slot4_entries: Vec<Slot4Entry> = match fiber3 {
                             Some(seat)
                                 if deep4_inputs.contains(&rune)
@@ -463,14 +463,14 @@ fn enumerate_seeded<'i>(
                             }
                             _ => vec![None],
                         };
-                        // The identity is the fiber's *full* member tuple rather than the admitted subset, so two items whose pins admit different subsets of one fiber accumulate into one row instead of splitting it.
+                        // The identity is the fiber's full member list, not the admitted subset, so two items whose pins admit different subsets of one fiber accumulate into one row.
                         let identity3 = match boundary3 {
                             Some(token) => Identity3::Boundary(token),
                             None => Identity3::Members(fiber3.map_or_else(Vec::new, |seat| {
                                 context.fibers[seat].members.clone()
                             })),
                         };
-                        // The row is traced at the fiber's least member whether or not this item's pins admit it: the fiber invariant makes every member's record the same, and tracing the canonical one is what makes the traced window set, and so the fired set, a function of the row set rather than of which item reached the fiber first.
+                        // The row is traced at the fiber's least member whether or not this item's pins admit it. The fiber invariant makes every member's record the same, and tracing a fixed member makes the traced window set, and so the fired set, independent of which item reached the fiber first.
                         let rep3 = match fiber3 {
                             Some(seat) => context.fibers[seat].members[0],
                             None => admitted3[0],
@@ -609,7 +609,7 @@ fn enumerate_seeded<'i>(
                             labels.slot(index, right3),
                             labels.slot(index, right4),
                         ];
-                        // A worklist item with different pins can re-reach a window key already recorded; the recorded row's settled state is what a re-trace would return, because the left label is injective into the trace's inputs, so a hit skips straight to the successor enqueue — whose pins still differ per item. The left-state comparison is that premise made executable, and can only fire if `cell_label` stops being injective over settled lefts.
+                        // A worklist item with different pins can reach a window key already recorded. The recorded settled state is what a re-trace would return, because the left label is injective into the trace's inputs, so a hit goes straight to the successor enqueue, whose pins still differ per item. The left-state comparison checks that premise and fails only if `cell_label` stops being injective over settled lefts.
                         let settled = if let Some(existing) = transitions.get(&window_key) {
                             if existing.left_settled != left_seat {
                                 return Err(partition_complaint(
@@ -653,7 +653,7 @@ fn enumerate_seeded<'i>(
                                 let from_map = follower_map
                                     .as_ref()
                                     .and_then(|map| map.get(&right2.letter()).cloned().flatten());
-                                // A right3 pin this window could not enumerate — the input is not deep — still names the raw token one past it, which is the successor's right2. Forward it, or a depth-4-decided left leaks follower windows no text can reach and the conform transition gate reports them as dead.
+                                // A right3 pin this window could not enumerate (the input is not deep) still names the raw token one past it, which is the successor's right2. Forward it, or a left decided at depth 4 gains follower windows no text can reach and the conform transition gate reports them as dead.
                                 match (from_map, &right3_allowed) {
                                     (allowed, None) => allowed.map(Rc::new),
                                     (None, Some(pin)) => Some(Rc::clone(pin)),
@@ -678,7 +678,7 @@ fn enumerate_seeded<'i>(
 
     let mut deep_classes: Vec<(String, Vec<String>)> = Vec::new();
     let mut named_classes: HashSet<String> = HashSet::default();
-    // The section 2.6 echo check, and the class rows' emission with it: for every multi-member row the last admitted member is re-traced at the row's real left — and the last r4 member at the representative third — and its whole row-visible record must equal the representative's. That is the standing real-left, real-entry, real-adjustment guard on the virtual-left collapse the fibers import, two members deep on every build.
+    // The echo check, and the emission of the class rows: for every multi-member row, the last admitted third-slot member is re-traced at the row's real left (and the last r4 member at the representative third), and its whole row-visible record must equal the representative's. This checks, on every build, the virtual-left collapse the fibers rely on at real lefts, entries and adjustments.
     for pending in &pending_rows {
         let (label3, admitted3) = match pending.boundary3 {
             Some(token) => (labels.token(index, token), vec![token]),
@@ -825,13 +825,13 @@ fn enumerate_seeded<'i>(
         ));
     }
 
-    // Snapshotted here rather than past the sort, and before the memos go: what follows is a drain, a sort and an assertion, none of which touches the fired set, and the assertion's own re-tracing is deliberately outside it — anything it were to fire could not reach the stream anyway.
+    // Taken here, before the memos are released: the drain, the sort and the partition check that follow do not change what the product reports as fired, and the partition check's re-traces are left out of it. The echo traces above are included.
     let cited_provenance = engine
         .fired()
         .iter()
         .map(|pointer| pointer.text(index))
         .collect();
-    // The drain and the sort below are the run's other working set, and the memos that answered the worklist are of no further use to them. Releasing here rather than at the end of the function is what keeps the two from coexisting, which would otherwise be the enumeration's peak. The memo file is written here as well, from the trace memo the engine hands over as a snapshot once its prospect, candidate and closure memos are freed — never before they are, or the writer's window rows would land beside them at their high-water — and the snapshot goes with the other memos once the file is out, except for the one configuration other enumerations will read, whose snapshot is held through the drain and the sort instead.
+    // The drain and the sort below are the run's other large working set, and they do not need the memos. Releasing the memos here keeps the two from coexisting, which would otherwise be the enumeration's peak memory. The memo file is written here too, from the trace memo the engine returns as a snapshot after freeing its prospect, candidate and closure memos, so the writer's buffers never coexist with them. The snapshot is then dropped, except for the configuration other enumerations will read, whose snapshot is held through the drain and the sort.
     let memo = if seed.keep_memo || file.is_some() {
         engine.take_memo()
     } else {
@@ -867,13 +867,13 @@ fn enumerate_seeded<'i>(
         ));
     }
 
-    // A row's outcome is its settled cell's label, so the spelling is interned once per seat here rather than once per row in the loop above; every seat is a cell some row settled into, so nothing is interned that no row names.
+    // A row's outcome is its settled cell's label, so it is interned once per settled record here instead of once per row in the worklist. Every settled record is a cell some row settled into, so no unused label is interned.
     let seat_table = seats.into_table();
     let outcomes: Vec<Label> = seat_table
         .iter()
         .map(|settled| labels.intern_owned(cell_label(index, &settled.cell)))
         .collect();
-    // Rank tuples compare as spelling tuples while the rows retain their product-local IDs.
+    // Rank tuples compare in the same order as the label texts, while the rows keep their product-local ids.
     let ranks = labels.ranks();
     let mut rows: Vec<TransitionRow> = transitions
         .into_iter()
@@ -901,7 +901,7 @@ fn enumerate_seeded<'i>(
             resident_kb()
         ));
     }
-    // The product's cells are a set rather than a per-row list; collapsing the repeats here rather than at the emitter keeps one cell per seat out of one clone per row. A row's seat is checked before its cell because most rows share a seat already seen, and an integer set answers that without touching the cell at all.
+    // The product's cells are a set. Deduplicating here instead of in the emitter clones one cell per settled record instead of one per row. A row's settled index is checked first because most rows share an index already seen, and an integer set answers that without touching the cell.
     let mut seen_seats: HashSet<SettledSeat> = HashSet::default();
     let mut counted: HashSet<&CellId> = HashSet::default();
     let mut cells: Vec<CellId> = Vec::new();
@@ -947,7 +947,7 @@ fn enumerate_seeded<'i>(
     })
 }
 
-/// The seeds the fixpoint starts from: every letter against every boundary left, boundary-major, unpinned. Pushed in this order and popped from the back, which is the traversal class grain reads: the first item to reach a fiber fixes that row's representative.
+/// The seeds the fixpoint starts from: every letter against every boundary left, boundary-major, unpinned. The worklist pops them from the back.
 fn contract_seeds(options: &WindowOptions<'_>) -> Vec<Item> {
     let mut seeds = Vec::with_capacity(SEED_KINDS.len() * options.letters.len());
     for kind in SEED_KINDS {
@@ -972,9 +972,9 @@ fn boundaries_then_letters(options: &WindowOptions<'_>) -> Vec<RightToken> {
     all
 }
 
-/// The two ligature filters of the right2 pipeline: keep the options the formed `liga` can still stand before, with `slots` naming the two post-formation neighbors each option supplies. A loop rather than a `retain`, because the verdict consults the guard and can fail.
+/// The two ligature filters of the right2 pipeline: keep the options before which the formed `liga` can still stand, with `slots` naming the two post-formation neighbors each option supplies. A loop instead of `retain`, because the check consults the guard and can fail.
 ///
-/// The deeper slots' pipelines run the same shape inside [`WindowOptions`], and the split is deliberate: the second slot's filters are spelled inline here while the third and fourth slots' live in [`WindowOptions`], because only the deeper two have a second caller in the partition assertion. A filter added to this pipeline therefore belongs here, and one added to a deeper pipeline belongs there.
+/// The third and fourth slots' pipelines have the same shape but live in [`WindowOptions`], because the partition check calls them too. The second slot's filters are written inline here because nothing else calls them. A filter added to the second-slot pipeline belongs here, and one added to a deeper pipeline belongs in [`WindowOptions`].
 fn retain_formed_before(
     options: &mut WindowOptions<'_>,
     candidates: Vec<RightToken>,
@@ -994,7 +994,7 @@ fn retain_formed_before(
     Ok(kept)
 }
 
-/// This process's resident size in kibibytes, or `0` where the platform would not say. Asked of `ps` rather than of the C library because the crate takes no dependency and declares no foreign functions for a diagnostic; it runs a few times per censused table configuration, and twice per release plus once at the end of a censused replay, and never on the shipping path.
+/// This process's resident size in kibibytes, or `0` when `ps` gives no answer. It asks `ps` instead of the C library because the crate has no dependencies and declares no foreign functions for a diagnostic. It runs only on censused runs: a few times per table configuration, and twice per release plus once at the end of a replay.
 pub(crate) fn resident_kb() -> u64 {
     let pid = std::process::id();
     std::process::Command::new("/bin/ps")
@@ -1011,12 +1011,12 @@ fn singleton(token: RightToken) -> Allowed {
     Rc::new(BTreeSet::from([token]))
 }
 
-/// The ZWNJ chokepoint twin's display name for a raw input glyph, `model.locked_glyph_name`. Public because the string replay labels an entry-bearing input after a ZWNJ the way the enumeration does.
+/// The display name of the ZWNJ chokepoint twin of a raw input glyph, `model.locked_glyph_name`. Public because the string replay labels an entry-bearing input after a ZWNJ the same way the enumeration does.
 pub fn locked_glyph_name(raw_name: &str) -> String {
     format!("{raw_name}.noentry")
 }
 
-/// One right slot's label: a letter is its rune's name and every boundary its own spelling. Public because the `liveness-cases` verb answers in the same vocabulary.
+/// One right slot's label: a letter's rune name, or a boundary's own label. Public because the `liveness-cases` subcommand uses the same labels.
 pub fn right_token_label(index: &SpecIndex, token: RightToken) -> String {
     match token {
         RightToken::Letter(rune, _) => index.resolve(rune).to_owned(),
@@ -1024,7 +1024,7 @@ pub fn right_token_label(index: &SpecIndex, token: RightToken) -> String {
     }
 }
 
-/// The label a boundary carries at either end of a window, `table.BOUNDARY_LEFT_LABELS`: the run edge's own name, and for the other three the glyph the boundary ships as. A letter or an unknown panics here exactly as the Python mapping raises `KeyError` for it.
+/// The label of a boundary at either end of a window, `table.BOUNDARY_LEFT_LABELS`: the run edge's own name, and for the other three the glyph the boundary ships as. A letter or an unknown token panics here, as the Python mapping raises `KeyError` for it.
 fn boundary_left_label(kind: TokenKind) -> &'static str {
     match kind {
         TokenKind::Edge => EDGE_LABEL,
@@ -1038,12 +1038,12 @@ fn boundary_left_label(kind: TokenKind) -> &'static str {
     }
 }
 
-/// One settlement outcome as the verb's one-line complaint. The two failure families the fixpoint can raise — a window that will not settle, and the partition premise below — are one sentence at this boundary, because exit 1 with the sentence on stderr is the verb's whole answer to either.
+/// A settlement error as a one-line message. Every fixpoint error is a plain string, because the subcommand reports any of them by printing it to stderr and exiting with status 1.
 fn complaint(error: SettleError) -> String {
     error.to_string()
 }
 
-/// The partition premise's sentence: one window label reached from two different left states, which means `cell_label` has stopped telling those states apart. The window and the two states are spelled in the crate's own idiom — nothing compares this text, and a `Settled` printed structurally would name its heights by interning id.
+/// The error for one window label reached from two different left states, which means `cell_label` no longer distinguishes those states. The left states are formatted by name, because a `Settled` printed structurally would name its heights by interning id.
 fn partition_complaint(
     index: &SpecIndex,
     key: &[&str; 6],
@@ -1070,9 +1070,9 @@ fn left_state_text(index: &SpecIndex, settled: Option<&Settled>) -> String {
     }
 }
 
-/// The label one deep-slot member set is spelled by: the bare letter for a class of one, and a content-addressed id otherwise, recorded in the map on the way past.
+/// The label of one deep-slot member set: the bare letter for a class of one, and otherwise a content-addressed id, which is recorded in the class map the first time it appears.
 ///
-/// A class of one is deliberately not given an id. The expansion downstream reads a bare label as itself, so an id there would cost a map entry and buy nothing, and it would put a `#C` token in front of consumers for a slot that names exactly one letter.
+/// A class of one gets no id. Downstream expansion reads a bare label as itself, so an id would only add a map entry and show consumers a `#C` token for a slot that names one letter.
 fn deep_label(
     classes: &mut Vec<(String, Vec<String>)>,
     named: &mut HashSet<String>,
@@ -1091,7 +1091,7 @@ fn deep_label(
     token
 }
 
-/// The member a class row's echo re-traces: the last of the admitted members, or the first of them where that last one is the representative the row was built from. A class whose last member is its representative would otherwise echo the very window the row already carries, which would check nothing at all. A representative the pins never admitted is echoed against an admitted member, which is the same check at real-left grain across the fiber's full membership.
+/// The member a class row's echo re-traces: the last admitted member, or the first one when the last is the representative, since echoing the representative would re-trace the window the row already carries. A representative the pins never admitted is echoed against an admitted member, which still checks the fiber at a real left.
 fn echo_member(members: &[RightToken], representative: RightToken) -> RightToken {
     let last = members[members.len() - 1];
     if last == representative {
@@ -1101,7 +1101,7 @@ fn echo_member(members: &[RightToken], representative: RightToken) -> RightToken
     }
 }
 
-/// The echo check's `PartitionError` sentence: a member of a class row traced something the representative did not, which is the virtual-left fiber collapse failing at real-left grain. The representative's settled record and notes arrive resolved, since the row holds only their seats.
+/// The echo check's `PartitionError` message: a member of a class row traced a different record than the representative, meaning the virtual-left fiber collapse fails at a real left. The representative's settled record and notes are passed in resolved, since the row holds only their indexes.
 fn echo_mismatch(
     index: &SpecIndex,
     key: &[&str; 6],
@@ -1131,7 +1131,7 @@ fn echo_mismatch(
     )
 }
 
-/// One row-visible record as the echo complaint names it — the four fields the check compares and nothing else.
+/// One row-visible record as the echo error names it: the four fields the check compares.
 fn row_record_text(
     index: &SpecIndex,
     settled: &Settled,
@@ -1145,12 +1145,12 @@ fn row_record_text(
     )
 }
 
-/// Whether a slot label is one of the five non-letter spellings, `table.BOUNDARYISH`.
+/// Whether a slot label is one of the five non-letter labels, `table.BOUNDARYISH`.
 fn boundaryish(label: &str) -> bool {
     BOUNDARYISH.contains(&label)
 }
 
-/// The rune one slot label names, or `None` when the label is not a modeled rune's name — a boundary spelling, a class id, or a name this spec never interned.
+/// The rune one slot label names, or `None` when the label is not a modeled rune's name — a boundary label, a class id, or a name this spec never interned.
 fn rune_of(index: &SpecIndex, label: &str) -> Option<Sym> {
     index.sym_of(label).filter(|name| index.is_modeled(*name))
 }
@@ -1169,11 +1169,11 @@ struct ContextPartition {
     fiber_of: HashMap<Sym, usize>,
 }
 
-/// The class-grain hard invariant (issue 26), together with the enumeration-side scaffolding it replays against.
+/// The class-grain partition check, with the caches it fills while replaying the enumeration's decisions.
 ///
-/// It runs over the crate's own product before the stream is written, which is the only place it can run at all: the scaffolding it consults never crosses the boundary the stream is, so a fold-side reader could not restate it. Everything it consults was already consulted during enumeration — the two filters' memos are warm, every live context's fibers are derived, and `right4_options` is pure — so the replay adds no probes and therefore no provenance.
+/// It runs over the crate's own product before the stream is written, because the filters, fibers and option lists it consults are not in the stream. Everything it consults was already computed during enumeration: the two filters' memos are filled, every live context's fibers are derived, and `right4_options` returns the same list for the same inputs. The product's fired set is taken before this check runs, so the check adds no provenance.
 ///
-/// What it asserts, per base: the observed r3 letter tokens' member sets are pairwise disjoint, each inside the recomputed static option list and inside one fiber of its context's partition; right3 is non-`#NA` exactly where the pre-gate and the third filter say live, which is the `#NA` biconditional restated over tokens; one slot deeper, r4 member sets are disjoint per `(base, r3 token)`, every member of an r3 token agrees on the `fourth_slot_matters` verdict and induces the identical computed r4 option list; and every class id resolves through the product's map with every map entry used. Disjointness is per base rather than per context because worklist pins are per left state, so two bases in one context can legitimately admit nested subsets of one fiber. Cover against the static option list is deliberately not asserted: pins legitimately exclude unreachable members, exactly as label grain excludes their rows.
+/// It checks, per base: the member sets of the observed r3 letter tokens are pairwise disjoint, and each lies inside the recomputed static option list and inside one fiber of its context's partition; right3 is not `#NA` exactly where the census and the third-slot filter say live; one slot deeper, r4 member sets are disjoint per base and r3 token, every member of an r3 token gets the same `fourth_slot_matters` result and the same computed r4 option list; and every class id resolves through the product's map, with every map entry used. Disjointness is checked per base, not per context, because worklist pins are per left state, so two bases in one context can admit nested subsets of one fiber. Coverage of the static option list is not checked, because pins exclude unreachable members, as label grain excludes their rows.
 struct DeepPartitionCheck<'a, 'i> {
     engine: &'a mut Engine<'i>,
     options: &'a mut WindowOptions<'i>,
@@ -1188,7 +1188,7 @@ struct DeepPartitionCheck<'a, 'i> {
 }
 
 impl DeepPartitionCheck<'_, '_> {
-    /// The assertion over one product, or the `PartitionError` sentence of the first clause it broke.
+    /// Runs the check over one product, returning the error message of the first condition that fails.
     fn run(&mut self, product: &FixpointProduct) -> Result<(), String> {
         let index = self.engine.index();
         let classes: HashMap<&str, &[String]> = product
@@ -1423,7 +1423,7 @@ impl DeepPartitionCheck<'_, '_> {
         Ok(())
     }
 
-    /// This context's partition in the cache, derived through the fiber deriver on a miss. The cache is lazy on purpose: a row whose third slot is a boundary never reaches it.
+    /// Fills this context's partition in the cache through the fiber deriver on a miss. The cache is filled lazily because rows whose third slot is a boundary or dead never need it.
     fn ensure_context(&mut self, family: Sym, right1: Sym, right2: Sym) -> Result<(), String> {
         if self.contexts.contains_key(&(family, right1, right2)) {
             return Ok(());
@@ -1461,7 +1461,7 @@ impl DeepPartitionCheck<'_, '_> {
         Ok(())
     }
 
-    /// The computed r4 option list for one `(context, r3 member)`, cached because a class row asks for one per member and the members of two rows overlap.
+    /// Fills the computed r4 option list for one context and r3 member. Cached because a class row asks for one per member and the members of different rows overlap.
     fn ensure_r4_list(
         &mut self,
         family: Sym,
@@ -1487,7 +1487,7 @@ impl DeepPartitionCheck<'_, '_> {
         Ok(())
     }
 
-    /// One context's partition stated rather than derived — the assertion tests' way of handing in exactly what a real build's enumeration would already have put in the cache, since the deriver itself is the escalated module's.
+    /// Records one context's partition as given instead of deriving it, so a test can supply the partition a real build's enumeration would already have cached.
     #[cfg(test)]
     fn seed_context(&mut self, index: &SpecIndex, context: [&str; 3], fibers: &[&[&str]]) {
         let named = |name: &str| {
@@ -1536,7 +1536,7 @@ mod tests {
     /// The two heights the ordinary fixtures join at.
     const HEIGHTS: &[(&str, &str)] = &[("baseline", "0"), ("x-height", "5")];
 
-    /// The row's whole point: sixteen bytes, four of them the absent-or-present left seat, with nothing padded and nothing on the heap.
+    /// A row is fourteen bytes of fields padded to sixteen, and its optional left index takes four bytes whether present or absent. A `TransitionRow` adds six four-byte labels and is padded to forty.
     #[test]
     fn a_row_is_its_fields_and_no_padding() {
         assert_eq!(std::mem::size_of::<Option<SettledSeat>>(), 4);
@@ -1544,7 +1544,7 @@ mod tests {
         assert_eq!(std::mem::size_of::<TransitionRow>(), 40);
     }
 
-    /// The registry the fixpoint fixtures share — `fixtures::four_family_registry` with the height table left open, so the partition check can declare the aliasing pair it needs beside the ordinary heights.
+    /// The registry the fixpoint fixtures share: `fixtures::four_family_registry` with the height table passed in, so a test can declare two heights at one y beside the ordinary heights.
     fn registry(heights: &[(&str, &str)]) -> String {
         fixtures::registry(&[
             ("heights", &fixtures::map(heights)),
@@ -1644,7 +1644,7 @@ mod tests {
         fixtures::policy(&[("prefer", &fixtures::seq(records))])
     }
 
-    /// The pinned candidacy world, which is the world every fixture below is read in: both issue-28 flags off, so there is no deep world, the censuses are the chain censuses, and class grain cannot arise whatever the deep-classes flag says.
+    /// The pinned candidacy world that every fixture below is read in: `simulated_prospect` and `vote_slots` both off, so there is no deep world, the censuses are the chain censuses, and class grain cannot arise whatever `deep_classes` says.
     const PINNED: EnumerationModes = EnumerationModes {
         simulated_prospect: false,
         vote_slots: false,
@@ -1690,7 +1690,7 @@ mod tests {
         pairs
     }
 
-    /// The single-letter alphabet the closure arithmetic is read against: one stance that neither accepts an entry nor offers an exit, so every window settles into the one cell and the fixpoint reaches exactly one letter left.
+    /// A one-letter alphabet for checking the closure counts: one stance that neither accepts an entry nor offers an exit, so every window settles into the one cell and the fixpoint reaches one letter left.
     fn lone_letter() -> SpecIndex {
         spec_of(
             &[(
@@ -1703,7 +1703,7 @@ mod tests {
 
     /// The three-letter alphabet the deep slots and the pins are read against.
     ///
-    /// `qsPea` carries the only deep chain — a `prefer` whose right condition reaches three slots on, so `qsTea qsMay qsPea qsTea` is the one continuation that decides its window — and the two stances it chooses between exit at different heights, which is what makes the choice visible one letter later: `qsTea` accepts an entry at either height, so the left the deep window commits is a different cell for each. `qsMay` accepts a baseline entry and offers no exit, so it ends every chain.
+    /// `qsPea` carries the only deep chain: a `prefer` whose right condition reaches three slots on, so `qsTea qsMay qsPea qsTea` is the one continuation that decides its window. The two stances it chooses between exit at different heights, which makes the choice visible one letter later: `qsTea` accepts an entry at either height, so the left the deep window commits is a different cell for each. `qsMay` accepts a baseline entry and offers no exit, so it ends every chain.
     fn deep_alphabet() -> SpecIndex {
         let pea = rune(
             "qsPea",
@@ -1776,7 +1776,7 @@ mod tests {
             45,
             "nine windows at each of five lefts"
         );
-        // The input never joins, so every window settles into the one cell and the head seats exactly it.
+        // The input never joins, so every window settles into the one cell and the product lists only that cell.
         assert_eq!(product.cells.len(), 1);
         assert!(
             product
@@ -1820,7 +1820,7 @@ mod tests {
             "the chokepoint twin is the entry-bearing input's label alone: {locked:?}"
         );
         assert!(!locked.contains(&"qsPea"));
-        // The lock is the row's label and nothing else — the trace settles the raw letter, whose cell is the one the outcome names.
+        // The lock changes only the row's label: the trace settles the raw letter, whose cell is the one the outcome names.
         assert!(
             product
                 .transitions
@@ -1886,7 +1886,7 @@ mod tests {
                 "uni200C #NA",
             ]
         );
-        // The chain's one full match is what the prefer answers, so the fourth slot is not decorative: it moves the cell the window settles into.
+        // The prefer matches only the chain's one full continuation, so the fourth slot changes the cell the window settles into.
         let outcomes: Vec<(&str, &str)> = product
             .transitions
             .iter()
@@ -1915,7 +1915,7 @@ mod tests {
     fn a_depth_four_left_pins_the_second_slot_of_the_window_after_its_successor() {
         let index = deep_alphabet();
         let product = product(&index);
-        // The left only the fourth slot's one live token reaches: qsPea commits the x-height seam there and nowhere else, so qsTea's entry at that height is the fingerprint of that one continuation.
+        // The left that only the fourth slot's one live token reaches: qsPea commits the x-height seam there and nowhere else, so qsTea's entry at that height identifies that continuation.
         assert_eq!(
             slots_at(&product, "qsTea", "qsPea.full.ex-y5")
                 .iter()
@@ -1924,7 +1924,7 @@ mod tests {
             ["qsMay qsPea #NA #NA"],
             "the successor's own second slot is pinned to the third lookahead that was enumerated behind it"
         );
-        // And the pin the window could not enumerate — qsTea is not deep, so it has no third slot to spend it on — is forwarded onto its own successor's second slot, which is the raw token one past that window.
+        // The pin this window could not enumerate (qsTea is not deep, so it has no third slot to use it on) is forwarded to its own successor's second slot, which is the raw token one past that window.
         assert_eq!(
             slots_at(&product, "qsMay", "qsTea.plain.en-y5.ex-y0")
                 .iter()
@@ -1933,7 +1933,7 @@ mod tests {
             ["qsPea qsTea #NA #NA"],
             "without the forward this left would carry every second-slot option, and the extra windows are ones no text can reach"
         );
-        // The sibling left is the contrast: reached by plenty of unpinned items, it carries the whole option list behind the same right1.
+        // The sibling left, for contrast: reached by many unpinned items, it carries the whole option list behind the same right1.
         let unpinned: Vec<String> = slots_at(&product, "qsMay", "qsTea.plain.en-y0.ex-y0")
             .iter()
             .filter(|slots| slots[0] == "qsPea")
@@ -1953,7 +1953,7 @@ mod tests {
         );
     }
 
-    /// A right condition testing a list of families per hop, one `then:` hop per entry — [`chain`] with the alternatives at each slot spelled out, which is how a fixture makes one deep slot live under two different tokens.
+    /// A right condition testing a list of families per hop, one `then:` hop per entry: [`chain`] with alternatives at each slot, which is how a fixture makes one deep slot live under two different tokens.
     fn chain_families(hops: &[&[&str]]) -> String {
         let (head, rest) = hops.split_first().expect("a chain names at least one slot");
         let family = fixtures::names(head);
@@ -1989,7 +1989,7 @@ mod tests {
         ])
     }
 
-    /// `deep_alphabet` with two changes the r4 option lists need: `qsPea`'s chain reads its third hop as either `qsPea` or `qsTea`, so the fourth slot is live under both, and a `qsPeaMay` ligature makes `(qsPea, qsMay)` a formation pair. That pair is what makes `right4_options` differ by third token — the option `qsMay` survives behind `qsTea` and cannot survive behind `qsPea`.
+    /// `deep_alphabet` with two changes the r4 option lists need: `qsPea`'s chain reads its third hop as either `qsPea` or `qsTea`, so the fourth slot is live under both, and a `qsPeaMay` ligature makes `(qsPea, qsMay)` a formation pair. That pair makes `right4_options` differ by third token: the option `qsMay` survives behind `qsTea` but not behind `qsPea`.
     fn liga_alphabet() -> SpecIndex {
         let pea = rune(
             "qsPea",
@@ -2034,7 +2034,7 @@ mod tests {
         )
     }
 
-    /// One hand-built window, retained as text until its product assigns local label IDs.
+    /// One hand-built window, kept as text until its product assigns local label ids.
     fn deep_row(labels: [&str; 6]) -> [String; 6] {
         labels.map(str::to_owned)
     }
@@ -2079,18 +2079,18 @@ mod tests {
         }
     }
 
-    /// The class token a member list is spelled by, so a test states the same id the emission would.
+    /// The class id of a member list, so a test states the same id the emission would.
     fn class_of(members: &[&str]) -> String {
         let owned: Vec<String> = members.iter().map(|member| (*member).to_owned()).collect();
         deep_class_id(&owned)
     }
 
-    /// One member list as the emission hands it over, owned.
+    /// One member list as owned strings, as the emission passes it.
     fn owned(members: &[&str]) -> Vec<String> {
         members.iter().map(|member| (*member).to_owned()).collect()
     }
 
-    /// A class of one is spelled by its own letter and records nothing; a class of two takes a content-addressed id, recorded the first time it is spelled and shared by every later row that reaches the same members.
+    /// A class of one is labeled by its own letter and records nothing. A class of two gets a content-addressed id, recorded the first time and shared by every later row with the same members.
     #[test]
     fn a_deep_label_is_the_bare_letter_alone_and_a_class_id_otherwise() {
         let mut classes: Vec<(String, Vec<String>)> = Vec::new();
@@ -2118,7 +2118,7 @@ mod tests {
         );
     }
 
-    /// The echo re-traces the last admitted member, and the first one instead exactly where that last member is the representative the row was already built from — a class of two would otherwise echo the very window it is being checked against.
+    /// The echo re-traces the last admitted member, or the first one when the last is the representative the row was built from, since a class of two would otherwise echo the window it is checked against.
     #[test]
     fn the_echo_member_is_the_last_admitted_unless_that_is_the_representative() {
         let index = deep_alphabet();
@@ -2130,9 +2130,9 @@ mod tests {
         assert_eq!(echo_member(&[pea, tea], pea), tea);
     }
 
-    /// The partition assertion over a hand-built product, with each live context's fiber partition stated rather than derived.
+    /// Runs the partition check over a hand-built product, with each live context's fiber partition given instead of derived.
     ///
-    /// Stating it is not a shortcut around the deriver: by the time a real build runs this assertion every live context has already been derived, so the cache is warm and the deriver is never reached. A test that states the partition is handing in exactly what the enumeration would have left there — which is also what lets these assertions be read in the pinned world, where there is no liveness probe and the filters answer on their chain arm alone.
+    /// In a real build every live context has already been derived when the check runs, so the cache is filled and the deriver is never called. Giving the partition supplies what the enumeration would have cached, and it lets these checks run in the pinned world, where there is no liveness probe and the filters use their chain branch alone.
     fn checked(
         index: &SpecIndex,
         product: &FixpointProduct,
@@ -2201,7 +2201,7 @@ mod tests {
         );
     }
 
-    /// A class token is only a token because the map says what it stands for, and the assertion refuses to guess.
+    /// The partition check fails on a class token that the class map does not define.
     #[test]
     fn a_class_token_the_map_never_names_stops_the_build() {
         let index = deep_alphabet();
@@ -2223,7 +2223,7 @@ mod tests {
         );
     }
 
-    /// No record ever peeks past a boundary, so nothing follows one inside a window.
+    /// No record reads past a boundary, so nothing follows one inside a window.
     #[test]
     fn a_boundary_third_slot_carries_no_fourth() {
         let index = deep_alphabet();
@@ -2240,7 +2240,7 @@ mod tests {
         );
     }
 
-    /// An entry no row resolves through is a map that has stopped describing the stream it rides with.
+    /// The partition check fails on a class-map entry that no row uses.
     #[test]
     fn a_class_map_entry_no_row_uses_stops_the_build() {
         let index = deep_alphabet();
@@ -2255,7 +2255,7 @@ mod tests {
         );
     }
 
-    /// A class may only hold members the static option list admits, and only members of one fiber — the two halves of "this row stands for a piece of the partition".
+    /// A class may hold only members the static option list admits, and only members of one fiber.
     #[test]
     fn a_class_must_sit_inside_one_fiber_of_the_static_option_list() {
         let index = deep_alphabet();
@@ -2280,7 +2280,7 @@ mod tests {
         );
     }
 
-    /// The fiber key carries the `fourth_slot_matters` verdict, so two members that disagree about it could never have been one fiber.
+    /// The fiber key includes the `fourth_slot_matters` result, so two members that disagree about it cannot be in one fiber.
     #[test]
     fn a_class_whose_members_disagree_about_the_fourth_slot_stops_the_build() {
         let index = deep_alphabet();
@@ -2329,7 +2329,7 @@ mod tests {
         );
     }
 
-    /// The fiber key records the computed r4 option list structurally, so two members inducing different lists is a key that has stopped matching the pipeline — which is exactly what a filter added to `right4_options` without a key update would look like.
+    /// The fiber key stores the computed r4 option list, so two members inducing different lists means the key no longer matches the pipeline, which is what a filter added to `right4_options` without a key update would cause.
     #[test]
     fn a_class_whose_members_induce_different_r4_option_lists_stops_the_build() {
         let index = liga_alphabet();
@@ -2350,7 +2350,7 @@ mod tests {
         );
     }
 
-    /// The seeds in the exact reverse of the contract order — the deepest permutation available, since it pops last what the shipping order pops first.
+    /// The contract seeds in reverse order, so the seed production pops first is popped last here.
     fn reversed_seeds(options: &WindowOptions<'_>) -> Vec<Item> {
         let mut seeds = contract_seeds(options);
         seeds.reverse();
@@ -2382,7 +2382,7 @@ mod tests {
         )
         .expect("the fixpoint closes")
         .product;
-        // Compared as the stream rather than as the product, because two of the product's fields are sets whose vector spelling is the emitter's business: `cited_provenance` comes out of a hash set and has no order of its own.
+        // Compared as streams, not products, because two of the product's fields are sets whose vector order the emitter decides: `cited_provenance` comes from a hash set and has no order of its own.
         assert_eq!(
             emit_transitions(&index, &contract),
             emit_transitions(&index, &reversed)
@@ -2394,10 +2394,10 @@ mod tests {
                 .any(|row| &**contract.labels.text(row.right4) != NA_LABEL),
             "and the product both orders reached is the one carrying the pinned deep windows, not a trivially equal pair"
         );
-        // Order-independence here is a fact about this world, not about the discipline: the dedup is by window key, a re-reached window reuses the settled a re-trace would return, and the fired set is a union over a window set no traversal can change. The class-grain half of the claim is the next test's.
+        // At label grain order-independence follows from the dedup by window key: a re-reached window reuses the settled state a re-trace would return, and the fired set is a union over a window set no traversal changes. The next test covers class grain.
     }
 
-    /// The class-grain half of order-independence (issue #179): the fiber's canonical representative makes the row a fiber writes, and the windows traced to write it, a function of the fiber and not of which item reached it first, so the deepest seed permutation reaches the same stream — deep classes, cells and fired provenance included — from a product that really carries multi-member class rows.
+    /// Order-independence at class grain: each fiber's row is traced at its least member, so the row and the windows traced for it do not depend on which item reached the fiber first. The reversed seed order reaches the same stream, including deep classes, cells and fired provenance, from a product that has multi-member class rows.
     #[test]
     fn a_permuted_seed_order_reaches_the_same_class_grain_product() {
         let index = crate::liveness::tests::prospect_spec();
@@ -2434,7 +2434,7 @@ mod tests {
         );
     }
 
-    /// The configuration delta's whole claim (issue #178): an `ss03` enumeration reading `default`'s finished memo for every window naming no unlocking rune of `ss03` reaches the from-scratch product byte for byte — rows, classes, cells and fired provenance, which is what the stream spells — while actually answering windows out of the base. The exclusion is what makes it so: the same base read without one hands `ss03` the wrong answers for `qsMay`'s windows, which is the counterexample that gives the identity teeth.
+    /// An `ss03` enumeration that reads `default`'s finished memo for every window naming no unlocking rune of `ss03` produces the from-scratch product byte for byte (rows, classes, cells and fired provenance, which is what the stream contains) while answering windows from the base. The exclusion is required: the same base read without one gives `ss03` the wrong results for `qsMay`'s windows, which is what makes the equality assertion able to fail.
     #[test]
     fn a_configuration_seeded_from_default_reaches_its_from_scratch_product() {
         let index = fixtures::mini();
@@ -2509,7 +2509,7 @@ mod tests {
         );
     }
 
-    /// A configuration nobody reads files its memo at the release point and carries none out (issue #265): `ss03` enumerated over `default`'s base with a file named and `keep_memo` off hands no snapshot back — the release a wave's census cannot show — clocks the write, and leaves a file that reads back as the memo a kept run of the same enumeration returns, window for window.
+    /// A configuration that keeps no memo writes it at the release point and returns none: `ss03` enumerated over `default`'s base with a file named and `keep_memo` off returns no snapshot, times the write, and leaves a file that reads back as the memo a kept run of the same enumeration returns, window for window.
     #[test]
     fn a_configuration_keeping_no_memo_files_it_at_the_release_point() {
         let index = fixtures::mini();
@@ -2607,7 +2607,7 @@ mod tests {
 
     #[test]
     fn one_window_label_reached_from_two_left_states_stops_the_build() {
-        // Two heights at one y is what makes `cell_label` non-injective, and the prefer picks between them under the one continuation its chain reads — so the deep window commits a cell that labels exactly like its siblings' and compares unequal to them.
+        // Two heights at one y make `cell_label` non-injective, and the prefer picks between them under the one continuation its chain reads, so the deep window commits a cell that has the same label as its siblings' but compares unequal to them.
         let pea = rune(
             "qsPea",
             &[("half", stance("half", &[], &["baseline", "floor"]))],

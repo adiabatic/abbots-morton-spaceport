@@ -1,12 +1,12 @@
-//! The transitions stream: one configuration's whole fixpoint product in the `ams-m1-transitions/1` spelling, byte-identical to what `rebuild/pipeline/kernel_io.py`'s `write_transitions` writes. That module is the binding contract for the format — the head's key order, the cell vocabulary's sort, which absences spell `null` and which spell the empty string, and the sentence a cell outside the head raises are all its, not this crate's — and where the two disagree it is right.
+//! Writes one configuration's fixpoint product as the `ams-m1-transitions/1` stream, byte-identical to what `write_transitions` in `rebuild/pipeline/kernel_io.py` writes. That function defines the format: the head's key order, the sort of the cell vocabulary, which absent values are written as `null` and which as the empty string, and the error message for a cell missing from the head. Where the two disagree, the Python is correct.
 //!
-//! What lands here rather than in [`crate::emit`] is the return leg of the boundary: `emit` echoes a spec that was read, this writes what the fixpoint produced. The escaping is shared rather than restated, because two canonical-JSON escapers are one escaper plus one silent divergence.
+//! [`crate::emit`] writes back a spec that was read; this module writes what the fixpoint produced. Both use the same JSON string escaper, so the two outputs cannot escape strings differently.
 //!
-//! The stream this module builds is uncompressed. Python's writer gzips it with a zeroed stamp into a file; the kernel writes the identical bytes to stdout and the harness that runs it does the gzipping, so the crate carries no compressor and the boundary stays one format rather than two.
+//! The stream is uncompressed. Python's writer gzips it into a file with a zeroed timestamp. The kernel writes the same bytes uncompressed, to stdout for `enumerate` and to `transitions-<config>.ndjson` files for `enumerate-configs`, and `kernel_exec.read_stream` reads them without decompressing, so the crate needs no compressor.
 //!
-//! A cell is spelled once, in the head, and every row names its settled cell by its seat there, which is why the emitter rather than the fixpoint owns the cell sort: a seat is an index into [`cell_key`] order and nothing else. A row naming a cell the product does not count among its reachable cells is refused here, at the boundary, exactly as `write_transitions` raises `PartitionError` rather than letting the fold meet the disagreement later.
+//! Each cell is written once, in the head, and every row names its settled cell by its index there. That index is a position in [`cell_key`] order, which is why this writer, not the fixpoint, sorts the cells. A row whose cell is not among the product's reachable cells is an error here, matching the `PartitionError` that `write_transitions` raises.
 //!
-//! The product's own seats are a different table from the head's. A row holds its settled record and its left's as a [`SettledSeat`] apiece into [`FixpointProduct::seats`], in the order the fixpoint first reached each record, and that table never crosses the boundary: the writer resolves a row's seat to the record, and the record's cell to the head's seat, and spells only the latter. Two tables rather than one because they answer different questions — the head's is the cell vocabulary in `_cell_key` order, a contract Python reads, and the product's is every distinct settled triple, an economy the crate keeps to itself. A row's provenance is seated the same way, as a [`NotesSeat`] into [`FixpointProduct::notes`], and that table stays on this side of the boundary too: the writer spells the list the seat names, in the order the trace left it.
+//! The product's own index tables are separate from the head's cell indexes and are never written. A row holds its settled record and its left neighbor's as a [`SettledSeat`] each, indexing [`FixpointProduct::seats`], which lists each distinct settled record in the order the fixpoint first reached it. A row's provenance is a [`NotesSeat`] into [`FixpointProduct::notes`]. The writer resolves a row's seat to the record and the record's cell to its head index, and writes the provenance list the notes seat names, in the order the trace recorded it. The head's cell vocabulary in `_cell_key` order is part of the format Python reads; the seat table only saves memory inside the crate.
 
 use std::collections::BTreeSet;
 use std::fmt::Write as _;
@@ -19,14 +19,14 @@ use crate::index::SpecIndex;
 use crate::model::Sym;
 use crate::types::{CellId, NotesSeat, Settled, SettledSeat, adjustment_text};
 
-/// The marker the head line carries, `kernel_io.TRANSITIONS_FORMAT`. A stream naming anything else is another format and not a newer spelling of this one.
+/// The format marker on the head line, `kernel_io.TRANSITIONS_FORMAT`. A stream with any other marker is a different format.
 pub const TRANSITIONS_FORMAT: &str = "ams-m1-transitions/1";
 
-/// One window label's id in the [`LabelPool`]: the position its spelling was minted at, and nothing about the text. Within one pool, two ids are equal exactly when their spellings are, because the pool mints each spelling once; their order is minting order, which no consumer reads — the product's lexicographic order is reached through [`LabelPool::ranks`] instead.
+/// A window label's id in a [`LabelPool`]: the index at which its text was first interned. Within one pool, two ids are equal exactly when their texts are. Id order is interning order, which nothing reads; lexicographic order comes from [`LabelPool::ranks`].
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct Label(pub(crate) u32);
 
-/// Product-local spellings shared by the fixpoint, fold, and decision table. Rows retain compact IDs; only consumers that need text resolve them through this pool. IDs from different pools are unrelated, and lexical ordering uses spelling ranks rather than minting order.
+/// Interned window labels for one product, shared by the fixpoint, the fold, and the decision table. Rows store compact ids, and only code that needs the text resolves them through this pool. Ids from different pools are unrelated.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct LabelPool {
     ids: HashMap<Rc<str>, Label>,
@@ -41,7 +41,7 @@ impl LabelPool {
         self.texts.capacity()
     }
 
-    /// The pool's id for this spelling, minting one only where the pool has none.
+    /// The pool's id for this text, interning the text if the pool does not have it.
     pub(crate) fn intern(&mut self, text: &str) -> Label {
         if let Some(&found) = self.ids.get(text) {
             return found;
@@ -49,7 +49,7 @@ impl LabelPool {
         self.mint(Rc::from(text))
     }
 
-    /// The same for a spelling the caller had to build anyway, so that a miss reuses the buffer rather than copying it a second time.
+    /// [`LabelPool::intern`] for a `String` the caller already built, so that a new label reuses the buffer instead of copying it.
     pub(crate) fn intern_owned(&mut self, text: String) -> Label {
         if let Some(&found) = self.ids.get(text.as_str()) {
             return found;
@@ -57,7 +57,7 @@ impl LabelPool {
         self.mint(Rc::from(text))
     }
 
-    /// A spelling the pool has never seen, seated at the next id.
+    /// Adds a text the pool does not have, at the next id.
     fn mint(&mut self, shared: Rc<str>) -> Label {
         let id = Label(
             u32::try_from(self.texts.len())
@@ -68,17 +68,17 @@ impl LabelPool {
         id
     }
 
-    /// The spelling one id was minted for, as a shared handle.
+    /// The text an id was interned for, as a shared handle.
     pub(crate) fn text(&self, label: Label) -> &Rc<str> {
         &self.texts[label.0 as usize]
     }
 
-    /// One key's six spellings, in the textual `Debug` form diagnostics use to identify a window.
+    /// The texts of one key's six labels, which diagnostics use to identify a window.
     pub(crate) fn spelled(&self, key: &[Label; 6]) -> [&str; 6] {
         key.map(|label| &**self.text(label))
     }
 
-    /// Each id's position among every spelling the pool holds, sorted as text: `ranks[id]` compares as the spelling does, so ordering rows by their rank tuple is ordering them by their key tuple without touching a string.
+    /// Each id's position among the pool's texts in lexicographic order. `ranks[id]` compares as the text does, so sorting rows by their rank tuple sorts them by their key tuple without comparing strings.
     pub(crate) fn ranks(&self) -> Vec<u32> {
         let mut by_text: Vec<usize> = (0..self.texts.len()).collect();
         by_text.sort_unstable_by(|&left, &right| self.texts[left].cmp(&self.texts[right]));
@@ -90,11 +90,11 @@ impl LabelPool {
     }
 }
 
-/// Everything one configuration's fixpoint produces, `table.FixpointProduct`. The rows arrive already sorted on [`TransitionRow::key`] — that order is the product's own and the stream keeps it, because `assemble_tables` expands and flags in it.
+/// Everything one configuration's fixpoint produces, the counterpart of `table.FixpointProduct`. The rows arrive sorted on [`TransitionRow::key`], and the stream keeps that order. The fold's expansion and its per-input rule fold rely on that order, and `fold::assert_key_sorted` fails on a product that is out of it.
 ///
-/// Three of the fields are `frozenset`s and a `Mapping` on the Python side and vectors here, so their canonical order is the emitter's business rather than the fixpoint's: `cells` and `cited_provenance` are sorted (and repeats collapsed, which is what a frozenset does to them) and `deep_classes` is sorted by token. `deep_classes` is empty at label grain and at every grain of the pinned world, and the emitter spells it either way.
+/// On the Python side `cells` and `cited_provenance` are `frozenset`s and `deep_classes` is a `Mapping`. Here they are vectors, and the writer puts them in canonical order: `cells` and `cited_provenance` are sorted with repeats removed, and `deep_classes` is sorted by token. `deep_classes` is empty at label grain and in the pinned world, and the head includes it either way.
 ///
-/// `seats` and `notes` have no Python counterpart at all: they are the tables every row's [`SettledSeat`]s and [`NotesSeat`] index — one entry per distinct settled record, and one per distinct provenance list, each in the order the fixpoint first reached it — and [`FixpointProduct::settled`], [`FixpointProduct::left_settled`] and [`FixpointProduct::provenance`] are how a row's three are read back. Python's `Transition` holds all three by value. The label pool and settled-seat outcome table remain local to the product and pass intact into the decision table.
+/// `seats` and `notes` have no Python counterpart. They are the tables that each row's [`SettledSeat`]s and [`NotesSeat`] index: one entry per distinct settled record and one per distinct provenance list, each in the order the fixpoint first reached it. [`FixpointProduct::settled`], [`FixpointProduct::left_settled`], and [`FixpointProduct::provenance`] read a row's values back; Python's `Transition` holds all three by value. The label pool and the outcome table (indexed by settled seat) pass unchanged into the decision table.
 #[derive(Clone, Debug, Default, Eq)]
 pub struct FixpointProduct {
     pub config: String,
@@ -108,7 +108,7 @@ pub struct FixpointProduct {
     pub notes: Vec<Vec<String>>,
 }
 
-/// Product equality resolves labels through each product's pool; numeric IDs from separate enumerations do not share an identity.
+/// Compares labels by text through each product's own pool, because label ids from separate enumerations are unrelated.
 impl PartialEq for FixpointProduct {
     fn eq(&self, other: &Self) -> bool {
         self.config == other.config
@@ -135,7 +135,7 @@ impl PartialEq for FixpointProduct {
 }
 
 impl FixpointProduct {
-    /// The outcome belongs to the settled seat, shared by every row that reaches it.
+    /// A row's outcome. It is stored per settled seat, so every row with that seat shares it.
     pub fn outcome(&self, row: &TransitionRow) -> &Rc<str> {
         self.labels.text(self.outcomes[row.settled.index()])
     }
@@ -145,18 +145,18 @@ impl FixpointProduct {
         &self.seats[row.settled.index()]
     }
 
-    /// The record the row's left settled into — present for a letter left and for the boundary cells the fold records, absent otherwise.
+    /// The record the row's left neighbor settled into: present for a letter on the left and for the boundary cells the fold records, absent otherwise.
     pub fn left_settled(&self, row: &TransitionRow) -> Option<&Settled> {
         row.left_settled.map(|seat| &self.seats[seat.index()])
     }
 
-    /// The pointers one row's trace noted, in the first-seen order the rule fold joins them in.
+    /// The provenance pointers one row's trace recorded, in first-seen order, which is the order the rule fold joins them in.
     pub fn provenance(&self, row: &TransitionRow) -> &[String] {
         &self.notes[row.provenance.index()]
     }
 }
 
-/// One window's six product-local label IDs and seated trace data. Resolve labels through the owning product's pool and the outcome through its settled-seat table. Equality and debug IDs are meaningful only within that pool; external ordering and diagnostics use resolved spellings.
+/// One window's six label ids, plus the indexes of its settled records and provenance. Labels resolve through the owning product's pool, and the outcome through its outcome table. Id equality and `Debug` output mean something only within that pool; ordering and diagnostics use the resolved texts.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct TransitionRow {
     pub input_glyph: Label,
@@ -173,7 +173,7 @@ pub struct TransitionRow {
 }
 
 impl TransitionRow {
-    /// The six labels that key this row, `table.Window.key`: the order the product is sorted in and the tuple every raise names the offending row by. An array rather than a tuple so that comparing two of them is the one lexicographic string comparison Python's tuple comparison is.
+    /// The six labels that key this row, as `table.Window.key` does. The product is sorted on this key, and error messages name a row by it. It is an array so that comparing two keys is one lexicographic comparison, as Python's tuple comparison is.
     pub fn key<'a>(&self, labels: &'a LabelPool) -> [&'a str; 6] {
         labels.spelled(&self.labels())
     }
@@ -190,10 +190,10 @@ impl TransitionRow {
     }
 }
 
-/// What [`cell_key`] returns: `table._cell_key`'s tuple, resolved. Named so the sort reads as one comparison rather than five, and so the signature stays inside clippy's complexity budget.
+/// What [`cell_key`] returns: `table._cell_key`'s tuple, with every component resolved to a string. The alias keeps signatures within clippy's type-complexity limit.
 pub type CellKey = (String, String, String, String, Vec<String>);
 
-/// The order the head's cell vocabulary is sorted in, `table._cell_key`: the rune, the stance, the two heights with an absent side spelled as the empty string rather than dropped, and the adjustment tokens in their own order. Every component is the resolved string, never the symbol — a `Sym` sorts in the order the dump happened to mention names in, which is not an order Python has.
+/// The sort key of the head's cell vocabulary, matching `table._cell_key`: the rune, the stance, the entry and exit heights (the empty string for an absent side), and the adjustment tokens in their stored order. Every component is the resolved string, because `Sym` order is the order the dump first mentioned names in, which Python does not use.
 pub fn cell_key(index: &SpecIndex, cell: &CellId) -> CellKey {
     (
         index.resolve(cell.rune).to_owned(),
@@ -209,12 +209,12 @@ pub fn cell_key(index: &SpecIndex, cell: &CellId) -> CellKey {
     )
 }
 
-/// The token the no-feature configuration is spelled by, `model.feature_config_token`'s `"default"`. It is a filename component and a stream head's `config` before it is anything else, so it is named rather than spelled twice.
+/// The configuration token for no features, `"default"` in `model.feature_config_token`. It appears in artifact filenames and as a stream head's `config`.
 pub const DEFAULT_CONFIG: &str = "default";
 
-/// The configuration one feature set names, `model.feature_config_token`: the enabled sets sorted and joined with `+`, or `default` when nothing is enabled. This is the `config` field of the product and the `<config>` of every artifact filename, so it is a name two builds have to agree on letter for letter.
+/// The configuration token for a feature set, matching `model.feature_config_token`: the enabled feature names sorted and joined with `+`, or `default` when none is enabled. It is the product's `config` field and the `<config>` in every artifact filename, so the crate and Python must produce the same string.
 ///
-/// Sorting is on the resolved string, as everywhere, and a name handed in twice counts once — the declared parameter is a set at every Python call site. Taking names rather than symbols is what lets a command line's own spelling be checked against the canonical one before any spec has been read.
+/// Names sort as strings, and a name passed twice counts once, because every Python caller passes a set. It takes names, not symbols, so the unit tests in `main.rs` can check that file's command-line token rule against it without loading a spec.
 pub fn config_token<'a>(features: impl IntoIterator<Item = &'a str>) -> String {
     let enabled: BTreeSet<&str> = features.into_iter().collect();
     if enabled.is_empty() {
@@ -223,25 +223,25 @@ pub fn config_token<'a>(features: impl IntoIterator<Item = &'a str>) -> String {
     enabled.into_iter().collect::<Vec<&str>>().join("+")
 }
 
-/// [`config_token`] over symbols, which is how everything holding a resolved feature set names its configuration.
+/// [`config_token`] for a feature set given as symbols.
 pub fn feature_config_token(index: &SpecIndex, features: impl IntoIterator<Item = Sym>) -> String {
     config_token(features.into_iter().map(|feature| index.resolve(feature)))
 }
 
-/// Why a product did not reach the sink: the emitter refused it, or the sink would not take the bytes. Told apart because the two blame different things, exactly as the fan-out's own failure does.
+/// Why a product was not written: the writer rejected it, or the sink failed. The two are kept apart because they have different causes, as in the fan-out's own `Failure`.
 #[derive(Debug)]
 pub enum WriteFailure {
-    /// The product's rows and its cells disagree, in `write_transitions`'s own sentence.
+    /// The product's rows and cells disagree. The message is `write_transitions`'s.
     Refused(String),
-    /// The sink the stream was being written to would not take it.
+    /// Writing to the sink failed.
     Sink(std::io::Error),
 }
 
-/// One product written to `sink` as the whole stream, `kernel_io.write_transitions` without the gzip: the `# ams-m1-transitions/1<tab><head json>` line, then one compact JSON array per transition in the product's own order, every line newline-terminated.
+/// Writes one product to `sink` as the whole stream, as `kernel_io.write_transitions` does without the gzip: the `# ams-m1-transitions/1<tab><head json>` line, then one compact JSON array per transition in the product's order, each line ending in a newline.
 ///
-/// Every row's cells are seated before the first byte is written, which is what keeps `write_transitions`'s promise that nothing lands on the sink for a product whose rows and cells disagree. The refusal is that function's `PartitionError` sentence verbatim, tuple reprs included. A row's settled cell is checked before its left-settled one because that is the order Python's list literal evaluates its two `seated` calls in, so a row missing both is named by its settled cell.
+/// Every row's cells are looked up before the first byte is written, so, as in `write_transitions`, nothing is written for a product whose rows and cells disagree. The error message is that function's `PartitionError` message, Python tuple reprs included. A row's settled cell is checked before its left-settled cell because Python's list literal evaluates its two `seated` calls in that order, so a row missing both is reported by its settled cell.
 ///
-/// The bytes go out a line at a time through one reused buffer rather than through a single `String` of the whole stream: a configuration's stream is hundreds of megabytes, and holding it entire — with the doubling transient a growing `String` carries — is the emitter's whole memory cost for no benefit at all.
+/// The bytes are written a line at a time through one reused buffer. A configuration's stream is hundreds of megabytes, and building it as one `String`, with the reallocations as it grows, would cost that much memory for no benefit.
 pub fn write_transitions(
     index: &SpecIndex,
     product: &FixpointProduct,
@@ -253,7 +253,7 @@ pub fn write_transitions(
         .map(|cell| (cell_key(index, cell), cell))
         .collect();
     cells.sort_by(|left, right| left.0.cmp(&right.0));
-    // A whole-list dedup rather than the adjacent-only one: equal cells always sort together, but the sort key is the label view, so only injectivity of `cell_key` would make adjacency sufficient — and that premise belongs to Python's `_cell_key`, not to this emitter.
+    // Deduplicate across the whole list. The sort compares only `cell_key`, so equal cells are guaranteed to be adjacent only if `cell_key` is injective, which this writer does not assume.
     let mut counted: HashSet<&CellId> = HashSet::default();
     cells.retain(|(_, cell)| counted.insert(*cell));
     let seats: HashMap<&CellId, usize> = cells
@@ -300,7 +300,7 @@ pub fn write_transitions(
     out.flush().map_err(WriteFailure::Sink)
 }
 
-/// [`write_transitions`] into a `String`, which is what a test that wants to read the whole stream back asks for. Nothing on the shipping path builds one: a configuration's stream is hundreds of megabytes.
+/// [`write_transitions`] into a `String`, for tests that read the whole stream back. Only tests call it, because a configuration's stream is hundreds of megabytes.
 pub fn emit_transitions(index: &SpecIndex, product: &FixpointProduct) -> Result<String, String> {
     let mut bytes: Vec<u8> = Vec::new();
     match write_transitions(index, product, &mut bytes) {
@@ -312,7 +312,7 @@ pub fn emit_transitions(index: &SpecIndex, product: &FixpointProduct) -> Result<
     }
 }
 
-/// The head object, its four keys in the order Python's dict literal inserts them — `config`, `cells`, `deep_classes`, `cited_provenance` — with the set-valued ones sorted here rather than by whoever produced them. A `deep_classes` entry sorts on the whole pair, as `sorted(mapping.items())` does, which is the same order as by token alone for the unique tokens a map can hold.
+/// Writes the head object with its four keys in the order Python's dict literal inserts them (`config`, `cells`, `deep_classes`, `cited_provenance`), sorting the set-valued ones here. A `deep_classes` entry sorts on the whole pair, as `sorted(mapping.items())` does; because tokens are unique, that is the same as sorting by token.
 fn head_into(
     out: &mut String,
     index: &SpecIndex,
@@ -346,7 +346,7 @@ fn head_into(
     ));
 }
 
-/// One cell as the head spells it: the rune, the stance, the two heights — `null` here for an absent side, where [`cell_key`] uses the empty string — and the adjustment tokens.
+/// One cell as the head writes it: the rune, the stance, the two heights (`null` for an absent side, where [`cell_key`] uses the empty string), and the adjustment tokens.
 fn cell_json(index: &SpecIndex, cell: &CellId) -> String {
     let adjustments: Vec<String> = cell
         .adjustments
@@ -363,7 +363,7 @@ fn cell_json(index: &SpecIndex, cell: &CellId) -> String {
     )
 }
 
-/// One row as the body spells it, appended to the caller's buffer: the six window labels and the outcome, the settled triple, the left-settled triple or `null`, the joint flag, the prospect, and the provenance in the first-seen order the rule fold joins pointers in.
+/// Appends one row to `out`: the six window labels and the outcome, the settled triple, the left-settled triple or `null`, the joint flag, the prospect, and the provenance in first-seen order.
 fn row_into(
     out: &mut String,
     index: &SpecIndex,
@@ -406,7 +406,7 @@ fn row_into(
     Ok(())
 }
 
-/// One settled record as a row carries it: the cell's seat in the head, the seam it committed, and the connector pixels on that seam.
+/// One settled record as a row writes it: the cell's index in the head, the seam it committed, and the connector pixels on that seam.
 fn settled_into(
     out: &mut String,
     index: &SpecIndex,
@@ -426,7 +426,7 @@ fn settled_into(
     Ok(())
 }
 
-/// One settled cell's seat in the head. A cell with no seat is the boundary's own refusal, in `write_transitions`'s sentence — the row named by its six-label key and the cell by its `_cell_key` tuple, both in Python's repr.
+/// One settled cell's index in the head. A cell without one is an error in `write_transitions`'s message format: the row named by its six-label key and the cell by its `_cell_key` tuple, both as Python reprs.
 fn seat_of(
     index: &SpecIndex,
     seats: &HashMap<&CellId, usize>,
@@ -489,7 +489,7 @@ pub(crate) fn cell_key_repr(key: &CellKey) -> String {
     ])
 }
 
-/// A tuple in Python's own repr — comma-space between items, and the trailing comma a one-item tuple needs to still read as one.
+/// A tuple in Python's repr: items separated by a comma and a space, and the trailing comma a one-item tuple needs.
 pub(crate) fn python_tuple(items: &[String]) -> String {
     match items {
         [] => "()".to_owned(),
@@ -498,9 +498,9 @@ pub(crate) fn python_tuple(items: &[String]) -> String {
     }
 }
 
-/// One string in Python's repr, which is what a raise message pastes a tuple's members in: single quotes unless the text carries a single quote and no double one, backslash and the chosen quote escaped, the three whitespace escapes spelled short, and every other ASCII control character as `\xNN`.
+/// One string in Python's repr, the form error messages use for a tuple's members: single quotes unless the text contains a single quote and no double quote, backslash and the chosen quote escaped, tab, newline, and carriage return as `\t`, `\n`, and `\r`, and every other ASCII control character as `\xNN`.
 ///
-/// Non-ASCII passes through, which is Python's behavior for every printable code point and therefore for every name the alphabet spells. A non-printable one would differ, and nothing authored carries one — a rune name, a stance name, a height and an adjustment token are all drawn from the ASCII vocabulary the dump's own grammar admits.
+/// Non-ASCII characters pass through unchanged, which matches Python for every printable code point. A non-printable one would differ, but no authored name contains one: rune names, stance names, heights, and adjustment tokens all come from the ASCII vocabulary the dump's grammar accepts.
 pub(crate) fn python_repr(value: &str) -> String {
     let quote = if value.contains('\'') && !value.contains('"') {
         '"'
@@ -533,7 +533,7 @@ mod tests {
     use crate::index::fixtures;
     use crate::types::{AdjustmentToken, Side, TokenKind, boundary_cell};
 
-    /// The product the byte tests are grounded on, built cell by cell so the sort has something to do: the cells arrive in an order `cell_key` has to undo, and the rows exercise a `None` seam, a left-settled letter, a left-settled boundary, a negative extension and a negative prospect.
+    /// The product the byte tests use, built by hand. Its cells arrive in an order the `cell_key` sort must change, and its rows cover a `None` seam, a left-settled letter, a left-settled boundary, a negative extension, and a negative prospect.
     fn worked_product(index: &SpecIndex) -> FixpointProduct {
         worked_product_with_labels(index, LabelPool::default())
     }
@@ -613,7 +613,7 @@ mod tests {
         );
     }
 
-    /// The provenance table the three worked rows index: the empty list, a two-pointer list in the order the trace left it, and a list of one.
+    /// The provenance table the three worked rows index: the empty list, a two-pointer list in trace order, and a one-pointer list.
     fn noted() -> Vec<Vec<String>> {
         vec![
             Vec::new(),
@@ -625,7 +625,7 @@ mod tests {
         ]
     }
 
-    /// The seat table the three worked rows index: their five distinct settled records, in the order the rows below name them.
+    /// The seat table the three worked rows index: their five distinct settled records, in the order the rows below use them.
     fn seated(index: &SpecIndex) -> Vec<Settled> {
         vec![
             Settled {
@@ -737,7 +737,7 @@ mod tests {
         }
     }
 
-    /// The bytes `kernel_io.write_transitions` writes for this product, gunzipped — captured from the Python writer itself rather than derived by hand.
+    /// The bytes `kernel_io.write_transitions` writes for this product, decompressed, captured from the Python writer.
     #[test]
     fn a_product_writes_the_head_and_the_rows_python_writes() {
         let index = fixtures::mini();
@@ -768,7 +768,7 @@ mod tests {
         );
     }
 
-    /// The class map's spelling: one pair per entry, sorted by token, members in the map's own order. The bytes are `kernel_io.write_transitions`'s own for the same product, captured from the Python writer rather than derived by hand.
+    /// How the head writes the class map: one pair per entry, sorted by token, members in stored order. The expected bytes are `kernel_io.write_transitions`'s output for the same product, captured from the Python writer.
     #[test]
     fn a_deep_class_map_rides_the_head_sorted_by_token() {
         let index = fixtures::mini();
@@ -851,7 +851,7 @@ mod tests {
         );
     }
 
-    /// The cells are a `frozenset` on the Python side, so a cell named twice is one seat and one head entry here too — otherwise the seats would depend on how the fixpoint happened to spell a set the writer's contract says it has.
+    /// Python's `cells` is a `frozenset`, so a cell listed twice gets one index and one head entry here too. Otherwise the indexes would depend on how the fixpoint listed what the format treats as a set.
     #[test]
     fn a_cell_the_product_counts_twice_takes_one_seat() {
         let index = fixtures::mini();
@@ -864,7 +864,7 @@ mod tests {
         );
     }
 
-    /// An absent side sorts as the empty string, which is before every height rather than after every one, and the adjustments sequence is the last component rather than an afterthought.
+    /// An absent side sorts as the empty string, before every height, and the adjustments are the last component.
     #[test]
     fn cell_key_spells_an_absent_side_as_the_empty_string() {
         let index = fixtures::mini();
@@ -882,7 +882,7 @@ mod tests {
         assert!(cell_key(&index, &pea_cell(&index)) < cell_key(&index, &tea_locked(&index)));
     }
 
-    /// The sort that a `Sym`-id sort would silently pass: the fixture interns `x-height` long before `ss03`, so a token built on symbol order would spell the configuration backwards.
+    /// Features sort by resolved string, not by `Sym` id: the fixture interns `x-height` before `ss03`, so a token sorted by symbol would list them in the wrong order.
     #[test]
     fn a_config_token_sorts_its_features_by_the_resolved_string() {
         let index = fixtures::mini();

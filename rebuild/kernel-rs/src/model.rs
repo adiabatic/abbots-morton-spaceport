@@ -1,20 +1,20 @@
-//! The interned model: `rebuild/pipeline/model.py`'s dataclass tree with every vocabulary string collapsed to a `Sym` and every number to an `i64`. Prose — `ductus` values, `notes`, `why`, `description` — stays an owned `String`, because nothing downstream keys on a paragraph; everything else rides as an integer, which is the whole reason the port exists (`doc/rebuild-design.md` §14.1: the packing is the win, not the language).
+//! The interned model: `rebuild/pipeline/model.py`'s dataclass tree with every vocabulary string interned as a `Sym` and every number stored as an `i64`. Prose fields (`ductus` values, `notes`, `why`, `description`) stay owned `String`s because nothing keys on them. Integer keys, not the change of language, are what make the port fast (`doc/rebuild-design.md` §14.1).
 //!
-//! Order is part of the model rather than an accident of how it was parsed. Stance declaration order ranks candidates, exit declaration order is the structural floor's final tiebreak, and a rune's policy lists gather in declaration order, so every mapping the dump preserves lands in a [`Table`] — an insertion-ordered association list — and never in a `HashMap`. The two resolved membership sets (`Policy.groups`, `ScriptRegistry.predicate_classes`) arrive already sorted and are stored and re-emitted in the order they arrived.
+//! Order is part of the model. The order stage ranks candidates by `policy.order`, with stance declaration order filling in what it omits. Exit declaration order is the structural floor's final tiebreak, and a rune's policy lists gather in declaration order. So every mapping the dump preserves is stored in a [`Table`], an insertion-ordered association list, and never in a `HashMap`. The two resolved membership sets (`Policy.groups`, `ScriptRegistry.predicate_classes`) arrive sorted (`rebuild/pipeline/kernel_io.py`) and are stored and re-emitted in that order.
 //!
-//! Heights stay ordinary symbols at this stage. The registry's `heights` mapping is the authority on what each one means, and the deeper packing belongs to the sub-issues after this one; enum-ifying the vocabulary now would freeze something the dump is allowed to grow. The prior art's derived accelerators — feature masks, entry-bearing flags, letter bitmasks — are likewise absent on purpose: ingest is faithful and lossless and nothing more.
+//! Heights are ordinary symbols, and the registry's `heights` mapping gives each one's value. The model is a lossless copy of the dump and holds no derived data; [`crate::index::SpecIndex`] builds the lookups.
 
 use std::num::NonZeroU32;
 
 use crate::hash::HashMap;
 
-/// An interned vocabulary string, valid only against the [`Interner`] that minted it. Comparison, hashing, and later packing all happen on the integer, never on the text.
+/// An interned vocabulary string, valid only with the [`Interner`] that minted it. Comparison and hashing use the integer, never the text.
 ///
-/// The integer is a `NonZeroU32` rather than a `u32` so that `Option<Sym>` is four bytes: zero is the niche the compiler folds `None` into, and a side that did not join — `CellId.entry`, `Settled.seam`, `Candidate.entry`, the engine's left-context fields — costs no discriminant beside the value (issue #164). The pool mints from one to keep zero free, and that offset is the interner's business alone: nothing outside it reads the integer, and a symbol's order is still its minting order, so anything sorted on symbols sorts as it did.
+/// The integer is a `NonZeroU32` so that `Option<Sym>` is four bytes: the compiler stores `None` as zero, so a side that did not join (`CellId.entry`, `Settled.seam`, `Candidate.entry`, the engine's left-context fields) costs no extra discriminant. The pool numbers its strings from one to keep zero free. Only the interner reads the integer, and a symbol's order is its minting order.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct Sym(NonZeroU32);
 
-/// The one string pool a parsed dump resolves through: a `Vec<String>` for `Sym` to text and a map for text to `Sym`, on the crate's own hasher ([`crate::hash`]). The hasher is a measured choice: a fast hasher without a finalizer, whose low bits cannot see the high bits of the last word written, measures far slower than SipHash on this project's keys, and a finalized one measures far faster, which is the one the crate takes.
+/// The string pool a parsed dump resolves through: a `Vec<String>` from `Sym` to text and a map from text to `Sym`, on the crate's own hasher ([`crate::hash`], which records the measurements behind that choice).
 #[derive(Clone, Debug, Default)]
 pub struct Interner {
     strings: Vec<String>,
@@ -22,7 +22,7 @@ pub struct Interner {
 }
 
 impl Sym {
-    /// The symbol for the pool's `seat`-th string. The seat's successor is the integer, which is what keeps zero free for the niche.
+    /// The symbol for the pool's `seat`-th string. Its integer is `seat + 1`, which keeps zero free for `None`.
     fn at(seat: usize) -> Self {
         let raw = u32::try_from(seat)
             .ok()
@@ -54,12 +54,12 @@ impl Interner {
         minted
     }
 
-    /// The text `symbol` stands for. An out-of-range symbol panics; an in-range symbol minted by another interner resolves, silently, to whatever this pool holds at that seat — nothing detects the crossing, which is why a [`Spec`] carries its own `Interner` and the two only ever travel together.
+    /// The text `symbol` stands for. An out-of-range symbol panics. An in-range symbol minted by another interner silently resolves to whatever this pool holds at that seat, which is why a [`Spec`] carries its own `Interner`.
     pub fn resolve(&self, symbol: Sym) -> &str {
         &self.strings[symbol.seat()]
     }
 
-    /// Every symbol the pool has minted beside its text, in minting order — the one way to enumerate a pool, so that no caller has to know where the seats start.
+    /// Every symbol the pool has minted with its text, in minting order. Callers enumerate a pool through this so that none depends on where the seats start.
     pub fn iter(&self) -> impl Iterator<Item = (Sym, &str)> {
         self.strings
             .iter()
@@ -78,7 +78,7 @@ impl Interner {
     }
 }
 
-/// An insertion-ordered mapping from interned key to value — the model's stand-in for every JSON object whose key order the dump preserves. Lookup is not offered because ingest never needs one and a linear scan would quietly become a hot loop later; the later sub-issues that need indexed access will build the index they need.
+/// An insertion-ordered mapping from interned key to value, used for every JSON object whose key order the dump preserves. It has no keyed lookup, because a linear scan would be slow in a hot loop; code that needs lookup builds its own index, as [`crate::index::SpecIndex`] does.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Table<T>(Vec<(Sym, T)>);
 
@@ -124,14 +124,14 @@ impl<'a, T> IntoIterator for &'a Table<T> {
     }
 }
 
-/// One parsed dump: the tree, plus the interner every `Sym` inside it resolves through. The two travel together because a symbol means nothing without its pool, and emission needs both.
+/// One parsed dump: the tree and the interner every `Sym` in it resolves through. A symbol means nothing without its pool, and emission needs both.
 #[derive(Clone, Debug)]
 pub struct Spec {
     pub symbols: Interner,
     pub root: ResolvedSpec,
 }
 
-/// `spec_load`'s whole product: the modeled runes and the script registry.
+/// `spec_load`'s output: the modeled runes and the script registry.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ResolvedSpec {
     pub runes: Table<Rune>,
@@ -151,7 +151,7 @@ pub struct Rune {
     pub policy: Policy,
 }
 
-/// A rune's riders, each list in declaration order because that is the order they gather in.
+/// A rune's riders, each list in declaration order, which is the order settlement gathers them in.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Policy {
     pub order: Vec<Sym>,
@@ -187,7 +187,7 @@ pub struct PolicyRecord {
     pub provenance: Option<Provenance>,
 }
 
-/// The gate a rider or an unlock is read under.
+/// The conditions under which a rider or an unlock applies.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct When {
     pub left: Option<Condition>,
@@ -198,7 +198,7 @@ pub struct When {
     pub feature: Option<Sym>,
 }
 
-/// One side of a `when:`. An empty axis is unconstrained, `except_` carves members back out, and `then` is the right-only static hop.
+/// One side of a `when:`. An empty list places no constraint, `except_` removes matching members, and `then` is the right-only static hop to the next raw slot.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Condition {
     pub family: Vec<Sym>,
@@ -301,7 +301,7 @@ pub struct Unlock {
     pub provenance: Option<Provenance>,
 }
 
-/// Where an authored fact came from, spelled in the dump as the `[file, path]` pair — the tree's one hand-spelled leaf.
+/// Where an authored fact came from, written in the dump as a two-element `[file, path]` array.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct Provenance {
     pub file: Sym,
@@ -326,7 +326,7 @@ pub struct BoundaryToken {
     pub splits_runs: bool,
 }
 
-/// One stylistic set: whether it is a capability or a taste, its prose, and the overlay it draws through.
+/// One stylistic set: its kind (`capability` or `taste`), its description, and the overlay it draws through.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct FeatureInfo {
     pub kind: Sym,

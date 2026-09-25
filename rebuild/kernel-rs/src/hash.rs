@@ -1,18 +1,20 @@
-//! The crate's hash maps and sets: [`HashMap`] and [`HashSet`] are the standard library's tables on [`FastHasher`], a multiply-rotate hasher with an avalanche finalizer, in place of the `RandomState` SipHash the standard aliases default to. Every module that keys a table imports the two aliases from here and constructs them through `Default`, so the hasher is chosen once and no call site names it.
+//! The crate's hash maps and sets: [`HashMap`] and [`HashSet`] are the standard library's tables on [`FastHasher`], a multiply-rotate hasher with an avalanche finalizer, in place of the standard `RandomState` SipHash. Every module imports the two aliases from here and constructs them through `Default`, so no call site names the hasher.
 //!
-//! The crate's map keys are small `Copy` structs of packed integers — `TraceKey`, `CandidatesKey` and `ProspectKey` in `engine.rs`, each a run of `u16` field ordinals and one packed word of token kinds, `Pointer` beside them, `Candidate` in `types.rs`, `Sym` in `model.rs`, `StanceId` in `index.rs`, the fixpoint's and the replay's window keys — whose derived `Hash` emits one write per field, and the tables they key are the widest the build holds (`--cache-census` reports how wide). SipHash costs a whole compression round per write on those keys and the settlement pays it on every probe; this hasher folds each word into the state with one rotate, one xor and one multiply. What makes the finalizer necessary is how hashbrown reads the finished word: the low bits pick the bucket and the top seven bits are the control byte it matches sixteen at a time, so a hasher without a finalizer, whose last multiply carries each bit of the last word written only upward and so leaves the low bits unable to see that word's high bits, measures far slower than SipHash, while a finalized one, whose every output bit depends on every input bit, measures far faster (`doc/rebuild-design.md` §14.1). The finalizer is the reason the fast hasher wins here, and the reason a first pass without one lost.
+//! The crate's map keys are small `Copy` structs of packed integers: `TraceKey`, `CandidatesKey` and `ProspectKey` in `engine.rs` (each a run of `u16` field ordinals and one packed word of token kinds), `Pointer` beside them, `Candidate` in `types.rs`, `Sym` in `model.rs`, `StanceId` in `index.rs`, and the fixpoint's and the replay's window keys. Their derived `Hash` makes one write per field, and the tables they key are the largest the build holds (`--cache-census` reports their sizes). The standard SipHash-1-3 has no integer fast path: every write goes through its byte buffer, it runs a compression round per eight bytes, and `finish` runs four more. Settlement pays that on every probe. This hasher folds each word into the state with one rotate, one xor and one multiply.
 //!
-//! Two consequences worth holding onto. Iteration order over these tables is a function of the keys alone and identical across processes, where the standard tables reseed per process; nothing downstream reads that order, since every table that reaches output is drained and sorted first, so this is a narrowing of what the crate already tolerated. And the hasher is not collision-resistant against chosen keys: a caller that could pick the keys could pick colliding ones, which is irrelevant for a build tool reading a spec this repository authors and the reason to reach for the standard hasher instead were this crate ever fed untrusted input.
+//! The finalizer is required because of how hashbrown reads the hash: the low bits pick the bucket, and the top seven bits are the control byte it compares a group at a time. Without a finalizer, the last multiply carries each bit of the last word written only upward, so the low bits cannot see that word's high bits. Such a hasher measured far slower than SipHash on these keys, and the finalized one, whose every output bit depends on every input bit, measured far faster (`doc/rebuild-design.md` §14.1).
+//!
+//! Two consequences follow. Iteration order over these tables depends only on the keys and is the same in every process, where the standard tables reseed per process. Nothing reads that order, since every table that reaches output is drained and sorted first. And the hasher is not collision-resistant: a caller that could choose the keys could choose colliding ones. That does not matter for a build tool reading a spec this repository authors, but a crate fed untrusted input should use the standard hasher.
 
 use std::hash::{BuildHasherDefault, Hasher};
 
-/// A hash map on [`FastHasher`]. The third parameter is what the alias exists to fix, so a map is built through `Default` (`HashMap::default()`, `HashMap::with_capacity_and_hasher(n, Default::default())`) rather than `new`, which is defined only on the standard hasher.
+/// A hash map on [`FastHasher`]. Build one through `Default` (`HashMap::default()`, `HashMap::with_capacity_and_hasher(n, Default::default())`), because `new` is defined only for the standard hasher.
 pub type HashMap<K, V, S = BuildHasherDefault<FastHasher>> = std::collections::HashMap<K, V, S>;
 
-/// A hash set on [`FastHasher`], built through `Default` for the reason the map is.
+/// A hash set on [`FastHasher`], built through `Default` for the same reason as [`HashMap`].
 pub type HashSet<T, S = BuildHasherDefault<FastHasher>> = std::collections::HashSet<T, S>;
 
-/// The hasher behind the crate's tables: one rotate-xor-multiply per word written, and an avalanche finalizer on `finish`. Every unsigned integer write folds one word; the signed writes keep the trait's defaults, which forward to the unsigned ones, and that is what carries a derived `Hash`'s enum and `Option` discriminants, which go out as `isize`. A byte slice folds eight bytes at a time and then a four, two and one byte tail, each read little-endian so the hash of a text is the same word on every host.
+/// The hasher behind the crate's tables: one rotate-xor-multiply per word written, and an avalanche finalizer on `finish`. Every unsigned integer write folds one word. The signed writes keep the trait's defaults, which forward to the unsigned ones; a derived `Hash` writes enum and `Option` discriminants as `isize` this way. A byte slice folds eight bytes at a time, then a four-, two- and one-byte tail, each read little-endian so a text hashes the same on every host.
 #[derive(Clone, Copy, Default)]
 pub struct FastHasher {
     hash: u64,
@@ -163,7 +165,7 @@ mod tests {
         assert_ne!(hash_of(&[0u8; 8]), hash_of(&[0u8; 9]));
     }
 
-    /// Whether a source names a standard hash table, a hash module or a glob under a `collections` path, or renames the module itself, after which a `c::HashMap` spells no `collections` path at all.
+    /// Whether a source names a standard hash table, a hash module or a glob under a `collections` path, or renames the `collections` module, after which a `c::HashMap` names no `collections` path.
     fn reaches_for_a_standard_table(source: &str) -> bool {
         source.match_indices("collections").any(|(at, name)| {
             if source[..at].ends_with(|c: char| c.is_alphanumeric() || c == '_') {

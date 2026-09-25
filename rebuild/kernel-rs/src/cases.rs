@@ -1,12 +1,12 @@
-//! Case replay: one tab-separated question line in, the same line back out with this kernel's answer after a tab. The shape is this crate's own on both halves — `rebuild/pipeline/kernel_exec.py`'s `case_line` writes a question, and its `trace_of` reads the JSON answer or its `_settled_of_fields` the tab-separated one — and the echoed question is what lines a batch's answers up with its questions, which `kernel_exec._settle_cases` checks before a caller decodes any of them.
+//! Case replay for the `settle-cases` subcommand. Each input line is a tab-separated question, and each output line is that question, a tab, and this kernel's answer. `rebuild/pipeline/kernel_exec.py` writes questions with `case_line` and reads answers with `trace_of` (JSON) or `_settled_of_fields` (tab-separated). `kernel_exec._settle_cases` checks that each answer line starts with its own question and a tab before it decodes that line's answer.
 //!
-//! Re-emitting the question rather than only the answer is what makes that check possible: an output line carries the question it answers, so a line the reader skipped, reordered or answered out of turn cannot pass as an answer to the question that was asked. The echo is the input line's own bytes, verbatim, so what proves the inputs were *understood* is not the echo but the reader's refusals: a field count other than [`CASE_FIELDS`], a name the spec never interned, a kind spelling outside the six, and an adjustments token outside the grammar are all refusals rather than answers, so a misread case stops the run instead of diverging on the answer alone, and a field this build cannot place is a refusal rather than a value riding through.
+//! The echo makes that check possible: a line the reader skipped, reordered, or answered out of turn cannot pass as the answer to the question that was asked. The echo is the input line's bytes unchanged, so it does not show that the input was understood. The parser's errors do that. A field count other than [`CASE_FIELDS`], a name the spec never interned, a kind name outside the six, an adjustments token outside the grammar, and a record field the parser cannot place are all errors, so a misread case stops the run instead of producing a wrong answer.
 //!
-//! A question is thirteen fields: the left's kind and its record — rune, stance, entry, exit, comma-joined adjustments, seam, extension, all seven empty for a left with no record and a height or seam empty where there is none — then the rune under settlement and the four raw slots after it, each a rune name or the kind spelling of a boundary or unknown slot. Nothing in that vocabulary can carry a tab or a newline.
+//! A question has thirteen fields: the left's kind and its record (rune, stance, entry, exit, comma-joined adjustments, seam, extension; all seven empty for a left with no record, and a height or seam empty where there is none), then the rune being settled and the four raw slots after it. Each slot is a rune name or the kind name of a boundary or unknown slot. None of these values can contain a tab or a newline.
 //!
-//! The answer comes in one of two shapes, which the command line chooses. The trace ([`Answer::Trace`]) is one JSON object carrying the whole route, not only the row-visible record: the settled cell, the prospect, the joint-floor flag, the notes and the fired delta, then the deciding stage, the runner-up, the ranked ladder and the eliminations. The last four are the route rather than the outcome, and they are what the explain panel and the review surface's explain view read — a window can land on the right cell by the wrong route, and the ladder is where that shows. The settled-only answer ([`Answer::SettledOnly`]) is the record alone as seven tab-separated fields, [`settled_fields`]' spelling, for the conform walker that settles windows by the hundred thousand and keeps only the outcome. A refusal is the same `{"raise":…,"message":…}` object in both shapes, so a reader tells one from a settled record by its first byte.
+//! The command line chooses one of two answer shapes. The trace ([`Answer::Trace`]) is one JSON object: the settled cell, the prospect, the joint-floor flag, the notes, and the fired delta, then the deciding stage, the runner-up, the ranked ladder, and the eliminations. The last four record how the decision was reached, and `explain` and the review surface's explain view read them: a window can settle on the right cell for the wrong reason, and the ladder shows that. The settled-only answer ([`Answer::SettledOnly`]) is the record alone as seven tab-separated fields in the [`settled_fields`] format, for the conform walker, which keeps only outcomes. A settlement error is the same `{"raise":…,"message":…}` object in both shapes. In the settled-only shape a reader tells it from a record by its first byte, `{`; in the trace shape, by its `raise` key.
 //!
-//! The fired delta is the field no downstream artifact re-derives: a port that settles onto the right cell by the wrong route builds a table whose dead-policy gate reads live records as dead. It comes from the trace memo's journaled delta for this case's own key, which means a *missing* delta is not an empty one — it says this replay's key shape and the memo's have drifted apart, and it stops the run rather than answering. The settled-only answer looks the delta up too and reports none of it, so the drift alarm is the same in both shapes.
+//! The fired delta is the trace memo's journaled delta for this case's key. A missing delta is an error, not an empty list: it means this replay's key no longer matches the memo's key, or the engine has no trace memo. The settled-only answer looks the delta up too without reporting it, so both shapes fail the same way.
 
 use crate::emit::json_string;
 use crate::engine::{Engine, Slots};
@@ -18,7 +18,7 @@ use crate::types::{
     TokenKind, TransitionTrace, height_json, provenance_pointer, settled_fields, settled_json,
 };
 
-/// The corpus's three raise buckets. `E-UNREACHABLE` takes the stranded window and every plain settle error alike, which is why the message rides beside it — an identity alone cannot tell a stranded exit from a rune that is not modeled.
+/// The three raise buckets, the values `settle.SettleError.bucket` takes. `E-UNREACHABLE` covers both a stranded window and every plain settle error, so the message is sent beside the bucket: the bucket alone cannot tell a stranded exit from a rune that is not modeled.
 const RAISE_INCOMPARABLE: &str = "E-INCOMPARABLE";
 const RAISE_AMBIGUOUS: &str = "E-AMBIGUOUS";
 const RAISE_UNREACHABLE: &str = "E-UNREACHABLE";
@@ -35,7 +35,7 @@ pub enum Answer {
     SettledOnly,
 }
 
-/// One case: the window to settle, beside the question line its answer is written after. The line is kept rather than re-spelled so that the echo is the caller's own bytes.
+/// One case: the window to settle and the question line its answer follows. The line is kept as given so the echo is the caller's own bytes.
 #[derive(Clone, Debug)]
 pub struct Case<'l> {
     pub left: LeftContext,
@@ -44,7 +44,7 @@ pub struct Case<'l> {
     line: &'l str,
 }
 
-/// Read one question line, `kernel_exec.case_line`'s inverse. A name the spec never interned is a hard error rather than a settlement outcome: the case was cut against some other spec, and answering it would compare two different questions.
+/// Reads one question line; the inverse of `kernel_exec.case_line`. A name the spec never interned is an error, not a settlement outcome: the case was written against a different spec, and answering it would answer a different question.
 pub fn parse_case<'l>(index: &SpecIndex, line: &'l str) -> Result<Case<'l>, String> {
     let fields: Vec<&str> = line.split('\t').collect();
     let [
@@ -88,7 +88,7 @@ pub fn parse_case<'l>(index: &SpecIndex, line: &'l str) -> Result<Case<'l>, Stri
     })
 }
 
-/// One case's whole output line: the question as it arrived, a tab, and this kernel's answer in the shape asked for.
+/// One case's output line: the question as received, a tab, and this kernel's answer in the requested shape.
 pub fn replay_case(
     engine: &mut Engine<'_>,
     case: &Case<'_>,
@@ -98,9 +98,9 @@ pub fn replay_case(
     Ok(format!("{}\t{result}", case.line))
 }
 
-/// A whole case file replayed through one engine in file order — the `settle-cases` verb's body. An optional leading `# ` marker line is a head and is skipped rather than parsed: the modes a file was cut under reach this kernel as CLI flags, so the world a batch is answered in is the caller's word and never the file's.
+/// Replays a whole case file through one engine in file order; the body of the `settle-cases` subcommand. A first line starting with `# ` is a head and is skipped: the modes a batch is settled under come from CLI flags, never from the file.
 ///
-/// The engine is shared across the file, so a batch settles warm. That costs the answers nothing: each memoized evaluation replays its journaled delta on every hit, precisely so a warm answer and a cold one agree down to the fired set.
+/// The engine is shared across the file, so later cases reuse its memo. This changes no answer: a memo hit replays the journaled fired delta, so a cached answer and an uncached one have the same fired set.
 pub fn replay_cases(
     engine: &mut Engine<'_>,
     text: &str,
@@ -118,7 +118,7 @@ pub fn replay_cases(
     Ok(lines)
 }
 
-/// This case's answer: the row-visible record with its fired delta and the ladder under the trace shape, the record's seven fields under the settled-only one, or in either shape the raise bucket with the message that came with it, which `settle.SettleError` carries as its `.bucket` and its own text. The delta is looked up in both shapes, because a missing one is the drift alarm and not an empty field.
+/// This case's answer. The trace shape gives the settled record with its fired delta and the ladder; the settled-only shape gives the record's seven fields. In either shape a settlement error gives its bucket and message, which `settle.SettleError` carries as `.bucket` and its text. The delta is looked up in both shapes because a missing delta is an error.
 fn result_text(engine: &mut Engine<'_>, case: &Case<'_>, answer: Answer) -> Result<String, String> {
     let index = engine.index();
     let trace = match engine.transition_trace(&case.left, case.token, case.slots) {
@@ -197,7 +197,7 @@ fn settled_text(index: &SpecIndex, trace: &TransitionTrace, fired: &[String]) ->
     )
 }
 
-/// One candidate as the trace spells it, and as `kernel_exec._candidate_of` reads it back into a `settle.Candidate`: the stance, its two heights, and the two indices the ranking and the floor sort on. A non-joining candidate carries the sentinel exit index's own value rather than a null, because what a reader wants is the sort key the ranking used — `settle._NO_EXIT_INDEX` is that value's Python spelling.
+/// One candidate as the trace writes it and `kernel_exec._candidate_of` reads it back into a `settle.Candidate`: the stance, its two heights, and the two indices the ranking and the floor sort on. A non-joining candidate carries the sentinel exit index (`settle._NO_EXIT_INDEX` in Python) instead of null, because the reader wants the sort key the ranking used.
 fn candidate_json(index: &SpecIndex, candidate: &Candidate) -> String {
     format!(
         "[{},{},{},{},{}]",
@@ -231,7 +231,7 @@ fn kind_of(name: &str, what: &str) -> Result<TokenKind, String> {
     TokenKind::from_text(name).ok_or_else(|| format!("{what} names no known kind: {name}"))
 }
 
-/// The left's kind and its seven record fields. A left with no record spells all seven empty; a rune field that is empty beside a record field that is not is a line this reader cannot place, and is refused rather than read as either.
+/// The left's kind and its seven record fields. A left with no record has all seven empty. An empty rune beside a non-empty record field is an error.
 fn parse_left(index: &SpecIndex, kind: &str, record: [&str; 7]) -> Result<LeftContext, String> {
     let kind = kind_of(kind, "the left's kind")?;
     if record[0].is_empty() {
@@ -265,7 +265,7 @@ fn parse_left(index: &SpecIndex, kind: &str, record: [&str; 7]) -> Result<LeftCo
     })
 }
 
-/// The letter token a field names, or a refusal for a name the spec never interned or the registry knows no family by: a question names its runes out of the registry, as `settle.tokens_from_codepoints` refuses anything else before a line is cut.
+/// The letter token a field names. It fails on a name the spec never interned and on a name that is not a registered family: questions name only registry runes, because `settle.tokens_from_codepoints` refuses anything else before a line is written.
 fn letter_of(index: &SpecIndex, field: &str, what: &str) -> Result<RightToken, String> {
     let name = symbol(index, field, what)?;
     index
@@ -273,7 +273,7 @@ fn letter_of(index: &SpecIndex, field: &str, what: &str) -> Result<RightToken, S
         .ok_or_else(|| format!("{what} names no registered family: {field}"))
 }
 
-/// The seven record fields — rune, stance, entry, exit, comma-joined adjustments, seam, extension — read back into a settled record: a question's left, in the spelling [`settled_fields`] answers in.
+/// Reads the seven record fields (rune, stance, entry, exit, comma-joined adjustments, seam, extension) into a settled record. This is a question's left, in the format [`settled_fields`] writes.
 pub(crate) fn parse_settled(
     index: &SpecIndex,
     [rune, stance, entry, exit, adjustments, seam, extension]: [&str; 7],
@@ -302,7 +302,7 @@ pub(crate) fn parse_settled(
     })
 }
 
-/// The JSON record spelling — [`settled_json`], which the replay's window memo files one record per line of — read back through [`parse_settled`], for the tests that hold a filed memo to the walk that wrote it. Nothing shipped reads that spelling here: its reader is `kernel_exec.settled_of_row`, on the Python side of the seam.
+/// Reads the JSON record format of [`settled_json`] through [`parse_settled`]. The replay's window memo writes one such record per line, and tests use this to check a written memo against the walk that wrote it. No shipped code in the crate reads this format; `kernel_exec.settled_of_row` reads it in Python.
 #[cfg(test)]
 pub(crate) fn parse_settled_json(
     index: &SpecIndex,
@@ -355,9 +355,9 @@ pub(crate) fn parse_settled_json(
     )
 }
 
-/// One adjustments token read back into the closed grammar, `model.parse_adjustment`'s refusals included. A left cell's adjustments are load-bearing in exactly one place: the trace memo collapses them away, but a stranded window's E-STRANDED sentence reads the left's whole `cell_label`, which spells every adjustment back out — so a token misread here would surface as a diverging message and nowhere else.
+/// Reads one adjustments token into the closed grammar, refusing everything `model.parse_adjustment` refuses. A left cell's adjustments affect only one output: the trace memo ignores them, but a stranded window's E-STRANDED message includes the left's full `cell_label`, which lists every adjustment. A misread token here would show up only as a different message.
 ///
-/// Three of this reader's refusals are knowingly stricter than `model.parse_adjustment`'s, and one normalization is knowingly looser; none of the four is reachable from a case line, whose tokens are whatever this kernel's own adjustment and withdrawal spellings wrote. Python reads the count with `int()`, which accepts underscore grouping (`en-ext-1_0`), surrounding whitespace, and non-ASCII decimal digits, where Rust's `i64` parse takes none of them; `+1` and leading zeros are the same number on both sides, so those are not divergences. Python's `bind` takes its argument as an arbitrary string, including the empty one `ex-bind-` yields, where this reader demands a name the spec interned — the same call the feature flags make, and for the same reason: a token naming a bitmap this spec never mentions is a case cut against another spec. And a count is *parsed* here rather than kept as text, so `en-ext-01` would re-spell as `en-ext-1` in a `cell_label` where Python's tuple of raw token strings prints it back verbatim.
+/// This reader differs from `model.parse_adjustment` in ways no case line reaches, because a case line's tokens are ones this kernel's own adjustment and withdrawal formatting wrote. Python reads the count with `int()`, which accepts underscore grouping (`en-ext-1_0`), surrounding whitespace, and non-ASCII decimal digits; Rust's `i64` parse refuses all three. `+1` and leading zeros parse the same on both sides. Python's `bind` accepts any string, including the empty one `ex-bind-` yields; this reader requires a name the spec interned, the same check the feature flags make, because a token naming a bitmap the spec never mentions means the case was written against another spec. Finally, the count is parsed here, not kept as text, so `en-ext-01` is written back as `en-ext-1` in a `cell_label`, where Python's tuple of raw token strings prints it unchanged.
 fn parse_adjustment(index: &SpecIndex, token: &str) -> Result<AdjustmentToken, String> {
     if token == "locked" {
         return Ok(AdjustmentToken::Locked);
@@ -388,7 +388,7 @@ fn parse_adjustment(index: &SpecIndex, token: &str) -> Result<AdjustmentToken, S
     }
 }
 
-/// One raw slot: the kind spelling of a boundary or unknown slot, or else a rune name. The kind spellings are read first, so `letter` itself is refused — a letter slot spells its rune — and a name that is neither is a refusal rather than a slot.
+/// One raw slot: the kind name of a boundary or unknown slot, or else a rune name. Kind names are checked first, so `letter` is refused (a letter slot names its rune), and a name that is neither is an error.
 fn parse_token(index: &SpecIndex, field: &str) -> Result<RightToken, String> {
     match TokenKind::from_text(field) {
         Some(TokenKind::Letter) => {
@@ -418,13 +418,13 @@ mod tests {
         )
     }
 
-    /// One window over `fixtures::mini()`: the run edge on the left, `qsPea` under settlement, and a `qsTea` follower whose only entry at the height `qsPea` exits is unselectable — so the x-height exit is closed out and the cell settles unjoined.
+    /// One window over `fixtures::mini()`: the run edge on the left, `qsPea` being settled, and a `qsTea` follower whose only entry at `qsPea`'s exit height cannot be selected, so the x-height exit is eliminated and the cell settles unjoined.
     const UNJOINED: &str = "edge\t\t\t\t\t\t\t\tqsPea\tqsTea\tedge\tunknown\tunknown";
 
-    /// The window that fills the ladder in: `qsTea` under settlement toward `qsPea`, where the x-height exit has no acceptor and the baseline one is refused by an authored record, so two stances survive exitless and the declared order settles it. Both flavors of elimination are here — one that names no record and one that names the refusal — and the surviving loser is the runner-up.
+    /// The window that fills in the ladder: `qsTea` being settled before `qsPea`. The x-height exit has no acceptor and an authored record refuses the baseline exit, so two stances survive with no exit and the declared order decides. It has both kinds of elimination, one naming no record and one naming the refusal, and the losing survivor is the runner-up.
     const ORDERED: &str = "edge\t\t\t\t\t\t\t\tqsTea\tqsPea\tedge\tunknown\tunknown";
 
-    /// The same follower behind a left that committed an x-height exit `qsTea` cannot accept — the stranded window, which the corpus buckets as `E-UNREACHABLE` and tells apart by its message.
+    /// The same follower after a left that committed an x-height exit `qsTea` cannot accept. This is the stranded window, which goes in the `E-UNREACHABLE` bucket and is told apart by its message.
     const STRANDED: &str =
         "letter\tqsPea\thalf\t\tx-height\t\tx-height\t0\tqsTea\tqsMay\tedge\tunknown\tunknown";
 
@@ -435,7 +435,7 @@ mod tests {
         replay_case(&mut engine, &case, shape).expect("the case replays")
     }
 
-    /// The answer alone: what follows the echoed question and its tab.
+    /// The answer alone: the text after the echoed question and its tab.
     fn result_of(line: &str, shape: Answer) -> String {
         let answered = answer(line, shape);
         answered
@@ -445,7 +445,7 @@ mod tests {
             .to_owned()
     }
 
-    /// The whole trace: the row-visible record and its delta, then the ladder that chose it — the deciding stage, the runner-up, every ranked survivor with its two scores, and the eliminations with their provenance. This window has one survivor, so the stage is `only-candidate` and there is no runner-up; the exit it did not get to keep is the elimination.
+    /// The full trace: the settled record and its delta, then the ladder: the deciding stage, the runner-up, every ranked survivor with its two scores, and the eliminations with their provenance. This window has one survivor, so the stage is `only-candidate` and there is no runner-up. The elimination is the exit the survivor lost.
     #[test]
     fn a_settled_case_carries_the_record_the_delta_and_the_ladder_that_chose_it() {
         assert_eq!(
@@ -454,7 +454,7 @@ mod tests {
         );
     }
 
-    /// The four ladder fields on a window that exercises all of them: the stage that decided, the survivor that lost to it, both ranked rungs with their join count and prospect, and the two eliminations in enumeration order — the second carrying the refusal's pointer, which is also what the delta and the notes report.
+    /// The four ladder fields on a window that fills all of them: the deciding stage, the survivor that lost, both ranked entries with their join count and prospect, and the two eliminations in enumeration order. The second elimination carries the refusal's pointer, which the delta and the notes also report.
     #[test]
     fn the_ladder_carries_the_stage_the_runner_up_both_rungs_and_each_eliminations_provenance() {
         assert_eq!(
@@ -463,7 +463,7 @@ mod tests {
         );
     }
 
-    /// The settled-only answer is the trace's own settled record as seven fields, a height empty where the trace spells `null`, and nothing of the ladder.
+    /// The settled-only answer is the trace's settled record as seven fields, with an empty height where the trace has `null`, and no ladder.
     #[test]
     fn a_settled_only_answer_is_the_records_seven_fields() {
         assert_eq!(
@@ -487,7 +487,7 @@ mod tests {
         );
     }
 
-    /// The two specificity raises are unauthored on today's live spec and on the mini one, so no sweep however large reaches this mapping — it is pinned here or nowhere.
+    /// Neither the live spec nor the mini spec produces either specificity raise (`E-INCOMPARABLE`, `E-AMBIGUOUS`), so no sweep reaches this mapping and only this test checks it.
     #[test]
     fn the_four_raise_kinds_bucket_into_the_corpuss_three() {
         assert_eq!(
@@ -508,7 +508,7 @@ mod tests {
         );
     }
 
-    /// `json.dumps` under its default `ensure_ascii`, which is what the Python reader expects — and a tab or newline inside a message is escaped, so a refusal after the tab separator cannot desynchronize the batch.
+    /// Messages are escaped as `json.dumps` escapes them under its default `ensure_ascii`, which the Python reader expects. A tab or newline inside a message is escaped, so a refusal after the tab separator cannot break the batch's line structure.
     #[test]
     fn a_message_is_escaped_the_way_python_writes_it() {
         assert_eq!(
@@ -529,7 +529,7 @@ mod tests {
         }
     }
 
-    /// A field count other than thirteen is a line this reader cannot place: one short of a slot, and one with a field past the last slot, are both refused rather than read as far as they go.
+    /// A field count other than thirteen is an error: a line one slot short and a line with a field past the last slot are both refused, not read as far as they go.
     #[test]
     fn a_field_count_other_than_thirteen_is_refused() {
         let index = fixtures::mini();
@@ -580,7 +580,7 @@ mod tests {
         assert!(answered.starts_with(&format!("{line}\t")));
     }
 
-    /// The left's record is spelled in the same seven fields the settled-only answer is, so a settled-only answer can be pasted back in as the next question's left and read as the record it was.
+    /// The left's record uses the same seven fields as the settled-only answer, so a settled-only answer can be used as the next question's left and reads back as the same record.
     #[test]
     fn a_settled_only_answer_reads_back_as_a_lefts_record() {
         let index = fixtures::mini();
@@ -608,7 +608,7 @@ mod tests {
         assert!(lines[1].starts_with(&format!("{STRANDED}\t{{\"raise\":\"E-UNREACHABLE\"")));
     }
 
-    /// Both shapes look the delta up, so the drift alarm survives the shape that reports no delta.
+    /// Both shapes look the delta up, so the settled-only shape, which reports no delta, still fails when the delta is missing.
     #[test]
     fn a_missing_delta_says_the_memo_key_shapes_have_drifted() {
         let index = fixtures::mini();
@@ -640,7 +640,7 @@ mod tests {
         );
     }
 
-    /// A slot spells its rune name or the kind of a boundary; the word `letter` is neither, and a left with no rune but a stance is a record this reader cannot place.
+    /// A slot names its rune or the kind of a boundary. The word `letter` is neither, and a left with a stance but no rune cannot be read.
     #[test]
     fn a_slot_spelled_letter_and_a_half_spelled_left_are_refused() {
         let index = fixtures::mini();
@@ -657,7 +657,7 @@ mod tests {
         );
     }
 
-    /// Every spelling below is one `model.parse_adjustment` refuses too; this reader also refuses three that it accepts, which is why the name claims a direction rather than an equivalence. See [`parse_adjustment`].
+    /// `model.parse_adjustment` refuses every token below too. This reader also refuses some tokens that `model.parse_adjustment` accepts, so the test name states only one direction. See [`parse_adjustment`].
     #[test]
     fn a_token_outside_the_grammar_is_refused_and_a_well_formed_one_parses() {
         let index = fixtures::mini();

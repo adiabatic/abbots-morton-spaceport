@@ -1,10 +1,10 @@
-//! The section 5.7 late-formation guard, and the only home the verdict has: whether a ligature yields to its components in one window because the trailing component, left unformed, would realize a seam toward the follower while the formed ligature could realize none. The trail side is settled at ranking grain — a full [`Engine::transition_trace`] with the lead's default unjoined stance as its left, so follower votes and the runes' prefers count and not only candidacy — while the ligature side is kept generously at candidacy grain with the run edge as its left.
+//! The section 5.7 late-formation guard, the only place its verdict is computed: whether a ligature yields to its components in one window because the trailing component, left unformed, would join toward the follower while the formed ligature could not. The trail side is settled at ranking grain: a full [`Engine::transition_trace`] with the lead's default stance, unjoined, as its left, so follower votes and the runes' prefers count as well as candidacy. The ligature side is checked more generously, at candidacy grain with the run edge as its left.
 //!
-//! The verdict is a pure function of the ligature and the two raw slots past its sequence, which is the whole reason it can compile into the formation lookup the font ships: that lookup stages before the stylistic-set marker substitutions and is therefore config-blind, so the verdict is quantified over the powerset of capability-unlock features and fires only where every configuration agrees. The engines that answer it are dedicated ones with both issue-28 flags pinned off and every slot past the two the verdict is keyed on bound to the window edge — `vote_deep_slot` at [`EDGE`], plus `EDGE` in the trace's third and fourth slots — so a vote or a prefer that would need deeper raw text to fire definitively can never flip a formation verdict as a side effect of a settlement-scoring change. Whether the guard should ever follow either flag is its own reviewed change with its own flip inventory, which is why the pins live here rather than being read off the engine defaults.
+//! The verdict depends only on the ligature and the two raw slots past its sequence, which is why it can compile into the formation lookup the font ships. That lookup runs before the stylistic-set marker substitutions and so cannot see the configuration, so the verdict is quantified over the powerset of capability-unlock features and blocks only where every configuration blocks. The engines that compute it have `simulated_prospect` and `vote_slots` off and bind every slot past the verdict's two to the window edge: `vote_deep_slot` is [`EDGE`], and the trace's third and fourth slots are `EDGE`. A vote or prefer that needs deeper raw text therefore cannot change a formation verdict as a side effect of a settlement-scoring change. Making the guard follow either flag is a separate reviewed change, so the modes are pinned here ([`GUARD_MODES`]) instead of read from the engine defaults.
 //!
-//! [`GuardState`] is ordinary per-spec state, built once and kept: the powerset lives on it rather than in a cache beside it. `settle.form_ligatures` reads its verdicts from the whole swept mapping, which `kernel_exec.guard_sweep` memoizes per spec identity, so one process sweeps one spec once however many texts it forms. The engines are plain ones — no trace memo, so nothing journals and [`Engine::candidates`] runs uncached — because no verdict reads a fired delta. [`GuardState::under`] and [`sweep_under`] are the same guard over one named configuration instead of the powerset: nothing the font ships reads them, and what they are for is the rebuild suite's pin of where each configuration's own surface stands against the quantified one — which sets move a single-engine verdict at all, and on which windows — so a configuration delta knows what formation owes it before any configuration is named.
+//! [`GuardState`] is per-spec state, built once and kept, and it holds the powerset's engines itself. Python's `settle.form_ligatures` reads the verdicts from the complete sweep, which `kernel_exec.guard_sweep` memoizes per spec. No verdict reads a fired delta, so the engines have no trace memo: nothing is journaled and [`Engine::candidates`] runs uncached. [`GuardState::under`] and [`sweep_under`] compute the same guard for one named configuration instead of the powerset. The font does not use them; the rebuild suite uses them to check, per configuration, where that configuration's verdicts differ from the quantified ones.
 //!
-//! One structural note: `GuardState::follower_formation` is answered once up front rather than inside the per-engine loop. It reads the spec and the two slots and nothing of the engine, so the answer is the same either way, and hoisting it is what lets the verdict memo and the engines be borrowed apart.
+//! `GuardState::follower_formation` is computed once before the per-engine loop. It reads only the spec and the two slots, so the answer is the same either way, and computing it first keeps the borrow of the verdict memo separate from the borrow of the engines.
 
 use crate::engine::{Engine, EngineModes, Slots};
 use crate::error::SettleError;
@@ -15,20 +15,20 @@ use crate::types::{
     CellId, EDGE, LeftContext, NAMER_DOT, RightToken, SPACE, Settled, TokenKind, UNKNOWN, ZWNJ,
 };
 
-/// The non-letter second slots the sweep walks after the letters, in the order it prints them. `right1` has no such tail because a non-letter first slot short-circuits the verdict to free before any engine runs.
+/// The non-letter second slots the sweep covers after the letters, in the order it prints them. The first slot has no such tail, because a non-letter first slot makes the verdict free before any engine runs.
 const TAIL_TOKENS: [RightToken; 5] = [EDGE, SPACE, ZWNJ, NAMER_DOT, UNKNOWN];
 
-/// One verdict's identity: the ligature under formation and the two raw slots past its sequence. Nothing else can reach a verdict, which is exactly the property the emitted lookup depends on.
+/// The key of one verdict: the ligature being formed and the two raw slots past its sequence. The verdict depends on nothing else, which the emitted formation lookup requires.
 type VerdictKey = (Sym, RightToken, RightToken);
 
-/// One spec's guard state: the engines a verdict has to survive — the capability-feature powerset for the config-blind verdict the font ships, or a single named configuration for the pin that holds every configuration to that verdict — and the verdicts they have already agreed on.
+/// One spec's guard state: the engines that must all block for a verdict to block (one per subset of the capability features for the verdict the font ships, or one engine for a single named configuration), and the memoized verdicts.
 pub struct GuardState<'i> {
     index: &'i SpecIndex,
     engines: Vec<Engine<'i>>,
     verdicts: HashMap<VerdictKey, bool>,
 }
 
-/// The guard's engine modes: the two issue-28 flags off and the vote's deep slot pinned to the window edge, whatever the engine defaults say.
+/// The guard's engine modes: `simulated_prospect` and `vote_slots` off and the vote's deep slot pinned to the window edge, whatever the engine defaults are.
 const GUARD_MODES: EngineModes = EngineModes {
     vote_deep_slot: EDGE,
     simulated_prospect: false,
@@ -38,7 +38,7 @@ const GUARD_MODES: EngineModes = EngineModes {
 };
 
 impl<'i> GuardState<'i> {
-    /// The guard's engines for one spec: one per subset of the capability-unlock features, in `itertools.combinations` order — subset sizes ascending, and within a size the features in sorted-name order — in [`GUARD_MODES`].
+    /// The guard's engines for one spec, in [`GUARD_MODES`]: one per subset of the capability-unlock features, in `itertools.combinations` order over the name-sorted features, smallest subsets first.
     pub fn new(index: &'i SpecIndex) -> Self {
         let features = capability_features(index);
         let mut engines = Vec::new();
@@ -50,7 +50,7 @@ impl<'i> GuardState<'i> {
         Self::over(index, engines)
     }
 
-    /// One configuration's guard: a single engine over exactly `features`, in [`GUARD_MODES`], so its verdicts are what that configuration alone would say. The shipped verdict is [`GuardState::new`]'s, which fires only where every configuration's agrees; this is what the rebuild suite sweeps per configuration to pin which of them do, and where.
+    /// One configuration's guard: a single engine over `features`, in [`GUARD_MODES`], so its verdicts are that configuration's alone. The shipped verdict is [`GuardState::new`]'s, which blocks only where every configuration blocks. The rebuild suite sweeps this per configuration to compare the two.
     pub fn under(index: &'i SpecIndex, features: Vec<Sym>) -> Self {
         Self::over(
             index,
@@ -66,17 +66,17 @@ impl<'i> GuardState<'i> {
         }
     }
 
-    /// How many feature configurations a verdict has to survive — the powerset's size, which is what makes the verdict config-blind.
+    /// How many engines must block for a verdict to block: the powerset's size for [`GuardState::new`], and 1 for [`GuardState::under`].
     pub fn engine_count(&self) -> usize {
         self.engines.len()
     }
 
-    /// The spec this guard answers over.
+    /// The spec this guard reads.
     pub fn index(&self) -> &'i SpecIndex {
         self.index
     }
 
-    /// Whether this ligature yields to its components in this window. A non-letter first slot is free without consulting an engine, and every computed verdict is remembered because the sweep asks for each one many times over.
+    /// Whether this ligature yields to its components in this window. A non-letter first slot is free without consulting an engine. Every computed verdict is memoized, because `WindowOptions` and the string replay ask for the same key many times.
     pub fn formation_blocked(
         &mut self,
         liga: Sym,
@@ -110,9 +110,9 @@ impl<'i> GuardState<'i> {
         Ok(verdict)
     }
 
-    /// The ligature the two raw slots will themselves have formed by the time the guarded rule's own window settles — the modeled rune whose sequence is exactly these two runes and whose own guard, read with its slots unknown-optimistic, does not block. `None` when the slots are not a forming pair, and that is the common case.
+    /// The ligature the two raw slots themselves form before the guarded ligature's window settles: the modeled rune whose sequence is these two runes and whose own guard does not block. That guard is read with both slots `UNKNOWN`, which is not a letter, so it never blocks. `None` when the slots are not a forming pair, which is the common case.
     ///
-    /// Both tests then face that ligature rather than the bare first slot, because a follower whose entry the pair's own formation is about to consume must not count as reachable: else the guard un-forms the left ligature in service of a seam the settled world cannot contain.
+    /// The engine checks then use that ligature as the follower instead of the bare first slot. The pair's formation consumes the first slot's entry, so counting it as reachable would make the guard un-form the left ligature for a join that cannot happen.
     fn follower_formation(
         &mut self,
         right1: RightToken,
@@ -134,7 +134,7 @@ impl<'i> GuardState<'i> {
         Ok(None)
     }
 
-    /// One configuration's verdict. Three reads in order, each of which can settle the question free: the unformed trail must offer some seam toward the follower, its ranking-grain trace must actually commit one, and the formed ligature must offer none.
+    /// One configuration's verdict: blocked only when the unformed trail offers some seam toward the follower, its ranking-grain trace commits one, and the formed ligature offers none. The checks run in that order, and the first that fails makes the verdict free.
     fn blocked_under(
         engine: &mut Engine<'i>,
         liga: Sym,
@@ -211,7 +211,7 @@ impl<'i> GuardState<'i> {
     }
 }
 
-/// Every feature some capability unlock is gated on, in sorted-name order — the axes the verdict is quantified over. Sorting is by the resolved text and not by symbol, because interning order is an accident of what the dump mentioned first.
+/// Every feature some capability unlock is gated on, sorted by name: the features the verdict is quantified over. The sort is on the resolved text, because symbol order is the order the dump happened to mention them in.
 fn capability_features(index: &SpecIndex) -> Vec<Sym> {
     let mut seen: HashSet<Sym> = HashSet::default();
     let mut features: Vec<Sym> = Vec::new();
@@ -228,7 +228,7 @@ fn capability_features(index: &SpecIndex) -> Vec<Sym> {
     features
 }
 
-/// Every `size`-element subset of `features`, in `itertools.combinations` order: the subsets ordered by the seats they take, so a subset containing an earlier feature comes before every subset that does not.
+/// Every `size`-element subset of `features`, in `itertools.combinations` order: lexicographic by the features' positions in `features`.
 fn combinations(features: &[Sym], size: usize) -> Vec<Vec<Sym>> {
     if size == 0 {
         return vec![Vec::new()];
@@ -248,14 +248,14 @@ fn combinations(features: &[Sym], size: usize) -> Vec<Vec<Sym>> {
     out
 }
 
-/// The whole late-formation surface as the `guard-sweep` verb prints it: one tab-separated `liga right1 right2 blocked|free` row per triple, ligatures in sorted-name order, then every modeled letter at the first raw slot, then every modeled letter followed by the four boundary kinds and `unknown` at the second.
+/// Every late-formation verdict, as the `guard-sweep` subcommand prints them: one tab-separated `liga right1 right2 blocked|free` row per key. Ligatures come in sorted-name order, then every modeled letter at the first raw slot, then every modeled letter followed by the four boundary kinds and `unknown` at the second.
 ///
-/// The surface is exhaustively enumerable rather than sampled, which is what lets one sweep answer every formation question a build can ask, with no sampling to argue about. The letter vocabulary is every modeled rune, ligature runes included — the same alphabet the deep-slot liveness probes sweep.
+/// The sweep covers every key, so one sweep covers every formation question a build can ask. The letters are every modeled rune, ligature runes included, the same alphabet the deep-slot liveness probes use.
 pub fn sweep(index: &SpecIndex) -> Result<Vec<String>, SettleError> {
     sweep_with(&mut GuardState::new(index))
 }
 
-/// The same surface in the same order, answered by one configuration alone — `guard-sweep --features=` — so a caller can hold every configuration's surface against the quantified one.
+/// The same sweep in the same order for one configuration alone (`guard-sweep --config=`), so a caller can compare each configuration's verdicts with the quantified ones.
 pub fn sweep_under(index: &SpecIndex, features: Vec<Sym>) -> Result<Vec<String>, SettleError> {
     sweep_with(&mut GuardState::under(index, features))
 }
@@ -313,7 +313,7 @@ mod tests {
     use crate::index::fixtures;
     use crate::model::Interner;
 
-    /// A JSON object over already-built pieces, for the mappings the fixtures compose rather than spell.
+    /// A JSON object from already-built key and value strings.
     fn object(entries: &[(String, String)]) -> String {
         let pairs: Vec<String> = entries
             .iter()
@@ -364,7 +364,7 @@ mod tests {
 
     /// The little alphabet the formation tests read.
     ///
-    /// `qsPea` and `qsTea` are the ligature's components, both of them joining at the baseline on both sides, so the trail left unformed can reach a follower. `qsMay` accepts a baseline entry and offers no exit, so it is a plain follower. The ligature `qsPea_qsTea` accepts nothing — which is what makes it a follower whose entry its own formation consumes — and its exit surface is the parameter: with none it yields to its components, with a baseline one it forms.
+    /// `qsPea` and `qsTea` are the ligature's components, both joining at the baseline on both sides, so the unformed trail can reach a follower. `qsMay` accepts a baseline entry and has no exit, so it is a plain follower. The ligature `qsPea_qsTea` has no entry, so as a follower it cannot be reached. Its exits are the parameter: with none it yields to its components, and with a baseline exit it forms.
     fn alphabet(liga_exits: &str) -> SpecIndex {
         let baseline = object(&[row("baseline", &[])]);
         let pea = rune(
@@ -390,7 +390,7 @@ mod tests {
         spec_of(&[pea, tea, may, liga])
     }
 
-    /// [`alphabet`] with the ligature's baseline exit granted by an `ss03` unlock rather than declared, so its verdicts are the one thing the configurations disagree on: the ligature yields with nothing on and forms under ss03.
+    /// [`alphabet`] with the ligature's baseline exit granted by an `ss03` unlock instead of declared, so the configurations disagree on its verdicts: the ligature yields with no features on and forms under ss03.
     fn alphabet_unlocking_the_ligature_exit() -> SpecIndex {
         let baseline = object(&[row("baseline", &[])]);
         let unlocks = fixtures::seq(&[&exit_unlock("ss03")]);
@@ -426,7 +426,7 @@ mod tests {
         fixtures::letter(index, name)
     }
 
-    /// One printed surface as `(key, blocked)` pairs, the key being everything before the verdict.
+    /// One printed sweep as `(key, blocked)` pairs, the key being everything before the verdict.
     fn verdicts(lines: &[String]) -> Vec<(&str, bool)> {
         lines
             .iter()
@@ -541,7 +541,7 @@ mod tests {
 
     #[test]
     fn a_follower_that_is_itself_a_forming_pair_is_faced_as_the_pair() {
-        // A bare `qsPea` follower leaves the trail a baseline entry to reach, so the ligature yields to its components. The same first slot with `qsTea` behind it is a forming pair, and both tests then face `qsPea_qsTea`, whose entry that formation consumes — so there is nothing left for the trail to reach and the left ligature keeps its formation.
+        // A bare `qsPea` follower gives the trail a baseline entry to reach, so the ligature yields to its components. With `qsTea` behind it, the first slot is a forming pair, and the checks use `qsPea_qsTea`, which has no entry. The trail has nothing to reach, so the left ligature forms.
         let index = alphabet("{}");
         let mut state = GuardState::new(&index);
         let liga = fixtures::sym(&index, "qsPea_qsTea");
@@ -607,7 +607,7 @@ mod tests {
 
     #[test]
     fn the_powerset_runs_size_ascending_and_by_seat_within_a_size() {
-        // Seats, not symbols: `capability_features` hands over the sorted list, and this is the arithmetic that walks it, so the list is deliberately out of minting order.
+        // `combinations` orders by position in the list it is given, not by symbol, so the list here is out of interning order.
         let mut symbols = Interner::new();
         let [three, seven, eleven] = ["ss03", "ss07", "ss11"].map(|name| symbols.intern(name));
         let features = [seven, three, eleven];

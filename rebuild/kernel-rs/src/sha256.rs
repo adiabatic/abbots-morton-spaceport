@@ -1,6 +1,6 @@
-//! SHA-256, FIPS 180-4, for content-addressed deep-class ids and table contract digests, both of which agree with Python's `hashlib.sha256` digit for digit.
+//! SHA-256 (FIPS 180-4) for the deep-class ids (`fixpoint::deep_class_id`) and `artifacts::table_digest`. Both must match Python's `hashlib.sha256` output.
 //!
-//! The incremental state retains one 64-byte block and the message length, so hashing a table requires no corpus-sized message or padding allocation. `digest_hex` supplies the one-shot interface for tab-joined rune names; table hashing feeds the same state a row at a time.
+//! The incremental state holds one 64-byte block and the message length, so `table_digest` hashes a table a row at a time without building the whole message. `digest_hex` hashes one message in a single call.
 
 use std::fmt::Write as _;
 
@@ -21,7 +21,7 @@ const INITIAL_STATE: [u32; 8] = [
     0x6a09e667, 0xbb67ae85, 0x3c6ef372, 0xa54ff53a, 0x510e527f, 0x9b05688c, 0x1f83d9ab, 0x5be0cd19,
 ];
 
-/// One message's digest as 64 lowercase hex digits, which is what `hashlib.sha256(...).hexdigest()` returns.
+/// One message's digest as 64 lowercase hex digits, the format of `hashlib.sha256(...).hexdigest()`.
 pub fn digest_hex(message: &[u8]) -> String {
     let mut digest = Sha256::new();
     digest.update(message);
@@ -91,7 +91,7 @@ impl Sha256 {
     }
 }
 
-/// One 64-byte block folded into the state: the message schedule, then the sixty-four rounds over the eight working variables, then the Davies-Meyer addition back into the state.
+/// Processes one 64-byte block: builds the message schedule, runs the 64 rounds, and adds the result into the state.
 fn compress(state: &mut [u32; 8], block: &[u8]) {
     let mut schedule = [0u32; 64];
     for (seat, word) in block.as_chunks::<4>().0.iter().enumerate() {
@@ -107,7 +107,7 @@ fn compress(state: &mut [u32; 8], block: &[u8]) {
             .wrapping_add(schedule[seat - 7])
             .wrapping_add(sigma1);
     }
-    // The eight working variables in the standard's own order, a through h, so that a round reads as the standard writes it.
+    // `work[0]` through `work[7]` are the standard's working variables a through h.
     let mut work = *state;
     for (constant, word) in ROUND_CONSTANTS.iter().zip(schedule.iter()) {
         let sum1 = work[4].rotate_right(6) ^ work[4].rotate_right(11) ^ work[4].rotate_right(25);
@@ -141,7 +141,7 @@ mod tests {
     use super::*;
     use crate::fixpoint::deep_class_id;
 
-    /// The published vectors, plus one message long enough to need a second block and one exactly on the padding boundary — the two places a hand-written padding rule goes wrong.
+    /// The published test vectors. After the 56-byte message and its `0x80` padding byte, the first block has no room for the 8-byte length, so the padding needs a second block.
     #[test]
     fn the_digests_are_the_published_ones() {
         assert_eq!(
@@ -205,7 +205,7 @@ mod tests {
         );
     }
 
-    /// Independently computed `shasum -a 256` answers cover the padding and block boundaries, with every two-part split exercising partial-buffer completion.
+    /// Digests from `shasum -a 256` for lengths around the padding and block boundaries. Each message is also hashed in every two-part split, which exercises completing a partly filled buffer.
     #[test]
     fn padding_boundaries_accept_every_split() {
         for (length, expected) in [
@@ -263,7 +263,7 @@ mod tests {
         }
     }
 
-    /// The shape the class ids are cut from: a tab-joined member list, hashed and cut to twelve digits. Every constant here is `hashlib`'s own answer for the same input, computed outside this crate — the ids ride the transitions stream, so agreeing with Python digit for digit is the whole contract, and a comparison of the crate against itself would pin nothing.
+    /// A class id is `#C` plus the first twelve hex digits of the SHA-256 of the tab-joined member list. The expected values were computed with Python's `hashlib`, outside this crate. The ids are written into the transitions stream, so they must match Python's, and comparing the crate with itself would check nothing.
     #[test]
     fn a_tab_joined_member_list_takes_the_class_id_python_computes() {
         let members = |names: &[&str]| -> Vec<String> {

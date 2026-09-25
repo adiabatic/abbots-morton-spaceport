@@ -1,10 +1,14 @@
-//! One realizing string per settlement rule, read off the rows the fixpoint recorded rather than searched for over the finished table. A rule is realizable exactly when some string reaches a window it first-matches, and the rows already pin such a string for every window they hold: a row's successor at the next position is a row whose input is its right1, whose left is its outcome and whose right slots are its own shifted one up, so a chain of rows from a seed — a row whose left is a boundary, reached by the text of that one boundary — to the row spells the inputs that put the row's left state where the row found it, and the row's own slots spell the right context the settlement read. [`Prefixes`] is that chain for every row, the shortest one, found by one breadth-first pass over the rows in their key order; what is left open is only the tail past the last pinned slot — the section 5.7 formation guard's second slot for a surviving pair at the window's end, and the slot a formed ligature at the window's end must still stand before. This module closes that tail, checks the closed window still first-matches the rule under the fold's own first-match-wins, and hands back one token stream per rule; the build writes them into the windows head, and `run_m1`'s witness stage settles each one through the crate and asserts the rule fires at the position the certificate names. That check is what proves the pins a chain carries: a chain whose prefix settled to some other left state would settle its certificate to some other rule. The pins a chain cannot carry are refused here, before any certificate is written: a rule whose replayed rows no chain reaches at all is a left state the worklist admitted beside a right1 no producing window had, and [`certify`] names the rule, the row and the pin rather than handing the witness stage a table with nothing to vouch for its rules.
+//! Builds one certificate per settlement rule: a token stream whose settlement should make the rule fire. The stream is read off the rows the fixpoint recorded, not searched for over the finished table.
 //!
-//! The chain is the shortest one and not the worklist's own because the worklist is a stack: an item's first visitor is whatever the depth-first walk reached it through, and the chains that fall out of that are thousands of letters long, each of which the witness stage would settle wave by wave. Breadth-first over the rows, every row's chain is as short as any text that reaches it.
+//! A rule can fire when some string reaches a window the rule first-matches, and the rows already record such a string for every window they hold. A row's successor is a row whose input is the row's right1, whose left is the row's outcome, and whose right1, right2, and right3 are the row's right2, right3, and right4, as far as both rows carry them. A seed is a row whose left is a boundary, reached by the text of that one boundary. A chain of successors from a seed to a row gives the inputs that put the row's left state in place, and the row's own slots give the right context settlement read. [`Prefixes`] finds the shortest such chain for every row with one breadth-first pass over the rows in their key order.
 //!
-//! The tail closure is a bounded search, because a token appended to satisfy one constraint can open another: a follower that makes a pair survive may itself begin a survivable pair, a ligature standing at the new end needs its own follower. Each step appends the one token the first open constraint asks for, re-reads the whole stream, and tries the candidates in a fixed order — the boundary glyphs first, since a boundary closes every constraint behind it, then the letters in name order — to a depth no realizable row needs more than a couple of steps of. Several closures are kept per row and several rows per rule, because a concrete tail can hand the window to an earlier rule whose deep class admits the tail's token where the row's `#NA` did not; the certificate is the first closure of the first row whose concrete window the rule wins, the rows tried shortest chain first.
+//! The chain fixes every token up to the row's last carried right slot, and only the tail after it is open. A surviving formation pair at the end of the stream still needs the section 5.7 guard's follower and second slot, and a formed ligature at the end still needs a next token before which it forms. This module closes that tail, checks that the closed window still first-matches the rule under the fold's first-match-wins, and returns one token stream per rule. The build writes them into the windows head, and `run_m1`'s witness stage settles each one through the crate and checks that its rule first-matches at some position. That check verifies the pins the chain carries: a chain whose prefix settled to a different left state would settle its certificate to a different rule. When no chain reaches any of a rule's rows, the worklist admitted a left state beside a right1 that no producing window had, and [`certify`] fails the build, naming the rule, the row, and the pin.
 //!
-//! What a certificate is not: a proof that HarfBuzz applies the rule. That is `gate:conform`'s, over the compiled font. A certificate proves the rule reachable in the kernel's own settlement, which is the realizability half of the dead-rule alarm — the half the fold's never-first refusal cannot state, because that replay reads the table's own rows and a row is realizable only if its left state is.
+//! The chain is the shortest one, not the worklist's own, because the worklist is a stack. An item's first visitor is whatever the depth-first order reached it through, so those chains are thousands of letters long, and the witness stage would have to settle every letter. A breadth-first chain is as short as any text that reaches the row.
+//!
+//! The tail closure is a bounded search, because a token appended to satisfy one constraint can raise another: a follower that makes a pair survive can itself begin a surviving pair, and a ligature at the new end needs its own follower. Each step appends one token the first open constraint asks for and re-reads the whole stream. It tries boundaries first, because a boundary raises no new constraint, then letters in name order, up to `CLOSURE_DEPTH` appends. Several closures are kept per row and several rows per rule, because a concrete tail can make an earlier rule first-match the window, when that rule's deep class admits the tail's token where the row's `#NA` did not. The certificate is the first closure, of the first row in shortest-chain order, whose window the rule wins.
+//!
+//! A certificate does not show that HarfBuzz applies the rule; `gate:conform` checks that over the compiled font. A certificate shows that the rule is reachable under the kernel's own settlement. The fold's never-first check cannot show this, because it replays only the table's own rows, and a row is reachable only if its left state is.
 
 use std::collections::VecDeque;
 
@@ -15,16 +19,16 @@ use crate::index::SpecIndex;
 use crate::options::WindowOptions;
 use crate::types::{EDGE, NAMER_DOT, RightToken, SPACE, TokenKind, ZWNJ};
 
-/// How many replayed rows the fold keeps per rule for the certificates to try, the ones with the shortest chains. A popular rule first-matches tens of thousands of rows; the bound is on the candidates, never on the verdict, since a rule whose only certifiable row sat past it fails the build loudly rather than passing.
+/// How many of a rule's first-matched rows, shortest chains first, the fold keeps for [`certify`] to try. The cap limits only the candidates: if a rule's only certifiable row is past the cap, the build fails.
 pub const ROW_CAP: usize = 32;
 
-/// How many tokens the tail closure may append before giving a row up. Every constraint reads at most two slots past the token that raised it, so a closure that needs more than a few appends is chasing a chain of pairs no realizable row carries.
+/// How many tokens the tail closure may append before giving a row up. Every constraint reads at most two tokens past the pair or ligature that raises it, so a closure that needs more than a few appends is following a chain of pairs that no reachable row carries.
 const CLOSURE_DEPTH: usize = 6;
 
 /// How many closed streams the search keeps per row before moving to the next row.
 const CLOSURE_CAP: usize = 8;
 
-/// The label a slot the window does not carry is spelled with, `table.NA_LABEL`.
+/// The label of a slot the window does not carry, `table.NA_LABEL`.
 const NA_LABEL: &str = "#NA";
 
 /// The label the run edge carries, `table.EDGE_LABEL`.
@@ -33,13 +37,13 @@ const EDGE_LABEL: &str = "#EDGE";
 /// The chain length of a row no seed reaches through the producer relation.
 pub const UNREACHED: u32 = u32::MAX;
 
-/// Every row's shortest producer chain: the row it is reached from and how many rows the chain holds before it, zero for a seed. Built by one breadth-first pass over the rows in their key order, so a successor set — the rows at the next position whose input, left and pinned right slots the row fixes, out to the last slot the successor's own window carries — is a handful of contiguous runs found by binary search, one per depth the successor may have stopped carrying slots at, and a run once reached is never scanned again, because its every row was assigned the first time. A row the pass never reaches keeps [`UNREACHED`], which the fold treats as the longest chain there is.
+/// Every row's shortest producer chain: the row it is reached from, and how many rows the chain holds before it (zero for a seed). Because the rows are in key order, a row's successors are a few contiguous runs found by binary search, one for each slot at which a successor's window may stop carrying slots. A run is scanned at most once, because every row in it is assigned the first time. A row the pass never reaches keeps [`UNREACHED`], which the fold ranks as the longest chain.
 pub struct Prefixes {
     dist: Vec<u32>,
     parent: Vec<u32>,
 }
 
-/// One exact successor query, shortened at the first carried deep slot that is `#NA`. The three labels every query carries are the next input, the producer's settled outcome and its shifted first right slot; a query whose producer carries either deep slot keeps that label too. The enum's length therefore makes labels beyond the cutoff unable to distinguish two otherwise equal queries.
+/// One successor query, cut at the producer's first deep slot that is `#NA`. Every query holds the successor's input (the producer's right1), its left (the producer's outcome), and its right1 (the producer's right2). A query also holds the producer's right3 and right4 while they are carried. Labels past the cut are not stored, so they cannot make two otherwise equal queries differ.
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 enum SuccessorQuery<'a> {
     ThroughRight1([&'a str; 3]),
@@ -59,7 +63,7 @@ impl<'a> SuccessorQuery<'a> {
 }
 
 impl Prefixes {
-    /// Finds every shortest producer chain, searching an exact successor query only for its first FIFO producer. Equal signatures generate the same ordered sequence of ranges; the first producer therefore assigns every still-unreached row any equal producer could assign, and later producers can neither assign a row nor replace its parent. Distinct signatures still search independently even where their shorter `#NA` ranges overlap, leaving the exact-range index to suppress only the same concrete range the reference search suppresses.
+    /// Finds every row's shortest producer chain. Each distinct successor query is searched only for the first producer in queue order that asks it. An equal query yields the same runs, whose rows the first producer has already assigned, so skipping it changes no parent or distance. Distinct queries are still searched even when their runs overlap, so the `scanned` set skips only the runs the reference search skips.
     pub fn over<'a>(rows: &LabelRows<'a>) -> Prefixes {
         let count = rows.len();
         let mut dist = vec![UNREACHED; count];
@@ -142,7 +146,7 @@ impl Prefixes {
                 .iter()
                 .position(|label| *label == NA_LABEL)
                 .map_or(5, |open| 3 + open);
-            // A successor carries the producer's pins out to the last slot its own window enumerated, and a slot it never split stands at `#NA` behind the ones it did; so beside the run keyed on the whole pinned prefix, every shorter prefix followed by `#NA` is a run of successors too — the rows a non-deep input leaves with its third and fourth slots dropped, whose pins the worklist forwards onto their own successors.
+            // A successor carries the producer's pins only as far as its own window enumerated slots, and every slot after that is `#NA`. So besides the run that matches the whole pinned prefix, each shorter prefix followed by `#NA` is also a run of successors: for example, the rows whose non-deep input leaves the third and fourth slots at `#NA`.
             let mut runs: Vec<(usize, usize)> = Vec::new();
             for carried in 3..=pinned {
                 let mut wanted: Vec<&str> = prefix[..carried].to_vec();
@@ -196,7 +200,7 @@ impl Prefixes {
     }
 }
 
-/// Assert exact parent and distance parity between two prefix searches. Fold integration fixtures use this before comparing the candidate rows and certificate text derived from the chains.
+/// Asserts that two prefix searches found the same parent and distance for every row.
 #[cfg(test)]
 pub(crate) fn assert_same_prefixes(expected: &Prefixes, actual: &Prefixes) {
     assert_eq!(actual.dist, expected.dist, "prefix distances differ");
@@ -218,9 +222,11 @@ fn partition(rows: &LabelRows<'_>, before: impl Fn(&[&str; 6]) -> bool) -> usize
     low
 }
 
-/// One certificate per rule, in rule order, each a token stream spelled in the windows vocabulary: rune names for letters, the three boundary glyph labels for the boundaries. `first_rows` is what [`crate::fold::first_match_rows`] handed back, the rows each rule first-matched under the replay, shortest chain first. A rule no row of its own closes into a certificate is refused, naming the rule, because the fold has already proven a replayed row first-matches it and a row that cannot be realized is a pin the worklist got wrong. The refusal comes in two sentences, for the two ways a row fails to realize. A row no producer chain reaches — no row of the enumeration settles to its left before its input with its pinned right slots behind, so [`Prefixes`] left it at [`UNREACHED`] — is a pin failure at the row itself: the worklist admitted a left state beside a right1 no producing window had, and the refusal names the rule, the row, and which of the pins does not hold (`pin_failure`), provided the enumeration settles to that left somewhere, which a fixpoint's every letter left does. A row a chain does reach but whose tail no closure carries to a window the rule wins is the other sentence, since there the pins held and the constraint search came up empty.
+/// One certificate per rule, in rule order. Each is a token stream in the windows vocabulary: rune names for letters, and the three boundary glyph labels for boundaries. `first_rows` is the result of [`crate::fold::first_match_rows`]: the rows each rule first-matched under the replay, shortest chain first.
 ///
-/// A product the spec cannot spell certifies nothing and answers the empty list: a rule one of whose rows renders as no text — a deep-slot member the spec models no rune for — or whose unreached row stands on a left no row settles to, is a hand-built product's, the fold's own test bench, and not a build's, since an enumeration's every label is a modeled rune or a boundary and its every letter left is some window's outcome. The windows head then carries no certificates, and `run_m1`'s witness stage refuses a table whose certificates do not cover its rules, so the empty answer can never reach a font; but that count is a belt under this module's own refusals, never the sentence a build's pin failure is meant to fire.
+/// The fold has already shown that a replayed row first-matches every rule, so a rule for which no row closes into a certificate means the worklist got a pin wrong, and this returns an error naming the rule. There are two error messages, one for each way a row can fail. If no producer chain reaches any of the rule's rows, `pin_failure` names the first row and the pin that does not hold: the worklist admitted a left state beside a right1 that no producing window had. If a chain reaches a row but no closure of its tail gives a window the rule wins, the pins held and the constraint search found nothing.
+///
+/// A hand-built test product can get an empty list instead of an error, in two cases: one of a rule's rows has a label the spec models no rune for, or an unreached row's left is no row's outcome. A build's product can do neither, because every label of an enumeration is a modeled rune or a boundary and every letter left is some window's outcome. `run_m1`'s witness stage fails a table whose certificate count differs from its rule count, so an empty list cannot reach a font; the errors here are the check meant to catch a build's pin failure.
 pub fn certify(
     index: &SpecIndex,
     options: &mut WindowOptions<'_>,
@@ -294,7 +300,7 @@ pub fn certify(
     Ok(certificates)
 }
 
-/// The sentence a rule whose every replayed row lies on no producer chain is refused with: the rule, the first such row, and the pin that does not hold — found by asking the rows for the producer the chain needed, one pinned slot at a time. A producer of a row is a row at the position before it whose right1 is the row's input, whose outcome is the row's left, and whose deeper right slots are the row's own shifted one down, out to the first slot the row does not carry; the first of those conditions no row of the enumeration meets is the pin the worklist admitted without a window to produce it. `None` for a left no row of the enumeration settles to at all: the worklist only ever pins a left it settled in some window, so a left that is nobody's outcome is a hand-built product's, and answers the empty certificate list rather than a pin failure.
+/// The error message for a rule none of whose replayed rows lies on a producer chain. It names the rule, the first such row, and the pin that does not hold. A producer of the row would be a row whose outcome is the row's left, whose right1 is the row's input, and whose right2, right3, and right4 equal the row's right1, right2, and right3 up to the first `#NA`. This filters the rows by those conditions in that order, and the first condition no row meets is the pin the worklist admitted without a window to produce it. Returns `None` when no row settles to the row's left at all. The worklist only pins a left it settled in some window, so that happens only in a hand-built product, which gets the empty certificate list.
 fn pin_failure(
     rows: &LabelRows<'_>,
     seat: usize,
@@ -346,7 +352,7 @@ fn pin_failure(
     ))
 }
 
-/// The tokens one replayed row pins, and the position of its input among them: the chain's seed boundary unless it is the run edge, the input of every row of the chain before this one, the row's input as its family, then its right slots out to the first one the window does not carry. Every one of these is fixed by the rows; only what follows is the closure's to choose. `None` for a row no seed reaches, an error for a label the spec cannot spell.
+/// The tokens one replayed row pins, and the position of the row's input among them. The tokens are the seed's boundary (left out when it is the run edge), the family of each earlier row's input on the chain, the family of the row's input, and then the row's right slots up to the first `#NA` or `#EDGE`. The closure chooses only what follows. Returns `None` for a row no seed reaches, and an error for a label the spec does not model.
 fn pinned_tokens(
     index: &SpecIndex,
     prefixes: &Prefixes,
@@ -379,12 +385,12 @@ fn pinned_tokens(
     Ok(Some((tokens, position)))
 }
 
-/// The letter a row's input label spells: the family ahead of any stance or lock suffix.
+/// The letter token for a row's input label: the family before any stance or lock suffix.
 fn input_token(index: &SpecIndex, input_glyph: &str) -> Result<RightToken, String> {
     letter_of(index, input_glyph.split('.').next().unwrap_or(input_glyph))
 }
 
-/// The token a rune name spells, or a refusal naming a label the spec never interned — a class id reaching here would be one, and the fold expands those away before a row gets this far.
+/// The letter token for a rune name, or an error when the spec models no rune by that name. A class id would be such a name, but the fold expands class ids before rows reach this module.
 fn letter_of(index: &SpecIndex, name: &str) -> Result<RightToken, String> {
     index
         .sym_of(name)
@@ -393,7 +399,7 @@ fn letter_of(index: &SpecIndex, name: &str) -> Result<RightToken, String> {
         .ok_or_else(|| format!("certificate: {name} names no rune the spec models"))
 }
 
-/// The token one right-slot label stands for in a text: `None` for the run edge and for a slot the window does not carry, since both mean the text stops there.
+/// The token for one right-slot label: `None` for `#EDGE` and `#NA`, since both mean the text stops there.
 fn slot_token(index: &SpecIndex, label: &str) -> Result<Option<RightToken>, String> {
     match label {
         EDGE_LABEL | NA_LABEL => Ok(None),
@@ -404,7 +410,7 @@ fn slot_token(index: &SpecIndex, label: &str) -> Result<Option<RightToken>, Stri
     }
 }
 
-/// The six labels the window at `position` carries once the stream is closed: the row's own input and left labels, then the four right slots read off the tokens with the standing cascade — `#EDGE` past the end of the stream, and `#NA` from the first boundary on, since no record peeks past one.
+/// The six labels of the window at `position` in a closed stream: the row's own input and left labels, then the four right slots read off the tokens. A slot past the end of the stream is `#EDGE`, and every slot after the first boundary or `#EDGE` is `#NA`, since no record reads past a boundary.
 fn window_at(
     index: &SpecIndex,
     tokens: &[RightToken],
@@ -451,7 +457,7 @@ enum Verdict {
     Needs(Vec<RightToken>),
 }
 
-/// The formation constraints a post-formation token stream has to satisfy for the raw replay to hand the same stream back, read left to right and stopping at the first one that is not satisfied within the stream: a surviving formation pair needs the section 5.7 guard to fire, which is a follower the pair's survivable map names and a second slot that follower's allowance admits; and a formed ligature needs its own guard not to fire over the two raw tokens after it. A pair before a boundary always forms, so a boundary follower is dead rather than open.
+/// Checks the formation constraints a post-formation token stream must satisfy for the raw replay to return the same stream, left to right, and reports the first one the stream does not satisfy. A surviving formation pair needs the section 5.7 guard to fire, which takes a follower the pair's survivable map names and a second slot that follower's allowed set admits. A formed ligature needs its own guard not to fire over the two raw tokens after it. A pair before a boundary always forms, so a boundary follower makes the stream [`Verdict::Dead`].
 fn open_constraint(
     index: &SpecIndex,
     options: &mut WindowOptions<'_>,
@@ -551,7 +557,7 @@ fn open_constraint(
     Ok(Verdict::Closed)
 }
 
-/// Candidates in the order the search tries them: the boundaries in their standing order, then the letters by name.
+/// Candidates in the order the search tries them: the boundaries in [`crate::options::RIGHT_BOUNDARIES`] order, then the letters by name.
 fn ordered(index: &SpecIndex, candidates: impl Iterator<Item = RightToken>) -> Vec<RightToken> {
     let mut boundaries: Vec<RightToken> = Vec::new();
     let mut letters: Vec<RightToken> = Vec::new();
@@ -572,7 +578,7 @@ fn ordered(index: &SpecIndex, candidates: impl Iterator<Item = RightToken>) -> V
     boundaries
 }
 
-/// Every closure of `tokens` the bounded search reaches, up to [`CLOSURE_CAP`] of them: the stream itself when nothing is open, else each candidate the first open constraint asks for, appended and closed in turn. A candidate that would form a pair no survivable window admits with the stream's last token is skipped before it is appended, since the re-read would only find it dead.
+/// Appends to `out` every closure of `tokens` the bounded search reaches, up to [`CLOSURE_CAP`] in all: the stream itself when nothing is open, or else each candidate the first open constraint asks for, appended and closed in turn. A candidate that would form a pair with the stream's last token that no survivable window admits is skipped before it is appended, since the re-read would find the stream dead.
 fn closures(
     index: &SpecIndex,
     options: &mut WindowOptions<'_>,
@@ -727,7 +733,7 @@ mod tests {
         assert!(signatures.insert(carried));
     }
 
-    /// Equal signatures recur first through two same-distance boundary seeds and then through a row they reach, while distinct cutoff-3/4/5 signatures share strictly nested nonempty ranges. Production retains every reference parent and distance across the shape, including the first FIFO parent of every nested target.
+    /// Two seeds at the same distance and a row they reach all ask the same successor query, while three queries cut at three, four, and five labels have nested nonempty runs. The production search keeps every parent and distance the reference search finds, including the first parent in queue order of every row in a nested run.
     #[test]
     fn prefixes_preserve_fifo_parents_across_the_successor_shapes() {
         let (product, fold_rows) = prefix_fixture(&[
@@ -808,7 +814,7 @@ mod tests {
         );
     }
 
-    /// The sharing rule is independent of the enumeration world's deep-class grain and the two prospect/vote arms.
+    /// The production search matches the reference search with deep classes on and off and with each simulated-prospect and vote-slot setting.
     #[test]
     fn prefixes_match_the_reference_in_every_enumeration_world() {
         let index = fixtures::mini();
@@ -844,7 +850,7 @@ mod tests {
         }
     }
 
-    /// Every row of the fixture's product sits on a producer chain from a seed, a short one, and each link of the chain is the successor relation the rows pin: the next row's input is this row's right1, its left is this row's outcome, and its right slots are this row's shifted one up wherever this row carries them.
+    /// Every row of the fixture's product lies on a short producer chain from a seed, and each link is a successor: the next row's input is this row's right1, its left is this row's outcome, and its right slots are this row's right2, right3, and right4 wherever both carry them.
     #[test]
     fn every_row_of_the_fixture_is_reached_by_a_short_chain_the_rows_pin() {
         let index = fixtures::mini();
@@ -874,7 +880,7 @@ mod tests {
         }
     }
 
-    /// Every rule of the fixture's fold carries a certificate; each one extends the pinned tokens of one of the rows the replay handed that rule, and the window it carries at that row's position — the row's own input and left, the tail read off the certificate — first-matches the rule under the fold's own first-match. The same check the build ran, restated from the artifact side.
+    /// Every rule of the fixture's fold has a certificate. Each certificate extends the pinned tokens of one of the rule's replayed rows, and the window at that row's position (the row's own input and left, with right slots read off the certificate) first-matches the rule.
     #[test]
     fn every_rule_of_the_fixture_carries_a_certificate_it_first_matches() {
         let index = fixtures::mini();
@@ -930,7 +936,7 @@ mod tests {
         }
     }
 
-    /// A rule nothing first-matches never reaches the certificates: the replay refuses it first, so a poisoned rule list fails in the fold with the never-first sentence rather than here with a certificate one.
+    /// A rule that no row first-matches fails in the fold's replay with the never-first message, before certification.
     #[test]
     fn a_rule_no_row_first_matches_is_refused_before_certification() {
         let index = fixtures::mini();
@@ -958,7 +964,7 @@ mod tests {
         );
     }
 
-    /// A row no producer chain reaches — a phantom the worklist would have pinned wrongly, here a real row re-keyed to a pin no window before it carries — is a pin failure naming the rule, the row and the pin, not the empty answer a hand-built product gets; and a product the spec cannot spell still gets that empty answer.
+    /// A row no producer chain reaches (here a real row re-keyed to a pin that no earlier window carries) is a pin failure naming the rule, the row, and the pin. A product with a label the spec does not model gets the empty list instead.
     #[test]
     fn a_row_no_chain_reaches_is_a_pin_failure_and_an_unspellable_one_is_not() {
         let index = fixtures::mini();
@@ -1112,7 +1118,7 @@ mod tests {
         assert!(answer.is_empty());
     }
 
-    /// The tail closure's two constraints, on the ligature fixture: a stream ending in a surviving formation pair is closed with a follower under which the guard fires, and one ending in a formed ligature is closed so the ligature still stands. Both are read back through the same constraint check, so a closed stream is one the check calls closed.
+    /// On the mini fixture, every stream the tail closure returns for a row's pinned tokens reads back as closed under the same constraint check.
     #[test]
     fn a_closed_stream_raises_no_open_constraint() {
         let index = fixtures::mini();
