@@ -2746,15 +2746,22 @@ def _standing_fill_news(line: str) -> bool:
 def _do_plumbing(
     report: CycleReport, *, spawn, emit: console.Digest, registry: _ChildRegistry, plan: Plan
 ) -> list[str]:
-    """Run the verdict chain as one child and fill the per-step report from its output. Return the failure messages for the cycle's failure list, one per failed step."""
+    """Run the verdict chain as one child and fill the per-step report from its output. Return the failure messages for the cycle's failure list, one per failed step.
+
+    A failure in a later echo round (`echo-fill-2`, `echo-merge-3`, and so on) comes after the whole first round, standing fill and merge included, has run. Those steps keep their done words, and the failing step's status adds the round, as in `filled, round 2 FAILED (exit 1)`. Only a first-round failure marks the steps after it as not run.
+    """
     result = spawn("plumbing", plan.argv("plumbing"), emit=emit, registry=registry, stream=False)
     report.carry_out = plan.carry_out if plan.carry_out is not None else frontier_carry_out()
     sections = plumbing_sections(result.stdout)
     failed = ""
+    failed_round = 1
     for line in result.stdout.splitlines():
         if line.startswith(console.FAILED_LINE):
             failed = line[len(console.FAILED_LINE) :].split(" ", 1)[0]
-            failed = re.sub(r"-\d+$", "", failed)
+            failed_round = 1
+            if match := re.fullmatch(r"(.+)-(\d+)", failed):
+                failed, failed_round = match.group(1), int(match.group(2))
+    later_round = failed_round > 1
     report.plumbing_fixpoint = any(
         line.startswith(console.FIXPOINT_LINE + "witnessed") for line in result.stdout.splitlines()
     )
@@ -2779,7 +2786,7 @@ def _do_plumbing(
     )
     report.standing_fill_lines = _scrape(sections.get("standing-fill", []), _standing_fill_news)
 
-    # Steps after the failed one never ran. Steps before it ran and report what they did.
+    # After a first-round failure, the steps after the failed one never ran. Steps before it ran and report what they did.
     done = (
         ("merge", "merged"),
         ("echo-fill", "filled"),
@@ -2788,19 +2795,23 @@ def _do_plumbing(
         ("standing-merge", "merged"),
     )
     order = ["carry", *(name for name, _word in done)]
-    blocked = order.index(failed) if failed in order else len(order)
+    blocked = order.index(failed) if failed in order and not later_round else len(order)
     for name, word in done:
         if order.index(name) > blocked:
             status = f"not run ({failed} failed)"
-        elif name == failed:
+        elif name == failed and not later_round:
             status = f"FAILED (exit {result.returncode})"
         elif name in sections:
             status = word
         else:
             status = "not run"
+        if name == failed and later_round:
+            status += f", round {failed_round} FAILED (exit {result.returncode})"
         setattr(report, name.replace("-", "_") + "_status", status)
     failures: list[str] = []
-    if failed in _PLUMBING_FAILURES:
+    if failed in _PLUMBING_FAILURES and later_round:
+        failures.append(f"{failed} round {failed_round} failed")
+    elif failed in _PLUMBING_FAILURES:
         failures.append(_PLUMBING_FAILURES[failed])
     elif result.returncode != 0 and failed != "complaints":
         failures.append(f"the verdict chain failed (exit {result.returncode})")
