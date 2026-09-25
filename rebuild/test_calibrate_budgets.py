@@ -199,6 +199,14 @@ def test_a_unit_with_no_rows_from_this_host_says_the_constant_is_unverified_here
     assert "never which box a constant was sized on" in out
 
 
+def test_a_seeded_unit_this_host_never_ran_keeps_the_never_ran_wording(tmp_path, capsys):
+    path = _journal(tmp_path, [_pool("font-suite", [CONSTANTS["font-suite"] // 2], host=OTHER)])
+    assert _main(path, "--host", HOST, seed_stamps={"font-suite": "2026-09-01T00:00:00Z"}) == 0
+    block = next(block for block in capsys.readouterr().out.split("\n\n") if block.startswith("font-suite"))
+    assert "never which box a constant was sized on" in block
+    assert "measured since the commit that set the constant" not in block
+
+
 def test_rows_from_other_hosts_are_reported_and_never_checked(tmp_path, capsys):
     peak = CONSTANTS["font-suite"] * 3
     path = _journal(
@@ -265,7 +273,12 @@ def test_the_archaeology_pass_reads_past_the_constants_commit(tmp_path, capsys):
     path = _journal(tmp_path, [_step("run_m1", over, at="2026-09-04T08:00:00Z")])
     seeded = {"kernel-build": "2026-09-05T20:18:22Z"}
     assert _main(path, "--host", HOST, "--check", seed_stamps=seeded) == 0
-    capsys.readouterr()
+    block = next(block for block in capsys.readouterr().out.split("\n\n") if block.startswith("kernel-build"))
+    assert (
+        "no record from this host for this unit has been measured since the commit that set the constant"
+        in block
+    )
+    assert "never which box a constant was sized on" not in block
     assert _main(path, "--host", HOST, "--check", "--recent", "0", seed_stamps=seeded) == 1
 
 

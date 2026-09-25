@@ -8,7 +8,7 @@ Constants are read from their source files with `ast`, never imported. pytest lo
 
 A peak above its constant means the constant is out of date. It does not mean an artifact is wrong: the cost is a pool of the wrong width, so the cycle does not fail on it. `--check` exits 1 for an overrun and 2 when the tool itself fails, because the artifact cycle reports an overrun on 1 and an informational line on any other nonzero code, and a crash reported as an overrun would report a measurement nobody took. After an overrun the cycle runs `--moved`, which compares each checked constant's value in the working tree with its value at `HEAD` and prints the ones that differ, so the cycle can say which constants have already been re-seeded. The fix is to re-seed the constant from the newer measurement; committing it accepts the new value, as committing `rebuild/review-census-pins.json` accepts the census. The tolerance defaults to zero because each constant is already rounded up above its measured peaks, as its comment says: an estimate that is too low puts the machine into swap, while one that is too high only narrows a pool. A peak that reaches the constant has used all of that headroom. `--tolerance` is for a survey with `--host all`, not for relaxing the default.
 
-Observations are filtered to this host by default, because a per-unit peak is a property of one machine's working set, and a journal concatenated from several machines mixes machines running different versions of the code. Records that finished before the commit that set a constant's current value are set aside before anything is counted, so that after a constant is re-seeded downward, the older, higher peaks from the same host do not trip the check. `git blame` on the constant's line finds that commit, so a re-seed clears its row on the next pass. A constant that is edited but not yet committed has no such commit and keeps every record until it is committed. Within that bound, `--recent` keeps only the newest records, so that one anomalous run cannot hide a regression and a real improvement shows within a day's work. The journal records which machine measured a peak but not which machine a constant was sized on, so a unit with no rows from this host is reported as unverified on this host.
+Observations are filtered to this host by default, because a per-unit peak is a property of one machine's working set, and a journal concatenated from several machines mixes machines running different versions of the code. Records that finished before the commit that set a constant's current value are set aside before anything is counted, so that after a constant is re-seeded downward, the older, higher peaks from the same host do not trip the check. `git blame` on the constant's line finds that commit, so a re-seed clears its row on the next pass. A constant that is edited but not yet committed has no such commit and keeps every record until it is committed. Within that bound, `--recent` keeps only the newest records, so that one anomalous run cannot hide a regression and a real improvement shows within a day's work. The journal records which machine measured a peak but not which machine a constant was sized on, so a unit with no rows from this host is reported as unverified on this host. A unit whose rows from this host all predate the constant's commit is reported as unverified too, with the reason that nothing on this host has measured the constant's current value yet.
 """
 
 from __future__ import annotations
@@ -568,7 +568,12 @@ def render_rows(
                 f"  OVERRUN   : max {format_gb(peak)} GB exceeds the constant of {format_gb(row.constant_bytes)} GB {margin}"
                 f" — re-seed {unit.constant} in {unit.source} off a fresh measurement; committing that constant is the acceptance."
             )
-        if row.unverified_here:
+        if row.unverified_here and row.dropped_older:
+            lines.append(
+                "  UNVERIFIED HERE: no record from this host for this unit has been measured since the commit that set the constant,"
+                " so its current value is unproven on this box until the next pass that runs this unit."
+            )
+        elif row.unverified_here:
             lines.append(
                 "  UNVERIFIED HERE: no rows from this host for this unit, so the constant's headroom is unproven on this box."
                 " The journal records which box measured a peak, never which box a constant was sized on."
