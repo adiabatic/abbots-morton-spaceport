@@ -6908,6 +6908,47 @@ def test_finish_survives_a_retention_error(monkeypatch):
     assert rc == 0
 
 
+def test_a_retention_pass_that_raised_reads_failed_in_the_summary_table(monkeypatch):
+    """Retention that started and raised reads `FAILED` in its summary row, beside the seconds it took, while the pass stays green. `not run` is kept for a retention that never started."""
+
+    def boom(plan):
+        raise RuntimeError("retention blew up")
+
+    monkeypatch.setattr(cycle_paths, "RETENTION_ENABLED", True)
+    monkeypatch.setattr(ac, "run_retention", boom)
+    plan = _plan(record_greens=True)
+    report = ac.CycleReport()
+    assert ac._finish(report, [], plan) == 0
+    row = {row.name: row for row in ac.summary_rows(report, plan, retention_ran=False)}["retention"]
+    assert row.outcome == "FAILED"
+    assert row.seconds == report.step_seconds["retention"]
+
+
+def test_a_stop_after_retention_finished_leaves_it_ok_in_the_interrupted_table(monkeypatch):
+    """A stop signal that lands after retention finished, while the green summary is being composed, leaves retention reading `ok` in the interrupted table, as its own step line did."""
+
+    def stop(plan):
+        raise ac.CycleStopped(signal.SIGTERM)
+
+    tables: list[list[console.SummaryRow]] = []
+
+    class Recording(console.Digest):
+        def summary(self, rows, *args, **kwargs):
+            tables.append(list(rows))
+
+    monkeypatch.setattr(cycle_paths, "READINESS_ENABLED", True)
+    monkeypatch.setattr(ac, "readiness_block", stop)
+    plan = _plan(record_greens=True)
+    report = ac.CycleReport()
+    with pytest.raises(ac.CycleStopped):
+        ac._finish(report, [], plan, emit=Recording())
+    assert (
+        ac._finish_interrupted(report, [], 0, plan, emit=Recording(), signum=signal.SIGTERM)
+        == 128 + signal.SIGTERM
+    )
+    assert {row.name: row.outcome for row in tables[-1]}["retention"] == "ok"
+
+
 def _spawning_run_m1(report, *, spawn, emit, registry, **_):
     spawn("run_m1", ["uv", "run", "fake-m1"], emit=emit, registry=registry, stream=True)
     report.unmatched = 1

@@ -2270,7 +2270,7 @@ def render_plan(plan: Plan) -> list[str]:
 class CycleReport:
     """The pass's running record. The `*_status` strings are prose for the summary. The gate strings (`gate_js` and the others) are prose too, but `_step_outcome` reads their leading words (`not run`, `skipped`, `self-skipped`, `green`) to fill the table's outcome column. Decisions read the booleans (`gate_*_green`, `complaints_ok`), which are set when each outcome is judged. A gate that was never joined, because it was skipped or never submitted, leaves its boolean None, which is neither green nor red.
 
-    `step_seconds` and `step_returncodes` fill the summary table's last two columns. They come from the same `_StepResult` the timings journal records, so the table and the journal agree, and they are keyed through STEP_ALIASES, so the gates-only child fills the run_m1 row. `run_m1_failed` records the cycle's own judgment of the run_m1 gate from the three summary JSONs, which `_step_outcome` reads before the return code.
+    `step_seconds` and `step_returncodes` fill the summary table's last two columns. They come from the same `_StepResult` the timings journal records, so the table and the journal agree, and they are keyed through STEP_ALIASES, so the gates-only child fills the run_m1 row. `run_m1_failed` records the cycle's own judgment of the run_m1 gate from the three summary JSONs, which `_step_outcome` reads before the return code. `retention_outcome` is how `_finish`'s retention attempt ended (`ok` or `FAILED`, empty until the attempt ends), so the table reports it even when a stop signal lands after retention.
     """
 
     unmatched: int | None = None
@@ -2316,6 +2316,7 @@ class CycleReport:
     interrupted: bool = False
     run_m1_failed: bool = False
     retention_figure: str = ""
+    retention_outcome: str = ""
     step_seconds: dict[str, float] = field(default_factory=dict)
     step_returncodes: dict[str, int] = field(default_factory=dict)
 
@@ -3545,7 +3546,7 @@ def _step_outcome(report: CycleReport, plan: Plan, step: Step, *, retention_ran:
 
     A gate's outcome comes from its status string. Any other step that ran is judged by run_m1's failure flag or the child's exit code, since having a recorded time only shows that it ran. A nonzero exit from census or job-costs (`INFORMATIONAL_STEPS`) is not a failure, because they gate nothing and their figures report the problem.
 
-    Retention runs inside `_finish`, so it reads `not run` when an upstream failure or a stop signal ended the pass first, and also when retention itself raised. It reads `skipped` only when the plan ruled it out (`--keep-history`, a first run, or a rehearsal).
+    Retention runs inside `_finish`, so it reads `not run` when an upstream failure ended the pass before retention, or a stop signal ended it before retention finished. It reads `FAILED` when retention raised, which `_finish` records in `retention_outcome`; the pass verdict stays green. A stop signal that lands after retention finished leaves the row reading as retention ended (`ok` or `FAILED`), because `_finish_interrupted` reads the same field. It reads `skipped` only when the plan ruled it out (`--keep-history`, a first run, or a rehearsal).
     """
     status = _GATE_STATUS_FIELDS.get(step.name)
     if status is not None:
@@ -3560,6 +3561,8 @@ def _step_outcome(report: CycleReport, plan: Plan, step: Step, *, retention_ran:
     if step.name == "retention":
         if retention_ran:
             return "ok"
+        if report.retention_outcome == "FAILED":
+            return "FAILED"
         return "skipped" if step.skipped else "not run"
     if step.skipped:
         return "skipped"
@@ -4305,7 +4308,8 @@ def _finish(
         except Exception as exc:
             retention_lines = [f"warning: retention pass failed: {exc!r}"]
         report.step_seconds["retention"] = time.perf_counter() - started
-        digest.step_end("retention", None, "ok" if retention_ran else "FAILED", report.retention_figure)
+        report.retention_outcome = "ok" if retention_ran else "FAILED"
+        digest.step_end("retention", None, report.retention_outcome, report.retention_figure)
     _emit_cycle_summary(report, failures, plan, "failed" if failures else "ok", timings)
     readiness = [] if failures or not cycle_paths.READINESS_ENABLED else readiness_block(plan)
     digest.summary(
@@ -4331,7 +4335,7 @@ def _finish_interrupted(
     digest = console.Digest() if emit is None else emit
     _emit_cycle_summary(report, failures, plan, "interrupted", timings)
     digest.summary(
-        summary_rows(report, plan, retention_ran=False),
+        summary_rows(report, plan, retention_ran=report.retention_outcome == "ok"),
         summary_cycle_lines(report, plan, []),
         console.VERDICT_INTERRUPTED,
         [*failures, f"{signal.Signals(signum).name}: terminated {killed_count} child process(es)"],
