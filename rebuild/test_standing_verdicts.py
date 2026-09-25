@@ -8110,6 +8110,20 @@ def test_the_decider_empties_the_context_memos_behind_every_memo_entry_it_serves
     assert (decider.served, decider.computed) == (0, 2)
 
 
+def test_the_decider_empties_the_alignment_cache_behind_every_unit_and_memo_entry(slide_context):
+    """`_release` empties the alignment cache beside the context memos, so neither a unit `decide` computes nor a memo entry `_serving` checks leaves a unit record in the cache after it, whatever an earlier `evaluate` left there."""
+    claimed = dict(composed_window("w-both"), content_key="b" * 64)
+    seed = sv.Decider(COMPOSABLE_RULES, slide_context())
+    memo = sv.Memo(pathlib.Path("unused"), "env", {}, stored=seed.roster)
+    memo.entries[memo.key_for(claimed) or ""] = seed.evaluate(claimed)
+    decider = sv.Decider([*COMPOSABLE_RULES, RULE], slide_context(), memo)
+    for check in (lambda: decider._serving(claimed), lambda: decider.decide(founding_window())):
+        decider.evaluate(composed_window())
+        assert sv._alignment_cache
+        check()
+        assert sv._alignment_cache == {}
+
+
 def test_the_alignment_cache_answers_per_unit_object_and_releases():
     """Two distinct unit dicts with the same unit id get separate answers, because the cache is keyed on the object's `id()` and holds a reference to the object, so no other object can reuse its address. A repeat call returns what a fresh computation returns, and `release_alignment_cache` empties the cache."""
     sv.release_alignment_cache()

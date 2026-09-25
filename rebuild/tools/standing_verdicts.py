@@ -238,7 +238,7 @@ _alignment_cache: dict[int, tuple[dict, bool]] = {}
 
 
 def release_alignment_cache() -> None:
-    """Empty the per-unit alignment cache. The standing daemon calls this after every request and a pooled worker after every chunk, so neither keeps a unit after the pass that asked about it."""
+    """Empty the per-unit alignment cache. `Decider._release` calls this after every unit the parent decides or serves and after every pooled chunk, and the standing daemon after every request, so no process keeps a unit after the pass that asked about it."""
     _alignment_cache.clear()
 
 
@@ -2954,10 +2954,11 @@ class Decider:
         return Decision(None, frozenset(matched), frozenset(held), entry.relevant), bool(repairs)
 
     def _release(self) -> None:
-        """Empty the context's shape and walk memos. Every key in them is for one unit, and `_decided` and `_servings` answer repeat requests, so emptying them after each unit loses nothing. `decide` calls this after every unit it serves or computes, `_serving` after every memo entry it checks (which `_prefill` does outside `decide`), and a pooled worker after every chunk (`_standing_pool_chunk`). The alignment cache is separate: on the serial path it lasts the whole run, and `release_alignment_cache` says where it is emptied."""
+        """Empty the context's shape and walk memos. Every key in them is for one unit, and `_decided` and `_servings` answer repeat requests, so emptying them after each unit loses nothing. It also empties the alignment cache (`release_alignment_cache`), whose entries each hold one unit record, so the parent keeps no unit it has decided or served. `decide` calls this after every unit it serves or computes, `_serving` after every memo entry it checks (which `_prefill` does outside `decide`), and a pooled worker after every chunk (`_standing_pool_chunk`)."""
         if self.context is not None:
             self.context.memo.clear()
             self.context.composed.clear()
+        release_alignment_cache()
 
     def _serving(self, unit) -> tuple[Decision, bool] | None:
         """Run `_serve` on the unit's memo entry once per unit, however often `_prefill` and `decide` ask. A served key is added to `Memo.served`, so `Memo.write` keeps it under a changed roster, and a repaired or trimmed decision replaces the stored entry, so the file never keeps a rule the live file dropped. The context's memos are released after `_serve` (`_release`), so a check made outside `decide` leaves no window in them."""
@@ -3037,7 +3038,6 @@ def _standing_pool_chunk(units) -> list[tuple[str, list]]:
         return [(unit["id"], _decision_record(decider.evaluate(unit))) for unit in units]
     finally:
         decider._release()
-        release_alignment_cache()
 
 
 def _prefill(decider: Decider, asked, jobs: int) -> None:
