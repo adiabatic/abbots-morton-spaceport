@@ -7504,26 +7504,6 @@
       "right": {
         "family": "qsGay",
         "kind": "stance",
-        "stance": "qsGay.ex-y5",
-        "except": null
-      },
-      "context": "",
-      "beforeEnd": 0,
-      "junctionEnd": 2,
-      "source": "synthetic",
-      "origin": "predecessor_demote",
-      "isolated": false
-    },
-    {
-      "left": {
-        "family": "qsWay",
-        "kind": "plain",
-        "stance": null,
-        "except": null
-      },
-      "right": {
-        "family": "qsGay",
-        "kind": "stance",
         "stance": "qsGay.ex-y0",
         "except": null
       },
@@ -7592,26 +7572,6 @@
         "except": null
       },
       "context": "",
-      "beforeEnd": 0,
-      "junctionEnd": 2,
-      "source": "synthetic",
-      "origin": "predecessor_demote",
-      "isolated": false
-    },
-    {
-      "left": {
-        "family": "qsWhy",
-        "kind": "plain",
-        "stance": null,
-        "except": null
-      },
-      "right": {
-        "family": "qsGay",
-        "kind": "stance",
-        "stance": "qsGay.ex-y5",
-        "except": null
-      },
-      "context": "",
       "beforeEnd": 0,
       "junctionEnd": 2,
       "source": "synthetic",
@@ -8119,26 +8079,6 @@
     {
       "table": "predecessor_demote",
       "entry": {
-        "backtrack_stance": "qsDay_qsEat",
-        "predecessor_stance": "qsGay.en-y0.ex-y5",
-        "trigger_stance": "qsOwe",
-        "isolated_form": "qsGay"
-      },
-      "reason": "not_hidden"
-    },
-    {
-      "table": "predecessor_demote",
-      "entry": {
-        "backtrack_stance": "qsSee_qsEat",
-        "predecessor_stance": "qsGay.en-y0.ex-y5",
-        "trigger_stance": "qsOwe",
-        "isolated_form": "qsGay"
-      },
-      "reason": "not_hidden"
-    },
-    {
-      "table": "predecessor_demote",
-      "entry": {
         "predecessor_stance": "qsRoe.ex-y0",
         "trigger_stance": "qsNo",
         "isolated_form": "qsRoe"
@@ -8344,6 +8284,246 @@
       "reason": "superseded_by_alt_axis"
     },
     {
+      "table": "predecessor_demote",
+      "entry": {
+        "backtrack_stance": "qsEt",
+        "predecessor_stance": "qsPea",
+        "trigger_stance": "qsAt.ex-y0.before-may",
+        "isolated_form": "qsPea.en-y0.ex-noentry"
+      },
+      "reason": "entryless"
+    },
+    {
+      "table": "predecessor_demote",
+      "entry": {
+        "backtrack_stance": "qsEt",
+        "predecessor_stance": "qsPea",
+        "trigger_stance": "qsSee_qsEat",
+        "isolated_form": "qsPea.en-y0.ex-noentry"
+      },
+      "reason": "ligature"
+    },
+    {
+      "table": "predecessor_demote",
+      "entry": {
+        "backtrack_stance": "qsEt",
+        "predecessor_stance": "qsPea",
+        "trigger_stance": "qsSee_qsUtter",
+        "isolated_form": "qsPea.en-y0.ex-noentry"
+      },
+      "reason": "ligature"
+    },
+    {
+      "table": "predecessor_demote",
+      "entry": {
+        "backtrack_stance": "qsEt",
+        "predecessor_stance": "qsPea",
+        "trigger_stance": "qsSee_qsUtter.ex-con-2",
+        "isolated_form": "qsPea.en-y0.ex-noentry"
+      },
+      "reason": "ligature"
+    },
+    {
+      "table": "predecessor_demote",
+      "entry": {
+        "backtrack_stance": "qsEt.en-ext-1",
+        "predecessor_stance": "qsPea",
+        "trigger_stance": "qsAt.ex-y0.before-may",
+        "isolated_form": "qsPea.en-y0.ex-noentry"
+      },
+      "reason": "entryless"
+    },
+    {
+      "table": "predecessor_demote",
+      "entry": {
+        "backtrack_stance": "qsEt.en-ext-1",
+        "predecessor_stance": "qsPea",
+        "trigger_stance": "qsSee_qsEat",
+        "isolated_form": "qsPea.en-y0.ex-noentry"
+      },
+      "reason": "ligature"
+    },
+    {
+      "table": "predecessor_demote",
+      "entry": {
+        "backtrack_stance": "qsEt.en-ext-1",
+        "predecessor_stance": "qsPea",
+        "trigger_stance": "qsSee_qsUtter",
+        "isolated_form": "qsPea.en-y0.ex-noentry"
+      },
+      "reason": "ligature"
+    },
+    {
+      "table": "predecessor_demote",
+      "entry": {
+        "backtrack_stance": "qsEt.en-ext-1",
+        "predecessor_stance": "qsPea",
+        "trigger_stance": "qsSee_qsUtter.ex-con-2",
+        "isolated_form": "qsPea.en-y0.ex-noentry"
+      },
+      "reason": "ligature"
+    },
+    {
+      "table": "predecessor_demote",
+      "entry": {
+        "backtrack_stance": "qsEt.noentry",
+        "predecessor_stance": "qsPea",
+        "trigger_stance": "qsAt.ex-y0.before-may",
+        "isolated_form": "qsPea.en-y0.ex-noentry"
+      },
+      "reason": "entryless"
+    },
+    {
+      "table": "predecessor_demote",
+      "entry": {
+        "backtrack_stance": "qsEt.noentry",
+        "predecessor_stance": "qsPea",
+        "trigger_stance": "qsSee_qsEat",
+        "isolated_form": "qsPea.en-y0.ex-noentry"
+      },
+      "reason": "ligature"
+    },
+    {
+      "table": "predecessor_demote",
+      "entry": {
+        "backtrack_stance": "qsEt.noentry",
+        "predecessor_stance": "qsPea",
+        "trigger_stance": "qsSee_qsUtter",
+        "isolated_form": "qsPea.en-y0.ex-noentry"
+      },
+      "reason": "ligature"
+    },
+    {
+      "table": "predecessor_demote",
+      "entry": {
+        "backtrack_stance": "qsEt.noentry",
+        "predecessor_stance": "qsPea",
+        "trigger_stance": "qsSee_qsUtter.ex-con-2",
+        "isolated_form": "qsPea.en-y0.ex-noentry"
+      },
+      "reason": "ligature"
+    },
+    {
+      "table": "predecessor_demote",
+      "entry": {
+        "backtrack_stance": "qsAwe",
+        "predecessor_stance": "qsPea",
+        "trigger_stance": "qsAt.ex-y0.before-may",
+        "isolated_form": "qsPea.en-y0.ex-noentry"
+      },
+      "reason": "entryless"
+    },
+    {
+      "table": "predecessor_demote",
+      "entry": {
+        "backtrack_stance": "qsAwe",
+        "predecessor_stance": "qsPea",
+        "trigger_stance": "qsSee_qsEat",
+        "isolated_form": "qsPea.en-y0.ex-noentry"
+      },
+      "reason": "ligature"
+    },
+    {
+      "table": "predecessor_demote",
+      "entry": {
+        "backtrack_stance": "qsAwe",
+        "predecessor_stance": "qsPea",
+        "trigger_stance": "qsSee_qsUtter",
+        "isolated_form": "qsPea.en-y0.ex-noentry"
+      },
+      "reason": "ligature"
+    },
+    {
+      "table": "predecessor_demote",
+      "entry": {
+        "backtrack_stance": "qsAwe",
+        "predecessor_stance": "qsPea",
+        "trigger_stance": "qsSee_qsUtter.ex-con-2",
+        "isolated_form": "qsPea.en-y0.ex-noentry"
+      },
+      "reason": "ligature"
+    },
+    {
+      "table": "predecessor_demote",
+      "entry": {
+        "backtrack_stance": "qsAwe.en-ext-1",
+        "predecessor_stance": "qsPea",
+        "trigger_stance": "qsAt.ex-y0.before-may",
+        "isolated_form": "qsPea.en-y0.ex-noentry"
+      },
+      "reason": "entryless"
+    },
+    {
+      "table": "predecessor_demote",
+      "entry": {
+        "backtrack_stance": "qsAwe.en-ext-1",
+        "predecessor_stance": "qsPea",
+        "trigger_stance": "qsSee_qsEat",
+        "isolated_form": "qsPea.en-y0.ex-noentry"
+      },
+      "reason": "ligature"
+    },
+    {
+      "table": "predecessor_demote",
+      "entry": {
+        "backtrack_stance": "qsAwe.en-ext-1",
+        "predecessor_stance": "qsPea",
+        "trigger_stance": "qsSee_qsUtter",
+        "isolated_form": "qsPea.en-y0.ex-noentry"
+      },
+      "reason": "ligature"
+    },
+    {
+      "table": "predecessor_demote",
+      "entry": {
+        "backtrack_stance": "qsAwe.en-ext-1",
+        "predecessor_stance": "qsPea",
+        "trigger_stance": "qsSee_qsUtter.ex-con-2",
+        "isolated_form": "qsPea.en-y0.ex-noentry"
+      },
+      "reason": "ligature"
+    },
+    {
+      "table": "predecessor_demote",
+      "entry": {
+        "backtrack_stance": "qsAwe.noentry",
+        "predecessor_stance": "qsPea",
+        "trigger_stance": "qsAt.ex-y0.before-may",
+        "isolated_form": "qsPea.en-y0.ex-noentry"
+      },
+      "reason": "entryless"
+    },
+    {
+      "table": "predecessor_demote",
+      "entry": {
+        "backtrack_stance": "qsAwe.noentry",
+        "predecessor_stance": "qsPea",
+        "trigger_stance": "qsSee_qsEat",
+        "isolated_form": "qsPea.en-y0.ex-noentry"
+      },
+      "reason": "ligature"
+    },
+    {
+      "table": "predecessor_demote",
+      "entry": {
+        "backtrack_stance": "qsAwe.noentry",
+        "predecessor_stance": "qsPea",
+        "trigger_stance": "qsSee_qsUtter",
+        "isolated_form": "qsPea.en-y0.ex-noentry"
+      },
+      "reason": "ligature"
+    },
+    {
+      "table": "predecessor_demote",
+      "entry": {
+        "backtrack_stance": "qsAwe.noentry",
+        "predecessor_stance": "qsPea",
+        "trigger_stance": "qsSee_qsUtter.ex-con-2",
+        "isolated_form": "qsPea.en-y0.ex-noentry"
+      },
+      "reason": "ligature"
+    },
+    {
       "table": "trailing_demote",
       "entry": {
         "leader_stance": "qsIt.en-y0.ex-noentry.before-day-exam",
@@ -8410,6 +8590,15 @@
       "table": "trailing_demote",
       "entry": {
         "leader_stance": "qsNo",
+        "trailing_stance": "qsDay_qsEat.half.en-y0.ex-y0",
+        "isolated_form": "qsDay_qsEat"
+      },
+      "reason": "ligature"
+    },
+    {
+      "table": "trailing_demote",
+      "entry": {
+        "leader_stance": "qsNo",
         "trailing_stance": "qsGay.en-y0.ex-y5",
         "isolated_form": "qsGay"
       },
@@ -8428,10 +8617,28 @@
       "table": "trailing_demote",
       "entry": {
         "leader_stance": "qsExcite",
+        "trailing_stance": "qsDay_qsEat.half.en-y0.ex-y0",
+        "isolated_form": "qsDay_qsEat"
+      },
+      "reason": "ligature"
+    },
+    {
+      "table": "trailing_demote",
+      "entry": {
+        "leader_stance": "qsExcite",
         "trailing_stance": "qsNo.alt.en-y0.ex-y0",
         "isolated_form": "qsNo"
       },
       "reason": "superseded_by_alt_axis"
+    },
+    {
+      "table": "trailing_demote",
+      "entry": {
+        "leader_stance": "qsJai",
+        "trailing_stance": "qsDay_qsEat.half.en-y0.ex-y0",
+        "isolated_form": "qsDay_qsEat"
+      },
+      "reason": "ligature"
     },
     {
       "table": "trailing_demote",
@@ -8457,6 +8664,33 @@
         "leader_stance": "qsOut_qsTea",
         "trailing_stance": "qsDay_qsUtter.half.en-y0.ex-y5",
         "isolated_form": "qsDay_qsUtter"
+      },
+      "reason": "ligature"
+    },
+    {
+      "table": "trailing_demote",
+      "entry": {
+        "leader_stance": "qsTea.en-y0",
+        "trailing_stance": "qsDay_qsEat.half.en-y0.ex-y0",
+        "isolated_form": "qsDay_qsEat"
+      },
+      "reason": "ligature"
+    },
+    {
+      "table": "trailing_demote",
+      "entry": {
+        "leader_stance": "qsOut_qsTea",
+        "trailing_stance": "qsDay_qsEat.half.en-y0.ex-y0",
+        "isolated_form": "qsDay_qsEat"
+      },
+      "reason": "ligature"
+    },
+    {
+      "table": "trailing_demote",
+      "entry": {
+        "leader_stance": "qsOut_qsTea.after-see",
+        "trailing_stance": "qsDay_qsEat.half.en-y0.ex-y0",
+        "isolated_form": "qsDay_qsEat"
       },
       "reason": "ligature"
     },

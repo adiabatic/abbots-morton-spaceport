@@ -1711,6 +1711,19 @@ def test_utter_gay_tea_oy_uses_normal_utter():
     )
 
 
+@pytest.mark.parametrize(
+    "letters",
+    [
+        pytest.param(("qsMay", "qsGay", "qsOy", "qsTea", "qsOy"), id="may-gay-oy-tea-oy"),
+        pytest.param(("qsMay", "qsGay", "qsOy", "qsThaw", "qsIng"), id="may-gay-oy-thaw-ing"),
+    ],
+)
+def test_may_stays_bare_before_a_gay_with_no_baseline_entry(letters: tuple[str, ...]):
+    """In ·May·Gay·Oy·Tea·Oy and ·May·Gay·Oy·Thaw·Ing, ·Gay falls back to `qsGay.ex-y5`, which has no baseline entry, so ·May keeps no baseline exit. A data-expect `|` can't catch the dangling exit, so this checks the glyph names."""
+    glyphs = _shape_qs(*letters)
+    assert glyphs[:2] == ["qsMay", "qsGay.ex-y5"], glyphs
+
+
 @pytest.mark.parametrize("before_first", _PAIR_SWEEP_BEFORE_FIRSTS)
 def test_see_out_connecting_body_only_when_next_receives_at_xheight(before_first: str):
     _assert_no_failures(
@@ -2076,9 +2089,69 @@ def test_pea_joins_et_and_awe_at_baseline_when_it_joins_nothing_after(text: str,
             _qs_text("qsAwe", "qsPea", "qsVie"), ["·Awe | ·Pea ~b~ ·Vie.en-ext-1"], id="awe-pea-vie"
         ),
         pytest.param(_qs_text("qsEt", "qsPea", "qsMay"), ["·Et | ·Pea ~b~ ·May.en-ext-1"], id="et-pea-may"),
+        pytest.param(
+            _qs_text("qsEt", "qsPea", "qsDay", "qsEat"), ["·Et | ·Pea ~b~ ·Day+Eat.half"], id="et-pea-day-eat"
+        ),
+        pytest.param(
+            _qs_text("qsAwe", "qsPea", "qsDay", "qsEat"),
+            ["·Awe | ·Pea ~b~ ·Day+Eat.half"],
+            id="awe-pea-day-eat",
+        ),
     ],
 )
 def test_pea_keeps_its_onward_join_after_et_and_awe(text: str, expects: list[str]):
+    _assert_expect_any(text, expects)
+
+
+@pytest.mark.parametrize(
+    ("text", "expects"),
+    [
+        pytest.param(_qs_text("qsPea", "qsDay", "qsEat"), ["·Pea ~b~ ·Day+Eat.half"], id="pea-day-eat"),
+        pytest.param(_qs_text("qsIt", "qsDay", "qsEat"), ["·It ~b~ ·Day+Eat.half"], id="it-day-eat"),
+        pytest.param(
+            _qs_text("qsEt", "qsTea", "qsDay", "qsEat"), ["·Et ~b~ ·Tea | ·Day+Eat.∅"], id="et-tea-day-eat"
+        ),
+        pytest.param(
+            _qs_text("qsOut", "qsTea", "qsDay", "qsEat"), ["·Out+Tea | ·Day+Eat.∅"], id="out-tea-day-eat"
+        ),
+        pytest.param(
+            _qs_text("qsSee", "qsOut", "qsTea", "qsDay", "qsEat"),
+            ["·See ~b~ ·Out+Tea | ·Day+Eat.∅"],
+            id="see-out-tea-day-eat",
+        ),
+        pytest.param(
+            _qs_text("qsThey", "qsZoo", "qsNo", "qsDay", "qsEat"),
+            ["·They+Zoo | ·No ~x~ ·Day+Eat.∅"],
+            id="they-zoo-no-day-eat",
+        ),
+        pytest.param(
+            _qs_text("qsThey", "qsZoo", "qsExcite", "qsDay", "qsEat"),
+            ["·They+Zoo | ·Excite | ·Day+Eat.∅"],
+            id="they-zoo-excite-day-eat",
+        ),
+        pytest.param(
+            _qs_text("qsOut", "qsTea", "qsJai", "qsDay", "qsEat"),
+            ["·Out+Tea | ·J’ai | ·Day+Eat.∅"],
+            id="out-tea-jai-day-eat",
+        ),
+        pytest.param(
+            _qs_text("qsHe", "qsNo", "qsIt", "qsDay", "qsEat"),
+            ["·He.half ~x~ ·No ~x~ ·It ~b~ ·Day+Eat.half"],
+            id="he-no-it-day-eat",
+        ),
+        pytest.param(
+            _qs_text("qsPea", "qsDay", "qsEat", "qsGay", "qsOwe"),
+            ["·Pea ~b~ ·Day+Eat.half | ·Gay | ·Owe"],
+            id="pea-day-eat-gay-owe",
+        ),
+        pytest.param(
+            _qs_text("qsTea", "qsDay", "qsEat", "qsGay", "qsOwe"),
+            ["·Tea ~b~ ·Day+Eat.half.en-ext-1 | ·Gay | ·Owe"],
+            id="tea-day-eat-gay-owe",
+        ),
+    ],
+)
+def test_day_eat_takes_the_half_day_where_day_does(text: str, expects: list[str]):
     _assert_expect_any(text, expects)
 
 
@@ -2112,7 +2185,7 @@ def test_pea_joins_a_pea_that_dips_into_its_follower_at_y6(text: str, expects: l
 
 
 def _pea_joins_neither_side_before(glyph: str) -> bool:
-    """Return whether ·Pea after ·Et or ·Awe joins neither side before `glyph`: ·Utter's alternate, an exit-only ·See stance, or the ·Day+Eat ligature. doc/quikscript-yaml-conventions.md describes this accepted limit."""
+    """Return whether ·Pea after ·Et or ·Awe joins neither side before `glyph`: ·Utter's alternate or an exit-only ·See stance. doc/quikscript-yaml-conventions.md describes this accepted limit."""
     meta = _compiled_meta().get(glyph)
     if meta is None:
         return False
@@ -2120,7 +2193,7 @@ def _pea_joins_neither_side_before(glyph: str) -> bool:
         return "alt" in meta.traits
     if meta.base_name == "qsSee":
         return not meta.entry
-    return meta.base_name == "qsDay_qsEat"
+    return False
 
 
 def _pea_after_et_and_awe_seam_failures() -> list[str]:
@@ -3726,10 +3799,7 @@ def _he_day_cases() -> list[tuple[str, str, str]]:
         )
     for name, code in LETTERS:
         if ("Day", name) in LIGATURE_PAIRS:
-            if name == "Utter":
-                expect = f"{he_nhalf} ~b~ ·Day+?{name}.half"
-            else:
-                expect = f"·He.half ~x~ ·Day+?{name}"
+            expect = f"{he_nhalf} ~b~ ·Day+?{name}.half"
         else:
             expect = f"{he_nhalf} ~b~ {day_half} ? {_expect_tok(name)}"
         out.append(
