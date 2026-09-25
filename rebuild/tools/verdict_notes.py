@@ -4,7 +4,7 @@ _MARKER = re.compile(r"\s*(\[(?:carried|echo-fill|echo-harmonize|bulk|parked|sta
 
 
 def cap_markers(note, keep=2):
-    """Keep only the newest `keep` machine-provenance markers at the head of a note, dropping the older tail while preserving any human prose. Markers are the bracketed segments the review producers prepend, newest first, of the kinds `_MARKER` enumerates; a leading bracket that is not one of those kinds (a human note that happens to start with `[...]`) is left untouched. Idempotent."""
+    """Return the note with only its first `keep` provenance markers and its human prose. A marker is a leading bracketed segment of a kind `_MARKER` lists. The tools that write verdicts prepend them, so the newest comes first. A leading bracket of any other kind is treated as prose. The function is idempotent."""
     markers = []
     pos = 0
     while (match := _MARKER.match(note, pos)) is not None:
@@ -15,7 +15,7 @@ def cap_markers(note, keep=2):
 
 
 def strip_markers(note):
-    """The human prose of a note with every leading machine-provenance marker removed — the Python twin of the app's stripCarriedProvenance."""
+    """Return the note's human prose with every leading provenance marker removed, as the review app's `stripCarriedProvenance` in rebuild/review/static/verdicts.js does."""
     pos = 0
     while (match := _MARKER.match(note, pos)) is not None:
         pos = match.end()

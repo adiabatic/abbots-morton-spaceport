@@ -1,4 +1,4 @@
-"""Seed and audit echo-group verdicts on the live review surface. An echo group (the unit JSON's `echo` field) is a set of human units whose localized before→after ink change is pixel-identical with the same judged pair, class, configs, and follower shift — one visual question, no matter which unchanged letters surround the change (unchanged flanking ink, including followers that merely slid over by the advance change, is outside the grain; see InkComparator.config_diff). This tool reads a verdicts file, and for every multi-member group: (a) when the recorded verdicts agree — unanimity, or the approve/identical mix `review_docket.verdicts_agree` also reads as one voice — and some members are blank, emits fill records for the blanks from the most recently recorded member into an importable verdicts file, and (b) when the recorded verdicts disagree, prints the group for a human re-check. The app fills echo siblings live as new verdicts land; this tool exists for verdicts recorded before the mechanism — including carried verdicts, which never trigger the app's live fill — and as a standing consistency audit; the artifact cycle runs it after its carry+merge so cross-cycle blanks fill without a sitting-prep pass."""
+"""Seed and audit echo-group verdicts on the live review surface. An echo group (the unit JSON's `echo` field) is a set of human units whose localized before-to-after ink change is pixel-identical, with the same judged pair, class, configurations and follower shift. Unchanged letters around the change, including followers that only moved by the advance change, are not compared (`InkComparator.config_diff`). For every group with more than one member, this tool reads a verdicts file and does one of two things. When the recorded verdicts agree (`review_docket.verdicts_agree`: all the same, or a mix of approve and identical) and some members are blank, it writes fill records for the blanks, copied from the most recently recorded member, to an importable verdicts file. When the recorded verdicts disagree, it prints the group for a person to re-check. Skip verdicts count toward neither agreement nor blanks, so a skipped member is never filled. The app fills echo members as verdicts are recorded. This tool handles verdicts that never passed through the app's fill, such as carried verdicts, and audits the groups for consistency. The verdict chain (`rebuild/tools/verdict_chain.py`) runs it after the carry and merge, so blanks fill across cycles without a review session."""
 
 import argparse
 import collections
@@ -30,12 +30,12 @@ def latest_verdicts(path):
 
 
 def echo_record(unit: Mapping[str, Any]) -> dict:
-    """The fields echo fill retains for each human unit, including its conflict-report notation."""
+    """Return the fields echo fill keeps for a human unit: its id, echo group and notation (for the conflict report)."""
     return {"id": unit["id"], "echo": unit.get("echo"), "notation": unit.get("notation")}
 
 
 def main(argv=None, *, units=None):
-    """Read the chain's reusable human echo projection or stream a standalone surface. Echo groups retain only id, echo, and notation; the build's contract refuses echoes outside the human workload."""
+    """Write the echo fills and print the conflicts. `units` is the verdict chain's list of `echo_record` projections; without it, the human units are streamed from `--surface`. Only human units are read because the surface build requires every other unit to have a null echo."""
     parser = argparse.ArgumentParser(description=(__doc__ or "").split(".")[0] + ".")
     parser.add_argument("verdicts", help="the verdicts file to seed from (an export or the autosave)")
     parser.add_argument("--surface", default=str(SURFACE))

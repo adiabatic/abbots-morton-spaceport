@@ -1,10 +1,10 @@
-"""The periodic deep form of gate:conform (issue #74): the same exhaustive font-vs-settle sweep the belt runs, taken to horizon 5 or deeper. The belt shapes every string up to four tokens and is chartered for what only shaping the real binary can test — HarfBuzz's application semantics over the rule shapes the lookup emits; whether the six-slot window abstraction is itself sufficient over the strings the tables were built for is the crate's string replay, which run_m1 runs on every build. This tool is where the shaper's question gets asked at a depth the belt cannot afford, over strings long enough to reach past the window's own reach.
+"""The deep form of gate:conform: the same exhaustive font-versus-settlement sweep the belt runs, at horizon 5 by default (`--horizon` refuses anything below the belt's 4). The belt shapes every text up to four letters and checks what only shaping the compiled font can test: HarfBuzz's application semantics over the rule shapes the lookup contains. Whether the six-slot window is sufficient for the texts the tables were built for is checked by the crate's string replay, which `run_m1` runs on every build. This tool asks the shaper's question at a depth the belt cannot afford, over texts long enough to reach a letter's fourth lookahead slot, which no belt text reaches.
 
-What makes it periodic rather than per-edit is what its green is keyed on, and the belt keys on the same posture (`artifact_cycle.conform_skip_fingerprint`). The arming key (`artifact_cycle.deep_sweep_skip_lines`) is the behavior-class set the build enumerated out of the emitted lookup (`emit_gsub.behavior_classes`), the font-compilation code that turns a plan into bytes, and the uharfbuzz version that shapes them — not the runes and not M1.otf. So a rune edit that moves thousands of rules but mints no new rule shape leaves this green standing, and the cycle keeps saying `current`; the moment a build emits a shape no earlier build did, or the compilation path or the shaper moves, the same key goes `armed` and the cycle says so once per pass. Nothing gates on it: an armed deep sweep is a note to run this overnight, not a red cycle.
+It runs on demand (`make conform-deep`), not per edit. The key of its green record (`artifact_cycle.deep_sweep_skip_lines`) is the set of behavior classes the build enumerated from the emitted lookup (`emit_gsub.behavior_classes`), the font-compilation code, and the uharfbuzz version. It leaves out the runes and M1.otf, so a rune edit that changes many rules but adds no new rule shape leaves the sweep current. When a build emits a new shape, or the compilation code or the shaper changes, the key changes and the cycle reports the sweep as `armed` once per pass. The belt's key is the same lines plus its horizon (`artifact_cycle.conform_skip_fingerprint`). No gate depends on this sweep: an armed deep sweep means it should be run, and the cycle does not fail.
 
-The structural check the belt runs — every splitter-separated buffer identical to its segments shaped alone — comes along at this depth, which is the only place its coverage past the belt's horizon lives: nothing on a build's path shapes a length-5 string. The ZWNJ slot's own structure — zero advance, no ink — needs no depth at all: read-back proves it statically off the font bytes once per build.
+The belt's split-buffer check (every text split at a boundary shapes the same as its segments shaped alone) runs at this depth too, and this is the only place it covers texts longer than the belt's horizon, since no build step shapes a length-5 text. The ZWNJ glyph's own properties (zero advance, no ink) need no depth: read-back checks them in the font bytes on every build.
 
-A green run also refreshes gate:conform's own record when it swept at least the belt's horizon, because an exhaustive sweep at any depth N covers every string the belt at depth 4 would have shaped. So an overnight deep run leaves the next cycle's belt already proved rather than making the reviewer wait for it twice. It refreshes the deep replay's record the same way (`rebuild.tools.deep_replay`) when it swept at least that walk's horizon: every text it shapes it also settles against the tables the font holds, so the per-family replay at that depth has nothing left to ask.
+A green run also refreshes gate:conform's green record, when the belt's key did not change during the run, because an exhaustive sweep at depth N covers every text the belt at depth 4 shapes. The next cycle can then skip the belt. At or past the deep replay's horizon it also refreshes the deep replay's record (`rebuild.tools.deep_replay`), because it settles every text it shapes against the tables in the font.
 
 Run as: uv run python -m rebuild.tools.deep_sweep, or through `make conform-deep`.
 """
@@ -42,12 +42,12 @@ SUMMARY_NAME = "deep_sweep_summary.json"
 
 
 def tables_stamped() -> bool:
-    """Whether the serialized enumeration under rebuild/out/m1 was produced from exactly the sources on disk — the same tables_inputs() stamp run_font_conformance itself refuses on. Artifact identity, never a receipt of a past run: a --gates-only re-adjudication and a build handed over from another box both arm the sweep exactly as a locally-green build does, whatever green either of them did or did not leave behind."""
+    """Return whether the serialized enumeration under rebuild/out/m1 was produced from the sources on disk, by the same `tables_inputs()` stamp `run_font_conformance` checks. It checks the artifacts themselves, not a record of a past run, so tables from a `--gates-only` pass or from another machine qualify the same way as a local build."""
     return run_m1.serialized_tables(run_m1.OUT_DIR, run_m1.tables_inputs()) is not None
 
 
 def arming_key() -> str:
-    """This build's arming key, after the two preconditions for the sweep to mean anything. Without a behavior-class sidecar there is no key at all, so a green could not be recorded against anything; and with the tables' stamp stale the M1.otf on disk is not the font the runes on disk describe, so a deep sweep of it would prove something about a build nobody is going to ship."""
+    """Return this build's arming key, or exit when the sweep would be meaningless. Without a behavior-class sidecar there is no key to record a green under. With a stale tables stamp, the M1.otf on disk is not the font the runes on disk describe."""
     fingerprint = deep_sweep_skip_fingerprint(ROOT)
     if fingerprint is None:
         raise SystemExit(
@@ -61,7 +61,7 @@ def arming_key() -> str:
 
 
 def refresh_deep_replay(horizon: int) -> None:
-    """The deep replay's record as a green sweep at `horizon` leaves it: every rune on disk at its current digest, since the sweep settled every text naming any of them."""
+    """Record the deep replay as green at `horizon` for every rune at its current digest, since a green sweep at that depth settled every text that names any of them."""
     from rebuild.pipeline import fingerprint
     from rebuild.pipeline.spec_load import load_default_spec
 

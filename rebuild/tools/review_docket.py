@@ -1,4 +1,4 @@
-"""Assemble the machine-readable docket data for the live surface: cluster the blank human units across echo groups by the build-emitted `cluster` signature (the echo key minus the judged pair — see rebuild/review/build.py's `_cluster_id`), collect evidence from judged units sharing a signature, list ledger classes already ruled intended/reviewed-approved/reviewed-rejected that still hold blank units, and list echo groups whose recorded verdicts disagree (`verdicts_agree` decides that, and reads an approve/identical mix as agreement). The adjudication view itself lives in the review app — `#view=docket` computes this same clustering live against the in-memory verdict store — so this tool writes tmp/docket-data.json rather than rendering a page, as the pinned data feed for bulk-proposal authoring, which needs exact blank membership frozen against a specific verdicts file."""
+"""Assemble the machine-readable docket data for the live surface: cluster the blank human units by the build's `cluster` signature (the echo key without the judged pair; see `_cluster_id` in rebuild/review/build.py), collect evidence from judged units with the same signature, list the ledger classes ruled intended, reviewed-approved or reviewed-rejected that still have blank units, and list the echo groups whose recorded verdicts disagree (`verdicts_agree` decides, and counts an approve/identical mix as agreement). The review app's `#view=docket` computes the same clustering live from the in-memory verdict store. This tool writes tmp/docket-data.json instead of a page: a fixed snapshot for writing bulk proposals, which need the blank membership fixed against one verdicts file."""
 
 import argparse
 import collections
@@ -23,19 +23,19 @@ ACCEPTING_MIX = frozenset({"approve", "identical"})
 
 
 def verdicts_agree(verdicts):
-    """Whether a set of recorded verdicts on one echo group speaks with a single voice. Unanimity qualifies, and so does an approve/identical mix: both accept the new rendering, one reviewer merely having found the highlighted portion visually unchanged. Mirrored by verdictsAgree in rebuild/review/static/docket.js."""
+    """Return whether the recorded verdicts on one echo group agree. They agree when they are all the same, or when they mix approve and identical: both accept the new rendering, and identical only adds that the highlighted part looks unchanged. `verdictsAgree` in rebuild/review/static/docket.js applies the same rule."""
     kinds = set(verdicts)
     return len(kinds) <= 1 or kinds == ACCEPTING_MIX
 
 
 def triage_position(unit):
-    """Where a unit sits in the surface's triage index — the index record's `order` — as a sort key, with a record that carries none (a surface written before the index) falling back to its id, so the order is total either way."""
+    """Return a sort key for the unit's place in the surface's triage index (the index record's `order`). A record without an `order` sorts after every ordered record, by id, so the order is total."""
     order = unit.get("order")
     return (order is None, order if isinstance(order, int) else 0, unit["id"])
 
 
 def load_human_units(surface, *, fields: Iterable[str] | None = None):
-    """The surface's human units in the slim index shape, beside the id of every unit on it (rebuild.review.unit_index owns the projection, the classification and the shard fallback). The tools that share this loader — the docket data, the novelty order, the echo fill, the standing fill, the standing probe and daemon, the complaint docket — between them read a couple of dozen fields per human unit and nothing of a machine unit but its id, and reading the shards for them meant parsing gigabytes to reach a few hundred bytes each."""
+    """Return the surface's human units in the slim index shape and the id of every unit on the surface. `rebuild.review.unit_index.load_human_units` does the projection, the classification and the fallback to the shards."""
     return unit_index.load_human_units(surface, fields=fields)
 
 
@@ -49,7 +49,7 @@ def latest_verdicts(path):
 
 
 def main(argv=None, *, units: Iterable[Mapping[str, Any]] | None = None):
-    """`units` lets a caller that already holds the surface's index records hand them over rather than have this tool read them again; only the human records — `batch` not None — enter the docket, whichever way they arrive."""
+    """Write the docket data. `units` lets a caller that already holds the surface's index records pass them instead of having this tool read them again. Only human records (`batch` not None) enter the docket either way."""
     parser = argparse.ArgumentParser(description=(__doc__ or "").split(":")[0] + ".")
     parser.add_argument(
         "verdicts", help="the verdicts file for the current frontier (an export or the autosave)"
@@ -70,7 +70,7 @@ def main(argv=None, *, units: Iterable[Mapping[str, Any]] | None = None):
     records = latest_verdicts(verdicts_path)
 
     units = load_human_units(surface)[0] if units is None else units
-    # In triage order — the index record's `order` — so an exemplar, a representative and an evidence sample are each the first in the order the app pages, which is what docket.js reads too.
+    # Sorted by the index record's `order`, the order the app pages through and docket.js reads, so each cluster's exemplar and evidence samples are its earliest units in that order.
     human = sorted((unit for unit in units if unit["batch"] is not None), key=triage_position)
     unclustered = [unit["id"] for unit in human if not unit.get("cluster")]
     if unclustered:

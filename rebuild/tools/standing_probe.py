@@ -1,4 +1,19 @@
-"""Explain why a review-surface unit still queues, in the standing approvals' own terms, so the next once-and-for-all rule is written from evidence instead of rediscovered: for each unit named, print its two grains side by side — the recorded before glyphs and after cells with their seams, and the rendered pieces of both fonts with each piece's placement, own-frame origin and cell count, read as "same shape placed N columns over", "redrawn", or "inkless" — then say what every checked-in rule makes of it (matches, held by except_left, or nothing), whether the composed reading credits any rules and whether that credit reaches the two-event threshold, and how many human units share exactly this unit's ink-delta digests and how they were verdicted, which is where the user's earlier decision usually turns out to be already recorded. `--extension-cells PIVOT TOKEN SEAM` answers the other question a new extension-dropped rule always asks — which pivot and follower cells it has to name in full — by enumerating every window on the surface where a PIVOT glyph carrying TOKEN (an `ex-ext-N` on the before glyph, or an `ex-con-N` on the after cell whose before glyph never carried an exit extension) exits at SEAM on both sides and settles into a cell without the named extension or with a shorter one, or into a cell carrying the named contraction, with the follower's family, both after cells, and the verdict tally per pair. `--retarget-cells PIVOT BEFORE_SEAM FOLLOWER AFTER_SEAM` is the same survey for a join-retargeted or join-created rule, over every window where a PIVOT glyph's seam into FOLLOWER moves from BEFORE_SEAM to AFTER_SEAM. `--survey BEFORE_GLYPH` (or `--survey BEFORE_GLYPH AFTER_CELL`) is the enumeration every form-naming shape — redrawn, ink-gain, entry-contracted, entry-extension-dropped, stub-dropped, slide — and the join-dropped shape need before a rule in them can be written: every human unit whose window carries a before glyph under that prefix, grouped by the before form and the after cell it settles into, then by the family on its left with the seam change into it, the seam change out of it, and the follower's family and cell, each group with its verdict tally, read off the index with no shaping so it costs the surface load and nothing more; windows the survey cannot place because their sides do not line up letter for letter are counted, not silently dropped. `--coverage RULE_ID` turns a survey back on a rule that already exists: it re-runs whichever enumeration the rule's shape has (`COVERAGE_SHAPES` is the roster: the cell-naming shapes through their pair enumeration, from the rule's own before-side fields and relaxed of everything the rule names — though never of the before forms it declines, which are a companion rule's survey rather than this one's — and the form-naming shapes through the survey over the rule's family with each named list relaxed while the others hold, since nothing else on the before side pins a redraw at the name grain; ligature names no forms and ink-delta names digests, so neither has one and the tool says so) and reports the pivot forms, follower families and follower cells — or the before forms, the after forms as the after font names them (`_cell_glyph_name`), and for entry-contracted the left families — the enumeration reaches that the rule does not yet name, each with its verdict tally — a docket of candidates rather than a widening instruction, since a follower joins the list only once its own recorded decision has been found. `--find TEXT` is the way back from a notation to unit ids: a plain substring match over every human unit's notation, blanks first and capped, because one letter pair matches thousands of records; `--blank-only` and `--limit N` narrow it, and the notation's grammar is `parse_expect`'s in test/test_shaping.py, never re-read here. `--shapes` prints the symptom-to-shape menu, walked off the standing approvals' own SHAPES table so a new shape enters the menu the moment it enters the table, and a run that resolves no unit id prints it too. All the lists it prints — pivot cells, followers, follower cells — come out in code-point order, which is the order the rules file and the skill are written in. Read-only: nothing here writes to the surface or the store. `--daemon auto|always|never` and `--socket PATH` decide who loads the surface: when a standing daemon (`rebuild/tools/standing_daemon.py`, the authority on what it holds and when it declines) answers at the socket and holds this surface, the run is served by it — this same `main` over the objects it holds, printed through these same lines, so the output is byte for byte the in-process run's — and otherwise the surface loads in this process; `always` refuses to load and `never` refuses to ask, a bare `--shapes` never asks, and a caller handing `main` its own `units` or `context` is never served."""
+"""Explain why a review-surface unit still needs a verdict, in the terms the standing approvals use, so the next standing rule is written from evidence: for each named unit, print both grains side by side. The recorded grain is the before glyphs and after cells with their seams. The rendered grain is each font's pieces with their placement, own-frame origin and cell count, and a one-line reading of the change: "same shape" with the placement move, "redrawn" with the cell counts, "inkless", or ink appearing or vanishing. Then print what each checked-in rule makes of the unit (matches, held by except_left, or nothing), whether the composed reading credits any rules and whether that credit reaches the two-event threshold, and how many human units have exactly this unit's ink-delta digests and how they were verdicted. That last tally often shows that the user has already decided the change.
+
+`--extension-cells PIVOT TOKEN SEAM` lists the pivot and follower cells a new extension-dropped rule has to name. It enumerates every window where a PIVOT glyph carrying TOKEN exits at SEAM on both sides and settles into a cell without the named extension or with a shorter one, or into a cell carrying the named contraction. TOKEN is an `ex-ext-N` on the before glyph, or an `ex-con-N` on the after cell whose before glyph carried no exit extension. Each row gives the pivot cell, the follower's family, the follower cell, and the verdict tally.
+
+`--retarget-cells PIVOT BEFORE_SEAM FOLLOWER AFTER_SEAM` is the same survey for a join-retargeted or join-created rule: every window where a PIVOT glyph's seam into FOLLOWER changes from BEFORE_SEAM to AFTER_SEAM.
+
+`--survey BEFORE_GLYPH` (or `--survey BEFORE_GLYPH AFTER_CELL`) is the enumeration needed before writing a rule in a form-naming shape (redrawn, ink-gain, entry-contracted, entry-extension-dropped, stub-dropped, slide) or in the join-dropped shape. It lists every human unit whose window has a before glyph under that prefix, grouped by the before form and the after cell it settles into, then by the family on its left with the seam change into it, the seam change out of it, and the follower's family and cell. Each group has its verdict tally. It reads the index only and shapes nothing, so it costs only the surface load. Windows whose sides do not line up letter for letter cannot be placed, and the survey prints how many there are.
+
+`--coverage RULE_ID` reruns the enumeration for an existing rule's shape and reports what it reaches that the rule does not name, each value with its verdict tally. `COVERAGE_SHAPES` lists the shapes that have an enumeration. The cell-naming shapes use their pair enumeration, built from the rule's before-side fields with everything else the rule names dropped, except the before forms the rule declines, which belong to a companion rule's survey. The form-naming shapes use the survey over the rule's family, dropping each named list in turn while keeping the others, because nothing else on the before side limits a redraw at the name grain. The report lists pivot forms, follower families and follower cells, or before forms, after forms in the after font's naming (`_cell_glyph_name`) and, for entry-contracted, left families. The ligature shape names no forms and the ink-delta shape names digests, so neither has an enumeration, and the tool says so. The report is a list of candidates: a value is added to a rule only after its own recorded decision has been found.
+
+`--find TEXT` maps a notation back to unit ids. It is a plain substring match over every human unit's notation, blanks first, capped because one letter pair can match thousands of units. `--blank-only` and `--limit N` narrow it. The notation's grammar is defined by `parse_expect` in test/test_shaping.py, and this tool does not parse it.
+
+`--shapes` prints the symptom-to-shape menu, generated from the standing approvals' SHAPES table, so a new shape appears in the menu when it is added to the table. A run that describes no unit and lists nothing prints the menu too. Every list of pivot cells, followers or follower cells is printed in code-point order, the order the rules file and the skill are written in. The tool writes nothing to the surface or the store.
+
+`--daemon auto|always|never` and `--socket PATH` decide which process loads the surface. When a standing daemon answers at the socket and holds this surface, it runs this same `main` over the objects it holds, and the output is byte-identical to an in-process run. `rebuild/tools/standing_daemon.py` documents what the daemon holds and when it declines. Otherwise the surface loads in this process. `always` exits instead of loading, `never` does not ask the daemon, a bare `--shapes` never asks, and a caller that passes `main` its own `units` or `context` is never served.
+"""
 
 import argparse
 import collections
@@ -41,19 +56,19 @@ DOCKET_NOTE = (
 
 @cache
 def _family_codepoints():
-    """The PostScript name to code point map, which is what lets every list this tool prints come out in the order the rules file and the skill are written in."""
+    """Return the PostScript-name-to-code-point map, which sets the order of every list this tool prints."""
     return yaml.safe_load(PS_NAMES.read_text())
 
 
 def _codepoint_key(token):
-    """A cell string, an old-font glyph name, or a bare family name ranked in code-point order: the code points of the rune's underscore-joined components, so a bare family precedes every ligature that leads with it, then the whole token, which orders two cells or two forms of one letter stably. A name the PostScript map does not cover sorts after every named one rather than breaking the listing."""
+    """Return a sort key that puts a cell string, an old-font glyph name, or a bare family name in code-point order. The key is the code points of the rune's underscore-joined components, so a bare family sorts before every ligature it leads, and then the whole token, which orders two cells or two forms of one letter. A name missing from the PostScript map sorts after every mapped one."""
     codepoints = _family_codepoints()
     rune = sv._family(sv._cell_rune(token))
     return ([codepoints.get(part, UNNAMED_CODEPOINT) for part in rune.split("_")], token)
 
 
 def _cell_glyph_name(cell):
-    """The name the after font gives the glyph a review-surface cell settles into — rune, stance, `en-yN` and `ex-yN` for the entry and exit it carries, then its adjustments — which is the vocabulary a rule's `match.after.pivots` is written in. `cell_label` in rebuild/pipeline/settle.py is the authority; this is the same formula read off the cell string, with the heights mapped through `HEIGHT_Y` instead of a loaded registry, so the index answers without a spec."""
+    """Return the after font's name for the glyph a review-surface cell settles into: rune, stance, `en-yN` and `ex-yN` for the entry and exit it carries, then its adjustments. A rule's `match.after.pivots` is written in these names. This applies the formula of `cell_label` in rebuild/pipeline/settle.py to the cell string, mapping heights through `HEIGHT_Y` so that no loaded spec is needed."""
     rune, stance, entry, exit_, _adjustments = sv._cell_parts(cell)
     parts = [rune, stance]
     if entry != "None":
@@ -65,7 +80,7 @@ def _cell_glyph_name(cell):
 
 
 class Blankness(NamedTuple):
-    """What the verdicts file can say about this surface: the latest record per unit, and whether the file is stamped for another manifest — in which case it can answer nothing here, and every verdict reads as unknown-under-a-stale-stamp rather than as the positive claim BLANK."""
+    """What the verdicts file says about this surface: the latest record per unit, and whether the file is stamped for another manifest. A file stamped for another manifest says nothing about this surface, so every verdict reads as `UNKNOWN_VERDICT` instead of BLANK."""
 
     records: dict
     stale: bool
@@ -97,7 +112,7 @@ def _piece_text(intern, piece):
 
 
 def _reading(intern, before, after):
-    """One position's rendered change in words: both pieces absent is inkless, one absent is ink appearing or vanishing, the same shape key is a placement (and possibly an own-frame origin) move, a different key is a redraw whose cell counts say how much and whose whole traded set is named, read with the after picture aligned by however far the own-frame origin moved, which is the frame a redrawn rule's dropped and added sets are written in — a redrawn rule is written from that trade, so a truncated one would have to be re-derived by hand, and this runs only for units the caller named."""
+    """Describe one position's rendered change in words. Both pieces absent is inkless, and one absent is ink appearing or vanishing. The same shape key is a move of placement, and possibly of own-frame origin. A different key is a redraw, reported with its cell counts and the full sets of dropped and added cells. Those sets are computed with the after picture shifted by the own-frame origin's move, which is the frame a redrawn rule's dropped and added sets are written in. The sets are not truncated because a redrawn rule is written from them, and this runs only for the units the caller named."""
     if before is None and after is None:
         return "inkless"
     if before is None:
@@ -191,7 +206,7 @@ def _describe(unit, rules, context, blankness, families):
 
 
 def _extension_pairs(units, blankness, pivot, token, seam):
-    """Every window where a PIVOT glyph carrying TOKEN exits at SEAM on both sides and settles into a cell that has given up columns of it, keyed by (pivot cell, follower family, follower cell) with each key's verdict tally. It is relaxed of everything a rule could name past those three before-side fields — no follower list, no cell lists — which is what makes it both the survey a new extension-dropped rule is written from and the coverage check on one that already exists. That relaxation is why `standing_verdicts._candidates` cannot stand in for it: the extension branch there already filters on the rule's named followers and cells, so it can only ever confirm what the rule says."""
+    """Return every window where a PIVOT glyph carrying TOKEN exits at SEAM on both sides and settles into a cell that gives up columns of it, keyed by (pivot cell, follower family, follower cell) with each key's verdict tally. It filters on nothing a rule names beyond those three before-side fields, so it serves both to write a new extension-dropped rule and to check an existing one's coverage. `standing_verdicts._candidates` cannot replace it, because its extension branch already filters on the rule's named followers and cells."""
     pairs: dict[tuple, collections.Counter] = collections.defaultdict(collections.Counter)
     contracted = bool(sv.EXIT_CONTRACTION.fullmatch(token))
     named = sv._extension_columns(token)
@@ -219,7 +234,7 @@ def _extension_pairs(units, blankness, pivot, token, seam):
 
 
 def _retarget_pairs(units, blankness, pivot, before_seam, follower, after_seam, declined=()):
-    """Every window where a PIVOT glyph's seam into a follower moves from BEFORE_SEAM to AFTER_SEAM, keyed the same way. `pivot` may be one glyph-name prefix or a list of them, as a join-created rule's own pivot side may be. `follower` may be None, which reaches every follower family — the relaxed form `--coverage` needs, since a rule that names its followers can never be told which ones it is missing by an enumeration that filters on them. `declined` drops the before forms a rule steps aside from, which belong to a companion rule's survey rather than to this one however far the enumeration is otherwise relaxed."""
+    """Return every window where a PIVOT glyph's seam into a follower changes from BEFORE_SEAM to AFTER_SEAM, keyed as in `_extension_pairs`. `pivot` is one glyph-name prefix or a list of them, since a join-created rule can name several. A `follower` of None reaches every follower family, which `--coverage` needs to find the followers a rule does not name. `declined` removes the before forms a rule declines, which belong to a companion rule's survey."""
     pairs: dict[tuple, collections.Counter] = collections.defaultdict(collections.Counter)
     for unit in units:
         if not sv._letter_for_letter(unit):
@@ -242,7 +257,7 @@ def _retarget_pairs(units, blankness, pivot, before_seam, follower, after_seam, 
 
 
 def _tallied(pairs, position):
-    """The distinct values one axis of a pairs table takes — pivot cell, follower family, or follower cell — each with the verdict tally of every window that reached it, in code-point order."""
+    """Return the distinct values of one axis of a pairs table (pivot cell, follower family, or follower cell), each with the verdict tally of every window that reached it, in code-point order."""
     tallies: dict[str, collections.Counter] = collections.defaultdict(collections.Counter)
     for key, tally in pairs.items():
         tallies[key[position]].update(tally)
@@ -279,7 +294,7 @@ def _retarget_cells(units, blankness, pivot, before_seam, follower, after_seam):
 
 
 class Position(NamedTuple):
-    """One pivot position as the survey keys it: the before glyph, the after cell it settles into, the family whose stroke touches it on the left, the seam change into it and out of it, and the follower's family and cell — EDGE wherever the window ends instead."""
+    """One pivot position as the survey keys it: the before glyph, the after cell it settles into, the family whose stroke touches it on the left, the seam change into and out of it, and the follower's family and cell. A field is EDGE where the window ends."""
 
     glyph: str
     cell: str
@@ -297,7 +312,7 @@ def _seam_change(seams, after_seams, index):
 
 
 def _survey_positions(units, blankness, prefix, after_cell=None):
-    """Every position whose before glyph falls under `prefix` — the dotted-prefix reading `_is_pivot` gives a rule's pivots, so `qsKey` reaches every ·Key form and `qsKey.ex-ext-1` one of them — keyed by `Position` with each key's verdict tally, and the count of windows carrying the prefix whose sides do not line up letter for letter, which no index-only survey can place. With `after_cell`, only the positions settling into exactly that cell. Relaxed of everything a rule in any form-naming shape could say past its before family, which is what makes it both the survey such a rule is written from and the enumeration `--coverage` turns back on one."""
+    """Return every position whose before glyph falls under `prefix`, keyed by `Position` with each key's verdict tally, and the count of windows carrying the prefix whose sides do not line up letter for letter, which an index-only survey cannot place. `prefix` is matched the way `_is_pivot` matches a rule's pivots, so `qsKey` reaches every ·Key form and `qsKey.ex-ext-1` only the forms under that name. With `after_cell`, only the positions settling into that cell are counted. It filters on nothing past the before family, so it serves both to write a rule in a form-naming shape and for `--coverage` on one."""
     rows: dict[Position, collections.Counter] = collections.defaultdict(collections.Counter)
     skipped = 0
     for unit in units:
@@ -368,7 +383,7 @@ def _survey(units, blankness, prefix, after_cell):
 
 
 def _find(units, blankness, needle, blank_only, limit):
-    """Every human unit whose notation contains the given text, blanks first and capped. The cap is load-bearing rather than tidy: one letter pair reaches thousands of records, so an uncapped listing is unreadable and the total is what the reader actually wants. Plain substring and nothing more — the `data-expect` grammar has an authority already (`parse_expect` in test/test_shaping.py) and a second reading of it here could only drift from it."""
+    """Print every human unit whose notation contains `needle`, blanks first, up to `limit`, with the total count. The cap is needed because one letter pair can match thousands of units. The match is a plain substring. `parse_expect` in test/test_shaping.py defines the `data-expect` grammar, and a second parser here could disagree with it."""
     hits = [unit for unit in units if needle in (unit.get("notation") or "")]
     if blank_only and blankness.stale:
         print("--blank-only cannot be answered from a stale verdicts stamp; every match is listed instead")
@@ -386,19 +401,19 @@ def _find(units, blankness, needle, blank_only, limit):
 
 
 def _shape_name(match):
-    """Which SHAPES row a rule's match declares, by name. `standing_verdicts._shape_of` answers with the row itself; the name is what a message about the rule has to say."""
+    """Return the name of the SHAPES row a rule's match declares. `standing_verdicts._shape_of` returns the row itself, and messages about the rule need the name."""
     return next((name for name, shape in sv.SHAPES.items() if shape.keyed_by in match["after"]), None)
 
 
 def _symptom(matcher):
-    """The symptom sentence a matcher's docstring opens with, cut at whichever comes first of its first colon and its first sentence end. Every matcher in SHAPES opens with one, which is what makes the derived listing a menu rather than a transcription of one."""
+    """Return the symptom sentence a matcher's docstring opens with, cut at its first colon or its first sentence end, whichever comes first. Every matcher in SHAPES opens with one, and rebuild/test_standing_probe.py checks that the menu prints the first eight words of each."""
     text = (matcher.__doc__ or "").strip()
     cuts = [index for index in (text.find(":"), text.find(". ")) if index > 0]
     return text[: min(cuts)] if cuts else text
 
 
 def _shapes():
-    """The symptom-to-shape menu, walked off `standing_verdicts.SHAPES` at runtime: each row's name, the `match.after` field that declares it, and the symptom its matcher's docstring opens with. Nothing is transcribed, so a shape entering the table enters this menu with it, and the tool's module docstring stays the authority on what each shape proves."""
+    """Print the symptom-to-shape menu from `standing_verdicts.SHAPES`: each row's name, the `match.after` field that declares it, and the symptom its matcher's docstring opens with. The menu is generated at run time, so a new shape appears in it automatically. standing_verdicts.py's module docstring describes what each shape proves."""
     print(
         "delta shapes a standing-approval rule can declare — standing_verdicts.py's module docstring is the "
         "authority on what each one proves:"
@@ -444,7 +459,7 @@ def _coverage_pairs(units, blankness, shape, match):
 
 
 def _pair_coverage(units, blankness, rule_id, shape, match):
-    """The cell-naming shapes' coverage: the relaxed pair enumeration, then each list the rule carries read against what it reached. join-dropped names its two cell lists only when it frees the pivot to redraw, so an absent list is not an axis — the rule holds the picture instead."""
+    """Return the coverage of a cell-naming shape: the relaxed pair enumeration, with each list the rule names compared against what it reached. A join-dropped rule names its two cell lists only when it lets the pivot redraw, so a list the rule leaves out is not reported."""
     _flag, pivot_field, follower_field = COVERAGE_SHAPES[shape]
     pairs = _coverage_pairs(units, blankness, shape, match)
     axes = []
@@ -461,7 +476,7 @@ def _pair_coverage(units, blankness, rule_id, shape, match):
 
 
 def _form_coverage(units, blankness, rule_id, shape, match):
-    """The form-naming shapes' coverage: the survey over the rule's whole family, with each list the rule names relaxed while its other lists hold — the before forms settling into a named after form that no before pivot covers, the after forms (as the after font names them) a named before form settles into that no after pivot covers, and for entry-contracted the left families a named before form under a named after form stands after. A before form the rule explicitly declines belongs to its companion's survey and stays out of every axis here. Holding the other lists is what keeps this a docket about the rule's own change: nothing else on the before side pins a redraw at the name grain, and relaxing every list at once would list the family's every unrelated position."""
+    """Return the coverage of a form-naming shape: the survey over the rule's family, with each named list dropped in turn while the others stay in force. It reports the before forms that settle into a named after form but are not named, the after forms (in the after font's naming) that a named before form settles into but are not named, and, for entry-contracted, the left families a named before form under a named after form follows. Before forms the rule declines belong to its companion rule's survey and are left out of every axis. Keeping the other lists in force keeps the report about the rule's own change: nothing else on the before side limits a redraw at the name grain, and relaxing every list at once would list every unrelated position in the family."""
     before_named, after_named = match["before"]["pivots"], match["after"]["pivots"]
     declined = match["before"].get("except_pivots", ())
     family = sv._family(before_named[0])
@@ -498,7 +513,7 @@ def _form_coverage(units, blankness, rule_id, shape, match):
 
 
 def _coverage(units, blankness, rules, rule_id):
-    """What a rule's own survey reaches that the rule does not yet name. It re-runs the relaxed enumeration for the rule's shape from the rule's before-side fields — `_pair_coverage` for a shape that names cells, `_form_coverage` for one that names forms — then reports each value outside the rule's lists with the verdict tally of the windows that reached it — the docket a rule's next extension is argued from, one entry at a time and each still needing its own recorded decision."""
+    """Print what a rule's own enumeration reaches that the rule does not name yet. It reruns the relaxed enumeration for the rule's shape from the rule's before-side fields (`_pair_coverage` for a shape that names cells, `_form_coverage` for one that names forms) and prints each unnamed value with the verdict tally of the windows that reached it. Each value still needs its own recorded decision before it is added to the rule."""
     rule = next((rule for rule in rules if rule["id"] == rule_id), None)
     if rule is None:
         print(f"{rule_id}: no rule by that id in this rules file")

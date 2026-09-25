@@ -1,4 +1,4 @@
-"""Order the blank review queue for novelty, so a sitting sees maximally different consecutive questions instead of the shard walk's near-identical neighbors. Takes one representative per echo group among the blank human units (a verdict on the rep echo-fills the rest of its group, so the reps cover the whole blank queue), scores rep pairs on a weighted mix of divergence class, left and right family, letter set, settled stances, seam transitions, config set, unit kinds, deciding provenance, and window length, and walks them greedily: each next rep maximizes its minimum distance to the last few shown, with rare classes surfacing first on ties so one-off questions aren't buried behind the big classes. Prints the worklist URL to paste into the review app — `#units=…&order=given`, the form the app keeps in the given order instead of re-sorting by family pair."""
+"""Order the blank review queue for novelty, so consecutive units in a review session differ as much as possible instead of following the shard order's near-identical neighbors. It takes one rep per echo group among the blank human units, counting units with a skip verdict as blank; the app copies a verdict on the rep to the group's members that have no record. The distance between two reps is a weighted sum over `DIMENSIONS`: divergence class, left and right family, letter set, settled stances, changed seams, configuration set, unit kinds, deciding provenance and window length. The walk starts at a rep of the rarest class and then picks, each time, the rep whose smallest distance to the last `RECENT_WINDOW` shown is largest, breaking ties toward rarer classes and then earlier triage position, so one-off questions are not buried behind the large classes. It prints the worklist URL to paste into the review app, `#units=…&order=given`, which the app keeps in the given order instead of sorting by family pair."""
 
 import argparse
 import collections
@@ -20,7 +20,7 @@ RECENT_WINDOW = 3
 
 
 def _triage_position(unit):
-    """Where the unit sits in the surface's triage index (the index record's `order`): the order a rep is chosen and the walk breaks ties in."""
+    """Return the unit's position in the surface's triage index (the index record's `order`), which decides the rep chosen from each group and breaks the walk's remaining ties."""
     order = unit.get("order")
     return order if isinstance(order, int) else sys.maxsize
 

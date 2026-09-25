@@ -1,8 +1,8 @@
-"""The cycle's verdict plumbing in one process: carry, merge, echo fill, standing fill, their merges, a witnessed echo fixpoint, and the complaint docket.
+"""Run the cycle's verdict plumbing in one process: carry, merge, echo fill, standing fill, their merges, a witnessed echo fixpoint, and the complaint docket.
 
-The first index walk retains every surface id and only the human id/echo/notation projection. Carry reads that projection for ids, and every echo round reuses it. Standing fill opens fresh human streams through its source factory; the complaint docket receives its own stream. Full human index records live only for the step consuming them, while machine lines supply ids without being parsed.
+The first index walk keeps every surface id and, for human units, only the `echo_record` projection (id, echo group, notation). The carry reads that projection, and every echo round reuses it. The standing fill and the complaint docket each get a fresh stream of human index records, so full records stay in memory only for the step that reads them. Machine units' index lines contribute their ids without being parsed.
 
-Standing fill runs with `--open-only --require-reach`, its persistent memo, and the cycle's `--standing-fill-jobs` width. The chain opens each step with `[phase]` and closes it with `[t]`; its failure and fixpoint reports retain the `[chain]` prefix. Echo rounds after the standing merge close the cascade, and the echo output holds the union of fills landed across rounds.
+The standing fill runs with `--open-only --require-reach`, its persistent memo, and the cycle's `--standing-fill-jobs` width. Each step opens with a `[phase]` line and closes with a `[t]` line; the failure and fixpoint lines use the `[chain]` prefix. The echo rounds after the standing merge spread what the standing fill wrote, and the echo output file holds the union of the fills from every round.
 """
 
 from __future__ import annotations
@@ -32,12 +32,12 @@ SURFACE = ROOT / "rebuild/out/review"
 AUTOSAVE = ROOT / "verdicts-autosave.json"
 ECHO_FILL = ROOT / "verdicts-echo-fill.json"
 STANDING_FILL = ROOT / "verdicts-standing-fill.json"
-# Two rounds close the cascade by construction — standing can only feed echo, and an echo fill only ever removes blanks — so a third is the belt to that argument's braces and a fourth would mean the argument is wrong.
+# Two echo rounds should write every fill, because the standing fill runs once and can only feed echo, and an echo fill only removes blanks. When the second round writes something, the third checks that nothing is left. A fourth runs only if that argument is wrong.
 MAX_ECHO_ROUNDS = 4
 
 
 def _run(name: str, call: Callable[[], int | None]) -> int:
-    """One step, opened as a phase and timed. A tool that fails by `SystemExit` — which is how the merge's stamp guard and the rules-file validation refuse — reports its message and its code here rather than taking the whole chain down, so the steps after it can be reported as not run."""
+    """Run one step as a timed phase and return its exit code. A `SystemExit` (the echo fill's stamp check and the rules-file validation raise one) is converted to a code and its message printed, so the chain still prints its `[chain] failed:` line and the cycle can report the later steps as not run."""
     console.phase(name)
     started = time.perf_counter()
     try:
@@ -180,7 +180,7 @@ def main(argv: list[str] | None = None) -> int:
         landed = json.loads(args.echo_out.read_text())["verdicts"]
         fresh = [record for record in landed if record["unit"] not in known]
         fills += fresh
-        # Every round writes only the blanks still blank when it ran, so the file is restored to the union: the artifact the cycle names holds every echo fill this chain landed rather than the last round's remainder.
+        # Each echo fill overwrites the file with only the units still blank when it ran, so the file is rewritten with the union of every round's fills.
         _write_fills(args.echo_out, stamp, fills)
         if round_ and not fresh:
             settled = True

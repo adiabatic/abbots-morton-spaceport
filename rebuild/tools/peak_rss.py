@@ -1,10 +1,10 @@
-"""The one yardstick for peak RSS, shared by production and bench so a figure measured anywhere is a figure measured the same way (issue #51). Everything here answers in bytes; the sole presentation unit is the decimal gigabyte (1 GB = 1e9 bytes), which is what every `*_gb` field and `rss_gb=` token means — GiB and per-site conversions are exactly the drift this module exists to end.
+"""Peak and current RSS readings, shared by the pipeline, the cycle driver and the test suite so every figure is measured the same way. Every function returns bytes. The only display unit is the decimal gigabyte (1 GB = 1e9 bytes), which is what every `*_gb` field and `rss_gb=` token means.
 
-The normalization it owns: `getrusage`'s `ru_maxrss` (and the rusage `os.wait4` returns) is bytes on Darwin and KiB on Linux, so every raw reading passes through `maxrss_to_bytes` before it is stored or compared. `/usr/bin/time` output is normalized the same way — BSD `-l` reports the maximum resident set size in bytes on Darwin, GNU `-v` reports kbytes — and `parse_time_output` reads either format back to bytes.
+`getrusage`'s `ru_maxrss`, and the rusage `os.wait4` returns, is in bytes on Darwin and KiB on Linux, so every raw reading passes through `maxrss_to_bytes`. `/usr/bin/time` differs the same way: BSD `-l` reports bytes on Darwin and GNU `-v` reports KiB, and `parse_time_output` converts either to bytes.
 
-Self versus children is explicit because the two answer different questions: `peak_rss_self_bytes` is this process's own high-water mark, `peak_rss_children_bytes` is the max over every child this process has reaped, and `process_peak_rss_bytes` is the widest single process this one has been or has waited on — the figure a `[t]` line about a stage that fans out should carry. None of these is a current reading; a high-water mark only ever rises, so a delta between two readings attributes nothing (see `reap_peak_rss_bytes` for the per-child form that does). `current_rss_bytes` is the current reading, the set this process holds at the moment it is asked, and a `[t]` line carrying both tokens (`rss_token`, `rss_now_token`) says two different things: where in the step the peak was made, and what the phase that just closed leaves resident once its transients are gone.
+`peak_rss_self_bytes` is this process's own peak. `peak_rss_children_bytes` is the largest peak among the children this process has reaped. `process_peak_rss_bytes` is the larger of the two, which is the figure a `[t]` line for a stage that fans out should carry. A peak only rises, so the difference between two peak readings says nothing about what happened between them; `reap_peak_rss_bytes` gives a per-child figure. `current_rss_bytes` is the resident set at the moment of the call. A `[t]` line with both tokens (`rss_token`, `rss_now_token`) shows where in the step the peak was reached and what the phase that just ended leaves resident.
 
-Stdlib-only on purpose: the bench harnesses import this under alternative interpreters and from trees where only the repo root is on `sys.path`, and the pipeline imports it without pulling in any tools-tree machinery.
+The module imports only the standard library, so the pipeline, the surface build and `tools/build_font.py` (through `memory_budget`) can import it without adding any other module to their import closures.
 """
 
 from __future__ import annotations
@@ -44,17 +44,17 @@ def format_gb(byte_count: float) -> str:
 
 
 def rss_token(byte_count: float) -> str:
-    """The trailing token a `[t]` phase line carries its peak RSS in, e.g. `[t] build_tables_total 243.1s rss_gb=8.94`. `cycle_timings.parse_inner_timings` is the reader; a round-trip test binds the two."""
+    """Return the trailing peak-RSS token of a `[t]` phase line, as in `[t] build_tables_total 243.1s rss_gb=8.94`. `cycle_timings.parse_inner_timings` reads it, and rebuild/test_peak_rss.py checks the round trip."""
     return f"rss_gb={format_gb(byte_count)}"
 
 
 def rss_now_token(byte_count: float) -> str:
-    """The token a `[t]` phase line carries its current RSS in beside the peak, e.g. `rss_gb=5.36 rss_now_gb=4.02`; `cycle_timings.parse_inner_timings` reads it into `rss_now_gb`, and the spelling shares no substring with `rss_gb=` at a word boundary, so the peak token's reader is unmoved by it."""
+    """Return the current-RSS token a `[t]` phase line carries beside the peak, as in `rss_gb=5.36 rss_now_gb=4.02`. `cycle_timings.parse_inner_timings` reads it into `rss_now_gb`. The peak token's pattern, `\\brss_gb=`, does not match inside `rss_now_gb=`, so the two tokens do not interfere."""
     return f"rss_now_gb={format_gb(byte_count)}"
 
 
 def current_rss_bytes() -> int | None:
-    """This process's resident set at this moment, in bytes: the resident-pages field of `/proc/self/statm` times the page size where that file exists, else one `ps -o rss=` query, which answers in KiB, and None where neither answers (a sandbox that blocks `ps`, a platform with neither). The one reading here that can fall as well as rise, which is what lets a phase's own working set be told apart from the step's high-water mark; on Darwin it costs a `ps` spawn per call, so it is read once per phase and never in a loop."""
+    """Return this process's resident set now, in bytes, or None where it cannot be read (a sandbox that blocks `ps`, a platform with neither source). It reads the resident-pages field of `/proc/self/statm` times the page size where that file exists, and otherwise runs `ps -o rss=`, which reports KiB. Unlike the peaks, it can fall, so it separates a phase's own working set from the step's peak. On Darwin each call spawns `ps`, so call it once per phase, not in a loop."""
     try:
         with open("/proc/self/statm", encoding="ascii") as handle:
             pages = int(handle.read().split()[1])
@@ -71,14 +71,14 @@ def current_rss_bytes() -> int | None:
 
 
 def time_wrapper(platform: str = sys.platform) -> list[str]:
-    """The argv prefix that has `/usr/bin/time` report a child's peak RSS on stderr, or [] where there is no `/usr/bin/time` to ask. Prefer `reap_peak_rss_bytes` for a child this process spawns itself; the wrapper is for children that outlive their spawner or run under a shell."""
+    """Return the argv prefix that makes `/usr/bin/time` report a child's peak RSS on stderr, or [] where there is no `/usr/bin/time`. For a child this process spawns and waits on, use `reap_peak_rss_bytes` instead; the wrapper is for children that outlive their spawner or run under a shell."""
     if not os.path.isfile("/usr/bin/time"):
         return []
     return ["/usr/bin/time", "-l" if platform == "darwin" else "-v"]
 
 
 def parse_time_output(text: str) -> int | None:
-    """The peak RSS in bytes from `/usr/bin/time` output in either dialect — BSD `-l` (bytes on Darwin, the only BSD this repo meets) or GNU `-v` (KiB) — or None when the text carries neither line."""
+    """Return the peak RSS in bytes from `/usr/bin/time` output in either format, BSD `-l` (bytes on Darwin, the only BSD this repo runs on) or GNU `-v` (KiB), or None when the text has neither line."""
     match = _BSD_TIME_RSS.search(text)
     if match:
         return int(match.group(1))
@@ -89,7 +89,7 @@ def parse_time_output(text: str) -> int | None:
 
 
 def reap_peak_rss_bytes(proc: subprocess.Popen) -> int | None:
-    """Reap `proc` with `os.wait4` so its exit status arrives with its rusage, set `proc.returncode` the way Popen would (negative signal number on a kill), and return the child's peak RSS in bytes. The figure is a max over the child and every descendant the child itself reaped, so for a step that fans out a pool it is the widest single process in that tree — per-step attribution that `RUSAGE_CHILDREN` (a max over all children ever reaped, across steps) cannot give. None when the child is already reaped or another waiter wins the race (the interrupt path's terminate_all also waits); the caller's own `proc.wait()` then answers as usual."""
+    """Reap `proc` with `os.wait4`, set `proc.returncode` as Popen would (a negative signal number on a kill), and return the child's peak RSS in bytes. The figure is the largest peak among the child and every descendant the child reaped, so for a step that runs a pool it is the largest single process in that tree. `RUSAGE_CHILDREN` cannot give this per-step figure, because it covers every child reaped so far, across steps. Returns None when the child is already reaped or another waiter reaps it first (the interrupt path's `terminate_all` also waits); the caller's own `proc.wait()` then works as usual."""
     if proc.returncode is not None or not hasattr(os, "wait4"):
         return None
     try:

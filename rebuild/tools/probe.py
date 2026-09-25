@@ -1,7 +1,7 @@
-"""Probe codepoint windows: old-font baseline (glyphs+seams, all configs) vs new settlement.
+"""Print codepoint windows' old-font baseline (glyphs and seams, every configuration) beside the rebuild's settlement.
 Usage: uv run python rebuild/tools/probe.py E653:E666:E652 [E652:E67A ...] [--no-baseline]
 
-Every argument is a window, and every window rides one `explain_many` call across the acceptance configurations, so a before/after battery pays the explainer's warm-up once per process. The output is one `=== window X ===` block per argument in argument order, each block identical to what the same window prints alone. `--no-baseline` skips the baseline tables and leaves each configuration's two OLD lines out.
+Every argument is a window. All windows go through one `explain_many` call across the acceptance configurations, so the explainer's warm-up is paid once per process. The output is one `=== window X ===` block per argument, in argument order, and each block is what that window prints when probed alone. `--no-baseline` skips reading the baseline tables and omits each configuration's two OLD lines.
 """
 
 import gzip
@@ -23,7 +23,7 @@ NOT_IN_SUBSET = "(not in subset)"
 
 
 def _scan_rows(lines: Iterable[str], wanted: frozenset[str]) -> dict[str, list[str]]:
-    """Walk table lines until every wanted key has a row, skipping header and short lines the way the whole-table read does, and stop there."""
+    """Return the first row for each wanted key, skipping comment lines and lines with fewer than four fields, and stop reading once every key is found."""
     found: dict[str, list[str]] = {}
     for line in lines:
         if line.startswith("#"):
@@ -39,7 +39,7 @@ def _scan_rows(lines: Iterable[str], wanted: frozenset[str]) -> dict[str, list[s
 
 
 def baseline_rows(cfg: str, windows: Iterable[str]) -> dict[str, list[str]]:
-    """The subset-table rows for the wanted windows under one configuration, keyed by window. `rebuild/pipeline/baseline_subset.filter_table` writes the table in the canonical (length, codepoints) order of `rebuild/baseline/alphabet.enumerate_basis`, so a two- or three-codepoint window sits near the front and the scan returns after a few thousand lines; a key that sorts late among the four-codepoint rows, or one absent from the subset, costs one full pass. `enumerate_basis` is a Cartesian product over distinct tuples, one row per window, so the first row found for a key is the only one and this agrees with a whole-table dict. An empty wanted set returns an empty answer without opening a table."""
+    """Return the subset-table rows for the wanted windows under one configuration, keyed by window. `rebuild/pipeline/baseline_subset.filter_table` keeps the baseline table's row order, which is the (length, codepoints) order of `rebuild/baseline/alphabet.enumerate_basis`. A two- or three-codepoint window is therefore near the front and the scan stops early, while a key late among the four-codepoint rows, or one missing from the subset, costs a full pass. `enumerate_basis` yields each window once, so the first row found for a key is the only one. An empty wanted set returns {} without opening a table."""
     wanted = frozenset(windows)
     if not wanted:
         return {}
@@ -49,7 +49,7 @@ def baseline_rows(cfg: str, windows: Iterable[str]) -> dict[str, list[str]]:
 
 
 def parse_window(entry: str) -> list[int] | None:
-    """The codepoints of a colon-joined hex window, or None for an entry that is not one."""
+    """Return the codepoints of a colon-joined hex window, or None for an entry that is not one."""
     fields = entry.split(":")
     try:
         return [int(x, 16) for x in fields] if all(fields) else None

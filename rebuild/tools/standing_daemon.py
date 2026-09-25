@@ -1,10 +1,12 @@
-"""Hold the review surface in one process so the standing probe and the standing dry run stop reloading it: `serve` loads the surface's human index records once (`standing_probe._human` over `unit_index.iter_human_units` projected onto `UNIT_FIELDS`, the same filter both tools apply), opens one `standing_verdicts.SlideContext` over the surface's font pair once, and then answers `probe` and `fill` requests over a Unix-domain socket by running the tools' own `main` — the same parser, the same functions, over those held objects, under the client's working directory, with stdout and stderr captured — and handing back the exit code and both streams, which the client (`rebuild/tools/standing_client.py`, the protocol's home) writes unchanged. Nothing is re-implemented, so a served run prints byte for byte what an in-process run prints; `rebuild/test_standing_daemon.py` holds that over the frozen mini bundle for the probe's unit, find, survey and coverage modes and both dry-run forms.
+"""Hold the review surface in one process so the standing probe and the standing dry run stop reloading it: `serve` loads the surface's human index records once (`standing_probe._human` over `unit_index.iter_human_units` projected onto `UNIT_FIELDS`, the same filter both tools apply) and opens one `standing_verdicts.SlideContext` over the surface's font pair. It then answers `probe` and `fill` requests over a Unix-domain socket. For each request it runs the tool's own `main` over the held objects, in the client's working directory, with stdout and stderr captured, and replies with the exit code and both streams. The client writes them unchanged; `rebuild/tools/standing_client.py` defines the protocol. Because the daemon runs the same code, a served run prints the same bytes as an in-process run. `rebuild/test_standing_daemon.py` checks this over the frozen mini bundle for the probe's unit, find, survey and coverage modes and both dry-run forms.
 
-It is one process by design: the surface objects are shared, a second holder would be a second copy of the surface, and `serve` refuses to start beside a daemon that already answers at its socket. It answers one request at a time — a single thread, the listen backlog queuing the rest — because the held objects are not safe to share across requests and the win is memory and fan-out width, not per-request latency. The `SlideContext` memos are emptied after every request, so a served run shapes exactly the windows a fresh process would and the daemon's footprint stays bounded. The rules file and the verdicts file are not held: each request's tool reads them as its argv names them, so neither can go stale in here and a scratch `--rules` is served as readily as the checked-in one.
+Only one daemon should run, because a second would hold a second copy of the surface. `serve` exits 1 when a daemon already answers at its socket. The daemon handles one request at a time on a single thread, and the listen backlog queues the rest, because the held objects are not safe to share across requests. It exists to save memory and fan-out width, not per-request latency. After every request the `SlideContext` memos and the fill's alignment cache are emptied, so each request shapes the same windows a fresh process would and memory stays bounded. The rules file and the verdicts file are not held. Each request's tool reads the paths its argv names, so a scratch `--rules` works as well as the checked-in one.
 
-Staleness is part of the contract. `stamp_of` is the surface manifest's `generated_at`, the repo code actually loaded in this process (`loaded_repo_files`, read off `sys.modules`, so no hand roster can drift from what decides), both fonts' bytes — the surface's own copies, which move only when the surface is rebuilt — and `uv.lock`'s dependency pins for the shaper (`fingerprint.lock_digest`, so a version bump alone leaves a holder standing); it is checked before every request and every `IDLE_CHECK_SECONDS` while idle, and any field moving makes the daemon decline the request and exit, because code cannot be reloaded into a running process and a holder that can no longer answer is the one footprint the memory policy forbids. A request for a surface other than the one it holds is declined without exiting. The socket is bound before the load, so a second `serve` started in the same instant fails its bind rather than unlinking the first's live socket, and a client that connects during the load waits for the answer; SIGTERM, SIGINT and the `stop` verb all remove the socket on the way out. It takes no port: never 7293 (the site) and never 7294 (the review server).
+`stamp_of` records what a served answer depends on besides the request: the surface manifest's `generated_at`, the repo code loaded in this process (`loaded_repo_files`, read from `sys.modules`), both fonts' bytes (the surface's own copies, which change only when the surface is rebuilt), and `uv.lock`'s dependency pins (`fingerprint.lock_digest`, so a bump of the project's own version does not move it). The daemon checks the stamp before every request and every `IDLE_CHECK_SECONDS` while idle. When any field has changed, it declines the request and exits, because code cannot be reloaded into a running process and a daemon that can serve nothing should not keep holding memory. A request for a different surface is declined without exiting.
 
-`main` has three verbs — `serve`, `status`, `stop` — and `make standing-daemon` / `make standing-daemon-stop` wrap the first and the last, detaching `serve` under `nohup` with its log under `var/`.
+The socket is bound before the load. A client that connects during the load, including a second `serve` checking for a live daemon, waits for the reply. `serve` deletes any existing socket file before it binds, so if two `serve` runs both check status before either has bound, the second deletes the first one's socket and the first can no longer be reached. SIGTERM, SIGINT and the `stop` subcommand all remove the socket on exit.
+
+`main` has three subcommands: `serve`, `status` and `stop`. `make standing-daemon` runs `serve` detached under `nohup` with its log at `var/standing-daemon.log`, and `make standing-daemon-stop` runs `stop`.
 """
 
 from __future__ import annotations
@@ -30,7 +32,7 @@ from rebuild.review.unit_index import iter_human_units  # noqa: E402
 from rebuild.tools import memory_budget, peak_rss, standing_client  # noqa: E402
 from rebuild.tools.review_docket import SURFACE  # noqa: E402
 
-# The peak budget for this one process, a co-resident term on the box that no cycle width subtracts. The held surface is compact human index records — `iter_human_units` streams them projected onto `UNIT_FIELDS`, sharing repeated values within the read and retaining no all-surface id set — beside the comparator over the font pair. The budget also covers transient loading allocations, allocator retention and one whole-domain request's evaluation; the process high-water is not its idle resident set. The seed is the `peak rss` line the daemon prints at exit: 1.52 GB on the 32 GiB box in doc/fleet.md after a probe and a whole-domain dry run with no memo and the cycle-derived refill width, rounded up with at least a quarter of headroom. That instrument measures the daemon process, not the refill workers, which STANDING_FILL_WORKER_BYTES prices separately. `serve` resolves it once as `describe_fit(…, cap=1)` and enforces the one by refusing to start beside a live daemon; nothing divides by it and nothing else subtracts it — `surface_job_budget` and `kernel_threads_budget` price a box with no daemon on it — which is why the daemon is stopped before a cycle pass and exits by itself once the surface it holds is rebuilt. It is a reading to re-seed as the surface grows, like SURFACE_PARENT_BYTES, and the surface-holding cap in the dont-bug-me-about-this-ever-again skill is priced off the same figure.
+# Peak memory budget for the daemon process. It covers the held human index records (`iter_human_units` projected onto `UNIT_FIELDS`, sharing repeated values within the read and keeping no set of all surface ids), the comparator over the font pair, transient allocations while loading, allocator retention, and one whole-domain request's evaluation. It is the process's peak, which is larger than its idle resident set. The figure comes from the `peak rss` line the daemon prints at exit: 1.52 GB on the 32 GiB machine in doc/fleet.md, after a probe and a whole-domain dry run with no memo at the cycle-derived refill width, then rounded up to leave at least 25% headroom. That line measures the daemon process only; STANDING_FILL_WORKER_BYTES budgets the refill workers separately. `serve` prints `describe_fit(…, cap=1)` once, and the width of one is enforced by refusing to start beside a live daemon. No cycle width is computed from this constant or subtracts it: `surface_job_budget` and `kernel_threads_budget` assume no daemon is running, so stop the daemon before a cycle pass. The daemon also exits by itself once its surface is rebuilt. Re-measure the figure as the surface grows, as with SURFACE_PARENT_BYTES. The surface-holding cap in the dont-bug-me-about-this-ever-again skill uses the same figure.
 STANDING_DAEMON_BYTES = 2_000_000_000
 IDLE_CHECK_SECONDS = 30
 REQUEST_READ_SECONDS = 30
@@ -59,7 +61,7 @@ UNIT_FIELDS = frozenset(
 
 
 class Stamp(NamedTuple):
-    """Everything a served answer is a function of beyond the request itself: the surface's manifest stamp, the loaded code, the font pair and the shaper's lockfile."""
+    """The inputs a served answer depends on besides the request: the surface manifest's stamp, the loaded code, the font pair, and `uv.lock`'s dependency pins."""
 
     generated_at: str
     code: str
@@ -72,7 +74,7 @@ class _Shutdown(BaseException):
 
 
 def loaded_repo_files() -> list[pathlib.Path]:
-    """Every module file under the repo root this process has imported, the interpreter's own packages and the uv cache excepted: the code that would decide a request, as it stands on disk."""
+    """Return the file of every module this process has imported from under the repo root, excluding the trees in `EXCLUDED_TREES`."""
     root = str(ROOT) + os.sep
     excluded = tuple(str(ROOT / tree) + os.sep for tree in EXCLUDED_TREES)
     files: set[pathlib.Path] = set()
@@ -94,7 +96,7 @@ def _digest(path: pathlib.Path, digest: Callable[[pathlib.Path], str] = fingerpr
 
 
 def stamp_of(surface: pathlib.Path) -> Stamp:
-    """The stamp as the tree stands at this instant; a manifest or font that cannot be read stamps as `-`, which differs from whatever was loaded."""
+    """Return the stamp as the files stand now. An unreadable manifest or font stamps as `-`, which differs from any value read at load."""
     try:
         generated_at = str(json.loads((surface / "manifest.json").read_text())["generated_at"])
     except OSError, ValueError, KeyError, TypeError:
@@ -119,7 +121,7 @@ def _moved(held: Stamp, fresh: Stamp) -> str:
 
 
 def _exit_code(code: object, err: io.StringIO) -> int:
-    """The interpreter's own reading of a `SystemExit`: None is 0, an int is itself, anything else is printed to stderr and is 1."""
+    """Convert a `SystemExit` code the way the interpreter does: None is 0, an int is itself, and anything else is printed to stderr and becomes 1."""
     if code is None:
         return 0
     if isinstance(code, int):
@@ -129,7 +131,7 @@ def _exit_code(code: object, err: io.StringIO) -> int:
 
 
 def run_tool(tool: str, argv: list[str], cwd: str, units: list, context) -> tuple[int, str, str]:
-    """One request, run exactly as the tool's own `main` runs it: under the client's working directory, over the held units and context, with both streams captured. The context's memos and the fill's alignment cache are emptied afterwards, whatever happened, so the next request shapes what a fresh process would and the footprint stays bounded."""
+    """Run one request through the tool's own `main` in the client's working directory, over the held units and context, and return the exit code, stdout and stderr. The context's memos and the fill's alignment cache are emptied afterwards even on failure, so the next request shapes what a fresh process would and memory stays bounded."""
     from rebuild.tools import standing_probe, standing_verdicts
 
     tool_main = standing_probe.main if tool == "probe" else standing_verdicts.main
@@ -173,7 +175,7 @@ def _raise_shutdown(signum, _frame) -> None:
 
 
 def serve(surface=SURFACE, socket_path=None) -> int:
-    """Load once, then answer until stopped, signaled, or stale. Exit 1 without loading when a daemon already answers at the socket."""
+    """Load the surface once, then serve requests until stopped, signaled, or stale. Return 1 without loading when a daemon already answers at the socket."""
     socket_path = pathlib.Path(standing_client.SOCKET if socket_path is None else socket_path)
     status = standing_client.exchange(socket_path, {"tool": "status"})
     if status is not None and status.get("ok"):

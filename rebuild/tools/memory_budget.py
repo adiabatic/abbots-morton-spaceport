@@ -1,16 +1,16 @@
-"""How many of a thing fit in the box, the counterpart to `peak_rss.py`'s how much one of them costs (issue #63, sub-issue #85). The pairing is the argument for a module apiece rather than a probe per call site: #51 found eight independent `ru_maxrss` conversions and three mutually incompatible `*_gb` units before it collapsed them into one yardstick, and a memory probe grown site by site would end the same way. Everything here answers in bytes, and the presentation unit is `peak_rss`'s rather than a second one — `format_gb` is imported instead of spelled again, so a figure this module prints and a figure a `[t]` line carries are the same decimal gigabyte (1 GB = 1e9 bytes).
+"""Compute how many units of work fit in the machine's memory, the counterpart to `peak_rss.py`, which measures what one unit costs. All figures are in bytes, and printed figures use `peak_rss.format_gb` (decimal gigabytes, 1 GB = 1e9 bytes), so a figure printed here and one on a `[t]` line use the same unit.
 
-The policy it owns: read total physical memory clamped by any cgroup limit, never free or available memory, subtract an explicit reserve, integer-divide by a measured per-unit peak, `min()` against an optional non-memory cap, and floor at one. `how_many_fit` is that arithmetic and `describe_fit` is the same arithmetic said out loud — one clause naming the per-unit cost, the box, the reserve and whatever was subtracted for a co-resident pool, so a reader surprised by a width can audit its derivation instead of trusting it. The cap is a bound that has nothing to do with memory (a core count from `usable_cores`, a data count like the acceptance-configuration set) and it applies before the floor, so a cap of zero still answers one; the floor at one is not optional, because a build that refuses to start on a small machine is strictly worse than one that runs slowly. The reserve is `max(RESERVE_FLOOR_BYTES, RESERVE_FRACTION * total)`, floor and fraction both, because they model different risks: the OS-and-desktop floor is roughly constant across hardware, while the fraction exists because a bigger box is one someone keeps more open on, and pessimism should scale with the number it protects. Both ship as module constants and both are keyword parameters, so a test can reproduce a width recorded under an earlier policy without the shipped policy being fitted to it.
+The policy: read total physical memory, clamped by any cgroup limit, never free or available memory; subtract a reserve; integer-divide by a measured per-unit peak; take the `min()` with an optional non-memory cap; and floor at one. `how_many_fit` does the arithmetic, and `describe_fit` states it as one clause (per-unit cost, total, reserve, anything subtracted for a co-resident pool) so a reader can check where a width came from. The cap is a bound unrelated to memory, such as a core count from `usable_cores` or the number of acceptance configurations. It applies before the floor, so a cap of zero still returns one. The floor at one is required: a build that refuses to start on a small machine is worse than one that runs slowly. The reserve is `max(RESERVE_FLOOR_BYTES, RESERVE_FRACTION * total)`. The floor covers the operating system and desktop, which cost roughly the same on any hardware; the fraction covers the larger workload people tend to keep open on a larger machine. Both are module constants and keyword parameters, so a test can reproduce a width recorded under an earlier policy without changing the shipped values.
 
-Free and available memory are never read, which is the surprising half of the policy, so the reasons in one place: `vm.swapusage` is sticky and lagging, so a healthy idle box reads gigabytes used and a swap tripwire would veto every run forever; macOS drives free pages toward zero by design, so `vm_stat`'s free count is wrong as headroom by an order of magnitude; `SC_AVPHYS_PAGES` is absent from `os.sysconf_names` on Darwin entirely and is `MemFree` rather than `MemAvailable` on Linux; and Darwin's `host_statistics64` availability is an opinion rather than a number, with two defensible reconstructions of one sample disagreeing by gigabytes. Underneath all four, any current-availability reading is irreproducible and racy — it moves when a browser opens, and something allocates between the read and the fork — so total less a stated reserve is both the more honest figure and the only one two runs on the same box agree on. Issue #63 carries the checked table this compresses.
+Free and available memory are never read, for these reasons. `vm.swapusage` is sticky and lags, so a healthy idle machine shows gigabytes used and a swap check would block every run. macOS drives free pages toward zero, so `vm_stat`'s free count understates headroom by an order of magnitude. `SC_AVPHYS_PAGES` is missing from `os.sysconf_names` on Darwin and is `MemFree`, not `MemAvailable`, on Linux. Darwin's `host_statistics64` availability is an estimate, and two reasonable reconstructions of one sample disagree by gigabytes. Beyond those, any reading of current availability is irreproducible and racy: it changes when a browser opens, and something can allocate between the read and the fork. Total memory less a stated reserve is the figure two runs on the same machine agree on. Issue #63 has the table of these checks.
 
-The probes are split so none of that needs a host to test: each is an I/O shim that returns text beside a pure parser that takes it, `_cgroup_memory_limit_bytes` and `_cgroup_cpu_allowance` take the filesystem root to read under so a test points them at `rebuild/fixtures/memory_budget/` instead of requiring a container, and `total_bytes` is a keyword on every policy function rather than a module lookup so every policy assertion is a pure function over an invented box. `os.sysconf("SC_PAGE_SIZE") * os.sysconf("SC_PHYS_PAGES")` is the whole portable probe — byte-identical to `sysctl -n hw.memsize` on Darwin, correct on Linux, no subprocess and no dependency — with `/proc/meminfo`'s `MemTotal` as the Linux fallback where `SC_PHYS_PAGES` is missing from `os.sysconf_names`, and `_LAST_RESORT_TOTAL_BYTES` where neither answers at all. On Linux that figure is clamped by the least limit any cgroup from `/proc/self/cgroup` to the root imposes, reading the literal `max` and the v1 unlimited sentinels as absent rather than as an `int`; the clamp is the entire correctness story in a container, because `sysconf` reads the host there, and it is the step Bazel's `HOST_RAM` omits and the reason Bazel gets OOM-killed in containers.
+The probes are split so none of this needs a particular host to test. Each I/O shim returns text to a pure parser. `_cgroup_memory_limit_bytes` and `_cgroup_cpu_allowance` take the filesystem root to read under, so a test points them at `rebuild/fixtures/memory_budget/`. `total_bytes` is a keyword on every policy function, so every policy assertion is a pure function of an invented machine. The total-memory probe is `os.sysconf("SC_PAGE_SIZE") * os.sysconf("SC_PHYS_PAGES")`, which equals `sysctl -n hw.memsize` on Darwin and is correct on Linux, with no subprocess or dependency. On Linux without `SC_PHYS_PAGES` it falls back to `/proc/meminfo`'s `MemTotal`, and to `_LAST_RESORT_TOTAL_BYTES` when neither returns a value. On Linux the figure is then clamped by the lowest limit any cgroup imposes on the path from `/proc/self/cgroup` to the root, reading the literal `max` and the v1 unlimited values as no limit. Inside a container this clamp is what makes the figure correct, because `sysconf` reports the host's memory there.
 
-`AMS_TOTAL_MEMORY_BYTES` is the one environment variable here, and it overrides the probe and never the policy: a container states its own allowance, a large box reproduces a small box's widths, and a `--dry-run` prints the same plan on every machine. Junk in it is ignored rather than raised on, because a typo in a reproduction knob must not take a build down. `AMS_KERNEL_THREADS`, `AMS_REPLAY_THREADS`, `AMS_DEEP_REPLAY_THREADS` and `PYTEST_XDIST_AUTO_NUM_WORKERS` keep winning over every derived width in the tree they reach — the table build's delta wave, the string replay, the deep replay and any `-n auto` pool, in that order — and nothing derived narrows them, though a stated kernel or string-replay width is still held at the configuration count and the cores, the non-memory cap a derived one meets too; this module neither reads nor undercuts them, and a call site that honors one honors it before it asks anything here. The two pools sized at the cores alone (`run_m1._core_bound_threads`: the window packing and the shipped-order walks) take no override, since what they hold is outside anything the kernel's division prices.
+`AMS_TOTAL_MEMORY_BYTES` is the only environment variable read here. It replaces the probe, never the policy, so a container can state its allowance, a large machine can reproduce a small machine's widths, and a `--dry-run` prints the same plan on every machine. An unparseable value is ignored, so a typo does not stop a build. `AMS_KERNEL_THREADS`, `AMS_REPLAY_THREADS`, `AMS_DEEP_REPLAY_THREADS` and `PYTEST_XDIST_AUTO_NUM_WORKERS` override the derived width of the table build's delta wave, the string replay, the deep replay and any `-n auto` pool respectively, and nothing derived narrows them, though a stated table-build or string-replay width is still capped at the configuration count and the cores. This module does not read them; each call site checks its override before calling here. The two pools sized by cores alone (`run_m1._core_bound_threads`: the window packing and the shipped-order walks) have no override, because what they hold is small and outside the table build's memory estimate.
 
-No per-unit cost lives here, and the omission is the point. The repo has exactly two genuinely memory-bound fan-outs, and each argues its width from facts that are not fungible — a live configuration holding its whole working set until it has written its artifacts for the kernel fan-out, a parent holding the whole corpus beside workers holding slices of it for the review-surface build, where what is divided is the box less that parent — so a central `UNIT_COSTS` mapping would hold the numbers while leaving their arguments behind at the call sites. Costs stay at their call sites as named constants, in the docstring that already has to justify the width, and this module owns only the arithmetic. The kernel fan-out in `rebuild/pipeline/kernel_exec.py` is the worked example and the shape a second call site should copy: a constant per term, each with one comment naming what measured it and where that measurement is still reported, and a single `how_many_fit` resolved right where the width is named, so the argument for a width and the width itself are never in different files. Its two terms are different in kind, which is why they are two constants: `DELTA_PEAK_BYTES` is what one delta holds through enumeration and its memo write and is the divisor, while `DEFAULT_MEMO_BYTES` is the snapshot `default` leaves alive for the whole wave at any width and so is subtracted from the box before the division rather than smeared through it. The review-surface build in `rebuild/tools/artifact_cycle.py` is its sibling in the same shape: `SURFACE_WORKER_BYTES` is what one worker holds and is the divisor, `SURFACE_PARENT_BYTES` is the parent that holds the whole corpus at any width and comes off the box first, and `SURFACE_JOBS_CAP` is the non-memory bound. The root `conftest.py` divides by nothing: no rebuild-suite worker reads a live build artifact, so every `-n auto` it answers takes the cores, and there is no per-worker cost for it to restate.
+No per-unit cost lives here. Each memory-bound fan-out argues its width from facts specific to it, so a central `UNIT_COSTS` mapping would separate the numbers from their arguments. Each cost is a named `*_BYTES` constant at its call site, whose comment or docstring records the measurements and justifies the width; `doc/parallelism.md` maps every width to its constant. The table build in `rebuild/pipeline/kernel_exec.py` shows the pattern: one constant per term, each with a comment naming what measured it and where that measurement is reported, and one `how_many_fit` call where the width is computed. Its two terms differ in kind. `DELTA_PEAK_BYTES` is what one delta holds through enumeration and its memo write, and is the divisor. `DEFAULT_MEMO_BYTES` is the snapshot `default` keeps alive for the whole wave at any width, so it is subtracted from the machine's memory before the division. The review-surface build in `rebuild/tools/artifact_cycle.py` has the same shape: `SURFACE_WORKER_BYTES` is the divisor, `SURFACE_PARENT_BYTES` is the parent that holds the whole corpus at any width and is subtracted first, and `SURFACE_JOBS_CAP` is the non-memory cap. The root `conftest.py` divides by nothing: its `-n auto` takes the usable cores, because a font-suite worker (`FONT_SUITE_WORKER_BYTES`) is small enough that the cores limit the pool before memory does.
 
-Stdlib-only on purpose, exactly as `peak_rss.py` is: the bench harnesses import these under alternative interpreters and from trees where only the repo root is on `sys.path`, and no width should be undecidable for want of `psutil`.
+The module has no third-party dependencies, like `peak_rss.py`, because the bench harnesses import it under other interpreters and from trees where only the repo root is on `sys.path`, and no width should depend on `psutil` being installed.
 """
 
 from __future__ import annotations
@@ -41,13 +41,13 @@ def _read_text(path: Path) -> str | None:
 
 
 def _parse_meminfo_total_bytes(text: str) -> int | None:
-    """The physical memory `/proc/meminfo`'s `MemTotal` line states, in bytes, or None where the text carries no such line. The file's `kB` suffix means KiB, so the figure is multiplied by 1024 and not by 1000."""
+    """Return the bytes `/proc/meminfo`'s `MemTotal` line states, or None when there is no such line. The file's `kB` means KiB, so the figure is multiplied by 1024."""
     match = _MEMINFO_TOTAL.search(text)
     return int(match.group(1)) * 1024 if match else None
 
 
 def _parse_memory_limit(text: str) -> int | None:
-    """The byte limit a cgroup memory file states, or None where it states none — an empty or unparsable file, the literal `max` that v2 writes for an unconstrained cgroup, a non-positive value, or a v1 sentinel: `memory.limit_in_bytes` spells unlimited as a page-rounded `2**63-1` (typically 9223372036854771712), and reading that as an `int` would clamp nothing while looking as though it had."""
+    """Return the byte limit a cgroup memory file states, or None when it states none: an empty or unparseable file, the literal `max` that v2 writes for an unconstrained cgroup, a non-positive value, or v1's unlimited value. v1's `memory.limit_in_bytes` writes unlimited as a page-rounded `2**63-1` (typically 9223372036854771712), which would otherwise read as a limit that clamps nothing."""
     token = text.strip()
     if not token or token == "max":
         return None
@@ -59,7 +59,7 @@ def _parse_memory_limit(text: str) -> int | None:
 
 
 def _parse_cpu_max(text: str) -> int | None:
-    """The whole cores cgroup v2's `cpu.max` allows — its two fields are a quota and a period in microseconds — or None where the quota field is the literal `max` or the pair is unparsable. A fractional allowance rounds up, because a quota of one and a half cores is still two processes' worth of runnable work and the scheduler, not this module, is what throttles them."""
+    """Return the whole cores cgroup v2's `cpu.max` allows (its fields are a quota and a period in microseconds), or None when the quota is the literal `max` or the pair does not parse. A fractional allowance rounds up: a quota of one and a half cores can still run two processes, and the scheduler throttles them."""
     fields = text.split()
     if len(fields) < 2 or fields[0] == "max":
         return None
@@ -74,7 +74,7 @@ def _parse_cpu_max(text: str) -> int | None:
 
 
 def _parse_cpu_cfs_quota(quota_text: str, period_text: str) -> int | None:
-    """The whole cores cgroup v1's `cpu.cfs_quota_us` and `cpu.cfs_period_us` allow between them, rounded up the way `_parse_cpu_max` rounds, or None where there is no quota — v1 spells unlimited as a quota of -1."""
+    """Return the whole cores cgroup v1's `cpu.cfs_quota_us` and `cpu.cfs_period_us` allow, rounded up as in `_parse_cpu_max`, or None when there is no quota (v1 writes unlimited as -1)."""
     try:
         quota = int(quota_text.strip())
         period = int(period_text.strip())
@@ -86,7 +86,7 @@ def _parse_cpu_cfs_quota(quota_text: str, period_text: str) -> int | None:
 
 
 def _parse_proc_cgroup(text: str) -> dict[str, str]:
-    """The controller-to-path mapping `/proc/self/cgroup` states: the unified v2 line (`0::`, no controller list) lands under the empty-string key, and every v1 line contributes one entry per controller it names, so a caller asks for `memory` or `cpu` by name and a v2-only box answers only under the empty key. The first line naming a controller wins. Paths are as the file writes them, absolute-looking but relative to whichever mount holds that hierarchy."""
+    """Return the controller-to-path mapping `/proc/self/cgroup` states. The unified v2 line (`0::`, with no controller list) goes under the empty-string key, and each v1 line adds one entry per controller it names, so a v2-only machine has only the empty key. The first line naming a controller wins. Paths are as the file writes them: they look absolute but are relative to the mount that holds that hierarchy."""
     paths: dict[str, str] = {}
     for line in text.splitlines():
         fields = line.split(":", 2)
@@ -102,7 +102,7 @@ def _parse_proc_cgroup(text: str) -> dict[str, str]:
 
 
 def _cgroup_dirs(mount: Path, relative: str) -> list[Path]:
-    """Every directory from `mount / relative` up to `mount` itself, leaf first, because a limit can be imposed anywhere along that chain and the tightest one binds."""
+    """Return every directory from `mount / relative` up to `mount`, leaf first, because a limit can be set anywhere along that chain and the lowest one applies."""
     dirs = [mount]
     for part in relative.split("/"):
         if part:
@@ -111,7 +111,7 @@ def _cgroup_dirs(mount: Path, relative: str) -> list[Path]:
 
 
 def _cgroup_memory_limit_bytes(root: str | Path = "/") -> int | None:
-    """The least memory limit any cgroup on the path from `/proc/self/cgroup` to the root imposes, or None where none of them imposes one. `root` is the filesystem root to read under, so a test points this at a sample tree under `rebuild/fixtures/memory_budget/` rather than requiring a container: `<root>/proc/self/cgroup` names the hierarchies, `<root>/sys/fs/cgroup/<path>/memory.max` and `memory.high` are the v2 files, and `<root>/sys/fs/cgroup/memory/<path>/memory.limit_in_bytes` is the v1 one. A root with no readable `/proc/self/cgroup` answers None at the first open, which is what makes this free on Darwin."""
+    """Return the lowest memory limit any cgroup on the path from `/proc/self/cgroup` to the root sets, or None when none sets one. `root` is the filesystem root to read under, so a test can point it at a sample tree under `rebuild/fixtures/memory_budget/`: `<root>/proc/self/cgroup` names the hierarchies, `<root>/sys/fs/cgroup/<path>/memory.max` and `memory.high` are the v2 files, and `<root>/sys/fs/cgroup/memory/<path>/memory.limit_in_bytes` is the v1 file. Without a readable `/proc/self/cgroup`, as on Darwin, it returns None after one failed open."""
     base = Path(root)
     text = _read_text(base / "proc" / "self" / "cgroup")
     if text is None:
@@ -135,7 +135,7 @@ def _cgroup_memory_limit_bytes(root: str | Path = "/") -> int | None:
 
 
 def _cgroup_cpu_allowance(root: str | Path = "/") -> int | None:
-    """The least whole-core allowance any cgroup CPU quota on the path from `/proc/self/cgroup` to the root imposes, or None where none of them imposes one. Same `root` contract as `_cgroup_memory_limit_bytes`, over `cpu.max` for v2 and the `cpu.cfs_quota_us` / `cpu.cfs_period_us` pair under either v1 mount spelling (`cpu` or `cpu,cpuacct`) for v1. This is a separate step from the memory clamp because it answers a separate question: `os.process_cpu_count` already reads the affinity mask on Linux but not the CFS quota, so a quota-limited container that was never pinned reports every core the host has."""
+    """Return the lowest whole-core allowance any cgroup CPU quota on the path from `/proc/self/cgroup` to the root sets, or None when none sets one. `root` works as in `_cgroup_memory_limit_bytes`. It reads `cpu.max` for v2, and the `cpu.cfs_quota_us` and `cpu.cfs_period_us` pair under either v1 mount name (`cpu` or `cpu,cpuacct`). It is needed because `os.process_cpu_count` reads the affinity mask on Linux but not the CFS quota, so a quota-limited container that was never pinned reports every core the host has."""
     base = Path(root)
     text = _read_text(base / "proc" / "self" / "cgroup")
     if text is None:
@@ -163,7 +163,7 @@ def _cgroup_cpu_allowance(root: str | Path = "/") -> int | None:
 
 
 def _sysconf_total_bytes() -> int | None:
-    """The portable total-memory probe, or None where the platform has no `SC_PHYS_PAGES` in `os.sysconf_names` or declines to answer one of the two names."""
+    """Return `SC_PAGE_SIZE * SC_PHYS_PAGES`, or None when the platform lacks either name or returns no positive value."""
     try:
         page_size = os.sysconf("SC_PAGE_SIZE")
         page_count = os.sysconf("SC_PHYS_PAGES")
@@ -173,7 +173,7 @@ def _sysconf_total_bytes() -> int | None:
 
 
 def _env_total_bytes() -> int | None:
-    """The `AMS_TOTAL_MEMORY_BYTES` override in whole bytes, or None where it is unset, empty, not an integer, or not positive. Only a bare decimal count of bytes is read — no `GB` suffix, no exponent — and anything else is ignored rather than raised on, so a typo in a reproduction knob leaves the probe in charge instead of taking a build down."""
+    """Return the `AMS_TOTAL_MEMORY_BYTES` override in bytes, or None when it is unset, empty, not an integer, or not positive. Only a bare decimal count of bytes is accepted, with no `GB` suffix or exponent. Anything else is ignored, so a typo falls back to the probe instead of stopping a build."""
     raw = os.environ.get(_TOTAL_MEMORY_ENV, "").strip()
     if not raw:
         return None
@@ -185,7 +185,7 @@ def _env_total_bytes() -> int | None:
 
 
 def total_memory_bytes(platform: str = sys.platform, cgroup_root: str | Path = "/") -> int:
-    """The memory this box is willing to lend, in bytes: `AMS_TOTAL_MEMORY_BYTES` if it states one, else `SC_PAGE_SIZE * SC_PHYS_PAGES`, else `/proc/meminfo`'s `MemTotal` on Linux, else `_LAST_RESORT_TOTAL_BYTES` — which equals the shipped reserve floor, so a box that answered neither probe leaves no budget at all and every width falls to one rather than to a guess. On Linux the probed figure is then clamped by `_cgroup_memory_limit_bytes`. Both keywords are injection points rather than lookups: a test on Darwin drives the whole Linux path by passing `platform="linux"` beside a `cgroup_root` pointing at a sample tree."""
+    """Return the machine's total memory in bytes: `AMS_TOTAL_MEMORY_BYTES` if set, else `SC_PAGE_SIZE * SC_PHYS_PAGES`, else `/proc/meminfo`'s `MemTotal` on Linux, else `_LAST_RESORT_TOTAL_BYTES`. The last equals the shipped reserve floor, so a machine where both probes fail has no budget and every width falls to one. On Linux the probed figure is then clamped by `_cgroup_memory_limit_bytes`. A test on Darwin exercises the Linux path by passing `platform="linux"` and a `cgroup_root` that points at a sample tree."""
     override = _env_total_bytes()
     if override is not None:
         return override
@@ -204,7 +204,7 @@ def total_memory_bytes(platform: str = sys.platform, cgroup_root: str | Path = "
 
 
 def usable_cores(cgroup_root: str | Path = "/") -> int:
-    """The cores this process may actually run on, never below one: `os.process_cpu_count()` (the affinity mask on Linux) or `os.cpu_count()`, clamped by `_cgroup_cpu_allowance` as a separate step. There is no platform keyword here, unlike `total_memory_bytes`, because the clamp needs no gate — a box with no readable `/proc/self/cgroup` answers None at the first open, and on Darwin `os.process_cpu_count is os.cpu_count`, so the whole clamp costs one failed `open` there."""
+    """Return the cores this process may run on, at least one: `os.process_cpu_count()` (which reads the affinity mask on Linux) or `os.cpu_count()`, clamped by `_cgroup_cpu_allowance`. Unlike `total_memory_bytes` it takes no platform keyword, because the clamp needs no platform check: without a readable `/proc/self/cgroup` it costs one failed `open`, and on Darwin `os.process_cpu_count is os.cpu_count`."""
     cores = os.process_cpu_count() or os.cpu_count() or 1
     allowance = _cgroup_cpu_allowance(cgroup_root)
     if allowance is not None:
@@ -218,13 +218,13 @@ def os_reserve_bytes(
     floor_bytes: float = RESERVE_FLOOR_BYTES,
     fraction: float = RESERVE_FRACTION,
 ) -> int:
-    """What a box keeps for the operating system, the desktop and whatever else the person at the keyboard has open — `max(floor_bytes, fraction * total_bytes)`, truncated to whole bytes. `total_bytes` defaults to the probe and is a keyword so a policy assertion can be a pure function over an invented box; `floor_bytes` and `fraction` are keywords so an earlier policy's widths stay reproducible without today's constants being fitted to them. Every byte count is truncated on the way in, so a floor written the way this repo writes a gigabyte (`floor_bytes=4e9`) answers a whole number of bytes rather than carrying a float out through a width."""
+    """Return the memory reserved for the operating system, the desktop and whatever else the user has open: `max(floor_bytes, fraction * total_bytes)`, truncated to whole bytes. `total_bytes` defaults to the probe. `floor_bytes` and `fraction` are keywords so a test can reproduce an earlier policy's widths. Byte counts are truncated on input, so a float such as `floor_bytes=4e9` still gives a whole number of bytes."""
     total = total_memory_bytes() if total_bytes is None else int(total_bytes)
     return max(int(floor_bytes), int(total * fraction))
 
 
 def _raw_fit(per_unit: int, budget: int, cap: int | None) -> int:
-    """The width before the floor at one, so `describe_fit` can tell whether the floor is what decided it. An unmeasured unit — a per-unit cost of zero or less — never gets a memory-derived width (issue #63's rule), so it answers the cap alone, or one where there is no cap, rather than raising `ZeroDivisionError` from inside the formula."""
+    """Return the width before the floor at one, so `describe_fit` can tell whether the floor decided it. An unmeasured unit (a per-unit cost of zero or less) gets no memory-derived width: it returns the cap, or one when there is no cap, instead of dividing by zero."""
     fits = budget // per_unit if per_unit > 0 else (cap if cap is not None else 1)
     return min(fits, cap) if cap is not None else fits
 
@@ -238,7 +238,7 @@ def how_many_fit(
     floor_bytes: float = RESERVE_FLOOR_BYTES,
     fraction: float = RESERVE_FRACTION,
 ) -> int:
-    """How many units of `per_unit_bytes` fit: the box less its reserve less `coresident_bytes`, integer-divided by the per-unit cost, `min()`'d against `cap`, floored at one. Every byte count is truncated to a whole number before it enters the arithmetic, and the division floors, so the answer counts only units that fit whole. The floor is applied after the cap and therefore wins over a cap of zero or less — the guarantee that this never hands a pool a width it cannot start with is worth more than agreeing with a caller who had nothing to run and asked anyway. A `per_unit_bytes` of zero or less means the unit is unmeasured and answers `cap` (or one), because inventing a divisor would look like evidence. A `coresident_bytes` below zero subtracts nothing rather than adding to the budget: a call site that reaches one by computing a pool's footprint as a difference is the one input that could otherwise err high, and every other degenerate input here already fails toward a narrower width."""
+    """Return how many units of `per_unit_bytes` fit: total memory less the reserve less `coresident_bytes`, integer-divided by the per-unit cost, capped at `cap`, and floored at one. Byte counts are truncated to integers first, and the division rounds down, so only whole units count. The floor applies after the cap, so a cap of zero or less still returns one and a pool always gets a width it can start with. A `per_unit_bytes` of zero or less means the unit is unmeasured and returns `cap` (or one), since an invented divisor would look like a measurement. A negative `coresident_bytes` subtracts nothing: a call site that computes a pool's footprint as a difference could otherwise add to the budget, and every other degenerate input already narrows the width."""
     total = total_memory_bytes() if total_bytes is None else int(total_bytes)
     reserve = os_reserve_bytes(total_bytes=total, floor_bytes=floor_bytes, fraction=fraction)
     budget = total - reserve - max(0, int(coresident_bytes))
@@ -254,7 +254,7 @@ def describe_fit(
     floor_bytes: float = RESERVE_FLOOR_BYTES,
     fraction: float = RESERVE_FRACTION,
 ) -> str:
-    """The one clause `how_many_fit`'s answer drops into a plan line or a docstring, so a reader surprised by a width can audit its derivation instead of trusting it. Comma-joined, no trailing period, and every optional clause is present only when it applies: `2 at 9.00 GB each out of 34.36 GB total`, then `less a reserve of 8.00 GB`, then `less 2.80 GB co-resident` when anything was subtracted for a co-resident pool, then `capped at 8` when a cap was given, then `floored at one` when the arithmetic answered below one. An unmeasured unit says so instead of the first two clauses — `1 at an unmeasured per-unit cost, so no memory-derived width` — and still carries the cap and floor clauses."""
+    """Return `how_many_fit`'s arithmetic as one clause for a plan line, so a reader can check where a width came from. The parts are comma-joined with no trailing period, and each optional part appears only when it applies: `2 at 9.00 GB each out of 34.36 GB total`, then `less a reserve of 8.00 GB`, then `less 2.80 GB co-resident` when anything co-resident was subtracted, then `capped at 8` when a cap was given, then `floored at one` when the arithmetic came out below one. An unmeasured unit replaces the first two parts with `1 at an unmeasured per-unit cost, so no memory-derived width` and keeps the cap and floor parts."""
     total = total_memory_bytes() if total_bytes is None else int(total_bytes)
     reserve = os_reserve_bytes(total_bytes=total, floor_bytes=floor_bytes, fraction=fraction)
     per_unit = int(per_unit_bytes)

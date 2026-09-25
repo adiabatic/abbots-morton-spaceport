@@ -1,6 +1,6 @@
-"""The last-green records every keyed stage skips on: how one is read, written and withdrawn, and the two digests the keys they hold are built from. A leaf — json, hashlib, os, datetime and pathlib — so the pyright gate the root conftest launches reaches it without importing the cycle driver, which would put the whole pipeline into every rebuild test's closure (`rebuild.tools.cycle_paths` says why that matters). `artifact_cycle` imports every name here, so the driver's callers keep reading them off the driver.
+"""Read, write and delete the green records that keyed stages skip on, and compute the two digests their keys are built from. The module imports only the standard library, so `pyright_gate`, which the root conftest imports, can use it without importing the cycle driver, which would put the whole pipeline into every rebuild test's closure (`rebuild.tools.cycle_paths` says why that matters). `artifact_cycle` imports every name here and re-exports them.
 
-A record is `{format, fingerprint, finished_at}` plus whatever the stage stores beside its key — the per-label digest map behind the fingerprint, the contracts lane's per-test closures, a sweep's horizon — and the one rule every writer follows is that a green is recorded only over content whose key still matches once the work has run, while a red over content whose key matches the record deletes it.
+A record is `{format, fingerprint, finished_at}` plus whatever the stage stores beside its key: the per-label digest map behind the fingerprint, the contracts lane's per-test closures, or a sweep's horizon. A writer records a green only when the key still matches after the work has run. `clear_contradicted_green` deletes a record when a red run over content with the same key contradicts it.
 """
 
 from __future__ import annotations
@@ -13,7 +13,7 @@ from pathlib import Path
 
 
 def read_green_record(path: Path) -> dict | None:
-    """A gate's last-green record ({fingerprint, finished_at}); None when absent or malformed."""
+    """Return a gate's green record, or None when it is absent or malformed."""
     try:
         record = json.loads(path.read_text())
     except OSError, ValueError:
@@ -34,7 +34,7 @@ def _record_outcome(path: Path, payload: dict) -> None:
 def record_green(
     path: Path, fingerprint: str, files: dict[str, str] | None = None, closures: dict | None = None
 ) -> None:
-    """`files` is the per-file `label -> digest` map behind the fingerprint, when the caller has it: stored beside the key so a later skip miss can name exactly which input moved instead of reporting only that some digest did. `closures` is the contracts lane's per-test input closure over those same labels (`rebuild.tools.contracts_closure`), which is what lets a skip miss run only the tests the moved inputs can reach."""
+    """Write a green record for `fingerprint` to `path`. `files` is the `label -> digest` map behind the fingerprint, stored so a later skip miss can name the inputs that changed. `closures` is the contracts lane's per-test input closure over those labels (`rebuild.tools.contracts_closure`), which lets a skip miss run only the tests the changed inputs reach."""
     payload: dict = {"fingerprint": fingerprint}
     if files is not None:
         payload["files"] = files
@@ -44,14 +44,14 @@ def record_green(
 
 
 def clear_contradicted_green(path: Path, fingerprint: str | None) -> None:
-    """A red result over content whose fingerprint still matches the recorded green contradicts the record; delete it so no later cycle can skip on a falsified green."""
+    """Delete the green record at `path` when its fingerprint matches `fingerprint`, the key of content a run just failed on, so no later cycle skips on it."""
     record = read_green_record(path)
     if fingerprint is not None and record is not None and record["fingerprint"] == fingerprint:
         path.unlink(missing_ok=True)
 
 
 def _sha256_path(path: Path) -> str:
-    """The streamed read matters here: the oracle's subset tables and M1.otf are large and ride keys a driver pass recomputes more than once. Spelled out rather than borrowing fingerprint.file_sha256 because this leaf imports nothing from rebuild.pipeline, and this one is called per file in a loop."""
+    """Return a file's SHA-256, or "absent" when it cannot be read. It streams the file because the oracle's subset tables and M1.otf are large and are hashed into keys more than once per pass. It duplicates `fingerprint.file_sha256` because this module imports nothing from rebuild.pipeline."""
     try:
         with open(path, "rb") as handle:
             return hashlib.file_digest(handle, "sha256").hexdigest()

@@ -1,24 +1,22 @@
-"""One output format for the artifact cycle, and the line protocol that lets a child speak into it. Both halves live here on purpose: a protocol whose writer and reader sit in different trees is a protocol that drifts, and the `[t]` line alone already has four writers across three trees and one reader that has to agree with every one of them.
+"""The artifact cycle's output format, and the line protocol its children use to report into it. Both are in one module so the protocol's writers and its reader share one definition.
 
-What it ends is a front door that printed like the pile of scripts it drives — bare `$ argv` lines, raw JSON summaries, completion-ordered timings from three producers, some children streamed and others captured with no dump path when they failed, and a numbered plan that only `--dry-run` ever showed. Whoever is watching, a human at a terminal or an agent tailing a `nohup` log, wants the same four things: which step is running, how far along it is, what that step is for, and never a lost line of child output.
+Everything written here is append-only: no color, ANSI escapes, spinners, or carriage returns. A redirect and a terminal get the same bytes, and `tail -f` never shows a line rewritten. Progress is a counter line, printed at most once per heartbeat window (60 seconds by default), instead of a progress bar. Counts carry thousand separators (`fmt_count`), durations use minutes and hours past a minute (`fmt_duration`), and peak memory is in decimal gigabytes, the unit `peak_rss` uses.
 
-**One format, terminal and pipe alike.** No color, no ANSI, no spinner, no carriage return — everything written here is append-only, so a redirect and a terminal see the same bytes and a `tail -f` never rewrites a line it has already shown. That is also why there is no progress bar: a bar is a lie in a log file, and the honest form of it is a counter line that arrives at most once a minute. Counts carry thousand separators (`fmt_count`), durations are read at a glance rather than in seconds (`fmt_duration`), and a peak is a decimal gigabyte, which is `peak_rss`'s unit and this repo's only one for it.
+The protocol is four line prefixes. `[phase] <name>` opens a stretch of work and `[t] <label> <secs>s` closes it, optionally followed by a space or tab and a tail. `[progress] <k>/<n> <unit>` is a counter, with `?` for an unknown total. `[warn] <text>` always reaches the terminal. The verdict chain's `[chain]` banner and its two result lines (fixpoint and failure) are defined here too, because the chain writes them and the cycle splits the chain's output on them. `INNER_LINE` is the one pattern for the `[t]` line; `cycle_timings` parses the journal with it, and `timing()` writes a line it matches.
 
-**The protocol is four prefixes and nothing else.** `[phase] <name>` opens a stretch of work and `[t] <label> <secs>s[<tab>tail]` closes one; `[progress] <k>/<n> <unit>` is a counter, with `?` for a total nobody knows yet; `[warn] <text>` is the one thing a child can say that always reaches the terminal unthrottled. The verdict chain's own banner and the two result lines that are not phases — a witnessed fixpoint and a failure — sit here beside those prefixes as well, because the chain writes them and the cycle splits its child's output on them, and a constant restated on both sides of a seam is a constant that can disagree with itself. The `[t]` line is not new — it is the contract `cycle_timings` has always parsed out of a child's captured output — and `timing()` exists so a new site prints exactly what that reader reads rather than a near-miss. For the same reason there is one compiled pattern for that line rather than two — `INNER_LINE`, here, which `cycle_timings` parses the journal with — because two regexes over one line format would be one regex too many, and the timing line's readers must agree about what a label is down to the character.
+A `[phase]` line is surfaced when it arrives. A `[t]` line whose label matches an open phase closes it, and the surfaced line carries the child's measured duration and the tail. A `[t]` line with no open phase of that label, such as the crate's per-configuration enumerate lines, the oracle's per-configuration lines, or the chain's step timings, goes to the log only. This keeps a step that prints many timings from flooding the terminal without any producer knowing which of its timings the digest shows.
 
-**Pairing is what makes a phase worth printing.** A `[phase]` alone says work started, which is worth a line; a `[t]` alone says work finished, which is what the timings journal already records and what nobody watching needs a second copy of. So a `Timing` whose label matches an open phase closes it, and the surfaced line carries the duration the child measured and whatever tail it hung off the line; a `Timing` with no open phase of that label — the crate's per-configuration enumerate lines, the oracle's per-configuration lines, the chain's own step timings — is log-only. That rule is what keeps a step that prints forty timings from printing forty lines to the terminal, without any producer having to know which of its timings the digest happens to care about.
+Every surfaced line carries its step name, the step's elapsed time, and the cycle's elapsed time, because several steps can be open at once.
 
-**Every surfaced line carries its step and both clocks.** Up to three steps are open at once in the default plan and six under an overlapping rebuild pool, so a line without a step column is a line whose owner the reader has to guess. Both times are inline rather than one being implied, because "this step has been running four minutes" and "the cycle is fifty minutes in" answer different questions and a reader who has to subtract them is a reader who will not.
+pytest, node, and git do not print this protocol, so adapters read their output into the same events. A pytest percent marker becomes a `Progress`, a pytest `FAILED`/`ERROR` summary line or a TAP `not ok` becomes a `Warn`, and `warning_events` runs on every step to catch the two warning shapes Python prints. The adapters strip ANSI first, because pytest colors its summary when `FORCE_COLOR` is set, as it is under the agent harness.
 
-**Third-party children get adapters, not conversions.** pytest, node and git will never print this protocol, so the digest reads their own shapes back into the same events: a percent marker becomes a `Progress`, a `FAILED`/`ERROR` summary line and a TAP `not ok` become a `Warn`, and every step at all gets `warning_events`, which catches the two shapes Python itself emits. The adapters strip ANSI first, because pytest colors its summary whenever `FORCE_COLOR` is set — as it is under the agent harness — and a colored line starts with an escape sequence rather than with `FAILED`.
+Every line a child prints goes to that step's log, in arrival order, with stderr lines tagged; the terminal gets the digest. A failed step replays its whole log under its own banner. The digest writes each line in one call under one lock, so lines from overlapping children interleave but never split.
 
-**Never a lost line.** Everything a child prints lands in that step's log, tagged when it came from stderr, in arrival order; the terminal gets the digest. A step that fails replays its whole log verbatim under its own banner, which is the path the old captured-and-discarded gates never had. The digest holds one lock and puts every line through it in a single write, so overlapping children interleave between lines and never splice inside one.
+This module imports nothing else from the repo. `rebuild.tools.verdict_chain` calls `phase()`, so this module is in the verdict plumbing's code closure, and anything it imported would be too. An edit to `cycle_timings` or a width module cannot change a verdict but would re-run the whole chain if it were in that closure. So `cycle_timings` imports `INNER_LINE` from here, and `fmt_rss` repeats the gigabyte divisor instead of importing `peak_rss`. `rebuild/test_console.py` checks the divisor matches and that this module has no repo imports, and `rebuild/test_plumbing_closure.py` checks the chain's closure.
 
-**This module imports nothing else in this tree, and that is a constraint rather than an accident.** `rebuild.tools.verdict_chain` opens each of its steps with `phase()`, which puts this module inside the verdict plumbing's code closure — and everything it imports lands in that closure with it. The timings journal and the two width yardsticks are exactly what that closure was named to shed, because a fan-out width or a telemetry field can never move a verdict and inside the closure would re-run the whole chain anyway; `rebuild/tools/review_server.py` is its own module for that same reason. So the `[t]` pattern lives here and `cycle_timings` reads it from this module, `fmt_rss` spells the gigabyte divisor again rather than importing `peak_rss`, and `rebuild/test_console.py` holds that spelling equal to the yardstick's while `rebuild/test_plumbing_closure.py` fails the moment an import creeps back in.
+With `log_dir=None`, a digest does no `mkdir`, `open`, or symlink, so the driver's tests can build one without touching the repo; the rebuild suite's contracts lane audits every read and write against the live trees. In that mode a step's lines are kept in memory so a failure dump can replay them. With a log directory, they are read back from disk, so a full cycle's output never has to fit in the driver's memory.
 
-**`log_dir=None` is a real mode rather than a degenerate one.** It performs no `mkdir`, no `open` and no symlink at all, which is what lets the whole driver suite construct a digest without touching the repo — the rebuild suite's contracts lane audits every read and write against the live trees, and a renderer that insisted on a directory would put that suite in the other lane. In that mode a step's lines are kept in memory so a failure dump still replays them; with a log directory they are read back off disk instead, so a full cycle's output never has to fit in the driver's heap.
-
-**Streams are resolved late, never bound.** Every writer here takes `file=None` and every digest takes `out=None`, meaning "whatever `sys.stdout` is when the line is written". Binding the stream at definition time would be a quiet bug rather than a style choice: `Digest.start` tees `sys.stdout` and `sys.stderr` into `terminal.log` precisely so the bare `print` calls this module never converted still land in the copy, and a digest holding the pre-tee stream would write past its own tee.
+Every writer takes `file=None` and every digest takes `out=None`, meaning `sys.stdout` at the time the line is written. `Digest.start` replaces `sys.stdout` and `sys.stderr` with tees into `terminal.log` so bare `print` calls reach the copy, and a stream bound earlier would bypass the tee.
 """
 
 from __future__ import annotations
@@ -80,7 +78,7 @@ _SKIPPED_WRAPPER = re.compile(r"^SKIPPED \((.*)\)(?=$|[;,] )")
 
 @dataclass(frozen=True)
 class Timing:
-    """A closed stretch of work: what `[t] <label> <secs>s[<tab>tail]` says. `tail` is whatever the producer hung off the line — a peak-RSS token, a parenthesized count — kept verbatim because the digest reprints it and never reads it."""
+    """A closed stretch of work, parsed from `[t] <label> <secs>s` and an optional tail after a space or tab. `tail` is whatever follows the seconds, such as a peak-RSS token or a parenthesized count; the digest reprints it and never parses it."""
 
     label: str
     seconds: float
@@ -96,7 +94,7 @@ class Phase:
 
 @dataclass(frozen=True)
 class Progress:
-    """A counter, in either of the two shapes a producer can offer one: `done`/`total` over a named unit for a child that knows its own denominator, or a bare `percent` for pytest, which only ever states one. `total` of None renders `?`, which is the honest answer while a producer is still discovering how much work there is."""
+    """A counter: `done`/`total` over a named unit for a producer that knows its total, or a bare `percent` for pytest, which reports only a percentage. A `total` of None renders as `?`."""
 
     done: int | None = None
     total: int | None = None
@@ -113,7 +111,7 @@ class Progress:
 
 @dataclass(frozen=True)
 class Warn:
-    """Something the watcher is meant to see now rather than in the log. Unthrottled by design: a warning that a throttle could swallow is a warning nobody can act on, and the producers are miserly enough with them that unboundedness costs nothing."""
+    """A line the watcher should see immediately. Warnings are never throttled, and producers emit few of them."""
 
     text: str
 
@@ -122,7 +120,7 @@ Event = Timing | Phase | Progress | Warn
 
 
 class StepResult(Protocol):
-    """What the digest needs off the driver's step result, structurally rather than by import — the driver imports this module, so this module cannot import the driver."""
+    """The fields the digest reads from the driver's step result, declared structurally because the driver imports this module and this module cannot import the driver."""
 
     elapsed: float
     peak_rss_bytes: int | None
@@ -130,7 +128,7 @@ class StepResult(Protocol):
 
 @dataclass(frozen=True)
 class PlanRow:
-    """One row of the plan block: whether it will run, its name, the reason it will not (or the condition under which it still might), and the argv it would spawn. A skipped row keeps its note verbatim, because the note is the whole of what a skipped step has to say."""
+    """One row of the plan block: its status, its name, the reason it is skipped (or the condition under which it may still run), and the argv it would spawn. A skipped row's note is kept verbatim, because it is all a skipped step shows."""
 
     status: str
     name: str
@@ -140,7 +138,7 @@ class PlanRow:
 
 @dataclass(frozen=True)
 class SummaryRow:
-    """One row of the closing table. `figure` is the step's own headline number in whatever unit the step counts in, already formatted by the driver; `seconds` is None for a step that never ran."""
+    """One row of the closing table. `figure` is the step's headline number, already formatted by the driver in the step's own unit; `seconds` is None for a step that did not run."""
 
     number: int | None
     name: str
@@ -154,7 +152,7 @@ def fmt_count(value: int) -> str:
 
 
 def fmt_duration(seconds: float) -> str:
-    """A duration a reader takes in at a glance: tenths under a minute, `33m08s` under an hour, `1h02m` past one, and never a bare seconds count large enough to need dividing. The threshold is 59.95 rather than 60 so the two branches cannot both round to a minute — at 59.96 the tenths form would print `60.0s`, which is a minute spelled as though it were not."""
+    """Format a duration as tenths of a second under a minute, `33m08s` under an hour, and `1h02m` above. The threshold is 59.95, not 60, because a value from 59.95 to 60 would otherwise print as `60.0s`."""
     value = max(0.0, float(seconds))
     if value < 59.95:
         return f"{value:.1f}s"
@@ -165,7 +163,7 @@ def fmt_duration(seconds: float) -> str:
 
 
 def fmt_rss(byte_count: int | None) -> str:
-    """A peak as one decimal gigabyte, or the empty string for a child whose peak nobody managed to reap — the caller drops the token rather than printing a figure it does not have. The unit is `peak_rss`'s decimal gigabyte and no other; only the precision differs, one place here against that module's two, because this is a line someone reads while a build runs rather than a figure anything is calibrated against. The divisor is spelled again rather than imported because this module may reach nothing else in the tree (see the module docstring), so a test pins the two spellings equal instead."""
+    """Format a byte count as decimal gigabytes to one place, or return the empty string when the peak is unknown so the caller can drop the token. The unit is `peak_rss`'s decimal gigabyte, at one decimal place instead of that module's two. The divisor is repeated here because this module imports nothing from the repo, and `rebuild/test_console.py` checks that the two match."""
     if byte_count is None:
         return ""
     return f"{byte_count / _BYTES_PER_GB:.1f}G"
@@ -178,7 +176,7 @@ def _write(line: str, file: IO[str] | None) -> None:
 
 
 def say(text: str, *, file: IO[str] | None = None) -> None:
-    """A prose or JSON line from a producer whose threads print at once, written in one call like every protocol line here: `print` writes its text and its newline separately, so a line from another thread can land between the two and leave a `[t]` or `[phase]` mid-line, where neither `parse_line` nor `cycle_timings.parse_inner_timings` — both anchored at the start of a line — reads it."""
+    """Write one line in a single call. `print` writes the text and the newline separately, so another thread's output can land between them and leave a `[t]` or `[phase]` line mid-line, where neither `parse_line` nor `cycle_timings.parse_inner_timings` (both anchored at line start) can read it."""
     _write(text, file)
 
 
@@ -195,13 +193,13 @@ def warn(text: str, *, file: IO[str] | None = None) -> None:
 
 
 def timing(label: str, seconds: float, tail: str | None = None, *, file: IO[str] | None = None) -> None:
-    """The `[t]` line, in the one spelling `cycle_timings` parses. The existing print sites keep their own f-strings; this is for new ones, so that the next producer to grow a timing line cannot invent a near-miss that the journal silently drops."""
+    """Write a `[t]` line in the format `INNER_LINE` parses, so a new producer cannot write a variant the journal drops. Existing print sites format their own lines."""
     suffix = "" if not tail else f" {tail}"
     _write(f"{TIMING}{label} {seconds:.1f}s{suffix}", file)
 
 
 def parse_line(line: str) -> Event | None:
-    """One line of a child's output as an event, or None for the overwhelming majority that are not one. Deliberately as narrow as `INNER_LINE` is: anchored at the start of the line, so a protocol prefix indented or embedded mid-line is prose that happens to quote the protocol rather than an event, and a `[t]` line whose seconds are missing or malformed is nothing here exactly as it is nothing to the timings journal."""
+    """Return one line of child output as an event, or None when it is not a protocol line. Like `INNER_LINE`, it is anchored at the start of the line, so an indented or embedded prefix is ordinary text, and a `[t]` line with missing or malformed seconds is not an event."""
     text = line.rstrip("\r\n")
     if text.startswith(PHASE):
         name = text[len(PHASE) :].strip()
@@ -226,7 +224,7 @@ def _parse_progress(body: str) -> Progress | None:
 
 
 def pytest_events(line: str) -> Event | None:
-    """pytest's own shapes as events: a summary `FAILED `/`ERROR ` line is the failure a watcher must see, and the percent marker every progress line carries is the only denominator pytest ever states. ANSI comes off first — pytest colors its summary whenever `FORCE_COLOR` is set, as it is under the agent harness, and a colored line starts with an escape sequence rather than with `FAILED`."""
+    """Return a pytest output line as an event: a summary `FAILED `/`ERROR ` line becomes a `Warn`, and the percent marker on a progress line becomes a `Progress`. ANSI escapes are stripped first, because pytest colors its summary when `FORCE_COLOR` is set, as it is under the agent harness."""
     text = _ANSI_SGR.sub("", line).rstrip()
     if text.startswith(("FAILED ", "ERROR ")):
         return Warn(text)
@@ -237,7 +235,7 @@ def pytest_events(line: str) -> Event | None:
 
 
 def pytest_warning_count(line: str) -> int | None:
-    """The warnings count out of pytest's terminal summary rule, for the closing line's `N warnings, see log`. Only a line that is that rule is read, because `warnings summary` headers and individual warning bodies carry counts of their own that mean something else entirely."""
+    """Return the warnings count from pytest's closing summary rule, for the step's closing `N warnings, see log`. Only a line starting with `=` is read, because warning bodies carry other counts."""
     text = _ANSI_SGR.sub("", line).strip()
     if not text.startswith("="):
         return None
@@ -246,7 +244,7 @@ def pytest_warning_count(line: str) -> int | None:
 
 
 def node_test_events(line: str) -> Event | None:
-    """The node test runner's TAP output as events: a `not ok` assertion anywhere in the tree, and the closing `# fail N` when N is not zero. `# fail 0` is a passing suite announcing that it passed, which is the closing line's job to say rather than a warning's."""
+    """Return a node test runner TAP line as a `Warn`: a `not ok` assertion at any depth, or the closing `# fail N` when N is not zero."""
     text = line.strip()
     if text.startswith("not ok "):
         return Warn(text)
@@ -257,7 +255,7 @@ def node_test_events(line: str) -> Event | None:
 
 
 def warning_events(line: str) -> Warn | None:
-    """The two warning shapes anything in this tree can print, which is why every step gets this adapter on top of its own: a line beginning `warning:` in either casing (leading whitespace stripped, since the standing-fill tripwire indents its own), and Python's `warnings.warn` shape, which run_m1's spec load lets through to stderr."""
+    """Return a `Warn` for the two warning shapes code in this repo prints, which is why every step gets this adapter: a line starting with `warning:` in any case after leading whitespace (the standing-fill tripwire indents its line), and Python's `warnings.warn` format, which run_m1's spec load writes to stderr."""
     text = line.strip()
     if text.lower().startswith("warning:"):
         return Warn(text)
@@ -274,18 +272,18 @@ STEP_ADAPTERS: dict[str, Callable[[str], Event | None]] = {
 
 
 def adapter_for(name: str) -> Callable[[str], Event | None] | None:
-    """Which third-party child a step spawns, and so which adapter reads that step's lines back into events. It is module data keyed by the plan's step name rather than a `step_start` keyword, because the driver's spawn seam has a closed signature thirty test fakes already match, and a step's output shape is a fact about the child rather than about the call that started it."""
+    """Return the adapter for the third-party child a step spawns, keyed by the plan's step name. A step's output format is a property of the child, so it is module data instead of a `step_start` argument, which would change the spawn signature every test fake matches."""
     return STEP_ADAPTERS.get(name)
 
 
 def skip_reason(note: str) -> str:
-    """A skip's reason with the `SKIPPED (…)` wrapper the plan's notes carry taken off. The plan block puts that word in its own column and a surfaced skip line opens with it too, so a note reprinted whole says it twice — `skipped  SKIPPED (the surface is not rewritten …)` — while the notes themselves keep the wrapper, because in the plan they are the whole explanation and a reader greps them by it. A note that never wore one is answered unchanged."""
+    """Return a skip note with its `SKIPPED (…)` wrapper removed. The plan block and a surfaced skip line both print `skipped` in their own column, so the whole note would say it twice. The notes keep the wrapper because the plan prints them as the full explanation and readers grep for it. A note without the wrapper is returned unchanged."""
     match = _SKIPPED_WRAPPER.match(note)
     return f"{match.group(1)}{note[match.end() :]}" if match else note
 
 
 def counts_line(rows: Sequence[PlanRow]) -> str:
-    """The plan block's one-line arithmetic: how many steps there are, how many will run, how many are already skipped. It answers with a range exactly when some step is still undecided — gate:conform can be re-skipped after run_m1 proves its inputs unmoved — because a single number there would be a promise the plan cannot keep, and a reader who later counts eight steps against a stated seven has been told something false."""
+    """Return the plan block's summary line: how many steps there are, how many will run, and how many are skipped. When a step is undecided (gate:conform can still be skipped after run_m1 shows its inputs unchanged), the run count is a range."""
     will_run = sum(1 for row in rows if row.status == STATUS_RUN)
     maybe = sum(1 for row in rows if row.status == STATUS_MAYBE)
     skipped = sum(1 for row in rows if row.status == STATUS_SKIP)
@@ -294,7 +292,7 @@ def counts_line(rows: Sequence[PlanRow]) -> str:
 
 
 def plan_lines(rows: Sequence[PlanRow]) -> list[str]:
-    """One line per step — run/skip column, name, note — with each row that will spawn something followed by its `$ argv`. Numbers belong to execution: parallel gates and conditional skips leave the start order undecided until the steps run."""
+    """Return one line per step (status, name, note), with each row that spawns a child followed by its `$ argv`. The plan is not numbered, because parallel gates and conditional skips decide the start order only when the steps run."""
     if not rows:
         return []
     status_width = max(len(row.status) for row in rows)
@@ -327,7 +325,7 @@ class _StepState:
 
 
 class _Tee:
-    """One stream written to two places. Only `write` and `flush` are duplicated; everything else — `isatty`, `fileno`, `encoding` — is the wrapped stream's own answer, because a tee that lies about being a terminal changes how the code under it behaves."""
+    """A stream that writes to two places. Only `write` and `flush` are duplicated; `isatty`, `fileno`, `encoding`, and every other attribute come from the wrapped stream, so code under the tee still detects a terminal correctly."""
 
     def __init__(self, stream: IO[str], copy: IO[str], lock: threading.RLock) -> None:
         self._stream = stream
@@ -356,11 +354,11 @@ class _Tee:
 
 
 class Digest:
-    """The cycle's renderer and its sink: every line the terminal shows is written here, and every line a child prints passes through here on its way to that step's log.
+    """The cycle's renderer: every line the terminal shows is written here, and every line a child prints passes through here to that step's log.
 
-    Constructed with the plan's step names for the width of the step column, the run's log directory (or None for no filesystem at all), the alias map that lets a spawn under one name report under the plan's row for it, and the three injection points a test needs — the output stream, the clock, and the silence window. Step banners allocate consecutive numbers under the output lock; logs and the closing table use that same start order, with skipped and unstarted steps left unnumbered. Used as a context manager around everything after the dry-run return, so the tee and the heartbeat thread are installed and removed in one place.
+    It takes the plan's step names (for the step column's width), the run's log directory (None for no filesystem access), an alias map that reports a spawn under the plan row for it, and three test hooks: the output stream, the clock, and the heartbeat window. Step banners take consecutive numbers under the output lock, and the logs and the closing table use those numbers; skipped and unstarted steps are unnumbered. The driver uses it as a context manager around everything after the dry-run return, so the tee and the heartbeat thread are installed and removed in one place.
 
-    `emit` and `emit_block` are the lock-serialized writers this replaces an earlier `_Emitter` with, kept under their old names so a call site that has not been converted still compiles and still cannot splice a line. Every argument being optional is part of that: a bare construction is a renderer with no plan behind it and no directory under it, which is what a caller wanting nothing but a serialized stdout still asks for and what the driver's suite hands its stage functions.
+    `emit` and `emit_block` are lock-serialized writers. `artifact_cycle._Emitter` is an alias of this class. Every constructor argument is optional, so `Digest()` is a serialized stdout writer with no plan and no directory, which the driver's tests pass to its stage functions.
     """
 
     def __init__(
@@ -452,7 +450,7 @@ class Digest:
         self.stop()
 
     def replay(self, lines: Sequence[str]) -> None:
-        """Lines the terminal has already shown, into `terminal.log` alone. The driver answers two questions before there is a digest to catch them — whether anything carryable was found, and which master the carry resolved to — and the copy of the terminal is meant to be a copy, so they are written into the file rather than said to the reader twice."""
+        """Write lines the terminal has already shown into `terminal.log` only. The driver prints some lines before the digest exists, and this copies them into the log without printing them again."""
         with self._lock:
             if self._terminal is None:
                 return
@@ -461,7 +459,7 @@ class Digest:
             self._terminal.flush()
 
     def plan_block(self, lines: Sequence[str]) -> None:
-        """The plan, to the terminal and to `plan.txt` — the same lines to both, so the file a reader opens afterwards is the block they watched scroll past rather than a second rendering of it."""
+        """Write the plan to the terminal and the same lines to `plan.txt`."""
         self.emit_block(lines)
         if self.log_dir is not None:
             path = self.log_dir / PLAN_TXT
@@ -475,7 +473,7 @@ class Digest:
         *,
         verbatim: bool = False,
     ) -> None:
-        """Open a step: its rule line, its description wrapped at 76 columns, a blank line, and the argv it is about to spawn. `verbatim` says this step's unparsed lines belong on the terminal too, which is true of the diff a spawned child prints for a human to act on — the constants', on the pass where the job-costs check trips."""
+        """Open a step: print its rule line, its description wrapped at `WRAP_COLUMNS`, a blank line, and the argv it will spawn. `verbatim` sends the step's unparsed lines to the terminal as well as the log, for a child whose output a human must act on, such as the job-costs constants diff on a pass where that check fails."""
         with self._lock:
             state = self._state_for(name, banner=True)
             state.verbatim = verbatim
@@ -488,7 +486,7 @@ class Digest:
             self.emit_block(lines)
 
     def step_end(self, name: str, result: StepResult | None, outcome: str, figure: str = "") -> None:
-        """Close a step with its outcome, its headline figure and its peak. The elapsed time is the driver's own measurement when it has one, because the child's wall clock is what the timings journal records and the two must not disagree by a scheduling delay. A pytest lane that warned closes by saying how many times and where to read them: the warnings summary itself is pages long and belongs in the log, but a lane that closes as a bare `ok` is a lane whose warnings nobody ever goes looking for."""
+        """Close a step with its outcome, headline figure, and peak RSS. The elapsed time is the driver's measurement when it has one, so it agrees with the timings journal. A pytest step that emitted warnings closes with `N warnings, see log`; the warnings summary itself stays in the log."""
         with self._lock:
             state = self._open.get(self._key(name))
             now = self._clock()
@@ -506,7 +504,7 @@ class Digest:
             self._close(state)
 
     def step_skipped(self, name: str, note: str = "") -> None:
-        """A step the plan already ruled out, announced where it would have run. The reason is unwrapped first, so the line reads `skipped  <reason>` whatever spelling the note it came from wore."""
+        """Announce a step the plan skipped, at the point it would have run. The note's `SKIPPED (…)` wrapper is removed first, so the line reads `skipped  <reason>`."""
         with self._lock:
             self._one_line(name, "  ".join(part for part in ("skipped", skip_reason(note)) if part))
 
@@ -515,26 +513,26 @@ class Digest:
             self._one_line(name, "  ".join(part for part in ("not run", reason) if part))
 
     def note(self, name: str, text: str) -> None:
-        """A line the driver itself has to say about a step — an error it caught, a green it declined to record — carrying the step column and both clocks like every other surfaced line, because a bare sentence in the middle of six interleaved steps belongs to nobody."""
+        """Surface a line the driver itself says about a step, such as an error it caught or a green it did not record, with the step column and both clocks like every other surfaced line."""
         with self._lock:
             self._one_line(name, text)
 
     def substep(self, parent: str, name: str) -> None:
-        """File a sub-step under another step's banner. The census's invariant diff and the job-costs diff are children of steps rather than steps of the plan, and this is what lets them log into their parent's file and surface under its column without the spawn seam growing a keyword that thirty test fakes would have to grow with it."""
+        """Log a sub-step under another step. The census's invariant diff and the job-costs diff belong to steps without being plan steps, and this sends their lines to the parent's log and column without adding a keyword to the spawn signature."""
         with self._lock:
             self._substeps[name] = parent
 
     def substep_end(self, name: str) -> None:
-        """Close whatever a sub-step's own lines opened. A sub-step whose lines arrive once its parent has closed — a diff printed after the step that owns it has signed off — would otherwise leave a state nobody ever closes: its log handle open until `stop()`, and the heartbeat announcing a step that finished minutes ago. A parent still genuinely open is left exactly where it is, since the sub-step never opened it and closing it here would take its banner's own closing line away."""
+        """Close the state a sub-step's lines opened. When a sub-step's lines arrive after its parent has closed, they open a transient state that nothing else closes, which would keep its log open until `stop()` and make the heartbeat report a finished step. A parent that is still open is left alone, because the sub-step did not open it."""
         with self._lock:
             state = self._open.get(self._key(name))
             if state is not None and state.transient:
                 self._close(state)
 
     def child_line(self, name: str, stream: str, line: str) -> Event | None:
-        """One line off a child's pipe: logged always, surfaced when it is worth surfacing. Returns the event it read, for a caller that wants it.
+        """Log one line of a child's output, surface it if it is an event worth showing, and return the event it parsed.
 
-        The order is the protocol first, then the step's own adapter, then the generic warning shapes — so a child that speaks the protocol is never second-guessed by a heuristic, and a child that does not still cannot hide a warning. A `Phase` opens; the `Timing` that matches an open phase closes it and carries its duration and tail; a `Timing` matching nothing is log-only. A `Warn` always surfaces. A `Progress` surfaces only when the step has been silent for the whole heartbeat window, and is otherwise stored as this step's latest, which is what the heartbeat prints when the silence runs out.
+        The line is parsed as a protocol line first, then by the step's adapter, then by `warning_events`, so a heuristic never overrides a protocol line and a child that does not use the protocol still cannot hide a warning. A `Phase` opens; a `Timing` that matches an open phase closes it and carries its duration and tail; a `Timing` that matches nothing is logged only. A `Warn` always surfaces. A `Progress` surfaces only when the step has been silent for the whole heartbeat window; otherwise it is stored as the step's latest, which the heartbeat prints when the window runs out.
         """
         with self._lock:
             text = line.rstrip("\r\n")
@@ -557,7 +555,7 @@ class Digest:
             return event
 
     def failure_dump(self, name: str) -> None:
-        """Replay a failed step's whole log under its own banner, verbatim and stderr tags included, which is the path the captured-and-discarded gates never had. Call it before `step_end`, which is where a step's record is closed and forgotten."""
+        """Replay a failed step's whole log under its own banner, stderr tags included. Call it before `step_end`, which closes and forgets the step."""
         with self._lock:
             state = self._open.get(self._key(name))
             lines = self._recorded_lines(state)
@@ -571,7 +569,7 @@ class Digest:
         verdict: str = VERDICT_OK,
         reasons: Sequence[str] = (),
     ) -> None:
-        """The closing block: the step table, then the cycle-level lines the driver composed, then the verdict. Reasons are reprinted verbatim under a `CYCLE FAILED:` / `CYCLE INTERRUPTED:` heading, and a green run ends on `Cycle complete.` with no reasons block at all."""
+        """Print the closing block: the step table, the cycle-level lines the driver composed, then the verdict. Reasons are printed verbatim under `CYCLE FAILED:` or `CYCLE INTERRUPTED:`, and a green run ends with `Cycle complete.` and no reasons."""
         with self._lock:
             numbered = [replace(row, number=self._number(row.name)) for row in rows]
             numbered.sort(key=lambda row: row.number if row.number is not None else float("inf"))
@@ -589,7 +587,7 @@ class Digest:
             self._heartbeat_tick()
 
     def _heartbeat_tick(self) -> None:
-        """Every open step that has been silent for the whole window says something: its latest unsurfaced counter if one arrived, and otherwise that it is still there. A step whose child prints nothing at all for ten minutes — the compile, the read-back — is the case this exists for, and a bare line proving the cycle is alive is worth more than the silence it replaces."""
+        """Surface a line for every open step that has been silent for the whole window: its latest unsurfaced counter if there is one, and otherwise `heartbeat`. This covers steps whose child prints nothing for minutes, such as the compile and the read-back."""
         with self._lock:
             now = self._clock()
             for state in list(self._open.values()):
@@ -676,7 +674,7 @@ class Digest:
         return self._numbers.get(display)
 
     def _state_for(self, name: str, *, banner: bool) -> _StepState:
-        """The state a line belongs to, opened on demand. A `child_line` for a step nobody started still gets a state rather than being dropped: the whole promise here is that no line of child output is lost, and a driver bug is a thing to see in the log, not a reason to swallow the log. Such a state is transient — nothing banner-worthy is happening under it and nobody is going to close it, which is what `substep_end` reaps — and it is dated from the step of that name that already ran, so a line arriving after a step closed reads as late rather than as a step that has just begun."""
+        """Return the state a line belongs to, opening one if needed. A `child_line` for a step that was never started still gets a state, so its output is logged instead of dropped. That state is transient, because no banner opened it and nothing else will close it (`substep_end` closes it). It is dated from the start of the step of that name that already ran, so a line arriving after a step closed shows as late instead of as a new step."""
         key = self._key(name)
         state = self._open.get(key)
         if state is not None:
@@ -700,7 +698,7 @@ class Digest:
         return state
 
     def _open_log(self, state: _StepState) -> None:
-        """Open a step's log file, which happens on the first line that step's child prints rather than when its banner goes up. A step that spawns nothing — the retention pass runs in this process — would otherwise leave an empty file in every run directory, and a run directory reads best when a file in it means a child ran."""
+        """Open a step's log file on the first line its child prints, not when its banner goes up, so a step that spawns nothing (the retention pass runs in this process) leaves no empty file in the run directory."""
         if self.log_dir is None:
             return
         number = 0 if state.number is None else state.number
@@ -709,7 +707,7 @@ class Digest:
         state.handle = open(state.log_path, "a", encoding="utf-8", buffering=1)
 
     def _close(self, state: _StepState) -> None:
-        """Forget an open step, remembering only when it started — which is what a line arriving after the close is dated from."""
+        """Forget an open step, keeping only its start time, which a line arriving after the close is dated from."""
         self._close_log(state)
         self._closed_starts[state.name] = state.started
         self._open.pop(state.name, None)
@@ -735,7 +733,7 @@ class Digest:
         return list(state.lines)
 
     def _link_latest(self) -> None:
-        """Point `latest` at this run, replacing whatever it pointed at, and never fail a cycle over it — a filesystem that cannot hold a symlink costs the reader a convenience, not the run."""
+        """Point `latest` at this run's log directory, replacing the old link. A filesystem that cannot hold a symlink loses only the link; the cycle does not fail."""
         if self.log_dir is None:
             return
         link = self.log_dir.parent / LATEST_LINK

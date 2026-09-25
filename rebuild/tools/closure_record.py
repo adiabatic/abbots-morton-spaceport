@@ -1,6 +1,6 @@
-"""The recorder half of the contracts lane's per-test input closure: what `rebuild/conftest.py` needs to classify a read, judge a spawn, honor a selection file and write the sidecar. `rebuild.tools.contracts_closure` holds the other half — the static walk, the selection and the merge — and re-exports every name here, so a reader of the record sees one module.
+"""The helpers `rebuild/conftest.py` uses to record the contracts lane's per-test input closures: classifying a read, judging a spawned child, reading a selection file, and writing the sidecar. `rebuild.tools.contracts_closure` holds the static import walk, the selection, and the merge, and re-exports every name here.
 
-The split is what keeps the conftest's static import closure the conftest's own. `closure_of` folds both conftests' closures into every test's, and the selection half reaches the cycle driver, and through it the whole pipeline, for its digests and labels; this half imports nothing from the repo, so importing it costs a test's closure nothing. `rebuild/test_contracts_closure.py` pins that, and `rebuild.tools.cycle_paths` says why it matters.
+This module imports nothing from the repo so that the conftest's static import closure stays small. `closure_of` adds both conftests' static import closures to every test's closure, and `contracts_closure` imports the cycle driver, and through it the pipeline, inside its selection functions. If the conftest imported `contracts_closure`, the pipeline would be in every test's closure, so any pipeline edit would rerun every test. `rebuild/test_contracts_closure.py` checks the conftests' direct imports and that neither reaches rebuild/pipeline/ or rebuild/review/.
 """
 
 from __future__ import annotations
@@ -27,7 +27,7 @@ KERNEL_MANIFEST = KERNEL_PREFIX + "Cargo.toml"
 
 
 def hermetic_child(argv: object) -> bool:
-    """Whether a spawned command can read nothing the working tree holds. The three `git` subcommands here answer from the object store and the refs — `cat-file` and `archive` by sha, `rev-parse` by ref or `HEAD:<path>` — which no edit to a tracked or untracked file can reach, so a test that spawns one (the mini bundle materializing its pinned spec, the surface build stamping its manifest with HEAD) stays closable. Anything else that forks is unclosable: `git status`, `git ls-files` and `git diff` read the index and the working tree, and a non-git child can read anything at all."""
+    """Whether a spawned command reads nothing from the working tree. The `git` subcommands in `HERMETIC_GIT_SUBCOMMANDS` read only the object store and refs (`cat-file` and `archive` by sha, `rev-parse` by ref or `HEAD:<path>`), so no file edit can change their output and a test that spawns one stays closable. Any other child makes the test unclosable: `git status`, `git ls-files`, and `git diff` read the index and the working tree, and a non-git child can read anything."""
     if not isinstance(argv, (list, tuple)) or len(argv) < 2:
         return False
     try:
@@ -48,7 +48,7 @@ def _argv_strings(argv: object) -> list[str] | None:
 
 
 def kernel_child(argv: object) -> bool:
-    """Whether a spawned command is the M1 kernel, or the `cargo build` of it that `kernel_exec.ensure_built` runs before a process's first invocation. The kernel reads what its argv names — a spec dump and a cases file its parent wrote to a scratch directory out of what the parent had already read — and its own binary, which is a function of the crate's tracked sources and is rebuilt from them before it answers; cargo reads the same sources and the registry the lockfile pins by hash. So a test that spawns either is closable once the crate's files are folded into its closure, which `closure_of` does for every entry flagged `kernel`."""
+    """Whether a spawned command is the M1 kernel, or the `cargo build` of its crate that `kernel_exec.ensure_built` runs before a process first calls it. The kernel reads the files its argv names, which its parent wrote to a scratch directory from data the parent had already read, and its own binary, which is built from the crate's tracked sources. Cargo reads those sources and the registry crates the lockfile pins by hash. A test that spawns either is closable once the crate's files are added to its closure, which `closure_of` does for every entry flagged `kernel`."""
     strings = _argv_strings(argv)
     if strings is None:
         return False
@@ -64,7 +64,7 @@ def kernel_child(argv: object) -> bool:
 
 
 def source_of(rel: str) -> str:
-    """The repo-relative source a read names: a bytecode file under `__pycache__` stands for the module it was compiled from, since a valid cache is what the import system opens instead of the `.py`."""
+    """Return the repo-relative source a read stands for. A `.pyc` under `__pycache__` maps to the `.py` it was compiled from, because the import system opens a valid cache instead of the source."""
     parent, name = os.path.split(rel)
     if os.path.basename(parent) == "__pycache__" and name.endswith(".pyc"):
         return os.path.join(os.path.dirname(parent), name.split(".", 1)[0] + ".py").replace(os.sep, "/")
@@ -89,7 +89,7 @@ def write_selection(path: Path, skip: Iterable[str]) -> None:
 
 
 def read_selection(path: Path) -> frozenset[str]:
-    """The ids a selection file keeps off a run; empty for an absent or malformed file, so a run nobody narrowed runs everything."""
+    """Return the test ids a selection file skips. An absent or malformed file gives an empty set, so the run skips nothing."""
     try:
         payload = json.loads(path.read_text())
     except OSError, ValueError:

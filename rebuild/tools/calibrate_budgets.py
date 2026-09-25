@@ -1,14 +1,14 @@
-"""Hold the checked-in per-unit memory peaks against what this box actually measured — `make job-costs`, the instrument for issue #92.
+"""Check the checked-in per-unit memory peaks against what this machine measured (`make job-costs`).
 
-Several widths in this tree are a box divided by a measured per-unit peak: what one pytest worker of a suite holds, what one kernel configuration holds while it is live. Each of those peaks is a checked-in constant — `FONT_SUITE_WORKER_BYTES` in the root `conftest.py`, `DELTA_PEAK_BYTES` and `DEFAULT_MEMO_BYTES` in `rebuild/pipeline/kernel_exec.py`, `SURFACE_PARENT_BYTES`, `SURFACE_WORKER_BYTES`, `ORACLE_SHARD_BYTES` and `CONFORM_BELT_BYTES` in `rebuild/tools/artifact_cycle.py` — and every one of them is a reading of a working set that a memory-saver or a heavier fixture can move out from under. The measurements that would catch such a move are already being taken on every run, by two instruments that were never introduced to each other: each xdist controller's per-worker peaks, and the peak RSS the cycle stamps on every step it spawns. So a divisor could go stale silently, and a stale one announces itself not as a red test but as a box in swap — or, in the other direction, as a pool held to a quarter of the width it had room for. This module is the introduction, and it is a file read: no build, no import of the code it prices.
+Several fan-out widths are the machine's memory divided by a measured per-unit peak, such as what one pytest worker or one kernel configuration holds. Each peak is a checked-in constant, and `UNITS` lists the ones this module checks. A memory saving or a heavier fixture can move a real peak away from its constant without failing any test. A constant that is too low shows up as a machine in swap, and one that is too high holds a pool to a fraction of the width it has room for. The measurements that catch this are already recorded on every run: each xdist controller's per-worker peaks, and the peak RSS the cycle records for every step it spawns. This module compares those measurements with the constants. It builds nothing and imports none of the code whose constants it checks.
 
-What it reads is the cycle-timings journal and nothing else. `kind:"pool"` records supply one observation per worker, because the unit being priced is one worker and a pool of eight is therefore eight measurements of it. Named `kind:"step"` records supply their `peak_rss_bytes`, but only where that figure genuinely is one unit, and that caveat wants stating rather than hinting: `peak_rss.reap_peak_rss_bytes` maxes over a child's whole process tree instead of summing it, so a step peak is the widest single process under that step. That is one unit exactly where the step's tree is a parent holding heads over one-thread children (`run_m1`), or a parent holding the whole corpus over workers each holding one batch of it (`surface-build`), where the max reads the parent and the parent is what that row prices, and it is emphatically not one unit for `gate:make-test`, whose tree carries `make all` and `uv run pyright` beside the pool. The `UNITS` registry below states, per unit, which sources are honest for it, and each entry carries the argument in its own words.
+It reads measurements only from the cycle-timings journal. A `kind:"pool"` record gives one observation per worker, because the unit is one worker. A named `kind:"step"` record gives its `peak_rss_bytes`, which is the largest single process in the step's tree, because `peak_rss.reap_peak_rss_bytes` takes the max over the tree instead of the sum. That reading measures one unit only for some steps. For `run_m1` the widest process is the table-build child, which the kernel-build row checks, and for `surface-build` it is the parent, which the surface-parent row checks. It does not measure one unit for `gate:make-test`, whose tree also holds `make all` and `uv run pyright` beside the pool. Each `UNITS` entry states which sources count for it and why.
 
-What an observation is held against is that unit's constant, read out of its source file by `ast` and never imported. pytest loads every conftest under the plain name `conftest`, so from anywhere under `rebuild/` a plain `import conftest` answers the wrong file while `import rebuild.conftest` would execute a second copy of one pytest has already loaded and armed its lane-audit hook in; `ast` answers without executing anything, and it keeps a build tool out of the business of importing pytest and inheriting that file's `sys.path` edits. It is `artifact_cycle._font_suite_worker_bytes`' argument, made a third time here. The same mechanism settles one detail the width clauses need: the surface rows read their cap and each other's constant beside their own peak, and the conform-belt row reads its cap, the acceptance-configuration count, as the lengths of the literal configuration tuples in `rebuild/pipeline/conform.py` (`_acceptance_config_count`), beside the surface constants its second arm needs, so the width each prints is the one its pool will actually take rather than an uncapped division nothing in the repo uses. The kernel row cannot be settled the same way — what narrows that fan-out is the configuration count and the cores at `run_m1.build_tables`' own call site, neither of them a constant to read — so it prints the memory arithmetic and says in words what narrows it afterwards.
+Constants are read from their source files with `ast`, never imported. pytest loads every conftest under the module name `conftest`, so from under `rebuild/` a plain `import conftest` gets the wrong file, and `import rebuild.conftest` would execute a second copy of a file pytest has already loaded and installed its lane-audit hook from. `ast` executes nothing, and it keeps this tool from importing pytest or inheriting that file's `sys.path` edits. The width clauses read their other inputs the same way, so each prints the width its pool actually takes: the surface rows read the jobs cap and each other's constant, and the conform-belt row reads its cap, the acceptance-configuration count, from the lengths of the configuration tuples in `rebuild/pipeline/conform.py` (`_acceptance_config_count`), along with the surface constants its second width needs. The kernel row's width is narrowed by the configuration count and the cores in `run_m1._table_build_threads`, which this module does not compute, so that clause prints the memory arithmetic and names the narrowing in words.
 
-An observed peak past its constant means the divisor is stale. It does not mean an artifact is wrong: what a stale divisor costs is a pool of the wrong width, so nothing here gates a build and `--check`'s nonzero exit is loudness rather than a failure. That nonzero is spelled apart from a crash — `1` is the verdict and `2` is this tool failing to reach one — because the artifact cycle reads the two differently, printing a constants diff on the first and an informational line on the second, and a traceback reported as an overrun would be a measurement nobody ever took. The fix is to re-seed the constant off the fresher measurement, and committing the updated constant is the acceptance — exactly the contract `rebuild/review-census-pins.json` already has for the census, where the diff is what a human reads and the commit is the blessing. The tolerance therefore defaults to zero, which is not strictness for its own sake: these constants are already headroom, each one's own comment saying it rounds up past the top of its measured range because a per-unit cost that errs low is what puts a box into swap while one that errs high only narrows a pool. A measurement that reaches the constant has already eaten all of that deliberate slack, and saying so is the whole news this check exists to deliver; softening it by a further fraction would be headroom on headroom. The knob stays for a caller surveying a fleet with `--host all`, not to soften the default.
+A peak above its constant means the constant is out of date. It does not mean an artifact is wrong: the cost is a pool of the wrong width, so the cycle does not fail on it. `--check` exits 1 for an overrun and 2 when the tool itself fails, because the artifact cycle prints a diff of the constants' files on 1 and an informational line on any other nonzero code, and a crash reported as an overrun would report a measurement nobody took. The fix is to re-seed the constant from the newer measurement; committing it accepts the new value, as committing `rebuild/review-census-pins.json` accepts the census. The tolerance defaults to zero because each constant is already rounded up above its measured peaks, as its comment says: an estimate that is too low puts the machine into swap, while one that is too high only narrows a pool. A peak that reaches the constant has used all of that headroom. `--tolerance` is for a survey with `--host all`, not for relaxing the default.
 
-Observations are filtered to one host by default, because a per-unit peak is a fact about a working set on a machine and a journal that has been concatenated across boxes mixes a machine that has since gained two memory-savers with one that has not — averaging those two says nothing true about either. A record older than the commit that set a constant's current value is not evidence about that constant, and is set aside before anything is counted: when a memory-saver lands and a constant is re-seeded downward, the journal still holds the old high-water marks from the same host, and a check that read them would tripwire on measurements of code that no longer exists for as long as they stayed inside its window. The commit is found by `git blame` on the constant's own line, so a re-seed clears its row on the very next pass, and a constant edited but not yet committed has no such commit and keeps every record until it does — committing is the acceptance, and the check judging the old rows until then is the check asking whether the new seed has been accepted. The recency bound inside that is the second, narrower window: a handful of the newest records, so that one anomalous run cannot hide a regression and a genuine improvement is believed within a day's work. And one limit cannot be closed, so it is reported rather than papered over: the journal records which box measured a peak, never which box a constant was sized on. A unit with no rows from this host is therefore reported as unverified *here*, which is what is actually known, and never as verified elsewhere.
+Observations are filtered to this host by default, because a per-unit peak is a property of one machine's working set, and a journal concatenated from several machines mixes machines running different versions of the code. Records that finished before the commit that set a constant's current value are set aside before anything is counted, so that after a constant is re-seeded downward, the older, higher peaks from the same host do not trip the check. `git blame` on the constant's line finds that commit, so a re-seed clears its row on the next pass. A constant that is edited but not yet committed has no such commit and keeps every record until it is committed. Within that bound, `--recent` keeps only the newest records, so that one anomalous run cannot hide a regression and a real improvement shows within a day's work. The journal records which machine measured a peak but not which machine a constant was sized on, so a unit with no rows from this host is reported as unverified on this host.
 """
 
 from __future__ import annotations
@@ -44,7 +44,7 @@ CONFORM_SOURCE = "rebuild/pipeline/conform.py"
 
 @dataclass(frozen=True)
 class Unit:
-    """One thing a width in this tree is the box divided by, and everything needed to say whether its checked-in divisor is still true: the constant and the file that holds it, which journal records measure it, and the prose that has to travel with a figure for it to mean anything."""
+    """One unit that a fan-out width divides the machine's memory by: its constant and the file that holds it (both None for a row that is reported without a constant), the journal records that measure it, and the text printed with its figures."""
 
     name: str
     constant: str | None
@@ -55,7 +55,7 @@ class Unit:
     note: str
 
 
-# The kernel's three constants live in one file: the per-delta figure the fan-out width is divided out of, the memo figure taken off the box before that division, and the whole-process figure the run_m1 step is watched against.
+# The kernel's constants live in one file: DELTA_PEAK_BYTES divides the delta fan-out width, DEFAULT_MEMO_BYTES is subtracted from the machine's memory before that division, and the kernel-build row checks the run_m1 step peak against TABLE_BUILD_PEAK_BYTES.
 KERNEL_SOURCE = "rebuild/pipeline/kernel_exec.py"
 KERNEL_DELTA_NAME = "DELTA_PEAK_BYTES"
 KERNEL_MEMO_NAME = "DEFAULT_MEMO_BYTES"
@@ -147,7 +147,7 @@ UNITS: tuple[Unit, ...] = (
 
 @functools.cache
 def _constant_assignment(path: Path, name: str) -> tuple[int, int]:
-    """The integer `path` assigns to `name` at module scope and the line it is assigned on, read out of the source rather than imported. Importing is not available here and would be the wrong tool if it were: pytest loads every conftest under the plain name `conftest`, so from any run collected under rebuild/ a plain `import conftest` answers the wrong file, while `import rebuild.conftest` would execute a second copy of a file pytest has already loaded and armed hooks in. `ast` answers the same question without running anything, and it keeps this tool from importing pytest at all or inheriting that file's sys.path edits. Only `tree.body` is walked, so a constant is what this reads and a same-named local inside some function is not. A missing name raises rather than defaulting, because a constant that has been renamed out from under the registry is a calibration silently not being performed."""
+    """Return the integer `path` assigns to `name` at module scope and the line number of that assignment, parsed with `ast` for the reason the module docstring gives. Only module-level assignments count, so a same-named local inside a function is ignored. A missing name raises, so a renamed constant fails the check instead of going unchecked."""
     tree = ast.parse(path.read_text(encoding="utf-8"))
     for node in tree.body:
         if isinstance(node, ast.Assign) and any(
@@ -165,7 +165,7 @@ def _int_constant(path: Path, name: str) -> int:
 
 @functools.cache
 def _acceptance_config_count(path: Path) -> int:
-    """How many acceptance configurations `path` defines: the lengths of its module-scope `SETTLEMENT_CONFIGS` and `OVERLAY_CONFIGS` tuples summed, the two `conform.ACCEPTANCE_CONFIGS` concatenates, read out of the source for `_constant_assignment`'s reason. It is the belt's non-memory cap beside the cores. A missing name or a value that is not a literal tuple raises, because a cap this cannot read is a width the report would state wrong."""
+    """Return the number of acceptance configurations `path` defines: the summed lengths of its module-scope `SETTLEMENT_CONFIGS` and `OVERLAY_CONFIGS` tuples, which `conform.ACCEPTANCE_CONFIGS` concatenates, parsed with `ast` like the constants. It is the belt's width cap beside the cores. A missing name or a value that is not a literal tuple raises, because the report would otherwise state a wrong width."""
     names = ("SETTLEMENT_CONFIGS", "OVERLAY_CONFIGS")
     lengths: dict[str, int] = {}
     tree = ast.parse(path.read_text(encoding="utf-8"))
@@ -189,7 +189,10 @@ def _acceptance_config_count(path: Path) -> int:
 
 
 def constant_seeded_at(path: Path, name: str, *, root: Path = ROOT) -> str | None:
-    """When the commit that set `name` to its current value landed, as the ISO-Z stamp the journal's `finished_at` fields are written in, or None where no such commit exists: the line is edited but not yet committed, the file is untracked, `root` is not a git checkout, or git is not on this box. Every one of those reads as "no bound" rather than as an error, because a missing bound only leaves old records standing, which is the state this tool was in before it had one. `git blame` on the assignment's own line is what answers, and it answers with the last commit that touched that line for any reason — a reflow of the line moves it as surely as a re-seed does — which errs in the one direction that is safe here: a bound that is too new sets aside records that were evidence, and the row says so in its count, while a bound that was too old would hold a fresh seed against a retired peak. The committer time rather than the author time is what a journal stamp is comparable to, since a record measured on the tree before the commit landed was measured on code the seed was taken from rather than code the seed was accepted on."""
+    """Return the committer time of the commit that last changed `name`'s assignment line, as an ISO-Z stamp like the journal's `finished_at` fields, or None when there is no such commit: the line is uncommitted, the file is untracked, `root` is not a git checkout, or git is not installed. None means no bound, which only keeps older records in the count.
+
+    `git blame` returns the last commit that touched the line for any reason, including a reformat, so the bound can be later than the re-seed. That is the safe direction: a bound that is too new sets aside records that were valid evidence, and the row reports how many, while a bound that is too old would check a new constant against peaks from code that no longer exists. The committer time is used instead of the author time because a record measured before the commit was made is a measurement of the code the new value was taken from, not of the code it was accepted on.
+    """
     _, lineno = _constant_assignment(path, name)
     try:
         blame = subprocess.run(
@@ -207,7 +210,7 @@ def constant_seeded_at(path: Path, name: str, *, root: Path = ROOT) -> str | Non
 
 
 def _seed_stamp_from_blame(porcelain: str) -> str | None:
-    """The committer time out of one line's porcelain blame, or None for a line no commit holds yet: porcelain names an uncommitted line by the all-zero hash, and its committer time is the moment of the blame rather than of any commit."""
+    """Return the committer time from one line's porcelain blame, or None for an uncommitted line. Porcelain marks an uncommitted line with the all-zero hash, and its committer time is the time of the blame."""
     lines = porcelain.splitlines()
     if not lines or lines[0].startswith("0" * 40):
         return None
@@ -219,7 +222,7 @@ def _seed_stamp_from_blame(porcelain: str) -> str | None:
 
 
 def read_seed_stamps(root: Path = ROOT) -> dict[str, str]:
-    """When each unit's constant was last committed, keyed by unit name, for every unit whose constant a commit holds. A unit missing here is one with no bound, and `build_rows` keeps every record for it."""
+    """Map each unit name to the stamp of the commit that last set its constant, for every unit whose constant is committed. `build_rows` keeps every record for a unit missing here."""
     stamps: dict[str, str] = {}
     for unit in UNITS:
         if unit.constant is None or unit.source is None:
@@ -231,7 +234,7 @@ def read_seed_stamps(root: Path = ROOT) -> dict[str, str]:
 
 
 def read_constants(root: Path = ROOT) -> dict[str, int]:
-    """The checked-in per-unit peaks, keyed by unit name, for every unit that has one. `root` is a parameter so a test can point it at a copied tree; the default is this file's own tree, which is the one whose widths are in question."""
+    """Map each unit name to its checked-in peak, for every unit that has one. `root` lets a test point it at a copied tree."""
     return {
         unit.name: _int_constant(root / unit.source, unit.constant)
         for unit in UNITS
@@ -241,7 +244,7 @@ def read_constants(root: Path = ROOT) -> dict[str, int]:
 
 @dataclass(frozen=True)
 class Observation:
-    """One measurement of one unit: what it held, which box held it, when, and which kind of journal record said so."""
+    """One peak measurement of one unit, with the host that measured it, the record's `finished_at`, and the record kind (`pool` or `step:<name>`)."""
 
     peak_bytes: int
     host: str
@@ -252,7 +255,7 @@ class Observation:
 def _source_records(
     unit: Unit, pool_records: list[dict], steps_by_run: dict[str, list[dict]]
 ) -> list[tuple[dict, str]]:
-    """Every journal record that measures this unit, each paired with the `source` its observations will carry, in the order they were read. Pool records come first and step records after, which is the order the two loaders answer in rather than strict file order; it matters only as the stable tiebreak under the recency sort, where the timestamps have already decided."""
+    """Return every journal record that measures `unit`, each paired with the `source` label its observations carry. Pool records come before step records; this order only breaks ties in the recency sort, after the timestamps."""
     records = [(record, "pool") for record in pool_records if str(record.get("unit", "")) in unit.pool_units]
     for step_list in steps_by_run.values():
         for step in step_list:
@@ -271,13 +274,13 @@ def observations(
     recent: int,
     since: str | None = None,
 ) -> tuple[list[Observation], int, int]:
-    """Every observation of one unit that survives the host filter, the seed bound and the recency bound, plus how many source records the host filter dropped and how many the seed bound set aside.
+    """Return the observations of one unit that pass the host filter, the seed bound, and the recency bound, with the number of records the host filter dropped and the number the seed bound set aside.
 
-    `since` is the ISO-Z stamp of the commit that set this unit's constant to its current value, and a record that finished before it is set aside before the recency window is cut, so the window holds only records measured on code the seed is a claim about; None is no bound at all. A record with no stamp is kept, since nothing can say it is old.
+    `since` is the ISO-Z stamp of the commit that set the constant's current value. A record that finished before it is set aside before the recency bound applies, so the bound counts only records measured on the code the constant describes. A record with no stamp is kept. None means no bound.
 
-    Every worker peak inside a kept pool record is its own observation, because the unit being calibrated is one worker: a pool of eight is eight measurements of it, which is what makes the median mean "a typical worker" and the max mean "the worst worker seen" — and the worst worker seen is exactly the figure a divisor has to cover. The controller's own peak is carried in the record for a human reading the journal and is deliberately not counted here; it measures a different process, and folding it in would drag the median toward a number no worker ever held.
+    Each worker peak in a kept pool record is a separate observation, because the unit is one worker: the median is a typical worker, and the max is the worst worker seen, which is the figure a constant has to cover. The controller's own peak is in the record but not counted, because it measures a different process and would pull the median toward a figure no worker held.
 
-    The recency bound keeps the most recent `recent` source records — one pool record or one step record apiece, never one worker — per unit and per host, ordered by `finished_at` (the ISO-Z stamps sort lexicographically) with read order as the stable tiebreak; `recent <= 0` keeps everything. What it protects against is a single anomalous run standing as the record for as long as the journal survives. The window is per host even when no host was selected, which is what makes `--host all` a survey of a fleet rather than of its busiest member: one machine that cycles ten times a day would otherwise fill a global window by itself and leave every quieter box unchecked while the report said nothing about it — and the quiet box is exactly the one nobody is watching. The dropped count is returned rather than logged so the report can say plainly that other machines' rows exist and were not checked.
+    The recency bound keeps the newest `recent` source records per host (each pool record or step record counts once, not once per worker), ordered by `finished_at` with read order breaking ties; ISO-Z stamps sort correctly as strings. `recent <= 0` keeps everything. The bound keeps one anomalous run from counting for as long as the journal lasts. It applies per host even when no host is selected, so under `--host all` a machine that runs many cycles a day cannot fill the window and leave a quieter machine unchecked. The dropped count is returned so the report can say that records from other hosts exist and were not checked.
     """
     records = _source_records(unit, pool_records, steps_by_run)
     dropped = 0
@@ -323,7 +326,7 @@ def observations(
 
 @dataclass(frozen=True)
 class UnitRow:
-    """One unit's whole verdict, decided before anything is rendered: the constant in hand, the observations that survived the filters, what the filters set aside, and the two states worth a word of their own — a peak past its divisor, and a divisor this box has never tested."""
+    """One unit's result, computed before anything is rendered: the constant, the observations that passed the filters, what the filters set aside, whether a peak exceeds the constant, and whether this host has no observations of a unit that has a constant."""
 
     unit: Unit
     constant_bytes: int | None
@@ -345,9 +348,9 @@ def build_rows(
     tolerance: float,
     seeded_at: Mapping[str, str] | None = None,
 ) -> list[UnitRow]:
-    """One row per registered unit, in registry order. Pure over its inputs — the constants and the stamps of the commits that seeded them are injected rather than read here, and the box is not consulted at all — so every assertion about a verdict is an assertion about a function. `seeded_at` maps a unit name to the ISO-Z stamp its records must post-date; a unit it does not name keeps every record, and `recent <= 0` — the archaeology pass — ignores the stamps altogether, since a caller who asked for every record meant every record. The overrun test is strictly greater than the constant plus its tolerance: a peak that exactly reaches the constant is a pool that exactly fits, which is what the constant was chosen to mean.
+    """Return one row per unit, in `UNITS` order. The function reads nothing itself: the constants and the seed stamps are passed in and the machine is not consulted, so tests can assert on it directly. `seeded_at` maps a unit name to the ISO-Z stamp its records must follow; a unit it does not name keeps every record, and `recent <= 0` ignores the stamps, because that caller asked for every record. An overrun is a peak strictly greater than the constant times `1 + tolerance`, so a peak equal to the constant fits.
 
-    A constant is unverified *here* only when there is a here. Under `--host all` the report is a survey of a fleet and no box was named, so a unit with nothing to show has already said the whole truth in its observed line, and adding a sentence about "this host" would contradict the query that was actually run.
+    `unverified_here` is set only when a host was named. Under `--host all` there is no single host, and the observed line already says that nothing was measured.
     """
     rows: list[UnitRow] = []
     for unit in UNITS:
@@ -377,7 +380,7 @@ def build_rows(
 
 
 def _record_count(observed: list[Observation]) -> int:
-    """How many journal records a unit's observations came from, which is what tells a reader whether a max is one bad run or a standing figure. Records are counted by the host, stamp and source they share, so two pools of one unit that finished within the same second on one machine read as one — a cosmetic undercount in a figure that decides nothing, and the alternative was widening the pinned Observation to carry a record identity nothing else needs."""
+    """Return how many journal records a unit's observations came from, which tells a reader whether a max comes from one run or many. Records are identified by host, stamp, and source, so two pools of one unit that finished in the same second on one host count as one. The undercount affects only this printed figure."""
     return len({(item.host, item.at, item.source) for item in observed})
 
 
@@ -386,12 +389,12 @@ def _percent(part: float, whole: float) -> int:
 
 
 def _plural(count: int, noun: str) -> str:
-    """A count with its noun agreeing with it. Worth the three lines because the singular is the common case rather than the corner one — two machines writing into one journal is exactly the arrangement `--host all` exists for, and a report that reads "1 records" in the line a fleet survey is there to print looks like a report nobody read."""
+    """Return the count and the noun, plural unless the count is 1."""
     return f"{count} {noun}" if count == 1 else f"{count} {noun}s"
 
 
 def _since_line(row: UnitRow) -> str | None:
-    """Which records were allowed to speak for this constant, said only where there is a constant to speak for: the stamp of the commit that seeded it and how many older records were set aside, or that the constant is uncommitted and every record stands."""
+    """Return the line that says which records count for this unit's constant: the seed commit's stamp and how many older records were set aside, or that the constant is uncommitted and every record counts. None for a unit without a constant."""
     if row.constant_bytes is None:
         return None
     if row.seeded_at is None:
@@ -416,7 +419,7 @@ def _observed_line(row: UnitRow, *, host: str | None) -> str:
 
 
 def _sources_line(row: UnitRow) -> str | None:
-    """What measured this unit, and — when a step peak is one of the answers — why that reading is honest for it. The caveat rides on the line rather than standing alone so it is never read as a general disclaimer: it is an argument about one step's process tree, and it prints only where that step actually contributed."""
+    """Return the line naming what measured this unit. The unit's `step_caveat` is appended only when a step peak contributed, because it explains why that one step's reading counts for this unit."""
     kinds = {item.source for item in row.observed}
     parts: list[str] = []
     if "pool" in kinds:
@@ -431,7 +434,10 @@ def _sources_line(row: UnitRow) -> str | None:
 
 
 def _width_clause(unit: Unit, constant_bytes: int, *, total_bytes: int, cores: int, root: Path) -> str:
-    """The width this constant implies on the box in hand, said the way the call site that owns it says it, one shape per call site: the font suite's pool takes the cores flat and prices this constant as a co-resident rather than dividing by it, so a bare `describe_fit` there would state a width the repo never asks for; the kernel fan-out divides with no memory cap at all and is narrowed afterwards by the configuration count and the cores at run_m1.build_tables' own `min()`, neither of which is a constant to read, so that narrowing is stated in words; the surface build names two constants rather than one, because its flat half is as large as its divided half — the parent row states what is subtracted from the box and the worker row what the remainder is divided by, so neither is the whole width on its own and each prints the other's figure to reach one; the standing fill's parent is the surface parent's shape again, subtracted before a division by a worker constant this registry does not watch; and the conform belt divides by its own constant under a cap that is a data count, the acceptance configurations its source file defines, beside the cores, and prints two arms, the build lane idle and beside a surface build, whose parent and width it reads off the surface constants. The surface rows and the standing-fill row print the unreserved arm and say so, and the belt's second arm takes the surface build at that arm, the gated cycle's further subtraction being a fact about a pass rather than about a box. The cap comes out of `root` rather than out of this module's own tree for the reason the constants do: a report is a pure function of a stated box and a stated tree, and a tree hard-coded here would have a test that invented both quietly reading the live repo for half its answer."""
+    """Return the width this constant implies on the given machine, computed the way the code that sizes that pool computes it.
+
+    The font suite's pool takes the cores without dividing by its constant, so the clause prints the cores and, beside them, the width memory would allow. The kernel's delta wave divides by `DELTA_PEAK_BYTES` after subtracting `DEFAULT_MEMO_BYTES`, and `run_m1._table_build_threads` then caps it at the configuration count and the cores, which the clause states in words. The surface build subtracts its parent constant and divides by its worker constant, so neither surface row is the whole width alone and each reads the other's constant. The standing fill's parent is subtracted the same way before dividing by `STANDING_FILL_WORKER_BYTES`. The conform belt divides by its own constant, capped at the acceptance-configuration count and the cores, and prints two widths: with the build lane idle, and beside a surface build at the surface build's width. None of these widths subtracts gate:make-test's pool; the surface-worker and standing-fill clauses say so. Caps and sibling constants are read from `root`, like the constants, so a test can supply both the machine and the tree.
+    """
     if unit.name == "font-suite":
         allowed = memory_budget.describe_fit(constant_bytes, total_bytes=total_bytes)
         return f"the font suite takes the cores this process may run on ({cores}), not the division; memory would allow {allowed}"
@@ -481,7 +487,7 @@ def _width_clause(unit: Unit, constant_bytes: int, *, total_bytes: int, cores: i
 def render_rows(
     rows: list[UnitRow], *, host: str | None, total_bytes: int, cores: int, root: Path = ROOT
 ) -> list[str]:
-    """The report body, one block per unit in registry order and a verdict line under them all. The box arrives as `total_bytes` and `cores` rather than being probed here for the reason every width in this tree takes its box as a keyword: a report about a machine the suite is not running on has to be a pure function over an invented one. `root` is the tree whose caps and sibling constants the surface widths quote, defaulting to this file's own, so an invented box can be paired with an invented tree."""
+    """Return the report lines: one block per unit in `UNITS` order, then a summary line. The machine's memory and cores are parameters so a test can render the report for an invented machine, and `root` is the tree the width clauses read caps and sibling constants from."""
     lines: list[str] = []
     for row in rows:
         unit = row.unit
@@ -504,7 +510,7 @@ def render_rows(
         if row.overrun and row.constant_bytes is not None:
             peak = max(item.peak_bytes for item in row.observed)
             over = _percent(peak - row.constant_bytes, row.constant_bytes)
-            # A peak that only just clears its constant rounds to zero here, and "exceeds it by 0%" is a line that argues against the exit code beside it. The margin is the least interesting part of the news anyway — the constant was chosen with headroom, so reaching it at all is the event — so say the margin is small rather than say it is nothing.
+            # A small overrun rounds to 0%, and "exceeds it by 0%" would contradict the exit code.
             margin = f"by {over}%" if over else "by less than 1%"
             lines.append(
                 f"  OVERRUN   : max {format_gb(peak)} GB exceeds the constant of {format_gb(row.constant_bytes)} GB {margin}"
@@ -536,7 +542,7 @@ def render_rows(
 
 
 def _report(args: argparse.Namespace, seed_stamps: Mapping[str, str] | None) -> int:
-    """Read the journal, build the rows, print them, and answer the verdict. Split out of `main` so that everything that can go wrong here — a constant renamed out from under the registry, a source file that no longer parses — comes back as a caught exception rather than as an interpreter exit of 1, which is the one code this tool's callers read as a measured overrun."""
+    """Read the journal, build the rows, print them, and return the exit code. It is separate from `main` so that `main` can catch any exception raised here, such as a renamed constant or a source file that does not parse, and exit 2: an uncaught exception exits 1, which callers read as an overrun."""
     host = None if args.host == "all" else args.host
     pool_records = load_pool_records(args.journal)
     _, steps_by_run, _ = load_journal(args.journal)
@@ -570,9 +576,9 @@ def _report(args: argparse.Namespace, seed_stamps: Mapping[str, str] | None) -> 
 
 
 def main(argv: list[str] | None = None, *, seed_stamps: Mapping[str, str] | None = None) -> int:
-    """Print the report and answer with the verdict: 0 for a report or a green check, 1 for a check that a measured peak tripped, 2 for this tool failing to reach a verdict at all. `seed_stamps` is the commit stamp each constant's records must post-date, read from git by default and a keyword so a test can state one or state none.
+    """Print the report and return 0 for a report or a passing check, 1 when `--check` finds an overrun, and 2 when the tool fails. `seed_stamps` replaces the commit stamps read from git, so a test can supply them or supply none.
 
-    The third code is what keeps the second honest. `_int_constant` raises on purpose when a constant has been renamed out from under the registry, because a calibration silently not performed is the failure this whole module exists to prevent — but an uncaught raise exits 1, and the artifact cycle reads 1 as "a peak outran its constant", diffs the four constant-bearing files, and writes an OVERRUN into the cycle summary. That would be a measurement nobody took, announced as loudly as a real one and pointing a reader at a re-seeding that nothing asked for. So the failure is caught and spelled 2, which every caller already reads as informational.
+    `_constant_assignment` raises when a constant has been renamed, so that the constant does not go unchecked. An uncaught exception would exit 1, and the artifact cycle reads 1 as an overrun: it diffs the files that hold the constants and writes OVERRUN into the cycle summary, pointing a reader at a re-seed nothing asked for. So `main` catches every failure and returns 2, which the cycle reports as informational.
     """
     parser = argparse.ArgumentParser(
         description="Hold the checked-in per-unit memory peaks against what this box measured, and state the width each one implies here."

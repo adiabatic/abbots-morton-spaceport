@@ -1,6 +1,6 @@
 """Carry prior verdicts onto the live review surface by unit id.
 
-A unit's id is its content key's (`rebuild.review.unit_cache.unit_id_for`; `rebuild/REVIEW-PLAN.md` §2.1 states the shape), so a verdict names the same unit on every surface whose content agrees with the one it was recorded on, and the carry is a join on that id: a verdict whose unit is on the new surface lands there, and one whose unit is not is stranded. No prior surface is opened, and the file's stamp is provenance rather than a key — a verdicts file recorded against an older surface carries onto the live one exactly as the autosave does. The four figures the carry prints (`carry figures:`) are what the cycle records on its run line in the timings journal (`artifact_cycle.carry_figures` reads them), so what a surface rebuild cost the store is on the record.
+A unit's id is derived from its content key (`rebuild.review.unit_cache.unit_id_for`; `rebuild/REVIEW-PLAN.md` §2.1 gives the shape), so a verdict names the same unit on every surface where that unit's content is unchanged. The carry is a join on that id. A verdict whose unit is a human unit on the new surface is carried, and one whose unit is not on the surface at all is stranded. Skip verdicts are neither carried nor counted as stranded. No prior surface is opened, and a verdicts file's stamp is only printed, so a file recorded against any older surface carries the same way the autosave does. `artifact_cycle.carry_figures` parses the `carry figures:` line, and the cycle records those figures on its run line in the timings journal.
 """
 
 import argparse
@@ -31,7 +31,7 @@ def latest_verdicts(payload):
 
 
 def resolve_prior(verdict_files):
-    """Every source file's verdicts keyed by the unit id they name, newest `at` winning across files, each paired with the name of the file it came from for the provenance marker."""
+    """Return each unit id's newest verdict across all the files, by `at`, paired with the name of the file it came from for the provenance marker."""
     prior = {}
     for verdict_file in verdict_files:
         payload = json.loads(verdict_file.read_text())
@@ -51,7 +51,10 @@ def main(
     current_units: Iterable[Mapping[str, Any]] | None = None,
     current_ids: set[str] | None = None,
 ):
-    """Carry from a one-pass human record source and every surface id, including machine ids for the stranded figure. Supplied records need only an `id`; the chain supplies its echo projection, and a standalone run streams the human index while collecting all ids. The two arguments come together or not at all."""
+    """Write the carried verdicts file for the current surface.
+
+    `current_units` and `current_ids` are passed together or not at all. `current_units` is a single-pass stream of human unit records that need only an `id`, and `current_ids` holds every surface id, machine units included, for the stranded count. The verdict chain passes its echo records; a standalone run streams the human index and collects the ids in the same pass.
+    """
     parser = argparse.ArgumentParser(
         description="Carry prior verdicts onto the live surface, landing each on the unit of the id it names."
     )
