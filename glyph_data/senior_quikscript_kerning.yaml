@@ -30,6 +30,8 @@
 # right_stance: [qsUtter.alt]
 # value: -3
 #
+# The drill-down also carves up a pair that has hidden-junction overrides and no alternate-stance quadrants. Each glyph pair takes the value of the most specific override whose prefixes match it (a longer left prefix first, then a longer right one), or the cell value when none does, and the rules it writes are disjoint pieces of the family-by-family pairs. An override on qsGay.ex-y0 therefore leaves out qsGay.ex-y0.ex-ext-1 when that prefix has its own override, and the cell's rules leave out only the glyph pairs that some override decides.
+#
 # Add a rule by appending a document below, for example:
 #
 # ---
