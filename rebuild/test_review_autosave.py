@@ -9,6 +9,7 @@ The headers every static file is served with. `static_headers_for` is a pure fun
 
 import json
 import os
+from pathlib import Path
 
 from rebuild.review import app_index, journal
 from rebuild.review.serve import (
@@ -350,6 +351,74 @@ def test_an_external_rewrite_of_the_file_is_picked_up_and_invalidates_tokens(tmp
     assert set(store.records) == {"u-1", "u-2"}
     assert store.changes_since(token) is None
     assert not store.refresh_if_changed()
+
+
+def test_a_rename_over_the_file_during_the_read_is_picked_up_on_the_next_refresh(tmp_path, monkeypatch):
+    path = tmp_path / "verdicts-autosave.json"
+    stamp = "2026-07-03T23:31:04Z"
+    path.write_bytes(payload(stamp, [verdict("u-1")]))
+    os.utime(path, ns=(1, 1))
+    replacement = tmp_path / "merged.json"
+    replacement.write_bytes(payload(stamp, [verdict("u-1"), verdict("u-2")]))
+    os.utime(replacement, ns=(2, 2))
+    real_open = Path.open
+
+    def open_then_rename_over(self, mode="r", *args, **kwargs):
+        handle = real_open(self, mode, *args, **kwargs)
+        if self == path and "r" in mode and replacement.exists():
+            os.replace(replacement, path)
+        return handle
+
+    monkeypatch.setattr(Path, "open", open_then_rename_over)
+    store = VerdictStore(path)
+    assert set(store.records) == {"u-1"}
+    assert store.refresh_if_changed()
+    assert set(store.records) == {"u-1", "u-2"}
+
+
+def test_a_file_renamed_into_place_after_a_failed_open_is_picked_up_on_the_next_refresh(
+    tmp_path, monkeypatch
+):
+    path = tmp_path / "verdicts-autosave.json"
+    stamp = "2026-07-03T23:31:04Z"
+    replacement = tmp_path / "merged.json"
+    replacement.write_bytes(payload(stamp, [verdict("u-1"), verdict("u-2")]))
+    real_open = Path.open
+
+    def rename_into_place_after_a_failed_open(self, mode="r", *args, **kwargs):
+        try:
+            return real_open(self, mode, *args, **kwargs)
+        except FileNotFoundError:
+            if self == path and replacement.exists():
+                os.replace(replacement, path)
+            raise
+
+    monkeypatch.setattr(Path, "open", rename_into_place_after_a_failed_open)
+    store = VerdictStore(path)
+    assert store.records == {}
+    assert store.refresh_if_changed()
+    assert set(store.records) == {"u-1", "u-2"}
+
+
+def test_a_rename_over_the_file_right_after_a_save_is_picked_up_on_the_next_refresh(tmp_path, monkeypatch):
+    path = tmp_path / "verdicts-autosave.json"
+    stamp = "2026-07-03T23:31:04Z"
+    store = VerdictStore(path)
+    store.receive(payload(stamp, [verdict("u-1")]))
+    replacement = tmp_path / "merged.json"
+    replacement.write_bytes(payload(stamp, [verdict("u-1"), verdict("u-2")]))
+    os.utime(replacement, ns=(2, 2))
+    real_replace = os.replace
+
+    def replace_then_rename_over(src, dst):
+        real_replace(src, dst)
+        if Path(dst) == path and replacement.exists():
+            real_replace(replacement, path)
+
+    monkeypatch.setattr("rebuild.review.verdict_store.os.replace", replace_then_rename_over)
+    store.receive(delta(stamp, [verdict("u-3")]))
+    assert store.refresh_if_changed()
+    assert set(store.records) == {"u-1", "u-2"}
 
 
 def test_the_full_document_carries_the_token_only_when_asked(tmp_path):
