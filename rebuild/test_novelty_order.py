@@ -1,4 +1,4 @@
-"""Tests for `rebuild/tools/novelty_order.py`: rep selection (one rep per echo group among the blank human units, the member earliest in triage order, a skip counting as blank), the greedy max-min walk (consecutive reps change class where id order would repeat it, the rarest class comes first, the same input gives the same order), and the printed worklist URL in its `order=given` form, with the check that the verdicts file is stamped for the same manifest."""
+"""Tests for `rebuild/tools/novelty_order.py`: rep selection (one rep per echo group among the blank human units, the member earliest in triage order, a skip counting as blank and forming its own group), the greedy max-min walk (consecutive reps change class where id order would repeat it, the rarest class comes first, the same input gives the same order), and the printed worklist URL in its `order=given` form, with the check that the verdicts file is stamped for the same manifest."""
 
 import json
 
@@ -62,6 +62,14 @@ def test_blank_reps_counts_a_skip_as_blank():
     reps, blank_count = no.blank_reps(units, {"u-0001": v("u-0001", "skip")})
     assert [u["id"] for u in reps] == ["u-0001"]
     assert blank_count == 1
+
+
+def test_blank_reps_makes_each_skipped_echo_member_its_own_rep():
+    units = [unit("u-0001", echo="e-1"), unit("u-0002", echo="e-1"), unit("u-0003", echo="e-1")]
+    records = {"u-0002": v("u-0002", "skip"), "u-0003": v("u-0003", "skip")}
+    reps, blank_count = no.blank_reps(units, records)
+    assert [u["id"] for u in reps] == ["u-0001", "u-0002", "u-0003"]
+    assert blank_count == 3
 
 
 def test_novelty_order_alternates_classes_where_id_order_repeats_them():
