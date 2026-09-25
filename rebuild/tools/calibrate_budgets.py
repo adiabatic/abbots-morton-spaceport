@@ -6,7 +6,7 @@ It reads measurements only from the cycle-timings journal. A `kind:"pool"` recor
 
 Constants are read from their source files with `ast`, never imported. pytest loads every conftest under the module name `conftest`, so from under `rebuild/` a plain `import conftest` gets the wrong file, and `import rebuild.conftest` would execute a second copy of a file pytest has already loaded and installed its lane-audit hook from. `ast` executes nothing, and it keeps this tool from importing pytest or inheriting that file's `sys.path` edits. The width clauses read their other inputs the same way, so each prints the width its pool actually takes: the surface rows read the jobs cap and each other's constant, and the conform-belt row reads its cap, the acceptance-configuration count, from the lengths of the configuration tuples in `rebuild/pipeline/conform.py` (`_acceptance_config_count`), along with the surface constants its second width needs. The kernel row's width is narrowed by the configuration count and the cores in `run_m1._table_build_threads`, which this module does not compute, so that clause prints the memory arithmetic and names the narrowing in words.
 
-A peak above its constant means the constant is out of date. It does not mean an artifact is wrong: the cost is a pool of the wrong width, so the cycle does not fail on it. `--check` exits 1 for an overrun and 2 when the tool itself fails, because the artifact cycle prints a diff of the constants' files on 1 and an informational line on any other nonzero code, and a crash reported as an overrun would report a measurement nobody took. The fix is to re-seed the constant from the newer measurement; committing it accepts the new value, as committing `rebuild/review-census-pins.json` accepts the census. The tolerance defaults to zero because each constant is already rounded up above its measured peaks, as its comment says: an estimate that is too low puts the machine into swap, while one that is too high only narrows a pool. A peak that reaches the constant has used all of that headroom. `--tolerance` is for a survey with `--host all`, not for relaxing the default.
+A peak above its constant means the constant is out of date. It does not mean an artifact is wrong: the cost is a pool of the wrong width, so the cycle does not fail on it. `--check` exits 1 for an overrun and 2 when the tool itself fails, because the artifact cycle reports an overrun on 1 and an informational line on any other nonzero code, and a crash reported as an overrun would report a measurement nobody took. After an overrun the cycle runs `--moved`, which compares each checked constant's value in the working tree with its value at `HEAD` and prints the ones that differ, so the cycle can say which constants have already been re-seeded. The fix is to re-seed the constant from the newer measurement; committing it accepts the new value, as committing `rebuild/review-census-pins.json` accepts the census. The tolerance defaults to zero because each constant is already rounded up above its measured peaks, as its comment says: an estimate that is too low puts the machine into swap, while one that is too high only narrows a pool. A peak that reaches the constant has used all of that headroom. `--tolerance` is for a survey with `--host all`, not for relaxing the default.
 
 Observations are filtered to this host by default, because a per-unit peak is a property of one machine's working set, and a journal concatenated from several machines mixes machines running different versions of the code. Records that finished before the commit that set a constant's current value are set aside before anything is counted, so that after a constant is re-seeded downward, the older, higher peaks from the same host do not trip the check. `git blame` on the constant's line finds that commit, so a re-seed clears its row on the next pass. A constant that is edited but not yet committed has no such commit and keeps every record until it is committed. Within that bound, `--recent` keeps only the newest records, so that one anomalous run cannot hide a regression and a real improvement shows within a day's work. The journal records which machine measured a peak but not which machine a constant was sized on, so a unit with no rows from this host is reported as unverified on this host.
 """
@@ -145,15 +145,22 @@ UNITS: tuple[Unit, ...] = (
 )
 
 
-@functools.cache
-def _constant_assignment(path: Path, name: str) -> tuple[int, int]:
-    """Return the integer `path` assigns to `name` at module scope and the line number of that assignment, parsed with `ast` for the reason the module docstring gives. Only module-level assignments count, so a same-named local inside a function is ignored. A missing name raises, so a renamed constant fails the check instead of going unchecked."""
-    tree = ast.parse(path.read_text(encoding="utf-8"))
-    for node in tree.body:
+def _module_assignment(source: str, name: str) -> tuple[int, int] | None:
+    """Return the integer `source` assigns to `name` at module scope and the line number of that assignment, or None when it assigns none."""
+    for node in ast.parse(source).body:
         if isinstance(node, ast.Assign) and any(
             isinstance(target, ast.Name) and target.id == name for target in node.targets
         ):
             return int(ast.literal_eval(node.value)), node.lineno
+    return None
+
+
+@functools.cache
+def _constant_assignment(path: Path, name: str) -> tuple[int, int]:
+    """Return the integer `path` assigns to `name` at module scope and the line number of that assignment, parsed with `ast` for the reason the module docstring gives. Only module-level assignments count, so a same-named local inside a function is ignored. A missing name raises, so a renamed constant fails the check instead of going unchecked."""
+    found = _module_assignment(path.read_text(encoding="utf-8"), name)
+    if found is not None:
+        return found
     raise RuntimeError(
         f"{path} defines no {name}: make job-costs prices a measured peak against that constant, and a constant it cannot find is a width nothing is watching. Move the name in the UNITS registry beside whatever moved it there."
     )
@@ -231,6 +238,51 @@ def read_seed_stamps(root: Path = ROOT) -> dict[str, str]:
         if stamp is not None:
             stamps[unit.name] = stamp
     return stamps
+
+
+def watched_constants() -> tuple[tuple[str, str], ...]:
+    """Return the `(source, name)` of every constant this module checks: each `UNITS` constant, then the two kernel constants the kernel-build row's width reads (`DELTA_PEAK_BYTES` and `DEFAULT_MEMO_BYTES`)."""
+    pairs = [
+        (unit.source, unit.constant)
+        for unit in UNITS
+        if unit.constant is not None and unit.source is not None
+    ]
+    return (*pairs, (KERNEL_SOURCE, KERNEL_DELTA_NAME), (KERNEL_SOURCE, KERNEL_MEMO_NAME))
+
+
+def committed_constant(source: str, name: str, *, root: Path = ROOT) -> int | None:
+    """Return the integer `HEAD`'s copy of `source` assigns to `name`, or None when that copy assigns none. It raises when git cannot show the file at `HEAD` (no checkout, no commit, or an untracked file), because the caller would otherwise report every constant as moved."""
+    try:
+        shown = subprocess.run(
+            ["git", "show", f"HEAD:{source}"], cwd=root, capture_output=True, text=True, check=False
+        )
+    except OSError as exc:
+        raise RuntimeError(f"git could not show HEAD:{source}: {exc}") from exc
+    if shown.returncode != 0:
+        raise RuntimeError(f"git could not show HEAD:{source}: {shown.stderr.strip()}")
+    found = _module_assignment(shown.stdout, name)
+    return None if found is None else found[0]
+
+
+def moved_constants(root: Path = ROOT) -> list[tuple[str, int | None, int]]:
+    """Return `(name, value at HEAD, value in the working tree)` for every watched constant whose working-tree value differs from `HEAD`'s, in `watched_constants` order. It compares the values, not the text, so an uncommitted edit elsewhere in a constant's file moves nothing."""
+    moved: list[tuple[str, int | None, int]] = []
+    for source, name in watched_constants():
+        here = _module_assignment((root / source).read_text(encoding="utf-8"), name)
+        if here is None:
+            raise RuntimeError(f"{root / source} defines no {name}")
+        committed = committed_constant(source, name, root=root)
+        if committed != here[0]:
+            moved.append((name, committed, here[0]))
+    return moved
+
+
+def moved_lines(moved: list[tuple[str, int | None, int]]) -> list[str]:
+    """Return one `NAME: <HEAD value> at HEAD, <working-tree value> in the working tree` line per moved constant, in gigabytes. The artifact cycle reads the constant's name from the text before the colon."""
+    return [
+        f"{name}: {'not assigned' if committed is None else format_gb(committed) + ' GB'} at HEAD, {format_gb(here)} GB in the working tree"
+        for name, committed, here in moved
+    ]
 
 
 def read_constants(root: Path = ROOT) -> dict[str, int]:
@@ -576,9 +628,9 @@ def _report(args: argparse.Namespace, seed_stamps: Mapping[str, str] | None) -> 
 
 
 def main(argv: list[str] | None = None, *, seed_stamps: Mapping[str, str] | None = None) -> int:
-    """Print the report and return 0 for a report or a passing check, 1 when `--check` finds an overrun, and 2 when the tool fails. `seed_stamps` replaces the commit stamps read from git, so a test can supply them or supply none.
+    """Print the report and return 0 for a report or a passing check, 1 when `--check` finds an overrun, and 2 when the tool fails. `--moved` prints only the moved constants instead of the report. `seed_stamps` replaces the commit stamps read from git, so a test can supply them or supply none.
 
-    `_constant_assignment` raises when a constant has been renamed, so that the constant does not go unchecked. An uncaught exception would exit 1, and the artifact cycle reads 1 as an overrun: it diffs the files that hold the constants and writes OVERRUN into the cycle summary, pointing a reader at a re-seed nothing asked for. So `main` catches every failure and returns 2, which the cycle reports as informational.
+    `_constant_assignment` raises when a constant has been renamed, so that the constant does not go unchecked. An uncaught exception would exit 1, and the artifact cycle reads 1 as an overrun: it writes OVERRUN into the cycle summary, pointing a reader at a re-seed nothing asked for. So `main` catches every failure and returns 2, which the cycle reports as informational.
     """
     parser = argparse.ArgumentParser(
         description="Hold the checked-in per-unit memory peaks against what this box measured, and state the width each one implies here."
@@ -611,8 +663,17 @@ def main(argv: list[str] | None = None, *, seed_stamps: Mapping[str, str] | None
         action="store_true",
         help="exit 1 when an observed peak outruns its constant; a unit with no observations and a unit with no constant are informational and never fail, and a failure of the check itself exits 2 so a caller can tell a verdict from a crash",
     )
+    parser.add_argument(
+        "--moved",
+        action="store_true",
+        help="print only the checked constants whose working-tree value differs from HEAD's, one per line, and exit 0 (2 when git cannot show a constant's file at HEAD); the artifact cycle runs this after a tripped check to tell whether a constant has already been re-seeded",
+    )
     args = parser.parse_args(argv)
     try:
+        if args.moved:
+            for line in moved_lines(moved_constants()):
+                print(line)
+            return 0
         return _report(args, seed_stamps)
     except Exception as exc:
         print(f"job costs: check FAILED — {exc!r}", file=sys.stderr)
