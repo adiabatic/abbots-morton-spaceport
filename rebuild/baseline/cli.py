@@ -47,7 +47,7 @@ def build_parser() -> argparse.ArgumentParser:
         help="smoke run: a deterministic hash-keyed sample of about N basis strings, identical across runs and configurations",
     )
 
-    summarize_parser = subparsers.add_parser("summarize", help="write digests.tsv and SUMMARY.md")
+    summarize_parser = subparsers.add_parser("summarize", help="write SUMMARY.md from the digests")
     _add_out(summarize_parser)
     return parser
 
@@ -63,7 +63,7 @@ def main(argv: list[str] | None = None) -> None:
             print(f"{token}: {digest.rows} rows, sha256 {digest.sha256_uncompressed}")
     elif args.command == "summarize":
         path = extract.write_summary(args.out)
-        print(f"wrote {path} and {args.out / 'digests.tsv'}")
+        print(f"wrote {path}")
 
 
 if __name__ == "__main__":

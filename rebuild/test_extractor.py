@@ -1,4 +1,4 @@
-"""Unit tests for the baseline extractor: basis enumeration, row serialization, header rendering, seam classification on known pairs, sampling stability, and small-run determinism. The validation suite, including corpus replay, is rebuild/test_validation_suite.py."""
+"""Unit tests for the baseline extractor: basis enumeration, row serialization, header rendering, seam classification on known pairs, sampling stability, small-run determinism, and what the summarize command reports writing. The validation suite, including corpus replay, is rebuild/test_validation_suite.py."""
 
 import gzip
 
@@ -6,7 +6,7 @@ import pytest
 import uharfbuzz as hb
 from fontTools.ttLib import TTFont
 
-from rebuild.baseline import alphabet, extract, model
+from rebuild.baseline import alphabet, cli, extract, model
 from rebuild.baseline.classify import SeamClassifier
 from rebuild.baseline.model import CONFIGS, FONT_PATH, Row, render_header, row_sort_key
 from rebuild.baseline.shaper import Shaper
@@ -230,3 +230,10 @@ def test_small_extraction_is_deterministic(tmp_path):
     summary = summary_path.read_text(encoding="utf-8")
     assert summary.startswith("# Baseline extraction summary")
     assert "Corpus pin replay" not in summary
+
+
+def test_summarize_claims_only_the_summary_it_writes(tmp_path, capsys):
+    assert "digests.tsv" not in cli.build_parser().format_help()
+    cli.main(["summarize", "--out", str(tmp_path)])
+    assert capsys.readouterr().out == f"wrote {tmp_path / 'SUMMARY.md'}\n"
+    assert sorted(path.name for path in tmp_path.iterdir()) == ["SUMMARY.md"]
