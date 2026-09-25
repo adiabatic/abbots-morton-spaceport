@@ -2,7 +2,7 @@
 
 For each mapped stance, the check settles two single-stance versions of the ligature in the Rust engine: the ligature as authored, and the same ligature carrying the source stance's outgoing exits, unlocks, and applicable policy (with declared replacements standing in for excepted records). Both drop the stance's entry requirement and are settled after a boundary, so incoming requirements and the unformed trailing component's internal left neighbor do not affect the result. A formation guard that rescues an omitted exit does not satisfy this check. The conformance sweep checks the built font's full contextual stream; this check checks each stance's outgoing declaration before the tables are built.
 
-The right-hand windows cover every modeled letter and boundary token in the first two slots, plus windows that satisfy each authored right-side condition chain, including each rune's chains shifted one slot right with that rune as the follower. The seam and its height must match, and a yield must stay a yield, so a local record that drops a join, moves it to another height, or joins where the source yields fails the build. Windows are settled in batches of `kernel_exec.SETTLE_CASE_BATCH_SIZE`, with one pair of projected specs in memory at a time. Configurations under the isolated overlay pre-empt formation, so they are not checked and are listed in the summary's `formation_preempted`.
+The right-hand windows cover every modeled letter and boundary token in the first two slots, plus windows that satisfy each authored right-side condition chain, including each rune's chains shifted one slot right with that rune as the follower. The seam and its height must match, and a yield must stay a yield, so a local record that drops a join, moves it to another height, or joins where the source yields fails the build. Windows are settled through `kernel_exec.settle_windows`, which asks the crate for each window's settled record alone rather than its trace, in batches of `kernel_exec.SETTLE_WINDOW_BATCH`, with one pair of projected specs in memory at a time. A window the source projection refuses as `E-UNREACHABLE` is skipped, one only the ligature as authored refuses that way counts as having no seam, and any other refusal fails the check. Configurations under the isolated overlay pre-empt formation, so they are not checked and are listed in the summary's `formation_preempted`.
 """
 
 from __future__ import annotations
@@ -18,15 +18,15 @@ from rebuild.pipeline.model import (
     PolicyRecord,
     ResolvedSpec,
     Rune,
-    Settled,
     Stance,
     When,
     isolated_overlay_active,
 )
-from rebuild.pipeline.settle import EDGE, NAMER_DOT, SPACE, ZWNJ, LeftContext, RightToken, SettleError
+from rebuild.pipeline.settle import EDGE, NAMER_DOT, SPACE, ZWNJ, LeftContext, RightToken
 from rebuild.tools import console
 
 _BOUNDARIES = (EDGE, SPACE, ZWNJ, NAMER_DOT)
+_TOLERATED = frozenset({"E-UNREACHABLE"})
 
 
 class LigatureOutgoingError(ValueError):
@@ -190,15 +190,6 @@ def _right_windows(spec: ResolvedSpec) -> Iterable[tuple[RightToken, ...]]:
                             yield padded
 
 
-def _capability_answer(result: Mapping) -> Settled | None:
-    try:
-        return kernel_exec.trace_of(result).settled
-    except SettleError as error:
-        if error.bucket != "E-UNREACHABLE":
-            raise
-        return None
-
-
 def validate_ligature_outgoing(spec: ResolvedSpec, rune_raws: Mapping[str, dict]) -> dict:
     """Checks every mapped ligature stance in each configuration of `conform.ACCEPTANCE_CONFIGS` that the spec supports, skipping configurations under the isolated overlay. Raises `LigatureOutgoingError` naming the stance, configuration, and window of the first window whose seam differs from the source's, after the declared exceptions are applied. Returns counts for the build summary, which `run_m1.run_ligature_outgoing` writes to `ligature_outgoing_summary.json`."""
     mappings = []
@@ -227,13 +218,13 @@ def validate_ligature_outgoing(spec: ResolvedSpec, rune_raws: Mapping[str, dict]
         actual_spec, expected_spec = _projection_pair(spec, rune, stance, declaration)
         for config, features in configs:
             windows = ((left, right) for right in _right_windows(spec) for left in _BOUNDARIES)
-            for batch in batched(windows, kernel_exec.SETTLE_CASE_BATCH_SIZE):
+            for batch in batched(windows, kernel_exec.SETTLE_WINDOW_BATCH):
                 cases = [
                     kernel_exec.case_line(LeftContext(left.kind), RightToken("letter", rune.name), right)
                     for left, right in batch
                 ]
-                actual = kernel_exec.settle_cases(actual_spec, cases, features, decode=_capability_answer)
-                expected = kernel_exec.settle_cases(expected_spec, cases, features, decode=_capability_answer)
+                actual = kernel_exec.settle_windows(actual_spec, cases, features, tolerate=_TOLERATED)
+                expected = kernel_exec.settle_windows(expected_spec, cases, features, tolerate=_TOLERATED)
                 for (left, right), got, wanted in zip(batch, actual, expected, strict=True):
                     checked += 1
                     if wanted is None:

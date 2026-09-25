@@ -14,7 +14,7 @@ The table build's width is limited by memory, because a live configuration holds
 
 `guard_sweep` runs `guard-sweep` once and returns the complete mapping from `(ligature, first raw slot, second raw slot)` to the configuration-independent formation verdict. It is memoized per spec identity, so a process sweeps a spec once however many callers ask. `guard_sweep_under` returns the same mapping for one named configuration instead of quantifying over the powerset. It is not memoized, because only tests read it; they compare each configuration's verdicts with the quantified ones.
 
-The settlement and replay functions share the memoized spec dump. `replay_strings` is the enumeration-completeness check `run_m1.run_replay_strings` runs after every table build. One `replay-strings` process reads the settlement TSVs the build wrote and walks every text of the string universe, or only the texts naming the families the caller says changed, checking each window against the crate's own settlement. A disagreement raises `ReplayDisagreement` with the crate's message, which names the configuration, the window and the text. `settle_cases` is the raw form. It writes one tab-separated question line per independent window (`case_line` writes one) and returns the full Rust trace for each. It checks the answer count and that each answer line starts with its question verbatim, and decodes each distinct result once however many windows returned it. `settle_windows` asks the crate for the settled record alone (seven tab-separated fields under `--settled-only`) and decodes each straight to a `Settled`. The conform walker uses it because it needs only outcomes, not traces. Like `settle_sequences`, it takes an `on_error` argument, so a caller prefilling windows it may never read can get `None` for a refused window and keep the rest of the batch. `settle_sequences` is what explain, the probe and the review surface call. The subcommand takes independent windows, but a sequence's next left context is the previous window's result, so a batch of sequences advances in waves: every sequence's first position, then every second position using the first wave's results. Boundary positions are settled locally because their results are model constants. `settle_codepoints` settles one text. The CLI writes boundary tokens as `edge`, `space`, `zwnj`, `namer-dot` and `unknown`. The guard parser converts them to the `RightToken` constants in `settle`, so consumers never confuse these model tokens with glyph names such as `uni200C` or `periodcentered`.
+The settlement and replay functions share the memoized spec dump. `replay_strings` is the enumeration-completeness check `run_m1.run_replay_strings` runs after every table build. One `replay-strings` process reads the settlement TSVs the build wrote and walks every text of the string universe, or only the texts naming the families the caller says changed, checking each window against the crate's own settlement. A disagreement raises `ReplayDisagreement` with the crate's message, which names the configuration, the window and the text. `settle_cases` is the raw form. It writes one tab-separated question line per independent window (`case_line` writes one) and returns the full Rust trace for each. It checks the answer count and that each answer line starts with its question verbatim, and decodes each distinct result once however many windows returned it. `settle_windows` asks the crate for the settled record alone (seven tab-separated fields under `--settled-only`) and decodes each straight to a `Settled`. The conform walker and the ligature outgoing check use it because they need only outcomes, not traces. Like `settle_sequences`, it takes an `on_error` argument, so a caller prefilling windows it may never read can get `None` for a refused window and keep the rest of the batch, and its `tolerate` argument answers `None` for only the refusal buckets it names. `settle_sequences` is what explain, the probe and the review surface call. The subcommand takes independent windows, but a sequence's next left context is the previous window's result, so a batch of sequences advances in waves: every sequence's first position, then every second position using the first wave's results. Boundary positions are settled locally because their results are model constants. `settle_codepoints` settles one text. The CLI writes boundary tokens as `edge`, `space`, `zwnj`, `namer-dot` and `unknown`. The guard parser converts them to the `RightToken` constants in `settle`, so consumers never confuse these model tokens with glyph names such as `uni200C` or `periodcentered`.
 
 The codecs between the transport lines and the pipeline's model types live here too, because every settlement caller needs them: `case_line` for questions, and `trace_of` and `_settled_of_fields` for answers. A window the crate refuses returns `{raise, message}`. That becomes a `settle.SettleError` carrying the crate's error code as its bucket and its message verbatim, so a caller can sort refusals without parsing text. Any other malformed answer means the boundary itself is wrong and raises `KernelRunError`.
 
@@ -953,11 +953,13 @@ def trace_of(result) -> settle.TransitionTrace:
     )
 
 
-def _tolerated_settled_fields(text: str) -> Settled | None:
-    """`_settled_of_fields`, returning `None` for a refusal instead of raising. Only the crate's own refusal is caught: a malformed answer still raises `KernelRunError`, because it means the boundary is wrong, not the window."""
+def _tolerated_settled_fields(text: str, buckets: frozenset[str] | None = None) -> Settled | None:
+    """`_settled_of_fields`, returning `None` for a refusal instead of raising: any refusal when `buckets` is `None`, otherwise only a refusal whose bucket `buckets` names, with any other refusal still raised. Only the crate's own refusal is caught: a malformed answer still raises `KernelRunError`, because it means the boundary is wrong, not the window."""
     try:
         return _settled_of_fields(text)
-    except settle.SettleError:
+    except settle.SettleError as error:
+        if buckets is not None and error.bucket not in buckets:
+            raise
         return None
 
 
@@ -976,12 +978,18 @@ def settle_windows(
     batch: int = SETTLE_WINDOW_BATCH,
     modes: SettlementModes | None = None,
     on_error: str = "raise",
+    tolerate: frozenset[str] = frozenset(),
 ) -> list[Settled | None]:
-    """One `Settled` per case, in the order the cases were given, decoded directly from each answer line. The conform walker uses this: it keeps only each window's outcome, so it asks the crate for the settled record alone (`--settled-only`, seven tab-separated fields) instead of a trace whose ladder nothing reads. `batch` limits how many windows one invocation takes.
+    """One `Settled` per case, in the order the cases were given, decoded directly from each answer line. The conform walker and the ligature outgoing check use this: they keep only each window's outcome, so it asks the crate for the settled record alone (`--settled-only`, seven tab-separated fields) instead of a trace whose ladder nothing reads. `batch` limits how many windows one invocation takes.
 
-    `on_error="raise"` raises a refusal from the batch that met it, with the crate's message naming the left and the input. `on_error="drop"` puts `None` in that case's slot and decodes every other line as usual. A caller that settles windows it did not choose (the witness stage, which prefills every candidate string it might read) wants the other results, and wants a refusal to surface only where something reads that window. A malformed answer means the boundary is wrong, not the window, and raises `KernelRunError` in either mode.
+    `on_error="raise"` raises a refusal from the batch that met it, with the crate's message naming the left and the input, except that a refusal whose bucket `tolerate` names answers `None`. The ligature outgoing check tolerates `E-UNREACHABLE` this way, because a window no candidate can settle is a missing capability to it, while any other refusal is a fault it must report. `on_error="drop"` puts `None` in the slot of every refused case and decodes every other line as usual. A caller that settles windows it did not choose (the witness stage, which prefills every candidate string it might read) wants the other results, and wants a refusal to surface only where something reads that window. A malformed answer means the boundary is wrong, not the window, and raises `KernelRunError` in either mode.
     """
-    decode = _tolerated_settled_fields if on_error == "drop" else _settled_of_fields
+    if on_error == "drop":
+        decode = _tolerated_settled_fields
+    elif tolerate:
+        decode = lambda text: _tolerated_settled_fields(text, tolerate)
+    else:
+        decode = _settled_of_fields
     out: list[Settled | None] = []
     for start in range(0, len(cases), batch):
         out.extend(

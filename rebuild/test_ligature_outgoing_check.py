@@ -1,13 +1,14 @@
 """Tests for `ligature_outgoing_check`, which fails the build when a ligature stance loses a join its trailing component's source stance makes, moves that join to another height, or joins where the source stance yields. They run on a synthetic spec."""
 
+import json
 from dataclasses import replace
+from pathlib import Path
 
 import pytest
 
 from rebuild.pipeline import fixtures, kernel_exec
 from rebuild.pipeline.ligature_outgoing_check import (
     LigatureOutgoingError,
-    _capability_answer,
     _projection_pair,
     _right_windows,
     validate_ligature_outgoing,
@@ -260,11 +261,50 @@ def test_follower_policy_chains_are_shifted_into_the_probe_window():
     assert (letter("B"), letter("A"), letter("C"), letter("B")) in windows
 
 
+def _refusing_kernel(monkeypatch, bucket):
+    refusal = json.dumps({"raise": bucket, "message": "Synthetic ranking fault"}, separators=(",", ":"))
+
+    class Finished:
+        returncode = 0
+        stderr = b""
+
+        def __init__(self, arguments):
+            questions = Path(arguments[3]).read_text(encoding="utf-8").splitlines()
+            self.stdout = "".join(f"{question}\t{refusal}\n" for question in questions).encode()
+
+    monkeypatch.setattr(kernel_exec, "_run_kernel", lambda arguments, verb: Finished(arguments))
+
+
 @pytest.mark.parametrize("bucket", ["E-INCOMPARABLE", "E-AMBIGUOUS"])
-def test_ranking_errors_cannot_pass_as_missing_capability(bucket):
+def test_ranking_errors_cannot_pass_as_missing_capability(monkeypatch, bucket):
+    spec, raw = _world()
+    _refusing_kernel(monkeypatch, bucket)
     with pytest.raises(SettleError) as error:
-        _capability_answer({"raise": bucket, "message": "Synthetic ranking fault"})
+        validate_ligature_outgoing(spec, raw)
     assert error.value.bucket == bucket
+
+
+def test_an_unreachable_window_is_tolerated(monkeypatch):
+    spec, raw = _world()
+    _refusing_kernel(monkeypatch, "E-UNREACHABLE")
+    assert validate_ligature_outgoing(spec, raw)["windows"] > 0
+
+
+def test_windows_are_settled_as_settled_records_in_window_batches(monkeypatch):
+    calls = []
+    original = kernel_exec._settle_cases
+
+    def recording(spec_path, cases_path, cases, features, modes=None, decode=None, settled_only=False):
+        calls.append((len(cases), settled_only))
+        return original(spec_path, cases_path, cases, features, modes, decode, settled_only)
+
+    monkeypatch.setattr(kernel_exec, "_settle_cases", recording)
+    monkeypatch.setattr(kernel_exec, "SETTLE_WINDOW_BATCH", 100)
+    spec, raw = _world()
+    windows = validate_ligature_outgoing(spec, raw)["windows"]
+    assert all(settled_only for _size, settled_only in calls)
+    assert max(size for size, _settled_only in calls) == 100
+    assert sum(size for size, _settled_only in calls) == 2 * windows
 
 
 def test_a_join_that_survives_at_another_height_is_reported_as_moved():
