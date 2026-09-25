@@ -2049,6 +2049,17 @@ def test_pea_never_joins_on_both_sides_at_baseline():
         pytest.param(_qs_text("qsEt", "qsPea"), ["·Et ~b~ ·Pea"], id="et-pea"),
         pytest.param(_qs_text("qsAwe", "qsPea"), ["·Awe ~b~ ·Pea"], id="awe-pea"),
         pytest.param(_qs_text("qsEt", "qsPea", "qsTea"), ["·Et ~b~ ·Pea | ·Tea"], id="et-pea-tea"),
+        pytest.param(
+            _qs_text("qsEt", "qsPea", "qsAt", "qsMay"), ["·Et ~b~ ·Pea | ·At ~b~ ·May"], id="et-pea-at-may"
+        ),
+        pytest.param(
+            _qs_text("qsAwe", "qsPea", "qsSee", "qsEat"), ["·Awe ~b~ ·Pea | ·See+Eat"], id="awe-pea-see-eat"
+        ),
+        pytest.param(
+            _qs_text("qsEt", "qsPea", "qsSee", "qsUtter"),
+            ["·Et ~b~ ·Pea | ·See+Utter"],
+            id="et-pea-see-utter",
+        ),
     ],
 )
 def test_pea_joins_et_and_awe_at_baseline_when_it_joins_nothing_after(text: str, expects: list[str]):
@@ -2069,6 +2080,10 @@ def test_pea_joins_et_and_awe_at_baseline_when_it_joins_nothing_after(text: str,
 )
 def test_pea_keeps_its_onward_join_after_et_and_awe(text: str, expects: list[str]):
     _assert_expect_any(text, expects)
+
+
+def test_pea_joins_neither_side_after_et_before_the_alternate_utter():
+    _assert_expect_any(_qs_text("qsEt", "qsPea", "qsUtter", "qsAh"), ["·Et | ·Pea | ·Utter.alt ~b~ ·Ah"])
 
 
 @pytest.mark.parametrize(
@@ -2096,11 +2111,22 @@ def test_pea_joins_a_pea_that_dips_into_its_follower_at_y6(text: str, expects: l
     _assert_expect_any(text, expects)
 
 
+def _pea_joins_neither_side_before(glyph: str) -> bool:
+    """Return whether ·Pea after ·Et or ·Awe joins neither side before `glyph`: ·Utter's alternate, an exit-only ·See stance, or the ·Day+Eat ligature. doc/quikscript-yaml-conventions.md describes this accepted limit."""
+    meta = _compiled_meta().get(glyph)
+    if meta is None:
+        return False
+    if meta.base_name == "qsUtter":
+        return "alt" in meta.traits
+    if meta.base_name == "qsSee":
+        return not meta.entry
+    return meta.base_name == "qsDay_qsEat"
+
+
 def _pea_after_et_and_awe_seam_failures() -> list[str]:
+    letters = [name for name, _ in _plain_quikscript_letters()]
     followers = [(name,) for name, _ in _context_chars()] + [()]
-    followers += [sequence for _, sequence in _two_component_ligatures()]
-    # A ligature whose lead family is in `not_before` blocks `·Et ~b~ ·Pea` even when the ligature takes no join from ·Pea, the accepted limit that doc/quikscript-yaml-conventions.md describes.
-    not_before = _compiled_meta()["qsPea.en-y0.ex-noentry"].not_before
+    followers += list(product(letters, repeat=2))
     failures: list[str] = []
     for follower in followers:
         right_ys = _pair_join_ys(_shape_qs("qsPea", *follower), 0)
@@ -2115,7 +2141,9 @@ def _pea_after_et_and_awe_seam_failures() -> list[str]:
                 failures.append(
                     f"{label}: qsPea's right seam Ys {sorted(seam_ys)} differ from {sorted(right_ys)} without {left} in {glyphs}"
                 )
-            expects_join = not right_ys and (len(follower) < 2 or follower[0] not in not_before)
+            expects_join = not right_ys and not (
+                len(glyphs) > 2 and _pea_joins_neither_side_before(glyphs[2])
+            )
             if (0 in _pair_join_ys(glyphs, 0)) != expects_join:
                 failures.append(
                     f"{label}: {left} should join qsPea at Y=0 exactly when qsPea breaks after, in {glyphs}"

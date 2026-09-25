@@ -75,20 +75,20 @@
   "volatile": {
     "manifest": {
       "totals": {
-        "units": 2150838,
-        "rows": 7498328,
+        "units": 2150839,
+        "rows": 7498333,
         "batches": 777,
         "echo_groups": 9814
       },
       "machine_approved": {
-        "units": 1875525,
+        "units": 1875526,
         "by_class": {
           "boundary-echo": 260293,
           "zwnj-word-initial-unification": 136,
           "halves-entry-extension-restored": 330,
           "same-seam-extension-non-summing": 2030,
           "dangling-anchor-dropped": 352605,
-          "bare-name-live-join": 592829,
+          "bare-name-live-join": 592830,
           "may-jai-extension-consolidated": 981,
           "jai-entry-contraction-respelled": 395,
           "zoo-entry-contraction-respelled": 1287,
@@ -103,7 +103,7 @@
       "class_unit_count": {
         "boundary-echo": 289485,
         "dangling-anchor-dropped": 362939,
-        "bare-name-live-join": 611124
+        "bare-name-live-join": 611125
       },
       "secondary_seams": {
         "units_with_markers": 186859,
@@ -118,7 +118,7 @@
       "config_note_distribution": [
         [
           null,
-          1301889
+          1301890
         ],
         [
           "only under ss10",
@@ -175,17 +175,17 @@
       ]
     },
     "audit": {
-      "row_count": 7498328,
-      "units": 2157360
+      "row_count": 7498333,
+      "units": 2157361
     },
     "ink": {
-      "machine_total": 1084753,
+      "machine_total": 1084754,
       "non_identical": 1072607,
       "by_class": {
         "boundary-echo": 168058,
         "zwnj-word-initial-unification": 136,
         "dangling-anchor-dropped": 329695,
-        "bare-name-live-join": 585583,
+        "bare-name-live-join": 585584,
         "zoo-entry-contraction-respelled": 1281
       },
       "boundary_echo_exempt": 136182,
@@ -198,9 +198,9 @@
         "tea-it-xheight": 159,
         "oy-it-baseline": 126,
         "may-utter-gains": 1069,
-        "seam-loss-withdrawal": 15877,
+        "seam-loss-withdrawal": 15879,
         "extension-non-summing": 101568,
-        "unmatched-misc": 12988,
+        "unmatched-misc": 12986,
         "deferred-ss04": 11452,
         "deferred-ss03": 7378
       },
