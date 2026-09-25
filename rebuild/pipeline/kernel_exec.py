@@ -32,6 +32,7 @@ import subprocess
 import sys
 import tempfile
 import threading
+import zlib
 from collections import OrderedDict
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
@@ -424,11 +425,11 @@ class MemoHead:
 
 
 def read_memo_head(path: Path) -> MemoHead | None:
-    """The head of one packed memo, or None when there is no readable memo there — no file, another format, or a head short of its three fields."""
+    """The head of one packed memo, or None when there is no readable memo there — no file, another format, a gzip stream damaged before the head line ends, or a head short of its three fields."""
     try:
         with gzip.open(path, "rt", encoding="utf-8") as handle:
             first = handle.readline()
-    except OSError, EOFError, UnicodeDecodeError:
+    except OSError, EOFError, UnicodeDecodeError, zlib.error:
         return None
     marker, _tab, rest = first.rstrip("\n").partition("\t")
     if marker != f"# {MEMO_FORMAT}":

@@ -873,6 +873,26 @@ class TestTheMemoStamp:
         ]
         assert run_m1.memo_seed(tmp_path, stamp, tmp_path / "ss04", configs=("ss04",)) is None
 
+    def test_a_memo_damaged_in_its_head_block_is_skipped_and_left_in_place(self, tmp_path):
+        """Zeroed bytes after a valid gzip header make the head's decompression raise `zlib.error`, which `read_memo_head` treats as no readable memo."""
+        packed = kernel_exec.memo_path(tmp_path, "default")
+        packed.write_bytes(gzip.compress(b"")[:10] + bytes(4096))
+        assert kernel_exec.read_memo_head(packed) is None
+        assert run_m1.memo_seed(tmp_path, run_m1.memo_stamp(SPEC), tmp_path / "seed") is None
+        assert packed.exists()
+
+    def test_a_memo_damaged_after_a_readable_head_is_skipped_and_left_in_place(self, tmp_path):
+        """A readable head followed by a gzip member whose deflate data is zeroed passes the head check, then raises `zlib.error` during unpacking, so the seed drops its partial plain file and reads no memo."""
+        stamp = run_m1.memo_stamp(SPEC)
+        world = "+".join(kernel_exec.enumeration_tokens())
+        packed = kernel_exec.memo_path(tmp_path, "default")
+        head = f"# {kernel_exec.MEMO_FORMAT}\tdefault\t{world}\t{stamp}\n"
+        packed.write_bytes(gzip.compress(head.encode()) + gzip.compress(b"")[:10] + bytes(4096))
+        assert kernel_exec.read_memo_head(packed) is not None
+        assert run_m1.memo_seed(tmp_path, stamp, tmp_path / "seed") is None
+        assert list((tmp_path / "seed").iterdir()) == []
+        assert packed.exists()
+
 
 class TestTheMemoryDerivedThreadDefault:
     """The default table-build width is the machine's memory, less the OS reserve and `DEFAULT_MEMO_BYTES`, divided by `DELTA_PEAK_BYTES`. Its value depends on the machine running the suite, so these tests pass invented totals through the `total_bytes` keyword of `kernel_threads_default` and `replay_threads_default`. `KERNEL_THREADS_DEFAULT` is resolved at import; changing it would mean reloading the module, which resets `_BUILT` and drops the spec dumps other tests in the session hold."""
