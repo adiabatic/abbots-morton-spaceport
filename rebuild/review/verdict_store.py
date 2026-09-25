@@ -100,14 +100,18 @@ class VerdictStore:
         self.reload()
 
     def reload(self) -> None:
-        """Replace the store's content with the file's. A missing file or one that is not a verdicts document leaves the store empty and unstamped, so the next save overwrites it without stashing it."""
-        raw = None
+        """Replace the store's content with the file's. A missing file or one that is not a verdicts document leaves the store empty and unstamped, so the next save overwrites it without stashing it.
+
+        The signature comes from the open handle, so it describes the bytes the store parsed even when another writer renames a new file over the path mid-read; the next `refresh_if_changed` then sees the new file and reloads. When the file cannot be opened or read, the signature is None, so a file renamed into place after the failed open leaves a mismatch, and an existing file the store could not read is reloaded on the next refresh.
+        """
         try:
-            if self.path.exists():
-                raw = self.path.read_bytes()
+            with self.path.open("rb") as f:
+                stat = os.fstat(f.fileno())
+                raw = f.read()
+            self._signature = (stat.st_mtime_ns, stat.st_size)
         except OSError:
             raw = None
-        self._signature = _file_signature(self.path)
+            self._signature = None
         data = parse_autosave_payload(raw) if raw is not None else None
         self._replace(data["manifest_generated_at"] if data else None, data["verdicts"] if data else [])
         self._invalidate_tokens()
@@ -206,8 +210,9 @@ class VerdictStore:
     def _write_bytes(self, raw: bytes) -> None:
         tmp = self.path.with_name(self.path.name + ".tmp")
         tmp.write_bytes(raw)
+        signature = _file_signature(tmp)
         os.replace(tmp, self.path)
-        self._signature = _file_signature(self.path)
+        self._signature = signature
 
     def write(self) -> None:
         self._write_bytes(self.payload_bytes())
