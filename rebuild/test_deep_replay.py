@@ -1,4 +1,4 @@
-"""Tests for the deep replay's decisions, with the walk stubbed out: which runes it walks after an edit, which inputs it refuses, what it records on a pass and leaves alone on a failure, how the cycle reports its status, the width it walks at, and the memo ceiling it passes to the crate. The walk is `kernel_exec.replay_strings`. The build's own horizon-4 replay exercises it everywhere except the `memo_windows` keyword, which the build never passes. `TestTheStringReplay` in rebuild/test_kernel_exec.py tests `memo_windows` through the subcommand."""
+"""Tests for the deep replay's decisions, with the walk stubbed out: which runes it walks after an edit, which inputs it refuses, what it records on a pass and withdraws on a failure, how the cycle reports its status, the width it walks at, and the memo ceiling it passes to the crate. The walk is `kernel_exec.replay_strings`. The build's own horizon-4 replay exercises it everywhere except the `memo_windows` keyword, which the build never passes. `TestTheStringReplay` in rebuild/test_kernel_exec.py tests `memo_windows` through the subcommand."""
 
 import pytest
 
@@ -131,6 +131,56 @@ def test_a_disagreement_records_nothing(bench, monkeypatch, capsys):
     assert ac.read_green_record(bench / "rebuild" / "out" / "deep-replay-green.json") is None
     assert JOURNAL == [("red", ["--families", "qsPea", "--threads", "1"])]
     assert "qsUtter qsBay qsGay qsIt qsPea" in capsys.readouterr().err
+
+
+def test_a_disagreement_withdraws_the_walked_runes_from_a_green_record(bench, monkeypatch):
+    """A red walk over runes the record holds green at their current digests withdraws those runes, so the status reports them armed and a bare walk covers them again, while the record keeps the runes the walk did not cover. A red `--all` walk deletes the record."""
+    path = bench / "rebuild" / "out" / "deep-replay-green.json"
+    ac.record_deep_replay_green(dict(RUNES), 5, "structure-1", path=path)
+    _stub_walk(monkeypatch, disagree="replay disagreement at position 1 of qsPea qsIt")
+    assert deep_replay.main(["--families", "qsPea", "--threads", "1"]) == 1
+    record = ac.read_green_record(path)
+    assert record is not None
+    assert record["files"] == {"qsTea": "t1", "qsIt": "i1"}
+    assert record["horizon"] == 5 and record["structure"] == "structure-1"
+    status, note = ac.deep_replay_status(bench)
+    assert status == "armed" and "qsPea" in note and "qsTea" not in note
+    walked: list = []
+    _stub_walk(monkeypatch, walked)
+    assert deep_replay.main(["--threads", "1"]) == 0
+    assert walked == [(5, ["qsPea"], 1)]
+    assert ac.deep_replay_status(bench)[0] == "current"
+    _stub_walk(monkeypatch, disagree="replay disagreement at position 1 of qsTea qsIt")
+    assert deep_replay.main(["--all", "--threads", "1"]) == 1
+    assert ac.read_green_record(path) is None
+    assert ac.deep_replay_status(bench)[0] == "never-run"
+
+
+def test_a_disagreeing_bare_walk_withdraws_the_moved_runes_and_their_readers(bench, monkeypatch):
+    """A red walk whose runes come from the record withdraws every rune it walked, including a reader whose own digest has not changed, and keeps the rest of the record, so the status names the reader armed instead of reporting "nothing moved"."""
+    path = bench / "rebuild" / "out" / "deep-replay-green.json"
+    ac.record_deep_replay_green(dict(RUNES), 5, "structure-1", path=path)
+    moved = {**RUNES, "qsPea": "p2"}
+    monkeypatch.setattr(deep_replay.fingerprint, "rune_digests", lambda root: dict(moved))
+    monkeypatch.setattr(
+        deep_replay.spec_load,
+        "rune_closure",
+        lambda spec: {
+            "qsPea": frozenset({"qsPea"}),
+            "qsTea": frozenset({"qsTea", "qsPea"}),
+            "qsIt": frozenset({"qsIt"}),
+        },
+    )
+    walked: list = []
+    _stub_walk(monkeypatch, walked, disagree="replay disagreement at position 1 of qsTea qsPea")
+    assert deep_replay.main(["--threads", "1"]) == 1
+    assert walked == [(5, ["qsPea", "qsTea"], 1)]
+    record = ac.read_green_record(path)
+    assert record is not None
+    assert record["files"] == {"qsIt": "i1"}
+    assert record["horizon"] == 5 and record["structure"] == "structure-1"
+    status, note = ac.deep_replay_status(bench)
+    assert status == "armed" and "qsTea" in note
 
 
 def test_the_walk_hands_the_crate_its_memo_ceiling(bench, monkeypatch, capsys):
