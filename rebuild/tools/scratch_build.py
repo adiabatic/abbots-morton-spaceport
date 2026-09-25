@@ -82,7 +82,7 @@ def build_and_oracle(
     (out_dir / "readback_summary.json").write_text(json.dumps(readback_report, indent=2) + "\n")
     if not readback_report["pass"]:
         raise readback.ReadbackError(
-            f"{len(readback_report['divergences'])} read-back divergence(s) between the scratch font and the plan; see {out_dir / 'readback_summary.json'}"
+            f"{readback_report['divergence_count']} read-back divergence(s) between the scratch font and the plan; see {out_dir / 'readback_summary.json'}"
         )
 
     report = oracle.compare_against_baseline(

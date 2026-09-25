@@ -354,6 +354,22 @@ class TestCorruptions:
         assert len(breached) == 1 and "65,536-byte floor" in breached[0]
         assert report["divergences"] == breached
 
+    def test_the_report_counts_every_divergence_past_the_trimmed_list(self, built, monkeypatch):
+        """When more divergences are found than `MAX_DIVERGENCES`, `divergences` holds the first ones and one line saying how many more, and `divergence_count` holds the total."""
+        font_path, plan, cursive, _twins = built
+        displaced = {
+            y: {glyph: ((-1, -1), (-1, -1)) for glyph in registrations}
+            for y, registrations in cursive.items()
+        }
+        monkeypatch.setattr(readback, "MAX_DIVERGENCES", 10_000)
+        total = len(readback.verify_font(font_path, plan, displaced)["divergences"])
+        assert total > 2
+        monkeypatch.setattr(readback, "MAX_DIVERGENCES", 1)
+        report = readback.verify_font(font_path, plan, displaced)
+        assert report["divergence_count"] == total
+        assert len(report["divergences"]) == 2
+        assert report["divergences"][-1] == f"… and {total - 1} more"
+
     def test_a_single_substitution_of_the_zwnj(self, built, tmp_path):
         """A pre-empt lookup that substitutes the ZWNJ would replace a word boundary with a drawn letter. Read-back reports it without a shaping sweep."""
 

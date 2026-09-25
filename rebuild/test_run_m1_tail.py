@@ -55,6 +55,7 @@ def _stub_chain(monkeypatch, events, *, on_compile=None, readback_pass=True):
         lambda font, plan, registrations: {
             "pass": readback_pass,
             "divergences": [] if readback_pass else ["a divergence"],
+            "divergence_count": 0 if readback_pass else 1,
         },
     )
 
@@ -193,6 +194,24 @@ class TestTheFirstRed:
         _stub_chain(monkeypatch, events, readback_pass=False)
         _stub_gates(monkeypatch, events)
         with pytest.raises(run_m1.readback.ReadbackError):
+            _run(tmp_path)
+
+    def test_a_red_readback_names_the_total_count_rather_than_the_trimmed_list_length(
+        self, monkeypatch, tmp_path
+    ):
+        events: list = []
+        _stub_chain(monkeypatch, events, readback_pass=False)
+        monkeypatch.setattr(
+            run_m1.readback,
+            "verify_font",
+            lambda font, plan, registrations: {
+                "pass": False,
+                "divergences": ["a divergence", "… and 199 more"],
+                "divergence_count": 200,
+            },
+        )
+        _stub_gates(monkeypatch, events)
+        with pytest.raises(run_m1.readback.ReadbackError, match=r"^200 read-back divergence\(s\)"):
             _run(tmp_path)
 
     def test_a_red_replay_beats_a_red_walk_at_the_join(self, monkeypatch, tmp_path):
