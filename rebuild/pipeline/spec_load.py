@@ -805,6 +805,7 @@ class _Linter:
             against = record.get("against")
             if isinstance(against, dict):
                 self._check_family(against.get("rune", ""), f"{record_path}.against.rune")
+            self._check_when_refs(record.get("when"), f"{record_path}.when")
         for group_name, group in (policy.get("groups") or {}).items():
             group_path = f"policy.groups.{group_name}"
             if group_name in self.classes:
