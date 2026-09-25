@@ -1001,7 +1001,7 @@ function buildMachineFold(classId, total, badge, records, pinned, foldFilters, {
     return fold;
   }
   // Rows come from the locator a block at a time and records from the shard a window at a time, so opening a fold costs one window whatever the class size, and the reader requests each further window. Filters apply per record, so under a filter a window shows only the matching rows it read, and the count line says how many rows have been read.
-  const pinnedIds = new Set(pinned.map((unit) => unit.id));
+  const pinnedById = new Map(pinned.map((unit) => [unit.id, unit]));
   const more = el('button', 'fold-more');
   more.type = 'button';
   let blocks = null;
@@ -1010,7 +1010,7 @@ function buildMachineFold(classId, total, badge, records, pinned, foldFilters, {
   let read = 0;
   let shown = 0;
   let loading = null;
-  // The count line covers the windows only. A pinned row is the deep-linked unit, drawn before the windows whether or not its window has been read.
+  // The count line covers the windows only. A pinned row is the deep-linked unit, drawn before the windows whether or not its window has been read, and counted as shown once its window has been read and only if it matches the filters.
   const describe = () => {
     const unread = classRows - read;
     if (unread <= 0) {
@@ -1039,10 +1039,10 @@ function buildMachineFold(classId, total, badge, records, pinned, foldFilters, {
       for (const row of block.slice(cursor.row, cursor.row + take)) rows.push(row);
       cursor = cursor.row + take >= block.length ? { block: cursor.block + 1, row: 0 } : { block: cursor.block, row: cursor.row + take };
     }
-    const fetched = await fetchRecordsBySpans(rows.filter((row) => !pinnedIds.has(row.id)));
+    const fetched = await fetchRecordsBySpans(rows.filter((row) => !pinnedById.has(row.id)));
     const units = [];
     for (const row of rows) {
-      const unit = fetched.get(row.id);
+      const unit = pinnedById.get(row.id) ?? fetched.get(row.id);
       if (unit && unitMatchesFilters(unit, foldFilters, undefined)) units.push(unit);
     }
     read += rows.length;
