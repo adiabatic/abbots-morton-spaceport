@@ -808,7 +808,7 @@ def _run_glyph_chain(spec: ResolvedSpec, tables: Mapping[str, tuple], out_dir: P
     console.timing("readback", time.perf_counter() - start)
     if not readback_report["pass"]:
         raise readback.ReadbackError(
-            f"{len(readback_report['divergences'])} read-back divergence(s) between the compiled font and the plan; see {out_dir / 'readback_summary.json'}"
+            f"{readback_report['divergence_count']} read-back divergence(s) between the compiled font and the plan; see {out_dir / 'readback_summary.json'}"
         )
 
     summary = {

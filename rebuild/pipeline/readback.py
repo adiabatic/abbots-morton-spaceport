@@ -8,7 +8,7 @@ It also checks that the ss10 overlay is isolated (`_check_isolation`, `_check_an
 
 The stage is a transcription round-trip only. It does not simulate shaping: it does not apply lookups to a buffer, compose stages, or decide which of two competing rules wins. It checks `pack_gsub`'s repack on the written bytes by decompiling the settlement lookup through `pack_gsub.per_glyph_sequences` and comparing each input glyph's ordered rules with the plan. Ordered rules are compared per input glyph for settlement and per lead glyph for formation, because first-match-wins only orders rules that share an input glyph, and feaLib may regroup the others. feaLib compiles each chained-context ruleset in whichever of the three formats is smallest, so the guarded formation is format 1 in a small font and format 3 in the shipped one, and the settlement lookup arrives as a packed mix of formats 2 and 3.
 
-`verify_font` does not raise on a divergence. It collects messages and reports `pass`. `run_m1` writes the report to `readback_summary.json` and then raises `ReadbackError`, so the evidence survives the failure. The GSUB offset budget is reported the same way: `gsub_offset_budget` reads the uint16 subtable-offset headroom from the raw table bytes of this same parse, the report records it under `checked["gsub_budget"]`, and headroom below `SUBTABLE_OFFSET_HEADROOM_FLOOR` is a divergence. An actual overflow cannot ship, because fontTools' save fails on an overflow of a lookup's subtable-offset array, so the floor is an early warning. In the Extension-wrapped settlement lookup each subtable costs a 2-byte offset entry plus an 8-byte ExtensionSubst record, so the 16,384-byte floor sits about 1,600 subtables short of the overflow. The floor has twice caught a font that fontTools would have saved without error: the depth-4 rules, which led `m1_settle` to use Extension, and the simulated-prospect table, which led to `pack_gsub`. Those two catches are why it stays at this value.
+`verify_font` does not raise on a divergence. It collects messages and reports `pass`, the first `MAX_DIVERGENCES` messages, and the total count. `run_m1` writes the report to `readback_summary.json` and then raises `ReadbackError` naming that total, so the evidence survives the failure. The GSUB offset budget is reported the same way: `gsub_offset_budget` reads the uint16 subtable-offset headroom from the raw table bytes of this same parse, the report records it under `checked["gsub_budget"]`, and headroom below `SUBTABLE_OFFSET_HEADROOM_FLOOR` is a divergence. An actual overflow cannot ship, because fontTools' save fails on an overflow of a lookup's subtable-offset array, so the floor is an early warning. In the Extension-wrapped settlement lookup each subtable costs a 2-byte offset entry plus an 8-byte ExtensionSubst record, so the 16,384-byte floor sits about 1,600 subtables short of the overflow. The floor has twice caught a font that fontTools would have saved without error: the depth-4 rules, which led `m1_settle` to use Extension, and the simulated-prospect table, which led to `pack_gsub`. Those two catches are why it stays at this value.
 """
 
 from __future__ import annotations
@@ -761,7 +761,7 @@ def verify_font(
     plan: GsubPlan,
     cursive: Mapping[int, Mapping[str, Registration]],
 ) -> dict:
-    """Re-parse the font at `font_path` and run every check in this module against the emitters' plan: registrations, lookup order, lookupFlags, lookup contents, the boundary glyphs, the overlay's isolation, and the GSUB offset budget. Returns the JSON-ready report `run_m1` writes to `readback_summary.json`. Divergences are collected in the report, not raised."""
+    """Re-parse the font at `font_path` and run every check in this module against the emitters' plan: registrations, lookup order, lookupFlags, lookup contents, the boundary glyphs, the overlay's isolation, and the GSUB offset budget. Returns the JSON-ready report `run_m1` writes to `readback_summary.json`. Divergences are collected in the report, not raised: `divergences` holds the first `MAX_DIVERGENCES` messages and, when there are more, one line saying how many more, and `divergence_count` holds the total."""
     from fontTools.ttLib import TTFont
 
     divergences: list[str] = []
@@ -857,4 +857,5 @@ def verify_font(
         "font": str(font_path),
         "checked": checked,
         "divergences": reported,
+        "divergence_count": len(divergences),
     }
