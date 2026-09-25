@@ -4,6 +4,7 @@ They cover every match shape in `sv.SHAPES`, the composed reading that credits t
 """
 
 import gzip
+import itertools
 import json
 import pathlib
 import re
@@ -4819,6 +4820,31 @@ def test_the_checked_in_may_stub_rule_reads_the_drop_and_nothing_wider(slide_con
 def test_an_entry_drop_is_not_a_stub_drop(slide_context):
     assert not sv._matches(STUB_RULE["match"], entry_window(), context=slide_context())
     assert not sv._matches(ENTRY_RULE["match"], stub_window(), context=slide_context())
+
+
+@pytest.mark.parametrize(
+    ("window", "before", "after", "expected"),
+    [
+        (stub_window, "qsMay.en-y5", "qsMay.loop", {"slide": False, "entry_drop": False, "stub_drop": True}),
+        (
+            entry_window,
+            "qsLow.en-ext-1",
+            "qsLow.hapax",
+            {"slide": False, "entry_drop": True, "stub_drop": False},
+        ),
+    ],
+)
+def test_same_parameter_rules_of_different_shapes_do_not_share_a_memo_entry(
+    slide_context, window, before, after, expected
+):
+    """A slide, an entry-extension-dropped and a stub-dropped rule over the same pivots and count each keep their own verdict on one context, whichever runs first. The stub window is where only the stub-dropped rule matches and the entry window is where only the entry-extension-dropped rule does, so between them every pair of the three shapes has one member that matches."""
+    pivots = {"before": {"pivots": [before]}, "except_left": []}
+    matches = {field: {**pivots, "after": {"pivots": [after], field: 1}} for field in expected}
+    alone = {field: sv._matches(match, window(), context=slide_context()) for field, match in matches.items()}
+    assert alone == expected
+    for order in itertools.permutations(matches):
+        context = slide_context()
+        assert {field: sv._matches(matches[field], window(), context=context) for field in order} == expected
 
 
 COMPOSED_STUB_GLYPHS = ["qsRoe.en-ext-1-at-5", "qsK", "qsMay.en-y5"]
