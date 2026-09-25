@@ -1,4 +1,4 @@
-"""Synthetic contract probes for outgoing joins preserved through ligature formation."""
+"""Tests for `ligature_outgoing_check`, which fails the build when a ligature stance loses a join its trailing component's source stance makes, moves that join to another height, or joins where the source stance yields. They run on a synthetic spec."""
 
 from dataclasses import replace
 

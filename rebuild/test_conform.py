@@ -1,4 +1,4 @@
-"""Conformance-module helper tests: normalization, the raw-pipeline replay, alias/ledger plumbing, kern evaluation, and the memoized settled-window walk's equivalence to settling the same texts unmemoized. The font-facing sweep itself runs in run_m1 (it needs the compiled mini-font). Settlement here is the crate's, so these arms need a built kernel: the guard sweep and the walk both invoke it, once per module for the sweep and in waves for the walk."""
+"""Tests for conform.py and the oracle stages that consume it: label normalization, the raw GSUB replay, the isolated overlay, alias and ledger matching, kern evaluation and the position channel, the oracle's audit shards, row cache and row ranges, the belt's bookkeeping, and the memoized settle walk and its memo file, checked against settling the same texts without a memo. The belt at its full horizon runs in run_m1 against the compiled M1 font. Settlement comes from the Rust crate, so these tests need a built kernel: the formation-guard sweep and the settle walk both call it."""
 
 import gzip
 import hashlib
@@ -45,7 +45,7 @@ def spec():
 
 @pytest.fixture(scope="module")
 def guard(spec):
-    """The crate's complete section 5.7 verdict surface for the fixture spec, swept once for the whole module — every formation call below takes it as an argument rather than sweeping for itself."""
+    """The crate's section 5.7 formation-guard verdicts for the fixture spec, swept once for the module and passed to the formation calls below."""
     return kernel_exec.guard_sweep(spec)
 
 
@@ -104,7 +104,7 @@ class TestNormalization:
         assert conform.settled_names(spec, [item], {cell: "qsMay"}) == ["qsMay"]
 
     def test_isolated_overlay_labels_render_one_twin_per_raw_token(self, spec):
-        """Under the overlay a ligature's components stand as two twins — the pre-empt substitutes before formation, so nothing forms — and a boundary token is its own glyph."""
+        """Under the overlay each component of a ligature renders as its own twin, because the ss10 pre-empt substitutes the twins before formation. A boundary token renders as its own glyph."""
         tokens = conform.isolated_overlay_tokens(spec, IT + TEA + OY + ZWNJ)
         assert conform.isolated_overlay_labels(spec, tokens) == [
             "qsIt.ss10",
@@ -120,7 +120,7 @@ DOT = chr(0x00B7)
 
 
 class TestIsolatedOverlay:
-    """The overlay configuration has no settlement table: `OVERLAY_CONFIGS` names exactly the acceptance configurations whose features activate a registered `overlay: isolated` taste set, the settlement roster is the rest, and everything the oracle and the belt do for it comes from the registry and the font's `hmtx` rather than from the crate."""
+    """`OVERLAY_CONFIGS` is exactly the acceptance configurations whose features activate an `overlay: isolated` taste set, and `SETTLEMENT_CONFIGS` is the rest. For an overlay configuration the oracle and the belt take everything from the registry and the font's `hmtx`, and never call the crate."""
 
     def test_the_rosters_partition_the_acceptance_set_by_the_registry(self, spec):
         from rebuild.pipeline.model import isolated_overlay_active
@@ -177,7 +177,7 @@ class TestIsolatedOverlay:
         assert divergent.new_seams == ("break",)
 
     def test_the_overlay_arm_sweeps_two_letters_and_never_reaches_the_crate(self, spec, monkeypatch):
-        """Whatever horizon the belt runs at, the overlay arm sweeps every letter and every pair and no more, and it forms, settles and memoizes nothing — the crate is unreachable for the whole of it."""
+        """At any belt horizon, the overlay branch shapes every text of one or two alphabet symbols and nothing longer, and it never forms, settles, memoizes or calls the crate."""
 
         def unreachable(*args, **kwargs):
             raise AssertionError("the overlay arm reached the crate")
@@ -282,7 +282,7 @@ class TestAliasAndLedger:
 
     @staticmethod
     def _walk_raw_ledger(ledger, row):
-        """The reference answer: every entry's `match` re-read for this row, in ledger order, with no bucketing — the walk the compiled form has to reproduce id for id."""
+        """The reference result: each entry's `match` evaluated against the row in ledger order, without the compiled buckets. The compiled ledger must return the same ids in the same order."""
         classified = oracle.classify_divergence(row)
         matches = []
         for entry in ledger:
@@ -370,7 +370,7 @@ class TestAliasAndLedger:
     ]
 
     def test_the_compiled_ledger_answers_what_a_walk_of_the_raw_ledger_answers(self):
-        """The compiled form against the raw walk over a ledger that exercises every arm — a class-grain entry open to every configuration and one scoped to a single configuration, a function predicate, a predicate in neither map, an empty `match`, a `window` test, a `seam_change` test and an entry with no `id` — crossed with rows that reach each of them. List equality pins the ids and their order at once."""
+        """The compiled ledger against the reference walk, over a ledger with one entry of each kind: a class entry open to every configuration, a class entry scoped to one configuration, a function predicate, a predicate in neither map, an empty `match`, a `window` test, a `seam_change` test, and an entry with no `id`. The rows reach each of them. List equality checks both the ids and their order."""
         ledger = self._LEDGER_FOR_EVERY_ARM
         compiled = oracle.compile_ledger(ledger)
         answers = {}
@@ -389,7 +389,7 @@ class TestAliasAndLedger:
         }
 
     def test_a_two_plus_match_comes_back_in_ledger_order_from_either_end(self):
-        """A row that matches a class-grain entry and an unconditional entry at once takes its two hits out of two buckets, and the list still reads in ledger order whichever entry the ledger writes first. `rebuild/out/m1/oracle_summary.json` reports no multi-match on the live ledger, so nothing but this pins the order."""
+        """A row that matches a class entry and an unconditional entry takes its two hits from two buckets, and the list still comes back in ledger order whichever entry the ledger lists first. The run_m1 gate requires zero multi-matched rows on the live ledger, so no other test checks this order."""
         row = conform.DivergentRow(
             config="default",
             codepoints="E650:E665",
@@ -413,7 +413,7 @@ class TestAliasAndLedger:
             assert oracle._match_ledger(ledger, row) == expected
 
     def test_an_empty_match_takes_every_row_and_an_unknown_predicate_takes_none(self):
-        """An entry whose `match` is empty matches every row, the unclassified one included; an entry naming a predicate in neither `CLASS_PREDICATE_IDS` nor `PREDICATES` matches no row and is filed in no bucket, which is the raw walk's answer and not a lost entry."""
+        """An empty `match` matches every row, including the unclassified one. An entry whose predicate is in neither `CLASS_PREDICATE_IDS` nor `PREDICATES` matches no row and goes into no bucket, which is also what the reference walk returns for it."""
         ledger = [
             {"id": "unknown", "match": {"predicate": "no_such_predicate"}},
             {"id": "everything", "match": {}},
@@ -429,7 +429,7 @@ class TestAliasAndLedger:
         assert oracle._match_compiled(compiled, unclassified) == ["everything"]
 
     def test_a_bare_string_configs_keeps_the_raw_walk_s_test_and_a_missing_value_is_refused(self):
-        """A bare-string `configs` keeps the substring `in` test the raw walk gives it — the ss05 row matches `ss03+ss05` under that test and would not under an exact one — and a `configs:` with no value is refused when the ledger compiles instead of matching every configuration in silence."""
+        """A bare-string `configs` keeps the reference walk's substring `in` test: the ss05 row matches `ss03+ss05` under it and would not under an exact match. A `configs:` with no value fails when the ledger compiles instead of matching every configuration."""
         bare = [{"id": "bare", "match": {"predicate": "dangling_anchor_dropped", "configs": "ss03+ss05"}}]
         compiled = oracle.compile_ledger(bare)
         for row in self._rows_for_every_arm():
@@ -477,7 +477,7 @@ class TestAliasAndLedger:
             assert oracle.classify_divergence(row) == expected, phenomena
 
     def test_boundary_blanket_takes_every_nonposition_row(self):
-        """The ratified boundary-equals-word-boundary rule: a window containing a run-splitting boundary (space or ZWNJ) has its cell/seam-grain divergence absorbed ahead of every other class, whatever its phenomena; position-only rows stay on the kern-attribution channel."""
+        """The boundary-equals-word-boundary rule: in a window that contains a run-splitting boundary (space or ZWNJ), a cell or seam divergence classifies as `boundary-echo` ahead of every other class, whatever its phenomena. A position-only row gets no class here; it goes to the kern-attribution predicate."""
         for codepoints in ["200C:E670:E670", "0020:E670:E670"]:
             base = conform.DivergentRow(
                 config="default",
@@ -533,7 +533,7 @@ class TestAliasAndLedger:
             assert oracle.classify_divergence(other) is None
 
     def test_zoo_contraction_class_excludes_the_unchanged_position_it_roe_redraw(self):
-        """The old ·It·Roe pixels differ before ·Tea·Zoo even when every origin and advance matches. That residue must stay visible instead of riding the downstream entry-contraction identity."""
+        """In the window ·It·Roe·Tea·Zoo the old ·It·Roe pixels differ from the new ones even though every origin and advance matches, so the position channel cannot catch the change. The ·Zoo entry-contraction class must exclude that window so the difference stays visible."""
         row = conform.DivergentRow(
             config="default",
             codepoints="E670:E668:E652:E65B",
@@ -599,7 +599,7 @@ class TestKernEvaluator:
 
 class TestAliasCompleteness:
     def _names(self, tmp_path, names):
-        """The sidecar the refilter writes, which is now the alias check's whole input — so these arms stand up a names document rather than a pile of subset tables."""
+        """Write the subset-names sidecar that the refilter writes. The alias check reads only this file, so these tests need no subset tables."""
         path = tmp_path / baseline_subset.NAMES_NAME
         path.write_text(json.dumps({"format": baseline_subset.NAMES_FORMAT, "names": names}) + "\n")
         return path
@@ -668,7 +668,7 @@ class TestPositionChannel:
 
 
 class TestPositionProjection:
-    """`Shaper.positions` against the triple projection of `Shaper.shape` over the frozen mini bundle's rows and the checked-in smoke set, under every acceptance configuration's features. The shaper keeps one HarfBuzz buffer for its whole life, so the corpus is shaped interleaved through both projections: a kept buffer that carried anything between calls, or a projection returning zeros of the right length, reads red here."""
+    """`Shaper.positions` must equal the (x_offset, y_offset, x_advance) projection of `Shaper.shape`, over the first 400 rows of each frozen mini-bundle table and the checked-in smoke sequences, under every acceptance configuration's features. The shaper reuses one HarfBuzz buffer for its whole life, so the corpus goes through both projections alternately. A buffer that kept state between calls, or a projection that returned zeros of the right length, fails here."""
 
     @pytest.fixture(scope="class")
     def corpus(self) -> list[tuple[frozenset[str], str]]:
@@ -893,7 +893,7 @@ class TestConformanceMerge:
     def test_per_configuration_workers_merged_in_any_order_write_the_serial_report(
         self, spec, guard, tmp_path
     ):
-        """The pooled belt at any width against the serial one, with no pool: each configuration swept by the worker a pool would run, finished in reverse, re-ordered by acceptance configuration and merged, writes the bytes `run_conformance` writes. A worker that built its shaper, alphabet or splitters differently from the serial arm's, or a merge that folded in completion order, would diverge here. Both arms run with no glyph mapping and the worker is handed the guard, so neither the anchor path nor a worker's own guard build is under test."""
+        """The pooled belt against the serial one, with no pool: each configuration's worker runs as a pool would run it, the results are taken in reverse order, reordered by acceptance configuration and merged, and the merged report must write the same bytes as `run_conformance`. A worker that built its shaper, alphabet or splitters differently from the serial path, or a merge in completion order, would fail here. Both paths run with no glyph mapping and the worker receives the guard, so neither the anchor check nor a worker's own guard sweep is tested."""
         font = MINI / "M1.otf"
         finished = [
             conform.conformance_config_worker(spec, font, config, 2, None, guard, None)
@@ -931,7 +931,7 @@ _AUDIT_SHAPES = (
 
 
 class TestOracleAudit:
-    """`divergence-audit.tsv` is a fingerprinted artifact its readers parse straight off disk — the review surface's unit assembly, the census, the rebuild suite's filtered load — so the file's bytes are the contract, and they no longer come from one `"\n".join` in the parent: each configuration's rows are written where they are produced and the parent concatenates the shards behind the header. Pin the new assembly against the old formula over the shapes the audit can take, an empty configuration and an empty audit included, because those are where a hand-held layout drifts first — and pin the refusals, because the way this goes wrong is a short audit that reads as a complete one."""
+    """`divergence-audit.tsv` is fingerprinted and later stages parse it from disk, so its bytes must not change. Each configuration's rows are written to a shard where they are produced, and the parent concatenates the shards after the header. These tests check that the concatenation equals the header and all rows joined with newlines, for every shape the audit can take, including an empty configuration and an empty audit. They also check that a missing or short shard fails instead of producing a short audit that looks complete."""
 
     def _shard(self, scratch: Path, config: str, lines: Sequence[str], segment: int | None = None) -> None:
         shard = oracle.oracle_audit_shard(scratch, config, segment)
@@ -954,7 +954,7 @@ class TestOracleAudit:
     def test_a_cut_configurations_segments_concatenate_in_row_order_to_the_same_bytes(
         self, tmp_path, per_config
     ):
-        """A configuration cut into row ranges arrives as one segment per range, and the join has to land on the bytes the uncut shard lands on however many pieces the rows arrived in — an empty second segment included, which is what a range holding no divergent row writes."""
+        """A configuration cut into row ranges arrives as one segment per range. The join must produce the same bytes as the uncut shard however the rows were split, including an empty second segment, which is what a range with no divergent row writes."""
         scratch = oracle.oracle_audit_scratch(tmp_path)
         for config, lines in per_config.items():
             half = len(lines) // 2
@@ -976,7 +976,7 @@ class TestOracleAudit:
         assert standing.read_bytes() == b"the audit of the last green run\n"
 
     def test_the_frozen_mini_audit_reassembles_byte_for_byte(self, tmp_path):
-        """The same pin over a real audit instead of hand-made rows: the mini bundle's audit.tsv is a live one filtered to four letters, still written by the old formula in `fixtures/mini/regenerate.py`, and its configuration runs are contiguous and in ACCEPTANCE_CONFIGS order — so splitting it back into shards and concatenating them has to land on the file it came from."""
+        """The same check over a real audit. The mini bundle's `audit.tsv` is a filtered live audit that `fixtures/mini/regenerate.py` writes by joining its rows with newlines, and its configuration blocks are contiguous and in `ACCEPTANCE_CONFIGS` order. Splitting it into shards and joining them must reproduce the file."""
         source = MINI / "audit.tsv"
         rows = source.read_text(encoding="utf-8").splitlines()
         assert rows[0] == oracle.ORACLE_AUDIT_HEADER
@@ -1006,7 +1006,7 @@ class TestOracleAudit:
         assert (cut / "divergence-audit.tsv").read_bytes() == source.read_bytes()
 
     def test_the_two_oracle_paths_write_the_same_file(self, spec, tmp_path):
-        """The claim the shards exist to keep true: `--jobs 1` writes the audit as it goes and the pool writes shards the parent concatenates, and the two have to land on the same bytes. Both are run here over the same hand-made subset tables — a pending alias makes every row diverge, an empty ledger leaves every divergence UNMATCHED — so a row reaches the file through each path in turn."""
+        """`--jobs 1` writes the audit as it goes, and the pool writes shards that the parent concatenates. Both must produce the same bytes. The two paths run here over the same hand-made subset tables: a pending alias makes every row diverge and an empty ledger leaves every divergence UNMATCHED, so every row reaches the file through each path."""
         tables = tmp_path / "tables"
         tables.mkdir()
         for config, rows in (
@@ -1051,7 +1051,7 @@ class TestOracleAudit:
     def test_a_serial_oracle_that_dies_partway_leaves_the_audit_it_found_standing(
         self, monkeypatch, spec, tmp_path
     ):
-        """The failure that has to stay loud. A truncated audit hashes differently rather than reading as stale, so it comes back to the surface build as a fresh, smaller, entirely self-consistent one — which is why `--jobs 1` writes through a staging copy and promotes it only after the last configuration, and why an oracle that dies on its second leaves the previous run's file exactly where it was."""
+        """A truncated audit hashes differently instead of reading as stale, so the surface build would take it as a new, smaller, self-consistent audit. That is why `--jobs 1` writes through a staging copy and promotes it only after the last configuration, and why an oracle that fails on its second configuration must leave the previous file in place."""
         standing = tmp_path / "divergence-audit.tsv"
         standing.write_bytes(b"the audit of the last green run\n")
         aliases = tmp_path / "aliases.yaml"
@@ -1080,7 +1080,7 @@ class TestOracleAudit:
         ]
 
     def test_a_missing_shard_is_named_rather_than_quietly_skipped(self, tmp_path):
-        """Every shard is found before a byte is copied, so the concatenation cannot write a short audit out of whatever happened to be on disk — and the audit already there survives the refusal, which matters because the caller sweeps the scratch directory afterward and the shards are then gone too."""
+        """Every shard is checked for before any byte is copied, so the join cannot write a short audit from whatever is on disk. The existing audit must survive the failure, because the caller deletes the scratch directory afterward and the shards are then gone too."""
         standing = tmp_path / "divergence-audit.tsv"
         standing.write_bytes(b"the audit of the last green run\n")
         scratch = oracle.oracle_audit_scratch(tmp_path)
@@ -1090,7 +1090,7 @@ class TestOracleAudit:
         assert standing.read_bytes() == b"the audit of the last green run\n"
 
     def test_an_audit_short_of_the_rows_its_workers_counted_is_not_promoted(self, tmp_path):
-        """The counts come home through the pipe and the bytes come home on disk, so comparing them is the one cross-check the parent can make — and it is what catches a shard that was truncated but still closed clean, which is the shape no amount of stat-ing finds."""
+        """The workers' row counts come back through the pipe and the rows come back on disk, so comparing the two is the only cross-check the parent can make. It catches a shard that was truncated but closed cleanly, which checking for the file cannot find."""
         standing = tmp_path / "divergence-audit.tsv"
         standing.write_bytes(b"the audit of the last green run\n")
         scratch = oracle.oracle_audit_scratch(tmp_path)
@@ -1107,7 +1107,7 @@ class TestOracleAudit:
         assert list(tmp_path.iterdir()) == []
 
     def test_a_sweep_takes_a_dead_run_s_shards_and_leaves_a_live_one_s(self, tmp_path):
-        """The pid in the scratch name is load-bearing in both directions. A kill skips the `finally`, so a run that never came back would otherwise strand a whole audit's worth of disk until someone noticed; a run still going is another oracle over the same out_dir — a `--gates-only` pass beside a cycle — and sweeping it would pull the shards out from under its concatenation."""
+        """The pid in the scratch directory name matters in both directions. A killed run skips its `finally`, so without this sweep its shards would stay on disk indefinitely. A running pid is another oracle using the same out_dir (a `--gates-only` pass beside a cycle), and deleting its directory would remove shards it is about to concatenate."""
         finished = subprocess.Popen([sys.executable, "-c", ""])
         finished.wait()
         stale = tmp_path / f"divergence-audit.parts.{finished.pid}"
@@ -1121,7 +1121,7 @@ class TestOracleAudit:
         assert (live / "default.part").is_file()
 
     def test_a_scratch_name_is_not_mistaken_for_an_artifact(self):
-        """The scratch directory sits beside the artifacts in rebuild/out/m1, so its name has to miss everything that reads that directory: the cycle's artifact list, its subset-table glob, and the table readers' own patterns. Configuration names carry `+`, which the baseline tables already prove is safe in a filename here."""
+        """The scratch directory sits beside the artifacts in `rebuild/out/m1`, so its name and its shard names must match nothing that reads that directory: the cycle's artifact list, its subset-table glob, and the table readers' patterns. Configuration names contain `+`, which the baseline table filenames already use."""
         from rebuild.tools.artifact_cycle import M1_ARTIFACT_NAMES
 
         scratch = oracle.oracle_audit_scratch(Path("m1"))
@@ -1145,7 +1145,7 @@ class TestOracleAudit:
 
 
 def _divergent_subset_tables(root: Path, per_config: dict[str, list[tuple[int, int]]]) -> Path:
-    """Hand-made subset tables under `root / "tables"` whose every row diverges against an all-pending alias map; `TestOracleUnmatchedTally` and `TestOracleMultiMatchedTally` share them."""
+    """Write hand-made subset tables under `root / "tables"` in which every row diverges against an all-pending alias map."""
     tables = root / "tables"
     tables.mkdir(parents=True)
     for config, pairs in per_config.items():
@@ -1160,7 +1160,7 @@ def _divergent_subset_tables(root: Path, per_config: dict[str, list[tuple[int, i
 
 
 class TestOracleUnmatchedTally:
-    """What a configuration sends home about its unmatched rows. Every one of them is already on disk in that configuration's audit shard, and `oracle_summary.json` asks the result object for two things only — how many there were, and `ORACLE_UNMATCHED_EXEMPLARS` of them to quote — so the result carries a count and that first slice rather than the whole list, which on a live run is a six-figure pile of `DivergentRow` objects pickled across a process pipe to be counted. Pin the count, the cap, the stream order the exemplars have to keep for the summary to quote the same ones, and the gate verdict's dependence on the count rather than on the sample."""
+    """What a configuration's result carries about its unmatched rows. Every unmatched row is already written to that configuration's audit shard, and `oracle_summary.json` needs only their count and the first `ORACLE_UNMATCHED_EXEMPLARS` of them to quote. So the result carries the count and that first slice instead of pickling the whole list across the process pipe. These tests check the count, the cap, and the table order the exemplars must keep so the summary quotes the same rows."""
 
     def test_a_configuration_sends_home_a_count_and_the_first_twenty_rows(self, spec, tmp_path):
         letters = (0xE650, 0xE652, 0xE653, 0xE65A, 0xE665, 0xE667, 0xE670, 0xE679, 0xE67A)
@@ -1203,7 +1203,7 @@ class TestOracleUnmatchedTally:
         ]
 
     def test_the_exemplar_cap_survives_the_fold_of_a_cut_configuration(self, spec, tmp_path):
-        """The wide configuration cut so its first range holds fewer unmatched rows than the cap: the fold has to quote the first twenty in table order across the ranges, which is what `oracle_summary.json` prints, and count every unmatched row whichever range it fell in."""
+        """The wide configuration is cut so its first range holds fewer unmatched rows than the cap. The fold must quote the first `ORACLE_UNMATCHED_EXEMPLARS` rows in table order across the ranges, as `oracle_summary.json` prints them, and count every unmatched row in either range."""
         letters = (0xE650, 0xE652, 0xE653, 0xE65A, 0xE665, 0xE667, 0xE670, 0xE679, 0xE67A)
         pairs = [(left, right) for left in letters for right in letters]
         wide = pairs[:25]
@@ -1232,7 +1232,7 @@ class TestOracleUnmatchedTally:
 
 
 class TestOracleMultiMatchedTally:
-    """What a configuration sends home about the rows two or more ledger entries match. The run_m1 gate reads one number off them — `oracle_summary.json`'s `multi_matched`, which must be zero — and every such row is already an audit line with its matched ids joined by `+`, so a range sends home a count and nothing else. A ledger that grows an overlapping entry then fails the build at the cost of an integer per range, not a pickled `DivergentRow` per row. Pin that the count partitions the divergent rows with the other two tallies on every path, that it sums through both folds, and that the object crossing the pipe does not grow with it."""
+    """What a configuration's result carries about rows that two or more ledger entries match. The run_m1 gate reads only `multi_matched` in `oracle_summary.json`, which must be zero, and each such row is already an audit line with its matched ids joined by `+`. So a range returns only a count, and an overlapping ledger entry fails the build at the cost of one integer per range instead of one pickled `DivergentRow` per row. These tests check that the count partitions the divergent rows with the other two tallies on every path, that it sums through both folds, and that the result crossing the pipe does not grow with it."""
 
     LETTERS = (0xE650, 0xE652, 0xE653, 0xE65A, 0xE665, 0xE667, 0xE670, 0xE679, 0xE67A)
     PAIRS: list[tuple[int, int]] = list(itertools.product(LETTERS, LETTERS))
@@ -1323,7 +1323,7 @@ class TestOracleMultiMatchedTally:
         oracle.discard_oracle_audit_scratch(cut)
 
     def test_what_a_range_sends_home_does_not_grow_with_its_multi_matched_rows(self, spec, tmp_path):
-        """Every divergent row matches both entries, so every tally but the multi-matched count stays empty or small. With every integer the result carries below 256 each pickles to the same width, so the result that crosses the pipe is the same length over ten such rows as over twenty-five."""
+        """Every divergent row matches both entries, so every tally except the multi-matched count stays empty or small. Every integer in the result is below 256 and pickles to the same width, so the pickled result is the same length for ten such rows as for twenty-five."""
         aliases = self._aliases(tmp_path)
         ledger = tmp_path / "ledger.yaml"
         ledger.write_text("- id: first\n  match: {}\n- id: second\n  match: {}\n")
@@ -1349,7 +1349,7 @@ _INK_IDENTICAL_LEDGER = "- id: ink-identical\n  ink_identical: true\n  match: {}
 
 
 def _cache_subset_table(directory: Path, config: str, rows: Sequence[tuple[int, ...]]) -> Path:
-    """One hand-made subset table in the shape `iter_rows` reads, over rows whose old glyph names are minted from their own codepoints so an all-pending alias map makes every row diverge and an empty ledger leaves every divergence UNMATCHED. The names deliberately miss the `qs` prefix `unreachable_glyph_heads` looks for, so no row here is refused service for citing a family its codepoints cannot reach."""
+    """Write one hand-made subset table in the shape `iter_rows` reads. Each row's old glyph names are made from its codepoints, so an all-pending alias map makes every row diverge and an empty ledger leaves every divergence UNMATCHED. The names lack the `qs` prefix that `unreachable_glyph_heads` checks, so no row is refused service for naming a family its codepoints cannot reach."""
     directory.mkdir(parents=True, exist_ok=True)
     path = directory / f"baseline-{config}.subset.tsv.gz"
     with gzip.open(path, "wt", encoding="utf-8") as handle:
@@ -1371,7 +1371,7 @@ def _cache_subset_table(directory: Path, config: str, rows: Sequence[tuple[int, 
 
 
 def _cache_stamp(config: str, table: Path) -> oracle_cache.EnvironmentStamp:
-    """A stamp in the shape `run_m1` cuts one, reduced to what a store's identity turns on here: the format, the configuration it belongs to, a stand-in for the code closure this lane does not vary, and the `subset` line `open_row_cache` reads the table's digest off."""
+    """A stamp in the shape `run_m1` builds, reduced to the lines that decide a store's identity here: the format, the configuration, a placeholder for the code closure, and the `subset` line that `open_row_cache` reads the table's digest from."""
     return oracle_cache.EnvironmentStamp(
         lines=(
             f"format\t{oracle_cache.STORE_FORMAT}",
@@ -1383,19 +1383,19 @@ def _cache_stamp(config: str, table: Path) -> oracle_cache.EnvironmentStamp:
 
 
 def _cache_ages(path: Path) -> list[int]:
-    """Every record's row `derived_at_pass`, read straight out of the store rather than through `load_store`, so what a pass recomputed is observed independently of the reader that decides what a pass may serve. A record whose age is this pass's ordinal was derived here; one carrying an older ordinal was served."""
+    """Every record's row-verdict `derived_at_pass`, read directly from the store file instead of through `load_store`, so the test sees what a pass recomputed independently of the reader that decides what to serve. A record whose age is this pass's ordinal was derived in this pass; an older ordinal means it was served."""
     body = gzip.decompress(path.read_bytes()).decode("utf-8").splitlines()
     return [int(line.rsplit("\t", 2)[1]) for line in body[1:-1]]
 
 
 def _cache_position_ages(path: Path) -> list[int]:
-    """The same read over the position verdict's own pass, the last field of every record."""
+    """The pass each record's position verdict was derived at, the last field of every record."""
     body = gzip.decompress(path.read_bytes()).decode("utf-8").splitlines()
     return [int(line.rsplit("\t", 1)[1]) for line in body[1:-1]]
 
 
 def _cache_position_tags(path: Path) -> list[str]:
-    """Each record's position tag — `?` never shaped, `-` shaped clean, `D` drifted — so a test can see which rows a pass carried a position for without loading the store."""
+    """Each record's position tag, read without loading the store: `?` never shaped, `-` shaped with no drift, `D` drifted."""
     tags: list[str] = []
     for line in gzip.decompress(path.read_bytes()).decode("utf-8").splitlines()[1:-1]:
         fields = line.split("\t")
@@ -1404,7 +1404,7 @@ def _cache_position_tags(path: Path) -> list[str]:
 
 
 def _excluded_from_the_channel(audit: Path, rows: int) -> set[int]:
-    """The rows the position channel skips whatever the ledger says — a ligation or seam divergence — read off an audit every row of which is divergent, so its line order is the table's."""
+    """The rows the position channel skips whatever the ledger says, those with a ligation or seam divergence. Read from an audit in which every row diverges, so its line order is the table's row order."""
     lines = audit.read_text().splitlines()[1:]
     assert len(lines) == rows
     return {
@@ -1415,7 +1415,7 @@ def _excluded_from_the_channel(audit: Path, rows: int) -> set[int]:
 
 
 def _tea_prefers_half_before_may(spec):
-    """A real rune edit that moves settlement: ·Tea gains an absolute preference for its half stance before ·May, which changes what the ·Tea·May windows settle to and nothing else."""
+    """A rune edit that changes settlement: ·Tea gets an absolute preference for its half stance before ·May, which changes what the ·Tea·May windows settle to and nothing else."""
     import dataclasses
 
     from rebuild.pipeline import model
@@ -1433,7 +1433,7 @@ def _tea_prefers_half_before_may(spec):
 
 
 def _tea_oy_refuses_its_exit(spec):
-    """A real edit to the ligature rune and to no component's file: ·Tea+Oy refuses its baseline exit before every letter, so every window whose left slot is a formed ·Tea+Oy settles to a break where it joined, while ·Tea's and ·Oy's own windows stand."""
+    """An edit to the ligature rune and to neither component's file: `·Tea+·Oy` refuses its baseline exit before every letter, so every window whose left slot is a formed `·Tea+·Oy` settles to a break where the unedited spec joins, while ·Tea's and ·Oy's own windows are unchanged."""
     import dataclasses
 
     from rebuild.pipeline import model
@@ -1453,7 +1453,7 @@ def _tea_oy_refuses_its_exit(spec):
 
 
 def _font_edited(source: Path, target: Path, touches) -> Path:
-    """A copy of `source` whose glyphs `touches` names are advanced by a pixel-odd amount: a family's compiled digest moves through its metrics alone, every outline stays, and every row that shapes one of those glyphs draws its followers somewhere else."""
+    """Copy `source`, widening the advance of every glyph `touches` selects by 37 units. The family's compiled-glyph digest changes through the metrics alone, every outline stays the same, and every row that shapes one of those glyphs places its followers differently."""
     from fontTools.ttLib import TTFont
 
     font = TTFont(str(source))
@@ -1467,7 +1467,7 @@ def _font_edited(source: Path, target: Path, touches) -> Path:
 
 
 def _cache_renewed(rows: int, pass_ordinal: int) -> set[int]:
-    """The rows this pass re-derives whatever their families did — `RowStore.due`'s ordinal clause, which retires one record in `MAX_RECORD_AGE` every pass so no verdict can stand that many passes unproven. It is why no arm below asserts a served fraction of exactly one."""
+    """The rows this pass re-derives regardless of their families: the ordinal clause of `RowStore.due`, which re-derives one row in every `MAX_RECORD_AGE` rows on each pass, so no verdict goes that many passes without being recomputed. This is why no test below expects every row to be served."""
     current = pass_ordinal + 1
     return {
         index
@@ -1477,7 +1477,7 @@ def _cache_renewed(rows: int, pass_ordinal: int) -> set[int]:
 
 
 def _position_bench(spec, tmp_path: Path, ledger_entries: str = _INK_IDENTICAL_LEDGER):
-    """The position channel's bench: the frozen mini bundle's default rows that fall inside the mini alphabet — real old-font positions, real old glyph names — under an all-pending alias map, so every row diverges at name grain and stays topology-clean, and a ledger whose one ink-identical entry admits every row to the channel. The font is the bundle's frozen M1.otf, which is the after font those rows were extracted against. Three hand-made ·Tea·May rows ride at the end, because the bundle's four-letter slice holds none and the rune edit the arms share moves exactly that pair."""
+    """The position channel's test bench. Its rows are the frozen mini bundle's default-table rows that use only mini-spec letters and boundaries, with real old-font positions and glyph names, plus three hand-made ·Tea·May rows at the end: the bundle has no adjacent ·Tea·May pair, and the rune edit these tests share changes that pair. The alias map is all-pending, so every row diverges, and the ledger's one ink-identical entry matches every row, so every row without a ligation or seam divergence enters the channel. The font is the bundle's frozen `M1.otf`, the after font the rows were extracted against."""
     letters = {rune.codepoint for rune in spec.runes.values() if rune.codepoint is not None}
     boundaries = {token.codepoint for token in spec.registry.boundary_tokens.values()}
     rows: list[str] = []
@@ -1522,7 +1522,7 @@ def _position_bench(spec, tmp_path: Path, ledger_entries: str = _INK_IDENTICAL_L
 
 
 class TestOracleRowCache:
-    """The persisted per-row oracle cache, at the grain the audit's bytes are the contract at. Everything here runs the real `compare_against_baseline` over hand-made subset tables and synthetic family keys: a served pass and a cold one have to land on the same file, an edit to any number of runes has to re-derive the rows naming those runes and no others, and every way a store can be wrong about the table under it has to cost one full pass rather than one wrong audit. There is no k threshold anywhere in the cache and so none in these arms either — the parametrized edit runs to four moved families and still expects a union."""
+    """The persisted per-row oracle cache, checked against the audit's bytes. Every test runs the real `compare_against_baseline` over hand-made subset tables and synthetic family keys. A served pass and a cold one must write the same file; an edit to any number of runes must re-derive the rows naming those runes and no others; and any way a store can disagree with the table under it must cost one full pass, never a wrong audit. The cache has no threshold on how many runes an edit touches, so the parametrized edit goes up to four moved families and still expects exactly the union of their rows."""
 
     LETTER_ROWS: Sequence[tuple[int, ...]] = tuple((letter,) for letter in CACHE_LETTERS) + tuple(
         (left, right) for left in CACHE_LETTERS for right in CACHE_LETTERS
@@ -1601,7 +1601,7 @@ class TestOracleRowCache:
         return _position_bench(spec, tmp_path, ledger_entries)
 
     def test_a_served_position_channel_writes_the_audit_a_cold_one_writes(self, spec, tmp_path):
-        """The position store's whole correctness claim in one arm, the shape of the row store's: a pass that took its position verdicts off the previous pass's store writes the byte-identical `divergence-audit.tsv` a cold pass writes over the same font, with the uncached path as the third witness, and served every position but the renewal slice. The bench drifts for real — the old font's positions against the frozen after font — so the audit carries position rows and the equality is over drift descriptions, not over an empty channel."""
+        """A pass that took its position verdicts from the previous pass's store writes the same `divergence-audit.tsv` as a cold pass over the same font, and so does the uncached path, while serving every position except the renewal slice. The bench drifts for real (old-font positions against the frozen after font), so the audit has position rows and the equality covers drift descriptions, not an empty channel."""
         tables, aliases, ledger, stamps, configs, rows = self._position_bench(spec, tmp_path)
         keys = self._keys(spec)
         position = oracle_cache.position_keys(REPO_ROOT, keys, MINI / "M1.otf", None)
@@ -1638,7 +1638,7 @@ class TestOracleRowCache:
     def test_a_served_position_channel_that_disagrees_with_harfbuzz_is_a_hard_stop(
         self, spec, tmp_path, monkeypatch
     ):
-        """The position verifier's alarm, which nothing else in the suite trips: a served pass whose sampled positions re-shape to something other than what the store holds aborts rather than writing them into the audit. The drift is poisoned by name in the position channel's module, which `oracle._compare_config` calls through the module rather than through an imported symbol, so the renewal slice's fresh shaping stores the same bogus answer — the abort pre-empts that store ever being promoted — and the sampled served rows, re-shaped through the same poisoned function, disagree with the record they were served from. A verifier that had nothing to re-shape would let this pass through green."""
+        """The served-position verifier must stop the run: a served pass whose sampled positions re-shape to something other than what the store holds aborts instead of writing them into the audit. No other test triggers this check. The test replaces `_position_drift` in the position channel's module, which `oracle._compare_config` calls through the module and not through an imported name. The renewal slice's fresh shaping therefore stores the same wrong answer (the abort prevents that store from being promoted), and the sampled served rows, re-shaped through the replaced function, disagree with the records they were served from. A verifier with nothing to re-shape would let this pass."""
         tables, aliases, ledger, stamps, configs, _rows = self._position_bench(spec, tmp_path)
         keys = self._keys(spec)
         position = oracle_cache.position_keys(REPO_ROOT, keys, MINI / "M1.otf", None)
@@ -1659,7 +1659,7 @@ class TestOracleRowCache:
             self._pass(spec, tmp_path, "served", read_dir=cold_stores, **shared)
 
     def test_a_glyph_edit_re_shapes_exactly_the_rows_that_reach_its_family(self, spec, tmp_path):
-        """The position key's grain end to end: the after font's ·Tea glyphs gain an advance, so every row that shapes one draws its followers elsewhere. A pass carrying the previous store across that font has to write the audit a pass that never saw a store writes over the edited font, and the store it leaves shows exactly the rows naming ·Tea re-shaped — every other position served, every row verdict served, so a font edit costs the shaping it moved and nothing settled."""
+        """The position key's per-family grain end to end: ·Tea's glyphs in the after font get a wider advance, so every row that shapes one places its followers differently. A pass that carries the previous store across that font edit must write the same audit as a pass with no store over the edited font. The store it leaves must show that exactly the rows naming ·Tea were re-shaped, with every other position and every row verdict served, so a font edit costs only the shaping it changed."""
         tables, aliases, ledger, stamps, configs, rows = self._position_bench(spec, tmp_path)
         keys = self._keys(spec)
         shared: dict[str, Any] = dict(
@@ -1695,7 +1695,7 @@ class TestOracleRowCache:
         assert carried_report.positions_served == len(rows) - len(expected | excluded)
 
     def test_a_rune_edit_re_shapes_the_rows_it_re_derives(self, spec, tmp_path):
-        """The row key inside the position key, end to end: the same ·Tea edit the row arm uses moves ·Tea's row key, so its rows re-derive and re-shape together — a served position over a fresh settlement would be shaping the previous pass's cells — and the audit a carried pass writes over the edited spec is the one a from-scratch pass writes."""
+        """The row key inside the position key: the ·Tea rune edit moves ·Tea's row key, so its rows re-derive and re-shape together (a served position over a fresh settlement would shape the previous pass's cells). A pass carrying the store across the edit must write the same audit as a pass with no store."""
         tables, aliases, ledger, stamps, configs, rows = self._position_bench(spec, tmp_path)
         shared: dict[str, Any] = dict(
             tables=tables,
@@ -1736,7 +1736,7 @@ class TestOracleRowCache:
         } == expected | excluded
 
     def test_a_kern_sidecar_edit_re_shapes_every_row_and_serves_every_verdict(self, spec, tmp_path):
-        """The position stamp end to end: a sidecar edit moves what every row's old positions normalize to, so every position re-shapes while every row verdict is still served, and the carried audit is the from-scratch one over the edited sidecar."""
+        """The position stamp end to end: a kern sidecar edit changes what every row's old positions normalize to, so every position re-shapes while every row verdict is still served, and the carried audit equals the audit written from scratch with the edited sidecar."""
         tables, aliases, ledger, stamps, configs, rows = self._position_bench(spec, tmp_path)
         keys = self._keys(spec)
         shared: dict[str, Any] = dict(
@@ -1771,7 +1771,7 @@ class TestOracleRowCache:
     def test_a_ledger_edit_that_admits_a_row_shapes_it_and_one_that_excludes_it_keeps_its_verdict(
         self, spec, tmp_path
     ):
-        """The verdict is stored raw, ahead of the ledger's eligibility test: a pass whose ledger admits no row to the channel records every position as never shaped, and the next pass under an admitting ledger shapes them all and serves none — the audit still the from-scratch one — while a pass whose ledger excludes a row it once shaped carries that verdict forward unread, so the pass after it, admitting the row again, finds it served."""
+        """The position verdict is stored before the ledger's eligibility test. A pass whose ledger admits no row to the channel records every position as never shaped, and the next pass under an admitting ledger shapes them all and serves none, still writing the from-scratch audit. A pass whose ledger excludes a row it shaped earlier carries that verdict forward unread, so the next pass that admits the row again finds it served."""
         tables, aliases, admitting, stamps, configs, rows = self._position_bench(spec, tmp_path)
         excluding = tmp_path / "excluding.yaml"
         excluding.write_text("[]\n")
@@ -1817,7 +1817,7 @@ class TestOracleRowCache:
         )
 
     def test_a_served_oracle_writes_the_audit_a_cold_one_writes(self, spec, tmp_path):
-        """The whole correctness claim in one arm: a pass that took its verdicts off the previous pass's store writes the byte-identical `divergence-audit.tsv` a cold pass writes, and sends home a tally equal in every field — the counts, the exemplars and the unmatched rows they quote included. The uncached path runs beside them as the third witness, because the claim is not that the two cached passes agree with each other but that neither of them moved the file."""
+        """A pass that took its verdicts from the previous pass's store writes the same `divergence-audit.tsv` as a cold pass and returns a tally equal in every field, including the counts, the exemplars and the unmatched rows they quote. The uncached path runs as a third reference, because the requirement is that neither cached pass changed the file, not only that the two agree with each other."""
         tables, aliases, stamps, configs = self._bench(tmp_path)
         ledger = tmp_path / "ledger.yaml"
         ledger.write_text("[]\n")
@@ -1846,7 +1846,7 @@ class TestOracleRowCache:
     def test_a_served_verdict_that_disagrees_with_a_fresh_comparison_is_a_hard_stop(
         self, spec, tmp_path, monkeypatch
     ):
-        """The row verifier's alarm, which nothing else in the suite trips: a served pass whose sampled rows compare to something other than what the store holds aborts rather than writing them into the audit. `oracle.py` binds `_compare_row` by name at import, so poisoning it in `conform` reaches `_verify_served_sample` alone and never the main loop's fresh rows — the store is right about every row it holds, and only the re-derivation disagrees, which is exactly the shape a stale record has from the verifier's side. A verifier that had nothing to re-derive would let this pass through green."""
+        """The served-row verifier must stop the run: a served pass whose sampled rows compare differently from what the store holds aborts instead of writing them into the audit. No other test triggers this check. `oracle.py` imports `_compare_row` by name, so replacing it in `conform` reaches only `_verify_served_sample` and not the main loop's fresh rows. The store is right about every row it holds and only the re-derivation disagrees, which is how a stale record looks to the verifier. A verifier with nothing to re-derive would let this pass."""
         tables, aliases, stamps, configs = self._bench(tmp_path)
         ledger = tmp_path / "ledger.yaml"
         ledger.write_text("[]\n")
@@ -1870,7 +1870,7 @@ class TestOracleRowCache:
 
     @pytest.mark.parametrize("k", (1, 2, 3, 4))
     def test_an_edit_to_k_runes_re_derives_exactly_the_rows_that_name_them(self, spec, tmp_path, k):
-        """The arm that pins away the fallback clause issue 24 proposed. However many runes moved, the rows re-derived are exactly those naming one of them — a union, never a threshold and never a whole-store drop — so a four-rune edit still serves every row that reaches none of the four. The renewal clause is added to the expectation rather than subtracted from the cache, because it is a property of the store and not of the edit."""
+        """However many runes moved, the re-derived rows are exactly those that name one of them: a union, with no threshold and no whole-store drop, so a four-rune edit still serves every row that names none of the four. The renewal slice is added to the expected set, because it is a property of the store and not of the edit."""
         tables, aliases, stamps, configs = self._bench(tmp_path)
         ledger = tmp_path / "ledger.yaml"
         ledger.write_text("[]\n")
@@ -1909,7 +1909,7 @@ class TestOracleRowCache:
         assert len(expected) < len(self.LETTER_ROWS), "a k-rune edit dropped the whole store"
 
     def test_incremental_equals_from_scratch_after_a_real_rune_edit(self, spec, tmp_path):
-        """The served claim end to end, over an edit that genuinely moves settlement: ·Tea gains a preference for its half stance before ·May, which changes what the ·Tea·May row settles to and nothing else. A pass that carries the previous store across that edit has to write the audit a pass that never saw a store writes over the same edited spec — so a store that served the changed row, or a rune edit whose reach the mask under-counts, fails here rather than shipping a stale verdict into a fingerprinted artifact."""
+        """Incremental equals from-scratch across an edit that changes settlement: ·Tea gains a preference for its half stance before ·May, which changes what the ·Tea·May row settles to and nothing else. A pass that carries the previous store across that edit must write the same audit as a pass with no store over the edited spec, so a store that served the changed row, or a key that misses part of the edit's reach, fails here."""
         tables, aliases, stamps, configs = self._bench(tmp_path)
         ledger = tmp_path / "ledger.yaml"
         ledger.write_text("[]\n")
@@ -1930,7 +1930,7 @@ class TestOracleRowCache:
         assert fresh_audit.read_bytes() != cold_audit.read_bytes(), "the rune edit moved no row"
 
     def test_a_ledger_edit_serves_every_row_and_still_rewrites_the_matches(self, spec, tmp_path):
-        """The workflow the cache exists for. `rebuild/m1-divergences.yaml` is outside the key by construction — `_match_compiled` runs on every row on every pass, served or not — so replacing the ledger re-derives nothing beyond the pass's own renewal, and every `matched_entry` in the audit still moves exactly as it moves for a pass that compared every row from scratch."""
+        """The main use of the cache. `rebuild/m1-divergences.yaml` is outside the key because `_match_compiled` runs on every row on every pass, served or not. Replacing the ledger therefore re-derives only the pass's renewal slice, and every `matched_entry` in the audit changes as it does for a pass that compared every row from scratch."""
         tables, aliases, stamps, configs = self._bench(tmp_path)
         empty = tmp_path / "empty-ledger.yaml"
         empty.write_text("[]\n")
@@ -1972,7 +1972,7 @@ class TestOracleRowCache:
         ),
     )
     def test_a_corrupt_or_short_or_misaligned_store_costs_a_full_pass(self, spec, tmp_path, damage):
-        """Every doubt about a store costs one cold oracle and nothing else — a store that will not load is not a store, and a pass that finds one starts its own at ordinal zero. The misaligned record is the exception the design draws on purpose: an anchor that disagrees with the row under it does not mean this record is wrong, it means the table beneath the whole store was replaced, so it aborts loudly instead of degrading into a miss that would serve every other record just as wrongly."""
+        """Any doubt about a store costs one cold oracle pass and nothing else: a store that does not load is ignored, and the pass starts its own store at ordinal zero. The misaligned record is the exception: an anchor that disagrees with its row means the table under the whole store was replaced, so the pass aborts instead of treating the record as a miss and serving every other record just as wrongly."""
         tables, aliases, stamps, configs = self._bench(tmp_path, configs=("default",))
         ledger = tmp_path / "ledger.yaml"
         ledger.write_text("[]\n")
@@ -1987,7 +1987,7 @@ class TestOracleRowCache:
             raw = store.read_bytes()
             store.write_bytes(raw[: len(raw) // 2])
         elif damage == "corrupt-body":
-            # A flipped bit inside the deflate stream, which is what bit rot and a store copied half-written actually look like. It raises out of the compression layer rather than as an `OSError`, so a reader that catches only file errors takes the whole build down over a file whose only job is to save time — and a truncation, which is the arm above, never produces it.
+            # A single flipped bit inside the deflate stream, which is what bit rot or a half-written copy produces. It raises from the compression layer, not as an `OSError`, so a reader that catches only file errors would fail the build over a file that only saves time. A truncation (the case above) never produces it.
             raw = bytearray(store.read_bytes())
             for offset in range(len(raw) // 2, len(raw) - 8):
                 candidate = bytearray(raw)
@@ -2025,7 +2025,7 @@ class TestOracleRowCache:
         assert set(_cache_ages(oracle_cache.store_path(stores, "default"))) == {0}
 
     def test_order_survives_the_interleave(self, spec, tmp_path):
-        """The audit's line order is the subset table's row order, and the partition must not be able to reach it. Here the two halves alternate row by row — every even row names the moved family and walks, every odd row is served — and the file still reads out in table order, configuration by configuration in the order the caller asked for them."""
+        """The audit's line order is the subset table's row order, and the split into served and fresh rows must not affect it. Here the two alternate row by row (every even row names the moved family and is re-derived, every odd row is served), and the file still lists rows in table order, configuration by configuration in the order the caller gave."""
         clean = CACHE_LETTERS[1:]
         rows: list[tuple[int, ...]] = []
         for letter in clean:
@@ -2063,7 +2063,7 @@ class TestOracleRowCache:
 
 
 class TestOracleRowRanges:
-    """The oracle's unit of fan-out is a row range of one configuration's table, and the claim the split rests on is that it changes no number and no byte: `_compare_config` is addressed by absolute row index throughout, so a range is a self-contained segment of the same audit, the same store and the same verification draw. Every arm here runs the real compare over the mini bundle's default rows once whole and once cut, through the worker, the folds and the joins `run_m1.run_oracle` uses, and holds the cut run to the whole one."""
+    """The oracle's unit of fan-out is a row range of one configuration's table, and cutting a table into ranges must change no count and no byte. `_compare_config` addresses rows by absolute index throughout, so a range is a self-contained segment of the same audit and the same store. Each test runs the real compare over the mini bundle's default rows once whole and once cut, through the worker, folds and joins that `run_m1.run_oracle` uses, and requires the cut run to equal the whole one."""
 
     def _ranged(
         self,
@@ -2084,7 +2084,7 @@ class TestOracleRowRanges:
         font: Path | None = None,
         position=None,
     ):
-        """One pass through the fan-out's own pieces without the pool: a worker per range writing its own segments, the parent's fold and joins, and the joined store promoted. A single whole-table shard is the uncut shape and the reference."""
+        """One pass through the fan-out's pieces without a pool: a worker per range writing its own segments, the parent's fold and joins, and the joined store promoted. A single whole-table shard is the uncut reference."""
         scratch = tmp_path / f"{name}-scratch"
         stores = tmp_path / f"{name}-stores"
         out = tmp_path / name
@@ -2175,7 +2175,7 @@ class TestOracleRowRanges:
         assert [shard.label for shard in by_row] == ["default 1/3", "default 2/3", "default 3/3"]
 
     def test_the_ranges_write_the_audit_the_whole_table_writes_and_fold_to_its_tally(self, spec, tmp_path):
-        """Cold and uncached, so every row is compared and every eligible position shaped in whichever range holds it: the joined audit is the whole-table shard's byte for byte, which is the serial path's byte for byte, and the fold reproduces the whole-table result field for field."""
+        """Cold and uncached, so every row is compared and every eligible position shaped in whichever range holds it. The joined audit must match the whole-table shard's byte for byte, which must match the serial path's, and the fold must reproduce the whole-table result in every field."""
         shared, rows = self._bench(spec, tmp_path)
         whole, whole_audit, _ = self._ranged(
             spec, tmp_path, "whole", [oracle.OracleShard("default")], cached=False, **shared
@@ -2201,7 +2201,7 @@ class TestOracleRowRanges:
         assert asdict(cut[0]) == {**asdict(whole[0]), "peak_rss_bytes": cut[0].peak_rss_bytes}
 
     def test_a_cut_cold_pass_stages_the_store_a_whole_cold_pass_stages(self, spec, tmp_path):
-        """The joined store's framing differs from the single-member one — it is several gzip members — and its payload must not: header line, every record in table order, the trailer counting all of them. `load_store` reads across the members, and a joined store short its last segment's tail loads as None, which is the truncation refusal the trailer exists for."""
+        """A joined store is several gzip members where a single-segment store is one, but the decompressed content must be the same: the header line, every record in table order, and the trailer counting them. `load_store` reads across the members, and a joined store missing the tail of its last segment loads as None, which is the truncation check the trailer exists for."""
         shared, rows = self._bench(spec, tmp_path)
         _whole, _, whole_stores = self._ranged(
             spec, tmp_path, "whole", [oracle.OracleShard("default")], **shared
@@ -2246,7 +2246,7 @@ class TestOracleRowRanges:
         assert oracle_cache.load_store(short, stamp, stamp.labels["subset"], spec, shared["keys"]) is None
 
     def test_a_cut_warm_pass_serves_what_a_whole_warm_pass_serves(self, spec, tmp_path):
-        """The serve path, the renewal slice and the verification draw are all keyed on the row's ordinal in the table, so a warm pass cut into ranges serves the rows a whole warm pass serves, re-derives the same renewal slice, writes the same audit and stages the same store — with `positions_served` summing to the whole pass's figure and a verification sample drawn per range, which is a superset of the whole pass's draw."""
+        """The serve path, the renewal slice and the verification draw are all keyed on the row's ordinal in the table, so a warm pass cut into ranges serves the same rows as a whole warm pass, re-derives the same renewal slice, writes the same audit and stages the same store. `positions_served` sums to the whole pass's figure, and each range draws its own verification sample, which is a superset of the whole pass's draw."""
         shared, rows = self._bench(spec, tmp_path)
         _cold, _, cold_stores = self._ranged(
             spec, tmp_path, "cold", [oracle.OracleShard("default")], **shared
@@ -2287,7 +2287,7 @@ class TestOracleRowRanges:
 
 
 class TestFontBlindComparison:
-    """The two signatures the whole cache rests on, and the one mutation the position channel is allowed to make. None of it is written down anywhere else: if the comparison channel ever takes a font, or the position channel ever takes a settled stream, or a drift starts rewriting a row rather than appending to it, the store's key is silently wrong about what it covers and every arm above goes on passing."""
+    """Two signatures and one mutation rule that the row cache's keys depend on: the comparison takes no font, the position channel takes no settled stream, and a drift only appends to a row. If any of these changed, the store's key would silently cover the wrong inputs and the cache tests above would still pass."""
 
     def test_the_comparison_channel_takes_no_font_and_the_position_channel_takes_no_settlement(self):
         comparison = list(inspect.signature(conform._compare_row).parameters)
@@ -2296,7 +2296,7 @@ class TestFontBlindComparison:
         assert position == ["shaper", "kern", "features", "row"]
 
     def test_the_position_channel_only_appends_position_to_kinds(self, spec, tmp_path, monkeypatch):
-        """A constructed drift over two rows — one the alias map settles clean and one it leaves unaliased — watched through the ledger match the channel makes before and after it fires. The clean row's drift mints a row of its own whose kinds are exactly `position`; the divergent row's drift leaves every field it already carried alone and appends `position` to the kinds and `position-drift` to the phenomena."""
+        """A constructed drift over two rows, one the alias map leaves clean and one it leaves unaliased, observed through the ledger matches the channel makes before and after the drift. The clean row's drift creates a new divergent row whose kinds are exactly `position`. The divergent row's drift keeps every field it already had and appends `position` to its kinds and `position-drift` to its phenomena."""
         tables = tmp_path / "tables"
         _cache_subset_table(tables, "default", [(0xE650,), (0xE652,)])
         aliases = tmp_path / "aliases.yaml"
@@ -2360,7 +2360,7 @@ class TestConformSummary:
 
 
 class _SilentShaper:
-    """Enough of a Shaper for the belt's bookkeeping, which never reads shaped output: every text shapes to nothing, so the oracle records one length divergence per text and the split-buffer check sees no splitter slot. The texts it was asked to shape are the observable."""
+    """A stand-in Shaper that records every text it is asked to shape and returns no glyphs. The belt then records one length divergence per text, and the split-buffer check finds no splitter slot. Tests read `shaped`."""
 
     def __init__(self):
         self.shaped: list[str] = []
@@ -2378,7 +2378,7 @@ class _SilentShaper:
 
 
 class TestBeltEconomics:
-    """What the per-edit belt does and does not spend over a short horizon with the font faked out: every text of every length up to the horizon shapes exactly once, and the split-buffer check runs on exactly the texts it can say anything about."""
+    """What the belt does over a short horizon with a stand-in font: every text of every length up to the horizon is shaped once, and the split-buffer check runs on exactly the texts that contain a splitter."""
 
     HORIZON = 2
 
@@ -2407,7 +2407,7 @@ class TestBeltEconomics:
         assert all(len(text) <= self.HORIZON for text in shaper.shaped)
 
     def test_the_split_buffer_check_runs_on_the_texts_that_carry_a_splitter(self, spec, guard, monkeypatch):
-        """The retired boundary gate's charter, now the belt's: every splitter-bearing text is held against its own segments shaped alone, and no other text pays for it, since a text with no splitter in it is trivially identical to its own single segment. The ZWNJ slot's own structure — zero advance, no ink — is read-back's static boundary-glyphs stage over the font bytes, not the belt's."""
+        """The belt runs the split-buffer check on every text that contains a splitter, comparing it with its segments shaped separately, and on no other text, since a text without a splitter is its own single segment. The ZWNJ slot's zero advance and empty outline are checked by read-back's boundary-glyphs stage, not by the belt."""
         split_checked: list[str] = []
         monkeypatch.setattr(
             conform, "check_split_buffer", lambda text, *args, **kwargs: split_checked.append(text)
@@ -2419,7 +2419,7 @@ class TestBeltEconomics:
 
 
 class TestRawLabelsLateFormation:
-    """raw_labels delegates formation to settle.form_ligatures, so the section 5.7 guard shapes the replayed labels exactly as it shapes the kernel's stream — over the mini fixture spec's qsDay_qsUtter corner, which carries the guard's worked example."""
+    """`raw_labels` forms ligatures through `settle.form_ligatures`, so the section 5.7 guard applies to the replayed labels as it does to the kernel's stream. The mini spec's qsDay_qsUtter case carries the guard's worked example."""
 
     def test_guard_keeps_the_pair_unformed_before_low(self, spec, guard):
         day, utter, low = chr(0xE653), chr(0xE67A), chr(0xE667)
@@ -2432,12 +2432,12 @@ class TestRawLabelsLateFormation:
 
 
 class TestSettledWindowWalk:
-    """The memo keys on the raw window — every slot one settlement can read, none of them blanked — so the bar is two things at once: observational identity with an unmemoized settlement of the same tokens, and key agreement with `witness._matched_windows`, which reads the same raw slots. Over-keying was never the risk; under-keying was (a key that blanks a slot the kernel can still read replays a wrong outcome somewhere), and both paths run exhaustively here, the walk reusing its memo from the second text on while the reference path settles every text in a sequence of its own. The rule replay itself does not ride the walk — `witness._matched_windows` and `_DeepTokenIndex` keep it, for the build's certificate check — so the arms that need rules exercise them there."""
+    """The memo keys on the raw window from `_window_rights`: every slot one settlement can read, with `#NA` only past a boundary or the edge. So the walk must match an unmemoized settlement of the same tokens, and its keys must agree with `witness._matched_windows`, which reads the same raw slots. The risk is a key that leaves out a slot the kernel can read, which would replay a wrong outcome somewhere. Both paths run exhaustively here: the walk reuses its memo from the second text on, while the reference settles every text as its own sequence. Rule matching is not part of the walk; `witness._matched_windows` and `_DeepTokenIndex` do it for the build's certificate check, so the tests that need rules exercise them there."""
 
     SWEEP_CHUNK = 4096
 
     def _sweep(self, spec, features, alphabet, max_length, rules_by_input=None, deep_index=None, memo=None):
-        """Sweep every text up to `max_length`: the walk's settled stream and names against an unmemoized settlement of the very same formed tokens, and its memo keys against the raw-grain replay both sides share `_window_rights` for. What the first arm alarms is the memo's keying rather than one engine against another — both sides are the crate now — because the walk answers a window once and replays it wherever the key recurs while the reference settles every text's positions in a sequence of its own, so a key that blanked a slot settlement can still read would show up here as a wrong outcome somewhere. Texts stream through in chunks so the reference's decoded traces stay a bounded pile; the walk keeps its memo across them. With `rules_by_input` supplied, the replay also runs through `deep_index` and its (window, first-matching rule) pairs come back for the class-grain arms to assert on. With `memo`, the walk loads that settle memo file first, which is how a file another producer wrote is held to the same reference."""
+        """Sweep every text up to `max_length`, comparing the walk's settled stream and names with an unmemoized settlement of the same formed tokens, and checking that every window `witness._matched_windows` reads is in the walk's memo. Both sides use the crate, so what this tests is the memo's keying: the walk settles a window once and replays it wherever the key recurs, while the reference settles each text on its own, so a key that dropped a slot settlement can read shows up as a wrong outcome. Texts go through in chunks so the reference's decoded traces stay bounded in memory; the walk keeps its memo across chunks. With `rules_by_input`, the replay also runs through `deep_index` and returns its (window, first-matching rule) pairs for the class-token tests to check. With `memo`, the walk loads that settle memo file first, so a file another producer wrote is checked against the same reference."""
         import itertools
 
         guard = kernel_exec.guard_sweep(spec)
@@ -2491,7 +2491,7 @@ class TestSettledWindowWalk:
         self._sweep(spec, features, conform.spec_alphabet(spec), 4)
 
     def test_deep_slot_keys_replay_the_real_chains(self):
-        """The mini spec carries no depth-3 or depth-4 prefers, so the deep-slot arm of the key normalization runs against the real spec: the deep inputs' chain letters plus a boundary, swept to length 5 so right3 and right4 both open. The assertion weight rides the settled stream and the window keys — the walk keeps raw labels in its deep slots now, which is strictly finer than the table's own grain, so a live slot must show up in the memo as a real label rather than as #NA."""
+        """The mini spec has no depth-3 or depth-4 prefers, so this test uses the real spec: the chain letters of its deep inputs plus a space, swept to length 5 so both right3 and right4 are reachable. The walk keys its deep slots on raw labels, which is finer than the table's own grain, so some memo key must have its third slot open, not `#NA`."""
         import warnings
 
         from rebuild.pipeline.spec_load import load_default_spec
@@ -2504,7 +2504,7 @@ class TestSettledWindowWalk:
         assert any(key[4] != "#NA" for key in walker.windows), "no window opened its third slot"
 
     def test_prospect_live_slots_agree_between_walk_and_replay(self, monkeypatch):
-        """The issue-28 arm of the deep-slot filters, exercised end to end: under the simulated-prospect default, `fixtures.prospect_spec`'s A-before-B-C windows carry a live third slot the table enumerates, and the memoized walk and the unmemoized replay must agree on the split — the same observational-identity bar as the chain-arm sweeps above, with the table's own deep-token index carrying the class map into the replay's rule matching."""
+        """Under the simulated-prospect default, the windows of `fixtures.prospect_spec` where A precedes B and C have a live third slot that the table enumerates. The memoized walk and the unmemoized replay must agree on it, and the table's deep-token index supplies the class map for the replay's rule matching."""
         from rebuild.pipeline import fixtures
         from rebuild.pipeline.model import raw_rename_map
         from rebuild.pipeline.kernel_exec import build_tables
@@ -2523,7 +2523,7 @@ class TestSettledWindowWalk:
         assert any(matched is not None for _window, matched in replayed)
 
     def test_synthetic_depth4_replay_carries_rules_and_a_genuine_index(self):
-        """The class-grain depth-4 arm with real rules and a real transported index: the mini fixture plus a reach-3 chain on ·Tea, built in the shipping deep world, mints an r4 class at the ·Tea·May·May·May windows, and `witness._matched_windows` must resolve the realized labels to that class token and match rules against it — the replay half of the pair, which the witness gate leans on, while the walk beside it keeps settling those same texts right."""
+        """Class tokens at depth 4 with real rules and a real index: the mini spec plus a reach-3 chain on ·Tea, built in the shipping world, creates an r4 class at the ·Tea·May·May·May windows. `witness._matched_windows`, which the witness stage uses, must resolve the labels to that class token and match rules against it, and the walk must still settle those texts correctly."""
         import dataclasses
 
         from rebuild.pipeline import fixtures, model
@@ -2568,7 +2568,7 @@ class TestSettledWindowWalk:
         assert any(matched is not None for _window, matched in replayed)
 
     def test_prefill_then_walk_matches_walk_with_misses(self, spec, guard):
-        """`prefill` and `walk` answer alike; what differs is the bill. A walker handed its texts up front answers each of them out of the memo, so `single_settles` stays at zero, while a walker asked one text at a time spends a whole kernel invocation on every miss — which is exactly what the counter exists to make visible to a caller who forgot to prefill."""
+        """`prefill` and `walk` return the same results but differ in cost. A walker given its texts up front serves each from the memo, so `single_settles` stays zero, while a walker asked one text at a time spends a kernel invocation on every miss. The counter shows a caller that forgot to prefill what that costs."""
         import itertools
 
         features = frozenset()
@@ -2583,7 +2583,7 @@ class TestSettledWindowWalk:
         assert lazy.single_settles > 0
 
     def test_one_memo_key_settles_its_distinct_case_lines_alike(self, spec, guard):
-        """The dedupe's own premise, checked rather than argued: `_window_rights`' `#NA` cascade blanks slots the key does not carry, so several distinct raw case lines land on one memo key, and the walk asks the crate about only the first of them. Under `audit_dedupe` every later one is asked too and held to the memoized outcome — the mini alphabet at depth 4 is where those collisions are dense enough to be worth the extra invocations."""
+        """`_window_rights` writes `#NA` past a boundary, so several distinct raw case lines share one memo key, and the walk asks the crate only about the first. With `audit_dedupe` on, the walk also settles each later line and asserts it matches the memoized outcome. The mini alphabet at depth 4 has enough such collisions to test this."""
         import itertools
 
         features = frozenset()
@@ -2598,7 +2598,7 @@ class TestSettledWindowWalk:
     def test_a_dropping_walk_prefills_past_a_refusal_and_raises_only_when_it_is_walked(
         self, spec, guard, monkeypatch
     ):
-        """The certificate check's pairing, which is why `on_error` exists at all: the prefill is eager over every certificate, so a window the crate refuses in one of them must not take the whole check down before the other rules are read. Under `on_error="drop"` it is memoized as a refusal and the text carrying it stops advancing; the walk that later reaches that key is where the refusal surfaces, against the one rule whose certificate carried it. The default stays strict, and the same prefill raises there."""
+        """`on_error` exists for the certificate check. Its prefill covers every certificate at once, so a window the crate refuses in one certificate must not stop the check before the other rules are read. With `on_error="drop"` the refusal is memoized and the text that reached it stops advancing; the refusal is raised when a later walk reaches that key, against the one rule whose certificate carried it. The default mode stays strict, and the same prefill raises."""
         refused = "qsTea"
         clean, refusing_text = chr(0xE665) + chr(0xE670), chr(0xE665) + chr(0xE652)
         original = kernel_exec.settle_windows
@@ -2633,7 +2633,7 @@ class TestSettledWindowWalk:
 
     @pytest.mark.slow
     def test_the_real_alphabet_keys_its_distinct_case_lines_alike(self):
-        """The same audit over the live rune files at depth 3, where the alphabet is the shipping one and the collisions are the ones `gate:conform` actually rides on. Marked slow: it settles every distinct raw window the depth-3 sweep reaches, not merely one per memo key."""
+        """The same audit over the live runes at depth 3, with the shipping alphabet and the key collisions `gate:conform` depends on. Marked slow because it settles every distinct raw window the depth-3 sweep reaches, not one per memo key."""
         import itertools
         import warnings
 
@@ -2659,7 +2659,7 @@ class TestSettledWindowWalk:
 
 
 def _dump_parts(dump: Path) -> tuple[dict, list[bytes], list[bytes], bytes]:
-    """A crate-filed window memo taken apart: the head, the label lines, the record lines and the row bytes."""
+    """Split a window memo the crate wrote into its head, label lines, record lines and row bytes."""
     data = dump.read_bytes()
     head_line, _, _ = data.partition(b"\n")
     head = json.loads(head_line.decode().partition("\t")[2])
@@ -2670,7 +2670,7 @@ def _dump_parts(dump: Path) -> tuple[dict, list[bytes], list[bytes], bytes]:
 def _write_dump(
     dump: Path, head: dict, labels: list[bytes], records: list[bytes], rows: list[tuple[int, ...]]
 ) -> None:
-    """A window memo in the crate's own layout, with the head's counts taken from what is written."""
+    """Write a window memo in the crate's layout, with the head's counts taken from what is written."""
     head = {**head, "rows": len(rows), "labels": len(labels), "records": len(records)}
     code = "<" + {2: "H", 4: "I"}[head["width"]] * 7
     body = b"".join(struct.pack(code, *row) for row in rows)
@@ -2679,7 +2679,7 @@ def _write_dump(
 
 
 def _texts_to_depth(spec, max_length=3):
-    """Every text of the fixture alphabet up to `max_length` letters, the universe the memo tests walk."""
+    """Every text of the fixture alphabet up to `max_length` characters, the universe the memo tests walk."""
     alphabet = conform.spec_alphabet(spec)
     return [
         "".join(combo)
@@ -2689,7 +2689,7 @@ def _texts_to_depth(spec, max_length=3):
 
 
 class TestCrateEmittedSettleMemo:
-    """The settle memo the string replay files is the belt's memo in the crate's spelling, and `absorb_replay_memo` is the seam that respells it. The headline arm is the walk-equivalence sweep over a file the crate wrote: a mis-spelled key misses rather than mismatches, so the alarm for the label conversion is a walk that settles anything at all (`fresh_windows`), and the alarm for a wrong outcome is the settled stream against the unmemoized reference. The rest holds the file to what a belt-written one is held to — stamp, family keys, the per-family retirement — and the conversion's own refusals."""
+    """The string replay writes a window memo in the crate's label format, and `absorb_replay_memo` converts it into a settle memo file. The main test sweeps a walk over a file the crate wrote: a key converted wrongly misses instead of returning a wrong outcome, so the check on the label conversion is that the walk settles nothing (`fresh_windows`), and the check on outcomes is the settled stream against the unmemoized reference. The other tests hold the converted file to the same rules as one the belt writes (stamp, family keys, per-family retirement) and check the conversion's refusals."""
 
     STAMP = "replay-stamp-a"
 
@@ -2709,7 +2709,7 @@ class TestCrateEmittedSettleMemo:
     def test_the_absorbed_memo_serves_every_window_the_walk_reaches_and_settles_alike(
         self, spec, dumps_dir, tmp_path, config
     ):
-        """The equivalence arm: the sweep to the replay's horizon over a walk carrying the crate-emitted file settles nothing — every key the walk spells is one the conversion spelled — and its streams and names equal the unmemoized reference. `ss03` exercises the marker fold on the input and right slots, `default` the bare spelling."""
+        """The sweep to the replay's horizon, with a walk carrying the crate-written file, settles nothing (every key the walk forms is one the conversion wrote), and its streams and names equal the unmemoized reference. `ss03` exercises the marker fold on the input and right slots, `default` the unrenamed labels."""
         memo = self._memo(tmp_path, config)
         entries = conform.absorb_replay_memo(
             kernel_exec.replay_memo_dump(dumps_dir, config), memo, spec, config
@@ -2731,7 +2731,7 @@ class TestCrateEmittedSettleMemo:
     def test_a_walk_that_promotes_nothing_answers_out_of_the_columns_alike(
         self, spec, guard, dumps_dir, tmp_path
     ):
-        """The belt's shape over the crate-emitted file: a walk built with `promote=False` settles every text of the universe to depth 3 out of the store's columns — the same streams and names an unmemoized walk produces, no crate call, nothing entering `windows` — and the rows it reached are exactly the distinct windows the reference walk memoized."""
+        """A walk built with `promote=False`, as the belt builds it, over the crate-written file settles every text to depth 3 from the store's columns, with the same streams and names as an unmemoized walk, no crate call and nothing added to `windows`. The rows it reached are exactly the distinct windows the reference walk memoized."""
         memo = self._memo(tmp_path)
         conform.absorb_replay_memo(kernel_exec.replay_memo_dump(dumps_dir, "default"), memo, spec, "default")
         texts = _texts_to_depth(spec, 3)
@@ -2746,7 +2746,7 @@ class TestCrateEmittedSettleMemo:
     def test_a_label_the_file_never_introduced_misses_before_the_crate_is_asked(
         self, spec, guard, dumps_dir, tmp_path
     ):
-        """A probe is answered inside the store or not at all: a window naming a label the file's table lacks misses on the label lookup, a window of known labels the file does not hold misses at its index slot, and neither touches the crate or marks a row reached."""
+        """A probe is served from the store or not at all: a window with a label missing from the file's table misses at the label lookup, a window of known labels that the file does not hold misses at its index slot, and neither calls the crate or marks a row reached."""
         memo = self._memo(tmp_path)
         conform.absorb_replay_memo(kernel_exec.replay_memo_dump(dumps_dir, "default"), memo, spec, "default")
         walker = conform._SettledWindowWalk(spec, frozenset(), {}, guard, memo=memo)
@@ -2763,7 +2763,7 @@ class TestCrateEmittedSettleMemo:
     def test_a_walk_that_promotes_nothing_audits_the_dedupe_against_the_columns(
         self, spec, guard, dumps_dir, tmp_path
     ):
-        """`audit_dedupe` under `promote=False`: a memo key that several distinct raw case lines land on is answered out of the store, never entering `windows`, and `_drain_audit` holds each later line's settlement to the outcome the store's probe hands back — so the audit's only crate calls are its own extra rows, and the memoized walk's streams still equal the unmemoized reference."""
+        """`audit_dedupe` with `promote=False`: a memo key that several distinct raw case lines share is served from the store without entering `windows`, and `_drain_audit` compares each later line's settlement with the outcome the store's probe returns. The only crate calls are the audit's own extra rows, and the walk's streams still equal the unmemoized reference."""
         memo = self._memo(tmp_path)
         conform.absorb_replay_memo(kernel_exec.replay_memo_dump(dumps_dir, "default"), memo, spec, "default")
         texts = _texts_to_depth(spec, 4)
@@ -2779,7 +2779,7 @@ class TestCrateEmittedSettleMemo:
     def test_a_dump_under_another_head_or_configuration_or_short_of_its_rows_is_refused(
         self, spec, guard, dumps_dir, tmp_path
     ):
-        """Each refusal writes nothing: a standing file is left as it was, and where none stood none appears."""
+        """Each refusal writes nothing: an existing file is left unchanged, and where none existed none appears."""
         memo = self._memo(tmp_path)
         standing = conform._SettledWindowWalk(spec, frozenset(), {}, guard, memo=memo)
         standing.walk_many(["\ue652"])
@@ -2806,7 +2806,7 @@ class TestCrateEmittedSettleMemo:
     def test_the_absorbed_file_carries_its_stamp_and_keys_and_retires_by_family(
         self, spec, guard, dumps_dir, tmp_path
     ):
-        """The converted file behaves under `StaleMask` like one the belt wrote: it reads back under exactly the stamp and family keys it was given, a rune edit to one key retires exactly the entries whose windows name that family, and another stamp reads as no file."""
+        """The converted file behaves under `StaleMask` like one the belt wrote: under the stamp and family keys it was written with every entry loads and none is stale, a change to one family's key retires exactly the entries whose windows name that family, and another stamp reads as no file."""
         keys = {name: f"{name}@0" for name in spec.registry.families}
         memo = self._memo(tmp_path, keys=keys)
         entries = conform.absorb_replay_memo(
@@ -2835,7 +2835,7 @@ class TestCrateEmittedSettleMemo:
         )
 
     def test_two_crate_keys_that_collapse_to_one_walk_key_must_agree(self, spec, guard, dumps_dir, tmp_path):
-        """Two seats whose cells spell one display name are one walk key: rows keyed on either seat absorb as one row when they agree — the dump counts two, the file holds one — and a dump where they disagree is refused whole."""
+        """Two left-slot seats whose cells have the same display name form one walk key. Rows keyed on either seat absorb as one row when they agree (the dump counts two, the file holds one), and a dump where they disagree is refused whole."""
         head, labels, records, _ = _dump_parts(kernel_exec.replay_memo_dump(dumps_dir, "default"))
         record = json.loads(records[0])
         twin = json.dumps({**record, "extension": record["extension"] + 1}, separators=(",", ":")).encode()
@@ -2869,7 +2869,7 @@ class TestCrateEmittedSettleMemo:
 
 
 class TestDeepTokenIndex:
-    """The transport's raw-vs-renamed contract: `_DeepTokenIndex` is built from the table's raw label space but queried with the walk's marker-folded labels, so every member combination of every class-bearing row must resolve to exactly the deep components of the row's renamed key. The walk-equivalence sweeps cannot see a one-sided rename slip — both paths share the index — so this arm checks resolution against the rows directly, on a config whose rename map touches the row shape that broke first: a bare (singleton-fiber) r3 the config renames, under a class-token r4."""
+    """`_DeepTokenIndex` is built from the table's raw labels but queried with the walk's marker-folded labels, so every member combination of every class-bearing row must resolve to the deep slots of the row's renamed key. The walk-equivalence sweeps cannot catch a rename applied on one side only, because both paths use the same index, so this test checks resolution against the rows directly. The configuration renames a bare (singleton-fiber) r3 under a class-token r4, the row shape the final assertion requires."""
 
     def test_every_class_row_resolves_under_a_renaming_config(self):
         import dataclasses
@@ -2941,7 +2941,7 @@ class TestDeepTokenIndex:
 
 
 class TestSettleMemoFile:
-    """The belt and the oracle walk the same texts per configuration, and the memo file is how the second of them settles nothing: written by whichever walk settled anything the file lacked, read lazily by the next, keyed on the display name so a walk with a minted inventory and a walk with none share every key. A file under another stamp, or one that will not decode, costs the walk only the windows it would have settled anyway."""
+    """The belt and the oracle walk the same texts per configuration, and the memo file lets the second of them settle nothing. Whichever walk settled windows the file lacked writes it, the next walk loads it lazily, and the left slot is keyed on the display name, so a walk with a glyph inventory and a walk without one share every key. A file under another stamp, or one that does not decode, costs the walk only the windows it would have settled anyway."""
 
     STAMP = "tables-stamp-a"
 
@@ -2961,7 +2961,7 @@ class TestSettleMemoFile:
         assert conform.settle_memo_files(tmp_path, spec, None) == {}
 
     def test_a_rune_edit_retires_only_the_entries_naming_it(self, spec, guard, tmp_path):
-        """The acceptance test for the per-family memo: a walk over the edited spec that loads the file the unedited walk wrote — under keys that name ·Tea as moved — answers exactly what a walk with no file answers, settles nothing the file still vouches for, and retires exactly the entries whose windows name ·Tea. The edit genuinely moves settlement, so a memo that served across it would answer wrong, which the first assertion is the proof of."""
+        """A walk over the edited spec that loads the file the unedited walk wrote, under keys naming ·Tea as moved, must return what a walk with no file returns, settle nothing the file still covers, and retire exactly the entries whose windows name ·Tea. The edit changes settlement, so a memo that served across it would return wrong results, which the first assertion checks."""
         texts = self._texts(spec)
         keys = {name: f"{name}@0" for name in spec.registry.families}
         first = conform._SettledWindowWalk(spec, frozenset(), {}, guard, memo=self._memo(tmp_path, keys=keys))
@@ -3007,7 +3007,7 @@ class TestSettleMemoFile:
         assert third._settle_calls == 0 and third.stale_windows == 0
 
     def test_a_ligature_rune_edit_retires_the_entries_naming_its_formed_label(self, spec, guard, tmp_path):
-        """The persisted-memo regression for issue 202. A memo window holds formed labels, so the windows a ligature rune's edit reaches are the ones carrying its own label — `qsTea_qsOy` at any slot — beside the ones the order-blind component clause already retires for carrying both ·Tea and ·Oy unformed; the formed-label windows carry no component label that clause could fire on. Under keys naming only the ligature as moved, the loaded file must retire exactly those windows and answer what a walk with no file answers; a second save under the new keys then serves everything, which is the property the issue's repro lost: a rewrite that stamps a stale entry with the current keys leaves no ordinary run able to retire it."""
+        """A memo window holds formed labels, so an edit to a ligature rune must retire the windows that carry its formed label `qsTea_qsOy` at any slot, as well as those the component clause already retires for carrying both ·Tea and ·Oy unformed. The windows with only the formed label carry no component label for that clause to catch. Under keys naming only the ligature as moved, the loaded file must retire exactly those windows and return what a walk with no file returns. A second save under the new keys must then serve everything: a save that wrote a stale entry under the current keys would leave no later run able to retire it."""
         texts = self._texts(spec)
         keys = {name: f"{name}@0" for name in spec.registry.families}
         first = conform._SettledWindowWalk(spec, frozenset(), {}, guard, memo=self._memo(tmp_path, keys=keys))
@@ -3069,7 +3069,7 @@ class TestSettleMemoFile:
         assert second.memo_windows == 0 and second.fresh_windows == len(second.windows)
 
     def test_the_belt_prunes_what_no_text_reaches_and_the_oracle_carries_it(self, spec, guard, tmp_path):
-        """Two walks over the same file with different charters. The oracle's, which reaches only the windows of the rows it walks, writes nothing when it settled nothing and would carry every loaded entry forward if it did; the belt's, which reaches every window any text produces, prunes what it never reached — so a window an edit has orphaned leaves the file on the next sweep rather than riding it forever."""
+        """Two walks over the same file with different responsibilities. The oracle's walk reaches only the windows of its rows, so it writes nothing when it settled nothing and would carry every loaded entry forward if it did. The belt's walk reaches every window any text produces, so it prunes what it never reached, and a window an edit has made unreachable leaves the file on the next sweep instead of staying in it indefinitely."""
         memo = self._memo(tmp_path)
         long_texts, short_texts = self._texts(spec, 3), self._texts(spec, 2)
         first = conform._SettledWindowWalk(spec, frozenset(), {}, guard, memo=memo)
@@ -3099,7 +3099,7 @@ class TestSettleMemoFile:
         assert fourth.memo_windows == touched and fourth.fresh_windows == total - touched
 
     def _decoded(self, memo, spec, outcome_of=None) -> list[tuple[conform._Window, conform._Outcome]]:
-        """Every live row of the file at `memo.path` in file order, through a store of its own, each outcome through `outcome_of` (the bare settled item in a placeholder outcome when None)."""
+        """Every live row of the file at `memo.path` in file order, read through a separate store, with each outcome passed through `outcome_of` (a placeholder outcome around the settled item when None)."""
         store = conform._MemoStore()
         store.load(memo, spec, None, outcome_of or (lambda item: (item, "", "")))
         try:
@@ -3108,7 +3108,7 @@ class TestSettleMemoFile:
             store.close()
 
     def _dict_of(self, walker, memo, spec) -> dict[conform._Window, conform._Outcome]:
-        """The file at `memo.path` read as a dict of window tuples, every outcome through `walker._outcome` so the objects are the ones the walk shares with `windows` — the reading the store's `items` order and `len` are held to."""
+        """The file at `memo.path` as a dict of window tuples, with every outcome through `walker._outcome` so the objects are the ones the walk shares with `windows`. The store's `items` order and `len` are checked against it."""
         return dict(self._decoded(memo, spec, walker._outcome))
 
     def _stream(self, path) -> bytes:
@@ -3117,7 +3117,7 @@ class TestSettleMemoFile:
     def test_the_store_reads_the_file_as_a_dict_does_and_the_carry_forward_files_the_same_rows(
         self, spec, guard, tmp_path
     ):
-        """The store against a dict of the same file, entry for entry: `items` iterates the live rows in the dict's order with the dict's outcomes, and `len` is its length. Then the whole-file carry-forward (`shard.of == 1`, no prune) over a walk that reached some rows and settled others fresh files exactly the rows a dict-backed walk files, in its order — `windows` first, then every loaded entry `windows` does not hold, in file order — straight out of the mapped columns."""
+        """The store must read the file as a dict does: `items` iterates the live rows in the dict's order with the dict's outcomes, and `len` is the dict's length. Then a whole-file save without pruning (a walk with no `write_path`, as in the `--jobs 1` oracle), over a walk that reached some rows and settled others fresh, must write the same rows in the same order as a dict-backed walk: `windows` first, then every loaded entry `windows` does not hold, in file order, copied from the mapped columns."""
         memo = self._memo(tmp_path)
         seed = conform._SettledWindowWalk(spec, frozenset(), {}, guard, memo=memo)
         seed.walk_many(self._texts(spec, 2))
@@ -3152,7 +3152,7 @@ class TestSettleMemoFile:
         assert self._ordered(memo, spec) == self._ordered(replace(memo, path=carried), spec)
 
     def test_a_part_holds_the_fresh_windows_in_the_order_they_were_settled(self, spec, guard, tmp_path):
-        """The `writes_part` branch is untouched by the store: the part is the fresh windows in settlement order and nothing loaded, as one pickle stream."""
+        """A part holds only the fresh windows, in the order they were settled, as a gzip stream of pickles; nothing from the loaded store goes into it."""
         memo = self._memo(tmp_path)
         seed = conform._SettledWindowWalk(spec, frozenset(), {}, guard, memo=memo)
         seed.walk_many(self._texts(spec, 2))
@@ -3178,7 +3178,7 @@ class TestSettleMemoFile:
     def test_a_pruning_walk_that_promotes_nothing_files_what_a_promoting_one_files(
         self, spec, guard, tmp_path
     ):
-        """The belt's file under either shape holds one window -> outcome map: a pruning walk that promoted every hit into `windows` files `windows` in the order it reached them, and one that promoted nothing files its fresh windows first and then the reached rows in the file's own order — the same rows, the same outcomes, the same `pruned_windows`, in a permutation no reader can tell apart."""
+        """Either way the belt writes one window-to-outcome map: a pruning walk that promoted every hit into `windows` writes `windows` in the order it reached them, and one that promoted nothing writes its fresh windows first and then the reached rows in the file's own order. The rows, the outcomes and `pruned_windows` are the same; only the order differs, and a load does not depend on order."""
         seeded = self._memo(tmp_path)
         seed = conform._SettledWindowWalk(spec, frozenset(), {}, guard, memo=seeded)
         seed.walk_many(self._texts(spec, 2))
@@ -3275,7 +3275,7 @@ class TestSettleMemoFile:
         assert third._settle_calls == 0
 
     def test_a_truncated_file_is_refused_and_loads_nothing(self, spec, guard, tmp_path, capsys):
-        """A mapped file is read whole or not at all: one cut short of the layout its header declares loads no row and costs a warning, the walk settles everything, and its save replaces the torn file with a whole one the next walk serves from."""
+        """A mapped file is read whole or not at all: a file shorter than its header's declared layout loads no row and prints a warning, the walk settles everything, and its save replaces the truncated file with a whole one that the next walk serves from."""
         texts = self._texts(spec)
         memo = self._memo(tmp_path)
         first = conform._SettledWindowWalk(spec, frozenset(), {}, guard, memo=memo)
@@ -3297,7 +3297,7 @@ class TestSettleMemoFile:
         assert third._settle_calls == 0
 
     def test_a_file_cut_to_its_header_still_stands_and_loads_nothing(self, spec, guard, tmp_path, capsys):
-        """`settle_memo_standing` reads the header bytes and nothing after them: a file cut off right behind its header stands under its stamp and not under another, while a walk over it loads nothing and settles everything; a file cut inside the header stands under no stamp."""
+        """`settle_memo_standing` reads only the header: a file cut off right after its header still stands under its own stamp and not under another, a walk over it loads nothing and settles everything, and a file cut inside the header stands under no stamp."""
         texts = self._texts(spec, 2)
         memo = self._memo(tmp_path)
         first = conform._SettledWindowWalk(spec, frozenset(), {}, guard, memo=memo)
@@ -3318,7 +3318,7 @@ class TestSettleMemoFile:
         assert not conform.settle_memo_standing(memo)
 
     def test_a_store_closes_under_a_live_iterator_and_the_mapping_goes_with_it(self, spec, guard, tmp_path):
-        """`close` never raises: a view an `items` iterator still holds keeps the mapping open past the close, and the mapping goes when the iterator does, so a partial consumer inside a save's cleanup path costs nothing but the file's pages until it dies."""
+        """`close` never raises: a view still held by an `items` iterator keeps the mapping open after the close, and the mapping is released with the iterator, so a partial reader in a save's cleanup path costs only the file's pages until it is released."""
         texts = self._texts(spec, 2)
         memo = self._memo(tmp_path)
         first = conform._SettledWindowWalk(spec, frozenset(), {}, guard, memo=memo)
@@ -3339,7 +3339,7 @@ class TestSettleMemoFile:
     def test_a_corrupt_index_retires_the_store_at_the_first_probe_that_finds_it(
         self, spec, guard, tmp_path, capsys
     ):
-        """The load reads the header and the tables and no column page, so an index whose every slot names one row, or names a row past the columns, is found by a probe: the chain is bounded by the row count, the id by the column, and either finding retires every row with a warning — the walk settles everything it has not yet been served (the one row every slot names may answer its own window first) and its save replaces the file with a whole one."""
+        """When no family key moved and no ask restriction applies, the load reads the header and tables and no column page, so a corrupt index (every slot naming one row, or naming a row past the columns) is found by a probe. The probe chain is bounded by the row count and the id by the column length, and either finding retires every row with a warning. The walk then settles everything it has not already been served (the one row every slot names may serve its own window first), and its save replaces the file with a whole one."""
         texts = self._texts(spec, 2)
         memo = self._memo(tmp_path)
         first = conform._SettledWindowWalk(spec, frozenset(), {}, guard, memo=memo)
@@ -3362,7 +3362,7 @@ class TestSettleMemoFile:
             assert memo.path.read_bytes() == whole
 
     def test_a_file_replaced_under_an_open_mapping_keeps_serving_the_mapped_rows(self, spec, guard, tmp_path):
-        """The contract `_write_settle_memo` states, from the reader's side: a walk that mapped the file keeps the inode it mapped after a writer replaces the file, answers every window it loaded out of it with no crate call, and the next walk maps the new file. The replacement holds fewer rows — the depth-1 windows alone — so a walk reading the new file through its old mapping would have settled the rest."""
+        """The guarantee `_write_settle_memo` gives, seen from the reader: a walk that mapped the file keeps the inode it mapped after a writer replaces the file and serves every window it loaded from it with no crate call, and the next walk maps the new file. The replacement holds fewer rows (only the depth-1 windows), so a walk that read the new file through its old mapping would have settled the rest."""
         texts = self._texts(spec, 2)
         memo = self._memo(tmp_path)
         seed = conform._SettledWindowWalk(spec, frozenset(), {}, guard, memo=memo)
@@ -3395,7 +3395,7 @@ class TestSettleMemoFile:
         assert after.fresh_windows == len(seed.windows) - len(smaller.windows)
 
     def test_the_index_a_writer_builds_answers_a_reader_in_another_interpreter(self, spec, guard, tmp_path):
-        """The hash is the file's, not the interpreter's: a file written here is probed in a spawned interpreter under another hash seed, and every row answers at the slot the writer put it in — which a slot computed from a salted or version-bound hash would not."""
+        """The index hash depends on the file, not the interpreter: a file written here is probed in a subprocess under a different hash seed, and every row is found at the slot the writer put it in, which a slot computed from Python's salted or version-specific hash would not guarantee."""
         texts = self._texts(spec, 2)
         memo = self._memo(tmp_path)
         first = conform._SettledWindowWalk(spec, frozenset(), {}, guard, memo=memo)
@@ -3445,7 +3445,7 @@ class TestSettleMemoFile:
     def test_a_refusal_is_not_written_and_is_asked_again(
         self, spec, guard, tmp_path, monkeypatch, restricted
     ):
-        """A refusal is memoized for the tolerant walk that met it and for nobody else: the file holds outcomes only, so the next walk to reach that window asks the crate and gets whatever the crate says then. A walk restricted to its texts' asks memoizes the refusal exactly as the unrestricted one does and raises at that key on its own walk too, since a refusal lives in `windows` and never in the file the restriction filters."""
+        """A refusal is memoized only for the tolerant walk that met it. The file holds outcomes only, so the next walk to reach that window asks the crate again and gets whatever the crate returns then. A walk restricted to its texts' asks memoizes the refusal the same way and raises at that key on its own walk, because a refusal is kept in `windows` and never written to the file the restriction filters."""
         clean, refusing_text = chr(0xE665) + chr(0xE670), chr(0xE665) + chr(0xE652)
         original = kernel_exec.settle_windows
 
@@ -3488,7 +3488,7 @@ class TestSettleMemoFile:
         assert again.fresh_windows == len(refused)
 
     def test_the_belt_writes_the_file_the_oracle_reads(self, spec, guard, tmp_path, monkeypatch, capsys):
-        """The two phases end to end, in the order a cycle runs them reversed — the belt over the mini alphabet at horizon 2 with the font faked out, then the oracle over rows whose texts that belt swept, with the crate taken away: every window the oracle needs is already in the file, and the `[t]` line each phase prints says which of them wrote it."""
+        """Both phases end to end, in the reverse of the cycle's order: the belt over the mini alphabet at horizon 2 with a stand-in font, then the oracle over rows the belt swept, with `kernel_exec.settle_windows` replaced by a failure. Every window the oracle needs is already in the file, and each phase's `[t]` line shows which one wrote it."""
         memo = self._memo(tmp_path)
         belt = conform._conformance_config(
             _SilentShaper(),  # pyright: ignore[reportArgumentType]
@@ -3547,7 +3547,7 @@ class TestSettleMemoFile:
     def test_the_ranges_parts_absorb_into_the_file_without_dropping_each_others_windows(
         self, spec, guard, tmp_path
     ):
-        """Two walks over the same standing file, each settling windows the other does not and each filing only what it settled as a part beside the file: neither touches the shared file, and the parent's absorb lands one file a third walk reads whole — every standing window and both parts' windows, no crate call — which is the failure a range that replaced the file whole would have produced."""
+        """Two walks over the same existing file, each settling windows the other does not and each writing only what it settled as a part beside the file. Neither touches the shared file, and the parent's absorb produces one file that a third walk reads whole: every existing window and both parts' windows, with no crate call. A range that replaced the file whole would lose the other range's windows."""
         texts = self._texts(spec, 2)
         memo = self._memo(tmp_path)
         half = len(texts) // 2
@@ -3584,7 +3584,7 @@ class TestSettleMemoFile:
     def test_a_restricted_walk_files_only_its_fresh_windows_and_the_absorb_keeps_the_standing_ones(
         self, spec, guard, tmp_path
     ):
-        """The witness stage's shape: a walk that loads only the rows its texts can ask cannot tell a dropped row from an unreached one, so it files a part of exactly the windows it settled fresh, leaves the shared file alone, and the absorb lands standing plus fresh — where a whole-file save from such a walk would have dropped every row the load did."""
+        """As in the witness stage, a walk that loads only the rows its texts can ask cannot tell a dropped row from an unreached one, so it writes a part holding exactly the windows it settled fresh and leaves the shared file alone, and the absorb produces the existing rows plus the fresh ones. A whole-file save from such a walk would drop every row its load dropped."""
         texts = self._texts(spec, 2)
         memo = self._memo(tmp_path)
         half = len(texts) // 2
@@ -3620,7 +3620,7 @@ class TestSettleMemoFile:
     def test_a_restricted_load_serves_the_rows_a_part_absorbed_under_the_standing_spellings(
         self, spec, guard, tmp_path
     ):
-        """The steady state of the file the witness stage reads: a part files its labels afresh, and the absorb folds each spelling onto the id the standing file already holds for it, so the file names every spelling once and a restricted load tests rows in one id space. Seeded whole, extended by one restricted walk's part, and read by a second restricted walk over the same texts, the file serves every row that walk asks — the standing rows and the absorbed rows alike — and the walk settles nothing."""
+        """The steady state of the file the witness stage reads. A part writes its own label table, and the absorb maps each label onto the id the existing file already uses for it, so the file names each label once and a restricted load tests rows in one id space. Seeded whole, extended by one restricted walk's part, and read by a second restricted walk over the same texts, the file serves every row that walk asks, existing and absorbed alike, and the walk settles nothing."""
         texts = self._texts(spec, 2)
         memo = self._memo(tmp_path)
         half = len(texts) // 2
@@ -3670,7 +3670,7 @@ class TestSettleMemoFile:
             return pickle.loads(handle.read(length))
 
     def test_the_absorbed_file_names_each_spelling_once_and_answers_every_row(self, spec, guard, tmp_path):
-        """The absorbed file's label table names each spelling once — the part's labels folded onto the standing ids by the writer — so the store's id map is its label table inverted, and the index answers every row with the outcome a dict of the file holds, one row per distinct window. Nothing standing was retired, so the absorb extends the standing index in place: the file keeps the standing slot count and the standing rows their positions, and the standing columns copy in whole at the file's own typecode."""
+        """The absorbed file's label table names each label once (the writer maps the part's labels onto the existing ids), so the store's id map is its label table inverted, and the index returns for every row the outcome a dict of the file holds, one row per distinct window. No existing row was retired, so the absorb extends the existing index in place: the file keeps the existing slot count, the existing rows keep their positions, and the existing columns are copied whole at the file's own typecode."""
         texts = self._texts(spec, 2)
         memo = self._memo(tmp_path)
         seed = conform._SettledWindowWalk(spec, frozenset(), {}, guard, memo=memo)
@@ -3706,7 +3706,7 @@ class TestSettleMemoFile:
         assert store.reached_count() == len(expected)
 
     def test_a_window_filed_twice_lands_as_one_row_with_the_later_outcome(self, spec, guard, tmp_path):
-        """The writer's fold, on a memo that files one window twice with two outcomes: the file holds one row at the first entry's position carrying the later entry's outcome — what a dict of the entries holds — so `len`, `items` order and every probe match the dict, and a pruning save counts and files the distinct windows only."""
+        """The writer's fold, on a memo that lists one window twice with two outcomes: the file holds one row at the first entry's position with the later entry's outcome, as a dict of the entries would. So `len`, `items` order and every probe match the dict, and a pruning save counts and writes only the distinct windows."""
         memo = self._memo(tmp_path)
         seed = conform._SettledWindowWalk(spec, frozenset(), {}, guard, memo=memo)
         seed.walk_many(self._texts(spec, 2))
@@ -3733,7 +3733,7 @@ class TestSettleMemoFile:
         assert self._ordered(memo, spec) == [(window, outcome[0]) for window, outcome in repeated]
 
     def test_two_parts_filing_one_window_absorb_into_one_row(self, spec, guard, tmp_path):
-        """The production shape of the repeat: two row ranges that both settle a window both file it, and the absorb folds the pair onto one row, so the file's row count is the dict's and a walk over the file reaches every window once."""
+        """The production case of a repeated window: two row ranges that both settle a window both write it, and the absorb folds the pair onto one row, so the file's row count equals the dict's and a walk over the file reaches every window once."""
         texts = self._texts(spec, 2)
         memo = self._memo(tmp_path)
         third = len(texts) // 3
@@ -3763,7 +3763,7 @@ class TestSettleMemoFile:
     def test_a_range_part_filed_before_the_witness_fold_absorbs_onto_the_rows_that_fold_added(
         self, spec, guard, tmp_path, monkeypatch
     ):
-        """The data half of the oracle starting beside the witness stage: a row range maps the file before the witness stage's fold lands, so it settles and files again windows that fold then puts in the standing rows, and its part is absorbed behind the fold. Nothing standing was retired, so the writer extends the standing index with the part's rows rather than rebuilding it; each window the fold already holds lands on its standing row and the rest append, so every standing row keeps its place, the file holds one row per window and answers as a dict of it does, and a walk over every text settles nothing."""
+        """The oracle runs beside the witness stage, so a row range can map the file before the witness stage's absorb takes effect, settle windows that absorb then adds to the existing rows, and have its part absorbed after it. No existing row was retired, so the writer extends the existing index with the part's rows instead of rebuilding it. Each window the file already holds maps onto its existing row and the rest are appended, so every existing row keeps its place, the file holds one row per window and reads as a dict of it does, and a walk over every text settles nothing."""
         texts = self._texts(spec, 2)
         memo = self._memo(tmp_path)
         seed = conform._SettledWindowWalk(spec, frozenset(), {}, guard, memo=memo)
@@ -3816,7 +3816,7 @@ class TestSettleMemoFile:
         assert walker._settle_calls == 0 and walker.fresh_windows == 0
 
     def test_a_restriction_needs_a_part_and_never_prunes(self, spec, guard, tmp_path):
-        """The two guards that tie the load half to the write half: a walk whose memo would replace the shared file whole may not restrict its load, and a restricted walk may not prune, since after a restricted load a dropped row and an unreached window look the same."""
+        """Two checks that tie restricted loading to part writing: a walk whose memo would replace the shared file whole may not restrict its load, and a restricted walk may not prune, since after a restricted load a dropped row and an unreached window look the same."""
         texts = self._texts(spec, 1)
         memo = self._memo(tmp_path)
         whole = conform._SettledWindowWalk(spec, frozenset(), {}, guard, memo=memo)
@@ -3860,7 +3860,7 @@ class TestSettleMemoFile:
     def test_absorbing_parts_restamps_the_file_and_retires_what_the_new_keys_retire(
         self, spec, guard, tmp_path
     ):
-        """The issue 202 shape across the absorb: a part written under keys naming ·Tea as moved is folded into a file written under the old keys, and the result must carry the new keys without carrying the entries those keys retire — otherwise a stale settlement rides a header that vouches for it, and no ordinary run can retire it again."""
+        """A part written under keys naming ·Tea as moved is absorbed into a file written under the old keys. The result must carry the new keys without the entries those keys retire. Otherwise a stale settlement would sit under a header whose keys say it is current, and no later run could retire it."""
         texts = self._texts(spec)
         keys = {name: f"{name}@0" for name in spec.registry.families}
         first = conform._SettledWindowWalk(spec, frozenset(), {}, guard, memo=self._memo(tmp_path, keys=keys))

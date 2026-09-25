@@ -1,4 +1,11 @@
-"""Tests for the review server's own logic, both halves of it: the /autosave receiver — payload validation, atomic overwrite, the stash-aside of an existing autosave whose manifest generation is older than the incoming one (a stale-manifest autosave may be the only copy of un-exported work from before a surface rebuild, and its unit ids must never be silently joined to the new surface), the 409 refusal of the reverse direction (a stale tab must not clobber a newer store), the delta journal appended on every accepted save, and the resident store behind it (rebuild.review.verdict_store): the delta POST the app sends, the change token a sync GET hands back, and the reload an external rewrite of the file forces — and the header policy every static file goes out under, which is a pure function precisely so it can be checked without standing a server up."""
+"""Tests for the review server's logic.
+
+The /autosave receiver: payload validation, atomic overwrite, and the journal event appended on every accepted save. An existing autosave stamped for an older manifest is moved aside to a stash file, because it may be the only copy of unexported work from before a surface rebuild and its unit ids must not be mixed into the new surface. A save stamped older than the store is refused with 409, so a stale tab cannot overwrite a newer store.
+
+The resident store behind it (`rebuild.review.verdict_store`): the delta POST the app sends, the change token a sync GET returns, and the reload after an external rewrite of the file.
+
+The headers every static file is served with. `static_headers_for` is a pure function so it can be tested without a server.
+"""
 
 import json
 import os
@@ -159,7 +166,7 @@ def test_journal_seeds_from_a_store_that_predates_it(tmp_path):
 
 
 def test_the_precompressed_sidecars_go_out_gzip_encoded():
-    """The app fetches these as NDJSON and lets the browser decompress them, so the encoding has to be declared — a file served as `application/gzip` arrives as bytes the streaming parser cannot read, and the failure is opaque."""
+    """The app fetches these as NDJSON and lets the browser decompress them, so the encoding must be declared. A file served as `application/gzip` arrives as bytes the streaming parser cannot read, and the failure gives no useful error."""
     for name, _fmt in app_index.ARTIFACTS:
         headers = static_headers_for(f"/{name}")
         assert headers["Content-Encoding"] == "gzip"
@@ -168,7 +175,7 @@ def test_the_precompressed_sidecars_go_out_gzip_encoded():
 
 
 def test_everything_else_is_served_uncompressed_and_uncached():
-    """The shards especially: the app addresses one record inside a part by byte range, which only means anything while the part is served identity-encoded — and the locator's rows file with them, since the app fetches one gzip member of it by the span the table names and Chrome refuses a partial response that declares a content encoding. And `no-store` stays on everything, because a rebuild reuses every name."""
+    """The shards must be served identity-encoded, because the app reads one record inside a part by byte range. The locator's rows file must be too, because the app fetches one gzip member of it by the span the locator table names and Chrome refuses a partial response that declares a content encoding. Every file gets `no-store`, because a rebuild reuses every name."""
     for path in (
         "index.html",
         "app.js",

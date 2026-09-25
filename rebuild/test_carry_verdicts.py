@@ -1,4 +1,7 @@
-"""Tests for the carry: the content key a unit's id derives from, which is what lets a verdict follow its unit across surface rebuilds, and the join on that id the carry performs. For the key, everything the rebuild churns — ids, batches, drafts, provenance, the derived group ids, and the per-config ink_deltas map — is presentation and stays out, so a field's first appearance cannot rename a unit and strand the verdicts recorded on it; everything the reviewer actually judged stays in, so a real change to the window loses its old verdict rather than inheriting one. The key tests' units are the shipped review fixtures, which the §7 contract checker also gates in test_review_build."""
+"""Tests for the carry: the content key a unit's id is derived from, and the join of prior verdicts onto a new surface by that id.
+
+The key leaves out `CARRY_PRESENTATION_KEYS`, the fields a rebuild changes without changing what the reviewer judged, so adding or changing one cannot change a unit's id and strand its verdicts. Every judged field stays in the key, so a real change to the window drops the old verdict. The key tests use the shipped review fixtures, which `rebuild/test_review_build.py` also runs through the §7 contract checker.
+"""
 
 import hashlib
 import json
@@ -24,7 +27,7 @@ def _fixture_units():
 
 
 def test_ink_deltas_does_not_move_the_content_key():
-    """The field's introduction is invisible to the key: a unit predating ink_deltas and the same unit carrying it key identically, so every verdict recorded before the field still names its unit."""
+    """A unit keys the same with and without `ink_deltas`, so verdicts recorded on units without the field still name their units."""
     units = _fixture_units()
     assert any(unit["ink_deltas"] for unit in units), "no fixture unit records a delta"
     for current in units:
@@ -38,7 +41,7 @@ def test_ink_deltas_is_declared_presentation():
 
 
 def test_every_presentation_key_is_invisible_to_the_content_key():
-    """The whole exclusion list behaves the same way ink_deltas does — dropping any one of them, as an older surface would have, leaves the key untouched."""
+    """Dropping any one presentation key from a unit leaves its content key unchanged."""
     for current in _fixture_units():
         for key in PRESENTATION_KEYS:
             prior = {name: value for name, value in current.items() if name != key}
@@ -46,7 +49,7 @@ def test_every_presentation_key_is_invisible_to_the_content_key():
 
 
 def test_content_key_stamp_does_not_move_the_content_key():
-    """The build-time stamp is itself presentation: a unit predating the stamp and the same unit carrying it key identically, so the stamp's introduction renamed nothing."""
+    """The `content_key` stamp is excluded from the projection it stamps, so a unit keys the same with or without it."""
     units = _fixture_units()
     assert all("content_key" in unit for unit in units), "the fixtures predate the stamp"
     for current in units:
@@ -59,7 +62,7 @@ def test_content_key_stamp_is_declared_presentation():
 
 
 def test_content_hash_is_the_sha256_of_the_projection():
-    """The fixture stamps are exactly the sha256 of the projection, stamped or not, which pins the checked-in fixture stamps against rot."""
+    """Each fixture's `content_key` is the sha256 of its projection, which catches a checked-in fixture stamp that is out of date."""
     for current in _fixture_units():
         stripped = {key: value for key, value in current.items() if key != "content_key"}
         assert content_hash(current) == content_hash(stripped), current["id"]
@@ -67,7 +70,7 @@ def test_content_hash_is_the_sha256_of_the_projection():
 
 
 def test_a_change_to_the_judged_window_moves_the_content_key():
-    """The complement, so the exclusions above cannot pass by keying on nothing: the fields the reviewer judges — the window, the configs it covers, and the cells and seams both fonts draw — are all in the key, and moving any of them retires the old verdict instead of carrying it onto a different question."""
+    """Changing a judged field (the codepoints, the configs, either side's seams, or `ink_identical`) changes the key, so the tests above cannot pass with a key that ignores every field. A unit whose judged content changes loses its old verdict."""
     unit = _fixture_units()[0]
     for key, replacement in (
         ("codepoints", "E650:E650"),
@@ -80,13 +83,13 @@ def test_a_change_to_the_judged_window_moves_the_content_key():
 
 
 def test_picture_identity_is_invisible_to_the_content_key_unlike_ink_identity():
-    """`picture_identical` is a pure function of the window and both fonts' placed glyphs, all of which the key already covers, and it arrived after the ids on record were stamped — so it is a presentation key, while `ink_identical` stays inside the key only as the byte-identity contract with those ids."""
+    """`picture_identical` follows from the window and both fonts' placed glyphs, which the key already covers, so it is a presentation key. `ink_identical` is also derived but stays in the key, because removing it would change every recorded unit id."""
     unit = _fixture_units()[0]
     assert content_key({**unit, "picture_identical": not unit["picture_identical"]}) == content_key(unit)
 
 
 def _write_surface(root, stamp, units, machine=()):
-    """A surface skeleton the carry reads: the manifest's stamp, its one class, and its triage index — every unit in `units` is human and the index is what says so, since a fragment carries no batch; `machine` is the units on the surface the index leaves out."""
+    """Write a minimal surface for the carry: a manifest with its stamp, one class, and a triage index (`human_unit_ids`) listing every unit in `units`. A fragment carries no batch, so the index is what marks a unit as human. The `machine` units go in the shard but not in the index."""
     (root / "units").mkdir(parents=True)
     (root / "manifest.json").write_text(
         json.dumps(
@@ -108,7 +111,7 @@ def _write_verdicts(path, stamp, verdicts):
 
 
 def _content_unit(codepoints: str, **fields) -> dict:
-    """A unit as a content-addressed surface writes it: stamped over its carry projection and named by that stamp."""
+    """A unit with its `content_key` computed from its carry projection and its id derived from that key, as a surface writes it."""
     unit = {"id": None, "codepoints": codepoints, "configs": ["default"], "window": "w", **fields}
     unit["content_key"] = content_hash({key: value for key, value in unit.items() if key != "id"})
     unit["id"] = unit_cache.unit_id_for(unit["content_key"])
@@ -131,7 +134,7 @@ def _carry(tmp_path, surface_units, *verdict_files, machine=(), **held):
 
 
 def test_a_verdict_lands_on_the_unit_of_its_id_and_a_stale_stamp_is_no_bar(tmp_path):
-    """The id is the identity, so a verdicts file stamped for an older surface carries onto the live one by id alone: the unit still on the surface takes its verdict under the new stamp, and the unit that is gone strands its verdict."""
+    """The carry matches verdicts to units by id alone, so a verdicts file stamped for an older surface still carries. The unit still on the surface gets its verdict under the new manifest stamp, and the verdict whose unit is gone is stranded."""
     kept, gone = _content_unit("E650:E652"), _content_unit("E652:E653")
     verdicts = tmp_path / "verdicts.json"
     _write_verdicts(
@@ -162,7 +165,7 @@ def test_the_newest_verdict_per_unit_wins_across_files_and_skips_never_carry(tmp
 
 
 def test_the_carry_prints_its_four_figures_whatever_it_landed(tmp_path, capsys):
-    """The line the cycle records off the carry: every human unit on the new surface, how many a prior verdict keyed onto, how many none did, and how many prior verdicts found no unit to land on."""
+    """The `carry figures:` line, which the cycle records: the human units on the new surface, how many matched a prior verdict, how many did not, and how many prior verdicts matched no unit."""
     kept, gone, fresh = _content_unit("E650:E652"), _content_unit("E652:E653"), _content_unit("E653:E654")
     verdicts = tmp_path / "verdicts.json"
     _write_verdicts(verdicts, "S0", [_record(kept, "approve"), _record(gone, "reject")])
@@ -171,7 +174,7 @@ def test_the_carry_prints_its_four_figures_whatever_it_landed(tmp_path, capsys):
 
 
 def test_a_prior_verdict_on_a_machine_unit_is_not_stranded(tmp_path, capsys):
-    """Stranded counts prior verdicts whose unit is absent from the surface, and a unit outside the human workload is on the surface — so the figure counts against every id, machine ones included, whether the tool loads the surface itself or is handed the human records with the id set beside them; the human records alone would count the machine unit's verdict as stranded."""
+    """`stranded` counts prior verdicts whose unit is not on the surface at all, so it is checked against every surface id, machine units included. The test covers both ways the tool gets its units: loading the surface itself, and being passed the human records with the full id set."""
     kept, machine = _content_unit("E650:E652"), _content_unit("E652:E653")
     verdicts = tmp_path / "verdicts.json"
     _write_verdicts(verdicts, "S0", [_record(kept, "approve"), _record(machine, "reject")])
@@ -186,7 +189,7 @@ def test_a_prior_verdict_on_a_machine_unit_is_not_stranded(tmp_path, capsys):
 
 
 def test_the_human_records_without_the_id_set_are_refused(tmp_path):
-    """Handing over one half of the pair would run and count `stranded` short in silence, so the tool refuses it instead."""
+    """`main` exits when passed `current_units` without `current_ids`, or the reverse. The `stranded` figure needs the id of every unit on the surface, which the human records alone do not give."""
     kept = _content_unit("E650:E652")
     verdicts = tmp_path / "verdicts.json"
     _write_verdicts(verdicts, "S0", [_record(kept, "approve")])

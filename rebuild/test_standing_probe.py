@@ -1,4 +1,4 @@
-"""Tests for the standing-approval probe, the read-only instrument the rule-writing skill works from: that every family and cell listing it prints comes out in code-point order rather than alphabetically, which is the order the rules file is written in and so the order a survey can be pasted from; that its two silent degradations now label the exact reading they invalidate — a verdicts file stamped for another manifest makes every verdict unknown rather than the positive claim BLANK, and a surface with no font pair says which columns and which composed line are missing and why; that `--shapes` is walked off `standing_verdicts.SHAPES` at runtime, one row per shape with the symptom its own matcher's docstring opens with, and that a run resolving no unit id prints that menu too; that `--find` is a plain substring match over notations, blanks first and capped with the total stated, because one letter pair reaches thousands of records; that `--survey` groups every position under a before-glyph prefix by before form, after cell, left family, seam changes and follower with a verdict tally each, in code-point order, narrows to one after cell, counts the windows it cannot place, and says when nothing carries the glyph; that `--coverage` re-runs a rule's own survey relaxed of everything the rule names and reports the followers, forms and cells it does not, once, as a docket rather than an instruction — answering for every shape in `SHAPES` but ligature and ink-delta, the join-dropped shape through the pair enumeration and the form-naming shapes through the survey with each named list relaxed while the others hold — and says plainly when the rule's shape has no enumeration to run; that the cell-to-glyph-name reading the form coverage prints is held against `cell_label` over the mini spec; and that the redrawn trade a `--reading` line names is never truncated, since a redrawn rule is written from exactly that list. Everything here is hermetic: a synthetic surface under tmp_path, a rules file beside it, and no live build artifact anywhere, which is the standard every file of this suite is held to."""
+"""Tests for rebuild/tools/standing_probe.py, the read-only tool used to write standing-approval rules. They check that every family and cell list prints in code-point order, the order the rules file is written in, so a survey can be pasted from directly. They check that a verdicts file stamped for another manifest prints every verdict as UNKNOWN_VERDICT instead of BLANK, and that a surface with no font pair says which columns and which composed line are missing and why. They check that `--shapes` lists every entry of `standing_verdicts.SHAPES` with the opening words of its matcher's docstring, that a run whose unit ids all miss the surface prints the same list, and that a listing run such as `--extension-cells` does not. They check that `--find` is a substring match over notations that lists blanks first and is capped with the total stated. They check that `--survey` groups every position under a before-glyph prefix by before form, after cell, left family, seam changes, and follower, each with a verdict tally and in code-point order, that it can narrow to one after cell, that it counts the windows it cannot place, and that it says when no window carries the glyph. They check that `--coverage` re-runs a rule's enumeration without the rule's named lists and prints, once, the followers, forms, and cells the rule does not name, for every shape except ligature and ink-delta, and that it says so when a rule's shape has no enumeration. They also check `_cell_glyph_name` against `cell_label` over the mini spec, and that the dropped and added pixels in a redrawn reading are never truncated. Every test uses a synthetic surface and rules file under tmp_path, or the frozen mini bundle, and reads no live build artifact."""
 
 import json
 
@@ -214,7 +214,7 @@ def _line(out, prefix):
 
 
 def _past_the_warning(out):
-    """Everything but the stale-stamp warning itself, which names BLANK to say what it is standing in for."""
+    """Returns the output without the stale-stamp warning line, which itself mentions BLANK."""
     return "\n".join(line for line in out.splitlines() if "stamped for another manifest" not in line)
 
 
@@ -229,7 +229,7 @@ def _section(out, header):
 
 
 def _survey_groups(out):
-    """The survey's group lines — a before form and the after cell it settles into — which sit two spaces in, above their rows at eight."""
+    """Returns the survey's group lines, each a before form and the after cell it settles into. Group lines are indented two spaces and their rows eight."""
     return [
         line.strip() for line in out.splitlines() if line.startswith("  ") and not line.startswith("        ")
     ]
@@ -256,7 +256,7 @@ CODE_POINT_WINDOWS = [
 
 
 def test_family_and_cell_listings_come_out_in_code_point_order(tmp_path, capsys):
-    """·Vie before ·May before ·At before ·Ah, and a bare family before the ligature that leads with it — the order the rules file and the skill are written in, where sorted() would give ·Ah, ·At, ·May, ·Vie and every survey would need reordering by hand."""
+    """Lists print in code-point order (·Vie, ·May, ·At, ·Ah), with a bare family before a ligature that starts with it. The rules file and the skill are written in this order; sorted() would give ·Ah, ·At, ·May, ·Vie."""
     units = [tea_window(uid, follower, cell) for uid, follower, cell in CODE_POINT_WINDOWS]
     units.append(
         tea_window("e-6", "qsVie", "qsVie/normal/baseline/None/", pivot_cell="qsTea/full/x-height/baseline/")
@@ -284,7 +284,7 @@ def test_the_retarget_survey_orders_its_cells_the_same_way(tmp_path, capsys):
 
 
 def test_a_stale_verdicts_stamp_labels_every_verdict_it_invalidates(tmp_path, capsys):
-    """The warning alone left every unit printing the positive claim BLANK off records the tool never read; now the reading it invalidates carries the label."""
+    """A verdicts file stamped for another manifest says nothing about this surface, so every verdict prints as UNKNOWN_VERDICT, and BLANK appears only in the warning."""
     units = [
         tea_window("u-1", "qsVie", "qsVie/normal/baseline/None/", deltas={"default": DELTA}),
         tea_window("u-2", "qsMay", "qsMay/loop/baseline/None/", deltas={"default": DELTA}),
@@ -311,7 +311,7 @@ def test_blank_only_says_it_cannot_be_answered_under_a_stale_stamp(tmp_path, cap
 
 
 def test_a_missing_font_pair_says_what_it_costs(tmp_path, capsys):
-    """Silently dropping the rendered-grain columns and the composed line would read as a window with nothing to say at that grain rather than as a surface that cannot be asked."""
+    """Without a font pair, the rendered-grain columns and the composed line are left out and NO_FONTS says so, so the output is not mistaken for a window with nothing to report at that grain."""
     units = [tea_window("u-1", "qsVie", "qsVie/normal/baseline/None/", deltas={"default": DELTA})]
     out = _run(tmp_path, capsys, units, ["u-1"])
     assert probe.NO_FONTS in out
@@ -319,7 +319,7 @@ def test_a_missing_font_pair_says_what_it_costs(tmp_path, capsys):
 
 
 def test_shapes_lists_every_row_of_the_shapes_table(capsys):
-    """A coverage assertion, not a restatement: each entry's text is sourced from that shape's own matcher docstring, so a shape entering SHAPES enters the menu without this test being touched."""
+    """Each entry's text comes from its matcher's docstring, so a shape added to SHAPES appears in the menu and is checked here without editing this test."""
     probe.main(["--shapes"])
     out = capsys.readouterr().out
     for name, shape in sv.SHAPES.items():
@@ -360,7 +360,7 @@ def _find_units():
 
 
 def test_find_states_the_total_caps_the_listing_and_puts_blanks_first(tmp_path, capsys):
-    """The cap is load-bearing rather than tidy — one letter pair matches thousands of records — so the total is stated and the blanks, which are the only ones a rule can fill, come first."""
+    """The listing is capped because one letter pair matches thousands of records. The total is stated, and blanks, the only units a rule can fill, come first."""
     records = [
         {"unit": f"f-{index:02}", "verdict": "approve", "note": "", "at": STAMP}
         for index in range(FIND_VERDICTED)
@@ -395,7 +395,7 @@ def test_find_takes_its_own_limit_and_a_blank_only_filter(tmp_path, capsys):
 
 
 def test_find_matches_the_notation_as_plain_text(tmp_path, capsys):
-    """No second reading of the data-expect grammar lives here: `parse_expect` in test/test_shaping.py is its authority, and a substring is all this needs to be."""
+    """`--find` does not parse the data-expect grammar, whose authority is `parse_expect` in test/test_shaping.py. A substring match is enough."""
     units = [
         tea_window("f-1", "qsVie", "qsVie/normal/baseline/None/", notation="·Tea ~b~ ·Vie"),
         tea_window("f-2", "qsVie", "qsVie/normal/baseline/None/", notation="·Tea | ·Vie"),
@@ -468,7 +468,7 @@ def test_coverage_of_an_unknown_rule_id_says_so(tmp_path, capsys):
 
 
 def test_coverage_answers_for_every_shape_but_ligature_and_ink_delta():
-    """A shape entering SHAPES fails here until the probe answers for it or the exemption is argued: ligature names no forms, ink-delta names digests."""
+    """A shape added to SHAPES fails this test until COVERAGE_SHAPES covers it or it is added to the exemptions here. Ligature is exempt because it names no forms, and ink-delta because it names digests."""
     assert set(probe.COVERAGE_SHAPES) == set(sv.SHAPES) - {"ligature", "ink-delta"}
 
 
@@ -495,7 +495,7 @@ def test_coverage_dispatches_to_the_gap_enumeration(tmp_path, capsys):
 
 
 def test_coverage_of_a_gap_rule_without_cell_lists_reads_only_its_followers(tmp_path, capsys):
-    """A join-dropped rule that holds both pictures names no cells, so the cells are not an axis it could be missing."""
+    """A join-dropped rule without cell lists does not let the pivot redraw, so it cannot be missing any cells, and coverage reports only the follower families it does not name."""
     units = [
         window(
             "g-1",
@@ -524,7 +524,7 @@ def utter_window(uid, pivot, pivot_cell):
 
 
 def test_coverage_names_the_forms_a_redrawn_rule_does_not(tmp_path, capsys):
-    """The pivot-form gap in miniature: a before form the rule's prefix does not cover settling into a named after form is the docket, an after form a named before form settles into is the docket, and a position unnamed on both sides is neither — it is the family's unrelated business."""
+    """Coverage reports a before form the rule does not name that settles into an after form it names, and an after form it does not name that a named before form settles into. A position the rule names on neither side is not reported."""
     units = [
         utter_window("r-1", "qsUtter.ex-ext-1", "qsUtter/mono/None/x-height/"),
         utter_window("r-2", "qsUtter.en-y0.ex-ext-1", "qsUtter/mono/baseline/x-height/"),
@@ -620,7 +620,7 @@ SURVEY_UNITS = [
 
 
 def test_survey_groups_positions_by_form_cell_seams_and_follower(tmp_path, capsys):
-    """Groups come out by before form then after cell in code-point order with the token as the tie-break, rows under a group by left family, seams and follower in the same order (·No before ·It), and a pivot at the window's end prints the edge marker where its seam out and follower would be."""
+    """Groups are ordered by before form, then after cell, in code-point order with the token breaking ties. Rows in a group are ordered by left family, seams, and follower in the same order (·No before ·It). A pivot at either end of the window prints EDGE in place of the missing seam and neighbor."""
     records = [{"unit": "s-2", "verdict": "approve", "note": "", "at": STAMP}]
     out = _run(tmp_path, capsys, SURVEY_UNITS, ["--survey", "qsKey"], records=records)
     assert _line(out, "survey of qsKey: 4 positions").endswith("follower family and cell:")
@@ -650,7 +650,7 @@ def test_survey_narrows_to_one_after_cell(tmp_path, capsys):
 
 
 def test_survey_counts_the_windows_it_cannot_place(tmp_path, capsys):
-    """A window whose sides do not line up letter for letter has no position the survey can key, so it is counted rather than silently dropped; a window without the glyph is neither."""
+    """A window whose before and after sides do not line up letter for letter has no position the survey can key, so it is counted in the header. A window without the glyph is neither placed nor counted."""
     units = [
         SURVEY_UNITS[3],
         window(
@@ -694,7 +694,7 @@ AFTER_CELLS = [
 
 
 def test_a_cell_names_its_after_glyph_the_way_settle_labels_it(mini_bundle):
-    """The spec-free reading agrees with the pipeline's namer over every field a cell carries, the registry's heights included, so a naming change in the pipeline goes red here."""
+    """`_cell_glyph_name`, which reads no spec, must agree with `cell_label` over every field a cell carries, including each registry height, so a naming change in the pipeline fails this test."""
     spec = enrich.load_spec(mini_bundle.spec_root)
     for cell in AFTER_CELLS:
         assert probe._cell_glyph_name(enrich.cell_token(cell)) == cell_label(spec, cell)
@@ -710,7 +710,7 @@ class _Intern:
 
 @pytest.mark.parametrize("count", [3, 9])
 def test_the_redrawn_trade_is_never_truncated(count):
-    """A redrawn rule is written from exactly this dropped/added list, so a cap on it costs a hand re-derivation — and the only caller runs for units the reader named, so there is no bulk listing to protect."""
+    """A redrawn rule's dropped and added lists are copied from this output, so it is never truncated. `_reading` runs only for units the user named, so no bulk listing needs a cap."""
     painted = {(column, 0) for column in range(count)}
     kept = {(column, 1) for column in range(count)}
     intern = _Intern({"before": painted, "after": kept})

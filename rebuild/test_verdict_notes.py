@@ -1,4 +1,4 @@
-"""Tests for rebuild.tools.verdict_notes: cap_markers, the note-collapse the carry/echo producers apply to keep only the newest few provenance markers while preserving human prose, and strip_markers, the marker-free gist the complaint docket reports."""
+"""Tests for `rebuild.tools.verdict_notes`: `cap_markers`, which the carry and the echo fill use to keep only the newest provenance markers at the head of a note while keeping its human prose, and `strip_markers`, which returns the prose alone for the complaint docket."""
 
 from rebuild.tools.verdict_notes import cap_markers, strip_markers
 

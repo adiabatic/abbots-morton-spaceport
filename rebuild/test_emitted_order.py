@@ -1,4 +1,4 @@
-"""The shipped settlement order held to the tables: every configuration's rows walked first-match against the order `emit_gsub._ordered_settle_rules` ships, by the crate's `replay-emitted` verb behind `run_m1.run_emitted_order`. The stage lives in the build because the order is a fact about exactly the tables it folded from; what this module holds is the machinery's own contract on the mini fixture — the order file and the context files the crate reads, the stage's summary over tables the fixture built, and that an order which answers a row differently from its table is refused naming the row and the rule."""
+"""Tests for the shipped-order stage on the mini fixture. `run_m1.run_emitted_order` runs the crate's `replay-emitted` subcommand, which walks every configuration's rows first-match against the order `emit_gsub._ordered_settle_rules` emits. The build runs this stage over its own tables; these tests cover the order and context files the crate reads, the stage's summary, and the failure that names the row and rule when the order gives a row a different outcome from its table."""
 
 import dataclasses
 
@@ -75,7 +75,7 @@ def test_the_stage_answers_every_row_of_every_configuration(spec, built):
 
 
 def test_an_order_that_answers_a_row_differently_is_refused_naming_the_row(spec, built, monkeypatch):
-    """A rule pushed to the head of the shipped order with an outcome no table wrote: the first row it admits is answered wrongly, and the stage names the configuration, the row, the emitted rule that fired and the table's own rule."""
+    """A rule with an outcome no table wrote is put first in the shipped order, so the first row it matches gets the wrong outcome. The summary's `complaint` names the configuration, the row, the emitted rule that fired, and the table's own rule."""
     out_dir, tables = built
     ordered = emit_gsub._ordered_settle_rules
 

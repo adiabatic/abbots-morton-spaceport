@@ -1,4 +1,4 @@
-"""Read-back tests over a real mini-world build: the fixture drives the whole emit → compile path on the fixture spec, so the font under test carries every stage the shipped one does — the ss10 pre-empt, the guarded and plain formation lookups, four marker lookups, the chokepoint, a packed settlement lookup, and the namer dot. A clean build must verify with zero divergences; each corruption below is a lie the compiled font could tell about the plan, and must be caught and named."""
+"""Read-back tests over a real build of the mini fixture spec. The fixture runs the whole emit and compile path, so the font under test has every stage the shipped font has: the ss10 pre-empt, the guarded and plain formation lookups, the marker lookups, the chokepoint, a packed settlement lookup, and the namer dot. A clean build must verify with zero divergences. Each corruption test edits the compiled font so it no longer matches the plan, and checks that read-back reports the mismatch under the right stage name."""
 
 import pytest
 
@@ -38,7 +38,7 @@ def built(tmp_path_factory):
 
 
 class TestOverlayArm:
-    """The belt's overlay arm on the real mini font, which is what licenses the oracle's synthetic shaper: HarfBuzz under ss10 answers every text up to `OVERLAY_HORIZON` as per-letter twins at zero offset with their `hmtx` advances, nothing formed and nothing attached, and `IsolatedOverlayShaper` answers the same slots without shaping."""
+    """The belt's overlay case on the real mini font. Under ss10, HarfBuzz shapes every text up to `OVERLAY_HORIZON` as per-letter twins at zero offset with their `hmtx` advances, with nothing formed and nothing attached. `IsolatedOverlayShaper` returns the same result without shaping, which is what justifies the oracle's use of it."""
 
     def test_the_overlay_arm_passes_on_the_mini_font(self, built):
         spec = fixtures.mini_spec()
@@ -128,7 +128,7 @@ class TestReadback:
         assert report["checked"]["cursive_anchors"]
 
     def test_the_isolation_claim_is_recorded_off_the_bytes(self, built):
-        """The overlay's whole license in one record: every letter cmap glyph has a twin, the twins sit at no position of any other GSUB stage (counted), and none carries a cursive anchor."""
+        """The isolation record: every letter cmap glyph has a twin, no twin appears at any position of another GSUB lookup except the namer-dot stage, and no twin has a cursive anchor. The record counts the positions it checked."""
         from fontTools.ttLib import TTFont
 
         font_path, plan, cursive, twins = built
@@ -168,7 +168,7 @@ class TestReadback:
         assert plan.namer_dot_stage is not None and plan.namer_dot_stage[0] == "periodcentered"
 
     def test_settlement_resolves_through_lookups_between_the_chokepoint_and_settlement(self, built):
-        """Every settlement row's outcome is one plain single-substitution lookup that the emitter defines after the chokepoint and before the settlement lookup, and each one maps its row's input glyph alone. The region between those two stages holds exactly those lookups plus the one feaLib mints for the chokepoint's own inline `by`, which sits right after the chokepoint."""
+        """Every settlement rule's outcome is a single-substitution lookup that the emitter defines after the chokepoint and before the settlement lookup, and each one maps only its rule's input glyph. The lookups between those two stages are these, plus the one feaLib creates for the chokepoint's inline `by`, directly after the chokepoint."""
         from fontTools.ttLib import TTFont
 
         from rebuild.pipeline import pack_gsub
@@ -205,7 +205,7 @@ class TestReadback:
             font.close()
 
     def test_the_offset_budget_is_read_off_the_raw_table(self, built):
-        """The byte walk over the raw GSUB against the decoded table's own counts, which is the independent witness that it lands on the uint16 fields it means to; the settlement lookup's format census rides the same parse, so the packed reality stays legible in the summary."""
+        """The lookup and subtable counts from the raw GSUB byte walk match the decoded table's counts, which checks that the walk reads the right uint16 fields. The same parse records how many settlement subtables use formats 2 and 3."""
         from fontTools.ttLib import TTFont
 
         font_path, plan, cursive, _twins = built
@@ -226,7 +226,7 @@ class TestReadback:
         assert formats["format2"] + formats["format3"] == settle_subtables
 
     def test_the_boundary_glyphs_are_inert_on_the_bytes(self, built):
-        """The boundary claim, made once off the written font rather than per shaped ZWNJ slot: every substituted position of every lookup was examined and none of them admits a boundary glyph, `uni200C` carries no advance, and neither glyph draws an outline."""
+        """Checked once on the written font instead of at every shaped ZWNJ slot: no substituted position of any lookup admits a boundary glyph, `uni200C` has zero advance, and neither boundary glyph draws an outline."""
         font_path, plan, cursive, _twins = built
         report = readback.verify_font(font_path, plan, cursive)
         boundary = report["checked"]["boundary_glyphs"]
@@ -302,7 +302,7 @@ class TestCorruptions:
         assert _named(report, "formation guarded:")
 
     def test_reordering_packed_settlement_rules(self, built, tmp_path):
-        """Rule order is the whole of first-match-wins, so a lookup that holds every planned rule in the wrong order is a font that shapes something else. The count stays honest and only the order lies, which is the corruption the packing itself could commit — and the one read-back's decompile through `per_glyph_sequences` exists to catch."""
+        """First match wins, so a lookup that holds every planned rule in the wrong order shapes differently. The rule count stays correct and only the order is wrong. The packing could produce this corruption, and read-back's decompile through `per_glyph_sequences` is there to catch it."""
 
         def mutate(font, plan):
             from rebuild.pipeline import pack_gsub
@@ -345,7 +345,7 @@ class TestCorruptions:
         assert report["checked"]["settle_rules"] == plan.rule_count
 
     def test_a_headroom_under_the_floor_is_a_divergence(self, built, monkeypatch):
-        """Lifting the floor over the whole uint16 space makes a clean font breach it: the breach must read as one more divergence, named and alone, rather than as a raise."""
+        """Raising the floor above the uint16 range makes a clean font fall under it. That must be reported as a single named divergence, not raised as an exception."""
         font_path, plan, cursive, _twins = built
         monkeypatch.setattr(readback, "SUBTABLE_OFFSET_HEADROOM_FLOOR", 65_536)
         report = readback.verify_font(font_path, plan, cursive)
@@ -355,7 +355,7 @@ class TestCorruptions:
         assert report["divergences"] == breached
 
     def test_a_single_substitution_of_the_zwnj(self, built, tmp_path):
-        """A pre-empt lookup that substitutes the ZWNJ itself: the slot a word boundary is made of would be replaced by a drawn letter, and no shaping sweep has to be run to see it."""
+        """A pre-empt lookup that substitutes the ZWNJ would replace a word boundary with a drawn letter. Read-back reports it without a shaping sweep."""
 
         def mutate(font, _plan):
             index = _feature_record(font, "GSUB", "ss10").Feature.LookupListIndex[0]
@@ -367,7 +367,7 @@ class TestCorruptions:
         assert named and any("uni200C" in line for line in named)
 
     def test_a_settlement_input_coverage_admitting_space(self, built, tmp_path):
-        """A format-3 settlement rule whose substituted input coverage has grown a space: the rule would fire on a word boundary, which is exactly the position nothing may substitute."""
+        """A format-3 settlement rule whose input coverage includes a space would fire on a word boundary, where nothing may substitute."""
 
         def mutate(font, plan):
             lookup = font["GSUB"].table.LookupList.Lookup[_stage_index(font, plan, "m1_settle")]
@@ -386,7 +386,7 @@ class TestCorruptions:
         assert named and any("space" in line for line in named)
 
     def test_a_format2_class_zero_lead_admitting_the_zwnj(self, built, tmp_path):
-        """Class 0 of a ClassDef is every glyph it does not name, which is the class the old decompile read as empty — so a format-2 ruleset hung off class 0 could substitute a lead slot that admits the ZWNJ and nothing structural would say so. The rules are copied onto class 0 and the ZWNJ added to the subtable's coverage; `uni200C` is absent from the InputClassDef, so it is class 0 by definition."""
+        """Class 0 of a ClassDef is every glyph it does not name, so a format-2 rule set on class 0 can substitute a lead slot that admits the ZWNJ. The test copies rules onto class 0 and adds the ZWNJ to the subtable's coverage. `uni200C` is absent from the InputClassDef, so it is in class 0."""
 
         def mutate(font, plan):
             lookup = font["GSUB"].table.LookupList.Lookup[_stage_index(font, plan, "m1_settle")]
@@ -449,7 +449,7 @@ class TestCorruptions:
         assert _named(report, "feature list:")
 
     def test_a_letter_the_preempt_leaves_in_the_join_pipeline(self, built, tmp_path):
-        """A cmap letter with no twin would still form, settle and attach under ss10; the isolation stage names it off the cmap and the pre-empt's own mapping, whatever the plan says."""
+        """A cmap letter with no twin would still form, settle and attach under ss10. The isolation stage finds it from the cmap and the pre-empt's mapping, independent of the plan."""
 
         def mutate(font, plan):
             stray = next(iter(plan.marker_lines["ss03"].values()))

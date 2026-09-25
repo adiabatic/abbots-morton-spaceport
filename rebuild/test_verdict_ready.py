@@ -1,4 +1,4 @@
-"""Tests for rebuild.review.status.compute_status and its helpers: the readiness dict the /status handler and the verdict_ready CLI both render. Fixtures build a fake repo tree (surface manifest + tiny shards, cycle summary, autosave, repo-root verdicts files) and stub the fingerprint recompute so no real build inputs are touched."""
+"""Tests for `rebuild.review.status.compute_status` and its helpers, which build the readiness dict that the review server's /status handler and the `verdict_ready` CLI render. Fixtures build a fake repo tree (surface manifest and small shards, cycle summary, autosave, repo-root verdicts files) and stub the fingerprint recompute, so no real build inputs are read."""
 
 import hashlib
 import json
@@ -52,7 +52,7 @@ def recompute(_repo):
 
 @pytest.fixture(autouse=True)
 def _empty_frontier_memo(monkeypatch):
-    """The frontier memo is module state that outlives a test in its xdist worker, so every test here starts from an empty one and a parse it counts is never answered by an entry an earlier test left."""
+    """`status._MEMO` is module state that persists across tests in an xdist worker, so each test starts with an empty memo and its parse counts are not affected by entries an earlier test left."""
     monkeypatch.setattr(status, "_MEMO", {})
 
 
@@ -90,7 +90,7 @@ def write_surface(
     after_font: str = "present",
     sidecars: bool = True,
 ) -> None:
-    """`after_font` picks what the surface says about the font it ships against the M1.otf beside it: "present" records the sha of the font it writes, "moved" records the sha of one byte string and writes another (the run_m1 that landed after the build), and "omit" writes the font with no fonts block at all. `sidecars` writes the per-unit index and both app sidecars, stamped for the manifest — everything a finished build leaves behind, so a test that wants a missing one deletes it."""
+    """`after_font` sets how the manifest's after-font record relates to the `M1.otf` written beside it: "present" records that font's sha256, "moved" records the sha256 of different bytes (as after a `run_m1` that ran after the surface build), and "omit" writes no `fonts` block. `sidecars` writes the per-unit index and both app sidecars stamped for the manifest, as a finished build leaves them; a test that needs one missing deletes it."""
     manifest: dict[str, object] = {
         "format": "ams-review-manifest/2",
         "generated_at": generated_at,
@@ -211,7 +211,7 @@ def test_data_stale_fails_with_artifact_cycle_remedy(tmp_path):
 
 
 def test_explain_prose_stale_fails_like_any_other_hard_component(tmp_path):
-    """The component the refuse prose rides is hard, not a warning: the surface serves that wording as a unit's explain text, so a surface stamped before the rewording is showing a sentence the runes no longer say. Only `static` is soft, and this is not it."""
+    """A stale `explain_prose` fails, as every component except `static` does. The surface shows the refuse records' `why` in its explain text and the ledger classes' `why` as class rationales, so a surface stamped before a rewording shows text the runes or the ledger no longer contain."""
     write_surface(tmp_path / "rebuild" / "out" / "review", inputs_fp={**FP, "explain_prose": "OLD"})
     write_summary(tmp_path, inputs_fp={**FP, "explain_prose": "OLD"})
     write_autosave(tmp_path)
@@ -224,7 +224,7 @@ def test_explain_prose_stale_fails_like_any_other_hard_component(tmp_path):
 
 
 def test_static_only_stale_warns_and_points_at_the_cycle(tmp_path):
-    """The one soft component, and the remedy is the cycle rather than a surface rebuild: a cycle refreshes the copied assets over the served surface in seconds and keeps the server up, where `make review-build` would rebuild every unit and leave the recorded cycle stamped for a surface that no longer exists."""
+    """`static` is the only component whose staleness warns instead of failing. The remedy is the cycle, which copies the new assets over the served surface and keeps the server running; `make review-build` would rebuild every unit and leave the recorded cycle stamped for a surface that no longer exists."""
     write_surface(tmp_path / "rebuild" / "out" / "review", inputs_fp={**FP, "static": "OLD"})
     write_summary(tmp_path, inputs_fp={**FP, "static": "OLD"})
     write_autosave(tmp_path)
@@ -235,7 +235,7 @@ def test_static_only_stale_warns_and_points_at_the_cycle(tmp_path):
 
 
 def test_freshness_fails_when_the_after_font_moved(tmp_path):
-    """The gap no fingerprint component can close: the key hashes the font's inputs and the two site fonts, never M1.otf, so a run_m1 that landed after the surface build leaves every component fresh while the letters on screen are last build's. The manifest's recorded after-font sha is a true statement about the bytes it shipped — the build asserts that at copy time — so holding it against the font on disk is what catches the swap."""
+    """The fingerprint hashes M1.otf's inputs and the two site fonts but not M1.otf itself, so a `run_m1` after the surface build leaves every component fresh while the surface serves the previous build's letters. The build checks the manifest's after-font sha256 against the bytes it copies, so comparing that sha256 with the font on disk catches the change."""
     setup_green(tmp_path)
     (tmp_path / "rebuild" / "out" / "m1" / "M1.otf").write_bytes(OTHER_FONT_BYTES)
     result = call(tmp_path)
@@ -248,7 +248,7 @@ def test_freshness_fails_when_the_after_font_moved(tmp_path):
 
 
 def test_freshness_fails_when_a_sidecar_is_missing(tmp_path):
-    """The index and both app sidecars are written after the manifest and outside it, so a build killed between the two — or a manifest rewritten by something that does not rewrite them — leaves a surface whose fingerprint reads fresh and whose app boots off files describing a surface that no longer exists."""
+    """The per-unit index and both app sidecars are written after the manifest and are not part of it. A build killed between the two, or a manifest rewritten without them, leaves a surface whose fingerprint reads fresh while the app loads files that describe another surface."""
     setup_green(tmp_path)
     review_dir = tmp_path / "rebuild" / "out" / "review"
     unit_index.index_path(review_dir).unlink()
@@ -261,7 +261,7 @@ def test_freshness_fails_when_a_sidecar_is_missing(tmp_path):
 
 
 def test_freshness_fails_when_the_font_record_is_absent(tmp_path):
-    """A surface that records no after-font sha cannot answer the question at all, and unverifiable reads as unready rather than as fine."""
+    """A surface that records no after-font sha256 cannot be checked, and a surface that cannot be checked is not ready."""
     write_surface(tmp_path / "rebuild" / "out" / "review", after_font="omit")
     write_summary(tmp_path)
     write_autosave(tmp_path)
@@ -374,7 +374,7 @@ def test_gates_real_failure_named_as_failing_not_unverified(tmp_path):
 
 
 def test_gates_an_unverified_conform_blocks_readiness(tmp_path):
-    """The readiness check knows no gate names, so the conformance sweep rides in on the same entry fields as its siblings: an unproved skip blocks as unverified, red blocks as a failure, and only a green or a proved skip lets a sitting start."""
+    """The readiness check reads each gate entry's fields without special-casing any gate, so conform is judged like the others: a skip that is not proved blocks as unverified, a failure blocks as failing, and only a pass or a proved skip is ready."""
     write_surface(tmp_path / "rebuild" / "out" / "review")
     write_summary(
         tmp_path,
@@ -411,7 +411,7 @@ def test_gates_an_unverified_conform_blocks_readiness(tmp_path):
 
 
 def test_gates_a_legacy_deferred_skip_reads_as_unverified(tmp_path):
-    """Summaries written while the cycle still deferred gates are still on disk, and an unrun gate is an unrun gate: the entry falls through to the same unverified reading every other unproved skip gets, with the one-command remedy that verifies it."""
+    """Older cycle summaries can record a gate as `deferred`. A deferred gate did not run, so it reads as unverified like any other skip that is not proved, with `make artifact-cycle` as the remedy."""
     write_surface(tmp_path / "rebuild" / "out" / "review")
     write_summary(
         tmp_path,
@@ -754,7 +754,7 @@ def _spy_on_head_reads(monkeypatch):
 
 
 def _spy_on_reads(monkeypatch, wrap=None):
-    """Tallies the bytes read through every handle Path.open returns, per path, and passes each read through wrap; Path.read_bytes opens through Path.open, so the autosave's read is seen too."""
+    """Patch `Path.open` to count the bytes read through each handle, per path, and pass each read through `wrap` when one is given. `Path.read_bytes` opens through `Path.open`, so the autosave read is counted too."""
     real_open = Path.open
     tally: Counter[Path] = Counter()
 
@@ -870,7 +870,7 @@ def _reference_resolve_carry_source(repo_root, manifest_stamp, autosave_path):
 
 
 def _write_corpus(root):
-    """Each tricky file carries a stamp of its own, so a file the whole parse skips is the only would-be frontier under its stamp and a file it finds is the only candidate there; the evidence-directory autosave carries the newest stamp, so keeping it would move the carry source's fallback too. Returns every stamp the corpus names."""
+    """Write verdicts files covering the cases the head read must handle, and return every stamp they use. Each edge-case file has a stamp of its own, so wrongly skipping or wrongly keeping it changes the frontier for that stamp. The autosave under `rebuild/evidence/` has the newest stamp, so wrongly keeping it would also change `resolve_carry_source`'s fallback."""
     evidence = root / "rebuild" / "evidence"
     write_autosave(root, records=_records(4))
     _write(root / "verdicts-plain-a.json", verdicts_doc(STAMP, _records(2)))
@@ -1351,7 +1351,7 @@ def test_readiness_adds_the_server_row_and_gates_ready_on_it(tmp_path):
 
 
 def test_readiness_without_the_server_row_answers_for_the_surface_alone(tmp_path):
-    """The cycle's form under `make review-cycle`, where the recipe answers the server question on the next line: no server row, and READY is the surface's own answer whether or not anything is listening yet."""
+    """Under `make review-cycle` the Makefile recipe handles the server after the cycle, so the cycle calls `readiness` with `with_server=False`. There is no server row, and READY depends on the surface alone."""
     setup_green(tmp_path)
     result, ready = _readiness(tmp_path, with_server=False, listening=lambda: False)
     assert ready is True

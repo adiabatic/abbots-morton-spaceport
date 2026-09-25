@@ -1,6 +1,6 @@
 """Tests for the review surface's enrichment: the notation map against doc/glyph-names.md, divergent positions and pair selection on known units, highlight x-ranges against hand-computed hmtx sums, and the secondary-seam home resolver over hand-built stubs.
 
-Every unit these tests reach for is one whose codepoints they name, and they take them from `example_units` — a filtered load of the frozen mini bundle's audit, settled under the spec `mini_bundle` materializes — rather than from the live corpus. Which position the enricher judges and how it words the summary are properties of the code, so a frozen window witnesses them as well as a live one and does it in the contracts lane; a window that stops existing fails the bundle regeneration, which names it. The three whole-corpus claims — the audit-vs-re-settlement agreement, the before-seam derivations, and the summary's shape — are the build's, where they cover every shipped unit instead of a re-enrichment of the same corpus.
+Each test names its units by codepoints and takes them from `example_units`, a filtered load of the frozen mini bundle's audit settled under the spec that `mini_bundle` materializes, so no test reads the live corpus. If a named window disappears, regenerating the bundle fails and names it. The build checks three claims over every shipped unit instead: that re-settlement agrees with the audit, that the two before-seam derivations agree, and the shape of the summary.
 """
 
 import dataclasses
@@ -52,7 +52,7 @@ def enricher(spec, mini_bundle):
 
 @pytest.fixture(scope="module")
 def units_by_key(example_units):
-    """The worked-example windows, keyed the way this module has always keyed them."""
+    """Return the worked-example units, keyed by (codepoints, first config)."""
     return example_units
 
 
@@ -102,7 +102,7 @@ def test_pair_codepoints_covers_the_pairs_codepoint_span(enricher, units_by_key)
 
 
 def test_position_only_drift_marks_the_boundary_without_a_pair(enricher, units_by_key):
-    # A kern-channel-out-of-scope unit: an advance-only one-pixel drift on the boundary-adjacent letter, no cell- or seam-grain divergence. The mark lands on the word break beside the drift (the ◊ZWNJ), and pair stays None so no sample band lights up.
+    # A kern-channel-out-of-scope unit: an advance-only one-pixel drift on the letter beside the boundary, with no cell- or seam-grain divergence. The mark is placed on the ◊ZWNJ beside the drift, and pair stays None so no sample band is highlighted.
     enriched = enricher.enrich(units_by_key[("E650:E650:200C:E67A", "ss10")])
     assert enriched.pair is None
     assert enriched.diff_positions == ()
@@ -117,7 +117,7 @@ def test_parse_entry_extension():
 
 
 def test_known_halves_extension_unit(enricher, units_by_key):
-    # Deleting the x-height-halves records left one halves-entry-extension-restored survivor: the ss03 ·Tea·Day·Utter·Tea composition, where the qsDay_qsUtter ligature keeps its baseline en-ext-1 and sums it with its own x-height exit extension on one cell, so the enricher reports the extension on both the ligature's exit and the following ·Tea's entry (now the full bar, which also diffs against the old font's half).
+    # The ss03 window `·Tea ~b~ ·Day+Utter ~x~ ·Tea`: the qsDay_qsUtter ligature cell carries both its baseline en-ext-1 and its own x-height exit extension, so the enricher reports an extension at both of its seams. The final ·Tea is the full bar, which also differs from the old font's half.
     unit = units_by_key[("E652:E653:E67A:E652", "ss03")]
     enriched = enricher.enrich(unit)
     assert enriched.before_glyphs == (
@@ -134,7 +134,7 @@ def test_known_halves_extension_unit(enricher, units_by_key):
 
 
 def test_annotation_grain_renames_do_not_anchor_the_pair(enricher, units_by_key):
-    # ·It·Utter·It·May: the bare-name ·Utter rename at position 1 keeps the identical drawing (name grain only), while the real ink — the non-summing extension drop — sits at the ·It·May junction. The pair anchors on the ink-visible positions, the rename rides along in diff_positions without a secondary seam of its own, and the summary describes the anchored position rather than the rename.
+    # ·It·Utter·It·May: position 1 is a bare-name ·Utter rename with an identical drawing, and the ink change (a dropped non-summing extension) is at the ·It·May seam. The pair anchors on the ink-visible positions. The rename stays in diff_positions without a secondary seam, and the summary describes the anchored position.
     unit = units_by_key[("E670:E67A:E670:E665", "default")]
     enriched = enricher.enrich(unit)
     assert enriched.before_glyphs[1] == "qsUtter"
@@ -155,14 +155,14 @@ def test_pure_rename_unit_keeps_its_anchor(enricher, units_by_key):
 
 @pytest.fixture(scope="module")
 def mini_units(mini_bundle):
-    """The frozen bundle's whole workload, settled under the pinned spec: about a thousand windows over four letters and the boundary tokens, every one of which the enricher can take end to end."""
+    """Return the frozen bundle's whole workload, settled under the pinned spec: every window over the `LETTERS` and `BOUNDARIES` of rebuild/review/fixtures/mini/regenerate.py, plus its `EXAMPLE_WINDOWS`. The enricher can enrich every one of them."""
     from rebuild.review.audit import load_workload
 
     return load_workload(MINI / "audit.tsv", mini_bundle.ledger, dict(LETTERS))
 
 
 def _geometry_segment(outlines, shaped, pens, spans, cp_start: int, cp_end: int) -> tuple:
-    """The geometry-first reading `_segment_pieces` replaced, kept here as the reference: every covering glyph's decomposed outline translated to its pen position, the leftmost point over all of them found by walking every point, and the sorted tuple of the outlines translated so that point sits at x=0."""
+    """Return the reference geometry of one segment: each covering glyph's decomposed outline placed at its pen position, then all of them translated so the leftmost point is at x=0, as a sorted tuple."""
     placed = []
     for index, (start, end) in enumerate(spans):
         if start < cp_end and cp_start < end:
@@ -186,7 +186,7 @@ def _geometry_segment(outlines, shaped, pens, spans, cp_start: int, cp_end: int)
 def test_segment_pieces_materialize_to_the_geometry_they_stand_in_for(
     spec, mini_units, mini_bundle, monkeypatch
 ):
-    """`_segment_pieces` compares (shape key, x, y) triples from the intern both fonts share rather than building every covering outline through `translate_outline` and comparing the sorted geometry, and `_ink_visible_positions` reads nothing but `before != after` over the result. What makes the triple a spelling of the geometry rather than an approximation of it: materializing each piece through the intern gives back exactly the sorted geometry the geometry-first form builds, for every segment the enricher compares over the frozen workload — the same shaped runs, pens and spans, both fonts, every divergent position — so the ink-visible positions, the judged pair they anchor and the shard bytes rebuild/test_unit_cache.py pins are the same under either form. The reference is the geometry-first form kept beside the test, and the comparison it feeds is witnessed reaching both answers, so a segment that compared equal to everything would not pass unnoticed."""
+    """`_segment_pieces` compares (shape key, x, y) triples from the intern both fonts share instead of building translated outlines, and `_ink_visible_positions` reads only `before != after` over the result. The test checks that materializing each piece through the intern gives exactly the sorted geometry `_geometry_segment` builds, for every segment the enricher compares over the frozen workload in both fonts. So the ink-visible positions, the judged pair, and the shard bytes rebuild/test_unit_cache.py compares are the same under either form. The last assertion checks that the comparison returned both equal and unequal results, so a comparison that returned the same answer for every segment would fail."""
     enricher = Enricher(spec, MINI, MINI_FONT, repo_root=REPO_ROOT, subset_pack=mini_bundle.subset_pack)
     recorded: list[tuple] = []
     original = enricher._segment_pieces
@@ -313,7 +313,7 @@ def test_explain_text_keeps_header_and_divergent_positions(enricher, units_by_ke
 
 @pytest.mark.parametrize("flag", ("ink_identical", "picture_identical", "junior_equivalent", "no_verdict"))
 def test_a_slim_unit_renders_no_explain(enricher, units_by_key, flag):
-    """A machine-approved or exempt unit ships without an explain, so the enricher renders it none rather than a candidate table the fragment would only drop; the summary the row shows still comes off the same report, and the cells, seams and highlight geometry are computed as for any unit."""
+    """A machine-approved or verdict-exempt unit ships without an explain, so the enricher does not render the candidate table for it. Its summary still comes from the same report, and its cells, seams, and highlight geometry are computed as for any other unit."""
     unit = dataclasses.replace(units_by_key[("E652:E670", "default")], **{flag: True})
     enriched = enricher.enrich(unit)
     assert enriched.explain_text == ""
@@ -442,7 +442,7 @@ def test_secondary_seam_with_an_ink_identical_home_is_suppressed():
 
 
 def test_secondary_seam_with_a_picture_identical_home_is_suppressed():
-    """Picture identity is the whole-window reading of the same nothing-to-see, so a home that carries it suppresses the marker exactly as an ink-identical one does."""
+    """A picture-identical home shows no visible change, like an ink-identical one, so it suppresses the marker in the same way."""
     item = _stub_enriched(
         "u-0001",
         (0xE650, 0xE665, 0xE652, 0xE670),
@@ -483,7 +483,7 @@ def test_secondary_seam_without_any_home_is_emitted_with_home_none():
 
 
 class _ColumnarSeamHomes:
-    """The packed unit store's side of `SeamHomeSource`, standing in for it here: the projections held as parallel column lists, a `SeamHomeUnit` rebuilt on every lookup, ids ranked as integers, and homes written back as ordinals into a side map. It shares no line with `_ListSource`, so the two answering alike is evidence that the reduce reads nothing but the protocol — and it is the only way to witness the columnar path from this file, which must not import `unit_store`."""
+    """A `SeamHomeSource` shaped like the packed unit store, which this file must not import: projections held as parallel column lists, a `SeamHomeUnit` rebuilt on every lookup, ids ranked as integers, and homes written back as ordinals into a side map. It shares no code with `_ListSource`, so when the two give the same result, the reduce is reading only through the protocol."""
 
     def __init__(self, projections):
         self.ids = [item.unit_id for item in projections]
@@ -545,7 +545,7 @@ class _ColumnarSeamHomes:
             self.homes[ordinal] = list(seam_assign)
 
     def named_homes(self):
-        """The ordinal-keyed side map spelled the way the list path spells it, so one equality covers both."""
+        """Return the side map keyed and valued by unit id, the form the list path returns, so one equality compares both."""
         return {
             self.ids[ordinal]: [
                 (None if home is None else self.ids[home], suppressed) for home, suppressed in entries
@@ -555,7 +555,7 @@ class _ColumnarSeamHomes:
 
 
 def _home_fixtures():
-    """The corpora of the resolver tests above as the reduce's own input, one per outcome the census distinguishes — a shortest-substring home, a rejected outcome, a candidate that judges the seam as secondary itself, an invisible home, no home at all — plus a corpus whose every unit is seamless."""
+    """Return the resolver tests' corpora as projections for the reduce: one corpus per outcome (a shortest-substring home, a rejected outcome, a candidate that judges the seam as a secondary seam itself, an ink- or picture-identical home, no home), plus a corpus in which no unit has a secondary seam."""
     item = _stub_enriched(
         "u-0001",
         (0xE650, 0xE665, 0xE652, 0xE670),
@@ -593,7 +593,7 @@ def _home_fixtures():
 
 @pytest.mark.parametrize("name", sorted(_home_fixtures()))
 def test_a_columnar_source_and_the_list_adapter_resolve_the_same_homes(name):
-    """The reduce's answer is a property of the corpus, not of how the corpus is held: a source that rebuilds each projection from columns and one that hands back the objects it already has must agree on every assignment and on all four census counts, or the packed store would ship different homes from the list the tests above pin."""
+    """A source that rebuilds each projection from columns and a plain list of projections must give the same assignments and the same census counts. Otherwise the packed store would ship different homes from the ones the tests above check."""
     projections = _home_fixtures()[name]
     expected, expected_census = resolve_home_assignments(projections)
     columnar = _ColumnarSeamHomes(projections)
@@ -604,13 +604,13 @@ def test_a_columnar_source_and_the_list_adapter_resolve_the_same_homes(name):
 
 
 def test_the_list_adapter_hands_back_the_assignment_dict_its_readers_index():
-    """`apply_home_assignments` and the surface's fragment writers index the list path's result by unit id and read (home id, suppressed) pairs out of it, so the adapter owes them ids rather than the ordinals the reduce resolves."""
+    """`apply_home_assignments` indexes the list path's result by unit id and reads (home id, suppressed) pairs from it, so the list adapter must return ids instead of the ordinals the reduce works with."""
     assignments, _ = resolve_home_assignments(_home_fixtures()["shortest_substring_wins"])
     assert assignments == {"u-0001": [("u-0002", False)]}
 
 
 def test_a_seamless_projection_gets_no_assignment_entry():
-    """Nine units in ten carry no secondary seam, and an empty row is the same nothing to every reader as an absent one, so the reduce writes neither the row nor the key (issue #278) — and `apply_home_assignments` must survive the absence, since it is the only reader that indexed the dict unconditionally."""
+    """A unit with no secondary seam gets no entry in the assignments dict, because every reader treats a missing entry the same as an empty one. `apply_home_assignments` must handle the missing entry, which `resolve_secondary_homes` exercises here."""
     projections = _home_fixtures()["every_unit_seamless"]
     assignments, census = resolve_home_assignments(projections)
     assert assignments == {}
@@ -626,7 +626,7 @@ def test_a_seamless_projection_gets_no_assignment_entry():
 
 
 def test_a_unit_ids_string_order_is_the_integer_order_of_the_word_it_encodes():
-    """The reduce breaks a home tie on `id_word`, and that integer order must be the `unit_id` strings' own order or a tie would resolve to a different home. `unit_cache.base58_64` spells a fixed eleven symbols over an alphabet that ascends in ASCII, so the base58 spelling of a 64-bit word sorts as the word does; the id's constant `u-` prefix and that fixed width also make the whole id string sort as its own bytes read big-endian, which is the word `_ListSource` answers with."""
+    """The reduce breaks a tie between homes on `id_word`, so that integer order must match the order of the `unit_id` strings, or a tie could resolve to a different home. `unit_cache.base58_64` writes a fixed `ID_SYMBOLS` symbols from an alphabet in ascending ASCII order, so the base58 form of a 64-bit word sorts as the word does. With the constant `u-` prefix and that fixed width, the whole id string also sorts as its bytes read as a big-endian integer, which is the value `_ListSource.id_word` returns."""
     draws = random.Random(299)
     words = sorted({0, 1, 2**63, 2**64 - 1} | {draws.getrandbits(64) for _ in range(200)})
     ids = [unit_id_for(f"{word:016x}") for word in words]
@@ -638,7 +638,7 @@ def test_a_unit_ids_string_order_is_the_integer_order_of_the_word_it_encodes():
 
 
 def test_enrich_emits_secondary_seams_with_primary_style_rects(enricher, units_by_key):
-    # ·May·No·No: both junctions are ink-visible, so the trailing ·No·No seam gets a marker beyond the primary ·May·No pair. (The former exemplar, ·Pea·Pea·It·It, stopped emitting one when secondary coverage moved to the ink-visible grain — its trailing positions are outline-identical renames.)
+    # ·May·No·No: both seams are ink-visible, so the trailing ·No·No seam gets a marker in addition to the primary ·May·No pair.
     unit = units_by_key[("E665:E666:E666", "default")]
     enriched = enricher.enrich(unit)
     assert enriched.pair == (0, 1)
@@ -652,7 +652,7 @@ def test_enrich_emits_secondary_seams_with_primary_style_rects(enricher, units_b
 
 
 def test_subset_tables_iterate():
-    """`iter_rows` really reads a subset table's windows: the windows it yields over the bundle's default slice cover every window the bundle's audit names. The slice is drawn over the audit's windows and the audit holds only rows the M1 build produced, so the slice is a superset — a subset table carries a row for every window the config renders, divergent or not — and what is asserted is the containment rather than a row count, which would be a fact about this bundle rather than about the reader."""
+    """`iter_rows` reads a subset table's windows: the windows it yields over the bundle's default slice include every window the bundle's audit names. A subset table has a row for every window the configuration renders, divergent or not, so the slice is a superset of the audit's windows. The test checks containment instead of a row count, because a row count would describe this bundle and not the reader."""
     windows = {
         row.split("\t")[1] for row in (MINI / "audit.tsv").read_text(encoding="utf-8").splitlines()[1:]
     }

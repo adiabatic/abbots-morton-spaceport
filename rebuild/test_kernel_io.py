@@ -1,4 +1,9 @@
-"""Both serializations at the kernel boundary. The resolved-spec dump is the leg the Rust settlement kernel reads a spec through — value round trip, canonical fixpoint, the collection order the dump promises to preserve, and the loud refusals that keep a wrong dump from parsing as a partial one. All of that is stated over the mini fixture alone, widened in place by `_reaching_mini` until the encoder meets every shape it meets on the live alphabet, which is exactly what `TestTheMiniReachesEveryShapeTheLiveDumpDoes` holds true as `model.py` grows. The live alphabet appears once, in the claim no fixture can stand in for: the dump goes out through the crate's own `spec-echo` and the bytes have to come back identical, which is where a Rust model lagging a `model.py` change surfaces. The transition stream is the return leg, and its test is the round trip stated over the product's own values: write a fixpoint product, parse it back, and get a value equal to the one written, field for field and row for row, with the wire layout pinned against the raw bytes beside it. It is not stated one step further on — parse a stream, fold it, and compare the tables — because the fold is the crate's, so the tables a stream folds into are not something this side can produce, and equality of the product is the stronger half of what that would prove anyway. The stream runs on the mini spec alone, because what it proves is a property of the format rather than of any one alphabet."""
+"""Tests for the two serializations at the kernel boundary in `rebuild/pipeline/kernel_io.py`.
+
+The resolved-spec dump is how the Rust kernel reads a spec. These tests cover the value round trip, canonical form, the collection order the dump preserves, and the errors that stop a wrong dump from parsing as a partial one. They run on the mini fixture, widened by `_reaching_mini` so the encoder meets every shape it meets on the live alphabet, which `TestTheMiniReachesEveryShapeTheLiveDumpDoes` checks. The live alphabet is used there and in `TestTheCrateEchoesTheDumpByteForByte`, where the dump goes through the crate's `spec-echo` and must come back byte for byte; that is where a Rust model lagging a `model.py` change shows up.
+
+The transition stream is the return direction. Its tests write a fixpoint product, parse it back, compare the two field by field and row by row, and check the wire layout against the raw bytes. They use the mini spec alone, because they test the format.
+"""
 
 import dataclasses
 import gzip
@@ -28,7 +33,7 @@ CONTEXT = 48
 
 
 def _reaching_mini() -> ResolvedSpec:
-    """The mini fixture plus the three encoder shapes the live alphabet reaches and the fixture alone does not: a populated `Bitmap | None` (`Rune.mono`), a `When | None` left None (an unconditional `Unlock`, mirroring live `qsIt.hapax`'s ss04 pairing unlock), and a populated `tuple[str, str | None]` (a resolve's `against`, mirroring live `qsTea_qsOy`'s). The widening lives here rather than in `fixtures.mini_spec` because an unconditional unlock and a resolve record are settlement-bearing: they would move every mini-built table and every settle test, where here they only ride a dump nothing settles."""
+    """The mini fixture plus three encoder shapes it does not reach by itself: a populated `Bitmap | None` (`Rune.mono`), a `When | None` set to None (an `Unlock` with no `when`), and a populated `tuple[str, str | None]` (a resolve record's `against`, as in the live `qsTea_qsOy`). They are added here, not in `fixtures.mini_spec`, because an unconditional unlock and a resolve record change settlement and would move every mini-built table and settle test; this spec is only dumped, never settled."""
     spec = fixtures.mini_spec()
     runes = dict(spec.runes)
     it = runes["qsIt"]
@@ -67,7 +72,7 @@ SPEC = _reaching_mini()
 
 
 def _first_difference(written: bytes, echoed: bytes) -> str:
-    """Where two byte strings first disagree and what each has there — the offset of the first differing byte, or the length of the shorter one when the disagreement is that one ran out, with both sides' surrounding context spelled out."""
+    """Describe where two byte strings first differ: the offset of the first differing byte, or the shorter length when one is a prefix of the other, with the surrounding bytes of each."""
     shared = min(len(written), len(echoed))
     offset = next((index for index in range(shared) if written[index] != echoed[index]), shared)
     start = max(0, offset - CONTEXT)
@@ -132,7 +137,7 @@ class TestRoundTrip:
         assert kernel_io.spec_json(spec) == kernel_io.spec_json(spec)
 
     def test_the_dump_is_in_canonical_json_form(self, spec):
-        """The two canonicalization clauses a value round trip cannot see: compact separators and ASCII-only text. Re-encoding the parsed payload under exactly those settings must reproduce the dump byte for byte, and the escape clause is load-bearing rather than vacuous — the same payload spelled with `ensure_ascii=False` is not ASCII at all, because the prose in this tree carries `·` wherever it names a letter."""
+        """Checks the two parts of canonical form a value round trip cannot see: compact separators and ASCII-only text. Re-encoding the parsed payload with those settings must reproduce the dump byte for byte. The ASCII check can fail: with `ensure_ascii=False` the same payload is not ASCII, because the prose in the spec contains `·` wherever it names a letter."""
         text = kernel_io.spec_json(spec)
         assert text.isascii()
         assert not json.dumps(json.loads(text), ensure_ascii=False).isascii()
@@ -210,7 +215,7 @@ class TestTheDumpSeesTheWholeTree:
 
 
 class TestAnOutgrownCodecFailsLoudly:
-    """`model.py` is a cross-group contract that will keep growing, and the codec reads it through its type hints rather than a field list. These reach past `spec_json` into the encoder because the shapes they exercise are ones no current field has — the point is that adding one raises here rather than dumping a spec with the field quietly missing."""
+    """The codec reads `model.py` through its type hints, not a field list. These tests call the encoder directly with shapes no current field has, so a new field of an unsupported shape raises `TypeError` instead of being dropped from the dump."""
 
     def test_a_container_shape_with_no_rule_is_refused(self):
         @dataclasses.dataclass(frozen=True)
@@ -257,7 +262,7 @@ class TestRefusals:
 
 
 class TestTheMiniReachesEveryShapeTheLiveDumpDoes:
-    """What let the live arm of every test above go. The codec reads `model.py` through its type hints, so its coverage is a question about which hints the encoder is actually handed — and the answer is a set that a fixture can fall behind without anything going red. Spying on `_encode` makes the set observable: every optional and container shape the encoder meets on the live alphabet it must also meet on the widened mini, so a `model.py` growth the live dump populates and the mini does not fails here rather than quietly un-covering the codec."""
+    """The codec reads `model.py` through its type hints, so which codec paths are tested depends on which hints the encoder receives. This test spies on `_encode` and fails if the live dump reaches a shape (a hint, and whether its value is None) that the widened mini does not. That lets the tests above run on the mini alone."""
 
     def test_the_widened_mini_hands_the_encoder_every_live_shape(self, monkeypatch, live_spec):
         original = kernel_io._encode
@@ -282,7 +287,7 @@ class TestTheMiniReachesEveryShapeTheLiveDumpDoes:
 
 @pytest.mark.parametrize("arm", ["mini", "live"])
 class TestTheCrateEchoesTheDumpByteForByte:
-    """The differential proof that the crate's spec ingest is lossless: the binary parses the dump into its interned model, drops the parse tree, and re-emits from the model alone, so a field the model forgot to carry, a mapping it reordered and an escape it spells differently all surface as a byte diff rather than as a disagreement discovered several stages downstream. `model.py` is a cross-group contract, and a change to it the crate has not followed fails here on the next `make test-rebuild`. The mini arm rides alongside the live one because it is cheap and it keeps the crate's `against`, `mono` and `when: null` emit paths exercised even on a day when the live alphabet carries no record of those shapes. The spawn goes through `kernel_exec._run_kernel` so the uplift lock orders it against a concurrent worker's `ensure_built`."""
+    """Checks that the crate's spec ingest loses nothing: `spec-echo` parses the dump into the crate's model and emits it again from that model alone, so a field the model does not carry, a reordered mapping, or a differently escaped string shows up as a byte difference. A `model.py` change the crate has not followed fails here. The mini case runs beside the live one because it is cheap and exercises the crate's `against`, `mono`, and `when: null` emit paths even if the live alphabet has none of those shapes. The spawn goes through `kernel_exec._run_kernel` so the uplift lock orders it against a concurrent `ensure_built`."""
 
     def test_the_dump_comes_back_out_of_the_binary_unchanged(self, arm, live_spec, tmp_path):
         subject = SPEC if arm == "mini" else live_spec
@@ -336,7 +341,7 @@ class TestTheTransitionStreamCarriesTheWholeProduct:
         assert again.read_bytes() == path.read_bytes()
 
     def test_an_open_plain_handle_parses_to_the_same_product(self, stream, config, tmp_path):
-        """The shape the build reads: the crate writes its stream as plain ndjson, and `kernel_exec.read_stream` hands the open file over rather than packing hundreds of megabytes into the gzip a path would be opened as. Same bytes either way, so the same product."""
+        """`kernel_exec.read_stream` passes `read_transitions` an open handle on the crate's plain ndjson stream. The bytes are the same as the gzip file's contents, so the product must be the same."""
         product, path = stream[config]
         plain = tmp_path / f"transitions-{config}.ndjson"
         with gzip.open(path, "rb") as packed:
@@ -346,7 +351,7 @@ class TestTheTransitionStreamCarriesTheWholeProduct:
 
 
 class TestTheWireLayoutIsTheDocumentedOne:
-    """A symmetric round trip cannot pin a wire format — a writer and a reader that drifted together would keep agreeing with each other while a Rust reader built to `ams-m1-transitions/1` silently mis-parsed — so the layout the module docstring promises is asserted against the raw bytes: the marker line, the head's keys in their order, the head's cell spelling, and all twelve row positions."""
+    """A round trip cannot catch a Python writer and reader that changed together, and the crate writes the same `ams-m1-transitions/1` format, so this test checks the raw bytes against the layout the `kernel_io` module docstring documents: the marker line, the head's keys in order, the head's cell format, and all twelve row positions."""
 
     def test_the_stream_spells_the_layout_the_contract_names(self, stream):
         product, path = stream["default"]

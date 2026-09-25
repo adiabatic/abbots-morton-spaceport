@@ -233,13 +233,13 @@ def test_fmt_rss_is_one_decimal_gigabyte_or_nothing():
 
 
 def test_fmt_rss_reads_the_same_gigabyte_peak_rss_does():
-    """`fmt_rss` divides by its own constant because console may import nothing else in this tree, so this is what keeps the two spellings of a decimal gigabyte from drifting apart: the module that measures a peak and the module that prints one have to mean the same unit, and only the printed precision differs."""
+    """`fmt_rss` divides by its own constant because console may import nothing else in this tree, `peak_rss` included. This test checks that both modules use the same decimal gigabyte."""
     for byte_count in (0, 1, 19_600_000_000, 2**40):
         assert console.fmt_rss(byte_count) == f"{bytes_to_gb(byte_count):.1f}G"
 
 
 def test_console_imports_nothing_else_in_this_tree():
-    """The verdict chain opens its steps with `console.phase`, so console sits inside the plumbing key's code closure and anything console imports sits there with it. The timings journal and the two width yardsticks are what that closure was named to shed — a width or a telemetry field can never move a verdict — so an import here would re-run the whole chain for an edit to one of them. rebuild/test_plumbing_closure.py fails on the consequence; this fails on the cause, which is the line a reader of console.py can act on."""
+    """The verdict chain calls `console.phase`, so console and everything it imports are in the plumbing key's code closure. An import of the timings journal or a width module would make an edit to it re-run the whole chain, although neither can change a verdict. rebuild/test_plumbing_closure.py catches the effect; this test points at the import line in console.py."""
     tree = ast.parse(pathlib.Path(console.__file__).read_text(encoding="utf-8"))
     reached = set()
     for node in ast.walk(tree):
@@ -425,7 +425,7 @@ def test_the_heartbeat_surfaces_the_stored_counter_then_bare_silence(capsys):
 
 
 def test_a_counter_never_surfaces_under_a_phase_that_did_not_count_it(capsys):
-    """A stored counter belongs to the phase that produced it and to no other. Left in place across a phase boundary, the next silent minute surfaces the last phase's tally under the new phase's name — every unit of the corpus counted under a phase that counts no units — which is a number a reader has every reason to believe."""
+    """A stored counter is dropped when its phase closes. Otherwise the next heartbeat would print the finished phase's count while a different phase runs, and the reader would take it at face value."""
     clock = _Clock()
     digest = _digest(clock, heartbeat_seconds=60)
     digest.step_start("surface-build", ["true"], "")
@@ -440,7 +440,7 @@ def test_a_counter_never_surfaces_under_a_phase_that_did_not_count_it(capsys):
 
 
 def test_a_counter_stored_under_an_opening_phase_is_dropped_with_it(capsys):
-    """The same rule in the other direction: a counter that arrived before its phase opened belongs to whatever came before, and the phase line is where it stops being this step's latest."""
+    """A counter that arrived before a phase opened is dropped when the phase opens."""
     clock = _Clock()
     digest = _digest(clock, heartbeat_seconds=60)
     digest.step_start("run_m1", ["true"], "")
@@ -471,7 +471,7 @@ def test_the_closing_line_carries_the_outcome_the_figure_and_the_peak(capsys):
 
 
 def test_a_pytest_lane_closes_saying_how_many_times_it_warned(capsys):
-    """pytest's warnings summary is pages long and belongs in the log, but a lane that closes as a bare `ok` is a lane whose warnings nobody ever goes looking for. The count comes off the terminal summary rule, which is the one line that states it, and rides the closing line between the figure and the peak."""
+    """A pytest step's closing line reports the warning count from pytest's terminal summary rule, between the figure and the peak, so warnings are not hidden behind a bare `ok`. The warnings themselves stay in the log. A non-pytest step ignores the same line."""
     digest = _digest(steps=["gate:make-test", "gate:js"])
     digest.step_start("gate:make-test", ["make", "test"], "")
     digest.child_line("gate:make-test", console.STDOUT, "=========== warnings summary ===========")
@@ -534,7 +534,7 @@ def test_a_substep_logs_and_surfaces_under_its_parent(capsys, tmp_path):
 
 
 def test_a_substep_that_spawns_after_its_parent_closed_leaves_nothing_open(capsys, tmp_path):
-    """The census prints its diff once the refresh itself is done, so the sub-step's own lines open a state nobody else would ever close: its log handle would stay open until `stop()` and the heartbeat would announce a step that finished minutes ago, once a minute, for the rest of the pass. What it surfaces still carries the census's clock, because a line arriving late is late rather than a step that has just begun."""
+    """The census prints its diff after its step has closed, so the sub-step's lines open a transient state that `substep_end` must close. Otherwise its log handle would stay open until `stop()` and the heartbeat would report the finished step every minute for the rest of the pass. The surfaced line keeps the census step's clock, so it reads as late output."""
     clock = _Clock()
     digest = _digest(clock, log_dir=tmp_path / "run", heartbeat_seconds=60)
     digest.step_start("census", ["true"], "", verbatim=True)
@@ -557,7 +557,7 @@ def test_a_substep_that_spawns_after_its_parent_closed_leaves_nothing_open(capsy
 
 
 def test_a_substep_close_leaves_a_parent_that_is_still_running_alone(capsys, tmp_path):
-    """The ordinary case, where the sub-step runs under an open banner: the parent has its own closing line to print and its own figure to print it with, so nothing here may close it early."""
+    """When the sub-step runs while its parent is open, `substep_end` leaves the parent open so the parent's own `step_end` prints its closing line."""
     digest = _digest(log_dir=tmp_path / "run")
     digest.step_start("census", ["true"], "")
     digest.substep("census", "git-diff")
@@ -674,7 +674,7 @@ def test_the_log_directory_holds_the_plan_the_terminal_copy_and_a_log_per_step(c
 
 
 def test_a_step_that_spawns_nothing_leaves_no_log_behind(capsys, tmp_path):
-    """One log per spawned step, and none for a step that spawns nothing. The retention pass runs inside the driver's own process, so a file opened when its banner went up would sit in every run directory at zero bytes — and a reader who opens a run directory wants a file in it to mean a child ran and said something."""
+    """A step's log file opens on its first child line, so a step that spawns nothing, such as the retention pass that runs in the driver's process, leaves no empty log in the run directory."""
     run = tmp_path / "run"
     with _digest(log_dir=run) as digest:
         digest.step_start("retention", None, "Prunes the regenerable piles a green cycle leaves behind.")
@@ -688,7 +688,7 @@ def test_a_step_that_spawns_nothing_leaves_no_log_behind(capsys, tmp_path):
 
 
 def test_a_skip_says_the_word_once(capsys, tmp_path):
-    """The plan's notes wear a `SKIPPED (…)` wrapper because in the plan block they are the whole explanation and a reader greps them by it. A surfaced skip line already opens with the word, so the reason arrives unwrapped rather than as `skipped  SKIPPED (…)` — and a note that never wore the wrapper, like the sweep's mid-run re-decision, is left exactly as it was written."""
+    """The plan's notes keep their `SKIPPED (…)` wrapper, which readers grep for. A surfaced skip line already starts with `skipped`, so `skip_reason` removes the wrapper. A note without the wrapper, such as the sweep's re-skip after run_m1, is printed unchanged."""
     assert console.skip_reason("SKIPPED (--keep-history)") == "--keep-history"
     assert console.skip_reason("SKIPPED (first run); no carry reads it") == "first run; no carry reads it"
     assert console.skip_reason("input closure unchanged") == "input closure unchanged"
@@ -706,7 +706,7 @@ def test_a_skip_says_the_word_once(capsys, tmp_path):
 
 
 def test_a_replay_reaches_the_terminal_copy_and_says_nothing_twice(capsys, tmp_path):
-    """The driver answers three questions before the plan is resolved and so before there is a digest to catch them. They have already reached the terminal; what they are missing is the copy — so a replay writes them into terminal.log alone and the reader who watched the pass still sees each of them once."""
+    """The driver prints up to three lines before the digest exists: a recovery notice, the carry source or a no-carry notice, and the store-only decline note. `replay` writes them to terminal.log only, because they are already on the terminal. Without a log directory it writes nothing."""
     run = tmp_path / "run"
     preamble = ["No carryable verdicts found; proceeding without carry."]
     print(preamble[0])
@@ -721,7 +721,7 @@ def test_a_replay_reaches_the_terminal_copy_and_says_nothing_twice(capsys, tmp_p
 
 
 def test_a_crash_inside_the_digest_lands_its_traceback_in_the_terminal_copy(capsys, tmp_path):
-    """A driver exception escapes the digest's context before Python prints it, and `stop` has already handed the real streams back by then — so the one line that explains a crash would reach the terminal and never the copy a watcher was told to read. The traceback goes into terminal.log on the way out, and only there: Python still prints it to the terminal once."""
+    """Python prints an escaping exception's traceback after `stop` has restored the real streams, so it would never reach terminal.log. `__exit__` writes the traceback to terminal.log itself. It does not print it to the terminal, because Python already prints it there once."""
     run = tmp_path / "run"
     before = (sys.stdout, sys.stderr)
     with pytest.raises(RuntimeError, match="boom"):
@@ -807,7 +807,7 @@ def test_two_children_at_once_never_splice_a_line(capsys, tmp_path):
 
 
 def test_two_phases_open_at_once_close_by_their_own_timing_lines_in_either_order(capsys):
-    """run_m1's two branches each open phases of their own — the glyph chain's `compile_font` beside the table-only branch's `replay_strings` — and either may close first; each `[t]` line closes the phase of its own label and no other."""
+    """run_m1's two branches open phases concurrently (the glyph chain's `compile_font` and the table-only branch's `replay_strings`), and either may close first. Each `[t]` line closes only the phase with its label."""
     clock = _Clock()
     digest = _digest(clock)
     digest.step_start("run_m1", ["true"], "")
@@ -839,7 +839,7 @@ def test_two_phases_open_at_once_close_by_their_own_timing_lines_in_either_order
 def test_a_counter_from_one_branch_carries_its_own_unit_and_is_dropped_when_either_branch_closes_a_phase(
     capsys,
 ):
-    """The packers count `packed configurations` while the oracle counts `configurations`, so a surfaced counter says whose it is; and a counter parked under two open phases is dropped the moment either closes, the same rule `test_a_counter_never_surfaces_under_a_phase_that_did_not_count_it` states for one phase."""
+    """The packers count `packed configurations` and the oracle counts `shards`, so a surfaced counter's unit shows which branch it came from. A counter stored while two phases are open is dropped when either closes, as `test_a_counter_never_surfaces_under_a_phase_that_did_not_count_it` checks for one phase."""
     clock = _Clock()
     digest = _digest(clock, heartbeat_seconds=60)
     digest.step_start("run_m1", ["true"], "")

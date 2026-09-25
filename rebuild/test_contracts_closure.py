@@ -1,4 +1,4 @@
-"""The contracts lane's per-test closure, pinned at every seam: the static import walk over a synthetic tree, the selection rule over a hand-written record, the merge of a run's sidecar into the record it narrows against, the wrapper's narrowing and recording through the gate, the leaf-only import surface of both conftests, and — end to end, in a child pytest under `-p rebuild.conftest` — that the audit guard records reads, imports, fixture setups, spawns and a fixture's announced import the way the selection assumes, and honors a selection file. The child runs as a subprocess for the reason test_lanes gives: the guard is a `sys.addaudithook`, which cannot be uninstalled."""
+"""Tests for the contracts lane's per-test closures: the static import walk over a synthetic tree, the selection rule over a hand-written record, the merge of a run's sidecar into the previous record, the gate's narrowing and recording, the leaf-only imports of both conftests, and, end to end in a child pytest under `-p rebuild.conftest`, that the audit guard records reads, imports, fixture setups, spawns, and a fixture's announced import, and applies a selection file. The child runs as a subprocess because the guard is a `sys.addaudithook`, which cannot be uninstalled."""
 
 from __future__ import annotations
 
@@ -103,7 +103,7 @@ class TestReadNormalization:
 
 @pytest.fixture
 def synthetic_tree(tmp_path: Path) -> Path:
-    """A miniature repo with every import shape the walk has to follow: a package, an absolute `from` import, a relative one, a nested import inside a function, a `TYPE_CHECKING` import, a bare sibling import, and a `test/` module reached by name alone."""
+    """A small repo with every import form the walk must follow: a package, an absolute `from` import, a relative one, an import inside a function, a `TYPE_CHECKING` import, a bare sibling import, and a `test/` module imported by bare name."""
     _write(tmp_path, "pkg/__init__.py")
     _write(tmp_path, "pkg/a.py", "from pkg import b\nfrom . import c\n\n\ndef f():\n    import pkg.lazy\n")
     _write(tmp_path, "pkg/b.py", "import json\n")
@@ -349,7 +349,7 @@ class TestRecordPayload:
 
 
 class TestTheGateNarrows:
-    """The wrapper writes the selection the record proves, spawns the lane against it, and merges what the lane recorded — driven with the suite stubbed to write a sidecar the way the real one does."""
+    """The gate writes the selection the record supports, runs the lane with it, and merges what the lane recorded. The suite is stubbed to write a sidecar as the real one does."""
 
     @pytest.fixture
     def contracts_store(self, tmp_path, monkeypatch):
@@ -457,7 +457,7 @@ def test_the_lane_argv_names_the_closure_files_beside_the_record(tmp_path, monke
 
 
 def test_the_lane_key_is_the_digest_of_its_labels(tmp_path):
-    """The selection diffs the label map and the skip compares the key, and the two agree only because the key is nothing but the map's digest."""
+    """The selection compares label maps and the skip compares keys, so the key must be the digest of the label map and nothing else."""
     subprocess.run(["git", "init", "-q"], cwd=tmp_path, check=True)
     _write(tmp_path, "rebuild/test_x.py", "")
     _write(tmp_path, "glyph_data/runes/qsX.yaml", "rune: qsX\n")
@@ -562,7 +562,7 @@ def test_dynamic_import():
 
 
 def _child(pytester: pytest.Pytester, monkeypatch: pytest.MonkeyPatch, *args: str):
-    """The kernel the child spawns is a script of that name under the pytester root: `kernel_child` judges by argv, and building the real one here — after pytester has pointed `HOME` at a scratch directory — would have cargo rebuild it under an empty registry and every other worker rebuild it back."""
+    """The child's kernel is a script named like the kernel binary under the pytester root, because `kernel_child` decides by argv. Building the real kernel here, after pytester has pointed `HOME` at a scratch directory, would make cargo rebuild it against an empty registry, and every other worker would then rebuild it again."""
     monkeypatch.setenv("PYTHONPATH", str(REPO_ROOT))
     pytester.makeconftest(CHILD_CONFTEST.format(root=str(REPO_ROOT)))
     pytester.makepyfile(test_child=CHILD_TESTS.format(root=str(REPO_ROOT)))
@@ -630,7 +630,7 @@ class TestTheRecorderEndToEnd:
         assert not list(tmp_path.glob("*.json"))
 
 
-# Every repo file each conftest imports directly, as checked in. Both conftests are global inputs of every test's closure, so an import added here is an input added to every test; the set is a literal so that growth is a diff a reader has to accept.
+# Every repo file each conftest imports directly. Both conftests are in every test's closure, so a new conftest import adds an input to every test. The sets are literals so that adding one shows up as a diff to review.
 CONFTEST_EDGES = {
     "conftest.py": {
         "rebuild/tools/cycle_timings.py",
@@ -651,7 +651,7 @@ CONFTEST_EDGES = {
 
 
 class TestTheConftestsStayLeaves:
-    """`closure_of` unions both conftests' static import closures into every test's, so a conftest that reaches rebuild/pipeline/ or rebuild/review/ through any nesting puts the whole tree into every closure and a pipeline edit keeps nothing off the lane. The two leaves the suite patches and records through (`cycle_paths`, `closure_record`) and the font-path leaf the root conftest asks about are what the conftests may import from the rebuild; everything the fixtures need from the review tree, the mini bundle's pin included, goes through `announced_import`."""
+    """`closure_of` adds both conftests' static import closures to every test's closure. If a conftest reached rebuild/pipeline/ or rebuild/review/ through any chain of imports, that tree would be in every closure and no pipeline edit could let a test be skipped. The conftests import only the leaf modules in `CONFTEST_EDGES`; fixtures that need review-tree modules, the mini bundle's pin among them, load them through `announced_import`."""
 
     @pytest.mark.parametrize("conftest", cc.CONFTEST_PATHS)
     def test_neither_conftest_reaches_the_pipeline(self, conftest):
@@ -705,7 +705,7 @@ def test_imports_it_at_collection():
 
 
 class TestTheAnnouncedImport:
-    """A session fixture that loads a module at its own setup puts that module in a requesting test's closure only by announcing it. Two orders, both pinned: the module first loaded by the fixture itself, where the source read would already land in the fixture's sink, and the module loaded at collection by another test module, where no import event and no read is left for the fixture's window — the order the real suite runs in, since collection imports every test module before any fixture sets up. The silent fixture beside it is the control: in both orders the test that requests it records neither a module nor a read, which is the unsound skip the announcement exists to prevent."""
+    """A session fixture that imports a module at setup adds that module to a requesting test's closure only through `announced_import`. Both load orders are tested. In the first, the fixture itself loads the module first, so its source read would be recorded anyway. In the second, another test module imports it at collection, so no import event or read happens during the fixture's setup. The real suite runs in this order, because collection imports every test module before any fixture runs. The silent fixture is the control: in both orders its requesting test records neither the module nor a read, which is the unsafe skip `announced_import` prevents."""
 
     @pytest.mark.parametrize("loaded_at_collection", [False, True])
     def test_the_announced_module_lands_in_every_requesters_closure(

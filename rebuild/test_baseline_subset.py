@@ -1,4 +1,4 @@
-"""baseline_subset tests over synthetic tables: the row filter itself, the stamp-keyed freshness contract run_m1 leans on so a stale subset can never feed the oracle, the font-provenance proof that runs ahead of every freshness check so a rebuilt site font cannot ride a stamp that never moved, the default-covered identity proof the refilter refuses to stamp around, and the names sidecar the alias check reads instead of the tables."""
+"""Tests for `baseline_subset` over synthetic tables: the row filter, the stamp-keyed freshness check run_m1 relies on so a stale subset never reaches the oracle, the font-provenance check that runs before every freshness check so a rebuilt site font cannot pass under an unchanged stamp, the check that the default-covered configurations filter to default's rows, which must pass before the refilter writes a stamp, and the names sidecar the alias check reads instead of the tables."""
 
 import gzip
 import hashlib
@@ -68,7 +68,7 @@ SEED_ROWS = ["E670\tqsIt\t0\t\t0,0,150", "E661\tqsWay\t0\t\t0,0,250"]
 
 
 def _write_sources(out, rows):
-    """The reference table and the three configurations the acceptance gate covers through it, all filtering to the same rows — the shape the identity proof demands of a healthy tree."""
+    """Write the reference table and the three configurations the acceptance gate covers through it, all filtering to the same rows, as the identity check requires."""
     for config in (baseline_subset.IDENTITY_REFERENCE,) + baseline_subset.DEFAULT_COVERED_CONFIGS:
         _write_table(out / f"baseline-{config}.tsv.gz", rows)
 
@@ -114,7 +114,7 @@ class TestEnsureFresh:
         assert baseline_subset.stamp_key(root) != before
 
     def test_a_docstring_reword_in_the_filter_leaves_the_key_still(self, tmp_path, monkeypatch):
-        """The filter's own code reaches the key prose-blind (`fingerprint.code_file_digest`), so rewording a docstring here trusts the subset on disk and a statement change refilters. A copy of the module stands in for `__file__`, so the edits never touch the checkout."""
+        """The filter's own code enters the key prose-blind (`fingerprint.code_file_digest`), so rewording a docstring keeps the subset on disk and a code change refilters. A copy of the module stands in for `__file__`, so the edits never touch the checkout."""
         root = _seed_repo(tmp_path)
         module = tmp_path / "baseline_subset.py"
         source = Path(baseline_subset.__file__).read_text(encoding="utf-8")
@@ -138,7 +138,7 @@ class TestEnsureFresh:
         assert subset.exists()
 
     def test_an_interrupted_refilter_leaves_the_prior_stamp_reading_stale(self, tmp_path, monkeypatch):
-        """refresh leaves the prior stamp on disk while it rewrites the tables under it, and the stamp's content digests are what make that safe: a table the crash cut short hashes to something the stamp never recorded, so the stamp cannot vouch for it even under an unmoved key."""
+        """`refresh` leaves the prior stamp on disk while it rewrites the tables. That is safe because of the stamp's content digests: a table the crash cut short hashes to a value the stamp never recorded, so it reads as stale even though the key has not changed."""
         root = _seed_repo(tmp_path)
         baseline_subset.ensure_fresh(root)
         stamp = root / "rebuild" / "out" / "m1" / baseline_subset.STAMP_NAME
@@ -176,7 +176,7 @@ class TestEnsureFresh:
         assert "kept 1 rows" in capsys.readouterr().out
 
     def test_refresh_prunes_outputs_no_longer_backed_by_a_source(self, tmp_path):
-        """The orphan direction: a subset whose source vanished must not linger for the oracle's fixed config list to stream forever."""
+        """A subset whose source table was deleted is pruned instead of being left for the oracle to read."""
         root = _seed_repo(tmp_path)
         out = root / "rebuild" / "out"
         _write_table(out / "baseline-ss04.tsv.gz", ["E670\tqsIt\t0\t\t0,0,150"])
@@ -198,7 +198,7 @@ class TestEnsureFresh:
         assert not rogue.exists()
 
     def test_a_corrupted_output_reads_as_stale_and_is_refiltered(self, tmp_path):
-        """A 0-byte gz streams as an empty table and the oracle gate never notices, so the stamp's content hashes are what keep a truncated subset from riding a recorded green."""
+        """A 0-byte gz streams as an empty table without any error from the oracle gate, so the stamp's content hashes are what keep a truncated subset from passing as fresh."""
         root = _seed_repo(tmp_path)
         baseline_subset.ensure_fresh(root)
         subset = root / "rebuild" / "out" / "m1" / "baseline-default.subset.tsv.gz"
@@ -218,7 +218,7 @@ class TestEnsureFresh:
             assert hashlib.sha256((out / name).read_bytes()).hexdigest() == digest
 
     def test_the_stamp_counts_each_tables_kept_rows_for_the_oracle_to_cut_by(self, tmp_path):
-        """The oracle cuts each subset table into row ranges before it streams one, so the count has to come off the stamp: `refresh` writes what the filter kept per configuration, `subset_row_counts` reads it back, and the count is the number of data lines the table actually holds. A stamp without counts — another format, a missing file, a hand-made directory — answers `{}`, which the oracle reads as one range per table rather than a guess."""
+        """The oracle cuts each subset table into row ranges before streaming it, so it reads the row counts from the stamp: `refresh` writes the rows the filter kept per configuration, `subset_row_counts` reads them back, and each count equals the table's data lines. A stamp without counts (another format, a missing file, a hand-made directory) returns `{}`, which the oracle reads as one range per table."""
         root = _seed_repo(tmp_path)
         baseline_subset.refresh(root)
         out = root / "rebuild" / "out" / "m1"
@@ -255,7 +255,7 @@ class TestEnsureFresh:
 
 
 class TestFontProvenance:
-    """The claim the oracle's rows rest on and no stamp can carry: every source table was extracted from the site font on disk. The site font is `make all` output rather than a filter input, so rebuilding or re-extracting it moves no stamp key at all — which is why the proof runs on every ensure_fresh, ahead of the freshness check, rather than once per refilter."""
+    """Every source table was extracted from the site font on disk, which the oracle's rows depend on. The site font is `make all` output, not a filter input, so rebuilding it changes no stamp key. That is why the check runs on every `ensure_fresh`, before the freshness check, and not once per refilter."""
 
     def test_matching_headers_prove_and_return_the_tables(self, tmp_path):
         root = _seed_repo(tmp_path)
@@ -268,7 +268,7 @@ class TestFontProvenance:
         assert baseline_subset.ensure_fresh(root) is True
 
     def test_a_rewritten_site_font_refuses_before_any_freshness_check(self, tmp_path):
-        """A stamped-fresh tree with a rebuilt font underneath it: the tables still hash to what the stamp recorded, so is_fresh would wave them through — the refusal has to come from ahead of it, and must leave the stamp exactly as it found it."""
+        """A stamped-fresh tree with a rebuilt font: the tables still hash to what the stamp recorded, so `is_fresh` would pass them. The error must come before that check and leave the stamp unchanged."""
         root = _seed_repo(tmp_path)
         assert baseline_subset.ensure_fresh(root) is True
         stamp = root / "rebuild" / "out" / "m1" / baseline_subset.STAMP_NAME
@@ -294,7 +294,7 @@ class TestFontProvenance:
         assert "f" * 64 in message
 
     def test_a_header_without_provenance_lines_refuses(self, tmp_path):
-        """A table from before the header contract: nothing in it says which font shaped its rows, which is a state to re-extract out of rather than one to guess at."""
+        """A table without the `# font:` and `# font_sha256:` header lines does not say which font shaped its rows, so it must be re-extracted."""
         root = _seed_repo(tmp_path)
         with gzip.open(root / "rebuild" / "out" / "baseline-ss05.tsv.gz", "wt", encoding="utf-8") as fh:
             fh.write("# config: default\n")
@@ -323,7 +323,7 @@ class TestFontProvenance:
 
 
 class TestDefaultCovered:
-    """The ss06/ss07/ss06+ss07 proof, made where the tables are written. What it is defending is the acceptance gate's coverage claim: those three run through default's arm alone, which is only sound while their filtered rows are default's filtered rows."""
+    """The check, made where the tables are written, that ss06, ss07, and ss06+ss07 filter to default's rows. The acceptance gate covers those three by running default alone, which is only sound while their filtered rows are default's."""
 
     def test_identical_roster_tables_stamp_fresh(self, tmp_path):
         root = _seed_repo(tmp_path)
@@ -354,7 +354,7 @@ class TestDefaultCovered:
 
 
 class TestSubsetNames:
-    """The sidecar that replaced a stream of every subset row: the alias check's whole input, written once per refilter and stamped so it cannot go missing behind a fresh reading."""
+    """The names sidecar, the alias check's only input, written once per refilter and recorded in the stamp so a missing sidecar reads as stale."""
 
     def test_the_sidecar_holds_the_kept_rows_distinct_names_per_config(self, tmp_path):
         root = _seed_repo(tmp_path)
@@ -444,7 +444,7 @@ def _widen_a_glyph(font):
 
 
 def _seed_sfnt_repo(tmp_path):
-    """`_seed_repo` with a real font at the site path — the mini fixture's — and every header recording that font's raw digest, which is the shape the head/name-blind proof exists for."""
+    """`_seed_repo` with the mini fixture's real font at the site path and every header recording that font's raw digest, the case the head- and name-blind check is for."""
     root = _seed_repo(tmp_path)
     font = root / FONT_RELATIVE_PATH
     font.write_bytes(MINI_FONT.read_bytes())
@@ -459,7 +459,7 @@ def _sidecar(root):
 
 
 class TestFontProvenanceThroughAVersionBump:
-    """The second step of the proof, over a real `sfnt`: a header whose raw digest no longer matches the font on disk is proven when the sidecar holds the extraction font's head- and name-blind projection and the font on disk projects to the same value, and refused in every other state — a glyph that moved, a sidecar that is gone or corrupt, a font never proven before it moved. The sidecar is written by a fully proven call and never by a refusal."""
+    """The second step of the provenance check, over a real `sfnt`. A header whose raw digest no longer matches the font on disk passes when the sidecar holds the extraction font's head- and name-blind projection and the font on disk projects to the same value. It fails in every other case: a changed glyph, a missing or corrupt sidecar, or a font that changed before it was ever checked. Only a call that passes writes the sidecar."""
 
     def test_a_proven_pass_records_the_extraction_fonts_projection(self, tmp_path):
         from rebuild.pipeline import fingerprint
@@ -478,7 +478,7 @@ class TestFontProvenanceThroughAVersionBump:
         assert _sidecar(root).read_bytes() == first
 
     def test_a_head_and_name_only_rewrite_proves_without_a_refilter(self, tmp_path):
-        """The bump itself: `make all` rewrote the font's `head` and `name`, the tables still name the old raw digest, and the pass proves, refilters nothing and leaves the subset stamp byte for byte — no re-extraction, and no key a downstream reader could see move."""
+        """A version bump: `make all` rewrote the font's `head` and `name`, and the tables still name the old raw digest. The check passes, nothing is refiltered or re-extracted, and the subset stamp and sidecar keep their bytes."""
         root, font, digest = _seed_sfnt_repo(tmp_path)
         assert baseline_subset.ensure_fresh(root) is True
         stamp = root / "rebuild" / "out" / "m1" / baseline_subset.STAMP_NAME
@@ -510,7 +510,7 @@ class TestFontProvenanceThroughAVersionBump:
 
     @pytest.mark.parametrize("state", ["deleted", "corrupt", "other-format", "never-written"])
     def test_a_bump_without_a_usable_recorded_projection_refuses(self, tmp_path, state):
-        """The safe direction: without the extraction font's projection nothing can say a head/name-only rewrite is what happened, so the pass refuses with the re-extract remedy and names the sidecar as what is missing."""
+        """Without the extraction font's projection nothing shows that only `head` and `name` changed, so the check fails with the re-extract remedy and names the sidecar."""
         root, font, digest = _seed_sfnt_repo(tmp_path)
         if state != "never-written":
             baseline_subset.ensure_fresh(root)
@@ -552,7 +552,7 @@ class TestFontProvenanceThroughAVersionBump:
         assert digest not in recorded[FONT_RELATIVE_PATH]
 
     def test_a_fake_font_falls_back_to_its_raw_digest(self, tmp_path):
-        """The four arms above this class stand on the fallback: `_seed_repo`'s font is not an `sfnt`, so its projection is its raw digest, a rewrite of it is a refusal, and nothing here has to know which kind of font a repo holds."""
+        """The tests built on `_seed_repo` depend on this fallback: its font is not an `sfnt`, so its projection is its raw digest and any rewrite of it fails the check."""
         from rebuild.pipeline import fingerprint
 
         root = _seed_repo(tmp_path)

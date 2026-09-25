@@ -1,4 +1,4 @@
-"""Geometry unit tests over the fixture spec's real data (via rebuild.pipeline.fixtures), plus synthetic coverage for the adjustment operations the M1 alphabet never reaches (trim, bind at settlement level)."""
+"""Tests for rebuild.pipeline.geometry on the fixture spec (`fixtures.mini_spec`). The trim and bind tests build those adjustment tokens by hand, because the fixture's own settlement never produces them."""
 
 import pytest
 
@@ -90,7 +90,10 @@ class TestRealizeBase:
             bitmap="pulled-back-grounded",
         )
         record = geometry.realize(spec, plan)
-        assert record.entry == (2, 5)  # joined_x travels with the bound form
+        assert record.entry == (
+            2,
+            5,
+        )  # the entry row's joined_x applies when the plan binds its joined bitmap
         assert record.exit == (4, 0)
 
 

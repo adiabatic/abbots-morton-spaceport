@@ -1,4 +1,4 @@
-"""The live-artifact guard's own tests: that the forbidden-path rule draws the line where the build's output actually starts, that the guard governs the rebuild suite and leaves the repo's other suites alone, and — end to end, in a child pytest — that a rebuild test which reaches for a live artifact fails instead of quietly succeeding, whether or not the run named the suite's lane. The child runs as a subprocess rather than in-process because the guard is a `sys.addaudithook`, which cannot be uninstalled: a same-process rehearsal would leave this session's own hook armed against whatever ran next."""
+"""Tests for the live-artifact guard in `rebuild/conftest.py`: which paths count as live artifacts, which test files the guard governs, and, in a child pytest, that a rebuild test reading a live artifact fails whether or not the run names the lane. The child runs in a subprocess because the guard is a `sys.addaudithook`, which cannot be uninstalled, so an in-process run would leave its hook in place for every test after it."""
 
 import os
 from pathlib import Path
@@ -31,14 +31,14 @@ def test_checked_in_fixture_read():
 
 
 def _child(pytester: pytest.Pytester, monkeypatch: pytest.MonkeyPatch, *args: str):
-    """Runs the two-test file above under a fresh pytest with this conftest force-loaded as a plugin. rebuild/ is a namespace package with no __init__.py, so PYTHONPATH is what lets `-p rebuild.conftest` resolve from the child's own working directory."""
+    """Run the two-test file above in a fresh pytest with this conftest loaded as a plugin. rebuild/ is a namespace package with no __init__.py, so `PYTHONPATH` is needed for `-p rebuild.conftest` to resolve from the child's working directory."""
     monkeypatch.setenv("PYTHONPATH", str(REPO_ROOT))
     pytester.makepyfile(test_child=CHILD_TESTS.format(root=str(REPO_ROOT)))
     return pytester.runpytest_subprocess("-p", "rebuild.conftest", "-p", "no:cacheprovider", *args)
 
 
 def test_the_suite_has_one_lane_and_it_is_the_one_the_gate_names():
-    """The lane's spelling is shared by the green record, the pool unit and the cycle's gate step, so the tuple here is what every one of them is derived from."""
+    """The rebuild suite has one lane, `contracts`. `artifact_cycle.REBUILD_LANES` is a separate copy of this tuple, so a new lane must be added in both places."""
     assert LANES == ("contracts",)
 
 
@@ -130,6 +130,6 @@ class TestGuardEndToEnd:
 
 
 def test_the_collection_walk_leaves_the_crate_and_the_build_output_alone():
-    """The two subtrees the walk under rebuild/ never enters — the crate, named by the closure's own prefix for it, and the live build output — which between them are nearly every entry a worker would otherwise visit and stat before deselecting a single test. Anything else under rebuild/ stays walkable, so a test file added in a new subtree is still found."""
+    """Collection under rebuild/ skips two subtrees: the crate, named from `contracts_closure.KERNEL_PREFIX`, and the build output. Together they hold nearly every entry a worker would otherwise visit. Every other subtree is still walked, so a test file in a new subtree is found."""
     assert set(collect_ignore) == {Path(contracts_closure.KERNEL_PREFIX).name, "out"}
     assert all("/" not in name for name in collect_ignore)

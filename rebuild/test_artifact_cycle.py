@@ -32,18 +32,18 @@ from rebuild.tools.peak_rss import format_gb
 from rebuild.tools.cycle_timings import CycleTimings
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-# Width assertions use stated machines rather than the host running the suite. At the 6.3 GB per-delta bound beside default's 2.5 GB memo snapshot, 36 GB fits four deltas alone and three beside the normal pytest pool; 38 GB exercises larger stated pool widths; 44 GB is the surface width's box. Re-seeding DELTA_PEAK_BYTES or DEFAULT_MEMO_BYTES moves these expectations and can require a different box to keep the reservation observable.
+# Width assertions use stated machine sizes, not the host running the suite. With DELTA_PEAK_BYTES at 6.3 GB and DEFAULT_MEMO_BYTES at 2.5 GB, 36 GB fits four deltas alone and three beside the default pytest pool, 38 GB leaves room to test larger stated pool widths, and 44 GB is `_plan`'s default machine, which the plan and width tests share. Changing either constant changes these expectations and can require a different size to keep the pool's reservation visible in a width.
 BOX_44_GB = 44_000_000_000
 BOX_38_GB = 38_000_000_000
 BOX_36_GB = 36_000_000_000
-# The fleet's two real machines, for the surface width's assertions. With a worker priced at its width-two peak, no box either machine offers separates the build's arms — the pool's bytes come off a box with a worker's worth of slack left over on both — so the reservation arithmetic is asserted at the `_surface_fit_terms` seam, where no box enters at all, and the widths here are asserted against the machines that actually run them rather than against one invented to sit where the subtraction would move a width: 51_539_607_552 is the 48 GiB box whose width-two pool outran the eight-wide worker seed, and 34_359_738_368 is the 32 GiB Mac the eight-wide core clamp drove into swap.
+# The fleet's two machines (`doc/fleet.md`), for the surface width's assertions. On both, the surface build reaches its cap whether or not the pytest pool's bytes are subtracted, so no total separates the gated and solo cases; the reservation arithmetic is asserted through `_surface_fit_terms`, which takes no total.
 BOX_48_GIB = 51_539_607_552
 BOX_32_GIB = 34_359_738_368
 
 
 @pytest.fixture(autouse=True)
 def _no_stated_widths(monkeypatch):
-    """The knobs that outrank every derived width the plan names, cleared for the whole file. Every plan built here carries a kernel width, a replay width and a pytest-pool width, and a developer who has exported any of the three variables would otherwise watch these assertions pass or fail for a reason that has nothing to do with the arrangement the test set up. That the knobs do outrank the arithmetic is asserted by the tests that set them deliberately."""
+    """Clear the three environment variables that override derived widths, so a value a developer has exported cannot change these assertions. The tests that check the overrides set them themselves."""
     monkeypatch.delenv("PYTEST_XDIST_AUTO_NUM_WORKERS", raising=False)
     monkeypatch.delenv("AMS_KERNEL_THREADS", raising=False)
     monkeypatch.delenv("AMS_REPLAY_THREADS", raising=False)
@@ -51,9 +51,9 @@ def _no_stated_widths(monkeypatch):
 
 @pytest.fixture(autouse=True)
 def _redirect_contracts_lane_reads(monkeypatch, tmp_path):
-    """The read half of the suite's no-live-repo standard, and it needs its own argument, because a read costs the repo nothing and so was never covered by the write redirect in the conftest. What it costs instead is the truth of the test: the cycle resolves its *read* paths from the live repo at call time exactly as it resolves its write paths, so a test driving `_run_cycle` over mocked stages still renders its summary from whatever review surface and behavior-class sidecar happen to be sitting in rebuild/out — a number the test never built, from a build it never ran, which flips with the working tree under it. Every test here is a contracts-lane test, so there is no lane to check and no legitimate live read to preserve: this module sees the live artifacts as absent, and the audit guard fails anything that reaches past this for one.
+    """Make this module see the live review surface and build artifacts as absent. The conftest's `_redirect_cycle_writes` redirects writes only, but the cycle also resolves its read paths from the live repo at call time, so a test driving `_run_cycle` over mocked stages would otherwise read whatever surface and behavior-class sidecar sit in rebuild/out. Every test here is in the contracts lane, so no live read needs to be kept, and the lane's audit guard fails any read this misses.
 
-    It says that at the five seams that turn a live path into a value the cycle keys on. The review surface is a constant and redirects as one, and so is the deep replay's record, which the summary reads for its standing. The behavior-class sidecar cannot: `deep_sweep_skip_lines` re-roots BEHAVIOR_CLASSES against ROOT, so pointing the constant outside ROOT makes it unreadable for *every* root and breaks the tests that pass their own — the seam that survives is the default root itself. The last two are what the gates' `*_skip_lines(ROOT)` reach through: two globs over rebuild/out (`baselines_value`, `_subset_tables`) and the per-file digest, which answers "absent" for a live path exactly as it already does for one that is missing. Every one of them answers only for the live root, so a caller that passes its own — which is how the tests about those functions are written — runs the real thing.
+    `REVIEW_OUT` and the deep replay's green record are constants and are redirected directly. The behavior-class sidecar is not: `deep_sweep_skip_lines` re-roots `BEHAVIOR_CLASSES` against the root it is given, so redirecting the constant outside ROOT would break the tests that pass their own root, and the function is patched for the default root only. The gates' `*_skip_lines(ROOT)` also read through two globs over rebuild/out (`baselines_value`, `_subset_tables`) and the per-file digest `_sha256_path`, which returns "absent" for a live path. Each patch changes the result only for the live root or a live path, so a test that passes its own root runs the real function.
     """
     from rebuild.pipeline import fingerprint
 
@@ -86,7 +86,7 @@ def _redirect_contracts_lane_reads(monkeypatch, tmp_path):
 
 
 def _plan_text(plan: ac.Plan) -> str:
-    """The plan block as one string, for the assertions that only care that a phrase is in it somewhere."""
+    """Return the rendered plan block as one string."""
     return "\n".join(ac.render_plan(plan))
 
 
@@ -94,7 +94,7 @@ _PLAN_ROW = r"^\s+(?:run\?|run|skip)\s+"
 
 
 def _step_lines(text: str, name: str) -> str:
-    """One step's row out of a plan block, with its `$ argv` line when it has one — the successor to grepping `<name>: <argv>` out of the old numbered plan, and the way a test says which step a phrase belongs to now that the row carries a status column and the argv sits on its own line."""
+    """Return one step's row from a plan block, followed by its `$ argv` line when it has one, or an empty string when the step is not in the block."""
     lines = text.splitlines()
     for index, line in enumerate(lines):
         if re.match(_PLAN_ROW + re.escape(name) + r"(?:\s|$)", line):
@@ -135,7 +135,7 @@ def test_gate_fails_on_defect_errors():
 
 
 def test_gate_fails_on_a_manual_pin_gate_with_nothing_in_scope():
-    """The vacuous pass: `pass` is `not disagreements`, so a gate that replayed no pin reports green. The verdict here is run_m1's own, scope included, and it refuses that."""
+    """A Manual-pin summary with nothing in scope has `pass` true, because `pass` is `not disagreements`. The verdict uses run_m1's `manual_pin_gate_failure`, which also checks the scope, so the gate fails."""
     s = _pass_summaries()
     s["manual_pins"] = {"pass": True, "disagreements": [], "pins_in_scope": 0, "replayed": 0}
     outcome = ac.evaluate_run_m1_gate(s["pipeline"], s["manual_pins"], s["oracle"])
@@ -167,7 +167,7 @@ def test_gate_unmatched_alone_is_not_a_failure():
 
 
 def test_the_gate_carries_no_oracle_counts():
-    """UNMATCHED and multi_matched were informational passengers on the old verdict, and both callers hold the oracle summary they came from — so the verdict answers for the judgment alone and the numbers are read where they live."""
+    """The verdict carries the judgment only. Callers read the oracle counts from the oracle summary they already hold."""
     s = _pass_summaries()
     outcome = ac.evaluate_run_m1_gate(s["pipeline"], s["manual_pins"], s["oracle"])
     assert not hasattr(outcome, "unmatched")
@@ -197,7 +197,7 @@ def test_conform_gate_fails_on_missing_summary():
 
 
 def test_conform_gate_names_no_failed_ids():
-    """The sweep fails as a belt, not as a list of cases: what a divergence names is a window, and the audit beside the summary is where those are read."""
+    """A divergence names a window, not a test, so the verdict lists no failed ids. The audit written beside the summary lists the windows."""
     assert ac.evaluate_conform_gate({"divergences": 3, "pass": False}).failed_ids == []
     assert ac.evaluate_conform_gate(None).failed_ids == []
 
@@ -209,7 +209,7 @@ def test_conform_gate_fails_on_bare_false_pass():
 
 
 def test_classify_review_module_failures_are_hard():
-    """The review modules were once forgiven as census hints, on the theory that a rune edit stales the pins under them. The pins are now the cycle's own output rather than an assertion the suite reads, so a review-module failure is a real failure like any other."""
+    """A failure in a review module is a hard failure like any other. The census pins are the cycle's output, not an assertion the suite reads."""
     stdout = "\n".join(
         [
             "FAILED rebuild/test_review_build.py::test_totals",
@@ -230,7 +230,7 @@ def test_classify_review_module_failures_are_hard():
 
 
 def test_classify_rebuild_output_is_lane_blind():
-    """The check name rides into the verdict so the record says which suite ran; nothing above it reads the name, so the same output judges the same way under any name."""
+    """The check name is copied into the verdict to name the suite. The classification ignores it, so the same output gets the same verdict under any name."""
     stdout = "FAILED rebuild/test_settle.py::test_x"
     contracts = ac.classify_rebuild_output(stdout, 1, "rebuild-contracts")
     other = ac.classify_rebuild_output(stdout, 1, "rebuild-other")
@@ -331,7 +331,7 @@ def test_dry_run_plan_default():
 
 
 def test_dry_run_plan_conform_jobs_cap():
-    """gate:conform is handed the belt's own width, capped at the acceptance configurations and the cores, and the argv states it at every value, one included: a width left off the command line would hand run_m1 its own default, a different number from the one this plan priced beside the surface build."""
+    """gate:conform gets the conform sweep's own width, capped at the acceptance configurations and the cores. The argv states it at every value, including one, because an omitted `--jobs` would give run_m1 its own default instead of the width this plan budgeted beside the surface build."""
     from rebuild.pipeline.conform import ACCEPTANCE_CONFIGS
 
     plan = _plan(ncores=12)
@@ -505,7 +505,7 @@ def test_the_docket_headline_is_scraped_and_never_fails_the_cycle(tmp_path, monk
 
 
 def test_the_plumbing_row_counts_the_carry_and_the_summary_quotes_what_the_fills_wrote(tmp_path, monkeypatch):
-    """The chain runs as one child, so what its steps did reaches this process only as the lines they printed. Two of them are the pass's headline for anyone who has just finished a sitting — how many verdicts came forward and how much human queue that left — so they become the row's figure; the rest, a handful of lines each, are quoted under the two summary lines they belong to rather than left for `cycle_summary.json` and the step's own log."""
+    """The chain runs as one child, so its steps reach this process only through the lines they print. The carry count and the human queue before and after become the row's figure. The other lines are quoted in the summary under the line they belong to, instead of appearing only in `cycle_summary.json` and the step's log."""
     autosave = tmp_path / "verdicts-autosave.json"
     autosave.write_text("{}")
     monkeypatch.setattr(ac, "AUTOSAVE", autosave)
@@ -546,7 +546,7 @@ def test_the_plumbing_row_counts_the_carry_and_the_summary_quotes_what_the_fills
 
 
 def test_the_plumbing_row_falls_back_to_the_merge_when_no_carry_ran(tmp_path, monkeypatch):
-    """The store-only route carries nothing — the surface did not move, so the carry would resolve every unit against itself — and there is no count to report. The row says what did happen instead of reading blank."""
+    """The store-only route runs no carry, because the surface did not change, so there is no carry count. The row reports the merge instead of staying blank."""
     autosave = tmp_path / "verdicts-autosave.json"
     autosave.write_text("{}")
     monkeypatch.setattr(ac, "AUTOSAVE", autosave)
@@ -647,7 +647,7 @@ def test_render_plan_is_stringable():
 
 
 def test_every_plan_step_says_what_it_is_for():
-    """The banner prints a description on every run, so a step without one prints a bare rule and leaves the reader to guess. The reuse route is the one row whose description is not looked up under its own name: it spawns as run_m1:gates-only and reports under run_m1's row, and what it says has to be the re-adjudication's sentence rather than the build's."""
+    """The banner prints every step's description. The reuse route is the one row whose description is not looked up under its own name: it spawns as run_m1:gates-only, reports under run_m1's row, and must describe the re-adjudication, not the build."""
     for plan in (
         _plan(),
         _plan(skip_gates=True),
@@ -668,7 +668,7 @@ def test_every_plan_step_says_what_it_is_for():
 
 
 def test_a_step_that_spawns_nothing_is_not_automatically_a_skipped_one():
-    """The run/skip column reads `skipped`, not `argv is None`, because the retention pass does real work in this process and the `gates` placeholder stands in for five steps at once. Reading the column off argv would file both under `skip` and make the counts line a lie."""
+    """The run/skip column reads `skipped`, not `argv is None`, because the retention step does its work in this process without spawning a child, and the `gates` placeholder that replaces the `gate:` steps under --skip-gates is marked skipped explicitly. Reading the column from argv would miscount the counts line."""
     plan = _plan()
     by_name = {step.name: step for step in plan.steps}
     assert by_name["retention"].argv is None
@@ -681,7 +681,7 @@ def test_a_step_that_spawns_nothing_is_not_automatically_a_skipped_one():
 
 
 def test_the_plan_block_counts_its_steps_and_leaves_the_sweep_undecided():
-    """gate:conform is the one row the plan cannot settle: its key is taken over the artifacts run_m1 leaves, so a pass that plans the sweep may still prove it unnecessary once the build has finished. That is why the counts line carries a range — a flat number there would be a promise a legitimate pass breaks. A pass that skips run_m1 outright is the exception in the other direction: nothing rebuilds, `main` has already compared that same key and found no green for it, so the sweep will certainly run and a range there would be a promise the pass could never reach the top of."""
+    """gate:conform is the one row the plan cannot decide. Its skip key covers the artifacts run_m1 writes, so a pass that plans the sweep may skip it once the build finishes, and the counts line shows a range. A pass that skips run_m1 shows the sweep as certain, because nothing is rebuilt and `main` has already compared the key and found no green record for it. A --fresh pass also shows it as certain."""
     plan = _plan()
     rows = ac.plan_rows(plan)
     by_name = {row.name: row for row in rows}
@@ -735,7 +735,7 @@ def test_the_plan_block_counts_its_steps_and_leaves_the_sweep_undecided():
 
 
 def test_the_plan_block_leads_with_its_arithmetic_and_puts_the_paths_after_the_rows():
-    """What a reader came to the top of a pass for is how many steps there are and what each one will run, so the header goes straight into the count and the rows. The paths this pass resolved — which master the carry reads, where the carried file goes — follow them rather than splitting the header from its own arithmetic, and the concurrency block, which answers how the steps share the box, still comes last."""
+    """The header goes straight to the step count and the rows. The paths this pass resolved (the master the carry reads, where the carried file goes) follow the rows, and the concurrency block comes last."""
     plan = _plan()
     lines = ac.render_plan(plan)
     assert lines[0].startswith("artifact cycle ")
@@ -792,7 +792,7 @@ def test_do_surface_build_fails_when_a_clean_build_left_no_manifest(tmp_path, ca
 
 
 def test_do_surface_build_reads_no_totals_from_a_failed_build(tmp_path, capsys):
-    """A nonzero review.build says nothing about the manifest beside it — that one is the previous pass's, and reporting its totals as this pass's would be a lie. So the failure short-circuits before the read."""
+    """After a nonzero exit, the manifest in the surface directory is the previous pass's, so the step fails before reading any totals from it."""
     surface = _built_surface(tmp_path, units=1, rows=2, batches=3, echo_groups=4)
     report = ac.CycleReport()
     ok = ac._do_surface_build(
@@ -819,7 +819,7 @@ def _argv(step: ac.Step) -> list[str]:
 
 
 def _plan(**overrides: Any) -> ac.Plan:
-    """A resolved plan over an invented machine: `ncores` decides every CPU-derived width and `total_bytes` the one width memory derives, so a plan's numbers are the same wherever the suite runs. Either is overridable per test the way every other keyword here is."""
+    """Return a resolved plan for a stated machine: `ncores` sets every core-derived width and `total_bytes` every memory-derived one, so the plan is the same on any host. Any keyword can be overridden per test."""
     kw: dict[str, Any] = dict(
         verdicts=Path("v.json"),
         no_carry=False,
@@ -839,7 +839,7 @@ def _step(name="x", rc=0, stdout="", stderr=""):
 
 
 def _run_m1_green():
-    """What `_do_run_m1` hands back on a build that passed. A stubbed stage returns the verdict and sets the oracle's counts on the report itself, exactly as the real one does now that the two are no longer carried in one object."""
+    """Return the verdict `_do_run_m1` returns for a passing build. A stubbed stage returns this and sets the oracle counts on the report itself, as the real stage does."""
     return ct.CheckVerdict(check="run_m1", verdict="green", status="green", failures=[], failed_ids=[])
 
 
@@ -883,7 +883,7 @@ def _surface_ok(report, *, spawn, emit, registry, review_out, **_):
 
 
 def _chain_stdout(*sections, fixpoint=True, failed=None):
-    """A synthetic verdict_chain stdout: the `[phase] <step>` line each step opens with, that step's own lines, the `[t] <step>` that closes it, and the fixpoint or failure line the driver reads at the end. The two result lines keep the `[chain] ` prefix the chain gives them — they are what the cascade came to rather than work starting — which is what the driver's split relies on to keep a `failed:` line out of the complaints body."""
+    """Return a synthetic verdict_chain stdout: for each step, the `[phase] <step>` line, the step's own lines and the closing `[t] <step>` line, then the fixpoint or failure line. Those last two keep the chain's `[chain] ` prefix, which `plumbing_sections` uses to keep a `failed:` line out of the complaints section."""
     lines = []
     for name, body in sections:
         lines.append(console.PHASE + name)
@@ -948,7 +948,7 @@ _FULL_CHAIN = (
 
 
 def _run_plumbing(plan, stdout, returncode=0, spy=None):
-    """The chain step over a canned stdout, spawned the way `_run_step` spawns it: every line goes through the digest on its way to the step's log, so what the terminal shows here is what a real pass would show — the warnings and the phase pairs, and nothing else."""
+    """Run `_do_plumbing` over a canned stdout. The fake spawn passes every line through the emitter as `_run_step` does, so the terminal output is what a real pass would print."""
 
     def fake_spawn(name, argv, *, emit, registry, stream):
         if spy is not None:
@@ -1004,7 +1004,7 @@ def _conform_green(pool_policy, make_fut, spawn, emit, registry, argv):
 
 
 def _patch_gate_fingerprints(monkeypatch):
-    """The gate greens' keys, for a test that only cares that a green was or wasn't recorded. Unstubbed these are the live ones: _run_cycle snapshots them before the gates and _record_gate_greens recomputes them after, and each pass runs git ls-files over the repo and sha256s all of rebuild/, glyph_data/, the fonts, and the baseline TSVs — several seconds per test, and an answer that depends on the working tree rather than on the arrangement the test set up. Whether a moved key withholds the green is its own test."""
+    """Stub the gate green records' keys, for tests that only check whether a green was recorded. The live keys are computed by `_run_cycle` before the gates and again by `_record_gate_greens` after them, and each computation hashes files across the repo, which takes seconds per test and depends on the working tree. A separate test checks that a changed key prevents recording the green."""
     monkeypatch.setattr(ac, "conform_skip_fingerprint", lambda root=None, horizon=None: "cfp")
     monkeypatch.setattr(ac, "rebuild_lane_fingerprint", lambda root, lane: f"rfp-{lane}")
     monkeypatch.setattr(
@@ -1043,7 +1043,7 @@ def test_a_failing_merge_fails_the_cycle(monkeypatch, capsys):
 
 
 def test_nothing_runs_after_the_carry_fails():
-    """The chain stops at its first failing step, and the driver reads the rest of the summary off what the banners never printed."""
+    """The chain stops at its first failing step, and the driver reports every later step as not run because none of them printed its `[phase]` line."""
     report, failures = _run_plumbing(
         _plan(),
         _chain_stdout(("carry", ["boom"]), failed="carry"),
@@ -1094,7 +1094,7 @@ def test_a_failing_standing_fill_stops_the_cascade():
 
 
 def test_a_carry_only_chain_reports_the_fills_as_never_run():
-    """--no-merge and rehearsal both stop the chain after the carry, so the fills print no banner and the summary says so rather than claiming a fill that never happened."""
+    """--no-merge and rehearsal both stop the chain after the carry, so the fills print no `[phase]` line and the summary reports them as not run."""
     report, failures = _run_plumbing(_plan(no_merge=True), _chain_stdout(_FULL_CHAIN[0], fixpoint=False))
     assert failures == []
     assert report.merge_status == "not run"
@@ -1105,7 +1105,7 @@ def test_a_carry_only_chain_reports_the_fills_as_never_run():
 
 
 def test_the_driver_reads_a_line_per_step_out_of_one_child(capsys):
-    """One subprocess prints for seven steps, and every line the summary shows for a step reaches it, scraped out of that step's own section."""
+    """One subprocess prints for all the chain's steps, and each step's summary lines are taken from that step's own section."""
     spy: list = []
     report, failures = _run_plumbing(_plan(), _chain_stdout(*_FULL_CHAIN), spy=spy)
     assert failures == []
@@ -1137,7 +1137,7 @@ def test_the_driver_reads_a_line_per_step_out_of_one_child(capsys):
 
 
 def test_standing_fill_news_keeps_rules_and_drops_steady_state_composed_pairs():
-    """Per-rule lines survive whatever their counts — a just-landed rule gets quoted from the summary even at 0 filled — while a composed pair earns its summary line only by filling or holding something, so the quadratic steady-state roll call stays out of both the console block and cycle_summary.json. The tripwire's WARNING is kept whatever else is dropped, and both line shapes are judged the same way: the chain runs the fill in its --open-only form, which prints no already-verdicted column, while a dry run over the whole domain still does."""
+    """Per-rule lines are kept at any count, so a newly added rule shows even at 0 filled. A composed pair's line is kept only when it filled or held something, which keeps the quadratic number of unchanged pair lines out of the console block and cycle_summary.json. The tripwire's WARNING is always kept. Both line formats are handled: the chain runs the fill with --open-only, which prints no already-verdicted column, while a dry run over the whole domain prints it."""
     news = ac._standing_fill_news
     assert news("wrote verdicts-standing-fill.json: 25 standing-approval verdicts onto manifest S1")
     assert news("quiet-rule: 0 filled, 12 already verdicted, 0 held for review by except_left")
@@ -1162,7 +1162,7 @@ def test_standing_fill_news_keeps_rules_and_drops_steady_state_composed_pairs():
 
 
 def test_a_later_echo_round_folds_into_the_first_rounds_lines():
-    """The cascade's second echo pass is the same step run again, so it reports under the same name rather than as a step of its own."""
+    """The second echo round runs the same step again, so its lines are reported under the first round's name."""
     stdout = _chain_stdout(
         *_FULL_CHAIN[:6],
         ("echo-fill-2", ["wrote verdicts-echo-fill.json: 3 echo-fill verdicts onto manifest S1"]),
@@ -1190,12 +1190,12 @@ def test_the_disagreement_audit_reaches_the_console(capsys):
     _run_plumbing(_plan(), stdout)
     out = capsys.readouterr().out
     assert "warn 2 echo groups hold disagreeing verdicts" in out
-    # The per-group roll call stays in the step's log: what the terminal owes a watcher is that the disagreement exists, and the names of the units are what the log is for.
+    # The per-group listing stays in the step's log; the terminal shows only that a disagreement exists.
     assert "e-123  #units=u-1,u-2" not in out
 
 
 def test_the_executor_spawns_the_argv_the_plan_holds():
-    """The single authority: build_plan writes each step's command line and the executor runs that one, so rewriting a live step's argv is enough to change what gets spawned — no executor rebuilds its own copy."""
+    """build_plan writes each step's argv and the executor runs that list, so changing a step's argv changes what is spawned."""
     plan = _plan()
     sentinel = ["uv", "run", "python", "sentinel-chain", "--only-here"]
     {step.name: step for step in plan.steps}["plumbing"].argv = sentinel
@@ -1387,7 +1387,7 @@ def test_pool_overlap_starts_the_contracts_lane_before_make_test_done(monkeypatc
 
 
 def test_pool_queue_runs_make_test_then_conform_then_contracts(monkeypatch):
-    """The whole queue chain, in one run: only one heavy pool is hot at a time, and the rebuild suite parks at the tail of the make-test -> conform chain."""
+    """The full queue policy in one run: one heavy pool at a time, with the rebuild suite waiting for make-test and then conform."""
     record = {}
     release_make = threading.Event()
     make_running = threading.Event()
@@ -1494,7 +1494,7 @@ def test_pool_queue_contracts_falls_back_to_make_test_when_conform_skipped(monke
 
 
 def test_the_gate_pool_seats_every_gate_task_at_once():
-    """Under the queue policy a parked task holds its worker for the whole wait — conform on make-test, contracts on both — so the pool seats every gate task at once, with two seats to spare. The chain cannot actually deadlock at a smaller width — submission order matches the parking order and the pool is FIFO, so a task only ever parks on a future already seated or done — but a seat short of the task count would serialize a wait behind an unrelated task's completion, which is the queueing this pool exists not to do."""
+    """Under the queue policy a waiting task holds its worker for the whole wait (conform waits on make-test, contracts on both), so the pool has a worker for every gate task plus two spare. A smaller pool would not deadlock, because tasks are submitted in the order they wait on each other and the pool is FIFO, but a task could then wait for an unrelated task to finish before it starts."""
     gate_tasks = (
         ac._gate_js_task,
         ac._gate_make_test_task,
@@ -1586,7 +1586,7 @@ _TWO_STREAM_CHILD = "import sys; print('on stdout'); print('on stderr', file=sys
 
 
 def test_a_pass_files_one_log_per_step_beside_its_plan_and_a_copy_of_the_terminal(tmp_path, capsys):
-    """What the terminal does not show still has to be somewhere, and that somewhere is one directory per run: the plan as it was printed, a byte copy of the terminal, and a log per step holding both of that child's streams in arrival order with the stderr ones tagged. `latest` points at it so an agent tailing a run never has to know the stamp."""
+    """Each run writes one directory holding the plan as printed, a copy of the terminal output, and one log per step with both of the child's streams in arrival order and the stderr lines tagged. `latest` links to it, so a reader tailing a run does not need the stamp."""
     plan = _plan()
     root = tmp_path / "build-logs"
     log_dir = root / "20260101T000000Z-testid"
@@ -1610,7 +1610,7 @@ def test_a_pass_files_one_log_per_step_beside_its_plan_and_a_copy_of_the_termina
 
 
 def test_a_failed_step_replays_its_whole_output_under_its_own_banner(tmp_path, capsys):
-    """The path the captured-and-discarded gates never had. A child that fails has said everything it is going to say already, and a summary line naming an exit code sends the reader to a log they have to find; replaying it under the banner puts it where they are already looking. The dump comes out of the spawn and the closing line out of the stage that knows the figure, so the replay is above the close rather than after it."""
+    """A failing child's whole output is printed under its banner, so the reader does not have to find the step's log. The spawn prints the output and the stage prints the closing line, so the output comes before the close."""
     registry = ac._ChildRegistry()
     report = ac.CycleReport()
     with console.Digest(log_dir=tmp_path / "logs") as digest:
@@ -1631,7 +1631,7 @@ def test_a_failed_step_replays_its_whole_output_under_its_own_banner(tmp_path, c
 
 
 def test_the_reuse_route_banners_under_the_plans_run_m1_row(tmp_path, capsys):
-    """`make cycle-timings --by-step` buckets on the step name, so a seconds-long re-adjudication has to spawn under its own name or it lands in the row that says what a full M1 build costs. What a reader watching the pass wants is the opposite — the row the plan showed them — so the alias resolves the one to the other, banner, log filename and step column alike."""
+    """`make cycle-timings --by-step` groups by step name, so the seconds-long re-adjudication spawns under its own name to keep its time out of the row for a full M1 build. The reader watching the pass expects the plan's run_m1 row, so the alias maps the spawn name to it for the banner, the log filename and the step column."""
     plan = _plan(reuse_run_m1=True, run_m1_note="only comparison-side inputs moved")
     log_dir = tmp_path / "logs"
     registry = ac._ChildRegistry()
@@ -1657,7 +1657,7 @@ def test_the_reuse_route_banners_under_the_plans_run_m1_row(tmp_path, capsys):
 
 
 def test_two_verbatim_children_interleave_between_lines_and_never_inside_one(capsys):
-    """Two real children, both surfacing verbatim, through one digest. Every line either arrives whole or does not arrive: cross-line interleave is expected and harmless, a line spliced into another is the failure this serialization exists to prevent."""
+    """Two real children print verbatim through one digest. Lines from the two may interleave, but no line may be spliced into another."""
     emit = ac._Emitter()
     registry = ac._ChildRegistry()
 
@@ -1719,7 +1719,7 @@ def test_a_rebuild_lane_stays_captured_and_parses_failures(lane, capsys):
 
 
 def test_gate_make_test_says_so_when_the_font_suite_stood_itself_down(capsys):
-    """`make test` exits zero whether it ran the suite or stood down on its own green record, so a row closed off the exit code alone tells a watcher the font suite ran on a pass where it tested nothing. The wrapper says which it did in its first line, and both the closing line and the table row carry that."""
+    """`make test` exits zero whether it ran the suite or skipped it on its own green record. The wrapper's first line says which, and both the closing line and the table row report it, so a skipped suite is not shown as having run."""
     stood_down = (
         "make test: SKIPPED — input closure unchanged since its last green run (2026-09-04T12:00:00Z). "
         "Run `make test FORCE=1` to run it anyway."
@@ -1758,7 +1758,7 @@ def test_gate_make_test_says_so_when_the_font_suite_stood_itself_down(capsys):
 
 
 def test_a_failed_gate_never_restates_its_outcome_as_its_figure(capsys):
-    """`FAILED  FAILED (exit 1)` spent the table's widest column on the word already in the column beside it. What is left is the part the outcome never carried."""
+    """A failed gate's figure leaves out the word FAILED, which the outcome column beside it already shows."""
     emit = ac._Emitter()
     ac._close_gate(emit, "gate:js", _step("gate:js", 1))
     ac._close_gate(
@@ -1775,7 +1775,7 @@ def test_a_failed_gate_never_restates_its_outcome_as_its_figure(capsys):
 
 
 def test_classify_rebuild_reads_colored_pytest_output():
-    """Under FORCE_COLOR (as set by the agent harness) pytest wraps its FAILED lines in ANSI escapes; the classifier must still parse the failing ids out of them instead of reporting only the exit-code placeholder."""
+    """Under FORCE_COLOR, which the agent harness sets, pytest wraps its FAILED lines in ANSI escapes, and the classifier must still parse the failing ids from them instead of reporting only the exit-code placeholder."""
     colored = "\x1b[31mFAILED\x1b[0m rebuild/test_settle.py::\x1b[1mtest_x\x1b[0m - x"
     outcome = ac.classify_rebuild_output(colored, 1, "rebuild-contracts")
     assert outcome.failed_ids == ["rebuild/test_settle.py::test_x"]
@@ -1919,7 +1919,7 @@ def test_keyboard_interrupt_terminates_children_and_returns_130(monkeypatch, cap
 
 @pytest.mark.parametrize("signum", [signal.SIGTERM, signal.SIGHUP])
 def test_a_caught_stop_signal_takes_the_interrupt_path_and_names_itself(signum, monkeypatch, capsys):
-    """SIGTERM and SIGHUP reach `_run_cycle` as `CycleStopped` and take the path a Ctrl-C takes: every child terminated and reaped, the interrupted summary written, and the exit status the shell's for that signal. The summary block names the signal that stopped the pass, not SIGINT."""
+    """SIGTERM and SIGHUP reach `_run_cycle` as `CycleStopped` and take the Ctrl-C path: every child is terminated and reaped, the interrupted summary is written, and the exit status is the shell's for that signal. The summary names the signal that stopped the pass, not SIGINT."""
     registry = ac._ChildRegistry()
     proc = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(30)"])
     registry.add(proc)
@@ -1942,7 +1942,7 @@ def test_a_caught_stop_signal_takes_the_interrupt_path_and_names_itself(signum, 
 
 @pytest.fixture
 def _stop_dispositions():
-    """The three stop signals at the dispositions a pass started from a terminal inherits, put back afterwards. A worker started under `nohup`, or in the background of a shell without job control, inherits SIGHUP or SIGINT ignored, and `stop_signals` rightly leaves an ignored signal alone, so without this the tests below would read how the suite was launched rather than what the context manager does."""
+    """Set the three stop signals to the dispositions a pass started from a terminal inherits, and restore them afterwards. A worker started under `nohup`, or in the background of a shell without job control, inherits SIGHUP or SIGINT ignored, and `stop_signals` leaves an ignored signal alone, so without this fixture the tests below would depend on how the suite was launched."""
     before = {signum: signal.getsignal(signum) for signum in ac.STOP_SIGNALS}
     signal.signal(signal.SIGINT, signal.default_int_handler)
     signal.signal(signal.SIGTERM, signal.SIG_DFL)
@@ -1955,7 +1955,7 @@ def _stop_dispositions():
 def test_stop_signals_raises_once_leaves_an_ignored_signal_alone_and_restores_the_handlers(
     _stop_dispositions,
 ):
-    """The handler raises for the first signal and drops the rest, since a group signal reaches the driver twice — once directly and once forwarded by its `uv run` wrapper — and the second must not cut short the cleanup the first began. A signal ignored on the way in stays ignored (`nohup`'s SIGHUP), and every handler it replaced is back on the way out. The handler is called here rather than signaled, so the test process never receives a signal."""
+    """The handler raises for the first signal and ignores the rest, because a group signal reaches the driver twice (directly and forwarded by its `uv run` wrapper) and the second must not interrupt the cleanup the first started. A signal ignored on entry stays ignored, as `nohup` leaves SIGHUP, and every replaced handler is restored on exit. The test calls the handler directly, so the test process receives no signal."""
     signal.signal(signal.SIGHUP, signal.SIG_IGN)
     with ac.stop_signals():
         assert signal.getsignal(signal.SIGHUP) == signal.SIG_IGN
@@ -1992,7 +1992,7 @@ with ac.stop_signals():
 
 
 def test_a_signal_to_the_driver_alone_stops_and_reaps_its_child(tmp_path):
-    """The case `stop_signals` is for, with a real signal: SIGTERM sent to the driver's process alone, which is what `kill` on `make` becomes by the time it reaches the driver, interrupts the step it is waiting on, and the child it spawned is terminated and reaped instead of running on without it. The SIGHUP sent first is ignored, because the harness starts with it ignored the way `nohup` starts a pass."""
+    """A real SIGTERM sent to the driver's process alone, which is how `kill` on `make` reaches the driver, interrupts the step the driver is waiting on, and the child it spawned is terminated and reaped. The SIGHUP sent first is ignored, because the harness starts with SIGHUP ignored as `nohup` starts a pass."""
     pid_file = tmp_path / "sleeper.pid"
     driver = subprocess.Popen(
         [sys.executable, "-c", _STOP_HARNESS, str(pid_file)],
@@ -2023,7 +2023,7 @@ def test_a_signal_to_the_driver_alone_stops_and_reaps_its_child(tmp_path):
 
 
 def test_a_step_child_stays_in_the_cycles_process_group():
-    """A signal sent to the cycle's process group reaches every process the pass started only while no step moves its child into a group of its own, which is what makes `kill -TERM -- -<pgid>` stop a pass whole (doc/running-long-steps.md)."""
+    """A step's child stays in the cycle's process group, so a signal sent to that group (`kill -TERM -- -<pgid>`) reaches every process the pass started (doc/running-long-steps.md)."""
     result = ac._run_step(
         "probe",
         [sys.executable, "-c", "import os; print(os.getpgrp())"],
@@ -2083,7 +2083,7 @@ def test_run_step_measures_the_child_peak_rss(capsys):
 
 
 def test_a_step_environment_is_an_overlay_and_not_a_replacement():
-    """What a step states is added to this process's environment for that child alone: the child sees the stated variable and everything else it would have inherited, and this process never sees the stated one at all."""
+    """A step's `env` is added to this process's environment for that child only: the child sees the stated variable and everything else it would inherit, and this process's environment does not change."""
     probe = "import os; print(os.environ.get('AMS_PROBE_WIDTH'), 'PATH' in os.environ)"
     result = ac._run_step(
         "probe",
@@ -2098,7 +2098,7 @@ def test_a_step_environment_is_an_overlay_and_not_a_replacement():
 
 
 def test_sweep_job_budget_is_the_cores_under_the_oracle_shards_memory_clamp():
-    """The oracle's unit is a row range, so its width is the box: the cores, unless the box's memory divides by `ORACLE_SHARD_BYTES` to fewer. Both bounds get an assertion over invented boxes — a roomy one where the cores bind, a small one where the divisor binds and the floor holds at one."""
+    """The oracle's unit is a row range, so its width is the usable cores unless the machine's memory divided by `ORACLE_SHARD_BYTES` gives fewer. The test checks both bounds over stated machines: a large one where the cores limit the width, and a small one where the division does and the floor at one applies."""
     from rebuild.tools import memory_budget
 
     roomy = 1_000_000_000_000
@@ -2117,7 +2117,7 @@ def test_sweep_job_budget_is_the_cores_under_the_oracle_shards_memory_clamp():
 
 
 def test_both_fleet_boxes_run_the_oracle_at_the_cores():
-    """The fleet-wide claim `ORACLE_SHARD_BYTES` has to keep (`doc/fleet.md` names the two boxes), which is the tracker's criterion for the oracle: the 48 GiB box runs its twelve cores and the 32 GiB box its ten, and on neither does the division bind before the cap. The capped budget cannot tell the cap from a division that lands exactly on the cores, so the uncapped division is asserted beside it. A re-seed that narrows either box below its cores, or that puts one box at the division's edge, fails here rather than in a cycle's plan line. The other direction is not held here or anywhere in the suite: a constant that errs low passes every assertion below, and only `make job-costs`' oracle-shard row — the cycle's job-costs step — prices the figure against the workers that ran, so a green suite is no confirmation of a re-seed."""
+    """On both fleet machines (`doc/fleet.md`) the oracle runs at the cores: the twelve-core 48 GiB machine at twelve and the 32 GiB machine at ten, with the division never limiting the width before the cap does. The capped budget cannot distinguish the cap from a division that equals it, so the uncapped division is also checked. A change to `ORACLE_SHARD_BYTES` that narrows either machine below its cores, or puts it at the edge of the division, fails here. The suite does not catch a constant that is too low: only the oracle-shard row of `make job-costs` (the cycle's job-costs step) compares it with the workers that ran."""
     from rebuild.tools import memory_budget
 
     assert ac.sweep_job_budget(12, total_bytes=BOX_48_GIB) == 12
@@ -2140,22 +2140,22 @@ def test_the_plan_prints_the_sweep_width_with_its_derivation():
 
 
 class TestTheSurfaceBuildWidth:
-    """Both bounds get an assertion, because which of them binds is the whole design: the cap is what holds the fan-out where widening stops paying on a box with room to spare, and the division is what protects the box that has none."""
+    """Both bounds are checked, because which one limits the width matters: the cap stops the pool where widening stops helping on a machine with memory to spare, and the division protects a machine with none."""
 
     def test_the_cap_binds_where_the_box_has_room_to_spare(self):
-        """A box that could hold dozens of these workers is given eight, because the argument against the ninth is not memory at all: the parent that hands the pile out and merges the replies is one process, and eight is the width the pool is measured to (the comment beside `SURFACE_JOBS_CAP` in rebuild/tools/artifact_cycle.py), so a further worker is an unmeasured width rather than a cheaper one."""
+        """A machine with memory for dozens of workers gets `SURFACE_JOBS_CAP`. The limit is not memory: one parent process hands out the batches and merges the replies, and eight is the widest pool measured (the comment on `SURFACE_JOBS_CAP` in rebuild/tools/artifact_cycle.py)."""
         assert (
             ac.surface_job_budget(skip_gates=True, ncores=12, total_bytes=1_000_000_000_000)
             == ac.SURFACE_JOBS_CAP
         )
 
     def test_a_box_with_fewer_cores_than_the_cap_gets_its_cores(self):
-        """The cap and the core count sit in one `min()` because neither is a memory fact, and the two cores gate:make-test's pool holds come out of the same place: a five-core box runs five workers alone and three beside that pool, on a box neither arm can run out of memory on."""
+        """The cap and the core count are one `min()` because neither is a memory limit, and gate:make-test's two cores are subtracted from the core count before the `min()`: a five-core machine runs five workers alone and three beside that pool, with memory to spare in both cases."""
         assert ac.surface_job_budget(skip_gates=True, ncores=5, total_bytes=1_000_000_000_000) == 5
         assert ac.surface_job_budget(skip_gates=False, ncores=5, total_bytes=1_000_000_000_000) == 3
 
     def test_both_fleet_boxes_keep_a_pooled_build_under_a_gated_cycle(self):
-        """The fleet-wide claim this width has to keep (`doc/fleet.md` names the two boxes), which is the tracker's criterion for the surface build: beside gate:make-test's pool the 48 GiB box runs the build at the cap, since past it widening buys nothing, and the 32 GiB box runs a pool wider than the serial build, gated and alone. The lower bound is what a re-seed of the worker constant must never cross, since a box floored at one is the serial build; there is no upper bound on the smaller box because a worker priced off the alphabet — its baseline rows come out of a mapped pack shared through the page cache — leaves both boxes cap-bound (`test_the_shipped_surface_divisor_holds_the_32_gib_box_at_the_cap_by_division` in rebuild/test_memory_budget.py asserts the smaller box's cap-bound width), and a re-seed that narrows the smaller one below the cap is the constant's to make. Both are read through the derivation as well, since the plan line quotes it and a clause that disagreed with the width beside it would be worse than none. The regression the division answers for: on the ten-core 32 GiB Mac that ran the 2026-08-27 full-fresh pass, the core clamp this arithmetic replaces answered eight — ten cores less the pool's two, which met the cap exactly — while that pass read 17.76 GB as the widest single process under the step, a figure that could only ever see the parent and never the eight workers beside it; the division is what keeps that box's width a fact about its budget."""
+        """On both fleet machines (`doc/fleet.md`) the build runs a pool: beside gate:make-test's pool the 48 GiB machine runs it at the cap, and the 32 GiB machine runs more than one worker both gated and alone. The lower bound is what a change to the worker constant must not cross, because a width of one is the serial build. For the 32 GiB machine this test requires only more than one worker, so it still passes if a change to the constant narrows that machine's width below the cap. `test_the_shipped_surface_divisor_holds_the_32_gib_box_at_the_cap_by_division` in rebuild/test_memory_budget.py checks that the gated width there is the cap. The derivation is checked too, because the plan line quotes it."""
         roomy = ac.surface_job_budget(skip_gates=False, ncores=12, total_bytes=BOX_48_GIB)
         assert roomy == ac.SURFACE_JOBS_CAP
         assert ac.surface_job_derivation(skip_gates=False, ncores=12, total_bytes=BOX_48_GIB).startswith(
@@ -2170,7 +2170,7 @@ class TestTheSurfaceBuildWidth:
         assert 1 < alone <= ac.SURFACE_JOBS_CAP
 
     def test_the_pytest_pool_comes_off_the_box_before_the_division(self):
-        """A cycle runs this build beside gate:make-test's pool rather than alone, so the pool's bytes join the co-resident term and its two cores come off the cap before anything divides. Asserted at the fit-terms seam rather than over an invented box: with a worker priced at its width-two peak, no machine in the fleet is roomy enough for the subtraction to move the resulting width, and a box invented to sit exactly where it would is a magic number every re-seed has to re-tune."""
+        """A cycle runs this build beside gate:make-test's pool, so the pool's bytes are added to the co-resident term and its two cores come off the cap before the division. The test checks the fit terms directly, because on the fleet machines the subtraction does not change the resulting width, and a machine size chosen to sit where it would is a number every change to the constants would have to retune."""
         solo = ac._surface_fit_terms(skip_gates=True, skip_make_test=False, ncores=9)
         beside = ac._surface_fit_terms(skip_gates=False, skip_make_test=False, ncores=9)
         assert solo == (ac.SURFACE_WORKER_BYTES, ac.SURFACE_PARENT_BYTES, ac.SURFACE_JOBS_CAP)
@@ -2181,12 +2181,12 @@ class TestTheSurfaceBuildWidth:
         )
 
     def test_the_floor_answers_one_on_a_box_that_cannot_hold_a_worker(self):
-        """A box with no budget left after its reserve floors at one in both arms, and that is the serial build rather than a refusal: at width one there is no pool, every fragment exists once instead of twice, and the build is the cheapest it can be on a box that has outgrown the pooled shape."""
+        """A machine with no memory left after its reserve floors at one in both cases. Width one is the serial build: there is no pool, and every fragment exists once instead of twice."""
         assert ac.surface_job_budget(skip_gates=True, ncores=12, total_bytes=8_000_000_000) == 1
         assert ac.surface_job_budget(skip_gates=False, ncores=12, total_bytes=8_000_000_000) == 1
 
     def test_the_printed_derivation_is_the_one_that_produced_the_width(self):
-        """The plan line and the `--jobs` help quote a sentence, and a sentence that disagreed with the number beside it would be worse than none: both come from one resolution of the same three terms, so the clause opens with the width it explains."""
+        """The plan line and the `--jobs` help quote the derivation, and it and the width come from the same three terms, so the clause starts with the width it explains."""
         for skip_gates in (False, True):
             width = ac.surface_job_budget(skip_gates=skip_gates, ncores=10, total_bytes=BOX_48_GIB)
             derivation = ac.surface_job_derivation(skip_gates=skip_gates, ncores=10, total_bytes=BOX_48_GIB)
@@ -2194,7 +2194,7 @@ class TestTheSurfaceBuildWidth:
 
 
 class TestTheStandingFillWidth:
-    """The standing fill's refill pool is the cycle's to size, and the fill takes the number it is handed: the tool is in the memo's code stamp, so a width derived there would drop the memo on every edit to the arithmetic."""
+    """The cycle sizes the standing fill's refill pool, and the fill uses the width it is given. The fill's code is part of its memo's stamp, so a width computed there would invalidate the memo on every edit to the arithmetic."""
 
     def test_the_pytest_pool_comes_off_the_box_and_two_cores_off_the_cap(self):
         solo = ac._standing_fill_terms(skip_gates=True, skip_make_test=False, ncores=9)
@@ -2207,7 +2207,7 @@ class TestTheStandingFillWidth:
         )
 
     def test_the_cores_bind_on_both_fleet_boxes(self):
-        """A refill worker holds a chunk and two shapers, so on either machine in the fleet the box has room for more of them than it has cores: gated, the ten-core 32 GiB box runs eight beside gate:make-test's two, and the twelve-core 48 GiB box alone runs twelve."""
+        """A refill worker holds a chunk and two shapers, so on both fleet machines memory allows more workers than there are cores: gated, the ten-core 32 GiB machine runs eight beside gate:make-test's two, and the twelve-core 48 GiB machine alone runs twelve."""
         assert ac.standing_fill_jobs(skip_gates=False, ncores=10, total_bytes=BOX_32_GIB) == 8
         assert ac.standing_fill_jobs(skip_gates=True, ncores=12, total_bytes=BOX_48_GIB) == 12
 
@@ -2224,7 +2224,7 @@ class TestTheStandingFillWidth:
         assert f"less {format_gb(ac.STANDING_FILL_PARENT_BYTES)} GB co-resident" in solo
 
     def test_the_plan_states_the_width_on_the_chains_argv_and_in_its_text(self):
-        """Every width is stated on the command line, one included, and the plan block says where it came from the way it does for the surface build."""
+        """Every width is stated on the command line, including one, and the plan block gives its derivation as it does for the surface build."""
         for skip_gates in (False, True):
             plan = _plan(skip_gates=skip_gates, ncores=10, total_bytes=BOX_32_GIB)
             width = ac.standing_fill_jobs(skip_gates=skip_gates, ncores=10, total_bytes=BOX_32_GIB)
@@ -2245,13 +2245,13 @@ class TestTheStandingFillWidth:
 
 
 def _lane_conform_line(plan: ac.Plan) -> str:
-    """The plan block's one Lane conform line."""
+    """Return the plan block's one Lane conform line."""
     (line,) = [line for line in _plan_text(plan).splitlines() if "Lane conform" in line]
     return line
 
 
 def _plan_conform_derivation(plan: ac.Plan, *, ncores: int, total_bytes: int) -> str:
-    """The belt's derivation over the flags the plan itself resolved, so the call matches what `build_plan` divided."""
+    """Return the belt's derivation over the flags the plan resolved, so the call matches what `build_plan` computed."""
     return ac.conform_job_derivation(
         skip_gates=plan.skip_gates,
         skip_make_test=plan.skip_make_test,
@@ -2264,10 +2264,10 @@ def _plan_conform_derivation(plan: ac.Plan, *, ncores: int, total_bytes: int) ->
 
 
 class TestTheConformBeltWidth:
-    """gate:conform's belt is the cycle's to size: one spawn process per acceptance configuration, each holding `CONFORM_BELT_BYTES`, submitted as run_m1's gate passes and so running beside the build lane, the surface build or the plumbing step after it, which is why the larger of the two the pass runs comes off the box before the belt divides it."""
+    """The cycle sizes gate:conform's belt: one spawn process per acceptance configuration, each holding `CONFORM_BELT_BYTES`. The belt is submitted when run_m1's gate passes, so it runs beside the build lane's surface build or the plumbing step after it, and the larger of the two that the pass runs is subtracted from memory before the division."""
 
     def test_the_surface_build_comes_off_the_box_before_the_division(self):
-        """Asserted at the fit-terms seam, where no box enters, for the reason the surface build's own reservation is: no fleet machine is tight enough for the subtraction to move the belt's width, and a box invented to sit exactly where it would is a magic number every re-seed has to re-tune. The surface term is the build's parent and the workers `surface_job_budget` resolves for the same pass, and a pass that runs the plumbing step without the build takes the chain parent and the refill pool `standing_fill_jobs` resolves off instead; gate:make-test's pool joins either under the overlap policy only, since the queue policy parks the belt behind make-test."""
+        """Checked at the fit terms, where no machine size enters, for the same reason as the surface build's reservation: on no fleet machine does the subtraction change the belt's width. The surface term is the build's parent plus the workers `surface_job_budget` gives the same pass. A pass that runs the plumbing step without the build subtracts the chain parent and the refill pool `standing_fill_jobs` gives instead. gate:make-test's pool is added under the overlap policy only, because the queue policy makes the belt wait for make-test."""
         from rebuild.pipeline.conform import ACCEPTANCE_CONFIGS
 
         def surface(skip_make_test):
@@ -2324,7 +2324,7 @@ class TestTheConformBeltWidth:
         )
 
     def test_the_larger_build_lane_step_is_the_one_that_comes_off(self):
-        """The belt opens beside the surface build, and one still running when the build hands over, or one the queue policy starts late, runs beside the plumbing step, so a pass that runs both takes the larger of the two off the box. The surface build stops widening at `SURFACE_JOBS_CAP` while the standing fill takes the cores, so on a box with cores enough the plumbing step is the larger, and there it is the plumbing step that comes off."""
+        """The belt starts beside the surface build, and a belt still running when the build finishes, or one the queue policy starts late, runs beside the plumbing step, so a pass that runs both subtracts the larger. The surface build stops at `SURFACE_JOBS_CAP` while the standing fill takes all the cores, so on a machine with enough cores the plumbing step is the larger and is the one subtracted."""
         box: dict[str, Any] = dict(skip_gates=False, skip_make_test=False, total_bytes=BOX_48_GIB)
         wide: dict[str, Any] = dict(box, ncores=40)
         surface = ac.SURFACE_PARENT_BYTES + ac.SURFACE_WORKER_BYTES * ac.surface_job_budget(**wide)
@@ -2349,7 +2349,7 @@ class TestTheConformBeltWidth:
         assert ac._conform_build_lane(**narrow, skip_surface=True, plumbing_runs=False) == ("", 0)
 
     def test_both_fleet_boxes_run_the_belt_at_the_configuration_count(self):
-        """The fleet-wide claim `CONFORM_BELT_BYTES` has to keep (`doc/fleet.md` names the boxes): beside a gated build lane, the surface build and the plumbing step after it, the 48 GiB boxes at twelve and eighteen cores and the 32 GiB box at ten all run one worker per acceptance configuration, and so they do beside the plumbing step alone, and on none does the division bind before the cap. The capped budget cannot tell the cap from a division that lands exactly on it, so the uncapped division is asserted beside it; a re-seed that starts narrowing a fleet box fails here and has to be argued. The other direction is not held here or anywhere in the suite: a constant that errs low passes every assertion below, and only `make job-costs`' conform-belt row prices the figure against the workers that ran, so a green suite is no confirmation of a re-seed."""
+        """On the fleet machines (`doc/fleet.md`), the 48 GiB machines at twelve and eighteen cores and the 32 GiB machine at ten, the belt runs one worker per acceptance configuration beside a gated build lane (the surface build and the plumbing step) and beside the plumbing step alone, and the division never limits the width before the cap does. The capped budget cannot distinguish the cap from a division that equals it, so the uncapped division is also checked, and a change to the constant that narrows a fleet machine fails here. The suite does not catch a constant that is too low: only the conform-belt row of `make job-costs` compares it with the workers that ran."""
         from rebuild.pipeline.conform import ACCEPTANCE_CONFIGS
         from rebuild.tools import memory_budget
 
@@ -2377,7 +2377,7 @@ class TestTheConformBeltWidth:
                 )
 
     def test_the_cores_and_the_configurations_cap_the_belt(self):
-        """A box with room to spare runs one worker per acceptance configuration, since a configuration is the belt's unit and a further worker has nothing to sweep, and a box with fewer cores than configurations runs its cores: the cap is both non-memory bounds in one `min()`, so a small cgroup allowance never widens past what it may run on."""
+        """A machine with memory to spare runs one worker per acceptance configuration, because a configuration is the belt's unit, and a machine with fewer cores than configurations runs one per core. Both bounds are in one `min()`, so a small cgroup allowance never widens the belt past the cores it may use."""
         from rebuild.pipeline.conform import ACCEPTANCE_CONFIGS
 
         for ncores in (1, 2, 4, 6, 10, 12, 18):
@@ -2386,7 +2386,7 @@ class TestTheConformBeltWidth:
             ) == min(ncores, len(ACCEPTANCE_CONFIGS))
 
     def test_a_belt_width_of_one_is_stated_on_the_argv(self, monkeypatch):
-        """A box the pooled belt does not fit beside the surface build floors at one, the serial belt, and the argv states that width like any other: left off, run_m1 would take its own default, a width this plan never priced. The oracle's width is a separate budget and does not follow the belt down."""
+        """A machine where the pooled belt does not fit beside the surface build floors at one, the serial belt, and the argv states that width like any other; without it run_m1 would use its own default, a width this plan did not budget. The oracle's width is a separate budget and stays above one."""
         monkeypatch.setattr(ac, "CONFORM_BELT_BYTES", 10**12)
         plan = _plan(ncores=12)
         by_name = {step.name: step for step in plan.steps}
@@ -2396,7 +2396,7 @@ class TestTheConformBeltWidth:
         assert _argv(by_name["run_m1"])[5:7] == ["--jobs", str(plan.sweep_jobs)]
 
     def test_the_plan_prints_the_belt_width_with_its_derivation(self):
-        """Every Lane conform variant that runs the belt quotes its width, the constant it divides by and the derivation over the flags the plan resolved, so a reader surprised by the width can audit it on the line that states it. The co-resident term is the larger build-lane step's, with gate:make-test's pool added under the overlap policy: the surface build's where it runs and outweighs the plumbing step, the plumbing step's where the build does not run or the step outweighs it, and a pass that runs neither says so in words and prints no co-resident term unless gate:make-test's pool stands beside the belt."""
+        """Every Lane conform line that runs the belt quotes its width, the constant it divides by, and the derivation over the flags the plan resolved. The co-resident term is the larger build-lane step, plus gate:make-test's pool under the overlap policy: the surface build when it runs and holds more than the plumbing step, the plumbing step when the build does not run or the step holds more. For a pass that runs neither, the line says so and prints no co-resident term unless gate:make-test's pool runs beside the belt."""
         box: dict[str, Any] = dict(ncores=10, total_bytes=BOX_32_GIB)
         arms = {
             "queued": _plan(**box),
@@ -2477,7 +2477,7 @@ class TestTheConformBeltWidth:
         assert line.endswith(f"; {_plan_conform_derivation(outweighed, **wide)})")
 
     def test_the_printed_derivation_is_the_one_that_produced_the_width(self):
-        """The plan line quotes a sentence, and a sentence that disagreed with the number beside it would be worse than none: both come from one resolution of the same three terms, so on every arm the clause opens with the width it explains."""
+        """The plan line quotes the derivation, and it and the width come from the same three terms, so in every case the clause starts with the width it explains."""
         for total_bytes in (BOX_32_GIB, 20_000_000_000):
             for skip_make_test in (False, True):
                 for skip_surface, plumbing_runs in itertools.product((False, True), repeat=2):
@@ -2496,7 +2496,7 @@ class TestTheConformBeltWidth:
 
 
 def test_the_job_budgets_answer_the_cgroup_allowance_rather_than_the_hosts_core_count(monkeypatch):
-    """A CPU quota is invisible to `os.cpu_count()`, so a budget that read it would give a two-core allowance on a many-core host an oracle range per core, a belt process per acceptance configuration and a surface build at the cap — every one of them a core the process may not run on. The oracle's, the belt's and the surface build's budgets all probe through `usable_cores`, and what stands in for the box here is the real probe over an invented cgroup root, so the allowance is a fixture rather than a stub: two cores sits under both caps, so each budget answers the allowance itself. The surface budget also divides an invented terabyte box, so its memory arithmetic never binds and the core clamp is the whole assertion. A stated `ncores` still outranks the probe, which is what keeps `build_plan`'s explicit threading its own."""
+    """A CPU quota is invisible to `os.cpu_count()`, so the oracle, belt and surface budgets read their cores through `memory_budget.usable_cores`. The test runs the real probe over a fixture cgroup root that allows two cores, which is below both `len(ACCEPTANCE_CONFIGS)` and `SURFACE_JOBS_CAP`, so each budget returns the allowance. Each call passes a terabyte of memory so that only the core count limits the width. An explicit `ncores` still takes precedence over the probe."""
     from rebuild.pipeline.conform import ACCEPTANCE_CONFIGS
     from rebuild.tools import memory_budget
 
@@ -2517,14 +2517,14 @@ def test_the_job_budgets_answer_the_cgroup_allowance_rather_than_the_hosts_core_
 
 
 def test_make_test_pool_width_is_the_width_the_surface_budget_leaves_it():
-    """The pool the cycle starts is the pool the cycle reserved for: surface_job_budget hands two cores away and prices the same pool's bytes as a co-resident term in the one budget, so two workers is what gate:make-test is handed back, and a box too small for that floors the two together at one rather than letting the pool outgrow the reservation."""
+    """gate:make-test's pool starts at the width the budgets reserve for: `MAKE_TEST_POOL_WORKERS`, capped at the core count and floored at one."""
     assert ac.make_test_pool_width(ncores=12) == ac.MAKE_TEST_POOL_WORKERS
     assert ac.make_test_pool_width(ncores=6) == ac.MAKE_TEST_POOL_WORKERS
     assert ac.make_test_pool_width(ncores=1) == 1
 
 
 def test_a_stated_pool_width_is_the_width_the_cycle_reserves_by(monkeypatch):
-    """PYTEST_XDIST_AUTO_NUM_WORKERS is not something the cycle may narrow — the child inherits this process's environment, so a width already stated here is what that pool is going to take whatever the cycle would have preferred. Reserving by it is the only way the two stay one number."""
+    """The make-test child inherits this process's environment, so a width already set in PYTEST_XDIST_AUTO_NUM_WORKERS is the width its pool takes. The cycle reserves memory for that width, so the reservation matches the pool that runs."""
     monkeypatch.setenv("PYTEST_XDIST_AUTO_NUM_WORKERS", "9")
     assert ac.make_test_pool_width(ncores=1) == 9
     assert ac.kernel_threads_budget(ncores=12, total_bytes=BOX_38_GB) == 3
@@ -2533,14 +2533,14 @@ def test_a_stated_pool_width_is_the_width_the_cycle_reserves_by(monkeypatch):
 
 
 def test_kernel_threads_budget_takes_the_pytest_pool_off_the_box_first():
-    """The pytest pool comes off the box beside default's retained memo before division. At the 6.3 GB per-delta bound beside the 2.5 GB memo snapshot, the 36 GB box fits four deltas alone; subtracting the normal 0.6 GB pytest pool leaves room for three. This boundary makes a missing reservation change the answer."""
+    """The kernel width subtracts the pytest pool along with default's retained memo before dividing. With the 6.3 GB per-delta bound and the 2.5 GB memo snapshot, a 36 GB machine fits four deltas alone, and subtracting the 0.6 GB pytest pool leaves room for three. At this boundary a missing reservation changes the answer."""
     solo = ac.kernel_threads_budget(skip_make_test=True, ncores=8, total_bytes=BOX_36_GB)
     beside = ac.kernel_threads_budget(ncores=8, total_bytes=BOX_36_GB)
     assert (solo, beside) == (4, 3)
 
 
 def test_the_gated_arm_seats_what_the_solo_arm_seats_on_both_fleet_boxes(monkeypatch):
-    """The half of the kernel width's criterion only the cycle can assert: the pair in kernel_exec is chosen so that gate:make-test's pytest pool coming off the box costs neither fleet machine a seat. On the 48 GiB box the gated arm and the skipped-gate arm answer the same width and both cover every configuration past default, so the wave stays in one round; on the 32 GiB Mac both arms seat three deltas. A re-seed that keeps a solo width and loses the gated one fails here. The override is cleared first, since an exported width would satisfy these assertions whatever the constants say."""
+    """`kernel_exec.DELTA_PEAK_BYTES` and `DEFAULT_MEMO_BYTES` are chosen so that gate:make-test's pytest pool costs neither fleet machine a worker slot, and this test checks the gated widths, which only the cycle computes. On the eighteen-core 48 GiB machine the gated and skipped-gate widths are equal and cover every configuration after default, so the delta wave runs in one round. On the 32 GiB machine both widths are three. `AMS_KERNEL_THREADS` is cleared first, because an exported width would pass these assertions whatever the constants are."""
     from rebuild.pipeline.conform import SETTLEMENT_CONFIGS
 
     monkeypatch.delenv("AMS_KERNEL_THREADS", raising=False)
@@ -2552,7 +2552,7 @@ def test_the_gated_arm_seats_what_the_solo_arm_seats_on_both_fleet_boxes(monkeyp
 
 
 def test_replay_threads_budget_takes_the_pytest_pool_off_the_box_first():
-    """The same subtraction the kernel width makes, on the replay's own divisor: the gated arm prices gate:make-test's pool before dividing, so it is never wider than the skipped arm, and on a box the cap does not bind the pool is what separates the two. The cap is held here as it is for the kernel's width, so both arms stop at the configuration count and the cores."""
+    """The replay width subtracts gate:make-test's pool before dividing, as the kernel width does. So the gated width is never wider than the skipped-gate width, and where the cap does not bind, the pool is what separates them. Both are capped at the configuration count and the cores."""
     from rebuild.pipeline.conform import SETTLEMENT_CONFIGS
     from rebuild.pipeline.kernel_exec import REPLAY_PEAK_BYTES
 
@@ -2566,7 +2566,7 @@ def test_replay_threads_budget_takes_the_pytest_pool_off_the_box_first():
 
 
 def test_the_gated_arm_replays_every_configuration_in_one_wave_on_the_fleets_32_gib_box():
-    """The half of the replay width's criterion only the cycle can assert: `REPLAY_PEAK_BYTES` is chosen so the whole universe still replays in one wave after gate:make-test's pytest pool has come off the box, so on the fleet's 32 GiB Mac the gated arm and the skipped-gate arm both answer the configuration count. A re-seed that keeps the solo wave and loses the gated one fails here."""
+    """`REPLAY_PEAK_BYTES` is chosen so that every settlement configuration replays in one round even with gate:make-test's pytest pool subtracted. On the 32 GiB machine the gated and skipped-gate widths both equal the configuration count. This test checks the gated width, which only the cycle computes."""
     from rebuild.pipeline.conform import SETTLEMENT_CONFIGS
 
     gated = ac.replay_threads_budget(ncores=10, total_bytes=BOX_32_GIB)
@@ -2576,7 +2576,7 @@ def test_the_gated_arm_replays_every_configuration_in_one_wave_on_the_fleets_32_
 
 
 def test_replay_threads_budget_cuts_a_stated_width_only_to_the_cap(monkeypatch):
-    """AMS_REPLAY_THREADS outranks the division here as AMS_KERNEL_THREADS outranks the kernel's, and what this budget may still do to it is the non-memory cut the crate and `run_m1._replay_threads` would make anyway: a stated width past the configuration count is the configuration count, and one under it is passed through."""
+    """`AMS_REPLAY_THREADS` overrides the memory arithmetic, as `AMS_KERNEL_THREADS` does for the kernel width. The budget only applies the cap that the crate and `run_m1._replay_threads` would apply anyway: a stated width above the configuration count is cut to it, and one below passes through."""
     from rebuild.pipeline.conform import SETTLEMENT_CONFIGS
 
     monkeypatch.setenv("AMS_REPLAY_THREADS", "2")
@@ -2586,7 +2586,7 @@ def test_replay_threads_budget_cuts_a_stated_width_only_to_the_cap(monkeypatch):
 
 
 def test_the_replay_plan_line_explains_the_width_it_prints_on_every_route(monkeypatch):
-    """The clause beside the replay width is a reading of the width's own derivation on every route, never the arithmetic a stated width outranked: with nothing stated it is `describe_fit` over the budget's terms, under `AMS_REPLAY_THREADS` it names the variable and what the cap or the floor did to the value, and the wave clause counts the waves the width actually makes of the configuration count instead of asserting one on a box that seats fewer. The rendered line carries the same clause, so what a reader audits is what the argv states."""
+    """The clause printed beside the replay width always explains the width actually used. With no override it is `describe_fit` over the budget's terms. Under `AMS_REPLAY_THREADS` it names the variable and says whether the cap or the floor changed the value. The wave clause counts the rounds that width makes of the configuration count. The rendered plan line carries the same clause."""
     from rebuild.pipeline.conform import SETTLEMENT_CONFIGS
     from rebuild.pipeline.kernel_exec import REPLAY_PEAK_BYTES
 
@@ -2616,14 +2616,14 @@ def test_the_replay_plan_line_explains_the_width_it_prints_on_every_route(monkey
 
 
 def test_kernel_threads_budget_never_narrows_a_stated_kernel_width(monkeypatch):
-    """AMS_KERNEL_THREADS is what someone reaches for to keep a build out of swap, so it outranks every derivation here, this reservation included. The cut to the configuration count and the cores that the budget still makes is not a narrowing from memory but the cut `run_m1._table_build_threads` makes anyway, so a stated width at or under that cap passes through untouched."""
+    """`AMS_KERNEL_THREADS` is set to keep a build out of swap, so it overrides every derivation here, including the pytest pool reservation. The budget still caps it at the configuration count and the cores, as `run_m1._table_build_threads` does, so a stated width at or below that cap passes through unchanged."""
     monkeypatch.setenv("AMS_KERNEL_THREADS", "5")
     assert ac.kernel_threads_budget(ncores=8, total_bytes=BOX_44_GB) == 5
     assert ac.kernel_threads_budget(skip_make_test=True, ncores=8, total_bytes=BOX_44_GB) == 5
 
 
 def test_kernel_threads_budget_holds_its_answer_at_the_configuration_count_and_the_cores(monkeypatch):
-    """The cap `replay_threads_budget` holds its own at, on the table build's width: on the fleet's 48 GiB boxes the memory answer runs past the configuration count, so without the cap the plan line would name a width `run_m1._table_build_threads` goes on to narrow. The cores bind where they are the smaller term, the rendered line says the cap is there, and a stated `AMS_KERNEL_THREADS` past the configuration count is cut to it as the child would cut it."""
+    """The table build's width is capped at the configuration count and the cores, like the replay width. On the 48 GiB machines the memory arithmetic gives more than the configuration count, so without the cap the plan line would show a width that `run_m1._table_build_threads` then narrows. The test also checks that the cores bind when they are smaller, that the rendered line mentions the cap, and that a stated `AMS_KERNEL_THREADS` above the configuration count is cut to it."""
     from rebuild.pipeline.conform import SETTLEMENT_CONFIGS
     from rebuild.pipeline.kernel_exec import kernel_threads_default
 
@@ -2643,7 +2643,7 @@ def test_kernel_threads_budget_holds_its_answer_at_the_configuration_count_and_t
 
 
 def test_a_plan_reserves_for_the_pytest_pool_only_when_that_gate_runs():
-    """An auto-skipped gate and --skip-gates are the same fact — no pool is going to be co-resident — so the fan-out gets the whole box back rather than paying for a pool that never starts."""
+    """The plan subtracts the pytest pool only when gate:make-test runs. When the gate is auto-skipped or `--skip-gates` is given, no pool runs, so the kernel width gets that memory back."""
     assert _plan(ncores=8, total_bytes=BOX_36_GB).kernel_threads == 3
     assert (
         _plan(
@@ -2699,7 +2699,7 @@ def test_dry_run_renders_concurrency():
 
     by_name = {step.name: step for step in plan.steps}
     assert _argv(by_name["run_m1"])[1:6] == ["run", "python", "-m", "rebuild.pipeline.run_m1", "--jobs"]
-    # Every width is stated on the command line, one included. A width of one that emitted no flag would hand the child its own default — the unreserved arm of the same budget, a different number wherever the pool subtraction changes the answer — and the memory term makes one a width the arithmetic actually reaches.
+    # Every width is passed on the command line, including a width of one. Without the flag the child would use its own default, which does not subtract the pytest pool and can differ from the planned width.
     assert _argv(by_name["surface-build"])[-4:-2] == ["--jobs", str(surface_width)]
 
 
@@ -2795,7 +2795,7 @@ def test_cycle_summary_payload_all_green_exit_ok():
 
 
 def test_cycle_summary_payload_green_follows_the_boolean_not_the_status_prose():
-    """The payload's `green` is the judgment the gate recorded, so an annotated green stays green and prose that merely reads green cannot make it so."""
+    """The payload's `green` comes from the gate's recorded boolean, not its status text. An annotated green status stays green, and a status that reads "green" does not make `green` true."""
     report = _green_report()
     report.gate_contracts = "green (annotated)"
     payload = ac.cycle_summary_payload(report, [], _plan(), "ok")
@@ -2884,7 +2884,7 @@ def test_cycle_summary_payload_plan_block_and_argv():
 
 
 def test_cycle_summary_payload_records_an_assets_refresh():
-    """The refresh is a step of its own in the record, so a pass that skipped the surface build can still be told apart from one that copied a new app shell over it."""
+    """The summary records the assets refresh as its own step, so a pass that skipped the surface build can be told apart from one that copied new app assets over the served surface."""
     report = _green_report()
     report.assets_status = "refreshed in place (units, sidecars and generated_at unmoved)"
     payload = ac.cycle_summary_payload(report, [], _plan(skip_surface=True, refresh_assets=True), "ok")
@@ -2893,7 +2893,7 @@ def test_cycle_summary_payload_records_an_assets_refresh():
 
 
 def test_cycle_summary_payload_names_the_reuse_route_and_passes_no_kernel_width_on_it():
-    """The machine record has to tell the three run_m1 routes apart on its own: a reuse pass is not a skip, and the width it reports must be the one the child was given, which on this route is none."""
+    """The summary must tell the three run_m1 routes apart. A reuse pass is not a skip, and the thread widths it reports are the ones passed to the child, which on this route are none."""
     plan = _plan(reuse_run_m1=True, run_m1_note="only comparison-side inputs moved")
     payload = ac.cycle_summary_payload(_green_report(), [], plan, "ok")
     assert payload["plan"]["reuse_run_m1"] is True
@@ -3035,7 +3035,7 @@ def test_dry_run_auto_resolves_the_carry_source(tmp_path, monkeypatch, capsys):
 
 
 def test_auto_resolution_carries_a_mismatched_stamp_by_unit_id(tmp_path, monkeypatch, capsys):
-    """When no candidate is stamped for the served surface, the newest-stamped file is carried all the same, and named as older: a verdict lands on the unit of its content id or on nothing, so a stale stamp cannot put one on the wrong window."""
+    """When no candidate is stamped for the served surface, the file with the newest stamp is still carried, and the line names it as stamped for an older surface. A verdict names its unit by content id, so it reaches the unit with that id or none, and a stale stamp cannot put it on the wrong window."""
     _seed_auto_repo(tmp_path, monkeypatch)
     (tmp_path / "verdicts-carried-old.json").write_text(
         json.dumps(_verdicts_doc("2026-07-10T00:00:00Z", ["u-1"]))
@@ -3173,7 +3173,7 @@ def test_closure_files_apply_the_exemptions(tmp_path):
 
 
 def test_closure_files_leave_the_makefile_to_the_recipe_probe(tmp_path):
-    """The Makefile is not hashed as a file, so a comment or an unrelated target cannot re-arm the gate — it enters the fingerprint as one probe line per rule the suite executes."""
+    """The Makefile is not hashed as a file. It enters the fingerprint as one `make -n` probe line per rule the suite runs (`all` and `test`), so a comment or an unrelated target does not re-arm the gate."""
     root = _git_repo(tmp_path)
     files = ac.make_test_closure_files(root)
     assert files is not None
@@ -3207,7 +3207,7 @@ def test_closure_fingerprint_moves_only_with_closure_content(tmp_path):
 
 
 def test_closure_fingerprint_moves_with_an_executed_recipe(tmp_path):
-    """Editing either rule the suite runs moves the key, which is the whole point of keeping the Makefile in the closure at all."""
+    """Editing either rule the suite runs, `all` or `test`, changes the key."""
     root = _git_repo(tmp_path)
     first = ac.make_test_closure_fingerprint(root)
     (root / "Makefile").write_text(FAKE_MAKEFILE.replace("\techo build", "\techo build --twice"))
@@ -3222,7 +3222,7 @@ def test_closure_fingerprint_moves_with_an_executed_recipe(tmp_path):
 
 
 def test_closure_fingerprint_ignores_makefile_edits_the_suite_never_executes(tmp_path):
-    """A comment, a target nothing under `make test` runs, and a brand-new rule are all invisible to the gate, so the cycle and kernel targets can churn without re-arming a quarter-hour of tests."""
+    """A comment, a target that `make test` does not run, and a new rule all leave the key unchanged, so edits to the cycle and kernel targets do not re-run the font suite."""
     root = _git_repo(tmp_path)
     first = ac.make_test_closure_fingerprint(root)
     assert first is not None
@@ -3235,7 +3235,7 @@ def test_closure_fingerprint_ignores_makefile_edits_the_suite_never_executes(tmp
 
 
 def test_closure_fingerprint_moves_when_the_makefile_stops_parsing(tmp_path):
-    """stderr and the return code ride into the probe's digest, so a Makefile make can no longer read moves the key instead of hashing an empty recipe — and nothing raises."""
+    """stderr and the return code are hashed into the probe's digest, so a Makefile that no longer parses changes the key instead of hashing as an empty recipe, and nothing raises."""
     root = _git_repo(tmp_path)
     first = ac.make_test_closure_fingerprint(root)
     (root / "Makefile").write_text("all:\n\techo build\nfoo bar baz\n")
@@ -3245,7 +3245,7 @@ def test_closure_fingerprint_moves_when_the_makefile_stops_parsing(tmp_path):
 
 
 def test_recipe_probe_is_blind_to_the_callers_overrides(tmp_path, monkeypatch):
-    """`make test FORCE=1` reaches the probe by two routes at once — inside MAKEFLAGS, which a sub-make re-reads as its own command line, and as a plain exported FORCE that stripping the flags never touches — and both the cycle's gate and `make test`'s wrapper reach it as sub-makes. So the recipe expands the same way for a forced caller as for a bare one; otherwise a forced green would key on a recipe no bare run ever prints, re-arming the whole suite afterward on the very override that exists to run it once, and a forced red would leave standing the green it had just contradicted."""
+    """`make test FORCE=1` reaches the probe two ways: through MAKEFLAGS, which a sub-make reads as its own command line, and as an exported FORCE variable. Both the cycle's gate and `make test`'s wrapper run the probe as sub-makes. The probe must print the same recipe for a forced caller as for a plain one. Otherwise a forced green run would record a key no plain run matches, so the next plain run would rerun the whole suite, and a forced red run would leave in place the green record it had just contradicted."""
     root = _git_repo(tmp_path)
     for name in ("MAKEFLAGS", "MFLAGS", "FORCE"):
         monkeypatch.delenv(name, raising=False)
@@ -3258,7 +3258,7 @@ def test_recipe_probe_is_blind_to_the_callers_overrides(tmp_path, monkeypatch):
 
 
 def test_recipe_pins_cover_the_repos_own_executed_rules(monkeypatch):
-    """The pin roster has to name every variable the real `all` and `test` rules read, not only the one the fake Makefile mimics, so this asks the live Makefile the question the documented override poses: FORCE=1 in the environment, and the same two probe lines back."""
+    """`MAKE_TEST_RECIPE_PINS` must pin every variable the repository's real `all` and `test` rules read, not only the one the fake Makefile uses. The test runs the probe on the live Makefile with FORCE=1 in the environment and expects the same two probe lines as without it."""
     monkeypatch.delenv("FORCE", raising=False)
     plain = ac.make_test_recipe_lines(ac.ROOT)
     assert plain is not None
@@ -3267,7 +3267,7 @@ def test_recipe_pins_cover_the_repos_own_executed_rules(monkeypatch):
 
 
 def test_closure_fingerprint_is_none_when_make_is_unavailable(tmp_path, monkeypatch):
-    """A box without make takes git's absence path: no fingerprint, so the caller runs the gate unconditionally rather than trusting a key it could not compute."""
+    """Without make, as without git, there is no fingerprint, so the caller runs the gate unconditionally."""
     root = _git_repo(tmp_path)
     real_run = ac.subprocess.run
 
@@ -3290,7 +3290,7 @@ def test_closure_fingerprint_moves_when_a_tracked_file_is_deleted(tmp_path):
 
 
 def test_prior_make_test_fingerprint_reads_only_the_green_record(tmp_path):
-    """The cycle summary keeps a display copy of the fingerprint, but the skip decision must never read it: after clear_contradicted_green deletes the record, a summary copy would resurrect a green whose last observed run was red."""
+    """The cycle summary keeps a copy of the fingerprint for display, but the skip decision reads only the green record. After `clear_contradicted_green` deletes the record, reading the summary's copy would restore a green whose last run was red."""
     green = tmp_path / "make-test-green.json"
     assert ac.prior_make_test_fingerprint(green) is None
     ac.record_make_test_green("from-green", green)
@@ -3317,7 +3317,7 @@ def test_dry_run_plan_skip_make_test():
 
 
 def _make_test_gate_args(argv: list[str]) -> list[str]:
-    """What the live Makefile hands rebuild.tools.make_test_gate for one gate:make-test argv: the recipe `make -n` prints for it, read past the module name. The caller's own overrides come off the environment first, as `make_test_recipe_lines` strips them, so a suite run under `make test-rebuild FORCE=1` asks the same question a bare one does."""
+    """Return the arguments the live Makefile passes to `rebuild.tools.make_test_gate` for one gate:make-test argv, read from the `make -n` output after the module name. MAKEFLAGS, MFLAGS and FORCE are removed from the environment first, so a suite run under `make test-rebuild FORCE=1` gets the same answer as a plain one."""
     assert argv[:2] == ["make", "test"]
     env = {key: value for key, value in os.environ.items() if key not in ("MAKEFLAGS", "MFLAGS", "FORCE")}
     printed = subprocess.run(
@@ -3329,7 +3329,7 @@ def _make_test_gate_args(argv: list[str]) -> list[str]:
 
 
 def _planned(argv: list[str]) -> ac.Plan:
-    """The plan `main` resolves for one command line, caught on its way to the renderer."""
+    """Return the plan `main --dry-run` resolves for one command line, captured as it is passed to `render_plan`."""
     seen: list[ac.Plan] = []
     real = ac.render_plan
     with pytest.MonkeyPatch.context() as patch:
@@ -3340,7 +3340,7 @@ def _planned(argv: list[str]) -> ac.Plan:
 
 
 def _font_suite_stub(monkeypatch, fingerprint: str) -> list[list[str]]:
-    """The wrapper over a closure that fingerprints as `fingerprint`, with the suite spawn caught rather than run. The catch is on the one `subprocess` module every caller shares, so anything that spawns for real goes first."""
+    """Patch `make_test_gate` so its closure fingerprints as `fingerprint` and its suite spawn is recorded instead of run, and return the list of recorded argvs. The patch replaces `run` on the shared `subprocess` module, so call this only after the test's real spawns."""
     spawned: list[list[str]] = []
     monkeypatch.setattr(mtg, "make_test_closure_fingerprint", lambda root: fingerprint)
     monkeypatch.setattr(
@@ -3353,7 +3353,7 @@ def _font_suite_stub(monkeypatch, fingerprint: str) -> list[list[str]]:
 
 @pytest.mark.parametrize("flag", ["--fresh", "--force-make-test"])
 def test_a_forced_pass_hands_the_make_test_wrapper_force(tmp_path, monkeypatch, flag):
-    """On a closure its green record answers for, `make test` stands down in about a second, because the wrapper behind the recipe reads that record for itself. A flag that promises the gate runs therefore has to reach the wrapper and not only the plan: the argv carries FORCE=1, the live Makefile turns it into --force, and the wrapper spawns the suite. A bare pass over the same closure plans the gate skipped."""
+    """The wrapper behind `make test` reads the green record itself and exits early when the closure matches it. So `--fresh` and `--force-make-test` must reach the wrapper, not only the plan: the argv carries FORCE=1, the live Makefile turns it into `--force`, and the wrapper runs the suite. A plain pass over the same closure plans the gate as skipped."""
     _unsettled_repo(tmp_path, monkeypatch)
     monkeypatch.setattr(ac, "make_test_closure_fingerprint", lambda root=None: "fp")
     ac.record_make_test_green("fp")
@@ -3378,7 +3378,7 @@ def test_a_forced_pass_hands_the_make_test_wrapper_force(tmp_path, monkeypatch, 
 def test_the_plan_reserves_make_tests_pool_exactly_when_the_wrapper_runs_it(
     tmp_path, monkeypatch, flags, recorded
 ):
-    """The surface build's widths are settled in the plan, before `make test` has decided anything, so the reservation is honest only if the plan and the wrapper answer the same question the same way: cores and bytes held beside the build for a gate that then stands down on its own green record are cores the build never gets back. Every pairing of a forcing flag with a green record lands on one of two consistent ends. Either the gate is planned skipped, the wrapper would stand down over the same fingerprint and record, and the build takes the whole box; or the gate is planned to run, the argv the live Makefile hands the wrapper spawns the suite, and its pool comes off the build's widths."""
+    """The plan sets the surface build's widths before `make test` decides anything, so the reservation is correct only if the plan and the wrapper make the same skip decision. Cores and memory reserved for a gate that then skips on its own green record are lost to the build. Every combination of forcing flag and green record ends one of two ways. Either the plan skips the gate, the wrapper would also skip over the same fingerprint and record, and the build gets the whole machine. Or the plan runs the gate, the argv the live Makefile passes to the wrapper runs the suite, and its pool is subtracted from the build's widths."""
     _unsettled_repo(tmp_path, monkeypatch)
     monkeypatch.setattr(ac, "make_test_closure_fingerprint", lambda root=None: "fp")
     if recorded is not None:
@@ -3403,7 +3403,7 @@ def test_the_plan_reserves_make_tests_pool_exactly_when_the_wrapper_runs_it(
 
 
 def test_the_signature_pool_takes_the_cores_the_surface_width_cannot():
-    """The ink-signature phase's width is the one fan-out in the plan that memory does not derive: a signature worker holds one comparator and nothing a `*_BYTES` constant prices, so on a ten-core box the gated arm answers the cores less gate:make-test's two and the skip arm the whole box — never below the surface width, which memory derives and `SURFACE_JOBS_CAP` clamps, and unmoved on a box a quarter the size, where the reserve and the parent's co-resident pile outrun the budget before anything divides and that width floors at one, since the cap is where the unit worker stops scaling and not this one. The argv carries the width beside `--jobs`, and the plan block states it on a row of its own with its derivation, so a reader can see the two widths differ and why. The widths are read off the budget rather than written here."""
+    """The ink-signature width is the one fan-out in the plan that memory does not derive: a signature worker holds one comparator, and no `*_BYTES` constant covers it. On a ten-core machine the gated width is the cores less gate:make-test's two, and the skipped-gate width is all ten. It is never below the surface width, which memory derives and `SURFACE_JOBS_CAP` caps. On a machine with a quarter of the memory, the reserve and the parent's co-resident memory exceed the total, so the surface width floors at one while the signature width stays at eight. With gate:make-test skipped the signature width is ten, above `SURFACE_JOBS_CAP`, because that cap applies only to the surface build's unit workers. The argv passes the width after `--jobs`, and the plan shows it on its own row with its derivation."""
     gated = _plan(skip_make_test=False, ncores=10, total_bytes=BOX_32_GIB)
     assert gated.signature_jobs == ac.signature_job_budget(skip_gates=False, ncores=10) == 8
     assert gated.signature_jobs >= gated.surface_jobs == ac.SURFACE_JOBS_CAP
@@ -3437,7 +3437,7 @@ def test_the_signature_pool_takes_the_cores_the_surface_width_cannot():
 
 
 def test_the_contracts_pool_is_the_cores_the_surface_build_leaves():
-    """The rebuild suite's width under a cycle is the second fan-out memory does not derive: it runs beside the surface build, so on a ten-core box it takes the cores less the build's parent and its `surface_job_budget` workers, less gate:make-test's pool only under the overlap policy (under queue the suite parks until that pool has finished, so those cores are already its own), the whole box when no surface build runs, and never below one. Every width is read off the budget rather than written here, so a re-seed of either surface constant never has to come back to this test."""
+    """The rebuild suite's width under a cycle is the second fan-out that memory does not derive. It runs beside the surface build, so it gets the cores less the build's parent and its `surface_job_budget` workers. Under the overlap policy it also loses gate:make-test's pool. Under the queue policy the suite waits until that pool finishes, so nothing is subtracted for it. With no surface build it gets every core, and it never drops below one. Widths that depend on the surface constants are computed from the budget functions, so re-measuring those constants does not require editing this test."""
     surface = ac.surface_job_budget(skip_gates=False, ncores=10, total_bytes=BOX_32_GIB)
     queue = ac.contracts_pool_width(skip_gates=False, ncores=10, total_bytes=BOX_32_GIB)
     assert queue == 10 - 1 - surface >= 1
@@ -3486,7 +3486,7 @@ def test_the_contracts_pool_is_the_cores_the_surface_build_leaves():
 
 
 def test_a_stated_contracts_width_is_the_width_the_cycle_hands_the_child(monkeypatch):
-    """PYTEST_XDIST_AUTO_NUM_WORKERS is not something the cycle may narrow for the rebuild suite any more than for gate:make-test — the child inherits this process's environment, so a width already stated here is what that pool is going to take, and the plan says so rather than printing arithmetic the pool will ignore."""
+    """The rebuild suite's child inherits this process's environment, as gate:make-test's does, so a width already set in PYTEST_XDIST_AUTO_NUM_WORKERS is the width that pool takes. The plan reports that width instead of printing arithmetic the pool would ignore."""
     monkeypatch.setenv("PYTEST_XDIST_AUTO_NUM_WORKERS", "9")
     assert ac.contracts_pool_width(skip_gates=False, ncores=2, total_bytes=BOX_32_GIB) == 9
     assert (
@@ -3498,7 +3498,7 @@ def test_a_stated_contracts_width_is_the_width_the_cycle_hands_the_child(monkeyp
 
 
 def test_the_plan_states_the_contracts_pool_width_on_its_lane_line():
-    """The lane line carries the width and its derivation, and the build lane reads the new order, so a reader can see the suite is submitted ahead of the build and how many cores it was handed; a ten-core box beside a cap-width build reaches one worker under either policy, and on the twelve-core box the overlap arm reaches one worker on the arithmetic alone, unfloored and narrower than the queue policy's, and prints it rather than implying it; and a pass whose surface build is skipped says the suite is submitted once the run_m1 gate passes, never that it runs beside a build the plan's own row reads SKIPPED."""
+    """The lane line shows the suite's width and its derivation, and the build lane line shows the suite submitted before the surface build. On a ten-core machine beside a surface build at `SURFACE_JOBS_CAP` workers, the suite gets one worker under either policy. On a twelve-core machine the overlap policy reaches one worker from the arithmetic alone, without the floor, which is narrower than the queue policy's width, and the plan prints it. When the surface build is skipped, the plan says the suite is submitted once the run_m1 gate passes, not that it runs beside a build the plan shows as SKIPPED."""
     gated = _plan(ncores=10, total_bytes=BOX_32_GIB)
     text = _plan_text(gated)
     assert (
@@ -3544,7 +3544,7 @@ def test_the_plan_states_the_contracts_pool_width_on_its_lane_line():
 
 
 def test_skip_make_test_frees_the_surface_build_budget():
-    """The sweeps' width is the box's cores under the shard clamp either way — nothing about make-test bears on it — while the surface build is the stage that gives both cores and bytes back to a pytest pool that is actually running. On the 48 GiB box the pool's bytes sit inside a worker's worth of slack, so both arms answer the same width — the pair separating is the fit-terms seam's assertion — and what this checks is that the plan resolves each arm's own terms and its reason line says which one it resolved: the gated arm's derivation carries the pool's bytes in its co-resident clause, and the skip arm says the build takes the whole box. The widths are read off the budget rather than written here, so a re-seed of either surface constant never has to come back to this test."""
+    """gate:make-test does not affect the oracle sweep width, but the surface build gets cores and memory back when the pytest pool is not running. On the 48 GiB machine both cases reach `SURFACE_JOBS_CAP`, so the widths are equal; `test_the_pytest_pool_comes_off_the_box_before_the_division` checks that their terms differ. This test checks that the plan uses each case's own terms and that its reason line says which: the gated derivation includes the pool's memory in its co-resident amount, and the skipped-gate line says the build takes the whole machine. The widths are computed from the budget functions, so re-measuring either surface constant does not require editing this test."""
     plan = _plan(
         skip_make_test=True,
         make_test_note="closure unchanged since its last green run",
@@ -3634,7 +3634,7 @@ def test_run_cycle_never_spawns_make_test_when_skipped(monkeypatch):
 
 
 def test_the_pool_width_is_handed_to_the_make_test_child_and_to_no_other(monkeypatch):
-    """The width the plan reserved for reaches the pool it reserved for, and reaches nothing else. It rides on that one child's environment because run_m1, the surface build and the rebuild suite are spawned from this same process: a width set on os.environ would pin their `-n auto` pools too, and os.environ stays clean, so make-test's number reaches make-test's child and no other, and the two pytest pools state two widths rather than one leaking to both."""
+    """The planned pool width is passed only to gate:make-test's child, in that child's environment. run_m1, the surface build and the rebuild suite are spawned from the same process, so setting the width on `os.environ` would also fix their `-n auto` pools. The test checks that gate:js gets no extra environment and that `os.environ` stays clean."""
     seen: dict[str, dict[str, str] | None] = {}
 
     def fake_spawn(name, argv, *, emit, registry, stream, env=None):
@@ -3657,8 +3657,8 @@ def test_the_pool_width_is_handed_to_the_make_test_child_and_to_no_other(monkeyp
 
 
 def test_the_rebuild_suite_names_its_pool_to_its_own_child(monkeypatch):
-    """The suite's pytest controller stamps its per-worker peaks into the timings journal under the name of the pool it ran, which is the join key `make job-costs` reports the suite's observations under. The cycle spawns the suite as bare pytest rather than through rebuild_gate.py, so the name has to be added here — on the suite's own child, never on os.environ, or every other child would inherit it and file its measurements under the wrong pool. The same child carries its width beside its name: the cores the surface build leaves it, which is what the pool record's `width` then reads."""
-    # Deleted first because this very suite runs inside a pool that named itself whenever the cycle's contracts gate is what spawned it: what is being pinned is that the drive writes only the children's env dicts, so the check on os.environ below has to start from a known absence.
+    """The suite's pytest controller records its per-worker peaks in the timings journal under the pool name in `AMS_POOL_UNIT`, and `make job-costs` reports the suite's measurements under that name. The cycle runs the suite as plain pytest, not through `rebuild_gate.py`, so the cycle sets the name itself. It sets it on the suite's child only, because on `os.environ` every other child would inherit it and record its measurements under the wrong pool. The same child also gets its width, the cores the surface build leaves, which the pool record's `width` then reports."""
+    # When the cycle's contracts gate runs this suite, AMS_POOL_UNIT is already set in this process. Clear it so the `os.environ` check below starts from a known absence.
     monkeypatch.delenv("AMS_POOL_UNIT", raising=False)
     seen: dict[str, dict[str, str] | None] = {}
 
@@ -3682,14 +3682,14 @@ def test_the_rebuild_suite_names_its_pool_to_its_own_child(monkeypatch):
     }
     assert "AMS_POOL_UNIT" not in os.environ
     assert "PYTEST_XDIST_AUTO_NUM_WORKERS" not in os.environ
-    # Both the variable and the unit name are spelled literally here, matching the neighboring width variable rather than importing one word — so the drift that spelling invites is what this pins instead. A name this side writes that the registry does not read is a pool filed under nothing: no row claims it, the unit it was meant to price reports itself unmeasured here, and that reads exactly like a box that has simply not run the suite yet.
+    # artifact_cycle writes the variable and the pool name as literals, so check them against `ct.POOL_UNIT_ENV` and the pool names in `cb.UNITS`. A name no unit reads would be recorded under no unit, and `make job-costs` would report the suite as unmeasured, which looks the same as a machine that has not run it yet.
     known = {name for unit in cb.UNITS for name in unit.pool_units}
     assert "rebuild-contracts" in known
     assert ct.POOL_UNIT_ENV == "AMS_POOL_UNIT"
 
 
 def test_a_timed_spawn_carries_a_child_its_environment(monkeypatch, tmp_path):
-    """The timing decorator wraps every spawn, so anything a caller adds to one has to survive it — the width would otherwise be dropped on exactly the runs that are real, since a cycle is only untimed in this suite."""
+    """When a cycle records timings, `CycleTimings.wrap_spawn` wraps every spawn, so it must pass a child's `env` through. Otherwise the pool width would be dropped on real runs, since only tests run a cycle without timings."""
     seen: dict[str, dict[str, str] | None] = {}
 
     def fake_spawn(name, argv, *, emit, registry, stream, env=None):
@@ -3755,7 +3755,7 @@ def test_run_m1_skip_fingerprint_moves_with_runes_and_subsets(tmp_path):
 
 
 def test_conform_skip_fingerprint_includes_horizon_and_the_behavior_classes(tmp_path):
-    """The belt's key is the deep sweep's arming key plus the compile's tools/ closure and the horizon. Without a behavior-class sidecar it still answers, under a line that names the sidecar absent, so the two preflight readers that ask before any build has run get a key rather than an exception; a sidecar, a class appearing in it, and the horizon each move it, and the font's own bytes do not."""
+    """The belt's key is the deep sweep's key plus the horizon. With no behavior-class sidecar it still returns a key, with a line marking the sidecar absent, so a caller that asks before any build has run gets a key instead of an exception. A sidecar, a new class in it, and the horizon each change the key; the font's bytes do not."""
     (tmp_path / "rebuild" / "out" / "m1").mkdir(parents=True)
     base = ac.conform_skip_fingerprint(tmp_path, 5)
     assert ac.conform_skip_fingerprint(tmp_path, 5) == base
@@ -3772,7 +3772,7 @@ def test_conform_skip_fingerprint_includes_horizon_and_the_behavior_classes(tmp_
 
 
 def _fake_run_m1_root(tmp_path):
-    """A repo skeleton holding one file of every kind the run_m1 skip key reaches: each data input, the contact allow-list, the baselines and the subsets extracted from them, both halves of the pipeline code, the crate, and uv.lock. Written out rather than stubbed, because what the tests over it are about is which labels the real readers produce over a real tree."""
+    """Build a repo skeleton with one file of each kind the run_m1 skip key reads: each data input, the contact allow-list, the baselines and their subsets, the table-side and comparison-side pipeline code, the crate, and uv.lock. It also writes a behavior-class sidecar, the compile code and M1.otf for the conform key. The files are real so the tests see the labels the real readers produce."""
     for rel in (
         "glyph_data/runes",
         "rebuild/schema",
@@ -3813,7 +3813,7 @@ def _fake_run_m1_root(tmp_path):
 
 
 def test_comparison_side_label_names_only_the_inputs_no_table_stage_reads():
-    """The roster that lets a cycle stand on the enumeration and the font already on disk, so a label wrongly on it means a pass re-adjudicating against artifacts that no longer describe their sources. uv.lock is the deliberate exclusion and the interesting one: the tables' stamp misses it exactly as it misses the ledgers, but it pins fontTools and uharfbuzz, so a bump there can move the very bytes the reuse proposes to trust."""
+    """`comparison_side_label` decides which inputs may change while a cycle reuses the enumeration and font on disk, so a label wrongly on it would let a pass re-adjudicate against artifacts that no longer match their sources. uv.lock is left off although the tables' stamp does not cover it, because it pins fontTools and uharfbuzz, and a bump there can change the font the reuse would rely on."""
     from rebuild.pipeline import fingerprint
 
     for label in fingerprint.NON_TABLE_DATA_LABELS:
@@ -3833,7 +3833,7 @@ def test_comparison_side_label_names_only_the_inputs_no_table_stage_reads():
 
 
 def test_every_run_m1_label_is_stamped_the_toolchain_or_comparison_side(tmp_path):
-    """The structural guard behind the whole route: an input in the run key that neither the tables' stamp covers nor `comparison_side_label` names would be reused as though the artifacts on disk still described it. Exactly one label is allowed to be neither, and it is the one the route refuses on purpose. A line added to the key with no home lands here rather than in a cycle quietly standing on a stale font."""
+    """Every label in the run_m1 key must be covered by the tables' stamp or named by `comparison_side_label`; otherwise the gates-only route would reuse artifacts that no longer match that input. The one exception is uv.lock, which is neither, so a change to it prevents the route. A new key line that fits neither group fails this test."""
     from rebuild.pipeline import fingerprint
 
     root = _fake_run_m1_root(tmp_path)
@@ -3853,7 +3853,7 @@ def test_every_run_m1_label_is_stamped_the_toolchain_or_comparison_side(tmp_path
 
 
 def test_a_missing_allow_list_contributes_no_line(tmp_path):
-    """The allow-list is optional the way `path_lines` treats every missing file: a tree without one hashes as a tree without one, rather than folding a read error into the key."""
+    """A missing contact allow-list contributes no line, the way `path_lines` drops any missing file, so a read error is never hashed into the key."""
     from rebuild.pipeline import fingerprint
 
     root = _fake_run_m1_root(tmp_path)
@@ -3863,7 +3863,7 @@ def test_a_missing_allow_list_contributes_no_line(tmp_path):
 
 
 def test_the_allow_list_line_is_prose_blind(tmp_path):
-    """Blessing a contact signature has to move this key — the defect gate is the only stage that reads the file, so nothing else will notice — while wording the bless must not, since a cycle that re-adjudicates over a reworded `why` spends its gates proving what it already proved."""
+    """Adding a contact signature must change this key, because the defect gate is the only stage that reads the file. Rewording a `why` or adding a comment must not, because re-running the gates for it would prove nothing new."""
     from rebuild.pipeline import fingerprint
 
     root = _fake_run_m1_root(tmp_path)
@@ -3876,7 +3876,7 @@ def test_the_allow_list_line_is_prose_blind(tmp_path):
 
 
 def test_the_divergence_ledger_line_is_prose_blind(tmp_path):
-    """Reclassifying a divergence class has to move this key — the oracle reads the ledger to name and classify the rows it adjudicates — while rewording the class's `why` must not, since nothing that classifies anything reads that sentence. Its one reader is the surface's explain panel, and the Stage B `explain_prose` component is what stamps it, so a reword costs a cache-served surface rebuild and no re-adjudication at all."""
+    """Reclassifying a divergence class must change this key, because the oracle reads the ledger to classify rows. Rewording a class's `why` must not, because no classifier reads it. The review build copies the `why` into the manifest and the Stage B `explain_prose` component hashes it, so a reword costs a surface rebuild served from the unit cache and no re-adjudication."""
     from rebuild.pipeline import fingerprint
 
     root = _fake_run_m1_root(tmp_path)
@@ -3891,7 +3891,7 @@ def test_the_divergence_ledger_line_is_prose_blind(tmp_path):
 
 
 def test_a_comparison_side_edit_moves_the_run_key_and_leaves_the_sweeps_alone(tmp_path):
-    """Why the two keys are built from different closures. The sweep shapes the compiled font and re-settles the windows beside it; it opens no ledger, no allow-list, no kern sidecar, no baseline and none of the oracle's code, so an edit to any of those can move the key that decides whether to rebuild without moving the key that decides whether to sweep. The second half is the belt's own posture, the deep sweep's: a rune edit, a crate edit, a toolchain bump and the font's own bytes leave the key where it is — the crate's string replay inside run_m1 is what answers for those — while a rule shape the lookup has not emitted before, the compile code, the tools/ closure the compile runs, the shaper and the horizon each move it."""
+    """The run_m1 key and the conform key cover different inputs. The belt shapes the compiled font and re-settles the windows beside it. It reads no ledger, allow-list, kern sidecar, baseline or oracle code, so editing any of those changes the run_m1 key and leaves the conform key alone. A rune edit, a crate edit, a uv.lock edit and the font's bytes also leave the conform key alone; the crate's string replay inside run_m1 covers rune and crate edits. A behavior class the lookup has not emitted before, the compile code, the tools/ files the compile runs, the uharfbuzz version and the horizon each change it."""
     root = _fake_run_m1_root(tmp_path)
     conform = ac.conform_skip_fingerprint(root, 4)
     run_key = ac.run_m1_skip_fingerprint(root)
@@ -3935,7 +3935,7 @@ def test_a_comparison_side_edit_moves_the_run_key_and_leaves_the_sweeps_alone(tm
 
 
 def test_gates_only_reuse_licenses_only_a_diff_the_tables_stamp_cannot_see():
-    """The licensing predicate, and each None it answers means a different thing that all come to "rebuild": no prior green to stand on, nothing moved at all (which is the plain skip's case and not this one), or something build-side moved and the enumeration has to be made again. `moved_input_labels` is asserted beside it because the annotated form the note prints would match no roster entry at all, and the failure would look like a route that simply never fires."""
+    """`gates_only_reuse` returns None in three cases, each meaning the gates-only route is not taken: there is no usable green record, nothing moved (the plain skip handles that), or a build-side input moved and the tables must be rebuilt. The test also checks `moved_input_labels`, because the annotated labels the note prints, such as `name (changed)`, would match no `comparison_side_label` entry, and the route would silently never be taken."""
     stored = {
         "glyph_data/runes/qsX.yaml": "r1",
         "rebuild/m1-divergences.yaml": "d1",
@@ -4120,7 +4120,7 @@ def test_moved_inputs_note_names_changed_new_and_gone():
 
 
 def test_oracle_cache_note_speaks_the_labels_a_skip_miss_actually_reports():
-    """The note is built from the real trees rather than from literals because the way it fails is by matching nothing and saying nothing, which reads exactly like "the store is fine". `moved_inputs_note` reports repo-relative POSIX labels; a comparison against basenames answers `None` for every real input there is, and only a name nobody would ever be handed gets a note out of it."""
+    """The test takes its labels from the real tree, not literals, because a mismatch makes `oracle_cache_note` return None, which looks the same as an unaffected cache. `moved_inputs_note` reports repo-relative POSIX labels, so comparing against basenames would return None for every real input."""
     from rebuild.pipeline import fingerprint, oracle_cache
 
     rune = sorted(path.relative_to(ac.ROOT).as_posix() for path in fingerprint.rune_paths(ac.ROOT))[0]
@@ -4173,7 +4173,7 @@ def test_m1_artifacts_present(tmp_path):
 
 
 def test_rebuild_gate_closure_scope_and_exemptions(tmp_path):
-    """Both edges of the closure at once. The exempt paths are the ones no test in the suite reads: the carried-verdict evidence, the JS-only jstests, the census pins the cycle itself rewrites mid-pass, and the contact allow-list, whose only reader is the defect gate — so blessing a contact signature must not re-run the whole suite to prove nothing. The harness roster is the opposite edge: files the suite reads from outside rebuild/ and glyph_data/, named one at a time, so a tools/ script no test opens stays out while doc/glyph-names.md comes in despite the Markdown filter."""
+    """The test checks both edges of the closure. The paths in `cycle_paths.REBUILD_GATE_EXEMPT_PREFIXES` are files no test reads: the carried-verdict evidence, the JS-only jstests, the census pins the cycle rewrites mid-pass, and the contact allow-list, which only the defect gate reads, so adding a contact signature does not re-run the suite. The other edge is `REBUILD_GATE_HARNESS_PATHS`, the files the suite reads outside rebuild/ and glyph_data/. Only listed paths are included, so `tools/outside.py` stays out, and `doc/glyph-names.md` is included although other Markdown is filtered out."""
     assert "rebuild/m1-contact-allow.yaml" in cycle_paths.REBUILD_GATE_EXEMPT_PREFIXES
     subprocess.run(["git", "init", "-q"], cwd=tmp_path, check=True)
     (tmp_path / "rebuild" / "evidence").mkdir(parents=True)
@@ -4216,7 +4216,7 @@ def test_rebuild_gate_closure_none_outside_git(tmp_path):
 
 
 def test_an_absent_artifact_hashes_to_a_sentinel_rather_than_raising(tmp_path):
-    """Every gate key folds this answer in, and the conform key names an M1.otf that does not exist until the first build has run, so an unreadable path has to hash as a value rather than take the cycle down. The autouse fixture above substitutes the sentinel for live paths, which means nothing else here ever reaches the real fallback; a tmp path delegates, so this does."""
+    """Gate keys hash files through `_sha256_path`, and some of those files may be missing, such as a tracked file deleted from the worktree, so an unreadable path hashes as `absent` instead of raising. The autouse fixture returns `absent` for live artifact paths without calling the real function; a tmp path reaches the real function, so this test exercises its fallback."""
     assert ac._sha256_path(tmp_path / "never-built.otf") == "absent"
     assert ac._sha256_path(tmp_path) == "absent"
     built = tmp_path / "built.otf"
@@ -4226,7 +4226,7 @@ def test_an_absent_artifact_hashes_to_a_sentinel_rather_than_raising(tmp_path):
 
 @pytest.mark.parametrize("lane", ac.REBUILD_LANES)
 def test_both_lane_fingerprints_are_prose_blind_for_runes(lane, tmp_path):
-    """Both lanes carry the rune files, because contracts tests load the live spec too — so a geometry edit moves both keys and a prose edit moves neither."""
+    """The lane key includes the rune files, because contracts tests load the live spec. A structural edit to a rune changes the key, and a ductus prose edit does not."""
     subprocess.run(["git", "init", "-q"], cwd=tmp_path, check=True)
     (tmp_path / "glyph_data" / "runes").mkdir(parents=True)
     rune = tmp_path / "glyph_data" / "runes" / "qsX.yaml"
@@ -4240,7 +4240,7 @@ def test_both_lane_fingerprints_are_prose_blind_for_runes(lane, tmp_path):
 
 @pytest.mark.parametrize("lane", ac.REBUILD_LANES)
 def test_both_lane_fingerprints_are_prose_blind_for_the_ledgers(lane, tmp_path):
-    """The two human-reviewed ledgers the closure still keeps, hashed the way a rune is. Tests across the suite load them — the census facts and the audit's class ids from the divergence ledger, every standing rule's `match` from the approvals — and every one of those readers takes structure, so a reworded `why` or `note` would re-run the suite to reproduce the same green. Reclassifying a class or flipping a rule's verdict still moves both keys, which is what the blindness is bought against."""
+    """The closure includes the divergence ledger and the standing approvals, hashed prose-blind like a rune. Tests across the suite read the census facts and class ids from the divergence ledger and each rule's `match` from the standing approvals, never a `why` or `note`, so re-running the suite after a reword would reproduce the same result. Reclassifying a class or changing a rule's verdict still changes the key."""
     subprocess.run(["git", "init", "-q"], cwd=tmp_path, check=True)
     (tmp_path / "rebuild").mkdir()
     ledger = tmp_path / "rebuild" / "m1-divergences.yaml"
@@ -4273,7 +4273,7 @@ def test_both_lane_fingerprints_are_prose_blind_for_the_ledgers(lane, tmp_path):
 
 @pytest.mark.parametrize("lane", ac.REBUILD_LANES)
 def test_every_harness_file_moves_both_lane_keys(lane, tmp_path):
-    """The under-inclusive half the audit found: the shaping suite, the three corpora, the two prose fixtures and the tools/ tree are all read under `pytest rebuild/` — collection alone imports test/test_shaping.py in every process of the suite, and the compile modules come with it — so editing one has to re-run the lane rather than skip on a green that never saw it."""
+    """Every file in `REBUILD_GATE_HARNESS_PATHS` is read under `pytest rebuild/`: collecting the suite imports test/test_shaping.py in every process, and the tools/ compile modules with it. So editing any of them must change the lane key instead of skipping on a green record that did not see the edit."""
     subprocess.run(["git", "init", "-q"], cwd=tmp_path, check=True)
     for rel in ac.REBUILD_GATE_HARNESS_PATHS:
         harness_file = tmp_path / rel
@@ -4288,7 +4288,7 @@ def test_every_harness_file_moves_both_lane_keys(lane, tmp_path):
 
 
 def test_the_harness_roster_names_the_whole_tools_tree():
-    """A roster rather than a glob, because the closure is assembled from git pathspecs and a glob would sweep in whatever else lands under tools/ — but the read it stands for really is the whole tree, since `unit_cache.environment_stamp` hashes tools/*.py and the contracts tests that build a store recompute that stamp. So a new script there is a read both lane keys have to see, and this is what says so when one lands."""
+    """The harness roster names each tools/*.py file instead of using a glob, because the closure is assembled from git pathspecs and a glob would also pick up any other file added under tools/. The roster must still cover every tools/*.py, because `unit_cache.environment_stamp` hashes them and the contracts tests that build a store recompute that stamp. This test fails when a script is added there and not to the roster."""
     assert {rel for rel in ac.REBUILD_GATE_HARNESS_PATHS if rel.startswith("tools/")} == {
         f"tools/{path.name}" for path in (REPO_ROOT / "tools").glob("*.py")
     }
@@ -4300,7 +4300,7 @@ def test_both_lane_fingerprints_are_none_outside_git(tmp_path):
 
 
 def test_surface_build_skippable_matches_manifest(tmp_path):
-    """The skip is a claim that a rebuild would reproduce this surface whole, so every file the claim covers has to answer for itself: the fingerprint, every shard the manifest names, the three files it does not name — the per-unit index and both app sidecars, each stamped for the manifest beside it rather than merely present, since they are written after the manifest and outside it — and the after font, which no fingerprint component covers at all, so only the manifest's recorded sha held against M1.otf on disk can say a run_m1 landed since."""
+    """A skip means a rebuild would reproduce this surface byte for byte, so the test checks each thing that must match: the inputs fingerprint (and the `ignore` exemption), every shard the manifest names, the per-unit index and both app sidecars, and the after font. The index and sidecars are written after the manifest and outside it, so each must be stamped for the current manifest, not merely present. No fingerprint component covers M1.otf, so only the manifest's recorded after-font sha compared with M1.otf on disk shows whether run_m1 has rebuilt it since."""
     from rebuild.pipeline import fingerprint
     from rebuild.review import app_index, unit_index
 
@@ -4371,7 +4371,7 @@ def test_surface_build_skippable_matches_manifest(tmp_path):
     unit_index.index_path(surface).unlink()
     assert not ac.surface_build_skippable(tmp_path, surface)
 
-    # The manifest rewritten without the sidecars: every shard is still there and the fingerprint still matches, and the three stamped files are the only thing that can tell.
+    # Rewrite the manifest without rewriting the index and sidecars. Every shard is present and the fingerprint matches, so only the stale stamps on those three files show the mismatch.
     unit_index.write_index(surface, [])
     manifest["generated_at"] = "2026-02-02T00:00:00Z"
     (surface / "manifest.json").write_text(json.dumps(manifest))
@@ -4381,7 +4381,7 @@ def test_surface_build_skippable_matches_manifest(tmp_path):
 
 
 def _promotion_root(root):
-    """A repo root whose Stage A record and after font are what every surface here is stamped against, and the fingerprint a surface has to record to reproduce them byte for byte."""
+    """Write a Stage A record and M1.otf under `root`, and return the inputs fingerprint a surface must record to be skippable against them."""
     from rebuild.pipeline import fingerprint
 
     m1 = root / "rebuild" / "out" / "m1"
@@ -4394,7 +4394,7 @@ def _promotion_root(root):
 
 
 def _write_surface(surface, recorded, stamp):
-    """One synthetic surface in the `test_surface_build_skippable_matches_manifest` idiom: a shard, a manifest recording `recorded` as its inputs fingerprint and `stamp` as its generated_at, and the three stamped sidecars written for that manifest."""
+    """Write a synthetic surface like the one in `test_surface_build_skippable_matches_manifest`: one shard, a manifest with `recorded` as its inputs fingerprint and `stamp` as its generated_at, and the per-unit index and app sidecars stamped for that manifest."""
     from rebuild.review import app_index, unit_index
 
     surface.mkdir(parents=True, exist_ok=True)
@@ -4417,7 +4417,7 @@ def _write_surface(surface, recorded, stamp):
 
 
 def test_promotable_surface_names_a_current_rehearsal_and_refuses_the_rest(tmp_path):
-    """The resolver answers for a directory that a live pass may move into place, so every precondition refuses on its own: no directory, the live directory itself, a rehearsal whose own fingerprint moved, one stamped older than the surface it would replace, and an unreadable manifest on either side. The stamp case is the one `surface_build_skippable` cannot see — generated_at is an input mtime rather than a build time — and it is what keeps merge_verdicts' newer-store refusal off the pass."""
+    """`promotable_surface` returns a directory a live pass may move into place, so each precondition must reject on its own: a missing directory, the live directory itself, a rehearsal whose fingerprint no longer matches, one stamped older than the live surface, and an unreadable manifest on either side. `surface_build_skippable` cannot detect the stamp case, because `generated_at` is the newest input mtime, not a build time. Rejecting it prevents `merge_verdicts` from refusing the store after the move."""
     expected = _promotion_root(tmp_path)
     live = tmp_path / "rebuild" / "out" / "review"
     rehearsal = tmp_path / "var" / "rehearsal-review"
@@ -4449,7 +4449,7 @@ def test_promotable_surface_names_a_current_rehearsal_and_refuses_the_rest(tmp_p
 
 
 def test_promotable_surface_reads_the_recorded_pointer_before_the_convention(tmp_path):
-    """`--review-out` takes any path, so the directory the last cycle summary recorded is asked first, resolved against the root because the summary stores it repo-relative; a summary with no pointer, or one that will not parse, falls through to the conventional directory rather than raising."""
+    """`--review-out` accepts any path, so the directory recorded in the last cycle summary is tried first, resolved against the root because the summary stores it repo-relative. A summary with no pointer, one that does not parse, or one naming a missing directory falls back to `var/rehearsal-review` without raising."""
     expected = _promotion_root(tmp_path)
     live = tmp_path / "rebuild" / "out" / "review"
     _write_surface(live, {**expected, "data": "stale"}, "2026-01-01T00:00:00Z")
@@ -4470,7 +4470,7 @@ def test_promotable_surface_reads_the_recorded_pointer_before_the_convention(tmp
 
 
 def test_promote_surface_swaps_the_trees_and_leaves_no_leftover(tmp_path, monkeypatch):
-    """After the move the live path holds the source's files, the source is gone and nothing named `.superseded` remains. A leftover from a pass that died mid-way is cleared first, and when the second rename fails the live tree is put back whole — which is what two renames buy over a removal followed by a move."""
+    """After the move the live path holds the source's files, the source is gone, and no `.superseded` directory remains. A leftover `.superseded` tree from an interrupted pass is removed first. When the second rename fails, the live tree is restored, which a removal followed by a move could not do."""
     live = tmp_path / "review"
     source = tmp_path / "rehearsal"
     superseded = tmp_path / "review.superseded"
@@ -4507,7 +4507,7 @@ def test_promote_surface_swaps_the_trees_and_leaves_no_leftover(tmp_path, monkey
 
 
 def test_a_promotion_whose_outgoing_tree_will_not_delete_still_counts(tmp_path, monkeypatch):
-    """Once the second rename has returned, the live path holds the rehearsal, so an outgoing tree that will not delete is left standing under its `.superseded` name for the next pass's sweep rather than turned into a failed move."""
+    """Once the second rename succeeds, the promotion is complete. An outgoing tree that cannot be deleted stays under its `.superseded` name for the next pass to remove, and the promotion is not reported as failed."""
     live = tmp_path / "review"
     source = tmp_path / "rehearsal"
     superseded = tmp_path / "review.superseded"
@@ -4532,7 +4532,7 @@ def test_a_promotion_whose_outgoing_tree_will_not_delete_still_counts(tmp_path, 
 def test_recover_superseded_surface_settles_the_leftover_before_the_first_run_question(
     tmp_path, monkeypatch, capsys
 ):
-    """A `.superseded` tree beside a live one is the surface a promotion replaced, so it is deleted; one with no live tree beside it is the live surface a pass that died between the two renames had stepped aside, so it is put back. `main` settles it before asking whether the surface exists, so an interrupted promotion is neither a first run nor an orphan of the surface's size. A dry run still puts a lone tree back, so the plan it prints is the one a real pass follows, but leaves a tree beside a live one for the next real pass to delete."""
+    """A `.superseded` tree beside a live tree is the surface a promotion replaced, so it is deleted. A `.superseded` tree with no live tree beside it is the live surface an interrupted promotion moved aside, so it is moved back. `main` does this before checking whether a surface exists, so an interrupted promotion is not treated as a first run. A dry run still moves a lone tree back, so its plan matches what a real pass would do, but leaves a tree that sits beside a live one for the next real pass to delete."""
     live = tmp_path / "review"
     superseded = tmp_path / "review.superseded"
     assert ac.recover_superseded_surface(live) is None
@@ -4566,7 +4566,7 @@ def test_recover_superseded_surface_settles_the_leftover_before_the_first_run_qu
 
 
 def test_a_promoted_surface_still_answers_for_itself(tmp_path, mini_surface):
-    """The executable form of the soundness claim: every stamp inside a surface is content-only against its manifest, so a real build moved to another path is still current by every check the skip asks — the per-unit index, both app sidecars — and both stores load warm under the environment their headers carry, where a rebuild would have dropped them."""
+    """Every stamp inside a surface depends only on its manifest's content, so a real surface moved to another path still passes the skip's checks (the per-unit index and both app sidecars), and both stores load under the environment recorded in their headers."""
     from rebuild.review import app_index, unit_cache, unit_index
 
     source = tmp_path / "rehearsal"
@@ -4599,7 +4599,7 @@ REFUSE_RUNE = "rune: qsX\npolicy:\n  refuse:\n  - {exit: baseline, why: two vert
 
 
 def _stamped_surface(root):
-    """A review surface stamped for the inputs standing in `root` at the moment it is written, and skippable the moment it is. It is what lets a test ask a prose edit the one question no upstream key can answer for it: a refusal to skip afterwards says the wording reached the surface's stamp, and a skip that survives says it did not."""
+    """Write a review surface stamped for the current inputs under `root`, so `surface_build_skippable` is true right after. After a prose edit, a failed skip shows the edit reached the surface's stamp, and a passing skip shows it did not."""
     from rebuild.pipeline import fingerprint
     from rebuild.review import app_index, unit_index
 
@@ -4643,7 +4643,7 @@ def _upstream_keys(root):
 
 
 def test_a_refuse_why_edit_restamps_the_surface_and_nothing_upstream(tmp_path):
-    """The bargain issue #114 struck, stated over every key a cycle consults at once. A refusal's `why` is quoted into the explain text the surface serves, so the surface has to notice a rewording — but nothing that builds an artifact reads it, so run_m1's green, the conform sweep's key, the tables' own stamp, the Stage A record and both suite lanes must all stay exactly where they were, and the pass that follows the edit rebuilds the surface over artifacts it never touches."""
+    """A refusal's `why` is quoted into the explain text the surface serves, so the surface must notice a rewording. Nothing that builds an artifact reads it, so the run_m1 key, the conform key, the tables' stamp, the Stage A record and the lane key all stay unchanged, and the pass after such an edit rebuilds only the surface."""
     root = _fake_run_m1_root(tmp_path)
     subprocess.run(["git", "init", "-q"], cwd=root, check=True)
     (root / ".gitignore").write_text("rebuild/out/\n")
@@ -4660,7 +4660,7 @@ def test_a_refuse_why_edit_restamps_the_surface_and_nothing_upstream(tmp_path):
 
 
 def test_a_ledger_why_edit_restamps_the_surface_and_nothing_upstream(tmp_path):
-    """The same bargain, struck for the divergence ledger's class rationales — the whole of what issue #126 bought. The review build copies each class's `why` into the manifest, so the surface still has to notice a rewording; the oracle classifies rows by predicate, status and `no_verdict` and reads no rationale at all, so run_m1's green, the sweep's key, the tables' stamp, the Stage A record and both suite lanes stay exactly where they were. Reclassifying the class is the other half: that has to move the run key and the suite's, and it does."""
+    """The review build copies each divergence class's `why` into the manifest, so the surface must notice a rewording. The oracle does not read the `why`, so the run_m1 key, the conform key, the tables' stamp, the Stage A record and the lane key stay unchanged. Reclassifying the class must change the run_m1 key, the Stage A record and the lane key."""
     from rebuild.pipeline import fingerprint
 
     root = _fake_run_m1_root(tmp_path)
@@ -4685,7 +4685,7 @@ def test_a_ledger_why_edit_restamps_the_surface_and_nothing_upstream(tmp_path):
 
 
 def test_a_standing_note_reword_moves_the_chain_and_nothing_else(tmp_path):
-    """The standing approvals' half of the same bargain, and the one ledger whose prose still costs something. The fill quotes a rule's `note` verbatim into every verdict note it writes, so the plumbing chain has to re-run — while both suite lanes, which read the rules' `match` and never their prose, do not, and no build key reads the file at all. Flipping the rule's verdict is what the lanes are still there for."""
+    """The standing fill quotes a rule's `note` into every verdict note it writes, so rewording a note must change the plumbing key. The surface and every build key stay unchanged, and so does the lane key, because the tests read each rule's `match` and not its prose. Changing a rule's verdict must change the lane key and leave the run_m1 key unchanged."""
     root = _fake_run_m1_root(tmp_path)
     subprocess.run(["git", "init", "-q"], cwd=root, check=True)
     (root / ".gitignore").write_text("rebuild/out/\n")
@@ -4718,7 +4718,7 @@ def test_a_standing_note_reword_moves_the_chain_and_nothing_else(tmp_path):
 
 
 def test_the_census_pins_are_outside_the_rebuild_closure(tmp_path):
-    """The census step rewrites the pins mid-pass, so counting them as an input would invalidate the gate's key at record time on every refreshing pass. The suite no longer reads them, so they are exempt and the refresh is invisible to the key."""
+    """The census step rewrites the pins during a pass, so hashing them would change the gate's key before its green record is written on every pass that refreshes them. No test reads them, so they are exempt and a refresh leaves the key unchanged."""
     subprocess.run(["git", "init", "-q"], cwd=tmp_path, check=True)
     (tmp_path / "rebuild").mkdir()
     (tmp_path / "rebuild" / "test_x.py").write_text("")
@@ -4732,7 +4732,7 @@ def test_the_census_pins_are_outside_the_rebuild_closure(tmp_path):
 
 
 def test_dry_run_plan_skip_run_m1_and_surface_still_runs_the_census():
-    """A settled pass rebuilds nothing, but the pins are the cycle's own output rather than a keyed stage: refreshing them from the sidecar costs milliseconds, so the step runs on every pass."""
+    """A pass with nothing to rebuild still runs the census step. The pins are the cycle's output, not a keyed stage, and refreshing them from the sidecar takes milliseconds."""
     plan = _plan(
         skip_run_m1=True,
         run_m1_note="build inputs unchanged since the last green M1 build; --fresh overrides",
@@ -4749,7 +4749,7 @@ def test_dry_run_plan_skip_run_m1_and_surface_still_runs_the_census():
 
 
 def test_dry_run_plan_skips_the_rebuild_suite():
-    """The common shape of a pass that rebuilt M1: the artifacts moved, while the suite's key — which holds no artifact — is still proved."""
+    """A typical pass after an M1 rebuild: the artifacts changed, but the suite's key includes no build artifact, so the suite can still skip."""
     plan = _plan(
         skip_contracts=True,
         contracts_note="input closure unchanged since its last green run; --fresh overrides",
@@ -4817,7 +4817,7 @@ def test_finish_says_the_cycle_is_complete(monkeypatch, capsys):
 
 
 def test_a_green_finish_closes_on_the_readiness_checklist_instead_of_naming_the_command(monkeypatch, capsys):
-    """The answer `make verdict-ready` gives, printed by the pass itself, so nobody is sent to run it after a cycle. A red pass prints none of it: its next command is whatever the failure block names."""
+    """A green pass prints the `make verdict-ready` checklist itself instead of telling the reader to run the command. A red pass prints none of it, and its failure block names the next step."""
     seen: list[ac.Plan] = []
 
     def block(plan):
@@ -4841,7 +4841,7 @@ def test_a_green_finish_closes_on_the_readiness_checklist_instead_of_naming_the_
 
 
 def test_the_readiness_block_leaves_the_server_row_to_the_recipe_that_serves(monkeypatch):
-    """`--stop-server` is `make review-cycle` saying it owns the server after the pass, so the checklist the pass closes on must not call a server the recipe is about to start absent. A bare `make artifact-cycle` has no recipe behind it, and its checklist carries the row."""
+    """`make review-cycle` passes `--stop-server` and starts the server after the pass, so that pass's checklist leaves out the server row instead of reporting the server as absent. A plain `make artifact-cycle` includes the row, and a rehearsal prints no checklist."""
     from rebuild.tools import verdict_ready
 
     asked: list[bool] = []
@@ -4871,7 +4871,7 @@ def test_the_readiness_block_reports_a_checklist_it_could_not_compute(monkeypatc
 
 
 def _unsettled_repo(tmp_path, monkeypatch, stamp="2026-07-17T20:24:44Z"):
-    """A repo where no keyed stage can auto-skip: run_m1's key matches no record, the make-test closure is unreadable, and neither rebuild lane's key matches. `_settled_repo` is the converged counterpart."""
+    """Set up a repo where no keyed stage can skip: run_m1's key matches no record, the make-test fingerprint is None, and the rebuild lane's key matches no record. `_settled_repo` is the counterpart in which run_m1 and the surface build both skip."""
     _seed_auto_repo(tmp_path, monkeypatch, stamp=stamp)
     (tmp_path / "var").mkdir()
     (tmp_path / "verdicts-autosave.json").write_text(json.dumps(_verdicts_doc(stamp, ["u-1"])))
@@ -4884,7 +4884,7 @@ def _unsettled_repo(tmp_path, monkeypatch, stamp="2026-07-17T20:24:44Z"):
 
 
 def test_main_runs_every_heavy_gate_on_a_pass_that_rebuilds(tmp_path, monkeypatch, capsys):
-    """Nothing is ever recorded pending: a pass whose artifacts move still verifies everything it cannot prove unchanged."""
+    """A pass that rebuilds still runs every heavy gate whose inputs it cannot show are unchanged."""
     _unsettled_repo(tmp_path, monkeypatch)
     assert ac.main(["--dry-run"]) == 0
     out = capsys.readouterr().out
@@ -4894,7 +4894,7 @@ def test_main_runs_every_heavy_gate_on_a_pass_that_rebuilds(tmp_path, monkeypatc
 
 
 def test_main_auto_skips_the_rebuild_suite_even_when_run_m1_runs_live(tmp_path, monkeypatch, capsys):
-    """The suite's closure holds no build artifact at all, so a live M1 rebuild cannot invalidate its key mid-pass — which is why the preflight can settle that skip on every route."""
+    """The suite's closure includes no build artifact, so a live M1 rebuild cannot change its key during the pass, and the preflight can decide that skip on every route."""
     _unsettled_repo(tmp_path, monkeypatch)
     monkeypatch.setattr(ac, "rebuild_lane_fingerprint", lambda root, lane: f"key-{lane}")
     monkeypatch.setattr(
@@ -4921,7 +4921,7 @@ def test_main_forces_the_rebuild_suite_under_fresh(tmp_path, monkeypatch, capsys
 
 
 def _full_build_step(out: str):
-    """The rendered run_m1 step of a plan that builds: the whole point of the negative cases is that this is what got planned instead of the gates-only argv. --jobs rides in front of --kernel-threads only on a box wide enough to want it, --replay-threads always follows --kernel-threads, and --fresh-oracle-cache only when the caller asked for one."""
+    """Return the match for the rendered run_m1 step of a plan that builds, so the negative cases can show a build was planned instead of the gates-only argv. `--jobs` appears before `--kernel-threads` only when the sweep width is above one, `--replay-threads` always follows `--kernel-threads`, and `--fresh-oracle-cache` appears only under `--fresh`."""
     return re.search(
         r"^ +\$ uv run python -m rebuild\.pipeline\.run_m1"
         r"( --jobs \d+)? --kernel-threads \d+ --replay-threads \d+( --fresh-oracle-cache)?$",
@@ -4931,7 +4931,7 @@ def _full_build_step(out: str):
 
 
 def _comparison_side_drift(tmp_path, monkeypatch, moved="rebuild/m1-divergences.yaml"):
-    """A repo whose last green M1 build differs from now by one named input and nothing else, with both halves of the route's licence answered true. Every test here varies one of those three things and reads the route back out of the plan."""
+    """Set up a repo whose last green M1 build differs from the current inputs only in `moved`, with `m1_artifacts_present` and `m1_tables_stamped` both true. The tests that use it each change one of these three conditions and read the chosen route from the plan."""
     _unsettled_repo(tmp_path, monkeypatch)
     ac.record_green(cycle_paths.RUN_M1_GREEN, "green-key", files={moved: "before", "uv.lock": "lock-1"})
     monkeypatch.setattr(ac, "run_m1_skip_files", lambda root=None: {moved: "after", "uv.lock": "lock-1"})
@@ -4940,7 +4940,7 @@ def _comparison_side_drift(tmp_path, monkeypatch, moved="rebuild/m1-divergences.
 
 
 def test_main_re_adjudicates_when_only_comparison_side_inputs_moved(tmp_path, monkeypatch, capsys):
-    """The route that makes a ledger edit cost the gates instead of a fixpoint: the tables' stamp cannot see the file that moved, so the enumeration and the font on disk are still the ones the runes describe and the pass re-runs the gates over them. No --kernel-threads goes with it, because nothing on this route enumerates anything to size a fan-out for."""
+    """When only a ledger changed, the pass re-runs the gates instead of rebuilding. The tables' stamp does not cover the changed file, so the enumeration and font on disk still match the runes, and `run_m1 --gates-only` re-runs the gates over them. No `--kernel-threads` or `--replay-threads` is passed, because this route enumerates and replays nothing."""
     _comparison_side_drift(tmp_path, monkeypatch)
     assert ac.main(["--dry-run"]) == 0
     out = capsys.readouterr().out
@@ -4958,7 +4958,7 @@ def test_main_re_adjudicates_when_only_comparison_side_inputs_moved(tmp_path, mo
 
 
 def test_a_plan_that_skips_run_m1_never_also_reuses_it():
-    """The two routes are exclusive and the skip is the stronger claim — nothing moved at all, so there is nothing to re-adjudicate — which is why the plan resolves the pair rather than trusting its caller to. The reuse route is a step that runs, so nothing downstream may read a missing argv as the only shape a non-building pass takes, and it carries no --kernel-threads: there is no fan-out on it to size."""
+    """The skip and reuse routes are exclusive, and the skip wins because nothing moved and there is nothing to re-adjudicate. The plan resolves the pair itself instead of relying on its caller. The reuse route is a step that runs, so it has an argv, and it passes no `--kernel-threads` or `--replay-threads`."""
     both = _plan(skip_run_m1=True, reuse_run_m1=True, run_m1_note="build inputs unchanged")
     assert both.reuse_run_m1 is False
     assert not both.runs("run_m1")
@@ -4972,7 +4972,7 @@ def test_a_plan_that_skips_run_m1_never_also_reuses_it():
 def test_main_skips_the_surface_on_the_reuse_route_only_when_stage_a_already_stands(
     tmp_path, monkeypatch, capsys
 ):
-    """A contact-allow bless is the one comparison-side edit outside every Stage A component, so the record the gates-only pass will rewrite is the record already on disk and the surface it feeds cannot move; a ledger edit moves Stage A's data component, so the record on disk is stale until the pass rewrites it and the manifest's match against it proves nothing. The reuse route asks the live sources rather than the record, where the skip route may trust the record because nothing moved at all."""
+    """On the gates-only route the surface build is skipped only when `m1_stage_a_current` says the Stage A record on disk matches the live sources. A contact allow-list edit is outside every Stage A component, so the record the gates-only pass rewrites is the one already on disk and the surface cannot change. A divergence-ledger edit moves Stage A's data component, so the record on disk is stale until the pass rewrites it. The skip route can trust the record because nothing moved at all."""
     _comparison_side_drift(tmp_path, monkeypatch, moved="rebuild/m1-contact-allow.yaml")
     monkeypatch.setattr(ac, "surface_build_skippable", lambda root=None: True)
     monkeypatch.setattr(ac, "m1_stage_a_current", lambda root=None: True)
@@ -5008,7 +5008,7 @@ def test_m1_stage_a_current_compares_the_record_against_the_live_sources(tmp_pat
 
 
 def test_main_rebuilds_when_the_tables_on_disk_no_longer_carry_their_stamp(tmp_path, monkeypatch, capsys):
-    """The green record alone never licenses the reuse. It proves the artifacts once came from a complete build of every build-side input; only the stamp proves none of those inputs has moved since, and without it the font beside the tables is a font nobody can name the sources of."""
+    """A green record alone does not permit the reuse. It shows that the artifacts once came from a complete build of every build-side input; only the tables' stamp (`m1_tables_stamped`) shows that none of those inputs has moved since. Without the stamp the pass rebuilds."""
     _comparison_side_drift(tmp_path, monkeypatch)
     monkeypatch.setattr(ac, "m1_tables_stamped", lambda root=None: False)
     assert ac.main(["--dry-run"]) == 0
@@ -5021,7 +5021,7 @@ def test_main_rebuilds_when_the_tables_on_disk_no_longer_carry_their_stamp(tmp_p
 
 
 def test_main_rebuilds_when_anything_build_side_moved(tmp_path, monkeypatch, capsys):
-    """One build-side label among the moved ones is enough, however many comparison-side ones ride beside it: the artifacts on disk answer for sources that no longer exist, and re-running the gates over them would compare the new runes against the old font."""
+    """One moved build-side label forces a rebuild, whatever comparison-side labels moved with it: the artifacts on disk were built from sources that no longer exist, and re-running the gates over them would judge a font built from the previous runes."""
     _comparison_side_drift(tmp_path, monkeypatch, moved="glyph_data/runes/qsX.yaml")
     assert ac.main(["--dry-run"]) == 0
     out = capsys.readouterr().out
@@ -5030,7 +5030,7 @@ def test_main_rebuilds_when_anything_build_side_moved(tmp_path, monkeypatch, cap
 
 
 def test_main_takes_no_route_at_all_under_fresh(tmp_path, monkeypatch, capsys):
-    """--fresh is the escape hatch for exactly the case the route cannot see: an artifact on disk that is wrong for a reason no input fingerprint records."""
+    """--fresh disables both routes. It covers the case no input fingerprint can detect: an artifact on disk that is wrong for some other reason."""
     _comparison_side_drift(tmp_path, monkeypatch)
     assert ac.main(["--dry-run", "--fresh"]) == 0
     out = capsys.readouterr().out
@@ -5041,7 +5041,7 @@ def test_main_takes_no_route_at_all_under_fresh(tmp_path, monkeypatch, capsys):
 def test_run_cycle_skips_the_sweep_after_run_m1_on_the_key_the_finished_artifacts_carry(
     monkeypatch, tmp_path, capsys
 ):
-    """The sweep's skip is decided after run_m1 rather than in the plan, because only a finished build knows what the font came out as — and the three routes into it (skipped, re-adjudicated, rebuilt) all land on this one key. A skip taken over the artifacts the pass is leaving is proved rather than forced, which is what `review/status.py` reads to call a surface sitting-ready."""
+    """The conform skip is decided after run_m1, not in the plan, because only a finished build knows what the font came out as. All three run_m1 routes (skipped, gates-only, rebuilt) end on this same key. A skip over the artifacts the pass leaves behind is recorded as "proved", which is what `review/status.py` needs to call a surface sitting-ready."""
     monkeypatch.setattr(cycle_paths, "CONFORM_GREEN", tmp_path / "conform-green.json")
     monkeypatch.setattr(ac, "conform_skip_fingerprint", lambda root=None, horizon=None: "cfp")
     monkeypatch.setattr(ac, "rebuild_lane_fingerprint", lambda root, lane: f"rfp-{lane}")
@@ -5076,7 +5076,7 @@ def test_run_cycle_skips_the_sweep_after_run_m1_on_the_key_the_finished_artifact
 
 
 def test_run_cycle_sweeps_when_the_finished_artifacts_carry_no_green(monkeypatch, tmp_path, capsys):
-    """The same decision the other way, and the reason the skip cannot ride the plan: a pass whose run_m1 moved the font has to sweep it, and the plan was resolved before anything knew that."""
+    """The converse: when the finished artifacts' key matches no green record, the sweep runs. This is why the skip cannot be decided in the plan, which is resolved before run_m1 has changed the font."""
     monkeypatch.setattr(cycle_paths, "CONFORM_GREEN", tmp_path / "conform-green.json")
     monkeypatch.setattr(ac, "conform_skip_fingerprint", lambda root=None, horizon=None: "cfp")
     monkeypatch.setattr(ac, "rebuild_lane_fingerprint", lambda root, lane: f"rfp-{lane}")
@@ -5132,7 +5132,7 @@ def test_do_run_m1_skip_reads_recorded_summaries(monkeypatch, tmp_path):
 
 
 def test_do_run_m1_records_green_only_when_fingerprint_stable(monkeypatch, tmp_path):
-    """A green is recorded only when the inputs held still for the whole build. The record's file list is stubbed for the same reason its fingerprint is: `run_m1_skip_files(ROOT)` opens the live contact allow-list, and the closure exempts that file on the grounds that no test in the suite reads it."""
+    """A green is recorded only when the inputs did not change during the build. `run_m1_skip_files` is stubbed along with the fingerprint because the real one reads the live contact allow-list, which the contracts closure exempts on the grounds that no test reads it."""
     files = {name: tmp_path / f"{name}.json" for name in cycle_paths.M1_SUMMARY_FILES}
     monkeypatch.setattr(cycle_paths, "M1_SUMMARY_FILES", files)
     green = tmp_path / "run-m1-green.json"
@@ -5176,7 +5176,7 @@ def test_do_run_m1_records_green_only_when_fingerprint_stable(monkeypatch, tmp_p
 
 
 def test_do_run_m1_reuse_spares_the_summary_the_gates_only_pass_rewrites(monkeypatch, tmp_path):
-    """The one asymmetry of the middle route. `--gates-only` rewrites the defect fields of the build's own pipeline_summary.json in place and refuses outright without one, so clearing it before the spawn would take down the pass that was supposed to be cheap; the two gate summaries are the child's own output and are cleared exactly as a full build clears them, so a child that dies mid-pass cannot leave last pass's verdicts to be judged as this one's. Everything after the spawn is the full build's path, the green included."""
+    """On the gates-only route the pass keeps pipeline_summary.json and clears the other two summaries. `--gates-only` rewrites that summary's defect fields in place and exits without one, so clearing it would break the pass. The two gate summaries are the child's own output and are cleared as on a full build, so a child that dies mid-pass cannot leave the last pass's results to be read as this one's. After the spawn the route follows the full build's path, including the green record."""
     files = {name: tmp_path / f"{name}.json" for name in cycle_paths.M1_SUMMARY_FILES}
     monkeypatch.setattr(cycle_paths, "M1_SUMMARY_FILES", files)
     green = tmp_path / "run-m1-green.json"
@@ -5219,7 +5219,7 @@ def test_do_run_m1_reuse_spares_the_summary_the_gates_only_pass_rewrites(monkeyp
 
 
 def test_do_run_m1_a_full_build_clears_the_summary_the_reuse_route_keeps(monkeypatch, tmp_path):
-    """The other side of the same rule, so the exemption cannot quietly widen: a build that makes its own tables makes its own pipeline summary too, and a stale one left in place would be judged as this build's if the child died before writing one."""
+    """The converse, so the exemption cannot widen unnoticed: a full build writes its own pipeline summary, so it clears the stale one, which would otherwise be read as this build's if the child died before writing a new one."""
     files = {name: tmp_path / f"{name}.json" for name in cycle_paths.M1_SUMMARY_FILES}
     monkeypatch.setattr(cycle_paths, "M1_SUMMARY_FILES", files)
     for path in files.values():
@@ -5397,7 +5397,7 @@ _LEDGER_YAML = """- id: boundary-echo
 
 
 def _census_fixture(monkeypatch, tmp_path, *, accepted, current):
-    """The census step's inputs, off the real tree: the pins the refresh child is taken to have just written, the index copy the step holds them against, and a three-entry ledger for the reach line."""
+    """The census step's inputs outside the real tree: the pins file standing in for what the refresh child just wrote, the index copy the step compares it with, and a three-entry ledger for the reach line."""
     pins = tmp_path / "review-census-pins.json"
     pins.write_text(json.dumps(current, indent=2) + "\n")
     ledger = tmp_path / "m1-divergences.yaml"
@@ -5420,7 +5420,7 @@ def _moved_invariant() -> dict:
 
 
 def test_the_census_invariant_diff_prints_under_the_census_step_in_full(tmp_path, capsys, monkeypatch):
-    """When the invariant moved, its block's diff is what a commit accepts, so its lines belong on the terminal verbatim — copy-pasteable, with no step column in front of them — and only its lines: the volatile hunks a letter batch moves stay out. It is not a step of the plan: filed under census, its lines land in census's log and under census's column, without a second banner for a step that is already open, and no log of its own."""
+    """When the invariant block moved, its diff is what a commit of the pins accepts, so it is printed in full: verbatim, with no step column in front so it can be copied, and without the volatile hunks. The diff is a substep of census, so its lines go to census's log and column, with no second banner and no log of its own."""
     plan = _plan()
     log_dir = tmp_path / "logs"
     registry = ac._ChildRegistry()
@@ -5446,7 +5446,7 @@ def test_the_census_invariant_diff_prints_under_the_census_step_in_full(tmp_path
 
 
 def test_the_summary_table_carries_each_steps_figure_and_what_it_cost():
-    """The table is the pass in one screen: what ran, how it came out, its own headline number, and what it cost. A step that did not run contributes no figure — its reason is the plan block's, and a run_m1 the plan skipped would otherwise report the last build's unmatched count as though this pass had counted it. A failed gate's figure keeps only what the outcome column has not already said: `FAILED  3 unexplained`, never `FAILED  FAILED (3 unexplained)`. And the retention row tells the two ways it can be missing apart — `skipped` when the plan ruled it out, `not run` when a failure or a SIGINT stopped the pass before `_finish` reached it."""
+    """The summary table shows, per step, the outcome, the step's headline figure, and the seconds it took. A step that did not run shows no figure; otherwise a run_m1 the plan skipped would report the last build's unmatched count as this pass's. A failed gate's figure keeps only what the outcome column does not say: `FAILED  3 unexplained`, not `FAILED  FAILED (3 unexplained)`. The retention row reads `skipped` when the plan ruled it out and `not run` when a failure or a stop signal ended the pass before `_finish` reached it."""
     plan = _plan(skip_conform=True, conform_note=ac.CONFORM_SKIP_NOTE)
     report = ac.CycleReport()
     report.unmatched = 8423
@@ -5505,7 +5505,7 @@ def test_the_summary_table_carries_each_steps_figure_and_what_it_cost():
 
 
 def test_a_step_that_came_back_nonzero_never_reads_as_an_ok_row():
-    """The outcome column is filled from what the step's child came to, never from the seconds it cost — a column filled from seconds reads `ok` for every step that ran at all: `ok  5 unmatched, PINS FAILED` for a run_m1 whose Manual pins failed, and `ok` beside a blank figure for a surface build whose child died. The two informational steps are the deliberate exception — neither gates anything, and each already says what went wrong in its own figure."""
+    """The outcome column comes from each step's result (its exit status, or for run_m1 its gate verdict), not from whether the step took any time. Filled from seconds, it would read `ok` for every step that ran, including a run_m1 whose Manual pins failed and a surface build whose child died. The two informational steps, census and job-costs, are the exception: neither gates anything, and each reports its failure in its own figure."""
     plan = _plan()
     report = ac.CycleReport()
     report.unmatched = 5
@@ -5525,7 +5525,7 @@ def test_a_step_that_came_back_nonzero_never_reads_as_an_ok_row():
 
 
 def test_every_spawned_step_closes_with_its_own_figure_and_peak(capsys, tmp_path):
-    """`ok` on its own sends the reader to the summary table for the number they were waiting for. No stage knows its figure at the moment its child exits — run_m1 has three summaries to read, the surface build a manifest to open, the chain its sections to split — so the closing line waits for the stage that reads them, and every step signs off with the figure its row will carry."""
+    """Each spawned step's closing line carries the figure its summary row will show and its peak memory. No stage knows its figure when its child exits (run_m1 reads three summaries, the surface build opens a manifest, the chain splits its sections), so the closing line is written by the stage that reads them."""
     surface = _built_surface(tmp_path, units=15903, rows=81894, batches=16, echo_groups=402)
 
     def spawn(name, argv, *, emit, registry, stream, **passthrough):
@@ -5546,7 +5546,7 @@ def test_every_spawned_step_closes_with_its_own_figure_and_peak(capsys, tmp_path
 
 
 def test_do_census_names_the_invariant_movement_and_reports_reach(monkeypatch, tmp_path):
-    """The summary line carries the finding: which classes appeared, which exemptions and families came with them — the one movement worth interrupting a commit for — and beside it the reach line, holding the ledger's declarations against what the corpus reached. Both are what a cycle log greps, and both land in cycle_summary.json."""
+    """The census status names the invariant movement: which classes appeared, and which no-verdict exemptions and families came with them. Beside it, the reach line compares the ledger's declarations with the classes the corpus reached. Both go to the cycle log and to cycle_summary.json."""
     _census_fixture(monkeypatch, tmp_path, accepted=_ACCEPTED_PINS, current=_moved_invariant())
     calls: list[str] = []
 
@@ -5575,7 +5575,7 @@ def test_do_census_names_the_invariant_movement_and_reports_reach(monkeypatch, t
 
 
 def test_do_census_says_the_invariant_is_unchanged_when_only_the_volatile_block_moved(monkeypatch, tmp_path):
-    """A letter batch moves the volatile totals on nearly every pass. That is not the movement a commit needs a reader for, so the status says the invariant held rather than sending them to a diff, and nothing is printed; the totals have their home in cycle_summary.json."""
+    """When only the volatile block moved, as it does on nearly every letter batch, the status says the invariant is unchanged and no diff is printed. The totals are recorded in cycle_summary.json."""
     current = {**_ACCEPTED_PINS, "volatile": {"audit": {"row_count": 12, "units": 5}}}
     _census_fixture(monkeypatch, tmp_path, accepted=_ACCEPTED_PINS, current=current)
     printed: list[str] = []
@@ -5615,7 +5615,7 @@ def test_do_census_says_so_when_the_refresh_moved_nothing(monkeypatch, tmp_path)
 
 
 def test_do_census_says_when_there_is_no_accepted_census_to_hold_the_pins_against(monkeypatch, tmp_path):
-    """An untracked pins file, or no git at all, leaves the step nothing to compare with. The reach line still stands, since it needs only the ledger and the pins just written."""
+    """An untracked pins file, or no git, leaves the step nothing to compare with. The reach line is still computed, since it needs only the ledger and the pins just written."""
     _census_fixture(monkeypatch, tmp_path, accepted=None, current=_moved_invariant())
 
     report = ac.CycleReport()
@@ -5634,7 +5634,7 @@ def test_do_census_says_when_there_is_no_accepted_census_to_hold_the_pins_agains
 
 
 def test_do_census_reports_a_failed_refresh_and_compares_nothing():
-    """A refresh can fail on a surface that predates the census sidecar. It is informational, so there is nothing to hold against the accepted census and nothing to record — the next pass that rebuilds the surface heals it."""
+    """A refresh can fail on a surface built before the census sidecar existed. The step is informational, so a failure compares and records nothing; the next pass that rebuilds the surface writes the sidecar."""
     calls: list[str] = []
 
     def spawn(name, argv, *, emit, registry, stream):
@@ -5670,7 +5670,7 @@ def test_a_failed_census_refresh_never_fails_the_cycle(monkeypatch):
 
 
 def test_a_rehearsal_never_runs_the_census(monkeypatch, tmp_path):
-    """The checked-in pins describe the live surface. A rehearsal builds somewhere else, so refreshing them from it would replace the accepted census with one of a surface nobody serves."""
+    """The checked-in pins describe the live surface. A rehearsal builds elsewhere, so refreshing the pins from it would replace the accepted census with the census of a surface nobody serves."""
 
     def census_must_not_run(*args, **kwargs):
         raise AssertionError("a rehearsal must not run the census")
@@ -5693,7 +5693,7 @@ def test_a_rehearsal_never_runs_the_census(monkeypatch, tmp_path):
 
 
 def test_do_job_costs_reports_a_clean_check():
-    """Nothing to show and nothing to accept: every measured unit still fits the constant that divides the box by it, so the step is one file read and the summary says so in a line."""
+    """When every measured unit's peak still fits its constant, the status says so in one line and nothing else is shown."""
     calls: list[str] = []
 
     def spawn(name, argv, *, emit, registry, stream):
@@ -5708,7 +5708,7 @@ def test_do_job_costs_reports_a_clean_check():
 
 
 def test_do_job_costs_diffs_the_constants_when_the_check_trips():
-    """A trip asks one further question — has the constant already been re-seeded here, so the commit in hand is already the acceptance? — and the diff answers it. It is conditional where the census's is not: these four files hold a great deal besides their constants, so an unconditional diff would print unrelated work every pass."""
+    """When the check trips, the step diffs the files that hold the constants, to learn whether a constant has already been re-seeded in the working tree (so the commit in hand is already the acceptance). Unlike the census diff, this one runs only on a trip: these files hold much besides their constants, so an unconditional diff would print unrelated work on every pass."""
     calls: list[str] = []
     seen: dict[str, list[str]] = {}
 
@@ -5737,7 +5737,7 @@ def test_do_job_costs_diffs_the_constants_when_the_check_trips():
 
 
 def test_a_tripped_check_over_an_unmoved_tree_says_only_that_it_tripped():
-    """The already-moved clause is a fact about the working tree, not about the trip: with the constants untouched there is nothing to claim, and the status must not imply the acceptance is already drafted."""
+    """The already-moved clause depends on the working tree, not on the trip: with the constants unchanged, the status must not suggest that the acceptance is already drafted."""
 
     def spawn(name, argv, *, emit, registry, stream):
         return _step(name, 1 if name == "job-costs" else 0)
@@ -5750,7 +5750,7 @@ def test_a_tripped_check_over_an_unmoved_tree_says_only_that_it_tripped():
 
 
 def test_do_job_costs_reports_a_broken_check_without_diffing():
-    """Exit 1 is the tool's verdict; anything else is the tool failing to reach one. There is then nothing to have already accepted, so nothing to diff — and the judgment stays None, which is neither green nor an overrun."""
+    """Exit 1 means the tool found an overrun; any other nonzero exit means the tool itself failed. Then there is nothing to diff, and `job_costs_ok` stays None, which is neither green nor an overrun."""
     calls: list[str] = []
 
     def spawn(name, argv, *, emit, registry, stream):
@@ -5765,7 +5765,7 @@ def test_do_job_costs_reports_a_broken_check_without_diffing():
 
 
 def test_a_tripped_job_costs_check_never_fails_the_cycle(monkeypatch):
-    """A stale divisor makes a pool the wrong width; it does not make an artifact wrong. So the trip is loud in the summary and in the payload, and contributes nothing to the failure list of a pass whose artifacts are green."""
+    """A stale divisor makes a pool the wrong width but cannot make an artifact wrong. So a trip shows in the summary and the payload and adds nothing to the failure list of a pass whose artifacts are green."""
 
     def job_costs_trips(report, *, spawn, emit, registry, plan):
         report.job_costs_status = "OVERRUN (a measured peak outruns its checked-in constant)"
@@ -5792,7 +5792,7 @@ def test_a_tripped_job_costs_check_never_fails_the_cycle(monkeypatch):
 
 
 def test_the_job_costs_check_runs_in_a_rehearsal_too(monkeypatch, tmp_path):
-    """The census's rehearsal skip is not a reason this step can borrow: the pins track the live surface, which a rehearsal never writes, while the timings journal is appended to by every pass alike. A rehearsal's pools cost what they cost, so their measurements are as good as any."""
+    """The job-costs check runs in a rehearsal, unlike the census. The pins track the live surface, which a rehearsal never writes, but every pass appends to the timings journal, and a rehearsal's pool measurements are as valid as any."""
     ran: list[str] = []
 
     def job_costs_ran(report, *, spawn, emit, registry, plan):
@@ -5819,13 +5819,13 @@ def test_the_job_costs_check_runs_in_a_rehearsal_too(monkeypatch, tmp_path):
 
 
 def test_the_plan_checks_job_costs_after_the_gates():
-    """The check reads a journal this pass's own pools append to at their terminal summaries, so it can only be honest about this pass once the gates have joined — placed beside the census it would be reporting the previous pass's measurements."""
+    """The check reads a journal that this pass's pools append to when they finish, so it runs after the gates join. Placed beside the census, it would report the previous pass's measurements."""
     plan = _plan()
     names = [step.name for step in plan.steps]
     by_name = {step.name: step for step in plan.steps}
     assert names.index("job-costs") > names.index("gate:rebuild-contracts")
     assert names.index("job-costs") > names.index("census")
-    # Retention is a step of the plan but not a spawn: it runs inside _finish, after this check has already been made. The plan is what the cycle prints, so the two have to be printed in the order they happen or the printout describes a pass nobody ran.
+    # Retention is a plan step but runs inside _finish, after this check, and the printed plan must list steps in the order they run.
     assert names.index("job-costs") < names.index("retention")
     assert _argv(by_name["job-costs"]) == [
         "uv",
@@ -5838,12 +5838,12 @@ def test_the_plan_checks_job_costs_after_the_gates():
 
 
 def test_the_plan_checks_job_costs_even_when_the_gates_are_skipped():
-    """The step is never skipped: --skip-gates suppresses the five gates, and this is not one of them — exactly as the census is not."""
+    """The step is never skipped: --skip-gates suppresses only the `gate:` steps, and this step, like the census, is not one of them."""
     assert _plan(skip_gates=True).runs("job-costs") is True
 
 
 def test_the_contracts_suite_is_submitted_before_the_surface_build_starts(monkeypatch):
-    """The submission window: after the run_m1 gate has passed and before the surface build starts, so the suite runs beside the build rather than after it. The surface fake waits for the suite's task to have been invoked before it returns, which a submission placed after the build could never satisfy; the suite waits for nothing further, because the surface, the carry, the merge and the census are not inputs to it, and `test_the_rebuild_suite_is_skipped_when_run_m1_fails` holds the lower bound from the other side."""
+    """The contracts suite is submitted after the run_m1 gate passes and before the surface build starts, so it runs beside the build. The surface fake waits until the suite's task has been invoked, which a submission after the build could never satisfy. The suite waits for nothing else, because the surface, the carry, the merge and the census are not inputs to it; `test_the_rebuild_suite_is_skipped_when_run_m1_fails` checks the other bound."""
     contracts_invoked = threading.Event()
     order: list[str] = []
 
@@ -5881,7 +5881,7 @@ def test_the_contracts_suite_is_submitted_before_the_surface_build_starts(monkey
 
 
 def test_surface_build_failure_still_joins_the_rebuild_suite_it_started(monkeypatch, capsys):
-    """A failed surface build stops the build lane, but the suite was submitted ahead of the build and is running on a pool worker, so the pass joins it and files its real verdict rather than claiming it never ran — which would both lie in the summary and abandon the worker."""
+    """A failed surface build stops the build lane, but the suite was already submitted and is running on a pool worker. The pass joins it and reports its real result; reporting it as not run would be false and would leave the worker unjoined."""
     calls = {"contracts": 0}
 
     def fake_contracts(pool_policy, conform_fut, make_fut, spawn, emit, registry, argv):
@@ -5909,7 +5909,7 @@ def test_surface_build_failure_still_joins_the_rebuild_suite_it_started(monkeypa
 
 
 def test_run_m1_failure_still_leaves_the_rebuild_suite_not_run(monkeypatch, capsys):
-    """The one early return that predates the submission: nothing was queued, so the gate reports why it never ran."""
+    """A run_m1 failure returns before the suite is submitted, so the gate reports why it did not run."""
 
     def failing_run_m1(report, *, spawn, emit, registry, **_):
         return _run_m1_red("Manual-pin gate failed (2 disagreements)")
@@ -5933,7 +5933,7 @@ def test_run_m1_failure_still_leaves_the_rebuild_suite_not_run(monkeypatch, caps
 
 
 def test_plumbing_skip_fingerprint_moves_with_every_input(tmp_path):
-    """Every input, and the standing approvals by raw bytes — alone among the ledgers the rebuild lanes hash prose-blind. The fill quotes each rule's `note` verbatim into the verdict note it writes, so a reword changes what the chain would put in the store and has to re-run it."""
+    """The plumbing key moves with every input. The standing approvals are hashed by raw bytes here, although the rebuild lanes hash them prose-blind: the fill copies each rule's `note` into the verdict note it writes, so a reworded note changes what the chain writes and must re-run it."""
     surface = tmp_path / "review"
     surface.mkdir()
     (surface / "manifest.json").write_text(
@@ -5986,7 +5986,7 @@ def test_plumbing_skip_fingerprint_moves_with_every_input(tmp_path):
 
 
 def test_plumbing_skip_fingerprint_covers_the_chains_own_code(tmp_path):
-    """Every other stage's key folds in its own executable; this chain's lives in rebuild/tools/, which no other fingerprint reads. Without it a fix to a fill's matcher would be skipped as already proven and silently never run. The negative half is what issue #117 bought: the driver, the timings journal and the two width yardsticks share that directory but run no step of the chain, so an edit to one leaves the key exactly where it was and the letters stay on screen."""
+    """The plumbing key covers the chain's own code, which lives in rebuild/tools/, where no other fingerprint reads it. Without it, a fix to a fill's matcher would be skipped as already proven. artifact_cycle.py, cycle_timings.py, memory_budget.py and peak_rss.py share that directory but run no step of the chain, so editing one leaves the key unchanged; serve.py and review_server.py, which the chain imports, move it."""
     surface = tmp_path / "review"
     surface.mkdir()
     (surface / "manifest.json").write_text(
@@ -6030,7 +6030,7 @@ def test_plumbing_skip_fingerprint_covers_the_chains_own_code(tmp_path):
 
 
 def test_plumbing_skip_fingerprint_sees_a_master_that_is_not_the_autosave(tmp_path):
-    """The one input the autosave's hash cannot see: an export at the repo root that outranks the store in the auto-resolution and carries verdicts it has never held."""
+    """The master is in the key because the autosave's hash cannot see it: an export at the repo root can outrank the store in the auto-resolution and hold verdicts the store has never had."""
     surface = tmp_path / "review"
     surface.mkdir()
     (surface / "manifest.json").write_text(
@@ -6055,7 +6055,7 @@ def test_dry_run_plan_skip_plumbing_replaces_the_whole_chain():
 
 
 def test_dry_run_plan_store_only_merges_the_master():
-    """The surface did not move, so the carry would resolve every unit against itself and its re-prefixed notes could never outrank the store. What is left is the one input the store's own hash cannot see — the master — so the chain merges that directly."""
+    """When the surface did not move, the carry would map every unit onto itself, and its re-prefixed notes could never outrank the store. So the chain merges the master directly: it is the one input the store's own hash cannot see."""
     plan = _plan(store_only=True)
     by_name = {step.name: step for step in plan.steps}
     assert plan.carry_out is None
@@ -6085,7 +6085,7 @@ def test_the_store_only_report_still_names_the_frontier_carried_file(tmp_path, m
 
 
 def test_frontier_carry_out_derives_the_stamp_aligned_frontier_from_disk(tmp_path, monkeypatch):
-    """The summary's frontier name is derived the way its consumers derive it, never remembered in the plumbing green record — a later export with more effective verdicts outranks the file the last recorded pass happened to write."""
+    """The summary names the frontier by deriving it from disk the way its readers do, not from the plumbing green record: a later export with more effective verdicts outranks the file the last recorded pass wrote."""
     review = tmp_path / "rebuild" / "out" / "review"
     review.mkdir(parents=True)
     (review / "manifest.json").write_text(json.dumps({"generated_at": "S1"}))
@@ -6206,7 +6206,7 @@ def test_run_cycle_records_the_plumbing_green_only_after_a_complete_chain(monkey
 
 
 def test_run_cycle_records_no_plumbing_green_until_the_chain_witnesses_its_fixpoint(monkeypatch, tmp_path):
-    """The chain runs the echo pass again after the standing merge and says whether that second pass would have written anything. Only that witnessed standstill earns the green — a chain that stopped short of it leaves the next pass to close the cascade."""
+    """The plumbing green is recorded only when the chain reports a fixpoint. The chain runs the echo pass again after the standing merge and reports whether that pass would have written anything; if the chain stopped short of that, the next pass runs it again."""
 
     def unsettled(report, *, spawn, emit, registry, plan):
         _plumbing_ok(report, spawn=spawn, emit=emit, registry=registry, plan=plan)
@@ -6257,7 +6257,7 @@ def test_plumbing_settled_reads_the_chains_own_witness():
 
 
 def _settled_repo(tmp_path, monkeypatch):
-    """A repo whose run_m1 and surface build both auto-skip — the converged pass, the only shape the plumbing skip is offered on."""
+    """A repo whose run_m1 and surface build both auto-skip: the converged pass, the only case the plumbing skip is offered on."""
     _unsettled_repo(tmp_path, monkeypatch)
     ac.record_green(cycle_paths.RUN_M1_GREEN, "key")
     monkeypatch.setattr(ac, "m1_artifacts_present", lambda root=None: True)
@@ -6283,7 +6283,7 @@ def test_main_skips_the_plumbing_on_a_matching_record(tmp_path, monkeypatch, cap
 
 
 def test_main_runs_the_census_on_the_pass_that_skips_the_plumbing(tmp_path, monkeypatch, capsys):
-    """The census is never skipped: even the pass that skips the whole verdict chain refreshes the pins, because reading the sidecar and rewriting one small file costs nothing."""
+    """The census always runs, even on a pass that skips the whole verdict chain, because reading the sidecar and rewriting one small file is cheap."""
     _settled_repo(tmp_path, monkeypatch)
     ac.record_plumbing_green("plu")
     assert ac.main(["--dry-run"]) == 0
@@ -6293,7 +6293,7 @@ def test_main_runs_the_census_on_the_pass_that_skips_the_plumbing(tmp_path, monk
 
 
 def test_main_never_skips_the_plumbing_on_a_pass_that_writes_the_surface(tmp_path, monkeypatch, capsys):
-    """The skip rides the surface build's own skip: only then is the stamp the chain keys on known not to move mid-pass."""
+    """The plumbing skip is offered only when the surface build is skipped, because only then is the manifest stamp the chain keys on known not to change during the pass."""
     _unsettled_repo(tmp_path, monkeypatch)
     monkeypatch.setattr(cycle_paths, "PLUMBING_GREEN", tmp_path / "rebuild" / "out" / "plumbing-green.json")
     monkeypatch.setattr(ac, "plumbing_skip_fingerprint", lambda root=None, surface=None, master=None: "plu")
@@ -6303,7 +6303,7 @@ def test_main_never_skips_the_plumbing_on_a_pass_that_writes_the_surface(tmp_pat
 
 
 def test_main_never_skips_the_plumbing_under_fresh_or_a_partial_chain(tmp_path, monkeypatch, capsys):
-    """--carry-out joins the list because the skip writes no such file: honoring the flag and skipping the step cannot both happen, so the flag wins."""
+    """--fresh, --no-merge, --no-carry, a rehearsal and --carry-out each disable the plumbing skip. --carry-out is on the list because the skip writes no carried file, so the flag could not be honored."""
     _settled_repo(tmp_path, monkeypatch)
     ac.record_plumbing_green("plu")
     for argv in (
@@ -6320,7 +6320,7 @@ def test_main_never_skips_the_plumbing_under_fresh_or_a_partial_chain(tmp_path, 
 def test_main_carries_a_master_stamped_for_another_surface_instead_of_merging_it(
     tmp_path, monkeypatch, capsys
 ):
-    """The store-only route hands the merge the master as it stands, and the merge refuses any input stamped for another surface, so the route is taken only for a master stamped for the served one. A pass stopped after the surface build wrote a new surface and before the carry leaves the autosave stamped for the surface before, and the pass after it skips the build as unchanged: that pass plans the full carry, and so does a pass handed such a master by --verdicts. The auto-resolved master's alignment comes from its resolution, whose line already names the older stamp, so neither that master's second parse nor the declined-route note is spent on it; a --verdicts master is asked with `master_stamped_for_surface` and the note says why its carry runs. Restamped for the served surface, the same autosave takes the store-only route again."""
+    """The store-only route passes the master to the merge unchanged, and the merge refuses any input stamped for another surface, so the route is taken only for a master stamped for the served surface. A pass stopped after the surface build and before the carry leaves the autosave stamped for the previous surface, and the next pass skips the build as unchanged; that pass plans the full carry, as does a pass given such a master by --verdicts. For the auto-resolved master, alignment comes from the resolution, whose line already names the older stamp, so the master is not parsed again and the declined-route note is not printed. A --verdicts master is checked with `master_stamped_for_surface`, and the note says why its carry runs. Once the autosave is restamped for the served surface, the store-only route is taken again."""
     _settled_repo(tmp_path, monkeypatch)
     ac.record_plumbing_green("moved")
     served = "2026-07-17T20:24:44Z"
@@ -6367,7 +6367,7 @@ def test_main_carries_a_master_stamped_for_another_surface_instead_of_merging_it
 
 
 def _assets_only_repo(tmp_path, monkeypatch):
-    """A settled repo whose one moved input is the copied review UI assets: the byte-strict question answers no, the assets-exempt one answers yes, and that pair is the whole trigger for the refresh step."""
+    """A settled repo whose only moved input is the copied review UI assets: the byte-identity check fails and the check that exempts the assets passes, which is the condition for the refresh step."""
     _settled_repo(tmp_path, monkeypatch)
     monkeypatch.setattr(
         ac, "surface_build_skippable", lambda root=None, review_out=None, ignore=(): bool(ignore)
@@ -6375,7 +6375,7 @@ def _assets_only_repo(tmp_path, monkeypatch):
 
 
 def test_main_refreshes_the_assets_when_only_the_static_component_moved(tmp_path, monkeypatch, capsys):
-    """An app JS/CSS/HTML edit plans a copy and a restamp, never a whole surface build. Everything downstream inherits the skip: on a matching plumbing record, no chain either, since the manifest line the key hashes drops the component the refresh rewrites."""
+    """An app JS/CSS/HTML edit plans a copy and a restamp, not a surface build. Downstream steps treat the pass as a skip: with a matching plumbing record the chain is skipped too, because the manifest line in the plumbing key leaves out the component the refresh rewrites."""
     _assets_only_repo(tmp_path, monkeypatch)
     ac.record_plumbing_green("plu")
     assert ac.main(["--dry-run"]) == 0
@@ -6392,7 +6392,7 @@ def test_main_refreshes_the_assets_when_only_the_static_component_moved(tmp_path
 
 
 def test_main_plans_no_assets_refresh_when_the_surface_already_matches(tmp_path, monkeypatch, capsys):
-    """The strict question is asked first, so a surface that would rebuild byte for byte has nothing copied over it — and --fresh takes the pass past both questions to a real build."""
+    """The byte-identity check comes first, so a surface that already matches has nothing copied over it. --fresh bypasses both checks and runs a real build."""
     _settled_repo(tmp_path, monkeypatch)
     assert ac.main(["--dry-run"]) == 0
     out = capsys.readouterr().out
@@ -6409,7 +6409,7 @@ def test_main_plans_no_assets_refresh_when_the_surface_already_matches(tmp_path,
 
 
 def test_server_may_stay_up_only_when_the_pass_writes_neither_of_the_apps_files():
-    """The predicate answers from the plan's writes, so a --no-carry pass and a --no-merge carry over an unmoved surface (skip_surface, no store merge) leave the server up, while any store-writing pass — store_only included — and any surface rewrite still take the port."""
+    """The predicate depends on what the plan writes. A --no-carry pass, or a --no-merge carry over an unmoved surface, leaves the server up; any pass that writes the store (store-only included) or rewrites the surface needs the port."""
     assert ac.server_may_stay_up(skip_surface=True, writes_store=False) is True
     assert ac.server_may_stay_up(skip_surface=True, writes_store=True) is False
     assert ac.server_may_stay_up(skip_surface=False, writes_store=False) is False
@@ -6423,7 +6423,7 @@ def _preflight_args(**overrides):
 
 
 def test_preflight_leaves_a_listening_server_up_for_a_pass_that_writes_nothing_under_it(monkeypatch, capsys):
-    """The gate pass: no surface write to strand the tab, no store write for merge_verdicts to refuse. Nothing to take the port for, so the letters stay on screen for the whole run — and this holds without --stop-server, since the flag is permission to stop a server, not an instruction to."""
+    """A pass that writes neither the surface nor the store leaves a listening server up for the whole run. This holds with or without --stop-server, which permits stopping a server but does not require it."""
     stops: list[int] = []
     monkeypatch.setattr(ac, "server_listening", lambda port=ac.REVIEW_PORT: True)
     monkeypatch.setattr(ac, "stop_review_server", lambda timeout=0.0: stops.append(1) or True)
@@ -6434,7 +6434,7 @@ def test_preflight_leaves_a_listening_server_up_for_a_pass_that_writes_nothing_u
 
 
 def test_preflight_stops_the_server_for_a_writing_pass_only_when_allowed(monkeypatch, capsys):
-    """--stop-server is what `make review-cycle` passes in place of the recipe's old unconditional pkill; without it the refusal stands, because a bare run has no standing to end someone's verdicting session."""
+    """For a pass that writes under the server, --stop-server stops it; `make review-cycle` passes that flag. Without the flag the pass refuses, because a bare run should not end someone's review session."""
     stops: list[int] = []
     monkeypatch.setattr(ac, "server_listening", lambda port=ac.REVIEW_PORT: True)
     monkeypatch.setattr(
@@ -6451,7 +6451,7 @@ def test_preflight_stops_the_server_for_a_writing_pass_only_when_allowed(monkeyp
 
 
 def test_preflight_refuses_when_the_stop_leaves_the_port_held(monkeypatch, capsys):
-    """Something else is serving 7294, or the server wedged mid-shutdown. Either way the surface rewrite would land under a live reader, so the pass stops rather than building over it."""
+    """If the port is still held after the stop (something else serves 7294, or the server hung during shutdown), the pass refuses rather than write the surface under a live reader."""
     monkeypatch.setattr(ac, "server_listening", lambda port=ac.REVIEW_PORT: True)
     monkeypatch.setattr(ac, "stop_review_server", lambda timeout=ac.SERVER_STOP_TIMEOUT: False)
     assert ac._preflight(_preflight_args(stop_server=True), may_stay_up=False) is False
@@ -6459,7 +6459,7 @@ def test_preflight_refuses_when_the_stop_leaves_the_port_held(monkeypatch, capsy
 
 
 def test_stop_review_server_waits_for_the_port_to_come_free(monkeypatch):
-    """The wait is the point: pkill returns as soon as the signal is delivered, and a surface build racing the socket's last breath is exactly what the old recipe's lsof loop was for."""
+    """`stop_review_server` waits for the port to be free: pkill returns once the signal is delivered, and a surface build must not start while the socket is still open."""
     killed: list[list[str]] = []
     monkeypatch.setattr(
         ac.subprocess, "run", lambda argv, **kw: killed.append(argv) or subprocess.CompletedProcess(argv, 0)
@@ -6478,7 +6478,7 @@ def test_stop_review_server_waits_for_the_port_to_come_free(monkeypatch):
 
 
 def test_main_leaves_the_server_up_on_the_settled_pass(tmp_path, monkeypatch, capsys):
-    """End to end through the resolver: the pass that skips the surface and the plumbing is the one that keeps serving, and it never reaches for the port."""
+    """End to end through `main`: the pass that skips the surface and the plumbing keeps the server up and never stops it."""
     _settled_repo(tmp_path, monkeypatch)
     ac.record_plumbing_green("plu")
     monkeypatch.setattr(ac, "server_listening", lambda port=ac.REVIEW_PORT: True)
@@ -6504,7 +6504,7 @@ def test_main_stops_the_server_when_the_pass_rebuilds_the_surface(tmp_path, monk
 
 
 def test_main_leaves_the_server_up_for_an_assets_refresh_pass(tmp_path, monkeypatch, capsys):
-    """The refresh moves no shard and no stamp, so there is nothing under the app to take the port for: the letters stay on screen and livereload swaps the shell under them. A store write is still a store write, though, so the same pass with the plumbing record moved refuses without --stop-server."""
+    """An assets refresh moves no shard and no stamp, so the server stays up and livereload reloads the tab onto the new app shell. The same pass with a moved plumbing record writes the store, so without --stop-server it refuses."""
     _assets_only_repo(tmp_path, monkeypatch)
     ac.record_plumbing_green("plu")
     monkeypatch.setattr(ac, "server_listening", lambda port=ac.REVIEW_PORT: True)
@@ -6521,7 +6521,7 @@ def test_main_leaves_the_server_up_for_an_assets_refresh_pass(tmp_path, monkeypa
 
 
 def _rehearsal_repo(tmp_path, monkeypatch):
-    """A settled repo whose live surface fails the byte-strict question and the assets-exempt one alike, while a rehearsal directory answers the strict one: the third question `main` asks, and the whole trigger for the promotion step."""
+    """A settled repo whose live surface fails both the byte-identity check and the assets-exempt check, while a rehearsal directory passes the byte-identity check. This is the third check `main` makes, and the condition for the promotion step."""
     _settled_repo(tmp_path, monkeypatch)
     rehearsal = tmp_path / "var" / "rehearsal-review"
     rehearsal.mkdir(parents=True)
@@ -6535,7 +6535,7 @@ def _rehearsal_repo(tmp_path, monkeypatch):
 
 
 def test_main_promotes_a_current_rehearsal_instead_of_rebuilding(tmp_path, monkeypatch, capsys):
-    """A live pass that follows a rehearsal plans a move, never a build: the promotion step names the directory it moves, the surface build reads as skipped under the promotion note, and no review.build command appears anywhere in the plan."""
+    """A live pass after a rehearsal plans a move, not a build: the promotion step names the directory it moves, the surface build reads as skipped under the promotion note, and no review.build command appears in the plan."""
     rehearsal = _rehearsal_repo(tmp_path, monkeypatch)
     assert ac.main(["--dry-run"]) == 0
     out = capsys.readouterr().out
@@ -6546,7 +6546,7 @@ def test_main_promotes_a_current_rehearsal_instead_of_rebuilding(tmp_path, monke
 
 
 def test_a_promoting_pass_runs_the_whole_chain(tmp_path, monkeypatch, capsys):
-    """The plumbing skip and the store-only route both rest on the surface not moving. Under a promotion it does move and takes a new stamp, so even with a matching plumbing record the chain spawns the full carry — the store's verdicts have to land on the promoted units by id — and the carry-source line says the master is stamped for the surface this pass replaces rather than for the served one."""
+    """A promoting pass runs the full chain. The plumbing skip and the store-only route both require an unmoved surface, and a promotion moves it and gives it a new stamp. So even with a matching plumbing record the chain runs the full carry, which puts the store's verdicts onto the promoted units by id, and the carry-source line says the master is stamped for the surface this pass replaces."""
     _rehearsal_repo(tmp_path, monkeypatch)
     ac.record_plumbing_green("plu")
     assert ac.main(["--dry-run"]) == 0
@@ -6561,7 +6561,7 @@ def test_a_promoting_pass_runs_the_whole_chain(tmp_path, monkeypatch, capsys):
 
 
 def test_a_promoting_pass_takes_the_port(tmp_path, monkeypatch, capsys):
-    """A promotion swaps every shard and the stamp under the app in one rename, so it is a surface write whatever the skip flag says: the predicate refuses it while the three existing answers stand, and end to end a listening server makes the pass refuse without --stop-server — a --no-merge pass included, since the store is not what moves — and stop it with one."""
+    """A promotion replaces every shard and the stamp under the app in one rename, so it counts as a surface write whatever the skip flag says. The predicate returns False for it, and its other three answers are unchanged. End to end, a listening server makes the pass refuse without --stop-server (a --no-merge pass too, since the surface moves, not the store) and is stopped with it."""
     assert ac.server_may_stay_up(skip_surface=True, writes_store=False, promotes_surface=True) is False
     assert ac.server_may_stay_up(skip_surface=True, writes_store=False) is True
     assert ac.server_may_stay_up(skip_surface=True, writes_store=True) is False
@@ -6755,7 +6755,7 @@ def test_build_plan_retention_off_on_rehearsal(tmp_path):
 
 
 def test_retention_never_runs_for_real_during_the_suite(monkeypatch):
-    """The tripwire on the autouse switch. Retention resolves its targets from ac.ROOT at call time — no fixture redirects that — so a real run from inside the suite deletes the live repo's carried exports and compacts its verdict journal. Any test reaching a green finish with record_greens set would do it, and one did: a suite run swept a live cycle's piles between its build and its carry. The readiness checklist reads the served surface and the root autosave, and is off on the same standard."""
+    """Checks the autouse switches that keep retention and readiness from running for real in the suite. Retention resolves its targets from ac.ROOT at call time, which no fixture redirects, so a real run from a test would delete the live repo's carried exports and compact its verdict journal; any test reaching a green finish with record_greens set would trigger it. The readiness checklist reads the served surface and the root autosave, so it is switched off too."""
     assert cycle_paths.RETENTION_ENABLED is False
     assert cycle_paths.READINESS_ENABLED is False
     calls = {"retention": 0, "readiness": 0}
@@ -6772,7 +6772,7 @@ def test_retention_never_runs_for_real_during_the_suite(monkeypatch):
 
 
 def test_finish_honors_the_two_green_finish_switches(monkeypatch, capsys):
-    """The two green-finish switches, pinned from both sides: off, `_finish` reaches neither stage and the retention row still closes with an outcome; on, it reaches both once. A test that wants either stage flips its switch and patches the callable, which is what every test below that asserts a reach does."""
+    """With both switches off, `_finish` calls neither stage and the retention row still gets an outcome; with both on, it calls each once. A test that asserts either stage runs flips its switch and patches the callable, as the tests below do."""
     calls = {"retention": 0, "readiness": 0}
 
     def retention(plan):
@@ -6805,7 +6805,7 @@ def test_finish_honors_the_two_green_finish_switches(monkeypatch, capsys):
 
 
 def test_the_gate_summaries_a_pass_clears_are_never_the_live_ones(tmp_path, live_deletion_targets):
-    """The same tripwire for the other stages that delete before they rebuild. run_m1 unlinks its four summaries and gate:conform unlinks its own, all before spawning and all from constants resolved against the live rebuild/out/m1 — so a test that drives any of those stages without stubbing it empties the directory the surface build consumes and the cycle's auto-skip keys on, at the price of a full rebuild to get it back. None would fail: the missing summaries read as a failed gate, which is what most such tests are asserting anyway."""
+    """Checks the redirect for the other stages that delete before they rebuild. run_m1 unlinks every file in `cycle_paths.M1_SUMMARY_FILES` and gate:conform unlinks its own summary, all before spawning and all from paths under the live rebuild/out/m1. A test that drove one of those stages unstubbed would empty the directory the surface build reads and the auto-skip keys on, and a full rebuild would be needed to restore it. No test would fail, because missing summaries read as a failed gate, which most such tests assert anyway."""
     redirected = [
         *cycle_paths.M1_SUMMARY_FILES.values(),
         cycle_paths.CONFORM_SUMMARY,
@@ -6831,7 +6831,7 @@ def test_finish_runs_retention_on_a_real_green_finish(monkeypatch):
 
 
 def test_retention_leaves_the_journal_and_stashes_alone_while_the_server_is_up(tmp_path, monkeypatch, capsys):
-    """The app appends to the journal as the reviewer verdicts, and compact() rewrites the whole file around a read — an append landing in between is gone. The stash sweep reads that same journal for its reference index, so it waits too; the carried sweep, which the app never writes, still runs."""
+    """While the review server is up, retention leaves the journal and the stashes alone. The app appends to the journal as the reviewer works, and compact() rewrites the whole file around a read, so an append in between would be lost. The stash sweep reads the same journal to decide which stashes are still referenced, so it waits too. The carried-file sweep, which the app never writes, still runs."""
     plan = _plan(skip_plumbing=True, plumbing_note=ac.PLUMBING_SKIP_NOTE)
     monkeypatch.setattr(ac, "ROOT", tmp_path)
     monkeypatch.setattr(ac, "REVIEW_OUT", tmp_path / "review")
@@ -6927,7 +6927,7 @@ def _patch_timing_cycle(monkeypatch):
 
 
 def test_green_cycle_journals_steps_then_one_run_line(monkeypatch, tmp_path):
-    """job-costs is in the step list for the same reason the two stubbed stages are not: it spawns a child, so the wrapper times it and the journal carries a line naming it — which is how a summary claiming the check ran can be corroborated against a run that actually spawned it."""
+    """The journal gets one step line per spawned child, then one run line. job-costs spawns a child, so the timing wrapper records it, and a summary claiming the check ran can be matched against the journal. The stubbed plumbing and census stages spawn nothing and get no line."""
     _patch_timing_cycle(monkeypatch)
 
     journal_path = tmp_path / "timings.ndjson"
@@ -6955,7 +6955,7 @@ def test_green_cycle_journals_steps_then_one_run_line(monkeypatch, tmp_path):
 
 
 def test_an_assets_refresh_journals_under_its_own_name(monkeypatch, tmp_path):
-    """The refresh spawns a child where the surface build would have, so `wrap_spawn` times it — under its own step name rather than "surface-build", which keeps `calibrate_budgets`' sample of that step a sample of real builds."""
+    """The assets refresh spawns a child in place of the surface build, so `wrap_spawn` times it under its own step name. That keeps `calibrate_budgets`' sample of "surface-build" limited to real builds."""
     _patch_timing_cycle(monkeypatch)
 
     journal_path = tmp_path / "timings.ndjson"
@@ -6981,7 +6981,7 @@ def test_an_assets_refresh_journals_under_its_own_name(monkeypatch, tmp_path):
 
 
 def test_a_failed_assets_refresh_stops_the_pass_and_joins_the_suite_it_started(monkeypatch, capsys):
-    """A refresh that cannot land leaves a surface whose manifest may say one thing and whose shell says another, so the pass stops at that step; the rebuild suite was submitted ahead of it and is joined, its verdict landing beside the refresh's FAILED row."""
+    """A failed assets refresh can leave a manifest and an app shell that disagree, so the pass stops at that step. The rebuild suite was submitted before it and is joined, and its result is reported beside the refresh's FAILED row."""
     _patch_timing_cycle(monkeypatch)
 
     report = ac.CycleReport()
@@ -7000,7 +7000,7 @@ def test_a_failed_assets_refresh_stops_the_pass_and_joins_the_suite_it_started(m
 
 
 def test_run_cycle_promotes_before_it_reports_the_surface_skipped(monkeypatch, tmp_path):
-    """The promotion stands where the surface build would have: nothing spawns under surface-build, the totals the summary reports are read out of the promoted manifest, and the step's seconds are on the report so its row reads `ok` rather than `not run`."""
+    """The promotion replaces the surface build: nothing spawns under surface-build, the reported totals come from the promoted manifest, and the step's seconds are on the report so its row reads `ok`, not `not run`."""
     monkeypatch.setattr(ac, "_do_run_m1", _pass_run_m1)
     monkeypatch.setattr(ac, "_do_plumbing", _plumbing_ok)
     monkeypatch.setattr(ac, "_do_census", _census_clean)
@@ -7040,7 +7040,7 @@ def test_run_cycle_promotes_before_it_reports_the_surface_skipped(monkeypatch, t
 
 
 def test_a_failed_promotion_stops_the_pass_and_joins_the_suite_it_started(monkeypatch, capsys):
-    """A move that fails leaves the outgoing tree in place, and the pass stops there with one summary: the promotion's own row reads FAILED, and the rebuild suite, submitted ahead of the move, is joined and reports its real verdict."""
+    """A failed move leaves the outgoing tree in place and the pass stops: the promotion's row reads FAILED, and the rebuild suite, submitted before the move, is joined and reports its real result."""
     _patch_timing_cycle(monkeypatch)
 
     def refuse(source, live=None):
@@ -7064,7 +7064,7 @@ def test_a_failed_promotion_stops_the_pass_and_joins_the_suite_it_started(monkey
 
 
 def test_a_promoting_pass_journals_no_surface_build_line(monkeypatch, tmp_path):
-    """The move spawns nothing, so the journal carries no surface-build step line for it — `make cycle-timings ARGS='--by-step'`'s surface-build row stays a sample of real builds — and the run line's plan block names the promoted directory, which is what lets a later reader count promoting passes."""
+    """The move spawns nothing, so the journal has no surface-build step line for it, which keeps the surface-build row of `make cycle-timings ARGS='--by-step'` limited to real builds. The run line's plan block names the promoted directory, so promoting passes can be counted later."""
     _patch_timing_cycle(monkeypatch)
     monkeypatch.setattr(ac, "_do_surface_build", _surface_ok)
     moved: list[Path] = []
@@ -7093,7 +7093,7 @@ def test_a_promoting_pass_journals_no_surface_build_line(monkeypatch, tmp_path):
 
 
 def test_green_cycle_files_one_check_line_per_gate_it_judged(monkeypatch, tmp_path):
-    """Every gate the cycle joins files a verdict under this run, including the two whose whole judgment is an exit code. The children that did the work file nothing: they inherit the run id and stand down, so a count of these lines is a count of checks rather than of processes with an opinion."""
+    """Every gate the cycle joins writes one check line under this run, including js and make-test, which are judged by exit code alone. The children that did the work write nothing: they inherit the run id and skip their own line, so the lines count checks, not processes."""
     _patch_timing_cycle(monkeypatch)
 
     journal_path = tmp_path / "timings.ndjson"
@@ -7122,7 +7122,7 @@ def test_green_cycle_files_one_check_line_per_gate_it_judged(monkeypatch, tmp_pa
 
 
 def test_a_red_lane_files_the_ids_it_failed_on(tmp_path):
-    """The report the check line exists for. A lane's status already reaches the cycle summary; which test ids it failed on is recorded nowhere else, and that is what --by-outcome ranks."""
+    """A red lane writes the test ids it failed on. The lane's status already reaches the cycle summary, but the failed ids are recorded only here, and `--by-outcome` ranks them."""
     timings = CycleTimings(tmp_path / "timings.ndjson")
     verdict = ac.classify_rebuild_output(
         "FAILED rebuild/test_settle.py::test_x\nERROR rebuild/test_boom.py::test_y",
@@ -7146,7 +7146,7 @@ def test_a_red_lane_files_the_ids_it_failed_on(tmp_path):
 
 
 def test_a_lane_that_raised_files_no_check_line(tmp_path):
-    """ "FAILED (exception)" describes the pool rather than the suite: nothing judged the lane, so nothing goes on the lane's record."""
+    """ "FAILED (exception)" describes the pool, not the suite: nothing judged the lane, so no check line is written."""
     timings = CycleTimings(tmp_path / "timings.ndjson")
 
     def boom():
@@ -7162,7 +7162,7 @@ def test_a_lane_that_raised_files_no_check_line(tmp_path):
 
 
 def test_a_failing_make_test_files_its_exit_code_as_a_red_verdict(tmp_path):
-    """make test has no judge of its own and never needed one — its exit code is honest for the font suite, unlike run_m1's — so the verdict is built at the join in the same two spellings the summary has always printed."""
+    """make-test is judged by its exit code alone, which is reliable for the font suite (unlike run_m1's), so the verdict is built at the join with the same status strings the summary prints."""
     timings = CycleTimings(tmp_path / "timings.ndjson")
     report = ac.CycleReport()
     failures: list[str] = []
@@ -7186,7 +7186,7 @@ def test_a_failing_make_test_files_its_exit_code_as_a_red_verdict(tmp_path):
 
 
 def test_do_run_m1_files_a_check_line_on_the_skip_path(monkeypatch, tmp_path):
-    """A skip is a judgment the cycle reached over this build's own summaries, not a check that never happened, so it belongs on run_m1's record beside the passes that did the work."""
+    """The skip path writes a check line too: the skip is a judgment over this build's own summaries, so it belongs in run_m1's record beside the passes that did the work."""
     files = {name: tmp_path / f"{name}.json" for name in cycle_paths.M1_SUMMARY_FILES}
     monkeypatch.setattr(cycle_paths, "M1_SUMMARY_FILES", files)
     files["pipeline"].write_text(json.dumps({"defect_errors": []}))
@@ -7213,7 +7213,7 @@ def test_do_run_m1_files_a_check_line_on_the_skip_path(monkeypatch, tmp_path):
 
 
 def test_do_run_m1_files_a_red_when_no_summaries_landed(monkeypatch, tmp_path):
-    """A build that wrote no summaries never reached the judge, and the red recorded for it carries the same sentence the cycle's own failure list rolls up."""
+    """A build that wrote no summaries is recorded red, with the same failure text the cycle's failure list uses (`_run_m1_reasons(None)`)."""
     monkeypatch.setattr(
         cycle_paths,
         "M1_SUMMARY_FILES",
@@ -7238,7 +7238,7 @@ def test_do_run_m1_files_a_red_when_no_summaries_landed(monkeypatch, tmp_path):
 
 
 def test_a_cycle_without_timings_still_judges_every_gate(monkeypatch):
-    """The handle is optional everywhere it is threaded, so a caller that passes none — every test that drives the cycle for its console output — reaches the same verdicts with nothing to file them in."""
+    """The timings handle is optional wherever it is passed, so a caller without one (every test that drives the cycle for its console output) reaches the same verdicts without recording them."""
     _patch_timing_cycle(monkeypatch)
     report = ac.CycleReport()
     rc = ac._run_cycle(
@@ -7250,7 +7250,7 @@ def test_a_cycle_without_timings_still_judges_every_gate(monkeypatch):
 
 
 def test_main_hands_its_run_id_to_every_child_through_the_environment(tmp_path, monkeypatch):
-    """The suppression the one-writer rule rests on: gate:make-test's wrapper and run_m1's CLI both judge a check of their own, and what tells them a cycle is already recording it is this variable in the environment they inherited. It is set on this process rather than added to a child's argv because it has to survive a Make recipe, which is also why the autouse redirect in rebuild/conftest.py takes it back off afterwards — a run id this test left behind would silence every check-recording test its worker picked up next."""
+    """`main` puts its run id in the environment, and every child inherits it. gate:make-test's wrapper and run_m1's CLI record their own check line unless this variable is set, so it keeps each check to one line. It is set on this process, not passed in a child's argv, because it must survive a Make recipe. The autouse fixture in rebuild/conftest.py removes it after the test, because a leftover run id would silence every check-recording test the worker ran next."""
     _settled_repo(tmp_path, monkeypatch)
     ac.record_plumbing_green("plu")
     monkeypatch.setenv(ct.CYCLE_RUN_ENV, "a-stale-run-id")
@@ -7268,7 +7268,7 @@ def test_main_hands_its_run_id_to_every_child_through_the_environment(tmp_path, 
 
 
 def test_main_runs_the_pass_under_the_stop_handlers(tmp_path, monkeypatch, _stop_dispositions):
-    """`main` hands `_run_cycle` a process whose SIGTERM and SIGHUP raise `CycleStopped`, so a signal that reaches the driver alone still reaps the children, and it puts the handlers it replaced back when the pass returns."""
+    """`main` runs `_run_cycle` with SIGTERM and SIGHUP handlers that raise `CycleStopped`, so a signal that reaches only the driver still reaps the children, and it restores the previous handlers when the pass returns."""
     _settled_repo(tmp_path, monkeypatch)
     ac.record_plumbing_green("plu")
     monkeypatch.setattr(ac, "server_listening", lambda port=ac.REVIEW_PORT: False)
@@ -7290,7 +7290,7 @@ def test_main_runs_the_pass_under_the_stop_handlers(tmp_path, monkeypatch, _stop
 
 
 def test_main_mints_one_run_directory_and_points_latest_at_it(tmp_path, monkeypatch):
-    """A pass's logs are addressed two ways: by its own stamp and sha, which is what a summary or a later reader cites, and through `latest`, which is what an agent tails while the pass is still running."""
+    """`main` creates one log directory per pass, named by stamp and short sha (what a summary cites), and points `latest` at it (what an agent tails while the pass runs)."""
     _settled_repo(tmp_path, monkeypatch)
     ac.record_plumbing_green("plu")
     monkeypatch.setattr(ac, "server_listening", lambda port=ac.REVIEW_PORT: False)
@@ -7315,7 +7315,7 @@ def test_main_mints_one_run_directory_and_points_latest_at_it(tmp_path, monkeypa
 
 
 def test_main_copies_what_it_said_before_the_digest_into_the_terminal_log(tmp_path, monkeypatch, capsys):
-    """The pass's most consequential line is printed before the plan is even resolved: which master the carry resolved to. terminal.log is meant to be a byte copy of the terminal, so it belongs in it — once, on each side."""
+    """The carry-source line is printed before the plan is resolved and before the digest exists. terminal.log is a copy of the terminal, so the line appears once in each."""
     _settled_repo(tmp_path, monkeypatch)
     ac.record_plumbing_green("plu")
     monkeypatch.setattr(ac, "server_listening", lambda port=ac.REVIEW_PORT: False)
@@ -7337,7 +7337,7 @@ def test_main_copies_what_it_said_before_the_digest_into_the_terminal_log(tmp_pa
 
 
 def test_a_dry_run_mints_no_run_directory():
-    """--dry-run resolves the plan and stops, so it prints the block with nothing to point at rather than creating a directory for a pass that never happens."""
+    """--dry-run resolves the plan and stops, so it creates no log directory and the plan block names none."""
     plan = _plan()
     assert plan.log_dir is None and plan.stamp == ""
     assert "logs " not in _plan_text(plan)
@@ -7345,7 +7345,7 @@ def test_a_dry_run_mints_no_run_directory():
 
 
 def test_prune_build_logs_keeps_the_newest_runs_and_never_the_pointer(tmp_path):
-    """The names are `<UTC stamp>-<short sha>`, so a lexical sort is chronological and no mtime is consulted. `latest` is a pointer rather than a run and is never a candidate — and what it points at, the newest run, is always kept."""
+    """Run directories are named `<UTC stamp>-<short sha>`, so a lexical sort is chronological and no mtime is read. The `latest` link is never a candidate, and the run it points at, the newest, is always kept."""
     for stamp in ("20260101T000000Z-aaa", "20260102T000000Z-bbb", "20260103T000000Z-ccc"):
         (tmp_path / stamp).mkdir()
     os.symlink("20260103T000000Z-ccc", tmp_path / console.LATEST_LINK, target_is_directory=True)
@@ -7362,7 +7362,7 @@ def test_prune_build_logs_keeps_the_newest_runs_and_never_the_pointer(tmp_path):
 
 
 def test_retention_prunes_the_build_logs_under_a_live_server_too(tmp_path, monkeypatch):
-    """The build logs sit beside the journal in the retention block but answer to nothing the app writes, so a listening review server — which parks the stash sweep and the compaction — leaves them prunable."""
+    """Retention prunes the build logs even while the review server is up: the app writes nothing there, unlike the stashes and the journal, which retention leaves alone under a live server."""
     plan = _plan(skip_plumbing=True, plumbing_note=ac.PLUMBING_SKIP_NOTE)
     monkeypatch.setattr(ac, "ROOT", tmp_path)
     monkeypatch.setattr(ac, "REVIEW_OUT", tmp_path / "review")
@@ -7431,7 +7431,7 @@ _SKIP_LOCK = (
 
 
 def test_a_version_bump_of_the_lock_moves_no_run_m1_input_while_a_pin_bump_still_rebuilds(tmp_path):
-    """The run_m1 skip key's `uv.lock` line at its projected grain, over the fake root the other skip-key tests use. Editing the project's own block — what the bump-minor skill's `uv sync` writes — leaves the line and the key, so the green stands and `gates_only_reuse` sees nothing moved; a dependency-pin edit moves the line, and because the lock is not comparison-side the route is a rebuild rather than a re-adjudication. The `lock-1` skeletons elsewhere in this module keep their raw fallback, which the arms above them already prove."""
+    """The run_m1 skip key hashes `uv.lock` without the project's own block (`fingerprint.lock_digest`). Changing the project version, which the bump-minor skill's `uv sync` writes, leaves the line and the key unchanged, so the green stands and `gates_only_reuse` sees nothing moved. Changing a dependency pin moves the line, and because the lock is not comparison-side the route is a rebuild. The `lock-1` stand-ins elsewhere in this module have no project block and hash by raw bytes, which the earlier tests cover."""
     root = _fake_run_m1_root(tmp_path)
     (root / "uv.lock").write_text(_SKIP_LOCK)
     stored = ac.run_m1_skip_files(root)

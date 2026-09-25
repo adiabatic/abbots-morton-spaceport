@@ -1,4 +1,7 @@
-"""What `make job-costs` has to keep true: a pool record measures one worker apiece and a named step measures one unit, a step whose tree holds more than the pool it names measures nothing here, an overrun is only ever an overrun of this host's own rows measured since the commit that seeded the constant and inside the recency window, and a constant this box has never tested says so in those words instead of passing quietly. `_main` states no seed stamps, so a fixture's date never collides with the live tree's commits; the tests about the bound state their own. Every fixture peak is computed against the real constants rather than written as a literal, because the assertions are about a relation and a literal would fossilize today's constant into a test that has to survive re-seeding it."""
+"""Tests for `make job-costs` (`rebuild/tools/calibrate_budgets.py`): which journal records count as observations of each unit, when an observation is an overrun, and what the report prints.
+
+`_main` passes no seed stamps, so the seed bound excludes no fixture record. The tests of the seed bound pass their own stamps. A peak that a test compares with a constant is computed from the real constant, so the tests still pass after a constant is re-seeded.
+"""
 
 import json
 
@@ -69,7 +72,7 @@ def test_every_unit_with_a_constant_names_one_its_source_file_actually_defines()
 
 
 def test_every_pool_name_a_gate_wrapper_sets_is_one_the_registry_reads():
-    """The unit name is the join between a measurement and a constant, and it is written down on both sides of a boundary no import crosses: the wrappers stamp it onto a child's environment, and this registry looks for it in the journal. Nothing else would notice a name drifting — a pool filed under a name no unit claims simply never turns up, and a unit that never turns up reads exactly like a lane this box has not run yet, which is the report's one legitimately quiet state."""
+    """The gate wrappers set a pool's unit name in the child's environment, and the registry looks the name up in the journal; no import links the two. Nothing else catches a mismatch: the pool's records match no unit, and the unit reports no observations, which looks the same as a lane this machine has not run."""
     known = {name for unit in cb.UNITS for name in unit.pool_units}
     assert {mtg.POOL_UNIT, *rg.POOL_UNIT_BY_LANE.values()} <= known
 
@@ -89,7 +92,7 @@ def test_the_controllers_own_peak_is_never_one_of_the_workers_observations():
 
 
 def test_a_surface_pool_record_prices_the_worker_constant():
-    """The surface build files its own pool records rather than a pytest controller's, and they land on the divisor's row alone: the parent is measured by a step peak and would be nonsense as a worker observation, so the two surface rows never read each other's evidence."""
+    """The surface build writes its own pool records under the unit `surface`, and only the surface-worker row reads them. The surface-parent row reads the `surface-build` step peak, so the two surface rows never share an observation."""
     record = _pool("surface", [6_000_000_000, 7_000_000_000])
     observed, _, _ = cb.observations(_unit("surface-worker"), [record], {}, host=HOST, recent=20)
     assert [item.peak_bytes for item in observed] == [6_000_000_000, 7_000_000_000]
@@ -99,7 +102,7 @@ def test_a_surface_pool_record_prices_the_worker_constant():
 
 
 def test_a_conform_belt_pool_record_lands_on_the_belt_row_only():
-    """The belt and the oracle both fan out from run_m1 over the same configurations, but a belt worker and an oracle range hold different piles, so neither row reads the other's records: a belt worker filed as a range would read as headroom the oracle's divisor does not have, and the reverse."""
+    """The belt and the oracle both fan out from run_m1 over the acceptance configurations, but a belt worker and an oracle range worker hold different data. Each row reads only its own pool's records, because a record read by the other row would misstate that row's peak."""
     belt = _pool("conform-belt", [390_000_000, 920_000_000])
     observed, _, _ = cb.observations(_unit("conform-belt"), [belt], {}, host=HOST, recent=20)
     assert [item.peak_bytes for item in observed] == [390_000_000, 920_000_000]
@@ -112,7 +115,7 @@ def test_a_conform_belt_pool_record_lands_on_the_belt_row_only():
 
 
 def test_a_conform_step_peak_is_never_read_as_a_belt_worker():
-    """`reap_peak_rss_bytes` maxes over gate:conform's tree rather than summing it, so the step's peak reads one process and never the pool; no row admits it, the belt's included."""
+    """`reap_peak_rss_bytes` takes the max over gate:conform's process tree, so the step peak measures one process, not the pool. No row reads it."""
     steps = {"r1": [_step("gate:conform", 3_000_000_000)]}
     observed, _, _ = cb.observations(_unit("conform-belt"), [], steps, host=HOST, recent=20)
     assert observed == []
@@ -120,7 +123,7 @@ def test_a_conform_step_peak_is_never_read_as_a_belt_worker():
 
 
 def test_an_overrun_of_the_belt_constant_trips_the_check(tmp_path, capsys):
-    """The belt's row checks as well as reports: a worker past `CONFORM_BELT_BYTES` means the divisor gate:conform's width is priced on does not hold, and `--check` says so the way it does for every other constant."""
+    """A belt worker peak above `CONFORM_BELT_BYTES` fails `--check` like an overrun of any other constant, because gate:conform's pool width is computed from it."""
     over = _journal(tmp_path, [_pool("conform-belt", [CONSTANTS["conform-belt"] + 1])])
     code, out = _run(capsys, over, "--check")
     assert code == 1
@@ -130,14 +133,14 @@ def test_an_overrun_of_the_belt_constant_trips_the_check(tmp_path, capsys):
 
 
 def test_the_belt_cap_reads_the_acceptance_configurations_the_pipeline_defines():
-    """The belt's width clause caps at the acceptance-configuration count, read out of the pipeline's source rather than imported; the count it reads is the one `run_m1.run_font_conformance` submits a worker for apiece."""
+    """The belt's width clause is capped at the acceptance-configuration count, which `_acceptance_config_count` parses from `conform.py` without importing it. `run_m1.run_font_conformance` submits one worker task per acceptance configuration."""
     from rebuild.pipeline import conform
 
     assert cb._acceptance_config_count(cb.ROOT / cb.CONFORM_SOURCE) == len(conform.ACCEPTANCE_CONFIGS)
 
 
 def test_a_plumbing_step_peak_prices_the_standing_fill_parent():
-    """The plumbing step's peak is the chain parent, the widest process under it on every pass, so it lands on the standing-fill-parent row alone; the refill pool beside it files no record, so no worker row reads it."""
+    """The plumbing step peak is the max over the verdict chain and any refill workers, and only the standing-fill-parent row reads it. The refill pool writes no pool record, so no worker row gets observations from it."""
     steps = {"r1": [_step("plumbing", 9_000_000_000)]}
     observed, _, _ = cb.observations(_unit("standing-fill-parent"), [], steps, host=HOST, recent=20)
     assert [(item.peak_bytes, item.source) for item in observed] == [(9_000_000_000, "step:plumbing")]
@@ -321,7 +324,7 @@ def test_the_live_tree_dates_its_constants_in_the_journals_own_stamp_shape():
 
 
 def test_the_recency_window_is_one_machines_worth_under_host_all(tmp_path, capsys):
-    """A fleet survey has to be a survey of the fleet. One busy box cycling all day would otherwise fill a global window by itself, and the quiet machine whose peak has actually run away — the one nobody is watching — would drop out of the report without the report saying so."""
+    """Under `--host all` the recency window is kept per host. A single global window would fill with the busiest machine's records and drop an overrun on a less active machine without reporting it."""
     over = CONSTANTS["font-suite"] * 2
     under = CONSTANTS["font-suite"] // 2
     path = _journal(
@@ -334,7 +337,7 @@ def test_the_recency_window_is_one_machines_worth_under_host_all(tmp_path, capsy
 
 
 def test_a_fleet_survey_never_claims_a_constant_is_unverified_here(tmp_path, capsys):
-    """A box is what "here" means, and --host all names none. With nothing measured anywhere the observed line has already said the whole of what is known, and a sentence about this host's missing rows would be answering a question nobody asked."""
+    """`--host all` names no host, so the report never prints UNVERIFIED HERE. The observed line already says there are no observations."""
     path = _journal(tmp_path, [_step("gate:make-test", CONSTANTS["font-suite"] * 50)])
     assert _main(path, "--host", "all", "--check") == 0
     out = capsys.readouterr().out
@@ -352,7 +355,7 @@ def test_the_unmeasured_lane_is_reported_and_never_checked(tmp_path, capsys):
 
 
 def test_a_signature_pool_record_lands_on_the_cores_bound_row(tmp_path, capsys):
-    """The surface build's signature pool files under a unit of its own, and only the `signature-worker` row reads it — the surface rows never do, since a comparator-only worker filed as a surface worker would read as headroom the unit worker does not have. The row has no constant, so `--check` stays green at any peak; what it does is report the figure."""
+    """The surface build's signature pool writes records under the unit `signature`, and only the `signature-worker` row reads them. A signature worker holds only a comparator, so reading its peak as a surface worker's would understate the surface worker's peak. The row has no constant, so `--check` passes at any peak and the row only reports the figure."""
     assert _unit("signature-worker").constant is None
     readers = [unit.name for unit in cb.UNITS if "signature" in unit.pool_units]
     assert readers == ["signature-worker"]
@@ -388,7 +391,7 @@ def test_the_report_states_the_width_each_constant_implies_here(tmp_path, capsys
 
 
 def test_the_width_clauses_answer_for_the_box_and_the_tree_they_are_given(tmp_path, capsys):
-    """A report about a machine this suite is not running on, read out of a tree it is not checked out of: both are keywords precisely so the arithmetic can be asserted against a box and a cap someone stated rather than against whichever ones the runner happens to have."""
+    """`render_rows` takes the machine's memory, its cores, and the source tree as arguments, so this test checks the width arithmetic against a stated machine and a fixture tree instead of the machine and checkout running the test."""
     tree = tmp_path / "tree"
     (tree / "rebuild" / "tools").mkdir(parents=True)
     (tree / "rebuild" / "tools" / "artifact_cycle.py").write_text(
@@ -423,7 +426,7 @@ def test_the_width_clauses_answer_for_the_box_and_the_tree_they_are_given(tmp_pa
 
 
 def test_a_check_that_cannot_run_exits_apart_from_one_that_tripped(tmp_path, capsys, monkeypatch):
-    """The cycle reads exit 1 as a measured overrun and diffs the constants on it. A renamed constant raises here on purpose — a calibration silently not performed is the failure this tool exists to prevent — so that raise must not arrive at the cycle wearing the verdict's exit code."""
+    """The cycle treats exit 1 as a measured overrun and prints a diff of the constants. A renamed constant makes the tool raise, and that failure must exit 2 so the cycle does not report it as an overrun."""
 
     def boom(*args, **kwargs):
         raise RuntimeError("conftest.py defines no FONT_SUITE_WORKER_BYTES")
@@ -435,7 +438,7 @@ def test_a_check_that_cannot_run_exits_apart_from_one_that_tripped(tmp_path, cap
 
 
 def test_an_overrun_that_only_just_clears_the_constant_never_reads_as_no_overrun(tmp_path, capsys):
-    """The margin rounds to whole percent, and a peak a hair past its constant is the common trip — these constants are chosen with headroom, so reaching one at all is the event. A line reading "by 0%" beside a nonzero exit would argue against the exit."""
+    """The margin is rounded to a whole percent, so a peak just past its constant would print "by 0%" beside a failing exit. The report prints "by less than 1%" instead."""
     peak = int(CONSTANTS["font-suite"] * 1.003) + 1
     path = _journal(tmp_path, [_pool("font-suite", [peak])])
     code, out = _run(capsys, path, "--check")

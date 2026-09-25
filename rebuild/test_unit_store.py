@@ -1,4 +1,7 @@
-"""The packed unit store (rebuild/review/unit_store.py): every accessor reads back what the fold was handed, in the exact shapes the build's reduces and the store writer consume — the `SeamHomeUnit` the home reduce compares, the `proj` and `seams` a store line carries, the `CachedUnit` whose `record_line` is the previous store's line byte for byte — plus the id index, the length refusals and the census. Synthetic units are folded from in-memory projections and records; the one real workload is the frozen mini bundle under rebuild/review/fixtures/mini/, whose projections the serial runner folds, never a live artifact."""
+"""Tests for the packed unit store (`rebuild/review/unit_store.py`). Each accessor returns what the fold was given, in the shape the build's reduces and the store writer read: the `SeamHomeUnit` the home reduce compares, the `proj` and `seams` a store line carries, and the `CachedUnit` whose `record_line` matches the previous store's line byte for byte. The tests also cover the id index, the length checks, and the census.
+
+Most tests fold synthetic projections and records. The one real workload is the checked-in mini bundle under `rebuild/review/fixtures/mini/`, whose projections the serial runner folds; no test reads a live artifact.
+"""
 
 from __future__ import annotations
 
@@ -24,7 +27,7 @@ MINI = REPO_ROOT / "rebuild" / "review" / "fixtures" / "mini"
 
 @dataclass(frozen=True, slots=True)
 class _Projection:
-    """The fields `fold_projection` reads off `build._UnitProjection`, as a local shape so a test builds one without the runner."""
+    """The fields `fold_projection` reads from `build._UnitProjection`, so a test can build a projection without the runner."""
 
     unit_id: str
     input_key: str
@@ -111,7 +114,7 @@ _WINDOW = (0xE652, 0xE670)
 
 
 def _record(seam_home: SeamHomeUnit) -> dict:
-    """The `proj` dict a store line carries for a projection, key for key and list for list as `unit_cache.CachedUnit.to_record` serializes it, the reference `seam_home_record` is held to."""
+    """The expected `proj` dict for a projection, with the keys and lists `unit_cache.CachedUnit.to_record` writes. `seam_home_record` is compared against it."""
     return {
         "pair": list(seam_home.pair) if seam_home.pair else None,
         "after_spans": [list(span) for span in seam_home.after_spans],
@@ -130,7 +133,7 @@ def _spooled(projection: _Projection, start: int) -> unit_cache.PriorFragment:
 
 
 def test_a_fresh_projection_reads_back_what_the_fold_was_handed():
-    """Fold one projection and read every accessor back equal to what the projection carried: the flags, the deltas dict in its folded order, the digests, the pair, the seam home, the seam rects as `_seam_records` shapes them, the spool address, the mismatch lines."""
+    """Every accessor on a folded fresh projection returns what the projection carried, with the ink deltas in folded order and the seam rects in the shape `_seam_records` gives them."""
     projection = _projection("one", ink_identical=True, mismatches=("ss03 E652:E670: derived cells differ",))
     store = UnitStore(1)
     store.set_input_key(0, projection.input_key)
@@ -177,7 +180,7 @@ def test_a_fresh_projection_reads_back_what_the_fold_was_handed():
 
 
 def test_the_input_key_column_is_written_once_and_a_fold_holds_its_key_to_it():
-    """The plan writes each unit's input key into the store ahead of any fold and the fold carries the same key on its projection or record; a fold whose key disagrees with the column is refused rather than overwriting it, a fold into a row whose key was never written fills it, and a restarted store (`emptied`) keeps the keys and nothing else."""
+    """The plan writes each unit's input key before any fold. A fold whose key differs from the written one raises instead of overwriting it, a fold into a row with no written key fills it, and `emptied` keeps the keys and drops everything else."""
     projection = _projection("keyed")
     store = UnitStore(2)
     store.set_input_key(0, projection.input_key)
@@ -196,7 +199,7 @@ def test_the_input_key_column_is_written_once_and_a_fold_holds_its_key_to_it():
 
 
 def test_the_fold_takes_the_ordinal_and_address_off_the_projection_when_not_given():
-    """The wiring hands the ordinal and the spool address either as arguments or as attributes: a projection carrying `ordinal`, `part`, `start` and `length` folds without arguments, and one with no ordinal either way is refused."""
+    """`fold_projection` takes the ordinal and the spool address from its arguments or, when they are omitted, from the projection's `ordinal`, `part`, `start`, and `length`. A projection with no ordinal either way raises."""
     base = _projection("addressed")
     addressed = replace(base, ordinal=1, part="units/w0.000.json", start=3, length=40)
     store = UnitStore(2)
@@ -268,7 +271,7 @@ def _load(tmp_path: Path, records: list[unit_cache.CachedUnit]) -> dict[str, uni
 
 
 def test_a_served_record_reads_back_and_its_cached_unit_is_the_store_line(tmp_path):
-    """The served round trip, the model being test_unit_cache.py's store-line inverse: a record written, loaded as a `ServedUnit`, folded, and read back as `cached_unit` serializes to the very line the store holds — with the home record resolved through the index to the unit it names, the address the write recorded, and the policy file the record carries — and the served-only columns hold the record's own class, echo, flags and homes, so `served_as_is` answers for the unit off those columns alone."""
+    """A store record that is written, loaded as a `ServedUnit`, and folded reads back through `cached_unit` as the same store line after its homes are set by id and its written address is recorded. `home_ordinals` resolves a home id to its ordinal through the index. The served-only columns hold the record's class, echo, flags, and homes, which are what `served_as_is` compares."""
     home = _served_record("home", [[None, False]], ("units/small.json", 1, 5))
     homed = _served_record("homed", [[home.prior_id, False]], ("units/small.json", 7, 5))
     loaded = _load(tmp_path, [home, homed])
@@ -341,7 +344,7 @@ def test_a_served_record_reads_back_and_its_cached_unit_is_the_store_line(tmp_pa
 
 
 def test_a_served_record_is_folded_with_the_fragment_the_plan_located(tmp_path):
-    """A record without an address is served through the walk, and the fold takes the walk's fragment as the source (not verbatim); one folded with no fragment at all, or with a fragment for another unit, is refused."""
+    """A record without an address is folded with the fragment the walk found. That fragment becomes the source and is not verbatim, so `served_as_is` is false. Folding the record with no fragment, or with another unit's fragment, raises."""
     record = _served_record("walked", [[None, False]], None)
     cached = _load(tmp_path, [record])[record.key]
     assert cached.located() is None
@@ -360,7 +363,7 @@ def test_a_served_record_is_folded_with_the_fragment_the_plan_located(tmp_path):
 
 
 def test_the_id_index_refuses_a_duplicate_and_answers_ordinal_of():
-    """The index built after the fold answers every unit's ordinal from its id and refuses an id no unit carries; two units under one content key are a refusal naming both windows, an unfolded row is caught before the index sorts an all-zero key, and a fold after the index drops it."""
+    """`ordinal_of` returns each unit's ordinal from its id and raises `KeyError` for an id no unit has. Building the index exits with a message naming both windows when two units share a content key, and raises on an unfolded row before it would sort that row's all-zero key. Folding an ordinal a second time raises."""
     store = UnitStore(3)
     projections = [_projection(f"p{index}", (0xE652, 0xE670 + index)) for index in range(3)]
     for ordinal, projection in enumerate(reversed(projections)):
@@ -395,7 +398,7 @@ def test_the_id_index_refuses_a_duplicate_and_answers_ordinal_of():
 
 
 def test_id_string_order_is_the_order_of_the_words_they_spell():
-    """What lets the home reduce tie-break on the integer: `unit_cache.unit_id_for` spells the key's first 64 bits at a fixed width over an ASCII-ordered alphabet, so over random words the ids sort as the words do, and `id_word_of` inverts the spelling exactly."""
+    """`unit_cache.unit_id_for` writes the key's first 64 bits at a fixed width over an ASCII-ordered alphabet, so ids sort in the same order as their words, and `id_word_of` inverts the encoding. The home reduce relies on this to break ties on the integer."""
     generator = random.Random(299)
     words = [generator.getrandbits(64) for _ in range(4096)] + [
         0,
@@ -414,7 +417,7 @@ def test_id_string_order_is_the_order_of_the_words_they_spell():
 
 
 def test_the_fold_refuses_rows_whose_lengths_disagree():
-    """The layout shares one count across a row's spans, names and seams and one across the seam pairs, rects and homes, so a projection whose lengths do not stand in that relation — or whose rect edges are not the three `_highlight` keys in order — is refused rather than sliced short."""
+    """The store keeps one count for a row's spans, names, and seams, and one for its seam pairs, rects, and homes, so a fold raises when those lengths disagree instead of truncating. It also raises on rect edges that are not the three `enrich._highlight` keys in order, on mismatched ink flags or unit id, and on an ordinal outside the store."""
     base = _projection("lengths")
     home = base.seam_home
     cases = {
@@ -472,7 +475,7 @@ def _string_bytes(store: UnitStore) -> tuple[int, int]:
 
 
 def test_the_census_is_the_arrays_bytes_and_empty_homes_and_mismatches_cost_none():
-    """The store's reading is exact — the columns' bytes plus the string table walked, the columns alone packed with the table beside them, as `pile_tally`'s line contracts — and a unit with no seam and no mismatch adds nothing to the seam side arrays, the home columns or the mismatch dict."""
+    """`census` reports the columns' bytes plus the mismatch lines as the packed figure, with the string table's counts beside it, and the packed figure plus the string table as the walked figure (`pile_tally.column_census`). A unit with no seam and no mismatch adds nothing to the seam side arrays, the home columns, or the mismatch dict."""
     store = UnitStore(2)
     seamless = _projection("seamless", seam_home=_seam_home("", (0xE652, 0xE670), seams=False))
     seamless = replace(seamless, seam_home=replace(seamless.seam_home, unit_id=seamless.unit_id))
@@ -532,7 +535,7 @@ def test_the_written_address_policy_file_and_config_note_round_trip():
 
 
 class _RecordingStore(UnitStore):
-    """The store with every projection the runner folds kept beside its row, so the test can hold each accessor to the projection the fold was handed."""
+    """A `UnitStore` that also keeps each projection it folds, keyed by ordinal, so a test can compare every accessor with it."""
 
     def __init__(self, n: int, **kwargs) -> None:
         super().__init__(n, **kwargs)
@@ -545,7 +548,7 @@ class _RecordingStore(UnitStore):
 
 
 def test_the_mini_bundle_folds_and_reads_back_every_projection(mini_bundle, tmp_path):
-    """Over the frozen mini bundle's real projections, folded by the serial runner as it drafts: every accessor equals the projection the fold was handed, the source is the spool's own address off the projection, the key the plan wrote is the key the fold carried, the index answers every id, the whole workload is a seam-home source, the census is exactly the columns' bytes — the string table is the workload table's, printed beside the store's line and charged under `workload.units` — and the triage permutation `sort_for_triage` answers over the table is the sort by id string that `triage_key` states."""
+    """The serial runner folds the mini bundle's real projections as it drafts them. Every accessor equals the folded projection, the source is the spool address the projection carries, the input key is the one the plan wrote, the index finds every id, and `windows` lists every unit's window. `census` counts only the columns' bytes, because the string table belongs to the workload table and is charged under `workload.units`. The permutation `sort_for_triage` returns equals a sort by `triage_key`, which uses the id string."""
     workload = load_workload(MINI / "audit.tsv", mini_bundle.ledger, dict(LETTERS))
     table = workload.table
     store = _RecordingStore(table.n, strings=table.strings)

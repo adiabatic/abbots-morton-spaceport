@@ -1,4 +1,4 @@
-"""spec_load unit tests: the real spec loads with class and group memberships that re-derive from the raw sources, every lint fires with a file/path/line error, and the built-in schema evaluator agrees with jsonschema when it is available."""
+"""Tests for spec_load: the checked-in spec loads with predicate-class and group memberships that match a re-derivation from the raw YAML, the lints raise errors that carry file, path, and line, and the built-in schema checker agrees with jsonschema when jsonschema is installed."""
 
 import itertools
 import json
@@ -591,7 +591,7 @@ def test_trait_qualified_except_atom_rejected(tmp_path):
 
 
 def test_run_splitting_boundaries_not_addressable_in_when(tmp_path):
-    """The grammar half of the boundary-equals-text-edge guarantee: neither `is: zwnj` nor `is: space` is in the schema's boundaryValue enum, so no record can render a run-splitting boundary context differently from the same letters at a text edge. The rendering half is conform.check_split_buffer. The namer dot does not split runs and stays addressable."""
+    """Checks that `is: zwnj` and `is: space` fail the schema's boundaryValue enum, so no record can treat letters beside a space or ZWNJ differently from the same letters at a text edge. conform.check_split_buffer checks the same property in the shaped output. The namer dot does not split runs and stays addressable."""
     for kind in ("zwnj", "space"):
         text = MINIMAL_RUNE + textwrap.dedent(f"""\
             policy:
@@ -740,7 +740,7 @@ def test_builtin_checker_rejects_broken_documents():
 
 
 def test_ligature_transparency_expands_left_facing_family_lists(spec):
-    """A family in an entry from-scope or a when.left admits every registered ligature whose sequence ends in it; toward-scopes, when.right, and except: lists stay literal, and predicate-class membership stays the ligature's own surface geometry. That a literal ligature name still outranks the expanded list it now appears in is the specificity order's claim rather than the loader's, stated over a registry of this shape by `specificity.rs`'s `a_ligature_family_name_ranks_as_an_ordinary_family`."""
+    """A family in an entry from-scope or a when.left also matches every registered ligature whose sequence ends in it. Toward-scopes, when.right, and except: lists stay literal, and a ligature's predicate-class membership comes from its own surface. `specificity.rs`'s `a_ligature_family_name_ranks_as_an_ordinary_family` tests that a literal ligature name still outranks an expanded list that contains it."""
     half_from = spec.runes["qsPea"].stances["half"].surface.entries["x-height"].scope
     utter_cond = next(cond for cond in half_from if "qsUtter" in cond.family)
     assert "qsDay_qsUtter" in utter_cond.family
@@ -766,7 +766,7 @@ def test_ligature_transparency_expands_left_facing_family_lists(spec):
     assert "qsTea_qsOy" in classes.get("can-exit-at-baseline", frozenset())
 
 
-# Real-YAML pins on the right-side chain grammar. The matcher that walks a chain is the crate's, and its deep-chain tests read their hops off synthetic specs; what stays on this side is the authored data those tests stand in for — which live records reach past their own slot, how far each reaches against the window cap, and the exact family scopes the orphaned-·Tea pins in rebuild/test_settle.py ride on. Every assertion below reads PolicyRecord.when straight off the loaded spec.
+# Tests of the right-side chain conditions in the checked-in runes. The crate's tests cover the chain matcher over synthetic specs. These tests check the authored data: which records read past the immediate right neighbor, how far each reads against RIGHT_CHAIN_CAP, and the family scopes that the orphaned-·Tea tests in rebuild/test_settle.py depend on.
 
 
 def _policy_records(spec):
@@ -777,7 +777,7 @@ def _policy_records(spec):
 
 
 def _chain_reach(condition, depth: int = 0) -> int:
-    """How many raw slots past its own a right condition reads, by the rule spec_load._right_chain_reach states over the raw YAML: a then: hop advances one slot, and an except: entry tests its parent's slot, so its own hops count from there."""
+    """Returns how many slots past its own slot a right condition reads, by the same rule spec_load._right_chain_reach applies to the raw YAML: a then: hop advances one slot, and an except: entry tests its parent's slot, so its hops count from there."""
     if condition is None:
         return depth
     reach = depth
@@ -789,7 +789,7 @@ def _chain_reach(condition, depth: int = 0) -> int:
 
 
 def _chain_bearing_excepts(condition, found):
-    """Every (parent, except entry) pair under one right condition where the entry carries a chain of its own."""
+    """Appends to `found` every (parent, except entry) pair under one right condition where the entry has its own then: chain."""
     if condition is None:
         return found
     for atom in condition.except_:
@@ -837,7 +837,7 @@ CHAIN_BEARING_EXCEPT_RECORDS = (
     ids=[row[0].replace("[", "").replace("]", "") for row in CHAIN_BEARING_EXCEPT_RECORDS],
 )
 def test_every_chain_bearing_except_walks_its_parents_tail(spec, record_id, reach):
-    """The live records whose right condition hangs a chain off an except: entry, with the slot each one reaches. An except entry tests its parent's own slot rather than a deeper one, so a chain hung off it walks the tail its parent was already reading and its hops count against the same cap — which is what engine.rs's an_except_entry_carrying_a_chain_walks_the_same_tail and an_except_entry_carrying_a_four_hop_chain_walks_the_same_tail state over synthetic specs, and this is the authored data they stand in for. The census is asserted whole, so a newly authored chain cannot slip past the list."""
+    """Checks the records whose right condition has an except: entry with its own then: chain, and how many slots each one reads. An except: entry tests its parent's slot, so its chain reads the same letters its parent's chain reads and counts against the same cap. engine.rs's `an_except_entry_carrying_a_chain_walks_the_same_tail` and `an_except_entry_carrying_a_four_hop_chain_walks_the_same_tail` test the matcher over synthetic specs. The full set of such records must equal CHAIN_BEARING_EXCEPT_RECORDS, so a newly authored chain fails this test until it is added there."""
     records = dict(_policy_records(spec))
     carriers = {name for name, record in records.items() if _chain_bearing_excepts(record.when.right, [])}
     assert carriers == {row[0] for row in CHAIN_BEARING_EXCEPT_RECORDS}
@@ -850,7 +850,7 @@ def test_every_chain_bearing_except_walks_its_parents_tail(spec, record_id, reac
 
 
 def test_the_qsday_depth_three_chains_both_hop_through_qsno(spec):
-    """The authored third-slot spines include qsDay's ·No windows and qsUtter's inherited outgoing preference. Provenance identifies the source when a ligature shares a record. ·Oy and ·Tea+Oy reach as deep through except: entries rather than a then: spine."""
+    """Checks the records whose right condition has a then: chain at least two hops deep: qsDay's two ·Tea·No records, qsEight.prefer[1], and qsUtter.prefer[4]. Records are named by provenance, so a record a ligature inherits counts once, under its source rune. qsOy and qsTea_qsOy reach RIGHT_CHAIN_CAP through except: entries, with no then: on the top-level condition."""
     spines = {
         f"{Path(record.provenance.file).stem}.{record.provenance.path.removeprefix('policy.')}"
         for _name, record in _policy_records(spec)
@@ -876,7 +876,7 @@ def test_the_qsday_depth_three_chains_both_hop_through_qsno(spec):
 
 
 def test_the_qsday_prefer_right_scopes_are_pinned(spec):
-    """The two qsDay prefers the depth-3 orphaned-·Tea pins in rebuild/test_settle.py ride on: the ·Utter-scoped one, which only speaks for a ·Day nothing entered, and the broad follower list that withholds the exit before ·Tea and any of five joinable letters."""
+    """Checks the two qsDay prefers that the depth-3 orphaned-·Tea tests in rebuild/test_settle.py depend on: prefer[1], scoped to ·Tea·Utter, which applies only when nothing joins into ·Day, and prefer[2], which withholds ·Day's exit before ·Tea followed by any of a list of joinable letters."""
     prefer = spec.runes["qsDay"].policy.prefer
     scoped = prefer[1].when.right
     assert scoped is not None and scoped.then is not None
@@ -956,7 +956,7 @@ class TestRuneClosure:
 
 
 def _unlocked(stance: model.Stance, features: frozenset[str]) -> model.Stance:
-    """The stance with every unlock whose feature is on folded into its rows the way the engine reads them: an unlocked entry height is a selectable row whether or not one is declared, an unlocked exit height is a row where none is declared, and a pairing unlock moves no row."""
+    """Returns the stance with every unlock whose feature is in `features` applied to its rows, as the engine reads them: an unlocked entry height becomes a selectable row whether or not one is declared, an unlocked exit height becomes a row where none is declared, and a pairing unlock changes no row."""
     entries = dict(stance.surface.entries)
     exits = dict(stance.surface.exits)
     for unlock in stance.surface.unlocks:
@@ -984,7 +984,7 @@ def _capability_powerset(spec: model.ResolvedSpec) -> list[frozenset[str]]:
 
 
 def _configurations(spec: model.ResolvedSpec) -> dict[str, frozenset[str]]:
-    """Every acceptance configuration by its token, plus every subset of the capability features the guard quantifies over, by the token `emit_gsub` would spell it with."""
+    """Maps each acceptance configuration's token, and the token for each subset of the capability features, to its feature set."""
     configurations = {config: conform.features_for_config(config) for config in conform.ACCEPTANCE_CONFIGS}
     for subset in _capability_powerset(spec):
         configurations.setdefault("+".join(sorted(subset)) or "default", subset)
@@ -1012,7 +1012,7 @@ def _unlocking_runes(spec: model.ResolvedSpec) -> dict[str, frozenset[str]]:
 
 
 def _feature_scoped_runes(spec: model.ResolvedSpec) -> dict[str, frozenset[str]]:
-    """Per feature, the runes a configuration naming it can move at all: the unlocking runes plus the owners of a record conditioned on it. A window naming none of a configuration's runes settles as `default` does (the tracking issue's configuration corollary)."""
+    """Per feature, the runes a configuration that includes it can change: the runes that unlock it plus the runes that own a record conditioned on it. A window that contains none of a configuration's runes settles as it does under `default`."""
     scoped = {feature: set(runes) for feature, runes in _unlocking_runes(spec).items()}
     for rune_name, _kind, record in _feature_conditioned_records(spec):
         assert record.when.feature is not None
@@ -1021,7 +1021,7 @@ def _feature_scoped_runes(spec: model.ResolvedSpec) -> dict[str, frozenset[str]]
 
 
 def _scoped_under(spec: model.ResolvedSpec, features: frozenset[str]) -> frozenset[str]:
-    """The runes one configuration can move, read off the records the way the engine reads them: an unlock or a record whose feature is on."""
+    """The runes one configuration can change: those with an unlock or a policy record whose feature is in `features`."""
     return frozenset(
         rune.name
         for rune in spec.runes.values()
@@ -1039,10 +1039,10 @@ def _scoped_under(spec: model.ResolvedSpec, features: frozenset[str]) -> frozens
 
 
 class TestConfigurationBlindness:
-    """The pins a configuration-delta enumeration rests on (issue #185): what a stylistic set can move is confined to unlock rows and feature-conditioned policy records, so everything else the engine reads is identical under every configuration. The formation guard's half of the same claim is pinned in rebuild/test_settle.py, where the crate answers it."""
+    """Tests that a stylistic set can change only unlock rows and feature-conditioned policy records, so everything else the engine reads is identical under every configuration. A configuration-delta enumeration depends on this. `test_ss03_is_the_one_set_the_guard_surface_depends_on` in rebuild/test_settle.py tests the same property for the formation guard."""
 
     def test_predicate_class_membership_is_identical_under_every_configuration(self, spec):
-        """`_evaluate_predicate_classes` reads declared rows and never an unlock, so membership is feature-blind by construction; this pins that folding every active unlock in — under each acceptance configuration and under every subset of the capability features the guard quantifies over — derives the same classes. A configuration does move a surface at stance grain (qsTea.full takes an x-height entry under ss03), but classes are rune-grain sets and another stance of the same rune already declares that row, so no rune's membership moves. The tripwire is an unlock granting a rune a height none of its stances declares."""
+        """`_evaluate_predicate_classes` reads only declared rows, never unlocks. This test checks that applying the active unlocks, under each acceptance configuration and each subset of the capability features, derives the same classes. A configuration can change one stance's surface (qsTea.full gains an x-height entry under ss03), but classes are sets of runes and qsTea.half already declares that row, so no rune's membership changes. The test fails if an unlock gives a rune a height that none of its stances declares."""
         declared = yaml.safe_load(spec_load.DEFAULT_REGISTRY_PATH.read_text())["predicate_classes"]
         everything = frozenset(spec_load.capability_features(spec))
         assert any(
@@ -1063,7 +1063,7 @@ class TestConfigurationBlindness:
                 assert derived == spec.registry.predicate_classes[class_name], (label, class_name)
 
     def test_feature_conditions_live_on_unlock_rows_and_on_refuse_and_extend_records_only(self, spec):
-        """Issue #185 states the claim as unlock rows and refuse records, and that fails today on the extend side: the ss03 by-1 x-height extensions toward ·Tea (qsFee.policy.extend[2] and its siblings on qsI, qsLow, qsMay, qsUtter, qsDay_qsUtter, qsJai_qsUtter, qsSee_qsUtter, qsVie_qsUtter) carry `feature: ss03`. So the pin is what holds: refuse and extend are the record kinds that read a feature, prefer, contract, and resolve never do, an unlock's own `when:` never names one (its `feature` is the gate), and every feature named anywhere is registered. `Condition` carries no feature axis, so a scope (`from:`, `toward:`) or a left or right condition cannot read one at all."""
+        """Checks that refuse and extend are the only record kinds that read a feature, that an unlock's own `when:` never names one (its `feature` is the condition), and that every feature named anywhere is registered. The extend records are the by-1 x-height extensions toward ·Tea under ss03, such as qsFee.policy.extend[2]. `Condition` has no feature field, so a scope (`from:`, `toward:`) or a left or right condition cannot read one."""
         conditioned = _feature_conditioned_records(spec)
         assert {kind for _rune, kind, _record in conditioned} == {"refuse", "extend"}
         extends = {
@@ -1084,14 +1084,14 @@ class TestConfigurationBlindness:
         assert not hasattr(Condition(), "feature")
 
     def test_a_feature_condition_names_one_feature(self):
-        """A `when.feature` is one tag, never a list: the schema's `featureTag` is a string, so no record can be written that wakes only under a pair of sets, which is what makes a joint configuration's reach the union of its members' below."""
+        """A `when.feature` is one tag, not a list: the schema's `featureTag` is a string, so no record can apply only when two sets are both on. That is why the runes a joint configuration can change are the union of the runes its members can change."""
         schema = json.loads((spec_load.DEFAULT_SCHEMA_DIR / "rune.schema.json").read_text())
         assert schema["$defs"]["featureTag"]["type"] == "string"
         assert schema["$defs"]["when"]["properties"]["feature"] == {"$ref": "#/$defs/featureTag"}
         assert schema["$defs"]["unlock"]["properties"]["feature"]["$ref"] == "#/$defs/featureTag"
 
     def test_each_interaction_is_covered_by_the_union_of_its_members_unlocking_runes(self, spec):
-        """`features.interactions` in rebuild/script.yaml names the set combinations the acceptance matrix enumerates jointly, and each is covered: every member is a capability feature some rune unlocks, the joint token is an acceptance configuration, the runes the joint configuration can move are exactly the union of the runes each member moves, and the members unlock a rune in common (qsTea's full stance takes both the ss03 x-height entry and the ss05 both-baseline pairing), which is what makes the pair worth enumerating jointly. The converse holds too: every pair of capability features that unlock a rune in common is a declared interaction, so no interacting pair ships outside the acceptance matrix."""
+        """`features.interactions` in rebuild/script.yaml names the set combinations the acceptance matrix enumerates together. For each one, every member is a capability feature some rune unlocks, the joint token is an acceptance configuration, the runes the joint configuration can change are the union of the runes each member can change, and the members unlock at least one rune in common (qsTea's full stance has both the ss03 x-height entry and the ss05 both-baseline pairing). Conversely, every pair of capability features that unlock a rune in common must be a declared interaction, so the acceptance matrix covers every interacting pair."""
         unlocking = _unlocking_runes(spec)
         scoped = _feature_scoped_runes(spec)
         capability = [tag for tag, info in spec.registry.features.items() if info.kind == "capability"]

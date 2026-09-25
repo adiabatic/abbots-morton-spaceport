@@ -1,4 +1,4 @@
-"""The deep replay's decisions, with the walk itself stubbed out: which runes it walks after an edit, what it refuses to run against, what it records when it passes and leaves alone when it fails, how the cycle reports its standing, the width it walks at, and the memo ceiling it hands the crate. The walk it drives is kernel_exec.replay_strings, which the build's own horizon-4 replay exercises everywhere but the memo ceiling, a keyword the build never passes; `TestTheStringReplay` in rebuild/test_kernel_exec.py drives the `memo_windows` path through the verb."""
+"""Tests for the deep replay's decisions, with the walk stubbed out: which runes it walks after an edit, which inputs it refuses, what it records on a pass and leaves alone on a failure, how the cycle reports its status, the width it walks at, and the memo ceiling it passes to the crate. The walk is `kernel_exec.replay_strings`. The build's own horizon-4 replay exercises it everywhere except the `memo_windows` keyword, which the build never passes. `TestTheStringReplay` in rebuild/test_kernel_exec.py tests `memo_windows` through the subcommand."""
 
 import pytest
 
@@ -19,7 +19,7 @@ class Spec:
 
 @pytest.fixture
 def bench(tmp_path, monkeypatch):
-    """A repo root the tool believes in: the runes' digests answered from a table rather than the tree, a tables stamp treated as current, a resolved spec whose closure is the identity, the memo ceiling knob unset so the walk takes the priced default whatever the developer's shell states, and every record redirected into tmp_path."""
+    """A stub repo root: rune digests come from `RUNES`, the tables stamp counts as current, each rune's closure is itself, `AMS_DEEP_REPLAY_MEMO_WINDOWS` is unset so the walk uses the default ceiling whatever the developer's shell sets, and every record is redirected into tmp_path."""
     store = tmp_path / "rebuild" / "out" / "deep-replay-green.json"
     monkeypatch.delenv("AMS_DEEP_REPLAY_MEMO_WINDOWS", raising=False)
     monkeypatch.setattr(deep_replay, "ROOT", tmp_path)
@@ -94,7 +94,7 @@ def test_all_walks_the_universe_and_records_every_rune(bench, monkeypatch, capsy
 
 
 def test_a_rune_edit_walks_the_moved_runes_and_their_readers(bench, monkeypatch):
-    """The record carries every rune's digest; after an edit the walk covers the runes whose digest moved, closed under the runes whose records read them, and the record then carries the new digests beside the untouched ones."""
+    """The record holds every rune's digest. After an edit the walk covers the runes whose digest changed plus the runes whose records read them, and the new record holds the new digests beside the unchanged ones."""
     walked: list = []
     _stub_walk(monkeypatch, walked)
     ac.record_deep_replay_green(
@@ -134,7 +134,7 @@ def test_a_disagreement_records_nothing(bench, monkeypatch, capsys):
 
 
 def test_the_walk_hands_the_crate_its_memo_ceiling(bench, monkeypatch, capsys):
-    """Every walk hands the crate a memo ceiling: the priced default with the knob unset, the stated count with it set, and a knob that is not a count raises before anything walks. The per-configuration line names what `windows` counts once a release can fire, and the journal line carries the walk's peak resident set beside its wall, which is what `make cycle-timings ARGS='--by-step'` prints beside `check:replay-deep`."""
+    """Every walk passes the crate a memo ceiling: `DEEP_REPLAY_MEMO_WINDOWS` when `AMS_DEEP_REPLAY_MEMO_WINDOWS` is unset, its value when set, and a `RuntimeError` before any walk when the value is not a count. The per-configuration line reports `windows` as window settles, because a window can be settled again after a memo release. The journal line records the walk's peak RSS beside its elapsed time, which `make cycle-timings ARGS='--by-step'` prints for `check:replay-deep`."""
     ceilings: list = []
     _stub_walk(monkeypatch, ceilings=ceilings)
     checks: list = []
@@ -194,7 +194,7 @@ def test_the_width_is_the_boxs_memory_or_the_stated_knob(monkeypatch):
 
 
 def test_the_memo_ceiling_is_the_stated_knob_or_the_priced_default(monkeypatch):
-    """The ceiling the walk hands the crate is `AMS_DEEP_REPLAY_MEMO_WINDOWS` wherever it is set and the priced `DEEP_REPLAY_MEMO_WINDOWS` otherwise; a stated value that is not a bare decimal count of at least one window raises naming the knob rather than falling back to the default."""
+    """The ceiling is `AMS_DEEP_REPLAY_MEMO_WINDOWS` when set and `DEEP_REPLAY_MEMO_WINDOWS` otherwise. A set value that is not a bare decimal count of at least one raises an error naming the variable instead of falling back to the default."""
     monkeypatch.delenv("AMS_DEEP_REPLAY_MEMO_WINDOWS", raising=False)
     assert deep_replay.replay_memo_windows() == deep_replay.DEEP_REPLAY_MEMO_WINDOWS
     monkeypatch.setenv("AMS_DEEP_REPLAY_MEMO_WINDOWS", "2000000")
@@ -210,13 +210,13 @@ def test_the_memo_ceiling_is_the_stated_knob_or_the_priced_default(monkeypatch):
     [(BOX_32_GIB, len(conform.SETTLEMENT_CONFIGS)), (BOX_48_GIB, len(conform.SETTLEMENT_CONFIGS))],
 )
 def test_the_shipped_walk_cost_holds_both_fleet_boxes_at_their_widths(total, wanted, monkeypatch):
-    """Both fleet boxes (`doc/fleet.md`) walk every settlement configuration at once under the shipped `DEEP_REPLAY_PEAK_BYTES`, as an assertion a re-seed cannot quietly drop. No cycle spawns this walk, so `make job-costs` has no row watching the constant, and the box-shaped assertions above hold for any positive seed; this pin is what catches a seed past 5.27 GB, which costs the 32 GiB box its fifth walk, or past 8.71 GB, which costs the 48 GiB box its fifth."""
+    """Both fleet machines (`doc/fleet.md`) walk every settlement configuration at once under the checked-in `DEEP_REPLAY_PEAK_BYTES`. No cycle runs this walk, so `make job-costs` does not watch the constant, and the width assertions above pass for any positive value. This test fails if the constant goes above 5.27 GB, which drops the 32 GiB machine to four walks, or above 8.71 GB, which does the same on the 48 GiB machine."""
     monkeypatch.delenv("AMS_DEEP_REPLAY_THREADS", raising=False)
     assert deep_replay.replay_threads(total_bytes=total) == wanted
 
 
 def test_a_green_deep_sweep_refreshes_the_replays_record(tmp_path, monkeypatch):
-    """The whole-universe HarfBuzz sweep settles every text it shapes, so a green one at the replay's depth leaves nothing for the replay to walk: its refresh records every rune on disk at its current digest."""
+    """The deep HarfBuzz sweep over all texts settles every text it shapes, so a passing sweep at the replay's horizon covers the replay. Its refresh records every rune at its current digest."""
     monkeypatch.setattr(
         cycle_paths, "DEEP_REPLAY_GREEN", tmp_path / "rebuild" / "out" / "deep-replay-green.json"
     )

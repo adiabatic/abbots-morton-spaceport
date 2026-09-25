@@ -1,8 +1,12 @@
-"""`oracle_cache.ORACLE_ROW_CODE_PATHS` is an enumerated roster rather than a glob over `rebuild/pipeline/`, and every served row rests on the claim that the roster is the comparison's whole code closure — a module that runs in `_compare_row` or `_SettledWindowWalk` but sits outside the stamp is a module whose fix a served run would skip, handing back the pre-fix verdict as fresh. A hand-written roster is only safe while something checks the name, and this is that check: it walks the import graph from the module those two entry points live in and requires everything reachable to be named, then walks the other direction so the roster stays the closure instead of drifting back into "everything under `rebuild/pipeline/`", which would collapse the store on every unrelated pipeline commit.
+"""Checks that `oracle_cache.ORACLE_ROW_CODE_PATHS` and `POSITION_CODE_PATHS` name exactly the code the oracle comparison runs.
 
-The walk is at module grain, not function grain, which is the same approximation `rebuild/test_plumbing_closure.py` makes and is conservative in the safe direction: a module conform imports for a purpose the comparison never exercises is still stamped, and the reverse — a module the comparison reaches that the import graph does not — cannot happen without a dynamic import, which this tree does not use. It follows `if TYPE_CHECKING:` imports too, because `ast.walk` does not care about the guard and because a type-only import is still a file whose contents shape the comparison's behavior, so a module conform.py names only for a type is stamped like any other. That is what keeps the witness stage's rule replay in `rebuild/pipeline/witness.py` rather than in conform.py: it is the code that reads the GSUB emitter's rule fold, and beside the comparison it would force the roster to name `rebuild/pipeline/emit_gsub.py` for a type-only import the comparison never exercises.
+`ORACLE_ROW_CODE_PATHS` is a hand-written list, not a glob over `rebuild/pipeline/`. If a module that runs in `_compare_row` or `_SettledWindowWalk` is missing from it, the store's stamp does not hash that module, and a fix to it would be skipped and the old row verdict served as current. This test walks the import graph from the module that defines those two entry points and requires every reachable module to be listed. It also checks the other direction, that every listed module is reachable, because a listed module the comparison never reaches drops the whole store on every commit that edits it.
 
-The position channel has a walk of its own here, from `rebuild/pipeline/oracle_positions.py`, the one module `oracle_cache.POSITION_CODE_PATHS` names. Its stamp rides on top of the row stamp, so the claim it rests on is the union: everything the channel reaches is named by `ORACLE_ROW_CODE_PATHS` plus `POSITION_CODE_PATHS`, and `rebuild/pipeline/oracle.py` — the classifier, which re-runs over every served verdict and is in neither roster — is unreachable from it. That second half is the whole saving: were the channel to import the classifier, a predicate edit would move `position_code` and re-shape every position for nothing.
+The walk is at module grain, as in `rebuild/test_plumbing_closure.py`. That errs in the safe direction: a module conform.py imports for a purpose the comparison never uses is still stamped. The opposite error, a module the comparison runs that the import graph does not show, would need a dynamic import, and the walked modules use none. The walk follows `if TYPE_CHECKING:` imports too, because `ast.walk` ignores the guard, so a type-only import is stamped like any other.
+
+Because of the module grain, the witness stage's rule replay is in `rebuild/pipeline/witness.py` and not in conform.py. The replay imports `rebuild/pipeline/emit_gsub.py`, and if it were in conform.py, the roster would have to name the emitter.
+
+The position channel has its own walk, from `rebuild/pipeline/oracle_positions.py`, the only module `POSITION_CODE_PATHS` names. The position stamp is added on top of the row stamp, so everything the channel reaches must be named by one of the two rosters. `rebuild/pipeline/oracle.py`, the classifier, must be unreachable from the channel: it re-runs over every served verdict and is in neither roster, and if the channel imported it, a predicate edit would change `position_code` and re-shape every position.
 """
 
 from __future__ import annotations
@@ -39,7 +43,7 @@ def _module_path(module: str) -> Path | None:
 
 
 def _imports(path: Path) -> set[str]:
-    """Every repo module the file names in an import, absolute form only — this tree has no relative imports, and a `from X import y` is recorded both as X and as X.y so a submodule import is followed."""
+    """Return every repo module the file imports. Only absolute imports are read, because the walked modules use none of the relative kind. A `from X import y` is recorded as both X and X.y so that a submodule import is followed."""
     found: set[str] = set()
     for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
         if isinstance(node, ast.Import):
@@ -51,7 +55,7 @@ def _imports(path: Path) -> set[str]:
 
 
 def reachable_modules(entry_points: tuple[str, ...]) -> dict[str, Path]:
-    """The transitive closure of repo modules the entry points import, keyed by module name."""
+    """Return the repo modules the entry points import transitively, keyed by module name."""
     seen: dict[str, Path] = {}
     queue = list(entry_points)
     while queue:
@@ -73,7 +77,7 @@ def _reached_files() -> set[Path]:
 
 
 def test_both_comparison_entry_points_live_in_the_walked_module():
-    """The roster's claim is about `_compare_row` and `_SettledWindowWalk` specifically, so the module the walk starts from has to be the module those two are still defined in — move either one to a new file and the walk below would keep passing while covering the wrong graph."""
+    """The walk starts from conform.py, so `_compare_row` and `_SettledWindowWalk` must be defined there. If either moved to another file, the walk tests would keep passing while covering the wrong graph."""
     source = ast.parse((REPO_ROOT / "rebuild" / "pipeline" / "conform.py").read_text(encoding="utf-8"))
     defined = {node.name for node in source.body if isinstance(node, (ast.FunctionDef, ast.ClassDef))}
     assert {"_compare_row", "_SettledWindowWalk"} <= defined, (
@@ -84,7 +88,7 @@ def test_both_comparison_entry_points_live_in_the_walked_module():
 
 
 def test_the_rule_replay_lives_outside_the_comparisons_closure():
-    """The win the split buys, stated by name: the witness stage's rule replay — the one code that reads the GSUB emitter's rule fold — is defined in rebuild/pipeline/witness.py, the comparison's walk reaches no `emit_gsub`, and the roster names no emit_gsub.py, so an edit to the emitter alone leaves every stored row verdict standing. The generic pair below holds the two halves together whichever way they drift; this one says which module carries the replay, so moving it back into conform.py reads as the regression it is rather than as a roster growing by one."""
+    """The witness stage's rule replay, which reads the GSUB emitter's rule fold, is defined in rebuild/pipeline/witness.py, the comparison's walk does not reach `emit_gsub`, and the roster does not name emit_gsub.py. An edit to the emitter alone therefore keeps every stored row verdict. The generic tests below would accept the replay moving back into conform.py if the roster gained emit_gsub.py; this test fails on that move."""
     source = ast.parse((REPO_ROOT / "rebuild" / "pipeline" / "witness.py").read_text(encoding="utf-8"))
     defined = {node.name for node in source.body if isinstance(node, ast.FunctionDef)}
     replay = {
@@ -116,7 +120,7 @@ def test_oracle_row_code_paths_covers_the_comparison_import_graph():
 
 
 def test_the_named_oracle_closure_holds_no_module_the_comparison_never_reaches():
-    """The other direction, so the roster stays the closure rather than growing into a glob over `rebuild/pipeline/`: every module it names must actually be reachable from the comparison. A stray name costs no correctness, only the store — it drops the whole cache on a commit that could not have moved a verdict."""
+    """Every module the roster names must be reachable from the comparison. An extra name does not make results wrong, but it drops the whole store on a commit that could not have changed a verdict."""
     files = _reached_files()
     strays = sorted(
         relative for relative in oracle_cache.ORACLE_ROW_CODE_PATHS if REPO_ROOT / relative not in files
@@ -128,7 +132,7 @@ def test_the_named_oracle_closure_holds_no_module_the_comparison_never_reaches()
 
 
 def test_every_named_oracle_path_exists():
-    """A rename that leaves the roster behind drops a module out of the stamp silently — `fingerprint.hash_paths` reads a missing path as a stable absence, not as an error — so the roster's paths are checked against the disk directly. This covers the crate manifests too, since `oracle_code_paths` names `Cargo.toml` and `Cargo.lock` outright while it globs the Rust sources."""
+    """Every path `oracle_code_paths` returns must exist. `fingerprint.hash_paths` skips a missing path without error, so a renamed module would drop out of the stamp silently. This also covers `Cargo.toml` and `Cargo.lock`, which `oracle_code_paths` names directly; the Rust sources come from a glob."""
     missing = [
         str(path.relative_to(REPO_ROOT))
         for path in oracle_cache.oracle_code_paths(REPO_ROOT)
@@ -143,7 +147,7 @@ def _position_reached_files() -> set[Path]:
 
 
 def test_the_position_channel_s_entry_points_live_in_the_walked_module():
-    """The position stamp's claim is about the drift, the kern normalization, the record codec, the verifier, the sidecar evaluator and the shaper factory specifically, so the module the walk starts from has to be the one they are defined in — move any of them back into oracle.py and the walk below would keep passing while the stamp covered the wrong code."""
+    """The position walk starts from oracle_positions.py, so every name in `POSITION_CHANNEL_NAMES` must be defined there. If one moved to oracle.py, the walk tests would keep passing while the stamp covered the wrong code."""
     source = ast.parse(
         (REPO_ROOT / "rebuild" / "pipeline" / "oracle_positions.py").read_text(encoding="utf-8")
     )
@@ -156,7 +160,7 @@ def test_the_position_channel_s_entry_points_live_in_the_walked_module():
 
 
 def test_the_position_channel_s_import_graph_is_inside_the_two_rosters():
-    """The position stamp rides on top of the row stamp, so a module the channel reaches is covered when either roster names it; one neither names is a fix a served position would skip."""
+    """The position stamp is added on top of the row stamp, so a module the channel reaches is covered when either roster names it. A fix to a module neither roster names would be skipped for served positions."""
     files = _position_reached_files()
     assert (
         REPO_ROOT / "rebuild" / "pipeline" / "conform.py" in files
@@ -174,7 +178,7 @@ def test_the_position_channel_s_import_graph_is_inside_the_two_rosters():
 
 
 def test_the_classifier_lives_outside_the_position_channel_s_closure():
-    """The win the split buys, stated by name: the classifier and the ledger match are defined in rebuild/pipeline/oracle.py, the channel's walk reaches no `rebuild.pipeline.oracle`, and neither roster names oracle.py, so a predicate edit serves every stored position beside every stored row. An import of oracle.py from the channel would read here as the regression it is rather than as a roster growing by one."""
+    """The classifier and the ledger match are defined in rebuild/pipeline/oracle.py, the channel's walk does not reach `rebuild.pipeline.oracle`, and neither roster names oracle.py. A predicate edit therefore keeps every stored position and every stored row. This test fails if the channel imports oracle.py, even when a roster is extended to cover it."""
     source = ast.parse((REPO_ROOT / "rebuild" / "pipeline" / "oracle.py").read_text(encoding="utf-8"))
     defined = {node.name for node in source.body if isinstance(node, ast.FunctionDef)}
     assert {"classify_divergence", "compile_ledger", "_match_compiled"} <= defined
@@ -186,7 +190,7 @@ def test_the_classifier_lives_outside_the_position_channel_s_closure():
 
 
 def test_the_position_roster_names_only_the_channel_and_every_entry_exists():
-    """`oracle_code_paths` does not cover this roster and `fingerprint.hash_paths` reads a missing path as a stable absence, so a renamed channel would drop out of the position stamp silently; and a name the channel's walk never reaches would re-shape every position on an edit that could not have moved one."""
+    """Every path in `POSITION_CODE_PATHS` must exist and be reachable from the channel. `oracle_code_paths` does not cover this roster and `fingerprint.hash_paths` skips a missing path, so a renamed channel would drop out of the position stamp silently. A name the walk never reaches would re-shape every position on an edit that could not change one."""
     files = _position_reached_files()
     missing = [
         relative for relative in oracle_cache.POSITION_CODE_PATHS if not (REPO_ROOT / relative).is_file()

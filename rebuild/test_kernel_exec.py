@@ -1,6 +1,6 @@
-"""The kernel boundary's Python face (issue #78, which left the crate as the only fixpoint): the flags that tell the kernel which world to enumerate, the product it hands back, and the plumbing between the crate and `run_m1` — the digest record, the thread cap, the CLI. Every table here is built on the mini fixture, because the live alphabet's enumeration is the build's business and nothing a contracts test should be paying for; what the fixture is enough to state is the shape of the answer, which is what this file is about.
+"""Tests for `rebuild/pipeline/kernel_exec.py`, the Python side of the kernel boundary, and for the `run_m1` code that calls it: the mode flags passed to the crate, the product and tables it returns, the memo seed, the thread widths, the CLI, and the string replay. Every table is built on the mini fixture, which is enough to check the shape of the results; enumerating the live alphabet is the build's job.
 
-Nothing skips. A box without `cargo` fails these tests with the remedy `KernelBuildError` carries, and that is the honest signal now that no in-process fixpoint exists to fall back to: the M1 build itself cannot run there either.
+No test skips. On a machine without `cargo` these tests fail with the remedy `KernelBuildError` carries, because the M1 build cannot run there either.
 """
 
 import gzip
@@ -71,7 +71,7 @@ class TestTheInvocationSeam:
         assert "--deep-classes-off" not in kernel_exec.settlement_flags()
 
     def test_settle_cases_batches_questions_with_canonical_features_and_modes(self, monkeypatch, tmp_path):
-        """The file is the question lines and nothing else, one per line; the argv carries the canonical feature spelling and the world flags; and an answer line is its own question, a tab, and the answer, which decodes to the parsed result by default."""
+        """The cases file holds only the question lines, one per line. The argv carries the sorted feature list and the world flags. Each answer line is its question, a tab, and the answer, which decodes to parsed JSON by default."""
         question = kernel_exec.case_line(LeftContext("edge"), RightToken("letter", "qsMay"), (EDGE,) * 4)
         calls = []
 
@@ -108,7 +108,7 @@ class TestTheInvocationSeam:
         assert "--settled-only" not in arguments
 
     def test_settle_cases_refuses_an_answer_to_a_different_question(self, monkeypatch, tmp_path):
-        """The echo check is byte-exact: an answer to another question is refused, and so is an answer glued to its question with no tab between, since the question's own bytes are then not the whole head."""
+        """Each answer line must begin with its question's exact bytes followed by a tab. An answer to another question fails, and so does an answer with no tab after its question."""
         question = kernel_exec.case_line(LeftContext("edge"), RightToken("letter", "qsMay"), (EDGE,) * 4)
         changed = kernel_exec.case_line(LeftContext("edge"), RightToken("letter", "qsIt"), (EDGE,) * 4)
         for stdout in (changed + "\t{}\n", question + "{}\n", question + "\n"):
@@ -149,7 +149,7 @@ class TestTheInvocationSeam:
         assert "Rust toolchain" in str(complaint.value)
 
     def test_the_crate_is_built_once_per_process(self, monkeypatch):
-        """`ensure_built` is what every caller in a process shares, so a suite that builds a hundred tables consults cargo once. The memo is a module attribute precisely so a test can drive it."""
+        """`ensure_built` runs `cargo_build` once per process. `_BUILT` is a module attribute so a test can reset it."""
         builds = []
         monkeypatch.setattr(kernel_exec, "_BUILT", False)
         monkeypatch.setattr(kernel_exec, "cargo_build", lambda: builds.append(1))
@@ -159,7 +159,7 @@ class TestTheInvocationSeam:
         assert builds == [1]
 
     def test_a_named_mode_overrides_the_processs_own_world(self, monkeypatch, tmp_path):
-        """A `SettlementModes` is how a caller asks for a world other than its process's — the guard's pinned candidacy grain, a comparison replay, a test that has to state its own semantics — and it wins in both directions: it puts flags on an argv whose module defaults are all on, and leaves them off an argv whose defaults are all off."""
+        """A `SettlementModes` passed to `_settle_cases` overrides the module defaults in both directions. With every default on, modes that turn both off add `--candidacy-prospect` and `--vote-slots-off`. With every default off, modes that turn both on add no flag."""
         question = kernel_exec.case_line(LeftContext("edge"), RightToken("letter", "qsMay"), (EDGE,) * 4)
         calls = []
 
@@ -195,7 +195,7 @@ class TestTheInvocationSeam:
         assert calls[1][4:] == []
 
     def test_a_refused_window_carries_the_crates_bucket_and_sentence(self, monkeypatch):
-        """A window the crate refuses is not a broken boundary, and must not read as one: the answer is `{raise, message}`, and what a caller catches is a `SettleError` carrying the raise identity as its bucket and the crate's own sentence, verbatim, as its message."""
+        """A crate refusal is `{raise, message}`. The caller gets a `SettleError` whose bucket is the `raise` value and whose message is the crate's message verbatim. It is not a `KernelRunError`, which is reserved for a failure of the boundary itself."""
         question = kernel_exec.case_line(LeftContext("edge"), RightToken("letter", "qsMay"), (EDGE,) * 4)
         message = "E-STRANDED: qsPea.half.ex-y5 committed an exit at x-height but qsTea has no acceptor cell"
         refusal = json.dumps({"raise": "E-UNREACHABLE", "message": message}, separators=(",", ":"))
@@ -217,7 +217,7 @@ class TestTheInvocationSeam:
         assert str(traced.value) == message
 
     def test_settled_only_rides_the_argv_settle_windows_builds_and_no_other(self, monkeypatch):
-        """`settle_windows` is the one caller that asks for the seven-field answer; `settle_cases` and the sequence verb over it keep the trace, since the ladder is what they are for."""
+        """Only `settle_windows` passes `--settled-only` and gets the seven-field answer. `settle_cases` and `settle_sequences` get the full trace, because their callers need the explain ladder."""
         question = kernel_exec.case_line(LeftContext("edge"), RightToken("letter", "qsMay"), (EDGE,) * 4)
         record = {"cell": ["qsMay", "full", None, None, []], "seam": None, "extension": 0}
         trace = {
@@ -257,7 +257,7 @@ class TestTheInvocationSeam:
         assert ["--settled-only" in arguments for arguments in calls] == [True, False, False]
 
     def test_the_settled_only_answer_is_the_traces_own_settled_record(self):
-        """The whole contract of the settled-only half, through the real binary over the mini alphabet: every window of every text to depth three settled through `settle_windows` is the very `Settled` object `settle_sequences` reads off the same window's trace — object-for-object, which is also the proof that the two decoders intern into one table rather than two equal-but-distinct records per cell."""
+        """Through the real binary over the mini alphabet: for every window of every text up to length three, `settle_windows` returns the same `Settled` object that `settle_sequences` reads from that window's trace. Checking identity, not equality, shows that both decoders intern into one table."""
         guard = kernel_exec.guard_sweep(SPEC)
         alphabet = sorted(ch for ch in conform.spec_alphabet(SPEC) if ord(ch) >= 0xE650)
         texts = [
@@ -291,7 +291,7 @@ class TestTheInvocationSeam:
         assert all(got is want for got, want in zip(settled, expected))
 
     def test_a_forged_left_record_survives_the_question_line_both_ways(self):
-        """The six left-record fields cross the seam intact: a left forged with adjustments, a seam and a nonzero extension is read back into the same record under both answer shapes, and where the crate refuses it the E-STRANDED sentence — the one place a left's whole `cell_label`, adjustments included, is spelled back out — is the same sentence both ways, naming every adjustment the question carried."""
+        """The seven left-record fields pass through the question line intact. A left with adjustments, a seam, and a nonzero extension comes back as the same record under both answer formats. Where the crate refuses such a left, the E-STRANDED message, the only place the left's full `cell_label` is written out with its adjustments, is identical under both formats and names every adjustment."""
         joined = LeftContext(
             "letter",
             Settled(
@@ -329,7 +329,7 @@ class TestTheInvocationSeam:
         assert "locked" in str(fields.value) and "en-ext-1" in str(fields.value)
 
     def test_settle_windows_answers_one_settled_per_case_in_the_order_asked(self, monkeypatch):
-        """The walker's verb, whose whole contract is positional: it decodes an answer to a `Settled` and nothing more, and it chunks so a batch of any size costs a bounded pile of case lines — `SETTLE_WINDOW_BATCH` in the shipping form, whatever `batch` says here."""
+        """`settle_windows` returns one `Settled` per case, in the order given, and splits the cases into invocations of at most `batch` windows (`SETTLE_WINDOW_BATCH` by default)."""
         sizes = []
         original = kernel_exec._settle_cases
 
@@ -349,7 +349,7 @@ class TestTheInvocationSeam:
         assert sizes == [2, 2, 1]
 
     def test_settle_windows_can_answer_none_for_a_refusal_and_keep_the_batch(self, monkeypatch):
-        """`on_error="drop"`: the refusing case's slot answers `None`, every other line decodes as usual, and the answers stay lined up with the questions — which is what lets a caller prefill windows it may never read without one refusal taking the batch down. The answers are the settled-only shape, tab records with one JSON refusal among them, which is the arm that pins how a refusal is told from a record: by its leading brace."""
+        """With `on_error="drop"`, a refused case gets `None` in its slot and every other case decodes as usual, in order. This lets a caller prefill windows it may never read without one refusal failing the batch. The stubbed answers are settled-only tab records with one JSON refusal among them, so the test also checks that a refusal is recognized by its leading brace."""
         names = ("qsMay", "qsIt", "qsTea")
         cases = [
             kernel_exec.case_line(LeftContext("edge"), RightToken("letter", name), (EDGE,) * 4)
@@ -377,7 +377,7 @@ class TestTheInvocationSeam:
             kernel_exec.settle_windows(SPEC, cases, frozenset())
 
     def test_settle_sequences_drops_only_the_sequence_that_refused(self, monkeypatch):
-        """A refusal mid-sequence under `on_error="drop"` costs that one sequence and nothing else: its neighbors in the same wave finish every position they had, and the answer stays positional, with `None` standing where the dropped sequence's traces would have been."""
+        """Under `on_error="drop"`, a refusal partway through a sequence drops only that sequence. The other sequences in the same wave settle every position, and the result keeps its order, with `None` in the dropped sequence's slot."""
         requests = [
             ((RightToken("letter", "qsMay"), RightToken("letter", "qsIt")), frozenset()),
             ((RightToken("letter", "qsIt"), RightToken("letter", "qsMay")), frozenset()),
@@ -400,7 +400,7 @@ class TestTheInvocationSeam:
         assert [len(answer or ()) for answer in kernel_exec.settle_sequences(SPEC, requests)] == [2, 2, 2]
 
     def test_one_spec_is_dumped_once_however_many_calls_read_it(self, monkeypatch):
-        """The dump is the fixed cost of reaching the kernel, and the sweep, the settlement verbs and every batch under them read the same file: a walker that settles a spec in a hundred batches writes its spec.json once."""
+        """The guard sweep and every settlement batch for one spec read one `spec.json`, written once per process."""
         dumps = []
         original = kernel_exec.kernel_io.write_spec
 
@@ -417,7 +417,7 @@ class TestTheInvocationSeam:
         assert len(dumps) == 1
 
     def test_a_second_sweep_of_one_spec_runs_no_second_process(self, monkeypatch):
-        """Formation stages before everything, so an emitter, a surface build and a walker in one process all want the same verdict surface. They get the memo, keyed on spec identity: one invocation per spec, and a spec object that is merely equal to another is still its own."""
+        """`guard_sweep` memoizes on spec identity: repeated calls with one spec run one `guard-sweep` invocation, and a second spec object that is equal to the first gets its own invocation."""
         sweeps = []
         original = kernel_exec._guard_verdicts
 
@@ -446,7 +446,7 @@ class TestTheInvocationSeam:
             assert (ligature, first, NAMER_DOT) in verdicts
 
     def test_one_configuration_sweeps_the_same_keys_and_the_quantified_verdict_needs_every_one_to_block(self):
-        """`guard_sweep_under` is the verb's other answer: one configuration's surface over exactly the quantified surface's keys, spawned per call because nothing that ships reads it. The quantified verdict blocks exactly where every subset of the capability-unlock features blocks — the powerset `guard.rs` quantifies over, walked here as the crate walks it."""
+        """`guard_sweep_under` returns one configuration's surface with the same keys as the quantified surface from `guard_sweep`, and runs the crate on every call. A quantified verdict blocks only where the verdict under every subset of the capability-unlock features blocks; `guard.rs` quantifies over the same powerset."""
         quantified = kernel_exec.guard_sweep(SPEC)
         features = spec_load.capability_features(SPEC)
         surfaces = [
@@ -472,7 +472,7 @@ class TestTheInvocationSeam:
     ],
 )
 def test_the_class_grain_rule_needs_a_fiber_source(monkeypatch, deep, prospect, votes, wanted):
-    """Class grain is asked for by the flag and granted only where a deep token can move an outcome at all: in the pinned candidacy world the crate has nothing to probe and enumerates at label grain however the flag reads."""
+    """`AMS_DEEP_CLASSES` asks for class grain, and `class_grain` grants it only when the simulated prospect or the shifted vote slots are on. With both off, the crate has no deep token to probe and enumerates at label grain whatever the flag says."""
     monkeypatch.setattr(kernel_exec, "DEEP_CLASSES_DEFAULT", deep)
     monkeypatch.setattr(kernel_exec, "SIMULATED_PROSPECT_DEFAULT", prospect)
     monkeypatch.setattr(kernel_exec, "VOTE_SLOTS_DEFAULT", votes)
@@ -491,7 +491,7 @@ def test_the_class_grain_rule_needs_a_fiber_source(monkeypatch, deep, prospect, 
     ],
 )
 def test_the_enumeration_tokens_name_every_flag_that_is_on(monkeypatch, prospect, votes, deep, wanted):
-    """Each of these flags changes settlement semantics or enumeration grain without moving a single hashed source, so a key taken over the sources alone would read a flag-on enumeration as fresh to a flag-off process and the reverse. The order is the order a stamp appends them, and the class-grain token obeys `class_grain` rather than its own flag: the pinned candidacy world grants it to nobody, so a stamp that carried it there would name a grain the crate never enumerated at."""
+    """Each flag changes settlement or enumeration grain without changing any hashed source, so a key over the sources alone could not tell a flag-on enumeration from a flag-off one. The tokens come in the order a stamp appends them. The class-grain token follows `class_grain`, not `DEEP_CLASSES_DEFAULT` alone, because with both settlement flags off the crate enumerates at label grain."""
     monkeypatch.setattr(kernel_exec, "SIMULATED_PROSPECT_DEFAULT", prospect)
     monkeypatch.setattr(kernel_exec, "VOTE_SLOTS_DEFAULT", votes)
     monkeypatch.setattr(kernel_exec, "DEEP_CLASSES_DEFAULT", deep)
@@ -499,14 +499,14 @@ def test_the_enumeration_tokens_name_every_flag_that_is_on(monkeypatch, prospect
 
 
 def test_the_tables_stamp_appends_exactly_the_enumeration_tokens(monkeypatch):
-    """Two keys spell the semantics half of the engine's identity — the tables' own stamp and gate:conform's sweep key — and both now ask one function for it, so what is left to hold is that the stamp appends what that function answers and nothing beside it. A fourth flag added to the engine then reaches both keys in the same commit rather than one of them."""
+    """`run_m1.tables_inputs` appends exactly the tokens `kernel_exec.enumeration_tokens` returns. `run_m1.memo_seed` (the memo head's world) and `run_m1.locality_lines` read the same function, so a new engine flag reaches all three."""
     monkeypatch.setattr(run_m1.fingerprint, "tables_value", lambda repo_root: "sources")
     assert run_m1.tables_inputs() == "+".join(["sources", *kernel_exec.enumeration_tokens()])
 
 
 @pytest.mark.parametrize("config", sorted(CONFIGS))
 class TestTheProductStandsAlone:
-    """What a stream carries has to stand on its own, because nothing folds it here any more: the rows in the key order `fold::assert_key_sorted` refuses a product for losing, and every cell they name present in the product that named them. The joint flags those rows carry are the trace's floor alone — what the prospect-divergence pass then makes of them is the crate's `fold::tests::the_prospect_pass_raises_joints_and_clears_none`, which can see the rows on both sides of the pass where this side sees only the artifacts."""
+    """Nothing folds a stream on this side, so each product is checked by itself: rows come in the key order `fold::assert_key_sorted` requires, with no duplicates, and every cell a row names is in the product. The rows' joint flags are the trace's `joint_floor` before the prospect-divergence pass; the crate test `fold::tests::the_prospect_pass_raises_joints_and_clears_none` covers that pass."""
 
     def test_the_stream_is_key_sorted_without_duplicates(self, products, config):
         keys = [row.key for row in products[config].transitions]
@@ -531,7 +531,7 @@ def test_the_default_configuration_enumerates_at_class_grain(products):
 
 class TestTheKernelInvocation:
     def test_a_caller_with_nowhere_to_write_still_gets_its_tables(self, tmp_path, monkeypatch):
-        """A caller with no `out_dir` gets the tables and leaves nothing behind: the kernel's artifacts land in a scratch directory that goes with the frame, and what comes back is the head every downstream stage reads plus the treaty rows the defect gates want."""
+        """A caller with no `out_dir` gets the tables and leaves no files: the kernel writes into a temporary directory, and the call returns each configuration's decision head and treaty rows."""
         monkeypatch.chdir(tmp_path)
         tables, digests = run_m1.build_tables(SPEC)
         assert list(tables) == list(conform.SETTLEMENT_CONFIGS)
@@ -540,7 +540,7 @@ class TestTheKernelInvocation:
         assert not sorted(tmp_path.iterdir())
 
     def test_a_narrowed_build_answers_for_the_configurations_it_was_asked_for(self, tmp_path):
-        """A `configs` of one answers for that one: both mappings carry the one key with a full decision head and treaty rows, the settlement and treaty TSVs under the out dir are its, and nothing under the out dir names a configuration nobody asked for — the narrowing reaches the crate rather than filtering its whole-set answer."""
+        """With `configs=["default"]`, both returned mappings hold only `default`, with rules and treaty rows, and the out dir holds `default`'s TSVs and no file naming another configuration. The crate receives the narrowed list; the whole-set result is not filtered afterward."""
         out_dir = tmp_path / "one"
         tables, digests = run_m1.build_tables(SPEC, out_dir, inputs=STAMP, configs=["default"])
         assert list(tables) == ["default"] and list(digests) == ["default"]
@@ -552,7 +552,7 @@ class TestTheKernelInvocation:
         assert not [path.name for path in out_dir.iterdir() if any(other in path.name for other in others)]
 
     def test_a_narrowed_build_files_the_bytes_the_whole_set_files(self, tmp_path):
-        """Narrowing changes what is answered and never the answer: `default` built alone files the same settlement TSV and treaty TSV, byte for byte, and reports the same digest, as `default` built at the head of the whole settlement set — the claim a lever hunt that reads `default`'s rows alone rests on."""
+        """`default` built alone writes the same settlement and treaty TSVs, byte for byte, and reports the same digest as `default` built with the whole settlement set. `rebuild/tools/scratch_build.py --configs default` relies on this when it reads only `default`'s rows."""
         one, every = tmp_path / "one", tmp_path / "every"
         _tables, narrowed = run_m1.build_tables(SPEC, one, inputs=STAMP, configs=["default"])
         _tables, whole = run_m1.build_tables(SPEC, every, inputs=STAMP)
@@ -561,7 +561,7 @@ class TestTheKernelInvocation:
             assert (one / name).read_bytes() == (every / name).read_bytes(), name
 
     def _observe_build(self, monkeypatch, tmp_path, asked, configs=None):
-        """Everything `build_tables` asks of the kernel: the one invocation, with the configurations it named, the width it handed over, the tag and the stamp. The stub raises, so a run ends as soon as the invocation has been observed."""
+        """Record the arguments `build_tables` passes to `kernel_exec.build_table_files`: the configurations, the thread width, the timings tag, the stamp, and `config_seed`. The stub raises `Reached`, so the run ends there."""
         seen = []
 
         def build_table_files(
@@ -587,7 +587,7 @@ class TestTheKernelInvocation:
         return seen
 
     def test_the_crate_is_asked_for_the_configurations_the_caller_named(self, monkeypatch, tmp_path):
-        """A caller's `configs` reaches the crate as named, in the order named; the unnarrowed call beside it (`test_the_thread_width_is_how_many_configurations_run_at_once`) stays the whole settlement set."""
+        """A caller's `configs` reaches the crate in the order given. `test_the_thread_width_is_how_many_configurations_run_at_once` covers the unnarrowed call."""
         seen = self._observe_build(monkeypatch, tmp_path, None, configs=["ss03", "default"])
         assert [configs for configs, *_rest in seen] == [("ss03", "default")]
 
@@ -602,7 +602,7 @@ class TestTheKernelInvocation:
     def test_the_thread_width_is_how_many_configurations_run_at_once(
         self, monkeypatch, tmp_path, asked, wanted
     ):
-        """One process answers every settlement configuration, `default` first and the rest as deltas over its memo, and the width is how many of those deltas the crate keeps in flight; the crate labels every configuration's timing lines itself, so nothing is tagged, and the overlay configuration is never asked for."""
+        """One process builds every settlement configuration, `default` first and the rest as deltas over its memo, and `threads` is how many deltas run at once. The crate labels each configuration's timing lines itself, so no tag is passed, and the overlay configuration is never requested."""
         seen = self._observe_build(monkeypatch, tmp_path, asked)
         assert len(seen) == 1
         configs, threads, tag, stamp, config_seed = seen[0]
@@ -613,7 +613,7 @@ class TestTheKernelInvocation:
         assert config_seed
 
     def test_a_narrowed_cpu_allowance_narrows_the_fan_out(self, monkeypatch, tmp_path):
-        """The third term is the cores this process may actually run on rather than the cores the box has, so a container held to a slice of its host keeps its width down to the slice however much memory the default was divided out of. The allowance is invented because the box running the suite is whatever it is — asking for every configuration against an allowance narrower than that is what makes a pass proof the term fired at all."""
+        """The width is also capped at `usable_cores()`, the cores this process may run on, so a container limited to part of its host's CPUs stays within that limit whatever the memory allows. The test fixes the allowance at two and asks for every configuration, so the test passes only if the cap applies."""
         allowance = 2
         monkeypatch.setattr(run_m1, "usable_cores", lambda: allowance)
         seen = self._observe_build(monkeypatch, tmp_path, len(conform.SETTLEMENT_CONFIGS))
@@ -622,7 +622,7 @@ class TestTheKernelInvocation:
     def test_a_build_seeded_from_the_previous_memo_files_the_bytes_a_from_scratch_build_files(
         self, tmp_path, monkeypatch
     ):
-        """The seed across builds, held at the artifacts: a build over an edited spec into the directory a previous build left its memos in reads them behind the edited rune and files the same packed windows, settlement TSVs and treaty TSVs, byte for byte, as a build of the edited spec into an empty directory, while actually seeding — the previous memos are unpacked and the edited rune named — and leaves memos of its own under the edited spec's stamp."""
+        """A build of an edited spec into a directory holding the previous build's memos seeds from them, with the edited rune named, and writes the same packed windows, settlement TSVs, and treaty TSVs, byte for byte, as a build of the edited spec into an empty directory. It also leaves its own memos under the edited spec's stamp."""
         asked = []
         asked_classes = []
         real = kernel_exec.build_table_files
@@ -668,7 +668,7 @@ class TestTheKernelInvocation:
             assert head is not None and head.stamp == run_m1.memo_stamp(edited)
 
     def test_a_configuration_delta_files_the_bytes_a_from_scratch_build_files(self, tmp_path):
-        """The configuration corollary of the window-locality theorem, held at the artifact: every configuration past `default` enumerated as a delta over `default`'s memo files the same settlement TSV, treaty TSV and window enumeration, byte for byte, as the same configuration enumerated on its own, and answers the same digest. The mini fixture unlocks a `qsMay` entry under `ss03`, so the delta has both windows to share and windows to settle itself. The seeded arm claims its deltas heaviest-first rather than in declaration order, and the comparison holds the digests and the files it answers to the declaration-order arm's, configuration for configuration."""
+        """Every configuration after `default`, enumerated as a delta over `default`'s memo, writes the same settlement TSV, treaty TSV, and window enumeration, byte for byte, and returns the same digest as the same configuration enumerated on its own (the configuration corollary of the window-locality theorem). The mini fixture's `ss03` unlocks a half-·Tea x-height entry, so the delta has windows to share and windows to settle itself. The seeded run claims its deltas heaviest-first (`fanout::delta_worklist`), and its results must still match the from-scratch run configuration by configuration."""
         spec_path = tmp_path / "spec.json"
         kernel_io.write_spec(SPEC, spec_path)
         kernel_exec.ensure_built()
@@ -691,7 +691,7 @@ class TestTheKernelInvocation:
                 ).read_bytes(), name
 
     def test_an_unstamped_build_names_a_stamp_the_kernel_will_accept(self, monkeypatch, tmp_path):
-        """The verb requires a stamp, and a build with none still has to name one: the payload it writes is where the head comes from, and it is deleted unread rather than kept, so the word it carried never reaches an artifact."""
+        """`build-tables` requires a stamp, so a build called without `inputs` passes `kernel_exec.UNSTAMPED_WINDOWS`. The windows payload is then read for its head and deleted, so that stamp never reaches an artifact."""
         seen = []
 
         def build_table_files(spec_path, out_dir, configs, *, inputs, **rest):
@@ -707,7 +707,7 @@ class TestTheKernelInvocation:
 
     @pytest.mark.parametrize("configs", [None, ("default",), ("ss03", "default")])
     def test_the_table_build_seeds_from_the_configurations_it_builds(self, monkeypatch, tmp_path, configs):
-        """`build_tables` hands `memo_seed` the list it hands the crate, so a whole-set build still seeds from every settlement configuration's memo and a narrowed one from its own alone."""
+        """`build_tables` passes `memo_seed` the same configurations it passes the crate, so a whole-set build seeds from every settlement configuration's memo and a narrowed build only from its own."""
         seen = {}
 
         def memo_seed(out_dir, stamp, scratch, configs):
@@ -752,7 +752,7 @@ class TestTheKernelInvocation:
         ],
     )
     def test_the_cli_carries_the_thread_width_into_run(self, monkeypatch, argv, kernel, replay):
-        """Each flag reaches `run` as its own keyword and neither fills in for the other: a `--replay-threads` that arrived as `kernel_threads`, or the reverse, would leave every seam past `run` green while the cycle's argv sized the wrong stage."""
+        """`--kernel-threads` and `--replay-threads` reach `run` as separate keywords. If one arrived as the other, every later test would still pass while the cycle sized the wrong stage."""
         from rebuild.tools import artifact_cycle
 
         seen = {}
@@ -775,7 +775,7 @@ class TestTheKernelInvocation:
 
 
 class TestTheMemoStamp:
-    """What decides whether a previous build's memo may be read, and for which runes: `run_m1.memo_stamp` over the spec in hand and `run_m1.memo_edited` between two of them."""
+    """Tests for `run_m1.memo_stamp` and `run_m1.memo_edited`, which decide whether a previous build's memo may be read and which runes it may not answer for."""
 
     def test_a_reworded_rationale_moves_no_rune_digest(self):
         tea = SPEC.runes["qsTea"]
@@ -814,7 +814,7 @@ class TestTheMemoStamp:
         assert run_m1.memo_edited(more, run_m1.memo_stamp(SPEC)) is None
 
     def test_a_class_whose_membership_moved_is_named_and_moves_no_structure(self):
-        """The class-membership hatch of the locality theorem is mechanical (issue #184): a rune joining a predicate class leaves the memo readable — the structure stamp is cut without the classes — and names the class alone as moved, which the crate's read journal turns into exactly the windows that consulted it."""
+        """When a rune joins a predicate class, the memo stays readable, because the structure stamp leaves out class membership, and `memo_edited` names only that class as moved. The crate then uses its read journal to re-settle only the windows that consulted that class."""
         registry = SPEC.registry
         name, members = next(iter(registry.predicate_classes.items()))
         joined = replace(
@@ -848,7 +848,7 @@ class TestTheMemoStamp:
         assert run_m1.memo_seed(tmp_path / "empty", stamp, tmp_path / "seed2") is None
 
     def test_the_seed_reads_only_the_configurations_the_build_names(self, tmp_path):
-        """A narrowed build unpacks only its own configurations' memos and takes only their edited runes, since the crate reads no other; the whole set, the default, still reads every memo that holds and names every rune any of them may not answer for."""
+        """A narrowed build unpacks only its own configurations' memos and collects edited runes only from them. The default, the whole settlement set, reads every usable memo and collects edited runes from all of them."""
         stamp = run_m1.memo_stamp(SPEC)
         world = "+".join(kernel_exec.enumeration_tokens())
         recorded = json.loads(stamp)
@@ -875,35 +875,35 @@ class TestTheMemoStamp:
 
 
 class TestTheMemoryDerivedThreadDefault:
-    """The width the fan-out falls back to is the box, less `default`'s retained memo snapshot (`DEFAULT_MEMO_BYTES`), divided by one delta (`DELTA_PEAK_BYTES`) (issue #63, sub-issue #86), so what can be asserted about it here is its shape and its branches, never its value — the value is whatever machine is running the suite. Every branch is exercised through `kernel_threads_default`'s `total_bytes` keyword, which is a pure function over an invented box; `KERNEL_THREADS_DEFAULT` itself is resolved at import and could only be moved by reloading the module, which would reset `_BUILT` and drop the live spec dumps underneath whatever else the session is holding."""
+    """The default table-build width is the machine's memory, less the OS reserve and `DEFAULT_MEMO_BYTES`, divided by `DELTA_PEAK_BYTES`. Its value depends on the machine running the suite, so these tests pass invented totals through the `total_bytes` keyword of `kernel_threads_default` and `replay_threads_default`. `KERNEL_THREADS_DEFAULT` is resolved at import; changing it would mean reloading the module, which resets `_BUILT` and drops the spec dumps other tests in the session hold."""
 
     @pytest.fixture(autouse=True)
     def _no_inherited_override(self, monkeypatch):
-        """A shell that exported a width of its own must not decide what these assertions mean, so both variables are cleared before each of them and set back only by the tests whose subject they are."""
+        """Clear `AMS_KERNEL_THREADS` and `AMS_REPLAY_THREADS` so a value exported in the shell cannot change these results."""
         monkeypatch.delenv("AMS_KERNEL_THREADS", raising=False)
         monkeypatch.delenv("AMS_REPLAY_THREADS", raising=False)
 
     def test_the_shipped_default_is_a_startable_width(self):
-        """Whatever box resolved it, the constant is an integer a pool can start on: `how_many_fit` floors at one, because a build that refuses to start on a small machine is strictly worse than one that runs slowly. It also has to stay a plain module attribute rather than becoming a callable — `TestTheKernelInvocation` parametrizes on it by reference at import, and a function object there would be compared against a thread count on every box."""
+        """`KERNEL_THREADS_DEFAULT` is an integer of at least one on any machine, because `how_many_fit` floors at one. It must stay a plain module attribute: `TestTheKernelInvocation` reads it in a parametrize list at import."""
         assert isinstance(kernel_exec.KERNEL_THREADS_DEFAULT, int)
         assert kernel_exec.KERNEL_THREADS_DEFAULT >= 1
 
     @pytest.mark.parametrize("stated, wanted", [("1", 1), ("3", 3), ("12", 12), ("0", 1), ("-3", 1)])
     def test_a_stated_width_short_circuits_ahead_of_the_arithmetic(self, monkeypatch, stated, wanted):
-        """`AMS_KERNEL_THREADS` is read before anything is divided, and what it states is floored at one and clamped no further — the configuration count and the cores this process may actually run on are not memory facts and are applied by `run_m1.build_tables`. The invented box is a terabyte so the arithmetic would answer far above any width stated here, which is what makes a pass proof that the short-circuit fired rather than a coincidence."""
+        """`AMS_KERNEL_THREADS` takes precedence over the memory arithmetic. Its value is floored at one and not otherwise capped here; `run_m1._table_build_threads` applies the configuration and core caps. The invented total is a terabyte, so the derived width would be far above every stated value, and a pass shows the override was used."""
         monkeypatch.setenv("AMS_KERNEL_THREADS", stated)
         assert kernel_exec.kernel_threads_default(total_bytes=1_000_000_000_000) == wanted
 
     @pytest.mark.parametrize("junk", ["", "   ", "banana", "9GB", "2.5"])
     def test_a_value_that_is_not_a_width_says_so_rather_than_being_quietly_ignored(self, monkeypatch, junk):
-        """This is the one place the two environment knobs in the derivation disagree, and deliberately: `AMS_TOTAL_MEMORY_BYTES` reproduces a box and swallows a typo, while this one is what someone reaches for to keep a build out of swap, so a value it cannot read is refused with the variable and its spelling named rather than silently replaced by a derived width. A variable declared without a value counts as unreadable, not as unset."""
+        """An unreadable `AMS_KERNEL_THREADS` raises an error naming the variable instead of falling back to the derived width. `AMS_TOTAL_MEMORY_BYTES` ignores a bad value, but this variable is set to keep a build out of swap, so silently using another width would defeat it. An empty or blank value counts as unreadable."""
         monkeypatch.setenv("AMS_KERNEL_THREADS", junk)
         with pytest.raises(RuntimeError, match="AMS_KERNEL_THREADS"):
             kernel_exec.kernel_threads_default(total_bytes=34_359_738_368)
 
     @pytest.mark.parametrize("junk", ["", "   ", "banana", "9GB", "2.5"])
     def test_a_replay_value_that_is_not_a_width_is_refused_the_same_way(self, monkeypatch, junk):
-        """`AMS_REPLAY_THREADS` is the replay's twin of the kernel knob and is read the same way: a value that is not a bare count is refused with the variable named, never replaced by the derived width, and the kernel knob's own state has no say in it."""
+        """`AMS_REPLAY_THREADS` is read the same way as `AMS_KERNEL_THREADS`: a value that is not a bare count raises an error naming the variable."""
         monkeypatch.setenv("AMS_REPLAY_THREADS", junk)
         with pytest.raises(RuntimeError, match="AMS_REPLAY_THREADS"):
             kernel_exec.replay_threads_default(total_bytes=34_359_738_368)
@@ -912,11 +912,11 @@ class TestTheMemoryDerivedThreadDefault:
         "total, wanted", [(4_000_000_000, 1), (34_359_738_368, 3), (32_000_000_000, 3), (64_000_000_000, 8)]
     )
     def test_the_width_follows_the_box_and_never_falls_below_one(self, total, wanted):
-        """The 32 GiB box fits three deltas beside `default`'s 2.5 GB memo snapshot at the 6.3 GB per-delta bound, 1.34 GB short of the fourth, and the decimal 32 GB spelling fits three too. A box too small for one delta gets one anyway, while the 64 GB box fits eight before the caller applies its configuration and CPU caps."""
+        """A 32 GiB machine fits three deltas at `DELTA_PEAK_BYTES` (6.3 GB) beside `DEFAULT_MEMO_BYTES` (2.5 GB), 1.34 GB short of a fourth, and a decimal 32 GB machine also fits three. A machine too small for one delta gets one, and a 64 GB machine fits eight before the caller's configuration and core caps."""
         assert kernel_exec.kernel_threads_default(total_bytes=total) == wanted
 
     def test_a_coresident_pool_comes_off_the_box_before_it_is_divided(self):
-        """What a caller running the fan-out beside something else — the artifact cycle, beside its pytest pool — takes off the top, so the width answers for the machine the configurations will actually share rather than for an empty one. It comes off beside `default`'s memo term rather than instead of it, which is why 10 GB costs the 64 GB box two deltas and not one. It is the caller's fact and defaults to nothing, because a bare run_m1 has nothing beside it."""
+        """`coresident_bytes` is memory used by something running beside the fan-out, such as the artifact cycle's pytest pool. It is subtracted in addition to `DEFAULT_MEMO_BYTES`, so 10 GB costs the 64 GB machine two deltas. It defaults to zero because a bare run_m1 runs alone."""
         assert kernel_exec.kernel_threads_default(total_bytes=64_000_000_000) == 8
         assert (
             kernel_exec.kernel_threads_default(coresident_bytes=10_000_000_000, total_bytes=64_000_000_000)
@@ -924,7 +924,7 @@ class TestTheMemoryDerivedThreadDefault:
         )
 
     def test_a_stated_width_outranks_a_coresident_reservation_too(self, monkeypatch):
-        """Nothing derived narrows a width someone stated, a co-resident pool included: the knob exists to keep a build out of swap, and a reservation that quietly took a configuration off it would be the failure it was set to prevent."""
+        """A stated `AMS_KERNEL_THREADS` is used as given even when `coresident_bytes` would narrow the derived width."""
         monkeypatch.setenv("AMS_KERNEL_THREADS", "4")
         assert (
             kernel_exec.kernel_threads_default(coresident_bytes=60_000_000_000, total_bytes=64_000_000_000)
@@ -933,7 +933,7 @@ class TestTheMemoryDerivedThreadDefault:
 
 
 class TestTheStringReplay:
-    """The `replay-strings` seam over the fixture's own tables: the crate reads the settlement TSVs a build left and holds them to its engine over every string, so what this side checks is that a clean walk answers per configuration, that a family list narrows the universe, and that a table edited behind the engine's back is refused naming the text."""
+    """Tests for `kernel_exec.replay_strings` over tables built from the fixture. The crate replays the rules in the settlement TSVs over every text and compares each window's result with its own settlement. These tests check the per-configuration counts, that a family list narrows the texts, the memo options, and that an edited table raises an error naming the text."""
 
     @pytest.fixture(scope="class")
     def tables_dir(self, tmp_path_factory):
@@ -965,7 +965,7 @@ class TestTheStringReplay:
             kernel_exec.replay_strings(SPEC, tables_dir, ["default"], horizon=3, families=[], threads=1)
 
     def test_a_memo_directory_files_one_window_memo_per_configuration(self, tables_dir, tmp_path):
-        """`memo_dir` reaches the verb as `--memo-dir=` and each configuration's window memo lands under it with the head `absorb_replay_memo` reads, while the answer is the one the same walk gives without it; a walk asked for none files none beside the tables."""
+        """`memo_dir` is passed as `--memo-dir=`, and each configuration's window memo is written under it with the head `conform.absorb_replay_memo` reads. The counts match a walk without `memo_dir`, and that walk writes no memo beside the tables."""
         answered = kernel_exec.replay_strings(
             SPEC,
             tables_dir,
@@ -991,7 +991,7 @@ class TestTheStringReplay:
     def test_a_memo_ceiling_reaches_the_verb_and_moves_only_the_settle_count(
         self, tables_dir, tmp_path, monkeypatch
     ):
-        """`memo_windows` reaches the verb as `--memo-windows=`, and a walk that releases its memos under it answers every text the uncapped walk answers, skips the same ones and settles strictly more windows, since a window met again after a release is settled again. A ceiling beside a memo directory, or one below a single window, is refused before anything is spawned, so nothing lands in the directory."""
+        """`memo_windows` is passed as `--memo-windows=`. A capped walk covers the same texts and skips as the uncapped walk and settles more windows, because a window met again after the memo is released is settled again. A ceiling together with a memo directory, or a ceiling below one window, raises `ValueError` before any process starts, so nothing is written to the directory."""
         uncapped = kernel_exec.replay_strings(
             SPEC, tables_dir, conform.SETTLEMENT_CONFIGS, horizon=3, families=None, threads=1
         )
@@ -1044,7 +1044,7 @@ class TestTheStringReplay:
 
 
 class TestTheReplayStage:
-    """The stage `run_m1.run` puts between the table build and the minting: which texts it walks, what it records, and how a disagreement reaches the build's verdict. The crate is stubbed here — the seam above is where the real one is exercised — so what these test is the delta arithmetic and the record."""
+    """Tests for `run_m1.run_replay_strings`, the stage `run_m1.run` runs on the built tables beside the glyph chain: which texts it walks, what it records, and how a disagreement fails the build. The crate is stubbed; `TestTheStringReplay` exercises the real one."""
 
     def _record(self, structure, runes, **overrides):
         record = {
@@ -1130,7 +1130,7 @@ class TestTheReplayStage:
     def test_the_stage_walks_at_its_own_width_and_a_stated_one_is_only_ever_narrowed(
         self, monkeypatch, tmp_path
     ):
-        """The width the crate is asked at is the replay's own derivation, not the table build's: with none stated it is `_replay_threads(None)` — `kernel_exec.replay_threads_default` capped at the configuration count and the cores — a stated one reaches the crate as stated, and a stated one past the configuration count is cut to it, since the `min()` narrows a width and never widens one. The override is cleared so the derived arm is the arithmetic's and not the shell's, and the cores are pinned wide so the configuration count is the cap that binds."""
+        """The replay's width comes from `_replay_threads`, not from the table build's width. With none stated it is `kernel_exec.replay_threads_default()` capped at the configuration count and the cores. A stated width reaches the crate unchanged unless it exceeds the configuration count, which caps it. The test clears `AMS_REPLAY_THREADS` and fixes the cores at 64 so the configuration count is the binding cap."""
         asked: list = []
 
         def replay_strings(
@@ -1153,7 +1153,7 @@ class TestTheReplayStage:
         assert run_m1._replay_threads(count) == min(count, 2)
 
     def test_a_memo_file_absent_or_restamped_widens_the_walk_and_asks_for_a_dump(self, monkeypatch, tmp_path):
-        """The memo stamp covers modules the replay's own stamp does not, so a configuration's settle memo file that is absent or under another stamp makes a build that would otherwise walk nothing walk the whole universe and file the dumps that refill it; a rune edit walks its families and files none, and a pass where every file stands and nothing moved walks nothing. A dump the stub never filed is a warning, never a red stage."""
+        """The settle memo's stamp covers modules the replay's stamp does not. So when a configuration's settle memo file is absent or has another stamp, a build that would otherwise walk nothing walks every text and asks for the window memo dumps that refill it. A rune edit walks that rune's families and asks for no dumps, and a pass where every memo file is current and nothing moved walks nothing. A missing dump (the stub writes none) is a warning and does not fail the stage."""
         asked: list = []
 
         def replay_strings(
@@ -1190,7 +1190,7 @@ class TestTheReplayStage:
         assert not list(tmp_path.glob("replay-windows-*.bin"))
 
     def test_a_narrowed_replay_walks_and_keys_only_the_configurations_it_names(self, monkeypatch, tmp_path):
-        """A `configs` of one asks the crate for that one and keeps the settle memo dict to it — the dump path for `default` alone is named, questioned, absorbed and unlinked — where the same call with no `configs` asks for every settlement configuration and names every configuration's dump; `conform.settle_memo_files` answers the whole set either way, so the narrowing is this stage's own."""
+        """With `configs=["default"]`, the stage asks the crate for `default` alone and handles only `default`'s window memo dump. With no `configs` it asks for every settlement configuration and handles every dump. `conform.settle_memo_files` returns every configuration either way, so the filtering happens in this stage."""
         asked: list = []
         dumps: list = []
 
@@ -1222,7 +1222,7 @@ class TestTheReplayStage:
         assert set(dumps) == set(conform.SETTLEMENT_CONFIGS)
 
     def test_a_narrowed_replay_with_a_stamp_is_refused_before_it_walks(self, monkeypatch, tmp_path):
-        """A `configs` short of the settlement set together with an `inputs` stamp is refused before the crate is reached and before any record is written: the record a stamped walk leaves is read back (`replay_families`) as a green whole-universe base for every settlement configuration, which a narrowed walk cannot vouch for."""
+        """A narrowed `configs` with an `inputs` stamp raises before the crate is called or any record is written. `replay_families` reads a stamped record as a passing walk of every text in every settlement configuration, which a narrowed walk is not."""
 
         def never(*args, **rest):
             raise AssertionError("the crate was reached")
@@ -1248,7 +1248,7 @@ class TestTheReplayStage:
         assert run_m1.read_replay_record(tmp_path) is None
 
     def test_a_disagreement_is_recorded_red_and_stops_the_build(self, monkeypatch, tmp_path):
-        """The record is written red, the next build's delta cannot be cut against it, and the build reports the tables incomplete — ahead of whatever the glyph chain, which runs beside the replay, makes of them (rebuild/test_run_m1_tail.py holds the ordering across every combination)."""
+        """A disagreement writes a failing record, the next build walks every text instead of a delta, and the build exits reporting the tables incomplete, ahead of any error from the glyph chain that runs beside the replay. `rebuild/test_run_m1_tail.py` covers that ordering for every combination."""
 
         def replay_strings(spec, out_dir, configs, **rest):
             raise kernel_exec.ReplayDisagreement(

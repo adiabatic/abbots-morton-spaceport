@@ -1,4 +1,4 @@
-"""The shape of `run_m1.run`'s tail: the table-only branch (the string replay, the witness stage, the shipped-order walks) beside the glyph chain, the window packing deferred behind the head reads, and the join that decides the gate. What these hold is the contract the serial form stated — the first red in the serial order is the build's complaint, whatever the chain made of the tables — plus the orderings the branches need: the witness stage runs after the replay that fills the settle memo it loads, and the oracle starts once the replay has returned but writes the settle memo only once the witness stage's writes are on disk. Every stage that costs a crate or a font is stubbed with a rendezvous or a recorder; the packing tests build the mini fixture's real tables, since the packer is what they are about."""
+"""Tests for the end of `run_m1.run`: the table-only branch (the string replay, the witness stage, the shipped-order walks) running beside the glyph chain, the window packing that runs after the head reads, and the join that decides the gate. The build reports the first failure in serial order, whatever the glyph chain made of the tables. The witness stage runs after the replay that fills the settle memo it loads. The oracle starts once the replay has returned, but writes the settle memo only once the witness stage's writes are on disk. Every stage that runs the crate or compiles a font is stubbed with a barrier or a recorder; the packing tests build the mini fixture's real tables, because the packer is what they test."""
 
 import functools
 import threading
@@ -26,7 +26,7 @@ RED_EMITTED = {**GREEN_EMITTED, "pass": False, "complaint": "default: row (qsPea
 
 
 def _stub_chain(monkeypatch, events, *, on_compile=None, readback_pass=True):
-    """The glyph chain with no glyph in it: every stage answers an empty shape, the compile writes a marker file and calls `on_compile`, and the read-back answers `readback_pass`."""
+    """Stubs the glyph chain: every stage returns an empty value, the compile writes a placeholder file and calls `on_compile`, and the read-back passes or fails according to `readback_pass`."""
     monkeypatch.setattr(run_m1, "mint_cell_glyphs", lambda spec, tables: {})
     monkeypatch.setattr(run_m1, "mint_raw_glyphs", lambda spec: ({}, {}, {}))
     monkeypatch.setattr(run_m1, "namer_dot_glyphs", lambda: {})
@@ -70,7 +70,7 @@ def _stub_gates(
     on_witnesses=None,
     on_emitted=None,
 ):
-    """The three table-only stages as recorders: each appends its start and its end to `events`, calls its hook in between, and answers the summary it was given. The tables come from a stub too, so no crate runs."""
+    """Stubs the three table-only stages as recorders: each appends its start and end to `events`, calls its hook in between, and returns the summary it was given. The table build is stubbed too, so no crate runs."""
     monkeypatch.setattr(
         run_m1,
         "build_tables",
@@ -112,7 +112,7 @@ def _run(tmp_path, **rest):
 
 class TestTheBranches:
     def test_the_replay_the_walk_and_the_compile_are_in_flight_at_once(self, monkeypatch, tmp_path):
-        """Three parties on one barrier — the replay, the shipped-order walk and the compile — so a serialization of any two breaks it and the test fails rather than hangs: the replay and the walk run beside each other on the table-only branch, and the chain does not wait for either."""
+        """The replay, the shipped-order walk, and the compile wait on one three-party barrier, so if any two ran one after the other the barrier would time out and the test would fail instead of hanging."""
         events: list = []
         barrier = threading.Barrier(3, timeout=20)
         _stub_chain(monkeypatch, events, on_compile=barrier.wait)
@@ -126,7 +126,7 @@ class TestTheBranches:
         assert not barrier.broken
 
     def test_the_witness_stage_starts_after_the_replay_has_returned(self, monkeypatch, tmp_path):
-        """The replay writes the settle memo file whole and the witness stage loads it, so the two are a chain even though the walk runs beside them."""
+        """The replay writes the settle memo file and the witness stage loads it, so the witness stage waits for the replay even though the walk runs beside both."""
         events: list = []
         _stub_chain(monkeypatch, events)
         _stub_gates(monkeypatch, events, on_replay=lambda: time.sleep(0.2))
@@ -151,7 +151,7 @@ class TestTheBranches:
         assert "emitted:done" in events
 
     def test_run_returns_its_summary_and_a_handle_without_joining(self, monkeypatch, tmp_path):
-        """The chain finishes while the branch is still parked; the handle is what the caller joins on."""
+        """`run` returns after the glyph chain finishes while the branch is still blocked, and the caller joins the branch through the returned handle."""
         events: list = []
         parked = threading.Event()
         _stub_chain(monkeypatch, events)
@@ -222,7 +222,7 @@ class TestTheFirstRed:
             gates.close()
 
     def test_the_replay_wait_returns_while_the_witness_stage_is_still_running(self, monkeypatch, tmp_path):
-        """The oracle starts behind the replay alone: `wait_for_replay` returns with the witness stage parked, and `wait_for_memo` only once that stage has returned."""
+        """`wait_for_replay` returns while the witness stage is still blocked, and `wait_for_memo` returns only once that stage has returned."""
         events: list = []
         release = threading.Event()
         _stub_chain(monkeypatch, events)
@@ -240,7 +240,7 @@ class TestTheFirstRed:
             gates.close()
 
     def test_a_red_walk_waits_for_the_join(self, monkeypatch, tmp_path):
-        """The shipped order is the last of the three, so its red arrives at the join and not at the memo wait, which only the replay-then-witness chain can raise through."""
+        """A shipped-order failure is raised at `join`, not at `wait_for_memo`, which raises only failures of the replay and the witness stage."""
         events: list = []
         _stub_chain(monkeypatch, events)
         _stub_gates(monkeypatch, events, emitted=RED_EMITTED)
@@ -255,7 +255,7 @@ class TestTheFirstRed:
 
 
 def _stub_main(monkeypatch, tmp_path, events, *, on_oracle=None, after_memo=None, **gates):
-    """Everything `main` reaches around `run`: the pre-gate guards, the keys, the spec, the pin gate and the oracle, with `run` itself real and pointed at `tmp_path`. The oracle stub records its start, calls `on_oracle`, then the `memo_ready` it was handed — where the real one waits before its first memo write — then `after_memo`, and records its end."""
+    """Stubs everything `main` calls around `run` (the pre-gate guards, the keys, the spec, the pin gate, and the oracle) and leaves `run` real, writing under `tmp_path`. The oracle stub records its start, calls `on_oracle`, then the `memo_ready` it was passed (where the real oracle waits before its first memo write), then `after_memo`, and records its end."""
     real_run = run_m1.run
     monkeypatch.setattr(run_m1.oracle, "unaliased_subset_names", lambda subset_dir, alias_path: {})
     monkeypatch.setattr(run_m1.baseline_subset, "ensure_fresh", lambda repo_root: False)
@@ -292,7 +292,7 @@ class TestMain:
     def test_the_oracle_starts_behind_the_replay_and_writes_behind_the_witness_stage(
         self, monkeypatch, tmp_path, capsys
     ):
-        """The schedule that keeps the memo race closed: the oracle starts once the replay has returned, beside the witness stage, and the `memo_ready` it is handed — which `run_oracle` calls before its first write to a settle memo file — returns only once the witness stage has folded its part into the file, so the witness stage is the only writer while the two overlap and the oracle's writes read what it wrote. The witness stub parks until the oracle has started, so an oracle that waited for the whole chain fails the rendezvous rather than hanging, then takes the stage's own shape — a part filed beside the file and folded into it through `conform.absorb_settle_memo_parts`; the oracle stub reads whether that file stands the moment its wait returns."""
+        """The oracle starts once the replay has returned, while the witness stage runs, and the `memo_ready` it is passed (which `run_oracle` calls before its first settle memo write) returns only once the witness stage has absorbed its part into the file. So the witness stage is the only writer while the two overlap, and the oracle's writes read what it wrote. The witness stub waits until the oracle has started, so an oracle that waited for the witness stage fails the wait instead of hanging. The stub then writes a part and absorbs it through `conform.absorb_settle_memo_parts` as the real stage does, and the oracle stub checks that the file is readable as soon as its wait returns."""
         events: list = []
         memo = conform.SettleMemoFile(tmp_path / "settle-memo-default.bin", "stamp")
         part = tmp_path / "witness-part.gz"
@@ -326,7 +326,7 @@ class TestMain:
         assert labels.index("witness_memo_wait") < labels.index("run_oracle")
 
     def test_a_red_witness_stage_stops_the_oracle_at_its_memo_wait(self, monkeypatch, tmp_path):
-        """With the oracle started beside the witness stage, a red witness stage reaches it at the memo wait: the stage's red is raised there, before the oracle writes a memo or a summary, and it is the build's complaint."""
+        """A witness-stage failure is raised in the oracle at its memo wait, before the oracle writes a memo or a summary, and it is the error the build reports."""
         events: list = []
         _stub_main(monkeypatch, tmp_path, events, witnesses=RED_WITNESSES)
         with pytest.raises(SystemExit, match="certificate does not fire"):
@@ -358,7 +358,7 @@ class TestMain:
 
 
 def _gated_pack(monkeypatch, release):
-    """`_pack_windows` parked per configuration: a window payload's pack waits on `release[config]` and a memo's runs through, both packing for real once released."""
+    """Wraps `_pack_windows` so a window payload's pack waits on `release[config]` while a memo's pack runs at once. Both then pack for real."""
     real = run_m1._pack_windows
 
     def pack(payload, path):
@@ -374,7 +374,7 @@ class TestThePacking:
     def test_build_tables_returns_before_the_packing_and_the_deferred_bytes_match_the_blocking_ones(
         self, monkeypatch, tmp_path
     ):
-        """With a `Packing` passed, the tables come back while every window pack is still parked, `close` blocks until each `.gz` is on disk, and what lands is byte for byte what the blocking form packs — the identity that says deferring the pack moved nothing in the artifact."""
+        """With a `Packing` passed, `build_tables` returns while every window pack is still blocked, `close` waits until each `.gz` is on disk, and the packed files are byte-identical to what the blocking form writes."""
         blocking = tmp_path / "blocking"
         run_m1.build_tables(SPEC, blocking, inputs=STAMP)
         release = {config: threading.Event() for config in CONFIGS}
@@ -416,7 +416,7 @@ class TestThePacking:
         packing.close()
 
     def test_each_walk_waits_on_its_own_pack(self, monkeypatch, tmp_path):
-        """Every walker is parked on its configuration's pack at once, and each is released alone: the verb sees the `.gz` for the configuration it was asked for, released or not being the whole of what it checks."""
+        """The packs are released one at a time in reverse order, and each walk must find its own configuration's pack released and its `.gz` on disk when it calls `kernel_exec.replay_emitted`."""
         release = {config: threading.Event() for config in CONFIGS}
         _gated_pack(monkeypatch, release)
         packing = run_m1.Packing(len(CONFIGS))
@@ -450,7 +450,7 @@ class TestThePacking:
         assert sorted(walked) == sorted(CONFIGS)
 
     def test_every_walk_runs_in_one_wave_at_the_cores_not_the_builds_width(self, monkeypatch, tmp_path):
-        """With the memory-derived width narrowed to one and every pack already on disk, as many walkers as the cores allow reach the crate seam at the same moment: the walk stage is sized from the configuration count and the cores, so a build the memory width paces one configuration at a time still walks them in one wave. Each stub walker parks until the pool is full and passes once it has been, so a stage narrowed to the build's width fails on the count rather than hanging."""
+        """With the memory-derived width set to one and every pack already on disk, as many walkers as `_core_bound_threads` allows call `kernel_exec.replay_emitted` at the same time: the walk pool is sized from the configuration count and the cores, not from the table build's width. Each stub walker waits until that many walkers are inside, so a pool sized at the build's width fails on the wait's timeout instead of hanging."""
         width = run_m1._core_bound_threads(len(CONFIGS))
         monkeypatch.setattr(kernel_exec, "KERNEL_THREADS_DEFAULT", 1)
         packing = run_m1.Packing(len(CONFIGS))
@@ -483,7 +483,7 @@ class TestThePacking:
 
 class TestTheTailWidth:
     def test_the_core_bound_width_is_the_count_capped_at_the_cores(self, monkeypatch):
-        """`_core_bound_threads` has two terms and no memory one: the configuration count and the cores this process may actually run on, floored at one. Narrowing the memory-derived default to one leaves it where it was, which is what says the knob that keeps the table build out of swap does not reach the pools sized here."""
+        """`_core_bound_threads` is the configuration count capped at the cores this process may run on, with a minimum of one. Setting the memory-derived `KERNEL_THREADS_DEFAULT` to one does not change it, so the setting that keeps the table build out of swap does not narrow these pools."""
         monkeypatch.setattr(kernel_exec, "KERNEL_THREADS_DEFAULT", 1)
         monkeypatch.setattr(run_m1, "usable_cores", lambda: 2)
         assert run_m1._core_bound_threads(len(CONFIGS)) == 2
@@ -493,7 +493,7 @@ class TestTheTailWidth:
         assert run_m1._core_bound_threads(len(CONFIGS)) == len(CONFIGS)
 
     def test_the_replay_takes_its_own_width_not_the_builds(self, monkeypatch, tmp_path):
-        """A build stated `--kernel-threads 2` replays at the replay's own derived width, not at 2: the stage is priced by `kernel_exec.REPLAY_PEAK_BYTES` rather than at the table build's width, so `run` hands it `replay_threads` — None for the derived width, or a stated `--replay-threads`, which reaches the stage as stated — and never the build's. The crate is stubbed at the seam it is asked through, so what is recorded is the width the crate would have been asked at; the box is pinned at the fleet's 32 GiB Mac and the cores wide, so the derived width is the configuration count wherever the suite runs."""
+        """With `kernel_threads=2`, the replay runs at its own width, not at 2. Its width is budgeted from `kernel_exec.REPLAY_PEAK_BYTES`, so `run` passes it `replay_threads` (None for the derived width, or a stated `--replay-threads`, used as given) and never the build's width. `kernel_exec.replay_strings` is stubbed to record the width it is called with. The machine is set to the 32 GiB fleet Mac with many cores, so the derived width is the configuration count on any machine that runs the suite."""
         events: list = []
         widths: list[int] = []
         real_replay = run_m1.run_replay_strings
@@ -522,7 +522,7 @@ class TestTheTailWidth:
         assert widths == [len(CONFIGS), 1] and len(CONFIGS) != 2
 
     def test_the_packing_and_the_walks_take_the_cores_not_the_builds_width(self, monkeypatch, tmp_path):
-        """A build stated one wide still packs every configuration at once up to the cores and hands the walk stage no width at all: the `Packing` pool is constructed at `_core_bound_threads`'s width and `run_emitted_order` is called with the tables and its pack wait alone, so neither `--kernel-threads` nor `KERNEL_THREADS_DEFAULT` reaches either pool."""
+        """With `kernel_threads=1`, the `Packing` pool is still created at `_core_bound_threads`'s width, and `run_emitted_order` is called with no keyword argument but the pack wait (`ready`), so neither `--kernel-threads` nor `KERNEL_THREADS_DEFAULT` reaches either pool."""
         events: list = []
         widths: dict[str, int] = {}
         calls: list[set[str]] = []
@@ -554,7 +554,7 @@ class TestTheTailWidth:
 class TestTheMemoWait:
     @pytest.mark.parametrize("wait", ["wait_for_replay", "wait_for_memo"])
     def test_a_branch_that_dies_before_its_chain_does_not_hang_the_wait(self, monkeypatch, tmp_path, wait):
-        """`wait_for_replay` blocks on the event the branch sets behind the string replay and `wait_for_memo` on the one it sets behind the witness stage; a branch that raises before it reaches that chain — a pool that cannot start its walker thread — has both events set for it when its future settles, and either wait raises the branch's own error rather than blocking forever."""
+        """`wait_for_replay` waits on the event the branch sets after the string replay, and `wait_for_memo` on the one it sets after the witness stage. If the branch raises before either stage, for example because its pool cannot start a walker thread, both events are set when its future completes, and either wait raises the branch's error instead of blocking forever."""
         events: list = []
         _stub_chain(monkeypatch, events)
         _stub_gates(monkeypatch, events)

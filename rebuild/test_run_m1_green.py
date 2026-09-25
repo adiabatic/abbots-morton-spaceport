@@ -1,4 +1,4 @@
-"""Interactive run_m1 and --conform-only record the same last-green files the artifact cycle skips on, so a fix verified by hand is not re-verified by the next cycle, and each of them files what it decided as a check line in the timings journal. The gate verdicts come from artifact_cycle's own evaluators, never from run_m1's exit code, which is nonzero whenever the oracle carries UNMATCHED rows — the normal mid-migration state — and that is the fact the check lines here exist to pin: the same run that exits 1 files a green. `--gates-only` records that same run_m1 green under one further condition — a prior green to stand on and every input that moved since it comparison-side — which is what makes the artifact cycle's re-adjudication route worth taking rather than merely cheap."""
+"""Tests for the green records and check lines run_m1 writes, plus its exit handling and the oracle and belt fan-in. An interactive run_m1, `--conform-only`, and `--gates-only` record the same green files the artifact cycle skips on, so a fix verified by hand is not verified again by the next cycle, and each records its verdict as a check line in the timings journal. The verdicts come from artifact_cycle's evaluators (`evaluate_run_m1_gate`, `evaluate_conform_gate`). Unmatched oracle rows are not a failure, so a run that has them records a green and exits zero. `--gates-only` records run_m1's green only when a prior green exists and every input that moved since it is comparison-side (`artifact_cycle.gates_only_reuse`), so the next cycle can skip run_m1 after a ledger edit."""
 
 import gzip
 import itertools
@@ -21,12 +21,12 @@ def green_store(tmp_path):
 
 
 def _checks():
-    """The check lines this run filed. The journal constant is read here rather than captured, because rebuild/conftest.py's autouse redirect is what points it under tmp_path and record_check resolves it at call time for exactly that reason — the same fixture that takes the cycle's run id off the environment, without which a run of this suite inside a real cycle would see every one of these entry points stand down."""
+    """The check lines this test recorded. `ct.JOURNAL` is read at call time because rebuild/conftest.py's autouse fixture redirects it under tmp_path. The same fixture removes the cycle's run id from the environment; without that, running this suite inside a real cycle would make every entry point here skip its check line."""
     return ct.load_checks(ct.JOURNAL)
 
 
 def _phases(output):
-    """What this run opened as a phase and what its `[t]` lines closed, read off the stream the way the cycle's digest reads a child's: an opened phase whose label no timing carries would reach the terminal with no duration behind it, and a timing whose label no phase opened is a line the digest keeps to the log."""
+    """The phases this run opened and the labels its `[t]` lines closed, parsed with `console.parse_line` as the cycle's digest parses a child's output. A phase with no matching timing would reach the terminal with no duration."""
     events = [console.parse_line(line) for line in output.splitlines()]
     opened = [event.name for event in events if isinstance(event, console.Phase)]
     closed = [event.label for event in events if isinstance(event, console.Timing)]
@@ -133,7 +133,7 @@ def test_red_leaves_a_record_for_other_content_alone(green_store):
 
 
 class _JoinedGates:
-    """A `TableGates` whose branch is already done and green: what a stubbed `run` hands `main` beside its summary, so the two memo waits, the join and the close all return at once."""
+    """A `TableGates` whose branch has already passed, returned by a stubbed `run` beside its summary, so the two waits, the join, and the close all return at once."""
 
     def wait_for_replay(self):
         return None
@@ -183,7 +183,7 @@ def _stub_full_run(monkeypatch, *, defect_errors=(), pins=True, pins_in_scope=14
 
 
 def test_main_refreshes_the_baseline_subset_before_anything_reads_it(monkeypatch, tmp_path, capsys):
-    """The five-hand-updates trap, closed: run_m1 ensures the subset tables are current before the pipeline and its oracle run, so an M1_ALPHABET edit can no longer feed the oracle stale tables. The fingerprint stub is order-sensitive — it answers differently before and after the ensure — so the green below records only because the key snapshot happened after the refilter; moving the ensure below the snapshot mismatches the keys and fails this test."""
+    """run_m1 refreshes the subset tables before the build and the oracle read them, so an `M1_ALPHABET` edit cannot feed the oracle stale tables. The fingerprint stub returns a different key before and after the refresh, so the green records only if the key snapshot is taken after the refresh; moving the refresh after the snapshot makes the keys differ and fails this test."""
     store = tmp_path / "run-m1-green.json"
     monkeypatch.setattr(cycle_paths, "RUN_M1_GREEN", store)
     state = {"ensured": False}
@@ -230,7 +230,7 @@ def test_main_refreshes_the_baseline_subset_before_anything_reads_it(monkeypatch
 
 
 def test_a_diverged_subset_stops_the_run_before_the_alias_check(monkeypatch):
-    """The identity proof moved into the refilter, so the guard's job is to turn its refusal into the same refusal the alias hole gets: a SystemExit carrying the remedy, raised before anything else reads the tables the refilter would not stamp."""
+    """`ensure_fresh` checks the subset identity while it refilters. The guard turns its `SubsetIdentityError` into a SystemExit carrying the message, as it does for a missing alias, before anything reads the tables the refilter would not stamp."""
     reached: list[str] = []
 
     def ensure(repo_root):
@@ -248,7 +248,7 @@ def test_a_diverged_subset_stops_the_run_before_the_alias_check(monkeypatch):
 
 
 def test_a_font_provenance_refusal_stops_the_run_before_the_alias_check(monkeypatch):
-    """The proof that no stamp can carry, surfaced the same way: a source table whose header names a font other than the one on disk stops the run where the diverged subset stops it, because rows some other font shaped would make every oracle number wrong just as quietly."""
+    """A source table whose header names a font other than the one on disk stops the run at the same point as a diverged subset, because rows shaped by another font would make every oracle number wrong."""
     reached: list[str] = []
 
     def ensure(repo_root):
@@ -268,7 +268,7 @@ def test_a_font_provenance_refusal_stops_the_run_before_the_alias_check(monkeypa
 
 
 def test_unmatched_oracle_rows_record_a_green_and_exit_zero(monkeypatch, tmp_path):
-    """Unmatched oracle rows are the mid-migration steady state: they are verdict-gated on the review surface, never a failure of the build, so a run that holds them records its green and exits the way its gate judged."""
+    """Unmatched oracle rows are normal during the migration. They are judged on the review surface and never fail the build, so a run that has them records its green and exits zero."""
     store = tmp_path / "run-m1-green.json"
     monkeypatch.setattr(cycle_paths, "RUN_M1_GREEN", store)
     monkeypatch.setattr(ac, "run_m1_skip_fingerprint", lambda root=None: "fp-live")
@@ -280,7 +280,7 @@ def test_unmatched_oracle_rows_record_a_green_and_exit_zero(monkeypatch, tmp_pat
 
 
 def test_a_multi_matched_oracle_row_fails_the_run_and_clears_the_record(monkeypatch, tmp_path):
-    """The oracle's one gate: a row matching two ledger entries is a ledger defect, and the exit status is the judge's verdict."""
+    """A row that matches two ledger entries is a ledger defect and the oracle's only failure condition, so the run exits nonzero, clears the green, and records a red check line."""
     store = tmp_path / "run-m1-green.json"
     monkeypatch.setattr(cycle_paths, "RUN_M1_GREEN", store)
     monkeypatch.setattr(ac, "run_m1_skip_fingerprint", lambda root=None: "fp-live")
@@ -294,7 +294,7 @@ def test_a_multi_matched_oracle_row_fails_the_run_and_clears_the_record(monkeypa
 
 
 def test_an_interactive_run_files_the_gates_verdict(monkeypatch):
-    """What lands on the record is the green the run's own gate reached, unmatched rows notwithstanding. The line carries no run, because nobody drove this one."""
+    """The check line records the gate's green despite the unmatched rows. It has no `run` field because no cycle started this run."""
     monkeypatch.setattr(ac, "run_m1_skip_fingerprint", lambda root=None: "fp-live")
     _stub_full_run(monkeypatch)
     run_m1.main([])
@@ -306,7 +306,7 @@ def test_an_interactive_run_files_the_gates_verdict(monkeypatch):
 
 
 def test_a_run_that_never_reached_its_judge_files_the_message_it_died_with(monkeypatch):
-    """A defect gate that stops the build leaves nothing to judge, so the red carries the sentence it raised and no failed ids — nothing here enumerated a case."""
+    """A defect gate that stops the build leaves nothing for the evaluator to judge, so the red check line carries the message the run raised and no failed ids."""
     monkeypatch.setattr(ac, "run_m1_skip_fingerprint", lambda root=None: "fp-live")
     _stub_full_run(monkeypatch, defect_errors=["qsAh: contact"])
     with pytest.raises(SystemExit):
@@ -319,7 +319,7 @@ def test_a_run_that_never_reached_its_judge_files_the_message_it_died_with(monke
 
 
 def test_a_cycle_spawned_run_files_nothing(monkeypatch):
-    """The artifact cycle judges run_m1 itself and tags the line with its own run, so the child it spawned stands down on the run id it inherited: one invocation is worth one line, whoever did the work."""
+    """The artifact cycle records run_m1's check line itself, tagged with its run id, so a run_m1 child that inherits that id records nothing. Each invocation gets one line."""
     monkeypatch.setenv(ct.CYCLE_RUN_ENV, "cafef00d1234")
     monkeypatch.setattr(ac, "run_m1_skip_fingerprint", lambda root=None: "fp-live")
     _stub_full_run(monkeypatch)
@@ -350,7 +350,7 @@ def test_a_failed_manual_pin_gate_clears_the_record(monkeypatch, tmp_path):
 
 
 def test_a_manual_pin_gate_with_nothing_in_scope_clears_the_record(monkeypatch, tmp_path):
-    """The vacuous pass: `pass` is `not disagreements`, so a gate that replayed no pin at all reports green. run_m1 requires the scope too, so an empty replay fails the build rather than certifying it."""
+    """`pass` is `not disagreements`, so a gate that replayed no pin reports a pass. run_m1 also requires pins in scope, so an empty replay fails the build."""
     store = tmp_path / "run-m1-green.json"
     monkeypatch.setattr(cycle_paths, "RUN_M1_GREEN", store)
     monkeypatch.setattr(ac, "run_m1_skip_fingerprint", lambda root=None: "fp-live")
@@ -389,7 +389,7 @@ def test_conform_only_divergences_record_no_green(monkeypatch, tmp_path):
 
 
 def test_conform_only_files_its_own_check(monkeypatch):
-    """The sweep is its own check, named the way the cycle's gate:conform names it, and it files the judge's status rather than a second spelling invented here. A divergence is a red with the same label the cycle summary prints."""
+    """The sweep records its own check line, named `conform` as the cycle names gate:conform, with the status `evaluate_conform_gate` returns. A divergence records `FAILED`, the status the cycle summary prints."""
     monkeypatch.setattr(ac, "conform_skip_fingerprint", lambda root=None, horizon=4: "fp-conform")
     monkeypatch.setattr(ac, "conform_skip_files", lambda root=None, horizon=4: {})
     monkeypatch.setattr(
@@ -407,7 +407,7 @@ def test_conform_only_files_its_own_check(monkeypatch):
 
 
 def test_the_conform_horizon_default_matches_the_cycle_driver(monkeypatch, tmp_path):
-    """The horizon is part of the conform green's key, so if run_m1's own default ever drifts from the driver's, an interactive sweep would record a green no cycle can ever match."""
+    """The horizon is part of the conform green's key, so if run_m1's default differed from the cycle driver's, an interactive sweep would record a green no cycle could match."""
     store = tmp_path / "conform-green.json"
     swept = []
     monkeypatch.setattr(cycle_paths, "CONFORM_GREEN", store)
@@ -424,7 +424,7 @@ def test_the_conform_horizon_default_matches_the_cycle_driver(monkeypatch, tmp_p
 
 
 def test_a_hand_conform_only_run_defaults_to_the_belts_budget(monkeypatch, tmp_path):
-    """A hand `--conform-only` shares the box with no surface build and no make-test pool, so its default is the belt's own budget at that idle arm rather than the oracle's `sweep_job_budget()`, which a bare run keeps; a stated `--jobs` beats the default, one included. The oracle's budget is moved off the belt's here, since on a box where the two resolve to the same width a default taken from the wrong one would pass unseen."""
+    """A hand `--conform-only` shares the machine with no surface build and no make-test pool, so its default is `conform_job_budget(skip_gates=True, skip_surface=True)`, not the oracle's `sweep_job_budget()`, which a bare run uses. A stated `--jobs`, including 1, overrides the default. The stub sets the oracle's budget one above the belt's, so a default taken from the wrong budget fails even on a machine where the two are equal."""
     store = tmp_path / "conform-green.json"
     handed = []
     belt = ac.conform_job_budget(skip_gates=True, skip_surface=True)
@@ -453,7 +453,7 @@ class _FinishedFuture:
 
 
 class _InlinePool:
-    """A stand-in for the spawn pool that runs each worker where it was submitted, so the oracle's row ranges and the belt's configurations can be exercised without a process per unit and without a build to sweep."""
+    """A stand-in for the spawn pool that runs each worker when it is submitted, so the oracle's row ranges and the belt's configurations run without a process per unit and without a build to sweep."""
 
     def __enter__(self):
         return self
@@ -466,10 +466,10 @@ class _InlinePool:
 
 
 class TestOracleFanIn:
-    """The workers write their own audit shards now, so the order of `divergence-audit.tsv` lives in the parent's concatenation rather than in the order the futures happened to resolve — and what a run that dies partway must not do is leave a short audit where a complete one was, because a short one hashes differently rather than reading as stale and comes back to the surface build as a fresh, smaller one."""
+    """Each worker writes its own audit segment, so the order of `divergence-audit.tsv` comes from the parent's concatenation, not from the order the futures resolve. A run that fails partway must leave the previous audit in place: a short audit hashes differently, so the surface build would read it as a new, smaller audit instead of a stale one."""
 
     def _pool(self, monkeypatch, worker, rows=None):
-        """The fan-out with every process taken out of it: an inline pool, futures resolved in reverse, the worker stubbed, the crate's guard sweep stubbed, and the subset stamp answering `rows` — no counts by default, which is the unsharded submission, one range per configuration."""
+        """Stubs out every process in the fan-out: an inline pool, futures resolved in reverse, the worker, the crate's guard sweep, and the subset stamp's row counts, which are `rows` or, by default, none, giving one range per configuration."""
         monkeypatch.setattr(run_m1, "_spawn_pool", lambda jobs, units: _InlinePool())
         monkeypatch.setattr(run_m1, "as_completed", lambda futures: reversed(list(futures)))
         monkeypatch.setattr(oracle, "oracle_config_worker", worker)
@@ -487,7 +487,7 @@ class TestOracleFanIn:
         )
 
     def _landed(self, out_dir):
-        """What the oracle left in its out directory, less the timings journal: `rebuild/conftest.py`'s autouse redirect points that journal into the same `tmp_path`, and the fan-out's pool record writes to it once every range has landed."""
+        """The files the oracle left in its out directory, excluding the timings journal, which `rebuild/conftest.py` redirects into the same `tmp_path` and the fan-out's pool record writes to."""
         return sorted(path.name for path in out_dir.iterdir() if path.name != ct.JOURNAL.name)
 
     def _worker(self, refuse=None, overcount=None, record=None, shards=None, multi=None):
@@ -534,7 +534,7 @@ class TestOracleFanIn:
         assert self._landed(tmp_path) == ["divergence-audit.tsv", "oracle_summary.json"]
 
     def test_the_summary_counts_every_ranges_multi_matched_rows(self, monkeypatch, tmp_path):
-        """The gate reads `multi_matched` off `oracle_summary.json`, so the counts the ranges sent home have to reach that file as their sum — one count per configuration when nothing is cut, one per range when the tables are — or a ledger with overlapping entries passes the build. Every range reports two or more, and a cut range one more than the range before it, so a summary that counted the ranges instead of summing their counts reads short."""
+        """The gate reads `multi_matched` from `oracle_summary.json`, so the file must hold the sum of the counts the ranges return (one per configuration when nothing is cut, one per range when the tables are), or a ledger with overlapping entries would pass. Every range reports at least two, and each cut range one more than the range before it, so a summary that counted ranges instead of summing their counts would be short."""
 
         def per_range(shard):
             return shard.index + 2
@@ -564,7 +564,7 @@ class TestOracleFanIn:
         assert [path.name for path in tmp_path.iterdir()] == ["divergence-audit.tsv"]
 
     def test_the_fan_in_counts_the_ranges_as_they_land(self, monkeypatch, tmp_path, capsys):
-        """The oracle is the longest stretch of a pass that prints nothing else while it runs, and the row ranges it submitted are the only honest denominator it has — one per configuration when the stamp counts no rows, more when it does — so each one that lands says so, in the counter shape the cycle throttles onto the terminal. A count that stops short of the roster is a future the fan-in never collected."""
+        """The oracle is the longest part of a pass that prints nothing else while it runs, so it prints a progress counter as each row range finishes, over the number of ranges submitted: one per configuration when the stamp counts no rows, more when it does. A count that stops short of the total is a future the fan-in never collected."""
         self._pool(monkeypatch, self._worker())
         run_m1.run_oracle(out_dir=tmp_path, jobs=6)
         events = [console.parse_line(line) for line in capsys.readouterr().out.splitlines()]
@@ -589,7 +589,7 @@ class TestOracleFanIn:
     def test_a_cut_configurations_audit_follows_row_order_within_acceptance_order(
         self, monkeypatch, tmp_path, capsys
     ):
-        """Above one range per configuration the audit's order has two levels — acceptance order across configurations, row order within one — and neither may depend on which future resolved first; the ranges of one configuration also read and write the settle memo through their own parts rather than the shared file, and a configuration whose parts the parent folded back in is reported with the fold's own `[t] settle_memo_absorb` line."""
+        """When a configuration is cut into several ranges, the audit is in acceptance order across configurations and row order within one, whichever future resolves first. Each range writes its settle memo windows to its own part, not to the shared file, and a configuration whose parts the parent absorbed gets a `[t] settle_memo_absorb` line."""
         seen: list = []
         rows = {config: 1000 for config in conform.ACCEPTANCE_CONFIGS}
         self._pool(monkeypatch, self._worker(shards=seen), rows=rows)
@@ -644,7 +644,7 @@ class TestOracleFanIn:
         assert [path.name for path in tmp_path.iterdir()] == ["divergence-audit.tsv"]
 
     def _memos(self, monkeypatch, order):
-        """Every settlement configuration named a settle memo file under the run's out directory, and the parent's absorb recorded in `order` as the configuration and the parts it was handed rather than run; answers the memo inputs a caller passes to share them."""
+        """Gives every settlement configuration a settle memo file under the run's out directory and replaces the parent's absorb with a stub that records the file and the parts it was passed in `order`. Returns the memo inputs to pass to `run_oracle`."""
         monkeypatch.setattr(
             run_m1.conform,
             "settle_memo_files",
@@ -662,7 +662,7 @@ class TestOracleFanIn:
         return oracle_cache.SettleMemoInputs(rune_digests={}, oracle_code="c", data="d")
 
     def test_every_range_files_a_part_and_the_absorbs_wait_for_memo_ready(self, monkeypatch, tmp_path):
-        """No range of the pooled oracle writes a shared settle memo file, cut or not: each files the windows it settled fresh as a part, and the parent folds every configuration's parts in only once every range has landed and `memo_ready` has returned — the witness stage's absorb, in `main` — so a pool started beside the witness stage neither lands a file without that stage's windows nor has its own replaced by that stage's. Nothing is cut here (the stamp counts no rows), so every configuration is the one-range shape, the one whose range would otherwise have written the file itself."""
+        """No range of the pooled oracle writes a shared settle memo file, cut or not. Each writes the windows it settled to a part, and the parent absorbs every configuration's parts only after every range has finished and `memo_ready` has returned (in `main`, after the witness stage's absorb). So a pool started while the witness stage runs cannot write a file without that stage's windows or have its own windows overwritten by that stage. Nothing is cut here (the stamp counts no rows), so every configuration has one range, the case where a range could otherwise have written the shared file itself."""
         seen: list = []
         order: list = []
         worker = self._worker(shards=seen)
@@ -693,7 +693,7 @@ class TestOracleFanIn:
                 )
 
     def test_the_serial_oracle_calls_memo_ready_before_its_first_walk(self, monkeypatch, tmp_path):
-        """At `--jobs 1` the walks write the shared settle memo files whole as they go, so the wait comes before the first of them rather than after the last."""
+        """At `--jobs 1` the walks rewrite the shared settle memo files as they go, so `memo_ready` is called before the first walk."""
         order: list = []
         self._pool(monkeypatch, self._worker())
         memo_inputs = self._memos(monkeypatch, order)
@@ -710,7 +710,7 @@ class TestOracleFanIn:
         assert order == ["ready", "compare"]
 
     def test_a_red_memo_ready_stops_the_oracle_before_any_absorb(self, monkeypatch, tmp_path):
-        """A witness stage that goes red while the pool runs reaches the oracle as `memo_ready` raising its red: no configuration's parts are folded into a memo file, and the standing audit stays where it was, as it does behind a range that fell over."""
+        """A witness stage that fails while the pool runs reaches the oracle as `memo_ready` raising its error. No configuration's parts are absorbed into a memo file, and the previous audit stays in place, as it does when a range fails."""
         standing = tmp_path / "divergence-audit.tsv"
         standing.write_bytes(b"the audit of the last green run\n")
         order: list = []
@@ -729,7 +729,7 @@ class TestOracleFanIn:
     def test_a_cut_configurations_store_is_joined_from_its_ranges_segments_and_read_back(
         self, monkeypatch, tmp_path
     ):
-        """The parent's own store wiring, driven through `run_oracle` rather than re-implemented beside it: each range stages a segment through `open_row_cache`, the parent joins a cut configuration's segments under the header its ranges agreed on and promotes every configuration's store, and the next pass's ranges load that joined store through the same reader and write under the next ordinal. The promoted payload is what one writer over the whole table would have written, which holds the join's arguments — the stamp, the subset digest, the ordinal, the keys and the row count — to the range results they came from."""
+        """Runs the parent's row-store handling through `run_oracle`: each range stages a segment through `open_row_cache`, the parent joins a cut configuration's segments under the header its ranges agreed on and promotes every configuration's store, and the next pass's ranges load the joined store through the same reader and write under the next ordinal. The promoted store must equal what one writer over the whole table writes, which checks that the join's arguments (the stamp, the subset digest, the ordinal, the keys, and the row count) come from the range results."""
         spec = fixtures.mini_spec()
         rows = {config: 1000 for config in conform.ACCEPTANCE_CONFIGS}
         stamps = {
@@ -795,7 +795,7 @@ class TestOracleFanIn:
             assert store is not None and store.rows == rows[config] and store.pass_ordinal == 1
 
     def test_the_belts_pool_is_never_wider_than_the_acceptance_configurations(self):
-        """The cycle hands the belt a width already capped at the acceptance configurations (`artifact_cycle.conform_job_budget`), but a hand `--jobs` can state any number, so the belt's own call site is what holds it to one process per configuration however wide the number is, while a narrower one narrows the pool."""
+        """The cycle passes the belt a width already capped at the acceptance configuration count (`artifact_cycle.conform_job_budget`), but a hand `--jobs` can be any number, so `_spawn_pool` caps the pool at one process per configuration. A smaller number narrows the pool."""
         wide = run_m1._spawn_pool(64, len(conform.ACCEPTANCE_CONFIGS))
         try:
             width = wide._max_workers  # pyright: ignore[reportAttributeAccessIssue]
@@ -809,7 +809,7 @@ class TestOracleFanIn:
             narrow.shutdown(wait=False)
 
     def test_a_key_that_will_not_cut_costs_the_cache_and_not_the_gate(self, monkeypatch, tmp_path, capsys):
-        """`alias_family_digests` refuses an alias head no rune digest stands behind, and a hand-edited alias map arrives one typo from that refusal — but the oracle is the gate that adjudicates the ledger, and whether it can run at all must not turn on a file the comparison never reads. A key that will not cut leaves the pass with no cache and nothing else: every row derived, no store written, the gate doing exactly what it did before there was a cache."""
+        """`alias_family_digests` raises on an alias head with no rune digest, which one typo in the hand-edited alias map causes. The oracle is the gate that judges the ledger, so a failure in the cache keys must not stop it. When the keys cannot be computed, the pass runs without the cache: every row is derived and no store is written."""
         seen: list = []
         self._pool(monkeypatch, self._worker(record=seen))
 
@@ -823,7 +823,7 @@ class TestOracleFanIn:
         assert (tmp_path / "divergence-audit.tsv").is_file()
 
     def test_a_pass_that_may_not_write_a_store_rotates_its_coverage(self, monkeypatch, tmp_path):
-        """Both mechanisms that keep a record from laundering itself advance on the pass ordinal, and the ordinal advances only when a store is written — so `--gates-only`, which may write nothing and which serves every row of the ledger re-adjudication it exists for, would otherwise retire the same twentieth of the table and re-prove the same sample on every run it ever makes. It declares a rotation instead; a writing pass, whose ordinal moves on its own, declares none."""
+        """The renewal slice and the verification sample that keep a wrong record from being served forever both advance on the pass ordinal, which advances only when a store is written. `--gates-only` writes no store, so without a rotation it would renew the same slice and verify the same sample on every run. A pass that writes no store therefore passes a nonzero `rotation`; a writing pass passes zero."""
         seen: list = []
         self._pool(monkeypatch, self._worker(record=seen))
         run_m1.run_oracle(out_dir=tmp_path, jobs=6)
@@ -836,7 +836,7 @@ class TestOracleFanIn:
         assert all(cache.rotation > 0 for cache in seen)
 
     def test_an_audit_short_of_the_rows_the_workers_counted_is_refused(self, monkeypatch, tmp_path):
-        """The counts reach the parent through the pipe and the rows reach it on disk, so a shard that was truncated but still closed clean shows up as the two disagreeing — the only way the parent can tell a whole audit from most of one."""
+        """The counts reach the parent through the pool and the rows reach it on disk, so a segment that was truncated but closed cleanly shows up as a mismatch between the two. That mismatch is the only way the parent can tell a complete audit from a partial one."""
         standing = tmp_path / "divergence-audit.tsv"
         standing.write_bytes(b"the audit of the last green run\n")
         self._pool(monkeypatch, self._worker(overcount=conform.ACCEPTANCE_CONFIGS[2]))
@@ -847,7 +847,7 @@ class TestOracleFanIn:
 
 
 class TestConformFanIn:
-    """The belt's fan-in files what its workers held as a `conform-belt` pool record, and it files nothing where the pile is not the belt's; the report it writes is the serial belt's whatever the width. Only the sweep itself is stubbed (`conform._conformance_config`, the unit the serial arm and every worker share), so the real wrapper, the real worker, the real `run_conformance` and the real merge run on every arm."""
+    """The belt's fan-in writes its workers' peak memory as a `conform-belt` pool record, writes none for a serial or deeper sweep, and writes the same report as the serial belt at any width. Only the sweep is stubbed (`conform._conformance_config`, which the serial path and every worker call), so the real wrapper, worker, `run_conformance`, and merge run in every mode."""
 
     @staticmethod
     def _swept(
@@ -862,7 +862,7 @@ class TestConformFanIn:
         guard_verdicts=None,
         settle_memo=None,
     ):
-        """A deterministic sweep whose every field names its configuration, so a merge that folded in completion order rather than acceptance order would write a different report."""
+        """A deterministic sweep whose every field depends on its configuration, so a merge in completion order instead of acceptance order would write a different report."""
         index = conform.ACCEPTANCE_CONFIGS.index(config)
         return conform.ConformanceConfigResult(
             config=config,
@@ -883,7 +883,7 @@ class TestConformFanIn:
         )
 
     def _pool(self, monkeypatch):
-        """The fan-out with every process and every build input taken out of it: an inline pool, futures resolved in reverse, the crate stubbed, no spec, no tables to read and no memo to share, and what the worker and `run_conformance` build before the sweep faked, since the spec is None."""
+        """Stubs out every process and build input in the fan-out: an inline pool, futures resolved in reverse, the crate, no spec, no tables, and no memo, plus fakes for what the worker and `run_conformance` build before the sweep, since the spec is None."""
         monkeypatch.setattr(run_m1, "_spawn_pool", lambda jobs, units: _InlinePool())
         monkeypatch.setattr(run_m1, "as_completed", lambda futures: reversed(list(futures)))
         monkeypatch.setattr(run_m1.kernel_exec, "ensure_built", lambda: None)
@@ -900,7 +900,7 @@ class TestConformFanIn:
         monkeypatch.setattr(conform, "_conformance_config", self._swept)
 
     def test_a_pooled_belt_files_one_conform_belt_pool_record(self, monkeypatch, tmp_path):
-        """One record per pooled belt, at the width the pool ran and with one observation per acceptance configuration, under the unit name the job-costs registry reads — a record filed under a name no unit claims would read exactly like a belt this box has never pooled. Every peak reading is distinct here, and the inline pool runs each worker as it is submitted, in acceptance order, before the controller reads its own, so a fan-in that filed one configuration's peak under another, or the controller's under a worker, would fail."""
+        """A pooled belt writes one record, at the pool's width, with one observation per acceptance configuration, under a unit name listed in `calibrate_budgets.UNITS`; a record under an unlisted name would be ignored, as if the belt had never run pooled on this machine. Every peak reading is distinct, and the inline pool runs each worker at submission in acceptance order before the controller reads its own peak, so a fan-in that recorded one configuration's peak under another, or the controller's under a worker, would fail."""
         self._pool(monkeypatch)
         assert "conform-belt" in {name for unit in cb.UNITS for name in unit.pool_units}
         configs = conform.ACCEPTANCE_CONFIGS
@@ -919,14 +919,14 @@ class TestConformFanIn:
             assert record["controller_peak_rss_bytes"] == len(configs) + 1
 
     def test_a_serial_or_deep_belt_files_no_pool_record(self, monkeypatch, tmp_path):
-        """The serial belt starts no pool to measure, and a deeper sweep's worker holds its horizon's windows in process, a different pile from the belt's that must never be priced as one of its workers."""
+        """The serial belt starts no pool to measure. A deeper sweep's worker holds its horizon's windows in memory, a different load from a belt worker's, so it must not be recorded as a belt worker."""
         self._pool(monkeypatch)
         run_m1.run_font_conformance(out_dir=tmp_path, jobs=1)
         run_m1.run_font_conformance(out_dir=tmp_path, max_length=conform.BELT_HORIZON + 1, jobs=6)
         assert ct.load_pool_records(ct.JOURNAL) == []
 
     def test_the_belt_writes_the_same_summary_at_every_width(self, monkeypatch, tmp_path):
-        """Width 1 takes `conform.run_conformance` and widths 2 and 6 take the pooled fan-in, whose futures resolve here in reverse; the report is the same bytes on all three, which is what lets the belt's width move without its report moving with it."""
+        """Width 1 runs `conform.run_conformance` and widths 2 and 6 run the pooled fan-in, whose futures resolve here in reverse. The report is byte-identical at all three widths, so changing the belt's width does not change its report."""
         self._pool(monkeypatch)
         written = {}
         for jobs in (1, 2, 6):
@@ -939,14 +939,14 @@ class TestConformFanIn:
         ]
 
     def test_the_priced_worker_pickles_for_spawn(self):
-        """The inline pool never pickles what it runs, and a spawn pool pickles every submission by its module and name, so a wrapper that was nested or otherwise unreachable by name would pass every test here and fail only on the first real pooled belt."""
+        """The inline pool never pickles what it runs, but a spawn pool pickles every submission by module and name, so a nested wrapper would pass every other test here and fail only on the first real pooled belt."""
         assert (
             pickle.loads(pickle.dumps(run_m1._priced_conformance_config)) is run_m1._priced_conformance_config
         )
 
 
 class TestOracleShardPlan:
-    """`oracle_shard_plan` is pure over its arguments, and these are the invariants the fan-out rests on: one configuration's ranges tile its table contiguously with the last one open-ended, a configuration the stamp does not count stays whole, the overlay configuration's rows weigh half, the pieces come back heaviest first, and the count is what `jobs` workers can share."""
+    """Invariants of `oracle_shard_plan`, a pure function: one configuration's ranges cover its table contiguously with the last one open-ended, a configuration the stamp does not count stays whole, the overlay configuration's rows weigh half, the ranges come back heaviest first, and each range is at most one worker's share."""
 
     ROWS = {config: 1_082_400 for config in conform.ACCEPTANCE_CONFIGS}
 
@@ -1003,10 +1003,10 @@ class TestOracleShardPlan:
 
 
 class TestGatesOnly:
-    """The cheap re-adjudication entry point: everything a full run does after the table build except the stages that make the artifacts — the defect gate, the Manual-pin replay and the oracle — re-run over the build already on disk. Two things it must refuse are a stamp the runes have outgrown and a build that left no summary for the defect fields to be rewritten into. One thing licenses the green it may record: every input that has moved since the last green build being comparison-side, which is what lets a bless of the contact allow-list or a ledger edit leave the next cycle nothing to do while a toolchain bump does not."""
+    """`--gates-only` re-runs the defect gate, the Manual-pin replay, and the oracle over the build already on disk, without the stages that make the artifacts. It exits with an error on a stamp that no longer matches the runes and on a build that left no summary to rewrite the defect fields into. It records a green only when every input that moved since the last green build is comparison-side, so a bless of the contact allow-list or a ledger edit leaves the next cycle nothing to do, while a toolchain bump does not."""
 
     def _reuse(self, monkeypatch, tables):
-        """The stamp and the two pre-gate guards every path crosses before it reaches anything worth asserting about. The guards are stubbed rather than run because both read the live subset tables under rebuild/out, which is exactly what a contracts-lane test may not touch; the returned list is the stage log the ordering test reads."""
+        """Stubs the stamp check and the two pre-gate guards that every path runs first. The guards are stubbed because both read the live subset tables under rebuild/out, which a contracts-lane test may not read. Returns the stage log the ordering test reads."""
         ran: list[str] = []
         monkeypatch.setattr(
             run_m1.baseline_subset, "ensure_fresh", lambda repo_root: ran.append("subset") or False
@@ -1021,13 +1021,13 @@ class TestGatesOnly:
         return ran
 
     def _summary(self, out_dir, **fields):
-        """The summary a completed build left behind, which is the file this pass rewrites the defect fields of rather than authoring from nothing."""
+        """Writes the summary a completed build leaves, whose defect fields this pass rewrites."""
         (out_dir / "pipeline_summary.json").write_text(
             json.dumps({"gsub_rule_count": 7, "font": "M1.otf", **fields}, indent=2) + "\n"
         )
 
     def _build(self, monkeypatch, tmp_path, ran, *, report=None):
-        """The artifacts the pass stands on and the seams behind them: the font the stamp vouches for, the treaty tables the defect gate reads beside the enumeration, the minting, the gate itself stubbed to whatever report the caller wants judged, and the Stage A rewrite."""
+        """Stubs the build this pass reuses: the font the stamp covers, the treaty tables the defect gate reads beside the enumeration, the minting, the defect gate (returning `report`), and the Stage A rewrite."""
         (tmp_path / "M1.otf").write_bytes(b"font")
         monkeypatch.setattr(run_m1, "OUT_DIR", tmp_path)
         monkeypatch.setattr(run_m1, "load_default_spec", lambda: object())
@@ -1045,7 +1045,7 @@ class TestGatesOnly:
         )
 
     def _green(self, monkeypatch, tmp_path, *, files=None, prior=None, prior_key="fp-prior"):
-        """run_m1's green record homed under tmp_path, the key this pass computes over its inputs, and the per-file map it compares against the one the last green build stored. Every path past the summary check reads that record, so a test that omits this reaches rebuild/out and trips the lane guard rather than failing on its own assertion."""
+        """Stubs run_m1's green record under tmp_path, the key this pass computes over its inputs, and the per-file map it compares with the one the last green build stored. Every path past the summary check computes that key, so a test that omits this hashes inputs under rebuild/out and fails on the lane guard instead of its own assertion."""
         store = tmp_path / "run-m1-green.json"
         monkeypatch.setattr(cycle_paths, "RUN_M1_GREEN", store)
         monkeypatch.setattr(ac, "run_m1_skip_fingerprint", lambda root=None: "fp-now")
@@ -1082,7 +1082,7 @@ class TestGatesOnly:
 
     @pytest.mark.parametrize("left_behind", [None, "{ not a summary", "[]"])
     def test_it_refuses_a_build_that_left_no_summary_to_rewrite(self, monkeypatch, tmp_path, left_behind):
-        """The defect fields are rewritten into the build's own summary, so a build that left none — or left something that is not one — is not a build this pass can stand on. Refusing is what keeps a gates-only pass from authoring a summary no build ever wrote and then judging itself against it."""
+        """The defect fields are rewritten into the build's own summary, so the pass exits with an error when the build left none or left something that is not a summary. Otherwise it would write a summary no build produced and judge itself against it."""
         self._reuse(monkeypatch, {})
         (tmp_path / "M1.otf").write_bytes(b"font")
         if left_behind is not None:
@@ -1093,7 +1093,7 @@ class TestGatesOnly:
         assert _checks() == []
 
     def test_it_refuses_a_treaty_table_the_defect_gate_cannot_read(self, monkeypatch, tmp_path):
-        """The defect gate reads the treaty tables beside the enumeration, so a stamp that matches over a treaty that will not parse describes a build only half on disk. What that earns is a refusal naming the file, not a traceback out of the gate."""
+        """The defect gate reads the treaty tables beside the enumeration, so a matching stamp over a treaty table that will not parse means the build is only partly on disk. The pass exits with an error naming the file instead of a traceback from the gate."""
         ran = self._reuse(monkeypatch, {"ss06": "decision"})
         self._build(monkeypatch, tmp_path, ran)
         self._summary(tmp_path)
@@ -1110,7 +1110,7 @@ class TestGatesOnly:
     def test_it_runs_the_guards_then_the_defect_gate_then_the_pins_then_the_oracle(
         self, monkeypatch, tmp_path, capsys
     ):
-        """The two pre-gate guards belong to the oracle rather than to the build — an unaliased subset name makes every oracle number quietly wrong — so a pass that re-runs the oracle over a build it did not make runs them exactly as the pass that built does. The defect gate goes first among the three because its errors are what stop the pass before a pin is ever replayed."""
+        """The two pre-gate guards protect the oracle, not the build (an unaliased subset name makes every oracle number wrong), so a pass that re-runs the oracle over an existing build runs them as a full build does. The defect gate runs first among the three gates because its errors stop the pass before any pin is replayed."""
         ran = self._reuse(monkeypatch, {})
         self._build(monkeypatch, tmp_path, ran)
         self._summary(tmp_path)
@@ -1129,7 +1129,7 @@ class TestGatesOnly:
         assert set(opened) <= set(closed)
 
     def test_it_rewrites_only_the_defect_fields_of_the_builds_summary(self, monkeypatch, tmp_path):
-        """The gate the allow-list feeds writes its answer back into the summary the build left, so the judge reads this pass's defect verdict rather than the one a build reached before the bless. Everything else in that summary belongs to the build and survives untouched — nothing here recompiled a font or counted a GSUB rule."""
+        """The defect gate writes its result into the summary the build left, so the evaluator reads this pass's defect result, not the one from before the bless. The rest of the summary belongs to the build and is left as it was, since this pass compiles no font and counts no GSUB rule."""
         report = defects.DefectReport(
             flags=[defects.Defect("W-CONTACT", "qsAh~qsBay", "grazes")],
             dead_in_alphabet=["qsZoo", "qsAh"],
@@ -1160,7 +1160,7 @@ class TestGatesOnly:
         assert "stage_a" in ran
 
     def test_a_defect_error_exits_red_before_the_pin_gate_and_clears_the_green(self, monkeypatch, tmp_path):
-        """A bless that turns out not to cover what it was meant to cover fails here exactly as it fails a full build, with the same sentence, and stops the pass before a pin is replayed: there is nothing to certify about a font whose contacts are unaccounted for. The green it clears is the one the moved input has just contradicted."""
+        """A bless that does not cover a contact fails here with the same message as in a full build, and stops the pass before any pin is replayed. The pass clears the green its key matches, because the failure contradicts it."""
         report = defects.DefectReport(errors=[defects.Defect("E-CONTACT", "qsAh~qsBay", "ink collision")])
         ran = self._reuse(monkeypatch, {})
         self._build(monkeypatch, tmp_path, ran, report=report)
@@ -1184,7 +1184,7 @@ class TestGatesOnly:
         ]
 
     def test_a_comparison_side_diff_records_the_green_the_next_cycle_skips_on(self, monkeypatch, tmp_path):
-        """The whole point of the route. The prior green proves the tables and font on disk came from a completed build over every build-side input, the stamp proves none of those has moved since, and this pass re-proves the gates the moved ones feed; with all three in hand the recorded green covers the new inputs too, so the cycle after a ledger edit skips run_m1 outright instead of re-adjudicating it a second time."""
+        """The prior green shows the tables and font on disk came from a completed build over every build-side input, the stamp shows none of those has changed since, and this pass re-runs the gates the changed inputs feed. Together these make the recorded green cover the new inputs, so the cycle after a ledger edit skips run_m1."""
         ran = self._reuse(monkeypatch, {})
         self._build(monkeypatch, tmp_path, ran)
         self._summary(tmp_path)
@@ -1203,7 +1203,7 @@ class TestGatesOnly:
         assert record["files"] == current
 
     def test_no_prior_green_records_nothing_and_says_why(self, monkeypatch, tmp_path, capsys):
-        """A green here is a claim about artifacts this pass did not build, and without a prior green nothing says those artifacts ever came from a completed build at all. The pass still runs and still files its check line — how one invocation came out is a different claim from a license to skip work."""
+        """A green here is a claim about artifacts this pass did not build, and without a prior green nothing shows those artifacts came from a completed build. The pass still runs and records its check line, which reports only how this invocation came out and does not let a later pass skip work."""
         ran = self._reuse(monkeypatch, {})
         self._build(monkeypatch, tmp_path, ran)
         self._summary(tmp_path)
@@ -1217,7 +1217,7 @@ class TestGatesOnly:
     def test_a_build_side_input_among_the_moved_records_nothing_and_names_it(
         self, monkeypatch, tmp_path, capsys
     ):
-        """uv.lock pins fontTools and uharfbuzz, so a bump there can move the compiled font's bytes and what HarfBuzz makes of them: standing on a font a different toolchain built is the one reuse this must never license. The line names the label that refused it, so the remedy — a full build — is legible without a diff."""
+        """uv.lock pins fontTools and uharfbuzz, so a bump there can change the compiled font's bytes and how HarfBuzz shapes them, and a font built by another toolchain must not be reused. The printed line names the build-side input, so it is clear without a diff that a full build is needed."""
         ran = self._reuse(monkeypatch, {})
         self._build(monkeypatch, tmp_path, ran)
         self._summary(tmp_path)
@@ -1240,7 +1240,7 @@ class TestGatesOnly:
     def test_inputs_that_never_moved_leave_the_standing_green_where_it_is(
         self, monkeypatch, tmp_path, capsys
     ):
-        """Nothing moved is the plain skip's case rather than this one: the green already on the record covers these very inputs, so rewriting it would only restamp it with a later time and claim a fresher proof than this pass made."""
+        """When nothing has changed, the existing green already covers these inputs, so the pass leaves it alone instead of rewriting it with a later time."""
         ran = self._reuse(monkeypatch, {})
         self._build(monkeypatch, tmp_path, ran)
         self._summary(tmp_path)
@@ -1254,7 +1254,7 @@ class TestGatesOnly:
         assert record["fingerprint"] == "fp-prior"
 
     def test_it_files_the_re_adjudications_verdict(self, monkeypatch, tmp_path):
-        """A ledger edit is re-adjudicated in a loop while the unmatched rows remain; the pass is judged by the same evaluator the cycle runs over a build it reused, files that, and exits the way it judged."""
+        """The pass is judged by the same evaluator the cycle uses, records that verdict as a check line with no `run` field, and exits accordingly."""
         ran = self._reuse(monkeypatch, {})
         self._build(monkeypatch, tmp_path, ran)
         self._summary(tmp_path)
@@ -1268,7 +1268,7 @@ class TestGatesOnly:
         assert "run" not in checks[0]
 
     def test_a_pin_gate_that_refuses_the_build_files_a_red_and_clears_the_green(self, monkeypatch, tmp_path):
-        """The one refusal here that is a judgment rather than a pre-flight: the pins replayed and disagreed, so the record says so and carries the sentence the pass died with. It is a red like the defect gate's and the oracle's, so it settles the green like theirs — a standing record whose key still matches this content is a claim this pass has just contradicted, and leaving it would let the next cycle skip run_m1 on the strength of a build the pins refused."""
+        """A Manual-pin gate that replays only 3 of the 4 pins in scope fails the pass, which records a red check line carrying its message and clears the green its key matches. Leaving that green would let the next cycle skip run_m1 on a build the pin gate failed."""
         ran = self._reuse(monkeypatch, {})
         self._build(monkeypatch, tmp_path, ran)
         self._summary(tmp_path)
@@ -1286,7 +1286,7 @@ class TestGatesOnly:
         assert "replayed 3 of 4 pins" in checks[0]["failures"][0]
 
     def test_a_pre_flight_refusal_judges_nothing_and_files_nothing(self, monkeypatch, tmp_path):
-        """A stamp that no longer matches the runes turns the pass away before any gate runs. Nothing was judged, so nothing belongs on a record of judgments — a red here would put a failure on run_m1's history that no run of run_m1 ever reached."""
+        """A stamp that no longer matches the runes stops the pass before any gate runs. Nothing was judged, so the pass records no check line."""
         self._reuse(monkeypatch, None)
         with pytest.raises(SystemExit):
             run_m1.run_gates_only(out_dir=tmp_path)

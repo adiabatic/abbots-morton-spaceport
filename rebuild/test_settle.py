@@ -1,8 +1,6 @@
-"""Settlement tests over the real M1 rune data (the mini spec of rebuild/pipeline/fixtures.py), the synthetic specs for the stages the real records leave unexercised (fixtures.synthetic_spec and fixtures.prospect_spec), and round-1 verdict pins that load glyph_data/runes/*.yaml directly (the fixture transcription is frozen at M1 and predates the verdict records). Every window here settles in the crate: each table below rides one kernel_exec.settle_sequences call behind one guard sweep, so a worker pays a handful of invocations for the whole module rather than one per row, and a window a test asks for that its table never listed comes back as a KeyError rather than as a quiet extra spawn.
+"""Settlement tests over three kinds of spec: the mini spec (`fixtures.mini_spec`, a hand transcription of rune data for a few letters), synthetic specs for ranking stages the real records do not exercise (`fixtures.synthetic_spec`, `fixtures.prospect_spec`), and the loaded rune YAML (`load_default_spec`) for records the mini spec does not transcribe, such as the round-1 verdict records. Every window settles in the crate. Each table of windows below is settled by one guard sweep and one `kernel_exec.settle_sequences` call, so the module costs a few kernel invocations instead of one per row. A test that asks for a window its table does not list gets a KeyError.
 
-Expectations marked AUTHORED-DATA FINDING assert the authored rune files' actual semantics where they knowingly diverge from today's font (the qsMay grounded exit is unscoped and its refusal list lacks qsTea; the qsMay baseline entry extension's trigger list lacks qsTea_qsOy; qsMay withdraws its exit stub mid-word). Those rows are divergence-ledger material for Phase 5, not kernel bugs — see the Deviations section appended to rebuild/M1-PLAN.md.
-
-Two claims about the retired Python engine's own internals went with it rather than moving to the crate. The candidate cache's aliasing — a warm engine handing back the very list it built before, unmutated by a settlement in between — is a statement about a shared Python list the crate has no counterpart for; what the memo owes is pinned instead by engine.rs's only_a_trace_memo_engine_memoizes_an_enumeration_and_a_hit_replays_its_delta and a_warm_engine_fires_exactly_what_a_cold_one_fires. The pairing-set cache's bound went with the cache: the crate keys pairing sets on StanceId, so a spec has exactly as many as it has stances and there is nothing left to cap.
+Rows marked AUTHORED-DATA FINDING assert what the authored rune data does where it differs from the old font. They are divergence-ledger material, not kernel bugs.
 """
 
 import itertools
@@ -36,7 +34,7 @@ def _name_to_codepoint(spec) -> dict[str, int]:
 
 
 def _traces(spec, requests, *, modes=None):
-    """One kernel batch for a whole table of windows: sweep the guard once, form each request's ligatures against that one surface, and hand every already-formed token sequence to `kernel_exec.settle_sequences` in a single call, which spends one invocation per wave per feature configuration rather than one per row. `modes` names a settlement world other than this process's."""
+    """Settles a table of windows in one batch: one guard sweep, ligature formation against it, then one `kernel_exec.settle_sequences` call. That call invokes the kernel once per token position per feature configuration for every `SETTLE_CASE_BATCH_SIZE` windows, instead of once per row. `modes` selects a settlement world other than the process's own."""
     guard = kernel_exec.guard_sweep(spec)
     formed = [
         (form_ligatures(spec, tokens_from_codepoints(spec, codepoints), guard), frozenset(features))
@@ -67,7 +65,7 @@ def _requests(spec, windows):
 
 
 def _window_settled(spec, windows, *, modes=None):
-    """Every named window of `windows` settled in one batch, keyed by the `(names, features)` pair that asked for it."""
+    """Settles every window in `windows` in one batch, keyed by its `(names, features)` pair."""
     return dict(zip(windows, _settled(spec, _requests(spec, windows), modes=modes)))
 
 
@@ -77,23 +75,23 @@ ROWS = (
     ("qsMay", (), ("qsMay.loop",)),
     ("qsPea", (), ("qsPea.full",)),
     ("qsOy", (), ("qsOy.hapax",)),
-    # The half-·Tea x-height seam; qsIt's faithful-from-YAML entry extension fires (M1-PLAN section 5 authoring note: the gates and the ledger arbitrate, not the spec).
+    # Half ·Tea joins ·It at the x-height, and qsIt's x-height entry extension (policy.extend[0]) fires.
     ("qsTea qsIt", (), ("qsTea.half.ex-y5", "qsIt.hapax.en-y5.en-ext-1")),
     ("qsIt qsMay", (), ("qsIt.hapax.ex-y0", "qsMay.loop.en-y0.en-ext-1")),
     ("qsMay qsIt", (), ("qsMay.loop.ex-y5.ex-ext-1", "qsIt.hapax.en-y5")),
     ("qsMay qsMay", (), ("qsMay.grounded-loop.ex-y0", "qsMay.loop.en-y0")),
     ("qsTea qsMay", (), ("qsTea.full.ex-y0", "qsMay.loop.en-y0.en-ext-1")),
-    # Phase 5 authoring fix: qsTea joined the grounded-exit refusal list (today's font breaks May.Tea while May.May joins, and the off-anchor contact gate rejected the loop top touching the bar), so the mid-word non-join renders pulled back.
+    # qsMay's grounded baseline exit refuses qsTea (the old font breaks ·May·Tea while ·May·May joins, and the loop top touching the bar is an off-anchor contact), so ·May does not join and renders its pulled-back withdrawal.
     ("qsMay qsTea", (), ("qsMay.loop.ex-bind-pulled-back", "qsTea.full")),
     # Under ss03 the x-height path scores equal and the declared order: (loop before grounded-loop) decides.
     ("qsMay qsTea", ("ss03",), ("qsMay.loop.ex-y5.ex-ext-1", "qsTea.half.en-y5")),
-    # The optimistic third term buys the second join; the two equal-demand exit extends (self entry live; toward-list with qsIt) co-match without E-INCOMPARABLE.
+    # The optimistic third term of the join count gains the second join. qsMay's two one-pixel exit extensions (the self-entry-live one and the one toward a list that includes qsIt) both match without E-INCOMPARABLE.
     (
         "qsTea qsMay qsIt",
         (),
         ("qsTea.full.ex-y0", "qsMay.loop.en-y0.ex-y5.en-ext-1.ex-ext-1", "qsIt.hapax.en-y5"),
     ),
-    # Same-seam non-summing: the middle qsIt's extended exit suppresses the follower qsMay's entry extension.
+    # Extensions on one seam do not add up: the middle qsIt's extended exit suppresses the following qsMay's entry extension.
     (
         "qsMay qsIt qsMay",
         (),
@@ -104,7 +102,7 @@ ROWS = (
         (),
         ("qsIt.hapax.ex-y0", "qsMay.loop.en-y0.ex-y5.en-ext-1.ex-ext-1", "qsIt.hapax.en-y5"),
     ),
-    # The entered middle qsIt withdraws its exit before a follower that refuses its baseline entry after qsIt; withdrawal: safe leaves the plain exit-none cell.
+    # Full ·Tea refuses a baseline entry after an entered qsIt, so the middle qsIt does not exit, and its `withdrawal: safe` leaves the plain exit-none cell.
     ("qsTea qsIt qsTea", (), ("qsTea.half.ex-y5", "qsIt.hapax.en-y5.en-ext-1", "qsTea.full")),
     ("qsIt qsTea", (), ("qsIt.hapax", "qsTea.full")),
     ("qsTea qsTea", (), ("qsTea.full", "qsTea.full")),
@@ -123,14 +121,14 @@ ROWS = (
     ("qsOy qsIt", (), ("qsOy.hapax.ex-y0", "qsIt.hapax.en-y0")),
     ("qsOy qsTea", (), ("qsOy.hapax.ex-y0", "qsTea.full.en-y0")),
     ("qsIt qsOy", (), ("qsIt.hapax", "qsOy.hapax")),
-    # Formation runs first, unconditionally; the entryless ligature severs left joins (predecessor withdrawal is cell semantics on the predecessor's side).
+    # Formation runs first, and nothing blocks it in these windows. The ligature has no entry, so nothing joins it from the left; how the predecessor withdraws is decided by the predecessor's own cells.
     ("qsTea qsOy", (), ("qsTea_qsOy.hapax",)),
     ("qsTea qsOy qsIt", (), ("qsTea_qsOy.hapax.ex-y0", "qsIt.hapax.en-y0")),
     ("qsTea qsOy qsTea", (), ("qsTea_qsOy.hapax.ex-y0", "qsTea.full.en-y0")),
-    # Phase 5 authoring fix: qsTea_qsOy restored to qsMay's baseline entry-extension trigger list (the old pipeline's ligature expansion included it, and the baseline proves today's en-ext-1).
+    # qsMay's baseline entry extension lists qsTea_qsOy as a trigger, which matches the old font's en-ext-1 in the baseline.
     ("qsTea qsOy qsMay", (), ("qsTea_qsOy.hapax.ex-y0", "qsMay.loop.en-y0.en-ext-1")),
     ("qsIt qsTea qsOy", (), ("qsIt.hapax", "qsTea_qsOy.hapax")),
-    # AUTHORED-DATA FINDING (generalized stranded-exit-withdrawal): qsMay's declined exit mid-word renders with the pulled-back withdrawal binding, carried in the cell identity.
+    # AUTHORED-DATA FINDING (generalized stranded-exit-withdrawal): qsMay's declined exit before a following letter renders with the pulled-back withdrawal binding, which is part of the cell identity.
     ("qsMay qsTea qsOy", (), ("qsMay.loop.ex-bind-pulled-back", "qsTea_qsOy.hapax")),
     ("qsTea qsOy qsTea qsOy", (), ("qsTea_qsOy.hapax", "qsTea_qsOy.hapax")),
     (
@@ -138,19 +136,19 @@ ROWS = (
         (),
         ("qsMay.loop.ex-bind-pulled-back", "qsTea.half.ex-y5", "qsIt.hapax.en-y5.en-ext-1"),
     ),
-    # ZWNJ splits the run; entry-bearing letters after it settle as locked twins with the entry severed.
+    # ZWNJ splits the run, and an entry-bearing letter after it settles as its locked twin with no entry.
     ("qsIt zwnj qsTea", (), ("qsIt.hapax", "uni200C", "qsTea.full.locked")),
     ("zwnj qsTea qsIt", (), ("uni200C", "qsTea.half.ex-y5.locked", "qsIt.hapax.en-y5.en-ext-1")),
     ("zwnj qsMay qsTea", ("ss03",), ("uni200C", "qsMay.loop.ex-y5.locked.ex-ext-1", "qsTea.half.en-y5")),
-    # The ss03 cross-ZWNJ leak, fixed structurally: no join across the break.
+    # Under ss03, nothing joins across a ZWNJ.
     ("qsMay zwnj qsTea", ("ss03",), ("qsMay.loop", "uni200C", "qsTea.full.locked")),
     ("qsMay space qsTea", ("ss03",), ("qsMay.loop", "space", "qsTea.full")),
     ("qsIt zwnj qsTea qsOy", (), ("qsIt.hapax", "uni200C", "qsTea_qsOy.hapax")),
-    # The namer dot does not split runs but has no join surface, so adjacency breaks naturally and nothing locks after it.
+    # The namer dot does not split runs but has no join surface, so nothing joins across it and nothing after it is locked.
     ("qsMay namer-dot qsIt", (), ("qsMay.loop", "periodcentered", "qsIt.hapax")),
-    # ss05's trigger is out of the M1 alphabet: identical to default over these windows.
+    # ss05's only unlock needs a qsEt left, which the mini spec lacks, so ss05 settles these windows as default does.
     ("qsMay qsTea", ("ss05",), ("qsMay.loop.ex-bind-pulled-back", "qsTea.full")),
-    # AUTHORED-DATA FINDING: the qsIt baseline-exit refusal toward [qsTea, qsRoe, qsIt] is self-scoped to unentered cells, so an entered qsIt joins a following qsIt at the baseline (today's font breaks here); identical under ss04 because the middle ·It settles with an x-height entry, so the baseline-baseline pass-through grant never engages in this window.
+    # AUTHORED-DATA FINDING: qsIt's baseline-exit refusal toward [qsTea, qsRoe, qsIt] applies only to unentered cells, so an entered qsIt joins a following qsIt at the baseline, where the old font breaks. ss04 settles the same way: its baseline-to-baseline unlock needs a baseline entry, and the middle ·It enters at the x-height.
     (
         "qsTea qsIt qsIt",
         (),
@@ -174,7 +172,7 @@ def row_settled():
 
 @pytest.fixture(scope="module")
 def row_labels(row_settled):
-    """The same batch as cell labels, which is what most rows assert."""
+    """The same batch as cell labels, which most rows assert against."""
     return {key: tuple(cell_label(SPEC, settled.cell) for settled in row) for key, row in row_settled.items()}
 
 
@@ -199,7 +197,7 @@ def test_entry_extension_suppressed_when_left_seam_already_extended(row_settled)
 
 
 def test_a_committed_seam_nothing_accepts_is_unreachable():
-    """A left forged with an exit at the top — a height nothing in the mini alphabet enters at — is a window the lookahead closure would never have built, and the crate refuses it rather than settling something. The refusal crosses the seam as `settle.SettleError` carrying the corpus bucket beside the crate's own sentence, which `engine.rs`'s `a_left_that_committed_a_seam_nothing_accepts_is_stranded` states in the crate's vocabulary; `ex-y8` is the mini registry's `top`."""
+    """A left context forged with an exit at `top`, a height qsIt cannot enter at, is a window the lookahead closure never builds, and the crate returns an error instead of settling it. The error arrives as `settle.SettleError` with bucket `E-UNREACHABLE` and the crate's message. `engine.rs`'s `a_left_that_committed_a_seam_nothing_accepts_is_stranded` is the crate-side test. `ex-y8` is `top` in the mini registry."""
     forged = LeftContext("letter", Settled(CellId("qsTea", "full", None, "top"), seam="top", extension=0))
     case = kernel_exec.case_line(forged, RightToken("letter", "qsIt"), (EDGE, EDGE, EDGE, EDGE))
     with pytest.raises(SettleError) as caught:
@@ -279,7 +277,7 @@ PROSPECT_WINDOWS = ("A B C D", "A B")
 
 @pytest.fixture(scope="module")
 def prospect_settled():
-    """Both prospect windows under both settlement worlds, one batch per world. `SettlementModes` names the world on the invocation instead of monkeypatching this process's defaults, so the optimistic arm and the simulated one are two argv spellings rather than two environments."""
+    """Both prospect windows settled with the simulated prospect off and on, one batch each. `SettlementModes` sets the mode flags on each kernel invocation, so the test does not change the process defaults."""
     settled = {}
     for simulated in (False, True):
         modes = kernel_exec.SettlementModes(simulated_prospect=simulated, vote_slots=True)
@@ -297,11 +295,11 @@ def test_simulated_prospect_sees_the_follower_yield_the_promised_join(prospect_s
 
 
 def test_simulated_prospect_bottoms_out_at_the_window_edge(prospect_settled):
-    """Two letters and nothing past them: the simulated prospect has no follower transition to run, so both worlds settle the window identically. That the third term is zero there rather than merely equal is `engine.rs`'s `the_prospect_bottoms_out_at_the_window_edge_where_both_modes_agree`, which reads the term off a ladder the settled cell does not carry across the seam."""
+    """With two letters and nothing after them, the simulated prospect has no follower transition to run, so both worlds settle the window the same way. `engine.rs`'s `the_prospect_bottoms_out_at_the_window_edge_where_both_modes_agree` checks that the third term is zero there, which the settled cells returned here do not show."""
     assert prospect_settled[("A B", False)] == prospect_settled[("A B", True)]
 
 
-# Round-1 verdict pins over the real loaded rune YAML. The fixture spec above is the frozen M1 transcription and intentionally predates the round-1 verdict records, so these rows load glyph_data/runes/*.yaml directly. They pin the greedy ·May·May pairing of the round-1 verdict (u-0341, "the old way seems nicer to write out by hand"): chains pair up y0 | break | y0 | break, like the shipped font does at every length. The quad is the verdicted window; the quint and sextet are the only gate that sees qsMay's chain-interior prefer (the one scoped on an unjoined ·May to its left) — the acceptance oracle's window universe tops out at four letters, where the word-start record alone reproduces every outcome, and without the chain-interior record chains of five or more regress to the rejected defer-to-the-tail grouping.
+# Round-1 verdict pins over the loaded rune YAML, which carries the round-1 verdict records the mini spec does not. They check the greedy ·May·May pairing of the round-1 verdict (u-0341, "the old way seems nicer to write out by hand"): a chain of ·May joins in pairs at the baseline with a break between pairs, as the shipped font does at every length. The four-letter chain is the verdicted window. The five- and six-letter chains are the only check on qsMay's chain-interior prefer (policy.prefer[2], scoped on an unjoined ·May to its left): the acceptance oracle's windows stop at four letters, where the word-start prefer alone gives every result, and without the chain-interior prefer, chains of five or more fall back to the rejected grouping that defers to the tail.
 
 
 @pytest.fixture(scope="module")
@@ -363,8 +361,6 @@ def test_bay_may_contracts_mays_baseline_entry(real_labels):
     )
 
 
-# The section 5.7 late-formation guard over the real loaded rune YAML. The Manual pin `·Day | ·Utter.alt ·Low` (site/the-manual.html) is the live counterexample to unconditional formation: the ligature exits only at the x-height, ·Low enters only at the baseline, and the unformed alternate ·Utter carries the baseline seam the ligature would destroy. The guard yields formation exactly there, and qsUtter.policy.prefer[2] (the section 5.9 follower one-liner) makes ·Day withhold its exit so the alternate is free to reach.
-
 MAY_TEA_JAI_LEADS = ("qsI", "qsAh")
 MAY_TEA_JAI_WINDOWS = ("qsTea qsJai", "qsMay qsTea qsJai qsTea")
 
@@ -386,7 +382,7 @@ def test_may_tea_jai_keeps_a_baseline_gap(real_labels, lead, features):
     assert follower_labels[1] == ("qsTea.full.en-y5" if features else "qsTea.half.ex-y5")
 
 
-# The depth-3 regression pins (doc/rebuild-design.md section 3.4, the orphaned-·Tea windows): in ·Day·Tea·Utter·Low and ·Oy·Tea·Utter·Low the predecessor would withdraw its baseline exit on the prospect that ·Tea joins forward into ·Utter, and qsUtter's ·Low-scoped prefer then vetoes the entry, leaving ·Tea joined on neither side. The depth-3 chains on qsDay.policy.prefer[1] and qsOy/qsTea_qsOy.policy.prefer[0] keep the predecessor's exit exactly there, matching the old font's y0,break,y0 grouping; the contrast windows pin that the yield still fires everywhere else. The depth-4 sextet carries the same phenomenon one token deeper: qsDay.policy.prefer[5]'s entry-live carve-out reads the fourth raw glyph, so ·Pea·Day·Tea·Utter·Tea·May withdraws ·Day's exit and joins ·Tea forward into ·Utter when the fourth letter is an orphan follower, while the rescue still holds when the tail stays joinable (·Pea, or a word-final stop) and ss03 keeps the y5 ·Utter·Tea escape; these windows run five and six letters, past the acceptance oracle's four-letter horizon, so they are pinned here by hand.
+# The orphaned-·Tea windows (doc/rebuild-design.md §3.4). In ·Day·Tea·Utter·Low and ·Oy·Tea·Utter·Low the predecessor would withdraw its baseline exit expecting ·Tea to join forward into ·Utter, and qsUtter's ·Low-scoped prefer then refuses that entry, leaving ·Tea joined on neither side. The three-letter `then:` chains on qsDay.policy.prefer[1] and qsOy/qsTea_qsOy.policy.prefer[0] keep the predecessor's exit in those windows, which matches the old font's `·Day ~b~ ·Tea | ·Utter.alt ~b~ ·Low` grouping. The other windows check that the predecessor still withdraws everywhere else. The depth-4 rows show the same change one letter further on: the entry-live exception in qsDay.policy.prefer[5] reads the fourth raw glyph, so in ·Pea·Day·Tea·Utter·Tea·May ·Day withdraws its exit and ·Tea joins forward into ·Utter when the fourth letter after ·Day is one that would otherwise leave ·Utter joined on neither side (the innermost `then:` list of qsDay.policy.prefer[5]). ·Day keeps its exit when the tail can still join (·Pea, or the end of the text), and under ss03 ·Utter joins the following ·Tea at the x-height. These windows are five and six letters long, past the acceptance oracle's four-letter horizon, so only these rows check them.
 
 
 ORPHANED_TEA_ROWS = (
@@ -482,6 +478,9 @@ def test_orphaned_tea_depth4_windows(real_labels, sequence, features, expected):
     assert real_labels[(sequence, features)] == expected
 
 
+# The §5.7 late-formation guard over the loaded rune YAML. The Manual pin `·Day | ·Utter.alt ·Low` (site/the-manual.html) is the case against unconditional formation: the ·Day+Utter ligature exits only at the x-height, ·Low enters only at the baseline, and only the unformed alternate ·Utter can make the baseline join. The guard withholds formation there, and qsUtter.policy.prefer[2] (a follower prefer, §5.9) makes ·Day withhold its exit so the alternate ·Utter can join ·Low.
+
+
 def test_late_formation_yields_before_low(real_labels):
     assert real_labels[("qsDay qsUtter qsLow", ())] == (
         "qsDay.full",
@@ -518,7 +517,7 @@ def test_formation_blocked_verdicts_are_config_blind(real_spec, real_guard):
 
 @pytest.fixture(scope="module")
 def guard_by_configuration(real_spec) -> dict[frozenset[str], kernel_exec.FormationGuard]:
-    """One single-engine sweep per configuration: every subset of the capability features the quantified guard's engines walk, plus every acceptance configuration, so the taste set rides too."""
+    """One single-configuration guard sweep for every subset of the capability features the quantified guard covers, plus every acceptance configuration, so ss10, which no stance unlocks, is swept too."""
     features = spec_load.capability_features(real_spec)
     subsets = {
         frozenset(subset)
@@ -530,7 +529,7 @@ def guard_by_configuration(real_spec) -> dict[frozenset[str], kernel_exec.Format
 
 
 def test_no_configuration_frees_a_window_the_quantified_guard_blocks(real_guard, guard_by_configuration):
-    """Every configuration's surface walks the quantified surface's keys, and the quantified verdict blocks only where every configuration blocks, so a single configuration's own surface is stricter or the same and never looser."""
+    """Every configuration's surface has the quantified surface's keys and blocks wherever the quantified surface blocks, so a single configuration's surface is the same or stricter."""
     assert len(guard_by_configuration) > len(conform.ACCEPTANCE_CONFIGS)
     for features, surface in guard_by_configuration.items():
         assert surface.keys() == real_guard.keys(), sorted(features)
@@ -538,7 +537,7 @@ def test_no_configuration_frees_a_window_the_quantified_guard_blocks(real_guard,
 
 
 def test_ss03_is_the_one_set_the_guard_surface_depends_on(real_spec, real_guard, guard_by_configuration):
-    """Issue #185's claim that the surface is identical across configurations fails today, and the way it fails is what this pins. Every configuration with ss03 on sweeps exactly the quantified surface. Every configuration without it — default, ss04, ss05, ss04+ss05, ss10 — sweeps one and the same stricter surface, blocking exactly the windows where the ss03 x-height entry into full ·Tea is the only seam a qsUtter-trailing ligature can offer a ·Tea follower: `(X_qsUtter, ·Tea, r2)` for the ligatures qsTea's ss03 unlocks name as lefts, and no other. The font is right either way, because formation stages before the ss markers and `settle.form_ligatures` reads the quantified sweep in every configuration: ·Day·Utter·Tea forms the ligature under default with ·Tea unjoined, and ·Tea joins it only under ss03 (`real_labels` above pins both). What a configuration delta may lean on is therefore narrower than the issue stated and is pinned here: ss04, ss05 and ss10 move no formation verdict even at single-engine grain, and ss03 moves only these. If the disagreement ever empties, the claim as issued holds and this test is what tightens to say so."""
+    """The guard surface is not the same in every configuration, and ss03 is the only feature that changes it. Every configuration with ss03 sweeps the quantified surface. Every configuration without it (default, ss04, ss05, ss04+ss05, ss10) sweeps one stricter surface, which also blocks the windows `(X_qsUtter, ·Tea, r2)` for the qsUtter-trailing ligatures that qsTea's ss03 unlock names as lefts: there, the ss03 x-height entry into full ·Tea is the only join the ligature can offer the ·Tea. The font is correct either way, because formation runs before the ss markers and `settle.form_ligatures` reads the quantified sweep in every configuration: ·Day·Utter·Tea forms the ligature under default with ·Tea unjoined, and ·Tea joins it only under ss03 (`test_formation_survives_where_the_ligature_serves_the_follower` checks both). So a configuration delta may assume that ss04, ss05, and ss10 change no formation verdict, and that ss03 changes only these."""
     tea = RightToken("letter", "qsTea")
     ligatures_ss03_names = {
         name
@@ -565,7 +564,7 @@ def test_ss03_is_the_one_set_the_guard_surface_depends_on(real_spec, real_guard,
 
 
 def test_the_guard_reads_letters_only_and_indexes_the_surface_it_was_given(real_guard):
-    """The two ends of `guard_blocks`. A first slot that is not a letter never blocks — the guard exists to keep a ligature from stranding a follower, and a boundary is no follower — so the sweep carries no rows for one and none are asked for. Every other triple is an indexed read, so a surface that does not cover the window says so instead of quietly reading as free; `.get(key, False)` here would form every ligature the emitted lookup withholds, silently."""
+    """`guard_blocks` never blocks when the first slot is not a letter, because the guard only protects a following letter's join, so the sweep has no rows for boundaries. Every other triple is an indexed read, so a window the surface does not cover raises KeyError. A `.get(key, False)` there would silently form every ligature the emitted lookup withholds."""
     utter = RightToken("letter", "qsUtter")
     assert not guard_blocks(real_guard, "qsDay_qsUtter", EDGE, utter)
     assert not guard_blocks(real_guard, "qsDay_qsUtter", RightToken("space"), utter)
@@ -574,7 +573,7 @@ def test_the_guard_reads_letters_only_and_indexes_the_surface_it_was_given(real_
         guard_blocks(real_guard, "qsDay_qsUtter", RightToken("letter", "qsNotARune"), EDGE)
 
 
-# Ligature-transparent left scopes (spec_load._expand_ligature_lefts): a family named in an entry from-scope also admits every registered ligature whose sequence ends in that family, so the sitting's rejected windows u-121942/u-121944 settle the half ·Pea after ·See+Utter exactly as they do after bare ·Utter, and the follower's own join lands. The ·No arm deliberately pins the approved divergence (u-119404/u-135614): full ·Pea takes the baseline join into flipped ·No behind every qsUtter-trailing left alike.
+# Ligature-transparent left scopes (`spec_load._expand_ligature_lefts`): a family named in an entry `from:` scope also admits every registered ligature whose sequence ends in that family. So the rejected windows u-121942 and u-121944 settle the half ·Pea after ·See+Utter as they do after a bare ·Utter, and the follower's join takes effect. The ·No row checks the approved divergence (u-119404, u-135614): full ·Pea joins flipped ·No at the baseline after every qsUtter-trailing left.
 
 
 LIGATURE_TRANSPARENT_PEA_ROWS = (
@@ -611,7 +610,7 @@ def test_ligature_left_admits_trailing_family_scopes(real_labels, sequence, expe
 
 
 def test_resolve_record_breaks_the_tea_oy_it_no_crossing(real_labels):
-    """The section 5.8 against-a-named-record slice, live: qsTea_qsOy's resolve against qsIt's withhold-before-no-after-oy vote picks the ligature's baseline exit at the tied (·It, ·No, live-third) windows, so the ligature arm renders like the approved bare-·Oy arm instead of raising E-INCOMPARABLE."""
+    """A resolve record against a named record (§5.8): qsTea_qsOy's resolve against qsIt's `withhold-before-no-after-oy` prefer picks the ligature's baseline exit in the tied ·It·No windows, so the ligature renders like the approved bare-·Oy case instead of raising E-INCOMPARABLE."""
     assert real_labels[("qsTea qsOy qsIt qsNo qsAh", ())] == (
         "qsTea_qsOy.hapax.ex-y0",
         "qsIt.hapax.en-y0",
@@ -620,7 +619,7 @@ def test_resolve_record_breaks_the_tea_oy_it_no_crossing(real_labels):
     )
 
 
-# Every window the real-spec tables above name, gathered so the whole file settles them in one batch: one guard sweep and one settle_sequences call, six waves deep, rather than a kernel spawn per row. The tuple is that batch's entire universe on purpose — `real_labels` keys on the window itself, so a test asking for a window nobody listed here raises KeyError instead of quietly going unsettled.
+# Every window the real-spec tables above name, settled in one batch: one guard sweep and one `settle_sequences` call, six positions deep. A test that asks `real_labels` for a window not listed here gets a KeyError.
 REAL_WINDOWS = tuple(
     dict.fromkeys(
         (
@@ -648,7 +647,7 @@ REAL_WINDOWS = tuple(
 
 @pytest.fixture(scope="module")
 def real_guard(real_spec):
-    """The crate's complete late-formation verdict surface for the loaded rune YAML — the same memoized sweep `_traces` forms every real-spec window against."""
+    """The crate's complete late-formation verdict surface for the loaded rune YAML, the same memoized sweep `_traces` forms every real-spec window against."""
     return kernel_exec.guard_sweep(real_spec)
 
 

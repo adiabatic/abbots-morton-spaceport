@@ -1,4 +1,4 @@
-"""model.py contract tests: the frozen identity tuples, bitmap row addressing, and the shared naming helpers."""
+"""Tests for `rebuild/pipeline/model.py`: the frozen identity dataclasses, bitmap row addressing, the shared naming helpers, and the mini fixture spec's runes."""
 
 import pytest
 

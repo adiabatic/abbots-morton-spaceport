@@ -1,12 +1,12 @@
-"""Three rosters keep the review surface's stamps honest, and this walks the closures they claim.
+"""Checks the three code rosters that stamp the review surface and its stores against the import closures they are meant to cover.
 
-`fingerprint.review_code_paths` is rebuild/review/ minus an exclusion list (`REVIEW_NON_BUILD_MODULES`), and the surface stamp's whole claim is that the list names exactly what the build cannot execute: an excluded module the build starts importing would leave the surface stale-blind to its edits, while a hashed module the build never reaches costs a full surface rebuild and the per-unit store for an edit that proves nothing — the deforming pressure rebuild/test_memory_budget.py records declining a one-line hoist over. A hand-written exclusion list is only safe while something checks it, and this is that check: it walks the import graph from rebuild.review.build in both directions, at the same module grain as rebuild/test_plumbing_closure.py and rebuild/test_oracle_code_closure.py.
+`fingerprint.review_code_paths` hashes rebuild/review/ minus `REVIEW_NON_BUILD_MODULES`, and that exclusion list must name exactly the modules the surface build never imports. An excluded module that the build starts importing would leave the surface stale after an edit to it. A hashed module that the build never imports forces a full surface rebuild and drops the per-unit store for an edit that cannot change the surface. These tests walk the import graph from `rebuild.review.build` and check the list in both directions, at the same module granularity as rebuild/test_plumbing_closure.py and rebuild/test_oracle_code_closure.py.
 
-`unit_cache.surface_code_paths` is the second roster, and the per-unit store stamp's claim is the same one made of a wider tree: the pipeline and validation modules the build's walk reaches ride the stamp and no other does (`PIPELINE_NON_SURFACE_MODULES` is the pipeline side's exclusion list; validation is reached whole), so a pipeline edit the surface never executes keeps the store. The walk here therefore expands rebuild/pipeline and rebuild/validation as well as rebuild/review, and records without expanding what it reaches under rebuild/tools — the width and telemetry modules the build takes its fan-out and cost readings from, which cannot move a byte of a unit's products and are pinned here as the only such reach, so a new import that could cannot hide behind that boundary. The surface manifest's own fingerprint is untouched by any of this: its Stage A `pipeline_code` component still hashes the pipeline tree whole, because run_m1 records it and the readiness check reads it back, and only the two store stamps take narrower closures, each its own.
+`unit_cache.surface_code_paths` stamps the per-unit store. It hashes the pipeline and validation modules the build reaches and no others (`PIPELINE_NON_SURFACE_MODULES` excludes the rest of rebuild/pipeline; the build reaches all of rebuild/validation), so a pipeline edit the build never executes keeps the store. The walk therefore expands rebuild/pipeline and rebuild/validation as well as rebuild/review. It records, without expanding, the modules the build reaches under rebuild/tools: the width and telemetry modules in `WIDTH_AND_TELEMETRY_MODULES`, which cannot change a unit's output. A test checks that they are the only such modules, so a new import of a module that could change output fails. The surface manifest's Stage A `pipeline_code` component still hashes the whole pipeline tree, because run_m1 records it and the readiness check reads it back; only the two store stamps use narrower closures.
 
-`unit_cache.signature_code_paths` is the third roster and the ink-signature store's stamp: the comparator's own import closure, walked from rebuild.review.ink, and narrower than the surface roster because a signature is `InkComparator.signature` over a `Shaper` and executes none of the driver, the enricher, the kernel seam or the crate — so an edit there re-enriches units and re-shapes nothing. Narrowing is the unsafe direction by the cache's own doctrine, since a module that can move a signature but sits off the roster serves stale digests silently, which is why the walk holds this roster in both directions too. It is an inclusion roster of literal paths rather than an exclusion list, because the walk from ink.py reaches four modules and no package `__init__.py`; the price of that shape is that a rename leaves the hash silently, and the on-disk check below is what closes it.
+`unit_cache.signature_code_paths` stamps the ink-signature store. It is the import closure of `rebuild.review.ink`, narrower than the surface roster because a signature is `InkComparator.signature` over a `Shaper` and runs none of the driver, the enricher, the kernel seam, or the crate; an edit to those re-enriches units and re-shapes nothing. A module that can change a signature but is missing from this roster makes the store serve stale digests without any error, so the walk checks this roster in both directions too. The roster is a list of literal paths rather than an exclusion list, because the walk from ink.py reaches four modules and no package `__init__.py`. A rename would drop a path from the hash without failing, so `test_every_roster_entry_is_on_disk` checks that each entry exists.
 
-The crate is the closure a Python walk cannot see. The surface reaches it through two verbs, `settle-cases` and `guard-sweep`, so `KERNEL_NON_SURFACE_MODULES` claims exactly the crate modules neither verb's handler reaches. That is walked at function grain through main.rs — the handler each verb's match arm calls, the module-level functions and impl blocks those name, and the crate modules any of them reach through the file's `use ams_m1_kernel::…` bindings — and then at module grain through the crate's own `crate::` references, comment lines dropped and the `#[cfg(test)]`-gated modules skipped, since a release binary compiles none of those. Both walks are regular expressions over rustfmt-formatted source rather than a parser, which errs in the safe direction: a reference the scan cannot place is a module hashed, never one left out.
+A Python import walk cannot see into the Rust crate. The surface calls the crate through two subcommands, `settle-cases` and `guard-sweep`, so `KERNEL_NON_SURFACE_MODULES` must list exactly the crate modules neither subcommand's handler reaches. The crate walk starts at function granularity in main.rs: the handler each subcommand's match arm calls, the module-level functions and impl blocks those name, and the crate modules any of them reach through main.rs's `use ams_m1_kernel::…` bindings. It continues at module granularity through each module's `crate::` references, with comment lines dropped and `#[cfg(test)]`-gated items skipped, since a release binary compiles none of those. Both walks are regular expressions over rustfmt-formatted source rather than a parser. Where the scan cannot tell whether a line is compiled, it keeps the line, and a `crate::` name that is not a module file counts as a reference to lib.rs. A reference in a form the regular expressions do not match, such as a grouped `use crate::{a, b}`, is missed. A module missed that way fails `test_no_crate_module_in_the_store_stamp_is_outside_the_verbs_reach`, whose message says to add it to `KERNEL_NON_SURFACE_MODULES`; check how the subcommands reach the module before doing so, because excluding a module they run lets served units go stale.
 """
 
 from __future__ import annotations
@@ -27,7 +27,7 @@ EXPANDED_DIRS = (REVIEW_DIR, PIPELINE_DIR, VALIDATION_DIR)
 
 BUILD_ENTRY_MODULES = ("rebuild.review.build",)
 SIGNATURE_ENTRY_MODULES = ("rebuild.review.ink",)
-# What the build reaches under rebuild/tools, and all it may: the fan-out width (`artifact_cycle.surface_job_budget`, and the `memory_budget` arithmetic under it and under kernel_exec's own width), the cost and progress readings (`peak_rss`, the `cycle_timings` pool record that files them, the `console` phase and progress lines the cycle reads back, and the `pile_tally` debug attribution a build prints only when its environment asks for one), and the two version-carrier leaves the fingerprints read through (`site_fonts`, the two site font paths, kept a leaf so the root conftest can name the fonts without importing the pipeline; the build shapes with its own `SITE_BEFORE_FONT` and `SITE_JUNIOR_FONT`, and the manifest's `fonts` component hashes the tables at the named paths, so a path that resolved elsewhere moves the stamp rather than a served unit; and `lock_digest`, the lock projection, kept a leaf for the pyright gate's sake, which no stamp of the surface's stores reads at all). None can move a byte of a unit's products — rebuild/test_unit_cache.py's serial-and-parallel byte identity holds the width half — so none rides `surface_code_paths`, and a new reach here is a claim to argue before the roster grows.
+# The modules the build reaches under rebuild/tools, and the only ones it may reach. The fan-out width: `artifact_cycle.surface_job_budget`, and `memory_budget` under it and under kernel_exec's own width. The cost and progress readings: `peak_rss`, the `cycle_timings` pool record, the `console` phase and progress lines the cycle reads back, and the `pile_tally` debug tally, which a build prints only when its environment sets `AMS_SURFACE_PILE_TALLY`. Two leaf modules the fingerprints read: `site_fonts`, the two site font paths, a leaf so the root conftest can name the fonts without importing the pipeline (the build shapes with its own `SITE_BEFORE_FONT` and `SITE_JUNIOR_FONT`, and the manifest's `fonts` component hashes the fonts at the named paths, so a changed path changes the manifest stamp, not a unit's output); and `lock_digest`, the `uv.lock` digest, a leaf because the pyright gate, which the root conftest imports, hashes the lock with it, and read by no stamp of the surface's stores. None of these can change a unit's output (rebuild/test_unit_cache.py's check that serial and parallel builds write identical bytes covers the width modules), so none is in `surface_code_paths`. A new module here needs that argument before it is added.
 WIDTH_AND_TELEMETRY_MODULES = frozenset(
     {
         "rebuild.tools.artifact_cycle",
@@ -53,7 +53,7 @@ def _module_path(module: str) -> Path | None:
 
 
 def _imports(path: Path) -> set[str]:
-    """Every repo module the file names in an import, at any nesting: a `from X import y` is recorded both as X and as X.y so a submodule import is followed, and a relative `from .x import y` — rebuild/validation's own idiom — is resolved against the file's package before it is recorded."""
+    """Return every repo module (under `rebuild` or `tools`) that the file imports, at any nesting level. A `from X import y` is recorded as both X and X.y, so a submodule import is followed. A relative import, which rebuild/validation uses, is resolved against the file's package first."""
     found: set[str] = set()
     for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
         if isinstance(node, ast.Import):
@@ -75,7 +75,7 @@ def _imports(path: Path) -> set[str]:
 
 
 def reachable_modules(entry_points: tuple[str, ...]) -> dict[str, Path]:
-    """The transitive closure of repo modules the entry points import, keyed by module name, expanding modules under rebuild/review, rebuild/pipeline and rebuild/validation and recording without expanding whatever those reach elsewhere (see the module docstring for why the walk stops at the rebuild/tools boundary)."""
+    """Return the repo modules the entry points import, transitively, keyed by module name. Modules under rebuild/review, rebuild/pipeline, and rebuild/validation are expanded; modules elsewhere are recorded but not expanded (the module docstring says why)."""
     seen: dict[str, Path] = {}
     queue = list(entry_points)
     while queue:
@@ -176,7 +176,7 @@ def test_no_pipeline_or_validation_module_in_the_store_stamp_is_outside_the_buil
 
 
 def test_the_build_reaches_nothing_outside_the_three_trees_but_width_and_telemetry():
-    """The boundary the walk stops at, pinned in both directions: everything the build reaches outside the three expanded trees is a width or telemetry module, and every module on that roster is still reached. A module that could move a unit's bytes appearing here is the failure to take seriously; a roster entry the build stopped importing is only hygiene, but it is what keeps the roster the closure rather than a list."""
+    """Checks both directions of the boundary where the walk stops: every module the build reaches outside the three expanded trees is in `WIDTH_AND_TELEMETRY_MODULES`, and every module in that list is still reached. The first direction is the one that matters: it fails on a new module that could change a unit's output. The second only keeps the list equal to the closure."""
     outside = {name for name, path in _reached().items() if path.parent not in EXPANDED_DIRS}
     assert "rebuild.tools.memory_budget" in outside, (
         "the walk no longer crosses the rebuild/tools boundary at all, so this check exercises nothing; "
@@ -194,7 +194,7 @@ _ATTRIBUTE = re.compile(r"^#\[")
 
 
 def _live_rust(path: Path) -> str:
-    """The lines of one crate file a release build compiles and this scan may read: comment lines dropped, doc comments included — a `[`crate::fold`]` link in prose is not a reach — and every column-0 item under a `#[cfg(test)]` or `#[cfg(any(test, …))]` attribute skipped through its closing column-0 brace, with other attributes between the gate and the item stepped over. rustfmt is what makes column 0 the item boundary and the crate's fmt gate is what keeps it so; an indented `#[cfg(test)]` — a test-only method inside an impl — is left in, which over-includes and never under-includes."""
+    """Return the lines of one crate file that a release build compiles, for the reference scan. Whole-line comments, doc comments included, are dropped, because a `[`crate::fold`]` link in prose is not a reference. Every column-0 item under a `#[cfg(test)]` or `#[cfg(any(test, …))]` attribute is skipped through its closing column-0 brace, stepping over any other attributes between the gate and the item. rustfmt makes column 0 the item boundary, and the crate's `cargo fmt --check` gate keeps it so. An indented `#[cfg(test)]`, such as a test-only method inside an impl, is kept, which can only add references."""
     kept: list[str] = []
     gated = False
     skipping = False
@@ -253,7 +253,7 @@ def _verb_arm(source: str, verb: str) -> str:
 
 
 def _verb_reach() -> tuple[set[str], set[str]]:
-    """The main.rs blocks the surface's two verbs reach, and the crate modules those blocks name — through the file's bindings, and through any inline `ams_m1_kernel::` path."""
+    """Return the main.rs blocks the two surface subcommands reach, and the crate modules those blocks name through main.rs's bindings or an inline `ams_m1_kernel::` path."""
     source = _live_rust(KERNEL_SRC / "main.rs")
     blocks = _main_blocks(source)
     bindings = _crate_bindings(source)
@@ -284,7 +284,7 @@ def _crate_references(path: Path) -> set[str]:
 
 
 def _verb_closure() -> set[Path]:
-    """Every crate file the two verbs reach: main.rs and lib.rs always — the dispatcher and the crate root — and from the modules the handlers name, the module-grain `crate::` closure. A `crate::` path that names no file (`crate::SPEC_FORMAT`, a constant on the root) is a reach into lib.rs, which is already in."""
+    """Return every crate file the two subcommands reach: main.rs and lib.rs always, plus the module-level `crate::` closure of the modules the handlers name. A `crate::` path that names no file (`crate::SPEC_FORMAT`, a constant in lib.rs) is a reference to lib.rs, which is already included."""
     reached, modules = _verb_reach()
     assert {"settle_cases", "guard_sweep"} <= reached, (
         f"the walk from the two verbs' match arms reached {sorted(reached)} and not both handlers; "
@@ -324,7 +324,7 @@ def test_no_crate_module_in_the_store_stamp_is_outside_the_verbs_reach():
 
 
 def test_the_enumeration_and_the_fold_stay_outside_the_store_stamp():
-    """The narrowing stated at the grain a crate lever lands at: the enumeration, the fold and the fan-out are where the crate's own levers go, and an edit there must not cost the review surface a cold units phase — while the verbs' contract in main.rs, the crate root, the engine and both Cargo files stay in, since any of them can move what settle-cases answers."""
+    """Checks named examples of the crate-side narrowing: the enumeration (`fixpoint.rs`), the fold, the fan-out, and the artifact writers are excluded, so editing them does not force the review surface into a cold units phase. main.rs, lib.rs, the engine, the case replay, and both Cargo files stay in, since any of them can change what settle-cases returns."""
     stamped = {path.name for path in unit_cache.surface_code_paths(REPO_ROOT)}
     assert {"fixpoint.rs", "fold.rs", "fanout.rs", "artifacts.rs"} <= unit_cache.KERNEL_NON_SURFACE_MODULES
     assert not ({"fixpoint.rs", "fold.rs", "fanout.rs"} & stamped)
@@ -332,7 +332,7 @@ def test_the_enumeration_and_the_fold_stay_outside_the_store_stamp():
 
 
 def test_the_sweep_the_row_cache_the_emitter_and_the_geometry_stay_outside_the_store_stamp():
-    """The narrowing stated at the grain a pipeline lever lands at: the conformance sweep, the witness stage's rule replay, the oracle's row cache, the GSUB emitter and the pixel geometry are where a sweep or oracle change goes, and an edit there must not cost the review surface a cold units phase — while the leaf that carries the vocabulary the build shares with the sweep stays in, since it spells the labels a served unit was keyed under."""
+    """Checks named examples of the pipeline-side narrowing: the conformance sweep, the witness stage's rule replay, the oracle's row cache, the GSUB emitter, and the pixel geometry are excluded, so editing them does not force the review surface into a cold units phase. `labels.py` stays in, because it defines the labels the build shares with the sweep, and a served unit is keyed under them."""
     stamped = {path.name for path in unit_cache.surface_code_paths(REPO_ROOT)}
     outside = {"conform.py", "emit_gsub.py", "geometry.py", "oracle_cache.py", "witness.py"}
     assert outside <= unit_cache.PIPELINE_NON_SURFACE_MODULES
@@ -359,7 +359,7 @@ def test_no_module_on_the_signature_roster_is_outside_the_comparators_reach():
 
 
 def test_the_signature_roster_is_the_narrow_half_of_the_surface_roster():
-    """The narrowing stated at the grain a lever lands at: the signature roster is a strict subset of the surface roster, and the build driver, the cache itself, the kernel seam and the crate's dispatcher — where the surface build's own levers go — are in the surface roster and not the signature one, so an edit to any of them drops the unit store and leaves the signature store serving."""
+    """Checks that the signature roster is a strict subset of the surface roster, and that the build driver, the unit cache, the kernel seam, and the crate's dispatcher are in the surface roster only, so an edit to any of them drops the unit store and keeps the signature store."""
     signature = set(unit_cache.signature_code_paths(REPO_ROOT))
     surface = set(unit_cache.surface_code_paths(REPO_ROOT))
     assert signature < surface
@@ -379,7 +379,7 @@ LABELS_LEAF_IMPORTS = frozenset(
 
 
 def test_the_labels_leaf_imports_nothing_that_would_regrow_the_closure():
-    """`rebuild/pipeline/labels.py` is the module the surface build reaches for the sweep's vocabulary, and it earns its place by importing nothing the sweep does: `model`, `settle` and `rowmodel`, and no more. An import added there would drag its module back into `surface_code_paths` for every reader of a settled stream, and the roster tests above would then ask for the module to be stamped rather than for the leaf to stay a leaf — so the import list is pinned here as the claim itself."""
+    """`rebuild/pipeline/labels.py` gives the surface build the sweep's vocabulary without importing the sweep, so it may import only `model`, `settle`, and `rowmodel`. A new import there would add its module to the build's closure, and the roster tests above would then fail with advice to stamp that module, when the fix is to keep labels.py free of the import. This test pins the import list so the change fails here with that diagnosis."""
     imports = {
         name
         for name in _imports(PIPELINE_DIR / "labels.py")
@@ -389,7 +389,7 @@ def test_the_labels_leaf_imports_nothing_that_would_regrow_the_closure():
 
 
 def test_every_roster_entry_is_on_disk():
-    """A rename that leaves a roster behind would hash a module under a name that no longer exists — `fingerprint.hash_paths` reads a missing path as a stable absence — so all three are checked against the disk directly. For the two exclusion rosters the drift is hygiene; for the signature roster, an inclusion list, it is the unsafe direction: a comparator module renamed out from under `SIGNATURE_CODE_MODULES` would leave the signature store's hash rather than fail it, and no other test goes red."""
+    """Checks every entry of the three rosters against the disk. `fingerprint.hash_paths` skips a missing path without error, so a rename would leave an entry that names nothing. For the two exclusion rosters that is only untidy. For the signature roster, an inclusion list, it is unsafe: a renamed comparator module would drop out of the signature store's hash, and no other test would fail."""
     missing = sorted(
         name for name in unit_cache.PIPELINE_NON_SURFACE_MODULES if not (PIPELINE_DIR / name).is_file()
     )
@@ -403,7 +403,7 @@ def test_every_roster_entry_is_on_disk():
 
 
 def test_the_store_stamp_is_strictly_narrower_than_the_run_record():
-    """What the narrowing buys, spelled at the file grain a reader can check: the store stamp's non-review side is a strict subset of `pipeline_code_paths`, leaving out the driver, the oracle, the font compile and its tools roster, and the crate's enumeration — while keeping the kernel seam, the shaper, the engine and the enricher."""
+    """Checks what the narrowing gains, file by file: the store stamp's non-review files are a strict subset of `pipeline_code_paths`, leaving out the driver, the oracle and its position check, the font compile and tools/build_font.py, and the crate's enumeration, while keeping the kernel seam, the shaper, the engine, and the enricher."""
     surface = set(unit_cache.surface_code_paths(REPO_ROOT))
     run_record = set(fingerprint.pipeline_code_paths(REPO_ROOT))
     assert surface - set(fingerprint.review_code_paths(REPO_ROOT)) < run_record

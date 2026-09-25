@@ -1,4 +1,7 @@
-"""pack_gsub round-trip tests: a feaLib-compiled chained-context lookup (the per-rule format-3 shape m1_settle rides) is packed into format-2 groups, and the packed font must shape every probe string identically, reference no class 0, leave the inner lookups untouched, and compress deterministically. The FEA below deliberately exercises the shapes that constrain the packing: same-input rule order, overlapping-but-unequal lookahead classes (which force a second group), a backtracked rule, a ZWNJ-explicit row ordered ahead of the bare row it shadows, a no-lookahead fallback row, and a self-incompatible rule (its own lookahead sets overlap without being equal) that must pass through as format 3. A partially packed fixture holds an existing format-2 subtable between format-3 runs: it remains an ordered barrier through packing and serialization, and a multi-input rule disqualifies the lookup. A third fixture spells the first fixture's seven rules with each outcome as a `lookup NAME` reference over standalone single substitutions, the shape m1_settle ships, and must pack and shape exactly as the inline spelling does."""
+"""Round-trip tests for pack_gsub, which repacks a lookup's per-rule format-3 chained-context subtables (the shape feaLib compiles `m1_settle` to) into format-2 groups. The packed font must shape every string in `PROBES` the same, reference no class 0, leave the inner lookups unchanged, and pack deterministically.
+
+`FEA` covers the cases that constrain packing: several rules on the same input glyph whose order matters, overlapping but unequal lookahead classes (which force a second group), a rule with backtrack, a ZWNJ-lookahead row ordered first, a no-lookahead fallback row, and a rule whose own lookahead sets overlap without being equal, which must stay format 3. `_mixed_font` puts an existing format-2 subtable between format-3 runs; it must stay an ordered barrier through packing and serialization, and a multi-input rule in it disqualifies the lookup. `FEA_NAMED` writes the seven `FEA` rules with each outcome as a `lookup NAME` reference to a standalone single substitution, the form `m1_settle` uses, and must pack and shape the same as the inline form.
+"""
 
 import io
 from copy import copy
@@ -121,7 +124,7 @@ def _settle_lookup(font):
 
 
 def _resolved_sequences(font):
-    """`per_glyph_sequences` with each record replaced by the outcome glyph its inner lookup substitutes, so two fonts whose LookupLists differ in numbering compare on what they shape."""
+    """Return `per_glyph_sequences` with each record replaced by the glyph its inner lookup substitutes, so that two fonts whose LookupLists are numbered differently can be compared."""
     lookups = font["GSUB"].table.LookupList.Lookup
     resolved = {}
     for glyph, rules in pack_gsub.per_glyph_sequences(_settle_lookup(font)).items():
@@ -291,7 +294,7 @@ feature calt {{ lookup t_settle; }} calt;
         assert first.getvalue() == second.getvalue()
 
     def test_named_outcome_lookups_pack_exactly_as_inline_outcomes_do(self, packed_pair, tmp_path):
-        """The same rules with each outcome spelled as a `lookup NAME` reference over standalone single substitutions, the shape m1_settle ships, pack to the same groups and shape every probe identically: the packer reuses the SubstLookupRecords verbatim and is indifferent to how they got there."""
+        """The same rules written with `lookup NAME` outcome references, the form `m1_settle` uses, pack to the same groups and shape every probe the same. The packer copies the SubstLookupRecords unchanged, whichever form produced them."""
         _unpacked, packed, stats, reference, _tmp_path = packed_pair
         named = _build_font(FEA_NAMED)
         assert _resolved_sequences(named) == _resolved_sequences(_unpacked)

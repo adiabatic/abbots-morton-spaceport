@@ -1,6 +1,6 @@
-"""Tests for the general table-vs-table treaty-diff mode: added/removed/changed classification on synthetic table pairs, remove+add pairing into regrouped rows, provenance-only demotion, witness search that re-settles to the changed row, and the snapshot round-trip.
+"""Tests for the table-vs-table treaty-diff mode: added, removed, and changed classification on synthetic table pairs, pairing of removals and additions into regrouped rows, provenance-only demotion, witness search that re-settles to the changed row, and the snapshot round trip.
 
-The two witness arms re-settle real settlement rows and treaty pairs and check the outcome comes back — over the frozen mini-M1 bundle's tables, under the spec `mini_bundle` materializes, which is the spec those tables were built from. That pairing is what the arms need and all they need: a witness re-settling to its own row is a property of `WitnessIndex` against the spec the row came from, not a claim about today's rules. The classification, the round trip, and the self-diff are properties of `diff_dirs` and `write_snapshot` over any tables, so they take the synthetic pair or the same bundle; the whole file runs in the contracts lane.
+The two witness tests re-settle real settlement rows and treaty pairs from the frozen mini-M1 bundle's tables and check that the outcome comes back. They settle under the spec `mini_bundle` materializes, which is the spec those tables were built from, so they test `WitnessIndex` and not the current rules. The classification, round-trip, and self-diff tests use the synthetic pair or the same bundle.
 """
 
 import warnings
@@ -159,7 +159,7 @@ def test_load_settlement_widths_round_trip(tmp_path):
 
 
 def test_self_diff_is_empty(table_dirs):
-    """A directory diffed against itself is empty — a property of `diff_dirs`, not of any particular tables, which is why the synthetic pair witnesses it as well as the live one did and without reaching rebuild/out."""
+    """A directory diffed against itself gives no entries."""
     old_dir, _new_dir = table_dirs
     assert tablediff.diff_dirs(old_dir, old_dir) == []
 
@@ -182,7 +182,7 @@ def witness_index(mini_bundle):
 
 
 def test_witness_resettles_to_the_settlement_row(witness_index):
-    """Every witness the index hands back for a frozen settlement row settles to that row's outcome under the spec the row was written by. The whole stride is gathered first and explained in one `explain_many` call, so the check costs a handful of kernel invocations rather than one per witness."""
+    """Every witness the index returns for a frozen settlement row settles to that row's outcome under the spec that wrote the row. The sampled witnesses are explained in one `explain_many` call, which runs a few kernel processes instead of one per witness."""
     spec, index = witness_index
     rows = tablediff.load_settlement(MINI / "settlement-default.tsv")
     asked = []
@@ -199,7 +199,7 @@ def test_witness_resettles_to_the_settlement_row(witness_index):
 
 
 def test_witness_resettles_to_the_treaty_pair(witness_index):
-    """Every witness the index hands back for a frozen treaty row settles to that row's left and right as adjacent cells, batched through one `explain_many` call the same way."""
+    """Every witness the index returns for a frozen treaty row settles to that row's left and right as adjacent cells, explained in one `explain_many` call."""
     spec, index = witness_index
     rows = tablediff.load_treaty(MINI / "treaties-default.tsv")
     asked = []
@@ -225,7 +225,7 @@ def test_witness_attach_fills_entries(witness_index, table_dirs):
 
 
 def test_snapshot_round_trip(tmp_path):
-    """`write_snapshot` copies a table directory's TSVs and the font beside them, records sha256s, and the copy diffs empty against its source. The frozen mini-M1 bundle is the table directory here: real tables and a real font, checked in, so what the round trip is about — the copy, not today's rules — runs in the contracts lane."""
+    """`write_snapshot` copies a table directory's settlement and treaty TSVs and the font, records their sha256s, and the copy diffs empty against its source. The table directory is the frozen mini-M1 bundle, which has real tables and a real font."""
     snapshot_dir = tmp_path / "accepted"
     snapshot = tablediff.write_snapshot(MINI, MINI / "M1.otf", snapshot_dir, REPO_ROOT)
     assert (snapshot_dir / "snapshot.json").exists()

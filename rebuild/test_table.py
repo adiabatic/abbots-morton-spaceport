@@ -1,4 +1,9 @@
-"""Decision-table and treaty-table tests over the real M1 fixture spec, built through the crate (`kernel_exec.build_tables`): the enumeration's shape, rule-ordering discipline, joint flagging, configuration identities, the deep-class collapse, diff-stable TSV output, and the blindness of the whole product to the one rune prose the crate quotes — a refusal's `why`, which reaches the explain ladder and no table. Every table here is the crate's answer and every check is this side's own reading of it — `replay` below is the independent first-match-wins statement the fold's own `assert_outcome_partition` cannot make about itself. The claims that need the enumerated grain the artifacts drop, or a fold to perturb, are the crate's tests: `fold::tests::the_reduced_replay_catches_what_the_whole_table_replay_catches`, `the_prospect_pass_raises_joints_and_clears_none`, `treaty_rows_tying_on_the_triple_are_ordered_by_the_whole_row`, `a_rule_that_splits_a_deep_class_is_refused` and the E-STRANDED and cell-disagreement refusals beside them. The two deep-slot classes below run over synthetic ·Tea chains that `tea_chain_spec` hangs on the mini spec, since the fixture deliberately carries no chain of its own, and the live alphabet's own chain records are proven at every table build in the crate rather than here."""
+"""Tests the decision and treaty tables the crate builds (`kernel_exec.build_tables`) from the mini fixture spec: the enumeration's shape, rule ordering, joint flags, per-configuration differences, the deep-class collapse, stable TSV output, and that rewording a refusal's `why` changes no table. A refusal's `why` is the only rune prose the crate reads, and only the explain ladder shows it.
+
+The crate builds every table here, and every check is an independent Python reading of it. `replay` implements first-match-wins separately from the crate, so it can catch a fold mistake that the fold's own `assert_outcome_partition` check shares. Claims that need the enumerated rows the artifacts drop, or a fold to mutate, are tested in the crate: `fold::tests::the_reduced_replay_catches_what_the_whole_table_replay_catches`, `the_prospect_pass_raises_joints_and_clears_none`, `treaty_rows_tying_on_the_triple_are_ordered_by_the_whole_row`, `a_rule_that_splits_a_deep_class_is_refused` and `a_product_whose_cells_disagree_with_its_rows_is_refused`, and for E-STRANDED `engine::tests::a_left_that_committed_a_seam_nothing_accepts_is_stranded`.
+
+The depth-3 and depth-4 classes run over synthetic ·Tea chains that `tea_chain_spec` adds to the mini spec, because the fixture has no chain of its own. The crate checks the live alphabet's own chain records at every table build.
+"""
 
 import dataclasses
 
@@ -18,7 +23,7 @@ SPEC = fixtures.mini_spec()
 
 
 def candidacy_tables(spec, features):
-    """Build tables in the fully pinned world (`simulated_prospect` and `vote_slots` both off) regardless of the shipping defaults — the world the chain-arm lazy-enumeration tests document, where deep slots open only for own-rune `then:` chains. The defaults are what `kernel_exec.world_flags` carries to the kernel, so switching them here is what puts the crate in that world. Through `MonkeyPatch` rather than by assignment, so a default that has moved house fails loudly here instead of being set on a name nothing reads any more."""
+    """Builds tables in the pinned world (`simulated_prospect` and `vote_slots` both off), whatever the shipping defaults are. In this world a deep slot opens only for an input whose own `then:` chains reach it, which is what the lazy-enumeration tests below check. `kernel_exec.world_flags` reads these module defaults at call time and passes them to the kernel. `MonkeyPatch.setattr` fails on a missing attribute, so a renamed default fails here instead of being set on a name nothing reads."""
     with pytest.MonkeyPatch.context() as patch:
         patch.setattr(kernel_exec, "SIMULATED_PROSPECT_DEFAULT", False)
         patch.setattr(kernel_exec, "VOTE_SLOTS_DEFAULT", False)
@@ -26,7 +31,7 @@ def candidacy_tables(spec, features):
 
 
 def chain_inputs(spec, reach):
-    """The runes whose own prefer or resolve records can read a slot `reach` past the input's first lookahead: a `then:` hop advances one slot, and an `except:` entry tests its parent's slot, so its hops count from there. The kernel takes this census itself while enumerating; this is the test-side statement of which inputs the pinned world is entitled to split."""
+    """Returns the runes whose own prefer or resolve records can read a slot `reach` past the input's first lookahead. A `then:` hop advances one slot, and an `except:` entry tests its parent's slot, so its hops count from there. The kernel computes the same sets while enumerating (`census::depth3_inputs` and `depth4_inputs`); this is the test's own statement of which inputs the pinned world may split on a deep slot."""
 
     def hops(condition):
         reaches = [1 + hops(condition.then)] if condition.then is not None else [0]
@@ -42,7 +47,7 @@ def chain_inputs(spec, reach):
 
 
 def tea_chain_spec(reach):
-    """The mini spec with a synthetic `then:` chain hung on ·Tea, because the fixture deliberately carries none of its own (fixtures.py's docstring, and `test_the_fixture_spec_splits_no_third_slot` below): ·Tea is handed an absolute-stance `half` prefer whose right condition reads ·May for `reach` hops and then ·It, so `chain_inputs(spec, reach)` is exactly {"qsTea"} and the innermost hop distinguishes outcomes by the raw token `reach + 1` slots to the right. `reach=2` is the chain `TestDepthThreeTablesSynthetic` reads and `reach=3` the one `TestDepthFourTablesSynthetic` reads, which is the whole difference between the two classes."""
+    """Returns the mini spec with a synthetic `then:` chain added to ·Tea, because the fixture has none of its own (see the `fixtures.py` docstring and `test_the_fixture_spec_splits_no_third_slot`). ·Tea gets an absolute-mode prefer for its `half` stance whose right condition reads ·May in the first `reach` lookahead slots and ·It in the next one. So `chain_inputs(spec, reach)` is {"qsTea"}, and the outcome depends on the raw token `reach + 1` slots to the right. `TestDepthThreeTablesSynthetic` uses `reach=2` and `TestDepthFourTablesSynthetic` uses `reach=3`."""
     spec = fixtures.mini_spec()
     tea = spec.runes["qsTea"]
     chain = model.Condition(family=("qsIt",))
@@ -65,7 +70,7 @@ def ss03_tables():
 
 
 def replay(decision):
-    """First-match-wins over the crate's ordered rules, re-implemented on this side, restating both claims the fold states under that name: every row of the enumeration it wrote settles where its own rules say it does, and every rule it wrote is the first match for some row. The crate replays as it folds — one left per signature block, which `fold::assert_outcome_partition` argues is the same claim — so what this adds is independence, since a rule fold that derived its rules and replayed them consistently wrongly would satisfy its own check and fail this one. Whole-table and label-grain, which a fixture can afford and a live configuration cannot; the reduction the crate replays is a subset of these rows, so a rule it found first for some row is first here too."""
+    """Replays every expanded row against the crate's ordered rules under first-match-wins, and asserts that the rules predict each row's outcome and that every rule is the first match for some row. The crate checks the same two claims as it folds (`fold::assert_outcome_partition`, over one left per block). This implementation is independent, so a fold that derived wrong rules and replayed them with the same mistake would pass its own check and fail this one. It replays the whole table at label grain, which a fixture can afford and a live configuration cannot. The crate replays a subset of these rows, so a rule it found first for some row is first here too."""
     rules_by_input: dict[str, list] = {}
     for seat, rule in enumerate(decision.rules):
         rules_by_input.setdefault(rule.input_glyph, []).append((seat, rule))
@@ -138,7 +143,7 @@ def test_formation_impossible_windows_are_excluded(default_tables):
 
 
 def test_boundary_rows_lead_their_groups(default_tables):
-    # The proven rule-ordering discipline: within one (input, backtrack) group, the boundary-outcome row with uni200C explicit in the class precedes every letter-lookahead row, and the slot-dropped fallback (no lookahead at all) comes last.
+    # Within one (input, backtrack) group, a boundary rule (uni200C explicit in its first lookahead class) precedes every letter-lookahead rule, and the fallback with no lookahead comes last.
     decision, _treaty = default_tables
     groups: dict[tuple, list] = {}
     for rule in decision.rules:
@@ -160,7 +165,7 @@ def test_boundary_rows_lead_their_groups(default_tables):
 
 
 def test_ss04_opens_the_it_pass_through_after_day(default_tables):
-    """·It's ss04 unlock is gated `left: qsDay` on the baseline/baseline pairing, so it can only bite in a world that holds a ·Day — which the fixture spec does. Stated over expanded_transitions, so the claim is about semantic rows rather than fiber boundaries: enabling ss04 moves exactly the ·It rows whose left is a ·Day cell onto the same-height pass-through, every row the table gains is one seated behind that new cell, nothing is lost, and the deep-class collapse is untouched."""
+    """·It's ss04 unlock of the baseline/baseline pairing requires `left: qsDay`, so it takes effect only in a spec that has ·Day, which the fixture spec does. The test reads `expanded_transitions`, so it compares window rows however deep classes group them. With ss04 on, every row whose outcome changes is an ·It row after a ·Day cell and changes to the same-height pass-through, every row the table gains has the pass-through as its left, no row or outcome is lost, and the deep classes are unchanged."""
     decision, _treaty = default_tables
     ss04_decision, _ss04_treaty = build_tables(SPEC, frozenset({"ss04"}))
     replay(ss04_decision)
@@ -230,9 +235,9 @@ def test_joint_rows_accessor(default_tables):
 
 def test_cited_provenance_records_demonstrably_firing_policy(default_tables, ss03_tables):
     decision, _treaty = default_tables
-    # qsTea's full-baseline-entry refusal fires only inside the lookahead closure (it is what keeps ·It·Tea broken), so its citation proves the closure channel records firings, not just direct-window ones.
+    # qsTea's refusal of a baseline entry into full ·Tea fires only inside the lookahead closure (it keeps ·It·Tea broken), so its citation shows that firings inside the closure are recorded as well as direct-window ones.
     assert "glyph_data/runes/qsTea.yaml:policy.refuse[0]" in decision.cited_provenance
-    # qsMay's first exit extension produces ex-ext-1 on ·May·It under default; qsIt's halves entry extension produces en-ext-1 on ·Tea·It.
+    # qsMay's first exit extension produces ex-ext-1 on ·May·It in the default configuration; qsIt's entry extension after halves produces en-ext-1 on ·Tea·It.
     assert "glyph_data/runes/qsMay.yaml:policy.extend[0]" in decision.cited_provenance
     assert "glyph_data/runes/qsIt.yaml:policy.extend[0]" in decision.cited_provenance
     ss03_decision, _ss03_treaty = ss03_tables
@@ -263,7 +268,7 @@ def test_cap_and_slot_arity_are_tied():
 
 
 class TestDepthThreeTablesSynthetic:
-    """The lazy third lookahead slot, exercised over a synthetic reach-2 record that `tea_chain_spec` hangs on the mini spec because the frozen fixture spec carries no chain of its own: only the chain-bearing input's windows get their third slot split, the split rows compile to three-slot rules ordered ahead of their shallower fallbacks, the hard invariants hold with the extra slot, and the fourth slot stays shut. The live alphabet's own depth-3 and depth-4 chain records need no test here, because every `run_m1` table build proves them in the crate: a prefer conflict is refused as E-INCOMPARABLE/E-AMBIGUOUS by `specificity::pick_most_specific` and the fixpoint's conflict pass, first-match-wins is `fold::assert_outcome_partition`, and either surfaces as a `KernelRunError`. Built via `candidacy_tables`: the class documents the chain arm, and under the shipping simulated-prospect default the prospect arm would open deep slots for every input."""
+    """Tests the lazily enumerated third lookahead slot over the reach-2 chain from `tea_chain_spec`: only the chain-bearing input's windows split the third slot, the split rows compile to three-slot rules ordered ahead of their shallower fallbacks, `replay` passes with the extra slot, and the fourth slot stays unsplit. The live alphabet's own depth-3 and depth-4 chain records are checked in the crate at every `run_m1` table build: a prefer conflict raises E-INCOMPARABLE or E-AMBIGUOUS, `fold::assert_outcome_partition` checks first-match-wins, and either failure reaches Python as a `KernelRunError`. The class uses `candidacy_tables` because under the shipping simulated-prospect default every input becomes a candidate for deep slots, and this class tests the chain case alone."""
 
     @pytest.fixture(scope="class")
     def synthetic_spec(self):
@@ -295,7 +300,7 @@ class TestDepthThreeTablesSynthetic:
         assert saw_enumerated
 
     def test_the_split_windows_are_the_chains_own(self, synthetic_decision):
-        """The chain reads ·May at both hops, so the only windows the kernel has any reason to split are the ones standing under that chain — which is what keeps the enumeration lazy rather than merely correct."""
+        """The chain reads ·May in the first two lookahead slots, so only ·Tea windows with ·May in both should split the third slot. This checks that the enumeration is lazy as well as correct."""
         for row in synthetic_decision.transitions:
             if row.input_glyph.split(".")[0] != "qsTea":
                 continue
@@ -355,7 +360,7 @@ class TestDepthThreeTablesSynthetic:
 
 
 class TestDepthFourTablesSynthetic:
-    """The lazy fourth lookahead slot, exercised over a synthetic reach-3 record because the frozen fixture spec carries no depth-4 chain of its own (the depth-3 twin above is the same builder one hop shorter). One fixture rune (·Tea) is handed an absolute-stance prefer whose right condition chains three `then:` hops, built by `tea_chain_spec` from `model.Condition` objects, with the innermost hop distinguishing outcomes by the fourth raw token: only that input's windows get their fourth slot split, the split rows compile to four-slot rules ordered ahead of their three-slot fallbacks, and the hard invariants hold with the extra slot. Built via `candidacy_tables`, like TestDepthThreeTablesSynthetic and for the same reason."""
+    """Tests the lazily enumerated fourth lookahead slot over the reach-3 chain from `tea_chain_spec`, whose innermost hop reads the fourth raw token: only ·Tea's windows split the fourth slot, the split rows compile to four-slot rules ordered ahead of their three-slot fallbacks, and `replay` passes with the extra slot. It uses `candidacy_tables` for the same reason `TestDepthThreeTablesSynthetic` does."""
 
     @pytest.fixture(scope="class")
     def synthetic_spec(self):
@@ -386,7 +391,7 @@ class TestDepthFourTablesSynthetic:
         assert saw_enumerated
 
     def test_the_split_windows_are_the_chains_own(self, synthetic_decision):
-        """The chain reads ·May at every hop, so the only windows the kernel has any reason to split are the ones standing under that chain — which is what keeps the enumeration lazy rather than merely correct."""
+        """The chain reads ·May in the first three lookahead slots, so only ·Tea windows with ·May in every slot before a split slot should split it. This checks that the enumeration is lazy as well as correct."""
         for row in synthetic_decision.transitions:
             if row.input_glyph.split(".")[0] != "qsTea":
                 continue
@@ -460,7 +465,7 @@ def test_rule_provenance_carries_yaml_pointers(default_tables):
 
 
 class TestProspectLiveSlots:
-    """The issue-28 arm of the deep-slot enumeration: under the simulated prospect, a window whose simulated follower choice a raw deep token can move enumerates that slot, and nothing else does — flag-off, the arm is inert and an own-rune chain stays the only thing that opens a slot. The verdicts themselves are the kernel's; what is stated here is the table they produce."""
+    """Tests the prospect case of deep-slot enumeration: with the simulated prospect on, a window whose follower's simulated settlement a raw deep token can change enumerates that slot, and no other window does. With it off, only an own-rune chain opens a slot. The kernel decides which slots are live; these tests check the table that results."""
 
     @pytest.fixture()
     def prospect_spec(self):
@@ -486,7 +491,7 @@ class TestProspectLiveSlots:
 
 
 class TestDeepClasses:
-    """The issue-26 class-grain enumeration: deep window slots keyed by outcome fibers, expanded back to labels for every fold-side consumer. The two-arm equality tests build the same spec with the class-grain flag on and off — the off arm is genuinely the kernel's label-grain path, bypassing all fiber code — and assert the expansion boundary holds: identical expanded row multiset, identical rules, identical cited provenance, identical treaty. The real-left arm re-traces every member of every multi-member row at the row's actual settled left, asking the crate per window rather than reading its enumeration, so a fiber the fold collapsed that the per-window answer disagrees with still fails here."""
+    """Tests class-grain enumeration, where deep slots hold outcome fibers that `expanded_transitions` expands back to labels. The `test_two_arm_expansion_equality_*` tests build one spec with `DEEP_CLASSES_DEFAULT` on and off (off runs the kernel's label-grain path, which uses no fiber code) and assert the same expanded rows, rules, identity-guard count, reachable cells, cited provenance, and treaty rows. `test_real_lefts_agree_with_the_fiber_collapse` settles every member of every multi-member row at the row's settled left, one window at a time, so a fiber whose members settle differently there fails."""
 
     @pytest.fixture()
     def deep_world(self, monkeypatch):
@@ -579,7 +584,7 @@ class TestDeepClasses:
         ids=["prospect", "synthetic-depth4"],
     )
     def test_real_lefts_agree_with_the_fiber_collapse(self, request, deep_world, spec_fixture, expect_r4):
-        """The section 2.2 real-left arm: for every multi-member token in the enumeration, every member traces identically at the row's actual settled left — full probe record, not just the settled cell. Both sides are the crate's now, but they are two different questions asked of it: the collapse comes out of the enumeration and the re-trace out of `settle-cases`, so a fiber the fold merged that the per-window answer pulls apart still fails here. Asked of the product rather than of the tables, because the settled left a row is re-traced at is exactly what the fold drops on its way to a window row. Every member window rides one batched invocation, in the world the enumeration ran in. Two fixtures, because the prospect spec mints no r4 classes: the synthetic depth-4 arm is what exercises the per-(context, r3 class) r4 partition at real lefts, and its `checked4` assertion is what keeps that branch from going quietly dead again."""
+        """Asserts that for every multi-member deep-class token in the enumeration, every member traces the same at the row's settled left: the same settled cell, prospect, joint floor, and notes. The classes come from the enumeration and the traces from `settle-cases`, so a class whose members settle differently at the real left fails here. The test reads the enumeration product (`kernel_exec.enumerate_transitions`) because the tables drop each row's settled left. All member windows go to one `settle_cases` call, in the world the enumeration ran in. The prospect spec creates no r4 classes, so the synthetic depth-4 spec is the case that checks r4 classes (per context and r3 class) at real lefts, and the `checked4` assertion fails if it stops creating them."""
         from rebuild.pipeline.settle import EDGE, LeftContext, RightToken
 
         spec = request.getfixturevalue(spec_fixture)
@@ -653,7 +658,7 @@ REFUSAL_WINDOW = "qsSee:qsIt:qsIt"
 
 
 def refuse_reworded_spec(spec, rune_name, marker):
-    """The mini spec with one refuse record's `why` rewritten and nothing else touched, rebuilt the way `tea_chain_spec` rebuilds a policy — the record, the policy, the rune, the spec. ·It's own "adjacent verticals" refusal is the one used, because it is a mini refusal that demonstrably fires on a window this suite can settle."""
+    """Returns `spec` with `REWORDED_WHY` as the `why` of each of `rune_name`'s refuse records whose `why` starts with `marker`, and nothing else changed. The test uses ·It's "Two adjacent verticals" refusal because it fires on `REFUSAL_WINDOW`."""
     rune = spec.runes[rune_name]
     refuse = tuple(
         dataclasses.replace(record, why=REWORDED_WHY) if (record.why or "").startswith(marker) else record
@@ -676,7 +681,7 @@ def refusal_sentences(spec, window):
 
 
 def test_a_refuse_why_rewording_leaves_the_tables_byte_identical_and_reaches_the_explain(tmp_path):
-    """The machine-checked half of the claim `fingerprint.rune_file_digest` makes by dropping a refusal's `why`: the crate reads that prose only when it is building an explain ladder, so rewording one cannot move a table the fixpoint produces — not a decision row, not a treaty row, not the differential digest that covers the provenance and the guards too — while the elimination sentence the review surface serves says the new words and no longer says the old ones. Byte identity is the assertion rather than digest equality alone, since the artifacts are what a stamp claims to describe."""
+    """Checks the assumption behind `fingerprint.rune_file_digest` leaving out a refusal's `why`: the crate reads that text only when it builds an explain ladder. Rewording it leaves the decision TSV, the treaty TSV, and `table.table_digest` unchanged, while the explain output's refusal message shows the new words and not the old ones. The test compares the TSV bytes as well as the digest, because the artifacts are what a stamp describes."""
     spec = fixtures.mini_spec()
     reworded = refuse_reworded_spec(spec, "qsIt", REFUSE_WHY_MARKER)
     tables = {"before": build_tables(spec, frozenset()), "after": build_tables(reworded, frozenset())}

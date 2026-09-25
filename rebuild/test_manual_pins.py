@@ -1,6 +1,6 @@
-"""Manual-pin gate tests: the spec-based trait and exact-glyph semantics must resolve through stance declarations rather than glyph-name substrings, `summarize` must project a report faithfully, and the gate must actually fail on a pin that contradicts the font.
+"""Tests for the Manual-pin gate in `rebuild/pipeline/manual_pins.py`: trait and exact-glyph matching resolve through stance declarations, not glyph-name substrings; `summarize` projects a report correctly; and the gate fails on a pin that contradicts the font.
 
-The standing conformance guarantee itself — every corpus pin the migrated alphabet can express replays cleanly, over a gate that really had pins in scope — is `run_m1.main()`'s, which raises on it. Re-running the identical `run_gate` call in a test afterwards would prove nothing the build has not already refused to ship without.
+The build checks the live gate itself: `run_m1.main()` exits when the gate fails, has no pins in scope, or does not replay every pin in scope (`run_m1.manual_pin_gate_failure`), so no test repeats that `run_gate` call.
 """
 
 from pathlib import Path
@@ -27,7 +27,7 @@ def spec():
 
 class TestGate:
     def test_summary_shape(self):
-        """`summarize` is a pure projection of a report, so a synthetic one proves its shape without a font in sight. That the live gate passes with pins genuinely in scope is run_m1's own check — it raises on a gate that failed *or* replayed nothing — which is a stronger place for it than a test that re-ran the same call afterwards."""
+        """`summarize` depends only on the report, so a synthetic report tests its shape without a font. The module docstring says where the live gate is checked."""
         report = manual_pins.ManualPinReport()
         report.pins_in_scope = 3
         report.replayed = 3
@@ -72,7 +72,7 @@ class TestSemantics:
 
 class TestTeeth:
     def test_contradicting_pin_fails(self, mini_bundle):
-        """The gate has to refuse a pin the font contradicts, which needs a font and a spec that agree with each other — not the live ones. The frozen mini bundle is exactly such a pair, and ·Pea·Tea is a window it carries: one of the two contradicting pins about that seam must fail, because they cannot both be true of any font."""
+        """The gate must fail a pin the font contradicts. That needs a font and a spec that match each other, which the frozen mini bundle provides. The test checks two pins for ·Pea·Tea, a break (`·Pea | ·Tea`) and an x-height join (`·Pea ~x~ ·Tea`). They cannot both hold, so at least one must fail."""
         spec = enrich.load_spec(mini_bundle.spec_root)
         ts = _import_test_shaping()
         shaper = Shaper(MINI_FONT)

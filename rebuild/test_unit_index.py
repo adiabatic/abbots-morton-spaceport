@@ -1,4 +1,4 @@
-"""The per-unit index sidecar the surface build writes beside its manifest: that it is a true projection of the shards, that it is refused rather than trusted when its stamp does not describe the manifest on disk, and that the fallback to the shards answers identically. The plumbing reads the index and never the shards now, so a field that drifts out of the projection does not read as an error — a standing rule quietly stops matching and a blessed delta re-queues. This is what stops that: every field, every unit, held against the shipped fixture shards."""
+"""Tests for the per-unit index sidecar the surface build writes beside its manifest: that it is an accurate projection of the shards, that readers reject it when its stamp does not match the manifest on disk, and that the fallback to the shards returns the same records. The plumbing tools read units through the index whenever it is current, so a field that drops out of the projection raises no error: a standing rule stops matching and a blessed delta returns to the queue. These tests check every field of every unit against the shipped fixture shards."""
 
 from __future__ import annotations
 
@@ -43,7 +43,7 @@ def _write(surface: Path) -> Path:
 
 
 def test_class_shards_reads_either_manifest_format():
-    """A `ams-review-manifest/1` class carries one `shard` string, and the prior surface the unit cache reads is that shape until it is rebuilt — so both spellings have to answer."""
+    """An `ams-review-manifest/1` class entry has one `shard` string, and the prior surface the unit cache reads keeps that form until it is rebuilt, so both forms must be read."""
     assert unit_index.class_shards({"id": "a", "shard": "units/a.json"}) == ["units/a.json"]
     assert unit_index.class_shards({"id": "a", "shards": ["units/a.000.json", "units/a.001.json"]}) == [
         "units/a.000.json",
@@ -52,7 +52,7 @@ def test_class_shards_reads_either_manifest_format():
 
 
 def test_shard_paths_walks_the_parts_in_the_order_the_index_is_written(tmp_path, monkeypatch):
-    """`shard_paths` and `write_index` order classes by the same key and a class's parts by the manifest's own list, so the index and a shard walk hand a reader the same units in the same order — which is what lets a tool resolve ties by "first seen" either way."""
+    """`shard_paths` and `write_index` order classes by the same key and a class's parts by the manifest's list, so the index and a shard walk return the same units in the same order, and a tool that resolves ties by "first seen" gets the same answer either way."""
     monkeypatch.setattr("rebuild.review.build.SHARD_PART_BYTES", 32)
     surface = tmp_path / "surface"
     surface.mkdir()
@@ -116,7 +116,7 @@ def test_the_index_is_the_shards_field_for_field(tmp_path):
 
 
 def test_the_index_covers_every_field_the_plumbing_reads(tmp_path):
-    """Named rather than derived, so adding a field to the projection is a deliberate act and removing one that a tool reads fails here rather than in a fill that silently matches nothing."""
+    """The field set is written out rather than derived, so adding a field to the projection is an explicit change here, and removing one a tool reads fails here instead of in a fill that matches nothing."""
     surface = _fixture_surface(tmp_path)
     _write(surface)
     records = unit_index.load_index(surface)
@@ -184,7 +184,7 @@ def test_an_index_stamped_for_another_manifest_is_refused(tmp_path):
 
 
 def test_the_manifest_identity_ignores_the_assets_component(tmp_path):
-    """The stamp is the manifest's identity — what it says about which units and shards it describes — and the copied review UI assets are outside it. That is what lets an assets refresh rewrite `inputs_fingerprint.static` over a served surface and leave this sidecar, both app sidecars and the unit-cache store still describing the manifest beside them; anything the readers actually resolve against still moves the digest."""
+    """The stamp is the manifest's identity: what it says about which units and shards it describes. The copied review UI assets are outside it, so an assets refresh can rewrite `inputs_fingerprint.static` over a served surface and leave this sidecar, both app sidecars, and the unit-cache store valid for the manifest beside them. Any other change to the manifest, such as a new `generated_at` or an added shard part, still changes the digest."""
     assert set(unit_index.ASSET_COMPONENTS) <= set(fingerprint.STAGE_B_COMPONENTS)
     surface = _fixture_surface(tmp_path)
     _write(surface)
@@ -242,7 +242,7 @@ def _human_and_ids(units: Sequence[Mapping]) -> tuple[list[Mapping], set[str]]:
 
 
 def test_load_human_units_is_load_units_filtered_to_the_human_records(tmp_path):
-    """The byte test over the index and the parse agree: the human records are exactly the records whose `batch` is not None, in the same order, and the id set is every record's. The fixture surface holds both kinds, so both branches of the classification run."""
+    """Over the index, the byte test and the full parse agree: the human records are the records whose `batch` is not None, in the same order, and the id set covers every record. The fixture surface has both kinds, so both branches of the classification run."""
     surface = _fixture_surface(tmp_path)
     _write(surface)
     every = unit_index.load_units(surface)
@@ -318,7 +318,7 @@ def test_human_stream_fallback_keeps_legacy_fragment_batches(tmp_path):
 
 
 def test_an_index_line_opens_with_the_id_order_and_batch(tmp_path):
-    """`load_human_units` reads a line's id and its place in the queue off the head cut at `CLASS_SEAM` without parsing it, which rests on `index_record` opening every record with `id`, `order`, `batch` in that order. A key added before `batch` or a moved `class` would reclassify every record on the surface with no error, so the order is held here: the head closes as a record of exactly those three keys, the id slices out of it, and the tail names a machine record exactly when the batch is null."""
+    """`load_human_units` reads a line's id, and whether its batch is null, from the head cut at `CLASS_SEAM`, without parsing the line. That depends on `index_record` starting every record with `id`, `order`, `batch` in that order. A key added before `batch`, or a moved `class`, would misclassify every record on the surface without an error, so this test checks the order: the head, closed with `}`, parses as a record of those three keys only, the id slices out of it, and the head ends with `MACHINE_TAIL` if and only if the batch is null."""
     fragment = _shard_units(_fixture_surface(tmp_path))[0]
     assert list(unit_index.index_record(fragment))[:3] == ["id", "order", "batch"]
     for order, batch in ((7, 0), (None, None)):
@@ -331,7 +331,7 @@ def test_an_index_line_opens_with_the_id_order_and_batch(tmp_path):
 
 
 def test_a_fragment_carrying_its_own_batch_reads_as_human():
-    """`workload_slot`'s old-surface branch — no `order`, a `batch` off the fragment itself — writes a head ending in a number rather than `null`, so the record classifies as human, the one shape where `batch` is non-null without an `order`."""
+    """`workload_slot`'s branch for a fragment that carries its own `batch` and has no `order` writes a head ending in a number instead of `null`, so the record is classified as human. It is the only form in which `batch` is not null without an `order`."""
     fragment = {"id": "u-0001", "batch": 2}
     slot = unit_index.workload_slot({}, 300, fragment)
     assert slot == {"order": None, "batch": 2}

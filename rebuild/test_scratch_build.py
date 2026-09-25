@@ -1,4 +1,4 @@
-"""The scratch-build harness's request seam (`rebuild/tools/scratch_build.py`): which configurations a `--configs` hands the build and the oracle, what the JSON line reports of them, and the two refusals that fire before a spec is resolved. Path arithmetic and stubs only — the crate-backed narrowed build is `rebuild/test_kernel_exec.py`'s."""
+"""Tests for how `rebuild/tools/scratch_build.py` handles `--configs` and the out dir: which configurations reach the table build and the oracle, what the JSON line reports, and the two errors raised before the spec is loaded. Every later stage is stubbed; `rebuild/test_kernel_exec.py` tests a narrowed build against the crate."""
 
 import json
 from types import SimpleNamespace
@@ -10,11 +10,11 @@ from rebuild.tools import scratch_build
 
 
 class Reached(Exception):
-    """Raised from a stubbed stage a refused invocation must never reach."""
+    """Raised by a stubbed stage that a rejected invocation must not reach."""
 
 
 def test_the_unnarrowed_request_is_the_settlement_set_and_the_acceptance_set():
-    """A plain run keeps checking the ss10 overlay arm: the build gets the settlement set and the oracle the acceptance set, stated rather than left to fall through to the build's."""
+    """With no `--configs`, the build gets the settlement configurations and the oracle gets the acceptance configurations, so the oracle still checks the ss10 overlay."""
     build, oracle = scratch_build.request_configs("")
     assert build == list(conform.SETTLEMENT_CONFIGS)
     assert oracle == list(conform.ACCEPTANCE_CONFIGS)
@@ -27,7 +27,7 @@ def test_a_named_set_narrows_the_build_and_the_oracle_alike_in_the_order_named()
 
 
 def test_an_unknown_configuration_is_refused_before_anything_is_resolved(monkeypatch, tmp_path):
-    """An unknown token is refused with the offered tokens named, before the spec is loaded, before a table is built and before anything is written under the out dir."""
+    """An unknown token exits with an error that lists the valid tokens, before the spec is loaded, before a table is built, and before anything is written under the out dir."""
 
     def never(*args, **rest):
         raise Reached
@@ -42,7 +42,7 @@ def test_an_unknown_configuration_is_refused_before_anything_is_resolved(monkeyp
 
 
 def test_every_build_is_refused_under_the_live_table_directory(monkeypatch, tmp_path):
-    """A build into rebuild/out/m1, or anywhere under it, is refused by name whether or not `--configs` narrows it, before the spec is loaded; any path elsewhere comes back resolved."""
+    """A build into rebuild/out/m1 or anywhere under it exits with an error naming that directory, with or without `--configs`, before the spec is loaded. Any other path is returned resolved."""
 
     def never(*args, **rest):
         raise Reached
@@ -69,7 +69,7 @@ def test_every_build_is_refused_under_the_live_table_directory(monkeypatch, tmp_
 def test_the_oracle_walks_the_configurations_the_request_names_and_the_line_reports_them(
     monkeypatch, tmp_path, capsys, narrowing, build, walked
 ):
-    """What `request_configs` answers is what reaches the table build and the oracle, and the JSON line names both lists: a narrowed run's oracle that fell through to its own default would walk every configuration against a font built for one, and a plain run's line would hide the ss10 walk its row count includes."""
+    """The lists `request_configs` returns are the ones passed to the table build and the oracle, and the JSON line reports both. If a narrowed run let the oracle use its own default, the oracle would compare every configuration against a font built for one. If a plain run reported only the build list, the line would omit the ss10 rows its row count includes."""
     seen = {}
 
     def build_tables(spec, out_dir, *, configs, **rest):
