@@ -1,10 +1,10 @@
 """Hold the review surface in one process so the standing probe and the standing dry run stop reloading it: `serve` loads the surface's human index records once (`standing_probe._human` over `unit_index.iter_human_units` projected onto `UNIT_FIELDS`, the same filter both tools apply) and opens one `standing_verdicts.SlideContext` over the surface's font pair. It then answers `probe` and `fill` requests over a Unix-domain socket. For each request it runs the tool's own `main` over the held objects, in the client's working directory, with stdout and stderr captured, and replies with the exit code and both streams. The client writes them unchanged; `rebuild/tools/standing_client.py` defines the protocol. Because the daemon runs the same code, a served run prints the same bytes as an in-process run. `rebuild/test_standing_daemon.py` checks this over the frozen mini bundle for the probe's unit, find, survey and coverage modes and both dry-run forms.
 
-Only one daemon should run, because a second would hold a second copy of the surface. `serve` exits 1 when a daemon already answers at its socket. The daemon handles one request at a time on a single thread, and the listen backlog queues the rest, because the held objects are not safe to share across requests. It exists to save memory and fan-out width, not per-request latency. After every request the `SlideContext` memos and the fill's alignment cache are emptied, so each request shapes the same windows a fresh process would and memory stays bounded. The rules file and the verdicts file are not held. Each request's tool reads the paths its argv names, so a scratch `--rules` works as well as the checked-in one.
+Only one daemon should run, because a second would hold a second copy of the surface. `serve` exits 1 when another `serve` holds its lock or a daemon already answers at its socket. The daemon handles one request at a time on a single thread, and the listen backlog queues the rest, because the held objects are not safe to share across requests. It exists to save memory and fan-out width, not per-request latency. After every request the `SlideContext` memos and the fill's alignment cache are emptied, so each request shapes the same windows a fresh process would and memory stays bounded. The rules file and the verdicts file are not held. Each request's tool reads the paths its argv names, so a scratch `--rules` works as well as the checked-in one.
 
 `stamp_of` records what a served answer depends on besides the request: the surface manifest's `generated_at`, the repo code loaded in this process (`loaded_repo_files`, read from `sys.modules`), both fonts' bytes (the surface's own copies, which change only when the surface is rebuilt), and `uv.lock`'s dependency pins (`fingerprint.lock_digest`, so a bump of the project's own version does not move it). The daemon checks the stamp before every request and every `IDLE_CHECK_SECONDS` while idle. When any field has changed, it declines the request and exits, because code cannot be reloaded into a running process and a daemon that can serve nothing should not keep holding memory. A request for a different surface is declined without exiting.
 
-The socket is bound before the load. A client that connects during the load, including a second `serve` checking for a live daemon, waits for the reply. `serve` deletes any existing socket file before it binds, so if two `serve` runs both check status before either has bound, the second deletes the first one's socket and the first can no longer be reached. SIGTERM, SIGINT and the `stop` subcommand all remove the socket on exit.
+Before anything else, `serve` takes an exclusive, non-blocking `flock` on a lock file beside the socket (`lock_path`: `var/standing-daemon.lock` for the default socket), writes its pid there, and holds the lock for its lifetime. A second `serve` that cannot take the lock exits 1 naming that pid, so two `serve` runs started in the same instant cannot both reach the socket. Only a lock holder deletes a leftover socket file, and while it holds the lock only a dead daemon can have left one. The socket is bound before the load. A client that connects during the load waits for the reply. The daemon records the socket file's device and inode right after binding. On exit it removes the socket file only when it is still that file, and while idle it exits when the file at the socket path is gone or is another file, because no client can reach it any more. SIGTERM, SIGINT and the `stop` subcommand all remove the socket on exit.
 
 `main` has three subcommands: `serve`, `status` and `stop`. `make standing-daemon` runs `serve` detached under `nohup` with its log at `var/standing-daemon.log`, and `make standing-daemon-stop` runs `stop`.
 """
@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import argparse
 import contextlib
+import fcntl
 import io
 import json
 import os
@@ -174,21 +175,54 @@ def _raise_shutdown(signum, _frame) -> None:
     raise _Shutdown(signum)
 
 
+def lock_path(socket_path: pathlib.Path) -> pathlib.Path:
+    """Return the lock file that `serve` holds for its lifetime: the socket path with its suffix replaced by `.lock`."""
+    return socket_path.with_suffix(".lock")
+
+
+def _identity(path: str) -> tuple[int, int] | None:
+    try:
+        stat = os.lstat(path)
+    except OSError:
+        return None
+    return stat.st_dev, stat.st_ino
+
+
+def _already_answers(socket_path: pathlib.Path, pid: object) -> int:
+    print(
+        f"a standing daemon already answers at {socket_path} (pid {pid}); "
+        "one process holds the surface by design"
+    )
+    return 1
+
+
 def serve(surface=SURFACE, socket_path=None) -> int:
-    """Load the surface once, then serve requests until stopped, signaled, or stale. Return 1 without loading when a daemon already answers at the socket."""
+    """Load the surface once, then serve requests until stopped, signaled, stale, or unreachable. Return 1 without loading when another `serve` holds the lock or a daemon already answers at the socket."""
     socket_path = pathlib.Path(standing_client.SOCKET if socket_path is None else socket_path)
+    socket_path.parent.mkdir(parents=True, exist_ok=True)
+    lock = os.open(lock_path(socket_path), os.O_RDWR | os.O_CREAT, 0o644)
+    try:
+        return _serve_locked(pathlib.Path(surface), socket_path, lock)
+    finally:
+        os.close(lock)
+
+
+def _serve_locked(surface: pathlib.Path, socket_path: pathlib.Path, lock: int) -> int:
+    try:
+        fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except BlockingIOError:
+        holder = os.pread(lock, 32, 0).decode(errors="replace").strip()
+        return _already_answers(socket_path, holder or "unknown")
+    os.ftruncate(lock, 0)
+    os.pwrite(lock, f"{os.getpid()}\n".encode(), 0)
     status = standing_client.exchange(socket_path, {"tool": "status"})
     if status is not None and status.get("ok"):
-        print(
-            f"a standing daemon already answers at {socket_path} (pid {status.get('pid')}); "
-            "one process holds the surface by design"
-        )
-        return 1
-    socket_path.parent.mkdir(parents=True, exist_ok=True)
+        return _already_answers(socket_path, status.get("pid"))
     if os.path.lexists(socket_path):
         os.unlink(socket_path)
     absolute = os.path.abspath(socket_path)
     listener = standing_client.bind(socket_path)
+    bound = _identity(absolute)
     if threading.current_thread() is threading.main_thread():
         signal.signal(signal.SIGTERM, _raise_shutdown)
         signal.signal(signal.SIGINT, _raise_shutdown)
@@ -216,6 +250,9 @@ def serve(surface=SURFACE, socket_path=None) -> int:
             try:
                 conn, _address = listener.accept()
             except TimeoutError:
+                if _identity(absolute) != bound:
+                    print(f"standing daemon: {absolute} is no longer its socket; exiting", flush=True)
+                    break
                 fresh = stamp_of(surface)
                 if fresh != held:
                     print(f"standing daemon: {_moved(held, fresh)} since it loaded; exiting", flush=True)
@@ -273,7 +310,7 @@ def serve(surface=SURFACE, socket_path=None) -> int:
         print(f"standing daemon: signal {exc.args[0]}; exiting", flush=True)
     finally:
         listener.close()
-        if os.path.lexists(absolute):
+        if bound is not None and _identity(absolute) == bound:
             os.unlink(absolute)
         print(
             f"standing daemon: exiting, peak rss {peak_rss.format_gb(peak_rss.peak_rss_self_bytes())} GB",
@@ -292,7 +329,7 @@ def main(argv=None) -> int:
     parser = argparse.ArgumentParser(description=(__doc__ or "").split(":")[0] + ".")
     verbs = parser.add_subparsers(dest="verb", required=True)
     serve_parser = verbs.add_parser(
-        "serve", help="load the surface and answer until stopped, signaled, or stale"
+        "serve", help="load the surface and answer until stopped, signaled, stale, or unreachable"
     )
     serve_parser.add_argument("--surface", default=str(SURFACE))
     serve_parser.add_argument("--socket", default=str(standing_client.SOCKET))

@@ -1,5 +1,6 @@
-"""Tests for the standing daemon, the process that holds a review surface for the standing probe and the standing dry run. Over a real build of the frozen mini bundle, they check that the probe's unit, find, survey, and coverage modes and both dry-run forms (whole-domain with a fill file, and targeted) produce the same exit code, stdout, and fill bytes through the daemon as in-process, with the held font pair used for the rendered grain. They also check the fallback when no daemon answers, the stale and wrong-surface declines, socket removal on SIGTERM and `stop`, the refusal to start a second daemon, the `status` and `stop` subcommands, and that a caller passing its own units is never served. Each daemon is a real child process on a socket under tmp_path, and rebuild/conftest.py points the tools' default socket under tmp_path for every test, so no test can reach a daemon running on the machine."""
+"""Tests for the standing daemon, the process that holds a review surface for the standing probe and the standing dry run. Over a real build of the frozen mini bundle, they check that the probe's unit, find, survey, and coverage modes and both dry-run forms (whole-domain with a fill file, and targeted) produce the same exit code, stdout, and fill bytes through the daemon as in-process, with the held font pair used for the rendered grain. They also check the fallback when no daemon answers, the stale and wrong-surface declines, socket removal on SIGTERM and `stop`, the lock a daemon holds for its lifetime, the refusal to start a second daemon, both beside a live daemon and beside one that holds the lock but has not bound, the exit of a daemon whose socket file was replaced without removing the replacement, the `status` and `stop` subcommands, and that a caller passing its own units is never served. Each daemon is a real child process on a socket under tmp_path, and rebuild/conftest.py points the tools' default socket under tmp_path for every test, so no test can reach a daemon running on the machine."""
 
+import fcntl
 import json
 import os
 import re
@@ -7,6 +8,7 @@ import shutil
 import signal
 import subprocess
 import sys
+import threading
 import time
 from pathlib import Path
 
@@ -262,11 +264,16 @@ def test_a_request_for_another_surface_is_declined(daemon, mini_surface, tmp_pat
 
 
 def test_sigterm_removes_the_socket_and_a_second_daemon_refuses_to_start(mini_surface, tmp_path, capsys):
-    """A running daemon answers `status`. A second `serve` on the same socket exits 1 without loading, naming the first daemon's pid. SIGTERM makes the first daemon exit 0 and remove its socket, after which `status` reports that no daemon answers."""
+    """A running daemon answers `status` and holds the lock file beside its socket, with its pid written there. A second `serve` on the same socket exits 1 without loading, naming the first daemon's pid. SIGTERM makes the first daemon exit 0, remove its socket, and release the lock, after which `status` reports that no daemon answers."""
     proc, sock = _start(mini_surface, tmp_path)
+    lock = None
     try:
+        lock = os.open(standing_daemon.lock_path(sock), os.O_RDWR)
         assert standing_daemon.main(["status", "--socket", str(sock)]) == 0
         capsys.readouterr()
+        with pytest.raises(BlockingIOError):
+            fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        assert os.pread(lock, 32, 0).decode().strip() == str(proc.pid)
         assert standing_daemon.main(["serve", "--surface", str(mini_surface), "--socket", str(sock)]) == 1
         out = capsys.readouterr().out
         assert "already answers" in out and f"pid {proc.pid}" in out
@@ -275,12 +282,66 @@ def test_sigterm_removes_the_socket_and_a_second_daemon_refuses_to_start(mini_su
         proc.wait(STOP_SECONDS)
         assert proc.returncode == 0
         assert not os.path.lexists(sock)
+        fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
         assert standing_daemon.main(["status", "--socket", str(sock)]) == 1
         assert "no standing daemon answers" in capsys.readouterr().out
     finally:
+        if lock is not None:
+            os.close(lock)
         if proc.poll() is None:
             proc.kill()
             proc.wait()
+
+
+def test_a_second_serve_refuses_to_start_while_the_first_holds_the_lock(
+    mini_surface, tmp_path, capsys, monkeypatch
+):
+    """Recreates the window between a first `serve` taking its lock and binding: the test holds the lock file beside the socket with a pid written in it, and a leftover socket file sits at the socket path, so a `status` request gets no reply. A second `serve` must exit 1 naming the lock holder's pid, without binding and without deleting the socket file."""
+    sock = tmp_path / "daemon.sock"
+    sock.write_text("")
+    lock = os.open(tmp_path / "daemon.lock", os.O_RDWR | os.O_CREAT)
+    try:
+        fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        os.write(lock, b"4242\n")
+
+        def refuse_to_bind(path):
+            raise AssertionError(f"a second serve bound {path}")
+
+        monkeypatch.setattr(standing_client, "bind", refuse_to_bind)
+        assert standing_daemon.main(["serve", "--surface", str(mini_surface), "--socket", str(sock)]) == 1
+        out = capsys.readouterr().out
+        assert "already answers" in out and "pid 4242" in out
+        assert sock.is_file()
+    finally:
+        os.close(lock)
+
+
+def test_a_daemon_whose_socket_is_replaced_exits_and_leaves_the_replacement(
+    mini_surface, tmp_path, monkeypatch
+):
+    """Runs `serve` on a thread with a short idle check, then replaces its socket file with a plain file, as a daemon that lost its socket would find it. The daemon must exit 0 by itself at the next idle check and leave the replacement in place, since the file is no longer the one it bound. The test runs from tmp_path because both threads' socket calls chdir into the socket's directory and back, and `chdir` is process-wide."""
+    monkeypatch.setattr(standing_daemon, "IDLE_CHECK_SECONDS", 0.2)
+    monkeypatch.chdir(tmp_path)
+    sock = tmp_path / "daemon.sock"
+    result = []
+    runner = threading.Thread(
+        target=lambda: result.append(standing_daemon.serve(mini_surface, sock)), daemon=True
+    )
+    runner.start()
+    deadline = time.monotonic() + START_SECONDS
+    while time.monotonic() < deadline and runner.is_alive():
+        reply = standing_client.exchange(sock, {"tool": "status"})
+        if reply is not None and reply.get("ok"):
+            break
+        time.sleep(POLL_SECONDS)
+    else:
+        pytest.fail("the standing daemon did not answer")
+    os.unlink(sock)
+    sock.write_text("replacement")
+    runner.join(STOP_SECONDS)
+    assert not runner.is_alive()
+    assert result == [0]
+    assert sock.read_text() == "replacement"
 
 
 def test_the_status_and_stop_verbs_report_the_held_surface(mini_surface, tmp_path, capsys):
