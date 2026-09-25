@@ -59,7 +59,7 @@ def _has_comments(node):
 
 
 def _decide_by_width(node, start_col, anchor):
-    """Set `node`'s flow or block style under the width rule. `anchor` is the column of the node's own key or list dash; `start_col` is the column where its inline form would begin."""
+    """Set `node`'s flow or block style under the width rule. `start_col` is the column where its inline form would begin. `anchor` is the column its block children are indented from: a mapping's keys sit at `anchor + 2`, and a list's dashes sit at `anchor`."""
     if not isinstance(node, (CommentedMap, CommentedSeq)):
         return
     if not _has_comments(node) and start_col + _inline_len(node) <= MAX_WIDTH:
@@ -72,7 +72,7 @@ def _decide_by_width(node, start_col, anchor):
             _decide_by_width(value, child_anchor + len(str(key)) + 2, child_anchor)
     else:
         for item in node:
-            _decide_by_width(item, anchor + 2, anchor + 2)
+            _decide_by_width(item, anchor + 2, anchor + 2 if isinstance(item, CommentedSeq) else anchor)
 
 
 def _is_number(value):
