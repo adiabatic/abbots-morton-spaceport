@@ -266,14 +266,13 @@ def test_the_shipped_walk_cost_holds_both_fleet_boxes_at_their_widths(total, wan
 
 
 def test_a_green_deep_sweep_refreshes_the_replays_record(tmp_path, monkeypatch):
-    """The deep HarfBuzz sweep over all texts settles every text it shapes, so a passing sweep at the replay's horizon covers the replay. Its refresh records every rune at its current digest."""
+    """The deep HarfBuzz sweep over all texts settles every text it shapes, so a passing sweep at the replay's horizon covers the replay. Its refresh records every rune at the digest the sweep read before it started."""
     monkeypatch.setattr(
         cycle_paths, "DEEP_REPLAY_GREEN", tmp_path / "rebuild" / "out" / "deep-replay-green.json"
     )
     monkeypatch.setattr(deep_sweep.run_m1, "replay_structure_stamp", lambda spec: "structure-1")
-    monkeypatch.setattr("rebuild.pipeline.fingerprint.rune_digests", lambda root: dict(RUNES))
     monkeypatch.setattr("rebuild.pipeline.spec_load.load_default_spec", lambda: Spec())
-    deep_sweep.refresh_deep_replay(6)
+    deep_sweep.refresh_deep_replay(6, dict(RUNES))
     record = ac.read_green_record(tmp_path / "rebuild" / "out" / "deep-replay-green.json")
     assert record is not None and record["files"] == RUNES and record["horizon"] == 6
     assert record["structure"] == "structure-1"

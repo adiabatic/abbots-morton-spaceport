@@ -28,7 +28,7 @@ def bench(tmp_path, monkeypatch):
     monkeypatch.setattr(cycle_paths, "CONFORM_GREEN", tmp_path / "conform-green.json")
     monkeypatch.setattr(deep_sweep, "tables_stamped", lambda: True)
     monkeypatch.setattr(cycle_paths, "DEEP_REPLAY_GREEN", tmp_path / "deep-replay-green.json")
-    monkeypatch.setattr(deep_sweep, "refresh_deep_replay", lambda horizon: None)
+    monkeypatch.setattr(deep_sweep, "refresh_deep_replay", lambda horizon, runes: None)
     return tmp_path
 
 
@@ -116,6 +116,39 @@ def test_a_build_landing_mid_sweep_records_nothing(bench, monkeypatch, capsys):
     assert deep_sweep.main([]) == 0
     assert ac.read_green_record(bench / "deep-sweep-green.json") is None
     assert "inputs changed while it ran" in capsys.readouterr().out
+
+
+def _stub_runes_and_sweep(monkeypatch, edit_mid_sweep):
+    current = {"qsPea": "p1"}
+    monkeypatch.setattr("rebuild.pipeline.fingerprint.rune_digests", lambda root: dict(current))
+
+    def fake(max_length, jobs, summary_name):
+        if edit_mid_sweep:
+            current["qsPea"] = "p2"
+        return {"pass": True, "divergences": 0}
+
+    monkeypatch.setattr(deep_sweep.run_m1, "run_font_conformance", fake)
+    refreshed: list = []
+    monkeypatch.setattr(deep_sweep, "refresh_deep_replay", lambda *args: refreshed.append(args))
+    return refreshed
+
+
+def test_a_green_sweep_at_the_replay_horizon_refreshes_the_deep_replay_with_the_runes_it_swept(
+    bench, monkeypatch, capsys
+):
+    refreshed = _stub_runes_and_sweep(monkeypatch, edit_mid_sweep=False)
+    assert deep_sweep.main(["--horizon", str(ac.DEEP_REPLAY_HORIZON_DEFAULT)]) == 0
+    assert refreshed == [(ac.DEEP_REPLAY_HORIZON_DEFAULT, {"qsPea": "p1"})]
+    assert "deep replay: green too" in capsys.readouterr().out
+
+
+def test_a_rune_edited_mid_sweep_leaves_the_deep_replay_unrecorded(bench, monkeypatch, capsys):
+    """The swept font was built from the runes read before the sweep started. A rune edit that adds no behavior class leaves the sweep's own key alone, but the deep replay's record keys on rune digests, so it is refreshed only with that snapshot and only while the runes on disk still match it."""
+    refreshed = _stub_runes_and_sweep(monkeypatch, edit_mid_sweep=True)
+    assert deep_sweep.main(["--horizon", str(ac.DEEP_REPLAY_HORIZON_DEFAULT)]) == 0
+    assert refreshed == []
+    assert "runes changed while the sweep ran" in capsys.readouterr().out
+    assert ac.read_green_record(bench / "deep-sweep-green.json") is not None
 
 
 def test_status_exits_on_whether_the_sweep_is_current(bench, monkeypatch, capsys):
