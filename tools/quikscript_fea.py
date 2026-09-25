@@ -4263,6 +4263,18 @@ def _emit_quikscript_calt(analysis: _JoinAnalysis) -> str | None:
                 if not expanded_after:
                     continue
                 after_list = " ".join(sorted(expanded_after))
+                lookahead = ""
+                if variant_meta.before:
+                    pair_before_followers = _select_rule_neighbors(
+                        base_name,
+                        variant_name,
+                        set(_expand_all_variants(variant_meta.before)),
+                        direction="fwd",
+                    )
+                    before_list = " ".join(sorted(pair_before_followers))
+                    if not before_list:
+                        continue
+                    lookahead = f" [{before_list}]"
                 safe = variant_name.replace(".", "_")
                 lines.append("")
                 lines.append(f"    lookup calt_pair_{safe} {{")
@@ -4289,18 +4301,6 @@ def _emit_quikscript_calt(analysis: _JoinAnalysis) -> str | None:
                                 entry_ys,
                             )
                     _emit_two_glyph_lookbehind_guards(expanded_after, base_name, entry_ys)
-                lookahead = ""
-                if variant_meta.before:
-                    pair_before_followers = _select_rule_neighbors(
-                        base_name,
-                        variant_name,
-                        set(_expand_all_variants(variant_meta.before)),
-                        direction="fwd",
-                    )
-                    before_list = " ".join(sorted(pair_before_followers))
-                    if not before_list:
-                        continue
-                    lookahead = f" [{before_list}]"
                 for terminal in sorted(expanded_after & plan.terminal_entry_only):
                     lines.append(f"        ignore sub {terminal} {base_name}';")
                 _emit_entry_strip_guards_for_replacement_exit(
@@ -4840,9 +4840,6 @@ def _emit_quikscript_calt(analysis: _JoinAnalysis) -> str | None:
             valid_entry_ys = [y for y in sorted(set(entry_ys)) if y in exit_classes]
             if not valid_entry_ys:
                 continue
-            safe = variant_name.replace(".", "_")
-            lines.append("")
-            lines.append(f"    lookup calt_reverse_upgrade_explicit_{safe} {{")
             expanded_after = None
             if after_glyphs:
                 expanded_after = _expand_backward_after_variants(
@@ -4853,6 +4850,9 @@ def _emit_quikscript_calt(analysis: _JoinAnalysis) -> str | None:
                 )
                 if not expanded_after:
                     continue
+            safe = variant_name.replace(".", "_")
+            lines.append("")
+            lines.append(f"    lookup calt_reverse_upgrade_explicit_{safe} {{")
             not_before_list = (
                 " ".join(sorted(_expand_all_variants(not_before, include_base=True))) if not_before else None
             )
@@ -5170,6 +5170,18 @@ def _emit_quikscript_calt(analysis: _JoinAnalysis) -> str | None:
                 if not expanded_after:
                     continue
                 after_list = " ".join(sorted(expanded_after))
+                lookahead = ""
+                if variant_meta.before:
+                    pair_before_followers = _select_rule_neighbors(
+                        base_name,
+                        variant_name,
+                        set(_expand_all_variants(variant_meta.before)),
+                        direction="fwd",
+                    )
+                    before_list = " ".join(sorted(pair_before_followers))
+                    if not before_list:
+                        continue
+                    lookahead = f" [{before_list}]"
                 safe = variant_name.replace(".", "_").replace("-", "_")
                 lines.append("")
                 lines.append(f"    lookup calt_post_context_pair_{safe} {{")
@@ -5189,18 +5201,6 @@ def _emit_quikscript_calt(analysis: _JoinAnalysis) -> str | None:
                         if guard_glyphs:
                             guard_list = " ".join(sorted(guard_glyphs))
                             lines.append(f"        ignore sub [{guard_list}] {candidate_name} {base_name}';")
-                lookahead = ""
-                if variant_meta.before:
-                    pair_before_followers = _select_rule_neighbors(
-                        base_name,
-                        variant_name,
-                        set(_expand_all_variants(variant_meta.before)),
-                        direction="fwd",
-                    )
-                    before_list = " ".join(sorted(pair_before_followers))
-                    if not before_list:
-                        continue
-                    lookahead = f" [{before_list}]"
                 for terminal in sorted(expanded_after & plan.terminal_entry_only):
                     lines.append(f"        ignore sub {terminal} {base_name}';")
                 _emit_entry_strip_guards_for_replacement_exit(
