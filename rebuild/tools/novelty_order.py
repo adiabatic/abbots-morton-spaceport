@@ -1,4 +1,4 @@
-"""Order the blank review queue for novelty, so consecutive units in a review session differ as much as possible instead of following the shard order's near-identical neighbors. It takes one rep per echo group among the blank human units, counting units with a skip verdict as blank; the app copies a verdict on the rep to the group's members that have no record. The distance between two reps is a weighted sum over `DIMENSIONS`: divergence class, left and right family, letter set, settled stances, changed seams, configuration set, unit kinds, deciding provenance and window length. The walk starts at a rep of the rarest class and then picks, each time, the rep whose smallest distance to the last `RECENT_WINDOW` shown is largest, breaking ties toward rarer classes and then earlier triage position, so one-off questions are not buried behind the large classes. It prints the worklist URL to paste into the review app, `#units=…&order=given`, which the app keeps in the given order instead of sorting by family pair."""
+"""Order the blank review queue for novelty, so consecutive units in a review session differ as much as possible instead of following the shard order's near-identical neighbors. It takes one rep per echo group among the human units with no record, since the app copies a verdict on the rep to the group's members that have no record. A unit whose latest verdict is a skip is blank too, but the echo fill never reaches it, so each skipped unit is its own rep. The distance between two reps is a weighted sum over `DIMENSIONS`: divergence class, left and right family, letter set, settled stances, changed seams, configuration set, unit kinds, deciding provenance and window length. The walk starts at a rep of the rarest class and then picks, each time, the rep whose smallest distance to the last `RECENT_WINDOW` shown is largest, breaking ties toward rarer classes and then earlier triage position, so one-off questions are not buried behind the large classes. It prints the worklist URL to paste into the review app, `#units=…&order=given`, which the app keeps in the given order instead of sorting by family pair."""
 
 import argparse
 import collections
@@ -30,7 +30,7 @@ def blank_reps(units, records):
     blanks = [unit for unit in human if unit["id"] not in records or records[unit["id"]]["verdict"] == "skip"]
     groups = collections.defaultdict(list)
     for unit in blanks:
-        groups[unit.get("echo") or unit["id"]].append(unit)
+        groups[unit["id"] if unit["id"] in records else unit.get("echo") or unit["id"]].append(unit)
     reps = [min(members, key=_triage_position) for members in groups.values()]
     reps.sort(key=_triage_position)
     return reps, len(blanks)
