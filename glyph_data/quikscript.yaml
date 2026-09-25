@@ -313,7 +313,7 @@ predecessor_demote_overrides:
   isolated_form: qsThey.en-y5.en-ext-1
   # `·Gay·No·It·Ah`: word-initial ·Gay takes a baseline exit toward ·No, which settles on bare `qsNo` with only an x-height entry. ·Gay has no left join to lose, so it reverts to bare.
 - {predecessor_stance: qsGay.ex-y0, trigger_stance: qsNo, isolated_form: qsGay}
-  # `·They·May·Gay·X`: after an x-height-exiting ·May (`qsMay.en-y0.ex-y5`), ·Gay takes `qsGay.en-y0.ex-y5` even though ·May's y5 exit cannot join ·Gay's y0 entry, and ·Gay's y5 exit then dangles toward a non-joining follower across the break. ·Gay's isolated form there is bare `qsGay`. When ·May exits at the baseline instead (`qsMay.ex-y0`, after ·Roe, ·Why, or ·Vie, or word-initially), ·May ~b~ ·Gay is a real join into the same stance, and isolated ·Gay there is also `qsGay.en-y0.ex-y5`. Keying on the backtrack `qsMay.en-y0.ex-y5` makes the demote fire only when the exit dangles. `·Day·Eat·Gay·Owe` and `·See·Eat·Gay·Owe` have the same dangling `qsGay.en-y0.ex-y5` after the `qsDay_qsEat` and `qsSee_qsEat` ligatures, so those entries key on the ligature.
+  # `·They·May·Gay·X`: after an x-height-exiting ·May (`qsMay.en-y0.ex-y5`), ·Gay takes `qsGay.en-y0.ex-y5` even though ·May's y5 exit cannot join ·Gay's y0 entry, and ·Gay's y5 exit then dangles toward a non-joining follower across the break. ·Gay's isolated form there is bare `qsGay`. When ·May exits at the baseline instead (`qsMay.ex-y0`, after ·Roe, ·Why, or ·Vie, or word-initially), ·May ~b~ ·Gay is a real join into the same stance, and isolated ·Gay there is also `qsGay.en-y0.ex-y5`. Keying on the backtrack `qsMay.en-y0.ex-y5` makes the demote fire only when the exit dangles.
 - backtrack_stance: qsMay.en-y0.ex-y5
   predecessor_stance: qsGay.en-y0.ex-y5
   trigger_stance: qsGay
@@ -358,21 +358,11 @@ predecessor_demote_overrides:
   predecessor_stance: qsGay.en-y0.ex-y5
   trigger_stance: qsUtter
   isolated_form: qsGay
-- backtrack_stance: qsDay_qsEat
-  predecessor_stance: qsGay.en-y0.ex-y5
-  trigger_stance: qsOwe
-  isolated_form: qsGay
-- backtrack_stance: qsSee_qsEat
-  predecessor_stance: qsGay.en-y0.ex-y5
-  trigger_stance: qsOwe
-  isolated_form: qsGay
-  # `·X·Gay·Tea·Oy` and `·X·Gay·Day·Eat`, where ·X is ·May, ·Way, or ·Why: ·X takes a baseline exit toward ·Gay, but the later ·Tea·Oy or ·Day·Eat ligature leaves ·Gay on bare `qsGay` or `qsGay.ex-y5`, neither of which has a baseline entry, so ·X's exit dangles. The triggers name only those two stances, so a real ·X ~b~ ·Gay join, where ·Gay keeps an `en-y0` stance, is unaffected.
+  # `·X·Gay·Tea·Oy`, where ·X is ·May, ·Way, or ·Why: ·X takes a baseline exit toward ·Gay, but the later ·Tea·Oy ligature leaves ·Gay on bare `qsGay`, which has no baseline entry, so ·X's exit dangles. `·May·Gay·Oy·Tea·Oy` and `·May·Gay·Oy·Thaw·Ing`: the later ·Tea·Oy ligature or ·Thaw·-ing join leaves ·Oy bare, so ·Gay falls back to `qsGay.ex-y5`, which also has no baseline entry, so ·May's exit dangles. The triggers name only those two stances, so a real ·X ~b~ ·Gay join, where ·Gay keeps an `en-y0` stance, is unaffected.
 - {predecessor_stance: qsMay.ex-y0, trigger_stance: qsGay, isolated_form: qsMay}
 - {predecessor_stance: qsMay.ex-y0, trigger_stance: qsGay.ex-y5, isolated_form: qsMay}
 - {predecessor_stance: qsWay.half.ex-y0, trigger_stance: qsGay, isolated_form: qsWay}
-- {predecessor_stance: qsWay.half.ex-y0, trigger_stance: qsGay.ex-y5, isolated_form: qsWay}
 - {predecessor_stance: qsWhy.half.ex-y0, trigger_stance: qsGay, isolated_form: qsWhy}
-- {predecessor_stance: qsWhy.half.ex-y0, trigger_stance: qsGay.ex-y5, isolated_form: qsWhy}
   # Predecessor exits that dangle once a later ·Tea·Oy ligature (or ·-ing·Thaw or ·Gay·No) leaves the follower on a stance with no entry at the exit's height. Reverting the predecessor to bare drops the dangling reach. Most of these predecessor stances have no entry, so no left join is lost; `qsRoe.ex-y0` has an x-height entry, and bare `qsRoe` keeps one. The stance-specific triggers leave a real join, where the follower keeps an `en` stance, unaffected.
 - {predecessor_stance: qsHe.half.ex-y5, trigger_stance: qsIt, isolated_form: qsHe}
 - {predecessor_stance: qsHe.half.ex-y5, trigger_stance: qsJai, isolated_form: qsHe}
@@ -594,12 +584,17 @@ trailing_demote_overrides:
 - {leader_stance: qsIt, trailing_stance: qsYe.en-y5.ex-y0, isolated_form: qsYe}
 - {leader_stance: qsFee, trailing_stance: qsYe.en-y5.ex-y0, isolated_form: qsYe}
 - {leader_stance: qsNo, trailing_stance: qsDay.half.en-y0.ex-y0, isolated_form: qsDay}
+- {leader_stance: qsNo, trailing_stance: qsDay_qsEat.half.en-y0.ex-y0, isolated_form: qsDay_qsEat}
 - {leader_stance: qsNo, trailing_stance: qsGay.en-y0.ex-y5, isolated_form: qsGay}
 - {leader_stance: qsNo, trailing_stance: qsZoo.half.en-y0.ex-y0, isolated_form: qsZoo}
 - {leader_stance: qsExcite, trailing_stance: qsDay.half.en-y0.ex-y0, isolated_form: qsDay}
+- leader_stance: qsExcite
+  trailing_stance: qsDay_qsEat.half.en-y0.ex-y0
+  isolated_form: qsDay_qsEat
 - {leader_stance: qsExcite, trailing_stance: qsZoo.half.en-y0.ex-y0, isolated_form: qsZoo}
 - {leader_stance: qsExcite, trailing_stance: qsNo.alt.en-y0.ex-y0, isolated_form: qsNo}
 - {leader_stance: qsJai, trailing_stance: qsDay.half.en-y0.ex-y0, isolated_form: qsDay}
+- {leader_stance: qsJai, trailing_stance: qsDay_qsEat.half.en-y0.ex-y0, isolated_form: qsDay_qsEat}
 - {leader_stance: qsJai, trailing_stance: qsGay.en-y0.ex-y5, isolated_form: qsGay}
 - {leader_stance: qsJai, trailing_stance: qsZoo.half.en-y0.ex-y0, isolated_form: qsZoo}
 - {leader_stance: qsIt, trailing_stance: qsZoo.half.en-y0.ex-y0, isolated_form: qsZoo}
@@ -611,6 +606,15 @@ trailing_demote_overrides:
 - leader_stance: qsOut_qsTea
   trailing_stance: qsDay_qsUtter.half.en-y0.ex-y5
   isolated_form: qsDay_qsUtter
+- leader_stance: qsTea.en-y0
+  trailing_stance: qsDay_qsEat.half.en-y0.ex-y0
+  isolated_form: qsDay_qsEat
+- leader_stance: qsOut_qsTea
+  trailing_stance: qsDay_qsEat.half.en-y0.ex-y0
+  isolated_form: qsDay_qsEat
+- leader_stance: qsOut_qsTea.after-see
+  trailing_stance: qsDay_qsEat.half.en-y0.ex-y0
+  isolated_form: qsDay_qsEat
   # `·Ah·They·Tea·I` and `·I·They·Tea·I`: ·Tea takes a backward `en-y8` entry toward ·They's baseline exit, which a predecessor demote then removes. These entries revert ·Tea's entry first, because the trailing demotes run before the predecessor demotes. The predecessor demotes keyed on the reverted `qsTea.ex-y0.ex-ext-1` then revert `qsThey.ex-y0.before-may.en-y5` to `qsThey.en-y5`, and its `.en-ext-1` variant to `qsThey.en-y5.en-ext-1`, which drops ·They's exit.
 - leader_stance: qsThey.ex-y0.before-may.en-y5
   trailing_stance: qsTea.en-y8.ex-y0.ex-ext-1
@@ -1072,6 +1076,26 @@ glyph_families:
       derive:
         noentry_after: [family: qsIt]
         extend_entry_after: {by: 1, targets: [context_set: halves_exit_xheight]}
+    shapes:
+      half:
+        bitmap:
+        - "     #"  #
+        - "    ##"
+        - "   # #"
+        - "   # #"
+        - "  #  #"
+        - "# #  #"  #
+        - "##    "
+        - "##    "
+        - "#     "
+        y_offset: -3
+    stances:
+      half:
+        shape: half
+        anchors: {entry: [0, 0], exit: [6, 0]}
+        select: {not_after: [family: qsTea, family: qsYe, family: qsWay]}
+        derive: {extend_entry_after: {by: 1, targets: [family: qsTea, family: qsYe]}}
+        traits: [half]
   qsKey:
     mono:
       bitmap:
@@ -1172,10 +1196,14 @@ glyph_families:
         derive: {extend_entry_after: {by: 1, targets: [context_set: halves_exit_xheight]}}
         modifiers: [en-y5]
       entry_baseline:
+        # `expand_selectors_for_ligatures` doesn't carry a negative selector over to ligatures, so the ·Eat ligatures, which end in ·Eat's flat baseline exit, are named here.
         shape: reachable_from_the_left_at_the_baseline
         anchors: {entry: [0, 0], exit: [4, 5]}
         select:
-          not_after: [context_set: flat_on_right_at_baseline]
+          not_after:
+          - {context_set: flat_on_right_at_baseline}
+          - {family: qsDay_qsEat, exit_y: 0}
+          - {family: qsSee_qsEat, exit_y: 0}
           not_before: [context_set: gay_reaches_baseline_exit_forward]
         modifiers: [en-y0]
       entry_xheight_exit_noentry:

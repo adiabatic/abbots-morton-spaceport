@@ -5911,6 +5911,7 @@ def _emit_quikscript_calt(analysis: _JoinAnalysis) -> str | None:
                 if ligature_after:
                     post_liga_rules.append((base_name, variant_name, ligature_after))
 
+        noentry_after_variants: set[str] = set()
         for lig_name in sorted(lig_glyph_names):
             noentry_after = _meta(lig_name).noentry_after
             if not noentry_after:
@@ -5918,6 +5919,7 @@ def _emit_quikscript_calt(analysis: _JoinAnalysis) -> str | None:
             noentry_name = lig_name + ".noentry"
             if noentry_name not in glyph_names:
                 continue
+            noentry_after_variants.add(noentry_name)
             post_liga_rules.append(
                 (
                     lig_name,
@@ -5931,6 +5933,26 @@ def _emit_quikscript_calt(analysis: _JoinAnalysis) -> str | None:
             lines.append("    lookup calt_post_liga_cleanup {")
             lines.extend(_format_post_liga_cleanup_rules(post_liga_cleanup_rules))
             lines.append("    } calt_post_liga_cleanup;")
+
+        # `calt_post_reflip_bk_*` re-fires a follower's backward substitution after a predecessor that reached a `restore_isolated_form_overrides` isolated form after the follower's backward lookups ran, but it names only the bare follower. A ligature led by that follower needs the same re-fire, and it must run before the ligature's `noentry_after` lookup claims it, so that `qsIt.en-y5.ex-y0 qsDay_qsEat` takes `qsDay_qsEat.half.en-y0.ex-y0` as `qsIt.en-y5.ex-y0 qsDay` takes `qsDay.half.en-y0.ex-y0`.
+        lig_reflip_rules: dict[str, set[tuple[str, str]]] = {}
+        for _prior, _target_base, follower_base, isolated_form in plan.restore_isolated_form_overrides:
+            isolated_meta = glyph_meta.get(isolated_form)
+            if isolated_form not in glyph_names or isolated_meta is None:
+                continue
+            for lig_name, _components in ligatures_by_first_component.get(follower_base, ()):
+                lig_bk = bk_replacements.get(lig_name, {})
+                for exit_y in sorted(set(isolated_meta.exit_ys)):
+                    replacement = lig_bk.get(exit_y)
+                    if replacement and replacement != lig_name and replacement in glyph_names:
+                        lig_reflip_rules.setdefault(lig_name, set()).add((isolated_form, replacement))
+        for lig_name in sorted(lig_reflip_rules):
+            safe = lig_name.replace(".", "_").replace("-", "_")
+            lines.append("")
+            lines.append(f"    lookup calt_post_liga_reflip_bk_{safe} {{")
+            for isolated_form, replacement in sorted(lig_reflip_rules[lig_name]):
+                lines.append(f"        sub {isolated_form} {lig_name}' by {replacement};")
+            lines.append(f"    }} calt_post_liga_reflip_bk_{safe};")
 
         # One lookup per variant. In a GSUB type-6 lookup, an `ignore` rule that matches at a position stops every later subtable of that lookup there, so if variants shared a lookup, one variant's `not_before` ignore could block another variant's substitution.
         for base_name, variant_name, after_glyphs in post_liga_rules:
@@ -5955,6 +5977,9 @@ def _emit_quikscript_calt(analysis: _JoinAnalysis) -> str | None:
             targets = {base_name}
             if base_name in bk_replacements:
                 targets.update(bk_replacements[base_name].values())
+            if variant_name in noentry_after_variants:
+                # A ligature stance that declares no `noentry_after` of its own (`qsDay_qsEat.half`) keeps its entry after the listed families.
+                targets = {target for target in targets if _meta(target).noentry_after}
             safe = variant_name.replace(".", "_").replace("-", "_")
             lines.append("")
             lines.append(f"    lookup calt_post_liga_{safe} {{")

@@ -2331,6 +2331,9 @@ def _iter_related_extension_targets(
     base_name = source_glyph.base_name
     # A ligature takes entry-side rules from its lead component and exit-side rules from its trailing component. Its other components are inside the ligature and never join a neighbor, so variants for them could never be used.
     ligature_position = -1 if side == "exit" else 0
+    noentry_ligature_bases = {
+        glyph.base_name for glyph in join_glyphs.values() if glyph.sequence and glyph.noentry_after
+    }
 
     for other_name, other_join_glyph in sorted(join_glyphs.items()):
         if other_name == source_name:
@@ -2344,8 +2347,8 @@ def _iter_related_extension_targets(
         other_sequence = other_join_glyph.sequence
         is_variant = other_base == base_name and bool(other_join_glyph.modifiers)
         is_ligature = bool(other_sequence) and other_sequence[ligature_position] == base_name
-        # The FEA emitter's `lig → lig.noentry` rule for a ligature's `noentry_after` matches only the base ligature glyph, so an extended or contracted exit variant of such a ligature would escape it. Those ligatures get only the variants their YAML declares.
-        if is_ligature and side == "exit" and other_join_glyph.noentry_after:
+        # The FEA emitter's `lig → lig.noentry` rule for a ligature's `noentry_after` matches only the base ligature glyph, so an extended or contracted exit variant of such a ligature would escape it. Those ligatures get only the variants their YAML declares, and so do their stances (`qsDay_qsEat.half`), so that every form of the ligature extends its exit before the same followers.
+        if is_ligature and side == "exit" and other_base in noentry_ligature_bases:
             continue
         if is_variant or is_ligature:
             targets.append((other_name, other_join_glyph, False))
