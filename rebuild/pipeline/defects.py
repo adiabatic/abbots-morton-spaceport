@@ -301,20 +301,17 @@ def _check_contact(report, allow, left: GlyphRecord, right: GlyphRecord, join) -
             f"{left.name} + {right.name}: ink overlap at {sorted(overlap)[:4]}",
             error=True,
         )
-        return
     if seam_y is None:
         return
-    for x, y in left_ink:
-        if y != seam_y and (x + 1, y) in right_ink:
-            _report(
-                report,
-                allow,
-                "E-CONTACT",
-                f"contact:{left.name}:{right.name}:y{y}",
-                f"{left.name} + {right.name}: off-anchor ink contact at y={y} (seam is y={seam_y})",
-                error=True,
-            )
-            return
+    for y in sorted({y for x, y in left_ink if y != seam_y and (x + 1, y) in right_ink}):
+        _report(
+            report,
+            allow,
+            "E-CONTACT",
+            f"contact:{left.name}:{right.name}:y{y}",
+            f"{left.name} + {right.name}: off-anchor ink contact at y={y} (seam is y={seam_y})",
+            error=True,
+        )
 
 
 def _condition_positive_families(spec: ResolvedSpec, rune_name: str, condition: Condition) -> set[str]:
