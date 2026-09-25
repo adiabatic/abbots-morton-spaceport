@@ -4,7 +4,7 @@ It runs on demand (`make conform-deep`), not per edit. The key of its green reco
 
 The belt's split-buffer check (every text split at a boundary shapes the same as its segments shaped alone) runs at this depth too, and this is the only place it covers texts longer than the belt's horizon, since no build step shapes a length-5 text. The ZWNJ glyph's own properties (zero advance, no ink) need no depth: read-back checks them in the font bytes on every build.
 
-A green run also refreshes gate:conform's green record, when the belt's key did not change during the run, because an exhaustive sweep at depth N covers every text the belt at depth 4 shapes. The next cycle can then skip the belt. At or past the deep replay's horizon it also refreshes the deep replay's record (`rebuild.tools.deep_replay`), because it settles every text it shapes against the tables in the font.
+A green run also refreshes gate:conform's green record, when the belt's key did not change during the run, because an exhaustive sweep at depth N covers every text the belt at depth 4 shapes. The next cycle can then skip the belt. At or past the deep replay's horizon it also refreshes the deep replay's record (`rebuild.tools.deep_replay`), because it settles every text it shapes against the tables in the font. That record holds the rune digests read before the sweep started, which are the runes the swept font was built from, and the refresh is skipped when a rune changed while the sweep ran.
 
 Run as: uv run python -m rebuild.tools.deep_sweep, or through `make conform-deep`.
 """
@@ -20,7 +20,7 @@ ROOT = Path(__file__).resolve().parents[2]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from rebuild.pipeline import conform, run_m1
+from rebuild.pipeline import conform, fingerprint, run_m1
 from rebuild.tools import cycle_paths
 from rebuild.tools.artifact_cycle import (
     CONFORM_HORIZON_DEFAULT,
@@ -60,14 +60,11 @@ def arming_key() -> str:
     return fingerprint
 
 
-def refresh_deep_replay(horizon: int) -> None:
-    """Record the deep replay as green at `horizon` for every rune at its current digest, since a green sweep at that depth settled every text that names any of them."""
-    from rebuild.pipeline import fingerprint
+def refresh_deep_replay(horizon: int, runes: dict[str, str]) -> None:
+    """Record the deep replay as green at `horizon` for every rune at the digest in `runes`, the snapshot taken before the sweep started, since a green sweep at that depth settled every text that names any of them."""
     from rebuild.pipeline.spec_load import load_default_spec
 
-    record_deep_replay_green(
-        fingerprint.rune_digests(ROOT), horizon, run_m1.replay_structure_stamp(load_default_spec())
-    )
+    record_deep_replay_green(runes, horizon, run_m1.replay_structure_stamp(load_default_spec()))
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -102,6 +99,7 @@ def main(argv: list[str] | None = None) -> int:
         raise SystemExit(
             f"--horizon {args.horizon} is shallower than the per-edit belt's {CONFORM_HORIZON_DEFAULT}; the belt already sweeps that depth on every edit"
         )
+    runes = fingerprint.rune_digests(ROOT)
     deep_key = arming_key()
     belt_key = conform_skip_fingerprint(ROOT, CONFORM_HORIZON_DEFAULT)
     jobs = max(1, min(args.jobs, len(conform.ACCEPTANCE_CONFIGS)))
@@ -129,11 +127,17 @@ def main(argv: list[str] | None = None) -> int:
         flush=True,
     )
     if args.horizon >= DEEP_REPLAY_HORIZON_DEFAULT:
-        refresh_deep_replay(args.horizon)
-        print(
-            f"deep replay: green too — every text at horizon {args.horizon} was settled here, so nothing is left for `make replay-deep` to walk",
-            flush=True,
-        )
+        if fingerprint.rune_digests(ROOT) != runes:
+            print(
+                "deep replay: not recorded — the runes changed while the sweep ran, so the swept font does not describe the runes on disk",
+                flush=True,
+            )
+        else:
+            refresh_deep_replay(args.horizon, runes)
+            print(
+                f"deep replay: green too — every text at horizon {args.horizon} was settled here, so nothing is left for `make replay-deep` to walk",
+                flush=True,
+            )
     if (
         args.horizon >= CONFORM_HORIZON_DEFAULT
         and conform_skip_fingerprint(ROOT, CONFORM_HORIZON_DEFAULT) == belt_key
