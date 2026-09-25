@@ -2,7 +2,7 @@
 
 It is not part of the per-edit path because of its cost. On the live alphabet, a walk over the texts that name one family costs each configuration several times what the build's own whole-universe horizon-4 replay costs (`make cycle-timings ARGS='--by-step'` reports every run under `replay-deep`, the check name this tool records itself under). Running it inside `run_m1` would multiply every rune-edit build's replay time. The cycle instead reports whether it is due beside the deep sweep (`artifact_cycle.deep_replay_status`), and `make replay-deep` runs it. The window ceiling (`DEEP_REPLAY_MEMO_WINDOWS`) keeps a walk's memory flat as the corpus grows, apart from the settled records and labels, which are never released and grow with the number of distinct records. At the measured ceiling every configuration walks at once on either fleet machine, which `rebuild/test_deep_replay.py` checks.
 
-The green record (`cycle_paths.DEEP_REPLAY_GREEN`) stores every rune's prose-blind digest and the horizon walked. The next walk covers the runes whose digest changed since, closed under `spec_load.rune_closure` (every rune whose records read a changed rune's content), which the window-locality theorem in `doc/rebuild-design.md` permits. The record also stores the replay structure stamp, but the stamp never widens the walk: a code or structure change is for the whole-universe deep sweep, and the cycle's deep-sweep line reports it.
+The green record (`cycle_paths.DEEP_REPLAY_GREEN`) stores every rune's prose-blind digest and the horizon walked. The next walk covers the runes whose digest changed since, closed under `spec_load.rune_closure` (every rune whose records read a changed rune's content), which the window-locality theorem in `doc/rebuild-design.md` permits. The record also stores the replay structure stamp, but the stamp never widens the walk: a code or structure change is for the whole-universe deep sweep, and the cycle's deep-sweep line reports it. A walk that finds a disagreement withdraws what the record claims for the runes it walked (`withdraw_walked`). After a family walk the status reports the walked runes armed and the next bare walk covers them again; after a whole-universe walk the record is gone and the status reports `never-run`.
 
 Run as: uv run python -m rebuild.tools.deep_replay, or through `make replay-deep`. `--families` names the runes to walk instead of reading them from the record. `--all` walks the whole universe, which on the live alphabet is an overnight run.
 """
@@ -81,6 +81,19 @@ def families_to_walk(spec, record: dict | None, runes: dict[str, str]) -> list[s
     closure = spec_load.rune_closure(spec)
     edited = {name for name, reads in closure.items() if reads & moved} | (moved & spec.runes.keys())
     return sorted(edited)
+
+
+def withdraw_walked(record: dict | None, families: list[str] | None) -> None:
+    """Withdraw what the green record claims for the texts a red walk covered: delete the record after a whole-universe walk (`families` None), and rewrite it without the walked runes' digests after a family walk. The record's horizon, structure stamp and claims for runes the walk did not cover stay."""
+    if record is None:
+        return
+    horizon = record.get("horizon")
+    if families is None or not isinstance(record.get("files"), dict) or not isinstance(horizon, int):
+        cycle_paths.DEEP_REPLAY_GREEN.unlink(missing_ok=True)
+        return
+    kept = {name: digest for name, digest in record["files"].items() if name not in families}
+    if kept != record["files"]:
+        record_deep_replay_green(kept, horizon, record.get("structure"))
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -176,6 +189,7 @@ def main(argv: list[str] | None = None) -> int:
             elapsed_s=time.perf_counter() - started,
             peak_rss_bytes=peak_rss.peak_rss_children_bytes(),
         )
+        withdraw_walked(record, families)
         return 1
     elapsed = time.perf_counter() - started
     print(f"[t] {CHECK} {elapsed:.1f}s", flush=True)
