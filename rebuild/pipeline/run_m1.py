@@ -30,6 +30,7 @@ import sys
 import tempfile
 import threading
 import time
+import zlib
 from concurrent.futures import Future, ProcessPoolExecutor, ThreadPoolExecutor, as_completed
 from contextlib import suppress
 from dataclasses import dataclass, field, replace
@@ -226,7 +227,7 @@ def memo_seed(
         try:
             with gzip.open(packed, "rb") as source, plain_path.open("wb") as plain:
                 shutil.copyfileobj(source, plain, length=1 << 20)
-        except OSError, EOFError, gzip.BadGzipFile:
+        except OSError, EOFError, zlib.error:
             plain_path.unlink(missing_ok=True)
             continue
         edited.update(moved.runes)
