@@ -21,6 +21,7 @@ import uharfbuzz as hb
 ROOT = Path(__file__).resolve().parent.parent
 TOOLS_DIR = ROOT / "tools"
 TEST_DIR = ROOT / "test"
+SITE_DIR = ROOT / "site"
 for path in (TOOLS_DIR, TEST_DIR):
     path_string = str(path)
     if path_string not in sys.path:
@@ -33,7 +34,7 @@ from leak_static_analysis import Rule, joins, parse_calt  # noqa: E402
 from quikscript_shaping_helpers import _plain_quikscript_letters, _qs_text  # noqa: E402
 from quikscript_ir import GlyphData, JoinGlyph, heal_glyph_name  # noqa: E402
 
-FEA_PATH = TEST_DIR / "AbbotsMortonSpaceportSansSenior-Regular.fea"
+FEA_PATH = SITE_DIR / "AbbotsMortonSpaceportSansSenior-Regular.fea"
 DUMP_PATH = ROOT / "tmp" / "derived-demote-oracle.txt"
 NO_AUTHORED_FONT_PATH = (
     ROOT / "tmp" / "derived-demote-no-authored" / "AbbotsMortonSpaceportSansSenior-Regular.otf"
@@ -69,6 +70,11 @@ class AuthoredProbe:
     @property
     def reproduces(self) -> bool:
         return self.derived_isolated_form == self.triple[2]
+
+
+def _display_path(path: Path) -> str:
+    resolved = path.resolve()
+    return str(resolved.relative_to(ROOT)) if resolved.is_relative_to(ROOT) else str(path)
 
 
 def _edge_modifier_count(meta: JoinGlyph, edge: Literal["entry", "exit"]) -> int:
@@ -647,7 +653,7 @@ def main() -> None:
     authored_predecessor, authored_trailing = _load_authored_triples(glyph_meta)
     if args.pair_source == "static-calt":
         pair_sources = _derive_reachable_pairs(glyph_meta, fea_path=args.fea)
-        pair_source_label = f"static non-demote calt reachability from {args.fea.relative_to(ROOT)}"
+        pair_source_label = f"static non-demote calt reachability from {_display_path(args.fea)}"
     else:
         pair_sources = _derive_shaped_no_authored_pairs(glyph_data, glyph_meta, max_len=args.max_len)
         pair_source_label = f"exhaustive no-authored-demote shaping sweep to depth {args.max_len}"
@@ -704,7 +710,7 @@ def main() -> None:
     print(f"Reachability-only missing rows: {reachability_only_missing}")
     print(f"Extra rows live in depth-4 snapshots: {live_extras}")
     print(f"Authored-pair isolated-target probes reproduced: {probe_reproduced}/{probe_total}")
-    print(f"Full report written to {args.dump.relative_to(ROOT)}")
+    print(f"Full report written to {_display_path(args.dump)}")
 
 
 if __name__ == "__main__":
