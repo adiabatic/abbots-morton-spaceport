@@ -87,6 +87,7 @@ import {
 import {
   SHOWN_STORAGE_KEY,
   SINGLETON_CHUNK,
+  SINGLETON_DECISION,
   buildClusters,
   decisionKey,
   docketResumeAction,
@@ -1350,9 +1351,9 @@ function worklistHref(unitIds) {
   return `#units=${unitIds.join(',')}`;
 }
 
-// Docket worklists carry `docket=1`, which makes finishing the worklist advance to the next docket decision, and the surface stamp, which lets a resumed tab detect that its ids came from an earlier build (see docketResumeAction). Conflict stacks use plain worklists, because resolving a conflict changes existing verdicts instead of filling blanks.
-function docketWorklistHref(unitIds) {
-  return `${worklistHref(unitIds)}&docket=1&stamp=${encodeURIComponent(manifest.generated_at)}`;
+// Docket worklists carry `docket=1`, which makes finishing the worklist advance to the next docket decision; `decision`, the key the worklist records as shown (see decisionKey); and the surface stamp, which lets a resumed tab detect that its ids came from an earlier build (see docketResumeAction). Conflict stacks use plain worklists, because resolving a conflict changes existing verdicts instead of filling blanks.
+function docketWorklistHref(unitIds, decision) {
+  return `${worklistHref(unitIds)}&docket=1&decision=${encodeURIComponent(decision)}&stamp=${encodeURIComponent(manifest.generated_at)}`;
 }
 
 function buildEvidenceLine(evidence) {
@@ -1393,7 +1394,7 @@ function buildClusterCard(cluster, position) {
   if (!carriesSamples(cluster.exemplar)) hydrateSamples(card, cluster.exemplar);
   const reps = el('p', 'reps');
   reps.append(
-    appButton(docketWorklistHref(cluster.reps), `Judge ${cluster.reps.length} rep${cluster.reps.length === 1 ? '' : 's'}`),
+    appButton(docketWorklistHref(cluster.reps, cluster.id), `Judge ${cluster.reps.length} rep${cluster.reps.length === 1 ? '' : 's'}`),
   );
   reps.append(
     el('span', 'note', ` — one per echo group; each verdict echo-fills its group, covering all ${cluster.size} units.`),
@@ -1432,7 +1433,7 @@ function buildLaterSection(later) {
     row.append(classCell);
     row.append(el('td', null, cluster.exemplar.notation));
     const judge = el('td');
-    judge.append(appButton(docketWorklistHref(cluster.reps), `Judge ${cluster.reps.length}`));
+    judge.append(appButton(docketWorklistHref(cluster.reps, cluster.id), `Judge ${cluster.reps.length}`));
     row.append(judge);
     body.append(row);
   }
@@ -1447,7 +1448,7 @@ function buildSingletonSection(singletons) {
   section.append(el('h2', null, `Singletons — ${singletons.length} one-off units`));
   const links = el('p', 'chunk-links', `Work them as app worklists, ${SINGLETON_CHUNK} at a time: `);
   for (const chunk of singletonChunks(singletons)) {
-    links.append(appButton(docketWorklistHref(chunk.unitIds), `Judge ${chunk.start}–${chunk.end}`));
+    links.append(appButton(docketWorklistHref(chunk.unitIds, SINGLETON_DECISION), `Judge ${chunk.start}–${chunk.end}`));
     links.append(document.createTextNode(' '));
   }
   section.append(links);
@@ -1664,7 +1665,7 @@ async function applyHashState(resume = false) {
   }
   const units = await unitsForView(state.batch, state.class);
   if (token !== renderToken) return;
-  const docketKey = state.units && state.docket ? decisionKey(units) : null;
+  const docketKey = state.units && state.docket ? decisionKey(units, state.decision) : null;
   if (docketKey !== lastDocketShownKey) {
     lastDocketShownKey = docketKey;
     if (docketKey !== null) {
@@ -1812,7 +1813,7 @@ async function advanceDocket({ stale = false } = {}) {
   const lead = stale ? 'That worklist was stacked for an earlier surface' : 'Decision done';
   if (!decision) {
     toast(`${stale ? `${lead}, and the` : 'The'} docket queue is clear`);
-    setState({ units: null, order: null, docket: null, stamp: null, unit: null, view: 'docket' });
+    setState({ units: null, order: null, docket: null, decision: null, stamp: null, unit: null, view: 'docket' });
     return;
   }
   const queue = queueCounts(humanList, recordOf, ruledClassIds(manifest.classes));
@@ -1824,6 +1825,7 @@ async function advanceDocket({ stale = false } = {}) {
   setStateReplace({
     units: decision.unitIds.join(','),
     docket: '1',
+    decision: decision.key,
     stamp: manifest.generated_at,
     unit: null,
     view: null,

@@ -39,7 +39,7 @@ test('hash state round-trips', () => {
     status: 'reject',
   };
   const reparsed = parseHash(`#${writeHash(state)}`);
-  assert.deepEqual(reparsed, { ...state, family: null, machine: null, units: null, order: null, docket: null, stamp: null, view: null });
+  assert.deepEqual(reparsed, { ...state, family: null, machine: null, units: null, order: null, docket: null, decision: null, stamp: null, view: null });
 });
 
 test('a units worklist rides the hash and round-trips', () => {
@@ -73,7 +73,7 @@ test('the docket cursor rides the hash beside a units worklist and round-trips',
 
 test('shedWorklist drops the units worklist, the docket cursor, and the docket view when a navigation patch changes class, batch, group, config, family, or status', () => {
   for (const [key, value] of [['class', 'dangling-anchor-dropped'], ['batch', 2], ['group', 'qsTea:qsOy'], ['config', 'ss04'], ['family', 'qsMay'], ['status', 'verdicted']]) {
-    assert.deepEqual(shedWorklist({ [key]: value }), { units: null, order: null, docket: null, stamp: null, view: null, [key]: value }, `changing ${key} must shed the worklist, docket cursor, and view`);
+    assert.deepEqual(shedWorklist({ [key]: value }), { units: null, order: null, docket: null, decision: null, stamp: null, view: null, [key]: value }, `changing ${key} must shed the worklist, docket cursor, and view`);
   }
   const cleared = shedWorklist({ family: null, config: null, status: null, group: null });
   assert.equal(cleared.units, null, 'clear-filters sheds the worklist alongside the other filters');
@@ -98,6 +98,16 @@ test('the surface stamp rides the hash beside a docket worklist and round-trips'
   const reparsed = parseHash(`#${serialized}`);
   assert.equal(reparsed.docket, '1');
   assert.equal(reparsed.stamp, '2026-08-23T20:08:03Z');
+});
+
+test('the decision key rides the hash beside a docket worklist and round-trips, the singleton run included', () => {
+  assert.equal(parseHash('#units=u-0030&docket=1&decision=%23singletons').decision, '#singletons');
+  assert.equal(parseHash('#units=u-0030&docket=1').decision, null);
+  for (const decision of ['#singletons', 'c-bbe6acfa']) {
+    const reparsed = parseHash(`#${writeHash({ units: 'u-0030', docket: '1', decision })}`);
+    assert.equal(reparsed.units, 'u-0030');
+    assert.equal(reparsed.decision, decision);
+  }
 });
 
 test('the docket view rides the hash and round-trips', () => {

@@ -176,13 +176,15 @@ export function writeShownDecisions(shown, manifestStamp) {
   return JSON.stringify({ stamp: manifestStamp, keys: [...shown] });
 }
 
-export function decisionKey(units) {
+// `stacked` is the key the worklist was stacked under, from the hash's `decision`. The units alone can name the wrong decision: a lone singleton's worklist has one cluster signature but was stacked as the singleton run.
+export function decisionKey(units, stacked = null) {
+  if (typeof stacked === 'string' && stacked !== '') return stacked;
   const signatures = new Set();
   for (const unit of units) if (typeof unit?.cluster === 'string') signatures.add(unit.cluster);
   return signatures.size === 1 ? [...signatures][0] : SINGLETON_DECISION;
 }
 
-// The next decision to show the reviewer. Open decisions are in queue order: the largest cluster first, with one rep per echo group that has no record, then the singletons. A record on a blank member can only be a skip, so any recorded member defers its whole echo group. `shown` holds the decision keys stacked for this surface, least recently stacked first (the app keeps it in localStorage). The first open decision not in `shown` is returned, so leaving a cluster postpones it. When every open decision has been shown, the one shown longest ago is returned with `revisit` set. Returns null when every blank unit is in a deferred group.
+// The next decision to show the reviewer. Open decisions are in queue order: the largest cluster first, with one rep per echo group that has no record, then the singletons. A record on a blank member can only be a skip, so any recorded member defers its whole echo group. `shown` holds the decision keys stacked for this surface, least recently stacked first (the app keeps it in localStorage). The first open decision not in `shown` is returned, so leaving a cluster postpones it. When every open decision has been shown, the one shown longest ago is returned with `revisit` set. The returned decision carries its `key`, which the worklist stacked from it records in `shown`. Returns null when every blank unit is in a deferred group.
 export function nextDocketDecision(units, recordOf, ruledIds, shown = new Set()) {
   const clusters = buildClusters(units, recordOf);
   const { tranche, later, singletons } = partitionClusters(clusters, ruledIds);
@@ -205,13 +207,13 @@ export function nextDocketDecision(units, recordOf, ruledIds, shown = new Set())
   }
   if (open.length === 0) return null;
   const fresh = open.find((candidate) => !shown.has(candidate.key));
-  if (fresh) return { ...fresh.decision, revisit: false };
+  if (fresh) return { ...fresh.decision, key: fresh.key, revisit: false };
   const rotation = [...shown];
   let oldest = open[0];
   for (const candidate of open) {
     if (rotation.indexOf(candidate.key) < rotation.indexOf(oldest.key)) oldest = candidate;
   }
-  return { ...oldest.decision, revisit: true };
+  return { ...oldest.decision, key: oldest.key, revisit: true };
 }
 
 // What to do with a docket worklist from the URL hash. A worklist names units by id, and a rebuild gives a changed unit a new id, so a worklist stamped for another surface (or with no stamp) is meaningless: 'restack' stacks the next decision from the live queue. A current worklist whose units all have a verdict other than skip was finished, so it gets 'advance', as finishing it live would. A skip is a record but not a verdict, and clicking a skipped-through cluster's card should show its deferred reps again, so a worklist with any skip or blank renders (null).
