@@ -951,13 +951,15 @@ def _leak_snapshot_section(items: list[tuple[Leak, IsolationLeakExample, str]]) 
         '    <details class="collapsible isolation-leaks leak-snapshot" open>\n'
         "      <summary><h2>Auto-generated: isolation-leak triage (depth-4 snapshot)</h2></summary>\n"
         "      <p>\n"
-        "        The approved depth-4 leaks frozen in\n"
-        "        <code>site/isolation-leak-snapshot.txt</code>, rendered in the\n"
-        "        same side-by-side layout as the section above. Each expanded\n"
-        "        row is a known leak that needs more context than the everyday\n"
+        "        The bad depth-4 leaks still to be fixed, listed in\n"
+        f"        <code>{LEAK_SNAPSHOT_PATH.relative_to(ROOT)}</code> and rendered\n"
+        "        in the same side-by-side layout as the section above. Each\n"
+        "        expanded row is a leak that needs more context than the everyday\n"
         "        depth-3 sweep covers; decide, per row, whether the in-context\n"
-        "        shape is the one you want, and if it is, the leak is benign and\n"
-        "        the row stays approved.\n"
+        "        shape is the one you want. If it is, the leak is benign: add its\n"
+        f"        signature to <code>{leak_classify.FORCE_BENIGN_PATH.relative_to(ROOT)}</code>\n"
+        "        and re-run <code>make leak-snapshot</code>, which moves it to\n"
+        "        <code>site/benign-leak-census.txt</code>.\n"
         f"       {scope_note}\n"
         f"       {fixed_note}\n"
         "      </p>\n"
@@ -1856,8 +1858,8 @@ def _render_page(
       under <code>site/before/</code> and the live build under
       <code>site/</code>; one lists every short sequence whose adjacent
       non-joining pair changes shape between single-buffer and split
-      shaping; and one reads back the approved depth-4 leak snapshot as a
-      visual triage list.
+      shaping; and one reads back the depth-4 bad-leak backlog as a visual
+      triage list.
     </p>
     <p>
       Workflow:
@@ -1937,7 +1939,7 @@ def main() -> None:
             "sweep (default 3 — covers every pair plus single-letter "
             "context on either side, which catches context-revealed leaks "
             "without combinatorial blowup). Increase to 4 for a slower "
-            "(≈30 s) but deeper sweep."
+            "but deeper sweep."
         ),
     )
     parser.add_argument(
