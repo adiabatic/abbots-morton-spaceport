@@ -2046,6 +2046,65 @@ def test_pea_never_joins_on_both_sides_at_baseline():
 @pytest.mark.parametrize(
     ("text", "expects"),
     [
+        pytest.param(_qs_text("qsEt", "qsPea"), ["·Et ~b~ ·Pea"], id="et-pea"),
+        pytest.param(_qs_text("qsAwe", "qsPea"), ["·Awe ~b~ ·Pea"], id="awe-pea"),
+        pytest.param(_qs_text("qsEt", "qsPea", "qsTea"), ["·Et ~b~ ·Pea | ·Tea"], id="et-pea-tea"),
+    ],
+)
+def test_pea_joins_et_and_awe_at_baseline_when_it_joins_nothing_after(text: str, expects: list[str]):
+    _assert_expect_any(text, expects)
+
+
+@pytest.mark.parametrize(
+    ("text", "expects"),
+    [
+        pytest.param(_qs_text("qsEt", "qsPea", "qsIt"), ["·Et | ·Pea.half ~x~ ·It"], id="et-pea-it"),
+        pytest.param(_qs_text("qsAwe", "qsPea", "qsPea"), ["·Awe | ·Pea.half ~6~ ·Pea"], id="awe-pea-pea"),
+        pytest.param(_qs_text("qsEt", "qsPea", "qsDay"), ["·Et | ·Pea ~b~ ·Day.half"], id="et-pea-day"),
+        pytest.param(
+            _qs_text("qsAwe", "qsPea", "qsVie"), ["·Awe | ·Pea ~b~ ·Vie.en-ext-1"], id="awe-pea-vie"
+        ),
+        pytest.param(_qs_text("qsEt", "qsPea", "qsMay"), ["·Et | ·Pea ~b~ ·May.en-ext-1"], id="et-pea-may"),
+    ],
+)
+def test_pea_keeps_its_onward_join_after_et_and_awe(text: str, expects: list[str]):
+    _assert_expect_any(text, expects)
+
+
+def _pea_after_et_and_awe_seam_failures() -> list[str]:
+    followers = [(name,) for name, _ in _context_chars()] + [()]
+    followers += [sequence for _, sequence in _two_component_ligatures()]
+    # A ligature whose lead family is in `not_before` blocks `·Et ~b~ ·Pea` even when the ligature takes no join from ·Pea, the accepted limit that doc/quikscript-yaml-conventions.md describes.
+    not_before = _compiled_meta()["qsPea.en-y0.ex-noentry"].not_before
+    failures: list[str] = []
+    for follower in followers:
+        right_ys = _pair_join_ys(_shape_qs("qsPea", *follower), 0)
+        for left in ("qsEt", "qsAwe"):
+            glyphs = _shape_qs(left, "qsPea", *follower)
+            label = "·".join((left, "qsPea", *follower))
+            if _base_names(glyphs)[:2] != (left, "qsPea"):
+                failures.append(f"{label}: expected {left} then qsPea at the start of {glyphs}")
+                continue
+            seam_ys = _pair_join_ys(glyphs, 1)
+            if seam_ys != right_ys:
+                failures.append(
+                    f"{label}: qsPea's right seam Ys {sorted(seam_ys)} differ from {sorted(right_ys)} without {left} in {glyphs}"
+                )
+            expects_join = not right_ys and (len(follower) < 2 or follower[0] not in not_before)
+            if (0 in _pair_join_ys(glyphs, 0)) != expects_join:
+                failures.append(
+                    f"{label}: {left} should join qsPea at Y=0 exactly when qsPea breaks after, in {glyphs}"
+                )
+    return failures
+
+
+def test_et_and_awe_join_pea_at_baseline_exactly_when_pea_breaks_after():
+    _assert_no_failures(_pea_after_et_and_awe_seam_failures(), limit=None)
+
+
+@pytest.mark.parametrize(
+    ("text", "expects"),
+    [
         pytest.param(_qs_text("qsWay", "qsSee"), ["·Way.!half | ·See"], id="way-before-see"),
         pytest.param(_qs_text("qsWay", "qsTea"), ["·Way.!half | ·Tea"], id="way-before-tea"),
         pytest.param(_qs_text("qsWay", "qsVie"), ["·Way.!half | ·Vie"], id="way-before-vie"),
