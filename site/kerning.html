@@ -357,7 +357,7 @@
     </style>
     <script type="module">
       import { LETTERS, initToggles } from "./shared.js";
-      import { ruleBody, partitionPair, reconstructOverrides } from "./kerning-rules.js";
+      import { ruleBody, partitionPair, reconstructOverrides, inheritedValue, overrideIsRedundant } from "./kerning-rules.js";
 
       // Punctuation kerned against the letters and against each other, including the namer dot (periodcentered) that prefixes proper nouns. It stays out of shared.js's LETTERS, which every other page uses. Punctuation has no contextual variants, so each entry's `family` is its compiled glyph name, and `glyph: true` makes its cells serialize as explicit `left:`/`right:` selectors instead of `*_family`. qsAngleParenLeft and qsAngleParenRight have only a mono record, which the proportional build uses, so they render in Sans too.
       const PUNCT = [
@@ -606,9 +606,8 @@
                   });
                   continue;
                 }
-                // A precomputed hidden junction, or any other rule with a stance prefix, is a per-junction override.
-                if (value === 0) stanceOverrides.delete(key);
-                else stanceOverrides.set(key, { left, right, value });
+                // A precomputed hidden junction, or any other rule with a stance prefix, is a per-junction override, a `value: 0` one included.
+                stanceOverrides.set(key, { left, right, value });
               } else {
                 // A plain family × family rule is the grid cell. serialize() recomputes any carve-out.
                 if (value === 0) cellValues.delete(cellKey(left.family, right.family));
@@ -621,7 +620,6 @@
         for (const [pairKey, rules] of pairRules) {
           const [lf, rf] = pairKey.split("|");
           for (const region of reconstructOverrides(lf, rf, cellValues.get(pairKey) || 0, rules)) {
-            if (region.value === 0) continue;
             const left = region.left === null ? sideForToken(lf) : { family: lf, stance: region.left, except: null };
             const right = region.right === null ? sideForToken(rf) : { family: rf, stance: region.right, except: null };
             stanceOverrides.set(junctionKey({ left, right }), { left, right, value: region.value });
@@ -631,7 +629,7 @@
         // serialize() writes an alt pair's cell value on every quadrant without an override, so after a reload those quadrants parse as overrides equal to the cell value. Drop them so the panel lists only the overrides the user set.
         for (const [key, override] of [...stanceOverrides]) {
           const match = known.get(key);
-          if (match && !match.isolated && altQuadrants(match.pairKey).length && override.value === cellValues.get(match.pairKey)) {
+          if (match && !match.isolated && altQuadrants(match.pairKey).length && override.value === (cellValues.get(match.pairKey) || 0)) {
             stanceOverrides.delete(key);
           }
         }
@@ -650,7 +648,6 @@
       function serialize() {
         const overridesByPair = new Map();
         for (const [key, override] of stanceOverrides) {
-          if (override.value === 0) continue;
           const pairKey = cellKey(override.left.family, override.right.family);
           if (!overridesByPair.has(pairKey)) overridesByPair.set(pairKey, new Map());
           overridesByPair.get(pairKey).set(key, override);
@@ -666,13 +663,13 @@
           const quadrants = altQuadrants(pairKey);
 
           if (quadrants.length && overrides && overrides.size) {
-            // An alt pair with overrides: write one rule per quadrant, using the override where there is one and the cell value elsewhere. The quadrants partition the family × family space, so no two rules overlap.
+            // An alt pair with overrides: write one rule per quadrant, using the override where there is one and the cell value elsewhere. The quadrants partition the family × family space, so no two rules overlap. A quadrant whose value is 0 gets an explicit `value: 0` rule when the cell's value is not 0, so a zero override reads back.
             const emitted = new Set();
             for (const quadrant of quadrants) {
               const quadrantKey = junctionKey(quadrant);
               emitted.add(quadrantKey);
               const value = overrides.has(quadrantKey) ? overrides.get(quadrantKey).value : cellValue;
-              if (value !== 0) bodies.push(ruleBody(quadrant.left, quadrant.right, value));
+              if (value !== 0 || cellValue !== 0) bodies.push(ruleBody(quadrant.left, quadrant.right, value));
             }
             // An alt pair whose isolated rendering is a ligature has no isolated quadrant, and it can have overrides on selectors outside the quadrants. Write those unchanged.
             for (const [overrideKey, override] of overrides) {
@@ -870,10 +867,37 @@
         if (next === 0) cellValues.delete(key);
         else cellValues.set(key, next);
         applyCellVisual(td, next);
+        renderOpenJunctionRows();
         textarea.value = serialize();
       }
 
       let openJunctionPairKey = null;
+      // One re-render function per row of the open panel, so a change to the cell or to another row's override repaints the rows that inherit from it.
+      let openJunctionRows = [];
+
+      function renderOpenJunctionRows() {
+        for (const render of openJunctionRows) render();
+      }
+
+      // The value serialize() writes on a junction's glyph pairs when the junction has no override: the cell value for an alt pair, or for a pair without alt-axis quadrants the most specific other override that holds the junction, or the cell value.
+      function inheritedJunctionValue(junction) {
+        const pairKey = cellKey(junction.left.family, junction.right.family);
+        const cellValue = cellValues.get(pairKey) || 0;
+        if (altQuadrants(pairKey).length) return cellValue;
+        const own = junctionKey(junction);
+        const others = pairRegions(pairKey).filter((region) => region.key !== own);
+        return inheritedValue(cellValue, others, junction.left.stance || null, junction.right.stance || null);
+      }
+
+      // A pair's overrides as kerning-rules.js takes them, each side a stance prefix or null for the family.
+      function pairRegions(pairKey) {
+        const regions = [];
+        for (const [key, override] of stanceOverrides) {
+          if (cellKey(override.left.family, override.right.family) !== pairKey) continue;
+          regions.push({ key, left: override.left.stance || null, right: override.right.stance || null, value: override.value });
+        }
+        return regions;
+      }
 
       function junctionGlyphs(junction) {
         return junction.context.slice(junction.beforeEnd, junction.junctionEnd);
@@ -883,11 +907,14 @@
         const key = junctionKey(junction);
         const baked = measureBakedPixels(junctionGlyphs(junction));
         const override = stanceOverrides.get(key);
-        const effective = override ? override.value : baked;
+        const inherited = inheritedJunctionValue(junction);
+        const effective = override ? override.value : inherited;
         const parts = [`${effective > 0 ? "+" : ""}${effective}`];
         if (override) parts.push("·");
         valueEl.textContent = parts.join("");
-        valueEl.title = override ? `override ${override.value} (baked ${baked})` : `baked ${baked} — click to override`;
+        valueEl.title = override
+          ? `override ${override.value}, inherits ${inherited} (baked ${baked})`
+          : `inherits ${inherited} (baked ${baked}) — click to override`;
         rowEl.classList.toggle("tighter", effective < 0);
         rowEl.classList.toggle("looser", effective > 0);
         rowEl.classList.toggle("pending", !!override);
@@ -897,14 +924,19 @@
         if (kernSpan) kernSpan.style.marginLeft = fake ? `calc(${fake} * 1em / ${PIXEL_DENOMINATOR})` : "";
       }
 
-      function adjustJunction(rowEl, valueEl, junction, delta) {
+      // An override is dropped only when serialize() writes the same value on every glyph pair of the pair without it: in an alt pair, when it equals the cell value; in a pair without alt-axis quadrants, when no glyph pair it decides would take a different value from the pair's other overrides or the cell.
+      function adjustJunction(junction, delta) {
         const key = junctionKey(junction);
-        const baked = measureBakedPixels(junctionGlyphs(junction));
+        const pairKey = cellKey(junction.left.family, junction.right.family);
+        const cellValue = cellValues.get(pairKey) || 0;
         const override = stanceOverrides.get(key);
-        const next = (override ? override.value : baked) + delta;
-        if (next === baked) stanceOverrides.delete(key);
-        else stanceOverrides.set(key, { left: junction.left, right: junction.right, value: next });
-        renderJunctionRow(rowEl, valueEl, junction);
+        const next = (override ? override.value : inheritedJunctionValue(junction)) + delta;
+        stanceOverrides.set(key, { left: junction.left, right: junction.right, value: next });
+        const redundant = altQuadrants(pairKey).length
+          ? next === cellValue
+          : overrideIsRedundant(cellValue, pairRegions(pairKey), junction.left.stance || null, junction.right.stance || null);
+        if (redundant) stanceOverrides.delete(key);
+        renderOpenJunctionRows();
         textarea.value = serialize();
       }
 
@@ -921,6 +953,7 @@
         const junctions = all.filter((j) => !j.isolated);
         if (!junctions.length) return;
         openJunctionPairKey = pairKey;
+        openJunctionRows = [];
         const [leftFamily, rightFamily] = pairKey.split("|");
         junctionPanel.innerHTML = "";
 
@@ -965,11 +998,13 @@
           valueEl.className = "junction-value";
 
           rowEl.append(render, label, valueEl);
-          renderJunctionRow(rowEl, valueEl, junction);
-          rowEl.addEventListener("click", () => adjustJunction(rowEl, valueEl, junction, -1));
+          const renderRow = () => renderJunctionRow(rowEl, valueEl, junction);
+          openJunctionRows.push(renderRow);
+          renderRow();
+          rowEl.addEventListener("click", () => adjustJunction(junction, -1));
           rowEl.addEventListener("contextmenu", (e) => {
             e.preventDefault();
-            adjustJunction(rowEl, valueEl, junction, 1);
+            adjustJunction(junction, 1);
           });
 
           junctionPanel.appendChild(rowEl);
@@ -980,6 +1015,7 @@
 
       function closeJunctionPanel() {
         openJunctionPairKey = null;
+        openJunctionRows = [];
         junctionPanel.hidden = true;
         junctionPanel.innerHTML = "";
       }

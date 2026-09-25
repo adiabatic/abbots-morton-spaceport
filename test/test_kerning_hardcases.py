@@ -344,7 +344,7 @@ KERNING_PAGE_OVERRIDES = [
 def _kerning_page(call: str, payload: object) -> Any:
     script = textwrap.dedent("""
         import { readFileSync } from 'node:fs';
-        import { partitionPair, reconstructOverrides } from './site/kerning-rules.js';
+        import { inheritedValue, overrideIsRedundant, partitionPair, reconstructOverrides } from './site/kerning-rules.js';
         const input = JSON.parse(readFileSync(0, 'utf8'));
         const excite = { family: 'qsExcite', stance: null, except: null, glyph: false };
         const gay = { family: 'qsGay', stance: null, except: null, glyph: false };
@@ -420,3 +420,58 @@ def test_kerning_page_reads_its_partition_back_as_the_same_overrides() -> None:
     )
     key = lambda o: (str(o["left"]), str(o["right"]))
     assert sorted(overrides, key=key) == sorted(KERNING_PAGE_OVERRIDES, key=key)
+
+
+def test_kerning_page_writes_and_reads_back_a_zero_override() -> None:
+    """The kerning page writes a junction override of 0 inside a nonzero cell and a nonzero enclosing override as explicit `value: 0` rules, and reads them back as the same zero override."""
+    overrides = [
+        {"left": "qsExcite.en-y0.noexit", "right": "qsGay.ex-y0", "value": 1},
+        {"left": "qsExcite.en-y0.noexit", "right": "qsGay.ex-y0.ex-ext-1", "value": 0},
+    ]
+    bodies = _kerning_page(
+        "partitionPair(excite, gay, input.cell, input.overrides)", {"cell": -1, "overrides": overrides}
+    )
+    docs = [yaml.safe_load(body) for body in bodies]
+    fea = generate_kern_fea({f"d{i}": doc for i, doc in enumerate(docs)}, {}, KERNING_PAGE_GLYPHS, 50)
+    cover = _coverage(fea)
+    assert ("qsExcite.en-y0.noexit", "qsGay.ex-y0.ex-ext-1") in cover
+    assert _value(fea, cover[("qsExcite.en-y0.noexit", "qsGay.ex-y0.ex-ext-1")]) == 0
+
+    rules = [
+        {
+            "left": {"node": d.get("left_stance", [None])[0], "except": d.get("except_left", [])},
+            "right": {"node": d.get("right_stance", [None])[0], "except": d.get("except_right", [])},
+            "value": d["value"],
+        }
+        for d in docs
+        if not ("left_family" in d and "right_family" in d)
+    ]
+    read_back = _kerning_page(
+        "reconstructOverrides('qsExcite', 'qsGay', input.cell, input.rules)", {"cell": -1, "rules": rules}
+    )
+    key = lambda o: (str(o["left"]), str(o["right"]))
+    assert sorted(read_back, key=key) == sorted(overrides, key=key)
+
+
+def test_kerning_page_junction_inherits_its_enclosing_override_or_the_cell() -> None:
+    """A junction without an override of its own takes the value of the most specific override that holds it, or the cell value when none does."""
+    inherited = _kerning_page(
+        "[inheritedValue(-1, input, 'qsExcite.en-y0.noexit', 'qsGay.ex-y0.ex-ext-1'), inheritedValue(-1, input, 'qsExcite.en-y0', 'qsGay.ex-y5')]",
+        [
+            {"left": "qsExcite.en-y0.noexit", "right": None, "value": -3},
+            {"left": "qsExcite.en-y0.noexit", "right": "qsGay.ex-y0", "value": 0},
+        ],
+    )
+    assert inherited == [0, -1]
+
+
+def test_kerning_page_keeps_an_override_that_decides_a_deeper_glyph_pair() -> None:
+    """A junction override that equals the value it inherits is still kept when it decides a deeper glyph pair that another override would take over without it, and is droppable when it decides none."""
+    enclosing = {"left": "qsThey.en-y5", "right": "qsGay.ex-y0", "value": -1}
+    deeper_right = {"left": "qsThey.en-y5", "right": "qsGay.ex-y0.ex-ext-1", "value": -3}
+    junction = {"left": "qsThey.en-y5.en-ext-1", "right": "qsGay.ex-y0", "value": -1}
+    redundant = _kerning_page(
+        "input.map((overrides) => overrideIsRedundant(0, overrides, 'qsThey.en-y5.en-ext-1', 'qsGay.ex-y0'))",
+        [[enclosing, deeper_right, junction], [enclosing, junction]],
+    )
+    assert redundant == [False, True]
