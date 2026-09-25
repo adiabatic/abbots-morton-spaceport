@@ -1,6 +1,6 @@
-"""Group the actionable "outright broken" emergent leaks into root-cause families.
+"""Print the emergent leaks the human triage marked broken, grouped into root-cause families.
 
-Read-only. Reads the "broken" verdicts from doc/history/2026-06-03--leak-cleanup/leak-emergent-verdicts.txt and groups them by the changed-stance mechanism into the nine families the taxonomy in doc/history/2026-06-03--leak-cleanup/leak-triage.md analyzes. Forward (left-exit) families key on the mechanism; backward (right-entry) families additionally split by predecessor context (the left neighbor across the break).
+It reads the rows marked "in context is outright broken" from doc/history/2026-06-03--leak-cleanup/leak-emergent-verdicts.txt and groups them into the families of doc/history/2026-06-03--leak-cleanup/leak-triage.md. A row whose left stance changed is first matched by that change (`classify_forward`). A row that step does not place is matched mainly by the letters just left of the break (`classify_backward`).
 """
 
 from __future__ import annotations

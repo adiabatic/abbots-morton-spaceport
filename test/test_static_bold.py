@@ -1,11 +1,9 @@
-"""Tests for the Regular / Bold static font pair across all three families.
+"""Tests for the Regular and Bold static fonts of all three families.
 
-Covers:
-
-- The outputs are plain static CFF fonts (no `fvar`, `gvar`, `HVAR`, `CFF2`).
-- RIBBI style linking: `OS/2.fsSelection` carries the Regular (0x40) or Bold (0x20) bit, and `head.macStyle` has the Bold bit (0x01) on Bold fonts.
-- Name-table `familyName` matches between a family's Regular and Bold, and `styleName` / PostScript name differ accordingly.
-- Bold glyphs are exactly `pixel_size // 2` font units wider than their Regular counterparts, same height.
+- The fonts are static CFF, with no `fvar`, `gvar`, `HVAR`, or `CFF2` table.
+- RIBBI style linking: `OS/2.fsSelection` sets the Regular bit (0x40) or the Bold bit (0x20) and not the other, and `head.macStyle` sets the Bold bit (0x01) on Bold fonts only.
+- The name table gives a family's Regular and Bold the same family name (ID 1), the subfamily names "Regular" and "Bold" (ID 2), and PostScript names ending in the style (ID 6).
+- The ink of ·Pea, ·Tea, and ·Ah is `PIXEL_SIZE // 2` font units wider on the right in Bold, at the same height, and every glyph keeps its Regular advance width.
 """
 
 from pathlib import Path
@@ -102,7 +100,7 @@ class TestRIBBIStyleLinking:
 
 
 class TestBoldOverstrikeWidens:
-    """Every 'on' pixel's rectangle is 25 units wider in Bold; the logical pixel grid, advance widths, and glyph height are unchanged."""
+    """Bold draws each pixel `OVERSTRIKE` units wider to the right and leaves the pixel grid, advance widths, and glyph heights unchanged."""
 
     def _bounds(self, font: TTFont, glyph_name: str):
         glyph_set = font.getGlyphSet()
@@ -119,10 +117,8 @@ class TestBoldOverstrikeWidens:
         assert bold_bounds is not None
         reg_x_min, reg_y_min, reg_x_max, reg_y_max = reg_bounds
         bold_x_min, bold_y_min, bold_x_max, bold_y_max = bold_bounds
-        # Left edge unchanged, right edge extended by OVERSTRIKE.
         assert bold_x_min == reg_x_min
         assert bold_x_max - reg_x_max == OVERSTRIKE
-        # Heights identical.
         assert bold_y_min == reg_y_min
         assert bold_y_max == reg_y_max
 

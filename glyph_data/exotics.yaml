@@ -164,7 +164,7 @@ glyphs:
       - " #    # "
       - "#      #"
 
-  uni2305.prop:  # ⌅ Projective (Actually not Numpad Enter)
+  uni2305.prop:  # ⌅ Projective (not the Numpad Enter key, which is U+2324)
     y_offset: 1
     bitmap:
       - "        " #
@@ -399,7 +399,7 @@ glyphs:
       - "#  #   "
       - "#  #   " #
 
-  Ohm.prop:  # Ω Ohm sign
+  Ohm.prop:  # Ω Ohm sign
     bitmap:
       - " ### "
       - "#   #"

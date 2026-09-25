@@ -1,10 +1,8 @@
-"""Static analysis of the emitted Senior `calt` FEA, hunting for shaping-leak risk without shaping every letter tuple.
+"""Parse the emitted Senior `calt` FEA into rules, and test whether two glyphs join.
 
-The dynamic check (`test/test_shaping.py::_check_break_isolation`, the sweep in `tools/build_check_html.py::find_leaks`) shapes sequences and flags any non-joining adjacent pair whose chosen glyphs differ in context vs. in isolation. That sweep costs ≈44x per letter of depth, so it is only run to depth 3 — leaks needing 4+ letters of context go uncaught.
+The dynamic leak sweeps (`find_leaks` and `find_visible_leaks` in `tools/build_check_html.py`) shape every letter sequence up to a length and flag each non-joining adjacent pair whose glyphs differ from those of the halves shaped separately. Each extra letter multiplies their cost by about 44, so `make test` sweeps to length 3, and only `make test-leaks` and `make leak-snapshot` sweep to length 4.
 
-This module instead reads the compiled FEA as a program and asks a structural question: can any contextual substitution change a glyph's shape because of a neighbor it does NOT cursively join? That is the seed of every leak. A non-join is `exit_ys(left) & entry_ys(right) == set()`, exactly as `_pair_join_ys` defines it.
-
-This is a PROTOTYPE / research tool: its job is to test whether "leaks reduce to bounded-window rule firings" actually holds for this font by cross-checking its findings against the dynamic ground truth.
+Reading the FEA as rules lets a caller ask a structural question without shaping: can a contextual substitution change a glyph because of a neighbor it does not join? A pair does not join when `exit_ys(left) & entry_ys(right)` is empty, as in `_pair_join_ys`. The parser keeps only `sub ... by` and `ignore sub` rules inside `feature calt` that mark exactly one glyph. A rule whose replacement is a bracketed list gets `replacement=None`.
 """
 
 from __future__ import annotations
@@ -109,10 +107,10 @@ def _parse_rule(line: str, lookup: str, line_no: int, classes: dict[str, frozens
     replacement: str | None = None
     if kind == "sub":
         if " by " not in body:
-            return None  # not a contextual-stance rule we model (e.g. ligature `sub a b by c` handled below)
+            return None  # A rule without `by`, such as `sub a from [...]`, is not modeled.
         body, rep = body.rsplit(" by ", 1)
         rep = rep.strip()
-        # Replacement may be a single glyph or a [list]; we only model single-glyph contextual swaps.
+        # A bracketed replacement list is kept with no replacement.
         replacement = rep if not rep.startswith("[") else None
 
     if "'" not in body:
@@ -136,8 +134,7 @@ def _parse_rule(line: str, lookup: str, line_no: int, classes: dict[str, frozens
 def _parse_context_with_mark(
     body: str, classes: dict[str, frozenset[str]]
 ) -> tuple[list[frozenset[str]], frozenset[str], list[frozenset[str]]] | None:
-    """Split a marked context body into (backtrack, pivot, lookahead). Exactly one token carries the ' mark."""
-    # Tokenize respecting [inline lists]; a marked token is "<tok>'".
+    """Split a marked context body into (backtrack, pivot, lookahead), or return None unless exactly one token carries the ' mark."""
     tokens: list[tuple[str, bool]] = []  # (token_text, is_marked)
     i = 0
     n = len(body)
@@ -161,7 +158,7 @@ def _parse_context_with_mark(
 
     marks = [idx for idx, (_, mk) in enumerate(tokens) if mk]
     if len(marks) != 1:
-        return None  # multi-mark or unmarked — out of scope for this prototype
+        return None
     pivot_idx = marks[0]
 
     def resolve(tok: str) -> frozenset[str]:
@@ -176,7 +173,7 @@ def _parse_context_with_mark(
     backtrack = [resolve(t) for t, _ in tokens[:pivot_idx]]
     pivot = resolve(tokens[pivot_idx][0])
     lookahead = [resolve(t) for t, _ in tokens[pivot_idx + 1 :]]
-    # Backtrack in FEA is written left-to-right; nearest-to-pivot is last. Keep as-is (index -1 = nearest).
+    # FEA writes backtrack left to right, so index -1 is the position nearest the pivot.
     return backtrack, pivot, lookahead
 
 
@@ -190,9 +187,7 @@ def parse_calt(fea_path: str) -> CaltProgram:
 
     in_feature: str | None = None
     cur_lookup: str | None = None
-    # Rules written directly in `feature calt { ... }` (outside any named lookup) form an implicit
-    # lookup at their position in feature order. We give each maximal run its own synthetic name so
-    # application order is preserved relative to the named lookups around it.
+    # Rules written directly in `feature calt { ... }`, outside a named lookup, form an implicit lookup at their position. Each run of them gets its own synthetic name so that it keeps its order among the named lookups.
     implicit_seq = 0
 
     def target_lookup() -> str:
@@ -237,7 +232,7 @@ def parse_calt(fea_path: str) -> CaltProgram:
 
 
 def joins(left: str, right: str) -> bool:
-    """Whether *left* can cursively hand off to *right* — they share an exit/entry Y. Mirrors `_pair_join_ys`."""
+    """Return whether *left* has an exit at a Y where *right* has an entry, as `_pair_join_ys` computes it."""
     return bool(_exit_ys(left) & _entry_ys(right))
 
 

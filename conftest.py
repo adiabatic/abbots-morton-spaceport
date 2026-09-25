@@ -14,7 +14,7 @@ if TYPE_CHECKING:
 
 ROOT = Path(__file__).resolve().parent
 
-# Put `tools/` and `test/` on the path for the xdist controller too (not just the workers, which each insert their test module's `test/` dir on import). The controller imports this root conftest but no test module, yet it must import `quikscript_join_analysis` to deserialize a `NonJoiningNeighborSelectionWarning` ferried from a worker (raised in-process by `emit_quikscript_senior_features`'s Phase-1 join-contract pass), and it imports `test_shaping` when collecting the `site/` data-expect HTML corpora. Without this, xdist's warning unserialization or the corpus collection raises ModuleNotFoundError and aborts the session.
+# Put `tools/` and `test/` on the path for the xdist controller as well as the workers. The controller imports this file but no test module, yet it must import `quikscript_join_analysis` to deserialize a `NonJoiningNeighborSelectionWarning` sent from a worker, and `test_shaping` to collect the `site/` data-expect HTML corpora. Without these paths, either import raises ModuleNotFoundError and aborts the session.
 for _p in (str(ROOT / "tools"), str(ROOT / "test")):
     if _p not in sys.path:
         sys.path.insert(0, _p)
@@ -22,7 +22,7 @@ for _p in (str(ROOT / "tools"), str(ROOT / "test")):
 
 _shaping_cache: dict[str, Any] = {}
 
-# Where pytest_configure parks the check a rebuild-only run does not wait on, for pytest_sessionfinish to join; popped rather than read so nothing is waited on twice.
+# The pyright check that pytest_configure starts on a rebuild-only run, for pytest_sessionfinish to join. It is popped, not read, so nothing is waited on twice.
 _deferred_pyright: list["Check"] = []
 
 
@@ -37,7 +37,7 @@ def _join_deferred_pyright(interrupted: bool) -> int:
 
 
 def _make_env() -> dict[str, str]:
-    # The outer `make test-and-review` runs with `-j2` and exports a jobserver pipe via MAKEFLAGS. Python's subprocess.run defaults to close_fds=True, so the inner `make all` would inherit the auth string but not the fds and emit "jobserver unavailable: using -j1". Drop MAKEFLAGS so it just runs standalone.
+    # `make test-and-review` runs with `-j2` and exports a jobserver pipe through MAKEFLAGS. subprocess.run closes inherited fds by default, so an inner `make all` would get the jobserver auth string without its fds and print "jobserver unavailable: using -j1". Dropping MAKEFLAGS and MFLAGS makes it run standalone.
     env = os.environ.copy()
     env.pop("MAKEFLAGS", None)
     env.pop("MFLAGS", None)
@@ -58,13 +58,13 @@ def _rebuild_suite_fonts_present() -> bool:
 
 
 def pytest_configure(config: pytest.Config) -> None:
-    # Under xdist, the controller dispatches but doesn't run tests, so the lazy build in _ensure_shaping_cache would never fire on it. Build here before workers spawn, and mark built so each worker skips the no-op `make all` it would otherwise spawn on first shaping test.
+    # Under xdist the controller runs no tests, so it never triggers the lazy build in _ensure_shaping_cache. Build once here, before the workers spawn, and mark the cache built so each worker skips the `make all` it would otherwise run before its first shaping test.
     if hasattr(config, "workerinput"):
         _shaping_cache["_built"] = True
         return
     if config.getoption("dist", "no") == "no":
         return
-    # A rebuild-only run skips `make all` while the site fonts are present: that suite shapes against the fonts its input-closure fingerprint already hashed, so rebuilding them would churn the mtimes the review-surface fixture cache depends on or test bytes nobody fingerprinted. With no font build to overlap, the pyright check is parked for pytest_sessionfinish to join, so its wall hides behind the xdist pool instead of standing ahead of it.
+    # A rebuild-only run skips `make all` while the site fonts are present: that suite shapes against the fonts its closure fingerprint already hashed, and rebuilding them would churn the mtimes the review-surface fixture cache depends on or test bytes nobody fingerprinted. With no font build to overlap, the pyright check is deferred for pytest_sessionfinish to join, so it runs beside the xdist pool instead of before it.
     from rebuild.tools import pyright_gate
 
     pyright = pyright_gate.begin(os.environ, ROOT, env=_make_env())
@@ -77,11 +77,11 @@ def pytest_configure(config: pytest.Config) -> None:
         _deferred_pyright.append(pyright)
 
 
-# What one font-suite worker holds at its peak. Nothing here divides by it — the branch below takes the core count, because a worker this small cannot bind a pool before the cores do — but it is what prices `make test` as a co-resident pool when something else wants the same box, so it is named rather than left in prose. Seeded from the peak-RSS summary line below (issue #51), which has these workers at 0.11–0.28 GB apiece across runs, and rounded up past the top of that range for the same reason kernel_exec.DELTA_PEAK_BYTES rounds up past its own measurement: a per-unit cost that errs low is what puts a box into swap, while one that errs high only narrows a pool.
+# What one font-suite worker holds at its peak. Nothing here divides by it, because the cores limit this pool before memory does (see the hook below). The artifact cycle reads it to estimate `make test`'s pool as a co-resident term when another step shares the machine. It was seeded from the peak-RSS summary line below, which measured these workers at 0.11–0.28 GB each across runs, and rounded up past that range for the reason kernel_exec.DELTA_PEAK_BYTES is: a per-unit cost that errs low can put the machine into swap, while one that errs high only narrows a pool.
 FONT_SUITE_WORKER_BYTES = 300_000_000
 
 
-# What `-n auto` resolves to repo-wide: the box's usable cores — the ones this process may actually run on, affinity mask and cgroup CPU quota included, which os.cpu_count() reads straight past. The font suite's workers cost FONT_SUITE_WORKER_BYTES apiece, so the cores bind that pool before memory does; and no rebuild-suite worker reads a live build artifact (rebuild/conftest.py's audit guard is what holds that), so a bare `uv run pytest rebuild/`, a single rebuild test file, a mixed `pytest rebuild/ test/` and a `pytest .` all take the same answer, and there is no heavier worker to price a run at. memory_budget is imported inside the hook rather than at module scope because this file is loaded by every pytest run in the repo while this hook is called only by the ones that actually spell `-n auto`, so a run that states its own width never pays for the import at all — the same function-scope shape peak_rss and site_fonts are reached in here. Answering this firstresult hook shadows xdist's own, which is where PYTEST_XDIST_AUTO_NUM_WORKERS is normally read, so the variable is read here too and keeps overriding whichever default applies — including rebuild/conftest.py's, which returns None when it is set precisely so this line gets it — a run at a time.
+# Returns the machine's usable cores for `-n auto` everywhere in the repo: the cores this process may run on, counting the affinity mask and any cgroup CPU quota, which os.cpu_count() ignores. A font-suite worker costs only FONT_SUITE_WORKER_BYTES, so the cores limit that pool before memory does. No rebuild-suite worker reads a live build artifact (rebuild/conftest.py's audit guard checks this), so `uv run pytest rebuild/`, a single rebuild test file, a mixed `pytest rebuild/ test/`, and `pytest .` all get the same width. memory_budget is imported inside the hook because every pytest run loads this file but only runs that request `-n auto` call the hook. This firstresult hook overrides xdist's own, which is where PYTEST_XDIST_AUTO_NUM_WORKERS is normally read, so this hook reads the variable itself. The variable overrides every default, including rebuild/conftest.py's hook, which returns None when the variable is set so that this hook sees it.
 def pytest_xdist_auto_num_workers(config: pytest.Config) -> int:
     override = os.environ.get("PYTEST_XDIST_AUTO_NUM_WORKERS")
     if override:
@@ -91,11 +91,11 @@ def pytest_xdist_auto_num_workers(config: pytest.Config) -> int:
     return usable_cores()
 
 
-# Peak RSS per xdist worker (issue #51): each worker reports its own high-water mark at session finish through workeroutput, the controller collects them as nodes shut down, and the terminal summary prints one line — so what `-n auto` actually costs in RAM is measured on every run instead of folklore. Figures are decimal GB via rebuild.tools.peak_rss, the repo-wide yardstick.
+# Peak RSS per xdist worker. Each worker reports its own peak at session finish through workeroutput, the controller collects them as nodes shut down, and the terminal summary prints one line, so every run measures what `-n auto` costs in memory. Figures are decimal GB, formatted by rebuild.tools.peak_rss.
 _worker_peak_rss: dict[str, int] = {}
 
 
-# tryfirst makes the controller's half the outermost wrapper, after the terminal reporter's and xdist's teardown, so the `pyright:` line lands below the pytest summary and the check's wait stays off the summary's clock; test_pyright_gate pins the flag. The worker's half writes its peak before yielding because xdist's own wrapper, nested inside this one, ships workeroutput before this one resumes.
+# tryfirst makes the controller's half the outermost wrapper, outside the terminal reporter's and xdist's, so the `pyright:` line prints below the pytest summary and the wait for pyright is not counted in the summary's time. test_pyright_gate checks the flag. The worker's half writes its peak before yielding, because xdist's wrapper, nested inside this one, sends workeroutput before this one resumes.
 @pytest.hookimpl(wrapper=True, tryfirst=True)
 def pytest_sessionfinish(session: pytest.Session, exitstatus: int) -> Generator[None, object, object]:
     if hasattr(session.config, "workerinput"):
@@ -138,7 +138,7 @@ def pytest_terminal_summary(terminalreporter, exitstatus, config: pytest.Config)
         line += f"; workers {workers}"
     terminalreporter.write_line(line)
 
-    # The line above is for whoever is watching this one run finish; the record below keeps the same measurement so it can be read against a checked-in constant later. Several widths in this tree are the box divided by a per-worker peak that was measured once and then written down — FONT_SUITE_WORKER_BYTES above, the surface build's constants in rebuild/tools/artifact_cycle.py — and until this record existed a memory-saver that moved one of those peaks left the constant quietly stale, with a box in swap as the first symptom rather than anything red. A pool only names itself when a caller told it what it is a pool of, so an unlabeled `uv run pytest` writes nothing. The width comes from the resolved numprocesses rather than from len(_worker_peak_rss): xdist resolves "auto" through the hook above during pytest_cmdline_main, long before this point, so the option holds the width the pool actually ran at, while the peaks dict is only the reporting width and is short by one whenever a node dies without handing back its workeroutput. cycle_timings is imported inside the hook rather than at module scope for the reason the hook above reaches memory_budget that way: this file is loaded by every pytest run in the repo and by things that are not pytest at all, while only a controller ever reaches this line, every worker having returned at the top of the hook. The same import supplies the sort the printed line above uses, so the workers a human just read and the workers the record keeps are ordered by one key rather than by two copies of it that can drift. The variable is only ever read here and is only ever set on a child's own environment dict, never on os.environ, so a nested pytest cannot inherit a stale unit name and file its pool under somebody else's.
+    # Records the same measurement in the cycle-timings journal so `make job-costs` can compare it with the checked-in constants (FONT_SUITE_WORKER_BYTES above, the surface build's constants in rebuild/tools/artifact_cycle.py). Only a pool whose caller set POOL_UNIT_ENV is recorded, so an unlabeled `uv run pytest` writes nothing. The width comes from the resolved numprocesses, not len(_worker_peak_rss): xdist resolves "auto" through the hook above during pytest_cmdline_main, so the option holds the width the pool ran at, while the peaks dict is one short whenever a node dies without returning its workeroutput. cycle_timings is imported inside the hook because this file is loaded by every pytest run and by tools that are not pytest, while only a controller reaches this line. Its `gateway_order` also sorts the printed line above, so both list the workers in the same order. POOL_UNIT_ENV is only ever set on a child's own environment dict, never on os.environ, so a nested pytest cannot inherit a stale unit name and record its pool under another name.
     unit = os.environ.get(POOL_UNIT_ENV, "").strip()
     width = getattr(config.option, "numprocesses", None)
     if unit and _worker_peak_rss and isinstance(width, int) and width >= 1:

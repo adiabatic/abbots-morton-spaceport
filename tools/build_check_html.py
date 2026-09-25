@@ -1,20 +1,18 @@
-"""Generate site/check.html — the side-by-side before/after rendering harness.
-
-One program, one file out. Replaces the previous arrangement where a static ``site/check.html`` was mutated in place by two separate splicer tools.
+"""Generate site/check.html, the side-by-side before/after rendering page.
 
 The page contains:
 
-* Standard page chrome (title, intro, workflow notes, footer).
-* A "corpus render diffs" section: every multi-letter Quikscript run harvested from ``site/the-manual.html``, ``site/index.html``, and ``site/extra-senior-words.html`` whose Senior-Regular render differs between ``site/before/`` and the live build. Skipped with a notice when the snapshot is missing.
-* An "isolation leaks" section: short sequences whose adjacent non-joining pair changes shape when the pair is shaped together vs. independently — the same invariant as ``_check_break_isolation`` in ``test/test_shaping.py``. These are the cases that need ``|?|`` (instead of ``|``) in ``data-expect``.
-* A "failing tests" section: one row per assertion line from a currently-failing pytest test under ``test/``. The row renders the input families parsed out of the failure message so you can eyeball false positives.
-* A copy-codepoints click handler so each row's ``U+E6XX`` strip can be copied as a prompt preamble.
+* A "failing tests" section: one row per assertion line from each failing pytest test under ``test/`` and ``site/``. Each row renders the letters parsed out of the failure message, so false positives can be checked by eye.
+* A "corpus render diffs" section: every multi-letter Quikscript run in ``site/the-manual.html``, ``site/index.html``, and ``site/extra-senior-words.html`` whose Senior-Regular render differs between ``site/before/`` and the live build. When ``site/before/`` has no Senior font, the section shows a notice instead.
+* An "isolation leaks" section: short sequences whose adjacent non-joining pair renders differently when the pair is shaped together than when each side is shaped alone. This is the check ``_check_break_isolation`` in ``test/test_shaping.py`` applies, and a ``data-expect`` for an intended leak writes ``|?|`` instead of ``|``.
+* A depth-4 triage section that renders the leaks listed in ``site/bad-leak-backlog.txt``.
+* A copy button on each row that copies its ``U+E6XX`` code points as a prompt preamble.
 
-Run (after ``make all`` and, optionally, ``make check-html-before`` on the baseline branch)::
+Run it after ``make all`` and, optionally, ``make check-html-before`` on the baseline branch::
 
     uv run python tools/build_check_html.py
 
-``--max-len`` controls how deep the isolation-leaks sweep goes (default 3, which catches every pair plus single-letter context on either side; bump to 4 for a slower deeper sweep).
+``--max-len`` sets the longest sequence the isolation-leaks sweep shapes (default 3, a pair plus one letter of context; 4 is slower and finds leaks that need more context).
 """
 
 from __future__ import annotations
@@ -69,7 +67,7 @@ from leak_contract_report import FEA_PATH as CONTRACT_FEA_PATH  # noqa: E402
 from leak_contract_report import classify as classify_leak_contract  # noqa: E402
 from leak_static_analysis import parse_calt  # noqa: E402
 
-# Isolation-leak detection (was tools/find_isolation_leaks.py).
+# Isolation-leak detection.
 
 
 @dataclass(frozen=True)
@@ -95,7 +93,7 @@ class IsolationLeakExample:
 
 
 def _is_letter_glyph(name: str) -> bool:
-    """Whether *name* is a Quikscript letter glyph eligible for the isolation check. Mirrors ``_is_qs_letter`` in ``test/test_shaping.py``."""
+    """Whether *name* is a Quikscript letter glyph eligible for the isolation check. Like ``_is_qs_letter`` in ``test/test_shaping.py``, but it also excludes the angle parentheses."""
     if not name.startswith("qs"):
         return False
     base = name.split(".", 1)[0]
@@ -107,7 +105,7 @@ def _is_boundary_token(family: str) -> bool:
 
 
 def _family_owner_glyphs(names: tuple[str, ...], clusters: tuple[int, ...], n_families: int) -> list[int]:
-    """For each input-family index, the output-glyph index that covers it. Built from HarfBuzz clusters so it stays correct when a ligature covers several families or a boundary token (ZWNJ) shapes to nothing — the dropped token's family index is absorbed into the preceding glyph's cluster range, but the sweep reads the token from ``families`` directly, so nothing is lost."""
+    """Return, for each input-family index, the index of the output glyph that covers it. It reads HarfBuzz clusters, so it stays correct when a ligature covers several families or a ZWNJ shapes to no glyph. A dropped token's index maps to the preceding glyph, and the sweep reads tokens from ``families`` directly."""
     owner = [0] * n_families
     for k in range(len(names)):
         start = clusters[k]
@@ -128,7 +126,7 @@ def _first_letter(glyphs: list[str]) -> str | None:
 def _scan_sequence(families: tuple[str, ...]) -> list[tuple[int, Leak]]:
     """Return (break_index, Leak) pairs for every leaky break in *families*.
 
-    A break sits between two letter families separated only by zero or more boundary tokens. When tokens are present it is always a pen-lift (cursive cannot cross ``space``/ZWNJ); with no token between, it is a break only when the two flanking glyphs do not cursive-join. The isolated reference is boundary-faithful: each half keeps the boundary token (it sits in both halves), so space-keyed ``calt`` is honored consistently and only a difference reaching *across* the token is flagged.
+    A break sits between two letter families separated by zero or more boundary tokens. With a token between them it is always a break, because cursive attachment cannot cross ``space`` or ZWNJ. With no token, it is a break only when the two glyphs do not cursive-join. Each isolated half keeps the boundary tokens, so space-keyed ``calt`` behaves the same in both shapings and only a difference across the token is flagged.
     """
     names, clusters = _shape_with_clusters(_qs_text(*families))
     if len(names) < 2:
@@ -139,7 +137,7 @@ def _scan_sequence(families: tuple[str, ...]) -> list[tuple[int, Leak]]:
     for j_left, j_right in zip(letter_positions, letter_positions[1:]):
         between = families[j_left + 1 : j_right]
         if owner[j_left] == owner[j_right]:
-            # An internal ligature-fusion seam: both flanking families resolve to the same fused glyph, drawn in one continuous motion with no pen-lift, so by decision 3 of doc/definitions/shaping-leakage.md it is not a break.
+            # Both families are covered by one ligature glyph, so this is not a break (decision 3 of doc/definitions/shaping-leakage.md).
             continue
         left_chosen = names[owner[j_left]]
         right_chosen = names[owner[j_right]]
@@ -148,7 +146,7 @@ def _scan_sequence(families: tuple[str, ...]) -> list[tuple[int, Leak]]:
         if not between and (_exit_ys(left_chosen) & _entry_ys(right_chosen)):
             # A mid-word pair that actually cursive-joins is not a break.
             continue
-        # Boundary-faithful halves: the token(s) between the letters appear in both.
+        # The tokens between the letters appear in both halves.
         left_shaped = _shape_qs(*families[:j_right])
         right_shaped = _shape_qs(*families[j_left + 1 :])
         isolated_left = _last_letter(left_shaped)
@@ -176,7 +174,7 @@ def _sweep_alphabet() -> list[str]:
 
 
 def _is_degenerate_sequence(families: tuple[str, ...]) -> bool:
-    """Skip sequences a boundary token could not really occupy: a token at either edge (no letter to flank), or two adjacent tokens (no real text writes ``space`` next to ZWNJ)."""
+    """Return True for sequences the sweep skips: those with a boundary token at either end, where the token has no letter on one side, and those with two adjacent boundary tokens, since real text does not put ``space`` next to ZWNJ."""
     if _is_boundary_token(families[0]) or _is_boundary_token(families[-1]):
         return True
     return any(_is_boundary_token(a) and _is_boundary_token(b) for a, b in zip(families, families[1:]))
@@ -198,7 +196,7 @@ def find_leaks(max_len: int) -> dict[Leak, IsolationLeakExample]:
 def find_visible_leaks(max_len: int) -> dict[tuple[str, str, str, str], IsolationLeakExample]:
     """Map each *visible* leak signature to a representative example that renders it visibly.
 
-    Visibility is a property of the rendered run, not of the signature: the same flanking-glyph swap renders visibly in one context (a predecessor or follower that joined the now-changed edge) and invisibly in another, so a signature counts as visible if *any* swept example renders a ``diff``. Determined this way the visible set is independent of enumeration order — unlike keying off whichever example surfaced first — so adding the boundary tokens to the alphabet (whose examples often render ``same`` by boundary-faithfulness) cannot mask a letters-only leak. Once a signature is known visible its later occurrences are skipped, so the per-occurrence render is paid only until the first ``diff``.
+    The same glyph swap can render visibly in one context (a neighbor that joined the changed edge) and invisibly in another, so a signature counts as visible if any swept example renders a ``diff``. The visible set therefore does not depend on enumeration order, and examples with boundary tokens, which often render ``same``, cannot hide a leak that a letters-only example shows. After a signature's first ``diff``, its later occurrences are not rendered.
     """
     alphabet = _sweep_alphabet()
     visible: dict[tuple[str, str, str, str], IsolationLeakExample] = {}
@@ -221,7 +219,7 @@ def _next_letter_index(families: tuple[str, ...], after: int) -> int:
 
 
 def _shaped_input_spans(example: IsolationLeakExample) -> tuple[tuple[int, int], tuple[int, int]]:
-    """The two boundary-faithful half-slices of ``example.families``. ``break_index`` is the left letter's family index; the right letter is the next non-token family. The slices overlap on any boundary token between them, because the token belongs to both halves."""
+    """Return the `(start, stop)` slices of ``example.families`` for the left and right halves. ``break_index`` is the left letter's index and the right letter is the next non-token family. The slices overlap on the boundary tokens between the two letters."""
     j_left = example.break_index
     j_right = _next_letter_index(example.families, j_left)
     return (0, j_right), (j_left + 1, len(example.families))
@@ -233,7 +231,7 @@ def _visual_signature(name: str) -> tuple:
 
 
 def _abs_render_signature(parts: tuple[str, ...]) -> tuple[list[tuple], int, int]:
-    """Shape *parts* and return per-glyph (name, visual, abs_x, abs_y) plus the sequence's total advance — the single-buffer equivalent of how the inline-block halves butt up in the rendered HTML. The `kern` feature is turned off because an isolation leak is about joining and contextual stance selection, not spacing: a kern pair that legitimately tightens a non-joining break (e.g. ·Ye·It) would otherwise shift the in-context run but not the independently-shaped halves, flagging intended kerning as a leak even when the two stances are visually identical."""
+    """Shape *parts* and return each glyph's `(name, visual, abs_x, abs_y)` with the run's total x and y advance, so the two halves can be placed end to end as the inline-block halves are in the HTML. Shaping turns `kern` off: a kern pair that tightens a non-joining break (such as ·Ye·It) moves the in-context run but not the separately shaped halves, and would show up as a leak even when the stances are the same."""
     font = _font()
     buf = hb.Buffer()
     buf.add_str(_qs_text(*parts))
@@ -251,9 +249,9 @@ def _abs_render_signature(parts: tuple[str, ...]) -> tuple[list[tuple], int, int
 
 
 def _visual_status(example: IsolationLeakExample) -> str:
-    """Classify a leak as ``same`` or ``diff`` by comparing the in-context render of the example sequence against the concatenation of its two boundary-faithful halves.
+    """Classify a leak as ``same`` or ``diff`` by comparing the in-context render of the example sequence with its two halves placed end to end.
 
-    The left half ends with the shared boundary token (if any); the right half begins with it. Since both halves are shaped *with* the token (so each flanking letter's space-keyed stance is faithful), the token glyph would otherwise render twice. So when concatenating we drop the right half's leading boundary glyphs and re-base the remaining glyphs onto the left half's advance — the token is rendered exactly once, at its real position.
+    Both halves are shaped with the shared boundary token, so each letter gets its space-keyed stance. To render the token once, the concatenation drops the right half's leading non-letter glyphs and shifts the rest to start at the left half's advance.
     """
     full_entries, _, _ = _abs_render_signature(example.families)
     (l0, l1), (r0, r1) = _shaped_input_spans(example)
@@ -272,7 +270,7 @@ def _visual_status(example: IsolationLeakExample) -> str:
     return "same" if full_sigs == halves_sigs else "diff"
 
 
-# Render-diff detection (was tools/find_render_diffs.py).
+# Render-diff detection.
 
 
 CORPUS_FILES: tuple[Path, ...] = (
@@ -392,7 +390,7 @@ def _harvest_sequences(paths: tuple[Path, ...]) -> list[str]:
 
 
 def find_diffs() -> list[SequenceDiff]:
-    """Compare snapshot vs. live Senior-Regular renders for every harvested multi-letter run. Caller is expected to confirm BEFORE_FONT exists."""
+    """Return the harvested multi-letter runs whose Senior-Regular render differs between the snapshot and the live build. The caller checks that BEFORE_FONT exists."""
     if not AFTER_FONT.exists():
         raise SystemExit(
             f"Live build missing: {AFTER_FONT.relative_to(ROOT)} not found.\n" "Run `make all` first."
@@ -428,7 +426,7 @@ class FailureRow:
 
 
 class _FailureCollector:
-    """Pytest plugin that captures longreprs of failing tests. Works under xdist because pytest forwards `pytest_runtest_logreport` to the controller after each worker finishes."""
+    """Pytest plugin that records the long report of each failing test. It works under xdist because the controller calls `pytest_runtest_logreport` for each report a worker sends."""
 
     def __init__(self) -> None:
         self.failures: list[TestFailure] = []
@@ -449,7 +447,7 @@ _E_LINE_RE = re.compile(r"^E\s{2,}(.*)$")
 def _extract_assertion_lines(longrepr: str) -> list[str]:
     """Pull the `E   …` assertion lines out of a pytest long traceback.
 
-    The first such line is preceded by `AssertionError: ` (or whatever exception name); strip that prefix so each entry is a bare message. Continuation lines without the `E   ` prefix are joined onto the previous entry.
+    Each `E` line is one entry. An `AssertionError: ` prefix is stripped from any line, and any other `…Error: ` or `…Exception: ` prefix from the first. Lines without the `E` prefix are ignored.
     """
     out: list[str] = []
     for raw in longrepr.splitlines():
@@ -467,19 +465,13 @@ def _extract_assertion_lines(longrepr: str) -> list[str]:
     return out
 
 
-# `_collect_stranded_extension_joins` (and its siblings) format their
-# failure messages as `[a·b] / qsX / qsY / [c·d]: <reason>`. `∅` marks an
-# empty context slot. `ZWNJ` is a context token, not a family. Anything
-# else we leave alone.
+# `_collect_stranded_extension_joins` and other helpers in test/test_calt_regressions.py label failures as `[a·b] / qsX / qsY / [c·d]: <reason>`, where `∅` marks an empty context.
 _FAILURE_LABEL_RE = re.compile(
     r"^\s*((?:\[[^\]]*\]|qs[A-Za-z0-9]+)(?:\s*/\s*(?:\[[^\]]*\]|qs[A-Za-z0-9]+))+)\s*:"
 )
 _FAMILY_TOKEN_RE = re.compile(r"qs[A-Za-z0-9]+|ZWNJ")
 
-# `test_join_ink.py` reports gaps as
-# `qsX.variant -> qsY.variant at y=N (kind): reason (context ·A·B·C·D)`.
-# When the `[…] / qsX / qsY / […]:` shape doesn't match, fall back to the
-# trailing `(context …)` clause and pull families out of that.
+# `test_join_ink.py` reports gaps as `qsX.variant -> qsY.variant at y=N (kind): reason (context ·A·B·C·D)`. Messages without the bracketed label fall back to this trailing clause.
 _CONTEXT_CLAUSE_RE = re.compile(r"\(context\s+((?:·(?:qs[A-Za-z0-9]+|ZWNJ))+)\s*\)")
 
 
@@ -614,13 +606,13 @@ def _tables_letter_name(family: str) -> str:
     return _FAMILY_TO_TABLES_NAME.get(family, family[2:])
 
 
-# Standard "open in new window" icon, used for 3-letter rows that point at one specific cell.
+# The "open in new window" icon, for 3-letter rows that link to one cell.
 _OPEN_IN_TABLES_ICON = '<img src="icons/open-in-new.svg" alt="" width="12" height="12">'
 
-# Three cells with the leftmost two filled — points at a tables.html column strip where the pair appears as the first two letters of every cell.
+# Three cells with the leftmost two filled. It links to a tables.html column strip where the pair is the first two letters of every cell.
 _OPEN_IN_TABLES_FIRST_TWO_ICON = '<img src="icons/cells-fade-right.svg" alt="" width="12" height="12">'
 
-# Mirror image — points at a tables.html row strip where the pair appears as the last two letters of every cell.
+# The mirror image. It links to a tables.html row strip where the pair is the last two letters of every cell.
 _OPEN_IN_TABLES_LAST_TWO_ICON = '<img src="icons/cells-fade-left.svg" alt="" width="12" height="12">'
 
 
@@ -683,7 +675,7 @@ def _format_leak_label(leak: Leak, example: IsolationLeakExample) -> tuple[str, 
     return f"{label} ({diff})", code
 
 
-# The preset triage verdicts, as (button label, statement that lands in the textarea, visual mark) triples. The mark drives the per-row highlight a click paints onto the previews: "broken" strikes the in-context preview through with a red X, "in-context" / "halves" outline whichever preview the verdict prefers in green. The free-text input alongside them covers the "actually we should change something else" case (e.g. "these letters should never join; update the YAML") and paints no mark.
+# The preset triage verdicts, as (button label, statement written to the textarea, mark) triples. The mark sets the row's highlight: "broken" draws a red X over the in-context preview, and "in-context" and "halves" outline the preferred preview in green. The free-text input beside the buttons sets no mark.
 _VERDICT_CHOICES: tuple[tuple[str, str, str], ...] = (
     ("broken", "in context is outright broken", "broken"),
     ("in-context better", "in context is just better than halves-shaped-separately", "in-context"),
@@ -809,13 +801,13 @@ def _isolation_leaks_section(
     )
 
 
-# The everyday section above re-sweeps live at ``--max-len`` (3 by default). The depth-4 sweep that surfaces context-revealed leaks is too slow to re-run on every ``make check-html-after`` (≈50 s), so its result is frozen in ``site/isolation-leak-snapshot.txt`` and gated by ``make test-leaks``. This section reads that committed file back and renders each approved leak in the same side-by-side layout, so the snapshot doubles as a visual triage list: every row is a known depth-4 leak, and a row whose two columns now match is one you've fixed and can re-bless out with ``make leak-snapshot``.
+# The isolation-leaks section sweeps at ``--max-len`` (3 by default). The depth-4 sweep is too slow to run on every ``make check-html-after``, so ``make leak-snapshot`` writes its bad leaks to ``site/bad-leak-backlog.txt`` and ``make test-leaks`` checks that file. This section renders each line of it in the same side-by-side layout. A row whose two columns now match is fixed, and ``make leak-snapshot`` removes it.
 
 _SNAPSHOT_LABEL_RE = re.compile(r"^(.*?)\s*\[break\s+(\d+)\]$")
 
 
 def _leak_from_snapshot_diff(diff: str) -> Leak:
-    """Reconstruct a :class:`Leak` from a snapshot line's ``L a->b | R c->d`` diff. Mirrors ``tools/leak_snapshot._parse_diff``, but builds the dataclass directly."""
+    """Reconstruct a :class:`Leak` from a snapshot line's ``L a->b | R c->d`` diff. It parses the same way as ``tools/leak_snapshot._parse_diff``."""
     isolated_left = left_chosen = isolated_right = right_chosen = ""
     for clause in diff.split(" | "):
         clause = clause.strip().lstrip("*").strip()
@@ -832,7 +824,7 @@ def _leak_from_snapshot_diff(diff: str) -> Leak:
 
 
 def _example_from_snapshot_label(label: str) -> IsolationLeakExample:
-    """``He Awe Thaw Ing [break 1]`` -> the families/break-index example. The label tokens are family names with the ``qs`` prefix stripped (see ``leak_snapshot._example_label``), so re-prefixing round-trips them; the swept families are always single letters, never ligatures."""
+    """Parse a label such as ``He Awe Thaw Ing [break 1]`` into its example. ``leak_snapshot._example_label`` strips the ``qs`` prefix from each family, so adding it back recovers the name. Swept families are single letters or boundary tokens, never ligatures."""
     match = _SNAPSHOT_LABEL_RE.match(label.strip())
     if not match:
         raise ValueError(f"unparseable snapshot label: {label!r}")
@@ -841,7 +833,7 @@ def _example_from_snapshot_label(label: str) -> IsolationLeakExample:
 
 
 def parse_leak_snapshot(path: Path = LEAK_SNAPSHOT_PATH) -> list[tuple[Leak, IsolationLeakExample, str]]:
-    """Each item is the reconstructed leak, its example, and the verbatim snapshot line. The verbatim line is what the triage UI emits as a verdict's identity, so a collected punch list `grep -F`s straight back to the signature it came from."""
+    """Return `(leak, example, line)` for each entry in the snapshot file at *path*. The triage UI uses the unchanged line to identify each verdict, so `grep -F` finds a collected verdict's line in the snapshot."""
     items: list[tuple[Leak, IsolationLeakExample, str]] = []
     for raw in path.read_text().splitlines():
         line = raw.strip()
@@ -852,7 +844,7 @@ def parse_leak_snapshot(path: Path = LEAK_SNAPSHOT_PATH) -> list[tuple[Leak, Iso
     return items
 
 
-# Signature -> human label + blurb for each fold of leaks the join contract takes off the triage list. The contract itself lives in doc/history/2026-06-03--leak-cleanup/leak-prevention-plan.md; the per-row classification comes from tools/leak_contract_report.py.
+# Contract class -> (heading, blurb) for each collapsed group of leaks that the join contract removes from the triage list. The contract is described in doc/history/2026-06-03--leak-cleanup/leak-prevention-plan.md, and tools/leak_contract_report.py classifies each row.
 _MOOT_FOLD_COPY: dict[str, tuple[str, str]] = {
     "droppable": (
         "Contract will erase — no verdict needed",
@@ -868,7 +860,7 @@ _MOOT_FOLD_COPY: dict[str, tuple[str, str]] = {
 def _classify_snapshot(
     items: list[tuple[Leak, IsolationLeakExample, str]],
 ) -> dict[tuple[str, str, str, str], str]:
-    """Map each snapshot leak's signature to its join-contract class (``droppable`` / ``cosmetic`` / ``emergent`` / ``mixed``) so the triage list can fold away the rows the contract handles. Best-effort: if the built Senior FEA is absent or unparseable, return an empty map and the caller renders every row expanded, exactly as before the contract report existed."""
+    """Map each snapshot leak's signature to its join-contract class (``droppable`` / ``cosmetic`` / ``emergent`` / ``mixed``) so the triage list can collapse the rows the contract handles. If the built Senior FEA is missing or classification fails, return an empty map, and the caller shows every row expanded."""
     if not CONTRACT_FEA_PATH.exists():
         return {}
     snapshot = [
@@ -917,7 +909,7 @@ def _leak_snapshot_section(items: list[tuple[Leak, IsolationLeakExample, str]]) 
     cosmetic: list[tuple[Leak, IsolationLeakExample, str, str]] = []
     fixed = 0
     for leak, example, snapshot_line in sorted(items, key=lambda item: _leak_sort_key((item[0], item[1]))):
-        # A drifted snapshot whose families no longer shape to that break would raise here; the test-leaks gate would already be red, so just skip the stale row rather than abort the whole page.
+        # Skip a stale snapshot row instead of failing the page. `make test-leaks` already fails on a stale snapshot.
         try:
             visual = _visual_status(example)
         except RuntimeError as exc:
@@ -927,7 +919,7 @@ def _leak_snapshot_section(items: list[tuple[Leak, IsolationLeakExample, str]]) 
             fixed += 1
         signature = (leak.isolated_left, leak.left_chosen, leak.isolated_right, leak.right_chosen)
         row = (leak, example, visual, snapshot_line)
-        # Anything the contract cannot single-handedly prevent — emergent, mixed, or unclassified when the FEA was unavailable — still needs eyes, so it goes in the expanded triage list.
+        # Rows the contract cannot prevent on its own (emergent, mixed, or unclassified because the FEA was missing) go in the expanded triage list.
         klass = klass_by_sig.get(signature, "emergent")
         if klass == "droppable":
             droppable.append(row)

@@ -1,13 +1,13 @@
-"""Enumerate Quikscript "hard-case" stance-junctions and emit JSON for site/kerning.html.
+"""Enumerate Quikscript "hard-case" stance junctions and write JSON for site/kerning.html.
 
-The kerning matrix in ``site/kerning.html`` shows only the isolated two-letter shaping of each family pair. Some stance-to-stance junctions can never appear that way: e.g. ·No·Utter shapes to ``qsNo.alt`` + ``qsUtter`` in isolation, but the (plain ·No, alt ·Utter) and (alt ·No, alt ·Utter) combinations only ever show up in longer context. This generator finds those hidden junctions two complementary ways and unions them:
+The kerning matrix in ``site/kerning.html`` shows only the isolated two-letter shaping of each family pair, so some stance-to-stance junctions never appear there. For example, ·No·Utter shapes to ``qsNo.alt`` + ``qsUtter`` in isolation, so the (plain ·No, alt ·Utter) and (alt ·No, alt ·Utter) combinations appear only in longer text. This tool finds those junctions from two sources and takes their union:
 
-1. **Alt-axis cross-product** (the primary source for families with discrete alternates): for every family pair where at least one side has an enabled ``traits: [alt]`` stance, enumerate the ``{plain, alt}`` cross-product, drop the combo equal to the isolated two-letter rendering, and keep each remaining combo that some real context realizes. The emitted selector is collapsed to the kerning-relevant axis — ``qsUtter.alt`` (a prefix matching every alt variant), and "plain" as the family minus its ``.alt`` sub-family. ``half`` is wired but disabled (see ``ALT_AXIS_KINDS``).
-2. **Demote/restore tables**: the ``predecessor_demote_overrides``, ``trailing_demote_overrides``, and ``restore_isolated_form_overrides`` tables in ``glyph_data/quikscript.yaml`` encode specific contextual corrections (``qsIt.ex-y0.before-day`` and the like) that the alt-axis pass doesn't cover. These are kept for every pair, except where a junction collapses onto a combo the alt-axis pass already owns (``superseded_by_alt_axis``).
+1. **Alt-axis cross-product.** For every family pair where at least one side has an enabled ``traits: [alt]`` stance, it enumerates the ``{plain, alt}`` combinations and keeps each one that some context produces. When a pair has at least one other combination, the combination its isolated two-letter shaping produces is also emitted, with ``isolated: true``. Each side's selector covers a whole kind: ``qsUtter.alt`` is a prefix that matches every alt variant, and "plain" is the family minus its ``.alt`` variants. ``half`` is supported but disabled (see ``ALT_AXIS_KINDS``).
+2. **Demote and restore tables.** The ``predecessor_demote_overrides``, ``trailing_demote_overrides``, and ``restore_isolated_form_overrides`` tables in ``glyph_data/quikscript.yaml`` name specific contextual stances (such as ``qsIt.ex-y0.before-day``) that the alt-axis pass does not cover. A junction from these tables is dropped as ``superseded_by_alt_axis`` when the alt-axis pass already emitted junctions for its family pair.
 
-For each surviving junction it looks for a context that reproduces it, preferring a literal/corpus context and falling back to a bounded, deterministic synthetic search, then records the dimming offsets the web page needs to highlight just the junction.
+For each junction it looks for a context that produces it, trying corpus text first and then a bounded, deterministic synthetic search, and records the offsets site/kerning.html uses to highlight the junction within that context.
 
-Run (after ``make all``)::
+Run after ``make all`` (``make build-kerning-hardcases`` runs both)::
 
     uv run python tools/build_kerning_hardcases.py
 """
@@ -56,7 +56,7 @@ ENTITY_DEC_RE = re.compile(r"&#(\d+);")
 
 ENTRYLESS_MARKERS = (".noentry", ".ex-noentry", ".nonjoining-left")
 
-# The discrete-alternate axes (CLAUDE.md's genuine `traits`) the cross-product pass enumerates. `half` is deliberately disabled this pass — it is more entangled with join geometry (e.g. ·He carries a `shared_kern_entangled` skip) — but the machinery treats it identically, so promoting it is a one-tuple change here.
+# The trait kinds the cross-product pass enumerates. `half` is left out because it interacts more with join geometry (·He has a `shared_kern_entangled` skip). The code handles any kind the same way, so enabling it means adding it to this tuple.
 ALT_AXIS_KINDS = ("alt",)
 
 
@@ -78,9 +78,9 @@ def _family_char(family: str) -> str | None:
 
 
 def _prefix_match(glyph_name: str, target: str) -> bool:
-    """``glyph_name`` reproduces ``target``.
+    """Return whether ``glyph_name`` matches the target stance ``target``.
 
-    A bare-family ``target`` (no ``.`` in the name) requires an *exact* match: the demote tables' bare ``isolated_form`` means exactly that bare glyph, so a context that renders a sibling contextual stance (``qsJai.en-y5.ex-y0`` for target ``qsJai``) is a *different* junction and must not be accepted. A dotted-stance ``target`` (e.g. ``qsGay.ex-y0``) prefix-matches, tolerating deeper exit/entry modifiers (``qsGay.ex-y0.ex-ext-1``).
+    A bare family name must match exactly, because the demote tables' bare ``isolated_form`` means that bare glyph: ``qsJai.en-y5.ex-y0`` is a different junction from ``qsJai``. A dotted stance name also matches any name that extends it with further modifiers (``qsGay.ex-y0`` matches ``qsGay.ex-y0.ex-ext-1``).
     """
     if "." not in target:
         return glyph_name == target
@@ -127,9 +127,9 @@ def _stance_prefix(glyph_name: str, base: str) -> str | None:
 
 
 def _glyph_kind(glyph_name: str) -> str:
-    """The discrete-alternate kind of a shaped glyph, collapsed to the enabled axes: ``"alt"`` (or ``"half"`` once enabled) when it carries that trait, else ``"plain"``.
+    """Return the first kind in ``ALT_AXIS_KINDS`` that the glyph has as a trait, or ``"plain"``.
 
-    With ``half`` disabled, a half-traited glyph reads as ``"plain"`` — i.e. the whole family is treated as one kind — which is exactly what keeps non-enabled axes out of the cross-product.
+    A glyph whose only trait is a disabled kind, such as ``half``, counts as ``"plain"``, which keeps disabled kinds out of the cross-product.
     """
     meta = _compiled_meta().get(glyph_name)
     traits = meta.traits if meta is not None else frozenset()
@@ -140,7 +140,7 @@ def _glyph_kind(glyph_name: str) -> str:
 
 
 def _family_alt_kinds() -> dict[str, set[str]]:
-    """Map each plain family to the set of *enabled* discrete-alternate kinds it actually has a stance for (e.g. ``qsNo -> {"alt"}``)."""
+    """Map each family to the kinds in ``ALT_AXIS_KINDS`` it has a non-ligature stance for (for example ``qsNo -> {"alt"}``)."""
     result: dict[str, set[str]] = defaultdict(set)
     for name, meta in _compiled_meta().items():
         if "_" in name:
@@ -152,18 +152,18 @@ def _family_alt_kinds() -> dict[str, set[str]]:
 
 
 def _selector_alt_kind(family: str, kind: str) -> dict:
-    """Per-side selector for an alternate kind: a stance-prefix (``qsNo.alt``) that the build's prefix-match catches uniformly across that kind's variants."""
+    """Return the selector for one side's alternate kind: the stance prefix ``qsNo.alt``, which matches every variant of that kind."""
     return {"family": family, "kind": kind, "stance": f"{family}.{kind}", "except": None}
 
 
 def _selector_plain(family: str, alt_kinds_present: set[str]) -> dict:
-    """Per-side selector for the *plain* kind on an alt-axis pair: the whole family minus its enabled alternate sub-families (``except``), since a bare-family prefix would wrongly catch ``qsNo.alt``."""
+    """Return the selector for one side's plain kind: the whole family with its enabled alternate stances in ``except``, because the bare family name alone would also match ``qsNo.alt``."""
     excepts = [f"{family}.{kind}" for kind in ALT_AXIS_KINDS if kind in alt_kinds_present]
     return {"family": family, "kind": "plain", "stance": None, "except": excepts or None}
 
 
 def _selector_from_stance_prefix(stance: str | None, base: str) -> dict:
-    """Per-side selector for a table-derived junction. ``stance is None`` is the bare whole family (the old ``leftForm: null`` semantics — no carve-out); a stance-prefix is a specific contextual stance override."""
+    """Return the selector for one side of a table-derived junction: the whole family when ``stance`` is None, otherwise that stance prefix."""
     if stance is None:
         return {"family": base, "kind": "plain", "stance": None, "except": None}
     return {"family": base, "kind": "stance", "stance": stance, "except": None}
@@ -203,9 +203,9 @@ class _ClusterAmbiguous:
 def _find_context(
     sequences: list[str], accept
 ) -> tuple[str, int, int, str, str] | _NoContext | _ClusterAmbiguous:
-    """Return ``(context, beforeEnd, junctionEnd, leftGlyph, rightGlyph)`` for the first run whose adjacent shaped pair satisfies ``accept(leftGlyph, rightGlyph)``, or ``_NoContext`` if no run produces the pair, or ``_ClusterAmbiguous`` if a producing run's junction can't be carved into two disjoint contiguous input ranges with a clean remainder.
+    """Return ``(context, beforeEnd, junctionEnd, leftGlyph, rightGlyph)`` for the first sequence with an adjacent shaped pair that satisfies ``accept(leftGlyph, rightGlyph)``.
 
-    ``accept`` is the match predicate (prefix-match for the demote tables, base+kind equality for the alt-axis pass). ``leftGlyph`` / ``rightGlyph`` are the actual rendered glyph names.
+    The pair must map to two non-empty, contiguous input ranges. Returns ``_ClusterAmbiguous`` when some sequence produces the pair but never with such ranges, and ``_NoContext`` when none produces it. ``leftGlyph`` and ``rightGlyph`` are the shaped glyph names.
     """
     found_pair_but_ambiguous = False
     for context in sequences:
@@ -240,14 +240,11 @@ def _verify(context: str, accept, before_end: int, junction_end: int) -> bool:
 
 
 def _is_hidden(left: str, right: str) -> bool:
-    """A junction is *hidden* when shaping the two base families as bare letters does not already reproduce it.
-
-    Returns ``True`` (worth emitting) unless the isolated two-letter rendering of ``char(leftBase) + char(rightBase)`` yields an adjacent pair that prefix-matches ``(left, right)``.
-    """
+    """Return True unless shaping the two base letters alone produces an adjacent pair that matches ``(left, right)`` under ``_prefix_match``."""
     left_char = _family_char(_base_name(left))
     right_char = _family_char(_base_name(right))
     if left_char is None or right_char is None:
-        # Ligatures and other non-plain bases have no two-letter isolated rendering; treat as hidden.
+        # A ligature or other non-plain base has no two-letter isolated shaping.
         return True
     names, _ = _shape_clusters(left_char + right_char)
     for i in range(len(names) - 1):
@@ -257,9 +254,9 @@ def _is_hidden(left: str, right: str) -> bool:
 
 
 def _synthetic_contexts(left_base: str, right_base: str) -> list[str]:
-    """Bounded, deterministic search space of candidate context strings for a target whose base families are ``(left_base, right_base)``.
+    """Return the candidate context strings for a junction between ``left_base`` and ``right_base``.
 
-    Ordered shortest-first, then by the documented family-position sweep, capped at four glyphs. ``None`` bases (ligatures etc.) yield no candidates.
+    Each candidate is the pair with up to two filler characters (every plain family and ZWNJ), ordered shortest first: the bare pair, then one filler after, one before, two after, one on each side, and two before. A base with no character of its own, such as a ligature, yields no candidates.
     """
     left_char = _family_char(left_base)
     right_char = _family_char(right_base)
@@ -286,7 +283,7 @@ def _synthetic_contexts(left_base: str, right_base: str) -> list[str]:
 
 
 def _junction_targets(table_name: str, entry: dict) -> tuple[str, str]:
-    """The adjacent rendered glyph pair ``(left, right)`` a demote-table override entry is really about, named by the entry's raw (pre-heal) stance strings."""
+    """Return the adjacent glyph pair ``(left, right)`` a demote-table entry describes, as the entry's stance names before healing."""
     if table_name == "predecessor_demote":
         return entry["isolated_form"], entry["trigger_stance"]
     return entry["leader_stance"], entry["isolated_form"]
@@ -297,7 +294,10 @@ def _resolve_match(
     context_sources: list[tuple[str, list[str]]],
     table_name: str,
 ) -> tuple[str, str, int, int, str, str] | _NoContext | _ClusterAmbiguous:
-    """Try ``accept`` against each ``(source, candidate_contexts)`` group in order, self-checking the first clean hit. Return ``(source, context, beforeEnd, junctionEnd, leftGlyph, rightGlyph)`` or a no-context / ambiguous sentinel (``_ClusterAmbiguous`` from one group does not block later groups)."""
+    """Return ``(source, context, beforeEnd, junctionEnd, leftGlyph, rightGlyph)`` for the first ``(source, candidate_contexts)`` group with a match that reshaping confirms.
+
+    Otherwise returns ``_ClusterAmbiguous`` if any group returned it, or ``_NoContext``. An ambiguous group does not stop later groups from being tried.
+    """
     saw_ambiguous = False
     for source, candidates in context_sources:
         result = _find_context(candidates, accept)
@@ -327,9 +327,9 @@ def _resolve_record(
     context_sources: list[tuple[str, list[str]]],
     alt_owned_pairs: set[str],
 ) -> dict | str:
-    """Run a demote/restore target junction ``(target_left, target_right)`` through the full pipeline. Return the emit-ready record (new per-side schema, sans dedupe handling) or a skip-reason string.
+    """Return the output record for a demote or restore table junction ``(target_left, target_right)``, or a skip reason.
 
-    The hidden filter is applied once up front. A surviving junction on a pair the alt-axis pass already partitioned (``alt_owned_pairs``) is dropped as ``superseded_by_alt_axis``: that pass emits a complete ``{plain, alt}`` partition over the whole family×family space (cell + overrides), so any demote-table junction there would overlap a quadrant and break the disjoint-lookup invariant.
+    A junction whose family pair is in ``alt_owned_pairs`` is skipped as ``superseded_by_alt_axis``. On such a pair the plain and alt selectors do not overlap, and site/kerning.html writes one kerning rule per alt-axis record on the assumption that no two rules overlap. The alt-axis pass emits only the kind combinations some context produces, so the records need not cover every glyph pair. A table-derived selector there would overlap one of them.
     """
     skip = _skip_reason(target_left, target_right)
     if skip is not None:
@@ -368,9 +368,9 @@ def _resolve_record(
 def _index_corpus_by_kind(
     sequences: list[str],
 ) -> tuple[dict[tuple, tuple[str, int, int, str, str]], set[tuple]]:
-    """Index the corpus once by ``(leftBase, leftKind, rightBase, rightKind)`` so the alt-axis pass is a dictionary lookup rather than a re-scan per combo.
+    """Index the corpus by ``(leftBase, leftKind, rightBase, rightKind)`` so the alt-axis pass does not rescan it for every combination.
 
-    Each signature maps to the first cleanly-carvable adjacency ``(context, beforeEnd, junctionEnd, leftGlyph, rightGlyph)``. Signatures only ever seen with an ambiguous cluster carve land in the returned ``ambiguous`` set so the caller can still report them.
+    Each signature maps to its first adjacency with contiguous input ranges, as ``(context, beforeEnd, junctionEnd, leftGlyph, rightGlyph)``. The returned set holds every signature seen at least once without such ranges.
     """
     index: dict[tuple, tuple[str, int, int, str, str]] = {}
     ambiguous: set[tuple] = set()
@@ -399,9 +399,9 @@ def _index_corpus_by_kind(
 def _alt_axis_junctions(
     sequences: list[str],
 ) -> tuple[list[dict], dict[str, set[tuple[str, str]]]]:
-    """Enumerate the discrete-alternate cross-product for every family pair where at least one side has an enabled alternate, keeping the realizable junctions that aren't the isolated two-letter rendering.
+    """Enumerate the kind combinations for every family pair where at least one side has an enabled alternate kind, and return the records for those some context produces.
 
-    Returns the emit-ready records (new per-side schema, with ``_key``) plus, per pair key, the set of ``(leftKind, rightKind)`` combos emitted — so the demote/restore passes can drop any table-derived junction that collapses onto the same combo. A pair only emits its isolated quadrant (``isolated: true``, not rendered as a row) when it has at least one hidden combo, so the page can carve the family-cell rule down to that residual quadrant.
+    Also returns, per pair key, the set of ``(leftKind, rightKind)`` combinations emitted other than the isolated one. ``build`` uses its keys to skip table-derived junctions on the same pairs. A pair's isolated combination is emitted (with ``isolated: true``) only when the pair has at least one other combination, so site/kerning.html can store the pair's cell value on that quadrant.
     """
     alt_kinds = _family_alt_kinds()
     families = _plain_families_by_codepoint()
@@ -524,7 +524,7 @@ def build(out_path: Path) -> None:
         synthetic = _synthetic_contexts(_base_name(target_left), _base_name(target_right))
         return [("corpus", sequences), ("synthetic", synthetic)]
 
-    # Alt-axis cross-product first, so the demote/restore passes can defer to its collapsed selectors on any pair it already owns.
+    # The alt-axis pass runs first because the table passes skip every pair it emitted.
     alt_records, alt_signatures = _alt_axis_junctions(sequences)
     alt_owned_pairs = set(alt_signatures)
     for record in alt_records:
@@ -537,7 +537,7 @@ def build(out_path: Path) -> None:
     for table_name, entries in demote_tables.items():
         for entry in entries:
             raw_left, raw_right = _junction_targets(table_name, entry)
-            # The build heals these author-written strings against the post-synthesis glyph set before they hit the font, so match the healed names against real shaped output.
+            # build_font.py heals these hand-written names before compiling them, so match the healed names.
             target_left, target_right = heal(raw_left), heal(raw_right)
             outcome = _resolve_record(
                 target_left,
@@ -551,7 +551,7 @@ def build(out_path: Path) -> None:
             else:
                 emit(outcome)
 
-    # restore_isolated_form: the literal 3-codepoint context yields two adjacent junctions, both run through the pipeline.
+    # A restore_isolated_form entry's three letters form two junctions, and each is resolved separately.
     for entry in data.get("restore_isolated_form_overrides", []):
         prior, target, follower = entry["prior"], entry["target"], entry["follower"]
         prior_char = _family_char(prior)
@@ -570,7 +570,7 @@ def build(out_path: Path) -> None:
             (literal_names[0], literal_names[1]),
             (literal_names[1], literal_names[2]),
         ):
-            # The literal output glyphs are already the healed, fully rendered stances, so they double as the target prefixes; the literal context is tried first, then corpus, then synthetic.
+            # The shaped glyph names are already current stance names, so they serve as the targets. The literal context is tried before the corpus and synthetic ones.
             context_sources = [("literal", [literal])] + context_sources_for(left_glyph, right_glyph)
             outcome = _resolve_record(
                 left_glyph,

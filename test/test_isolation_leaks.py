@@ -1,13 +1,13 @@
-"""Hard gates for shaping leaks (doc/definitions/shaping-leakage.md).
+"""Gates for shaping leaks (doc/definitions/shaping-leakage.md).
 
-`tools/build_check_html.py::find_leaks` sweeps every Quikscript letter sequence (plus the `space`/ZWNJ boundary tokens) up to a chosen length and reports each non-joining adjacent pair whose chosen glyphs differ between in-context shaping and boundary-faithful split shaping. `tools/leak_classify.py` then labels each visible leak **bad** (a visible additive dangle reaching toward an absent neighbor) or **benign** (subtractive trims, standalone-variant swaps, cosmetic tucks — the welcome faux-organic variation).
+`tools/build_check_html.py::find_visible_leaks` shapes every sequence of Quikscript letters, plus the `space` and ZWNJ boundary tokens, up to a given length. At each non-joining adjacent pair it compares the glyphs chosen in context with those chosen when the sequence is split at the break, keeping the boundary token in both halves. It returns each signature that renders a visible difference. `tools/leak_classify.py` labels each one **bad** (an additive dangle: a break-facing connector reaching toward a neighbor that isn't there) or **benign** (subtractive trims, standalone-variant swaps, cosmetic tucks).
 
-CI fails only on **bad** leaks. Two depths:
+The tests run at two depths:
 
-  * depth-3 (fast, in the default `make test`): no live bad leak may fall outside the approved backlog.
-  * depth-4 (slow, `make test-leaks`): same backlog gate, plus a symmetric benign census so a shifting organic-variation set is surfaced for review.
+  * Depth 3, in `make test`: every live bad leak must be in the approved backlog.
+  * Depth 4, in `make test-leaks`: the same backlog check, plus a check that the benign leaks match the approved census.
 
-The bad gate is asymmetric — a NEW bad signature fails (a change introduced a dangle); a *resolved* one only prints a re-bless notice, because the autonomous fix loop is expected to drain the backlog and should not trip the gate by succeeding. The benign census is symmetric: any change means `make leak-snapshot` + review. Both files are regenerated together by `make leak-snapshot`.
+The bad check is asymmetric. A new bad signature fails, because a change introduced a dangle. A resolved one only prints a notice to re-bless, so fixing a leak does not fail the test. The benign check is symmetric: any change fails until `make leak-snapshot` re-blesses the census. `make leak-snapshot` regenerates both files.
 """
 
 from __future__ import annotations
@@ -29,13 +29,13 @@ from leak_snapshot import (  # noqa: E402
     parse_snapshot,
 )
 
-# The everyday fast gate; the slow gate sweeps to depth 4 (≈44× per deeper step — see tools/build_check_html.py).
+# Depth 4 runs only under `make test-leaks`, because each extra depth multiplies the number of swept sequences by roughly the size of the sweep alphabet (`_sweep_alphabet` in `tools/build_check_html.py`).
 _FAST_MAX_LEN = 3
 
 
 @cache
 def _partition(max_len: int) -> tuple[dict[Signature, str], dict[Signature, str]]:
-    """(bad, benign) live partition at *max_len*, cached so the two depth-4 gates share one sweep."""
+    """Return the live (bad, benign) leaks at *max_len*, cached so the two depth-4 tests share one sweep."""
     return current_partition(max_len)
 
 
@@ -56,7 +56,7 @@ def _require_backlog() -> dict[Signature, str]:
 
 
 def _assert_no_new_bad(bad: dict[Signature, str], backlog: dict[Signature, str], *, depth: int) -> None:
-    """Asymmetric bad gate: fail on any live bad signature not already grandfathered into the backlog; a resolved one is only a notice."""
+    """Fail on any live bad signature missing from the backlog, and print a notice for backlog entries that no longer occur."""
     introduced = sorted(set(bad) - set(backlog))
     if introduced:
         body = "\n".join(f"  + {bad[sig]} :: {_sig_diff(sig)}" for sig in introduced)
@@ -68,7 +68,6 @@ def _assert_no_new_bad(bad: dict[Signature, str], backlog: dict[Signature, str],
         )
     resolved = sorted(set(backlog) - set(bad))
     if resolved:
-        # Progress, not a failure: the loop drained these. Surface so the snapshot gets re-blessed.
         body = "\n".join(f"  - {backlog[sig]} :: {_sig_diff(sig)}" for sig in resolved)
         print(
             f"\n{len(resolved)} bad leak(s) no longer occur at depth {depth} (nice — re-bless with "
@@ -77,21 +76,21 @@ def _assert_no_new_bad(bad: dict[Signature, str], backlog: dict[Signature, str],
 
 
 def test_no_new_bad_isolation_leaks() -> None:
-    """Fast everyday gate: no live bad leak at depth 3 outside the approved backlog."""
+    """Every live bad leak at depth 3 is in the approved backlog."""
     bad, _benign = _partition(_FAST_MAX_LEN)
     _assert_no_new_bad(bad, _require_backlog(), depth=_FAST_MAX_LEN)
 
 
 @pytest.mark.slow
 def test_bad_leak_backlog_unchanged() -> None:
-    """Deep bad gate: no NEW bad leak at depth 4; resolved ones are a re-bless notice. This is the gate that the autonomous fix loop drives toward empty."""
+    """Every live bad leak at depth 4 is in the approved backlog."""
     bad, _benign = _partition(4)
     _assert_no_new_bad(bad, _require_backlog(), depth=4)
 
 
 @pytest.mark.slow
 def test_benign_census_unchanged() -> None:
-    """Deep benign census: the welcome faux-organic variation must match the approved census. Symmetric — any change (gained or lost benign leak) is surfaced so `make leak-snapshot` re-blesses it and review notices the set shifting. Never a hard failure on its own; it shares the depth-4 sweep with the bad gate."""
+    """The live benign leaks at depth 4 match the approved census. Any gained or lost benign leak fails until `make leak-snapshot` re-blesses the census, so a reviewer sees the change."""
     if not BENIGN_CENSUS_PATH.exists():
         pytest.fail(
             f"Missing {BENIGN_CENSUS_PATH.relative_to(ROOT)} — generate it with `make leak-snapshot`."

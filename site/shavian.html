@@ -8,7 +8,7 @@
   <style>
     :root {
       --font-stack: "Abbots Morton Spaceport Sans Senior", monospace;
-      --font-size: 22px; /* pixel-perfect at multiples of 11px */
+      --font-size: 22px; /* a font pixel is 1/11 em, so multiples of 11px render pixel-perfect */
     }
 
     body {
@@ -33,7 +33,7 @@
       margin-bottom: 0.25rem;
     }
 
-    /* Narrow: one continuous 48-row table so the columns line up top to bottom. Wide: hide it and show the consonant/vowel halves side by side instead. The two layouts hold the same data. */
+    /* In a narrow container, one table holds every letter so the columns line up top to bottom. In a wide one, the consonant and vowel tables sit side by side instead. Both layouts hold the same rows. */
     #shavian-alphabet-full,
     #shavian-alphabet-split table {
       border-spacing: 1ch 0;
@@ -63,7 +63,7 @@
   <script type="module">
     import { initToggles } from './shared.js';
 
-    // Shavian glyphs live only in the proportional Sans family, and they carry no cursive joining, so there is nothing to gain from the Mono/Sans or Junior/Senior switches — only size and weight vary.
+    // Shavian glyphs exist only in the proportional fonts and never join, so the Mono/Sans and Junior/Senior switches would add nothing. Only size and weight vary.
     initToggles({
       sizeToggle: 'size-toggle',
       weightToggle: 'weight-toggle',

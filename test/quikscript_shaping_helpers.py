@@ -35,8 +35,7 @@ def _gid_to_full_name(gid: int) -> str:
     return _tt_font().getGlyphName(gid)
 
 
-# pytest-xdist runs each worker in its own subprocess, so there's no cross-thread reuse risk.
-# Invariant for callers of `_BUF`: materialize `buf.glyph_infos` / `buf.glyph_positions` into a list (comprehension or `list(...)`) before the function returns. Never return the property itself or a generator over it — the next `_shape()` call will `clear_contents()` and overwrite the buffer, invalidating any unmaterialized view.
+# One shared buffer is safe because each pytest-xdist worker is a separate process. A function that uses `_BUF` must copy `buf.glyph_infos` and `buf.glyph_positions` into a list or tuple before it returns. Returning the property or a generator over it is a bug, because the next shaping call clears and overwrites the buffer.
 _BUF: hb.Buffer = hb.Buffer()
 
 
@@ -53,7 +52,7 @@ def _shape(text: str) -> list[str]:
 
 @lru_cache(maxsize=16384)
 def _shape_with_clusters(text: str) -> tuple[tuple[str, ...], tuple[int, ...]]:
-    """Shape ``text`` and return ``(glyph_names, clusters)`` in parallel. Each glyph's cluster is the index of the earliest input codepoint it covers, so ligatures report the cluster of their first component. Clusters are monotonic non-decreasing, which is what lets a caller locate the output glyphs belonging to a known input codepoint range even when a neighbor ligates across the boundary."""
+    """Shape ``text`` and return ``(glyph_names, clusters)``. Each glyph's cluster is the index of the earliest input code point it covers, so a ligature reports its first component's index. Clusters never decrease, so a caller can find the output glyphs for a range of input code points even when a neighbor ligates across the range's edge."""
     font = _font()
     buf = _BUF
     buf.clear_contents()
@@ -109,14 +108,14 @@ def _plain_quikscript_letters() -> tuple[tuple[str, str], ...]:
     return tuple((name, chars[name]) for name in names)
 
 
-# Synthetic family-name tokens for the two real-text boundaries a reader/typist actually hits. They are not glyph families, so they carry their own name->character mapping; the sweep treats them as ordinary alphabet symbols and the isolated reference keeps them boundary-faithful (the token sits in both halves).
+# Tokens that stand for the two boundaries real text contains (a space and a ZWNJ) in a sequence of family names. They are not glyph families, so `_BOUNDARY_TOKEN_CHARS` maps them to their characters. The leak sweep in tools/build_check_html.py treats them as ordinary alphabet symbols, and its isolated reference (`_shaped_input_spans`) puts the boundary tokens between the two letters in both halves of a split.
 BOUNDARY_TOKENS: tuple[str, ...] = ("space", "ZWNJ")
 _BOUNDARY_TOKEN_CHARS: dict[str, str] = {"space": " ", "ZWNJ": ZWNJ}
 
 
 @cache
 def _context_chars() -> tuple[tuple[str, str], ...]:
-    """Plain Quikscript letters plus the boundary tokens (space, ZWNJ), for context-saturated and boundary-faithful sweeps."""
+    """Return the plain Quikscript letters plus the boundary tokens (space, ZWNJ), the symbols the context sweeps draw every prefix and suffix from."""
     return _plain_quikscript_letters() + tuple(
         (name, _BOUNDARY_TOKEN_CHARS[name]) for name in BOUNDARY_TOKENS
     )
@@ -166,7 +165,7 @@ def _exit_ys(glyph_name: str) -> set[int]:
 
 
 def _declared_exit_ys(glyph_name: str) -> set[int]:
-    """The exit heights a glyph's compiled ``modifiers`` explicitly promise via an ``ex-yN`` modifier, read independently of the glyph's actual exit anchors. Matches ``ex-yN`` exactly, so the extension/contraction siblings ``ex-ext-N`` / ``ex-con-N`` (and ``ex-dips``) are never mistaken for a connector-height declaration. Keying on this declared identity — rather than re-deriving "is this glyph connecting?" from the silhouette — is what generalizes across families: a shape rule like "the ink reaches farthest right at the exit row" misfires on every letter that exits from the left or middle (·He, ·Ye, ·Gay, ·They, …), whereas the modifier reads the same everywhere and survives the exit anchor being stripped."""
+    """Return the exit heights declared by the glyph's compiled ``ex-yN`` modifiers, independent of its actual exit anchors. Only ``ex-y`` followed by digits counts, so ``ex-ext-N``, ``ex-con-N``, and ``ex-dips`` are not read as heights. The declared modifier works for every family and is still there when the exit anchor is removed. A test on the bitmap, such as "the ink reaches farthest right at the exit row", gives the wrong answer for letters that exit from the left or middle (·He, ·Ye, ·They)."""
     meta = _compiled_meta().get(glyph_name)
     if meta is None:
         return set()
@@ -179,7 +178,7 @@ def _declared_exit_ys(glyph_name: str) -> set[int]:
 
 
 def _declares_xheight_exit(glyph_name: str) -> bool:
-    """True when the glyph's compiled stance identity declares an x-height (glyph-space y=5) forward exit, i.e. it carries the ``ex-y5`` modifier — the connecting body a letter shows when it means to hand its stroke off to a follower's x-height entry. See ``_declared_exit_ys`` for why this declared-identity test is preferred over reading the bitmap, and ``test_declared_exit_height_matches_exit_anchor`` for the invariant that keeps the modifier honest about the real anchor."""
+    """Return whether the glyph carries the ``ex-y5`` modifier, which declares an x-height (y=5) exit toward a follower's x-height entry. ``_declared_exit_ys`` says why the modifier is read instead of the bitmap, and ``test_declared_exit_height_matches_exit_anchor`` checks that each such modifier has a matching exit anchor."""
     return 5 in _declared_exit_ys(glyph_name)
 
 
@@ -232,9 +231,9 @@ def _senior_shaping_env() -> tuple[dict, dict, dict]:
 
 
 def _assert_expect_any(text: str, expects: list[str]) -> None:
-    """Pass if any of ``expects`` matches the senior shaping of ``text``.
+    """Pass if any of ``expects`` matches the Senior shaping of ``text``.
 
-    Each entry in ``expects`` is a ``data-expect`` string (see ``doc/data-expect.md``). Tries them in order and returns on the first match; if none match, raises ``AssertionError`` listing every attempt.
+    Each entry in ``expects`` is a ``data-expect`` string (see ``doc/data-expect.md``). They are tried in order. If none matches, raises ``AssertionError`` listing every attempt.
     """
     from test_shaping import Run, run_shaping_test_runs
 

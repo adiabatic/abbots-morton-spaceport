@@ -22,10 +22,10 @@ dev = [
 ]
 
 [tool.pytest.ini_options]
-# `slow` covers the deep (≈50 s) isolation-leak snapshot sweep; the default run skips it. `make test-leaks` runs it on its own.
+# The default run skips `slow` tests. `make test-leaks` runs the deep isolation-leak sweep and `make test-rebuild-slow` runs the rebuild suite's slow tests.
 markers = ["slow: expensive deep sweeps, excluded from the default test run"]
 addopts = "-m 'not slow'"
-# The Python suite lives in `test/`; the data-expect HTML corpora that the root `conftest.py` collects as shaping tests live in `site/`. Both must be on the collection path.
+# `test/` holds the Python suite and `site/` the data-expect HTML corpora that the root `conftest.py` collects as shaping tests.
 testpaths = ["test", "site"]
 
 [tool.uv]

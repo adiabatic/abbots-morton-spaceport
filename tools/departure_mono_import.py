@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
-"""Import glyphs from the Departure Mono OTF into this pixel-font's in-memory GlyphDef representation.
+"""Import the glyphs of the Departure Mono OTF as GlyphDef dicts for the mono build.
 
-Departure Mono is a clean monospace pixel font: UPM 550, 50 font units per pixel, every glyph has advance width 350 (7 pixels), and all ink lies on the 50-unit grid inside the cell x in [0, 350]. This module samples each glyph on that fixed cell grid and emits a GlyphDef dict matching `tools/build_font.py`'s `bitmap_to_rectangles` semantics: row 0 is the top row, `y_offset` is the pixel-row index of the bottom row (negative for descenders), and `advance_width` is in pixels.
+Departure Mono has UPM 550 and 50 font units per pixel, every glyph advances 350 units (7 pixels), and all ink lies on the 50-unit grid within x in [0, 350]. Each glyph is sampled on that grid into a GlyphDef in the form `bitmap_to_rectangles` in `tools/build_font.py` reads: row 0 is the top row, `y_offset` is the pixel row of the bottom row (negative for descenders), and `advance_width` is in pixels.
 
-The self-checks here prove the sampling is faithful so that later-transplanted GPOS anchors line up with the rendered pixels.
+Sampling raises `ValueError` on a cell that is not on the pixel grid and on a bitmap that does not reproduce the sampled cells, so the ink stays aligned with the Departure Mono GPOS anchors the mono build copies.
 
 Usage:
     uv run python tools/departure_mono_import.py reference/DepartureMono-Regular.otf
@@ -78,7 +78,7 @@ def _glyph_def_from_contours(
         for c_idx in range(CELL_COUNT):
             cx = c_idx * pixel_size + pixel_size // 2
             center = _cell_inked(contours, cx, cy)
-            # DM is clean pixel art: the center and the four inset corners of a cell must agree, otherwise the glyph is not grid-aligned and our sampling would silently misplace ink relative to the transplanted anchors.
+            # If the center and four inset points of a cell disagree, the glyph is off the pixel grid and sampling would misplace ink relative to the copied anchors.
             inset = pixel_size // 4
             corners = [
                 _cell_inked(contours, cx - inset, cy - inset),

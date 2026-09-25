@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """
-Extract glyph bitmaps from OTF fonts for pixel fonts like Departure Mono.
+Print a glyph of a pixel OTF font as a YAML bitmap, or compare one glyph between two fonts.
 
-This tool extracts glyphs from CFF-based OpenType fonts where each "pixel" is a 50×50 unit square. It outputs YAML-formatted bitmaps or compares glyphs between two fonts.
+The font must draw each pixel as a 50-unit square (`PIXEL_SIZE`), as Departure Mono does. Only `moveTo` and `lineTo` contours are read.
 
 Usage:
     # Extract a glyph bitmap
@@ -56,12 +56,7 @@ def point_in_polygon(x: float, y: float, polygon: list[tuple[float, float]]) -> 
 
 
 def glyph_to_bitmap(font_path: str, glyph_name: str) -> tuple[list[str], int]:
-    """
-    Extract a glyph as a bitmap from an OTF font.
-
-    Returns:
-        tuple: (bitmap_rows, y_offset) where bitmap_rows is a list of strings using '#' for filled pixels and ' ' for empty, and y_offset is the vertical offset in pixels (negative for descenders)
-    """
+    """Return `(bitmap_rows, y_offset)` for a glyph: rows of `#` and space, top row first, and the bottom row's offset in pixels (negative for descenders)."""
     font = TTFont(font_path)
     glyphset = font.getGlyphSet()
 
@@ -95,7 +90,6 @@ def glyph_to_bitmap(font_path: str, glyph_name: str) -> tuple[list[str], int]:
             row_str += "#" if count % 2 == 1 else " "
         bitmap.append(row_str)
 
-    # Calculate y_offset (how many pixels below baseline)
     y_offset = int(y_min / PIXEL_SIZE)
 
     return bitmap, y_offset
@@ -141,7 +135,7 @@ def get_glyph_metrics(font_path: str, glyph_name: str) -> dict[str, int]:
 
 
 def print_bitmap_yaml(glyph_name: str, bitmap: list[str], y_offset: int) -> None:
-    """Print bitmap in YAML format suitable for the glyphs: mapping in the glyph data YAML files under glyph_data/."""
+    """Print the bitmap as an entry for the `glyphs:` mapping of a YAML file under glyph_data/."""
     print(f"  {glyph_name}:")
     if y_offset != 0:
         print(f"    y_offset: {y_offset}")

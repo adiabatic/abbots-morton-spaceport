@@ -24,14 +24,16 @@ wheels/
 # Scratch files, wiped freely between change sets
 tmp/
 
-# Kept output: cycle build logs, review-surface snapshots, hand-kept archives
+# Kept output: cycle build logs, review-surface snapshots, hand-kept archives, and the standing daemon's socket and log
 /var/
 
-# Rebuild baseline extraction output
+# Rebuild output: baseline extraction, the M1 build, the review surface, green records, and the cycle-timings journal
 rebuild/out/
 
 # Claude Code local state
 .claude/scheduled_tasks.lock
+
+# Review-app verdict files
 /verdicts-*.json
 /verdicts.json
 /verdicts-journal.ndjson

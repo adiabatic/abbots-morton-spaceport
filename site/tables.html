@@ -196,8 +196,7 @@
         font-size: 12px;
         line-height: 1.2;
         white-space: nowrap;
-        /* Re-assert color-scheme: the [popover] UA rule can reset it to `normal`, which
-           makes light-dark() stick on its first (light) value even in dark mode. */
+        /* The [popover] UA rule can reset color-scheme to `normal`, which makes light-dark() use its light value even in dark mode, so set it again here. */
         color-scheme: light dark;
         color: light-dark(#222, #e0e0e0);
         background: light-dark(#fff, #2a2a2a);
@@ -583,8 +582,7 @@
         try {
           await navigator.clipboard.writeText(dottedName);
         } catch {
-          // Clipboard may be blocked (insecure context, denied permission). Still flash so the
-          // user knows the gesture registered; the toast text identifies what *would* have copied.
+          // The clipboard can be blocked (insecure context or denied permission). Show the toast anyway so the click gets feedback. It names what would have been copied.
         }
         showCopiedToast(dottedName, clientX, clientY);
       }

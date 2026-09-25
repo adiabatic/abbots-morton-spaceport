@@ -1,6 +1,6 @@
-"""Prove that AbbotsMortonSpaceportMono reproduces Departure Mono faithfully.
+"""Check that AbbotsMortonSpaceportMono shapes Departure Mono's code points the same way Departure Mono does.
 
-The mono font bundles the whole of Departure Mono — glyphs plus GDEF/GSUB/GPOS — so shaping any Departure-covered codepoint (with or without OpenType features) should yield byte-for-byte the same glyph names and positions through either font. AMS-Mono's cmap reuses Departure's own glyph names and both fonts share the metrics (UPM 550, every advance 350), so the comparison is a direct equality on (glyph_name, x_advance, x_offset, y_offset).
+The mono font bundles Departure Mono's glyphs and its GDEF, GSUB, and GPOS tables, and keeps Departure's glyph names. Both fonts have 550 units per em and give every Departure glyph an advance of 350. So the tests compare (glyph name, x advance, x offset, y offset) directly.
 """
 
 from pathlib import Path
@@ -45,7 +45,7 @@ def shape(font: hb.Font, text: str, features: dict[str, bool] | None = None) -> 
 
 
 def test_per_codepoint_glyph_fidelity(departure, mono):
-    """Every codepoint in Departure's cmap shapes identically through both fonts with no features applied — same glyph name, advance, and placement."""
+    """Every code point in Departure's cmap shapes to the same glyph name, advance, and offsets in both fonts with default features."""
     cmap = TTFont(DEPARTURE).getBestCmap()
     assert cmap is not None
     mismatches = []
@@ -58,7 +58,7 @@ def test_per_codepoint_glyph_fidelity(departure, mono):
     assert not mismatches, "AMS-Mono diverged from Departure Mono on:\n" + "\n".join(mismatches)
 
 
-# Representative inputs per feature. Where a feature's exact trigger is unknown, the input still exercises the glyphs the feature targets, so the parity assertion holds whether or not a substitution fires.
+# One input per feature. Some inputs may not trigger a substitution, but they still shape the glyphs the feature targets, so the comparison is still meaningful.
 FEATURE_CORPUS = [
     ("combining_mark", "é", None),
     ("stacked_marks", "ậu", None),

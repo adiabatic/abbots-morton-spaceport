@@ -1,6 +1,6 @@
-"""HarfBuzz shaping test helpers for the Senior Sans font.
+"""Helpers that check HarfBuzz shaping of the Senior and Junior fonts against data-expect strings.
 
-Parses data-expect attributes from the test HTML corpora (site/index.html, site/the-manual.html, and site/extra-senior-words.html) and verifies that HarfBuzz produces the expected glyph sequence and cursive connections.
+The root conftest.py collects the data-expect attributes in site/index.html, site/the-manual.html, and site/extra-senior-words.html with `_DataExpectCollector` and checks each one with `run_shaping_test_runs`, which verifies the shaped glyph sequence and its cursive connections.
 """
 
 import re
@@ -111,20 +111,11 @@ def _letter_to_qs(name: str) -> str:
 
 
 def parse_expect(raw: str) -> tuple[list[ExpectToken], list[Connection]]:
-    """Parse a data-expect string into (tokens, connections).
+    """Parse a data-expect string into tokens and connections, with one connection between each pair of adjacent tokens.
 
-    tokens:  list of dicts with keys:
-        base      – e.g. "qsBay"
-        lig_base  – e.g. "qsUtter" if ligature, else None
-        lig_mode  – None (must-ligate), "maybe" (+?), or "maybe_break" (+|)
-        variants  – list of positive variant assertion strings, e.g. ["half"]
-        neg_variants – list of negated variant assertion strings from .!variant, e.g. ["half"]
-        exact_glyph – whether .∅ requires the exact expected glyph name
-    connections: list of dicts (len = len(tokens) - 1) with keys:
-        kind      – "join", "break", "break_no_isolation", "height", or "maybe"
-        y         – int or None (only for "height")
+    A token's `lig_mode` is None for a required ligature (`+`), "maybe" for `+?`, and "maybe_break" for `+|`. `variants` and `neg_variants` hold the `.name` and `.!name` assertions. `exact_glyph` is set by `.∅`, which requires the shaped glyph name to be the bare letter or ligature name (`qsTea`, `qsDay_qsEat`).
 
-    "break_no_isolation" (the ``|?|`` operator) behaves like "break" for the join validation — the two glyphs must not share an entry/exit Y — but skips the break-isolation invariant. Use it when the font legitimately influences shape across a non-join (e.g., cosmetic entry-stub removal).
+    A connection's `kind` is "join" for whitespace alone, "height" for `~x~`, `~b~`, `~t~`, or `~6~` (with `y` set to that height), "break" for `|`, "maybe" for `?`, and "break_no_isolation" for `|?|`. A "break_no_isolation" connection fails, as "break" does, when the left glyph exits at a Y where the right glyph enters, but it skips the half-stance check in `_try_interpretation` and the isolation check in `_check_break_isolation`. Use it where the font is meant to change a letter's shape across a non-join, such as removing a cosmetic entry stub.
     """
     HEIGHT_MAP = {"x": 5, "b": 0, "t": 8, "6": 6}
 
@@ -259,9 +250,9 @@ def parse_expect(raw: str) -> tuple[list[ExpectToken], list[Connection]]:
 
 
 class _DataExpectCollector(HTMLParser):
-    """Collect data-expect="..." from <td>, <span>, and <dd> elements in HTML.
+    """Collect the data-expect or data-expect-noncanonically attribute of each <td>, <span>, and <dd> element, with the element's text split into runs.
 
-    Each collected cell records a list of ``runs`` — one per contiguous font context inside the cell. A ``<span class="force-junior">`` descendant switches the enclosed text to the Junior font; a ``<span data-stylistic-set="...">`` descendant starts a new run with per-run features. Anything else stays in Senior (the cell's default).
+    A run is a stretch of text shaped with one font and one feature set. A `force-junior` descendant starts a Junior run, and a descendant with `data-stylistic-set` starts a run with those stylistic sets. Text outside both is Senior. Only <td>, <span>, and <dd> descendants are tracked, and a data-expect element inside another one is not collected separately.
     """
 
     _TAGS = {"td", "span", "dd"}
@@ -647,24 +638,21 @@ def run_shaping_test(
 
 
 def _token_input_char_count(tok: ExpectToken) -> int:
-    """How many base (non-modifier) input chars this token consumes."""
+    """Return the number of input characters the token covers, not counting variation selectors: two for a ligature, one otherwise."""
     if tok.get("lig_base"):
         return 2
     return 1
 
 
 def _is_modifier_char(c: str) -> bool:
-    """Characters that attach to the previous char instead of forming their own token.
-
-    Currently: variation selectors (U+FE00..U+FE0F).
-    """
+    """Return whether `c` is a variation selector (U+FE00 to U+FE0F), which attaches to the character before it instead of forming a token."""
     return 0xFE00 <= ord(c) <= 0xFE0F
 
 
 def _token_char_spans(text: str, tokens: list[ExpectToken]) -> list[tuple[int, int]]:
-    """Return one ``(start, end)`` half-open char range per token in ``text``.
+    """Return one half-open `(start, end)` character range per token in `text`.
 
-    Each range covers the token's base chars plus any trailing modifier chars (variation selectors) that attach to its last base char. Raises ``ValueError`` if ``text`` is exhausted mid-token or has trailing chars no token claims.
+    Each range covers the token's characters and the variation selectors after its last one. Raises ValueError when `text` runs out before the last token ends or has characters left over.
     """
     spans: list[tuple[int, int]] = []
     char_idx = 0
@@ -714,9 +702,9 @@ def _isolation_glyphs_split(
     features: dict[str, bool] | None,
     variant: str = "senior",
 ) -> tuple[list[str], list]:
-    """Shape each segment of ``text`` separately and concatenate glyph names.
+    """Shape each segment of `text` in its own HarfBuzz buffer and return the concatenated glyph names and position records.
 
-    ``segment_breaks`` are char offsets into ``text`` where the input is split. Each segment is shaped in its own HarfBuzz buffer, so no contextual lookup can fire across a break. Returns parallel lists of glyph names and HarfBuzz position records.
+    `segment_breaks` are character offsets into `text`. Because each segment has its own buffer, no contextual lookup can match across a break.
     """
     bounds = [0, *segment_breaks, len(text)]
     names: list[str] = []
@@ -777,15 +765,15 @@ def _check_break_isolation(
     features: dict[str, bool] | None,
     variant: str,
 ) -> str | None:
-    """Verify that shape choices flanking each non-join survive isolation.
+    """Return an error message if a letter beside a non-join shapes differently when the text is split at the non-join, and None otherwise.
 
-    For every connection whose chosen interpretation is a break — or a "maybe" where the resolved glyph pair has no shared anchor Y — re-shape the input with the two sides split into independent HarfBuzz buffers. The glyph at each token position flanking the break must match between the full shaping and the split shaping. Any disagreement means a contextual lookup is reaching across a non-join — exactly what the user shouldn't have to pin down manually with ``.!half`` / ``.!alt`` style assertions.
+    A non-join is a "break" connection between two Quikscript letter tokens, or a "maybe" connection between two whose shaped glyphs have no Y where the left one exits and the right one enters. The text is reshaped with a buffer boundary at every non-join. Each glyph beside a non-join must then have the same outline and position record as in the full shaping, though its glyph name may differ. A difference means a contextual lookup reaches across the non-join. This check catches such leaks, so corpus authors do not need `.!half` and `.!alt` assertions for them.
 
-    ZWNJ injection was considered as a second reference but rejected: this font intentionally fires ``.noentry`` rules against literal ``uni200C`` (see project CLAUDE.md on ZWNJ handling in ``calt``), so ZWNJ-injected shaping isn't equivalent to isolation here.
+    Inserting a ZWNJ is not an equivalent reference. The font's calt lookups apply `.noentry` rules after a literal `uni200C` (`_ensure_zwnj_coverage_for_calt_lookups` in tools/quikscript_fea.py), so a ZWNJ changes shapes that splitting the buffer does not.
     """
 
     def _is_qs_letter(tok: ExpectToken) -> bool:
-        # Only Quikscript letter tokens participate in the isolation check. Non-letter tokens (◊space, ◊ZWNJ, \-, etc.) are boundary markers whose whole job is to influence their neighbors' shape — applying isolation against them produces false positives, since e.g. the font fires legitimate `.noentry` rules after a literal U+200C.
+        # Tokens that are not Quikscript letters (◊space, ◊ZWNJ, `\-`) are skipped. The font may change a letter's shape beside them, as with the `.noentry` forms after a ZWNJ, so checking them would report false failures.
         return tok["base"].startswith("qs")
 
     isolating_indices: list[int] = []
@@ -869,11 +857,9 @@ def _check_break_isolation(
 def _partition_by_runs(
     runs: list[Run], tokens: list[ExpectToken], connections: list[Connection]
 ) -> list[PartitionedRun]:
-    """Partition ``tokens`` and ``connections`` across ``runs``.
+    """Split `tokens` and `connections` among `runs`, returning one PartitionedRun per run.
 
-    Walks the concatenated run text char-by-char, attributing each token to the run where its base characters land. Variation selectors and similar modifier chars are eaten by the preceding token. Connections between tokens that end up in different runs are dropped (the inter-run gap is implicit, since runs are shaped independently).
-
-    Returns a list of dicts with keys ``font``, ``text``, ``tokens``, ``connections``.
+    Each token goes to the run that holds its characters, and a variation selector goes with the token before it. A connection between tokens in different runs is dropped, because each run is shaped separately. Raises ValueError when a token straddles two runs, a run's tokens are not contiguous, or the characters and tokens don't line up.
     """
     full_text = ""
     run_for_char = []
@@ -886,7 +872,6 @@ def _partition_by_runs(
     char_idx = 0
     for tok in tokens:
         base = _token_input_char_count(tok)
-        # Skip any leading modifier chars (shouldn't happen, but defend).
         while char_idx < len(full_text) and _is_modifier_char(full_text[char_idx]):
             char_idx += 1
         if char_idx >= len(full_text):
@@ -904,7 +889,6 @@ def _partition_by_runs(
                 raise ValueError(f"Token {tok!r} straddles run boundary at char {char_idx}")
             char_idx += 1
             consumed += 1
-        # Eat trailing modifier chars that attach to this token's last char.
         while char_idx < len(full_text) and _is_modifier_char(full_text[char_idx]):
             char_idx += 1
         token_to_run.append(token_run)
@@ -948,9 +932,9 @@ def run_shaping_test_runs(
     base_potential_entries: dict[str, dict[str, set[int]]] | None = None,
     features: dict[str, bool] | None = None,
 ) -> None:
-    """Shape each font-variant run independently and verify against expect_str.
+    """Shape each run with its own font and check it against the tokens and connections of `expect_str` that fall in it, raising AssertionError on the first failure.
 
-    ``fonts`` and ``anchor_maps`` are dicts keyed by variant ("senior", "junior"). ``runs`` is a list of {"font": variant, "text": str}. Each run is shaped against its own font, and the corresponding slice of tokens/connections from ``expect_str`` is verified against that run.
+    `fonts`, `anchor_maps`, and `base_potential_entries` are keyed by variant ("senior" or "junior"). A run's own `features` are merged over `features`.
     """
     tokens, connections = parse_expect(expect_str)
     slices = _partition_by_runs(runs, tokens, connections)
@@ -988,7 +972,7 @@ def run_shaping_test_runs(
 
         interpretations = _expand_maybe_ligatures(sub_tokens, sub_conns)
 
-        # Junior has no cursive attachment — suppress connection assertions (glyph-identity assertions still run).
+        # Junior has no cursive attachment, so every connection becomes "maybe" and only glyph identity is checked.
         if variant == "junior":
             interpretations = [(t, [Connection(kind="maybe", y=None) for _ in c]) for t, c in interpretations]
 
@@ -1015,7 +999,7 @@ def run_shaping_test_runs(
                 + "\n".join(f"  Interpretation {i+1}: {e}" for i, e in enumerate(errors))
             )
 
-        # Isolation invariant: for senior only, any token pair that does not actually join must shape the same way when isolated. Junior forces every connection to "maybe", so the check would fire on every pair and doesn't match what it's asking about (no cursive at all).
+        # Only Senior runs get the isolation check. Junior has no cursive attachment, so its anchors do not say which pairs join, and the check could not pick out the non-joins.
         if variant == "senior":
             interp_tokens, interp_connections = matched_interp
             isolation_error = _check_break_isolation(

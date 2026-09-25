@@ -1,13 +1,9 @@
-"""The classified isolation-leak snapshots: a bad-leak backlog and a benign census.
+"""Write the visible isolation leaks to a bad-leak backlog and a benign census.
 
-`doc/definitions/shaping-leakage.md` defines a *leak* as a cross-break shape difference and overlays a *bad* vs *benign* severity (see `tools/leak_classify.py`). This module runs the depth-4 sweep once, classifies every visible leak, and writes two files:
+`doc/definitions/shaping-leakage.md` defines a leak as a shape difference across a break, and `tools/leak_classify.py` labels each one bad or benign. Run as a script (`make leak-snapshot`), this module sweeps to depth 4, classifies every visible leak, and writes two files that together list all of them:
 
-  * `site/bad-leak-backlog.txt` — the currently-known **bad** leaks (visible additive dangles). This is the autonomous fix loop's shrinking to-do list. The gate is asymmetric: a NEW bad signature is a regression and fails CI; a resolved one prints a re-bless notice. As the loop empties the backlog the gate converges to the spec's "zero bad."
-  * `site/benign-leak-census.txt` — the **benign** leaks (subtractive trims, standalone-variant swaps, author cosmetic tucks). These are welcome — the faux-organic variation the script wants — so the gate is a symmetric census: any change is surfaced for review (re-bless), never a hard failure on its own.
-
-Together the two files reconstruct the complete set of visible depth-4 leaks, partitioned by verdict. They replace the single undifferentiated `site/isolation-leak-snapshot.txt`.
-
-Regenerate (bless the current state) with `make leak-snapshot`; check with `make test-leaks`.
+  * `site/bad-leak-backlog.txt`: the bad leaks (visible additive dangles). `test/test_isolation_leaks.py` fails on a bad leak missing from this file and only prints a notice for an entry that no longer occurs.
+  * `site/benign-leak-census.txt`: the benign leaks (subtractive trims, standalone-variant swaps, and cosmetic tucks). `make test-leaks` fails on any difference from this file, so a reviewer sees each change before it is re-blessed.
 """
 
 from __future__ import annotations
@@ -29,7 +25,7 @@ if str(ROOT / "tools") not in sys.path:
 import leak_classify  # noqa: E402
 from build_check_html import IsolationLeakExample, Leak, find_visible_leaks  # noqa: E402
 
-# Depth 4 is the sweet spot: it surfaces the four-letter-context leaks the depth-3 gate misses, at ≈1 min (vs. ≈44x that for depth 5). It is a strong regression gate, not a completeness proof — see doc/history/2026-06-03--leak-cleanup/leak-investigation-findings.md on why no fixed depth is provably complete.
+# Depth 4 finds the leaks that need four letters of context, which the depth-3 check in `make test` misses. It takes about a minute, and depth 5 takes about 44 times as long. No fixed depth finds every leak (doc/history/2026-06-03--leak-cleanup/leak-investigation-findings.md).
 MAX_LEN = 4
 
 Signature = tuple[str, str, str, str]  # (isolated_left, left_chosen, isolated_right, right_chosen)
@@ -45,12 +41,12 @@ def _example_label(example: IsolationLeakExample) -> str:
 
 
 def current_visible_leaks(max_len: int = MAX_LEN) -> dict[Signature, str]:
-    """Map each live visible-leak signature to a stable, human-readable example label. `find_visible_leaks` keys visibility on "any example renders a diff", so the set is independent of enumeration order and the chosen representative example is deterministic."""
+    """Map each visible leak signature to a readable example label. The set does not depend on enumeration order, and the example chosen is deterministic (see `find_visible_leaks`)."""
     return {sig: _example_label(example) for sig, example in find_visible_leaks(max_len=max_len).items()}
 
 
 def current_partition(max_len: int = MAX_LEN) -> tuple[dict[Signature, str], dict[Signature, str]]:
-    """Partition the live visible leaks into (bad backlog, benign census) by the mechanical classifier. One sweep, classified in place — all live leaks here are visible (`diff`)."""
+    """Split the visible leaks into (bad, benign) with `leak_classify.classify`, from one sweep."""
     force_bad = leak_classify.force_bad_signatures()
     force_benign = leak_classify.force_benign_signatures()
     bad: dict[Signature, str] = {}
@@ -62,7 +58,7 @@ def current_partition(max_len: int = MAX_LEN) -> tuple[dict[Signature, str], dic
 
 
 def _format_diff(leak_sig: Signature) -> str:
-    # Both sides are always emitted (even the unchanged one) so the line round-trips back to the exact signature; a `*` marks the side that actually changed, for quick scanning.
+    # Both sides are written, even an unchanged one, so that `parse_snapshot` can rebuild the signature. A `*` marks each side that changed.
     il, lc, ir, rc = leak_sig
     lmark = "*" if il != lc else " "
     rmark = "*" if ir != rc else " "
@@ -83,7 +79,7 @@ def format_snapshot(leaks: dict[Signature, str], *, title: str, blurb: str) -> s
 
 
 def parse_snapshot(text: str) -> dict[Signature, str]:
-    """Reconstruct signatures from a snapshot file. Keyed identity is the glyph diff after `::`; the example label is informational."""
+    """Map each signature in a snapshot file, parsed from the glyph diff after `::`, to its example label."""
     leaks: dict[Signature, str] = {}
     for raw in text.splitlines():
         line = raw.strip()

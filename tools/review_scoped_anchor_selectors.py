@@ -1,8 +1,8 @@
 """Build HTML review pages for scoped anchor selector suggestions.
 
-The tool is read-only with respect to source data: it applies suggested ``entry_y`` / ``exit_y`` selector scopes to an in-memory copy of glyph data, builds temporary Senior-Regular fonts under ``tmp/``, and writes HTML pages showing selector expansion and dropped-match cases.
+It applies the suggested ``entry_y`` / ``exit_y`` scopes to an in-memory copy of the glyph data, builds the current and scoped Senior-Regular fonts beside the output page (under ``tmp/scoped-anchor-review/`` by default), and writes HTML pages. Each page lists the variants each narrowed selector still matches and the ones it drops. It also shows texts in which the current font puts the selecting stance next to a dropped variant, shaped with both fonts. The glyph data is not modified.
 
-With no filters, builds ``index.html`` plus a per-family ``<family>.html`` page for every family that has suggestions, fanning the work out across worker processes (``--jobs``). Pass ``--family`` or ``--path`` to regenerate one per-letter page at a time.
+With no filters, it builds ``index.html`` plus a ``<family>.html`` page for every family that has suggestions, using up to ``--jobs`` worker processes. Pass ``--family`` or ``--path`` to rebuild one family's page.
 
 Usage::
 
@@ -742,7 +742,7 @@ def _family_labels_html(
 def _glyph_name_html(name: str) -> str:
     """Escape ``name`` and bias soft line breaks to its periods.
 
-    Browsers break after hyphens by default, so names like ``qsMay.en-y5.after-fee`` wrap as ``qsMay.entry-`` / ``xheight.after-`` / ``fee``. Wrapping each period-separated chunk in a no-wrap span and adding a ``<wbr>`` after each period flips the preference to break at the periods. The copied text content is unchanged (``<wbr>`` and ``<span>`` contribute nothing extra to plain-text selection).
+    Browsers break after hyphens, so a name like ``qsGay.en-y5.ex-y0`` can wrap as ``qsGay.en-`` / ``y5.ex-y0``. Each period-separated part goes in a no-wrap span with a ``<wbr>`` after each period, so lines break at the periods instead. Copied text is unchanged.
     """
     parts = [html.escape(part) for part in name.split(".")]
     if len(parts) == 1:
@@ -1588,9 +1588,9 @@ def build_all_reviews(
     max_cases: int,
     jobs: int,
 ) -> list[Path]:
-    """Build the index page and every per-family page in *index_path*'s directory.
+    """Build the index page and every per-family page in *index_path*'s directory, and return the per-family paths in code-point order.
 
-    The unscoped font is built once and shared; each family's scoped font is built independently into ``scoped/<font-stem>--<family>.otf`` so workers don't clobber each other. Returns the list of per-family HTML paths in code-point order.
+    The current font is built once and shared. Each family's scoped font gets its own file, ``scoped/<font-stem>--<family>.otf``, so parallel workers do not overwrite each other's fonts. Every other ``qs`` name in ``postscript_glyph_names.yaml`` gets a placeholder page.
     """
     output_dir = index_path.parent
     output_dir.mkdir(parents=True, exist_ok=True)

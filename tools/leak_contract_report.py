@@ -1,12 +1,10 @@
-"""Phase-1 reporting pass for the derived join contract (see doc/history/2026-06-03--leak-cleanup/leak-prevention-plan.md).
+"""Classify the recorded leaks by whether the join contract can remove them.
 
-This is the cross-check oracle that brief calls for: the standalone, read-only classifier that the eventual in-emitter warn pass must agree with. It changes zero FEA bytes because it only reads the already-built Senior `calt` FEA and the approved depth-4 leak snapshot.
+The emitter enforces the join contract with `_JoinContractRecorder` in `tools/quikscript_fea.py`, and doc/history/2026-06-03--leak-cleanup/leak-prevention-plan.md describes it. This module applies the contract's predicate from outside the emitter, reading only the built Senior `calt` FEA and the leak files `site/bad-leak-backlog.txt` and `site/benign-leak-census.txt`. The two can disagree for two reasons. This module tests joins with bare anchor Ys, while the emitter also counts the Ys a neighbor reaches in context. The emitter also counts a variant with no exit (forward) or no entry (backward) as joining, and this module has no such exemption. `tools/build_check_html.py` uses `classify` to group the leaks on site/check.html. Run as a script, the module writes the full breakdown to `tmp/leak-contract-report.txt`.
 
-What it answers: of the leaks currently frozen in the bad backlog + benign census (`site/bad-leak-backlog.txt`, `site/benign-leak-census.txt`), how many will the construction-time join contract make impossible (so they are moot for hand-triage), how many are author-declared cosmetic tucks the contract is meant to keep, and how many are emergent across the chained lookups and so out of the contract's reach. That partition is the whole point — it tells you which snapshot rows you can skip when collecting verdicts.
+The predicate: a contextual substitution that selects variant `V` keeps a neighbor `N` only if `V` joins `N`, meaning `exit_ys(V) & entry_ys(N)` is non-empty for a follower and `exit_ys(N) & entry_ys(V)` for a predecessor. A non-joining neighbor is dropped unless `V` has a directional cosmetic modifier (`before-<fam>` for a follower, `after-<fam>` for a predecessor) that names the neighbor's family.
 
-The contract's per-rule predicate (from the brief): a contextual substitution that selects variant `V` may keep a neighbor `N` only if `V` cursively joins `N` — `exit_ys(V) & entry_ys(N) != set()` for a forward (follower) neighbor, `exit_ys(N) & entry_ys(V) != set()` for a backward (predecessor) neighbor. A non-joining neighbor is dropped unless `V` carries a directional cosmetic modifier (`before-<fam>` for a follower, `after-<fam>` for a predecessor) naming that neighbor's family.
-
-We project each snapshot signature `(isolated_left, left_chosen, isolated_right, right_chosen)` onto that predicate: for the side whose stance changed in context, look for a single emitted `calt` rule that selects the changed stance `V` with the non-joining neighbor in its nearest context position. If such a rule exists, the leak is single-stance (contract-reachable); if it does not, the dependency only emerges from the composition of several lookups (the `·Ah·It | ·Tea·Oy` case in the findings doc) and stays the snapshot gate's job.
+For each leak signature `(isolated_left, left_chosen, isolated_right, right_chosen)`, each side whose stance changed is checked for a single emitted `calt` rule that outputs the changed stance with the non-joining neighbor in the nearest context position. A leak is `emergent` when some changed side has no such rule, because the change comes from several lookups combined (the `·Ah·It | ·Tea·Oy` case in doc/history/2026-06-03--leak-cleanup/leak-investigation-findings.md). Otherwise it is `cosmetic` when every changed side has a cosmetic modifier, `droppable` when none does, and `mixed` when one side does.
 """
 
 from __future__ import annotations
@@ -27,7 +25,7 @@ from leak_static_analysis import Rule, parse_calt  # noqa: E402
 from quikscript_shaping_helpers import _compiled_meta, _entry_ys, _exit_ys  # noqa: E402
 
 FEA_PATH = SITE_DIR / "AbbotsMortonSpaceportSansSenior-Regular.fea"
-# The full set of visible depth-4 leaks now lives partitioned across the bad backlog and the benign census; this analysis wants both halves together (the old single isolation-leak-snapshot.txt was retired when those two files began reconstructing it).
+# The bad backlog and the benign census together list every visible depth-4 leak.
 SNAPSHOT_PATHS = (SITE_DIR / "bad-leak-backlog.txt", SITE_DIR / "benign-leak-census.txt")
 DUMP_PATH = ROOT / "tmp" / "leak-contract-report.txt"
 
@@ -35,7 +33,7 @@ Signature = tuple[str, str, str, str]  # (isolated_left, left_chosen, isolated_r
 
 
 def joins(left: str, right: str) -> bool:
-    """Whether *left* can cursively hand off to *right*. Mirrors `leak_static_analysis.joins` / `_pair_join_ys`."""
+    """Return whether *left* has an exit at a Y where *right* has an entry, as `leak_static_analysis.joins` does."""
     return bool(_exit_ys(left) & _entry_ys(right))
 
 
@@ -45,9 +43,9 @@ def _base_name(glyph: str) -> str:
 
 
 def _is_cosmetic(variant: str, neighbor: str, *, direction: str) -> bool:
-    """Whether *variant* is an author-declared cosmetic interaction with *neighbor*'s family.
+    """Return whether *variant* declares a cosmetic interaction with *neighbor*'s family.
 
-    The signal (per the brief, to avoid adding YAML) is a directional cosmetic modifier — `before-<fam>` for a follower neighbor, `after-<fam>` for a predecessor — paired with the neighbor's family appearing in the stance's resolved trigger list. The modifier says "this cross-break shape change is intentional"; the trigger list says "for these families", so together they pin the opt-out to the right neighbor without re-deriving messy modifier stems (`before-vertical`, `before-day-exam`, ...).
+    It must have a `before-` modifier (for a follower) or an `after-` modifier (for a predecessor), and its resolved trigger list (`meta.before` or `meta.after`) must name the neighbor or its family. Reading the trigger list handles modifiers whose stem is not one family name, such as `before-vertical` and `before-day-exam`.
     """
     meta = _compiled_meta().get(variant)
     if meta is None:
@@ -96,7 +94,7 @@ class LeakVerdict:
 
 
 def parse_snapshot(paths: tuple[Path, ...] = SNAPSHOT_PATHS) -> list[tuple[Signature, str]]:
-    """Read each approved leak as `(signature, example-label)` across the given snapshot files (default: the bad backlog + benign census, together the full visible set). Mirrors `leak_snapshot.parse_snapshot` but without pulling in the shaping/HTML stack."""
+    """Return `(signature, example label)` for each leak line in the given files, by default the bad backlog and the benign census. It parses lines as `leak_snapshot.parse_snapshot` does, without importing the shaping code that module needs."""
     out: list[tuple[Signature, str]] = []
     for path in paths:
         for raw in path.read_text().splitlines():
@@ -126,9 +124,9 @@ def _subs_by_replacement(rules: list[Rule]) -> dict[str, list[Rule]]:
 def _explaining_rules(
     rules: list[Rule], *, variant: str, neighbor_forms: set[str], direction: str
 ) -> tuple[int, ...]:
-    """Line numbers of `calt` rules that select *variant* with one of *neighbor_forms* in the nearest context position on the side the contract polices.
+    """Return the sorted line numbers of the rules in *rules* that have one of *neighbor_forms* in the nearest context position: `lookahead[0]` for forward, `backtrack[-1]` for backward.
 
-    Forward: the follower neighbor sits in the nearest lookahead slot (`lookahead[0]`). Backward: the predecessor sits in the nearest backtrack slot (`backtrack[-1]`). We match on the rule's *output* (`replacement == variant`) rather than its pivot pre-stance, because the contract's predicate is about which variant a rule emits next to a non-joining neighbor — independent of whatever the pivot was before this lookup in the chain.
+    The function does not read *variant*. The caller passes only the rules whose replacement is *variant*, because the contract concerns the variant a rule outputs, whatever the pivot was before that lookup.
     """
     found: list[int] = []
     for rule in rules:
@@ -151,7 +149,7 @@ def classify(snapshot: list[tuple[Signature, str]], rules: list[Rule]) -> list[L
     for sig, label in snapshot:
         il, lc, ir, rc = sig
         verdict = LeakVerdict(signature=sig, label=label)
-        # Left changed: its exit stance was modulated by the follower it does not join -> a forward rule selecting `lc` with the right glyph in lookahead.
+        # The left stance changed: look for a rule that outputs `lc` with the right glyph in its nearest lookahead position.
         if il != lc:
             neighbor_forms = {rc, ir}
             lines = ()
@@ -169,7 +167,7 @@ def classify(snapshot: list[tuple[Signature, str]], rules: list[Rule]) -> list[L
                     cosmetic=bool(lines) and _is_cosmetic(lc, rc, direction="forward"),
                 )
             )
-        # Right changed: its entry stance was modulated by the predecessor it does not join -> a backward rule selecting `rc` with the left glyph in backtrack.
+        # The right stance changed: look for a rule that outputs `rc` with the left glyph in its nearest backtrack position.
         if ir != rc:
             neighbor_forms = {lc, il}
             lines = ()

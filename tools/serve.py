@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
-"""Dev server with live reload — replaces browser-sync.
+"""Serve `site/` on port 7293 with live reload and no caching.
 
-browser-sync's script injection corrupts multi-byte UTF-8 characters when they straddle a 64 KB chunk boundary. livereload serves files byte-for-byte and injects its reload script without this problem.
+It uses livereload because browser-sync's script injection corrupts multi-byte UTF-8 characters that straddle a 64 KB chunk boundary. livereload serves files byte for byte.
 """
 
 from pathlib import Path

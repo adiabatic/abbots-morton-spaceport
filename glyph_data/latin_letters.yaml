@@ -1,7 +1,7 @@
 glyphs:
   # ── Letters ──────────────────────────────────────────────────────────
 
-  # Cap-height: 8 rows, # on row 3, width 5
+  # Cap-height: 8 rows, # on rows 3 and 8
   A.prop:  # A U+0041
     top_mark_y: 9
     bitmap:
@@ -378,7 +378,7 @@ glyphs:
       - " #   #"
       - "## ## " #
 
-  # Ascender: 8 rows, # on row 3, width 5
+  # Ascender: 8 rows, # on rows 3 and 8
   b.prop:  # b U+0062
     bitmap:
       - "#    "
@@ -468,7 +468,7 @@ glyphs:
       - " # "
       - " ##" #
 
-  # X-height: 6 rows, # on row 6, width 5
+  # X-height: 6 rows, # on rows 1 and 6
   a.prop:  # a U+0061
     top_mark_y: 7
     bitmap:
@@ -479,7 +479,7 @@ glyphs:
       - "#   # "
       - " ### #" #
 
-  a.prop.doublestory:  # a U+0061
+  a.prop.doublestory:  # double-story a, unencoded
     bitmap:
       - " ###  " #
       - "    # "
@@ -643,7 +643,7 @@ glyphs:
       - " #   "
       - "#####" #
 
-  # Descender: 9 rows, y_offset -3, # on row 6, width 5
+  # Descender: 9 rows, y_offset -3, # on rows 1 and 6
   g.prop:  # g U+0067
     kerning: [leave-space-for-j]
     y_offset: -3
@@ -712,7 +712,7 @@ glyphs:
       - " #   "
       - " #   "
 
-  # Full-vertical: 11 rows, y_offset -3, # on row 8, width 5
+  # Full-vertical: 11 rows, y_offset -3, # on rows 3 and 8
   j.prop:  # j U+006A
     y_offset: -3
     bitmap:
@@ -728,7 +728,7 @@ glyphs:
       - "#  "
       - "   "
 
-  dotlessj.prop:  # (dotless j, base for accented j)
+  dotlessj.prop:  # ȷ U+0237 (dotless j, base for accented j)
     top_mark_y: 7
     top_mark_x: 1
     y_offset: -3

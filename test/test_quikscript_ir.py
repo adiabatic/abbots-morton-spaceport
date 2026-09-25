@@ -72,7 +72,7 @@ _SENIOR_FEA_PATH = ROOT / "site" / "AbbotsMortonSpaceportSansSenior-Regular.fea"
 
 @cache
 def _real_senior_fea() -> str:
-    """The Senior feature file the build last wrote, with every hoisted class spelled back inline so an assertion can read a rule's neighbor lists off the rule's own line. The suite builds the fonts before any test runs (see the root conftest), so this is the current emitter output; reading it keeps the emitter's own memory peak out of whichever worker draws one of these tests."""
+    """Return the Senior feature file the last build wrote, with every hoisted class written back inline so an assertion can read a rule's neighbor lists on the rule's own line. Under xdist the root conftest builds the fonts before any test runs, so this is the current emitter output. A `-n 0` run does not build first and reads whatever the last build wrote. Reading the file keeps the emitter's peak memory out of the worker that runs these tests."""
     return expand_hoisted_classes(_SENIOR_FEA_PATH.read_text())
 
 
@@ -931,7 +931,7 @@ def test_senior_feature_emitter_excludes_not_after_families_from_pair_after_clas
     after_glyphs = after_class.split()
 
     qsing_variants = {glyph for glyph in join_glyphs if glyph == "qsIng" or glyph.startswith("qsIng.")}
-    assert qsing_variants  # sanity check the family exists
+    assert qsing_variants
     assert not (set(after_glyphs) & qsing_variants), (
         f"calt_pair_qsThaw_after-tall must not fire after qsIng variants; "
         f"found {sorted(set(after_glyphs) & qsing_variants)}"
@@ -1004,7 +1004,7 @@ def test_fwd_pair_skips_entry_variant_with_unreachable_exit():
     ]
     assert upgrade_lines, "expected qsIt -> qsIt.ex-y5.ex-ext-1 upgrade substitution"
     assert any("qsCheer" in line and "qsCheer.en-ext-1" in line for line in upgrade_lines)
-    # The derived join contract drops qsCheer.noentry from this exit-y5 upgrade: it enters nowhere (entry_ys == ()), so it cannot cursively join qsIt's exit and was a single-rule leak. qsCheer and qsCheer.en-ext-1 enter at y=5 and stay.
+    # The join contract drops qsCheer.noentry from this exit-y5 upgrade because it has no entry and cannot join qsIt's exit. qsCheer and qsCheer.en-ext-1 enter at y=5 and stay.
     assert all("qsCheer.noentry" not in line for line in upgrade_lines)
 
 
@@ -1320,7 +1320,7 @@ def test_expand_selectors_recognizes_family_variants_in_selector_lists():
 
     expanded = expand_selectors_for_ligatures(metadata)
 
-    # `qsB.alt` is a specific trailing-component variant. With suffix-aware ligature keying, it doesn't match the base `qsA_qsB` (which doesn't represent an `alt` state). The existing pre-liga expansion still adds the lead component `qsA` so the selector fires when qsA literally precedes pre-liga.
+    # `qsB.alt` does not match the ligature `qsA_qsB`, which has no `alt` state, so the ligature is not added. The lead component `qsA` is still added, because before `calt_liga` forms the ligature the next glyph is qsA.
     assert expanded["qsLeft"].before == ("qsB.alt", "qsA")
 
 
@@ -2711,7 +2711,7 @@ def test_bitmap_misalignment_blocks_inheritance():
 
 
 def test_inheritance_skipped_in_junior_variant():
-    # Junior has no contextual en-y5 stances compiled, and ligatures are not formed there anyway, so the pass shouldn't run and shouldn't warn about ligatures whose explicit YAML entry can't be reconciled.
+    # The inheritance pass runs only for Senior. Junior forms no ligatures, so it gives no warning about a ligature's explicit entry.
     import warnings as _warnings
 
     with _warnings.catch_warnings():
@@ -2734,7 +2734,7 @@ def test_inheritance_skipped_in_junior_variant():
 
 
 def test_select_rule_neighbors_is_identity_without_a_recorder():
-    # The join contract (doc/history/2026-06-03--leak-cleanup/leak-prevention-plan.md) routes every calt selection point through this chokepoint. It enforces (drops non-joining, non-cosmetic neighbors) only while an `_active_contract_recorder` is installed for an emit run; called directly with no recorder, it is a pure identity passthrough. The point of lifting it to a module-level function is exactly this: the selection decision is testable in isolation, without standing up the 4,000-line emitter.
+    # `_select_rule_neighbors` drops non-joining, non-cosmetic neighbors only while an emit run has installed `_active_contract_recorder`. Called directly, it returns its input unchanged.
     followers = {"qsTea_qsOy", "qsThaw.ex-y0", "qsDay.half"}
     kept = _select_rule_neighbors("qsGay", "qsGay.en-y5", followers, direction="fwd")
     assert kept == followers
@@ -2742,12 +2742,11 @@ def test_select_rule_neighbors_is_identity_without_a_recorder():
     preds = {"qsRoe.ex-y0", "qsMay.en-y5"}
     assert _select_rule_neighbors("qsSee", "qsSee.ex-y0", preds, direction="bk") == preds
 
-    # Empty candidate set passes through cleanly (a rule whose context is already empty).
     assert _select_rule_neighbors("qsAt", "qsAt.ex-y0.before-may", set(), direction="fwd") == set()
 
 
 def test_select_rule_neighbors_returns_a_distinct_set():
-    # Callers compare `kept == candidate_members` to decide whether to emit the bare class token (`@entry_y…` / `@exit_y…`) or fall back to an explicit member list, and the result must not alias the caller's live set. Return a fresh set so a future drop pass can't mutate the input in place.
+    # Callers compare `kept == candidate_members` to choose between the bare class token (`@entry_y…` or `@exit_y…`) and an explicit member list, so the result must be a new set that does not alias the caller's.
     candidate = {"qsTea", "qsDay"}
     kept = _select_rule_neighbors("qsIt", "qsIt.en-y0", candidate, direction="fwd")
     assert kept == candidate
