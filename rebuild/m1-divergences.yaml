@@ -113,9 +113,12 @@
   match: {predicate: pea_chain_regularized, configs: all}
   count: 101
   exemplars:
-    - {config: default, codepoints: "E650:E650:E670", baseline: "qsPea|qsPea.half.ex-y5.ex-dips|qsIt.en-y5.ex-y0 (break,y5)", new: "qsPea.half.ex-y6|qsPea.half.en-y6.ex-y5|qsIt.hapax.en-y5 (y6,y5)"}
+    - {config: default, codepoints: "E650:E650:E67A", baseline: "qsPea.half.en-y6.ex-y6|qsPea.en-y6|qsUtter (y6,break)", new: "qsPea.half.ex-y6|qsPea.full.en-y6.ex-y0|qsUtter.mono.en-y0 (y6,y0)"}
   why: |
-    The old font's chain of substitutions drops the ·Pea·Pea y6 join whenever the second ·Pea also joins to the right (the recon section 6.3 cascade-residue family, in-alphabet form). Settlement keeps both joins, because capability and refusals permit them and settlement maximizes the join count. This is a strict join gain on a capability the baseline confirms. Round-1 verdict: 15 approvals.
+    The classifier sends a row here when every seam it gains has a ·Pea on its left and it loses or moves none. The old font breaks after that ·Pea, and settlement joins it to the next letter, because capability and refusals permit the join and settlement maximizes the join count. The ·Pea follows an exit at one of two heights.
+    After an x-height exit (·May, ·Utter or a `*_qsUtter` ligature), the old font draws the full qsPea.en-y5.ex-y0, whose one exit is at the baseline, and breaks before ·Pea and before ·J'ai (or the ·J'ai·Utter ligature). Settlement draws the half ·Pea and joins the follower: `·Utter ~x~ ·Pea.half ~6~ ·Pea` and `·Utter ~x~ ·Pea.half ~x~ ·J'ai`. Where the old font draws `·Utter ~x~ ·Pea | ·Pea.half ~x~ ·It`, settlement draws `·Utter ~x~ ·Pea.half ~6~ ·Pea.half ~x~ ·It`. The old font draws this ·Pea as the half qsPea.half.en-y5.ex-y5 before its x-height receivers other than ·J'ai, but it has no half ·Pea with an x-height entry and a y6 exit, so the ·Pea·Pea gain uses a cell the baseline never shows.
+    After a y6 exit (half ·Pea or ·See), the old font draws the exitless qsPea.en-y6 before ·Utter, and under ss03 before a ·May that joins ·Tea: `·Pea.half ~6~ ·Pea | ·Utter`. Settlement gives that ·Pea the baseline exit the old font draws before its other baseline receivers (qsPea.en-y6.ex-y0): `·Pea.half ~6~ ·Pea ~b~ ·Utter`, and under ss03 `·Pea.half ~6~ ·Pea ~b~ ·May ~x~ ·Tea`.
+    Round-1 verdict: 15 approvals.
 
 - id: halves-entry-extension-restored
   status: reviewed-rejected
