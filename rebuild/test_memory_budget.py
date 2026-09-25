@@ -156,11 +156,14 @@ class TestTheWidthsAlreadyOnRecord:
         )
 
     @pytest.mark.parametrize("total, wanted", [(BOX_32_GIB, 3), (BOX_32_GB, 3)])
-    def test_the_shipped_divisor_holds_the_32_gb_box_at_its_budgeted_width(self, total: int, wanted: int):
-        """The shipped kernel width subtracts `DEFAULT_MEMO_BYTES` from the machine before dividing the remaining budget by `DELTA_PEAK_BYTES`. Both readings of 32 GB fit three of the four delta configurations. The fleet machine is the GiB one. Its 34.36 GB is 1.34 GB short of fitting a fourth delta (35.7 GB is the smallest total that fits four), and the decimal 32 GB is 3.7 GB short. Changing either constant moves these widths. The second assertion checks that `TABLE_BUILD_PEAK_BYTES` is at most the memo plus one `DELTA_PEAK_BYTES` per delta configuration, which is what a width equal to the delta count holds; at a width equal to the configuration count, the extra worker slot runs `default`'s fold after its memo file is written."""
+    def test_the_shipped_divisor_holds_the_32_gb_box_at_its_budgeted_width(
+        self, total: int, wanted: int, monkeypatch: pytest.MonkeyPatch
+    ):
+        """The shipped kernel width subtracts `DEFAULT_MEMO_BYTES` from the machine before dividing the remaining budget by `DELTA_PEAK_BYTES`. Both readings of 32 GB fit three of the four delta configurations. The fleet machine is the GiB one. Its 34.36 GB is 1.34 GB short of fitting a fourth delta (35.7 GB is the smallest total that fits four), and the decimal 32 GB is 3.7 GB short. Changing either constant moves these widths. The second assertion checks that `TABLE_BUILD_PEAK_BYTES` is at most the memo plus one `DELTA_PEAK_BYTES` per delta configuration, which is what a width equal to the delta count holds; at a width equal to the configuration count, the extra worker slot runs `default`'s fold after its memo file is written. `AMS_KERNEL_THREADS` is cleared first, because an exported width would decide the first assertion whatever the constants are."""
         from rebuild.pipeline.conform import SETTLEMENT_CONFIGS
         from rebuild.pipeline.kernel_exec import TABLE_BUILD_PEAK_BYTES, kernel_threads_default
 
+        monkeypatch.delenv("AMS_KERNEL_THREADS", raising=False)
         assert kernel_threads_default(total_bytes=total) == wanted
         assert TABLE_BUILD_PEAK_BYTES <= DEFAULT_MEMO_BYTES + DELTA_PEAK_BYTES * (len(SETTLEMENT_CONFIGS) - 1)
 
