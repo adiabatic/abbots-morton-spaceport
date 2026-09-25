@@ -486,6 +486,7 @@ def _matches_slide(match, unit, excluded, context=None):
     if context is None:
         raise ValueError("the slide shape re-shapes windows in the surface's fonts and needs a SlideContext")
     key = (
+        "slide",
         tuple(match["before"]["pivots"]),
         tuple(match["after"]["pivots"]),
         match["after"]["slide"],
@@ -965,6 +966,7 @@ def _matches_entry_drop(match, unit, excluded, context=None):
             "the entry-extension-dropped shape re-shapes windows in the surface's fonts and needs a SlideContext"
         )
     key = (
+        "entry-extension-dropped",
         tuple(match["before"]["pivots"]),
         tuple(match["after"]["pivots"]),
         match["after"]["entry_drop"],
@@ -1093,6 +1095,7 @@ def _matches_stub_drop(match, unit, excluded, context=None):
             "the stub-dropped shape re-shapes windows in the surface's fonts and needs a SlideContext"
         )
     key = (
+        "stub-dropped",
         tuple(match["before"]["pivots"]),
         tuple(match["after"]["pivots"]),
         match["after"]["stub_drop"],
@@ -2270,7 +2273,7 @@ def _composed_verdict(rules, unit, events, context):
 
 
 class SlideContext:
-    """The font-backed state for the shapes that re-shape windows and for the composed walk. `comparator` is an InkComparator over the surface's before and after fonts, and `fonts` keeps that pair so `_prefill` can build each pool worker's context over the same fonts (`_standing_pool_init`). `memo` caches each font-backed matcher's geometric result per rule parameters and unit, so the guarded and unguarded passes over one rule shape a window once. `composed` caches each composed walk per rules digest and unit. Every key names one unit, so `Decider._release` empties both after each unit it decides or serves, and a pool worker empties them after each chunk (`_standing_pool_chunk`), which keeps a worker's peak memory to one chunk's windows."""
+    """The font-backed state for the shapes that re-shape windows and for the composed walk. `comparator` is an InkComparator over the surface's before and after fonts, and `fonts` keeps that pair so `_prefill` can build each pool worker's context over the same fonts (`_standing_pool_init`). `memo` caches each font-backed matcher's geometric result per shape, rule parameters, and unit, so the guarded and unguarded passes over one rule shape a window once. `composed` caches each composed walk per rules digest and unit. Every key names one unit, so `Decider._release` empties both after each unit it decides or serves, and a pool worker empties them after each chunk (`_standing_pool_chunk`), which keeps a worker's peak memory to one chunk's windows."""
 
     def __init__(self, before_font, after_font) -> None:
         self.fonts = (before_font, after_font)
