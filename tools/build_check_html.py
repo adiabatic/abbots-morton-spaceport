@@ -471,8 +471,8 @@ _FAILURE_LABEL_RE = re.compile(
 )
 _FAMILY_TOKEN_RE = re.compile(r"qs[A-Za-z0-9]+|ZWNJ")
 
-# `test_join_ink.py` reports gaps as `qsX.variant -> qsY.variant at y=N (kind): reason (context ·A·B·C·D)`. Messages without the bracketed label fall back to this trailing clause.
-_CONTEXT_CLAUSE_RE = re.compile(r"\(context\s+((?:·(?:qs[A-Za-z0-9]+|ZWNJ))+)\s*\)")
+# `test_join_ink.py` reports gaps as `qsX.variant -> qsY.variant at y=N (kind): reason (context ·A·B·C·D)`, or `(12.5 units; context ·A·B·C·D)` for a non-integer gap, where a context token can be a letter, `space`, or `ZWNJ`. Messages without the bracketed label fall back to this trailing clause.
+_CONTEXT_CLAUSE_RE = re.compile(r"\((?:[^()]*;\s*)?context\s+((?:·(?:qs[A-Za-z0-9]+|ZWNJ|space))+)\s*\)")
 
 
 def _parse_families_from_message(message: str) -> tuple[str, ...]:
@@ -498,9 +498,6 @@ def _parse_families_from_message(message: str) -> tuple[str, ...]:
 def _families_to_text(families: tuple[str, ...], cp_map: dict[str, int]) -> str:
     parts: list[str] = []
     for fam in families:
-        if fam == "ZWNJ":
-            parts.append("‌")
-            continue
         codepoint = cp_map.get(fam)
         if codepoint is None:
             return ""
@@ -532,7 +529,7 @@ def collect_test_failures() -> list[TestFailure]:
 
 
 def build_failure_rows(failures: list[TestFailure]) -> list[FailureRow]:
-    cp_map = {fam: ord(ch) for fam, ch in _char_map().items() if fam.startswith("qs") and "_" not in fam}
+    cp_map = _family_to_codepoint()
     rows: list[FailureRow] = []
     for failure in failures:
         if not failure.sub_messages:
@@ -559,6 +556,9 @@ _FAMILY_TO_TABLES_NAME = {
 
 _BOUNDARY_TOKEN_LABEL = {"space": "␣", "ZWNJ": "◊ZWNJ"}
 _BOUNDARY_TOKEN_CODEPOINT = {"space": 0x20, "ZWNJ": 0x200C}
+_BOUNDARY_CODEPOINT_LABEL = {
+    cp: _BOUNDARY_TOKEN_LABEL[token] for token, cp in _BOUNDARY_TOKEN_CODEPOINT.items()
+}
 
 
 def _short_label(family: str) -> str:
@@ -571,8 +571,8 @@ def _short_label(family: str) -> str:
 
 
 def _short_label_for_codepoint(codepoint: int, cp_to_family: dict[int, str]) -> str:
-    if codepoint == 0x200C:
-        return "◊ZWNJ"
+    if codepoint in _BOUNDARY_CODEPOINT_LABEL:
+        return _BOUNDARY_CODEPOINT_LABEL[codepoint]
     family = cp_to_family.get(codepoint)
     if family is None:
         return f"U+{codepoint:04X}"
