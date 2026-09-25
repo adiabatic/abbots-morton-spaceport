@@ -1,5 +1,5 @@
 # Reviewed signatures of defect-gate findings that are accepted as correct (doc/rebuild-design.md §9). `run_m1` loads the `signature` of every entry, and rebuild/pipeline/defects.py reports a finding whose signature is listed here as blessed instead of as an error. Each signature has the form defects.py builds for its gate: `contact:<left glyph>:<right glyph>:y<row>` or `:overlap` (E-CONTACT), `dangle:` (E-DANGLE), `unrealized:` (E-UNREALIZED), `anchor:` (E-ANCHOR), or `band:` (E-EXTENSION-BAND).
-# Most entries are E-CONTACT off-anchor contacts that the shipped font also draws, on a join the old-font baseline shows. In a `contact:…:y<row>` signature the row is the first touching row the gate finds, and other rows may touch as well. The file is human-reviewed like rebuild/m1-divergences.yaml, and no pipeline step writes it. Nothing reports an entry whose finding no longer occurs.
+# Most entries are E-CONTACT off-anchor contacts that the shipped font also draws, on a join the old-font baseline shows. The gate reports every off-seam row where a pair's ink sits side by side as its own `contact:…:y<row>` finding, whether or not the pair also overlaps, so a pair that touches at several rows needs one signature for each. The file is human-reviewed like rebuild/m1-divergences.yaml, and no pipeline step writes it. Nothing reports an entry whose finding no longer occurs.
 # Agents write the `why:` fields in this file; the rule that only the user writes `why:` covers glyph_data/runes/qs*.yaml alone. Match the wording of the neighboring entries. The user reviews whether a signature belongs, not who wrote its `why:`.
 
 - signature: contact:qsOy.hapax.ex-y0:qsIt.hapax.en-y0:y1
@@ -16,12 +16,18 @@
 
 - signature: contact:qsOy.hapax.en-y5.ex-y0:qsIt.hapax.en-y0:y1
   why: The entered variant (·May·Oy·It, baseline row E665:E679:E670) of the blessed ·Oy·It corner; the open-on-the-left bitmap does not move the tail.
+- signature: contact:qsOy.hapax.en-y5.ex-y0:qsIt.hapax.en-y0:y2
+  why: The pair in the `:y1` signature above also touches at y2, off the seam row.
 
 - signature: contact:qsOy.hapax.en-y5.ex-y0:qsTea.full.en-y0:y1
   why: The entered variant of the blessed ·Oy·Tea corner.
+- signature: contact:qsOy.hapax.en-y5.ex-y0:qsTea.full.en-y0:y2
+  why: The pair in the `:y1` signature above also touches at y2, off the seam row.
 
 - signature: contact:qsTea_qsOy.hapax.ex-y0:qsIt.hapax.en-y0:y1
   why: ·Tea·Oy ligature into ·It joins at the baseline in the shipped font (baseline row E652:E679:E670); the ligature's tail is ·Oy's, so the corner is the same blessed one.
+- signature: contact:qsTea_qsOy.hapax.ex-y0:qsIt.hapax.en-y0:y2
+  why: The pair in the `:y1` signature above also touches at y2, off the seam row.
 
 - signature: contact:qsOy.hapax.ex-y0:qsIt.hapax.en-y0.ex-y5.ex-ext-1:y1
   why: The blessed ·Oy·It corner with ·It's x-height exit extended toward a following ·J'ai (baseline row E679:E670:E65D); the extension adds ink at y5 only, so the tail-against-bar corner is unchanged.
@@ -29,11 +35,17 @@
   why: The ZWNJ-locked twin of the extended-before-·J'ai ·Oy·It corner; identical drawing.
 - signature: contact:qsOy.hapax.en-y5.ex-y0:qsIt.hapax.en-y0.ex-y5.ex-ext-1:y1
   why: The entered variant of the extended-before-·J'ai ·Oy·It corner.
+- signature: contact:qsOy.hapax.en-y5.ex-y0:qsIt.hapax.en-y0.ex-y5.ex-ext-1:y2
+  why: The pair in the `:y1` signature above also touches at y2, off the seam row.
 - signature: contact:qsTea_qsOy.hapax.ex-y0:qsIt.hapax.en-y0.ex-y5.ex-ext-1:y1
   why: ·Tea·Oy ligature into ·It with the exit extended toward a following ·J'ai (baseline row E652:E679:E670:E65D); the same blessed tail-against-bar corner.
+- signature: contact:qsTea_qsOy.hapax.ex-y0:qsIt.hapax.en-y0.ex-y5.ex-ext-1:y2
+  why: The pair in the `:y1` signature above also touches at y2, off the seam row.
 
 - signature: contact:qsTea_qsOy.hapax.ex-y0:qsTea.full.en-y0:y1
   why: ·Tea·Oy ligature into ·Tea (baseline row E652:E679:E652); same tail-against-bar corner.
+- signature: contact:qsTea_qsOy.hapax.ex-y0:qsTea.full.en-y0:y2
+  why: The pair in the `:y1` signature above also touches at y2, off the seam row.
 
 - signature: contact:qsPea.half.ex-y6:qsPea.full.en-y6:y7
   why: The ·Pea·Pea chain joins at y6 in the shipped font (baseline row E650:E650, seam y6). The half's right downstroke at y7 is one column left of the next ·Pea's left upstroke, the corner the shipped font draws.
@@ -79,8 +91,32 @@
 # The shipped font joins ·It·(Day+Utter) at the baseline, into the half ligature (baseline row E670:E653:E67A, seams y0,lig). These signatures are for an x-height join into the full ligature, where ·It's bar runs beside the ligature's ·Day downstroke on every row from y0 to y4. qsIt refuses its x-height exit before ·Day and ·Day+Utter, so the rebuild does not make this join either, and these entries match no current finding.
 - signature: contact:qsIt.hapax.en-y0.ex-y5:qsDay_qsUtter.full.en-y5.ex-bind-pulled-back:y1
 - signature: contact:qsIt.hapax.en-y0.ex-y5:qsDay_qsUtter.full.en-y5.ex-y5.ex-ext-1:y1
+- signature: contact:qsIt.hapax.en-y0.ex-y5:qsDay_qsUtter.full.en-y5.ex-y5.ex-ext-1:y0
+  why: The pair in the `:y1` signature above also touches at y0, off the seam row.
+- signature: contact:qsIt.hapax.en-y0.ex-y5:qsDay_qsUtter.full.en-y5.ex-y5.ex-ext-1:y2
+  why: The pair in the `:y1` signature above also touches at y2, off the seam row.
+- signature: contact:qsIt.hapax.en-y0.ex-y5:qsDay_qsUtter.full.en-y5.ex-y5.ex-ext-1:y3
+  why: The pair in the `:y1` signature above also touches at y3, off the seam row.
+- signature: contact:qsIt.hapax.en-y0.ex-y5:qsDay_qsUtter.full.en-y5.ex-y5.ex-ext-1:y4
+  why: The pair in the `:y1` signature above also touches at y4, off the seam row.
 - signature: contact:qsIt.hapax.en-y0.ex-y5:qsDay_qsUtter.full.en-y5.ex-y5:y1
+- signature: contact:qsIt.hapax.en-y0.ex-y5:qsDay_qsUtter.full.en-y5.ex-y5:y0
+  why: The pair in the `:y1` signature above also touches at y0, off the seam row.
+- signature: contact:qsIt.hapax.en-y0.ex-y5:qsDay_qsUtter.full.en-y5.ex-y5:y2
+  why: The pair in the `:y1` signature above also touches at y2, off the seam row.
+- signature: contact:qsIt.hapax.en-y0.ex-y5:qsDay_qsUtter.full.en-y5.ex-y5:y3
+  why: The pair in the `:y1` signature above also touches at y3, off the seam row.
+- signature: contact:qsIt.hapax.en-y0.ex-y5:qsDay_qsUtter.full.en-y5.ex-y5:y4
+  why: The pair in the `:y1` signature above also touches at y4, off the seam row.
 - signature: contact:qsIt.hapax.en-y0.ex-y5:qsDay_qsUtter.full.en-y5:y1
+- signature: contact:qsIt.hapax.en-y0.ex-y5:qsDay_qsUtter.full.en-y5:y0
+  why: The pair in the `:y1` signature above also touches at y0, off the seam row.
+- signature: contact:qsIt.hapax.en-y0.ex-y5:qsDay_qsUtter.full.en-y5:y2
+  why: The pair in the `:y1` signature above also touches at y2, off the seam row.
+- signature: contact:qsIt.hapax.en-y0.ex-y5:qsDay_qsUtter.full.en-y5:y3
+  why: The pair in the `:y1` signature above also touches at y3, off the seam row.
+- signature: contact:qsIt.hapax.en-y0.ex-y5:qsDay_qsUtter.full.en-y5:y4
+  why: The pair in the `:y1` signature above also touches at y4, off the seam row.
 
 # ·It·Utter joins at the baseline in the shipped font (baseline row E670:E67A, seam y0, glyph qsIt.ex-y0.before-utter). ·It's bar touches ·Utter's left downstroke at y1, one row above the seam.
 - signature: contact:qsIt.hapax.ex-y0.locked:qsUtter.mono.en-y0.ex-bind-pulled-back:y1
@@ -99,25 +135,53 @@
 # The rebuild joins grounded-loop ·May to the half ·Day·Utter ligature at the baseline, a join the shipped font does not make (it joins ·May·(Day+Utter) at the x-height, as in the next block). ·May's descender and the ligature's ·Day descender sit side by side below the baseline.
 - signature: contact:qsMay.grounded-loop.en-y5.ex-y0.en-ext-1:qsDay_qsUtter.half.en-y0.ex-bind-pulled-back:y-2
 - signature: contact:qsMay.grounded-loop.en-y5.ex-y0.en-ext-1:qsDay_qsUtter.half.en-y0.ex-y5.ex-ext-1:y-2
+- signature: contact:qsMay.grounded-loop.en-y5.ex-y0.en-ext-1:qsDay_qsUtter.half.en-y0.ex-y5.ex-ext-1:y-1
+  why: The pair in the `:y-2` signature above also touches at y-1, off the seam row.
 - signature: contact:qsMay.grounded-loop.en-y5.ex-y0.en-ext-1:qsDay_qsUtter.half.en-y0.ex-y5:y-2
+- signature: contact:qsMay.grounded-loop.en-y5.ex-y0.en-ext-1:qsDay_qsUtter.half.en-y0.ex-y5:y-1
+  why: The pair in the `:y-2` signature above also touches at y-1, off the seam row.
 - signature: contact:qsMay.grounded-loop.en-y5.ex-y0.en-ext-1:qsDay_qsUtter.half.en-y0:y-2
+- signature: contact:qsMay.grounded-loop.en-y5.ex-y0.en-ext-1:qsDay_qsUtter.half.en-y0:y-1
+  why: The pair in the `:y-2` signature above also touches at y-1, off the seam row.
 - signature: contact:qsMay.grounded-loop.en-y5.ex-y0:qsDay_qsUtter.half.en-y0.ex-bind-pulled-back:y-1
 - signature: contact:qsMay.grounded-loop.en-y5.ex-y0:qsDay_qsUtter.half.en-y0.ex-y5.ex-ext-1:y-1
+- signature: contact:qsMay.grounded-loop.en-y5.ex-y0:qsDay_qsUtter.half.en-y0.ex-y5.ex-ext-1:y-2
+  why: The pair in the `:y-1` signature above also touches at y-2, off the seam row.
 - signature: contact:qsMay.grounded-loop.en-y5.ex-y0:qsDay_qsUtter.half.en-y0.ex-y5:y-1
+- signature: contact:qsMay.grounded-loop.en-y5.ex-y0:qsDay_qsUtter.half.en-y0.ex-y5:y-2
+  why: The pair in the `:y-1` signature above also touches at y-2, off the seam row.
 - signature: contact:qsMay.grounded-loop.en-y5.ex-y0:qsDay_qsUtter.half.en-y0:y-1
+- signature: contact:qsMay.grounded-loop.en-y5.ex-y0:qsDay_qsUtter.half.en-y0:y-2
+  why: The pair in the `:y-1` signature above also touches at y-2, off the seam row.
 # ·May·(Day+Utter) joins at the x-height in the shipped font (baseline row E665:E653:E67A, seams y5,lig); the two descenders touch below the baseline.
 - signature: contact:qsMay.loop.ex-y5.locked:qsDay_qsUtter.full.en-y5.ex-bind-pulled-back:y-2
 - signature: contact:qsMay.loop.ex-y5.locked:qsDay_qsUtter.full.en-y5.ex-y5.ex-ext-1:y-2
+- signature: contact:qsMay.loop.ex-y5.locked:qsDay_qsUtter.full.en-y5.ex-y5.ex-ext-1:y-1
+  why: The pair in the `:y-2` signature above also touches at y-1, off the seam row.
 - signature: contact:qsMay.loop.ex-y5.locked:qsDay_qsUtter.full.en-y5.ex-y5:y-2
+- signature: contact:qsMay.loop.ex-y5.locked:qsDay_qsUtter.full.en-y5.ex-y5:y-1
+  why: The pair in the `:y-2` signature above also touches at y-1, off the seam row.
 - signature: contact:qsMay.loop.ex-y5.locked:qsDay_qsUtter.full.en-y5:y-2
+- signature: contact:qsMay.loop.ex-y5.locked:qsDay_qsUtter.full.en-y5:y-1
+  why: The pair in the `:y-2` signature above also touches at y-1, off the seam row.
 - signature: contact:qsMay.loop.ex-y5:qsDay_qsUtter.full.en-y5.ex-bind-pulled-back:y-2
 - signature: contact:qsMay.loop.ex-y5:qsDay_qsUtter.full.en-y5.ex-y5.ex-ext-1:y-2
+- signature: contact:qsMay.loop.ex-y5:qsDay_qsUtter.full.en-y5.ex-y5.ex-ext-1:y-1
+  why: The pair in the `:y-2` signature above also touches at y-1, off the seam row.
 - signature: contact:qsMay.loop.ex-y5:qsDay_qsUtter.full.en-y5.ex-y5:y-2
+- signature: contact:qsMay.loop.ex-y5:qsDay_qsUtter.full.en-y5.ex-y5:y-1
+  why: The pair in the `:y-2` signature above also touches at y-1, off the seam row.
 - signature: contact:qsMay.loop.ex-y5:qsDay_qsUtter.full.en-y5:y-2
+- signature: contact:qsMay.loop.ex-y5:qsDay_qsUtter.full.en-y5:y-1
+  why: The pair in the `:y-2` signature above also touches at y-1, off the seam row.
 
-# ·Oy·It with ·It exiting onward; ·Oy's tail against ·It's bar at y1 does not change.
+# ·Oy·It with ·It exiting onward; ·Oy's tail touches ·It's bar at the same rows as before an ·It with no exit: y1, and y2 as well on the entered ·Oy.
 - signature: contact:qsOy.hapax.en-y5.ex-y0:qsIt.hapax.en-y0.ex-y0.ex-ext-1:y1
+- signature: contact:qsOy.hapax.en-y5.ex-y0:qsIt.hapax.en-y0.ex-y0.ex-ext-1:y2
+  why: The pair in the `:y1` signature above also touches at y2, off the seam row.
 - signature: contact:qsOy.hapax.en-y5.ex-y0:qsIt.hapax.en-y0.ex-y5:y1
+- signature: contact:qsOy.hapax.en-y5.ex-y0:qsIt.hapax.en-y0.ex-y5:y2
+  why: The pair in the `:y1` signature above also touches at y2, off the seam row.
 - signature: contact:qsOy.hapax.ex-y0.locked:qsIt.hapax.en-y0.ex-y0.ex-ext-1:y1
 - signature: contact:qsOy.hapax.ex-y0.locked:qsIt.hapax.en-y0.ex-y5:y1
 - signature: contact:qsOy.hapax.ex-y0:qsIt.hapax.en-y0.ex-y0.ex-ext-1:y1
@@ -169,24 +233,38 @@
 - signature: contact:qsTea.full.ex-y0:qsUtter.mono.en-y0.ex-y5:y1
 - signature: contact:qsTea.full.ex-y0:qsUtter.mono.en-y0:y1
 
-# The ·Tea·Oy ligature joins ·It and ·Utter at the baseline in the shipped font (baseline rows E652:E679:E670 and E652:E679:E67A, seam y0). The ligature's ·Oy tail touches the follower's left stroke at y1, the same corner as the blessed ·Tea·Oy·It.
+# The ·Tea·Oy ligature joins ·It and ·Utter at the baseline in the shipped font (baseline rows E652:E679:E670 and E652:E679:E67A, seam y0). The ligature's ·Oy tail touches ·It's bar at y1 and y2 and ·Utter's left downstroke at y1, the same corners as the blessed ·Tea·Oy·It.
 - signature: contact:qsTea_qsOy.hapax.ex-y0:qsIt.hapax.en-y0.ex-y0.ex-ext-1:y1
+- signature: contact:qsTea_qsOy.hapax.ex-y0:qsIt.hapax.en-y0.ex-y0.ex-ext-1:y2
+  why: The pair in the `:y1` signature above also touches at y2, off the seam row.
 - signature: contact:qsTea_qsOy.hapax.ex-y0:qsIt.hapax.en-y0.ex-y5:y1
+- signature: contact:qsTea_qsOy.hapax.ex-y0:qsIt.hapax.en-y0.ex-y5:y2
+  why: The pair in the `:y1` signature above also touches at y2, off the seam row.
 - signature: contact:qsTea_qsOy.hapax.ex-y0:qsUtter.mono.en-y0.ex-bind-pulled-back:y1
 - signature: contact:qsTea_qsOy.hapax.ex-y0:qsUtter.mono.en-y0.ex-y5.ex-ext-1:y1
 - signature: contact:qsTea_qsOy.hapax.ex-y0:qsUtter.mono.en-y0.ex-y5:y1
 - signature: contact:qsTea_qsOy.hapax.ex-y0:qsUtter.mono.en-y0:y1
 
-# ·Oy·It joins at the baseline in the shipped font (baseline row E679:E670, seam y0). The entered or entry-extended ·Oy's tail is one column left of ·It's bar at y1 whatever ·It's exit, the same corner as the bare ·Oy·It.
+# ·Oy·It joins at the baseline in the shipped font (baseline row E679:E670, seam y0). ·Oy's tail is one column left of ·It's bar at y1 whatever ·It's exit, the same corner as the bare ·Oy·It, and the entered or entry-extended ·Oy's tail touches the bar at y2 as well.
 - signature: contact:qsOy.hapax.en-y5.ex-y0.en-ext-1:qsIt.hapax.en-y0:y1
+- signature: contact:qsOy.hapax.en-y5.ex-y0.en-ext-1:qsIt.hapax.en-y0:y2
+  why: The pair in the `:y1` signature above also touches at y2, off the seam row.
 - signature: contact:qsOy.hapax.en-y5.ex-y0.en-ext-1:qsIt.hapax.en-y0.ex-y5:y1
+- signature: contact:qsOy.hapax.en-y5.ex-y0.en-ext-1:qsIt.hapax.en-y0.ex-y5:y2
+  why: The pair in the `:y1` signature above also touches at y2, off the seam row.
 - signature: contact:qsOy.hapax.en-y5.ex-y0:qsIt.hapax.en-y0.ex-y0:y1
+- signature: contact:qsOy.hapax.en-y5.ex-y0:qsIt.hapax.en-y0.ex-y0:y2
+  why: The pair in the `:y1` signature above also touches at y2, off the seam row.
 - signature: contact:qsOy.hapax.en-y5.ex-y0.en-ext-1:qsIt.hapax.en-y0.ex-y0:y1
+- signature: contact:qsOy.hapax.en-y5.ex-y0.en-ext-1:qsIt.hapax.en-y0.ex-y0:y2
+  why: The pair in the `:y1` signature above also touches at y2, off the seam row.
 - signature: contact:qsOy.hapax.ex-y0:qsIt.hapax.en-y0.ex-y0:y1
 - signature: contact:qsOy.hapax.ex-y0.locked:qsIt.hapax.en-y0.ex-y0:y1
 
 - signature: contact:qsOy.hapax.en-y5.ex-y0.en-ext-1:qsTea.full.en-y0:y1
   why: ·Oy·Tea joins at the baseline in the shipped font (baseline row E679:E652, seam y0). The entered, entry-extended ·Oy has the same tail-against-bar corner as the blessed ·Oy·It.
+- signature: contact:qsOy.hapax.en-y5.ex-y0.en-ext-1:qsTea.full.en-y0:y2
+  why: The pair in the `:y1` signature above also touches at y2, off the seam row.
 
 # ·Oy·Utter joins at the baseline in the shipped font (baseline row E679:E67A, seam y0). The entered, entry-extended ·Oy's tail touches ·Utter's baseline-entry stroke at y1.
 - signature: contact:qsOy.hapax.en-y5.ex-y0.en-ext-1:qsUtter.mono.en-y0:y1
@@ -200,11 +278,27 @@
 - signature: contact:qsPea.full.en-y5.ex-y0.en-ext-1:qsUtter.mono.en-y0.ex-y5:y1
 - signature: contact:qsPea.full.en-y5.ex-y0.en-ext-1:qsUtter.mono.en-y0.ex-y5.ex-ext-1:y1
 
-# ·It·It joined at the baseline, with the left ·It entered at the baseline under ss04. The left ·It has no exit extension, so the two bars stand in adjacent columns and touch at y1. With `ex-ext-1` the connector moves the next bar one column right, and the bars do not touch. qsIt refuses every ·It·It join, so the rebuild does not draw this pair and these entries match no current finding.
+# ·It·It joined at the baseline, with the left ·It entered at the baseline under ss04. The left ·It has no exit extension, so the two bars stand in adjacent columns and touch on every row above the seam, y1 through y5. With `ex-ext-1` the connector moves the next bar one column right, and the bars do not touch. qsIt refuses every ·It·It join, so the rebuild does not draw this pair and these entries match no current finding.
 - signature: contact:qsIt.hapax.en-y0.ex-y0:qsIt.hapax.en-y0:y1
+- signature: contact:qsIt.hapax.en-y0.ex-y0:qsIt.hapax.en-y0:y2
+  why: The pair in the `:y1` signature above also touches at y2, off the seam row.
+- signature: contact:qsIt.hapax.en-y0.ex-y0:qsIt.hapax.en-y0:y3
+  why: The pair in the `:y1` signature above also touches at y3, off the seam row.
+- signature: contact:qsIt.hapax.en-y0.ex-y0:qsIt.hapax.en-y0:y4
+  why: The pair in the `:y1` signature above also touches at y4, off the seam row.
+- signature: contact:qsIt.hapax.en-y0.ex-y0:qsIt.hapax.en-y0:y5
+  why: The pair in the `:y1` signature above also touches at y5, off the seam row.
 - signature: contact:qsIt.hapax.en-y0.ex-y0:qsIt.hapax.en-y0.ex-y0:y1
+- signature: contact:qsIt.hapax.en-y0.ex-y0:qsIt.hapax.en-y0.ex-y0:y2
+  why: The pair in the `:y1` signature above also touches at y2, off the seam row.
+- signature: contact:qsIt.hapax.en-y0.ex-y0:qsIt.hapax.en-y0.ex-y0:y3
+  why: The pair in the `:y1` signature above also touches at y3, off the seam row.
+- signature: contact:qsIt.hapax.en-y0.ex-y0:qsIt.hapax.en-y0.ex-y0:y4
+  why: The pair in the `:y1` signature above also touches at y4, off the seam row.
+- signature: contact:qsIt.hapax.en-y0.ex-y0:qsIt.hapax.en-y0.ex-y0:y5
+  why: The pair in the `:y1` signature above also touches at y5, off the seam row.
 
-# ·It entered at the baseline joins ·Utter at the baseline under ss04, as the shipped font does (ss04 baseline row E666:E670:E67A, seams y0,y0). The ·It with no exit extension touches ·Utter's left downstroke at y1 whatever ·Utter's exit. The ex-y5.ex-ext-1 follower is the ·Utter that reaches toward a following ·Fee (baseline row E666:E670:E67A:E658); its extension lengthens the x-height connector and leaves the y1 corner alone.
+# ·It entered at the baseline joins ·Utter at the baseline under ss04, as the shipped font does (ss04 baseline row E666:E670:E67A, seams y0,y0). The ·It with no exit extension touches ·Utter's left downstroke at y1 whatever ·Utter's exit. The ex-y5.ex-ext-1 follower is the ·Utter that reaches toward a following ·Fee (baseline row E666:E670:E67A:E658); its extension lengthens the x-height connector and leaves the y1 corner alone. The block also holds the ·Tea·Oy ligature before that same ss04 ·It, whose tail touches ·It's bar at y1 and y2, as it does before the ·It with no exit.
 - signature: contact:qsIt.hapax.en-y0.ex-y0:qsUtter.mono.en-y0:y1
 - signature: contact:qsIt.hapax.en-y0.ex-y0:qsUtter.mono.en-y0.ex-bind-pulled-back:y1
 - signature: contact:qsIt.hapax.en-y0.ex-y0:qsUtter.mono.en-y0.ex-y5:y1
@@ -212,6 +306,8 @@
 
 - signature: contact:qsTea_qsOy.hapax.ex-y0:qsIt.hapax.en-y0.ex-y0:y1
   why: ·Tea·Oy ligature into ·It joins at the baseline in the shipped font (baseline row E652:E679:E670, seam y0). The ligature's ·Oy tail against ·It's bar is the blessed ·Tea·Oy·It corner, here with ·It also exiting at the baseline under ss04.
+- signature: contact:qsTea_qsOy.hapax.ex-y0:qsIt.hapax.en-y0.ex-y0:y2
+  why: The pair in the `:y1` signature above also touches at y2, off the seam row.
 
 # ·Low's x-height exit against a follower whose x-height entry starts a downstroke. ·Low·Day, ·Low·Day·Utter, and ·Low·It join at the x-height in the shipped font (baseline rows E667:E653, E667:E653:E67A, and E667:E670, seam y5), and ·Low's riser at y4 is one column left of the follower's downstroke. There is one signature per ·Low variant (bare, entered, ZWNJ-locked) and follower variant; the follower's exits and exit extensions do not move its entry column.
 - signature: contact:qsLow.hapax.ex-y5:qsDay.full.en-y5:y4
@@ -564,13 +660,25 @@
 - signature: contact:qsTea.full.en-y0.ex-y0:qsRoe.hapax.en-y0:y5
   why: The ss05 counterpart of the corner above (·Et·Tea·Roe, both baseline joins unlocked); the baseline-entered full bar has the same ink at y5. ·Roe's baseline entry contraction applies only when ·Roe exits onward, so a ·Roe with no exit is not contracted onto the bar. In the rebuild, a ·Roe with no exit after ·Tea takes qsRoe's one-pixel baseline entry extension instead, which leaves a blank column between the bar and the upper arm, so neither of these two entries matches a current finding.
 
-# ·It·Et and ·Low·Et join at the x-height in the shipped font (baseline rows E670:E672 and E667:E672, seam y5). The exiter's riser at y4 is one column left of ·Et's descending left edge, the same corner as the ·Low·Day and ·Low·It block above with ·Et as the follower. There is one signature per exiter variant (bare, entered, ZWNJ-locked) and ·Et exit variant; the onward baseline exit does not move the entry column. The entry-extended ·Et never follows these exiters, because qsEt extends its entry only after ·Pea, ·Tea, and ·He. qsIt refuses its x-height exit before ·Et, so the rebuild makes no ·It·Et join and the ·It entries match no current finding.
+# ·It·Et and ·Low·Et join at the x-height in the shipped font (baseline rows E670:E672 and E667:E672, seam y5). The exiter's riser at y4 is one column left of ·Et's descending left edge, the same corner as the ·Low·Day and ·Low·It block above with ·Et as the follower. ·It's riser is a straight bar, so it touches ·Et at y3 as well. There is one signature per exiter variant (bare, entered, ZWNJ-locked), per ·Et exit variant, and per touching row; the onward baseline exit does not move the entry column. The entry-extended ·Et never follows these exiters, because qsEt extends its entry only after ·Pea, ·Tea, and ·He. qsIt refuses its x-height exit before ·Et, so the rebuild makes no ·It·Et join and the ·It entries match no current finding.
 - signature: contact:qsIt.hapax.ex-y5:qsEt.hapax.en-y5:y4
+- signature: contact:qsIt.hapax.ex-y5:qsEt.hapax.en-y5:y3
+  why: The pair in the `:y4` signature above also touches at y3, off the seam row.
 - signature: contact:qsIt.hapax.ex-y5:qsEt.hapax.en-y5.ex-y0:y4
+- signature: contact:qsIt.hapax.ex-y5:qsEt.hapax.en-y5.ex-y0:y3
+  why: The pair in the `:y4` signature above also touches at y3, off the seam row.
 - signature: contact:qsIt.hapax.en-y0.ex-y5:qsEt.hapax.en-y5:y4
+- signature: contact:qsIt.hapax.en-y0.ex-y5:qsEt.hapax.en-y5:y3
+  why: The pair in the `:y4` signature above also touches at y3, off the seam row.
 - signature: contact:qsIt.hapax.en-y0.ex-y5:qsEt.hapax.en-y5.ex-y0:y4
+- signature: contact:qsIt.hapax.en-y0.ex-y5:qsEt.hapax.en-y5.ex-y0:y3
+  why: The pair in the `:y4` signature above also touches at y3, off the seam row.
 - signature: contact:qsIt.hapax.ex-y5.locked:qsEt.hapax.en-y5:y4
+- signature: contact:qsIt.hapax.ex-y5.locked:qsEt.hapax.en-y5:y3
+  why: The pair in the `:y4` signature above also touches at y3, off the seam row.
 - signature: contact:qsIt.hapax.ex-y5.locked:qsEt.hapax.en-y5.ex-y0:y4
+- signature: contact:qsIt.hapax.ex-y5.locked:qsEt.hapax.en-y5.ex-y0:y3
+  why: The pair in the `:y4` signature above also touches at y3, off the seam row.
 - signature: contact:qsLow.hapax.ex-y5:qsEt.hapax.en-y5:y4
 - signature: contact:qsLow.hapax.ex-y5:qsEt.hapax.en-y5.ex-y0:y4
 - signature: contact:qsLow.hapax.en-y0.ex-y5:qsEt.hapax.en-y5:y4
@@ -636,23 +744,47 @@
 - signature: dangle:qsVie_qsUtter.hapax.locked:exit:x-height
   why: The ZWNJ-locked twin of the ligature's arm; identical drawing.
 
-# Every baseline join into ·Out, and into the ·Out+Tea ligature, whose entry is the same ·Out foot. The entering stroke meets the (0,0) anchor while ·Out's foot rises through y1, so the left letter's ink and the foot touch at y1, one row above the seam. The shipped font draws this corner on these joins, as it does for ·Oy·It. There is one signature per pair of left and right variants; all show the same corner.
+# Every baseline join into ·Out, and into the ·Out+Tea ligature, whose entry is the same ·Out foot. The entering stroke meets the (0,0) anchor while ·Out's foot rises from the seam, so the left letter's ink and the foot touch at y1, one row above the seam. The normal ·Out's foot leans away above y1, so that is its only touching row. The swept-up ·Out's foot and the ligature's foot stay upright through y2, so a left letter whose last column is also upright there touches them at y2 as well: ·It's bar, ·Pea's right downstroke, ·Tea's bar, the entered ·Oy's tail, and the ·Tea·Oy ligature's tail. The tail of the ·Oy with no entry turns left above y1, so it touches every ·Out form at y1 only. The shipped font draws these corners on these joins, as it does for ·Oy·It. There is one signature per pair of left and right variants and per touching row.
 - signature: contact:qsIt.hapax.en-y0.ex-y0:qsOut.normal.en-y0:y1
 - signature: contact:qsIt.hapax.en-y0.ex-y0:qsOut.swept-up.en-y0.ex-y5.ex-ext-1:y1
+- signature: contact:qsIt.hapax.en-y0.ex-y0:qsOut.swept-up.en-y0.ex-y5.ex-ext-1:y2
+  why: The pair in the `:y1` signature above also touches at y2, off the seam row.
 - signature: contact:qsIt.hapax.en-y0.ex-y0:qsOut.swept-up.en-y0.ex-y5:y1
+- signature: contact:qsIt.hapax.en-y0.ex-y0:qsOut.swept-up.en-y0.ex-y5:y2
+  why: The pair in the `:y1` signature above also touches at y2, off the seam row.
 - signature: contact:qsIt.hapax.en-y0.ex-y0:qsOut_qsTea.hapax.en-y0:y1
+- signature: contact:qsIt.hapax.en-y0.ex-y0:qsOut_qsTea.hapax.en-y0:y2
+  why: The pair in the `:y1` signature above also touches at y2, off the seam row.
 - signature: contact:qsIt.hapax.ex-y0.locked:qsOut.normal.en-y0:y1
 - signature: contact:qsIt.hapax.ex-y0.locked:qsOut.swept-up.en-y0.ex-y5.ex-ext-1:y1
+- signature: contact:qsIt.hapax.ex-y0.locked:qsOut.swept-up.en-y0.ex-y5.ex-ext-1:y2
+  why: The pair in the `:y1` signature above also touches at y2, off the seam row.
 - signature: contact:qsIt.hapax.ex-y0.locked:qsOut.swept-up.en-y0.ex-y5:y1
+- signature: contact:qsIt.hapax.ex-y0.locked:qsOut.swept-up.en-y0.ex-y5:y2
+  why: The pair in the `:y1` signature above also touches at y2, off the seam row.
 - signature: contact:qsIt.hapax.ex-y0.locked:qsOut_qsTea.hapax.en-y0:y1
+- signature: contact:qsIt.hapax.ex-y0.locked:qsOut_qsTea.hapax.en-y0:y2
+  why: The pair in the `:y1` signature above also touches at y2, off the seam row.
 - signature: contact:qsIt.hapax.ex-y0:qsOut.normal.en-y0:y1
 - signature: contact:qsIt.hapax.ex-y0:qsOut.swept-up.en-y0.ex-y5.ex-ext-1:y1
+- signature: contact:qsIt.hapax.ex-y0:qsOut.swept-up.en-y0.ex-y5.ex-ext-1:y2
+  why: The pair in the `:y1` signature above also touches at y2, off the seam row.
 - signature: contact:qsIt.hapax.ex-y0:qsOut.swept-up.en-y0.ex-y5:y1
+- signature: contact:qsIt.hapax.ex-y0:qsOut.swept-up.en-y0.ex-y5:y2
+  why: The pair in the `:y1` signature above also touches at y2, off the seam row.
 - signature: contact:qsIt.hapax.ex-y0:qsOut_qsTea.hapax.en-y0:y1
+- signature: contact:qsIt.hapax.ex-y0:qsOut_qsTea.hapax.en-y0:y2
+  why: The pair in the `:y1` signature above also touches at y2, off the seam row.
 - signature: contact:qsOy.hapax.en-y5.ex-y0:qsOut.normal.en-y0:y1
 - signature: contact:qsOy.hapax.en-y5.ex-y0:qsOut.swept-up.en-y0.ex-y5.ex-ext-1:y1
+- signature: contact:qsOy.hapax.en-y5.ex-y0:qsOut.swept-up.en-y0.ex-y5.ex-ext-1:y2
+  why: The pair in the `:y1` signature above also touches at y2, off the seam row.
 - signature: contact:qsOy.hapax.en-y5.ex-y0:qsOut.swept-up.en-y0.ex-y5:y1
+- signature: contact:qsOy.hapax.en-y5.ex-y0:qsOut.swept-up.en-y0.ex-y5:y2
+  why: The pair in the `:y1` signature above also touches at y2, off the seam row.
 - signature: contact:qsOy.hapax.en-y5.ex-y0:qsOut_qsTea.hapax.en-y0:y1
+- signature: contact:qsOy.hapax.en-y5.ex-y0:qsOut_qsTea.hapax.en-y0:y2
+  why: The pair in the `:y1` signature above also touches at y2, off the seam row.
 - signature: contact:qsOy.hapax.ex-y0.locked:qsOut.normal.en-y0:y1
 - signature: contact:qsOy.hapax.ex-y0.locked:qsOut.swept-up.en-y0.ex-y5.ex-ext-1:y1
 - signature: contact:qsOy.hapax.ex-y0.locked:qsOut.swept-up.en-y0.ex-y5:y1
@@ -663,54 +795,130 @@
 - signature: contact:qsOy.hapax.ex-y0:qsOut_qsTea.hapax.en-y0:y1
 - signature: contact:qsPea.full.en-y5.ex-y0:qsOut.normal.en-y0:y1
 - signature: contact:qsPea.full.en-y5.ex-y0:qsOut.swept-up.en-y0.ex-y5.ex-ext-1:y1
+- signature: contact:qsPea.full.en-y5.ex-y0:qsOut.swept-up.en-y0.ex-y5.ex-ext-1:y2
+  why: The pair in the `:y1` signature above also touches at y2, off the seam row.
 - signature: contact:qsPea.full.en-y5.ex-y0:qsOut.swept-up.en-y0.ex-y5:y1
+- signature: contact:qsPea.full.en-y5.ex-y0:qsOut.swept-up.en-y0.ex-y5:y2
+  why: The pair in the `:y1` signature above also touches at y2, off the seam row.
 - signature: contact:qsPea.full.en-y5.ex-y0:qsOut_qsTea.hapax.en-y0:y1
+- signature: contact:qsPea.full.en-y5.ex-y0:qsOut_qsTea.hapax.en-y0:y2
+  why: The pair in the `:y1` signature above also touches at y2, off the seam row.
 - signature: contact:qsPea.full.en-y6.ex-y0:qsOut.normal.en-y0:y1
 - signature: contact:qsPea.full.en-y6.ex-y0:qsOut.swept-up.en-y0.ex-y5.ex-ext-1:y1
+- signature: contact:qsPea.full.en-y6.ex-y0:qsOut.swept-up.en-y0.ex-y5.ex-ext-1:y2
+  why: The pair in the `:y1` signature above also touches at y2, off the seam row.
 - signature: contact:qsPea.full.en-y6.ex-y0:qsOut.swept-up.en-y0.ex-y5:y1
+- signature: contact:qsPea.full.en-y6.ex-y0:qsOut.swept-up.en-y0.ex-y5:y2
+  why: The pair in the `:y1` signature above also touches at y2, off the seam row.
 - signature: contact:qsPea.full.en-y6.ex-y0:qsOut_qsTea.hapax.en-y0:y1
+- signature: contact:qsPea.full.en-y6.ex-y0:qsOut_qsTea.hapax.en-y0:y2
+  why: The pair in the `:y1` signature above also touches at y2, off the seam row.
 - signature: contact:qsPea.full.ex-y0.locked:qsOut.normal.en-y0:y1
 - signature: contact:qsPea.full.ex-y0.locked:qsOut.swept-up.en-y0.ex-y5.ex-ext-1:y1
+- signature: contact:qsPea.full.ex-y0.locked:qsOut.swept-up.en-y0.ex-y5.ex-ext-1:y2
+  why: The pair in the `:y1` signature above also touches at y2, off the seam row.
 - signature: contact:qsPea.full.ex-y0.locked:qsOut.swept-up.en-y0.ex-y5:y1
+- signature: contact:qsPea.full.ex-y0.locked:qsOut.swept-up.en-y0.ex-y5:y2
+  why: The pair in the `:y1` signature above also touches at y2, off the seam row.
 - signature: contact:qsPea.full.ex-y0.locked:qsOut_qsTea.hapax.en-y0:y1
+- signature: contact:qsPea.full.ex-y0.locked:qsOut_qsTea.hapax.en-y0:y2
+  why: The pair in the `:y1` signature above also touches at y2, off the seam row.
 - signature: contact:qsPea.full.ex-y0:qsOut.normal.en-y0:y1
 - signature: contact:qsPea.full.ex-y0:qsOut.swept-up.en-y0.ex-y5.ex-ext-1:y1
+- signature: contact:qsPea.full.ex-y0:qsOut.swept-up.en-y0.ex-y5.ex-ext-1:y2
+  why: The pair in the `:y1` signature above also touches at y2, off the seam row.
 - signature: contact:qsPea.full.ex-y0:qsOut.swept-up.en-y0.ex-y5:y1
+- signature: contact:qsPea.full.ex-y0:qsOut.swept-up.en-y0.ex-y5:y2
+  why: The pair in the `:y1` signature above also touches at y2, off the seam row.
 - signature: contact:qsPea.full.ex-y0:qsOut_qsTea.hapax.en-y0:y1
+- signature: contact:qsPea.full.ex-y0:qsOut_qsTea.hapax.en-y0:y2
+  why: The pair in the `:y1` signature above also touches at y2, off the seam row.
 - signature: contact:qsTea.full.en-y0.ex-y0:qsOut.normal.en-y0:y1
 - signature: contact:qsTea.full.en-y0.ex-y0:qsOut.swept-up.en-y0.ex-y5.ex-ext-1:y1
+- signature: contact:qsTea.full.en-y0.ex-y0:qsOut.swept-up.en-y0.ex-y5.ex-ext-1:y2
+  why: The pair in the `:y1` signature above also touches at y2, off the seam row.
 - signature: contact:qsTea.full.en-y0.ex-y0:qsOut.swept-up.en-y0.ex-y5:y1
+- signature: contact:qsTea.full.en-y0.ex-y0:qsOut.swept-up.en-y0.ex-y5:y2
+  why: The pair in the `:y1` signature above also touches at y2, off the seam row.
 - signature: contact:qsTea.full.en-y0.ex-y0:qsOut_qsTea.hapax.en-y0:y1
+- signature: contact:qsTea.full.en-y0.ex-y0:qsOut_qsTea.hapax.en-y0:y2
+  why: The pair in the `:y1` signature above also touches at y2, off the seam row.
 - signature: contact:qsTea.full.en-y5.ex-y0:qsOut.normal.en-y0:y1
 - signature: contact:qsTea.full.en-y5.ex-y0:qsOut.swept-up.en-y0.ex-y5.ex-ext-1:y1
+- signature: contact:qsTea.full.en-y5.ex-y0:qsOut.swept-up.en-y0.ex-y5.ex-ext-1:y2
+  why: The pair in the `:y1` signature above also touches at y2, off the seam row.
 - signature: contact:qsTea.full.en-y5.ex-y0:qsOut.swept-up.en-y0.ex-y5:y1
+- signature: contact:qsTea.full.en-y5.ex-y0:qsOut.swept-up.en-y0.ex-y5:y2
+  why: The pair in the `:y1` signature above also touches at y2, off the seam row.
 - signature: contact:qsTea.full.en-y5.ex-y0:qsOut_qsTea.hapax.en-y0:y1
+- signature: contact:qsTea.full.en-y5.ex-y0:qsOut_qsTea.hapax.en-y0:y2
+  why: The pair in the `:y1` signature above also touches at y2, off the seam row.
 - signature: contact:qsTea.full.en-y8.ex-y0:qsOut.normal.en-y0:y1
 - signature: contact:qsTea.full.en-y8.ex-y0:qsOut.swept-up.en-y0.ex-y5.ex-ext-1:y1
+- signature: contact:qsTea.full.en-y8.ex-y0:qsOut.swept-up.en-y0.ex-y5.ex-ext-1:y2
+  why: The pair in the `:y1` signature above also touches at y2, off the seam row.
 - signature: contact:qsTea.full.en-y8.ex-y0:qsOut.swept-up.en-y0.ex-y5:y1
+- signature: contact:qsTea.full.en-y8.ex-y0:qsOut.swept-up.en-y0.ex-y5:y2
+  why: The pair in the `:y1` signature above also touches at y2, off the seam row.
 - signature: contact:qsTea.full.en-y8.ex-y0:qsOut_qsTea.hapax.en-y0:y1
+- signature: contact:qsTea.full.en-y8.ex-y0:qsOut_qsTea.hapax.en-y0:y2
+  why: The pair in the `:y1` signature above also touches at y2, off the seam row.
 - signature: contact:qsTea.full.ex-y0.locked:qsOut.normal.en-y0:y1
 - signature: contact:qsTea.full.ex-y0.locked:qsOut.swept-up.en-y0.ex-y5.ex-ext-1:y1
+- signature: contact:qsTea.full.ex-y0.locked:qsOut.swept-up.en-y0.ex-y5.ex-ext-1:y2
+  why: The pair in the `:y1` signature above also touches at y2, off the seam row.
 - signature: contact:qsTea.full.ex-y0.locked:qsOut.swept-up.en-y0.ex-y5:y1
+- signature: contact:qsTea.full.ex-y0.locked:qsOut.swept-up.en-y0.ex-y5:y2
+  why: The pair in the `:y1` signature above also touches at y2, off the seam row.
 - signature: contact:qsTea.full.ex-y0.locked:qsOut_qsTea.hapax.en-y0:y1
+- signature: contact:qsTea.full.ex-y0.locked:qsOut_qsTea.hapax.en-y0:y2
+  why: The pair in the `:y1` signature above also touches at y2, off the seam row.
 - signature: contact:qsTea.full.ex-y0:qsOut.normal.en-y0:y1
 - signature: contact:qsTea.full.ex-y0:qsOut.swept-up.en-y0.ex-y5.ex-ext-1:y1
+- signature: contact:qsTea.full.ex-y0:qsOut.swept-up.en-y0.ex-y5.ex-ext-1:y2
+  why: The pair in the `:y1` signature above also touches at y2, off the seam row.
 - signature: contact:qsTea.full.ex-y0:qsOut.swept-up.en-y0.ex-y5:y1
+- signature: contact:qsTea.full.ex-y0:qsOut.swept-up.en-y0.ex-y5:y2
+  why: The pair in the `:y1` signature above also touches at y2, off the seam row.
 - signature: contact:qsTea.full.ex-y0:qsOut_qsTea.hapax.en-y0:y1
+- signature: contact:qsTea.full.ex-y0:qsOut_qsTea.hapax.en-y0:y2
+  why: The pair in the `:y1` signature above also touches at y2, off the seam row.
 - signature: contact:qsTea_qsOy.hapax.ex-y0:qsOut.normal.en-y0:y1
 - signature: contact:qsTea_qsOy.hapax.ex-y0:qsOut.swept-up.en-y0.ex-y5.ex-ext-1:y1
+- signature: contact:qsTea_qsOy.hapax.ex-y0:qsOut.swept-up.en-y0.ex-y5.ex-ext-1:y2
+  why: The pair in the `:y1` signature above also touches at y2, off the seam row.
 - signature: contact:qsTea_qsOy.hapax.ex-y0:qsOut.swept-up.en-y0.ex-y5:y1
+- signature: contact:qsTea_qsOy.hapax.ex-y0:qsOut.swept-up.en-y0.ex-y5:y2
+  why: The pair in the `:y1` signature above also touches at y2, off the seam row.
 - signature: contact:qsTea_qsOy.hapax.ex-y0:qsOut_qsTea.hapax.en-y0:y1
+- signature: contact:qsTea_qsOy.hapax.ex-y0:qsOut_qsTea.hapax.en-y0:y2
+  why: The pair in the `:y1` signature above also touches at y2, off the seam row.
 
-# The ·See·Out fusion at the baseline, in two defect formats: an E-CONTACT overlap and an E-UNREALIZED seam gap. ·See keeps its whole straighter tail, whose left-kicking last pixel fills the seam row. ·Out's raked redraws are one column shorter and entry-trimmed, so the leg fuses into the tail at (3, 1), one row above the baseline, and ·Out has no ink on the seam row. The overlap is the fusion, and the empty ·Out seam row is why `seam_gap` finds no ink there. The old font's `ex-con-1` on ·See is a tuck that keeps the tail's ink, so this reproduces the old font's fused ·See·Out and every after-·See form is pixel-identical to it (the see-out-fusion-respelled class in rebuild/m1-divergences.yaml).
+# The ·See·Out fusion at the baseline, in three defect formats: an E-CONTACT overlap, an E-CONTACT side-by-side row at y2, and an E-UNREALIZED seam gap. ·See keeps its whole straighter tail, whose left-kicking last pixel fills the seam row. ·Out's raked redraws are one column shorter and entry-trimmed, so the leg fuses into the tail at (3, 1), one row above the baseline, and ·Out has no ink on the seam row. One row higher, at y2, the tail sits one column left of ·Out's leg. The overlap is the fusion, and the empty ·Out seam row is why `seam_gap` finds no ink there. The old font's `ex-con-1` on ·See is a tuck that keeps the tail's ink, so this reproduces the old font's fused ·See·Out and every after-·See form is pixel-identical to it (the see-out-fusion-respelled class in rebuild/m1-divergences.yaml).
 - signature: contact:qsSee.straighter.ex-y0:qsOut.normal.en-y0.en-bind-raked.en-trim-1:overlap
+- signature: contact:qsSee.straighter.ex-y0:qsOut.normal.en-y0.en-bind-raked.en-trim-1:y2
+  why: The pair in the `:overlap` signature above also touches at y2, off the seam row.
 - signature: contact:qsSee.straighter.ex-y0:qsOut.swept-up.en-y0.ex-y5.en-bind-raked.en-trim-1:overlap
+- signature: contact:qsSee.straighter.ex-y0:qsOut.swept-up.en-y0.ex-y5.en-bind-raked.en-trim-1:y2
+  why: The pair in the `:overlap` signature above also touches at y2, off the seam row.
 - signature: contact:qsSee.straighter.ex-y0:qsOut.swept-up.en-y0.ex-y5.en-bind-raked.en-trim-1.ex-ext-1:overlap
+- signature: contact:qsSee.straighter.ex-y0:qsOut.swept-up.en-y0.ex-y5.en-bind-raked.en-trim-1.ex-ext-1:y2
+  why: The pair in the `:overlap` signature above also touches at y2, off the seam row.
 - signature: contact:qsSee.straighter.ex-y0:qsOut_qsTea.hapax.en-y0.en-bind-raked.en-trim-1:overlap
+- signature: contact:qsSee.straighter.ex-y0:qsOut_qsTea.hapax.en-y0.en-bind-raked.en-trim-1:y2
+  why: The pair in the `:overlap` signature above also touches at y2, off the seam row.
 - signature: contact:qsSee.straighter.ex-y0.locked:qsOut.normal.en-y0.en-bind-raked.en-trim-1:overlap
+- signature: contact:qsSee.straighter.ex-y0.locked:qsOut.normal.en-y0.en-bind-raked.en-trim-1:y2
+  why: The pair in the `:overlap` signature above also touches at y2, off the seam row.
 - signature: contact:qsSee.straighter.ex-y0.locked:qsOut.swept-up.en-y0.ex-y5.en-bind-raked.en-trim-1:overlap
+- signature: contact:qsSee.straighter.ex-y0.locked:qsOut.swept-up.en-y0.ex-y5.en-bind-raked.en-trim-1:y2
+  why: The pair in the `:overlap` signature above also touches at y2, off the seam row.
 - signature: contact:qsSee.straighter.ex-y0.locked:qsOut.swept-up.en-y0.ex-y5.en-bind-raked.en-trim-1.ex-ext-1:overlap
+- signature: contact:qsSee.straighter.ex-y0.locked:qsOut.swept-up.en-y0.ex-y5.en-bind-raked.en-trim-1.ex-ext-1:y2
+  why: The pair in the `:overlap` signature above also touches at y2, off the seam row.
 - signature: contact:qsSee.straighter.ex-y0.locked:qsOut_qsTea.hapax.en-y0.en-bind-raked.en-trim-1:overlap
+- signature: contact:qsSee.straighter.ex-y0.locked:qsOut_qsTea.hapax.en-y0.en-bind-raked.en-trim-1:y2
+  why: The pair in the `:overlap` signature above also touches at y2, off the seam row.
 - signature: unrealized:qsSee.straighter.ex-y0:qsOut.normal.en-y0.en-bind-raked.en-trim-1:baseline
 - signature: unrealized:qsSee.straighter.ex-y0:qsOut.swept-up.en-y0.ex-y5.en-bind-raked.en-trim-1:baseline
 - signature: unrealized:qsSee.straighter.ex-y0:qsOut.swept-up.en-y0.ex-y5.en-bind-raked.en-trim-1.ex-ext-1:baseline
@@ -720,110 +928,210 @@
 - signature: unrealized:qsSee.straighter.ex-y0.locked:qsOut.swept-up.en-y0.ex-y5.en-bind-raked.en-trim-1.ex-ext-1:baseline
 - signature: unrealized:qsSee.straighter.ex-y0.locked:qsOut_qsTea.hapax.en-y0.en-bind-raked.en-trim-1:baseline
 
-# ·At's vertical cap meets the follower's left stroke at y4, one row below the y5 seam, on these x-height joins that the old font also makes. Entry, lock, and onward-exit adjustments do not move the corner.
+# ·At's vertical cap runs beside the follower's left stroke at y4 and y3, the two rows below the y5 seam, on these x-height joins that the old font also makes. Entry, lock, and onward-exit adjustments do not move the corner.
 - signature: contact:qsAt.rising.en-y0.ex-y5:qsDay.full.en-y5:y4
   why: ·At·Day pair (baseline row E674:E653) joins at the x-height in the shipped font; this signature's adjustments do not move the y4 cap-against-stroke corner.
+- signature: contact:qsAt.rising.en-y0.ex-y5:qsDay.full.en-y5:y3
+  why: The pair in the `:y4` signature above also touches at y3, off the seam row.
 - signature: contact:qsAt.rising.en-y0.ex-y5:qsDay.full.en-y5.ex-y0:y4
   why: ·At·Day pair with ·Day exiting onward (baseline rows beginning E674:E653) joins at the x-height in the shipped font; this signature's adjustments do not move the y4 cap-against-stroke corner.
+- signature: contact:qsAt.rising.en-y0.ex-y5:qsDay.full.en-y5.ex-y0:y3
+  why: The pair in the `:y4` signature above also touches at y3, off the seam row.
 - signature: contact:qsAt.rising.en-y0.ex-y5:qsDay_qsUtter.full.en-y5:y4
   why: ·At·Day+Utter pair (baseline row E674:E653:E67A) joins at the x-height in the shipped font; this signature's adjustments do not move the y4 cap-against-stroke corner.
+- signature: contact:qsAt.rising.en-y0.ex-y5:qsDay_qsUtter.full.en-y5:y3
+  why: The pair in the `:y4` signature above also touches at y3, off the seam row.
 - signature: contact:qsAt.rising.en-y0.ex-y5:qsDay_qsUtter.full.en-y5.ex-y5:y4
   why: ·At·Day+Utter pair with the ligature exiting onward joins at the x-height in the shipped font; this signature's adjustments do not move the y4 cap-against-stroke corner.
+- signature: contact:qsAt.rising.en-y0.ex-y5:qsDay_qsUtter.full.en-y5.ex-y5:y3
+  why: The pair in the `:y4` signature above also touches at y3, off the seam row.
 - signature: contact:qsAt.rising.en-y0.ex-y5:qsDay_qsUtter.full.en-y5.ex-y5.ex-ext-1:y4
   why: ·At·Day+Utter pair with the ligature's onward exit extended joins at the x-height in the shipped font; this signature's adjustments do not move the y4 cap-against-stroke corner.
+- signature: contact:qsAt.rising.en-y0.ex-y5:qsDay_qsUtter.full.en-y5.ex-y5.ex-ext-1:y3
+  why: The pair in the `:y4` signature above also touches at y3, off the seam row.
 - signature: contact:qsAt.rising.en-y0.ex-y5:qsEt.hapax.en-y5:y4
   why: ·At·Et pair (baseline row E674:E672) joins at the x-height in the shipped font; this signature's adjustments do not move the y4 cap-against-stroke corner.
+- signature: contact:qsAt.rising.en-y0.ex-y5:qsEt.hapax.en-y5:y3
+  why: The pair in the `:y4` signature above also touches at y3, off the seam row.
 - signature: contact:qsAt.rising.en-y0.ex-y5:qsEt.hapax.en-y5.ex-y0:y4
   why: ·At·Et pair with ·Et exiting onward joins at the x-height in the shipped font; this signature's adjustments do not move the y4 cap-against-stroke corner.
+- signature: contact:qsAt.rising.en-y0.ex-y5:qsEt.hapax.en-y5.ex-y0:y3
+  why: The pair in the `:y4` signature above also touches at y3, off the seam row.
 - signature: contact:qsAt.rising.en-y0.ex-y5:qsEt.hapax.en-y5.ex-y0.ex-con-1:y4
   why: ·At·Et pair with ·Et's onward exit contracted joins at the x-height in the shipped font; this signature's adjustments do not move the y4 cap-against-stroke corner.
+- signature: contact:qsAt.rising.en-y0.ex-y5:qsEt.hapax.en-y5.ex-y0.ex-con-1:y3
+  why: The pair in the `:y4` signature above also touches at y3, off the seam row.
 - signature: contact:qsAt.rising.en-y0.ex-y5:qsIt.hapax.en-y5:y4
   why: ·At·It pair (baseline row E674:E670) joins at the x-height in the shipped font; this signature's adjustments do not move the y4 cap-against-stroke corner.
+- signature: contact:qsAt.rising.en-y0.ex-y5:qsIt.hapax.en-y5:y3
+  why: The pair in the `:y4` signature above also touches at y3, off the seam row.
 - signature: contact:qsAt.rising.en-y0.ex-y5:qsIt.hapax.en-y5.ex-y0:y4
   why: ·At·It pair with ·It exiting onward joins at the x-height in the shipped font; this signature's adjustments do not move the y4 cap-against-stroke corner.
+- signature: contact:qsAt.rising.en-y0.ex-y5:qsIt.hapax.en-y5.ex-y0:y3
+  why: The pair in the `:y4` signature above also touches at y3, off the seam row.
 - signature: contact:qsAt.rising.en-y0.ex-y5:qsIt.hapax.en-y5.ex-y0.ex-ext-1:y4
   why: ·At·It pair with ·It's onward exit extended joins at the x-height in the shipped font; this signature's adjustments do not move the y4 cap-against-stroke corner.
+- signature: contact:qsAt.rising.en-y0.ex-y5:qsIt.hapax.en-y5.ex-y0.ex-ext-1:y3
+  why: The pair in the `:y4` signature above also touches at y3, off the seam row.
 - signature: contact:qsAt.rising.en-y0.ex-y5.en-ext-1:qsDay.full.en-y5:y4
   why: ·At·Day pair (baseline row E674:E653) joins at the x-height in the shipped font; this signature's adjustments do not move the y4 cap-against-stroke corner.
+- signature: contact:qsAt.rising.en-y0.ex-y5.en-ext-1:qsDay.full.en-y5:y3
+  why: The pair in the `:y4` signature above also touches at y3, off the seam row.
 - signature: contact:qsAt.rising.en-y0.ex-y5.en-ext-1:qsDay.full.en-y5.ex-y0:y4
   why: ·At·Day pair with ·Day exiting onward (baseline rows beginning E674:E653) joins at the x-height in the shipped font; this signature's adjustments do not move the y4 cap-against-stroke corner.
+- signature: contact:qsAt.rising.en-y0.ex-y5.en-ext-1:qsDay.full.en-y5.ex-y0:y3
+  why: The pair in the `:y4` signature above also touches at y3, off the seam row.
 - signature: contact:qsAt.rising.en-y0.ex-y5.en-ext-1:qsDay_qsUtter.full.en-y5:y4
   why: ·At·Day+Utter pair (baseline row E674:E653:E67A) joins at the x-height in the shipped font; this signature's adjustments do not move the y4 cap-against-stroke corner.
+- signature: contact:qsAt.rising.en-y0.ex-y5.en-ext-1:qsDay_qsUtter.full.en-y5:y3
+  why: The pair in the `:y4` signature above also touches at y3, off the seam row.
 - signature: contact:qsAt.rising.en-y0.ex-y5.en-ext-1:qsDay_qsUtter.full.en-y5.ex-y5:y4
   why: ·At·Day+Utter pair with the ligature exiting onward joins at the x-height in the shipped font; this signature's adjustments do not move the y4 cap-against-stroke corner.
+- signature: contact:qsAt.rising.en-y0.ex-y5.en-ext-1:qsDay_qsUtter.full.en-y5.ex-y5:y3
+  why: The pair in the `:y4` signature above also touches at y3, off the seam row.
 - signature: contact:qsAt.rising.en-y0.ex-y5.en-ext-1:qsDay_qsUtter.full.en-y5.ex-y5.ex-ext-1:y4
   why: ·At·Day+Utter pair with the ligature's onward exit extended joins at the x-height in the shipped font; this signature's adjustments do not move the y4 cap-against-stroke corner.
+- signature: contact:qsAt.rising.en-y0.ex-y5.en-ext-1:qsDay_qsUtter.full.en-y5.ex-y5.ex-ext-1:y3
+  why: The pair in the `:y4` signature above also touches at y3, off the seam row.
 - signature: contact:qsAt.rising.en-y0.ex-y5.en-ext-1:qsEt.hapax.en-y5:y4
   why: ·At·Et pair (baseline row E674:E672) joins at the x-height in the shipped font; this signature's adjustments do not move the y4 cap-against-stroke corner.
+- signature: contact:qsAt.rising.en-y0.ex-y5.en-ext-1:qsEt.hapax.en-y5:y3
+  why: The pair in the `:y4` signature above also touches at y3, off the seam row.
 - signature: contact:qsAt.rising.en-y0.ex-y5.en-ext-1:qsEt.hapax.en-y5.ex-y0:y4
   why: ·At·Et pair with ·Et exiting onward joins at the x-height in the shipped font; this signature's adjustments do not move the y4 cap-against-stroke corner.
+- signature: contact:qsAt.rising.en-y0.ex-y5.en-ext-1:qsEt.hapax.en-y5.ex-y0:y3
+  why: The pair in the `:y4` signature above also touches at y3, off the seam row.
 - signature: contact:qsAt.rising.en-y0.ex-y5.en-ext-1:qsEt.hapax.en-y5.ex-y0.ex-con-1:y4
   why: ·At·Et pair with ·Et's onward exit contracted joins at the x-height in the shipped font; this signature's adjustments do not move the y4 cap-against-stroke corner.
+- signature: contact:qsAt.rising.en-y0.ex-y5.en-ext-1:qsEt.hapax.en-y5.ex-y0.ex-con-1:y3
+  why: The pair in the `:y4` signature above also touches at y3, off the seam row.
 - signature: contact:qsAt.rising.en-y0.ex-y5.en-ext-1:qsIt.hapax.en-y5:y4
   why: ·At·It pair (baseline row E674:E670) joins at the x-height in the shipped font; this signature's adjustments do not move the y4 cap-against-stroke corner.
+- signature: contact:qsAt.rising.en-y0.ex-y5.en-ext-1:qsIt.hapax.en-y5:y3
+  why: The pair in the `:y4` signature above also touches at y3, off the seam row.
 - signature: contact:qsAt.rising.en-y0.ex-y5.en-ext-1:qsIt.hapax.en-y5.ex-y0:y4
   why: ·At·It pair with ·It exiting onward joins at the x-height in the shipped font; this signature's adjustments do not move the y4 cap-against-stroke corner.
+- signature: contact:qsAt.rising.en-y0.ex-y5.en-ext-1:qsIt.hapax.en-y5.ex-y0:y3
+  why: The pair in the `:y4` signature above also touches at y3, off the seam row.
 - signature: contact:qsAt.rising.en-y0.ex-y5.en-ext-1:qsIt.hapax.en-y5.ex-y0.ex-ext-1:y4
   why: ·At·It pair with ·It's onward exit extended joins at the x-height in the shipped font; this signature's adjustments do not move the y4 cap-against-stroke corner.
+- signature: contact:qsAt.rising.en-y0.ex-y5.en-ext-1:qsIt.hapax.en-y5.ex-y0.ex-ext-1:y3
+  why: The pair in the `:y4` signature above also touches at y3, off the seam row.
 - signature: contact:qsAt.rising.ex-y5:qsDay.full.en-y5:y4
   why: ·At·Day pair (baseline row E674:E653) joins at the x-height in the shipped font; this signature's adjustments do not move the y4 cap-against-stroke corner.
+- signature: contact:qsAt.rising.ex-y5:qsDay.full.en-y5:y3
+  why: The pair in the `:y4` signature above also touches at y3, off the seam row.
 - signature: contact:qsAt.rising.ex-y5:qsDay.full.en-y5.ex-y0:y4
   why: ·At·Day pair with ·Day exiting onward (baseline rows beginning E674:E653) joins at the x-height in the shipped font; this signature's adjustments do not move the y4 cap-against-stroke corner.
+- signature: contact:qsAt.rising.ex-y5:qsDay.full.en-y5.ex-y0:y3
+  why: The pair in the `:y4` signature above also touches at y3, off the seam row.
 - signature: contact:qsAt.rising.ex-y5:qsDay_qsUtter.full.en-y5:y4
   why: ·At·Day+Utter pair (baseline row E674:E653:E67A) joins at the x-height in the shipped font; this signature's adjustments do not move the y4 cap-against-stroke corner.
+- signature: contact:qsAt.rising.ex-y5:qsDay_qsUtter.full.en-y5:y3
+  why: The pair in the `:y4` signature above also touches at y3, off the seam row.
 - signature: contact:qsAt.rising.ex-y5:qsDay_qsUtter.full.en-y5.ex-y5:y4
   why: ·At·Day+Utter pair with the ligature exiting onward joins at the x-height in the shipped font; this signature's adjustments do not move the y4 cap-against-stroke corner.
+- signature: contact:qsAt.rising.ex-y5:qsDay_qsUtter.full.en-y5.ex-y5:y3
+  why: The pair in the `:y4` signature above also touches at y3, off the seam row.
 - signature: contact:qsAt.rising.ex-y5:qsDay_qsUtter.full.en-y5.ex-y5.ex-ext-1:y4
   why: ·At·Day+Utter pair with the ligature's onward exit extended joins at the x-height in the shipped font; this signature's adjustments do not move the y4 cap-against-stroke corner.
+- signature: contact:qsAt.rising.ex-y5:qsDay_qsUtter.full.en-y5.ex-y5.ex-ext-1:y3
+  why: The pair in the `:y4` signature above also touches at y3, off the seam row.
 - signature: contact:qsAt.rising.ex-y5:qsEt.hapax.en-y5:y4
   why: ·At·Et pair (baseline row E674:E672) joins at the x-height in the shipped font; this signature's adjustments do not move the y4 cap-against-stroke corner.
+- signature: contact:qsAt.rising.ex-y5:qsEt.hapax.en-y5:y3
+  why: The pair in the `:y4` signature above also touches at y3, off the seam row.
 - signature: contact:qsAt.rising.ex-y5:qsEt.hapax.en-y5.ex-y0:y4
   why: ·At·Et pair with ·Et exiting onward joins at the x-height in the shipped font; this signature's adjustments do not move the y4 cap-against-stroke corner.
+- signature: contact:qsAt.rising.ex-y5:qsEt.hapax.en-y5.ex-y0:y3
+  why: The pair in the `:y4` signature above also touches at y3, off the seam row.
 - signature: contact:qsAt.rising.ex-y5:qsEt.hapax.en-y5.ex-y0.ex-con-1:y4
   why: ·At·Et pair with ·Et's onward exit contracted joins at the x-height in the shipped font; this signature's adjustments do not move the y4 cap-against-stroke corner.
+- signature: contact:qsAt.rising.ex-y5:qsEt.hapax.en-y5.ex-y0.ex-con-1:y3
+  why: The pair in the `:y4` signature above also touches at y3, off the seam row.
 - signature: contact:qsAt.rising.ex-y5:qsIt.hapax.en-y5:y4
   why: ·At·It pair (baseline row E674:E670) joins at the x-height in the shipped font; this signature's adjustments do not move the y4 cap-against-stroke corner.
+- signature: contact:qsAt.rising.ex-y5:qsIt.hapax.en-y5:y3
+  why: The pair in the `:y4` signature above also touches at y3, off the seam row.
 - signature: contact:qsAt.rising.ex-y5:qsIt.hapax.en-y5.ex-y0:y4
   why: ·At·It pair with ·It exiting onward joins at the x-height in the shipped font; this signature's adjustments do not move the y4 cap-against-stroke corner.
+- signature: contact:qsAt.rising.ex-y5:qsIt.hapax.en-y5.ex-y0:y3
+  why: The pair in the `:y4` signature above also touches at y3, off the seam row.
 - signature: contact:qsAt.rising.ex-y5:qsIt.hapax.en-y5.ex-y0.ex-ext-1:y4
   why: ·At·It pair with ·It's onward exit extended joins at the x-height in the shipped font; this signature's adjustments do not move the y4 cap-against-stroke corner.
+- signature: contact:qsAt.rising.ex-y5:qsIt.hapax.en-y5.ex-y0.ex-ext-1:y3
+  why: The pair in the `:y4` signature above also touches at y3, off the seam row.
 - signature: contact:qsAt.rising.ex-y5.locked:qsDay.full.en-y5:y4
   why: ·At·Day pair (baseline row E674:E653) joins at the x-height in the shipped font; this signature's adjustments do not move the y4 cap-against-stroke corner.
+- signature: contact:qsAt.rising.ex-y5.locked:qsDay.full.en-y5:y3
+  why: The pair in the `:y4` signature above also touches at y3, off the seam row.
 - signature: contact:qsAt.rising.ex-y5.locked:qsDay.full.en-y5.ex-y0:y4
   why: ·At·Day pair with ·Day exiting onward (baseline rows beginning E674:E653) joins at the x-height in the shipped font; this signature's adjustments do not move the y4 cap-against-stroke corner.
+- signature: contact:qsAt.rising.ex-y5.locked:qsDay.full.en-y5.ex-y0:y3
+  why: The pair in the `:y4` signature above also touches at y3, off the seam row.
 - signature: contact:qsAt.rising.ex-y5.locked:qsDay_qsUtter.full.en-y5:y4
   why: ·At·Day+Utter pair (baseline row E674:E653:E67A) joins at the x-height in the shipped font; this signature's adjustments do not move the y4 cap-against-stroke corner.
+- signature: contact:qsAt.rising.ex-y5.locked:qsDay_qsUtter.full.en-y5:y3
+  why: The pair in the `:y4` signature above also touches at y3, off the seam row.
 - signature: contact:qsAt.rising.ex-y5.locked:qsDay_qsUtter.full.en-y5.ex-y5:y4
   why: ·At·Day+Utter pair with the ligature exiting onward joins at the x-height in the shipped font; this signature's adjustments do not move the y4 cap-against-stroke corner.
+- signature: contact:qsAt.rising.ex-y5.locked:qsDay_qsUtter.full.en-y5.ex-y5:y3
+  why: The pair in the `:y4` signature above also touches at y3, off the seam row.
 - signature: contact:qsAt.rising.ex-y5.locked:qsDay_qsUtter.full.en-y5.ex-y5.ex-ext-1:y4
   why: ·At·Day+Utter pair with the ligature's onward exit extended joins at the x-height in the shipped font; this signature's adjustments do not move the y4 cap-against-stroke corner.
+- signature: contact:qsAt.rising.ex-y5.locked:qsDay_qsUtter.full.en-y5.ex-y5.ex-ext-1:y3
+  why: The pair in the `:y4` signature above also touches at y3, off the seam row.
 - signature: contact:qsAt.rising.ex-y5.locked:qsEt.hapax.en-y5:y4
   why: ·At·Et pair (baseline row E674:E672) joins at the x-height in the shipped font; this signature's adjustments do not move the y4 cap-against-stroke corner.
+- signature: contact:qsAt.rising.ex-y5.locked:qsEt.hapax.en-y5:y3
+  why: The pair in the `:y4` signature above also touches at y3, off the seam row.
 - signature: contact:qsAt.rising.ex-y5.locked:qsEt.hapax.en-y5.ex-y0:y4
   why: ·At·Et pair with ·Et exiting onward joins at the x-height in the shipped font; this signature's adjustments do not move the y4 cap-against-stroke corner.
+- signature: contact:qsAt.rising.ex-y5.locked:qsEt.hapax.en-y5.ex-y0:y3
+  why: The pair in the `:y4` signature above also touches at y3, off the seam row.
 - signature: contact:qsAt.rising.ex-y5.locked:qsEt.hapax.en-y5.ex-y0.ex-con-1:y4
   why: ·At·Et pair with ·Et's onward exit contracted joins at the x-height in the shipped font; this signature's adjustments do not move the y4 cap-against-stroke corner.
+- signature: contact:qsAt.rising.ex-y5.locked:qsEt.hapax.en-y5.ex-y0.ex-con-1:y3
+  why: The pair in the `:y4` signature above also touches at y3, off the seam row.
 - signature: contact:qsAt.rising.ex-y5.locked:qsIt.hapax.en-y5:y4
   why: ·At·It pair (baseline row E674:E670) joins at the x-height in the shipped font; this signature's adjustments do not move the y4 cap-against-stroke corner.
+- signature: contact:qsAt.rising.ex-y5.locked:qsIt.hapax.en-y5:y3
+  why: The pair in the `:y4` signature above also touches at y3, off the seam row.
 - signature: contact:qsAt.rising.ex-y5.locked:qsIt.hapax.en-y5.ex-y0:y4
   why: ·At·It pair with ·It exiting onward joins at the x-height in the shipped font; this signature's adjustments do not move the y4 cap-against-stroke corner.
+- signature: contact:qsAt.rising.ex-y5.locked:qsIt.hapax.en-y5.ex-y0:y3
+  why: The pair in the `:y4` signature above also touches at y3, off the seam row.
 - signature: contact:qsAt.rising.ex-y5.locked:qsIt.hapax.en-y5.ex-y0.ex-ext-1:y4
   why: ·At·It pair with ·It's onward exit extended joins at the x-height in the shipped font; this signature's adjustments do not move the y4 cap-against-stroke corner.
+- signature: contact:qsAt.rising.ex-y5.locked:qsIt.hapax.en-y5.ex-y0.ex-ext-1:y3
+  why: The pair in the `:y4` signature above also touches at y3, off the seam row.
 
 # ·Ooze's two legs are verticals rising from the baseline at its outer columns, so every baseline ·Ooze join that the old font makes puts a leg one column from the neighbor's own vertical or tail. On the entry side, the predecessor's terminal stands beside the left leg (the ·Oy·It tail-against-bar corner, with the leg as the bar). On the exit side, the right leg stands beside the follower's left stroke (the ·Ox·Tea corner, with the leg as the tail). The old font draws all of them: baseline rows E650:E67E, E652:E67E, E670:E67E, E678:E67E, E679:E67E, E65A:E67E, E67E:E652, E67E:E670, E67E:E67A, E67E:E67B, and E67E:E67E all have a y0 seam.
 # The entry side: each blessed predecessor terminal against ·Ooze's left leg, once against the bare entry cell and once against the cell that also exits at the baseline.
 - signature: contact:qsIt.hapax.en-y0.ex-y0:qsOoze.hapax.en-y0.ex-y0:y1
   why: The baseline-entered ·It·Ooze corner with ·Ooze carrying its own baseline exit onward; the left leg does not move.
+- signature: contact:qsIt.hapax.en-y0.ex-y0:qsOoze.hapax.en-y0.ex-y0:y2
+  why: The pair in the `:y1` signature above also touches at y2, off the seam row.
 - signature: contact:qsIt.hapax.en-y0.ex-y0:qsOoze.hapax.en-y0:y1
   why: The baseline-entered variant of the blessed ·It·Ooze corner (·Day·It·Ooze under ss04, baseline rows E653:E670:E67E); the entry side leaves the bar where it is.
+- signature: contact:qsIt.hapax.en-y0.ex-y0:qsOoze.hapax.en-y0:y2
+  why: The pair in the `:y1` signature above also touches at y2, off the seam row.
 - signature: contact:qsIt.hapax.ex-y0.locked:qsOoze.hapax.en-y0.ex-y0:y1
   why: The ZWNJ-locked ·It·Ooze twin against the exiting ·Ooze cell; identical drawing.
+- signature: contact:qsIt.hapax.ex-y0.locked:qsOoze.hapax.en-y0.ex-y0:y2
+  why: The pair in the `:y1` signature above also touches at y2, off the seam row.
 - signature: contact:qsIt.hapax.ex-y0.locked:qsOoze.hapax.en-y0:y1
   why: The ZWNJ-locked twin of the blessed ·It·Ooze corner; identical drawing.
+- signature: contact:qsIt.hapax.ex-y0.locked:qsOoze.hapax.en-y0:y2
+  why: The pair in the `:y1` signature above also touches at y2, off the seam row.
 - signature: contact:qsIt.hapax.ex-y0:qsOoze.hapax.en-y0.ex-y0:y1
   why: The ·It·Ooze corner with ·Ooze carrying its own baseline exit onward; the left leg does not move.
+- signature: contact:qsIt.hapax.ex-y0:qsOoze.hapax.en-y0.ex-y0:y2
+  why: The pair in the `:y1` signature above also touches at y2, off the seam row.
 - signature: contact:qsIt.hapax.ex-y0:qsOoze.hapax.en-y0:y1
   why: ·It·Ooze joins at the baseline in the shipped font (baseline row E670:E67E, seam y0); ·It's bar at y1 is one column left of ·Ooze's left leg, the same two-verticals corner as ·Tea·Ooze.
+- signature: contact:qsIt.hapax.ex-y0:qsOoze.hapax.en-y0:y2
+  why: The pair in the `:y1` signature above also touches at y2, off the seam row.
 - signature: contact:qsOx.hapax.en-y5.ex-y0.en-ext-1:qsOoze.hapax.en-y0.ex-y0:y1
   why: The entry-extended ·Ox·Ooze corner with ·Ooze carrying its own baseline exit onward; the left leg does not move.
 - signature: contact:qsOx.hapax.en-y5.ex-y0.en-ext-1:qsOoze.hapax.en-y0:y1
@@ -842,8 +1150,12 @@
   why: ·Ox·Ooze joins at the baseline in the shipped font (baseline row E678:E67E, seam y0); ·Ox's vertical tail at y1 is one column left of ·Ooze's left leg, the blessed ·Ox·It corner with ·Ooze's leg as the bar.
 - signature: contact:qsOy.hapax.en-y5.ex-y0:qsOoze.hapax.en-y0.ex-y0:y1
   why: The x-height-entered ·Oy·Ooze corner with ·Ooze carrying its own baseline exit onward; the left leg does not move.
+- signature: contact:qsOy.hapax.en-y5.ex-y0:qsOoze.hapax.en-y0.ex-y0:y2
+  why: The pair in the `:y1` signature above also touches at y2, off the seam row.
 - signature: contact:qsOy.hapax.en-y5.ex-y0:qsOoze.hapax.en-y0:y1
   why: The x-height-entered variant of the blessed ·Oy·Ooze corner (·May·Oy·Ooze, baseline rows E665:E679:E67E); the open-on-the-left binding does not move the tail.
+- signature: contact:qsOy.hapax.en-y5.ex-y0:qsOoze.hapax.en-y0:y2
+  why: The pair in the `:y1` signature above also touches at y2, off the seam row.
 - signature: contact:qsOy.hapax.ex-y0.locked:qsOoze.hapax.en-y0.ex-y0:y1
   why: The ZWNJ-locked ·Oy·Ooze twin against the exiting ·Ooze cell; identical drawing.
 - signature: contact:qsOy.hapax.ex-y0.locked:qsOoze.hapax.en-y0:y1
@@ -854,75 +1166,143 @@
   why: ·Oy·Ooze joins at the baseline in the shipped font (baseline row E679:E67E, seam y0); ·Oy's diagonal tail at y1 is one column left of ·Ooze's left leg, the blessed ·Oy·It corner with ·Ooze's leg as the bar.
 - signature: contact:qsPea.full.en-y5.ex-y0:qsOoze.hapax.en-y0.ex-y0:y1
   why: The x-height-entered ·Pea·Ooze corner with ·Ooze carrying its own baseline exit onward; the left leg does not move.
+- signature: contact:qsPea.full.en-y5.ex-y0:qsOoze.hapax.en-y0.ex-y0:y2
+  why: The pair in the `:y1` signature above also touches at y2, off the seam row.
 - signature: contact:qsPea.full.en-y5.ex-y0:qsOoze.hapax.en-y0:y1
   why: The x-height-entered variant of the blessed ·Pea·Ooze corner (·May·Pea·Ooze, baseline rows E665:E650:E67E); the entry side does not move the downstroke.
+- signature: contact:qsPea.full.en-y5.ex-y0:qsOoze.hapax.en-y0:y2
+  why: The pair in the `:y1` signature above also touches at y2, off the seam row.
 - signature: contact:qsPea.full.en-y6.ex-y0:qsOoze.hapax.en-y0.ex-y0:y1
   why: The y6-entered ·Pea·Ooze corner with ·Ooze carrying its own baseline exit onward; the left leg does not move.
+- signature: contact:qsPea.full.en-y6.ex-y0:qsOoze.hapax.en-y0.ex-y0:y2
+  why: The pair in the `:y1` signature above also touches at y2, off the seam row.
 - signature: contact:qsPea.full.en-y6.ex-y0:qsOoze.hapax.en-y0:y1
   why: The y6-entered variant of the blessed ·Pea·Ooze corner (the ·Pea·Pea·Ooze chain, baseline rows E650:E650:E67E); the downstroke is unchanged.
+- signature: contact:qsPea.full.en-y6.ex-y0:qsOoze.hapax.en-y0:y2
+  why: The pair in the `:y1` signature above also touches at y2, off the seam row.
 - signature: contact:qsPea.full.ex-y0.locked:qsOoze.hapax.en-y0.ex-y0:y1
   why: The ZWNJ-locked ·Pea·Ooze twin against the exiting ·Ooze cell; identical drawing.
+- signature: contact:qsPea.full.ex-y0.locked:qsOoze.hapax.en-y0.ex-y0:y2
+  why: The pair in the `:y1` signature above also touches at y2, off the seam row.
 - signature: contact:qsPea.full.ex-y0.locked:qsOoze.hapax.en-y0:y1
   why: The ZWNJ-locked twin of the blessed ·Pea·Ooze corner; identical drawing.
+- signature: contact:qsPea.full.ex-y0.locked:qsOoze.hapax.en-y0:y2
+  why: The pair in the `:y1` signature above also touches at y2, off the seam row.
 - signature: contact:qsPea.full.ex-y0:qsOoze.hapax.en-y0.ex-y0:y1
   why: The ·Pea·Ooze corner with ·Ooze carrying its own baseline exit onward; the left leg does not move.
+- signature: contact:qsPea.full.ex-y0:qsOoze.hapax.en-y0.ex-y0:y2
+  why: The pair in the `:y1` signature above also touches at y2, off the seam row.
 - signature: contact:qsPea.full.ex-y0:qsOoze.hapax.en-y0:y1
   why: ·Pea·Ooze joins at the baseline in the shipped font (baseline row E650:E67E, seam y0); ·Pea's right downstroke at y1 is one column left of ·Ooze's left leg, the tail-against-bar corner blessed for ·Oy·It, with ·Ooze's leg as the bar.
+- signature: contact:qsPea.full.ex-y0:qsOoze.hapax.en-y0:y2
+  why: The pair in the `:y1` signature above also touches at y2, off the seam row.
 - signature: contact:qsSee.straightest.ex-y0.locked:qsOoze.hapax.en-y0.ex-y0:y1
   why: The ZWNJ-locked ·See·Ooze twin against the exiting ·Ooze cell; identical drawing.
+- signature: contact:qsSee.straightest.ex-y0.locked:qsOoze.hapax.en-y0.ex-y0:y2
+  why: The pair in the `:y1` signature above also touches at y2, off the seam row.
 - signature: contact:qsSee.straightest.ex-y0.locked:qsOoze.hapax.en-y0:y1
   why: The ZWNJ-locked twin of the blessed ·See·Ooze corner; identical drawing.
+- signature: contact:qsSee.straightest.ex-y0.locked:qsOoze.hapax.en-y0:y2
+  why: The pair in the `:y1` signature above also touches at y2, off the seam row.
 - signature: contact:qsSee.straightest.ex-y0:qsOoze.hapax.en-y0.ex-y0:y1
   why: The ·See·Ooze corner with ·Ooze carrying its own baseline exit onward; the left leg does not move.
+- signature: contact:qsSee.straightest.ex-y0:qsOoze.hapax.en-y0.ex-y0:y2
+  why: The pair in the `:y1` signature above also touches at y2, off the seam row.
 - signature: contact:qsSee.straightest.ex-y0:qsOoze.hapax.en-y0:y1
   why: ·See·Ooze joins at the baseline in the shipped font (baseline row E65A:E67E, seam y0, old-font glyph `qsSee.ex-y0.ex-y0-right`); the straightest tail's final vertical at y1 is one column left of ·Ooze's left leg, the same two-verticals corner as ·Tea·Ooze.
+- signature: contact:qsSee.straightest.ex-y0:qsOoze.hapax.en-y0:y2
+  why: The pair in the `:y1` signature above also touches at y2, off the seam row.
 - signature: contact:qsTea.full.en-y0.ex-y0:qsOoze.hapax.en-y0.ex-y0:y1
   why: The baseline-entered ·Tea·Ooze corner with ·Ooze carrying its own baseline exit onward; the left leg does not move.
+- signature: contact:qsTea.full.en-y0.ex-y0:qsOoze.hapax.en-y0.ex-y0:y2
+  why: The pair in the `:y1` signature above also touches at y2, off the seam row.
 - signature: contact:qsTea.full.en-y0.ex-y0:qsOoze.hapax.en-y0:y1
   why: The baseline-entered variant of the blessed ·Tea·Ooze corner (·Et·Tea·Ooze under ss05, baseline row E672:E652:E67E); the entry side leaves the bar where it is.
+- signature: contact:qsTea.full.en-y0.ex-y0:qsOoze.hapax.en-y0:y2
+  why: The pair in the `:y1` signature above also touches at y2, off the seam row.
 - signature: contact:qsTea.full.en-y5.ex-y0:qsOoze.hapax.en-y0.ex-y0:y1
   why: The x-height-entered ·Tea·Ooze corner with ·Ooze carrying its own baseline exit onward; the left leg does not move.
+- signature: contact:qsTea.full.en-y5.ex-y0:qsOoze.hapax.en-y0.ex-y0:y2
+  why: The pair in the `:y1` signature above also touches at y2, off the seam row.
 - signature: contact:qsTea.full.en-y5.ex-y0:qsOoze.hapax.en-y0:y1
   why: The x-height-entered variant of the blessed ·Tea·Ooze corner (·I·Tea·Ooze under ss02, baseline row E675:E652:E67E); the bar is unchanged.
+- signature: contact:qsTea.full.en-y5.ex-y0:qsOoze.hapax.en-y0:y2
+  why: The pair in the `:y1` signature above also touches at y2, off the seam row.
 - signature: contact:qsTea.full.en-y8.ex-y0:qsOoze.hapax.en-y0.ex-y0:y1
   why: The top-entered ·Tea·Ooze corner with ·Ooze carrying its own baseline exit onward; the left leg does not move.
+- signature: contact:qsTea.full.en-y8.ex-y0:qsOoze.hapax.en-y0.ex-y0:y2
+  why: The pair in the `:y1` signature above also touches at y2, off the seam row.
 - signature: contact:qsTea.full.en-y8.ex-y0:qsOoze.hapax.en-y0:y1
   why: The top-entered variant of the blessed ·Tea·Ooze corner (·See·Tea·Ooze, baseline rows E65A:E652:E67E); the bar is unchanged.
+- signature: contact:qsTea.full.en-y8.ex-y0:qsOoze.hapax.en-y0:y2
+  why: The pair in the `:y1` signature above also touches at y2, off the seam row.
 - signature: contact:qsTea.full.ex-y0.locked:qsOoze.hapax.en-y0.ex-y0:y1
   why: The ZWNJ-locked ·Tea·Ooze twin against the exiting ·Ooze cell; identical drawing.
+- signature: contact:qsTea.full.ex-y0.locked:qsOoze.hapax.en-y0.ex-y0:y2
+  why: The pair in the `:y1` signature above also touches at y2, off the seam row.
 - signature: contact:qsTea.full.ex-y0.locked:qsOoze.hapax.en-y0:y1
   why: The ZWNJ-locked twin of the blessed ·Tea·Ooze corner; identical drawing.
+- signature: contact:qsTea.full.ex-y0.locked:qsOoze.hapax.en-y0:y2
+  why: The pair in the `:y1` signature above also touches at y2, off the seam row.
 - signature: contact:qsTea.full.ex-y0:qsOoze.hapax.en-y0.ex-y0:y1
   why: The ·Tea·Ooze corner with ·Ooze carrying its own baseline exit onward; the left leg does not move.
+- signature: contact:qsTea.full.ex-y0:qsOoze.hapax.en-y0.ex-y0:y2
+  why: The pair in the `:y1` signature above also touches at y2, off the seam row.
 - signature: contact:qsTea.full.ex-y0:qsOoze.hapax.en-y0:y1
   why: ·Tea·Ooze joins at the baseline in the shipped font (baseline row E652:E67E, seam y0); ·Tea's bar at y1 is one column left of ·Ooze's left leg, two verticals side by side.
+- signature: contact:qsTea.full.ex-y0:qsOoze.hapax.en-y0:y2
+  why: The pair in the `:y1` signature above also touches at y2, off the seam row.
 - signature: contact:qsTea_qsOy.hapax.ex-y0:qsOoze.hapax.en-y0.ex-y0:y1
   why: The ·Tea·Oy ligature's ·Ooze corner with ·Ooze carrying its own baseline exit onward; the left leg does not move.
+- signature: contact:qsTea_qsOy.hapax.ex-y0:qsOoze.hapax.en-y0.ex-y0:y2
+  why: The pair in the `:y1` signature above also touches at y2, off the seam row.
 - signature: contact:qsTea_qsOy.hapax.ex-y0:qsOoze.hapax.en-y0:y1
   why: ·Tea·Oy ligature into ·Ooze joins at the baseline in the shipped font (baseline row E652:E679:E67E); the ligature's tail is ·Oy's, so the corner is the blessed ·Oy·Ooze one.
+- signature: contact:qsTea_qsOy.hapax.ex-y0:qsOoze.hapax.en-y0:y2
+  why: The pair in the `:y1` signature above also touches at y2, off the seam row.
 # The exit side: ·Ooze's right leg against each blessed follower, from the bare exit cell, the entered cell, and the ZWNJ-locked twin.
 - signature: contact:qsOoze.hapax.en-y0.ex-y0:qsIt.hapax.en-y0.ex-y0:y1
   why: The blessed ·Ooze·It corner with ·It carrying its own baseline exit onward; the exit side leaves the bar at y1 where it is. The entered ·Ooze (·X·Ooze·Y, entered at the baseline) draws the same right leg.
+- signature: contact:qsOoze.hapax.en-y0.ex-y0:qsIt.hapax.en-y0.ex-y0:y2
+  why: The pair in the `:y1` signature above also touches at y2, off the seam row.
 - signature: contact:qsOoze.hapax.en-y0.ex-y0:qsIt.hapax.en-y0.ex-y5.ex-ext-1:y1
   why: The blessed ·Ooze·It corner with ·It's x-height exit extended toward a following ·J'ai (baseline row E67E:E670:E65D); the extension adds ink at y5 only, so the corner is unchanged. The entered ·Ooze (·X·Ooze·Y, entered at the baseline) draws the same right leg.
+- signature: contact:qsOoze.hapax.en-y0.ex-y0:qsIt.hapax.en-y0.ex-y5.ex-ext-1:y2
+  why: The pair in the `:y1` signature above also touches at y2, off the seam row.
 - signature: contact:qsOoze.hapax.en-y0.ex-y0:qsIt.hapax.en-y0.ex-y5:y1
   why: The blessed ·Ooze·It corner with ·It exiting at the x-height instead; the exit adds ink at y5 only. The entered ·Ooze (·X·Ooze·Y, entered at the baseline) draws the same right leg.
+- signature: contact:qsOoze.hapax.en-y0.ex-y0:qsIt.hapax.en-y0.ex-y5:y2
+  why: The pair in the `:y1` signature above also touches at y2, off the seam row.
 - signature: contact:qsOoze.hapax.en-y0.ex-y0:qsIt.hapax.en-y0:y1
   why: ·Ooze·It joins at the baseline in the shipped font (baseline row E67E:E670); ·Ooze's right leg abuts ·It's bar at y1, the same corner as the blessed ·Ooze·Tea. The entered ·Ooze (·X·Ooze·Y, entered at the baseline) draws the same right leg.
+- signature: contact:qsOoze.hapax.en-y0.ex-y0:qsIt.hapax.en-y0:y2
+  why: The pair in the `:y1` signature above also touches at y2, off the seam row.
 - signature: contact:qsOoze.hapax.en-y0.ex-y0:qsOoze.hapax.en-y0.ex-y0:y1
   why: The blessed ·Ooze·Ooze corner with the second ·Ooze carrying its own baseline exit onward; its left leg does not move. The entered ·Ooze (·X·Ooze·Y, entered at the baseline) draws the same right leg.
+- signature: contact:qsOoze.hapax.en-y0.ex-y0:qsOoze.hapax.en-y0.ex-y0:y2
+  why: The pair in the `:y1` signature above also touches at y2, off the seam row.
 - signature: contact:qsOoze.hapax.en-y0.ex-y0:qsOoze.hapax.en-y0:y1
   why: ·Ooze·Ooze joins at the baseline in the shipped font (baseline row E67E:E67E, seam y0); the first ·Ooze's right leg abuts the second's left leg at y1, the same two-verticals corner as the blessed ·Ooze·Tea. The entered ·Ooze (·X·Ooze·Y, entered at the baseline) draws the same right leg.
+- signature: contact:qsOoze.hapax.en-y0.ex-y0:qsOoze.hapax.en-y0:y2
+  why: The pair in the `:y1` signature above also touches at y2, off the seam row.
 - signature: contact:qsOoze.hapax.en-y0.ex-y0:qsOut.normal.en-y0:y1
   why: ·Ooze·Out joins at the baseline in the shipped font (baseline row E67E:E67B); ·Ooze's right leg abuts ·Out's left upstroke at y1, the same corner as the blessed ·Ooze·Utter. The entered ·Ooze (·X·Ooze·Y, entered at the baseline) draws the same right leg.
 - signature: contact:qsOoze.hapax.en-y0.ex-y0:qsOut.swept-up.en-y0.ex-y5.ex-ext-1:y1
   why: The blessed ·Ooze·Out corner with the swept-up exit extended by one toward a following ·Fee; the extension adds ink at y5 only. The entered ·Ooze (·X·Ooze·Y, entered at the baseline) draws the same right leg.
+- signature: contact:qsOoze.hapax.en-y0.ex-y0:qsOut.swept-up.en-y0.ex-y5.ex-ext-1:y2
+  why: The pair in the `:y1` signature above also touches at y2, off the seam row.
 - signature: contact:qsOoze.hapax.en-y0.ex-y0:qsOut.swept-up.en-y0.ex-y5:y1
   why: The blessed ·Ooze·Out corner with ·Out in the swept-up motion exiting at the x-height (·Ooze·Out·Day and similar windows); the sweep changes the right side only. The entered ·Ooze (·X·Ooze·Y, entered at the baseline) draws the same right leg.
+- signature: contact:qsOoze.hapax.en-y0.ex-y0:qsOut.swept-up.en-y0.ex-y5:y2
+  why: The pair in the `:y1` signature above also touches at y2, off the seam row.
 - signature: contact:qsOoze.hapax.en-y0.ex-y0:qsOut_qsTea.hapax.en-y0:y1
   why: ·Ooze into the ·Out·Tea ligature joins at the baseline in the shipped font (baseline row E67E:E67B:E652); the ligature's left upstroke is ·Out's, so the corner is the blessed ·Ooze·Out one. The entered ·Ooze (·X·Ooze·Y, entered at the baseline) draws the same right leg.
+- signature: contact:qsOoze.hapax.en-y0.ex-y0:qsOut_qsTea.hapax.en-y0:y2
+  why: The pair in the `:y1` signature above also touches at y2, off the seam row.
 - signature: contact:qsOoze.hapax.en-y0.ex-y0:qsTea.full.en-y0:y1
   why: ·Ooze·Tea joins at the baseline in the shipped font (baseline row E67E:E652, seam y0); ·Ooze's right leg at y1 is one column left of ·Tea's bar, the tail-against-bar corner blessed for ·Ox·Tea, with ·Ooze's leg as the tail. The entered ·Ooze (·X·Ooze·Y, entered at the baseline) draws the same right leg.
+- signature: contact:qsOoze.hapax.en-y0.ex-y0:qsTea.full.en-y0:y2
+  why: The pair in the `:y1` signature above also touches at y2, off the seam row.
 - signature: contact:qsOoze.hapax.en-y0.ex-y0:qsUtter.mono.en-y0.ex-y5.ex-ext-1:y1
   why: The blessed ·Ooze·Utter corner with ·Utter's x-height exit extended by one; the extension touches the crown only. The entered ·Ooze (·X·Ooze·Y, entered at the baseline) draws the same right leg.
 - signature: contact:qsOoze.hapax.en-y0.ex-y0:qsUtter.mono.en-y0.ex-y5:y1
@@ -931,26 +1311,46 @@
   why: ·Ooze·Utter joins at the baseline in the shipped font (baseline row E67E:E67A); ·Ooze's right leg abuts ·Utter's left downstroke at y1, the same corner as the blessed ·Ooze·It. The entered ·Ooze (·X·Ooze·Y, entered at the baseline) draws the same right leg.
 - signature: contact:qsOoze.hapax.ex-y0.locked:qsIt.hapax.en-y0.ex-y0:y1
   why: The blessed ·Ooze·It corner with ·It carrying its own baseline exit onward; the exit side leaves the bar at y1 where it is. The ZWNJ-locked ·Ooze draws the same right leg.
+- signature: contact:qsOoze.hapax.ex-y0.locked:qsIt.hapax.en-y0.ex-y0:y2
+  why: The pair in the `:y1` signature above also touches at y2, off the seam row.
 - signature: contact:qsOoze.hapax.ex-y0.locked:qsIt.hapax.en-y0.ex-y5.ex-ext-1:y1
   why: The blessed ·Ooze·It corner with ·It's x-height exit extended toward a following ·J'ai (baseline row E67E:E670:E65D); the extension adds ink at y5 only, so the corner is unchanged. The ZWNJ-locked ·Ooze draws the same right leg.
+- signature: contact:qsOoze.hapax.ex-y0.locked:qsIt.hapax.en-y0.ex-y5.ex-ext-1:y2
+  why: The pair in the `:y1` signature above also touches at y2, off the seam row.
 - signature: contact:qsOoze.hapax.ex-y0.locked:qsIt.hapax.en-y0.ex-y5:y1
   why: The blessed ·Ooze·It corner with ·It exiting at the x-height instead; the exit adds ink at y5 only. The ZWNJ-locked ·Ooze draws the same right leg.
+- signature: contact:qsOoze.hapax.ex-y0.locked:qsIt.hapax.en-y0.ex-y5:y2
+  why: The pair in the `:y1` signature above also touches at y2, off the seam row.
 - signature: contact:qsOoze.hapax.ex-y0.locked:qsIt.hapax.en-y0:y1
   why: ·Ooze·It joins at the baseline in the shipped font (baseline row E67E:E670); ·Ooze's right leg abuts ·It's bar at y1, the same corner as the blessed ·Ooze·Tea. The ZWNJ-locked ·Ooze draws the same right leg.
+- signature: contact:qsOoze.hapax.ex-y0.locked:qsIt.hapax.en-y0:y2
+  why: The pair in the `:y1` signature above also touches at y2, off the seam row.
 - signature: contact:qsOoze.hapax.ex-y0.locked:qsOoze.hapax.en-y0.ex-y0:y1
   why: The blessed ·Ooze·Ooze corner with the second ·Ooze carrying its own baseline exit onward; its left leg does not move. The ZWNJ-locked ·Ooze draws the same right leg.
+- signature: contact:qsOoze.hapax.ex-y0.locked:qsOoze.hapax.en-y0.ex-y0:y2
+  why: The pair in the `:y1` signature above also touches at y2, off the seam row.
 - signature: contact:qsOoze.hapax.ex-y0.locked:qsOoze.hapax.en-y0:y1
   why: ·Ooze·Ooze joins at the baseline in the shipped font (baseline row E67E:E67E, seam y0); the first ·Ooze's right leg abuts the second's left leg at y1, the same two-verticals corner as the blessed ·Ooze·Tea. The ZWNJ-locked ·Ooze draws the same right leg.
+- signature: contact:qsOoze.hapax.ex-y0.locked:qsOoze.hapax.en-y0:y2
+  why: The pair in the `:y1` signature above also touches at y2, off the seam row.
 - signature: contact:qsOoze.hapax.ex-y0.locked:qsOut.normal.en-y0:y1
   why: ·Ooze·Out joins at the baseline in the shipped font (baseline row E67E:E67B); ·Ooze's right leg abuts ·Out's left upstroke at y1, the same corner as the blessed ·Ooze·Utter. The ZWNJ-locked ·Ooze draws the same right leg.
 - signature: contact:qsOoze.hapax.ex-y0.locked:qsOut.swept-up.en-y0.ex-y5.ex-ext-1:y1
   why: The blessed ·Ooze·Out corner with the swept-up exit extended by one toward a following ·Fee; the extension adds ink at y5 only. The ZWNJ-locked ·Ooze draws the same right leg.
+- signature: contact:qsOoze.hapax.ex-y0.locked:qsOut.swept-up.en-y0.ex-y5.ex-ext-1:y2
+  why: The pair in the `:y1` signature above also touches at y2, off the seam row.
 - signature: contact:qsOoze.hapax.ex-y0.locked:qsOut.swept-up.en-y0.ex-y5:y1
   why: The blessed ·Ooze·Out corner with ·Out in the swept-up motion exiting at the x-height (·Ooze·Out·Day and similar windows); the sweep changes the right side only. The ZWNJ-locked ·Ooze draws the same right leg.
+- signature: contact:qsOoze.hapax.ex-y0.locked:qsOut.swept-up.en-y0.ex-y5:y2
+  why: The pair in the `:y1` signature above also touches at y2, off the seam row.
 - signature: contact:qsOoze.hapax.ex-y0.locked:qsOut_qsTea.hapax.en-y0:y1
   why: ·Ooze into the ·Out·Tea ligature joins at the baseline in the shipped font (baseline row E67E:E67B:E652); the ligature's left upstroke is ·Out's, so the corner is the blessed ·Ooze·Out one. The ZWNJ-locked ·Ooze draws the same right leg.
+- signature: contact:qsOoze.hapax.ex-y0.locked:qsOut_qsTea.hapax.en-y0:y2
+  why: The pair in the `:y1` signature above also touches at y2, off the seam row.
 - signature: contact:qsOoze.hapax.ex-y0.locked:qsTea.full.en-y0:y1
   why: ·Ooze·Tea joins at the baseline in the shipped font (baseline row E67E:E652, seam y0); ·Ooze's right leg at y1 is one column left of ·Tea's bar, the tail-against-bar corner blessed for ·Ox·Tea, with ·Ooze's leg as the tail. The ZWNJ-locked ·Ooze draws the same right leg.
+- signature: contact:qsOoze.hapax.ex-y0.locked:qsTea.full.en-y0:y2
+  why: The pair in the `:y1` signature above also touches at y2, off the seam row.
 - signature: contact:qsOoze.hapax.ex-y0.locked:qsUtter.mono.en-y0.ex-y5.ex-ext-1:y1
   why: The blessed ·Ooze·Utter corner with ·Utter's x-height exit extended by one; the extension touches the crown only. The ZWNJ-locked ·Ooze draws the same right leg.
 - signature: contact:qsOoze.hapax.ex-y0.locked:qsUtter.mono.en-y0.ex-y5:y1
@@ -959,26 +1359,46 @@
   why: ·Ooze·Utter joins at the baseline in the shipped font (baseline row E67E:E67A); ·Ooze's right leg abuts ·Utter's left downstroke at y1, the same corner as the blessed ·Ooze·It. The ZWNJ-locked ·Ooze draws the same right leg.
 - signature: contact:qsOoze.hapax.ex-y0:qsIt.hapax.en-y0.ex-y0:y1
   why: The blessed ·Ooze·It corner with ·It carrying its own baseline exit onward; the exit side leaves the bar at y1 where it is.
+- signature: contact:qsOoze.hapax.ex-y0:qsIt.hapax.en-y0.ex-y0:y2
+  why: The pair in the `:y1` signature above also touches at y2, off the seam row.
 - signature: contact:qsOoze.hapax.ex-y0:qsIt.hapax.en-y0.ex-y5.ex-ext-1:y1
   why: The blessed ·Ooze·It corner with ·It's x-height exit extended toward a following ·J'ai (baseline row E67E:E670:E65D); the extension adds ink at y5 only, so the corner is unchanged.
+- signature: contact:qsOoze.hapax.ex-y0:qsIt.hapax.en-y0.ex-y5.ex-ext-1:y2
+  why: The pair in the `:y1` signature above also touches at y2, off the seam row.
 - signature: contact:qsOoze.hapax.ex-y0:qsIt.hapax.en-y0.ex-y5:y1
   why: The blessed ·Ooze·It corner with ·It exiting at the x-height instead; the exit adds ink at y5 only.
+- signature: contact:qsOoze.hapax.ex-y0:qsIt.hapax.en-y0.ex-y5:y2
+  why: The pair in the `:y1` signature above also touches at y2, off the seam row.
 - signature: contact:qsOoze.hapax.ex-y0:qsIt.hapax.en-y0:y1
   why: ·Ooze·It joins at the baseline in the shipped font (baseline row E67E:E670); ·Ooze's right leg abuts ·It's bar at y1, the same corner as the blessed ·Ooze·Tea.
+- signature: contact:qsOoze.hapax.ex-y0:qsIt.hapax.en-y0:y2
+  why: The pair in the `:y1` signature above also touches at y2, off the seam row.
 - signature: contact:qsOoze.hapax.ex-y0:qsOoze.hapax.en-y0.ex-y0:y1
   why: The blessed ·Ooze·Ooze corner with the second ·Ooze carrying its own baseline exit onward; its left leg does not move.
+- signature: contact:qsOoze.hapax.ex-y0:qsOoze.hapax.en-y0.ex-y0:y2
+  why: The pair in the `:y1` signature above also touches at y2, off the seam row.
 - signature: contact:qsOoze.hapax.ex-y0:qsOoze.hapax.en-y0:y1
   why: ·Ooze·Ooze joins at the baseline in the shipped font (baseline row E67E:E67E, seam y0); the first ·Ooze's right leg abuts the second's left leg at y1, the same two-verticals corner as the blessed ·Ooze·Tea.
+- signature: contact:qsOoze.hapax.ex-y0:qsOoze.hapax.en-y0:y2
+  why: The pair in the `:y1` signature above also touches at y2, off the seam row.
 - signature: contact:qsOoze.hapax.ex-y0:qsOut.normal.en-y0:y1
   why: ·Ooze·Out joins at the baseline in the shipped font (baseline row E67E:E67B); ·Ooze's right leg abuts ·Out's left upstroke at y1, the same corner as the blessed ·Ooze·Utter.
 - signature: contact:qsOoze.hapax.ex-y0:qsOut.swept-up.en-y0.ex-y5.ex-ext-1:y1
   why: The blessed ·Ooze·Out corner with the swept-up exit extended by one toward a following ·Fee; the extension adds ink at y5 only.
+- signature: contact:qsOoze.hapax.ex-y0:qsOut.swept-up.en-y0.ex-y5.ex-ext-1:y2
+  why: The pair in the `:y1` signature above also touches at y2, off the seam row.
 - signature: contact:qsOoze.hapax.ex-y0:qsOut.swept-up.en-y0.ex-y5:y1
   why: The blessed ·Ooze·Out corner with ·Out in the swept-up motion exiting at the x-height (·Ooze·Out·Day and similar windows); the sweep changes the right side only.
+- signature: contact:qsOoze.hapax.ex-y0:qsOut.swept-up.en-y0.ex-y5:y2
+  why: The pair in the `:y1` signature above also touches at y2, off the seam row.
 - signature: contact:qsOoze.hapax.ex-y0:qsOut_qsTea.hapax.en-y0:y1
   why: ·Ooze into the ·Out·Tea ligature joins at the baseline in the shipped font (baseline row E67E:E67B:E652); the ligature's left upstroke is ·Out's, so the corner is the blessed ·Ooze·Out one.
+- signature: contact:qsOoze.hapax.ex-y0:qsOut_qsTea.hapax.en-y0:y2
+  why: The pair in the `:y1` signature above also touches at y2, off the seam row.
 - signature: contact:qsOoze.hapax.ex-y0:qsTea.full.en-y0:y1
   why: ·Ooze·Tea joins at the baseline in the shipped font (baseline row E67E:E652, seam y0); ·Ooze's right leg at y1 is one column left of ·Tea's bar, the tail-against-bar corner blessed for ·Ox·Tea, with ·Ooze's leg as the tail.
+- signature: contact:qsOoze.hapax.ex-y0:qsTea.full.en-y0:y2
+  why: The pair in the `:y1` signature above also touches at y2, off the seam row.
 - signature: contact:qsOoze.hapax.ex-y0:qsUtter.mono.en-y0.ex-y5.ex-ext-1:y1
   why: The blessed ·Ooze·Utter corner with ·Utter's x-height exit extended by one; the extension touches the crown only.
 - signature: contact:qsOoze.hapax.ex-y0:qsUtter.mono.en-y0.ex-y5:y1
@@ -1038,46 +1458,234 @@
 - signature: dangle:qsJay_qsUtter.hapax.locked:exit:x-height
   why: The ZWNJ-locked twin of the ligature's crown terminal; identical drawing.
 
-# ·Gay's x-height exit places ·Jay's crown one column past ·Gay's stroke, and the two Deep descenders then share the pixel at ·Gay's column 4, two rows below the baseline, where ·Gay's loop wall meets ·Jay's (or the ligature's) descender. The shipped font places the same anchors with no adjustment (baseline rows E655:E65F and E655:E65F:E67A), so the shared pixel is the old drawing. There is one signature per ·Gay entry, contraction, and lock variant and per ·Jay exit variant; the seam is identical in all of them.
+# ·Gay's x-height exit places ·Jay's crown one column past ·Gay's stroke, and the two Deep descenders then share the pixel at ·Gay's column 4, two rows below the baseline, where ·Gay's loop wall meets ·Jay's (or the ligature's) descender. Above and below that pixel the two descenders stand side by side at y0, y-1, and y-3. Before ·Jay with no ligature they also do at y-2, because ·Jay's descender has ink in the column right of the shared pixel there. The shipped font places the same anchors with no adjustment (baseline rows E655:E65F and E655:E65F:E67A), so the shared pixel and the side-by-side rows are the old drawing. There is one signature per ·Gay entry, contraction, and lock variant, per ·Jay exit variant, and per finding; the seam is identical in all of them.
 - signature: contact:qsGay.hapax.en-y0.ex-y5:qsJay.hapax.en-y5:overlap
+- signature: contact:qsGay.hapax.en-y0.ex-y5:qsJay.hapax.en-y5:y-3
+  why: The pair in the `:overlap` signature above also touches at y-3, off the seam row.
+- signature: contact:qsGay.hapax.en-y0.ex-y5:qsJay.hapax.en-y5:y-2
+  why: The pair in the `:overlap` signature above also touches at y-2, off the seam row.
+- signature: contact:qsGay.hapax.en-y0.ex-y5:qsJay.hapax.en-y5:y-1
+  why: The pair in the `:overlap` signature above also touches at y-1, off the seam row.
+- signature: contact:qsGay.hapax.en-y0.ex-y5:qsJay.hapax.en-y5:y0
+  why: The pair in the `:overlap` signature above also touches at y0, off the seam row.
 - signature: contact:qsGay.hapax.en-y0.ex-y5:qsJay.hapax.en-y5.ex-y0:overlap
+- signature: contact:qsGay.hapax.en-y0.ex-y5:qsJay.hapax.en-y5.ex-y0:y-3
+  why: The pair in the `:overlap` signature above also touches at y-3, off the seam row.
+- signature: contact:qsGay.hapax.en-y0.ex-y5:qsJay.hapax.en-y5.ex-y0:y-2
+  why: The pair in the `:overlap` signature above also touches at y-2, off the seam row.
+- signature: contact:qsGay.hapax.en-y0.ex-y5:qsJay.hapax.en-y5.ex-y0:y-1
+  why: The pair in the `:overlap` signature above also touches at y-1, off the seam row.
+- signature: contact:qsGay.hapax.en-y0.ex-y5:qsJay.hapax.en-y5.ex-y0:y0
+  why: The pair in the `:overlap` signature above also touches at y0, off the seam row.
 - signature: contact:qsGay.hapax.en-y0.ex-y5:qsJay.hapax.en-y5.ex-y0.ex-ext-1:overlap
+- signature: contact:qsGay.hapax.en-y0.ex-y5:qsJay.hapax.en-y5.ex-y0.ex-ext-1:y-3
+  why: The pair in the `:overlap` signature above also touches at y-3, off the seam row.
+- signature: contact:qsGay.hapax.en-y0.ex-y5:qsJay.hapax.en-y5.ex-y0.ex-ext-1:y-2
+  why: The pair in the `:overlap` signature above also touches at y-2, off the seam row.
+- signature: contact:qsGay.hapax.en-y0.ex-y5:qsJay.hapax.en-y5.ex-y0.ex-ext-1:y-1
+  why: The pair in the `:overlap` signature above also touches at y-1, off the seam row.
+- signature: contact:qsGay.hapax.en-y0.ex-y5:qsJay.hapax.en-y5.ex-y0.ex-ext-1:y0
+  why: The pair in the `:overlap` signature above also touches at y0, off the seam row.
 - signature: contact:qsGay.hapax.en-y0.ex-y5:qsJay_qsUtter.hapax.en-y5:overlap
+- signature: contact:qsGay.hapax.en-y0.ex-y5:qsJay_qsUtter.hapax.en-y5:y-3
+  why: The pair in the `:overlap` signature above also touches at y-3, off the seam row.
+- signature: contact:qsGay.hapax.en-y0.ex-y5:qsJay_qsUtter.hapax.en-y5:y-1
+  why: The pair in the `:overlap` signature above also touches at y-1, off the seam row.
+- signature: contact:qsGay.hapax.en-y0.ex-y5:qsJay_qsUtter.hapax.en-y5:y0
+  why: The pair in the `:overlap` signature above also touches at y0, off the seam row.
 - signature: contact:qsGay.hapax.en-y0.ex-y5:qsJay_qsUtter.hapax.en-y5.ex-y5:overlap
+- signature: contact:qsGay.hapax.en-y0.ex-y5:qsJay_qsUtter.hapax.en-y5.ex-y5:y-3
+  why: The pair in the `:overlap` signature above also touches at y-3, off the seam row.
+- signature: contact:qsGay.hapax.en-y0.ex-y5:qsJay_qsUtter.hapax.en-y5.ex-y5:y-1
+  why: The pair in the `:overlap` signature above also touches at y-1, off the seam row.
+- signature: contact:qsGay.hapax.en-y0.ex-y5:qsJay_qsUtter.hapax.en-y5.ex-y5:y0
+  why: The pair in the `:overlap` signature above also touches at y0, off the seam row.
 - signature: contact:qsGay.hapax.en-y0.ex-y5:qsJay_qsUtter.hapax.en-y5.ex-y5.ex-ext-1:overlap
+- signature: contact:qsGay.hapax.en-y0.ex-y5:qsJay_qsUtter.hapax.en-y5.ex-y5.ex-ext-1:y-3
+  why: The pair in the `:overlap` signature above also touches at y-3, off the seam row.
+- signature: contact:qsGay.hapax.en-y0.ex-y5:qsJay_qsUtter.hapax.en-y5.ex-y5.ex-ext-1:y-1
+  why: The pair in the `:overlap` signature above also touches at y-1, off the seam row.
+- signature: contact:qsGay.hapax.en-y0.ex-y5:qsJay_qsUtter.hapax.en-y5.ex-y5.ex-ext-1:y0
+  why: The pair in the `:overlap` signature above also touches at y0, off the seam row.
 - signature: contact:qsGay.hapax.en-y0.ex-y5.en-con-1:qsJay.hapax.en-y5:overlap
+- signature: contact:qsGay.hapax.en-y0.ex-y5.en-con-1:qsJay.hapax.en-y5:y-3
+  why: The pair in the `:overlap` signature above also touches at y-3, off the seam row.
+- signature: contact:qsGay.hapax.en-y0.ex-y5.en-con-1:qsJay.hapax.en-y5:y-2
+  why: The pair in the `:overlap` signature above also touches at y-2, off the seam row.
+- signature: contact:qsGay.hapax.en-y0.ex-y5.en-con-1:qsJay.hapax.en-y5:y-1
+  why: The pair in the `:overlap` signature above also touches at y-1, off the seam row.
+- signature: contact:qsGay.hapax.en-y0.ex-y5.en-con-1:qsJay.hapax.en-y5:y0
+  why: The pair in the `:overlap` signature above also touches at y0, off the seam row.
 - signature: contact:qsGay.hapax.en-y0.ex-y5.en-con-1:qsJay.hapax.en-y5.ex-y0:overlap
+- signature: contact:qsGay.hapax.en-y0.ex-y5.en-con-1:qsJay.hapax.en-y5.ex-y0:y-3
+  why: The pair in the `:overlap` signature above also touches at y-3, off the seam row.
+- signature: contact:qsGay.hapax.en-y0.ex-y5.en-con-1:qsJay.hapax.en-y5.ex-y0:y-2
+  why: The pair in the `:overlap` signature above also touches at y-2, off the seam row.
+- signature: contact:qsGay.hapax.en-y0.ex-y5.en-con-1:qsJay.hapax.en-y5.ex-y0:y-1
+  why: The pair in the `:overlap` signature above also touches at y-1, off the seam row.
+- signature: contact:qsGay.hapax.en-y0.ex-y5.en-con-1:qsJay.hapax.en-y5.ex-y0:y0
+  why: The pair in the `:overlap` signature above also touches at y0, off the seam row.
 - signature: contact:qsGay.hapax.en-y0.ex-y5.en-con-1:qsJay.hapax.en-y5.ex-y0.ex-ext-1:overlap
+- signature: contact:qsGay.hapax.en-y0.ex-y5.en-con-1:qsJay.hapax.en-y5.ex-y0.ex-ext-1:y-3
+  why: The pair in the `:overlap` signature above also touches at y-3, off the seam row.
+- signature: contact:qsGay.hapax.en-y0.ex-y5.en-con-1:qsJay.hapax.en-y5.ex-y0.ex-ext-1:y-2
+  why: The pair in the `:overlap` signature above also touches at y-2, off the seam row.
+- signature: contact:qsGay.hapax.en-y0.ex-y5.en-con-1:qsJay.hapax.en-y5.ex-y0.ex-ext-1:y-1
+  why: The pair in the `:overlap` signature above also touches at y-1, off the seam row.
+- signature: contact:qsGay.hapax.en-y0.ex-y5.en-con-1:qsJay.hapax.en-y5.ex-y0.ex-ext-1:y0
+  why: The pair in the `:overlap` signature above also touches at y0, off the seam row.
 - signature: contact:qsGay.hapax.en-y0.ex-y5.en-con-1:qsJay_qsUtter.hapax.en-y5:overlap
+- signature: contact:qsGay.hapax.en-y0.ex-y5.en-con-1:qsJay_qsUtter.hapax.en-y5:y-3
+  why: The pair in the `:overlap` signature above also touches at y-3, off the seam row.
+- signature: contact:qsGay.hapax.en-y0.ex-y5.en-con-1:qsJay_qsUtter.hapax.en-y5:y-1
+  why: The pair in the `:overlap` signature above also touches at y-1, off the seam row.
+- signature: contact:qsGay.hapax.en-y0.ex-y5.en-con-1:qsJay_qsUtter.hapax.en-y5:y0
+  why: The pair in the `:overlap` signature above also touches at y0, off the seam row.
 - signature: contact:qsGay.hapax.en-y0.ex-y5.en-con-1:qsJay_qsUtter.hapax.en-y5.ex-y5:overlap
+- signature: contact:qsGay.hapax.en-y0.ex-y5.en-con-1:qsJay_qsUtter.hapax.en-y5.ex-y5:y-3
+  why: The pair in the `:overlap` signature above also touches at y-3, off the seam row.
+- signature: contact:qsGay.hapax.en-y0.ex-y5.en-con-1:qsJay_qsUtter.hapax.en-y5.ex-y5:y-1
+  why: The pair in the `:overlap` signature above also touches at y-1, off the seam row.
+- signature: contact:qsGay.hapax.en-y0.ex-y5.en-con-1:qsJay_qsUtter.hapax.en-y5.ex-y5:y0
+  why: The pair in the `:overlap` signature above also touches at y0, off the seam row.
 - signature: contact:qsGay.hapax.en-y0.ex-y5.en-con-1:qsJay_qsUtter.hapax.en-y5.ex-y5.ex-ext-1:overlap
+- signature: contact:qsGay.hapax.en-y0.ex-y5.en-con-1:qsJay_qsUtter.hapax.en-y5.ex-y5.ex-ext-1:y-3
+  why: The pair in the `:overlap` signature above also touches at y-3, off the seam row.
+- signature: contact:qsGay.hapax.en-y0.ex-y5.en-con-1:qsJay_qsUtter.hapax.en-y5.ex-y5.ex-ext-1:y-1
+  why: The pair in the `:overlap` signature above also touches at y-1, off the seam row.
+- signature: contact:qsGay.hapax.en-y0.ex-y5.en-con-1:qsJay_qsUtter.hapax.en-y5.ex-y5.ex-ext-1:y0
+  why: The pair in the `:overlap` signature above also touches at y0, off the seam row.
 - signature: contact:qsGay.hapax.ex-y5:qsJay.hapax.en-y5:overlap
+- signature: contact:qsGay.hapax.ex-y5:qsJay.hapax.en-y5:y-3
+  why: The pair in the `:overlap` signature above also touches at y-3, off the seam row.
+- signature: contact:qsGay.hapax.ex-y5:qsJay.hapax.en-y5:y-2
+  why: The pair in the `:overlap` signature above also touches at y-2, off the seam row.
+- signature: contact:qsGay.hapax.ex-y5:qsJay.hapax.en-y5:y-1
+  why: The pair in the `:overlap` signature above also touches at y-1, off the seam row.
+- signature: contact:qsGay.hapax.ex-y5:qsJay.hapax.en-y5:y0
+  why: The pair in the `:overlap` signature above also touches at y0, off the seam row.
 - signature: contact:qsGay.hapax.ex-y5:qsJay.hapax.en-y5.ex-y0:overlap
+- signature: contact:qsGay.hapax.ex-y5:qsJay.hapax.en-y5.ex-y0:y-3
+  why: The pair in the `:overlap` signature above also touches at y-3, off the seam row.
+- signature: contact:qsGay.hapax.ex-y5:qsJay.hapax.en-y5.ex-y0:y-2
+  why: The pair in the `:overlap` signature above also touches at y-2, off the seam row.
+- signature: contact:qsGay.hapax.ex-y5:qsJay.hapax.en-y5.ex-y0:y-1
+  why: The pair in the `:overlap` signature above also touches at y-1, off the seam row.
+- signature: contact:qsGay.hapax.ex-y5:qsJay.hapax.en-y5.ex-y0:y0
+  why: The pair in the `:overlap` signature above also touches at y0, off the seam row.
 - signature: contact:qsGay.hapax.ex-y5:qsJay.hapax.en-y5.ex-y0.ex-ext-1:overlap
+- signature: contact:qsGay.hapax.ex-y5:qsJay.hapax.en-y5.ex-y0.ex-ext-1:y-3
+  why: The pair in the `:overlap` signature above also touches at y-3, off the seam row.
+- signature: contact:qsGay.hapax.ex-y5:qsJay.hapax.en-y5.ex-y0.ex-ext-1:y-2
+  why: The pair in the `:overlap` signature above also touches at y-2, off the seam row.
+- signature: contact:qsGay.hapax.ex-y5:qsJay.hapax.en-y5.ex-y0.ex-ext-1:y-1
+  why: The pair in the `:overlap` signature above also touches at y-1, off the seam row.
+- signature: contact:qsGay.hapax.ex-y5:qsJay.hapax.en-y5.ex-y0.ex-ext-1:y0
+  why: The pair in the `:overlap` signature above also touches at y0, off the seam row.
 - signature: contact:qsGay.hapax.ex-y5:qsJay_qsUtter.hapax.en-y5:overlap
+- signature: contact:qsGay.hapax.ex-y5:qsJay_qsUtter.hapax.en-y5:y-3
+  why: The pair in the `:overlap` signature above also touches at y-3, off the seam row.
+- signature: contact:qsGay.hapax.ex-y5:qsJay_qsUtter.hapax.en-y5:y-1
+  why: The pair in the `:overlap` signature above also touches at y-1, off the seam row.
+- signature: contact:qsGay.hapax.ex-y5:qsJay_qsUtter.hapax.en-y5:y0
+  why: The pair in the `:overlap` signature above also touches at y0, off the seam row.
 - signature: contact:qsGay.hapax.ex-y5:qsJay_qsUtter.hapax.en-y5.ex-y5:overlap
+- signature: contact:qsGay.hapax.ex-y5:qsJay_qsUtter.hapax.en-y5.ex-y5:y-3
+  why: The pair in the `:overlap` signature above also touches at y-3, off the seam row.
+- signature: contact:qsGay.hapax.ex-y5:qsJay_qsUtter.hapax.en-y5.ex-y5:y-1
+  why: The pair in the `:overlap` signature above also touches at y-1, off the seam row.
+- signature: contact:qsGay.hapax.ex-y5:qsJay_qsUtter.hapax.en-y5.ex-y5:y0
+  why: The pair in the `:overlap` signature above also touches at y0, off the seam row.
 - signature: contact:qsGay.hapax.ex-y5:qsJay_qsUtter.hapax.en-y5.ex-y5.ex-ext-1:overlap
+- signature: contact:qsGay.hapax.ex-y5:qsJay_qsUtter.hapax.en-y5.ex-y5.ex-ext-1:y-3
+  why: The pair in the `:overlap` signature above also touches at y-3, off the seam row.
+- signature: contact:qsGay.hapax.ex-y5:qsJay_qsUtter.hapax.en-y5.ex-y5.ex-ext-1:y-1
+  why: The pair in the `:overlap` signature above also touches at y-1, off the seam row.
+- signature: contact:qsGay.hapax.ex-y5:qsJay_qsUtter.hapax.en-y5.ex-y5.ex-ext-1:y0
+  why: The pair in the `:overlap` signature above also touches at y0, off the seam row.
 - signature: contact:qsGay.hapax.ex-y5.locked:qsJay.hapax.en-y5:overlap
+- signature: contact:qsGay.hapax.ex-y5.locked:qsJay.hapax.en-y5:y-3
+  why: The pair in the `:overlap` signature above also touches at y-3, off the seam row.
+- signature: contact:qsGay.hapax.ex-y5.locked:qsJay.hapax.en-y5:y-2
+  why: The pair in the `:overlap` signature above also touches at y-2, off the seam row.
+- signature: contact:qsGay.hapax.ex-y5.locked:qsJay.hapax.en-y5:y-1
+  why: The pair in the `:overlap` signature above also touches at y-1, off the seam row.
+- signature: contact:qsGay.hapax.ex-y5.locked:qsJay.hapax.en-y5:y0
+  why: The pair in the `:overlap` signature above also touches at y0, off the seam row.
 - signature: contact:qsGay.hapax.ex-y5.locked:qsJay.hapax.en-y5.ex-y0:overlap
+- signature: contact:qsGay.hapax.ex-y5.locked:qsJay.hapax.en-y5.ex-y0:y-3
+  why: The pair in the `:overlap` signature above also touches at y-3, off the seam row.
+- signature: contact:qsGay.hapax.ex-y5.locked:qsJay.hapax.en-y5.ex-y0:y-2
+  why: The pair in the `:overlap` signature above also touches at y-2, off the seam row.
+- signature: contact:qsGay.hapax.ex-y5.locked:qsJay.hapax.en-y5.ex-y0:y-1
+  why: The pair in the `:overlap` signature above also touches at y-1, off the seam row.
+- signature: contact:qsGay.hapax.ex-y5.locked:qsJay.hapax.en-y5.ex-y0:y0
+  why: The pair in the `:overlap` signature above also touches at y0, off the seam row.
 - signature: contact:qsGay.hapax.ex-y5.locked:qsJay.hapax.en-y5.ex-y0.ex-ext-1:overlap
+- signature: contact:qsGay.hapax.ex-y5.locked:qsJay.hapax.en-y5.ex-y0.ex-ext-1:y-3
+  why: The pair in the `:overlap` signature above also touches at y-3, off the seam row.
+- signature: contact:qsGay.hapax.ex-y5.locked:qsJay.hapax.en-y5.ex-y0.ex-ext-1:y-2
+  why: The pair in the `:overlap` signature above also touches at y-2, off the seam row.
+- signature: contact:qsGay.hapax.ex-y5.locked:qsJay.hapax.en-y5.ex-y0.ex-ext-1:y-1
+  why: The pair in the `:overlap` signature above also touches at y-1, off the seam row.
+- signature: contact:qsGay.hapax.ex-y5.locked:qsJay.hapax.en-y5.ex-y0.ex-ext-1:y0
+  why: The pair in the `:overlap` signature above also touches at y0, off the seam row.
 - signature: contact:qsGay.hapax.ex-y5.locked:qsJay_qsUtter.hapax.en-y5:overlap
+- signature: contact:qsGay.hapax.ex-y5.locked:qsJay_qsUtter.hapax.en-y5:y-3
+  why: The pair in the `:overlap` signature above also touches at y-3, off the seam row.
+- signature: contact:qsGay.hapax.ex-y5.locked:qsJay_qsUtter.hapax.en-y5:y-1
+  why: The pair in the `:overlap` signature above also touches at y-1, off the seam row.
+- signature: contact:qsGay.hapax.ex-y5.locked:qsJay_qsUtter.hapax.en-y5:y0
+  why: The pair in the `:overlap` signature above also touches at y0, off the seam row.
 - signature: contact:qsGay.hapax.ex-y5.locked:qsJay_qsUtter.hapax.en-y5.ex-y5:overlap
+- signature: contact:qsGay.hapax.ex-y5.locked:qsJay_qsUtter.hapax.en-y5.ex-y5:y-3
+  why: The pair in the `:overlap` signature above also touches at y-3, off the seam row.
+- signature: contact:qsGay.hapax.ex-y5.locked:qsJay_qsUtter.hapax.en-y5.ex-y5:y-1
+  why: The pair in the `:overlap` signature above also touches at y-1, off the seam row.
+- signature: contact:qsGay.hapax.ex-y5.locked:qsJay_qsUtter.hapax.en-y5.ex-y5:y0
+  why: The pair in the `:overlap` signature above also touches at y0, off the seam row.
 - signature: contact:qsGay.hapax.ex-y5.locked:qsJay_qsUtter.hapax.en-y5.ex-y5.ex-ext-1:overlap
+- signature: contact:qsGay.hapax.ex-y5.locked:qsJay_qsUtter.hapax.en-y5.ex-y5.ex-ext-1:y-3
+  why: The pair in the `:overlap` signature above also touches at y-3, off the seam row.
+- signature: contact:qsGay.hapax.ex-y5.locked:qsJay_qsUtter.hapax.en-y5.ex-y5.ex-ext-1:y-1
+  why: The pair in the `:overlap` signature above also touches at y-1, off the seam row.
+- signature: contact:qsGay.hapax.ex-y5.locked:qsJay_qsUtter.hapax.en-y5.ex-y5.ex-ext-1:y0
+  why: The pair in the `:overlap` signature above also touches at y0, off the seam row.
 
-# ·It entered and exiting at the baseline under ss04, after ·Jay: ·It enters at the baseline off ·Jay's tick, and its bar stands beside ·Jay's slanted right side over several rows. `_check_contact` in defects.py reports the first touching pixel in the ink set's iteration order, which is y3 on the plain and locked forms and y4 on the entry-adjusted forms; the adjacency is the same in all of them. The shipped font draws the same join under ss04 (baseline rows E65F:E670:E653 and E65F:E670:E67A). At default the pair breaks and no contact arises.
+# ·It entered and exiting at the baseline under ss04, after ·Jay: ·It enters at the baseline off ·Jay's tick, and its bar stands beside ·Jay's slanted right side over several rows. The bar touches it at y3 and y4 on every form, and each form has a signature at both rows. Under ss04 the rebuild joins ·Jay·It only through the `ex-ext-1` ·Jay forms, whose connector leaves a blank column before the bar, so these entries match no current finding. The shipped font draws the same join under ss04 (baseline rows E65F:E670:E653 and E65F:E670:E67A). At default the pair breaks and no contact arises.
 - signature: contact:qsJay.hapax.en-y5.ex-y0:qsIt.hapax.en-y0.ex-y0:y3
+- signature: contact:qsJay.hapax.en-y5.ex-y0:qsIt.hapax.en-y0.ex-y0:y4
+  why: The pair in the `:y3` signature above also touches at y4, off the seam row.
 - signature: contact:qsJay.hapax.en-y5.ex-y0.en-con-1:qsIt.hapax.en-y0.ex-y0:y4
+- signature: contact:qsJay.hapax.en-y5.ex-y0.en-con-1:qsIt.hapax.en-y0.ex-y0:y3
+  why: The pair in the `:y4` signature above also touches at y3, off the seam row.
 - signature: contact:qsJay.hapax.en-y5.ex-y0.en-ext-1:qsIt.hapax.en-y0.ex-y0:y4
+- signature: contact:qsJay.hapax.en-y5.ex-y0.en-ext-1:qsIt.hapax.en-y0.ex-y0:y3
+  why: The pair in the `:y4` signature above also touches at y3, off the seam row.
 - signature: contact:qsJay.hapax.ex-y0:qsIt.hapax.en-y0.ex-y0:y3
+- signature: contact:qsJay.hapax.ex-y0:qsIt.hapax.en-y0.ex-y0:y4
+  why: The pair in the `:y3` signature above also touches at y4, off the seam row.
 - signature: contact:qsJay.hapax.ex-y0.locked:qsIt.hapax.en-y0.ex-y0:y3
+- signature: contact:qsJay.hapax.ex-y0.locked:qsIt.hapax.en-y0.ex-y0:y4
+  why: The pair in the `:y3` signature above also touches at y4, off the seam row.
 
-# qsIt's baseline entry extension after ·Key (`en-ext-1`) also applies to the ·It that exits at the baseline under ss04. It lengthens the ·Key connector on ·It's left at y0 and leaves ·It's bar, and so the right-side corner against each follower, where the un-extended signatures above have it. Where an un-extended signature says y1 and the extended one says y2, `_check_contact` is reporting a different row of the same multi-row adjacency; the corner has not moved.
+# qsIt's baseline entry extension after ·Key (`en-ext-1`) also applies to the ·It that exits at the baseline under ss04. It lengthens the ·Key connector on ·It's left at y0 and leaves ·It's bar, and so the right-side corner against each follower, where the un-extended signatures above have it. The extended and un-extended cells touch each follower at the same rows.
 - signature: contact:qsIt.hapax.en-y0.ex-y0.en-ext-1:qsOoze.hapax.en-y0:y2
+- signature: contact:qsIt.hapax.en-y0.ex-y0.en-ext-1:qsOoze.hapax.en-y0:y1
+  why: The pair in the `:y2` signature above also touches at y1, off the seam row.
 - signature: contact:qsIt.hapax.en-y0.ex-y0.en-ext-1:qsOoze.hapax.en-y0.ex-y0:y2
+- signature: contact:qsIt.hapax.en-y0.ex-y0.en-ext-1:qsOoze.hapax.en-y0.ex-y0:y1
+  why: The pair in the `:y2` signature above also touches at y1, off the seam row.
 - signature: contact:qsIt.hapax.en-y0.ex-y0.en-ext-1:qsOut.normal.en-y0:y1
 - signature: contact:qsIt.hapax.en-y0.ex-y0.en-ext-1:qsOut.swept-up.en-y0.ex-y5:y2
+- signature: contact:qsIt.hapax.en-y0.ex-y0.en-ext-1:qsOut.swept-up.en-y0.ex-y5:y1
+  why: The pair in the `:y2` signature above also touches at y1, off the seam row.
 - signature: contact:qsIt.hapax.en-y0.ex-y0.en-ext-1:qsOut.swept-up.en-y0.ex-y5.ex-ext-1:y2
+- signature: contact:qsIt.hapax.en-y0.ex-y0.en-ext-1:qsOut.swept-up.en-y0.ex-y5.ex-ext-1:y1
+  why: The pair in the `:y2` signature above also touches at y1, off the seam row.
 - signature: contact:qsIt.hapax.en-y0.ex-y0.en-ext-1:qsOut_qsTea.hapax.en-y0:y2
+- signature: contact:qsIt.hapax.en-y0.ex-y0.en-ext-1:qsOut_qsTea.hapax.en-y0:y1
+  why: The pair in the `:y2` signature above also touches at y1, off the seam row.
 - signature: contact:qsIt.hapax.en-y0.ex-y0.en-ext-1:qsUtter.mono.en-y0:y1
 - signature: contact:qsIt.hapax.en-y0.ex-y0.en-ext-1:qsUtter.mono.en-y0.ex-y5:y1
 - signature: contact:qsIt.hapax.en-y0.ex-y0.en-ext-1:qsUtter.mono.en-y0.ex-y5.ex-ext-1:y1
@@ -1124,12 +1732,22 @@
 - signature: contact:qsGay.hapax.ex-y5.locked.ex-ext-2:qsJai_qsUtter.hapax.en-y5.ex-y5:y-2
 - signature: contact:qsGay.hapax.ex-y5.locked.ex-ext-2:qsJai_qsUtter.hapax.en-y5.ex-y5.ex-ext-1:y-2
 
-# After ·Utter joins it at the x-height, ·Gay is entered at the crown and exits at the baseline into half-·Day or the half ·Day+Utter ligature. Both letters are Deep, and ·Gay's loop abuts the ·Day foot's rising hook at y=-2, the corner the shipped font draws in every ·Utter·Gay·Day window (baseline row E67A:E655:E653). The contact is off-anchor because the seam is at y=0. There is one signature per follower variant, all the same corner.
+# After ·Utter joins it at the x-height, ·Gay is entered at the crown and exits at the baseline into half-·Day or the half ·Day+Utter ligature. Both letters are Deep, and ·Gay's loop abuts the ·Day foot's rising hook at y=-2 and y=-1, the corner the shipped font draws in every ·Utter·Gay·Day window (baseline row E67A:E655:E653). The contact is off-anchor because the seam is at y=0. There is one signature per follower variant and per touching row, and every follower touches at both rows.
 - signature: contact:qsGay.hapax.en-y5.ex-y0:qsDay.half.en-y0:y-2
+- signature: contact:qsGay.hapax.en-y5.ex-y0:qsDay.half.en-y0:y-1
+  why: The pair in the `:y-2` signature above also touches at y-1, off the seam row.
 - signature: contact:qsGay.hapax.en-y5.ex-y0:qsDay.half.en-y0.ex-y0:y-2
+- signature: contact:qsGay.hapax.en-y5.ex-y0:qsDay.half.en-y0.ex-y0:y-1
+  why: The pair in the `:y-2` signature above also touches at y-1, off the seam row.
 - signature: contact:qsGay.hapax.en-y5.ex-y0:qsDay_qsUtter.half.en-y0:y-2
+- signature: contact:qsGay.hapax.en-y5.ex-y0:qsDay_qsUtter.half.en-y0:y-1
+  why: The pair in the `:y-2` signature above also touches at y-1, off the seam row.
 - signature: contact:qsGay.hapax.en-y5.ex-y0:qsDay_qsUtter.half.en-y0.ex-y5:y-2
+- signature: contact:qsGay.hapax.en-y5.ex-y0:qsDay_qsUtter.half.en-y0.ex-y5:y-1
+  why: The pair in the `:y-2` signature above also touches at y-1, off the seam row.
 - signature: contact:qsGay.hapax.en-y5.ex-y0:qsDay_qsUtter.half.en-y0.ex-y5.ex-ext-1:y-2
+- signature: contact:qsGay.hapax.en-y5.ex-y0:qsDay_qsUtter.half.en-y0.ex-y5.ex-ext-1:y-1
+  why: The pair in the `:y-2` signature above also touches at y-1, off the seam row.
 
 # ·They's top-side x-height exit puts its down-stroke beside a follower whose entry stroke is vertical: ·They's stroke at (2, 4) sits one column from the left bar of ·Et or ·It at y4, one row below the y5 seam. The shipped font draws this corner in every such window (baseline rows E657:E672 and E657:E670 have a y5 seam). The gate checks each exit and lock variant against each follower variant separately; all show the same corner.
 - signature: contact:qsThey.hapax.ex-y5:qsEt.hapax.en-y5:y4
@@ -1188,8 +1806,12 @@
 # ·Zoo's below-baseline contacts keep the shipped font's corners. Both letters' below-baseline drawings match the old glyphs when aligned at the seam. Entry contractions change only the crown, an entry extension moves the hook and its exit anchor together, and the locked twin keeps the same drawing.
 - signature: contact:qsGay.hapax.en-y5.ex-y0:qsZoo.half.en-y0:y-2
   why: The ·Gay loop abuts half-·Zoo's left descender at y=-2, as in baseline row E67A:E655:E65B; the follower's exit state leaves this corner unchanged.
+- signature: contact:qsGay.hapax.en-y5.ex-y0:qsZoo.half.en-y0:y-1
+  why: The pair in the `:y-2` signature above also touches at y-1, off the seam row.
 - signature: contact:qsGay.hapax.en-y5.ex-y0:qsZoo.half.en-y0.ex-y0:y-2
   why: The ·Gay loop abuts half-·Zoo's left descender at y=-2, as in baseline row E67A:E655:E65B; the follower's exit state leaves this corner unchanged.
+- signature: contact:qsGay.hapax.en-y5.ex-y0:qsZoo.half.en-y0.ex-y0:y-1
+  why: The pair in the `:y-2` signature above also touches at y-1, off the seam row.
 - signature: contact:qsZoo.full.en-y5.ex-y0:qsDay.half.en-y0:y-1
   why: The ·Zoo hook abuts half-·Day's left descender at y=-1, as in baseline row E65B:E653; entry and exit variants preserve both below-baseline drawings relative to the seam.
 - signature: contact:qsZoo.full.en-y5.ex-y0:qsDay.half.en-y0.ex-y0:y-1
@@ -1303,7 +1925,7 @@
 - signature: contact:qsThey_qsZoo.hapax.ex-y0:qsZoo.half.en-y0.ex-y0:y-1
   why: The preserved half-·Zoo tail in `·They+Zoo ~b~ ·Zoo.half` has the same accepted corner at y=-1; the follower's outgoing anchor changes no ink there.
 
-# ·Ye's baseline entry sits on the foot of its stem, so a left letter joining at the baseline puts its last column against the stem, and the two bodies stand side by side above the seam: a Tall left's upright beside ·Ye's loop tail at y6 (·Cheer, ·Key), and a Short left's bowl beside the stem at y1 (·Ooze, ·Ox, ·Oy, and the ·Tea·Oy ligature). The shipped font places the same anchors with no adjustment (baseline rows E65E:E660, E654:E660, E67E:E660, E678:E660, E679:E660, E652:E679:E660), so the adjacency is the old drawing. There is one signature per left entry, adjustment, and lock variant; the seam is identical in all of them.
+# ·Ye's baseline entry sits on the foot of its stem, so a left letter joining at the baseline puts its last column against the stem, and the two bodies stand side by side above the seam: a Tall left's upright beside ·Ye's loop tail at y6 (·Cheer, ·Key), and a Short left's bowl beside the stem at y1 (·Ox, and ·Oy with no entry) or at y1 and y2 (·Ooze, the entered ·Oy, and the ·Tea·Oy ligature). The shipped font places the same anchors with no adjustment (baseline rows E65E:E660, E654:E660, E67E:E660, E678:E660, E679:E660, E652:E679:E660), so the adjacency is the old drawing. There is one signature per left entry, adjustment, and lock variant and per touching row; the seam is identical in all of them.
 - signature: contact:qsCheer.hapax.en-y5.ex-y0:qsYe.loop.en-y0:y6
 - signature: contact:qsCheer.hapax.en-y5.ex-y0.en-ext-1:qsYe.loop.en-y0:y6
 - signature: contact:qsCheer.hapax.ex-y0:qsYe.loop.en-y0:y6
@@ -1312,16 +1934,26 @@
 - signature: contact:qsKey.hapax.ex-y0:qsYe.loop.en-y0:y6
 - signature: contact:qsKey.hapax.ex-y0.locked:qsYe.loop.en-y0:y6
 - signature: contact:qsOoze.hapax.en-y0.ex-y0:qsYe.loop.en-y0:y1
+- signature: contact:qsOoze.hapax.en-y0.ex-y0:qsYe.loop.en-y0:y2
+  why: The pair in the `:y1` signature above also touches at y2, off the seam row.
 - signature: contact:qsOoze.hapax.ex-y0:qsYe.loop.en-y0:y1
+- signature: contact:qsOoze.hapax.ex-y0:qsYe.loop.en-y0:y2
+  why: The pair in the `:y1` signature above also touches at y2, off the seam row.
 - signature: contact:qsOoze.hapax.ex-y0.locked:qsYe.loop.en-y0:y1
+- signature: contact:qsOoze.hapax.ex-y0.locked:qsYe.loop.en-y0:y2
+  why: The pair in the `:y1` signature above also touches at y2, off the seam row.
 - signature: contact:qsOx.hapax.en-y5.ex-y0:qsYe.loop.en-y0:y1
 - signature: contact:qsOx.hapax.en-y5.ex-y0.en-ext-1:qsYe.loop.en-y0:y1
 - signature: contact:qsOx.hapax.ex-y0:qsYe.loop.en-y0:y1
 - signature: contact:qsOx.hapax.ex-y0.locked:qsYe.loop.en-y0:y1
 - signature: contact:qsOy.hapax.en-y5.ex-y0:qsYe.loop.en-y0:y1
+- signature: contact:qsOy.hapax.en-y5.ex-y0:qsYe.loop.en-y0:y2
+  why: The pair in the `:y1` signature above also touches at y2, off the seam row.
 - signature: contact:qsOy.hapax.ex-y0:qsYe.loop.en-y0:y1
 - signature: contact:qsOy.hapax.ex-y0.locked:qsYe.loop.en-y0:y1
 - signature: contact:qsTea_qsOy.hapax.ex-y0:qsYe.loop.en-y0:y1
+- signature: contact:qsTea_qsOy.hapax.ex-y0:qsYe.loop.en-y0:y2
+  why: The pair in the `:y1` signature above also touches at y2, off the seam row.
 
 # ·Gay's x-height exit places ·Ye's climbing loop one column past ·Gay's stroke, and ·Gay's descender then stands beside ·Ye's stem at the baseline. The shipped font places the same anchors with no adjustment (baseline row E655:E660), so the adjacency is the old drawing. There is one signature per ·Gay entry, contraction, and lock variant and per ·Ye exit variant; the seam is identical in all of them.
 - signature: contact:qsGay.hapax.en-y0.ex-y5:qsYe.climbing-loop.en-y5:y0
@@ -1337,36 +1969,72 @@
 - signature: contact:qsGay.hapax.ex-y5.locked:qsYe.climbing-loop.en-y5.ex-y0:y0
 - signature: contact:qsGay.hapax.ex-y5.locked:qsYe.climbing-loop.en-y5.ex-y0.ex-ext-1:y0
 
-# ·Ye's baseline exit is one column right of its stem, so a baseline follower's left edge stands beside the stem where it rises from the seam: ·Utter and the normal ·Out at y1, and ·Ooze, the swept-up ·Out, and the ·Out·Tea ligature at y2. The shipped font places the same anchors with no adjustment (baseline rows E660:E67A, E660:E67B, E660:E67E, E660:E67B:E652, E660:E67B:E658), so the adjacency is the old drawing. There is one signature per ·Ye stance and lock variant and per follower exit variant; the seam is identical in all of them.
+# ·Ye's baseline exit is one column right of its stem, so a baseline follower's left edge stands beside the stem where it rises from the seam: ·Utter and the normal ·Out at y1, and ·Ooze, the swept-up ·Out, and the ·Out·Tea ligature at y1 and y2. The shipped font places the same anchors with no adjustment (baseline rows E660:E67A, E660:E67B, E660:E67E, E660:E67B:E652, E660:E67B:E658), so the adjacency is the old drawing. There is one signature per ·Ye stance and lock variant, per follower exit variant, and per touching row; the seam is identical in all of them.
 - signature: contact:qsYe.climbing-loop.en-y5.ex-y0:qsOoze.hapax.en-y0:y2
+- signature: contact:qsYe.climbing-loop.en-y5.ex-y0:qsOoze.hapax.en-y0:y1
+  why: The pair in the `:y2` signature above also touches at y1, off the seam row.
 - signature: contact:qsYe.climbing-loop.en-y5.ex-y0:qsOoze.hapax.en-y0.ex-y0:y2
+- signature: contact:qsYe.climbing-loop.en-y5.ex-y0:qsOoze.hapax.en-y0.ex-y0:y1
+  why: The pair in the `:y2` signature above also touches at y1, off the seam row.
 - signature: contact:qsYe.climbing-loop.en-y5.ex-y0:qsOut.normal.en-y0:y1
 - signature: contact:qsYe.climbing-loop.en-y5.ex-y0:qsOut.swept-up.en-y0.ex-y5:y2
+- signature: contact:qsYe.climbing-loop.en-y5.ex-y0:qsOut.swept-up.en-y0.ex-y5:y1
+  why: The pair in the `:y2` signature above also touches at y1, off the seam row.
 - signature: contact:qsYe.climbing-loop.en-y5.ex-y0:qsOut.swept-up.en-y0.ex-y5.ex-ext-1:y2
+- signature: contact:qsYe.climbing-loop.en-y5.ex-y0:qsOut.swept-up.en-y0.ex-y5.ex-ext-1:y1
+  why: The pair in the `:y2` signature above also touches at y1, off the seam row.
 - signature: contact:qsYe.climbing-loop.en-y5.ex-y0:qsOut_qsTea.hapax.en-y0:y2
+- signature: contact:qsYe.climbing-loop.en-y5.ex-y0:qsOut_qsTea.hapax.en-y0:y1
+  why: The pair in the `:y2` signature above also touches at y1, off the seam row.
 - signature: contact:qsYe.climbing-loop.en-y5.ex-y0:qsUtter.mono.en-y0:y1
 - signature: contact:qsYe.climbing-loop.en-y5.ex-y0:qsUtter.mono.en-y0.ex-y5:y1
 - signature: contact:qsYe.climbing-loop.en-y5.ex-y0:qsUtter.mono.en-y0.ex-y5.ex-ext-1:y1
 - signature: contact:qsYe.loop.ex-y0:qsOoze.hapax.en-y0:y2
+- signature: contact:qsYe.loop.ex-y0:qsOoze.hapax.en-y0:y1
+  why: The pair in the `:y2` signature above also touches at y1, off the seam row.
 - signature: contact:qsYe.loop.ex-y0:qsOoze.hapax.en-y0.ex-y0:y2
+- signature: contact:qsYe.loop.ex-y0:qsOoze.hapax.en-y0.ex-y0:y1
+  why: The pair in the `:y2` signature above also touches at y1, off the seam row.
 - signature: contact:qsYe.loop.ex-y0:qsOut.normal.en-y0:y1
 - signature: contact:qsYe.loop.ex-y0:qsOut.swept-up.en-y0.ex-y5:y2
+- signature: contact:qsYe.loop.ex-y0:qsOut.swept-up.en-y0.ex-y5:y1
+  why: The pair in the `:y2` signature above also touches at y1, off the seam row.
 - signature: contact:qsYe.loop.ex-y0:qsOut.swept-up.en-y0.ex-y5.ex-ext-1:y2
+- signature: contact:qsYe.loop.ex-y0:qsOut.swept-up.en-y0.ex-y5.ex-ext-1:y1
+  why: The pair in the `:y2` signature above also touches at y1, off the seam row.
 - signature: contact:qsYe.loop.ex-y0:qsOut_qsTea.hapax.en-y0:y2
+- signature: contact:qsYe.loop.ex-y0:qsOut_qsTea.hapax.en-y0:y1
+  why: The pair in the `:y2` signature above also touches at y1, off the seam row.
 - signature: contact:qsYe.loop.ex-y0:qsUtter.mono.en-y0:y1
 - signature: contact:qsYe.loop.ex-y0:qsUtter.mono.en-y0.ex-y5:y1
 - signature: contact:qsYe.loop.ex-y0:qsUtter.mono.en-y0.ex-y5.ex-ext-1:y1
 - signature: contact:qsYe.loop.ex-y0.locked:qsOoze.hapax.en-y0:y2
+- signature: contact:qsYe.loop.ex-y0.locked:qsOoze.hapax.en-y0:y1
+  why: The pair in the `:y2` signature above also touches at y1, off the seam row.
 - signature: contact:qsYe.loop.ex-y0.locked:qsOoze.hapax.en-y0.ex-y0:y2
+- signature: contact:qsYe.loop.ex-y0.locked:qsOoze.hapax.en-y0.ex-y0:y1
+  why: The pair in the `:y2` signature above also touches at y1, off the seam row.
 - signature: contact:qsYe.loop.ex-y0.locked:qsOut.normal.en-y0:y1
 - signature: contact:qsYe.loop.ex-y0.locked:qsOut.swept-up.en-y0.ex-y5:y2
+- signature: contact:qsYe.loop.ex-y0.locked:qsOut.swept-up.en-y0.ex-y5:y1
+  why: The pair in the `:y2` signature above also touches at y1, off the seam row.
 - signature: contact:qsYe.loop.ex-y0.locked:qsOut.swept-up.en-y0.ex-y5.ex-ext-1:y2
+- signature: contact:qsYe.loop.ex-y0.locked:qsOut.swept-up.en-y0.ex-y5.ex-ext-1:y1
+  why: The pair in the `:y2` signature above also touches at y1, off the seam row.
 - signature: contact:qsYe.loop.ex-y0.locked:qsOut_qsTea.hapax.en-y0:y2
+- signature: contact:qsYe.loop.ex-y0.locked:qsOut_qsTea.hapax.en-y0:y1
+  why: The pair in the `:y2` signature above also touches at y1, off the seam row.
 - signature: contact:qsYe.loop.ex-y0.locked:qsUtter.mono.en-y0:y1
 - signature: contact:qsYe.loop.ex-y0.locked:qsUtter.mono.en-y0.ex-y5:y1
 - signature: contact:qsYe.loop.ex-y0.locked:qsUtter.mono.en-y0.ex-y5.ex-ext-1:y1
 
-# After ·Ye, the curled-over ·See's baseline entry lifts its curl into ·Ye's loop. It sits beside the loop at y7 after the isolated drawing, and shares the two pixels at ·Ye's columns 3 and 4 with the wider climbing loop. The shipped font draws the same composite (baseline rows E660:E65A:E650 and E665:E660:E65A:E650, `·Ye ~b~ ·See ~6~ ·Pea` with the same glyphs at the same anchors), so the overlap is the old drawing. There is one signature per ·Ye stance and lock variant against the y6-exiting ·See.
+# After ·Ye, the curled-over ·See's baseline entry lifts its curl into ·Ye's loop. It sits beside the loop at y7 and y6 after the isolated drawing. With the wider climbing loop it shares the two pixels at ·Ye's columns 3 and 4 and also sits beside the loop at y6. The shipped font draws the same composite (baseline rows E660:E65A:E650 and E665:E660:E65A:E650, `·Ye ~b~ ·See ~6~ ·Pea` with the same glyphs at the same anchors), so the overlap is the old drawing. There is one signature per ·Ye stance and lock variant against the y6-exiting ·See and per finding.
 - signature: contact:qsYe.climbing-loop.en-y5.ex-y0:qsSee.curled-over.en-y0.ex-y6:overlap
+- signature: contact:qsYe.climbing-loop.en-y5.ex-y0:qsSee.curled-over.en-y0.ex-y6:y6
+  why: The pair in the `:overlap` signature above also touches at y6, off the seam row.
 - signature: contact:qsYe.loop.ex-y0:qsSee.curled-over.en-y0.ex-y6:y7
+- signature: contact:qsYe.loop.ex-y0:qsSee.curled-over.en-y0.ex-y6:y6
+  why: The pair in the `:y7` signature above also touches at y6, off the seam row.
 - signature: contact:qsYe.loop.ex-y0.locked:qsSee.curled-over.en-y0.ex-y6:y7
+- signature: contact:qsYe.loop.ex-y0.locked:qsSee.curled-over.en-y0.ex-y6:y6
+  why: The pair in the `:y7` signature above also touches at y6, off the seam row.

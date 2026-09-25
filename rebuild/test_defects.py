@@ -270,6 +270,41 @@ class TestContact:
         assert any(d.code == "E-CONTACT" for d in report.errors)
         assert any(d.code == "E-UNREALIZED" for d in report.errors)
 
+    def test_every_off_seam_row_is_its_own_finding(self, spec):
+        left_cell = CellId("qsIt", "hapax", None, "baseline", ())
+        right_cell = CellId("qsMay", "loop", "baseline", None, ())
+        left = GlyphRecord(
+            name="l", bitmap=("#", "#", "#"), y_offset=0, exit=(1, 0), convention_exempt=("exit",)
+        )
+        right = GlyphRecord(
+            name="r", bitmap=("#", "#", "#"), y_offset=0, entry=(0, 0), convention_exempt=("entry",)
+        )
+        rows = [FakeTreatyRow(left=left_cell, right=right_cell, join="baseline")]
+        report = defects.run_gates(
+            spec,
+            _tables(rules=[_cite_all_policy(spec)], rows=rows),
+            {left_cell: left, right_cell: right},
+            allow=frozenset({"contact:l:r:y1"}),
+        )
+        assert [d.signature for d in report.blessed if d.code == "E-CONTACT"] == ["contact:l:r:y1"]
+        assert [d.signature for d in report.errors if d.code == "E-CONTACT"] == ["contact:l:r:y2"]
+
+    def test_overlap_does_not_hide_off_seam_rows(self, spec):
+        left_cell = CellId("qsIt", "hapax", None, "baseline", ())
+        right_cell = CellId("qsMay", "loop", "baseline", None, ())
+        left = GlyphRecord(name="l", bitmap=("#", "##"), y_offset=0, exit=(1, 0), convention_exempt=("exit",))
+        right = GlyphRecord(
+            name="r", bitmap=("#", "#"), y_offset=0, entry=(0, 0), convention_exempt=("entry",)
+        )
+        rows = [FakeTreatyRow(left=left_cell, right=right_cell, join="baseline")]
+        report = defects.run_gates(
+            spec, _tables(rules=[_cite_all_policy(spec)], rows=rows), {left_cell: left, right_cell: right}
+        )
+        assert [d.signature for d in report.errors if d.code == "E-CONTACT"] == [
+            "contact:l:r:overlap",
+            "contact:l:r:y1",
+        ]
+
     def test_clean_join_has_no_contact(self, spec):
         left_cell, left = _realize(spec, "qsTea", "full", None, "baseline")
         right_cell, right = _realize(spec, "qsMay", "loop", "baseline", "x-height")
