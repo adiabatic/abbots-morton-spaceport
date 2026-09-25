@@ -1,6 +1,6 @@
 """Old-font evidence for one letter's migration, read straight off the full baseline tables under rebuild/out/.
 
-One pass over every baseline-<config>.tsv.gz collects, for the named letter: the pair-level join map in both directions (the definitive scope evidence for the rune file's entry `from:` and exit `toward:` lists — never scope those from FEA reconnaissance, which misses bare-carrier joins); the old compiled forms the letter takes across the rows that will join the oracle subset (the contextual-stance worklist, `.noentry` twins included); the alias worklist (names in those rows with no rebuild/m1-aliases.yaml entry yet — the same list run_m1's completeness gate would print, available before the first build); and the default-config subset growth, ending in the row count rebuild/test_review_enrich.py must pin after the migration.
+One pass over every baseline-<config>.tsv.gz collects, for the named letter: the pair-level join map in both directions (the definitive scope evidence for the rune file's entry `from:` and exit `toward:` lists — never scope those from FEA reconnaissance, which misses bare-carrier joins); the old compiled forms the letter takes across the rows that will join the oracle subset (the contextual-stance worklist, `.noentry` twins included); the alias worklist (names in those rows with no rebuild/m1-aliases.yaml entry yet — the same list run_m1's completeness gate would print, available before the first build); and the default-config subset growth, ending in the row count the live subset table should reach after the migration.
 
 "Would-be subset rows" are the rows whose codepoints all sit in M1_ALPHABET plus the named letter, which is exactly the set the letter's migration adds to rebuild/out/m1/baseline-*.subset.tsv.gz. Partners marked with * are not yet in M1_ALPHABET: a join against one is deferred-partner evidence — legal to record in a `from:`/`toward:` list, but re-verify it when that partner migrates.
 
@@ -247,7 +247,7 @@ def main(argv: list[str] | None = None) -> None:
         )
     elif migrated:
         current, _ = counted
-        print(f"  current subset total: {current} — rebuild/test_review_enrich.py pins this number")
+        print(f"  current subset total: {current}")
     else:
         current, already = counted
         if already:
@@ -255,9 +255,6 @@ def main(argv: list[str] | None = None) -> None:
                 f"  (the on-disk subset already carries {already} rows involving {qs_name} — a stale artifact built with the letter in the alphabet; predicting from the {current - already} rows without it)"
             )
         print(f"  current subset total: {current}; after migration expect {current - already + added}")
-        print(
-            f"  rebuild/test_review_enrich.py's subset-table row count must become {current - already + added}"
-        )
 
 
 if __name__ == "__main__":
