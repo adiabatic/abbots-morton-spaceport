@@ -1,17 +1,18 @@
 # Rebuild tools
 
-Scripts for the M1 rebuild. All run from the repo root as `uv run python -m rebuild.tools.<script>`; a script whose docstring names the `uv run python rebuild/tools/<script>.py` form runs that way too.
+Scripts for the M1 rebuild. Run each from the repo root as `uv run python -m rebuild.tools.<script>`. A script whose docstring gives the `uv run python rebuild/tools/<script>.py` form also runs that way.
 
-Each script's module docstring is the authority on what it does and how to run it — read the top of the file. No table here restates them: a second copy nothing checks can only drift out of agreement.
+Each script's module docstring says what it does and how to run it.
 
 Start here:
 
-- `artifact_cycle.py` (`make artifact-cycle`; `make review-cycle` is the hands-off loop) — the commit-time artifact cycle
-- `verdict_ready.py` (`make verdict-ready`) — the sitting-readiness checklist
-- `review_docket.py` — bakes the docket data for a review sitting; the live view is `#view=docket`
-- `standing_probe.py` — read-only explainer for why a unit still queues under the standing approvals
-- `probe.py` — probe one or more codepoint windows in a single call: old-font baseline vs new settlement, all configs
-- `cycle_timings.py` (`make cycle-timings`, `make job-costs`) — summarize recorded step timings and check verdicts
-- `deep_sweep.py` (`make conform-deep`) — the periodic deep form of gate:conform
+- `artifact_cycle.py` (`make artifact-cycle`; `make review-cycle` runs it and then serves the surface): the commit-time artifact cycle
+- `verdict_ready.py` (`make verdict-ready`): the checklist that says whether the surface is ready for a sitting
+- `review_docket.py`: writes the docket data for a review sitting; the live view is `#view=docket`
+- `standing_probe.py`: explains, without writing anything, why a unit is still in the queue under the standing approvals
+- `probe.py`: compares the old-font baseline with the new settlement for one or more codepoint windows, in every configuration
+- `cycle_timings.py` (`make cycle-timings`): summarizes the recorded step timings and check results
+- `calibrate_budgets.py` (`make job-costs`): checks the checked-in per-worker memory peaks against the peaks recorded in the timings journal
+- `deep_sweep.py` (`make conform-deep`): gate:conform run to a longer horizon on demand
 
-One file here is a library rather than a script: `console.py` defines the four-line protocol every in-house child prints for the cycle to read back (`[t]`, `[phase]`, `[progress]`, `[warn]`) and the digest the artifact cycle renders it with — the plan block, the per-step banners, the per-step logs under `var/build-logs/`, and the closing table. Read it before adding a line of output to anything the cycle spawns.
+`console.py` is a library, not a script. It defines the line protocol every in-house child of the cycle prints (the `[t]`, `[phase]`, `[progress]`, and `[warn]` prefixes) and the digest the artifact cycle renders that output with: the plan block, the per-step banners, the per-step logs under `var/build-logs/`, and the closing table. Read it before adding output to anything the cycle spawns.

@@ -13,7 +13,7 @@ When adding `<span data-expect="">` wrappers to QS passage blockquotes in `site/
 
 - **Punctuation** stays on the same line as the word, outside the closing `</span>` tag.
 - **Namer dots** (·, U+00B7) go inside the span as part of the word content.
-- **Hyphens in compound words** stay inside the span — the whole compound is one span.
+- **Hyphens in compound words** stay inside the span. The whole compound is one span.
 
 ## Content duplicates
 
@@ -21,4 +21,4 @@ If the same QS text content (byte-identical code points) already appears in a `d
 
 ## `data-expect` values
 
-Leave the `data-expect` value empty when wrapping. Values are filled in separately, either manually or automatically.
+Leave the `data-expect` value empty when wrapping. The values are filled in separately, by hand or by a tool.
