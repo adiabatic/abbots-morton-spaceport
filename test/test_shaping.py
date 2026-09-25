@@ -9,6 +9,7 @@ from html.parser import HTMLParser
 from pathlib import Path
 from typing import Any, Literal, NotRequired, TypedDict
 
+import pytest
 import uharfbuzz as hb
 import yaml
 from fontTools.pens.recordingPen import RecordingPen
@@ -252,7 +253,7 @@ def parse_expect(raw: str) -> tuple[list[ExpectToken], list[Connection]]:
 class _DataExpectCollector(HTMLParser):
     """Collect the data-expect or data-expect-noncanonically attribute of each <td>, <span>, and <dd> element, with the element's text split into runs.
 
-    A run is a stretch of text shaped with one font and one feature set. A `force-junior` descendant starts a Junior run, and a descendant with `data-stylistic-set` starts a run with those stylistic sets. Text outside both is Senior. Only <td>, <span>, and <dd> descendants are tracked, and a data-expect element inside another one is not collected separately.
+    A run is a stretch of text shaped with one font and one feature set. A `force-junior` descendant starts a Junior run, and a descendant with `data-stylistic-set` starts a run with those stylistic sets. Each run carries the union of the stylistic sets of every descendant still open around it, so text inside a `force-junior` span, or after an inner set closes, keeps an enclosing descendant's sets, and an element with both `force-junior` and `data-stylistic-set` starts a Junior run with its sets. Text outside every `force-junior` descendant is Senior. Only <td>, <span>, and <dd> descendants are tracked, and a data-expect element inside another one is not collected separately.
     """
 
     _TAGS = {"td", "span", "dd"}
@@ -270,6 +271,20 @@ class _DataExpectCollector(HTMLParser):
             if is_junior:
                 return "junior"
         return "senior"
+
+    def _current_features(self) -> dict[str, bool]:
+        features: dict[str, bool] = {}
+        for _tag, _is_cell, _is_junior, inner_ss in self._open_tags:
+            if inner_ss:
+                features.update({f"ss{ss.zfill(2)}": True for ss in inner_ss.split()})
+        return features
+
+    def _start_run(self) -> None:
+        run: Run = {"font": self._current_font(), "text": ""}
+        features = self._current_features()
+        if features:
+            run["features"] = features
+        self._runs.append(run)
 
     def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
         if tag not in self._TAGS:
@@ -293,11 +308,8 @@ class _DataExpectCollector(HTMLParser):
         if self._cell_active:
             inner_ss = attr_dict.get("data-stylistic-set")
             self._open_tags.append((tag, False, is_force_junior, inner_ss))
-            if is_force_junior:
-                self._runs.append({"font": "junior", "text": ""})
-            elif inner_ss:
-                features = {f"ss{ss.zfill(2)}": True for ss in inner_ss.split()}
-                self._runs.append({"font": self._current_font(), "text": "", "features": features})
+            if is_force_junior or inner_ss:
+                self._start_run()
 
     def handle_endtag(self, tag: str) -> None:
         if tag not in self._TAGS or not self._open_tags:
@@ -337,15 +349,48 @@ class _DataExpectCollector(HTMLParser):
             self._cell_active = False
             self._cell_info = None
             self._runs = []
-        elif was_force_junior:
-            resume_font = self._current_font()
-            self._runs.append({"font": resume_font, "text": ""})
-        elif was_inner_ss:
-            self._runs.append({"font": self._current_font(), "text": ""})
+        elif was_force_junior or was_inner_ss:
+            self._start_run()
 
     def handle_data(self, data: str) -> None:
         if self._cell_active:
             self._runs[-1]["text"] += data
+
+
+@pytest.mark.parametrize(
+    ("inner", "expected"),
+    [
+        (
+            'A<span class="force-junior">B</span>C',
+            [
+                {"font": "senior", "text": "A", "features": {"ss10": True}},
+                {"font": "junior", "text": "B", "features": {"ss10": True}},
+                {"font": "senior", "text": "C", "features": {"ss10": True}},
+            ],
+        ),
+        (
+            'A<span data-stylistic-set="02">B</span>C',
+            [
+                {"font": "senior", "text": "A", "features": {"ss10": True}},
+                {"font": "senior", "text": "B", "features": {"ss10": True, "ss02": True}},
+                {"font": "senior", "text": "C", "features": {"ss10": True}},
+            ],
+        ),
+        (
+            'A<span class="force-junior" data-stylistic-set="02">B</span>C',
+            [
+                {"font": "senior", "text": "A", "features": {"ss10": True}},
+                {"font": "junior", "text": "B", "features": {"ss10": True, "ss02": True}},
+                {"font": "senior", "text": "C", "features": {"ss10": True}},
+            ],
+        ),
+    ],
+)
+def test_collector_keeps_enclosing_stylistic_set_on_nested_runs(inner: str, expected: list[Run]) -> None:
+    collector = _DataExpectCollector()
+    collector.feed(f'<span data-expect="x"><span data-stylistic-set="10">{inner}</span></span>')
+    collector.close()
+    assert [cell[4] for cell in collector.cells] == [expected]
 
 
 # ---------------------------------------------------------------------------
