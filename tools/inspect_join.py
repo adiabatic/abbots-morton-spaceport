@@ -87,6 +87,8 @@ def _print_glyph(meta: JoinGlyph) -> None:
             marker = ""
             if any(anchor[1] == y for anchor in meta.entry):
                 marker += " <- entry"
+            elif any(anchor[1] == y for anchor in meta.entry_curs_only):
+                marker += " <- entry (curs-only)"
             if any(anchor[1] == y for anchor in meta.exit):
                 marker += " <- exit" if not marker else " + exit"
             print(f'    y={y:>2}  "{text}"{marker}')
@@ -95,6 +97,10 @@ def _print_glyph(meta: JoinGlyph) -> None:
 def _gap_explanation(left: JoinGlyph, right: JoinGlyph, y: int) -> None:
     left_anchor = next((a for a in left.exit if a[1] == y), None)
     right_anchor = next((a for a in right.entry if a[1] == y), None)
+    right_curs_only = False
+    if right_anchor is None:
+        right_anchor = next((a for a in right.entry_curs_only if a[1] == y), None)
+        right_curs_only = right_anchor is not None
     if left_anchor is None or right_anchor is None:
         print(f"    no anchor pair at y={y}")
         return
@@ -123,7 +129,10 @@ def _gap_explanation(left: JoinGlyph, right: JoinGlyph, y: int) -> None:
         f"  eff_x={eff_left_x}"
         f"  ink_y={left_y_for_ink}{' (declared)' if left.exit_ink_y is not None else ''}"
     )
-    print(f"      right entry=({right_anchor[0]}, {right_anchor[1]})  eff_x={eff_right_x}")
+    print(
+        f"      right entry=({right_anchor[0]}, {right_anchor[1]})"
+        f"{' (curs-only)' if right_curs_only else ''}  eff_x={eff_right_x}"
+    )
     if left_bounds is not None:
         lmin, lmax = left_bounds
         print(f'      left  row "{left_str}"  ink={lmin}..{lmax}  ink_to_exit={lmax - eff_left_x}')
