@@ -3339,7 +3339,7 @@ class TestSettleMemoFile:
     def test_a_corrupt_index_retires_the_store_at_the_first_probe_that_finds_it(
         self, spec, guard, tmp_path, capsys
     ):
-        """When no family key moved and no ask restriction applies, the load reads the header and tables and no column page, so a corrupt index (every slot naming one row, or naming a row past the columns) is found by a probe. The probe chain is bounded by the row count and the id by the column length, and either finding retires every row with a warning. The walk then settles everything it has not already been served (the one row every slot names may serve its own window first), and its save replaces the file with a whole one."""
+        """When no family key moved and no ask restriction applies, the load reads the header and tables and no column page, so a corrupt index (every slot naming one row, or naming a row past the columns) is found by a probe. The probe chain is bounded by the row count plus one and the id by the column length, and either finding retires every row with a warning. The walk then settles everything it has not already been served (the one row every slot names may serve its own window first), and its save replaces the file with a whole one."""
         texts = self._texts(spec, 2)
         memo = self._memo(tmp_path)
         first = conform._SettledWindowWalk(spec, frozenset(), {}, guard, memo=memo)
@@ -3360,6 +3360,29 @@ class TestSettleMemoFile:
             assert f"[warn] settle memo: {memo.path} retired ({problem})" in capsys.readouterr().err
             assert walker.save_memo()
             assert memo.path.read_bytes() == whole
+
+    def test_a_miss_through_a_full_run_of_rows_does_not_retire_a_valid_store(
+        self, spec, guard, tmp_path, capsys
+    ):
+        """A one-row file has two slots, so a miss that hashes to the occupied slot reads the row and then the empty slot: two reads for one row. Every window over the file's labels that the file does not hold must be a plain miss, leaving the row live and printing no warning."""
+        memo = self._memo(tmp_path)
+        seed = conform._SettledWindowWalk(spec, frozenset(), {}, guard, memo=memo)
+        seed.walk_many(self._texts(spec, 2))
+        row = next(iter(cast(dict[conform._Window, conform._Outcome], seed.windows).items()))
+        assert conform._write_settle_memo(memo, *conform._memo_columns([row]))
+
+        walker = conform._SettledWindowWalk(spec, frozenset(), {}, guard, memo=memo)
+        walker._load_memo()
+        store = walker._cold
+        assert len(store.index) == 2 and len(store) == 1
+        misses = [
+            cast(conform._Window, window)
+            for window in itertools.product(store.labels, repeat=6)
+            if window != row[0]
+        ]
+        assert all(store.probe(window) is None for window in misses)
+        assert len(store) == 1 and store.probe(row[0]) is not None
+        assert "[warn] settle memo:" not in capsys.readouterr().err
 
     def test_a_file_replaced_under_an_open_mapping_keeps_serving_the_mapped_rows(self, spec, guard, tmp_path):
         """The guarantee `_write_settle_memo` gives, seen from the reader: a walk that mapped the file keeps the inode it mapped after a writer replaces the file and serves every window it loaded from it with no crate call, and the next walk maps the new file. The replacement holds fewer rows (only the depth-1 windows), so a walk that read the new file through its old mapping would have settled the rest."""
