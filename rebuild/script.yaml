@@ -1,4 +1,4 @@
-# Registries only, never policy (design section 2). Parked under rebuild/ until cutover: glyph_data/script.yaml is proven unsafe for the old loader today (M1 plan, section 1 — a recorded deviation).
+# Registries only, never policy (design section 2). The file lives under rebuild/ until cutover because the old build loads every glyph_data/*.yaml and would read a glyph_data/script.yaml as a Senior kerning rule (M1-PLAN section 1).
 heights: {baseline: 0, x-height: 5, y6: 6, top: 8}
 boundary_tokens:
   space: {codepoint: 0x0020, splits_runs: true}
