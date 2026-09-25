@@ -1,8 +1,10 @@
-//! The shipped first-match order replayed against one configuration's rows, behind the `replay-emitted` verb. The emitter folds every configuration's table into the one settlement lookup the font ships (`emit_gsub._ordered_settle_rules`), and that fold decides an order none of the per-configuration proofs read: the fold's partition assertion and the string replay walk each table's own rules in its own order, the witness stage first-matches each certificate in the same order, and read-back compares the font to the plan rather than the plan to the tables. This walk is where the plan meets the tables: every row of the configuration's enumeration is renamed into the stream the configuration's marker lookups produce, the emitted rules of its input are tried in the order they ship, and the first one whose context admits the row has to answer with the row's own outcome, the identity where no rule matches. A row the shipped order answers differently from the table is a refusal naming the configuration, the row, the emitted rule that fired and the table's own rule.
+//! Checks the settlement order the font ships against one configuration's rows, for the `replay-emitted` subcommand. The emitter folds every configuration's table into the one settlement lookup the font ships (`emit_gsub._ordered_settle_rules`), and no per-configuration check reads the order that fold produces. The fold's partition assertion and the string replay walk each table's rules in the table's own order, the witness stage first-matches each certificate in that same order, and read-back compares the font to the plan, not the plan to the tables.
 //!
-//! Three things make the walk exact rather than sampled. The rows are the table's own, so every window the tables were built for is tried, at the grain the tables hold it. The labels are the stream's: under a configuration every raw label of a rune whose capability the active sets change is worn as its marker twin, and the emitted rules already spell that, so the rows are renamed through the same map before a rule is tried. And a deep slot standing at a class token is tried through the whole class rather than a representative: at index time every emitted look class is held against every class of the configuration, a class it holds whole matches through the token itself, and a class it admits in part is the cue to expand — the row is tried once per member (per member pair where both deep slots are classes) and every member's first match has to answer the row's outcome, which the fiber construction makes member-uniform. The expansion is what keeps the walk exact where `fold::assert_deep_class_unions` cannot reach: that assertion holds a configuration's own rules to its own classes, and in the shipped lookup the rules of every configuration sit together, so a rule folded from another configuration's fiber partition can admit part of a class the belt at horizon 4 then proves benign, because it answers those members as the row does.
+//! The walk renames every row of the configuration's enumeration into the labels the configuration's marker lookups produce, tries the emitted rules for the row's input in shipped order, and requires the first rule that matches to give the row's outcome (the input itself when no rule matches). A row whose shipped-order outcome differs from the table's is an error naming the configuration, the row, the emitted rule that fired, and the table's own rule.
 //!
-//! The walk is O(rows) with a bounded set of rules per input and nothing settled: the tables are the settled answer, and what is checked is whether the lookup that ships reads them back. That is what lets it run on every build, keyed on the same inputs as the tables, where the HarfBuzz belt that also proves the shipped order keys on code and on behavior classes and skips a rune edit that mints no new shape.
+//! The walk checks every row, not a sample. The rows are the table's own, at the table's grain. Rows are renamed before matching because, under a configuration, every raw label of a rune whose capability the active sets change is renamed to its marker twin, and the emitted rules already use the twin names. A deep slot that holds a class token is checked against the whole class. When the rules are indexed, each deep slot of each emitted rule is compared with every class of the configuration. A class that a rule's slot contains entirely matches through its token. A class that the slot contains only in part makes the walk try the row once per member (once per member pair when both deep slots are classes), and each member's first match must give the row's outcome; the fiber construction makes that outcome the same for every member. `fold::assert_deep_class_unions` does not cover this case: it checks a configuration's own rules against its own classes, but the shipped lookup holds every configuration's rules, so a rule folded from another configuration's fiber partition can match part of a class. That is harmless only when the rule gives each member the row's outcome, which is what the member-by-member check verifies.
+//!
+//! The walk is O(rows), with a bounded number of rules per input, and settles nothing: the tables already hold the settled outcomes, and the walk checks that the shipped lookup reproduces them. That makes it cheap enough to run on every build, keyed on the same inputs as the tables. The HarfBuzz belt also checks the shipped order, but its key (`artifact_cycle.conform_skip_fingerprint`) covers the compile code and the emitted lookup's behavior classes, not the runes, so it skips a rune edit that adds no new behavior class.
 
 use std::io::BufRead;
 
@@ -11,24 +13,24 @@ use crate::fold::{Rule, first_match, rules_by_input};
 use crate::hash::{HashMap, HashSet};
 use crate::replay::Labels;
 
-/// What one configuration's walk answered: how many rows it tried, and how many of them it tried member by member because an emitted look class admitted their deep class in part.
+/// The result of one configuration's walk: the rows it checked, and how many of them it checked member by member because an emitted lookahead class contained their deep class only in part.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Report {
     pub rows: u64,
     pub expanded: u64,
 }
 
-/// How many disagreements a walk names before it stops: enough to see a shape, few enough that the complaint stays one screen.
+/// How many disagreements a walk reports before it stops, so the error message stays short.
 const NAMED_DISAGREEMENTS: usize = 5;
 
-/// What one configuration's stream does to the labels its table spells: the marker fold, raw label to the twin the stream wears under this configuration (`model.raw_rename_map`), and the deep classes the table's rows stand at, each token with its members in the table's raw label space (`DecisionTable.deep_classes`).
+/// How one configuration's marker lookups relabel its table's rows. `renames` maps each raw label to the marker twin used under this configuration (`model.raw_rename_map`). `classes` lists the deep classes in the table's rows, each token with its members as raw labels (`DecisionTable.deep_classes`).
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Context {
     pub renames: Vec<(String, String)>,
     pub classes: Vec<(String, Vec<String>)>,
 }
 
-/// A context file read back: one tab-separated record per line, `rename<tab><raw><tab><twin>` for the marker fold and `class<tab><token><tab><member> <member> …` for a deep class. Nothing else is a record, and a line that is not one of the two is refused rather than skipped.
+/// Parses a context file: one tab-separated record per line, either `rename<tab><raw><tab><twin>` or `class<tab><token><tab><member> <member> …`. Any other line is an error.
 pub fn read_context(text: &str) -> Result<Context, String> {
     let mut context = Context::default();
     for (number, line) in text.lines().enumerate() {
@@ -56,14 +58,14 @@ pub fn read_context(text: &str) -> Result<Context, String> {
     Ok(context)
 }
 
-/// One emitted rule as the walk tries it: its seat in the shipped order, the five constrained slots as sorted id lists with the class tokens a slot holds whole folded in, `None` for an unconstrained slot, and the outcome's id.
+/// One emitted rule prepared for matching: its index in the shipped order, the five context slots as sorted label ids (`None` for an unconstrained slot, and with the tokens of classes the slot contains entirely added), and the outcome's id.
 struct EmittedRule {
     seat: usize,
     slots: [Option<Vec<u32>>; 5],
     outcome: u32,
 }
 
-/// Which slot of a rule turned a class token away after every slot before it matched, and the token: the cue to try the row member by member.
+/// The rule, slot, and class token where a deep slot rejected a class token it contains in part, after every earlier slot matched. It tells the caller to try the row member by member.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 struct Split {
     seat: usize,
@@ -71,14 +73,14 @@ struct Split {
     token: u32,
 }
 
-/// The shipped order keyed by input label, each input's rules in the order they ship, and the split classes indexed so a match that fails on one can tell the cue to expand from a plain miss.
+/// The emitted rules grouped by input label, each input's rules in shipped order, and the (rule, slot, class token) triples where the slot contains the class in part, so that [`Order::first`] can tell a partial class match from a plain miss.
 struct Order {
     by_input: HashMap<u32, Vec<EmittedRule>>,
     splits: HashSet<(usize, usize, u32)>,
 }
 
 impl Order {
-    /// The emitted rules indexed, with every class of the configuration held against every look class: a class the slot admits whole joins the slot under its token, a class it admits in part is recorded as a split.
+    /// Indexes the emitted rules. Every class of the configuration is compared with every deep slot: a class the slot contains entirely is added to the slot as its token, and a class it contains in part is recorded as a split.
     fn new(labels: &mut Labels, rules: &[Rule], classes: &[(u32, Vec<u32>)]) -> Self {
         let mut by_input: HashMap<u32, Vec<EmittedRule>> = HashMap::default();
         let mut splits: HashSet<(usize, usize, u32)> = HashSet::default();
@@ -131,7 +133,7 @@ impl Order {
         Self { by_input, splits }
     }
 
-    /// The first emitted rule of `input` whose five slots admit the window, or `None` where the input stands; a slot that turns a class token away after every slot before it matched is a split class, handed back for the caller to expand.
+    /// The first emitted rule for `input` whose five slots match `window`, or `None` when no rule matches. When a deep slot rejects a class token it contains in part, after every earlier slot matched, this returns that [`Split`] so the caller can expand the row.
     fn first(&self, input: u32, window: [u32; 5]) -> Result<Option<&EmittedRule>, Split> {
         'rules: for rule in self.by_input.get(&input).map_or(&[][..], Vec::as_slice) {
             for (index, (slot, label)) in rule.slots.iter().zip(window).enumerate() {
@@ -156,7 +158,7 @@ impl Order {
     }
 }
 
-/// One configuration's rows walked against the shipped order.
+/// Checks one configuration's rows against the shipped order.
 pub struct Walk<'a> {
     config: &'a str,
     labels: Labels,
@@ -171,7 +173,7 @@ pub struct Walk<'a> {
 }
 
 impl<'a> Walk<'a> {
-    /// A walk for `config`, whose own table is `table` — read only to name the rule the table answered a disagreeing row with — against `order`, the rules of every configuration in the order they ship, under `context`, the configuration's marker fold and deep classes.
+    /// A walk for `config`. `table` is the configuration's own table, read only to name the table's rule in a disagreement. `order` is every configuration's rules in shipped order. `context` holds the configuration's marker renames and deep classes.
     pub fn new(config: &'a str, table: &'a [Rule], order: &'a [Rule], context: &Context) -> Self {
         let mut labels = Labels::new();
         let renames: HashMap<u32, u32> = context
@@ -220,7 +222,7 @@ impl<'a> Walk<'a> {
         }
     }
 
-    /// Every row of a windows enumeration read from `source` — the head line under [`WINDOWS_FORMAT`], the column line, then one row per line — tried against the shipped order, member by member where an emitted look class admits the row's deep class in part. A row the order answers differently from the table is a disagreement, and the walk stops at [`NAMED_DISAGREEMENTS`] of them; a head this build does not write, or a row that is not seven fields, is a refusal on its own.
+    /// Checks every row of a windows enumeration read from `source` (the head line under [`WINDOWS_FORMAT`], the column line, then one row per line) against the shipped order, member by member where an emitted lookahead class contains the row's deep class only in part. A row whose shipped-order outcome differs from the table's is a disagreement, and the walk stops after [`NAMED_DISAGREEMENTS`] of them. A head line with another format, a wrong column line, or a row without seven fields is an error by itself.
     pub fn walk(&mut self, source: &mut impl BufRead) -> Result<Report, String> {
         let mut line = String::new();
         self.read_line(source, &mut line)?;
@@ -326,7 +328,7 @@ impl<'a> Walk<'a> {
         }
     }
 
-    /// One disagreement spelled: the row, the member pair it was tried at where a class was expanded, what the table answered and by which of its rules, and what the shipped order answered and by which emitted rule. The table's rule is found in the table's own raw label space — the member tried, or the class's first member, carried back through the marker fold — since the table's rules spell members and raw labels where the row spells a class token and the stream a twin.
+    /// Formats one disagreement: the row, the member pair it was tried at when a class was expanded, the table's outcome and the table rule that produced it, and the emitted rule that fired with its outcome. The table's rule is looked up with raw labels, using the member tried (or the class's first member) mapped back through the marker renames, because the table's rules name members and raw labels where the row names a class token and the stream names a twin.
     fn disagree(
         &self,
         raw: [&str; 7],
@@ -414,10 +416,10 @@ fn slot_name(slot: usize) -> &'static str {
     }
 }
 
-/// How many members of a slot a complaint spells before counting the rest: a committed-left block runs to hundreds of cells, and a complaint is read, not parsed.
+/// How many members of a slot an error message lists before it counts the rest. A committed-left block runs to hundreds of cells.
 const SPELLED_MEMBERS: usize = 4;
 
-/// One rule as a complaint names it: the input, the five slots with `any` for an unconstrained one and a long class cut to its first members, and the outcome, with the first provenance pointer — for an emitted rule, the table rules it folded from.
+/// Formats one rule for an error message: the input, the five slots (`any` for an unconstrained slot, and a long class cut to its first members), the outcome, and the first provenance pointer, which for an emitted rule names a table rule it was folded from.
 fn rule_repr(rule: &Rule) -> String {
     let slot = |members: &Option<Vec<std::rc::Rc<str>>>| match members {
         None => "any".to_owned(),
@@ -477,7 +479,7 @@ mod tests {
 
     use crate::model::Sym;
 
-    /// The fixture's enumeration spelled as the plain payload `artifacts::write_windows` files: the head line, the column line and one row per window.
+    /// The fixture's enumeration in the plain payload format `artifacts::write_windows` writes: the head line, the column line, and one row per window.
     fn windows_text(decision: &DecisionTable) -> String {
         let mut text = format!(
             "# {WINDOWS_FORMAT}\t{{\"config\":\"{}\"}}\ninput\tleft\tlookahead1\tlookahead2\tlookahead3\tlookahead4\toutcome\n",
@@ -506,7 +508,7 @@ mod tests {
         walk.walk(&mut windows_text(decision).as_bytes())
     }
 
-    /// A table's own order answers every one of its rows — the fold's partition assertion restated through the shipped-order walk — and the report counts the rows.
+    /// A table's own rules, in the table's order, give every row's outcome (the fold's partition assertion, checked through the walk), and the report counts the rows.
     #[test]
     fn a_tables_own_order_answers_every_row() {
         let index = fixtures::mini();
@@ -518,7 +520,7 @@ mod tests {
         assert_eq!(report.expanded, 0);
     }
 
-    /// Two rules of one input swapped in the order, so that a row the later rule answered is now answered by the earlier one, is named: the configuration, the row, the emitted rule that fired and the table's own rule.
+    /// Swapping two rules of one input, so that a row the later rule matched is now matched by the earlier one, produces an error naming the configuration, the row, the emitted rule that fired, and the table's own rule.
     #[test]
     fn a_swap_that_moves_a_row_names_the_row_and_both_rules() {
         let index = fixtures::mini();
@@ -549,7 +551,7 @@ mod tests {
         assert!(complaint.contains("its table's rule "), "{complaint}");
     }
 
-    /// The rows are renamed into the configuration's stream before a rule is tried: an order spelled in a twin's name answers the same rows once the context renames the raw label to the twin, and answers none of them without the rename.
+    /// Rows are renamed into the configuration's labels before matching: an order written with a twin's name passes once the context renames the raw label to the twin, and fails without the rename.
     #[test]
     fn a_rename_carries_the_rows_into_the_streams_labels() {
         let index = fixtures::mini();
@@ -593,7 +595,7 @@ mod tests {
         walk(&decision, &order, &context).expect("renamed, every row is answered");
     }
 
-    /// An emitted look class that admits one of the configuration's deep classes in part expands the row: tried member by member, a rule that answers every member as the row does passes, and one that answers a member differently is named with the member it was tried at. Hand-built, because the fixture's alphabet is too small to enumerate a multi-member class.
+    /// When an emitted lookahead class contains one of the configuration's deep classes only in part, the row is tried member by member: a rule that gives every member the row's outcome passes, and one that gives a member a different outcome is reported with that member. The rules are built by hand because the fixture's alphabet is too small to produce a multi-member class.
     #[test]
     fn a_split_deep_class_is_tried_member_by_member() {
         let rule = |look3: &[&str], outcome: &str| Rule {
@@ -645,7 +647,7 @@ mod tests {
         assert!(complaint.contains("qsPea.split"), "{complaint}");
     }
 
-    /// The context file's two records read back, and anything else is refused with its line number.
+    /// The context file's two record kinds parse, and any other line is an error naming its line number.
     #[test]
     fn a_context_file_is_renames_and_classes_and_nothing_else() {
         let context = read_context("rename\tqsPea\tqsPea.ss03\nclass\t#Cabc\tqsPea qsTea\n")
@@ -670,7 +672,7 @@ mod tests {
         assert!(complaint.contains("line 2"), "{complaint}");
     }
 
-    /// A payload that is not a windows enumeration, or a row that is not seven fields, is refused before any row is judged.
+    /// A payload that is not a windows enumeration, or a row without seven fields, is an error.
     #[test]
     fn a_malformed_payload_is_refused() {
         let index = fixtures::mini();

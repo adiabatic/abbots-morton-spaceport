@@ -1,12 +1,12 @@
-//! The table build's fold, which since the `build-tables` verb landed runs in this crate on the product the worklist just produced rather than on a stream Python parsed back: the class-grain rows expanded to label grain, the prospect-divergence flag pass over that expansion, the per-input rule fold ([`crate::rulefold`]), the treaty fold, and the assertions the build states its tables under.
+//! The table build's fold, run in the crate on the product the worklist just produced: the class-grain rows expanded to label grain, the prospect-divergence flag pass over that expansion, the per-input rule fold ([`crate::rulefold`]), the treaty fold, and the assertions the build checks its tables against.
 //!
-//! This is the fold, and there is no other: `table.py`'s `assemble_tables` was transcribed into these modules, held byte-identical to them across the whole scaling ladder and the live alphabet, and then deleted — git preserves it, and `rebuild/pipeline/table.py` now carries the data model, the artifact readers and the digests alone. What binds this fold is therefore not a twin but three independent checks: byte-identity of the artifacts [`crate::artifacts`] writes against a stamped baseline, which is where a rule-ordering divergence shows since that ordering is the shipped GSUB; `rebuild/test_table.py`, which replays these rules against these rows on the mini fixture in its own implementation of first-match-wins; and `gate:conform`, which shapes the compiled font through HarfBuzz against this crate's own per-window settlement on every cycle.
+//! This is the only implementation of the fold. `rebuild/pipeline/table.py` keeps the data model, the artifact readers and the digests. Three independent checks cover the fold. Byte-identity of the artifacts [`crate::artifacts`] writes against a stamped baseline catches a change in rule order, which is the shipped GSUB order. `rebuild/test_table.py` replays these rules against these rows on the mini fixture with its own first-match-wins implementation. `gate:conform` shapes the compiled font with HarfBuzz on every cycle and compares the result with this crate's per-window settlement.
 //!
-//! The expansion is where this fold's whole memory argument sits. Python materialized the label-grain stream as whole `Transition` objects — a second copy of a product that already cost gigabytes — because a class row expands to its full member product at right3 x right4. Here an expanded row is the seat of the class row it came from plus its two deep labels, which is what makes the fold's own working set a rounding error beside the enumeration's: everything else an expanded row says (the input, the left, the two near slots, the outcome, the settled cells, the prospect and the provenance) is the class row's and is read through the seat.
+//! Expansion is where the fold's memory goes, because a class row expands to its full member product at right3 × right4. An expanded row ([`FoldRow`]) therefore holds only the index of its class row, its two deep labels and its joint flag. Everything else about it (the input, the left, the two near slots, the outcome, the settled cells, the prospect and the provenance) is read from the class row through that index, which keeps the fold's working set small beside the enumeration's.
 //!
-//! Expansion order is the sort Python performs over the whole stream, arrived at without performing it: the product's rows are already in key order, so rows sharing an (input, left, right1, right2) prefix are contiguous, and sorting each such run by its two deep labels alone leaves the whole vector in the order a global sort would. Both sorts are stable, so rows that tie on the full key keep the class-row order Python's stable sort would have kept them in.
+//! Expansion order is `table.Window.key` order, reached without a global sort. The product's rows are already in key order, so rows sharing an (input, left, right1, right2) prefix are contiguous, and sorting each such run by its two deep labels leaves the whole vector in key order. The per-run sort is stable, so rows that tie on the full key keep their class-row order.
 //!
-//! The replay that asserts the partition is also where the rules meet their realizing strings. It records, per rule, the replayed rows with the shortest producer chains that first-match it, and [`crate::certificate`] closes each such row's chain into a string the rule first-matches at the row's own position — one certificate per rule, written into the windows head beside the rules, which is how the build proves every rule reachable by settling rather than by searching.
+//! The replay that checks the outcome partition also records, for each rule, up to [`crate::certificate::ROW_CAP`] of the replayed rows that first-match it, preferring the rows with the shortest producer chains. [`crate::certificate`] closes the chain of one of those rows into a string the rule first-matches at the row's own position. These certificates, one per rule, are written into the windows head beside the rules, and the witness stage settles each one to show that every rule is reachable.
 
 use std::rc::Rc;
 use std::time::{Duration, Instant};
@@ -24,10 +24,10 @@ use crate::types::{AdjustmentToken, CellId, Settled, Side};
 
 type FoldReporter<'a> = dyn FnMut(&str, Duration) + 'a;
 
-/// The label a slot the window does not carry is spelled with, `table.NA_LABEL`.
+/// The label for a slot the window does not carry, `table.NA_LABEL`.
 pub const NA_LABEL: &str = "#NA";
 
-/// The lookahead class every boundary-outcome rule carries, `table.BOUNDARY_LOOKAHEAD_CLASS`, in its own order rather than sorted.
+/// The lookahead class every boundary-outcome rule carries, `table.BOUNDARY_LOOKAHEAD_CLASS`. Its order is fixed here and is not sorted.
 pub const BOUNDARY_LOOKAHEAD_CLASS: [&str; 3] = ["uni200C", "space", "periodcentered"];
 
 /// Every label a window slot can carry that is not a letter, `table.BOUNDARYISH`. A deep-class id is never one.
@@ -65,7 +65,7 @@ impl Rule {
     }
 }
 
-/// One treaty row, `table.TreatyRow`: the two settled cells a seam joins, the height it joins at (or `break`), and the connector pixels the seam carries. `kern` is always zero and is spelled anyway, because the TSV column is part of the artifact.
+/// One treaty row, `table.TreatyRow`: the two settled cells a seam joins, the height it joins at (or `break`), and the connector pixels the seam carries. `kern` is always zero and is written anyway, because the TSV has the column.
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub struct TreatyRow {
     pub left: Rc<str>,
@@ -76,9 +76,9 @@ pub struct TreatyRow {
 }
 
 #[derive(Debug)]
-/// One configuration's decision table, `table.DecisionTable` as a freshly folded one stands: the class-grain rows with the fold's own joint flags, the ordered rules, and the head fields the windows artifact and every downstream consumer read.
+/// One configuration's decision table, `table.DecisionTable` as the fold produces it: the class-grain rows with the fold's joint flags, the ordered rules, and the head fields the windows artifact and its readers use.
 ///
-/// The decision table retains the product's label pool and settled-seat outcome table. Windows and digests resolve a row's six labels and its outcome through these tables; settled records and provenance lists are needed only during folding and are not retained.
+/// The decision table keeps the product's label pool and settled-seat outcome table, through which windows and digests resolve a row's six labels and its outcome. Settled records and provenance lists are needed only while folding, so they are not kept.
 pub struct DecisionTable {
     pub config: String,
     pub transitions: Vec<TransitionRow>,
@@ -89,7 +89,7 @@ pub struct DecisionTable {
     pub cited_provenance: Vec<String>,
     pub deep_classes: Vec<(String, Vec<String>)>,
     pub cells: Vec<CellId>,
-    /// One realizing string per rule, in rule order, as the tokens the text spells — rune names and the three boundary glyph labels — closed by [`crate::certificate`] so the rule first-matches at the row's own position. The windows head carries them beside the rules.
+    /// One certificate per rule, in rule order: a token stream of rune names and the three boundary glyph labels, which [`crate::certificate`] builds so the rule first-matches at its row's position. The windows head carries them beside the rules.
     pub certificates: Vec<Vec<String>>,
 }
 
@@ -108,7 +108,7 @@ pub struct TreatyTable {
 
 /// What one configuration's fold produced: its two tables, and the lefts the reduced replay covered.
 ///
-/// The lefts ride out because the assertion has already run under them: a caller that perturbs the rules and wants to know whether the reduction still notices — the negative control the reduction owes — has to re-run the same replay the build runs rather than a whole-table one, which would prove a different statement.
+/// The lefts are returned so that a caller that perturbs the rules can re-run the replay the build ran and check whether the reduced replay still notices. A whole-table replay would check a different statement.
 #[derive(Debug)]
 pub struct Folded {
     pub decision: DecisionTable,
@@ -119,7 +119,7 @@ pub struct Folded {
 /// The lefts a first-match-wins replay has to cover, per input glyph.
 pub type ReplayLefts = HashMap<Rc<str>, HashSet<Rc<str>>>;
 
-/// One label-grain row: the seat of the class row it expanded from, the two deep labels it stands at, and the joint flag the prospect pass leaves on it. Everything else it says is read through the seat.
+/// One label-grain row: the index (`seat`) of the class row it expanded from, its two deep labels, and the joint flag the prospect pass sets. Everything else about the row is read from the class row.
 pub struct FoldRow {
     pub seat: u32,
     pub right3: Rc<str>,
@@ -127,7 +127,7 @@ pub struct FoldRow {
     pub joint: bool,
 }
 
-/// The label-grain stream as the fold and the rule fold read it: expanded rows reference their owning product's class rows, label pool, seated outcomes, and provenance. Sliced by input, which is what [`rules_for_input`] is handed.
+/// The label-grain stream the fold and the rule fold read: expanded rows that reference their product's class rows, label pool, outcomes and provenance. [`rules_for_input`] receives one input's slice.
 #[derive(Clone, Copy)]
 pub struct LabelRows<'a> {
     product: &'a FixpointProduct,
@@ -139,7 +139,7 @@ impl<'a> LabelRows<'a> {
         Self { product, fold }
     }
 
-    /// The rows between two seats of the expansion, over the same class rows.
+    /// The expanded rows `start..end`, over the same class rows.
     pub fn slice(&self, start: usize, end: usize) -> Self {
         Self {
             product: self.product,
@@ -209,15 +209,15 @@ impl<'a> LabelRows<'a> {
     }
 }
 
-/// [`fold_with`] over a fresh [`WindowOptions`], for the callers that hold none — the tests, and any fold of a product that did not come straight out of this process's own enumeration.
+/// [`fold_with`] over a fresh [`WindowOptions`], for a caller that has none.
 pub fn fold_product(index: &SpecIndex, product: FixpointProduct) -> Result<Folded, String> {
     let mut options = WindowOptions::new(index).map_err(|error| error.to_string())?;
     fold_with(index, product, &mut options)
 }
 
-/// One configuration's two tables, folded from the product the worklist produced, with no stream between them: the expansion, then the passes in order, then the raises where a fold-side invariant does not hold, and last the certificates, one realizing string per rule closed over `options` — the enumeration's own, lent so the formation guard's verdicts are read out of the memo that already answered the worklist rather than swept a second time.
+/// One configuration's two tables, folded from the product the worklist produced. The steps run in this order: the key-order check, the expansion and the prospect pass, the rule fold, the reachable-cells cross-check, the treaty fold, the reduced first-match-wins replay, the deep-class union check, and last the certificates. Each check returns an error where its invariant does not hold.
 ///
-/// The assertions run where the transcribed fold ran them — the reachable-cells cross-check between the rule fold and the treaty fold, the reduced first-match-wins replay last — with the deep-class union check after them, which the Python original stated only on its fixture because there it cost nothing, and which costs almost nothing here either.
+/// `options` is the enumeration's own, so the certificates read the formation guard's verdicts from the memo the worklist already filled instead of sweeping them again.
 pub fn fold_with(
     index: &SpecIndex,
     product: FixpointProduct,
@@ -226,7 +226,7 @@ pub fn fold_with(
     fold_with_report(index, product, options, None)
 }
 
-/// [`fold_with`] with opt-in wall-clock reports for prefix search and the outcome partition. The callback receives stable phase names without a configuration suffix so callers can choose their own grouping and output format; an ordinary fold takes no clocks.
+/// [`fold_with`] with wall-clock reports for the prefix search (`prefixes`) and the outcome partition (`partition`). The phase names carry no configuration suffix, so the caller chooses the grouping and output format. [`fold_with`] reads no clocks.
 pub fn fold_with_profile(
     index: &SpecIndex,
     product: FixpointProduct,
@@ -308,7 +308,7 @@ fn fold_with_report(
             }
         }
     }
-    // Both folds sort the whole row: a set iterated in hash order is all that would separate two rows tying on (left, right, junction), and that is not an order either side can reproduce.
+    // Sort on the whole row: two rows tying on (left, right, junction) would otherwise come out in hash-set order.
     let mut treaty_rows: Vec<TreatyRow> = seen
         .into_iter()
         .map(|(left, right, junction, extension)| TreatyRow {
@@ -364,7 +364,7 @@ fn fold_with_report(
     })
 }
 
-/// The precondition [`fold_product`] and [`expand`] read a product under: its rows are in `table.Window.key` order, which is what makes an input's rows one contiguous run, a left's rows one contiguous run inside that, and the per-prefix expansion sort a global one. The transcribed fold re-sorted and grouped through dicts instead, so it folded any row order; here the order is the contract `FixpointProduct` states it carries, and a product that breaks it is refused rather than folded into duplicated blocks.
+/// Checks the precondition the fold and [`expand`] rely on: the product's rows are in `table.Window.key` order, as [`FixpointProduct`] documents. That order makes an input's rows one contiguous run, a left's rows one contiguous run inside it, and the per-prefix expansion sort a global one. A product out of order would fold a left into duplicated blocks, so it is an error.
 fn assert_key_sorted(product: &FixpointProduct) -> Result<(), String> {
     for pair in product.transitions.windows(2) {
         if pair[1].key(&product.labels) < pair[0].key(&product.labels) {
@@ -378,7 +378,7 @@ fn assert_key_sorted(product: &FixpointProduct) -> Result<(), String> {
     Ok(())
 }
 
-/// The label-grain expansion of one product, in `table.Window.key` order. See the module docstring for why the sort is per prefix run rather than global. Public so a caller replaying a perturbed rule list can build the same rows the fold asserted over.
+/// The label-grain expansion of one product, in `table.Window.key` order. The module doc says why sorting each prefix run is enough. It is public so a caller replaying a perturbed rule list can build the rows the fold checked.
 pub fn expand(product: &FixpointProduct) -> Vec<FoldRow> {
     let mut pool: HashSet<Rc<str>> = HashSet::default();
     let mut members: HashMap<&str, Vec<Rc<str>>> = HashMap::default();
@@ -439,9 +439,9 @@ fn near_slots(row: &TransitionRow) -> [Label; 4] {
     [row.input_glyph, row.left, row.right1, row.right2]
 }
 
-/// Compare every row's optimistic prospect against the follower's actual settled choice and flag divergent rows joint (design section 6.1 step 4.2).
+/// Compares every row's optimistic prospect with the follower's actual settled choice and flags divergent rows joint (design section 6.1 step 4.2).
 ///
-/// The successor index is keyed on the follower's (left, input, right1), which is the row's own (outcome, right1, right2), so the scan never touches a window the first three slots already rule out. Nothing here reads a successor's joint flag, only the seam it settled — read through `seats`, the product's table the follower's settled seat indexes — so the pass is order-free and the flags can be applied in one sweep afterwards.
+/// The successor index is keyed on the follower's (left, input, right1), which is the row's own (outcome, right1, right2), so the scan skips every window those three slots rule out. The pass reads only the seam each successor settled (through the product's `seats` table), never a successor's joint flag, so the result does not depend on row order and the flags are applied together at the end.
 fn flag_prospect_joints(product: &FixpointProduct, fold: &mut [FoldRow]) {
     let class = &product.transitions;
     let mut successors: HashMap<(Label, Label, Label), Vec<u32>> = HashMap::default();
@@ -490,7 +490,7 @@ fn flag_prospect_joints(product: &FixpointProduct, fold: &mut [FoldRow]) {
     }
 }
 
-/// The half-open ranges of the expansion each input glyph occupies. The rows are key-sorted and the input is the key's first component, so an input's rows are one contiguous run and the runs arrive in the sorted order `assemble_tables` folds them in.
+/// The half-open range of the expansion that each input glyph occupies. The rows are key-sorted and the input is the key's first component, so each input's rows are one contiguous run and the runs come in sorted input order.
 fn input_runs(rows: &LabelRows<'_>) -> Vec<(usize, usize)> {
     let mut runs: Vec<(usize, usize)> = Vec::new();
     let mut start = 0;
@@ -505,7 +505,7 @@ fn input_runs(rows: &LabelRows<'_>) -> Vec<(usize, usize)> {
     runs
 }
 
-/// How far one settled cell's own adjustments move its entry, `table._entry_extension` — the term the treaty fold adds to the left's extension.
+/// How far one settled cell's own adjustments move its entry. The treaty fold adds this to the left's extension.
 fn entry_extension(cell: &CellId) -> i64 {
     let mut total = 0;
     for token in &cell.adjustments {
@@ -518,7 +518,7 @@ fn entry_extension(cell: &CellId) -> i64 {
     total
 }
 
-/// One cheap loud check that the two grains still agree: the cells the fold rows settle into, read through the product's seat table, are the product's own.
+/// Checks that the two grains agree: the set of cells the fold rows settle into, read through the product's seat table, equals the product's `cells`.
 fn assert_reachable_cells(
     index: &SpecIndex,
     rows: &LabelRows<'_>,
@@ -548,15 +548,15 @@ fn assert_reachable_cells(
     ))
 }
 
-/// The hard build invariant (prototype follow-up 1): replay reachable transitions against the ordered rules under first-match-wins semantics and require the rules to predict what settlement enumerated, `table.DecisionTable.assert_outcome_partition`.
+/// The hard build invariant (prototype follow-up 1 in `rebuild/M1-PLAN.md`): replays the reachable rows against the ordered rules under first-match-wins and requires the rules to predict every outcome settlement enumerated.
 ///
-/// `lefts` is the reduction the rule fold hands back — one representative of every committed left block plus every member of the boundary block — and that docstring in `table.py` carries the argument for why replaying those lefts proves the same statement as replaying all of them, the ZWNJ backtrack guards included. `None` replays every row, which is what a fixture small enough to afford it is held to.
+/// `lefts` is the reduction the rule fold returns: one representative of every committed left block plus every member of the boundary block. `None` replays every row, which only a small fixture can afford.
 ///
-/// The same pass also tallies which rule each replayed row first-matches, and a rule no replayed row ever reaches is refused alongside an outcome mismatch: a rule the ordering has shadowed is dead GSUB, and this replay is the only place in the fold that knows which rule won a row. The tally costs nothing beyond a flag per rule, because the replay already stops at the first match and had only to say which one that was.
+/// The same pass records which rule each replayed row first-matches, and a rule that no replayed row reaches is an error just as an outcome mismatch is. Such a rule is dead GSUB, and the replay is where the fold learns which rule won each row. Recording it costs little, because the replay already stops at the first match.
 ///
-/// It is exact under the reduction rather than merely suggestive, for two reasons. A committed block's rules carry the whole block in `backtrack`, so every member of that block matches the same slots the representative does and its rows first-match the same rule — replaying one member decides the block. And every rule reachable only from a boundary left — the default rules, the ZWNJ backtrack replicas and the identity catch-all [`crate::rulefold`] mints, `uni200C` being boundaryish — is replayed against every member of the boundary block, which the reduction keeps whole rather than reducing to a representative. So a rule that is never first under the reduction is never first over the whole table either, and `rebuild/test_table.py`'s `replay` restates both claims on the mini fixture in its own implementation of first-match-wins.
+/// The reduced replay checks the same statement as the whole-table replay, for two reasons. A committed block's rules carry the whole block in `backtrack`, so every member of the block matches the same slots as the representative and its rows first-match the same rule. Replaying one member therefore decides the block. And every rule reachable only from a boundary left (the default rules, and the ZWNJ backtrack replicas and identity catch-all that [`crate::rulefold`] mints, since `uni200C` is boundaryish) is replayed against every member of the boundary block, which the reduction keeps whole. So a rule that is never first under the reduction is never first over the whole table either. `rebuild/test_table.py`'s `replay` checks both claims on the mini fixture with its own first-match-wins implementation.
 ///
-/// [`fold_product`] runs this under the reduction, so `build-tables` refuses a never-first rule where it folds one rather than after Python has parsed the artifact back, and a Python caller sees a `KernelRunError`. There is no second replay.
+/// The fold runs this replay under the reduction (through [`first_match_rows`]), so `build-tables` fails on a never-first rule as it folds, and a Python caller sees a `KernelRunError`.
 pub fn assert_outcome_partition(
     rows: &LabelRows<'_>,
     rules: &[Rule],
@@ -565,7 +565,7 @@ pub fn assert_outcome_partition(
     first_match_rows(rows, rules, lefts, 1, None).map(|_| ())
 }
 
-/// The rules grouped by the input they rewrite, each seat beside its rule in table order — the shape a first-match-wins replay walks.
+/// The rules grouped by the input they rewrite, each with its index in the table, in table order.
 pub fn rules_by_input(rules: &[Rule]) -> HashMap<&str, Vec<(usize, &Rule)>> {
     let mut by_input: HashMap<&str, Vec<(usize, &Rule)>> = HashMap::default();
     for (seat, rule) in rules.iter().enumerate() {
@@ -577,7 +577,7 @@ pub fn rules_by_input(rules: &[Rule]) -> HashMap<&str, Vec<(usize, &Rule)>> {
     by_input
 }
 
-/// First-match-wins over one window's six labels: the seat of the first rule of the input whose five constrained slots all admit the labels standing at them, or `None` where no rule matches and the input stands. This is the semantics the emitted lookup compiles to, stated once for the replay and the certificates both.
+/// First-match-wins over one window's six labels: the index of the input's first rule whose five constrained slots all admit the labels at them, or `None` when no rule matches and the input is left unchanged. This is the semantics the emitted lookup compiles to. The certificates and the shipped-order walk use this function. The fold's replay uses `IndexedMatcher`, which the tests check against it.
 pub fn first_match(by_input: &HashMap<&str, Vec<(usize, &Rule)>>, key: [&str; 6]) -> Option<usize> {
     for (seat, rule) in by_input.get(key[0]).map_or(&[][..], Vec::as_slice) {
         if rule
@@ -611,7 +611,7 @@ struct IndexedMatcher<'a> {
 }
 
 impl<'a> IndexedMatcher<'a> {
-    /// Compile the same ordered rules the reference matcher reads into product-local integer classes. The cloned pool preserves every existing row ID; rule members absent from the product and concrete deep members are interned behind it. `deep_ids` is one entry per shared deep-label allocation, never one per row. The held row view keeps those allocations live for every address lookup; equal spellings in distinct allocations intern to the same ID. These IDs are membership keys only, so their minting order never supplies a semantic or output order.
+    /// Compiles the ordered rules [`first_match`] reads into sorted classes of product-local label IDs. The cloned pool keeps every existing row ID, and rule members and deep labels that the pool lacks are interned after them. `deep_ids` caches one entry per deep-label allocation, keyed by address, not one per row. The held row view keeps those allocations alive, so an address cannot be reused while the matcher exists. Equal labels in distinct allocations intern to the same ID. The IDs are used only to test membership, so the order they are minted in affects no result.
     fn new(rows: &LabelRows<'a>, rules: &[Rule]) -> Self {
         let mut labels = rows.product.labels.clone();
         let mut by_input: HashMap<u32, Vec<IndexedRule>> = HashMap::default();
@@ -770,7 +770,7 @@ fn first_match_rows_reference(
     ))
 }
 
-/// [`assert_outcome_partition`]'s replay, handing back what it learned on the way: for every rule, up to `keep` of the replayed rows that first-match it, as seats into `rows` — the ones with the shortest producer chains when `dist` ranks the rows ([`crate::certificate::Prefixes`]), an unreached row ranking last, else the first in replay order. The refusals are the assertion's own — an outcome mismatch, or a rule no replayed row first-matches — so a caller that gets rows back gets a whole partition with them. Rule membership is compiled to product-local integer classes, and the index is built and dropped inside this call so the partition phase owns its construction and residence whole.
+/// [`assert_outcome_partition`]'s replay, returning for every rule up to `keep` of the replayed rows that first-match it, as indices into `rows`. When `dist` ranks the rows ([`crate::certificate::Prefixes`]), these are the rows with the shortest producer chains, an unreached row ranking last. Otherwise they are the first rows in replay order. The errors are the assertion's: an outcome mismatch, or a rule no replayed row first-matches. The `IndexedMatcher` is built and dropped inside this call, so its build time and memory count toward the `partition` phase.
 pub fn first_match_rows(
     rows: &LabelRows<'_>,
     rules: &[Rule],
@@ -853,7 +853,7 @@ pub fn first_match_rows(
     ))
 }
 
-/// One rule as a refusal names it: the input it rewrites, its five constrained slots in the order a replay tests them with `any` for an unconstrained one, the outcome it would have written, and the first authored pointer that produced it.
+/// One rule as an error message names it: the input it rewrites, its five slots in replay order with `any` for an unconstrained one, the outcome it would write, and the first authored pointer that produced it.
 fn rule_repr(rule: &Rule) -> String {
     let slots: Vec<String> = rule.slots().iter().map(|slot| slot_repr(slot)).collect();
     let provenance = match rule.provenance.first() {
@@ -878,7 +878,7 @@ fn slot_repr(slot: &Option<Vec<Rc<str>>>) -> String {
     }
 }
 
-/// Every emitted look3/look4 letter class holds each class row's member set all-in or all-out within the row's own context — the fold-output assertion that licenses conform's representative-membership tests as exact rather than heuristic.
+/// Checks that every emitted look3/look4 class, among the rules that match a class row's near slots, contains that row's deep class either whole or not at all. This makes conform's rule-membership tests, which test one representative member per deep class, exact.
 pub fn assert_deep_class_unions(product: &FixpointProduct, rules: &[Rule]) -> Result<(), String> {
     if product.deep_classes.is_empty() {
         return Ok(());
@@ -989,7 +989,7 @@ fn split_class(
     )
 }
 
-/// A list of strings in Python's own repr, which is what a raise message pastes a sorted member set in.
+/// A list of strings in Python's repr, the form error messages use for a member set.
 fn python_str_list(values: &[&str]) -> String {
     let quoted: Vec<String> = values.iter().map(|value| python_repr(value)).collect();
     format!("[{}]", quoted.join(", "))
@@ -1004,14 +1004,14 @@ mod tests {
     use crate::types::{NotesSeat, SettledSeat};
     use std::cell::RefCell;
 
-    /// The world the fixture is folded in — the shipping one, where a class-grain row's representative is output-visible.
+    /// The shipping modes, which the fixture is folded in.
     const SHIPPING: EnumerationModes = EnumerationModes {
         simulated_prospect: true,
         vote_slots: true,
         deep_classes: true,
     };
 
-    /// The fixture's own fixpoint and the tables it folds into, which is the whole build over four families.
+    /// The mini fixture's fixpoint and the tables it folds into.
     fn built() -> (SpecIndex, FixpointProduct, Folded) {
         let index = fixtures::mini();
         let product = enumerate_transitions(&index, &[], SHIPPING)
@@ -1029,7 +1029,7 @@ mod tests {
         assert!(!folded.decision.cited_provenance.is_empty());
     }
 
-    /// The whole-table replay, which is what a fixture small enough to afford it is held to and what the reduction the build runs is measured against.
+    /// The ordered rules predict every row under the whole-table replay, which the fixture is small enough to afford, and under the reduced replay the build runs.
     #[test]
     fn every_enumerated_row_is_what_the_ordered_rules_predict() {
         let (_index, product, folded) = built();
@@ -1130,7 +1130,7 @@ mod tests {
         }
     }
 
-    /// A rule nothing can reach is dead GSUB, and this replay is the only pass that knows which rule won a row — so it refuses one. A backtrack naming a left the fixture never enumerates matches nothing, which leaves every prediction and therefore the outcome partition exactly as it was: what fails is the tally alone.
+    /// A rule no row reaches is dead GSUB, so the replay fails on it. A backtrack naming a left the fixture never enumerates matches nothing, so every prediction is unchanged and only the reachability check fails.
     #[test]
     fn a_rule_no_replayed_row_first_matches_is_refused() {
         let (_index, product, folded) = built();
@@ -1159,7 +1159,7 @@ mod tests {
         assert!(message.contains("a dead rule"), "{message}");
     }
 
-    /// The tally's other half, the one an unreachable slot cannot stand for: a duplicate of a rule already in the list matches exactly what its twin matches and the twin precedes it, so first-match-wins reaches it never while predicting every row the way it always did.
+    /// A duplicate of the last rule matches the same rows as the original, which precedes it, so first-match-wins never reaches the duplicate and every prediction is unchanged.
     #[test]
     fn a_shadowed_duplicate_is_refused() {
         let (_index, product, folded) = built();
@@ -1176,7 +1176,7 @@ mod tests {
         );
     }
 
-    /// The negative control the reduction owes: every single-rule drop, every adjacent swap and every widened first-lookahead class that the whole-table replay notices is noticed by the reduced replay too. Perturbations neither catches are redundant rules, which is a fact about the fold rather than about the reduction.
+    /// A negative control for the reduction: every single-rule drop, adjacent swap and widened first-lookahead class that the whole-table replay catches, the reduced replay catches too. A perturbation that neither catches touches a redundant rule, which says something about the fold and nothing about the reduction.
     #[test]
     fn the_reduced_replay_catches_what_the_whole_table_replay_catches() {
         let (_index, product, folded) = built();
@@ -1234,7 +1234,7 @@ mod tests {
         );
     }
 
-    /// The proven rule-ordering discipline, `rebuild/test_table.py`'s own statement of it: within one (input, backtrack) group the boundary-outcome row with `uni200C` explicit in the class precedes every letter-lookahead row, and the slot-dropped fallback comes last.
+    /// The rule-ordering convention that `rebuild/test_table.py`'s `test_boundary_rows_lead_their_groups` also checks: within one (input, backtrack) group, the boundary-outcome rule with `uni200C` explicit in its class precedes every letter-lookahead rule, and the slot-dropped fallback comes last.
     #[test]
     fn a_boundary_rule_leads_its_group_and_the_slot_dropped_fallback_ends_it() {
         let (_index, _product, folded) = built();
@@ -1286,8 +1286,7 @@ mod tests {
         assert!(saw_boundary, "the fixture stopped emitting boundary rules");
     }
 
-    /// The prospect pass genuinely raises joints the fixpoint left unflagged, and never clears one the trace floor set.
-    /// The four-family fixture reaches no divergent window of its own, so the pass's monotonicity is all it can say; [`tests::a_prospect_the_follower_contradicts_flags_its_row_joint`] states the flag itself over a hand-built product.
+    /// The prospect pass never clears a joint flag the fixpoint set. The four-family fixture reaches no divergent window of its own, so this is all it can check. [`tests::a_prospect_the_follower_contradicts_flags_its_row_joint`] checks the flag itself over a hand-built product.
     #[test]
     fn the_prospect_pass_raises_joints_and_clears_none() {
         let (_index, product, folded) = built();
@@ -1302,7 +1301,7 @@ mod tests {
         assert!(before.iter().zip(&after).all(|(was, now)| *now || !*was));
     }
 
-    /// The treaty fold: rows sorted, one per distinct seam, and the extension the seam's own connector pixels plus what the receiver's adjustments move its entry by.
+    /// The treaty rows are sorted and distinct, at least one break row has extension 0, and `kern` is always 0.
     #[test]
     fn the_treaty_rows_are_sorted_and_distinct() {
         let (_index, _product, folded) = built();
@@ -1319,7 +1318,7 @@ mod tests {
         assert!(rows.iter().all(|row| row.kern == 0));
     }
 
-    /// Two folds of one product write the same bytes, and any rule or row that moves moves the contract digest.
+    /// Two folds of one product write the same bytes, and dropping a rule or a row changes the table digest.
     #[test]
     fn the_artifacts_are_diff_stable_and_the_digest_covers_them() {
         let (index, product, folded) = built();
@@ -1356,9 +1355,9 @@ mod tests {
         assert_eq!(digests.len(), 3);
     }
 
-    /// A product built by hand rather than enumerated: what the four-family fixture is too small to reach — a divergent prospect, a deep-class row, the ZWNJ backtrack guards on both arms, and the fold-side refusals.
+    /// Builds products by hand for what the four-family fixture is too small to reach: a divergent prospect, a deep-class row, inputs with and without ZWNJ backtrack guards, and the fold's errors.
     ///
-    /// **Every input glyph names a rune the fixture models**, because the one verdict the fold reads off the spec is `is_entry_bearing` on that rune and the fold refuses a name the spec models no rune for, exactly as `assemble_tables` raises `KeyError` on one. `qsIt` is the fixture's rune with no entry surface at all, so an input under it takes the ZWNJ backtrack-guard arm and one under `qsPea` does not. The other slots' labels stay synthetic: nothing resolves them. Every row settles into the bench's one cell unless it is handed another, so the reachable-cells cross-check is satisfied by construction and a test that wants it to fail has to break it on purpose.
+    /// **Every input glyph names a rune the fixture models**, because the fold reads `is_entry_bearing` off that rune and returns an error for a name the spec models no rune for. `qsIt` is not entry-bearing, so an input under it gets ZWNJ backtrack guards and one under `qsPea` does not. The other slots' labels are synthetic, because nothing resolves them. Every row settles into the bench's one cell unless it is given another, so the reachable-cells cross-check passes unless a test breaks it.
     struct Bench {
         index: SpecIndex,
         cell: CellId,
@@ -1389,7 +1388,7 @@ mod tests {
             }
         }
 
-        /// One settled record's seat in the bench's own table, which every product the bench builds carries.
+        /// Appends a settled record and its outcome to the bench's tables, which every product the bench builds carries, and returns its index.
         fn seat(&self, settled: Settled, outcome: &str) -> SettledSeat {
             let mut seats = self.seats.borrow_mut();
             let seat = SettledSeat::at(seats.len());
@@ -1400,7 +1399,7 @@ mod tests {
             seat
         }
 
-        /// One row: its seven labels, the prospect its trace claimed, and whether it committed a seam.
+        /// One row from its six key labels and its outcome label, the prospect its trace claimed, and whether it committed a seam.
         fn row(&self, labels: [&str; 7], prospect: i8, joins: bool) -> TransitionRow {
             let [input_glyph, left, right1, right2, right3, right4, _] = {
                 let mut pool = self.labels.borrow_mut();
@@ -1428,7 +1427,7 @@ mod tests {
             }
         }
 
-        /// The rows a fixpoint enumerates beside one whose lookahead reaches the edge of the buffer: the same window with each real boundary glyph in that slot, settling the way the edge settles. `#EDGE` is a label no GSUB lookup can see, so the fold states the boundary case over [`BOUNDARY_LOOKAHEAD_CLASS`] instead — which means a hand-built product carrying the `#EDGE` row alone leaves that rule unreachable, and since the fold refuses a rule no replayed row first-matches, it is refused as the product no fixpoint would have produced.
+        /// The rows a fixpoint enumerates beside a row whose lookahead reaches the end of the buffer: the same window with each boundary glyph in that slot, settling the same way. No GSUB lookup can see `#EDGE`, so the fold writes the boundary rule over [`BOUNDARY_LOOKAHEAD_CLASS`]. A hand-built product with only the `#EDGE` row would leave that rule unreached, and the fold would return an error for it.
         fn edge_kin(&self, labels: [&str; 7]) -> Vec<TransitionRow> {
             let slot = (2..6)
                 .find(|slot| labels[*slot] == "#EDGE")
@@ -1443,7 +1442,7 @@ mod tests {
                 .collect()
         }
 
-        /// The default block a fixpoint leaves behind every committed one: each boundary left — ZWNJ among them — carrying the same near lookahead and the same run edge, with that edge settling into the input's bare self. A hand-built product needs the whole block rather than one `#EDGE` left, because the rules the fold states over it are stated over the boundary glyphs and replicated under a `uni200C` backtrack, and the fold refuses any of those a replayed row cannot reach.
+        /// The default block a fixpoint produces beside the committed blocks: every boundary left, ZWNJ included, with the same near lookahead and the same end-of-run row, which settles to the bare input. A hand-built product needs the whole block, not only a `#EDGE` left, because the fold writes these rules over the boundary glyphs and replicates them under a `uni200C` backtrack, and it returns an error for any of them that no replayed row reaches.
         fn boundary_block(&self, input: &str, near: &str, outcome: &str) -> Vec<TransitionRow> {
             let mut rows = Vec::new();
             for left in ["#EDGE", "space", "periodcentered", "uni200C"] {
@@ -1454,7 +1453,7 @@ mod tests {
             rows
         }
 
-        /// The bench cell with adjustments of its own, which is what gives two rows under one left different entry extensions and so two treaty rows tying on the triple.
+        /// The bench cell with the given adjustments, so two rows under one left can have different entry extensions and produce two treaty rows that tie on (left, right, junction).
         fn adjusted(&self, adjustments: Vec<AdjustmentToken>) -> CellId {
             CellId {
                 adjustments,
@@ -1462,7 +1461,7 @@ mod tests {
             }
         }
 
-        /// One row whose left committed a seam, which is the only shape the treaty fold reads: [`Bench::row`] leaves `left_settled` absent, so a product of those folds into no treaty rows at all.
+        /// One row whose left committed a seam. The treaty fold skips rows without `left_settled`, and [`Bench::row`] leaves it absent, so a product of those rows folds into no treaty rows.
         fn joined(&self, labels: [&str; 7], cell: CellId, left_extension: i64) -> TransitionRow {
             let mut row = self.row(labels, 0, false);
             row.settled = self.seat(
@@ -1484,7 +1483,7 @@ mod tests {
             row
         }
 
-        /// The rows as a product settling into the bench's one cell, sorted into the key order the fixpoint would have left them in. Every bench row's trace noted nothing, so the provenance table is the empty list alone.
+        /// The rows as a product whose only cell is the bench cell, sorted into key order. No bench row has provenance, so the provenance table holds only the empty list.
         fn product(
             &self,
             rows: Vec<TransitionRow>,
@@ -1493,7 +1492,7 @@ mod tests {
             self.product_of(rows, deep_classes, vec![self.cell.clone()])
         }
 
-        /// The same, for rows that settle into cells of their own — the cell vocabulary is what the cross-check holds the fold to, so a caller handing a row an adjusted cell counts it here.
+        /// The same with an explicit cell list, for rows that settle into other cells. The reachable-cells cross-check compares the rows against this list, so it must include every cell a row uses.
         fn product_of(
             &self,
             mut rows: Vec<TransitionRow>,
@@ -1516,7 +1515,7 @@ mod tests {
         }
     }
 
-    /// The prospect-divergence flag itself: a window whose optimistic third join-count term claims a seam the follower's own settled choice then refuses is flagged joint, and the row it was scored against is not.
+    /// A row whose optimistic prospect claims a seam that the follower's settled choice does not make is flagged joint, and the follower's row is not.
     #[test]
     fn a_prospect_the_follower_contradicts_flags_its_row_joint() {
         let bench = Bench::new();
@@ -1545,7 +1544,7 @@ mod tests {
         assert_eq!(flagged, [("qsIt", true), ("qsMay", false)]);
     }
 
-    /// The same window with the prospect the follower confirms is left alone, which is what makes the flag a comparison rather than a constant.
+    /// The same window with a prospect the follower's settled choice confirms is not flagged.
     #[test]
     fn a_prospect_the_follower_confirms_leaves_its_row_alone() {
         let bench = Bench::new();
@@ -1568,7 +1567,7 @@ mod tests {
         assert!(folded.decision.transitions.iter().all(|row| !row.joint));
     }
 
-    /// A class-grain row expanded to its members: two deep classes at the third slot, each settling its own outcome, compile to one look3 rule per class holding that class's whole member set — which is what the union assertion then licenses conform to read as exact.
+    /// A product with two deep classes at the third slot, each settling to its own outcome, plus the boundary rows the fold needs. Each class should compile to one look3 rule holding its whole member set. Returns the bench, the product, and the two class tokens.
     fn deep_bench() -> (Bench, FixpointProduct, [String; 2]) {
         let bench = Bench::new();
         let first = deep_class_id(&["D".to_owned(), "E".to_owned()]);
@@ -1754,7 +1753,7 @@ mod tests {
         );
     }
 
-    /// The fold-output assertion and its negative control: a look3 class that held only half a deep class's members would make conform's representative-membership test a guess, so a rule spelling one member of a two-member class is refused.
+    /// The deep-class union check passes on the folded rules and fails on an added rule whose look3 class holds one member of a two-member deep class. Such a class would make conform's one-member membership test unreliable.
     #[test]
     fn a_rule_that_splits_a_deep_class_is_refused() {
         let (bench, product, tokens) = deep_bench();
@@ -1782,7 +1781,7 @@ mod tests {
         assert!(complaint.contains(&tokens[0]), "{complaint}");
     }
 
-    /// The cheap loud check that the two grains still agree, made to fail on purpose: a product counting a cell no row settles into is refused before any artifact is written.
+    /// The reachable-cells cross-check fails when the product lists a cell that no row settles into.
     #[test]
     fn a_product_whose_cells_disagree_with_its_rows_is_refused() {
         let bench = Bench::new();
@@ -1810,7 +1809,7 @@ mod tests {
         assert!(complaint.contains("'qsTea', 'full'"), "{complaint}");
     }
 
-    /// The first of the rule fold's refusals: two boundary lefts that settle differently would need two default rule groups, and a second group carrying no backtrack could only shadow the first.
+    /// The rule fold's first error: two boundary lefts that settle differently would need two default rule groups, and with no backtrack to tell them apart the second group could never match.
     #[test]
     fn boundary_lefts_that_settle_differently_are_refused() {
         let bench = Bench::new();
@@ -1836,7 +1835,7 @@ mod tests {
         );
     }
 
-    /// The second of them, over a boundary block no row drops its later slots in: the block has no `(r1, #NA, #NA, #NA)` row to sample, so the disagreeing set is empty and the sentence spells it Python's way.
+    /// The rule fold's second error, for a boundary block with no slot-dropped row: there is no `(r1, #NA, #NA, #NA)` row to sample, so the disagreeing set is empty and the message writes it as Python's `set()`.
     #[test]
     fn a_boundary_block_with_no_slot_dropped_row_is_refused() {
         let bench = Bench::new();
@@ -1864,7 +1863,7 @@ mod tests {
         assert_eq!(complaint, "qsIt: boundary lookaheads disagree: set()");
     }
 
-    /// The order this fold reads its rows in is contract, not preference: an input's rows are one contiguous run and a left's rows one run inside it, so a product whose rows are not key-sorted would fold a left into two blocks. It is refused by the sentence rather than by whichever `expect` the duplicate reached first.
+    /// The fold relies on key order: an input's rows form one contiguous run and a left's rows one run inside it, so a product whose rows are not key-sorted would fold a left into two blocks. The key-order check returns an error message instead of a panic at whichever `expect` the duplicate reaches first.
     #[test]
     fn a_product_whose_rows_are_not_key_sorted_is_refused() {
         let bench = Bench::new();
@@ -1896,7 +1895,7 @@ mod tests {
         );
     }
 
-    /// The one verdict the fold reads off the spec is `is_entry_bearing` on the input's rune, and a name the spec models no rune for has no such verdict: `assemble_tables` raises `KeyError` there, so this refuses rather than answering never-locked and emitting ZWNJ guards nothing asked for. A name the spec interned as something else — a stance, a height — is no more a rune than one it never mentioned.
+    /// The fold reads `is_entry_bearing` off the input's rune, and a name the spec models no rune for has no such rune. The fold returns an error instead of treating the input as never locked and emitting ZWNJ guards for it. A name the spec interned as something other than a rune, such as a stance, gets the same error as an unknown name.
     #[test]
     fn an_input_glyph_the_spec_models_no_rune_for_is_refused() {
         let bench = Bench::new();
@@ -1918,7 +1917,7 @@ mod tests {
         }
     }
 
-    /// The rows a chokepoint arm is stated over: one committed left carrying a two-slot split and a boundary row, and the boundary lefts — ZWNJ among them — sharing one default block whose run edge settles into the input's bare self. That last is what leaves the identity catch-all a rule with work to do: a default block whose slot-dropped row settles into the input is a fallback the dedup drops, so nothing shallower stands between a ZWNJ-backtrack row and the guard, and a guard the whole default block already answered for would be a rule no replayed row first-matches.
+    /// The rows the two chokepoint tests fold: one committed left with a split on the second slot and an end-of-run row, and a default block of boundary lefts, ZWNJ included, whose end-of-run row settles to the bare input. That last row gives the identity guard a row to match. A slot-dropped row that settles to the input is an identity fallback the fold omits, so no shallower rule stands between a ZWNJ-backtrack row and the identity guard. If another rule already matched that row, the guard would be a rule no replayed row first-matches.
     fn chokepoint(bench: &Bench, input: &str) -> FixpointProduct {
         let outcome = |suffix: &str| format!("{input}.{suffix}");
         let mut rows = vec![
@@ -1975,7 +1974,7 @@ mod tests {
         bench.product(rows, Vec::new())
     }
 
-    /// The ZWNJ backtrack-slot guards, stated over a rune the fixture genuinely does not entry-bear: an input the chokepoint never locks leads its rules with the default block replayed under an explicit `uni200C` backtrack, and closes that run with the identity catch-all no later backtrack-classed rule may match across.
+    /// An input the chokepoint never locks (`qsIt`, which is not entry-bearing) starts its rules with the default block replicated under an explicit `uni200C` backtrack, and ends that run with the identity guard, so no later rule with a backtrack class can match across a ZWNJ.
     #[test]
     fn an_input_the_chokepoint_never_locks_leads_its_rules_with_zwnj_guards() {
         let bench = Bench::new();
@@ -2015,7 +2014,7 @@ mod tests {
         );
     }
 
-    /// The other arm, and what makes the first a verdict rather than a constant: the same rows under a rune the chokepoint does lock emit no `uni200C` backtrack at all, because after ZWNJ that input enumerates under its locked twin's own label.
+    /// The same rows under a rune the chokepoint locks (`qsPea`) emit no `uni200C` backtrack, because after a ZWNJ that input enumerates under its locked twin's label. Its rule list is shorter than `qsIt`'s by the number of guards.
     #[test]
     fn an_input_the_chokepoint_locks_gets_no_zwnj_guards() {
         let bench = Bench::new();
@@ -2051,7 +2050,7 @@ mod tests {
         );
     }
 
-    /// Two treaty rows tying on (left, right, junction) come out ordered by the whole row. Nothing on the live alphabet ties — every shipped `treaties-<config>.tsv` has as many distinct triples as rows — but a sort on the triple alone would leave the pair in whatever order the dedupe set was iterated in, which is not an order either fold can reproduce.
+    /// Two treaty rows that tie on (left, right, junction) are ordered by the whole row. No live treaty table has such a tie (every `treaties-<config>.tsv` has as many distinct triples as rows), but a sort on the triple alone would leave a tied pair in hash-set order.
     #[test]
     fn treaty_rows_tying_on_the_triple_are_ordered_by_the_whole_row() {
         let bench = Bench::new();
@@ -2099,7 +2098,7 @@ mod tests {
         );
     }
 
-    /// `DecisionTable._cells` is a frozenset, so a cell a product happens to count twice is still one cell everywhere the vocabulary is spelled — the windows head and the digest both.
+    /// A cell the product lists twice counts once in the digest, as in Python's `DecisionTable._cells` frozenset. The windows head deduplicates cells the same way (`artifacts::sorted_cells`).
     #[test]
     fn a_cell_counted_twice_is_spelled_once() {
         let bench = Bench::new();

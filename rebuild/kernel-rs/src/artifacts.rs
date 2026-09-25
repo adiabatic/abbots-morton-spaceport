@@ -1,10 +1,10 @@
-//! The four things one configuration's fold leaves behind: `settlement-<config>.tsv`, `treaties-<config>.tsv`, the windows enumeration and the contract digest. Every separator, every `-` standing for an absent slot and every ordering agrees with `rebuild/pipeline/table.py`'s writers. `rebuild/test_windows.py` reads an artifact back through `table.read_windows` and `table.read_treaty_tsv`, writes it out again through `DecisionTable.write_tsv` and `TreatyTable.write_tsv`, and requires the same bytes and the same `table.table_digest`.
+//! Produces the four outputs of one configuration's fold: `settlement-<config>.tsv`, `treaties-<config>.tsv`, the windows enumeration, and the contract digest ([`table_digest`]). Separators, the `-` for an absent slot, and every ordering match the writers and readers in `rebuild/pipeline/table.py`. `rebuild/test_windows.py` reads a built artifact back through `table.read_windows` and `table.read_treaty_tsv`, writes it again with `DecisionTable.write_tsv` and `TreatyTable.write_tsv`, and requires the same bytes and the same `table.table_digest`.
 //!
-//! The windows payload is written **uncompressed**. `run_m1._pack_windows` gzips it into `windows-<config>.tsv.gz` with a zeroed stamp, which keeps the compressor on the side of the boundary that already owns it — this crate carries serde_json and nothing else, as the transitions stream's own note says — and keeps the artifact's identity claim on the decompressed bytes.
+//! The windows payload is written uncompressed. `run_m1._pack_windows` gzips it into `windows-<config>.tsv.gz` with a zeroed timestamp. This keeps the compressor out of the crate, whose only dependency is serde_json, and makes the decompressed bytes the artifact's identity.
 //!
-//! The digest is not a file. It is one scalar per configuration, reported on stdout for the caller to hold in acceptance order, rather than a second per-configuration artifact family that nothing else reads and that a stale copy could poison.
+//! The digest is not written to a file. `build-tables` prints it on stdout as one JSON line per configuration, and the caller keeps it. No other step reads it, and a file would be one more copy that could go stale.
 //!
-//! Table hashing feeds SHA-256 in section order with one reusable row buffer, keeping digest storage independent of the window corpus. Window writing and hashing share the row formatter and remain separate passes.
+//! [`table_digest`] feeds SHA-256 section by section and reuses one line buffer for the window, treaty, and cell rows, so its memory does not grow with the number of windows. Writing and hashing the windows share the row formatter but are separate passes.
 
 use std::fmt::Write as _;
 use std::io::Write as _;
@@ -22,7 +22,7 @@ use crate::types::{CellId, adjustment_text};
 /// The marker the windows head line carries, `table.WINDOWS_FORMAT`.
 pub const WINDOWS_FORMAT: &str = "ams-m1-windows/2";
 
-/// The column line the windows body is introduced by, `table.WINDOWS_COLUMNS`.
+/// The column line that precedes the window rows, `table.WINDOWS_COLUMNS`.
 const WINDOWS_COLUMNS: [&str; 7] = [
     "input",
     "left",
@@ -33,7 +33,7 @@ const WINDOWS_COLUMNS: [&str; 7] = [
     "outcome",
 ];
 
-/// One slot as the TSV and the digest spell it: the members joined by spaces, and `-` for a slot the rule leaves unconstrained. An empty class spells `-` too, which is what Python's truthiness test on the tuple does.
+/// One slot as the TSV and the digest write it: the members joined by spaces, or `-` for a slot the rule leaves unconstrained. An empty class is also written `-`, as Python's truthiness test on the tuple does.
 fn slot_text(slot: &Option<Vec<Rc<str>>>) -> String {
     match slot {
         Some(members) if !members.is_empty() => members
@@ -45,7 +45,7 @@ fn slot_text(slot: &Option<Vec<Rc<str>>>) -> String {
     }
 }
 
-/// One rule's provenance as the TSV and the digest spell it: the pointers joined by `; `, empties dropped and repeats collapsed in first-seen order.
+/// One rule's provenance as the TSV and the digest write it: the pointers joined by `; `, with empty pointers dropped and repeats removed in first-seen order.
 fn provenance_text(rule: &Rule) -> String {
     let mut seen: Vec<&str> = Vec::new();
     for pointer in &rule.provenance {
@@ -56,7 +56,7 @@ fn provenance_text(rule: &Rule) -> String {
     seen.join("; ")
 }
 
-/// The nine tab-separated fields of one settlement row, which the TSV and the digest share verbatim.
+/// The nine tab-separated fields of one settlement row, shared by the TSV and the digest.
 fn rule_line(rule: &Rule) -> String {
     [
         (*rule.input_glyph).to_owned(),
@@ -85,11 +85,13 @@ pub fn settlement_tsv(decision: &DecisionTable) -> String {
     out
 }
 
-/// The column line every settlement TSV carries after its config comment, which [`read_settlement_tsv`] holds a file to before reading a row.
+/// The column line that follows the config comment in every settlement TSV. [`read_settlement_tsv`] requires it.
 const SETTLEMENT_COLUMNS: &str =
     "input\tbacktrack\tlookahead1\tlookahead2\tlookahead3\tlookahead4\toutcome\tjoint\tprovenance";
 
-/// [`settlement_tsv`]'s inverse: the ordered rules a persisted `settlement-<config>.tsv` spells, in file order, which is the emission order the shipped GSUB carries. The string replay ([`crate::replay`]) reads a build's rules back through this rather than re-costing the fixpoint they fold from, so the reader is held to the writer by a round trip over the fixture's own tables and refuses anything the writer would not have written — a missing config comment, a column line that is not the one above, a row that is not nine fields. `-` reads back as the unconstrained slot the writer spells it for, so a rule whose class was empty reads back unconstrained as well: the two are one slot to a first-match replay, because a rule matching no label at a slot never wins a window and the fold refuses a rule no row first-matches.
+/// The inverse of [`settlement_tsv`]: the rules of a persisted `settlement-<config>.tsv` in file order, which is the emission order of the shipped GSUB. The string replay ([`crate::replay`], through `fanout::run_config_replay`) and the `replay-emitted` walk read a build's rules through this instead of recomputing the fixpoint. A round-trip test over the fixture's tables checks it against the writer. It fails on input the writer would not produce: a missing config comment, a different column line, a row that is not nine fields, or a joint flag other than `joint` or `-`.
+///
+/// A `-` reads back as an unconstrained slot, so a rule whose class was empty would read back unconstrained. A folded table has no such rule: it would match no window, and the fold fails on a rule that no row first-matches.
 pub fn read_settlement_tsv(text: &str) -> Result<Vec<Rule>, String> {
     let mut lines = text.lines();
     match lines.next() {
@@ -149,7 +151,7 @@ pub fn read_settlement_tsv(text: &str) -> Result<Vec<Rule>, String> {
     Ok(rules)
 }
 
-/// One slot's members as [`slot_text`] spelled them, `None` for the `-` that stands for an unconstrained slot.
+/// One slot's members as [`slot_text`] wrote them, or `None` for the `-` of an unconstrained slot.
 fn slot_members(text: &str) -> Option<Vec<Rc<str>>> {
     if text == "-" {
         return None;
@@ -171,22 +173,22 @@ pub fn treaty_tsv(treaty: &TreatyTable) -> String {
     out
 }
 
-/// The cells of one table in `table._cell_key` order, which the windows head and the digest both spell them in. Deduplicated, because `DecisionTable._cells` is a `frozenset` and neither writer may spell one cell twice.
+/// The cells of one table, sorted by `table._cell_key` and deduplicated, as the windows head and the digest both list them. The deduplication matches `DecisionTable._cells`, which is a `frozenset`.
 fn sorted_cells<'a>(index: &SpecIndex, cells: &'a [CellId]) -> Vec<&'a CellId> {
     let mut seated: Vec<(crate::stream::CellKey, &CellId)> = cells
         .iter()
         .map(|cell| (cell_key(index, cell), cell))
         .collect();
     seated.sort_by(|left, right| left.0.cmp(&right.0));
-    // A whole-list dedup rather than the adjacent-only one, for the reason `stream::write_transitions` gives beside its own: equal cells always sort together, but the sort key is the label view, so only injectivity of `_cell_key` would make adjacency sufficient.
+    // Deduplicate across the whole list, as `stream::write_transitions` does. The sort key is the label view, and an adjacent-only dedup would be correct only if `_cell_key` were injective, which this code does not assume.
     let mut counted: HashSet<&CellId> = HashSet::default();
     seated.retain(|(_, cell)| counted.insert(*cell));
     seated.into_iter().map(|(_, cell)| cell).collect()
 }
 
-/// `write_windows`' payload, uncompressed: the head line carrying the fingerprint of the sources the table was built from, then the column line, then one row per enumerated window.
+/// Writes the uncompressed windows payload to `path`: a head line with the format marker and a JSON head, the column line, then one row per enumerated window.
 ///
-/// The head's keys ride in the order Python's dict literal inserts them — `config`, `inputs`, `identity_guard_rules`, `cited_provenance`, `cells`, `deep_classes`, `rules` — with the set-valued ones sorted here rather than by whoever produced them, and `certificates` after them: one token list per rule, in rule order, the realizing strings [`crate::certificate`] closed, which `run_m1`'s witness stage settles and which stay outside both digests because they are evidence about the rules rather than part of what the rules say.
+/// The head's keys, in order, are `config`, `inputs` (the fingerprint of the sources the table was built from), `identity_guard_rules`, `cited_provenance`, `cells`, `deep_classes`, `rules`, and `certificates`. The set-valued ones are sorted here. `table.read_windows` reads the keys by name. `certificates` holds one token list per rule, in rule order: the strings from [`crate::certificate`] that should make each rule fire, which `run_m1`'s witness stage settles. They are left out of both `table.table_digest` and `table.windows_digest` because they are evidence about the rules, not part of the rules.
 pub fn write_windows(
     index: &SpecIndex,
     decision: &DecisionTable,
@@ -257,7 +259,7 @@ fn head_into(out: &mut String, index: &SpecIndex, decision: &DecisionTable, inpu
     );
 }
 
-/// One cell as the windows head spells it, the row `table.read_windows` parses back: the rune, the stance, the two heights with an absent side spelled `null`, and the adjustment tokens.
+/// One cell as the windows head writes it and `table.read_windows` reads it: the rune, the stance, the two heights with `null` for an absent side, and the adjustment tokens.
 fn cell_json(index: &SpecIndex, cell: &CellId) -> String {
     let adjustments: Vec<String> = cell
         .adjustments
@@ -280,7 +282,7 @@ fn cell_json(index: &SpecIndex, cell: &CellId) -> String {
     )
 }
 
-/// One rule as the windows head spells it, `table._rule_row`: the input, the five slots as member arrays or `null`, the outcome, the provenance verbatim, and the joint flag.
+/// One rule as the windows head writes it, matching `table._rule_row`: the input, the five slots as member arrays or `null`, the outcome, the provenance unchanged, and the joint flag.
 fn rule_json(rule: &Rule) -> String {
     let mut out = String::new();
     out.push('[');
@@ -321,9 +323,9 @@ fn rule_json(rule: &Rule) -> String {
     out
 }
 
-/// `table.table_digest`: the one scalar saying whether two builds of one configuration agree at full contract grain — the ordered rules with their provenance and joint flags, every enumerated window row as stored, the treaty rows, the reachable cells, the cited provenance and the identity-guard count.
+/// `table.table_digest`: one hash that shows whether two builds of one configuration agree on the ordered rules with their provenance and joint flags, every enumerated window row, the treaty rows, the reachable cells, the cited provenance, and the identity-guard count.
 ///
-/// The cells section is the one place the digest reads Python's own reprs rather than a tab-joined text: an absent height is the string `None` and the adjustments are a tuple repr, because the Python original interpolates the dataclass fields straight into an f-string.
+/// Only the cells section uses Python reprs instead of tab-joined text: an absent height is the string `None` and the adjustments are a tuple repr, because the Python function interpolates the dataclass fields into an f-string.
 pub fn table_digest(index: &SpecIndex, decision: &DecisionTable, treaty: &TreatyTable) -> String {
     let mut digest = sha256::Sha256::new();
     let mut line = String::new();
@@ -386,7 +388,7 @@ pub fn table_digest(index: &SpecIndex, decision: &DecisionTable, treaty: &Treaty
     digest.finish()
 }
 
-/// One window row's seven tab-separated labels and trailing newline, which the windows body and the digest share.
+/// One window row as seven tab-separated fields (six labels and the outcome) plus a newline, shared by the windows body and the digest.
 fn window_line_into(out: &mut String, row: &TransitionRow, decision: &DecisionTable) {
     for label in row.key(&decision.labels) {
         out.push_str(label);
@@ -401,7 +403,7 @@ mod tests {
     use super::*;
     use crate::index::fixtures;
 
-    /// The reader is the writer's inverse over a real fold: every rule of the fixture's table comes back as it went out, in order, and the bytes it writes again are the bytes it read.
+    /// The reader inverts the writer on a real fold: every rule of the fixture's table reads back unchanged and in order, and writing the rules again gives the same bytes.
     #[test]
     fn a_settlement_table_reads_back_into_the_rules_that_wrote_it() {
         use crate::fixpoint::{EnumerationModes, enumerate_transitions};
@@ -421,7 +423,7 @@ mod tests {
         assert_eq!(settlement_tsv(&again), text);
     }
 
-    /// What the reader refuses: a file with no config comment, one whose column line is not the writer's, and a row short of its nine fields.
+    /// The reader fails on a file with no config comment, on a column line that differs from the writer's, and on a row with fewer than nine fields.
     #[test]
     fn a_settlement_table_the_writer_could_not_have_written_is_refused() {
         let good = "# settlement table, config default\n".to_owned()
@@ -444,7 +446,7 @@ mod tests {
         assert!(read_settlement_tsv(&short).unwrap_err().contains("row 1"));
     }
 
-    /// The cell vocabulary the windows head and the digest share is `DecisionTable._cells`, a frozenset: sorted into `_cell_key` order and spelling a repeated cell once.
+    /// The cell list that the windows head and the digest share matches `DecisionTable._cells`, a frozenset: it is sorted into `_cell_key` order and lists a repeated cell once.
     #[test]
     fn the_cell_vocabulary_is_sorted_and_spells_a_cell_once() {
         let index = fixtures::mini();

@@ -1,10 +1,10 @@
-//! The settlement vocabulary: the values the engine hands between its stages, packed so that every string a dump or a Python caller spells is one of three things here — an interned [`Sym`] when the spec authored it, a closed enum when the kernel itself closed the set, or an owned `String` when nothing but formatting ever reads it. `rebuild/pipeline/settle.py` keeps the same vocabulary as plain classes, for the tokenizing and ligature-forming that happen before a window reaches this crate and for the answers that come back out of it.
+//! The values settlement passes between its stages. Every string a dump or a Python caller writes is represented here in one of three ways: an interned [`Sym`] when the spec authored it, a closed enum when the kernel defines the set, or an owned `String` when only formatting reads it. `rebuild/pipeline/settle.py` keeps the same types as plain Python classes, for the tokenizing and ligature formation that happen before a window reaches this crate and for decoding the answers that come back.
 //!
-//! That split is the module's whole rule. A rune, a stance, a height, a bitmap name and a class name are authored, so they ride as symbols and compare on a `u32`; the six right-token kinds, the four word positions, the elimination and decided stages, and the adjustments grammar `model.py` documents are the kernel's own closed vocabularies, so they ride as enums and cannot be misspelled. A test like `left.kind != cond.is_token`, which a dump spells as two plain strings, compares one of each — a kernel kind against an authored value — and here it compares the condition's symbol against [`Vocab`], the one place the closed vocabulary is looked up in the spec's own string pool.
+//! Runes, stances, heights, bitmap names, and class names are authored, so they are symbols and compare as a `u32`. The six right-token kinds, the four word positions, the elimination and decided stages, and the adjustments grammar that `model.py` documents are the kernel's own closed sets, so they are enums and cannot be misspelled. A comparison such as `left.kind != cond.is_token`, which a dump writes as two plain strings, compares a kernel enum against an authored value. The kernel makes it by comparing the condition's symbol with the kind's symbol in [`Vocab`], the one place the closed vocabulary is interned into the spec's string pool.
 //!
-//! Entry and exit *states* are the subtle case and are deliberately not `Option<Sym>`. Wherever a height is compared against the literal `"none"` — pairings, `cells:` rows, `joined_at`, `self_entry`, each of them spelled that way in the dump — the value being compared is a state, a single symbol that is either a height or the none state, and [`Vocab::height_state`] is the one crossing between it and the `Option<Sym>` form that means "this side is live at this height, or is not live at all". Keeping the two shapes distinct is what stops a `None` from silently comparing unequal to an authored `none`.
+//! Entry and exit states are not `Option<Sym>`. Pairings, `cells:` rows, and `joined_at` compare a height against the literal `"none"`, so the value they compare is a state: one symbol that is either a height or `none`. [`Vocab::height_state`] converts to it from the `Option<Sym>` form, which means "live at this height, or not live". `self_entry` and `self_exit` use the `live`/`none` vocabulary instead, through [`Vocab::liveness_state`]. Keeping the forms separate prevents a `None` from comparing unequal to an authored `none`.
 //!
-//! Nothing in this module reads the spec beyond resolving symbols for the two places settlement formats a name into prose — [`cell_label`], which the E-STRANDED message and the TSV artifacts read, and [`adjustment_text`], which spells the generated tokens. Both take the [`SpecIndex`] rather than a bare interner, because a label also needs the registry's height-to-y map, and because the index is what every caller already has in hand.
+//! The functions here that take a [`SpecIndex`] only resolve symbols and ordinals. They take the index, not a bare interner, because [`cell_label`] also needs the registry's height-to-y map, and every caller already has the index.
 
 use std::num::NonZeroU32;
 
@@ -13,28 +13,28 @@ use crate::hash::HashMap;
 use crate::index::{Ordinal, SpecIndex};
 use crate::model::{Provenance, Sym};
 
-/// The boundary kinds that split a run, and therefore the ones word position is derived from. `settle.SPLITTING_KINDS`; [`TokenKind::splits_runs`] is the form the code actually asks, and a test pins the two in agreement.
+/// The boundary kinds that split a run; word position is derived from them. `settle.SPLITTING_KINDS`. [`TokenKind::splits_runs`] is the form the code uses, and `the_kind_predicates_agree_with_the_constant_lists` checks that the two agree.
 pub const SPLITTING_KINDS: [&str; 3] = ["edge", "space", "zwnj"];
 
-/// Every kind that is not a letter. `settle.BOUNDARY_KINDS` — the namer dot joins the splitting three here, because it is a boundary that does not split.
+/// Every kind except `letter` and `unknown`, `settle.BOUNDARY_KINDS`: the splitting kinds plus the namer dot, which is a boundary that does not split a run.
 pub const BOUNDARY_KINDS: [&str; 4] = ["edge", "space", "zwnj", "namer-dot"];
 
 /// The stance name a boundary cell carries, and the marker [`is_boundary_settled`] reads. `settle.BOUNDARY_STANCE`.
 pub const BOUNDARY_STANCE: &str = "boundary";
 
-/// The state a side that did not join is spelled with. `model.NONE_STATE`.
+/// The state of a side that did not join. `model.NONE_STATE`.
 pub const NONE_STATE: &str = "none";
 
-/// The state a side that did join is spelled with in `self_entry:` and `self_exit:`, whose vocabulary is `live` or `none` rather than a height. Python spells it inline; it is named here so the interned vocabulary has one source.
+/// The state of a side that did join, in `self_entry:` and `self_exit:`, whose vocabulary is `live` or `none` instead of a height. Python writes the string inline; it is a constant here so the interned vocabulary has one source.
 pub const LIVE_STATE: &str = "live";
 
-/// The suffix a `cells:` row spells a withdrawn exit state with. `model.WITHDRAWN_SUFFIX`; [`SpecIndex::withdrawn_state`] is where a height and this suffix become one symbol.
+/// The suffix a `cells:` row adds to a height to name its withdrawn exit state. `model.WITHDRAWN_SUFFIX`. [`SpecIndex::withdrawn_state`] combines a height and this suffix into one symbol.
 pub const WITHDRAWN_SUFFIX: &str = "-withdrawn";
 
-/// The exit index a non-joining candidate carries, `settle._NO_EXIT_INDEX`. It is a sentinel rather than an `Option` because it exists to sort after every real exit row in the structural floor and in the ranked tiebreak, and real exit counts are single digits, so an ordinary comparison against a large number is both the Python behavior and the cheap one.
+/// The exit index of a non-joining candidate, `settle._NO_EXIT_INDEX`. It is a large number instead of an `Option` so that it sorts after every real exit index in the structural floor and in the ranked list, as in Python. Real exit counts are single digits, so 9999 is always larger.
 pub const NO_EXIT_INDEX: usize = 9999;
 
-/// What a window slot holds, apart from which letter. The six kinds are closed by `settle.RightToken`'s own comment, and `unknown` is the one that means "outside the evaluated window" rather than a thing in the text — the value the three-valued right-condition matching turns into its `None` verdict.
+/// What a window slot holds, apart from which letter. The six kinds are the ones the comment on `settle.RightToken.kind` lists. `Unknown` means the slot is outside the evaluated window, not something in the text; three-valued right-condition matching turns it into a `None` result.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum TokenKind {
     Edge,
@@ -46,7 +46,7 @@ pub enum TokenKind {
 }
 
 impl TokenKind {
-    /// The spelling the spec authors this kind with, and the one every artifact prints.
+    /// The name the spec and every artifact use for this kind.
     pub fn as_str(self) -> &'static str {
         match self {
             Self::Edge => "edge",
@@ -58,7 +58,7 @@ impl TokenKind {
         }
     }
 
-    /// The kind a spelling names, or `None` for text that is not one of the six. The reader half of [`TokenKind::as_str`], for the case replay that meets these as tab-separated fields and the window memo that meets them as interned names.
+    /// The kind a name denotes, or `None` for text that is not one of the six. The inverse of [`TokenKind::as_str`], used by the `settle-cases` reader in `cases.rs`, which reads kinds from tab-separated fields, and by [`crate::replay::alphabet`], which reads the registry's boundary token names.
     pub fn from_text(text: &str) -> Option<Self> {
         match text {
             "edge" => Some(Self::Edge),
@@ -71,22 +71,22 @@ impl TokenKind {
         }
     }
 
-    /// Whether this kind ends a run, which is what word position is derived from. Membership in [`SPLITTING_KINDS`]: the namer dot is a boundary that deliberately does not split, so it leaves both of its neighbors medial.
+    /// Whether this kind ends a run; word position is derived from these. Matches [`SPLITTING_KINDS`]. The namer dot is a boundary that does not split, so both of its neighbors stay medial.
     pub fn splits_runs(self) -> bool {
         matches!(self, Self::Edge | Self::Space | Self::Zwnj)
     }
 
-    /// Whether this kind is one of the four boundaries — membership in [`BOUNDARY_KINDS`], which is what an `is: boundary` condition expands to.
+    /// Whether this kind is one of the four boundaries, matching [`BOUNDARY_KINDS`]. An `is: boundary` condition expands to these.
     pub fn is_boundary(self) -> bool {
         matches!(self, Self::Edge | Self::Space | Self::Zwnj | Self::NamerDot)
     }
 
-    /// The kind as the three bits a [`PackedKinds`] word holds it in: declaration order, `Edge` at zero through `Unknown` at five.
+    /// The three-bit code a [`PackedKinds`] word stores: declaration order, `Edge` at zero through `Unknown` at five.
     fn code(self) -> u16 {
         self as u16
     }
 
-    /// The kind three bits name, the reader half of [`TokenKind::code`]. A code past five is a word no packing wrote, and a kernel bug rather than a value.
+    /// The kind a three-bit code denotes, the inverse of [`TokenKind::code`]. No packing writes a code above five, so one is a kernel bug and panics.
     fn of_code(code: u16) -> Self {
         match code {
             0 => Self::Edge,
@@ -100,7 +100,7 @@ impl TokenKind {
     }
 }
 
-/// Up to five [`TokenKind`]s in one `u16`, three bits a kind (issue #266). A memo key carries a kind per slot beside the slot's rune, and a six-valued kind holds three bits of content, so a [`crate::engine::TraceKey`]'s five kinds ride in the two bytes the key's alignment would otherwise pad rather than in a byte apiece. Slot zero is the low three bits, and the derived ordering and hash are the word's, which is all a key asks of them.
+/// Up to five [`TokenKind`]s in one `u16`, three bits each. Memo keys store a kind for each slot beside the slot's rune. A kind has six values and fits in three bits, so the five kinds of a [`crate::engine::TraceKey`] take two bytes instead of five. Slot zero is the low three bits. The derived ordering and hash are the word's, which is all a key needs.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct PackedKinds(u16);
 
@@ -133,11 +133,11 @@ impl PackedKinds {
     }
 }
 
-/// One raw window slot: a boundary, an unknown, or a letter naming its rune. `settle.RightToken`, whose equality this reproduces exactly — the kind is part of the value, so UNKNOWN and EDGE are different tokens rather than two spellings of "nothing useful", and two letter tokens are equal exactly when their runes are.
+/// One raw window slot: a boundary, an unknown, or a letter naming its rune. `settle.RightToken`, with the same equality: the kind is part of the value, so `UNKNOWN` and `EDGE` are different tokens, and two letter tokens are equal when their runes are.
 ///
-/// A letter carries its rune's [`Ordinal`] beside the name (issue #266): the memo keys are spelled in ordinals, and a token minted once through [`SpecIndex::letter`] hands its ordinal to every key it reaches, so no key construction looks a rune up. The ordinal is a function of the name under the one index that minted both, which is what keeps the derived equality the equality of runes.
+/// A letter also carries its rune's [`Ordinal`], because the memo keys store ordinals. A token created by [`SpecIndex::letter`] passes its ordinal to every key built from it, so building a key needs no rune lookup. Under the index that created it, the ordinal is a function of the name, so the derived equality is still equality of runes.
 ///
-/// The derived ordering exists so a token can key a `BTreeMap` and compares on interning order, which is the order the dump happened to mention names in and nothing else. Anywhere an *output* order depends on a token — the guard sweep's rows, for one — sort by the resolved name instead.
+/// The derived ordering exists so a token can key a `BTreeMap`. It orders letters by interning order, which is the order the dump happened to mention names in. Where an output order depends on a token, as in the guard sweep's rows, sort by the resolved name instead.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum RightToken {
     Edge,
@@ -172,7 +172,7 @@ impl RightToken {
         }
     }
 
-    /// The rune this slot names, or `None` when it is not a letter — `RightToken.rune`, the field reads that have not yet established there is one.
+    /// The rune this slot names, or `None` when it is not a letter. `RightToken.rune`, for reads that have not yet checked the kind.
     pub fn rune(self) -> Option<Sym> {
         match self {
             Self::Letter(rune, _) => Some(rune),
@@ -180,7 +180,7 @@ impl RightToken {
         }
     }
 
-    /// The rune this slot names, for the reads that have already established there is one. Panics on any other kind, exactly as `RightToken.letter` raises `ValueError`: reaching it means a caller skipped the kind check, which is a kernel bug and not a settlement outcome.
+    /// The rune this slot names, for reads that have already checked it is a letter. Panics on any other kind, as `RightToken.letter` raises `ValueError`: reaching it means a caller skipped the kind check, which is a kernel bug and not a settlement outcome.
     pub fn letter(self) -> Sym {
         match self {
             Self::Letter(rune, _) => rune,
@@ -188,7 +188,7 @@ impl RightToken {
         }
     }
 
-    /// The rune-field ordinal of the rune this slot names, or `None` when it is not a letter — [`RightToken::rune`] as the memo keys spell it.
+    /// The rune-field ordinal of the rune this slot names, or `None` when it is not a letter: [`RightToken::rune`] in the form the memo keys store.
     pub fn ordinal(self) -> Option<Ordinal> {
         match self {
             Self::Letter(_, ordinal) => Some(ordinal),
@@ -196,7 +196,7 @@ impl RightToken {
         }
     }
 
-    /// The rune-field ordinal, for the reads that have already established there is a letter; panics on any other kind as [`RightToken::letter`] does.
+    /// The rune-field ordinal, for reads that have already checked it is a letter. Panics on any other kind, as [`RightToken::letter`] does.
     pub fn letter_ordinal(self) -> Ordinal {
         match self {
             Self::Letter(_, ordinal) => ordinal,
@@ -204,7 +204,7 @@ impl RightToken {
         }
     }
 
-    /// The boundary or unknown token for a kind, or `None` for [`TokenKind::Letter`], which needs a rune. The reader half of [`RightToken::kind`], for the case replay and the window memo that rebuild boundary tokens from a kind's name.
+    /// The boundary or unknown token for a kind, or `None` for [`TokenKind::Letter`], which needs a rune. The inverse of [`RightToken::kind`], used by the `settle-cases` reader and [`crate::replay::alphabet`] to rebuild boundary tokens from a kind's name.
     pub fn of_kind(kind: TokenKind) -> Option<Self> {
         match kind {
             TokenKind::Edge => Some(Self::Edge),
@@ -217,7 +217,7 @@ impl RightToken {
     }
 }
 
-/// Where in a word a position sits, derived from run-splitting boundaries alone. The vocabulary a `word:` condition names is closed to these four.
+/// Where in a word a position sits, derived from run-splitting boundaries alone. A `word:` condition can name only these four.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum WordPosition {
     Initial,
@@ -227,7 +227,7 @@ pub enum WordPosition {
 }
 
 impl WordPosition {
-    /// The spelling a `word:` condition names this position with.
+    /// The name a `word:` condition uses for this position.
     pub fn as_str(self) -> &'static str {
         match self {
             Self::Initial => "initial",
@@ -238,7 +238,7 @@ impl WordPosition {
     }
 }
 
-/// Word position from the two kinds around a position, `settle.word_position`. `None` means the right slot is outside the evaluated window and the position is therefore not yet decidable — the unknown that `when_matches` propagates rather than guesses at.
+/// Word position from the kinds on either side of a position, `settle.word_position`. `None` means the right slot is outside the evaluated window, so the position cannot be decided yet; `when_matches` propagates that unknown result instead of guessing.
 pub fn word_position(left: TokenKind, right1: TokenKind) -> Option<WordPosition> {
     let initial = left.splits_runs();
     if right1 == TokenKind::Unknown {
@@ -261,7 +261,7 @@ pub enum Side {
 }
 
 impl Side {
-    /// The two-letter prefix the adjustments grammar spells this side with — `en` or `ex`.
+    /// The two-letter prefix the adjustments grammar uses for this side: `en` or `ex`.
     pub fn prefix(self) -> &'static str {
         match self {
             Self::Entry => "en",
@@ -269,7 +269,7 @@ impl Side {
         }
     }
 
-    /// The spelling a `require:` entry or a `cells:` key names this side with — `entry` or `exit`.
+    /// The name a `require:` entry or a `cells:` key uses for this side: `entry` or `exit`.
     pub fn as_str(self) -> &'static str {
         match self {
             Self::Entry => "entry",
@@ -278,7 +278,7 @@ impl Side {
     }
 }
 
-/// One generated `CellId.adjustments` token in the closed grammar `model.py` documents, held apart rather than as text so that a token cannot be spelled wrong and so the later packing has something already packed. `model.parse_adjustment` is the Python reader of the same grammar, and [`adjustment_text`] writes the spelling both agree on.
+/// One generated `CellId.adjustments` token in the closed grammar `model.py` documents. It is an enum, not text, so a token cannot be misspelled. `model.parse_adjustment` reads the same grammar in Python, and [`adjustment_text`] writes the text both use.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum AdjustmentToken {
     /// `locked`: the ZWNJ chokepoint twin, entry side severed.
@@ -293,7 +293,7 @@ pub enum AdjustmentToken {
     Bind(Side, Sym),
 }
 
-/// The token's spelling — what geometry reads and what the corpus carries as a JSON string.
+/// The token's text, which geometry reads and the corpus stores as a JSON string.
 pub fn adjustment_text(index: &SpecIndex, token: AdjustmentToken) -> String {
     match token {
         AdjustmentToken::Locked => "locked".to_owned(),
@@ -306,7 +306,7 @@ pub fn adjustment_text(index: &SpecIndex, token: AdjustmentToken) -> String {
     }
 }
 
-/// The reader half of [`adjustment_text`]: the token one spelling names, or `None` for text that is not one — a side prefix the grammar does not spell, a count that is not a number, or a bitmap name this spec never interned. The one caller is the memo file's reader, which meets these as the text the writer spelled.
+/// The inverse of [`adjustment_text`]: the token a text denotes, or `None` when it is not one (a side prefix other than `en` or `ex`, a count that is not a number, or a bitmap name this spec never interned). The only caller is the memo file reader in `memo.rs`.
 pub fn adjustment_from_text(index: &SpecIndex, text: &str) -> Option<AdjustmentToken> {
     if text == "locked" {
         return Some(AdjustmentToken::Locked);
@@ -327,7 +327,7 @@ pub fn adjustment_from_text(index: &SpecIndex, text: &str) -> Option<AdjustmentT
     }
 }
 
-/// One cell's identity, `model.CellId`. `entry` and `exit` are the live heights of the two sides, `None` meaning the side did not join; the adjustments are ordered and generated, never authored.
+/// One cell's identity, `model.CellId`. `entry` and `exit` are the live heights of the two sides, and `None` means the side did not join. The adjustments are ordered and generated, never authored.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct CellId {
     pub rune: Sym,
@@ -345,9 +345,9 @@ pub struct Settled {
     pub extension: i64,
 }
 
-/// The seat one distinct [`Settled`] record holds in the table a product carries, and what a recorded row holds in its place. A configuration reaches millions of rows over a few thousand distinct settled records, so a row that held the record by value was holding a copy hundreds of thousands of its neighbors held too — each with the cell's own heap allocation for the adjustments — where four bytes name the same record, and two rows' settled halves compare as one integer compare. A seat means nothing without the table it indexes, which is why it rides only inside a product and never in the stream: the head's cell seat is what the stream spells, resolved through the table on the way out.
+/// The index of one distinct [`Settled`] record in a product's table, stored in a row in place of the record. A configuration reaches millions of rows but only a few thousand distinct settled records. Storing the record by value would copy it, with its heap-allocated adjustments, into hundreds of thousands of rows; a seat names it in four bytes, and comparing two rows' settled records is one integer comparison. A seat means nothing without its table, so it is used only inside a product and never written to the stream. The stream writer resolves the seat through the table and writes the cell's index in the stream head.
 ///
-/// The integer is the index's successor in a `NonZeroU32`, for the reason [`Sym`] is: a row's left seat is absent for a boundary left, and `Option<SettledSeat>` costs a whole word beside a plain `u32` where the zero niche folds `None` into the same four bytes (issue #163). The offset is this type's business alone — [`SettledSeat::at`] and [`SettledSeat::index`] are the two crossings, and nothing else reads the integer.
+/// The integer is the index plus one, in a `NonZeroU32`, for the same reason as [`Sym`]: a row's left seat is absent for a boundary left, and the zero niche keeps `Option<SettledSeat>` at four bytes where `Option<u32>` takes eight. [`SettledSeat::at`] and [`SettledSeat::index`] are the only conversions, and nothing else reads the integer.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct SettledSeat(NonZeroU32);
 
@@ -367,7 +367,7 @@ impl SettledSeat {
     }
 }
 
-/// The table one fixpoint seats its settled records through: every distinct record once, in the order the enumeration first reached it, and the seat each one holds. The map answers a record's seat and the table answers a seat's record, and the two copies of each record it holds between them are a few thousand entries against the millions of rows the seats stand in for.
+/// The table that gives each of one fixpoint's settled records a seat: each distinct record once, in the order the enumeration first reached it, with its seat. The map returns a record's seat and the table returns a seat's record. Together they hold two copies of a few thousand records, against the millions of rows the seats stand in for.
 #[derive(Clone, Debug, Default)]
 pub struct SettledPool {
     seats: HashMap<Settled, SettledSeat>,
@@ -375,7 +375,7 @@ pub struct SettledPool {
 }
 
 impl SettledPool {
-    /// This record's seat, minted on the first reach and answered from the map on every later one.
+    /// This record's seat, created the first time the record is seen and looked up in the map afterward.
     pub fn seat(&mut self, settled: &Settled) -> SettledSeat {
         if let Some(&seat) = self.seats.get(settled) {
             return seat;
@@ -391,7 +391,7 @@ impl SettledPool {
         &self.table[seat.index()]
     }
 
-    /// How many distinct records have been seated.
+    /// How many distinct records have seats.
     pub fn len(&self) -> usize {
         self.table.len()
     }
@@ -405,13 +405,13 @@ impl SettledPool {
         self.table.capacity()
     }
 
-    /// The table alone, which is the half a product carries: seats resolve by index from here on and nothing past the fixpoint mints one.
+    /// The table alone, which is the part a product keeps. From here on seats resolve by index, and nothing after the fixpoint creates one.
     pub fn into_table(self) -> Vec<Settled> {
         self.table
     }
 }
 
-/// The seat one distinct provenance list holds in the table a product carries, and what a recorded row holds as its provenance. A row's notes are the pointers of the records that eliminated, preferred and adjusted at its window, in first-seen order, and a configuration's millions of rows spell a few thousand distinct such lists between them — so a row that owned its list was holding a vector and one heap string per pointer that hundreds of thousands of its neighbors held too, where four bytes name the same list (issue #163). The rule fold reads a sample row's list back through the table, so what it joins is what it always joined.
+/// The index of one distinct provenance list in a product's table, stored in a row as its provenance. A row's notes name the records that eliminated, preferred, and adjusted at its window, in first-seen order. A configuration's millions of rows share a few thousand distinct lists, so a row that owned its list would duplicate a vector and one heap string per pointer across hundreds of thousands of rows; a seat names the list in four bytes. The rule fold reads a sample row's list through the table.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct NotesSeat(u32);
 
@@ -430,7 +430,7 @@ impl NotesSeat {
     }
 }
 
-/// The table one fixpoint seats its rows' provenance through, the same shape as [`SettledPool`] for the same reason: every distinct list once, in the order the enumeration first traced it, and the seat each one holds.
+/// The table that gives each of one fixpoint's provenance lists a seat, built like [`SettledPool`] for the same reason: each distinct list once, in the order the enumeration first traced it, with its seat.
 #[derive(Clone, Debug, Default)]
 pub struct NotesPool {
     seats: HashMap<Vec<String>, NotesSeat>,
@@ -438,7 +438,7 @@ pub struct NotesPool {
 }
 
 impl NotesPool {
-    /// This list's seat, minted on the first trace that carried it and answered from the map on every later one. The list arrives owned because the trace it came off is done with it: a miss keeps the allocation and a hit drops it, and neither copies a string.
+    /// This list's seat, created the first time a trace carries the list and looked up in the map afterward. The list is passed by value because its trace is finished with it: a miss keeps the allocation, a hit drops it, and neither copies a string.
     pub fn seat(&mut self, notes: Vec<String>) -> NotesSeat {
         if let Some(&seat) = self.seats.get(notes.as_slice()) {
             return seat;
@@ -454,7 +454,7 @@ impl NotesPool {
         &self.table[seat.index()]
     }
 
-    /// How many distinct lists have been seated.
+    /// How many distinct lists have seats.
     pub fn len(&self) -> usize {
         self.table.len()
     }
@@ -468,13 +468,13 @@ impl NotesPool {
         self.table.capacity()
     }
 
-    /// The table alone, which is the half a product carries.
+    /// The table alone, which is the part a product keeps.
     pub fn into_table(self) -> Vec<Vec<String>> {
         self.table
     }
 }
 
-/// The collapsed left as the memo keys spell it (issue #266): the settled cell's rune and stance and the committed seam, each as the [`Ordinal`] of its key field, resolved once when the left is built so that no key construction looks anything up. All three are absent for a boundary left: every read the kernel makes of a left's rune, stance or seam is gated on the left being a letter, and the one read of a settled record that is not — the commit's same-seam check of the extension — keys through `TraceKey`'s own `left_extension` field, so a boundary left keys the same whether or not a case question spelled a record beside its kind.
+/// The left neighbor in the form the memo keys store: the settled cell's rune and stance and the committed seam, each as the [`Ordinal`] of its key field. They are resolved once, when the left is built, so building a key looks nothing up. All three are absent for a boundary left. Every read the kernel makes of a left's rune, stance, or seam first checks that the left is a letter. The only read of a settled record without that check is the commit's same-seam check of the extension, and `TraceKey` keys it by its own `left_extension` field. So a boundary left gets the same key whether or not its case question gave a record beside its kind.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
 pub struct LeftOrdinals {
     pub rune: Option<Ordinal>,
@@ -483,7 +483,7 @@ pub struct LeftOrdinals {
 }
 
 impl LeftOrdinals {
-    /// The three ordinals a settled record's collapsed left carries, or `None` where its rune is no registered family, its stance is no stance any rune declares, or its seam is no height the spec offers — a cell no settlement of this spec produces and no question can spell.
+    /// The three ordinals of a settled record used as a left, or `None` when its rune is not a registered family, its stance is not declared by any rune, or its seam is not a height the spec offers. No settlement of this spec produces such a cell, and `cases.rs` rejects a case question whose left names one.
     pub fn of(index: &SpecIndex, settled: &Settled) -> Option<Self> {
         let rune = index.rune_ordinal(settled.cell.rune)?;
         let stance = index.stance_ordinal(settled.cell.stance)?;
@@ -499,7 +499,7 @@ impl LeftOrdinals {
     }
 }
 
-/// The resolved left neighbor a window is settled against, `settle.LeftContext`. The kind is never [`TokenKind::Unknown`] — a left is always already settled or already known to be a boundary — and `settled` is present exactly for a letter left and for the boundary cells the fold records. The ordinals are the settled record's, as [`LeftOrdinals`] says, and ride beside it so the keys read them off the left rather than resolving them per window.
+/// The resolved left neighbor a window is settled against, `settle.LeftContext`. The kind is never [`TokenKind::Unknown`], because a left is always already settled or known to be a boundary. `settled` is present for a letter left, and for a boundary left only when a case question gives it a record. The ordinals are the settled record's, as [`LeftOrdinals`] describes, stored beside it so the keys read them from the left instead of resolving them for each window.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct LeftContext {
     pub kind: TokenKind,
@@ -508,7 +508,7 @@ pub struct LeftContext {
 }
 
 impl LeftContext {
-    /// A boundary left, carrying no settled cell — `LeftContext("edge")` and its three siblings.
+    /// A boundary left with no settled cell, as in `LeftContext("edge")` and the other boundary kinds.
     pub fn boundary(kind: TokenKind) -> Self {
         Self {
             kind,
@@ -517,7 +517,7 @@ impl LeftContext {
         }
     }
 
-    /// A letter left whose ordinals the caller already holds — a candidate's, for the virtual left a follower is settled against.
+    /// A letter left whose ordinals the caller already has, such as a candidate's, for the virtual left a follower is settled against.
     pub fn seated(settled: Settled, ordinals: LeftOrdinals) -> Self {
         Self {
             kind: TokenKind::Letter,
@@ -526,7 +526,7 @@ impl LeftContext {
         }
     }
 
-    /// A letter left, carrying the cell it settled into and that cell's key ordinals. Panics on a cell no settlement of this spec produces, since a letter left is always the settled record of a window this same spec answered; a reader that meets a spelled-out record checks [`LeftOrdinals::of`] first.
+    /// A letter left, with the cell it settled into and that cell's key ordinals. Panics on a cell no settlement of this spec produces, because a letter left is always the settled record of a window this spec settled. A reader that takes a record from outside checks [`LeftOrdinals::of`] first.
     pub fn letter(index: &SpecIndex, settled: Settled) -> Self {
         let ordinals = LeftOrdinals::of(index, &settled).unwrap_or_else(|| {
             panic!(
@@ -543,7 +543,7 @@ impl LeftContext {
     }
 }
 
-/// A candidate's cell as the memo keys spell it (issue #266): the rune it is a cell of, its stance, its entry and its seam, each as the [`Ordinal`] of its key field, resolved once when the candidate is enumerated. The prospect memo keys on these and the follower's virtual left carries them, so an ask looks nothing up.
+/// A candidate's cell in the form the memo keys store: its rune, stance, entry, and seam, each as the [`Ordinal`] of its key field, resolved once when the candidate is enumerated. The prospect memo keys on these and the follower's virtual left carries them, so a lookup resolves nothing.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct CandidateOrdinals {
     pub rune: Ordinal,
@@ -553,7 +553,7 @@ pub struct CandidateOrdinals {
 }
 
 impl CandidateOrdinals {
-    /// The ordinals of a cell of `rune`'s `stance` at these heights. Panics on a cell the enumeration never produces — a rune the registry does not know, a stance no rune declares, or a height no key field holds.
+    /// The ordinals of a cell of `rune`'s `stance` at these heights. Panics on a cell the enumeration never produces: a rune the registry does not know, a stance no rune declares, or a height no key field holds.
     pub fn of(
         index: &SpecIndex,
         rune: Sym,
@@ -578,7 +578,7 @@ impl CandidateOrdinals {
         }
     }
 
-    /// The collapsed left a follower settles against if this candidate wins: the cell's rune and stance at its seam.
+    /// The left a follower settles against if this candidate wins: the cell's rune and stance at its seam.
     pub fn as_left(self) -> LeftOrdinals {
         LeftOrdinals {
             rune: Some(self.rune),
@@ -588,7 +588,7 @@ impl CandidateOrdinals {
     }
 }
 
-/// One pair candidate, `settle.Candidate`: a cell of this rune together with the seam state it offers toward the next position. `order_index` is the stance's rank in the rune's declared order and `exit_index` its exit row's declaration seat, both of which the ranking's later stages read; a non-joining candidate carries [`NO_EXIT_INDEX`]. The ordinals ride last, so the derived ordering is the one the five fields before them give.
+/// One pair candidate, `settle.Candidate`: a cell of this rune with the seam state it offers toward the next position. `order_index` is the stance's rank in the rune's declared order, and `exit_index` is its exit row's declaration index; the later ranking stages read both. A non-joining candidate carries [`NO_EXIT_INDEX`]. The ordinals are the last field, so the derived ordering is determined by the five fields before them.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct Candidate {
     pub stance: Sym,
@@ -600,7 +600,7 @@ pub struct Candidate {
 }
 
 impl Candidate {
-    /// A candidate that offers a seam, at the exit row seat it was enumerated from.
+    /// A candidate that offers a seam, with the index of the exit row it was enumerated from.
     pub fn joining(
         index: &SpecIndex,
         rune: Sym,
@@ -620,7 +620,7 @@ impl Candidate {
         }
     }
 
-    /// The stance's non-joining candidate — no seam, and the sentinel exit index that sorts after every real row.
+    /// The stance's non-joining candidate: no seam, and the sentinel exit index that sorts after every real one.
     pub fn non_joining(
         index: &SpecIndex,
         rune: Sym,
@@ -639,7 +639,7 @@ impl Candidate {
     }
 }
 
-/// Which enumeration test killed a candidate, `settle.Elimination`'s stage field. The six are the whole closed set `_candidates_uncached` records.
+/// Which enumeration test eliminated a candidate, `settle.Elimination`'s stage field. These six are all the stages `Engine::candidates_uncached` records.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum EliminationStage {
     EntryBinding,
@@ -651,7 +651,7 @@ pub enum EliminationStage {
 }
 
 impl EliminationStage {
-    /// The stage's spelling, as the trace carries it.
+    /// The stage's name, as the trace writes it.
     pub fn as_str(self) -> &'static str {
         match self {
             Self::EntryBinding => "entry-binding",
@@ -664,7 +664,7 @@ impl EliminationStage {
     }
 }
 
-/// One candidate that did not survive enumeration, `settle.Elimination`. The description is a formatted sentence rather than a structure because it is read by people — explain output and the decision-rule TSVs — and its exact wording is contract against the Python original; the provenance is the authored record that did the killing, where one did.
+/// One candidate that did not survive enumeration, `settle.Elimination`. The description is a formatted message for people; `explain` and the review surface's explain view show it. The provenance is the authored record that eliminated the candidate, where there is one.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct Elimination {
     pub stage: EliminationStage,
@@ -680,7 +680,7 @@ pub struct RankedCandidate {
     pub prospect: i64,
 }
 
-/// Which stage of the lexicographic ranking decided the window, `settle.TransitionTrace.decided_stage`. `Boundary` is the short-circuit a non-letter input takes, and the stages after it are the pipeline in the order it runs.
+/// Which stage of the lexicographic ranking decided the window, `settle.TransitionTrace.decided_stage`. `Boundary` is the shortcut a non-letter input takes, and the other stages are listed in the order the ranking runs them.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum DecidedStage {
     Boundary,
@@ -693,7 +693,7 @@ pub enum DecidedStage {
 }
 
 impl DecidedStage {
-    /// The seven in the order the pipeline runs them, each at the index [`DecidedStage::ordinal`] answers for it; [`DecidedStage::from_text`] and the tests walk the stages through this table.
+    /// The seven stages in ranking order, each at the index [`DecidedStage::ordinal`] returns for it. [`DecidedStage::from_text`] and the tests iterate over this table.
     pub const ALL: [Self; 7] = [
         Self::Boundary,
         Self::OnlyCandidate,
@@ -704,7 +704,7 @@ impl DecidedStage {
         Self::Floor,
     ];
 
-    /// The stage's place in the pipeline's order, zero through six, which is what the trace memo's packed entry holds a stage as (issue #266): three bits of the entry's one byte. An exhaustive match rather than `as u8`, so a stage added to the enum is a compile error here and in [`DecidedStage::from_ordinal`] rather than an ordinal no table seats.
+    /// The stage's position in ranking order, zero through six. The trace memo's packed entry stores a stage as this value, in three bits of its one byte. It is an exhaustive match, not `as u8`, so adding a stage to the enum is a compile error here and in [`DecidedStage::from_ordinal`].
     pub fn ordinal(self) -> u8 {
         match self {
             Self::Boundary => 0,
@@ -717,7 +717,7 @@ impl DecidedStage {
         }
     }
 
-    /// The stage at one ordinal, or `None` past the seven — the reader half of [`DecidedStage::ordinal`], for the packed entry.
+    /// The stage at one ordinal, or `None` above six. The inverse of [`DecidedStage::ordinal`], for the packed entry.
     pub fn from_ordinal(ordinal: u8) -> Option<Self> {
         match ordinal {
             0 => Some(Self::Boundary),
@@ -731,12 +731,12 @@ impl DecidedStage {
         }
     }
 
-    /// The stage one spelling names, or `None` for text that is not one of the seven — the reader half of [`DecidedStage::as_str`], for the memo file that carries a stage per entry.
+    /// The stage a name denotes, or `None` for text that is not one of the seven. The inverse of [`DecidedStage::as_str`], for the memo file, which stores a stage for each entry.
     pub fn from_text(text: &str) -> Option<Self> {
         Self::ALL.into_iter().find(|stage| stage.as_str() == text)
     }
 
-    /// The stage's spelling, as the trace carries it.
+    /// The stage's name, as the trace writes it.
     pub fn as_str(self) -> &'static str {
         match self {
             Self::Boundary => "boundary",
@@ -750,9 +750,9 @@ impl DecidedStage {
     }
 }
 
-/// How a window was decided, beyond what it decided — `settle.TransitionTrace`'s explain half: the ranking every survivor was scored into, every candidate that did not survive with the sentence naming why, and the closest loser. Nobody reads it to build a font; the explain CLI, the probe and the review surface's panel are its whole audience.
+/// How a window was decided, as opposed to what it settled into. This is the explain part of `settle.TransitionTrace`: the ranking every survivor was scored into, every eliminated candidate with the message saying why, and the runner-up. Only the explain CLI, the probe, and the review surface's explain panel read it; building the font does not.
 ///
-/// It is a type of its own, and boxed where a trace carries one, because the table fixpoint asks for millions of traces and reads none of this: a ladder formatted for a reader who will never arrive is the largest avoidable allocation in the enumeration.
+/// It is a separate type, boxed where a trace carries one, because the table fixpoint settles millions of windows and reads none of this. Building a ladder there would be a large allocation that nothing uses.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct TraceLadder {
     pub ranked: Vec<RankedCandidate>,
@@ -760,16 +760,16 @@ pub struct TraceLadder {
     pub runner_up: Option<Candidate>,
 }
 
-/// The ladder a trace that carries none answers with, so that a reader may ask any trace for its ranking and get an honest empty one.
+/// The ladder returned by a trace that carries none, so any trace can be asked for its ranking and return an empty one.
 static NO_LADDER: TraceLadder = TraceLadder {
     ranked: Vec::new(),
     eliminations: Vec::new(),
     runner_up: None,
 };
 
-/// The rich settlement result, `settle.TransitionTrace`: what the window settled into plus everything the table build, the explain CLI and the review surface read about how it got there. Notes are formatted strings — YAML pointers and the two authored sentences the kernel writes — because nothing downstream keys on them.
+/// The full settlement result, `settle.TransitionTrace`: what the window settled into, plus the details of how it was decided that the table build, the explain CLI, and the review surface read. Notes are formatted strings: YAML pointers and short messages such as `prefer applied: <pointer>` and `unlocked by <feature>`.
 ///
-/// The explain half hangs off [`TransitionTrace::ladder`] and is absent wherever the engine was built without [`crate::engine::EngineModes::explain_ladder`] — which is the table fixpoint and the string replay.
+/// The explain part is in [`TransitionTrace::ladder`]. It is absent when the engine was built without [`crate::engine::EngineModes::explain_ladder`], as the table fixpoint and the string replay are.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct TransitionTrace {
     pub settled: Settled,
@@ -781,13 +781,13 @@ pub struct TransitionTrace {
 }
 
 impl TransitionTrace {
-    /// How this window was decided, or the empty ladder where the engine was not asked to record one.
+    /// How this window was decided, or the empty ladder when the engine was not asked to record one.
     pub fn ladder(&self) -> &TraceLadder {
         self.ladder.as_deref().unwrap_or(&NO_LADDER)
     }
 }
 
-/// The closed vocabulary interned against one spec's own string pool, so that every comparison the kernel makes against an authored value is a symbol comparison rather than a string one. [`SpecIndex`] builds exactly one of these per spec and hands it out; the symbols are only meaningful against that spec's interner.
+/// The closed vocabulary interned into one spec's string pool, so every comparison the kernel makes against an authored value compares symbols, not strings. [`SpecIndex`] builds one per spec. The symbols are meaningful only with that spec's interner.
 #[derive(Clone, Debug)]
 pub struct Vocab {
     pub edge: Sym,
@@ -796,7 +796,7 @@ pub struct Vocab {
     pub namer_dot: Sym,
     pub letter: Sym,
     pub unknown: Sym,
-    /// `boundary`, which is both the `is:` value that expands to the four boundary kinds and the stance name every boundary cell carries — one string, and therefore one symbol, in both roles.
+    /// `boundary`, which is both the `is:` value that expands to the four boundary kinds and the stance name of every boundary cell. It is one string, so it is one symbol in both roles.
     pub boundary: Sym,
     pub none: Sym,
     pub live: Sym,
@@ -814,7 +814,7 @@ pub struct Vocab {
 }
 
 impl Vocab {
-    /// Intern the whole closed vocabulary through one minting closure. Interning rather than looking up is what guarantees every symbol exists: a spec that never mentions `live` still needs a symbol for it, and one that does gets the same symbol its own text resolves to.
+    /// Interns the closed vocabulary through one interning closure. Interning, not looking up, guarantees every symbol exists: a spec that never mentions `live` still gets a symbol for it, and one that does gets the same symbol its own text resolves to.
     pub fn build(mut intern: impl FnMut(&str) -> Sym) -> Self {
         Self {
             edge: intern("edge"),
@@ -868,7 +868,7 @@ impl Vocab {
         }
     }
 
-    /// The state a live-or-not side is in, in the `live` / `none` vocabulary `self_entry:` and `self_exit:` are written against.
+    /// A side's state in the `live`/`none` vocabulary that `self_entry:` and `self_exit:` use.
     pub fn liveness_state(&self, height: Option<Sym>) -> Sym {
         match height {
             Some(_) => self.live,
@@ -876,7 +876,7 @@ impl Vocab {
         }
     }
 
-    /// The state a side is in, in the height-or-`none` vocabulary pairings, `cells:` rows and `joined_at:` are written against.
+    /// A side's state in the height-or-`none` vocabulary that pairings, `cells:` rows, and `joined_at:` use.
     pub fn height_state(&self, height: Option<Sym>) -> Sym {
         height.unwrap_or(self.none)
     }
@@ -893,7 +893,7 @@ pub fn boundary_cell(vocab: &Vocab, kind: TokenKind) -> CellId {
     }
 }
 
-/// The settled record a boundary contributes, `settle.boundary_settled` — no seam and no extension, because a boundary offers neither.
+/// The settled record for a boundary, `settle.boundary_settled`: no seam and no extension, because a boundary offers neither.
 pub fn boundary_settled(vocab: &Vocab, kind: TokenKind) -> Settled {
     Settled {
         cell: boundary_cell(vocab, kind),
@@ -902,12 +902,12 @@ pub fn boundary_settled(vocab: &Vocab, kind: TokenKind) -> Settled {
     }
 }
 
-/// Whether a settled record is a boundary's rather than a letter's, `settle.is_boundary_settled`. The stance is the marker, because no rune declares a stance by that name.
+/// Whether a settled record belongs to a boundary, `settle.is_boundary_settled`. The stance is the marker, because no rune declares a stance by that name.
 pub fn is_boundary_settled(vocab: &Vocab, settled: &Settled) -> bool {
     settled.cell.stance == vocab.boundary
 }
 
-/// One authored record's YAML pointer in the spelling `str(Provenance)` gives it — `file:path`. This is the string the fired set holds, the notes carry, and every raise message pastes into its sentence.
+/// One authored record's YAML pointer, `file:path`, as `str(Provenance)` formats it. The fired set, the notes, and every settlement error message use this string.
 pub fn provenance_pointer(index: &SpecIndex, provenance: &Provenance) -> String {
     format!(
         "{}:{}",
@@ -916,7 +916,7 @@ pub fn provenance_pointer(index: &SpecIndex, provenance: &Provenance) -> String 
     )
 }
 
-/// One settled record as JSON, `kernel_exec.settled_of_row`'s shape: `{"cell":[rune,stance,entry,exit,[adjustments]],"seam":…,"extension":…}`, a height as its name or `null`. The `settle-cases` trace answer carries a record under its `settled` key through this function and the replay's window memo files one record per line through it, so the Python reader decodes one JSON shape; [`settled_fields`] is the tab-separated spelling the settled-only answer takes instead.
+/// One settled record as JSON, in the shape `kernel_exec.settled_of_row` reads: `{"cell":[rune,stance,entry,exit,[adjustments]],"seam":…,"extension":…}`, with a height as its name or `null`. The `settle-cases` trace answer writes its `settled` key with this function, and the replay's window memo writes one record per line with it, so Python decodes one JSON shape. [`settled_fields`] is the tab-separated form the settled-only answer uses.
 pub(crate) fn settled_json(index: &SpecIndex, settled: &Settled) -> String {
     let adjustments: Vec<String> = settled
         .cell
@@ -936,7 +936,7 @@ pub(crate) fn settled_json(index: &SpecIndex, settled: &Settled) -> String {
     )
 }
 
-/// One settled record as seven tab-separated fields, `kernel_exec._settled_of_fields`' shape: rune, stance, entry, exit, comma-joined adjustments, seam, extension, a height empty where there is none. These are the seven fields a `settle-cases` question spells its left record in (`cases::parse_settled` reads them), so the settled-only answer and the next question's left share one vocabulary.
+/// One settled record as seven tab-separated fields, in the shape `kernel_exec._settled_of_fields` reads: rune, stance, entry, exit, comma-joined adjustments, seam, extension, with an empty field for a missing height. A `settle-cases` question gives its left record in the same seven fields (`cases::parse_settled` reads them), so a settled-only answer can serve as the next question's left.
 pub(crate) fn settled_fields(index: &SpecIndex, settled: &Settled) -> String {
     let adjustments: Vec<String> = settled
         .cell
@@ -956,12 +956,12 @@ pub(crate) fn settled_fields(index: &SpecIndex, settled: &Settled) -> String {
     )
 }
 
-/// A height as its name or nothing: [`height_json`]'s counterpart for the tab-separated spellings.
+/// A height as its name, or empty: the tab-separated counterpart of [`height_json`].
 pub(crate) fn height_text(index: &SpecIndex, height: Option<Sym>) -> &str {
     height.map_or("", |height| index.resolve(height))
 }
 
-/// A height as its name or `null`: the spelling every JSON record with a height column shares.
+/// A height as its name or `null`, for every JSON record with a height field.
 pub(crate) fn height_json(index: &SpecIndex, height: Option<Sym>) -> String {
     match height {
         Some(height) => json_string(index.resolve(height)),
@@ -969,9 +969,9 @@ pub(crate) fn height_json(index: &SpecIndex, height: Option<Sym>) -> String {
     }
 }
 
-/// A deterministic textual form of a cell, `settle.cell_label`: the diff-stable name the TSV artifacts, the explain output and the E-STRANDED message all read. Deliberately shaped like geometry's compiled display name without being it — geometry's carries a 63-byte cap this one does not.
+/// A deterministic text form of a cell, `settle.cell_label`: the stable name the kernel's TSV artifacts and the E-STRANDED message use. It has the same shape as geometry's compiled display name but is not that name; geometry's is capped at 63 bytes and this one is not.
 ///
-/// A boundary cell labels as the glyph its kind ships as, and a boundary whose kind has no glyph — the run edge — panics here exactly as the Python mapping raises `KeyError` for it: nothing labels an edge, and reaching this with one means a caller labeled a cell the fold never records.
+/// A boundary cell is labeled with the glyph its kind ships as. The run edge has no glyph, so labeling it panics, as the Python mapping raises `KeyError`. Reaching that means a caller labeled a cell the fold never records.
 pub fn cell_label(index: &SpecIndex, cell: &CellId) -> String {
     let vocab = index.vocab();
     if cell.stance == vocab.boundary {
@@ -1017,7 +1017,7 @@ mod tests {
     use super::*;
     use crate::index::fixtures;
 
-    /// The ordinal table and the enum agree (issue #266): every stage sits in `ALL` at its own ordinal, every ordinal reads back the stage that answers it, the first ordinal past the seven reads nothing, and the seven fit the three bits the packed entry gives them.
+    /// The ordinal table and the enum agree: every stage is in `ALL` at its own ordinal, every ordinal reads back its stage, the first ordinal past the seven reads nothing, and the seven fit in the packed entry's three bits.
     #[test]
     fn a_stage_round_trips_through_its_ordinal() {
         for (index, stage) in DecidedStage::ALL.into_iter().enumerate() {
@@ -1083,7 +1083,7 @@ mod tests {
         assert_eq!(std::mem::size_of::<RightToken>(), 8);
     }
 
-    /// Five kinds in one word (issue #266): every slot reads back what was packed into it, and every kind and every slot moves the word.
+    /// Five kinds in one word: every slot reads back what was packed into it, and changing any one slot's kind changes the word.
     #[test]
     fn packed_kinds_read_back_slot_by_slot() {
         let all = [

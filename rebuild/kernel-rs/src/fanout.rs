@@ -141,7 +141,7 @@ fn fold_timing_line(label: &str, elapsed: Duration) -> String {
     format!("[t] {label} {:.3}s", elapsed.as_secs_f64())
 }
 
-/// What a run writes to stderr besides its output: phase timings and the `--cache-census` lines. Both are off by default. A run with neither writes nothing to stderr on a clean exit, which the identity harness relies on.
+/// What a run writes to stderr besides its output: phase timings and the `--cache-census` lines. Both are off by default. A run with neither writes nothing to stderr on a clean exit. `_forward_stderr` in rebuild/pipeline/kernel_exec.py relies on this: when timings were not requested, it fails on any stderr after a clean exit.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct Report {
     pub timings: bool,
@@ -861,7 +861,7 @@ mod tests {
         std::fs::remove_dir_all(&root).expect("the scratch directory is removable");
     }
 
-    /// A run without `--timings` records no timing lines, so the identity harness can treat any stderr on a clean exit as a failure.
+    /// A run without `--timings` records no timing lines, so `kernel_exec._forward_stderr` can treat any stderr on a clean exit as a failure.
     #[test]
     fn a_run_that_was_not_asked_to_time_itself_records_nothing() {
         let index = fixtures::mini();

@@ -1,6 +1,6 @@
-//! The kernel's ingest half: read an `ams-m1-spec/1` dump into an interned, integer-packed model, and write that model back out in the canonical spelling. `main.rs` carries the crate's orientation — what the binary is for, and which Python modules still bind its boundaries.
+//! The `ams-m1-kernel` library: every module the binary is built from. `main.rs` describes what the binary does and which Python modules define its boundaries.
 //!
-//! The layering is deliberate and is what the round-trip proves. `parse` owns the only `serde_json::Value` in the crate and it dies inside `parse::parse_spec`, whose return type is the model; `emit` therefore has nothing to echo from but the model itself, so a byte-identical echo is evidence the packing lost nothing rather than evidence the parse tree was retained.
+//! `parse::parse_spec` reads an `ams-m1-spec/1` dump into the interned model, and `emit` writes the model back out in canonical form. Outside tests, `parse` holds the crate's only `serde_json::Value`, and it is dropped inside `parse_spec`, which returns the model. `emit` therefore has only the model to write from, so a byte-identical `spec-echo` shows the packing lost nothing.
 
 #![forbid(unsafe_code)]
 
@@ -31,5 +31,5 @@ pub mod specificity;
 pub mod stream;
 pub mod types;
 
-/// The marker every dump's `format` key carries. A dump naming anything else is refused rather than guessed at, exactly as `kernel_io.spec_of` refuses it.
+/// The value of every dump's `format` key. `parse::parse_spec` rejects a dump with any other value, as `kernel_io.spec_of` does.
 pub const SPEC_FORMAT: &str = "ams-m1-spec/1";

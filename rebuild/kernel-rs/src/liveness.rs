@@ -1,16 +1,22 @@
-//! The simulated-prospect arm of the two deep-slot filters (issue 28 stage 2): whether a raw deep token can move the settled outcome of some reachable window at `(input, right1, right2)`. [`crate::census`] owns the chain arm and reaches in here only where that arm said no, which is the whole of the pinned world's verdict and the cheap half of the shipping world's.
+//! The liveness branch of the two deep-slot filters: whether a raw third or fourth lookahead token can change the settled outcome of some reachable window at `(input, right1, right2)`. [`crate::census`] holds the chain branch and calls in here only where the chain branch says no. In the pinned world the chain branch is the whole verdict.
 //!
-//! Two value-level stages, because every cheaper grain fails in a measured way. Consultation-level tracking over-opens catastrophically — the recursion consults beyond-window slots almost everywhere — and stopping at follower-prospect variance still over-opens fifteenfold on the real spec (1,543 consulted triples carry a token-movable prospect where only 103 ever move a seat outcome), enough to push the emitted settlement lookup through the subtable-offset headroom floor read-back holds the font to. Stage one is the cheap prefilter: for each `(stance, seam)` shape the input can commit — the virtual left's entry is never read, so entry states collapse — the follower's simulated prospect is evaluated per concrete token and compared against the `EDGE` a dead slot bakes, and no variance anywhere means no channel into the seat's ranking at all, because a deep token reaches the flag-on kernel only through prospect values and own-rune chains and the chain arm has already answered for the chains. Stage two, only where stage one fired, probes at outcome grain: the seat's own transition is replayed per token over the collapsed left classes — every `(family, stance, seam)` virtual left plus the four boundary kinds, collapsed by the input-frame signature — and the slot is live only where some class's settled cell varies.
+//! The check has two stages because cheaper checks open far too many windows. Tracking which slots the recursion consults opens nearly everything, since it consults slots past the window almost everywhere. Stopping at follower-prospect variance still opens fifteen times as many as needed on the real spec (1,543 consulted triples have a prospect some token changes, and only 103 ever change a seat outcome). That is enough to push the emitted settlement lookup's subtable-offset headroom below the floor that read-back checks (`SUBTABLE_OFFSET_HEADROOM_FLOOR` in `rebuild/pipeline/readback.py`).
 //!
-//! The signature that collapses the left classes is `(seam, verdicts)`, where the verdicts are [`Engine::cond_matches_left`] over the follower's own left-reading conditions in the order they are gathered: per-stance entry-row scopes, then unlock left-whens, then the `refuse` + `prefer` + `resolve` left-whens. Those verdicts are plain booleans and not the tri-state a right condition answers with — a left is always already settled or already known to be a boundary, so nothing about it can be outside the window; the only non-answer `cond_matches_left` has is the raise a `then:` on a left condition earns. The left it is asked about is virtual: `CellId(rune=family, stance=stance, entry=None, exit=seam, adjustments=())` inside a `Settled` at that seam with no extension. Extend and contract records shape adjustments only, and neither an extension nor the left cell's entry interacts with a deep token, so the enumerated shapes cover every reachable settled left. A left class the fixpoint can never reach raises E-STRANDED in the replay and is skipped; a prefer conflict raising E-INCOMPARABLE or E-AMBIGUOUS marks the slot live instead, so the enumeration surfaces the conflict properly rather than hiding it behind a dead slot. Those three outcomes stay distinct all the way down — see [`crate::error::SettleError`], whose four variants exist for exactly this reason.
+//! Stage one is a cheap prefilter. For each `(stance, seam)` shape the input can commit, it evaluates the follower's simulated prospect for each concrete token and compares it with the value at `EDGE`, which is what a dead slot is given. The virtual left's entry is never read, so entry states collapse. If nothing varies, the token has no way into the seat's ranking: a deep token reaches settlement only through prospect values, follower votes, and own-rune chains, and the chain branch already covers the chains.
 //!
-//! With shifted vote slots on (stage 4b) stage one grows a vote arm beside the prospect arm, probing [`Engine::probe_prefer_favors`]' vote branch itself: a vote reads the deep slots twice over, through its record's shifted `when:` chain and through the follower-cell enumeration the vote runs over the shifted window, so a row scope or closure verdict that moves with the token moves which continuations the vote can favor. A same-family seam is skipped — the own branch shadows the vote there and the chain arm already models it — and a follower with no `prefer` records is skipped before any shape loop.
+//! Stage two runs only where stage one fired. It replays the seat's own transition for each token over the collapsed left classes (the four boundary kinds, then one virtual left per distinct input-frame signature) and reports the slot live only where some class's settled cell changes.
 //!
-//! [`ProspectLiveness::third_live`] additionally ORs in [`ProspectLiveness::fourth_live`] over every concrete letter third, and that belt is not decoration: a live fourth slot hanging off an unenumerated third would never be consulted, and the per-token comparisons alone cannot see a seat that moves only under a specific `(third, fourth)` letter pair, because unknown-optimism bottoms the recursion identically for an `EDGE` fourth and an `UNKNOWN` one. The recorded counterexample is `·See·No·No·Roe·No·Oy` — seat `qsNo`, window `(qsNo, qsRoe, qsNo, qsOy)`, left `·See` — where the fourth-slot `·Oy` flips the seat through two simulation levels while every EDGE/UNKNOWN-fourth agrees.
+//! The signature that collapses the left classes is `(seam, verdicts)`. The verdicts are [`Engine::cond_matches_left`] over the follower's own left-reading conditions, in the order [`ProspectLiveness::left_conditions`] gathers them. They are plain booleans, unlike the three-valued answer of a right condition, because a left is always already settled or a known boundary. The virtual left is `CellId(rune=family, stance=stance, entry=None, exit=seam, adjustments=())` inside a `Settled` at that seam with no extension. Extend and contract records change only adjustments, and neither an extension nor the left cell's entry interacts with a deep token, so these shapes cover every reachable settled left.
 //!
-//! Evaluation order is output, not style. Every probe journals the pointers it fires into `Engine::fired`, which the fixpoint reports as the product's `cited_provenance`, so a probe that never runs never fires: each short-circuit, each early return, each loop order and each memo key's grain is fixed, ported from the Python fixpoint retired at issue #78 and held ever since. The memo grain in particular is contract — the prospect and vote arms key on the collapsed *signature* rather than the input family, so two families sharing a signature share one verdict and run its side effects once, while the seat replay and the joint34 belt key on the family itself.
+//! In stage two, a left class whose baseline window raises E-STRANDED or a plain settlement error is one the fixpoint cannot reach, and it is skipped. A prefer conflict that raises E-INCOMPARABLE or E-AMBIGUOUS marks the slot live instead, so the enumeration reports the conflict instead of hiding it behind a dead slot. [`crate::error::SettleError`] says how its variants map to these outcomes.
 //!
-//! One instance per build, lent to both filters and to [`crate::fiber::DeepFiberDeriver`], and holding no engine of its own. The filters take the engine per call precisely so a second one cannot exist, which is what lets the probe hold no engine and need no cache keyed on one.
+//! With shifted vote slots on, stage one also has a vote branch, which calls [`Engine::probe_prefer_favors`] with the follower's `prefer` records. A vote reads the deep slots in two ways: through its record's shifted `when:` chain, and through the follower-cell enumeration the vote runs over the shifted window. So a row scope or closure verdict that changes with the token changes which continuations the vote can favor. The vote branch is skipped when the follower is the input's own family, because `prefer_favors` then takes its own-rune branch, which the chain branch covers. It is also skipped when the follower has no `prefer` records.
+//!
+//! [`ProspectLiveness::third_live`] also ORs in [`ProspectLiveness::fourth_live`] over every concrete letter in the third slot. This is the joint34 belt. Without it, a live fourth slot behind an unenumerated third would never be consulted. The per-token comparisons alone cannot see a seat that changes only under a specific `(third, fourth)` letter pair, because the optimistic reading of unknown slots ends the recursion the same way for an `EDGE` fourth and an `UNKNOWN` one. The recorded counterexample is `·See·No·No·Roe·No·Oy`: seat `qsNo`, window `(qsNo, qsRoe, qsNo, qsOy)`, left `·See`. The fourth-slot `·Oy` changes the seat's cell through two levels of simulation, while every probe with an `EDGE` or `UNKNOWN` fourth agrees.
+//!
+//! Evaluation order affects the output. Every probe records the pointers it fires in `Engine::fired`, which the fixpoint reports as the product's `cited_provenance`, and a probe that never runs fires nothing. So each short-circuit, early return, loop order, and memo key must stay as it is. The prospect and vote branches key their memos on the collapsed signature instead of the input family, so two families with the same signature share one verdict and run its probes once. The seat replay and the joint34 belt key on the family.
+//!
+//! One instance serves a whole fixpoint run and is lent to both filters and to [`crate::fiber::DeepFiberDeriver`]. It holds no engine. Every call takes the caller's engine, so the probes share its trace memo and fired set. The memos are not keyed on engine modes, so every call on one instance must pass the same engine.
 
 use std::rc::Rc;
 
@@ -24,13 +30,13 @@ use crate::types::{
     SPACE, Settled, TokenKind, UNKNOWN, ZWNJ,
 };
 
-/// One shape the input frame can commit: a stance of the input's own rune and the seam it offers there, `None` for the shape that offers none.
+/// One shape the input frame can commit: a stance of the input's own rune and the exit seam it offers there, `None` for the shape that offers no exit.
 type Shape = (Sym, Option<Sym>);
 
-/// The collapsed input-frame signature: the committed seam, then the follower's own left-reading conditions answered against the virtual left in the order [`ProspectLiveness::left_conditions`] gathers them. Behind an [`Rc`] because it is copied into every memo key the prospect and vote arms write.
+/// The collapsed input-frame signature: the committed seam, then the follower's own left-reading conditions answered against the virtual left, in the order [`ProspectLiveness::left_conditions`] gathers them. The verdicts are behind an [`Rc`] because the signature is copied into every memo key the prospect and vote branches write.
 type Signature = (Option<Sym>, Rc<Vec<bool>>);
 
-/// What the seat replay saw at one probed window. The two sentinels are distinct from each other and from every cell: a raise says the enumeration must surface the conflict and therefore that the slot is live, while an unreachable window says this left class is not the fixpoint's to reach and the replay skips it.
+/// What the seat replay saw at one probed window. `Raised` is a prefer conflict the enumeration must report, so the slot is live. `Unreachable` is a window the fixpoint cannot reach from this left class; at the baseline the replay skips the class.
 #[derive(Clone, Debug, PartialEq, Eq)]
 enum SeatOutcome {
     Cell(CellId),
@@ -38,7 +44,7 @@ enum SeatOutcome {
     Unreachable,
 }
 
-/// The liveness probe for one spec. Verdicts and the structures behind them are memoized here; the engine they are probed through arrives per call, so the memo cannot outlive its world or fork across two engines.
+/// The liveness probe for one spec. It memoizes its verdicts and the structures behind them. The engine is passed in on every call, and the module doc says why it must be the same engine each time.
 pub struct ProspectLiveness<'i> {
     index: &'i SpecIndex,
     tokens: Option<Rc<Vec<RightToken>>>,
@@ -46,19 +52,19 @@ pub struct ProspectLiveness<'i> {
     shapes: HashMap<Sym, Rc<Vec<Shape>>>,
     conds: HashMap<Sym, Rc<Vec<&'i Condition>>>,
     sigs: HashMap<(Sym, Sym, Sym, Option<Sym>), Signature>,
-    /// `("seat3", family, right1, right2)` — the third-slot seat replay.
+    /// The third-slot seat replay, keyed `(family, right1, right2)`.
     seat3: HashMap<(Sym, Sym, Sym), bool>,
-    /// `("joint34", family, right1, right2)` — the belt over every concrete letter third.
+    /// The joint34 belt over every concrete letter third, keyed `(family, right1, right2)`.
     joint34: HashMap<(Sym, Sym, Sym), bool>,
-    /// `(right1, right2, signature)` — the third slot's prospect arm.
+    /// The third slot's prospect branch, keyed `(right1, right2, signature)`.
     prospect3: HashMap<(Sym, Sym, Signature), bool>,
-    /// `("vote3", right1, right2, signature)` — the third slot's vote arm.
+    /// The third slot's vote branch, keyed `(right1, right2, signature)`.
     vote3: HashMap<(Sym, Sym, Signature), bool>,
-    /// `("seat4", family, right1, right2, right3)` — the fourth-slot seat replay.
+    /// The fourth-slot seat replay, keyed `(family, right1, right2, right3)`.
     seat4: HashMap<(Sym, Sym, Sym, Sym), bool>,
-    /// `(right1, right2, right3, signature)` — the fourth slot's prospect arm.
+    /// The fourth slot's prospect branch, keyed `(right1, right2, right3, signature)`.
     prospect4: HashMap<(Sym, Sym, Sym, Signature), bool>,
-    /// `("vote4", right1, right2, right3, signature)` — the fourth slot's vote arm.
+    /// The fourth slot's vote branch, keyed `(right1, right2, right3, signature)`.
     vote4: HashMap<(Sym, Sym, Sym, Signature), bool>,
 }
 
@@ -82,18 +88,16 @@ impl<'i> ProspectLiveness<'i> {
         }
     }
 
-    /// The letter token for one of the modeled runes every probe is asked about.
+    /// The letter token for a rune the probe is asked about.
     fn letter(&self, rune: Sym) -> RightToken {
         self.index
             .letter(rune)
             .expect("the probes are asked about registered runes")
     }
 
-    /// Whether the raw third slot can move some reachable window at `(family, right1, right2)`.
+    /// Whether the raw third slot can change the settled outcome of some reachable window at `(family, right1, right2)`.
     ///
-    /// Stage one is `(simulated_prospect and _prospect_varies_third) or (vote_slots and _vote_varies_third)`, short-circuiting exactly there; where it fires, the seat replay at `("seat3", family, right1, right2)` answers and a true verdict returns immediately. Where that path did not return — stage one dead, or the seat replay saw nothing move — the joint34 belt at `("joint34", family, right1, right2)` is the verdict: [`ProspectLiveness::fourth_live`] over every letter probe token, in [`ProspectLiveness::probe_tokens`] order, early-exiting on the first live one.
-    ///
-    /// The slots the prospect arm probes are `(right1, right2, token, EDGE)` against the baseline `(right1, right2, EDGE, EDGE)`, then `(right1, right2, token, UNKNOWN)` against that token's own EDGE-fourth value: the probed token rides the third slot and the belt inside the arm is the EDGE-versus-UNKNOWN fourth.
+    /// Stage one is `(simulated_prospect and prospect_varies_third) or (vote_slots and vote_varies_third)`, and the `or` short-circuits. Where stage one fires, the seat replay runs, and a true result is returned at once. Otherwise the verdict is the joint34 belt: [`ProspectLiveness::fourth_live`] for each letter token in [`ProspectLiveness::probe_tokens`] order, stopping at the first live one.
     pub fn third_live(
         &mut self,
         engine: &mut Engine<'_>,
@@ -142,9 +146,9 @@ impl<'i> ProspectLiveness<'i> {
         Ok(verdict)
     }
 
-    /// Whether the raw fourth slot can move some reachable window at `(family, right1, right2, right3)`.
+    /// Whether the raw fourth slot can change the settled outcome of some reachable window at `(family, right1, right2, right3)`.
     ///
-    /// The same two stages one slot deeper, and with no belt: stage one dead is a dead slot outright, and where it fired the seat replay at `("seat4", family, right1, right2, right3)` is the whole verdict. The prospect arm's slots are `(right1, right2, right3, token)` against the baseline `(right1, right2, right3, EDGE)` — the probed token rides the fourth slot alone.
+    /// The same two stages one slot deeper, with no belt. If stage one does not fire, the slot is dead. Where it fires, the seat replay is the verdict.
     pub fn fourth_live(
         &mut self,
         engine: &mut Engine<'_>,
@@ -178,11 +182,11 @@ impl<'i> ProspectLiveness<'i> {
         Ok(verdict)
     }
 
-    /// The left classes the seat replay and the fiber probes read this family against: the four boundary lefts first, then one virtual `(family, stance, seam)` left per distinct input-frame signature.
+    /// The left classes the seat replay and the fiber probes settle this family against: the four boundary lefts, then one virtual `(family, stance, seam)` left per distinct input-frame signature.
     ///
-    /// The iteration is over the spec's runes in *collection* order rather than sorted order, and the representative kept per signature is the **first** one encountered — a different order keeps a different virtual left, which can move both a liveness verdict and a fiber key. [`SpecIndex::runes`] preserves the dump's order, which is the order Python's `spec.runes` dict has, so the two agree by construction.
+    /// The runes are visited in the dump's declaration order ([`SpecIndex::runes`]), not sorted order, and the first left with a given signature is the one kept. A different order keeps a different virtual left, which can change both a liveness verdict and a fiber key.
     ///
-    /// Memoized per family behind an [`Rc`], because the deriver reads the same list once per candidate third token of every live context.
+    /// Memoized per family, because the seat replay and the fiber deriver each ask for it once per context.
     pub fn seat_left_classes(
         &mut self,
         engine: &mut Engine<'_>,
@@ -213,9 +217,9 @@ impl<'i> ProspectLiveness<'i> {
         Ok(classes)
     }
 
-    /// The alphabet every probe sweeps: the four boundaries in their own order, then one letter token per rune sorted by name. Built once and handed out behind an [`Rc`].
+    /// The tokens every probe sweeps: the four boundaries, then one letter token per rune sorted by name. Built once.
     ///
-    /// The order is contract rather than convenience. Every arm that sweeps these tokens early-exits on the first variance it sees, and a probe that never runs never fires, so a different order journals a different `cited_provenance` — and the deriver indexes its probe matrix by position in this list with `UNKNOWN` appended after it, so a different order also moves which r4 tokens group together.
+    /// The order affects the output. Every branch that sweeps these tokens stops at the first variance it sees, and a probe that never runs fires nothing, so a different order records a different `cited_provenance`.
     pub fn probe_tokens(&mut self) -> Rc<Vec<RightToken>> {
         if self.tokens.is_none() {
             let mut tokens = vec![EDGE, SPACE, ZWNJ, NAMER_DOT];
@@ -230,7 +234,7 @@ impl<'i> ProspectLiveness<'i> {
 
     /// The `(stance, seam)` shapes this family's input frame can commit, in the stances' declaration order.
     ///
-    /// A stance requiring an exit contributes no unentered shape, and every other stance leads with one; then the declared exit rows in their own order, then the exits an unlock adds that the surface does not already declare. The seams are deduped per stance keeping the first occurrence.
+    /// Each stance contributes, in order: the exitless shape, unless the stance requires an exit; its declared exit rows; then the exits an unlock adds that the surface does not declare. Repeated seams within a stance are dropped after the first.
     fn input_shapes(&mut self, family: Sym) -> Rc<Vec<Shape>> {
         if let Some(cached) = self.shapes.get(&family) {
             return Rc::clone(cached);
@@ -268,9 +272,7 @@ impl<'i> ProspectLiveness<'i> {
         shapes
     }
 
-    /// The follower's own left-reading conditions, in the order they are gathered: per stance, every entry row's scope and then every unlock's left `when:`, and after all the stances the `refuse`, `prefer` and `resolve` records' left `when:`s in that order.
-    ///
-    /// The order is what the signature vector's positions mean, so it is contract rather than convenience — two specs gathering the same conditions differently would collapse different left classes together.
+    /// The follower's own left-reading conditions, in the order the signature vector holds their verdicts: for each stance, every entry row's scope and then every unlock's left `when:`; after all the stances, the left `when:` of each `refuse`, `prefer` and `resolve` record, in that order.
     fn left_conditions(&mut self, follower: Sym) -> Rc<Vec<&'i Condition>> {
         if let Some(cached) = self.conds.get(&follower) {
             return Rc::clone(cached);
@@ -308,7 +310,7 @@ impl<'i> ProspectLiveness<'i> {
         conds
     }
 
-    /// The follower's `prefer` records — the records the vote arm probes, in declaration order, and an empty list is the whole reason the arm can answer before any shape loop. The list is already in the model, so this reads it straight through and no memo is needed.
+    /// The follower's `prefer` records, which the vote branch probes in declaration order.
     fn vote_records(&self, follower: Sym) -> &'i [PolicyRecord] {
         let index = self.index;
         &index
@@ -318,9 +320,9 @@ impl<'i> ProspectLiveness<'i> {
             .prefer
     }
 
-    /// The input frame's collapsed signature at this shape: the seam it commits, and the follower's left conditions answered against the virtual left that shape stands for.
+    /// The input frame's collapsed signature at this shape: the seam it commits, and the follower's left conditions evaluated against the virtual left for that shape.
     ///
-    /// The verdicts are plain booleans rather than the tri-state a right condition answers with — a left is always already settled or already known to be a boundary, so nothing about it can be outside the window. A condition carrying a `then:` raises here, exactly as [`Engine::cond_matches_left`] refuses one, and the raise leaves no memo entry behind — so a second ask raises again rather than answering.
+    /// A left condition carrying a `then:` makes [`Engine::cond_matches_left`] return an error. The error is not memoized, so a second call returns it again.
     fn signature(
         &mut self,
         engine: &mut Engine<'_>,
@@ -344,7 +346,7 @@ impl<'i> ProspectLiveness<'i> {
         Ok(signature)
     }
 
-    /// Stage one's prospect arm at the third slot: some shape of the input frame whose simulated follower choice moves with the third token, memoized on `(right1, right2, signature)` so two families sharing a signature share one verdict and run its probes once.
+    /// Stage one's prospect branch at the third slot: whether some shape of the input frame has a simulated follower choice that changes with the third token.
     fn prospect_varies_third(
         &mut self,
         engine: &mut Engine<'_>,
@@ -373,7 +375,7 @@ impl<'i> ProspectLiveness<'i> {
         Ok(false)
     }
 
-    /// One shape's third-slot prospect probe. The probed token rides the third slot against the `EDGE` a dead slot bakes, and each token's own unknown-fourth evaluation is compared against its edge-fourth one — the belt that catches a prospect the fourth slot moves at this third.
+    /// One shape's third-slot prospect probe. For each token, `(right1, right2, token, EDGE)` is compared with the baseline `(right1, right2, EDGE, EDGE)`, and then `(right1, right2, token, UNKNOWN)` with `(right1, right2, token, EDGE)`. The second comparison catches a prospect that the fourth slot changes at this third.
     fn third_class_live(
         &mut self,
         engine: &mut Engine<'_>,
@@ -402,7 +404,7 @@ impl<'i> ProspectLiveness<'i> {
         Ok(false)
     }
 
-    /// Stage one's prospect arm at the fourth slot — [`ProspectLiveness::prospect_varies_third`] with the concrete third in the memo key.
+    /// Stage one's prospect branch at the fourth slot: [`ProspectLiveness::prospect_varies_third`] with the concrete third in the memo key.
     #[allow(clippy::too_many_arguments)]
     fn prospect_varies_fourth(
         &mut self,
@@ -434,7 +436,7 @@ impl<'i> ProspectLiveness<'i> {
         Ok(false)
     }
 
-    /// One shape's fourth-slot prospect probe: the probed token rides the fourth slot alone, against the edge-fourth baseline, with no belt to wear at the bottom of the window.
+    /// One shape's fourth-slot prospect probe: `(right1, right2, right3, token)` compared with the baseline `(right1, right2, right3, EDGE)`. There is no slot past the fourth, so there is no second comparison.
     #[allow(clippy::too_many_arguments)]
     fn fourth_class_live(
         &mut self,
@@ -460,7 +462,7 @@ impl<'i> ProspectLiveness<'i> {
         Ok(false)
     }
 
-    /// Stage one's vote arm at the third slot. A same-family seam never votes — `_apply_prefers`' second gather duplicates the owner and the own branch shadows the vote, whose real slots the chain arm already models — and a follower carrying no `prefer` records is answered before any shape loop.
+    /// Stage one's vote branch at the third slot. It returns false at once when the follower is the input's own family or has no `prefer` records (see the module doc).
     fn vote_varies_third(
         &mut self,
         engine: &mut Engine<'_>,
@@ -492,7 +494,7 @@ impl<'i> ProspectLiveness<'i> {
         Ok(false)
     }
 
-    /// Stage one's vote arm at the fourth slot, on the same two terms one slot deeper.
+    /// Stage one's vote branch at the fourth slot, with the same two early returns.
     #[allow(clippy::too_many_arguments)]
     fn vote_varies_fourth(
         &mut self,
@@ -534,9 +536,9 @@ impl<'i> ProspectLiveness<'i> {
         Ok(false)
     }
 
-    /// Whether some follower vote's verdict at this seat moves with the probed deep token.
+    /// Whether some follower vote's verdict at this seat changes with the probed deep token.
     ///
-    /// The vote branch of [`Engine::probe_prefer_favors`] is probed directly, because a vote reads the deep slots twice over — through its record's shifted `when:` chain and through the follower-cell enumeration it runs over the shifted window. `r3tok` absent probes the third slot, wearing the same edge-versus-unknown belt the prospect arm wears; a concrete `r3tok` probes the fourth at that third. The records are the outer loop and the probe tokens the inner one, which is the order a verdict short-circuits in.
+    /// With `r3tok` absent this probes the third slot, with the same two comparisons as [`ProspectLiveness::third_class_live`]. With a concrete `r3tok` it probes the fourth slot at that third. The records are the outer loop and the probe tokens the inner one, and the first variance returns.
     #[allow(clippy::too_many_arguments)]
     fn vote_class_live(
         &mut self,
@@ -617,9 +619,9 @@ impl<'i> ProspectLiveness<'i> {
         Ok(false)
     }
 
-    /// Stage two: the seat's own transition replayed per probe token over its collapsed left classes, live exactly where some class's settled cell moves.
+    /// Stage two: the seat's own transition replayed for each probe token over its collapsed left classes. Returns true where some class's settled cell changes.
     ///
-    /// A left whose baseline is unreachable is skipped rather than counted — the fixpoint can never reach it either — while a raise at the baseline is live outright, and so is any probe token that raises, becomes unreachable, or lands on a different cell. `r3tok` absent probes the third slot with the fourth held first to `EDGE` and then to `UNKNOWN`; a concrete `r3tok` probes the fourth alone.
+    /// A left whose baseline window is unreachable is skipped, because the fixpoint cannot reach it either. A raise at the baseline is live, and so is any probe token whose window raises, is unreachable, or settles to a different cell. With `r3tok` absent this probes the third slot, with the fourth set first to `EDGE` and then to `UNKNOWN`; with a concrete `r3tok` it probes the fourth slot.
     fn seat_varies(
         &mut self,
         engine: &mut Engine<'_>,
@@ -688,7 +690,7 @@ impl<'i> ProspectLiveness<'i> {
     }
 }
 
-/// The virtual left one `(family, stance, seam)` shape stands for: the cell with no entry and no adjustments, settled at that seam with no extension. The entry is never read by anything a deep token can reach, which is what lets the whole entry axis collapse.
+/// The virtual left for one `(family, stance, seam)` shape: the cell with no entry and no adjustments, settled at that seam with no extension. Nothing a deep token can reach reads the entry, so all entries collapse to this one.
 fn virtual_left(index: &SpecIndex, family: Sym, stance: Sym, seam: Option<Sym>) -> LeftContext {
     LeftContext::letter(
         index,
@@ -706,7 +708,7 @@ fn virtual_left(index: &SpecIndex, family: Sym, stance: Sym, seam: Option<Sym>) 
     )
 }
 
-/// The bare input-frame candidate every stage-one probe is run for, Python's `Candidate(stance, None, seam, 0)`: no entry, the shape's own seam, the first order index, and the sentinel exit seat, because the frame is a shape the input can commit rather than a candidate the enumeration produced.
+/// The input-frame candidate every stage-one probe runs for: no entry, the shape's own seam, order index 0, and the `NO_EXIT_INDEX` sentinel, because the frame is a shape the input can commit and not a candidate the enumeration produced.
 fn frame_candidate(index: &SpecIndex, family: Sym, stance: Sym, seam: Option<Sym>) -> Candidate {
     Candidate {
         stance,
@@ -718,7 +720,7 @@ fn frame_candidate(index: &SpecIndex, family: Sym, stance: Sym, seam: Option<Sym
     }
 }
 
-/// One replayed seat window's outcome. E-INCOMPARABLE and E-AMBIGUOUS are the raise the enumeration must surface; every other settlement outcome is a window this left cannot reach.
+/// One replayed seat window's outcome. E-INCOMPARABLE and E-AMBIGUOUS are a raise the enumeration must report; every other settlement error is a window this left cannot reach.
 fn seat_outcome(
     engine: &mut Engine<'_>,
     left: &LeftContext,
@@ -743,7 +745,7 @@ pub(crate) mod tests {
     use crate::index::fixtures;
     use crate::stream::FixpointProduct;
 
-    /// A JSON object over already-built pieces, for the mappings whose keys these fixtures compose rather than spell.
+    /// A JSON object over already-built keys and values.
     fn object(entries: &[(String, String)]) -> String {
         let pairs: Vec<String> = entries
             .iter()
@@ -812,7 +814,7 @@ pub(crate) mod tests {
         fixtures::condition(&[("family", &family), ("then", &chain(rest))])
     }
 
-    /// The engine the probes are lent, in whichever of the four mode worlds the caller names. The trace memo is on because the fixpoint's is, and because the memo's replayed fired delta is what makes a warm probe cost what a cold one journals.
+    /// An engine with the two mode flags the caller names. The trace memo is on, as it is in the fixpoint.
     fn engine_in(index: &SpecIndex, simulated_prospect: bool, vote_slots: bool) -> Engine<'_> {
         Engine::with_modes(
             index,
@@ -835,7 +837,7 @@ pub(crate) mod tests {
         fixtures::index_of(&fixtures::dump(&runes, &fixtures::four_family_registry()))
     }
 
-    /// The four boundaries lead in their own order, the letters follow sorted by name — not by the order the dump mentioned them in, which this fixture deliberately scrambles.
+    /// The four boundaries come first, then the letters sorted by name. The fixture declares the letters in a different order.
     #[test]
     fn the_probe_alphabet_is_the_boundaries_then_the_letters_by_name() {
         let index = spec();
@@ -876,7 +878,7 @@ pub(crate) mod tests {
         assert!(Rc::ptr_eq(&first, &second));
     }
 
-    /// The issue-28 shape, `rebuild/pipeline/fixtures.py`'s `prospect_spec`: `qsPea` exits at both heights and prefers the x-height as a yielding tie-break; `qsTea` enters at both, is exitless when entered at the x-height, and yields its own baseline exit exactly where the slots past it spell `qsMay·qsIt`; an entered `qsMay` is exitless, so `qsTea` joining `qsMay` forecloses that onward join while `qsTea` declining buys it. Nothing here chains far enough to be censused, so every verdict below is the liveness arm's alone.
+    /// The same shape as `prospect_spec` in `rebuild/pipeline/fixtures.py`. `qsPea` exits at both heights and prefers the x-height as a yielding tie-break. `qsTea` enters at both, is exitless when entered at the x-height, and gives up its baseline exit where the slots past it are `qsMay·qsIt`. An entered `qsMay` is exitless, so `qsTea` joining `qsMay` prevents that onward join, and `qsTea` declining allows it. No chain here reaches far enough to be censused, so every verdict below comes from the liveness branch alone.
     pub(crate) fn prospect_spec() -> SpecIndex {
         let pea = letter(
             "qsPea",
@@ -951,7 +953,7 @@ pub(crate) mod tests {
         spec_of(&[pea, tea, may, it])
     }
 
-    /// The stage-4b shape: `qsPea` offers a baseline exit and an x-height exit that tie at every score, `qsTea` accepts one height per stance and offers no exit at all — so nothing about the seat's *prospect* can move — and `qsTea`'s own `prefer` votes for its `hook` continuation exactly where the slots past the seat spell `qsMay·qsIt`. The vote is the only channel the third token has here.
+    /// The vote-slots shape. `qsPea` offers a baseline exit and an x-height exit that tie at every score. `qsTea` accepts one height per stance and offers no exit, so the seat's prospect cannot change. `qsTea`'s own `prefer` votes for its `hook` continuation where the slots past the seat are `qsMay·qsIt`. The vote is the only way the third token affects the seat here.
     fn vote_spec() -> SpecIndex {
         let pea = letter(
             "qsPea",
@@ -1007,7 +1009,7 @@ pub(crate) mod tests {
         spec_of(&[pea, tea, may, it])
     }
 
-    /// The four-family registry with a third height, for the fixtures whose whole point is that one rune's exit height is reachable from exactly one other rune's entry.
+    /// The four-family registry with a third height, `cap`, so a fixture can give one rune an exit height that exactly one other rune enters at.
     fn three_height_registry() -> String {
         fixtures::registry(&[
             (
@@ -1166,7 +1168,7 @@ pub(crate) mod tests {
         spec_of(&[pea, tea, may])
     }
 
-    /// Two structurally identical runes, declared in an order the sorted alphabet reverses, so that the collapse's kept representative says which order it iterated in.
+    /// Two structurally identical runes, declared in the reverse of sorted order, so the representative the collapse keeps shows which order it iterated in.
     fn twin_spec() -> SpecIndex {
         let twin = |name: &str| {
             letter(
@@ -1181,7 +1183,7 @@ pub(crate) mod tests {
         spec_of(&[twin("qsTea"), twin("qsPea")])
     }
 
-    /// The left classes are the four boundaries and then one virtual left per distinct signature — kept for the *first* rune the spec collected, not the first sorted one, because a different representative can move both a liveness verdict and a fiber key.
+    /// The left classes are the four boundaries and then one virtual left per distinct signature, kept for the first rune in declaration order, not the first in sorted order.
     #[test]
     fn the_left_class_collapse_keeps_the_first_representative_in_collection_order() {
         let index = twin_spec();
@@ -1217,7 +1219,7 @@ pub(crate) mod tests {
         );
     }
 
-    /// A window no chain censuses, opened by the prospect arm alone: `qsPea`'s two exits tie exactly where the third token makes `qsTea` yield its own onward join, and the seat's prefer then decides differently.
+    /// A window no chain censuses, opened by the prospect branch alone: `qsPea`'s two exits tie where the third token makes `qsTea` give up its onward join, and the seat's prefer then decides differently.
     #[test]
     fn a_chain_dead_context_opens_on_the_prospect_arm() {
         let index = prospect_spec();
@@ -1249,7 +1251,7 @@ pub(crate) mod tests {
         }
     }
 
-    /// The stage-4b arm, opening a window the prospect arm looked at and left shut: `qsTea` offers no exit at all, so nothing about the seat's prospect can move, and only its vote reads the third token.
+    /// The vote branch opens a window the prospect branch leaves dead: `qsTea` offers no exit, so the seat's prospect cannot change, and only `qsTea`'s vote reads the third token.
     #[test]
     fn the_vote_arm_opens_a_slot_the_prospect_arm_leaves_shut() {
         let index = vote_spec();
@@ -1288,7 +1290,7 @@ pub(crate) mod tests {
         );
     }
 
-    /// Stage one is `(simulated_prospect and prospect) or (vote_slots and vote)`, and the `or` short-circuits: where the prospect arm has already fired, the vote arm is never asked at all. Both orders reach the same verdict, so nothing about the answer says which ran — but a vote probe journals the pointers its records fire, so evaluating the arms the other way round would put provenance in the product that belongs in no build. The vote arm's own memo is what says it stayed unasked.
+    /// Stage one is `(simulated_prospect and prospect) or (vote_slots and vote)`, and the `or` short-circuits: where the prospect branch fires, the vote branch does not run. Both orders reach the same verdict, but a vote probe records the pointers its records fire, so running the vote branch first would add provenance to the product. The vote branch's empty memo shows it did not run.
     #[test]
     fn a_fired_prospect_arm_leaves_the_vote_arm_unasked() {
         let index = prospect_spec();
@@ -1373,7 +1375,7 @@ pub(crate) mod tests {
         );
     }
 
-    /// A left class the fixpoint can never reach raises in the replay and is skipped — counting it as a raise instead would open every window of a seat that enters at one height only.
+    /// A left class the fixpoint can never reach raises in the replay and is skipped. Counting it as a raise would open every window of a seat that enters at one height only.
     #[test]
     fn an_unreachable_left_class_is_skipped_rather_than_marked_live() {
         let index = belt_spec();
@@ -1426,7 +1428,7 @@ pub(crate) mod tests {
         );
     }
 
-    /// The other side of the same split: a prefer conflict is a raise the enumeration must surface, so it marks the slot live instead of being skipped.
+    /// A prefer conflict is a raise the enumeration must report, so it marks the slot live instead of being skipped.
     #[test]
     fn a_raising_left_class_marks_the_slot_live() {
         let index = ambiguous_spec();
@@ -1464,7 +1466,7 @@ pub(crate) mod tests {
         );
     }
 
-    /// The prospect and vote arms key on the collapsed signature rather than on the input family, so two families the follower cannot tell apart share one verdict and run its probes once.
+    /// The prospect and vote branches key on the collapsed signature instead of the input family, so two families the follower cannot tell apart share one verdict and run its probes once.
     #[test]
     fn two_families_sharing_a_signature_share_one_probe() {
         let index = twin_spec();
@@ -1496,7 +1498,7 @@ pub(crate) mod tests {
         );
     }
 
-    /// The two modules under their real caller: a whole configuration enumerated at class grain expands, member set by member set, to the same window rows the label-grain arm emits — which is the `--deep-classes-off` comparison the exit bar names, and the enumeration-side partition assertion runs over both products on the way out.
+    /// Liveness and fibers under their real caller: a whole configuration enumerated at class grain expands, member set by member set, to the same window rows a label-grain enumeration (`--deep-classes-off`) emits. The fixpoint's partition assertion also runs on both products.
     #[test]
     fn a_class_grain_enumeration_expands_to_the_label_grain_one() {
         for index in [prospect_spec(), vote_spec()] {
@@ -1521,7 +1523,7 @@ pub(crate) mod tests {
         }
     }
 
-    /// One product's window rows with every deep-class token replaced by its members, which is `DecisionTable.expanded_transitions` over the two slots a class id can reach.
+    /// One product's window rows with every deep-class token replaced by its members, as `DecisionTable.expanded_transitions` does for the two slots a class id can occupy.
     fn expanded_windows(product: &FixpointProduct) -> Vec<String> {
         let classes: HashMap<&str, &Vec<String>> = product
             .deep_classes

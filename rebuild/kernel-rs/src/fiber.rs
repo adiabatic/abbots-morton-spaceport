@@ -2,7 +2,7 @@
 //!
 //! A fiber is a set of third-slot letters that the enumeration may collapse into one row. A candidate letter `t3`'s fiber key has three parts:
 //!
-//! 1. The probe results: for every left class in [`ProspectLiveness::seat_left_classes`] and every probed coordinate, the full row-visible record, which is the settled triple, the prospect, the joint-floor flag, and the notes. E-INCOMPARABLE, E-AMBIGUOUS, and every other error are three distinct values, and [`crate::error::SettleError`] keeps those outcomes apart for this reason: merging any two would merge fibers that the review surface and the treaty fold tell apart.
+//! 1. The probe results: for every left class in [`ProspectLiveness::seat_left_classes`] and every probed coordinate, the full row-visible record, which is the settled triple, the prospect, the joint-floor flag, and the notes. An error is one of three values: E-INCOMPARABLE, E-AMBIGUOUS, or unreachable. Unreachable covers E-STRANDED and every other [`crate::error::SettleError`], as the `E-UNREACHABLE` raise does in `settle-cases` output. Merging any two of the three would merge fibers that the review surface and the treaty fold tell apart.
 //! 2. The `fourth_slot_matters` verdict.
 //! 3. Where that verdict is true, the r4 option list [`WindowOptions::right4_options`] computes for this member. Because the key stores the computed list, a filter added to that pipeline without a key update makes [`crate::fixpoint`]'s partition assertion fail instead of silently splitting a fiber.
 //!

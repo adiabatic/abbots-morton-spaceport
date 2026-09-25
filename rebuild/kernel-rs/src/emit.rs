@@ -1,10 +1,10 @@
-//! Canonical emission, byte-identical to Python's `json.dumps(payload, separators=(",", ":"))` under the default `ensure_ascii`.
+//! Writes a spec dump as canonical JSON, byte-identical to Python's `json.dumps(payload, separators=(",", ":"))` with the default `ensure_ascii`.
 //!
-//! Compact separators, no whitespace, ASCII only. A non-ASCII code point spells out as a backslash-u escape with four lowercase hex digits, and an astral one as the UTF-16 surrogate pair Python writes; the short escapes are the seven Python uses, every other control character takes the four-digit form, and a solidus is never escaped. Integers are plain decimal and may be negative; there are no floats anywhere in the tree.
+//! The output uses compact separators and ASCII only. A non-ASCII code point is written as a backslash-u escape with four lowercase hex digits, and an astral one as the UTF-16 surrogate pair Python writes. The short escapes are the seven Python uses, every other control character and DEL take the four-digit form, and a solidus is not escaped. Integers are plain decimal and may be negative. The model holds no floats.
 //!
-//! Nothing is ever sorted. Every mapping rides in the order the model stored it, and every record spells its fields in the declaration order `rebuild/pipeline/model.py` gives them, because that is what the dump on the Python side spells and the two have to agree byte for byte.
+//! The emitter sorts nothing. It writes every mapping and list in the order the model stores it, and every record's fields in the order `rebuild/pipeline/model.py` declares them, because the Python dump uses that order and the two must agree byte for byte. The members of `frozenset` fields arrive already sorted, because `kernel_io._encode` sorts them when it writes a dump.
 //!
-//! The emitter reads the model and only the model — there is no parse tree to fall back on — which is what makes a byte-identical echo evidence that the interned packing kept everything.
+//! The emitter reads only the model, never a parse tree, so a byte-identical echo of a dump shows that the interned model lost nothing.
 
 use crate::SPEC_FORMAT;
 use crate::model::{
@@ -23,7 +23,7 @@ pub fn emit_spec(spec: &Spec) -> String {
     emitter.out
 }
 
-/// The canonical spelling of one JSON string, quotes included — the escaping rule on its own, for anyone who needs to check it against `json.dumps`.
+/// One JSON string in canonical form, with its quotes.
 pub fn json_string(value: &str) -> String {
     let mut out = String::with_capacity(value.len() + 2);
     escape_into(&mut out, value);
@@ -32,7 +32,7 @@ pub fn json_string(value: &str) -> String {
 
 const HEX: [u8; 16] = *b"0123456789abcdef";
 
-/// The same escaping appended to a buffer the caller already has, which is how the transitions stream spells a label without minting a `String` for it first.
+/// Appends one quoted, escaped JSON string to `out`, so the transitions stream can write a label without allocating a `String` for it.
 pub(crate) fn escape_into(out: &mut String, value: &str) {
     out.push('"');
     for letter in value.chars() {

@@ -13,14 +13,14 @@ name = "ams-m1-kernel"
 path = "src/main.rs"
 
 [features]
-# The hand-authored spec dumps in src/index.rs, published so tests/ can link them the way any other caller links the library. Off in every build but this crate's own dev targets.
+# Exposes the hand-written spec dumps in src/index.rs (`index::fixtures`) so the integration tests in tests/ can link them like any other caller of the library. Enabled only for this crate's own dev targets.
 fixtures = []
 
 [dependencies]
 serde_json = { version = "1", features = ["preserve_order", "arbitrary_precision"] }
 
 [dev-dependencies]
-# The crate depending on itself is how an integration test gets a feature the library is otherwise built without; nothing outside dev targets sees it.
+# The crate depends on itself so that integration tests get a feature the library is otherwise built without. Only dev targets see this dependency.
 ams-m1-kernel = { path = ".", features = ["fixtures"] }
 
 [profile.release]

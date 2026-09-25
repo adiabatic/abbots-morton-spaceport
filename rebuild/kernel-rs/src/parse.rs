@@ -1,12 +1,17 @@
-//! Strict ingest of an `ams-m1-spec/1` dump, mirroring `kernel_io._decode` and `kernel_io.spec_of` refusal for refusal.
+//! Strict parsing of an `ams-m1-spec/1` dump into the interned model. It rejects what `kernel_io._decode` and `kernel_io.spec_of` reject.
 //!
-//! Strict means the dump is read against the field sets `rebuild/pipeline/model.py` declares rather than against whatever happens to be present: a missing field and an unknown field are the same failure, because a dump from another `model.py` is a wrong dump and not a partial one. Types are checked the way Python checks them, which is stricter than JSON is — a boolean is not an integer and an integer is not a boolean, a float or an exponent-form number is not an integer at all, and an integer past `i64` is refused rather than wrapped. Fixed-arity tuples check their length, and a `Provenance` is exactly the two-element `[file, path]` array.
+//! Each record must have exactly the fields its dataclass in `rebuild/pipeline/model.py` declares. A missing field and an unknown field are both errors, because a dump from another `model.py` is wrong, not partial. Types are checked as Python checks them, which is stricter than JSON: a boolean is not an integer, an integer is not a boolean, and a float or an exponent-form number is not an integer. Fixed-arity tuples check their length, and a `Provenance` must be a two-element `[file, path]` array.
 //!
-//! Key *order* inside a record is not checked, matching Python's set comparison; canonical dumps arrive in declaration order regardless, and re-emission spells declaration order back out. Key order inside a *mapping* is preserved, because that order is load-bearing.
+//! Key order inside a record is not checked, as Python compares the field names as a set. Canonical dumps list fields in declaration order, and re-emission writes them in that order. Key order inside a mapping is preserved, because settlement depends on it (exit declaration order is the structural floor's final tiebreak) and re-emission must reproduce the dump byte for byte.
 //!
-//! Three refusals are knowingly stricter than Python's, and none is reachable from a canonical dump. serde_json caps JSON nesting near 128 levels where Python's own recursion limit sits several times higher — authored `then:` chains are lint-capped at `model.RIGHT_CHAIN_CAP` hops, so a real dump nests a couple dozen levels at most. A lone surrogate escape, which Python's `str` can hold and its codec round-trips, cannot land in a Rust `String` at all, so a dump carrying one is refused outright rather than resolved lossily; `spec_load`'s sources are UTF-8 YAML, which cannot produce one. And a rune whose ligature `sequence` names exactly one component is refused where `kernel_io.spec_of` would take it, because every settlement read of a sequence assumes at least two and the alternative is a panic deep in the window options. The mirror is exact everywhere a dump can actually come from.
+//! Four rejections are stricter than Python's, and a canonical dump triggers none of them:
 //!
-//! [`parse_spec`] is where the `serde_json::Value` lives and dies. Its return type is the interned model, so nothing downstream can echo a dump by handing the parse tree back.
+//! - An integer outside `i64`, which a Python `int` can hold.
+//! - JSON nested deeper than serde_json's limit of 128 levels. Python's recursion limit is several times higher, but `then:` chains are lint-capped at `model.RIGHT_CHAIN_CAP` hops, so a real dump nests a couple dozen levels at most.
+//! - A lone surrogate escape. A Python `str` can hold one, but a Rust `String` cannot, and `spec_load` reads UTF-8 YAML, which cannot produce one.
+//! - A ligature `sequence` with exactly one component, which `kernel_io.spec_of` accepts. Settlement reads of a sequence assume at least two components and would otherwise panic in the window options.
+//!
+//! [`parse_spec`] drops the `serde_json::Value` before it returns the interned [`Spec`], so no code downstream can re-emit the parse tree.
 
 use serde_json::{Map, Value};
 
@@ -116,7 +121,7 @@ const BOUNDARY_TOKEN_FIELDS: &[&str] = &["codepoint", "splits_runs"];
 const FEATURE_INFO_FIELDS: &[&str] = &["kind", "description", "overlay"];
 const FAMILY_INFO_FIELDS: &[&str] = &["codepoint", "sequence"];
 
-/// Read one dump into the interned model. The `serde_json::Value` this builds is local and is dropped on the way out, so the returned [`Spec`] is the only thing emission can be written against.
+/// Parses one dump into the interned model.
 pub fn parse_spec(text: &str) -> Result<Spec, IngestError> {
     let value: Value = serde_json::from_str(text)
         .map_err(|error| IngestError::new(format!("not an {SPEC_FORMAT} dump: {error}")))?;
@@ -334,7 +339,7 @@ impl Parser {
         self.list(value, Self::symbol)
     }
 
-    /// A rune's `sequence`, knowingly stricter than `kernel_io.spec_of`, which takes any list: a one-component "ligature" is a shape `spec_load` cannot produce, and every settlement read of a sequence — the formation pairs, the survivable trailing pair's `[-2]`, `liga_formed_before`'s `[1]` — assumes at least two components, so a dump spelling one is refused here with the CLI's one-line complaint rather than surfacing as a panic deep in the window options.
+    /// A rune's `sequence`, rejecting a one-component list that `kernel_io.spec_of` accepts. `spec_load` cannot produce one, and the settlement reads of a sequence (the formation pair's `[-2]` in `survivable_formation_windows`, `[1]` in `liga_formed_before`) assume at least two components, so this reports a one-line error instead of a panic in the window options.
     fn ligature_sequence(&mut self, value: &Value) -> Result<Vec<Sym>, IngestError> {
         let symbols = self.symbol_list(value)?;
         if symbols.len() == 1 {

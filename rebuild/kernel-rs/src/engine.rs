@@ -1,14 +1,14 @@
-//! The settlement engine, and the only implementation of settlement there is: the three-valued condition matching, the capability reads that decide what a stance can offer, the refusals, the candidate enumeration, the refusal-aware lookahead closure that makes mutuality definitional, and on top of those the strictly lexicographic ranking — absolute prefers, then the window join count whose third term is the follower's own simulated choice, then yielding prefers, then the runes' declared order, then the structural floor — with the adjustments and the commit that turn the winner into a settled cell.
+//! The settlement engine: condition matching, the capability reads that decide what a stance can offer, refusals, candidate enumeration, the refusal-aware lookahead closure, and the lexicographic ranking (absolute prefers, the window join count, yielding prefers, the runes' declared order, then the structural floor), followed by the adjustments and the commit that turn the winner into a settled cell. This crate is the only implementation of settlement.
 //!
-//! The ranking's stages are lexicographic and each one narrows the survivor list the next reads, so the order they run in is the whole semantics and `decided_stage` names the stage that got the list down to one. Two of them can refuse to decide rather than guess: prefer records that demand different outcomes at non-nested specificity are E-AMBIGUOUS within one rune and E-INCOMPARABLE across two, and the messages those raise are contract down to the paste-ready `resolve:` stub they print, because the author's next move is to copy it into the rune's YAML.
+//! Each ranking stage narrows the survivor list the next stage reads, so the order of the stages determines the result, and `decided_stage` names the stage that narrowed the list to one. The two prefer stages can raise instead of choosing: prefer records that demand different outcomes at non-nested specificity raise E-AMBIGUOUS within one rune and E-INCOMPARABLE across two. The E-INCOMPARABLE message ends in a paste-ready `resolve:` stub that the author copies into the rune's YAML, so its wording must stay as it is.
 //!
-//! An engine is one (spec, feature configuration) pair, and the spec arrives as a [`SpecIndex`] the engine borrows rather than owns, so the guard's whole engine powerset and every replay share one index and one string pool. Everything the engine itself holds is cache: the caches exist because the table build's fixpoint asks the same questions about the same windows thousands of times. The trace memo is also what one engine may read of another's: a finished memo leaves its engine as a [`crate::memo::MemoSnapshot`] and enters another as a base, read behind an exclusion naming the runes the two engines do not settle alike ([`Engine::seed_bases`]), which is how a configuration enumerates as a delta over `default`. The module-level `id()`-keyed dictionaries Python used to fake per-spec state are ordinary fields here, because [`StanceId`] is a stable seat pair rather than a recyclable address and therefore needs neither an identity re-check nor an LRU cap.
+//! An engine is one (spec, feature configuration) pair. It borrows the spec as a [`SpecIndex`], so the guard's engines for every feature combination and every replay share one index and one string pool. Everything the engine holds is cache, because the table build's fixpoint asks the same questions about the same windows many times. An engine can also read another engine's finished trace memo: the memo leaves as a [`crate::memo::MemoSnapshot`] and is passed to another engine as a base, behind an exclusion naming the runes and classes the two engines do not settle alike ([`Engine::seed_bases`]). That is how a configuration enumerates as a delta over `default`. Per-stance caches are ordinary maps with no size cap, because a [`StanceId`] is a stable index pair that is never reused.
 //!
-//! The fired-provenance journal is the subtle part and is contract rather than bookkeeping. `fired` is the set of authored records that demonstrably fired under this configuration, and the dead-policy gate reads it, so a memoized sub-result must not silently swallow the firings its first evaluation performed: every cache entry stores the delta its computation journaled, and every hit replays that delta into whatever capture is open — and into the set itself only where the set may not hold it yet, which is a base entry's delta on its first hit, an own entry's pointers having entered the set when the entry was recorded. That is what makes each entry's delta order-independent and a warm engine's `fired` equal to a cold one's. The journal only runs in trace-memo mode, because that is the only mode where anything asks for a per-evaluation delta; outside it there is no journal, and — following Python exactly — [`Engine::candidates`] does not consult its cache at all, since the entry it would store could not carry a delta to replay.
+//! The fired-provenance journal must be exact. `fired` is the set of authored records that fired under this configuration, and the dead-policy check reads it, so a memo hit must not lose the firings its first evaluation performed. Every cache entry stores the delta its computation journaled, and every hit replays that delta into whatever capture is open. A hit adds the delta to the set itself only when the set may not hold it yet, which is a base entry's delta on its first hit: an own entry's pointers entered the set when the entry was recorded. This makes each entry's delta independent of evaluation order and a warm engine's `fired` equal to a cold one's. The journal runs only in trace-memo mode, the only mode that asks for a per-evaluation delta. Outside it there is no journal, and [`Engine::candidates`] skips its cache, since an entry could not carry a delta to replay.
 //!
-//! A pointer is Python's `str(Provenance)`, the `file:path` spelling. It rides here as a [`Pointer`], the two symbols side by side, rather than as the composed string: the pair is what the provenance already is, it is `Copy` and hashes on two integers, and the string is built only where one is emitted. Nothing else in the engine holds an owned `String` except the elimination descriptions, whose exact wording is contract against the Python original and which are read by people rather than keyed on.
+//! A [`Pointer`] is a provenance's `file:path` pair, kept as two symbols so it is `Copy` and hashes on two integers. The string is built only where one is written out.
 //!
-//! Three raises live in this half, all of them spec defects rather than settlement outcomes, and all three keep Python's sentence: a left condition carrying `then:`, a right condition carrying a left-only axis, and an unresolvable class name (which [`SpecIndex::class_members`] raises). Everything else here answers rather than raises — an unavailable entry, a forbidden pairing, a closed-out exit, and a refusal are all eliminations, and a window with no candidates at all is the ranking's problem, not enumeration's.
+//! Condition matching raises three spec defects: a left condition carrying `then:`, a right condition carrying a left-only axis, and an unresolvable class name (raised by [`SpecIndex::class_members`]). Enumeration reports every other rejection as an elimination: an unavailable entry, a forbidden pairing, an exit the closure rules out, and a refusal. A window with no candidates at all is reported by [`Engine::transition_trace`].
 
 use std::num::NonZeroU16;
 
@@ -27,13 +27,13 @@ use crate::types::{
     Vocab, boundary_settled, cell_label, provenance_pointer, word_position,
 };
 
-/// Where a candidate enumeration's eliminations go, together with whether their sentences are wanted at all. Separating the two is what lets the table fixpoint keep every elimination's stage and pointer — the notes on a row are built from those — while formatting none of the prose that names them.
+/// Where a candidate enumeration's eliminations go, and whether their descriptions are formatted. The table fixpoint needs each elimination's stage and pointer, because a row's notes are built from them, but not the text.
 struct EliminationSink<'a> {
     list: Option<&'a mut Vec<Elimination>>,
     describe: bool,
 }
 
-/// One authored record's YAML pointer, as the fired set and every journaled delta hold it — `model.Provenance`'s two halves, kept apart so the value is `Copy` and hashes on two integers instead of on a composed string. [`Pointer::text`] builds the `file:path` spelling Python's `str(Provenance)` gives, which is what the corpus and the notes carry.
+/// One authored record's YAML pointer: `model.Provenance`'s file and path, kept apart so the value is `Copy` and hashes on two integers. [`Pointer::text`] builds the `file:path` string the corpus and the notes carry.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct Pointer {
     pub file: Sym,
@@ -49,7 +49,7 @@ impl Pointer {
         }
     }
 
-    /// The `file:path` spelling, which is the only form that reaches an output.
+    /// The `file:path` string, the only form that reaches an output.
     pub fn text(self, index: &SpecIndex) -> String {
         provenance_pointer(
             index,
@@ -61,7 +61,7 @@ impl Pointer {
     }
 }
 
-/// One collection's occupancy, as the `--cache-census` diagnostic reports it. A capacity beside a length is what tells a table that is merely large apart from one that is mostly empty slack, which is the difference between a shrink worth taking and one that would buy nothing.
+/// One collection's length and capacity, as the `--cache-census` diagnostic reports it. Capacity beside length shows whether a table is large or mostly empty slack, which decides whether shrinking it would save memory.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct CacheSize {
     pub name: &'static str,
@@ -88,7 +88,7 @@ impl CacheSize {
     }
 }
 
-/// The four raw lookahead slots one window is read against. Python passes them as four parameters with the deeper two defaulting to `UNKNOWN`; bundling them is what keeps the deep-window discipline visible at every call site, because a caller that has only two honest slots writes [`Slots::pair`] and thereby says out loud that the rest of the window is unknown rather than quietly reaching for something it does not know.
+/// The four raw lookahead slots one window is read against. A caller that knows only two slots uses [`Slots::pair`], which sets the other two to `UNKNOWN` explicitly.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct Slots {
     pub right1: RightToken,
@@ -98,7 +98,7 @@ pub struct Slots {
 }
 
 impl Slots {
-    /// All four slots spelled out.
+    /// All four slots given explicitly.
     pub fn new(
         right1: RightToken,
         right2: RightToken,
@@ -113,7 +113,7 @@ impl Slots {
         }
     }
 
-    /// The two-slot window every capability and refusal read is evaluated against, with the deeper two at their honest `UNKNOWN` — Python's defaulted `right3` / `right4` parameters.
+    /// The two-slot window every capability and refusal read is evaluated against, with the deeper two slots `UNKNOWN`.
     pub fn pair(right1: RightToken, right2: RightToken) -> Self {
         Self::new(right1, right2, UNKNOWN, UNKNOWN)
     }
@@ -124,21 +124,21 @@ impl Slots {
     }
 }
 
-/// The window past the supplied slots, which a `then:` chain exhausts to: the tail [`Engine::cond_matches_right`] walks once the supplied slots run out.
+/// The tail [`Engine::cond_matches_right`] walks once a `then:` chain runs past the supplied slots.
 const UNKNOWN_TAIL: [RightToken; 1] = [UNKNOWN];
 
-/// The mode pins an engine is built with. Python reads two of these from module-level defaults that an environment variable moves; the crate has no environment to read, so the caller passes them and the [`Default`] spelling is the shipping configuration.
+/// The modes an engine is built with. The crate reads no environment, so the caller passes them. [`Default`] is the shipping configuration.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct EngineModes {
-    /// The follower vote's beyond-`right1` slot when `vote_slots` is off. `UNKNOWN` is the optimistic comparison state; the section 5.7 guard's engines pin it to `EDGE` so a vote needing deeper text than the verdict is keyed on can never flip a formation verdict.
+    /// The follower vote's slots past `right1` when `vote_slots` is off. `UNKNOWN` is the optimistic comparison state. The section 5.7 guard's engines set it to `EDGE`, so a vote that needs deeper text than the guard's verdict is keyed on can never change a formation verdict.
     pub vote_deep_slot: RightToken,
-    /// Whether the third join-count term is the follower's actual simulated transition (issue 28's shipping default) rather than the pre-issue-28 optimistic candidacy estimate.
+    /// Whether the third join-count term is the follower's simulated transition (the default) or the optimistic candidacy estimate.
     pub simulated_prospect: bool,
-    /// Whether a follower vote is evaluated over the seat's real shifted slots rather than pinning everything past its own `right1` to `vote_deep_slot`.
+    /// Whether a follower vote reads the window's slots shifted by one, or reads `vote_deep_slot` for everything past its own `right1`.
     pub vote_slots: bool,
-    /// Whether the engine memoizes whole windows and journals a fired delta per memoized evaluation. Off everywhere but the table fixpoint, the two case verbs (`settle-cases`, `liveness-cases`) and the string replay.
+    /// Whether the engine memoizes whole windows and journals a fired delta per memoized evaluation. On only in the table fixpoint, the `settle-cases` and `liveness-cases` subcommands, and the string replay.
     pub trace_memo: bool,
-    /// Whether a trace carries its explain ladder — the ranking, the eliminations with their sentences, and the runner-up. On everywhere a person reads a trace — the explain report, the review surface, the probe; off in the table fixpoint, whose rows read the settled triple, the prospect, the joint floor and the notes, and nothing else, and in the string replay, whose walk reads the settled record alone. Formatting a ladder nobody reads is the largest avoidable allocation in either, so this is where that decision is spelled.
+    /// Whether a trace carries its explain ladder: the ranking, the eliminations with their descriptions, and the runner-up. On wherever a person reads a trace (the explain report, the review surface, the probe). Off in the table fixpoint, whose rows read only the settled triple, the prospect, the joint floor and the notes, and in the string replay, which reads only the settled record. Formatting ladders nobody reads is the largest avoidable allocation in either.
     pub explain_ladder: bool,
 }
 
@@ -154,7 +154,7 @@ impl Default for EngineModes {
     }
 }
 
-/// One exit a stance can offer: a declared row at its declaration seat, or a row-less height an active unlock grants at a seat past the declared ones. The `Unlock` behind such a height is deliberately not carried, because no caller reads it — the unlock's only observable effect is the provenance the enumeration fires, which the cache already replays.
+/// One exit a stance can offer: a declared row at its declaration index, or a row-less height an active unlock grants, at an index past the declared ones. The `Unlock` behind such a height is not stored because no caller reads it. Its only effect is the provenance the enumeration fires, which the cache replays.
 #[derive(Clone, Copy, Debug)]
 struct ExitSource<'i> {
     height: Sym,
@@ -162,14 +162,14 @@ struct ExitSource<'i> {
     index: usize,
 }
 
-/// One stance's pairing rules, resolved to the pairs the check compares against. Python keeps these in a module-level LRU keyed on `id(stance)` with an identity re-check; a [`StanceId`] cannot be recycled, so this is an ordinary per-engine map with no cap and no dance.
+/// One stance's pairing rules as sets of (entry, exit) pairs, cached per [`StanceId`] with no size cap.
 #[derive(Clone, Debug)]
 struct PairingSets {
     never: HashSet<(Sym, Sym)>,
     only: Option<HashSet<(Sym, Sym)>>,
 }
 
-/// The seat one distinct candidate list holds in the candidate memo's list pool, and what a memoized enumeration holds in place of its candidates. Under half a million entries a configuration name a few dozen distinct lists between them, so an entry that owned its list was holding a vector hundreds of thousands of its neighbors held too, where four bytes name the same one (issue #167). The offset is the pool's business alone: [`CandidateListSeat::at`] and [`CandidateListSeat::index`] are the two crossings.
+/// The index of one distinct candidate list in the candidate memo's list pool, stored in a memo entry in place of the list. A configuration's candidate memo holds fewer than half a million entries but only a few dozen distinct lists, so four bytes per entry replace a vector shared with hundreds of thousands of other entries (issue #167). [`CandidateListSeat::at`] and [`CandidateListSeat::index`] are the only conversions.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 struct CandidateListSeat(u32);
 
@@ -188,7 +188,7 @@ impl CandidateListSeat {
     }
 }
 
-/// The table the candidate memo seats its candidate lists through, the same shape as [`NotesPool`] for the same reason: every distinct list once, in the order an enumeration first produced it, and the seat each one holds. A hit clones the list out of the table exactly as it cloned it out of the entry, so seating it moves nothing about what a hit answers.
+/// The table the candidate memo stores its candidate lists in, shaped like [`NotesPool`]: each distinct list once, in first-seen order, with its seat. A hit clones the list out of the table.
 #[derive(Clone, Debug, Default)]
 struct CandidateListPool {
     seats: HashMap<Vec<Candidate>, CandidateListSeat>,
@@ -196,7 +196,7 @@ struct CandidateListPool {
 }
 
 impl CandidateListPool {
-    /// This list's seat, minted on the first enumeration that produced it and answered from the map on every later one. The list arrives owned because the enumeration is done with it: a miss keeps the allocation and a hit drops it.
+    /// This list's seat, minted the first time the list is seen. The list is passed owned: a miss keeps the allocation and a hit drops it.
     fn seat(&mut self, candidates: Vec<Candidate>) -> CandidateListSeat {
         if let Some(&seat) = self.seats.get(candidates.as_slice()) {
             return seat;
@@ -217,13 +217,13 @@ impl CandidateListPool {
         self.table.len()
     }
 
-    /// How many the table has room for, which is what the cache census reports beside the length.
+    /// The table's capacity, which the cache census reports beside the length.
     fn capacity(&self) -> usize {
         self.table.capacity()
     }
 }
 
-/// The seat one distinct elimination list holds in the candidate memo's elimination pool, and what a memoized enumeration holds in place of its eliminations. The pool is keyed on the whole list — every elimination's stage, sentence and provenance — so explain mode, where the sentences are real prose, stays exact; in fixpoint mode the sentences are empty and a list is its stages and its pointers, which is why a configuration's entries share a few dozen lists between them (issue #167).
+/// The index of one distinct elimination list in the candidate memo's elimination pool, stored in a memo entry in place of the list. The pool is keyed on the whole list (each elimination's stage, description and provenance), so explain mode, where descriptions are filled in, stays exact. In fixpoint mode the descriptions are empty, so a configuration's entries share a few dozen lists (issue #167).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 struct EliminationListSeat(u32);
 
@@ -242,7 +242,7 @@ impl EliminationListSeat {
     }
 }
 
-/// The table the candidate memo seats its elimination lists through, the same shape as [`CandidateListPool`] for the same reason. A hit extends the caller's eliminations from the list where it sits, exactly as it extended them from the entry.
+/// The table the candidate memo stores its elimination lists in, shaped like [`CandidateListPool`].
 #[derive(Clone, Debug, Default)]
 struct EliminationListPool {
     seats: HashMap<Vec<Elimination>, EliminationListSeat>,
@@ -250,7 +250,7 @@ struct EliminationListPool {
 }
 
 impl EliminationListPool {
-    /// This list's seat, minted on the first enumeration that produced it and answered from the map on every later one. The list arrives owned because the enumeration is done with it: a miss keeps the allocation and a hit drops it, and neither copies a sentence.
+    /// This list's seat, minted the first time the list is seen. The list is passed owned: a miss keeps the allocation and a hit drops it without copying a description.
     fn seat(&mut self, eliminations: Vec<Elimination>) -> EliminationListSeat {
         if let Some(&seat) = self.seats.get(eliminations.as_slice()) {
             return seat;
@@ -266,7 +266,7 @@ impl EliminationListPool {
         &self.table[seat.index()]
     }
 
-    /// Every distinct list once, in seat order — what [`Engine::elimination_text_bytes`] measures, since a list is held once however many entries name it.
+    /// Every distinct list once, in seat order. [`Engine::elimination_text_bytes`] measures these, since a list is held once however many entries name it.
     fn lists(&self) -> &[Vec<Elimination>] {
         &self.table
     }
@@ -276,13 +276,13 @@ impl EliminationListPool {
         self.table.len()
     }
 
-    /// How many the table has room for, which is what the cache census reports beside the length.
+    /// The table's capacity, which the cache census reports beside the length.
     fn capacity(&self) -> usize {
         self.table.capacity()
     }
 }
 
-/// What the candidate memo holds per window: seats for the candidate list, the elimination list and the fired delta — twelve bytes and no heap. An entry holding an `Rc` over the two lists and a boxed delta is four heap allocations and a reference-count header behind every table slot, and an instrumented run of that layout said what it holds: under half a million entries a configuration sharing a few dozen distinct candidate lists, a few dozen distinct elimination lists and a few thousand distinct deltas, so nearly every entry owned a private copy of what hundreds of thousands of its neighbors owned too (issue #167). The delta is what makes the entry replayable: a later window that hits this key never runs the enumeration, so without replaying the delta those records would read as dead.
+/// What the candidate memo holds per window: seats for the candidate list, the elimination list, the fired delta and the read set, sixteen bytes with no heap. An instrumented run of an earlier layout, which kept the lists and the delta on the heap per entry, measured fewer than half a million entries per configuration sharing a few dozen distinct candidate lists, a few dozen distinct elimination lists and a few thousand distinct deltas (issue #167). The delta lets a hit replay the records the enumeration fired. Without it, a window that hits this key would leave those records looking dead.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 struct CandidatesEntry {
     candidates: CandidateListSeat,
@@ -291,7 +291,7 @@ struct CandidatesEntry {
     reads: ReadsSeat,
 }
 
-/// The candidate memo and the two list pools its entries seat into, released as one piece for the reason the trace memo's pools ride with its entries: a seat means nothing without the table it indexes. The delta seat resolves through [`Engine::deltas`] rather than a pool of this memo's own, because three memos journal deltas and one table holds each distinct delta once, whichever memo journaled it first.
+/// The candidate memo and its two list pools, released together because a seat means nothing without the table it indexes. The delta seat resolves through [`Engine::deltas`], which every memo shares, so each distinct delta is held once.
 #[derive(Clone, Debug, Default)]
 struct CandidatesMemo {
     entries: HashMap<CandidatesKey, CandidatesEntry>,
@@ -299,9 +299,9 @@ struct CandidatesMemo {
     eliminations: EliminationListPool,
 }
 
-/// The candidate memo's key, which collapses the left exactly as Python's does: the kind, and the settled cell's rune, stance and seam. The left's entry, its adjustments and its extension are deliberately absent — enumeration reads none of them, so two settled lefts differing only there enumerate identically and share one entry. The trace memo's key keeps the extension, because the commit's same-seam suppression does read it.
+/// The candidate memo's key. The left is reduced to its kind and the settled cell's rune, stance and seam. The left's entry, adjustments and extension are left out because enumeration reads none of them, so two lefts differing only there share one entry. The trace memo's key keeps the extension, because the commit's same-seam suppression reads it.
 ///
-/// It is packed to fourteen bytes the way [`TraceKey`] is (issues #167 and #266): every rune, stance and seam rides as its field's [`Ordinal`], the two slots as their runes' ordinals beside their kinds, which spells each token exactly once, so two windows collide exactly when their slots are equal, and the left's kind and the two slot kinds share one [`PackedKinds`] word. Nothing reads a key back: it is compared and hashed and never resolved.
+/// It is packed to fourteen bytes like [`TraceKey`]: each rune, stance and seam is its field's [`Ordinal`], each slot is its rune's ordinal beside its kind, and the left's kind and the two slot kinds share one [`PackedKinds`] word. Each token has exactly one encoding, so two windows share a key exactly when their slots are equal. A key is only compared and hashed, never resolved.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 struct CandidatesKey {
     left_rune: Option<Ordinal>,
@@ -313,7 +313,7 @@ struct CandidatesKey {
     kinds: PackedKinds,
 }
 
-/// The lookahead closure's key: the candidate we are proposing, spelled out, plus the follower and the raw slot past it.
+/// The lookahead closure's key: the proposed candidate, the follower, and the raw slot past it.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 struct ClosureKey {
     rune: Sym,
@@ -324,9 +324,9 @@ struct ClosureKey {
     right2: RightToken,
 }
 
-/// The trace memo's key: the collapsed left with its extension, the input rune, and all four raw slots. Every window read the kernel makes goes through these fields, which is why lefts differing only in their cell's entry or adjustments may share one entry.
+/// The trace memo's key: the reduced left with its extension, the input rune, and all four raw slots. The kernel reads the left only through these fields, so lefts differing only in their cell's entry or adjustments share one entry.
 ///
-/// It is packed to twenty bytes because the memo holds one per window over a million and more windows a configuration (issues #165 and #266). Every rune, stance and seam field is its field's [`Ordinal`] — two bytes naming a symbol out of the handful the spec offers for that position, where a `Sym` into the whole pool takes four — and the four slots ride as their runes' ordinals beside their kinds, which is what a [`RightToken`] is: a letter is its kind with a rune, and every other kind carries none, so the pair spells each token exactly once and two windows collide exactly when their slots are equal. The left's kind and the four slot kinds share one [`PackedKinds`] word, and the extension is an `i16` because it is a count of connector pixels; eight ordinals, the word and the count sit at alignment two with no padding. A key is compared, hashed and sorted, and read back only by the memo writer, which resolves each ordinal through the index that minted it.
+/// It is packed to twenty bytes because the memo holds one per window, over a million windows per configuration, as measured in issues #165 and #266. Each rune, stance and seam field is its field's [`Ordinal`]: two bytes naming one of the few symbols the spec offers for that position, where a `Sym` into the whole pool takes four. Each slot is its rune's ordinal beside its kind, which is what a [`RightToken`] is: a letter is its kind with a rune, and every other kind has no rune, so each token has one encoding and two windows share a key exactly when their slots are equal. The left's kind and the four slot kinds share one [`PackedKinds`] word, and the extension is an `i16` count of connector pixels. Eight ordinals, the word and the count sit at alignment two with no padding. A key is compared, hashed and sorted, and is read back only by the memo writer, which resolves each ordinal through the index that minted it.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub(crate) struct TraceKey {
     pub(crate) left_rune: Option<Ordinal>,
@@ -340,7 +340,7 @@ pub(crate) struct TraceKey {
 }
 
 impl TraceKey {
-    /// Every rune this key names, as rune-field ordinals — the left cell's, the input, and each letter slot's — which is every rune file the engine reads while settling the window, and so the whole of what a [`crate::memo::Exclusion`] tests.
+    /// Every rune this key names, as rune-field ordinals: the left cell's, the input's, and each letter slot's. [`crate::memo::Exclusion::names`] tests these, and the exclusion also tests the entry's read set.
     pub(crate) fn runes_named(&self) -> impl Iterator<Item = Ordinal> + '_ {
         self.left_rune
             .into_iter()
@@ -379,9 +379,9 @@ impl TraceKey {
     }
 }
 
-/// The prospect memo's key, in the two shapes the two candidacy worlds need. An engine's mode is fixed at construction, so only one of them ever occurs on any given engine, and one map holds both; the asymmetry between them is the terms' own — the candidacy key ends in `right2`'s rune, because the estimate reads nothing past the follower's own right, while the simulated key carries the whole token and the two slots behind it, because the cascade it runs does.
+/// The prospect memo's key, with one shape per prospect mode. An engine's mode is fixed at construction, so one engine only ever uses one shape. The candidacy key ends at `right2`'s rune because the estimate reads nothing past the follower's right. The simulated key carries the three slots from `right2` on because the follower's replayed settlement reads them.
 ///
-/// Every field is its key field's [`Ordinal`], as [`TraceKey`]'s are (issues #166 and #266), and the simulated key's three slots ride as their runes' ordinals beside one [`PackedKinds`] word of their kinds: the pair spells each token exactly once, so two asks collide exactly when their slots are equal, and the wider arm is eight ordinals and the word, eighteen bytes, with the discriminant riding in the forbidden zero of one of the bare `Ordinal` fields, since an `Option<Ordinal>` has spent that value on its own `None` and offers no niche. Nothing reads a key back: it is compared and hashed and never resolved.
+/// Each field is its [`Ordinal`], as in [`TraceKey`] (issues #166 and #266), and the simulated key's three slots are their runes' ordinals beside one [`PackedKinds`] word of their kinds, so two asks share a key exactly when their slots are equal. The larger variant is eight ordinals and the word, eighteen bytes. The enum discriminant is stored in the unused zero value of a bare `Ordinal` field. An `Option<Ordinal>` field cannot hold it, because its `None` already uses that zero. A key is only compared and hashed, never resolved.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 enum ProspectKey {
     Candidacy {
@@ -403,35 +403,35 @@ enum ProspectKey {
     },
 }
 
-/// How one prospect ask was answered, which [`Engine::prospect`] reads to decide whether the answer is worth an entry of its own (issue #166). A term read off the follower's simulated trace left that trace in the trace memo, in a mode that has one, and the next ask reads it there; a term the candidacy estimate answered — because the mode asks for nothing else, or because the cascade raised and fell back — left nothing behind that a later ask could read, so the memo keeps it.
+/// How one prospect ask was computed, which [`Engine::prospect`] reads to decide whether to store an entry (issue #166). A term read from the follower's simulated trace left that trace in the trace memo, when there is one, and the next ask reads it there. A term from the candidacy estimate, because the mode asks for it or because the follower's replayed settlement raised and fell back, left nothing a later ask could read, so the prospect memo keeps it.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum ProspectTerm {
     Simulated,
     Estimated,
 }
 
-/// Which of a rune's two adjustment lists an adjustment is picked from. Python passes the kind as a string and chooses the list from it.
+/// Which of a rune's two adjustment lists an adjustment is picked from.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum AdjustmentKind {
     Extend,
     Contract,
 }
 
-/// One policy record together with the rune that owns it — how the prefer stage gathers records from both seam runes, and how the two colliding ones reach the resolution and the message.
+/// One policy record with the rune that owns it. The prefer stage gathers records from both seam runes this way and passes the two colliding ones to the resolution and the error message.
 #[derive(Clone, Copy, Debug)]
 struct OwnedRecord<'i> {
     owner: Sym,
     record: &'i PolicyRecord,
 }
 
-/// One gathered prefer record that speaks to this window: it is relevant, it favors something, and what it favors is strictly narrower than the survivor list — the three tests `_apply_prefers` admits a record by. `favored` is a set because the narrowing only ever asks it for membership.
+/// One gathered prefer record that applies to this window: it is relevant, it favors something, and what it favors is a strict subset of the survivor list. `favored` is a set because the narrowing only tests membership.
 struct Applicable<'i> {
     owner: Sym,
     record: &'i PolicyRecord,
     favored: HashSet<Candidate>,
 }
 
-/// The seat one distinct fired delta holds in the engine's delta pool, and what a memoized window, enumeration, prospect or closure verdict holds in place of its delta. A configuration's million and more memoized windows journal a few tens of thousands of distinct deltas between them, so an entry that owned its delta was holding a boxed slice hundreds of its neighbors held too, where four bytes name the same one (issue #165). The offset is the pool's business alone: [`DeltaSeat::at`] and [`DeltaSeat::index`] are the two crossings.
+/// The index of one distinct fired delta in the engine's delta pool, stored in a memoized window, enumeration, prospect or closure entry in place of the delta. A configuration's million and more memoized windows journal a few tens of thousands of distinct deltas, so four bytes per entry replace a boxed slice shared with hundreds of other entries (issue #165). [`DeltaSeat::at`] and [`DeltaSeat::index`] are the only conversions.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub(crate) struct DeltaSeat(u32);
 
@@ -450,7 +450,7 @@ impl DeltaSeat {
     }
 }
 
-/// The table every memoized fired delta is seated through, the same shape as [`NotesPool`] for the same reason: every distinct delta once, in the order an evaluation first journaled it, and the seat each one holds. A replay reads the delta where it sits, so seating it moves nothing about what a hit fires.
+/// The table every memoized fired delta is stored in, shaped like [`NotesPool`]: each distinct delta once, in first-journaled order, with its seat. A replay reads the delta from the table.
 #[derive(Clone, Debug, Default)]
 struct DeltaPool {
     seats: HashMap<Box<[Pointer]>, DeltaSeat>,
@@ -458,7 +458,7 @@ struct DeltaPool {
 }
 
 impl DeltaPool {
-    /// This delta's seat, minted on the first evaluation that journaled it and answered from the map on every later one. The delta arrives owned because the capture that produced it is closed: a miss keeps the allocation and a hit drops it.
+    /// This delta's seat, minted the first time the delta is journaled. The delta is passed owned because its capture is closed: a miss keeps the allocation and a hit drops it.
     fn seat(&mut self, delta: Box<[Pointer]>) -> DeltaSeat {
         if let Some(&seat) = self.seats.get(&*delta) {
             return seat;
@@ -479,13 +479,13 @@ impl DeltaPool {
         self.table.len()
     }
 
-    /// How many the table has room for, which is what the cache census reports beside the length.
+    /// The table's capacity, which the cache census reports beside the length.
     fn capacity(&self) -> usize {
         self.table.capacity()
     }
 }
 
-/// The seat one distinct read set holds in the engine's reads pool, and what every memoized evaluation holds in place of the runes and classes it read (issue #184). A window's evaluation reads a handful of runes and classes, and a configuration's memoized evaluations name a few tens of thousands of distinct sets between them, so the set is seated once as the delta is. [`ReadsSeat::at`] and [`ReadsSeat::index`] are the two crossings.
+/// The index of one distinct read set in the engine's reads pool, stored in every memoized evaluation in place of the runes and classes it read (issue #184). A configuration's memoized evaluations share a few tens of thousands of distinct sets, so each set is stored once, like a delta. [`ReadsSeat::at`] and [`ReadsSeat::index`] are the only conversions.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub(crate) struct ReadsSeat(u32);
 
@@ -502,7 +502,7 @@ impl ReadsSeat {
     }
 }
 
-/// The table every memoized read set is seated through, the same shape as [`DeltaPool`] for the same reason.
+/// The table every memoized read set is stored in, shaped like [`DeltaPool`].
 #[derive(Clone, Debug, Default)]
 struct ReadsPool {
     seats: HashMap<Box<[Read]>, ReadsSeat>,
@@ -533,13 +533,13 @@ impl ReadsPool {
     }
 }
 
-/// What one closed capture hands back: the pointers the evaluation fired, in first-fired order, and the runes and classes it read, as a set.
+/// What one closed capture returns: the pointers the evaluation fired, in first-fired order, and the set of runes and classes it read.
 struct Captured {
     delta: Box<[Pointer]>,
     reads: Box<[Read]>,
 }
 
-/// The seat one of the trace memo's settled records holds as a [`TraceEntry`] carries it: the memo pool's [`SettledSeat`] narrowed to two bytes, minted at the crossing from the pool and raising rather than wrapping past the range (issue #266). It is a type of its own rather than the shared seat narrowed because the shared seat's `NonZeroU32` niche is what folds a product row's absent left seat into four bytes (`Option<SettledSeat>` in [`crate::fixpoint`]), and a product seats what a whole fixpoint reaches where this memo seats what one engine traced: `default`'s memo file names a few hundred distinct settled records. The integer is the index's successor, as the wide seat's is, so the range is [`TraceSettledSeat::CAPACITY`] records; [`TraceSettledSeat::at`] and [`TraceSettledSeat::index`] are the two crossings, and [`TraceSettledSeat::widen`] hands the pool's own seat back.
+/// A [`SettledSeat`] narrowed to two bytes for a [`TraceEntry`] (issue #266), which panics past its range instead of wrapping. It is a separate type because the shared seat must stay four bytes wide: its `NonZeroU32` niche keeps a fixpoint product row's `Option<SettledSeat>` at four bytes ([`crate::fixpoint`]), and a product holds every record a whole fixpoint reaches. This memo holds only what one engine traced, and `default`'s memo file names a few hundred distinct settled records. The integer is the index plus one, so the range is [`TraceSettledSeat::CAPACITY`] records. [`TraceSettledSeat::at`] and [`TraceSettledSeat::index`] are the conversions, and [`TraceSettledSeat::widen`] returns the pool's own seat.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub(crate) struct TraceSettledSeat(NonZeroU16);
 
@@ -547,13 +547,13 @@ impl TraceSettledSeat {
     /// How many records a trace memo can seat: every index whose successor fits in a `u16`.
     pub(crate) const CAPACITY: usize = u16::MAX as usize;
 
-    /// The seat for the pool's `index`-th record, or `None` past the range — the reader's crossing, where a file past the range is a refusal rather than a raise.
+    /// The seat for the pool's `index`-th record, or `None` past the range. The memo reader uses this and rejects a file past the range instead of panicking.
     pub(crate) fn try_at(index: usize) -> Option<Self> {
         let raw = u16::try_from(index.checked_add(1)?).ok()?;
         NonZeroU16::new(raw).map(Self)
     }
 
-    /// The seat for the pool's `index`-th record, raising past the range rather than wrapping.
+    /// The seat for the pool's `index`-th record. Panics past the range instead of wrapping.
     pub(crate) fn at(index: usize) -> Self {
         Self::try_at(index).expect("a trace memo seats fewer than 65,536 distinct settled records")
     }
@@ -569,7 +569,7 @@ impl TraceSettledSeat {
     }
 }
 
-/// The seat one of the trace memo's notes lists holds as a [`TraceEntry`] carries it: the memo pool's [`NotesSeat`] narrowed to two bytes by the same argument as [`TraceSettledSeat`], with the same crossings and the same raise past [`TraceNotesSeat::CAPACITY`] lists.
+/// A [`NotesSeat`] narrowed to two bytes for a [`TraceEntry`], like [`TraceSettledSeat`], with the same conversions and the same panic past [`TraceNotesSeat::CAPACITY`] lists.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub(crate) struct TraceNotesSeat(NonZeroU16);
 
@@ -583,7 +583,7 @@ impl TraceNotesSeat {
         NonZeroU16::new(raw).map(Self)
     }
 
-    /// The seat for the pool's `index`-th list, raising past the range rather than wrapping.
+    /// The seat for the pool's `index`-th list. Panics past the range instead of wrapping.
     pub(crate) fn at(index: usize) -> Self {
         Self::try_at(index).expect("a trace memo seats fewer than 65,536 distinct notes lists")
     }
@@ -599,19 +599,19 @@ impl TraceNotesSeat {
     }
 }
 
-/// What the trace memo holds per window: two-byte seats into the memo's two pools for the settled record and the notes, four-byte seats into [`Engine::deltas`] for the fired delta and into the engine's reads pool for the runes and classes the evaluation read, and one byte holding the prospect, the joint flag and the stage together — sixteen bytes at the wide seats' alignment and no heap (issue #266). Folding the three into a byte buys nothing on its own, since the four-byte alignment absorbs it; it is the narrow seats beside it that take the entry from twenty bytes to sixteen. An entry holding the whole [`TransitionTrace`] by value beside a boxed delta is what an instrumented run of that layout measured: over a million entries a configuration naming a couple of hundred distinct settled records, about a hundred distinct notes lists and a few tens of thousands of distinct deltas, so nearly every entry held by value what hundreds of its neighbors held too (issue #165). The ladder is not here at all: it exists only where the engine was built with [`EngineModes::explain_ladder`], which neither the fixpoint nor the string replay is, so it lives in [`TraceMemo::ladders`] rather than as an empty slot on every entry those two record.
+/// What the trace memo holds per window: two-byte seats into the memo's settled and notes pools, four-byte seats into [`Engine::deltas`] and the engine's reads pool, and one byte packing the prospect, the joint flag and the stage. That is sixteen bytes at four-byte alignment, with no heap. Packing the three fields into a byte saves nothing alone, because the alignment pads it. The two-byte seats are what take the entry from twenty bytes to sixteen. An instrumented run of an earlier layout (issue #165), which held the whole [`TransitionTrace`] and a boxed delta per entry, measured over a million entries per configuration naming a couple of hundred distinct settled records, about a hundred distinct notes lists and a few tens of thousands of distinct deltas. The ladder is stored separately in [`TraceMemo::ladders`], because only an engine built with [`EngineModes::explain_ladder`] has one, and neither the fixpoint nor the string replay is.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) struct TraceEntry {
     pub(crate) settled: TraceSettledSeat,
     pub(crate) notes: TraceNotesSeat,
     pub(crate) delta: DeltaSeat,
     pub(crate) reads: ReadsSeat,
-    /// The prospect's bit at the bottom, since the term is a seam count of zero or one, the joint flag above it and the stage's ordinal in the three bits above that; [`TraceEntry::prospect`], [`TraceEntry::joint_floor`] and [`TraceEntry::decided_stage`] read them back.
+    /// The prospect bit at the bottom (the term is a seam count of zero or one), the joint flag above it, and the stage's ordinal, at most six, from bit two up. [`TraceEntry::prospect`], [`TraceEntry::joint_floor`] and [`TraceEntry::decided_stage`] read them back.
     packed: u8,
 }
 
 impl TraceEntry {
-    /// One entry over its four seats and the three fields the byte packs, taking the prospect as the `i64` the ranking sums and raising on one outside zero or one rather than folding it into the bit.
+    /// One entry over its four seats and the three packed fields. The prospect is passed as the `i64` the ranking sums, and a value outside zero or one panics.
     pub(crate) fn new(
         settled: TraceSettledSeat,
         notes: TraceNotesSeat,
@@ -651,7 +651,7 @@ impl TraceEntry {
     }
 }
 
-/// The window memo and its fired journal in one table, with the settled and notes pools its entries seat into beside it. The delta rides in the entry as a seat rather than in a shadow map on the same twenty-byte key, which would cost the key and its hashbrown slack a second time for a value that is only ever read alongside the trace it belongs to; it resolves through [`Engine::deltas`] rather than a pool of this memo's own because the candidate and closure memos seat their deltas in the same table (issue #167). The two pools here are the memo's own rather than a fixpoint's because the memo outlives no fixpoint and is released as one piece. The ladders map is keyed on the same key and is populated only in explain-ladder mode, so a fixpoint's memo carries no ladder slot per entry and an explain-mode hit still answers with the ladder its miss recorded.
+/// The window memo and its fired journal, with the settled and notes pools its entries index. The delta is a seat in the entry, not a second map on the same twenty-byte key, which would cost the key and its hash-table slack again for a value only read with its trace. It resolves through [`Engine::deltas`] because the candidate, closure and prospect memos store their deltas in the same table (issue #167). The pools belong to the memo, not to a fixpoint, because the memo lives no longer than a fixpoint and is released as one piece. `ladders` uses the same key and is filled only in explain-ladder mode, so a fixpoint's memo has no ladder slot per entry, and an explain-mode hit returns the ladder its miss recorded.
 #[derive(Clone, Debug, Default)]
 struct TraceMemo {
     entries: HashMap<TraceKey, TraceEntry>,
@@ -661,7 +661,7 @@ struct TraceMemo {
 }
 
 impl TraceMemo {
-    /// Record one settled window: the trace's two heavy halves seated, the ladder set aside where the trace carries one, and the seat of the delta the capture journaled for it.
+    /// Record one settled window: the trace's settled record and notes stored in the pools, the ladder stored separately when the trace has one, and the seats of the delta and read set the capture journaled.
     fn insert(
         &mut self,
         key: TraceKey,
@@ -684,7 +684,7 @@ impl TraceMemo {
         }
     }
 
-    /// The trace one entry stands for, rebuilt out of the pools exactly as its miss returned it — the settled record and the notes cloned out, the prospect widened back to the `i64` the ranking sums, and the ladder read back from the side map where one was recorded.
+    /// The trace one entry stands for, rebuilt from the pools as its miss returned it: the settled record and the notes cloned out, the prospect widened back to `i64`, and the ladder read from the side map when one was recorded.
     fn trace(&self, key: &TraceKey, entry: TraceEntry) -> TransitionTrace {
         TransitionTrace {
             settled: self.settled.get(entry.settled.widen()).clone(),
@@ -708,37 +708,37 @@ pub struct Engine<'i> {
     fired: HashSet<Pointer>,
     fired_log: Option<Vec<Pointer>>,
     capture_starts: Vec<usize>,
-    /// The one table every memoized fired delta is seated through, whichever memo journaled it: the trace memo's, the candidate memo's, the prospect memo's and the lookahead closure's entries all hold a [`DeltaSeat`] into it, so a delta four memos journaled is held once. It is the engine's rather than the trace memo's, where issue #165 introduced it, because the closure and prospect memos store entries in every mode, and outside trace-memo mode — where nothing is journaled and no trace memo exists — they seat the empty delta here, the one delta a journal-less engine can hold, so that engine's pool never grows past it (issue #167). [`Engine::release_memos`] resets the pool beside every memo that seats into it, so no seat outlives its table.
+    /// The table every memoized fired delta is stored in, whichever memo journaled it. The trace, candidate, prospect and closure memos all hold [`DeltaSeat`]s into it, so a delta journaled by several memos is held once. It belongs to the engine because the closure and prospect memos store entries in every mode. Outside trace-memo mode nothing is journaled and there is no trace memo, and those two memos store the empty delta here, so the pool never grows past that one delta (issue #167). [`Engine::release_memos`] resets the pool with every memo that indexes it, so no seat outlives its table.
     deltas: DeltaPool,
-    /// The one table every memoized read set is seated through (issue #184), the reads pool to the delta pool's deltas: what an evaluation read of the spec, journaled by the index's accessors while the capture was open ([`crate::index`]), so a memo entry can say which runes and classes moving would move it. Released beside the delta pool, and detached into a snapshot beside it.
+    /// The table every memoized read set is stored in (issue #184): the runes and classes an evaluation read from the spec, journaled by the index's accessors while the capture was open ([`crate::index`]), so a memo entry records which runes and classes its result depends on. Released with the delta pool, and detached into a snapshot with it.
     reads: ReadsPool,
     /// Where the read journal stood when each open capture began, one per open capture beside [`Engine::capture_starts`].
     read_starts: Vec<usize>,
-    /// Each of the small memos carries its own fired delta beside its verdict rather than in a shadow map on the same key: the delta is only ever read alongside the verdict it belongs to, and a second table would pay for the key and its hashbrown slack twice over. The closure, candidate and prospect memos hold theirs as seats into [`Engine::deltas`], as the trace memo does.
+    /// Each small memo stores its fired delta beside its verdict, as a seat into [`Engine::deltas`], instead of in a second map on the same key: the delta is only read with its verdict, and a second table would pay for the key and its hash-table slack twice.
     closure_cache: HashMap<ClosureKey, (bool, DeltaSeat, ReadsSeat)>,
     candidates_cache: CandidatesMemo,
-    /// The prospect memo: the term as the byte its zero-or-one range needs, beside the seat of its fired delta (issue #166). Under a trace memo in simulated-prospect mode it holds only the asks whose cascade raised: a settling cascade's answer is one field of a window the trace memo holds, so [`Engine::prospect`] declines the entry and reads it there on the next ask — or, for a probe's ask, whose window the trace memo declines in turn (issue #168), settles it again, which the probe arms' own memos make rare.
+    /// The prospect memo: the term as an `i8`, since it is zero or one, beside the seats of its fired delta and read set (issue #166). With a trace memo in simulated-prospect mode it holds only the asks whose replayed settlement raised. A settling ask's answer is one field of a window the trace memo holds, so [`Engine::prospect`] skips the entry and reads the trace memo on the next ask. A probe's ask, whose window the trace memo also skips (issue #168), settles the window again, which the probes' own memos make rare.
     prospect_cache: HashMap<ProspectKey, (i8, DeltaSeat, ReadsSeat)>,
     exit_sources_cache: HashMap<StanceId, (Vec<ExitSource<'i>>, Vec<Pointer>)>,
     pairing_sets: HashMap<StanceId, PairingSets>,
     explain_ladder: bool,
-    /// The window memo, present in trace-memo mode alone. It is the engine's largest pile and the enumeration's high-water mark, which is why its entries are seats into the pools the [`TraceMemo`] carries beside them rather than whole traces (issue #165): a hit rebuilds the trace out of the pools, and everything a caller sees is what it saw when the entry held the trace by value.
+    /// The window memo, present only in trace-memo mode. It is the engine's largest collection and sets the enumeration's peak memory, which is why its entries are seats into the [`TraceMemo`] pools instead of whole traces (issue #165). A hit rebuilds the trace from the pools, and the caller sees the same trace a stored one would give.
     trace_cache: Option<TraceMemo>,
-    /// The finished memos of other enumerations this engine may read, in the order it reads them, each behind the exclusion that says which keys it may not answer ([`crate::memo`]). A window the engine's own memo misses is looked up here before it is settled, and a hit is answered — delta replayed — exactly as an own hit is, without being copied into the own memo: the bases are shared read-only across a whole fan-out, and a copy per hit would rebuild the pile the sharing exists to avoid.
+    /// Finished memos of other enumerations this engine may read, in lookup order, each behind an exclusion that says which keys it may not supply ([`crate::memo`]). A window the engine's own memo misses is looked up here before it is settled. A hit is returned, with its delta replayed, as an own hit is, but is not copied into the own memo: the bases are shared read-only across a whole fan-out, and copying each hit would rebuild the memory the sharing saves.
     bases: Vec<MemoBase>,
-    /// Per base, which of its delta seats this engine has replayed into its fired set, so a base delta hit for the second time costs the set nothing.
+    /// Per base, which of its delta seats this engine has already added to its fired set, so a second hit on the same base delta skips the set.
     base_fired: Vec<Vec<bool>>,
-    /// How many windows each base seat answered, for the cache census.
+    /// How many windows each base seat supplied, for the cache census.
     base_hits: Vec<u64>,
 }
 
 impl<'i> Engine<'i> {
-    /// An engine over one spec and one feature configuration, in the shipping modes: both issue-28 flags on, the vote's deep slot at its honest `UNKNOWN`, and no trace memo.
+    /// An engine over one spec and one feature configuration, in the shipping modes: `simulated_prospect` and `vote_slots` on, the vote's deep slot `UNKNOWN`, and no trace memo.
     pub fn new(index: &'i SpecIndex, features: impl IntoIterator<Item = Sym>) -> Self {
         Self::with_modes(index, features, EngineModes::default())
     }
 
-    /// An engine with its modes spelled out — what the guard's dedicated engines, the table fixpoint and the case replay build.
+    /// An engine with explicit modes.
     pub fn with_modes(
         index: &'i SpecIndex,
         features: impl IntoIterator<Item = Sym>,
@@ -770,7 +770,7 @@ impl<'i> Engine<'i> {
         }
     }
 
-    /// Hand this engine the finished memos it may read windows out of, in lookup order. Only a trace-memo engine reads them — outside that mode nothing journals, and a base hit has a delta to replay — so seeding any other engine is refused rather than quietly ignored.
+    /// Give this engine the finished memos it may read windows from, in lookup order. Only a trace-memo engine reads them, because only it journals and so can replay a base hit's delta. Seeding any other engine panics.
     pub fn seed_bases(&mut self, bases: Vec<MemoBase>) {
         assert!(
             self.trace_cache.is_some(),
@@ -784,17 +784,17 @@ impl<'i> Engine<'i> {
         self.bases = bases;
     }
 
-    /// How many windows the bases answered so far.
+    /// How many windows the bases supplied so far.
     pub fn base_hits(&self) -> u64 {
         self.base_hits.iter().sum()
     }
 
-    /// How many windows each base answered, in lookup order, since the bases were seeded.
+    /// How many windows each base supplied, in lookup order, since the bases were seeded.
     pub fn base_hits_by_seat(&self) -> &[u64] {
         &self.base_hits
     }
 
-    /// This engine's trace memo, detached: the entries compacted into an immutable array and the tables their seats index, together with every fired delta the engine seated. Every other memo is released before compaction, as [`Engine::release_memos`] releases it, because the candidate, closure and prospect memos seat their deltas in the table that leaves with the snapshot. The live trace map is consumed and released before the array is partitioned and sorted. `None` for an engine without a trace memo. The bases are not folded in: a snapshot is what this engine settled itself, and a caller that wants the union reads the bases beside it.
+    /// Detach this engine's trace memo: the entries compacted into an immutable array, with the tables their seats index and every fired delta and read set the engine stored. The candidate, closure and prospect memos are released before compaction, as [`Engine::release_memos`] releases them, because they index the delta table that leaves with the snapshot. The live trace map is consumed and freed before the array is partitioned and sorted. Returns `None` for an engine without a trace memo. The bases are not included: a snapshot holds only what this engine settled, and a caller that wants the union reads the bases beside it.
     pub fn take_memo(&mut self) -> Option<MemoSnapshot> {
         let memo = self.trace_cache.take()?;
         let deltas = std::mem::take(&mut self.deltas);
@@ -822,12 +822,12 @@ impl<'i> Engine<'i> {
         &self.features
     }
 
-    /// Whether the third join-count term is the follower's simulated transition rather than the candidacy-grain estimate.
+    /// Whether the third join-count term is the follower's simulated transition or the candidacy estimate.
     pub fn simulated_prospect(&self) -> bool {
         self.simulated_prospect
     }
 
-    /// Whether follower votes read the seat's real shifted slots.
+    /// Whether follower votes read the window's slots shifted by one.
     pub fn vote_slots(&self) -> bool {
         self.vote_slots
     }
@@ -837,7 +837,7 @@ impl<'i> Engine<'i> {
         self.vote_deep_slot
     }
 
-    /// How often a simulated prospect's counterfactual cascade raised and fell back to the candidacy-grain estimate. Diagnostic only, exactly as in Python.
+    /// How often a simulated prospect's replayed settlement raised and fell back to the candidacy estimate. Diagnostic only.
     pub fn simulated_prospect_fallbacks(&self) -> u64 {
         self.simulated_prospect_fallbacks
     }
@@ -847,9 +847,9 @@ impl<'i> Engine<'i> {
         self.trace_cache.is_some()
     }
 
-    /// Drop every memo this engine holds, keeping the fired set and the small per-spec tables. What follows a fixpoint's last trace is a drain and a sort of the whole product, and holding the window memos alive across it is the enumeration's peak — two working sets that never need to coexist.
+    /// Drop every memo this engine holds, keeping the fired set and the small per-stance tables. After a fixpoint's last trace comes a drain and sort of the whole product, and keeping the window memos alive through it would set the enumeration's peak memory.
     ///
-    /// A memo is a pure cache here: every entry replays the pointers its computation fired, so a cleared one re-fires them rather than swallowing them, and nothing a later evaluation decides can move. Callers still snapshot [`Engine::fired`] before releasing, because re-firing after the snapshot is what makes the release invisible rather than merely harmless. The trace memo's pools and its ladders go with its entries and the candidate memo's list pools with its, since a seat means nothing without the table it indexes, and the delta pool goes after every memo that seats into it.
+    /// Every memo is a pure cache: each entry replays the pointers its computation fired, so after a release the next evaluation fires them again, and no later result changes. A caller that reports the fired set, such as the table fixpoint, reads [`Engine::fired`] before releasing, so evaluations after the release are left out of the report. Each memo's pools go with its entries, since a seat means nothing without its table, and the delta and reads pools go with every memo that indexes them.
     pub fn release_memos(&mut self) {
         self.trace_cache = self.trace_cache.as_ref().map(|_| TraceMemo::default());
         self.candidates_cache = CandidatesMemo::default();
@@ -859,12 +859,12 @@ impl<'i> Engine<'i> {
         self.reads = ReadsPool::default();
     }
 
-    /// Every authored record that demonstrably fired under this configuration — refusals that killed a candidate, unlocks that granted capability, row scopes that admitted a side, and the adjustments and prefers that shaped a committed cell. The dead-policy gate reads this; iteration order never reaches an output, which is why a plain hash set serves.
+    /// Every authored record that fired under this configuration: refusals that removed a candidate, unlocks that granted a capability, row scopes that admitted a side, and the adjustments, prefers and resolves that shaped a committed cell. The dead-policy check reads this. Iteration order never reaches an output, so a hash set is enough.
     pub fn fired(&self) -> &HashSet<Pointer> {
         &self.fired
     }
 
-    /// The fired-pointer delta this engine journaled while settling one window, in first-fired order, or `None` when that window was never traced through this engine. This is the per-window delta the corpus carries beside its result; it exists only in trace-memo mode, since only there is anything journaled.
+    /// The fired-pointer delta this engine journaled while settling one window, in first-fired order, or `None` when the window was never traced through this engine. The corpus carries this per-window delta beside its result. It exists only in trace-memo mode.
     pub fn trace_delta(
         &self,
         left: &LeftContext,
@@ -892,7 +892,7 @@ impl<'i> Engine<'i> {
         Some(self.reads.get(entry.reads))
     }
 
-    /// Every memo this engine holds, as `--cache-census` reports them: the entries each one carries and the buckets it carries them in. The order is the declaration order of the fields, with each memo's pools following its entries in their own declaration order, so two runs' censuses line up row for row.
+    /// Every memo this engine holds, as `--cache-census` reports them: each one's length and capacity. The rows follow the fields' declaration order, each memo's pools after its entries, so two runs' censuses line up row for row.
     pub fn cache_census(&self) -> Vec<CacheSize> {
         let mut out = vec![
             CacheSize::of("fired", self.fired.len(), self.fired.capacity()),
@@ -959,7 +959,7 @@ impl<'i> Engine<'i> {
         out
     }
 
-    /// How many bytes of elimination sentence the two memos are holding — the explain-only text a run that never reads a ladder still pays for. Counted rather than estimated, because it is the figure that decides whether formatting them at all is worth its RAM. The candidate memo's half counts each distinct list in its elimination pool once, however many entries name it, because that is what is held (issue #167): an entry carries a seat, and the sentences a hit reads back through it cost the memo nothing beyond the seat.
+    /// How many bytes of elimination description the candidate and trace memos hold: explain-only text that a run which never reads a ladder still stores. It is counted, not estimated, because it decides whether formatting the descriptions is worth the memory. The candidate memo's part counts each distinct list in its elimination pool once, however many entries name it, because that is what is held (issue #167).
     pub fn elimination_text_bytes(&self) -> usize {
         let cached: usize = self
             .candidates_cache
@@ -1006,7 +1006,7 @@ impl<'i> Engine<'i> {
         crate::index::journal_arm(true);
     }
 
-    /// Close the innermost capture and hand back what fired inside it, deduplicated with the first firing of each pointer kept — Python's `dict.fromkeys` — together with the set of runes and classes read inside it. When the outermost capture closes both journals empty, so neither grows past one top-level evaluation.
+    /// Close the innermost capture and return what fired inside it, deduplicated keeping each pointer's first firing, with the set of runes and classes read inside it. When the outermost capture closes, both journals are emptied, so neither grows past one top-level evaluation.
     fn end_capture(&mut self) -> Captured {
         let start = self
             .capture_starts
@@ -1039,7 +1039,7 @@ impl<'i> Engine<'i> {
         }
     }
 
-    /// Abandon the innermost capture. A raising evaluation records no delta — it is never cached — but its firings stay journaled for any enclosing capture, because they demonstrably fired during that evaluation and a fresh replay would fire them again. A settling simulated prospect declines its memo entry the same way (issue #166): everything its capture journaled is the follower's window, which the trace memo now holds under a delta of its own, so the capture is discarded rather than closed and the enclosing window's delta is exactly what it was.
+    /// Abandon the innermost capture. A raising evaluation records no delta, since it is never cached, but its firings stay journaled for any enclosing capture, because they fired during that evaluation and a fresh evaluation would fire them again. A simulated prospect whose replayed settlement succeeds also discards its capture instead of closing it (issue #166): everything it journaled belongs to the follower's window, which the trace memo holds under its own delta, so the enclosing window's delta is unchanged.
     fn abort_capture(&mut self) {
         self.capture_starts.pop();
         self.read_starts.pop();
@@ -1139,7 +1139,7 @@ impl<'i> Engine<'i> {
         Ok(true)
     }
 
-    /// Whether a condition matches the raw slots to the right. `tokens[0]` is the slot this condition tests, a `then:` hop recurses on the tail, and an `except:` entry tests the same slot with its own hops walking the same tail, so a chain reads one raw token per hop and exhausts to `UNKNOWN` past the supplied window. `None` is the verdict that depends on a slot outside the evaluated window; refusals, unlocks and the closure all treat it optimistically, which is what makes their reach honest about what the window cannot see.
+    /// Whether a condition matches the raw slots to the right. `tokens[0]` is the slot this condition tests. A `then:` hop recurses on the tail, and an `except:` entry tests the same slot with its own hops walking the same tail, so a chain reads one raw token per hop and reads `UNKNOWN` past the supplied window. `None` means the verdict depends on a slot outside the evaluated window. Refusals, unlocks and the closure all resolve `None` in the permissive direction, so none of them rules out a candidate because of a slot outside the window.
     pub fn cond_matches_right(
         &self,
         owner: Option<Sym>,
@@ -1213,7 +1213,7 @@ impl<'i> Engine<'i> {
         Ok(if unknown { None } else { Some(true) })
     }
 
-    /// Whether a `when:` gate holds for this window. `None` is the verdict that depends on a slot outside the evaluated window, and it propagates: a definite `false` on any axis wins outright, but an unknown on one axis leaves the whole verdict unknown even when every other axis matched.
+    /// Whether a `when:` gate holds for this window. `None` means the verdict depends on a slot outside the evaluated window. A definite `false` on any axis makes the verdict `false`, but an unknown on one axis makes the whole verdict unknown even when every other axis matched.
     pub fn when_matches(
         &self,
         owner: Option<Sym>,
@@ -1264,7 +1264,7 @@ impl<'i> Engine<'i> {
 
     // --- capability -------------------------------------------------------------
 
-    /// Whether this stance offers a live entry at `height` against the left, and the note the commit carries when it does. A declared selectable row whose from-scope admits the left grants it, and so does any unlock naming the height whose feature is active and whose `when:` does not definitively refuse the window; the optimism there is deliberate and matches the closure's.
+    /// Whether this stance offers a live entry at `height` against the left, and the note the commit carries when it does. A selectable declared row grants it when it has no from-scope or its from-scope admits the left. So does any unlock naming the height whose feature is active and whose `when:` does not definitely refuse the window. Treating an unknown verdict as a grant matches the closure.
     fn entry_available(
         &mut self,
         rune: &'i Rune,
@@ -1284,7 +1284,7 @@ impl<'i> Engine<'i> {
             if row.scope.is_empty() {
                 return Ok((true, None));
             }
-            // This loop stops at the first match, unlike the toward-scope's below, so a later from-scope condition that would raise never gets the chance. The asymmetry between the two is deliberate, not an oversight.
+            // This loop stops at the first match, so a later from-scope condition that would raise is never evaluated. The toward-scope loop in `candidates_uncached` evaluates every condition first. Keep both as they are: changing either changes which specs raise.
             let mut admitted = false;
             for cond in &row.scope {
                 if self.cond_matches_left(Some(rune.name), cond, left, Some(height))? {
@@ -1325,7 +1325,7 @@ impl<'i> Engine<'i> {
         Ok((false, None))
     }
 
-    /// Every exit this stance can offer: the declared rows in declaration order at their own seats, then the heights an active unlock grants that no declared row shadows, at seats past the declared ones. The unlocks fire on every consult, cache hit included, because the enumeration that hit the cache is exactly as dependent on them as the one that filled it.
+    /// Every exit this stance can offer: the declared rows in declaration order at their own indexes, then the heights an active unlock grants that no declared row already declares, at indexes past the declared ones. The unlocks fire on every call, cache hit included, because an enumeration that hits the cache depends on them as much as the one that filled it.
     fn exit_sources(&mut self, id: StanceId) -> Vec<ExitSource<'i>> {
         if let Some((sources, fired)) = self.exit_sources_cache.get(&id) {
             let sources = sources.clone();
@@ -1358,7 +1358,6 @@ impl<'i> Engine<'i> {
                 index: seat,
             })
             .collect();
-        // Python journals the unlock's `provenance` even when it is None, which `_record_fired` then drops; keeping only the pointers that exist is the same replay with nothing to drop.
         let mut fired: Vec<Pointer> = Vec::new();
         let mut offset = sources.len();
         for unlock in &stance.surface.unlocks {
@@ -1380,7 +1379,7 @@ impl<'i> Engine<'i> {
         (sources, fired)
     }
 
-    /// The (entry-state, exit-state) pairs an active unlock admits in this window. An unlock with no `when:` is unconditional, and one whose `when:` is merely unknown still counts — the same optimism the entry side takes.
+    /// The (entry-state, exit-state) pairs an active unlock admits in this window. An unlock with no `when:` is unconditional, and one whose `when:` is unknown still counts, as on the entry side.
     fn active_pairing_unlocks(
         &mut self,
         rune: &'i Rune,
@@ -1455,9 +1454,7 @@ impl<'i> Engine<'i> {
 
     // --- refusals ----------------------------------------------------------------
 
-    /// The first refuse record on this rune that kills the candidate. The three grains are whole-join (no target fields, which kills only joining candidates), stance, and surface row. Only a definite verdict kills: an unknown one is the optimistic non-fire that keeps a refusal from reaching past the window it can see.
-    ///
-    /// Python returns the record paired with whether the verdict was definite, and every call site reads only the record — the flag is `True` at the one place the function returns at all — so the pair is not reproduced here.
+    /// The first refuse record on this rune that removes the candidate. A record targets the whole join (no target fields, which removes only joining candidates), a stance, or a surface row. Only a definite verdict removes a candidate. An unknown one does not fire, so a refusal never fires because of a slot outside the window.
     fn refusal_hit(
         &mut self,
         rune: &'i Rune,
@@ -1501,9 +1498,9 @@ impl<'i> Engine<'i> {
 
     // --- candidate enumeration -----------------------------------------------------
 
-    /// Every pair candidate this rune offers in this window — a cell of the rune together with the seam state it offers toward the next position — with each eliminated candidate's reason appended to `eliminations` when one is asked for.
+    /// Every pair candidate this rune offers in this window (a cell of the rune with the seam state it offers toward the next position), appending each eliminated candidate's reason to `eliminations` when that is given.
     ///
-    /// The memo only runs in trace-memo mode, faithfully to Python: outside it there is no journal, so a stored entry could carry no delta to replay and a later hit would silently swallow the firings its first evaluation performed. What an entry holds is three seats (issue #167), so a hit clones the candidate list out of the memo's pool exactly as it cloned it out of the entry, extends the caller's eliminations from the pool the same way, and replays the seated delta.
+    /// The memo runs only in trace-memo mode: outside it there is no journal, so an entry could carry no delta to replay and a hit would lose the firings of its first evaluation. An entry holds four seats (issue #167), so a hit clones the candidate list out of the memo's pool, extends the caller's eliminations from the pool, and replays the delta and the read set.
     pub fn candidates(
         &mut self,
         left: &LeftContext,
@@ -1561,7 +1558,7 @@ impl<'i> Engine<'i> {
         Ok(memo.candidates.get(entry.candidates).to_vec())
     }
 
-    /// The candidate memo's key. The rune's ordinal is the one lookup here, made on the memo's own path rather than the trace memo's; the rune field seats every registered family, so it fails only for a name the registry knows no family by, and a registered but unmodeled rune fails at the enumeration itself, as `spec.runes[…]` does.
+    /// The candidate memo's key. The rune's ordinal is the only lookup here. The rune field has a seat for every registered family, so this panics only for a name the registry has no family for. A registered but unmodeled rune panics in the enumeration itself.
     fn candidates_key(
         index: &SpecIndex,
         left: &LeftContext,
@@ -1691,7 +1688,7 @@ impl<'i> Engine<'i> {
                     if let Some(row) = source.row
                         && !row.scope.is_empty()
                     {
-                        // Python builds the whole verdict list before reading it, so a later scope condition that raises still raises even once an earlier one has matched.
+                        // Every scope condition is evaluated before the verdicts are read, so a later condition that raises still raises after an earlier one has matched.
                         let mut verdicts: Vec<Option<bool>> = Vec::with_capacity(row.scope.len());
                         for cond in &row.scope {
                             verdicts.push(self.cond_matches_right(
@@ -1807,7 +1804,7 @@ impl<'i> Engine<'i> {
         Ok(out)
     }
 
-    /// The left a follower would settle against if this candidate won: the candidate's cell with no adjustments and no extension, which is everything the follower's own enumeration reads. It is built on every ask rather than memoized: the value is two moves of its arguments, an empty `Vec`, which allocates nothing, and the candidate's own ordinals as the left's, so a memo in front of it costs a key hash, a probe and a clone on the enumeration's hottest path to save a few instructions of construction.
+    /// The left a follower would settle against if this candidate won: the candidate's cell with no adjustments and no extension, which is everything the follower's enumeration reads. It is built on every call, not memoized: construction moves two arguments, creates an empty `Vec` without allocating, and reuses the candidate's ordinals, so a memo lookup on this hot path would cost more than it saves.
     fn virtual_left(rune_name: Sym, candidate: Candidate) -> LeftContext {
         LeftContext::seated(
             Settled {
@@ -1825,7 +1822,7 @@ impl<'i> Engine<'i> {
         )
     }
 
-    /// Step 2's lookahead closure: whether some cell of the follower survives its own pairings, require, unlocks, row scopes and every window-decidable refusal, evaluated with this candidate as the follower's resolved left and the raw slot past it as the follower's right. Mutuality is definitional — an exit with no refusal-aware acceptor is never a candidate — and the slots past the window are optimistic by construction.
+    /// Step 2's lookahead closure (design section 6.1): whether some cell of the follower survives its own pairings, require, unlocks, row scopes and every window-decidable refusal, with this candidate as the follower's resolved left and the raw slot past it as the follower's right. An exit with no refusal-aware acceptor is never a candidate, and slots past the window are treated optimistically.
     fn acceptor_exists(
         &mut self,
         candidate: &Candidate,
@@ -1881,7 +1878,7 @@ impl<'i> Engine<'i> {
         Ok(result)
     }
 
-    /// The trace memo's key. `token` is the input rune's ordinal rather than the whole token, because a non-letter input short-circuits to the boundary trace before any key is built and therefore has no memo entry to name. Nothing is looked up: the left carries its ordinals and each letter token its rune's.
+    /// The trace memo's key. `token` is the input rune's ordinal, not the whole token, because a non-letter input returns the boundary trace before any key is built. Nothing is looked up: the left carries its ordinals and each letter token its rune's.
     fn trace_key(left: &LeftContext, token: Ordinal, slots: Slots) -> TraceKey {
         let tokens = slots.as_array();
         TraceKey {
@@ -1906,15 +1903,15 @@ impl<'i> Engine<'i> {
 
     // --- the prospect term -----------------------------------------------------------
 
-    /// What the seam past this one is worth given this candidate — the join count's third term, in both of its meanings.
+    /// What the seam past this one is worth given this candidate: the join count's third term, in either of its modes.
     ///
-    /// With `simulated_prospect` on (issue 28's shipping default) the term is the follower's *actual* simulated transition: the whole cascade run one position over, with this candidate standing as the follower's left and the window shifted right, scoring 1 exactly when the simulated winner carries a seam. The recursion that opens only ever moves rightward with strictly shrinking slots and bottoms out at the window edge, where a non-letter slot answers 0 — today's epistemic state, kept on purpose, so beyond-window text stays exactly as unknowable as it is. With the mode off (the section 5.7 guard's pin and the comparison state) the term is the pre-issue-28 optimistic candidacy estimate: 1 when any seam-bearing follower cell survives enumeration, refusal-aware but blind to the follower's prefers and ordering.
+    /// With `simulated_prospect` on (the default), the term is the follower's simulated transition: the follower's full settlement run one position over, with this candidate as the follower's left and the window shifted right. It scores 1 when the simulated winner has a seam. The recursion only moves right, over strictly fewer slots, and stops at the window edge, where a non-letter slot scores 0, so text past the window stays unknown. With the mode off (the section 5.7 guard's setting and the comparison state), the term is the optimistic candidacy estimate: 1 when any seam-bearing follower cell survives enumeration. That estimate respects refusals but ignores the follower's prefers and ordering.
     ///
-    /// A counterfactual cascade can raise where real settlement never would — a prefer conflict, or a definitively firing unlock scope, in a window whose candidate never wins — so a raising cascade falls back to the candidacy estimate, the honest cannot-rank answer, and counts in [`Engine::simulated_prospect_fallbacks`]. Python's catch there names all four settlement outcomes, which is every error this crate raises, so the fallback here is a plain catch-all; the one thing it swallows that Python's does not is the unresolvable-class spec defect, which `spec_load` refuses long before settlement.
+    /// A replayed settlement can raise where real settlement never would, for example on a prefer conflict or a definitely firing unlock scope in a window whose candidate never wins. A raising replay falls back to the candidacy estimate and counts in [`Engine::simulated_prospect_fallbacks`]. The fallback catches every [`SettleError`], including the unresolvable-class spec defect, which `spec_load` rejects long before settlement.
     ///
-    /// The memo holds a term beside the seat of its fired delta, and under a trace memo in simulated mode it holds only the asks whose cascade raised (issue #166). A settling cascade's delta is exactly the trace memo's delta for the follower's window: the virtual left journals nothing, and the capture's dedup of what [`Engine::with_settled`] journaled — a replayed trace delta, or the raw firings the trace memo deduplicated into that same delta — is that delta again. An entry for it would be a second copy of an entry the trace memo already holds, under a key that collapses this candidate's entry, so the capture is discarded instead, as [`Engine::abort_capture`] says, and the next ask with this key reads the trace memo through `with_settled`, which replays the same first-fired sequence into the same enclosing capture at the same point. The raising cascade is the one window the trace memo can never hold, so its fallback verdict is what this memo is for. Candidacy mode runs no cascade and memoizes every ask, and so does simulated mode without a trace memo, where nothing stands behind this memo to answer the next ask.
+    /// The memo stores a term beside the seat of its fired delta, and with a trace memo in simulated mode it holds only the asks whose replayed settlement raised (issue #166). A settling replay's delta equals the trace memo's delta for the follower's window: the virtual left journals nothing, and deduplicating what [`Engine::with_settled`] journaled (a replayed trace delta, or the raw firings the trace memo deduplicated into that same delta) gives that delta again. The trace memo already holds that entry, under a key without this candidate's entry, so the capture is discarded instead of stored ([`Engine::abort_capture`]). The next ask with this key reads the trace memo through `with_settled`, which replays the same first-fired sequence into the same enclosing capture at the same point. A raising replay is never stored in the trace memo, so its fallback is what this memo is for. Candidacy mode runs no replay and memoizes every ask, and so does simulated mode without a trace memo, where nothing else can answer the next ask.
     ///
-    /// A cascade asked for with no window under evaluation is a probe's ask — [`Engine::probe_prospect`] is the one caller that reaches the term that way, because the ranking only ever asks from inside a trace — and its follower window is settled through [`Engine::with_settled_unrecorded`]: read off the trace memo where the memo holds it, and left out of the memo where it does not (issue #168). The probe arms memoize their verdicts above this call on keys of their own, so nothing asks that window again except a row whose ranking reaches the same shifted window, and an instrumented run of the whole alphabet says how rarely that is: the probes' cascades wrote well over a third of the trace memo's entries, nearly every one of them was never read, and the fourth-slot probes' — a letter third and an unknown fourth, a window a row reaches only past a live fourth slot — all but never. Recording them is what carries the memo's bucket table past a power-of-two doubling at the whole alphabet, and leaving them out is what keeps it under. The cascades a probe's cascade runs in turn are recorded as any ranking's are, since those are the windows every ranking shares.
+    /// A replayed settlement asked for while no window is being evaluated is a probe's ask. [`Engine::probe_prospect`] is the only caller that reaches the term that way, because the ranking asks only from inside a trace. Its follower window is settled through [`Engine::with_settled_unrecorded`]: read from the trace memo when the memo holds it, and not added when it does not (issue #168). The probes memoize their verdicts above this call on their own keys, so the window is asked for again only by a row whose ranking reaches the same shifted window. An instrumented run over the whole alphabet measured how rarely that happens: the probes' replays wrote well over a third of the trace memo's entries and nearly all were never read, and the fourth-slot probes' windows (a letter third and an unknown fourth, which a row reaches only past a live fourth slot) almost never. Recording them pushed the memo's bucket table past a power-of-two doubling at the whole alphabet, and leaving them out keeps it under. The replays that a probe's replay runs in turn are recorded as usual, since every ranking shares those windows.
     fn prospect(
         &mut self,
         rune_name: Sym,
@@ -1996,7 +1993,7 @@ impl<'i> Engine<'i> {
         Ok(result)
     }
 
-    /// The term computed afresh, together with how it was answered: off the follower's simulated trace, or by the candidacy estimate — the mode's own term, or the fallback a raising cascade takes. `recorded` is whether the follower's window may enter the trace memo, which [`Engine::prospect`] withholds from a probe's ask.
+    /// The term computed from scratch, with how it was computed: from the follower's simulated trace, or by the candidacy estimate, either as the mode's own term or as the fallback after a raising replay. `recorded` says whether the follower's window may enter the trace memo. [`Engine::prospect`] withholds that for a probe's ask.
     fn prospect_uncached(
         &mut self,
         rune_name: Sym,
@@ -2029,7 +2026,7 @@ impl<'i> Engine<'i> {
         }
     }
 
-    /// The candidacy-grain estimate itself: whether any cell of the follower that survives enumeration offers a seam onward.
+    /// The candidacy estimate: whether any follower cell that survives enumeration offers a seam onward.
     fn seam_bearing_follower_exists(
         &mut self,
         virtual_left: &LeftContext,
@@ -2042,9 +2039,9 @@ impl<'i> Engine<'i> {
 
     // --- prefers ---------------------------------------------------------------------
 
-    /// Whether one prefer record speaks for this candidate. `None` is the verdict "this record has nothing to say about this window at all", which is what keeps an irrelevant record out of the stage rather than counting it as a vote against.
+    /// Whether one prefer record favors this candidate. `None` means the record has nothing to say about this window, which keeps an irrelevant record out of the stage instead of counting it as a vote against.
     ///
-    /// Our own rune's record targets the candidate's stance or cell directly and reads the seat's raw deep slots as they are. A record with both a stance and a cell compares cells only within that stance; the stance scopes the preference rather than becoming its demand. A follower's record instead *votes*: it speaks for the candidates under which its own preferred continuation is admissible, evaluated one position over with `joined_at` bound to the candidate's seam. That reading is the stage-4b flag's whole subject — with `vote_slots` on the vote is handed the seat's slots shifted once, so a chained condition resolves inside the window; with it off everything past the vote's own `right1` is pinned to `vote_deep_slot`, whose unknown verdicts count as firing, which is the older optimism that forced a deep-chained fact to be restated on every possible left rune instead of living once on the rune that owns it.
+    /// A record of our own rune targets the candidate's stance or cell directly and reads the window's deep slots as they are. A record with both a stance and a cell compares cells only within that stance: the stance limits where the preference applies and is not itself the demand. A follower's record instead votes: it favors the candidates under which its own preferred continuation is admissible, evaluated one position over with `joined_at` bound to the candidate's seam. With `vote_slots` on, the vote reads the window's slots shifted by one, so a chained condition resolves inside the window. With it off, everything past the vote's own `right1` is `vote_deep_slot`, and unknown verdicts there count as firing, so a deep-chained condition has to be repeated on every possible left rune instead of written once on the rune that owns it.
     fn prefer_favors(
         &mut self,
         owner: Sym,
@@ -2143,9 +2140,9 @@ impl<'i> Engine<'i> {
 
     // --- the probe surface -------------------------------------------------------------
 
-    /// [`Engine::prospect`] under the name the deep-slot liveness probes call it by.
+    /// [`Engine::prospect`], exposed to the deep-slot liveness probes.
     ///
-    /// The probes reach into what is otherwise an internal ranking term, and this pair of wrappers is what keeps that reach visible instead of widening the settlement surface for it: the probes are the only callers, the delegation is total, and nothing about the term changes by being asked for from [`crate::liveness`] rather than from the ranking. The candidate a probe hands in is the bare `Candidate(stance, None, seam, 0)` shape of the input frame, not a candidate the enumeration produced.
+    /// The probes read an internal ranking term, and these two wrappers keep that access visible without widening the settlement API. The probes are the only callers, and the wrappers only delegate. The candidate a probe passes is [`crate::liveness`]'s input-frame candidate (no entry, order index 0, and the `NO_EXIT_INDEX` sentinel), not one the enumeration produced.
     #[allow(dead_code)]
     pub(crate) fn probe_prospect(
         &mut self,
@@ -2156,7 +2153,7 @@ impl<'i> Engine<'i> {
         self.prospect(rune_name, candidate, slots)
     }
 
-    /// [`Engine::prefer_favors`] under the name the vote arm calls it by. The same total delegation as [`Engine::probe_prospect`], for the same reason.
+    /// [`Engine::prefer_favors`], exposed to the liveness probe's vote branch, like [`Engine::probe_prospect`].
     #[allow(dead_code)]
     pub(crate) fn probe_prefer_favors(
         &mut self,
@@ -2170,9 +2167,9 @@ impl<'i> Engine<'i> {
         self.prefer_favors(owner, record, rune_name, candidate, left, slots)
     }
 
-    /// One prefer stage — absolute or yielding — over the records of both seam runes, most-specific first.
+    /// One prefer stage, absolute or yielding, over the records of both seam runes, most specific first.
     ///
-    /// Records are gathered in declaration order, our own rune's before the follower's, then ranked by how many other applicable records outrank them, so the narrowest applies first and a nested conflict resolves silently by membership. A record whose demand has already been narrowed away is where the stage either finds a `resolve:` naming the collision or refuses: E-AMBIGUOUS when both records belong to one rune, E-INCOMPARABLE when they belong to two.
+    /// Records are gathered in declaration order, our own rune's before the follower's, then sorted by how many other applicable records outrank them, so the narrowest applies first and a nested conflict resolves by set membership without an error. When a record's favored set no longer overlaps the survivors, the stage looks for an already applied record of equal or incomparable specificity. Within one rune that raises E-AMBIGUOUS. Across two runes, a `resolve:` naming the collision settles it, and without one it raises E-INCOMPARABLE.
     fn apply_prefers(
         &mut self,
         mode_absolute: bool,
@@ -2235,7 +2232,7 @@ impl<'i> Engine<'i> {
         if applicable.is_empty() {
             return Ok(survivors.to_vec());
         }
-        // Python re-expands both records' axes inside every pairwise `outranks` call; expanding each record's once and comparing the expansions is the same comparison without the quadratic re-expansion.
+        // Comparing precomputed axes gives the same result as `specificity::outranks` on each pair, without re-expanding each record's `when:` per pair.
         let mut axes = Vec::with_capacity(applicable.len());
         for entry in &applicable {
             axes.push(specificity::axis_sets(
@@ -2322,9 +2319,9 @@ impl<'i> Engine<'i> {
         Ok(current)
     }
 
-    /// The section 5.8 against-a-named-record slice: a crossing between two runes' prefers resolves without an error when a `resolve:` on either rune names the other record in `against:` and its own `when:` does not definitively refuse this window — unknown deep slots count as matching, the same optimism the refusals and the unlocks take.
+    /// The design section 5.8 resolution against a named record: a crossing between two runes' prefers resolves without an error when a `resolve:` on either rune names the other record in `against:` and its own `when:` does not definitely refuse this window. Unknown deep slots count as matching, as they do for refusals and unlocks.
     ///
-    /// The `pick:` pattern filters the stage's whole survivor set rather than the narrowed list, because the resolve overrides both colliding records and not merely the later one, and its provenance lands in the fired set and the notes so that explain output and the dead-policy gate both see it. `None` is the answer "no resolve speaks to this crossing", which is what turns the collision into E-INCOMPARABLE. Two matching resolves that disagree on the pick, and a pick that admits no survivor, stay hard errors of their own.
+    /// The `pick:` pattern filters the stage's whole survivor set, not the narrowed list, because the resolve overrides both colliding records. Its provenance is added to the fired set and the notes, so explain output and the dead-policy check both see it. `None` means no resolve covers this crossing, which makes the collision E-INCOMPARABLE. Two matching resolves with different picks, and a pick that admits no survivor, raise E-INCOMPARABLE themselves.
     fn apply_resolution(
         &mut self,
         a: OwnedRecord<'i>,
@@ -2412,9 +2409,9 @@ impl<'i> Engine<'i> {
         Ok(Some(picked))
     }
 
-    /// The E-INCOMPARABLE sentence: the two records, an example window spelled in rune names, the candidates they conflicted over, and a paste-ready `resolve:` record for the rune that owns the window. Every byte of it is contract, the stub included — the author's next move is to copy it into the rune's YAML, so a record with no `id:` prints the instruction to give it one rather than an empty field.
+    /// The E-INCOMPARABLE message: the two records, an example window written in rune names, the candidates they conflicted over, and a paste-ready `resolve:` record for the rune that owns the window. All of it, the stub included, must stay as it is, because the author copies the stub into the rune's YAML. A record with no `id:` prints the instruction to give it one instead of an empty field.
     ///
-    /// Three of its fields fall back on Python's `or`, which reads an *empty* string the way it reads an absent one, and all three empty spellings are authorable in a dump: a rune named `""` drops out of the example window rather than widening it with a space, a height named `""` prints `none` beside a candidate that never joined, and a record whose `id:` is `""` prints the instruction to give it one. See [`text_or`].
+    /// Three fields treat an empty string as absent, and all three empty values can occur in a dump: a rune named `""` is left out of the example window instead of adding a space, a height named `""` prints `none`, and a record whose `id:` is `""` prints the instruction to give it one. See [`text_or`].
     fn incomparable_message(
         &self,
         a: OwnedRecord<'i>,
@@ -2476,9 +2473,7 @@ impl<'i> Engine<'i> {
 
     // --- extensions and the commit -----------------------------------------------------
 
-    /// The extend or contract record that shapes one side of the winning cell: the records naming this side's height and nothing on the other side, filtered to the candidate's stance, and only those whose `when:` holds definitively — an adjustment is geometry, so an unknown slot is not enough to move a pixel. Several matches go to the section 6.2 order, where a tie among equals with the same demand collapses and a tie with different demands is E-INCOMPARABLE.
-    ///
-    /// Python takes the height as its own parameter; every call site passes the candidate's own height for the side being shaped, so it is derived here instead.
+    /// The extend or contract record that shapes one side of the winning cell: records naming this side's height and nothing on the other side, limited to the candidate's stance, whose `when:` holds definitely. An adjustment moves pixels, so an unknown slot is not enough. Several matches go to the design section 6.2 order, where tied records with the same demand collapse to one and tied records with different demands raise E-INCOMPARABLE.
     fn pick_adjustment(
         &mut self,
         kind: AdjustmentKind,
@@ -2533,7 +2528,7 @@ impl<'i> Engine<'i> {
         Ok(Some(chosen))
     }
 
-    /// The withdrawal bindings a declined exit renders with. A join that does not realize mid-word leaves the exit state none, and where the declined row names a withdrawal bitmap that drawing becomes part of the cell's identity as an `ex-bind-<bitmap>` token; a `withdrawal: safe` row collapses to the plain exit-none cell instead. An explicit `cells:` composition for this (entry-state, withdrawn-height) pair overrides the row's binding, and the *last* such row wins, because the scan never breaks out early.
+    /// The withdrawal bindings a declined exit is drawn with. When a join does not happen mid-word the exit state is none, and each exit row that names a withdrawal bitmap adds that drawing to the cell's identity as an `ex-bind-<bitmap>` token. A `withdrawal: safe` row adds nothing, leaving the plain exit-none cell. A `cells:` composition for this (entry-state, withdrawn-height) pair overrides the row's bitmap, and the last matching composition wins, because the scan does not stop early.
     fn withdrawal_tokens(&self, stance: &Stance, entry: Option<Sym>) -> Vec<AdjustmentToken> {
         let index = self.index();
         let vocab = index.vocab();
@@ -2571,11 +2566,11 @@ impl<'i> Engine<'i> {
         Ok(left_term + own_term + self.prospect(rune_name, candidate, slots)?)
     }
 
-    /// Turn the winning candidate into the cell it settles as: the ZWNJ lock first, then each live side's extend and contract, then the extension the exit side carries in pixels, then — for a declined join mid-word — the withdrawal bindings.
+    /// Turn the winning candidate into the cell it settles as: the ZWNJ lock first, then each live side's extend and contract, then the exit side's extension in pixels, then, for a declined join mid-word, the withdrawal bindings.
     ///
-    /// The one subtlety is the same-seam non-summing rule (prototype divergence 3): a follower's entry extension is suppressed when the predecessor's exit already carries the seam's connector pixels, because the two would otherwise both draw them. The suppressed record still fired and still notes itself as applied — it did match, and the dead-policy gate should see it — and the suppression appends its own sentence saying so.
+    /// Same-seam extensions do not add up (the `same-seam-extension-non-summing` divergence class): a follower's entry extension is suppressed when the predecessor's exit already carries the seam's connector pixels, because both would otherwise draw them. The suppressed record still fires and is still noted as applied, because it matched and the dead-policy check should see it, and the suppression adds its own note.
     ///
-    /// `right` is the *two*-slot window, deliberately: Python hands the commit `right1` and `right2` alone and lets the deeper slots default to `UNKNOWN`, so an adjustment record whose condition reaches past the follower reads the window edge rather than the text, and geometry never turns on a slot the emitted lookup could not key on.
+    /// `right` is the two-slot window: the caller passes only `right1` and `right2`, with the deeper slots `UNKNOWN`, so an adjustment record whose condition reaches past the follower reads the window edge, and geometry never depends on a slot the emitted lookup cannot key on.
     fn commit(
         &mut self,
         rune: &'i Rune,
@@ -2694,9 +2689,9 @@ impl<'i> Engine<'i> {
 
     // --- the kernel ---------------------------------------------------------------------
 
-    /// Settle one window — the rich form the table builder and the explain CLI read.
+    /// Settle one window, returning the full trace the table builder and the explain CLI read.
     ///
-    /// In trace-memo mode the result is memoized over the collapsed left key: every left read the kernel makes goes through the kind and the settled cell's rune, stance, seam and extension — condition matching consults the rune and the stance, the stroke axis the committed seam, the scoring the seam's presence, and the same-seam suppression the extension — and never the left cell's entry or its adjustments, so two settled lefts differing only there trace identically and share one entry. What the memo holds is seats rather than the trace (issue #165), so a hit is rebuilt out of the memo's pools — the settled record and the notes cloned out, the ladder read back where one was recorded — and returns what its miss returned, with the miss's fired delta replayed. A window the own memo misses is looked up in the bases next, and answered from there on the same terms where a base holds it and admits it; only then is it settled. Raising windows are never cached: the E-STRANDED sentence reads the left's full label, and the liveness probes that trip settlement errors memoize their own verdicts above this call.
+    /// In trace-memo mode the result is memoized over the reduced left key. The kernel reads the left only through its kind and the settled cell's rune, stance, seam and extension: condition matching reads the rune and stance, the stroke axis the committed seam, the scoring the seam's presence, and the same-seam suppression the extension. It never reads the left cell's entry or adjustments, so two lefts differing only there share one entry. The memo holds seats, not traces, so a hit is rebuilt from the memo's pools, returns what its miss returned, and replays the miss's fired delta. A window the own memo misses is looked up in the bases next and answered from the first base that holds and admits it. Only then is it settled. Raising windows are never cached: the E-STRANDED message includes the left's full label, which the key does not, and the liveness probes that hit settlement errors memoize their own verdicts above this call.
     pub fn transition_trace(
         &mut self,
         left: &LeftContext,
@@ -2761,9 +2756,9 @@ impl<'i> Engine<'i> {
         Ok(trace)
     }
 
-    /// One field or two off a window's settled record, read where the record already sits in the memo rather than through a copy of it. [`Engine::transition_trace`] answers with a whole owned trace, and the two callers that come through here want a seam or a cell out of the settled record and nothing else — so a hit on the memo would otherwise rebuild a whole trace, notes and adjustment list cloned out of the pools, to answer a question about one `Option`. It reads the settled record rather than the trace because the memo holds no trace any more, only seats (issue #165), and the record is the one half its callers ever asked for.
+    /// Read one or two fields from a window's settled record where the record sits in the memo, without copying it. [`Engine::transition_trace`] returns a whole owned trace, and the callers here want only a seam or a cell from the settled record, so a memo hit through it would clone the notes and the adjustment list to answer a question about one `Option`.
     ///
-    /// The fired delta is replayed on a hit exactly as [`Engine::transition_trace`] replays it, because that is what makes a warm engine's fired set equal a cold one's, and no reading shortcut may skip it.
+    /// A hit replays the fired delta as [`Engine::transition_trace`] does, because that keeps a warm engine's fired set equal to a cold one's.
     pub(crate) fn with_settled<T>(
         &mut self,
         left: &LeftContext,
@@ -2778,7 +2773,7 @@ impl<'i> Engine<'i> {
         Ok(read(&trace.settled))
     }
 
-    /// [`Engine::with_settled`] for a letter window not worth a memo entry: a hit answers exactly as it does there, delta replayed and all, and a miss settles the window without recording it (issue #168). The miss opens no capture of its own, so what it fires journals straight into the enclosing capture — which is where a recorded miss's firings land too, replayed out of its fresh entry — and every window the evaluation asks for beneath it is memoized as usual. The one caller is the probe's cascade in [`Engine::prospect`], whose docstring carries the measurement that makes the window not worth an entry.
+    /// [`Engine::with_settled`] for a letter window not worth a memo entry: a hit is returned the same way, delta replayed, and a miss settles the window without recording it. The miss opens no capture of its own, so its firings go straight into the enclosing capture, as a recorded miss's raw firings do, and every window evaluated beneath it is memoized as usual. The caller is [`Engine::prospect`]'s probe path, whose doc comment has the measurement that justifies skipping the entry.
     fn with_settled_unrecorded<T>(
         &mut self,
         left: &LeftContext,
@@ -2793,7 +2788,7 @@ impl<'i> Engine<'i> {
         Ok(read(&trace.settled))
     }
 
-    /// The trace memo's answer for one window, where it holds one: the read applied to the settled record where it sits in the pool, with the entry's fired delta replayed. `None` is a miss — a non-letter token, an engine with no memo, or a window the memo has not seen — and says nothing about how the caller should settle it.
+    /// The memo's answer for one window, from the engine's own trace memo or a base: the read applied to the settled record where it sits, with the entry's fired delta replayed. `None` is a miss (a non-letter token, an engine with no memo, or a window no memo has) and says nothing about how the caller should settle it.
     fn settled_from_memo<T>(
         &mut self,
         left: &LeftContext,
@@ -2860,7 +2855,7 @@ impl<'i> Engine<'i> {
             slots.right2,
             Some(&mut eliminations),
         )?;
-        // Section 6.3 compensation (b): the pointer of every record that eliminated a candidate here rides the notes, so the decision-rule TSVs and the emitted FEA carry per-rule provenance comments.
+        // Design section 6.3 compensation (b): the pointer of every record that eliminated a candidate here goes into the notes, so the decision-rule TSVs and the emitted FEA carry per-rule provenance comments.
         for elimination in &eliminations {
             if let Some(provenance) = elimination.provenance.as_ref() {
                 let pointer = provenance_pointer(index, provenance);
@@ -3015,7 +3010,7 @@ impl<'i> Engine<'i> {
     }
 }
 
-/// Append one candidate's elimination when the caller asked for eliminations at all. The description is built lazily because the closure and the prospect both enumerate with eliminations off, and formatting a sentence nobody reads is the one avoidable cost in the enumeration's inner loop — which is also why a sink that is not recording a ladder leaves the sentence empty and keeps only the stage and the pointer the notes are built from.
+/// Append one candidate's elimination when the caller asked for eliminations. The description is built lazily because the closure and the prospect enumerate with eliminations off, and formatting unread text is avoidable cost in the enumeration's inner loop. For the same reason, a sink that is not building a ladder stores an empty description and keeps only the stage and the pointer the notes are built from.
 fn record_elimination(
     sink: &mut EliminationSink<'_>,
     stage: EliminationStage,
@@ -3036,7 +3031,7 @@ fn record_elimination(
     }
 }
 
-/// The first base holding `key` and admitting it, with its seat among the bases and the entry it holds. A base holding the key under an exclusion that names one of its runes is passed over rather than answered, because what it recorded was settled under runes this engine does not share.
+/// The first base that holds `key` and admits it, with its index among the bases and the entry. A base whose exclusion covers the key's runes or the entry's reads is skipped, because that entry was settled under runes or classes this engine does not share.
 fn base_entry<'b>(
     bases: &'b [MemoBase],
     key: &TraceKey,
@@ -3050,7 +3045,7 @@ fn base_entry<'b>(
     })
 }
 
-/// One own-memo entry's fired delta replayed into the journal, spelled over the two fields it touches rather than over the whole engine. That is what lets a hit replay the delta where it sits in the memo instead of copying it out first: the memo and the journal are disjoint fields, and only a receiver that named the whole engine made them look otherwise. The fired set is not touched, because an own entry's pointers entered it when the entry was recorded — a delta is what the journal captured, and the journal inserts every pointer it logs — so a hit owes the set nothing and owes an open capture the delta: the enclosing window's delta must carry what its evaluation would have fired. A configuration's windows hit their own memo tens of millions of times, and a hash insert per pointer per hit was the larger part of what a hit cost.
+/// Replay one own-memo entry's fired delta into the journal. It takes only the two fields it touches, not the whole engine, so a hit can replay the delta from the memo without copying it: the memo and the journal are disjoint fields. The fired set is not touched, because an own entry's pointers entered it when the entry was recorded (the journal inserts every pointer it logs). An open capture still needs the delta, because the enclosing window's delta must include what its evaluation would have fired. A configuration's windows hit their own memo tens of millions of times, and a hash insert per pointer per hit measured as most of a hit's cost.
 fn replay_into(fired_log: &mut Option<Vec<Pointer>>, capture_starts: &[usize], delta: &[Pointer]) {
     if delta.is_empty() || capture_starts.is_empty() {
         return;
@@ -3061,7 +3056,7 @@ fn replay_into(fired_log: &mut Option<Vec<Pointer>>, capture_starts: &[usize], d
     log.extend_from_slice(delta);
 }
 
-/// A base entry's fired delta replayed the same way, with the one difference a base makes: its pointers were journaled by another engine, so the fired set holds them only once this engine has replayed that delta seat before, which `replayed` — one flag per delta seat of the base — records.
+/// Replay a base entry's fired delta the same way, except that the base's pointers were journaled by another engine, so the fired set holds them only after this engine has replayed that delta seat once. `replayed` has one flag per delta seat of the base.
 fn replay_base(
     fired: &mut HashSet<Pointer>,
     fired_log: &mut Option<Vec<Pointer>>,
@@ -3080,7 +3075,7 @@ fn replay_base(
     replay_into(fired_log, capture_starts, delta);
 }
 
-/// One authored value out of a `cell:` / `over:` / `pick:` mapping. The model keeps these ordered rather than hashed, and they hold two or three keys, so the scan is the lookup.
+/// One authored value from a `cell:`, `over:` or `pick:` mapping. The model keeps these as ordered lists of two or three keys, so a linear scan is the lookup.
 fn pattern_value(pattern: &Table<Sym>, key: Sym) -> Option<Sym> {
     pattern
         .iter()
@@ -3115,9 +3110,7 @@ fn resolve_pick_matches(vocab: &Vocab, pick: &Table<Sym>, candidate: &Candidate)
     !names_a_side || cell_pattern_matches(vocab, pick, candidate)
 }
 
-/// A `pick:` in the form two resolves are compared for agreement by — Python's `tuple(sorted(res.pick.items()))`. The comparison is on the authored text rather than on symbols, because two specs' identical picks must count as one demand and interning order says nothing about a pick's content.
-///
-/// The sort is stable, like every sort in this crate: Python's `sorted` is, and a pick cannot carry one key twice, so no tie can arise here — but the rule holds crate-wide rather than per call site precisely so that no reader has to re-derive that argument.
+/// A `pick:` as its (key, value) text pairs, sorted: the form in which two resolves' picks are compared for agreement.
 fn sorted_pick_items<'a>(index: &'a SpecIndex, pick: &Table<Sym>) -> Vec<(&'a str, &'a str)> {
     let mut items: Vec<(&str, &str)> = pick
         .iter()
@@ -3127,12 +3120,12 @@ fn sorted_pick_items<'a>(index: &'a SpecIndex, pick: &Table<Sym>) -> Vec<(&'a st
     items
 }
 
-/// Python's `x or fallback` over a string, which is a truthiness test and therefore substitutes the fallback for an *empty* string as well as an absent one. The distinction is not academic: `id: ""` and a registry height named `""` both survive `kernel_io`'s reader, so a site that tested absence alone would print an empty field where Python prints the fallback. Only the sentence-formatting sites read this way — the `when:` clause beside them spells its families straight through, empty or not, exactly as Python's f-string does.
+/// `text`, or `fallback` when `text` is empty. An empty value is possible: `id: ""` and a registry height named `""` both survive `kernel_io`'s reader, so a test for absence alone would print an empty field. Only the message-formatting sites use this. The `when:` clause beside them writes its family names as they are, empty or not.
 fn text_or<'a>(text: &'a str, fallback: &'a str) -> &'a str {
     if text.is_empty() { fallback } else { text }
 }
 
-/// A provenance as the notes and the raise messages spell it. Python formats these with an f-string over the field itself, so a record with no provenance prints Python's `str(None)` rather than nothing — the same sentence, and the same tell that a record was authored without a pointer.
+/// A provenance as the notes and the error messages write it. A record with no provenance prints `None`, which also shows that it was authored without a pointer.
 fn provenance_text(index: &SpecIndex, provenance: Option<&Provenance>) -> String {
     match provenance {
         Some(provenance) => provenance_pointer(index, provenance),
@@ -3140,7 +3133,7 @@ fn provenance_text(index: &SpecIndex, provenance: Option<&Provenance>) -> String
     }
 }
 
-/// Note one applied adjustment record on the trace, once — `_commit`'s inner `note_applied`. A record with no provenance notes nothing, because there is no pointer for the TSV to carry.
+/// Note one applied adjustment record on the trace, once. A record with no provenance notes nothing, because there is no pointer for the TSV to carry.
 fn note_applied(index: &SpecIndex, notes: &mut Vec<String>, record: Option<&PolicyRecord>) {
     if let Some(provenance) = record.and_then(|record| record.provenance.as_ref()) {
         let pointer = provenance_pointer(index, provenance);
@@ -3150,7 +3143,7 @@ fn note_applied(index: &SpecIndex, notes: &mut Vec<String>, record: Option<&Poli
     }
 }
 
-/// The adjustment tokens one side's chosen records spell, in the order the grammar writes them: the extend's binding, then the extension, then the contract's binding, its trim, and — only when it names neither — its plain contraction. An extend's binding comes before its extension because geometry applies tokens in order and the binding is the drawing the connector arithmetic then lengthens. An extend of zero pixels spells nothing, while a contract of zero pixels still spells itself: the extension is read for a nonzero value and the contraction for presence.
+/// The adjustment tokens one side's chosen records produce, in grammar order: the extend's binding, then the extension, then the contract's binding, its trim, and, only when it has neither, its plain contraction. The extend's binding comes before its extension because geometry applies tokens in order and the binding is the drawing the connector arithmetic then lengthens. An extend of zero pixels produces no extension token, while a contract of zero pixels still produces its token: the extension is read for a nonzero value and the contraction for presence.
 fn adjustment_tokens(
     side: Side,
     extend: Option<&PolicyRecord>,
@@ -3184,7 +3177,7 @@ fn adjustment_tokens(
     tokens
 }
 
-/// The structural floor's sort key, `_transition_trace_uncached`'s `floor_key`: realizing the seam beats declining it, a lower seam beats a higher one, and the exit row's declaration seat settles the rest. Realizing the *left* seam is constant across candidates — entry binding is bilateral — so it is not part of the key.
+/// The structural floor's sort key: realizing the seam beats declining it, a lower seam beats a higher one, and the exit row's declaration index decides the rest. Realizing the left seam is the same for every candidate, because entry binding is bilateral, so it is not part of the key.
 fn floor_key(index: &SpecIndex, candidate: &Candidate) -> (usize, i64, usize) {
     match candidate.seam {
         Some(seam) => (
@@ -3205,7 +3198,7 @@ mod tests {
     use crate::index::fixtures;
     use crate::types::{EDGE, NO_EXIT_INDEX, SPACE};
 
-    /// A JSON object over already-built pieces, for the mappings whose keys the fixtures compose rather than spell.
+    /// A JSON object over already-built pieces, for mappings whose keys the fixtures build.
     fn object(entries: &[(String, String)]) -> String {
         let pairs: Vec<String> = entries
             .iter()
@@ -3250,9 +3243,9 @@ mod tests {
         fixtures::policy(&[])
     }
 
-    /// The little alphabet most of these tests enumerate over.
+    /// The small alphabet most of these tests enumerate over.
     ///
-    /// `qsPea` is the rune under enumeration: `half` enters at the baseline and exits at both heights, `full` has no entry surface at all and exits only at the baseline. `qsTea` accepts a baseline entry and offers no exit, so it is an acceptor at the baseline and none at the x-height — which is what closes `qsPea`'s x-height exit out. `qsMay` accepts a baseline entry only through an `ss03` unlock, and `qsIt` has no surface at all, so nothing reaches it.
+    /// `qsPea` is the rune under enumeration: `half` enters at the baseline and exits at both heights, and `full` has no entry surface and exits only at the baseline. `qsTea` accepts a baseline entry and offers no exit, so it accepts at the baseline and not at the x-height, which rules out `qsPea`'s x-height exit. `qsMay` accepts a baseline entry only through an `ss03` unlock, and `qsIt` has no surface at all, so nothing reaches it.
     fn alphabet() -> SpecIndex {
         let pea = letter(
             "qsPea",
@@ -3313,7 +3306,7 @@ mod tests {
         fixtures::letter(index, name)
     }
 
-    /// A settled letter left carrying `seam`, spelled through a real (rune, stance) pair the way every left the kernel meets is.
+    /// A settled letter left carrying `seam`, built from a real (rune, stance) pair, since [`LeftContext::letter`] panics on any other.
     fn settled_left(
         index: &SpecIndex,
         rune: &str,
@@ -3507,7 +3500,7 @@ mod tests {
         assert_eq!(note.as_deref(), Some("unlocked by ss03"));
     }
 
-    /// `qsPea.half` offers both heights but forbids pairing a live baseline entry with the x-height exit; `qsTea` accepts either height, so nothing but the pairing rule can be what kills the candidate.
+    /// `qsPea.half` enters at the baseline, exits at both heights, and carries the caller's `pairings`. `qsTea` enters at either height, so only the pairing rule can remove a candidate.
     fn pairing_spec(pairings: &str) -> SpecIndex {
         let pea = letter(
             "qsPea",
@@ -3616,7 +3609,7 @@ mod tests {
         );
     }
 
-    /// `qsPea` refuses every joining cell toward a letter except `qsTea`. Both followers accept a baseline entry, so the closure admits either and the refusal is the only thing that can differ.
+    /// `qsPea` refuses to join any letter except `qsTea`. Both followers enter at the baseline, so the closure admits either one and only the refusal tells them apart.
     fn refusal_spec() -> SpecIndex {
         let carve = fixtures::condition(&[("family", &fixtures::names(&["qsTea"]))]);
         let right = fixtures::condition(&[
@@ -3713,7 +3706,7 @@ mod tests {
         assert!(eliminations.is_empty());
     }
 
-    /// `qsPea.half`'s baseline exit is scoped toward `qsTea` alone, and carries provenance so the fired set can be watched.
+    /// `qsPea.half`'s baseline exit is scoped toward `qsTea` only, and carries provenance so a test can check whether it fired.
     fn row_scope_spec() -> SpecIndex {
         let scope = fixtures::condition(&[("family", &fixtures::names(&["qsTea"]))]);
         let exit = row(
@@ -4026,9 +4019,9 @@ mod tests {
         );
     }
 
-    /// Four conditions hung on refuse records so a test can reach them as parsed `Condition`s, over a spec where `qsPea` offers a horizontal entry and a rising exit and `qsTea`'s only entry row is unselectable.
+    /// Four conditions placed on refuse records so a test can read them as parsed `Condition`s. `qsPea` has a horizontal entry and a rising exit, and `qsTea`'s only entry row is unselectable.
     ///
-    /// The live alphabet authors no `stroke:` and no `is:` other than `boundary`, so no sweep over it can reach these branches however large; they are covered here or nowhere.
+    /// No rune condition uses `stroke:`, or `is:` with a value other than `boundary`, so no sweep over the live alphabet reaches these branches. These tests are their only coverage.
     fn axis_spec() -> SpecIndex {
         let pea = letter(
             "qsPea",
@@ -4312,7 +4305,7 @@ mod tests {
         );
     }
 
-    /// The deep-chain testbed: four refusals spelling the same three- and four-hop family chains twice over, once on a condition's own spine and once inside an `except_` whose entry carries the chain. `qsPea`'s surface is empty because nothing here settles — every test below reads a condition off the policy and matches it against slots it spells by hand.
+    /// Four refusals over a three-hop and a four-hop family chain. Refusals 0 and 2 put the chain on the condition itself, and refusals 1 and 3 put it inside an `except_` entry. `qsPea`'s surface is empty because no test here settles a window: each reads a condition off the policy and matches it against slots it builds by hand.
     fn deep_chain_spec() -> SpecIndex {
         let tea = fixtures::names(&["qsTea"]);
         let may = fixtures::names(&["qsMay"]);
@@ -4369,7 +4362,7 @@ mod tests {
         )])
     }
 
-    /// The `when:` one [`deep_chain_spec`] refusal is keyed on.
+    /// The `when:` of one [`deep_chain_spec`] refusal.
     fn chain_when(index: &SpecIndex, seat: usize) -> &When {
         &index
             .rune(fixtures::sym(index, "qsPea"))
@@ -4686,7 +4679,7 @@ mod tests {
         );
     }
 
-    /// One stance whose every capability read fires: a scoped entry row, a pairing unlock, an exit unlock, and a scoped exit row, all of them provenanced so the journal's order can be read off.
+    /// One stance in which every capability check fires: a scoped entry row, a pairing unlock, an exit unlock, and a scoped exit row. Each carries provenance so a test can read the order of the journal.
     fn firing_spec() -> SpecIndex {
         let toward_tea = fixtures::condition(&[("family", &fixtures::names(&["qsTea"]))]);
         let entry = row(
@@ -4892,14 +4885,14 @@ mod tests {
         assert!(!Engine::new(&index, no_features()).trace_memo());
     }
 
-    /// The memo's whole point (issues #165, #184 and #266): an entry is its two narrow seats, its two wide ones and the byte packing the prospect, the joint flag and the stage in sixteen bytes with nothing on the heap, under a key packed to twenty.
+    /// A trace memo entry is two two-byte seats, two four-byte seats, and one byte packing the prospect, the joint flag, and the stage: sixteen bytes with no heap allocation. Its key is twenty bytes. [`TraceEntry`] and [`TraceKey`] say why the sizes matter.
     #[test]
     fn a_memoized_window_is_sixteen_bytes_under_a_twenty_byte_key() {
         assert_eq!(std::mem::size_of::<TraceEntry>(), 16);
         assert_eq!(std::mem::size_of::<TraceKey>(), 20);
     }
 
-    /// The packed byte (issue #266) reads back every prospect, joint flag and stage it can hold, each combination through an entry of its own.
+    /// The packed byte reads back every combination of prospect, joint flag, and stage.
     #[test]
     fn a_packed_entry_reads_back_every_prospect_joint_flag_and_stage() {
         for prospect in [0i64, 1] {
@@ -4929,7 +4922,7 @@ mod tests {
         }
     }
 
-    /// A narrow seat covers every index up to its capacity and none past it (issue #266): the last seat widens back to the pool's own, and the first index past the range mints nothing rather than wrapping to a low seat.
+    /// A two-byte seat covers every index below its `CAPACITY`. The last one widens to the pool's own seat, and `try_at` returns `None` for the first index past the range instead of wrapping to a low seat.
     #[test]
     fn a_trace_seat_covers_its_range_and_wraps_past_none_of_it() {
         let last = TraceSettledSeat::CAPACITY - 1;
@@ -4942,21 +4935,21 @@ mod tests {
         assert!(TraceSettledSeat::try_at(usize::MAX).is_none());
     }
 
-    /// A settled table past the `u16` range raises at the mint rather than wrapping (issue #266).
+    /// `TraceSettledSeat::at` panics past the `u16` range instead of wrapping.
     #[test]
     #[should_panic(expected = "fewer than 65,536 distinct settled records")]
     fn a_settled_table_past_the_range_raises_at_the_mint() {
         let _ = TraceSettledSeat::at(TraceSettledSeat::CAPACITY);
     }
 
-    /// A notes table past the `u16` range raises at the mint rather than wrapping (issue #266).
+    /// `TraceNotesSeat::at` panics past the `u16` range instead of wrapping.
     #[test]
     #[should_panic(expected = "fewer than 65,536 distinct notes lists")]
     fn a_notes_table_past_the_range_raises_at_the_mint() {
         let _ = TraceNotesSeat::at(TraceNotesSeat::CAPACITY);
     }
 
-    /// A prospect outside zero or one raises at the entry rather than folding into the bit.
+    /// `TraceEntry::new` panics on a prospect other than zero or one instead of truncating it into the bit.
     #[test]
     #[should_panic(expected = "a prospect is a seam count, zero or one")]
     fn a_prospect_past_one_raises_at_the_entry() {
@@ -4971,7 +4964,7 @@ mod tests {
         );
     }
 
-    /// The candidate memo's whole point (issues #167, #184 and #266): an entry is its four seats in sixteen bytes with nothing on the heap, under a key packed to fourteen, and the closure memo's verdict rides beside its two seats in twelve.
+    /// A candidate memo entry is four seats in sixteen bytes with no heap allocation, under a fourteen-byte key. A closure memo value is its result and two seats in twelve bytes.
     #[test]
     fn a_memoized_enumeration_is_sixteen_bytes_under_a_fourteen_byte_key() {
         assert_eq!(std::mem::size_of::<CandidatesEntry>(), 16);
@@ -4979,7 +4972,7 @@ mod tests {
         assert_eq!(std::mem::size_of::<(bool, DeltaSeat, ReadsSeat)>(), 12);
     }
 
-    /// The packed kinds (issue #266): two keys alike in every ordinal and differing in one slot's kind, or in the left's kind alone, are distinct keys and hash apart.
+    /// Two trace keys with the same ordinals that differ only in one slot's kind, or only in the left's kind, compare unequal and hash differently.
     #[test]
     fn two_keys_differing_in_one_packed_kind_stay_distinct_and_hash_apart() {
         use std::hash::BuildHasher as _;
@@ -5016,7 +5009,7 @@ mod tests {
         assert_eq!(base.runes_named().count(), 2);
     }
 
-    /// The read journal (issue #184): a traced window's entry names the runes its evaluation read — the input's and the follower's at least, and never one the window does not name — and a hit replays those reads into an open capture exactly as it replays its delta.
+    /// A traced window's entry records the runes its evaluation read: at least the input's and the follower's, and none the window does not name. A hit replays those reads into an open capture, as it replays its delta.
     #[test]
     fn a_trace_journals_the_runes_it_read_and_a_hit_replays_them() {
         let index = firing_spec();
@@ -5124,7 +5117,7 @@ mod tests {
         assert_eq!(engine.base_hits(), 0);
     }
 
-    /// Two windows that enumerate the same lists share one seat into each pool, an entry's lists read back through the pools exactly as its miss returned them, sentences included, and the sentence count is of what the pools hold rather than of what the entries name.
+    /// Two windows that enumerate the same lists share one seat in each pool, and an entry's lists read back from the pools as its miss returned them, descriptions included. `elimination_text_bytes` counts each description the pool holds once, not once per entry that names it.
     #[test]
     fn windows_with_the_same_lists_share_one_seat_into_each_pool() {
         let index = firing_spec();
@@ -5171,7 +5164,7 @@ mod tests {
         assert!(engine.elimination_text_bytes() < per_entry);
     }
 
-    /// A journal-less engine seats nothing but the empty delta: its closure verdicts carry a seat like any memo's, and the pool they seat into never grows past the one delta such an engine can hold.
+    /// An engine without trace-memo mode journals nothing, so every closure memo value holds the seat of the empty delta and the delta pool holds only that one delta.
     #[test]
     fn a_journal_less_engine_seats_only_the_empty_delta() {
         let index = firing_spec();
@@ -5194,7 +5187,7 @@ mod tests {
         assert_eq!(engine.deltas.len(), 0);
     }
 
-    /// The ladder lives beside the memo rather than in it: a fixpoint-mode engine records none at all, and an explain-mode hit answers with the one its miss recorded.
+    /// The trace memo keeps ladders in a separate map. An engine built without `explain_ladder` records none, and with it a hit returns the ladder its miss recorded.
     #[test]
     fn a_hit_reads_its_ladder_back_only_where_its_miss_recorded_one() {
         let index = firing_spec();
@@ -5233,7 +5226,7 @@ mod tests {
         }
     }
 
-    /// The explain ladder is read off a window already settled and feeds nothing back: two trace-memo engines, one recording ladders and one not, settle the same windows — boundary lefts and settled ones, two slots and four, a letter and the edge on the right — to the same trace once the ladder is set aside, on the miss and on the hit alike. The string replay and the table fixpoint build their engines without the ladder on the strength of this.
+    /// Recording the explain ladder does not change settlement. Two trace-memo engines, one recording ladders and one not, settle the same windows to the same trace once the ladder is removed, on the miss and on the hit. The windows cover boundary and settled lefts, two and four slots, and letters and boundaries on the right. The string replay and the table fixpoint build their engines without the ladder because of this.
     #[test]
     fn the_explain_ladder_moves_no_settled_window() {
         let index = firing_spec();
@@ -5319,9 +5312,9 @@ mod tests {
         }
     }
 
-    /// The ranking testbed, `rebuild/pipeline/fixtures.py`'s `synthetic_spec` in this crate's four-family vocabulary.
+    /// The ranking test spec: `rebuild/pipeline/fixtures.py`'s `synthetic_spec` written with this crate's four-family registry.
     ///
-    /// `qsPea` draws `stroke`, which exits at the x-height, and then `flourish`, which offers no surface at all. `qsTea` enters at the x-height and exits at the baseline but forbids pairing the two, so an entered `qsTea` is exitless; `qsMay` enters at the baseline. Every way the qsPea·qsTea seam can go is therefore worth exactly one window join, which is what leaves the stages past the join count something to decide.
+    /// `qsPea` declares `stroke`, which exits at the x-height, and then `flourish`, which has no surface. `qsTea` enters at the x-height and exits at the baseline but forbids pairing the two, so an entered `qsTea` has no exit. `qsMay` enters at the baseline. Whichever way the qsPea·qsTea seam goes, the window makes one join, so the join count ties and the later stages decide.
     fn ranking_spec(pea_policy: &str, tea_policy: &str) -> SpecIndex {
         let pea = letter(
             "qsPea",
@@ -5364,7 +5357,7 @@ mod tests {
         spec_of(&[pea, tea, may])
     }
 
-    /// One policy record with a pointer, so that the notes and the raise messages have something legible to print.
+    /// One policy record with a provenance pointer, so notes and error messages have a name to print.
     fn pointed_record(kind: &str, rune: &str, seat: usize, overrides: &[(&str, &str)]) -> String {
         let quoted = quoted(kind);
         let pointer =
@@ -5379,7 +5372,7 @@ mod tests {
         fixtures::quote(value)
     }
 
-    /// The prefer record most of the stage tests hang on: it speaks for `qsPea`'s surfaceless `flourish` stance, in whichever mode the caller names.
+    /// A prefer record for `qsPea`'s `flourish` stance, which has no surface, in the mode the caller passes. Most of the stage tests use it.
     fn flourish_policy(mode: &str) -> String {
         fixtures::policy(&[(
             "prefer",
@@ -5392,13 +5385,13 @@ mod tests {
         )])
     }
 
-    /// The window these tests settle: the run edge on the left, `qsPea` under the pen, and the slots named.
+    /// Settles `qsPea` with the run edge on its left and the given slots on its right.
     fn settle_pea(engine: &mut Engine<'_>, slots: Slots) -> Result<TransitionTrace, SettleError> {
         let token = letter_token(engine.index(), "qsPea");
         engine.transition_trace(&LeftContext::boundary(TokenKind::Edge), token, slots)
     }
 
-    /// A `qsPea.stroke` left that committed the x-height seam, carrying `extension` connector pixels on it.
+    /// A `qsPea.stroke` left that committed the x-height seam with `extension` connector pixels.
     fn committed_left(index: &SpecIndex, extension: i64) -> LeftContext {
         let x_height = fixtures::sym(index, "x-height");
         LeftContext::letter(
@@ -5808,7 +5801,7 @@ mod tests {
         );
     }
 
-    /// [`ranking_spec`] carrying the two chained prefers a vote is read through. `qsPea`'s own record speaks for its `stroke` stance where the slots past it spell qsTea·qsMay·qsPea; `qsTea`'s speaks for its `hook` stance where the slots past *it* spell qsMay·qsPea — one hop shallower, because a follower's record is evaluated one position over.
+    /// [`ranking_spec`] with two chained prefers for the vote tests. `qsPea`'s record favors its `stroke` stance when the slots after `qsPea` are qsTea·qsMay·qsPea. `qsTea`'s record favors its `hook` stance when the slots after `qsTea` are qsMay·qsPea. Its chain is one hop shorter because a follower's record is evaluated one position to the right.
     fn vote_slot_spec() -> SpecIndex {
         let pea_chain = fixtures::condition(&[
             ("family", &fixtures::names(&["qsTea"])),
@@ -5961,7 +5954,7 @@ mod tests {
         );
     }
 
-    /// The crossing the resolve slice exists for: `qsPea` prefers realizing its x-height exit, while `qsTea` votes for whichever `qsPea` cell lets its own baseline exit live — two runes, equal specificity, disjoint demands.
+    /// Two prefers from different runes with equal specificity and conflicting demands, the case a `resolve` record settles. `qsPea` prefers a cell that uses its x-height exit, and `qsTea` votes for whichever `qsPea` cell leaves its own baseline exit usable. The caller passes `qsPea`'s `resolve` list.
     fn crossing_spec(pea_resolve: &str) -> SpecIndex {
         let pea_policy = fixtures::policy(&[
             (
@@ -6013,7 +6006,7 @@ mod tests {
         );
     }
 
-    /// The dump every empty spelling of a name is authorable in, for the three sentence fields that fall back on Python's `or`: a rune named `""`, whose provenance therefore reads `.yaml:…`, a registry height named `""`, and a prefer record whose `id:` is `""`. The empty name and the empty height are one symbol, there being one empty string in the interner.
+    /// A spec with an empty string in each place the E-INCOMPARABLE message falls back on a default: a rune named `""`, whose provenance is `.yaml:…`, a registry height named `""`, and a prefer record whose `id:` is `""`. The empty rune name and the empty height are the same interned symbol.
     fn empty_spelling_spec() -> SpecIndex {
         let registry = fixtures::registry(&[
             ("heights", &fixtures::map(&[("", "0"), ("x-height", "5")])),
@@ -6049,9 +6042,9 @@ mod tests {
         fixtures::index_of(&fixtures::dump(&object(&[pea, nameless]), &registry))
     }
 
-    /// Three of this sentence's fields are spelled with `or`, so each reads an empty authored string as absent: the example window drops the nameless rune instead of widening itself with a space, the candidate that entered at the empty height prints `entry none`, and the empty `id:` prints the instruction to give the record one. The `when:` clause is the control — it spells its families through an f-string, so the nameless follower lands there as `family: ` and belongs in the expected bytes.
+    /// Three fields of this message treat an empty authored string as absent: the example window leaves out the nameless rune instead of printing an extra space, the candidate that entered at the empty height prints `entry none`, and the empty `id:` prints the instruction to give the record one. The `when:` clause is the control. It prints family names as they are, so the nameless follower appears there as `family: ` in the expected text.
     ///
-    /// The expected bytes were taken from the Python original's own sentence for the same arguments, which read nothing off its engine; the sentence is this crate's now, and these are the bytes it owes.
+    /// The expected text was taken from the Python implementation's message for the same arguments.
     #[test]
     fn the_incomparable_sentence_reads_every_empty_spelling_the_way_python_does() {
         let index = empty_spelling_spec();
@@ -6247,7 +6240,7 @@ mod tests {
         );
     }
 
-    /// The deliberate asymmetry between `_adjustment_tokens` and `_commit`: the token list tests the extend's `by` truthily and the contract's for absence, so a zero-pixel extend spells nothing while a zero-pixel contract still spells `ex-con-0` and thereby stays visible in the cell's identity. The pixel arithmetic tests both truthily, so neither of them moves the extension. Either record matched and fired whatever its `by`, which is what the notes say.
+    /// `adjustment_tokens` and `Engine::commit` treat a zero `by` differently. The token list includes an extend only for a nonzero `by` and a contract whenever `by` is present, so a zero-pixel extend adds no token while a zero-pixel contract adds `ex-con-0` and stays visible in the cell's identity. The extension arithmetic in `commit` skips a zero `by` for both, so neither moves the extension. Both records matched and fired regardless of `by`, and the notes list both.
     #[test]
     fn a_zero_pixel_extend_spells_nothing_while_a_zero_pixel_contract_spells_itself() {
         let pea_policy = fixtures::policy(&[
@@ -6296,7 +6289,7 @@ mod tests {
         );
     }
 
-    /// An extend that names a `bind:` spells the binding ahead of its extension, so geometry swaps the drawing in before it lengthens the connector, and the pixels still count toward the seam's extension.
+    /// An extend with a `bind:` writes the binding token before the extension token, so geometry swaps in the drawing before it lengthens the connector. The pixels still count toward the seam's extension.
     #[test]
     fn a_bound_extend_spells_its_binding_before_its_extension() {
         let pea_policy = fixtures::policy(&[(
@@ -6330,7 +6323,7 @@ mod tests {
         assert_eq!(trace.notes, ["qsPea.yaml:policy.extend[0]"]);
     }
 
-    /// The ranking testbed again, with `qsTea`'s baseline exit withdrawing to a named drawing rather than safely, and whatever `cells:` compositions the caller spells.
+    /// [`ranking_spec`] without `qsPea`'s `flourish` stance and with no policy records. `qsTea`'s baseline exit withdraws to the `pulled-back` drawing instead of `safe`, and `qsTea.hook` carries the caller's `cells:` list.
     fn withdrawal_spec(cells: &str) -> SpecIndex {
         let tea = letter(
             "qsTea",
@@ -6407,7 +6400,7 @@ mod tests {
         );
     }
 
-    /// A spec whose one adjustment record reaches `depth` raw slots to the right: `qsTea` enters at the x-height, offers no exit at all, and extends its entry by a pixel when the window past it reads the way the chain spells. `qsMay` and `qsIt` are modeled so that every slot of the deep window names a rune the prospect can settle.
+    /// A spec whose one adjustment record reads `depth` raw slots to the right. `qsTea` enters at the x-height, has no exit, and extends its entry by one pixel when the slots after it are `qsMay` and then `depth - 1` `qsIt`s. `qsMay` and `qsIt` are modeled so that every slot of the deep window names a rune the prospect can settle.
     fn deep_adjustment_spec(depth: usize) -> SpecIndex {
         let mut condition = fixtures::condition(&[("family", &fixtures::names(&["qsIt"]))]);
         for _ in 2..depth {
@@ -6507,7 +6500,7 @@ mod tests {
         );
     }
 
-    /// The issue-28 signature, `rebuild/pipeline/fixtures.py`'s `prospect_spec`: `qsPea` exits at both heights and prefers the x-height as a yielding tie-break; `qsTea` enters at both, is exitless when entered at the x-height, and yields its own baseline exit before qsMay·qsIt; an entered `qsMay` is exitless, so `qsTea` joining `qsMay` forecloses the qsMay·qsIt join while `qsTea` declining buys it. The optimistic estimate therefore scores `qsPea`'s baseline exit as if the onward join will happen, and the simulated term sees `qsTea` provably yield it one seat later.
+    /// The issue-28 shape, as in `rebuild/pipeline/fixtures.py`'s `prospect_spec`. `qsPea` exits at both heights and prefers the x-height as a yielding tie-break. `qsTea` enters at both heights, has no exit when entered at the x-height, and prefers to decline its baseline exit before qsMay·qsIt. An entered `qsMay` has no exit, so `qsTea` joining `qsMay` prevents the qsMay·qsIt join, and `qsTea` declining allows it. The candidacy estimate therefore scores `qsPea`'s baseline exit as if `qsTea`'s onward join will happen, and the simulated prospect sees `qsTea` decline it one position later.
     fn prospect_spec() -> SpecIndex {
         let safe = |height: &str| row(height, &[("withdrawal", "\"safe\"")]);
         let pea = letter(
@@ -6651,7 +6644,7 @@ mod tests {
         );
     }
 
-    /// A window whose *follower's* cascade raises. `qsTea` reaches toward `qsPea`, whose two entry-only stances tie at every score and whose two prefer records demand one each — so the counterfactual transition the simulated prospect runs is ambiguous, in a window `qsTea` itself settles perfectly well. No sweep over the live alphabet reaches this: E-AMBIGUOUS is unauthored there, and a stranded inner cascade cannot happen either, because the closure already proved the follower has cells.
+    /// A window in which the follower's replayed settlement raises. `qsTea` exits toward `qsPea`, whose two entry-only stances tie at every score and whose two prefer records each demand one of them. The simulated prospect's settlement of `qsPea` is therefore E-AMBIGUOUS, although `qsTea`'s own window settles. No sweep over the live alphabet reaches this: E-AMBIGUOUS is unauthored there, and an E-STRANDED replayed settlement cannot happen either, because the closure has already shown that the follower has cells.
     fn raising_follower_spec() -> SpecIndex {
         let conflicting = fixtures::policy(&[(
             "prefer",
@@ -6727,14 +6720,14 @@ mod tests {
         assert_eq!(estimating.simulated_prospect_fallbacks(), 0);
     }
 
-    /// The prospect memo's whole point (issues #166 and #266): a key packed to eighteen bytes, the simulated shape's slots as ordinals beside one packed word of kinds, over a value that is the term's byte and a seat.
+    /// A prospect memo key is eighteen bytes: the simulated key's slots are ordinals beside one packed word of kinds.
     #[test]
     fn a_memoized_prospect_is_eight_bytes_under_an_eighteen_byte_key() {
         assert_eq!(std::mem::size_of::<ProspectKey>(), 18);
         assert_eq!(std::mem::size_of::<(i8, DeltaSeat)>(), 8);
     }
 
-    /// Under a trace memo a settling cascade leaves its window there and declines its prospect entry, so a second window asking the same prospects reads them through the trace memo and journals exactly the delta the first did; a raising cascade's fallback is the entry the memo keeps, and the second window's asks hit it rather than re-running the cascade that raised.
+    /// Under a trace memo, when the follower's replayed settlement succeeds, the trace memo keeps the follower's window and the prospect memo keeps no entry. A second window asking the same prospects reads them through the trace memo and journals the same delta as the first. When the replayed settlement raises, the prospect memo keeps the fallback estimate, and the second window's asks hit that entry instead of settling the follower again.
     #[test]
     fn a_prospect_keeps_its_entry_only_where_its_cascade_raised() {
         let modes = EngineModes {
@@ -6814,7 +6807,7 @@ mod tests {
         );
     }
 
-    /// Without a trace memo, or in candidacy mode, nothing stands behind the prospect memo to answer a next ask, so every ask is memoized as before — and outside trace-memo mode the entry seats the empty delta, because nothing was journaled.
+    /// Without a trace memo, or in candidacy mode, no trace memo entry can answer the next ask, so the prospect memo keeps every ask. Outside trace-memo mode each entry holds the seat of the empty delta, because nothing was journaled.
     #[test]
     fn a_prospect_with_no_trace_memo_behind_it_is_memoized_however_it_was_answered() {
         let index = prospect_spec();

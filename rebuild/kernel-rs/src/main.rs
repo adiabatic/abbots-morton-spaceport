@@ -1,30 +1,30 @@
-//! `ams-m1-kernel` — the Rust reimplementation of the M1 settlement kernel (tracker issue #40). Today it does the ingest step, the settlement core and the whole table build: it reads an `ams-m1-spec/1` dump into the interned model, echoes that model back out in canonical form (sub-issue #42), settles single windows against it — a batch of cases at a time for every Python caller that needs a window settled, and the whole late-formation surface for the guard (sub-issue #43) — runs the whole table-build worklist fixpoint over one configuration in either candidacy world and at either deep-slot grain, writing the transitions stream `kernel_io.read_transitions` parses back (sub-issues #44 and #45), runs a whole named set of configurations that way in one process, concurrently, for the builds that want all of them at once (sub-issue #46), folds those configurations into the two tables and the window enumeration a build persists rather than emitting a stream at all, replays a build's persisted rules over the whole string universe against its own settlement to check the enumeration complete (issue #176), replays the order the emitter ships those rules in against every configuration's rows, and answers deep-slot liveness and fiber questions one key at a time, a liveness-grain inspection verb (sub-issue #45) whose Python-side differential retired at issue #78.
+//! `ams-m1-kernel` is the command-line binary of the M1 settlement kernel. It reads an `ams-m1-spec/1` dump into the interned model and serves one subcommand per task, listed below: echoing the dump, settling windows for the Python callers, sweeping the late-formation guard, building and folding the tables, checking the built tables by replay, and answering deep-slot liveness and fiber queries.
 //!
-//! **This crate is the definition of settlement.** The ranking, the refusals, the specificity order under them, the prospect and the late-formation guard have one home, and a settlement-semantics change is written here and nowhere else. What Python still binds is the boundary rather than the answer: `rebuild/pipeline/kernel_io.py` is the binding contract for the dump — it is whatever `kernel_io.spec_json` writes, and the strictness is whatever `kernel_io.spec_of` enforces — `rebuild/pipeline/model.py` for the field sets a dump carries, and `rebuild/pipeline/table.py` for the bytes [`ams_m1_kernel::fold`] and [`ams_m1_kernel::artifacts`] write, whose readers and digests it carries; byte-identity of the persisted artifacts against a stamped baseline is what holds a fold change to one answer. `rebuild/pipeline/settle.py` keeps settlement's vocabulary and none of its semantics — the token and boundary types, `cell_label`, `is_entry_bearing`, `word_position`, and the ligature formation staged before settlement, whose verdicts come from `guard-sweep` — and every other Python consumer, the conform sweep and the witness gate and explain and probe and the review surface, settles through `settle-cases`. `doc/rebuild-design.md` §14.1 carries the design facts behind the port — chiefly that the packing, not the language, is the win, and that the fast hasher in [`ams_m1_kernel::hash`] wins only with its finalizer, a finalizer-less one measuring far slower than SipHash on these keys.
+//! **This crate is the definition of settlement.** The ranking, the refusals, the specificity order, the prospect, and the late-formation guard are implemented only here, so a settlement-semantics change is written here and nowhere else. Python defines the boundaries. `rebuild/pipeline/kernel_io.py` defines the dump: its format is what `kernel_io.spec_json` writes, and its strictness is what `kernel_io.spec_of` enforces. `rebuild/pipeline/model.py` defines the fields a dump carries. `rebuild/pipeline/table.py` reads the files [`ams_m1_kernel::fold`] and [`ams_m1_kernel::artifacts`] write and computes their digests, and a fold change is checked by byte identity of the persisted artifacts against a stamped baseline. `rebuild/pipeline/settle.py` keeps settlement's vocabulary and none of its logic: the token and boundary types, `cell_label`, `is_entry_bearing`, `word_position`, and ligature formation, which runs before settlement and takes its verdicts from `guard-sweep`. Every other Python consumer (the conform sweep, the witness stage, explain, probe, and the review surface) settles through `settle-cases`. `doc/rebuild-design.md` §14.1 records the measurements behind the port, including that packing the model into integer keys, not the change of language, gives the speedup, and that the hasher in [`ams_m1_kernel::hash`] is faster than SipHash on these keys only with its finalizer.
 //!
-//! **A change to `rebuild/pipeline/model.py` is a cross-group coordination event, and it lands on this crate too.** The Python codec is driven by `dataclasses.fields`, so a new field rides the dump with no edit there; this crate spells its field sets by hand and will therefore refuse the new dump rather than silently drop the field. The spec-echo parity test in `rebuild/test_kernel_io.py`, in the contracts lane of every `make test-rebuild`, is what catches the lag, and it catches it as a byte diff.
+//! **A change to `rebuild/pipeline/model.py` must also be made in this crate.** The Python codec is driven by `dataclasses.fields`, so a new field enters the dump with no edit there. This crate lists its field sets by hand, so it rejects a dump with an unknown field instead of dropping the field. The spec-echo parity test in `rebuild/test_kernel_io.py`, which runs on every `make test-rebuild`, fails until the crate catches up.
 //!
-//! Three make targets drive the crate from the repo root: `make kernel-build` compiles the release binary the harnesses run, `make kernel-check` is the crate's own gate and therefore settlement's (`cargo fmt --check`, `cargo clippy --all-targets -- -D warnings`, `cargo test`), and `make kernel-gate` is the name a kernel-semantics change reaches for, running `kernel-check` alone today. Beyond them, settlement's trust is `gate:conform`'s: every swept text is shaped through HarfBuzz and checked against this kernel's own per-window answers on every cycle.
+//! Three make targets build and check the crate. `make kernel-build` compiles the release binary the Python side runs. `make kernel-check` runs `cargo fmt --check`, `cargo clippy --all-targets -- -D warnings`, and `cargo test`. `make kernel-gate` is the target to run after a kernel-semantics change; it runs `kernel-check` and nothing else. Beyond the crate's own tests, gate:conform checks settlement by shaping every swept text through HarfBuzz and comparing the result with this kernel's per-window settlement.
 //!
-//! The CLI is positional arguments and a hand-rolled flag scan, never an argument parser, and stdout carries the answer and nothing else, ever. Three flags name the world a verb answers in, and all three are spelled as negations of the shipping configuration — `--candidacy-prospect`, `--vote-slots-off`, `--deep-classes-off` — so a bare invocation is what ships and every departure from it is visible in the command line:
+//! The CLI takes positional arguments and scans flags by hand, with no argument parser. stdout carries the answer and nothing else. The three mode flags are written as negations of the shipping configuration (`--candidacy-prospect`, `--vote-slots-off`, `--deep-classes-off`), so a bare invocation runs what ships and every departure from it shows in the command line:
 //!
 //! - `ams-m1-kernel spec-echo <spec>` writes the canonical dump plus one newline.
-//! - `ams-m1-kernel settle-cases <spec> <cases> [--features=a,b,…] [--settled-only] [--candidacy-prospect] [--vote-slots-off]` replays a plain-text case file — one tab-separated question per line, which is what `kernel_exec.case_line` writes — through one engine in file order and writes one line per case: the question echoed verbatim, a tab, and the answer, the whole trace as JSON (`kernel_exec.trace_of` reads it) or, under `--settled-only`, the settled record as seven tab-separated fields (`kernel_exec._settled_of_fields` reads it). A window that raises a settlement error is a normal answer line, the same `{"raise":…,"message":…}` object under either shape, and never a nonzero exit.
-//! - `ams-m1-kernel guard-sweep <spec> [--config=<token>]` writes the whole section 5.7 late-formation surface, one tab-separated verdict per line: quantified over the capability-unlock powerset, which is the surface the font ships, or answered by the one configuration `--config=` names — a token spelled as `--configs=` spells one, `default` included, so the no-feature configuration is nameable where an empty `--features=` could not name it — which is what the rebuild suite holds against the quantified one per configuration. The guard pins its own engine modes, so the two mode flags are a usage error here rather than a world to answer in.
-//! - `ams-m1-kernel enumerate <spec> [--features=a,b,…] [--candidacy-prospect] [--vote-slots-off] [--deep-classes-off] [--timings]` runs one configuration's whole table-build fixpoint and writes the uncompressed `ams-m1-transitions/1` stream — the head line and one row per window. `--deep-classes-off` is Python's `AMS_DEEP_CLASSES=0`, the label-grain arm; in the pinned candidacy world enumeration is label-grain regardless, so the flag is accepted and does nothing there. The stream is written plain, which is what `kernel_exec.read_stream` parses back.
-//! - `ams-m1-kernel enumerate-configs <spec> <outdir> --configs=a,b,… [--threads=N] [--candidacy-prospect] [--vote-slots-off] [--deep-classes-off] [--timings]` runs several configurations' fixpoints in one process and writes each one's stream to `<outdir>/transitions-<config>.ndjson`, creating the directory with its parents and overwriting what it finds. stdout stays silent, because here the answer is the files — and they mean nothing except on exit 0, since a configuration that fails exits 1 naming itself and leaves whatever the other configurations had already written behind. A run that does reach exit 0 leaves that promise glob-safe: any `transitions-*.ndjson` already in the directory naming a configuration this run was not asked about is swept before the first one is written, so the whole set a consumer finds there is the set the command line named. `--configs=` is required and spells the configurations the way Python does, `conform.ACCEPTANCE_CONFIGS`'s own tokens: `default` for no features, anything else a `+`-joined feature list whose names are checked against the spec exactly as `--features=` checks them. A token that is not the canonical spelling of the features it names — out of order, repeated, empty, or empty between two `+` — is a usage error rather than a configuration, which is what keeps the filename, the stream head's `config` and the caller's own word for it in agreement by construction. The world flags name one world for the whole invocation, as they do for one `enumerate`.
-//! - `ams-m1-kernel build-tables <spec> <outdir> --configs=a,b,… --inputs=<stamp> [--threads=N] [--config-seed-off] [--candidacy-prospect] [--vote-slots-off] [--deep-classes-off] [--timings] [--cache-census]` runs the same fixpoints and then folds each one in place, writing `<outdir>/settlement-<config>.tsv`, `<outdir>/treaties-<config>.tsv` and the uncompressed `<outdir>/windows-<config>.tsv` under the fingerprint `--inputs` names, and writing one `{"config":…,"digest":…}` line per configuration to stdout in the order the command line named them. The configurations past `default` are enumerated as deltas over it: `default` enumerates first and alone, keeping its trace memo, and the wave then runs `--threads` wide, claiming the deltas heaviest-first by unlocking-rune count, one of its seats carrying `default`'s own fold while the rest read that memo for every window naming none of their own unlocking runes ([`ams_m1_kernel::memo`]), which files the bytes a from-scratch enumeration files; `--config-seed-off` is that from-scratch arm, and a set without `default` runs as if it were on. The same memo crosses builds: `--memo-stamp=<text>` writes each configuration's finished memo as `<outdir>/memo-<config>.tsv` under a head carrying the configuration, the world and that stamp, and `--seed=<dir>` reads a previous build's files from there behind `--edited=a,b,…`, the runes whose content moved since, and `--moved-classes=a,b,…`, the predicate classes whose membership did, so a window whose evaluation read none of them is answered as it was answered then; a file for another configuration or world is refused, a missing one is simply not read, a moved class this spec no longer declares is passed over (nothing in a valid memo can have read it), and either list without `--seed=` is a usage error. No stream is written and none is read: the fold runs on the product the worklist still holds, so the several hundred megabytes a stream would cost to write and read back are never spent. The harness gzips the windows payload, as it gzips the stream, for the same reason. The directory is created and nothing in it is swept — a build writes into its own artifact directory beside a dozen other families. `--inputs=` is required, because a serialized enumeration is trusted or refused on the stamp it carries.
-//! - `ams-m1-kernel replay-strings <spec> <outdir> --configs=a,b,… --horizon=N [--families=a,b,…] [--memo-dir=<dir> | --memo-windows=N] [--threads=N] [--candidacy-prospect] [--vote-slots-off] [--timings] [--cache-census]` reads each named configuration's `<outdir>/settlement-<config>.tsv` back and walks every text of length 1 through `N` over the spec's alphabet — or, with `--families=`, only the texts naming one of those runes, a ligature being named through its components — applying the rules first-match with the settled left fed forward and holding every window's rule outcome to this engine's own settlement of it ([`ams_m1_kernel::replay`]). It is the enumeration-completeness check `run_m1` runs on every build, and one `{"config":…,"texts":…,"windows":…,"skipped":…}` line per configuration on stdout is a clean answer; `--memo-dir=<dir>` files each green walk's window memo there as `replay-windows-<config>.bin` — every distinct window the walk settled with its record, the raw material of the build's settle memo ([`ams_m1_kernel::replay::Replay::write_window_memo`]) — and leaves the answer lines as they are; `--memo-windows=N` holds each walk to at most `N` windows memoized, or one text's windows where `N` sits below the horizon, releasing the walk memo and its engine's before any text that could carry the memo past `N`, so what a walk holds is flat in the universe apart from the settled records and labels it keeps, and `windows` then counts window settles rather than distinct windows; beside `--memo-dir=` it is a usage error, since a released memo is not the whole memo. A window the rules and the engine disagree on exits 1 naming the configuration, the window and the text it was reached in, as does a window the engine refuses. The horizon is required rather than defaulted, because the depth a walk proved is a claim its caller records. The grain flag is not spelled: a replay settles single windows, which have no grain to name.
-//! - `ams-m1-kernel replay-emitted <windows> --config=<token> --table=<settlement.tsv> --order=<order.tsv> --context=<context.tsv> [--timings]` walks one configuration's window enumeration — the plain `ams-m1-windows/2` payload at `<windows>`, or standard input for `-` — against the shipped settlement order ([`ams_m1_kernel::shipped_order`]): `--order=` is every configuration's rules in the order the emitter ships them, spelled as a settlement TSV whose provenance column names the table rules each row folded from; `--context=` is the configuration's marker fold and deep classes, one `rename` or `class` record per line; `--table=` is the configuration's own settlement TSV, read only to name the rule the table answered a disagreeing row with. Every row is renamed into the configuration's stream and the first emitted rule of its input that admits it has to answer with the row's outcome; one `{"config":…,"rows":…,"expanded":…}` line on stdout is a clean answer — `expanded` counting the rows tried member by member because an emitted look class admitted their deep class in part — and a row the shipped order answers differently exits 1 naming the configuration, the row, the emitted rule that fired and the table's own rule. No spec is read: the tables are the settled answer, and what is checked is whether the lookup that ships reads them back.
-//! - `ams-m1-kernel liveness-cases <spec> <keys> [--features=a,b,…] [--candidacy-prospect] [--vote-slots-off]` answers one deep-slot question per key line: `3<tab><input><tab><r1><tab><r2>` and `4<tab><input><tab><r1><tab><r2><tab><r3>` answer `live` or `dead` — the full filter verdict, chain arm and liveness arm together — and `fibers<tab><input><tab><r1><tab><r2>` answers with the context's fiber partition as compact JSON. Every name is a rune family name; a key naming anything else stops the run. Each output line is the key line, a tab, and the answer, in file order.
+//! - `ams-m1-kernel settle-cases <spec> <cases> [--features=a,b,…] [--settled-only] [--candidacy-prospect] [--vote-slots-off]` settles a plain-text case file through one engine, in file order. Each line of the file is one tab-separated window, as `kernel_exec.case_line` writes it. Each output line is the input line, a tab, and the answer: the whole trace as JSON (`kernel_exec.trace_of` reads it), or with `--settled-only` the settled record as seven tab-separated fields (`kernel_exec._settled_of_fields` reads it). A window that raises a settlement error gets an ordinary answer line, the same `{"raise":…,"message":…}` object in either shape, and does not change the exit status.
+//! - `ams-m1-kernel guard-sweep <spec> [--config=<token>]` writes the section 5.7 late-formation surface, one tab-separated verdict per line. Without `--config=`, each verdict is quantified over the powerset of capability-unlock features, which is the surface the font ships. With `--config=`, the surface is answered under that one configuration, named by a token in `--configs=` form; `default` names the no-feature configuration, which an empty `--features=` could not. The rebuild suite compares each configuration's surface with the quantified one. The guard fixes its own engine modes, so the two mode flags are a usage error here.
+//! - `ams-m1-kernel enumerate <spec> [--features=a,b,…] [--candidacy-prospect] [--vote-slots-off] [--deep-classes-off] [--timings] [--cache-census]` runs one configuration's table-build fixpoint and writes the uncompressed `ams-m1-transitions/1` stream (a head line and one row per window), which `kernel_exec.read_stream` reads. `--deep-classes-off` selects label grain, like Python's `AMS_DEEP_CLASSES=0`. With both `--candidacy-prospect` and `--vote-slots-off`, enumeration is label grain anyway, so the flag is accepted and has no effect.
+//! - `ams-m1-kernel enumerate-configs <spec> <outdir> --configs=a,b,… [--threads=N] [--candidacy-prospect] [--vote-slots-off] [--deep-classes-off] [--timings] [--cache-census]` runs several configurations' fixpoints in one process and writes each stream to `<outdir>/transitions-<config>.ndjson`. It creates the directory with its parents and overwrites existing streams. Before writing, it deletes every other `transitions-*.ndjson` in the directory, so after exit 0 the directory holds only the configurations the command line named. stdout stays empty. The files are valid only on exit 0: a failing configuration exits 1 with its name in the message and leaves the other configurations' files in place. `--configs=` is required and uses Python's tokens (`conform.ACCEPTANCE_CONFIGS`): `default` for no features, otherwise a `+`-joined feature list whose names are checked against the spec as `--features=` names are. A token that is not the canonical form of its features (out of order, repeated, empty, or with an empty part between two `+`) is a usage error, so the filename, the stream head's `config`, and the caller's name for the configuration always agree. The mode flags apply to every configuration in the run.
+//! - `ams-m1-kernel build-tables <spec> <outdir> --configs=a,b,… --inputs=<stamp> [--threads=N] [--config-seed-off] [--seed=<dir> [--edited=a,b,…] [--moved-classes=a,b,…]] [--memo-stamp=<text>] [--candidacy-prospect] [--vote-slots-off] [--deep-classes-off] [--timings] [--cache-census]` runs the same fixpoints and folds each product in memory, writing `<outdir>/settlement-<config>.tsv`, `<outdir>/treaties-<config>.tsv`, and the uncompressed `<outdir>/windows-<config>.tsv` under the fingerprint `--inputs=` names, and one `{"config":…,"digest":…}` line per configuration to stdout in command-line order. `default` enumerates first and alone and keeps its trace memo. The other configurations then run as deltas, `--threads` at a time, heaviest first by unlocking-rune count, with `default`'s fold taking one of the worker slots. Each delta reads `default`'s memo for every window that names none of its own unlocking runes ([`ams_m1_kernel::memo`]) and writes the same bytes a from-scratch enumeration writes. `--config-seed-off` enumerates every configuration from scratch, and a set without `default` does so anyway. `--memo-stamp=<text>` writes each configuration's finished memo as `<outdir>/memo-<config>.tsv`, with a head naming the configuration, the world, and the stamp. `--seed=<dir>` reads a previous build's memo files from that directory. `--edited=` names the runes whose content changed since that build and `--moved-classes=` the predicate classes whose membership changed, and a window whose settlement read none of them reuses its earlier answer. A seed file for another configuration or world is an error, a missing one is skipped, a moved class this spec no longer declares is ignored (no valid memo entry can have read it), and `--edited=` or `--moved-classes=` without `--seed=` is a usage error. No stream is written or read, because the fold runs on the product the worklist still holds; this saves writing and reading back several hundred megabytes per configuration. `run_m1.build_tables` gzips the windows payload and the memo files, because the crate has no compressor. The directory is created if needed and nothing in it is deleted, because a build writes into its artifact directory beside other artifacts. `--inputs=` is required because a persisted enumeration is accepted or rejected on the stamp it carries.
+//! - `ams-m1-kernel replay-strings <spec> <outdir> --configs=a,b,… --horizon=N [--families=a,b,…] [--memo-dir=<dir> | --memo-windows=N] [--threads=N] [--candidacy-prospect] [--vote-slots-off] [--timings] [--cache-census]` reads each configuration's `<outdir>/settlement-<config>.tsv` and walks every text of length 1 through `N` over the spec's alphabet ([`ams_m1_kernel::replay`]). With `--families=`, it walks only the texts that name one of those runes; a ligature is named through its components. It applies the rules first-match, feeding each settled left forward, and compares every window's rule outcome with this engine's settlement of that window. `run_m1` runs it after every table build as the enumeration-completeness check. A clean run writes one `{"config":…,"texts":…,"windows":…,"skipped":…}` line per configuration to stdout. `--memo-dir=<dir>` also writes each passing walk's window memo there as `replay-windows-<config>.bin`, the input to the build's settle memo ([`ams_m1_kernel::replay::Replay::write_window_memo`]). `--memo-windows=N` caps each walk's memo at `N` windows, or at one text's windows when `N` is below the horizon: before any text that could push the memo past the cap, the walk releases its memo and its engine's memos. The walk's memory then does not grow with the size of the universe, apart from the settled records and labels it keeps, and `windows` counts window settles instead of distinct windows. `--memo-windows=` with `--memo-dir=` is a usage error, because a released memo is incomplete. A window where the rules and the engine disagree, or that the engine refuses, exits 1 with a message naming the configuration, the window, and the text it was reached in. The horizon is required because the caller records the depth the walk covered. There is no grain flag, because a replay settles single windows, which have no grain.
+//! - `ams-m1-kernel replay-emitted <windows> --config=<token> --table=<settlement.tsv> --order=<order.tsv> --context=<context.tsv> [--timings]` walks one configuration's window enumeration (the plain `ams-m1-windows/2` payload at `<windows>`, or standard input for `-`) against the settlement order the font ships ([`ams_m1_kernel::shipped_order`]). `--order=` holds every configuration's rules in the order the emitter ships them, written as a settlement TSV whose provenance column names the table rules each row was folded from. `--context=` holds the configuration's marker renames and deep classes, one `rename` or `class` record per line. `--table=` is the configuration's own settlement TSV, read only to name the table's rule in a disagreement. Each row is renamed through the configuration's marker renames, and the first emitted rule for its input that matches it must give the row's outcome. A clean run writes one `{"config":…,"rows":…,"expanded":…}` line to stdout, where `expanded` counts the rows tried member by member because an emitted class matched only part of their deep class. A row for which the shipped order gives a different outcome exits 1 with a message naming the configuration, the row, the emitted rule that fired, and the table's rule. No spec is read: the tables already hold the settled answers, and the walk checks that the shipped lookup reproduces them.
+//! - `ams-m1-kernel liveness-cases <spec> <keys> [--features=a,b,…] [--candidacy-prospect] [--vote-slots-off]` reads one deep-slot query per line of the key file. `3<tab><input><tab><r1><tab><r2>` and `4<tab><input><tab><r1><tab><r2><tab><r3>` return `live` or `dead`, the full filter verdict (the chain check and the liveness check together). `fibers<tab><input><tab><r1><tab><r2>` returns the context's fiber partition as compact JSON. Every name must be a rune family name, and any other name stops the run. Each output line is the key line, a tab, and the answer, in file order.
 //!
-//! Concurrency reaches exactly as far as the configuration and no further: `enumerate-configs` runs at most `--threads` configurations at once — serially when nobody said, and never wider than the machine's parallelism or the configuration count — and `build-tables` runs its wave at that width once `default` has enumerated, one seat of it carrying `default`'s fold. [`ams_m1_kernel::fanout`] carries both halves of why that is the whole of it — what makes the bytes a function of the plan rather than of the schedule, and why the worklist inside one configuration stays sequential. Peak memory rises roughly linearly with that width, since each configuration in flight holds its whole working set until its stream has been emitted, so `--threads` is the lever a machine with less memory than parallelism reaches for.
+//! Concurrency is per configuration. `enumerate-configs`, `build-tables`, and `replay-strings` run at most `--threads` configurations at once: one when the flag is absent, and never more than the machine's available parallelism or the number of configurations. When the set includes `default` and `--config-seed-off` is not given, `build-tables` enumerates `default` alone first and then runs the other configurations at that width, with `default`'s fold in one of the worker slots. [`ams_m1_kernel::fanout`] explains why the output bytes do not depend on the schedule and why one configuration's worklist stays sequential. Peak memory grows roughly linearly with the width, because each configuration in flight holds its whole working set, so a machine with less memory than cores should pass a smaller `--threads`.
 //!
-//! `--cache-census` rides `enumerate`, `enumerate-configs`, `build-tables` and `replay-strings` and writes `[c] <config> <collection> len=<n> cap=<m>` lines to stderr, one per memo, plus the elimination text the memos were holding and the process's resident size. A table run samples that size before the memo release, after it, after the memo file is written and the snapshot let go of when the build files one, and past the sort; the replay samples it before and after each release under `--memo-windows=`, beside the walk memo's and the engine's memo sizes at that release (`release=<k>`), and once the walk is done, when it reports the walk's own memo and tables (`walk_memo`, `walk_pool`, the label tables and `walk_disagreed`) beside the engine's memos and how many times it released them (`releases count=`). It is the instrument every memory decision about this crate is made with, because the arithmetic on a struct definition can only estimate what one censused run states — and it is a diagnostic rather than an answer, so it costs nothing when it is not asked for and never touches the stream or the replay's answer lines. The lines ride the same buffered stderr `--timings` uses and are written in `--configs` order; the two flags are independent, so a census can be taken without a clock and the other way round.
+//! `--cache-census` is accepted by `enumerate`, `enumerate-configs`, `build-tables`, and `replay-strings`. It writes `[c] <config> <collection> len=<n> cap=<m>` lines to stderr, one per memo or table, plus the size of the elimination text the memos hold and the process's resident size at several points. [`ams_m1_kernel::fixpoint::enumerate_censused`] lists the enumeration's sample points and [`ams_m1_kernel::replay::Replay::take_census`] what the replay reports when a walk ends, including the release count (`releases count=`). Under `--memo-windows=`, each release also adds memo sizes and resident sizes labeled `release=<k>`. Memory decisions about this crate are made from these lines, because arithmetic on struct definitions only estimates what a censused run measures. The census costs nothing when it is not requested and never changes stdout, the stream, or the replay's answer lines. Its lines go into the same buffer as `--timings` and are written in `--configs` order. The two flags are independent.
 //!
-//! `--timings` rides `enumerate` and `enumerate-configs` and writes `[t] <label> <secs>s` lines to stderr at one decimal, `rebuild/pipeline/run_m1.py`'s spelling, which is what `rebuild/tools/cycle_timings.py` parses back out of a captured child: `spec_parse` for the read, the parse and the index, then `enumerate[<config>]` and `emit[<config>]` per configuration, then `enumerate_total`. A table build also reports `fold.prefixes[<config>]` and `fold.partition[<config>]` at millisecond precision before its aggregate fold line. Every line is buffered and written once the last configuration is done, in `--configs` order, so stderr reads the same at any thread count. Without the flag nothing reaches stderr on a clean exit, which is a contract of its own: the identity harness reads any stderr there as a failure.
+//! `--timings` is accepted by `enumerate`, `enumerate-configs`, `build-tables`, `replay-strings`, and `replay-emitted`. It writes `[t] <label> <secs>s` lines to stderr at one decimal place, the format `rebuild/tools/console.py` defines and `rebuild/tools/cycle_timings.py` parses. The lines are `spec_parse` (reading, parsing, and indexing the spec) where a spec is read, then each configuration's phases (such as `enumerate[<config>]`, `emit[<config>]`, `fold[<config>]`, or `replay[<config>]`), then the run's total. A table build also reports `fold.prefixes[<config>]` and `fold.partition[<config>]` at millisecond precision before each `fold[<config>]` line. Every line is buffered and written after the last configuration finishes, in `--configs` order, so stderr is the same at any thread count. With neither diagnostic flag, nothing is written to stderr on a clean exit, because `kernel_exec` treats any stderr on a clean exit as a failure unless it asked for timings.
 //!
-//! A usage mistake — wrong argument count, wrong verb, an unknown flag, a flag the named verb does not spell, an argument that is not valid Unicode — exits 2; a file that cannot be read, parsed, or validated, a directory that cannot be written, a case file or key file this build cannot answer, and a window that will not settle, exit 1 with a one-line complaint on stderr.
+//! A usage mistake (a wrong argument count, an unknown subcommand, an unknown flag, a flag the subcommand does not accept, or an argument that is not valid Unicode) exits 2. An input file that cannot be read, parsed, or validated, a directory that cannot be written, a case or key file this build cannot answer, and a window that will not settle exit 1 with a one-line message on stderr.
 
 #![forbid(unsafe_code)]
 
@@ -47,7 +47,7 @@ use ams_m1_kernel::{artifacts, cases, emit, fanout, guard, parse, shipped_order}
 
 const USAGE: &str = "usage: ams-m1-kernel spec-echo <spec>\n       ams-m1-kernel settle-cases <spec> <cases> [--features=a,b] [--settled-only] [--candidacy-prospect] [--vote-slots-off]\n       ams-m1-kernel guard-sweep <spec> [--config=default|ss03+ss05]\n       ams-m1-kernel enumerate <spec> [--features=a,b] [--candidacy-prospect] [--vote-slots-off] [--deep-classes-off] [--timings] [--cache-census]\n       ams-m1-kernel enumerate-configs <spec> <outdir> --configs=default,ss03 [--threads=N] [--candidacy-prospect] [--vote-slots-off] [--deep-classes-off] [--timings] [--cache-census]\n       ams-m1-kernel build-tables <spec> <outdir> --configs=default,ss03 --inputs=<stamp> [--threads=N] [--config-seed-off] [--seed=<dir> [--edited=qsPea,qsTea] [--moved-classes=a,b]] [--memo-stamp=<text>] [--candidacy-prospect] [--vote-slots-off] [--deep-classes-off] [--timings] [--cache-census]\n       ams-m1-kernel replay-strings <spec> <outdir> --configs=default,ss03 --horizon=N [--families=qsPea,qsTea] [--memo-dir=<dir> | --memo-windows=N] [--threads=N] [--candidacy-prospect] [--vote-slots-off] [--timings] [--cache-census]\n       ams-m1-kernel replay-emitted <windows> --config=default --table=<settlement.tsv> --order=<order.tsv> --context=<context.tsv> [--timings]\n       ams-m1-kernel liveness-cases <spec> <keys> [--features=a,b] [--candidacy-prospect] [--vote-slots-off]";
 
-/// What a command line named, before any verb has said how many positionals it wants. The three mode flags are spelled as negations because all three modes ship on, so a plain invocation is the shipping configuration.
+/// The flags and positionals a command line named, before the subcommand checks its positional count. The three mode flags are written as negations because all three modes are on in the shipping configuration.
 struct Flags<'a> {
     positionals: Vec<&'a str>,
     features: Vec<&'a str>,
@@ -75,30 +75,30 @@ struct Flags<'a> {
     deep_classes: bool,
 }
 
-/// Which of the optional flags a verb spells at all. Anything outside its verb's vocabulary is the unknown flag it is, so `--configs=` on `enumerate` is a usage error rather than a word quietly ignored, and `--features=` on `enumerate-configs` is one too — there the configurations name the features.
+/// Which optional flags a subcommand accepts. [`scan_flags`] treats any other flag as unknown, so `--configs=` on `enumerate` is a usage error, and so is `--features=` on `enumerate-configs`, where the configuration tokens name the features.
 #[derive(Clone, Copy)]
 struct Vocabulary {
     grain: bool,
     features: bool,
-    /// The two flags of a multi-configuration run, `--configs=` and `--threads=`, which only ever arrive together.
+    /// `--configs=` and `--threads=`, for the subcommands that run a set of configurations.
     configs: bool,
-    /// `--config=`, one configuration token in `--configs=`'s spelling, for the verb that answers a single named configuration or the powerset.
+    /// `--config=`, one configuration token in `--configs=` form.
     config: bool,
-    /// `--inputs=`, the fingerprint stamp a windows head carries, which only the table build writes one of.
+    /// `--inputs=`, the fingerprint stamp written into a windows head. Only `build-tables` writes one.
     inputs: bool,
-    /// `--timings` and `--cache-census`, the two stderr diagnostics, which the same verbs spell.
+    /// `--timings` and `--cache-census`, the two stderr diagnostics.
     timings: bool,
-    /// `--horizon=`, `--families=`, `--memo-dir=` and `--memo-windows=`, the string replay's own four: how deep to walk, which runes' texts to walk, where to file each walk's window memo, and the most windows a walk holds memoized.
+    /// The string replay's `--horizon=`, `--families=`, `--memo-dir=`, and `--memo-windows=`: how deep to walk, which runes' texts to walk, where to write each walk's window memo, and the most windows a walk keeps memoized.
     horizon: bool,
-    /// The shipped-order walk's three files: `--table=`, `--order=` and `--context=`, which only ever arrive together and beside `--config=`.
+    /// `--table=`, `--order=`, and `--context=`, the three files of `replay-emitted`, which requires all three and `--config=`.
     emitted: bool,
-    /// The table build's own five: `--config-seed-off` enumerates every configuration from scratch instead of reading `default`'s finished memo for the windows a configuration shares with it; `--seed=` names a previous build's memo files, and `--edited=` the runes and `--moved-classes=` the predicate classes that moved since, which only arrive beside it; `--memo-stamp=` is the stamp this build writes its own memo files under, and a build handed none writes none.
+    /// The table build's memo flags. `--config-seed-off` enumerates every configuration from scratch instead of reading `default`'s finished memo for the windows a configuration shares with it. `--seed=` names a previous build's memo files, and `--edited=` (runes) and `--moved-classes=` (predicate classes) name what changed since; those two are valid only with `--seed=`. `--memo-stamp=` is the stamp this build writes its own memo files under; without it, no memo files are written.
     seeding: bool,
-    /// `--settled-only`, the case replay's answer shape: the settled record as seven tab-separated fields instead of the whole trace. Only `settle-cases` has a trace to leave out.
+    /// `--settled-only`: answer with the settled record as seven tab-separated fields instead of the whole trace. Only `settle-cases` returns a trace.
     settled: bool,
 }
 
-/// The flag sets the flag-bearing verbs spell. The two file-answering verbs share one vocabulary but for the answer shape, which `liveness-cases` has no trace to choose from.
+/// The flag sets of the subcommands that take flags. `settle-cases` and `liveness-cases` share one set except for `--settled-only`, since a liveness answer has no trace.
 const CASES_FLAGS: Vocabulary = Vocabulary {
     grain: false,
     features: true,
@@ -151,7 +151,7 @@ const TABLES_FLAGS: Vocabulary = Vocabulary {
     seeding: true,
     settled: false,
 };
-/// The replay spells the fan-out's configuration flags and both stderr diagnostics, plus its own four, and neither the grain nor the stamp: it settles single windows, and the one file it writes — the window memo, under `--memo-dir=` — is a build input rather than an artifact. Its census reports the walk's own memo and tables beside the engine's.
+/// The string replay accepts the fan-out's configuration flags, both stderr diagnostics, and its own four. It has no grain flag, because it settles single windows, and no stamp, because the one file it writes (the window memo, under `--memo-dir=`) is a build input and not an artifact.
 const REPLAY_FLAGS: Vocabulary = Vocabulary {
     grain: false,
     features: false,
@@ -164,7 +164,7 @@ const REPLAY_FLAGS: Vocabulary = Vocabulary {
     seeding: false,
     settled: false,
 };
-/// `guard-sweep` names one configuration or none; its world is pinned in `guard.rs`, so [`plan_guard`] refuses the mode flags [`scan_flags`] accepts for every other verb.
+/// `guard-sweep` takes one configuration or none. Its engine modes are fixed in `guard.rs`, so [`plan_guard`] rejects the mode flags that [`scan_flags`] accepts for every subcommand.
 const GUARD_FLAGS: Vocabulary = Vocabulary {
     grain: false,
     features: false,
@@ -178,7 +178,7 @@ const GUARD_FLAGS: Vocabulary = Vocabulary {
     settled: false,
 };
 
-/// The shipped-order walk names one configuration, its three files and the timing diagnostic, and no world at all: it settles nothing, so the mode flags are refused in [`plan_emitted`] rather than read, as `--cache-census` is.
+/// `replay-emitted` takes one configuration, its three files, and `--timings`. It settles nothing, so [`plan_emitted`] rejects the mode flags and `--cache-census`.
 const EMITTED_FLAGS: Vocabulary = Vocabulary {
     grain: false,
     features: false,
@@ -192,7 +192,7 @@ const EMITTED_FLAGS: Vocabulary = Vocabulary {
     settled: false,
 };
 
-/// What a `settle-cases` invocation asked for: the two files, the world, and which answer shape to write after each echoed question.
+/// What a `settle-cases` command line asked for.
 struct CasesPlan<'a> {
     spec: &'a str,
     cases: &'a str,
@@ -202,13 +202,13 @@ struct CasesPlan<'a> {
     vote_slots: bool,
 }
 
-/// What a `guard-sweep` invocation asked for: the spec, and the one configuration to answer for instead of the powerset, or none for the quantified surface.
+/// What a `guard-sweep` command line asked for. `config` is `None` for the surface quantified over the powerset.
 struct GuardPlan<'a> {
     spec: &'a str,
     config: Option<ConfigRequest<'a>>,
 }
 
-/// What an `enumerate` invocation asked for — [`CasesPlan`]'s flag vocabulary over one positional, plus the grain, since a fixpoint is one configuration's whole answer and the configuration is named the same way.
+/// What an `enumerate` command line asked for.
 struct EnumeratePlan<'a> {
     spec: &'a str,
     features: Vec<&'a str>,
@@ -219,7 +219,7 @@ struct EnumeratePlan<'a> {
     census: bool,
 }
 
-/// What an `enumerate-configs` invocation asked for: [`EnumeratePlan`]'s world over a whole named set of configurations and a directory to write them into, with the feature list replaced by the configuration tokens that spell it.
+/// What an `enumerate-configs` command line asked for: [`EnumeratePlan`]'s modes over a set of configurations named by tokens, and an output directory.
 struct ConfigsPlan<'a> {
     spec: &'a str,
     outdir: &'a str,
@@ -232,13 +232,13 @@ struct ConfigsPlan<'a> {
     census: bool,
 }
 
-/// One configuration a command line named: the token it was spelled by — which is the filename, the stream head's `config` and the label of its timing lines — and the feature names that token parses into.
+/// One configuration a command line named. `token` is also the configuration's part of the filename, the stream head's `config`, and the label of its timing lines; `features` is what the token parses into.
 struct ConfigRequest<'a> {
     token: &'a str,
     features: Vec<&'a str>,
 }
 
-/// What a `build-tables` invocation asked for: [`ConfigsPlan`]'s world and set of configurations, plus the fingerprint stamp every window enumeration it writes carries in its head, and whether the configurations past `default` read its memo.
+/// What a `build-tables` command line asked for: [`ConfigsPlan`]'s fields, the fingerprint stamp written into every windows head, and the memo flags.
 struct TablesPlan<'a> {
     spec: &'a str,
     outdir: &'a str,
@@ -257,7 +257,7 @@ struct TablesPlan<'a> {
     census: bool,
 }
 
-/// What a `replay-strings` invocation asked for: [`ConfigsPlan`]'s world and set of configurations over the directory their tables sit in, the depth to walk, the runes whose texts alone are walked when the caller knows what moved, the directory each walk's window memo is filed in when the caller wants one, the window ceiling each walk holds its memos under when the caller wants one instead, and whether each walk is timed and censused.
+/// What a `replay-strings` command line asked for. `outdir` is the directory the tables are read from.
 struct ReplayPlan<'a> {
     spec: &'a str,
     outdir: &'a str,
@@ -273,7 +273,7 @@ struct ReplayPlan<'a> {
     census: bool,
 }
 
-/// What a `replay-emitted` invocation asked for: the window enumeration to walk (`-` for standard input), the configuration it belongs to, that configuration's own settlement TSV, the shipped order and the configuration's context.
+/// What a `replay-emitted` command line asked for. `windows` is `-` for standard input.
 struct EmittedPlan<'a> {
     windows: &'a str,
     config: &'a str,
@@ -283,7 +283,7 @@ struct EmittedPlan<'a> {
     timings: bool,
 }
 
-/// What a `liveness-cases` invocation asked for. There is no grain flag: a fiber partition is derived wherever the deep world holds, whatever grain an enumeration would then be written at.
+/// What a `liveness-cases` command line asked for. It has no grain flag, because a fiber partition is derived in any deep world, whatever grain an enumeration would use.
 struct LivenessPlan<'a> {
     spec: &'a str,
     keys: &'a str,
@@ -374,9 +374,9 @@ fn usage() -> ExitCode {
     ExitCode::from(2)
 }
 
-/// The flag scan every verb shares, or `None` for anything the contract does not spell. [`Vocabulary`] says which optional flags this verb spells at all; one it does not takes them as the unknown flags they are.
+/// Scans the arguments for every subcommand, returning `None` on a usage error. A flag outside `vocabulary` is unknown, and a value flag given twice is a usage error.
 ///
-/// An empty `--features=` is a usage error rather than a no-feature configuration: the harness omits the flag entirely when nothing is active, so an empty value means the two sides' flag sets have drifted and saying so is more useful than guessing. An empty `--configs=` is refused for the same reason, there being no such thing as a run over no configurations, and a `--threads=` that is not a positive count is refused rather than rounded up to one — digits and nothing else, so that `+3` is the typo it is rather than the three `usize`'s own parse would read it as, and a count too large to hold is refused in the same breath.
+/// An empty `--features=` is a usage error, not the no-feature configuration: `kernel_exec` omits the flag when no feature is active, so an empty value means the two sides disagree about the flags. An empty `--configs=` is a usage error because a run needs at least one configuration. A count (`--threads=`, `--horizon=`, `--memo-windows=`) must be ASCII digits with a positive value that fits in `usize`, so `+3`, which `usize`'s parser would accept, is rejected.
 fn scan_flags(rest: &[String], vocabulary: Vocabulary) -> Option<Flags<'_>> {
     let mut positionals: Vec<&str> = Vec::new();
     let mut features: Option<Vec<&str>> = None;
@@ -611,10 +611,10 @@ fn plan_enumerate(rest: &[String]) -> Option<EnumeratePlan<'_>> {
     })
 }
 
-/// The no-feature configuration's token, `stream::DEFAULT_CONFIG` restated. A command line's tokens are checked before any spec is read, and `guard-sweep`'s handler reaches that check, so naming the stream module here would put the enumeration's stream writer inside the surface stamp's crate walk (`rebuild/test_review_code_closure.py`) for the sake of one literal; the unit tests hold the two spellings equal.
+/// The no-feature configuration's token, a copy of `stream::DEFAULT_CONFIG`. `guard-sweep`'s handler checks configuration tokens, so importing the stream module here would put the stream writer into the review surface's crate walk (`rebuild/test_review_code_closure.py`) for one literal. The unit tests check that the two are equal.
 const DEFAULT_CONFIG_TOKEN: &str = "default";
 
-/// The feature names one configuration token spells, or `None` for a token that is not its features' canonical spelling: `default` names none, and anything else is feature names joined by `+` in strictly ascending order with no empty stretch — exactly what `stream::config_token` prints for them, so `ss05+ss03` and `ss03+ss03` are refused rather than read as aliases of `ss03+ss05` and `ss03`, and `+ss03`, `ss03+` and `ss03++ss05` are refused on their empty stretch rather than left to a sort that would pass `+ss03` by putting its nameless feature first. Whether those feature names exist is the spec's question and is asked later, exactly where `--features=` asks it. The rule is restated here rather than read off `stream::config_token` for the reason [`DEFAULT_CONFIG_TOKEN`] gives, and the unit tests hold the two to one answer.
+/// The feature names a configuration token names, or `None` if the token is not the canonical form of its features. `default` names none. Any other token is feature names joined by `+` in strictly ascending order with no empty part, which is what `stream::config_token` prints. So `ss05+ss03` and `ss03+ss03` are rejected instead of being read as `ss03+ss05` and `ss03`, and `+ss03`, `ss03+`, and `ss03++ss05` are rejected for their empty part. Whether the names exist in the spec is checked later, by [`feature_syms`]. The rule is restated here for the reason [`DEFAULT_CONFIG_TOKEN`] gives, and the unit tests check that it agrees with `stream::config_token`.
 fn config_features(token: &str) -> Option<Vec<&str>> {
     if token == DEFAULT_CONFIG_TOKEN {
         return Some(Vec::new());
@@ -628,7 +628,7 @@ fn config_features(token: &str) -> Option<Vec<&str>> {
     Some(features)
 }
 
-/// What a set of configuration tokens named, or `None` for a set this verb will not answer: every token in [`config_features`]'s canonical spelling, and none of them twice — two runs of one configuration would race for one filename.
+/// The configurations a list of tokens names, or `None` if any token is not canonical ([`config_features`]) or appears twice. Two runs of one configuration would write the same file.
 fn config_requests(tokens: Vec<&str>) -> Option<Vec<ConfigRequest<'_>>> {
     let mut configs: Vec<ConfigRequest<'_>> = Vec::new();
     for token in tokens {
@@ -660,7 +660,7 @@ fn plan_configs(rest: &[String]) -> Option<ConfigsPlan<'_>> {
     })
 }
 
-/// What a `build-tables` command line named. The stamp is required rather than defaulted: it is what a serialized enumeration is trusted or refused on, and a build that wrote one under a stamp nobody chose would be a table the sweep would happily replay against runes that had since moved. `--edited=` without `--seed=` is a usage error, there being no memo for the edit to invalidate.
+/// `--inputs=` is required: a persisted enumeration is accepted or rejected on its stamp, and a default stamp would let a table built from older runes pass as current. `--edited=` or `--moved-classes=` without `--seed=` is a usage error, because without a previous memo there is nothing for them to invalidate.
 fn plan_tables(rest: &[String]) -> Option<TablesPlan<'_>> {
     let flags = scan_flags(rest, TABLES_FLAGS)?;
     let [spec, outdir] = flags.positionals.as_slice() else {
@@ -703,7 +703,7 @@ fn plan_liveness(rest: &[String]) -> Option<LivenessPlan<'_>> {
     })
 }
 
-/// What a `replay-strings` command line named. The horizon is required for the reason the table build's stamp is: the depth a walk proved is a claim the caller records, and a depth nobody chose would be a green about nothing in particular. A memo ceiling beside a memo directory is refused, since a walk that released its memo holds only what it settled since, and the file would be short of the windows the build's settle memo is built from.
+/// `--horizon=` is required because the caller records the depth the walk covered. `--memo-windows=` with `--memo-dir=` is rejected: a walk that released its memo holds only the windows it settled since the release, so the file would be missing windows the build's settle memo needs.
 fn plan_replay(rest: &[String]) -> Option<ReplayPlan<'_>> {
     let flags = scan_flags(rest, REPLAY_FLAGS)?;
     let [spec, outdir] = flags.positionals.as_slice() else {
@@ -729,7 +729,7 @@ fn plan_replay(rest: &[String]) -> Option<ReplayPlan<'_>> {
     })
 }
 
-/// A world flag on this verb is a usage error: the walk settles nothing, so there is no world for it to answer in, and a caller spelling one has the wrong verb.
+/// The mode flags and `--cache-census` are usage errors here, because the walk settles nothing.
 fn plan_emitted(rest: &[String]) -> Option<EmittedPlan<'_>> {
     let flags = scan_flags(rest, EMITTED_FLAGS)?;
     if flags.census || !flags.simulated_prospect || !flags.vote_slots {
@@ -762,9 +762,7 @@ fn spec_echo(path: &str) -> Result<(), String> {
     write_out(&echoed)
 }
 
-/// The stylistic sets a command line named, resolved against the spec that will answer for them.
-///
-/// A feature this spec never interned could never match an authored gate, so dropping it would answer a different configuration's question in silence. A named configuration is worth refusing over.
+/// Resolves the feature names a command line gave against the spec. A name the spec never interned is an error, because dropping it would silently settle a different configuration.
 fn feature_syms(index: &SpecIndex, spec: &str, names: &[&str]) -> Result<Vec<Sym>, String> {
     let mut features: Vec<Sym> = Vec::with_capacity(names.len());
     for name in names {
@@ -777,7 +775,7 @@ fn feature_syms(index: &SpecIndex, spec: &str, names: &[&str]) -> Result<Vec<Sym
     Ok(features)
 }
 
-/// The engine one verb's world names, always with the trace memo on: every verb below re-reaches windows in the thousands, and a memo hit replays its journaled fired delta, so warm and cold owe the same answer.
+/// An engine in the given modes with the trace memo on. Its callers, `settle-cases` and `liveness-cases`, reach many windows repeatedly, and a memo hit replays the fired records it journaled, so a hit gives the same answer as a fresh settle.
 fn engine_for<'i>(
     index: &'i SpecIndex,
     features: Vec<Sym>,
@@ -812,7 +810,7 @@ fn settle_cases(plan: &CasesPlan<'_>) -> Result<(), String> {
     write_lines(&lines)
 }
 
-/// One configuration's whole fixpoint as the uncompressed transitions stream, in whichever of the four mode combinations the command line named and at whichever grain follows from them.
+/// Writes one configuration's fixpoint to stdout as the uncompressed transitions stream.
 fn enumerate(plan: &EnumeratePlan<'_>) -> Result<(), String> {
     let report = fanout::Report {
         timings: plan.timings,
@@ -849,7 +847,7 @@ fn enumerate(plan: &EnumeratePlan<'_>) -> Result<(), String> {
     Ok(())
 }
 
-/// A whole named set of configurations' fixpoints, each one written as its own file under the directory the plan named, at most `--threads` of them at once. Nothing lands on stdout: the answer here is the files, and they are only meaningful on exit 0.
+/// Writes each named configuration's fixpoint to its own file under the output directory, at most `--threads` at once. Nothing is written to stdout; the files are the answer and are complete only on exit 0.
 fn enumerate_configs(plan: &ConfigsPlan<'_>) -> Result<(), String> {
     let report = fanout::Report {
         timings: plan.timings,
@@ -871,7 +869,7 @@ fn enumerate_configs(plan: &ConfigsPlan<'_>) -> Result<(), String> {
         vote_slots: plan.vote_slots,
         deep_classes: plan.deep_classes,
     };
-    // Absent `--threads` resolves serial, because only the caller knows what else is resident. The caps bind a count the command line named as well as that default: a worker past the machine's parallelism buys no throughput while its configuration holds a whole working set, and one past the last configuration would have nothing to claim.
+    // Without `--threads` the run is serial, because only the caller knows what else is using memory. Any width is capped at the machine's parallelism, since a worker beyond it adds no throughput while its configuration holds a whole working set, and at the number of configurations, since a worker beyond that has nothing to do.
     let workers = plan
         .threads
         .unwrap_or(1)
@@ -893,7 +891,7 @@ fn enumerate_configs(plan: &ConfigsPlan<'_>) -> Result<(), String> {
     Ok(())
 }
 
-/// A whole named set of configurations folded into their tables under the directory the plan named, at most `--threads` of them at once. Each configuration's settlement TSV, treaty TSV and window enumeration are the files it leaves; its contract digest is one JSON line on stdout, in the order the plan named its configurations, because a digest is a scalar its caller holds and reports rather than an artifact family of its own.
+/// Builds each named configuration's tables under the output directory, at most `--threads` at once. Each configuration writes its settlement TSV, treaty TSV, and window enumeration. Its contract digest goes to stdout as one JSON line, in command-line order, because the caller reports the digest instead of storing it as a file.
 fn build_tables(plan: &TablesPlan<'_>) -> Result<(), String> {
     let report = fanout::Report {
         timings: plan.timings,
@@ -966,7 +964,7 @@ fn build_tables(plan: &TablesPlan<'_>) -> Result<(), String> {
     Ok(())
 }
 
-/// Every named configuration's persisted rules replayed over the string universe, at most `--threads` at a time, one count line per configuration on stdout in the order the plan named them. A configuration whose rules and engine disagree is the whole verb's refusal: its complaint names the configuration, the window and the text, and nothing reaches stdout, because a partial answer would read as a clean one to a caller that did not count the lines.
+/// Replays each named configuration's persisted rules over the string universe, at most `--threads` at once, and writes one count line per configuration to stdout in command-line order. If any configuration's rules and engine disagree, the whole command fails with a message naming the configuration, the window, and the text, and nothing is written to stdout, because a partial answer would look clean to a caller that did not count the lines.
 fn replay_strings(plan: &ReplayPlan<'_>) -> Result<(), String> {
     let report = fanout::Report {
         timings: plan.timings,
@@ -1041,7 +1039,7 @@ fn replay_strings(plan: &ReplayPlan<'_>) -> Result<(), String> {
     Ok(())
 }
 
-/// One configuration's rows walked against the shipped order, read from the file the plan names or from standard input for `-`. The answer is one JSON line; a disagreement is the walk's own complaint, prefixed with the configuration the way the fan-out prefixes its refusals.
+/// Walks one configuration's rows against the shipped order, reading them from the named file or from standard input for `-`, and writes one JSON line. A disagreement is the walk's own message, prefixed with the windows path.
 fn replay_emitted(plan: &EmittedPlan<'_>) -> Result<(), String> {
     let mut clock = Timings::new(fanout::Report::timed(plan.timings));
     let started = Instant::now();
@@ -1076,9 +1074,9 @@ fn replay_emitted(plan: &EmittedPlan<'_>) -> Result<(), String> {
     Ok(())
 }
 
-/// The `--timings` lines a run has to say, held until the run is over rather than written as they happen.
+/// A run's `--timings` and `--cache-census` lines, buffered until the run ends.
 ///
-/// Buffering is what makes a concurrent run's stderr readable and comparable: a line written when its phase ended would order stderr by the schedule, so the whole set is written once, in the order the plan named its configurations. A run without the flag records nothing and writes nothing, which is not merely tidiness — the identity harness reads any stderr on a clean exit as a failure.
+/// A line written when its phase ended would order stderr by the thread schedule, so the buffer is written once, in command-line order. A run with neither flag records and writes nothing, because `kernel_exec` treats unexpected stderr on a clean exit as a failure.
 struct Timings {
     wanted: bool,
     phases: bool,
@@ -1106,7 +1104,7 @@ impl Timings {
         self.lines.extend(lines);
     }
 
-    /// The whole buffer on stderr, the run's own total last. A write that fails is not worth failing a finished run over: the answer is already on stdout or in the files.
+    /// Writes the buffer to stderr, ending with the run's total when timed. A failed write is ignored, because the answer is already on stdout or in the files.
     fn finish(mut self, label: &str) {
         if !self.wanted {
             return;
@@ -1122,7 +1120,7 @@ impl Timings {
     }
 }
 
-/// The whole formation surface: quantified over the powerset when the plan names no configuration, answered by that one configuration when it does.
+/// Writes the formation surface, quantified over the powerset when no configuration is named, or answered under the one configuration named.
 fn guard_sweep(plan: &GuardPlan<'_>) -> Result<(), String> {
     let index = read_index(plan.spec)?;
     let lines = match plan.config.as_ref() {
@@ -1136,9 +1134,9 @@ fn guard_sweep(plan: &GuardPlan<'_>) -> Result<(), String> {
     write_lines(&lines)
 }
 
-/// One key file answered through one engine in file order — the whole of the `liveness-cases` verb.
+/// Answers a key file through one engine, in file order.
 ///
-/// Everything the answers are read out of is built once and shared: one engine, one liveness probe, one filter per depth, one deriver. That is not a shortcut around a cold read but the arrangement the fixpoint itself runs in, and the memos it makes possible are what keep a full sweep affordable.
+/// One engine, one liveness probe, one filter per depth, and one deriver are built once and shared across keys, as in the fixpoint, so their memos carry from key to key.
 fn liveness_cases(plan: &LivenessPlan<'_>) -> Result<(), String> {
     let index = read_index(plan.spec)?;
     let features = feature_syms(&index, plan.spec, &plan.features)?;
@@ -1157,7 +1155,7 @@ fn liveness_cases(plan: &LivenessPlan<'_>) -> Result<(), String> {
     write_lines(&lines)
 }
 
-/// Everything a key needs answering through, held together so that one lend of the whole set answers any shape of key.
+/// The state every key shape is answered through, kept together so one mutable borrow covers any key.
 struct LivenessScaffolding<'i> {
     options: WindowOptions<'i>,
     liveness: ProspectLiveness<'i>,
@@ -1177,9 +1175,9 @@ impl<'i> LivenessScaffolding<'i> {
         })
     }
 
-    /// One key line's answer: `live` or `dead` for the two filter shapes, and the context's fiber partition as compact JSON for the third.
+    /// One key line's answer: `live` or `dead` for a `3` or `4` key, and the context's fiber partition as compact JSON for a `fibers` key.
     ///
-    /// The probe is lent only where the engine's own modes make a deep world, which is exactly where the filters carry a liveness arm at all — with both flags off they are the own-rune chain census and nothing else, and lending a probe there would answer a question the enumeration never asks. The deriver, by contrast, answers whatever it is asked: a `fibers` key is only ever generated for a live letter-letter context of a deep world, and which contexts those are is the caller's knowledge.
+    /// The filters get the liveness probe only in a deep world (`simulated_prospect` or `vote_slots` on), which is the only place they have a liveness check. With both modes off they are the own-rune chain census alone, and passing a probe would answer a question the enumeration never asks. The deriver accepts any `fibers` key; choosing contexts where a partition is meaningful is up to the caller.
     fn answer(&mut self, engine: &mut Engine<'i>, line: &str) -> Result<String, String> {
         let index = engine.index();
         let deep_world = engine.simulated_prospect() || engine.vote_slots();
@@ -1238,7 +1236,7 @@ impl<'i> LivenessScaffolding<'i> {
     }
 }
 
-/// The probe a filter is lent in this world: `Some(_)` where either issue-28 flag is on, and `None` in the pinned world, where the chain arm is the whole verdict.
+/// The probe to pass a filter: `Some` when `simulated_prospect` or `vote_slots` is on, and `None` when both are off, where the chain check alone decides the verdict.
 fn probe_in<'l, 'i>(
     deep_world: bool,
     liveness: &'l mut ProspectLiveness<'i>,
@@ -1246,12 +1244,12 @@ fn probe_in<'l, 'i>(
     deep_world.then_some(liveness)
 }
 
-/// The two verdict spellings the `3` and `4` keys answer with.
+/// The answer word for a `3` or `4` key.
 fn verdict(live: bool) -> String {
     if live { "live" } else { "dead" }.to_owned()
 }
 
-/// The rune names a key spells, resolved against the spec that will answer for it. A name the spec never modeled is a hard error rather than a `dead` answer: the key was cut against some other spec, and answering it would compare two different questions.
+/// Resolves a key's rune names against the spec. A name the spec does not model is an error, not a `dead` answer, because the key was written for a different spec.
 fn families<const N: usize>(index: &SpecIndex, names: [&&str; N]) -> Result<[Sym; N], String> {
     let mut out = [None; N];
     for (seat, name) in names.iter().enumerate() {
@@ -1265,9 +1263,9 @@ fn families<const N: usize>(index: &SpecIndex, names: [&&str; N]) -> Result<[Sym
     Ok(out.map(|rune| rune.expect("every seat was filled before the loop ended")))
 }
 
-/// One context's fiber partition as compact JSON: the boundary options, then one object per fiber carrying its members, its fourth-slot verdict and its r4 groups.
+/// One context's fiber partition as compact JSON: the boundary options, then one object per fiber with its members, its fourth-slot verdict, and its r4 groups.
 ///
-/// Every collection rides in the deriver's own order — boundary options in static-list order, fibers in first-member-encountered order, members as collected, r4 groups in option-pipeline order — because that order is what the class ids and the row stream are cut from, and a partition read as a set would call two different tables equal. A dead fourth spells its groups as the empty list.
+/// Every list keeps the deriver's order ([`ContextFibers`] and [`ams_m1_kernel::fiber::Fiber`] describe it), because class ids and the row stream are derived from that order, and comparing partitions as sets would call two different tables equal. A dead fourth slot writes `r4_groups` as `[]`.
 fn fibers_json(index: &SpecIndex, context: &ContextFibers) -> String {
     let boundaries = labels_json(index, &context.boundary_options);
     let fibers: Vec<String> = context
@@ -1321,7 +1319,7 @@ fn write_out(text: &str) -> Result<(), String> {
 mod tests {
     use super::*;
 
-    /// One parsed plan's facts, owned — a plan borrows from the argument vector, and a test that outlives the vector is easier to read than one that keeps it alive by hand.
+    /// One parsed plan's fields, owned, so a test does not have to keep the argument vector alive.
     #[derive(Debug, PartialEq, Eq)]
     struct Named {
         positionals: Vec<String>,
@@ -1333,7 +1331,7 @@ mod tests {
         census: bool,
     }
 
-    /// The same for `enumerate-configs`, whose configurations and thread count have no counterpart on the other verbs.
+    /// The same for `enumerate-configs`, which has configurations and a thread count.
     #[derive(Debug, PartialEq, Eq)]
     struct Fanned {
         positionals: Vec<String>,
@@ -1411,7 +1409,7 @@ mod tests {
         })
     }
 
-    /// The same for `replay-strings`, whose horizon and family list have no counterpart on the other verbs.
+    /// The same for `replay-strings`, which has a horizon, a family list, and memo options.
     #[derive(Debug, PartialEq, Eq)]
     struct Replayed {
         positionals: Vec<String>,
@@ -1449,7 +1447,7 @@ mod tests {
         })
     }
 
-    /// The replay names its configurations the way the fan-out does, requires a horizon, and takes a family list that narrows the universe to the texts naming those runes, and a memo ceiling that holds each walk's memos to that many windows.
+    /// The replay takes configurations and mode flags as the fan-out does, requires a horizon, and accepts a family list, a memo directory, and a memo ceiling.
     #[test]
     fn a_replay_names_its_configurations_its_horizon_and_its_families() {
         let plan = replayed(&[
@@ -1508,7 +1506,7 @@ mod tests {
         assert!(!pinned.simulated_prospect && !pinned.vote_slots);
     }
 
-    /// What the replay refuses: no horizon, a horizon that is not a positive count, a family list or a memo directory that is empty or named twice, a memo ceiling that is not a positive count, is named twice or sits beside a memo directory, a configuration set it lacks, and the flags it does not spell — the grain, the stamp and a feature list. The other verbs spell no memo ceiling.
+    /// The replay rejects a missing, repeated, or non-positive horizon; an empty or repeated family list or memo directory; a memo ceiling that is not a positive count, is repeated, or is given with a memo directory; a missing configuration set or output directory; and the flags it does not accept (the grain flag, the stamp, and a feature list). No other subcommand accepts the replay's own flags.
     #[test]
     fn a_replay_without_a_horizon_or_with_a_flag_it_does_not_spell_is_refused() {
         assert!(replayed(&["spec.json", "out", "--configs=default"]).is_none());
@@ -1629,7 +1627,7 @@ mod tests {
         assert!(enumerated(&["spec.json", "--memo-windows=5"]).is_none());
     }
 
-    /// A bare invocation is the shipping configuration at every verb, which is the whole point of spelling the flags as negations.
+    /// A bare invocation runs the shipping configuration at every subcommand.
     #[test]
     fn a_bare_command_line_names_the_shipping_world() {
         let plan = enumerated(&["spec.json"]).expect("one positional is enough");
@@ -1643,7 +1641,7 @@ mod tests {
         assert!(liveness.simulated_prospect && liveness.vote_slots);
     }
 
-    /// The pinned candidacy world and the label-grain arm, which are the two exit-bar configurations beside the default one.
+    /// Each mode flag turns off only its own mode: the two world flags together give the pinned candidacy world, and `--deep-classes-off` alone gives label grain in the deep world.
     #[test]
     fn each_mode_flag_turns_off_the_mode_it_names() {
         let pinned = enumerated(&["spec.json", "--candidacy-prospect", "--vote-slots-off"])
@@ -1674,7 +1672,7 @@ mod tests {
         assert!(!fan_out.simulated_prospect && !fan_out.vote_slots);
     }
 
-    /// The answer shape belongs to the case replay alone: a liveness question has no trace to leave out, so the flag is the unknown flag it is there.
+    /// Only `settle-cases` accepts `--settled-only`; a liveness answer has no trace to omit.
     #[test]
     fn only_the_case_replay_spells_the_settled_only_flag() {
         let bare = owned(&["spec.json", "cases.txt"]);
@@ -1688,7 +1686,7 @@ mod tests {
         assert!(livened(&["spec.json", "keys.txt", "--settled-only"]).is_none());
     }
 
-    /// The grain flag belongs to the two verbs that write rows: nothing else has a grain to name, and a verb that does not spell a flag treats it as the unknown flag it is.
+    /// Only the subcommands that write rows accept the grain flag.
     #[test]
     fn only_the_enumerating_verbs_spell_the_grain_flag() {
         assert!(cased(&["spec.json", "cases.txt", "--deep-classes-off"]).is_none());
@@ -1712,7 +1710,7 @@ mod tests {
         assert!(enumerated(&["spec.json", "--features=ss03", "--features=ss05"]).is_none());
     }
 
-    /// Every verb refuses the wrong positional count and the flag it does not know, which is what makes a usage mistake exit 2 rather than being answered in the wrong world.
+    /// Every subcommand rejects a wrong positional count and an unknown flag, so a usage mistake exits 2 instead of running in the wrong mode.
     #[test]
     fn a_malformed_command_line_is_refused_rather_than_guessed_at() {
         assert!(enumerated(&[]).is_none());
@@ -1726,7 +1724,7 @@ mod tests {
         assert!(fanned(&["spec.json", "out", "--configs=default", "--live-only"]).is_none());
     }
 
-    /// A fan-out names its configurations by the tokens Python names them by, and each one carries the features it spells.
+    /// A fan-out names its configurations by Python's tokens, and each token parses into its features.
     #[test]
     fn a_configuration_set_parses_into_the_features_its_tokens_spell() {
         let plan = fanned(&["spec.json", "out", "--configs=default,ss03,ss03+ss05"])
@@ -1747,7 +1745,7 @@ mod tests {
         assert!(plan.threads.is_none() && !plan.timings);
     }
 
-    /// The configuration list is required, never empty, and never says one configuration twice — a repeat would be two runs racing for one filename.
+    /// The configuration list is required, non-empty, given once, and names each configuration once; a repeated configuration would be two runs writing one file.
     #[test]
     fn a_configuration_set_is_required_and_says_each_one_once() {
         assert!(fanned(&["spec.json", "out"]).is_none());
@@ -1756,7 +1754,7 @@ mod tests {
         assert!(fanned(&["spec.json", "out", "--configs=default", "--configs=ss03"]).is_none());
     }
 
-    /// The token rule restated in this file is the stream's own: the default token is the stream's, every token the rule accepts is what `config_token` prints for the features it parses into, and every token it refuses is one `config_token` would spell differently or one with an empty stretch.
+    /// The token rule in this file matches the stream module's: the default token is `stream::DEFAULT_CONFIG`, every accepted token is what `stream::config_token` prints for its features, and every rejected token is one `config_token` would write differently or one with an empty part.
     #[test]
     fn the_configuration_token_rule_is_the_streams_own() {
         use ams_m1_kernel::stream;
@@ -1776,7 +1774,7 @@ mod tests {
         }
     }
 
-    /// A token has to be the canonical spelling of the features it names, which is what keeps the filename, the stream head and the caller's own word for a configuration in agreement.
+    /// A token must be the canonical form of its features, so the filename, the stream head, and the caller's name for a configuration agree.
     #[test]
     fn a_token_that_is_not_its_own_canonical_spelling_is_refused() {
         assert!(fanned(&["spec.json", "out", "--configs=ss05+ss03"]).is_none());
@@ -1787,7 +1785,7 @@ mod tests {
         assert!(fanned(&["spec.json", "out", "--configs=default,,ss03"]).is_none());
     }
 
-    /// The thread count caps concurrency and nothing else, so it is a positive count of ASCII digits or a usage error — never a zero that would claim no configuration at all, never a signed spelling `usize` would read straight through, and never a count too large for the machine to hold.
+    /// The thread count must be a positive count of ASCII digits that fits in `usize`, given once. Zero, a sign, other characters, and an overflowing count are usage errors, and `enumerate` does not accept the flag.
     #[test]
     fn the_thread_count_is_a_positive_count_or_a_usage_error() {
         let plan = fanned(&["spec.json", "out", "--configs=default", "--threads=4"])
@@ -1821,7 +1819,7 @@ mod tests {
         assert!(enumerated(&["spec.json", "--threads=4"]).is_none());
     }
 
-    /// The two verbs that spell `--configs=` and `--features=` are disjoint: a fan-out's features come from its tokens, and one enumeration has no set of configurations to name.
+    /// No subcommand accepts both `--configs=` and `--features=`: a fan-out's features come from its tokens, and a single enumeration has no configuration set.
     #[test]
     fn the_configuration_flags_belong_to_the_fan_out_alone() {
         assert!(fanned(&["spec.json", "out", "--configs=default", "--features=ss03"]).is_none());
@@ -1829,7 +1827,7 @@ mod tests {
         assert!(cased(&["spec.json", "cases.txt", "--configs=default"]).is_none());
     }
 
-    /// Timing lines are opt-in on the two verbs that have phases worth naming, and unknown everywhere else — a clean exit that wrote to stderr is how the identity harness reads a failure.
+    /// `--timings` is optional on the enumerating subcommands and a usage error on the two case subcommands.
     #[test]
     fn only_the_enumerating_verbs_spell_the_timings_flag() {
         assert!(
@@ -1851,7 +1849,7 @@ mod tests {
         assert!(livened(&["spec.json", "keys.txt", "--timings"]).is_none());
     }
 
-    /// `--cache-census` rides the enumerating verbs and the string replay and stands apart from `--timings`, because the RAM diagnostic and the phase clock are asked for separately; the two case verbs spell neither diagnostic and refuse it.
+    /// `--cache-census` is accepted by the enumerating subcommands and the string replay, independently of `--timings`; the two case subcommands reject it.
     #[test]
     fn the_enumerating_verbs_and_the_replay_spell_the_cache_census_flag() {
         let censused =
