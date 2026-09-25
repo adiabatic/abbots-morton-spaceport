@@ -76,7 +76,22 @@ function selectors(top, members, children) {
   return out;
 }
 
-// The rule bodies for one pair: the cell value on every glyph pair no override decides, then each override (`{left, right, value}`, sides as prefixes or null) on the glyph pairs it decides.
+// The value a junction (`left`, `right`, prefixes or null) takes when it has no override of its own: the value of the most specific override that holds it, or the cell value.
+export function inheritedValue(cellValue, overrides, left, right) {
+  return winner(overrides, left, right)?.value ?? cellValue;
+}
+
+// Whether the override at (`left`, `right`) among a pair's `overrides` can be dropped: whether every glyph pair keeps its value without it. An override can decide glyph pairs deeper than its own junction, which a shallower-left, deeper-right override takes over once it is gone, so every node pair of the pair's prefix trees is compared.
+export function overrideIsRedundant(cellValue, overrides, left, right) {
+  const others = overrides.filter((region) => region.left !== left || region.right !== right);
+  const lefts = prefixTree(overrides.map((region) => region.left));
+  const rights = prefixTree(overrides.map((region) => region.right));
+  return lefts.nodes.every((l) =>
+    rights.nodes.every((r) => inheritedValue(cellValue, overrides, l, r) === inheritedValue(cellValue, others, l, r)),
+  );
+}
+
+// The rule bodies for one pair: the cell value on every glyph pair no override decides, then each override (`{left, right, value}`, sides as prefixes or null) on the glyph pairs it decides. A zero override gets explicit `value: 0` rules, which kern nothing but let reconstructOverrides read the override back.
 export function partitionPair(leftRoot, rightRoot, cellValue, overrides) {
   const regions = [...overrides];
   const lefts = prefixTree(regions.map((region) => region.left));
@@ -85,7 +100,7 @@ export function partitionPair(leftRoot, rightRoot, cellValue, overrides) {
   const cell = { left: null, right: null, value: cellValue };
   const bodies = [];
   for (const region of [cell, ...regions]) {
-    if (region.value === 0) continue;
+    if (region === cell && region.value === 0) continue;
     const groups = new Map();
     for (const left of lefts.nodes) {
       if (!within(left, region.left)) continue;
