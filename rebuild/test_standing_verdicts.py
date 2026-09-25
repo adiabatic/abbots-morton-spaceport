@@ -1777,6 +1777,8 @@ CONTRACTED_PIVOT = (_rect(0, 0, 50, 100),)
 EXTENDED_ENTRY_LOW = (_rect(0, 0, 50, 50), _rect(50, 0, 150, 150))
 CONTRACTED_ENTRY_MAY = (_rect(50, 0, 150, 150),)
 CONTRACTED_ENTRY_MAY_EXTRA = (_rect(50, 0, 150, 150), _rect(150, 150, 200, 200))
+STUBBED_MAY = (_rect(0, 0, 50, 100), _rect(50, 0, 100, 150))
+STUB_CONTRACTED_IN_PLACE_MAY = (_rect(0, 0, 50, 50), _rect(50, 0, 100, 150))
 OVERHANGING_FOLLOWER = (_rect(-50, 0, 100, 150),)
 UNSHIFTED_ENTRY_LOW = (_rect(50, 0, 150, 150),)
 EXTRA_CELL_LOW = (_rect(0, 0, 100, 150), _rect(0, 150, 50, 200))
@@ -1872,6 +1874,7 @@ register_glyph("before", "qsEight.smaller-loop", EIGHTISH_SMALLER, 100)
 register_glyph("before", "qsEight.frame-fixture", EIGHTISH_ENTRY_EXTENDED, 100)
 register_glyph("before", "qsTea.half.en-y5.after-xheight-exit", HALF_TEA_BAR, 50)
 register_glyph("before", "qsKey", FOOTED_KEY, 100)
+register_glyph("before", "qsMay.en-y5.in-frame-fixture", STUBBED_MAY, 100)
 register_glyph("before", "space", (), 50)
 
 register_glyph("after", "qsL", TWO_COLUMNS, 100)
@@ -1901,6 +1904,7 @@ register_glyph("after", "qsMay.loop", TWO_COLUMNS, 100)
 register_glyph("after", "qsMay.loop.en-y0.en-con-1", CONTRACTED_ENTRY_MAY, 150)
 register_glyph("after", "qsMay.loop.en-y0.ex-y5.en-con-1", CONTRACTED_ENTRY_MAY, 50)
 register_glyph("after", "qsMay.loop.unchanged-fixture", TWO_COLUMNS, 100)
+register_glyph("after", "qsMay.loop.en-y0.en-con-1.in-frame-fixture", STUB_CONTRACTED_IN_PLACE_MAY, 50)
 register_glyph("after", "qsBay.contract-lead", TWO_COLUMNS, 50)
 register_glyph("after", "qsFcovered.hapax", TWO_COLUMNS, 100)
 register_glyph("after", "qsK", TWO_COLUMNS, 150)
@@ -1980,6 +1984,9 @@ CONTRACTION_LEAD = register_pair("qsBay.contract-lead", "qsBay.contract-lead")
 COVERED_FOLLOWER = register_pair("qsFcovered.en-ext-1", "qsFcovered.hapax")
 LEFT_NEIGHBOR = register_pair("qsK", "qsK")
 MAY_STUB = register_pair("qsMay.en-y5", "qsMay.loop")
+MAY_STUB_CONTRACTED_IN_FRAME = register_pair(
+    "qsMay.en-y5.in-frame-fixture", "qsMay.loop.en-y0.en-con-1.in-frame-fixture"
+)
 EIGHT = register_pair("qsEight", "qsEight.smaller-loop")
 EIGHT_EXTENDED = register_pair("qsEight.ex-ext-1", "qsEight.smaller-loop")
 EIGHT_ENTRY_EXTENDED = register_pair("qsEight.en-ext-1", "qsEight.smaller-loop.en-ext-1")
@@ -4859,6 +4866,23 @@ def composed_stub_window(uid="cs-1"):
 def test_a_gain_and_a_stub_drop_in_one_window_compose(slide_context):
     events = sv._composed(COMPOSED_STUB_RULES, composed_stub_window(), slide_context())
     assert events == {GAIN_RULE["id"]: [0], STUB_RULE["id"]: [2]}
+
+
+def test_an_entry_contraction_that_keeps_its_origin_is_not_a_stub_drop(slide_context):
+    """The `en-con-1` ·May keeps its own-frame origin and loses a cell in column 0, so `_entry_drop_holds` reads it as a contraction its own frame did not take and returns a placement offset of -1, not 0. Its kept ink stays in place only if its placement stays put, so moved one column right as a stub drop, its kept ink moves with it, and neither the single-rule matcher nor the composed walk may read that as a stub drop."""
+    context = slide_context()
+    window = slide_unit(
+        "st-3",
+        ["qsK", "qsMay.en-y5.in-frame-fixture", "qsF1"],
+        spell(LEFT_NEIGHBOR, MAY_STUB_CONTRACTED_IN_FRAME, FOLLOWER_1),
+    )
+    assert not sv._matches(STUB_RULE["match"], window, context=context)
+    composed = slide_unit(
+        "cs-2",
+        ["qsRoe.en-ext-1-at-5", "qsK", "qsMay.en-y5.in-frame-fixture"],
+        spell(ROE, LEFT_NEIGHBOR, MAY_STUB_CONTRACTED_IN_FRAME),
+    )
+    assert sv._composed(COMPOSED_STUB_RULES, composed, context) is None
 
 
 def test_the_stub_guard_holds_the_whole_composed_window(slide_context):
