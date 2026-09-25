@@ -141,6 +141,8 @@ Git holds the history, so a checked-in note earns its place only by recording th
   uv run python tools/reflow_yaml.py glyph_data/runes/qsMay.yaml
   ```
 
+- Reflow only `glyph_data/quikscript.yaml` and the runes, the files the bare command covers. The other YAML files are not kept in reflowed form, so passing one by path can reformat the whole file.
+
 ### Selectors
 
 - For “every letter with an anchor at y=N” use `{exit_y: N}` / `{entry_y: N}`, with `except:` to drop families, instead of a hand-curated `context_set`.
