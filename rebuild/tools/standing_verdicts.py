@@ -1030,7 +1030,7 @@ def _matches_entry_contracted(match, unit, excluded, context=None):
 
 
 def _stub_geometry(match, unit, comparator):
-    """Whether the window's rendered before→after change is the named left-side stub coming off the named pivot while its remaining ink stays in place, shaped under the unit's first config. The pivot's picture is compacted left as in an entry drop (`_entry_drop_holds`), its placement moves right by the declared column count so the ink it keeps does not move, and every span between pivots renders identically with no displacement. A pivot is a position whose before name carries a before prefix and whose after name carries an after prefix. The walk goes by position because the same after form can be the stub-dropped letter at one position and an unchanged letter of the same family at another (a second ·May keeping its old loop), and only the before name says which. No pivot position, a before run that differs from the recorded glyphs, a different glyph count on the two sides, an off-grid placement, a non-rectilinear outline, or a dropped cell outside the named columns returns False, so the unit queues."""
+    """Whether the window's rendered before→after change is the named left-side stub coming off the named pivot while its remaining ink stays in place, shaped under the unit's first config. The pivot's picture is compacted left as in an entry drop (`_entry_drop_holds` read as an entry drop of the declared count, returning a zero placement offset), its placement moves right by the declared column count so the ink it keeps does not move, and every span between pivots renders identically with no displacement. A pivot is a position whose before name carries a before prefix and whose after name carries an after prefix. The walk goes by position because the same after form can be the stub-dropped letter at one position and an unchanged letter of the same family at another (a second ·May keeping its old loop), and only the before name says which. No pivot position, a before run that differs from the recorded glyphs, a different glyph count on the two sides, an off-grid placement, a non-rectilinear outline, a dropped cell outside the named columns, or an `en-con-N` pivot whose own frame takes less than the full count (a negative offset, so a move right by the count carries its kept ink with it) returns False, so the unit queues."""
     codepoints = unit.get("codepoints") or ""
     if not codepoints:
         return False
@@ -1074,7 +1074,7 @@ def _stub_geometry(match, unit, comparator):
         if before is None or after is None:
             return False
         if after[2] != before[2] + columns * PIXEL_SIZE or (
-            _entry_drop_holds({"after": {"entry_drop": columns}}, before, after, intern) is None
+            _entry_drop_holds({"after": {"entry_drop": columns}}, before, after, intern) != 0
         ):
             return False
         before_span, after_span = [], []
@@ -1796,14 +1796,14 @@ def _entry_event(match, rule_id, index, after_names, intern, before_pieces, afte
 
 
 def _stub_event(match, rule_id, index, after_names, intern, before_pieces, after_pieces):
-    """Return a stub Event at `index` when the after glyph carries an after pivot prefix and its picture is the before picture compacted left by the declared columns (`_entry_drop_holds` read as an entry drop of that count), or None, which leaves the piece to be judged as span ink. The walk checks that the pivot's placement moved right by that count."""
+    """Return a stub Event at `index` when the after glyph carries an after pivot prefix and its picture is the before picture compacted left by the declared columns (`_entry_drop_holds` read as an entry drop of that count, returning a zero placement offset), or None, which leaves the piece to be judged as span ink. The walk checks that the pivot's placement moved right by that count."""
     before, after = before_pieces.get(index), after_pieces.get(index)
     if before is None or after is None:
         return None
     if not _named_pivot(after_names[index], match["after"]["pivots"]):
         return None
     columns = match["after"]["stub_drop"]
-    if _entry_drop_holds({"after": {"entry_drop": columns}}, before, after, intern) is None:
+    if _entry_drop_holds({"after": {"entry_drop": columns}}, before, after, intern) != 0:
         return None
     return Event(rule_id, "stub", columns)
 
