@@ -1,8 +1,10 @@
-"""The review server's resident copy of verdicts-autosave.json, and the two wire formats it speaks. The store on disk is one ams-review-verdicts/1 document holding every verdict on the surface — a couple of hundred thousand records once the carries and fills have landed — and reading or writing the whole of it per verdict is what made the app's autosave the slowest thing in the loop: the tab serialized every record it held after each keystroke pause, the server parsed that twice to diff it, and every Range request for a card's samples queued behind the parse. So the server parses the file once, keeps the records in memory, and takes and gives changes: a POST is a delta (`sets` of whole records, `clears` of unit ids, under `ams-review-verdicts-delta/1`), applied in place and appended to the journal as the same set and clear lines a full save would have produced; a GET with `since=<token>` answers with the records changed after that token, and a GET without one answers with the whole store plus a fresh token. The token is a boot id and a change sequence, so a client whose token predates a server restart, an external rewrite of the file, or the retained change window is handed the whole store instead of a gap.
+"""The review server's in-memory copy of verdicts-autosave.json, and the two JSON formats it accepts and returns.
 
-A full-store POST is still accepted — it is the shape the receiver always took, and the tests hold it to the same bytes-on-disk contract: the file is written verbatim and a stamp change stashes the file it replaces. Either shape refuses a stamp older than the store's with 409, since a tab still open from before a rebuild must not clobber the freshly merged store. The file the store writes for itself is the same ams-review-verdicts/1 document, one record per line, and every consumer of the file (`parse_autosave_payload`, the merge tool, the status check, the carry) reads it as before.
+The file is one ams-review-verdicts/1 document holding every verdict on the surface. Parsing and writing all of it for each saved verdict is too slow, so the server parses the file once, keeps the records in memory, and exchanges changes. A POST can be a delta (`sets` of whole records and `clears` of unit ids, under ams-review-verdicts-delta/1), which is applied in place and appended to the journal as set and clear lines. A GET with `since=<token>` returns the records changed after that token. A GET without a token, or with one `changes_since` cannot serve, returns the whole store with the current token. The token is a boot id and a change sequence. A token gets the whole store when it predates a server restart, a reload of the file, or a delta onto a new stamp, or when it is older than the retained changes (`CHANGE_LOG_CAP`).
 
-The disk file remains the store of record between server runs, and an external writer — the merge tool under --yes, a journal restore — may replace it while the server is up, so every request first compares the file's size and mtime with what the store last read or wrote and reloads on a mismatch, which also invalidates every outstanding token.
+A full-store POST is also accepted. Its bytes are written to the file unchanged, and when its stamp differs from the store's, the old file is first moved aside (`stash_path_for`). Either kind of POST gets a 409 when its stamp is older than the store's, so a tab left open from before a rebuild cannot overwrite the newly merged store. When the store writes the file itself, it writes the same ams-review-verdicts/1 document with one record per line, which `parse_autosave_payload`, the merge tool, the status check and the carry all read.
+
+The file holds the verdicts between server runs, and another writer (the merge tool under --yes, a journal restore) can replace it while the server runs. So every request first compares the file's mtime and size with what the store last read or wrote, and reloads on a mismatch, which also invalidates every outstanding token.
 """
 
 from __future__ import annotations
@@ -98,7 +100,7 @@ class VerdictStore:
         self.reload()
 
     def reload(self) -> None:
-        """Read the file as the store's whole content. A file that is missing or not a verdicts document leaves the store empty and unstamped, which is what lets a first or corrupt file be overwritten rather than stashed."""
+        """Replace the store's content with the file's. A missing file or one that is not a verdicts document leaves the store empty and unstamped, so the next save overwrites it without stashing it."""
         raw = None
         try:
             if self.path.exists():
@@ -166,7 +168,7 @@ class VerdictStore:
         }
 
     def payload_bytes(self, *, token: bool = False) -> bytes:
-        """The whole store as one ams-review-verdicts/1 document, a record per line; with `token`, the sync token rides along as an extra top-level field the app reads back."""
+        """Return the whole store as one ams-review-verdicts/1 document, one record per line. With `token`, the sync token is added as an extra top-level field for the app."""
         head = {
             "format": EXPORT_FORMAT,
             "manifest_generated_at": self.stamp,
@@ -179,7 +181,7 @@ class VerdictStore:
         return f'{prefix}, "verdicts": [\n{body}\n]}}\n'.encode()
 
     def changes_since(self, token: str | None) -> dict | None:
-        """The records set or cleared after `token`, or None when the token is from another boot, predates the retained changes, or is malformed — the cases where only the whole store is an honest answer."""
+        """Return the records set or cleared after `token`, or None when the token is malformed, from another boot, ahead of the current sequence, or older than the retained changes, so the caller sends the whole store."""
         if not isinstance(token, str) or ":" not in token:
             return None
         boot, _, seq_text = token.partition(":")
@@ -216,7 +218,7 @@ class VerdictStore:
         return stash.name
 
     def receive(self, raw: bytes) -> tuple[int, dict]:
-        """Apply one POST body — a delta or a whole store — returning the HTTP status and response body."""
+        """Apply one POST body, a delta or a whole store, and return the HTTP status and response body."""
         self.refresh_if_changed()
         delta = parse_delta_payload(raw)
         if delta is not None:
@@ -302,12 +304,12 @@ class VerdictStore:
         return 200, body
 
     def _records_before(self, sets, clears) -> dict[str, dict]:
-        """The store as it stood before this delta, used only to seed a journal that does not exist yet. The delta's units are dropped rather than reverted: the seed then carries every untouched record, and the delta's own lines carry the rest."""
+        """Return the store's records minus the units this delta touched, to seed a journal that does not exist yet. The touched units are left out, not reverted, because the delta's own journal lines record them."""
         touched = {record["unit"] for record in sets} | set(clears)
         return {unit: record for unit, record in self.records.items() if unit not in touched}
 
     def _receive_delta_onto_new_stamp(self, delta: dict) -> tuple[int, dict]:
-        """A delta stamped for a newer surface than the store: the tab booted on a rebuilt surface while the file still holds the old one, so what it sends is everything it has, and the file it replaces is stashed exactly as a full save would."""
+        """Apply a delta stamped for a newer surface than the store's. The tab booted on a rebuilt surface while the file still holds the old one, so its `sets` are its whole store: they replace the store, and the old file is stashed as a full save would stash it."""
         stamp = delta["manifest_generated_at"]
         old_stamp = self.stamp
         old_verdicts = list(self.records.values())

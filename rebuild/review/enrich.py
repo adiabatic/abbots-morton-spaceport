@@ -1,4 +1,4 @@
-"""Unit enrichment for the review surface (rebuild/REVIEW-PLAN.md §2.2): rune-name notation, old seams from the §13.1 baseline subsets, the settle/explain precompute (new seams, extensions, eliminations, render text), divergent-position computation against the alias map (with the judged pair and secondary seams anchored on the ink-visible positions only, so annotation-grain renames ride along), and highlight x-ranges in font units from real kern-neutral shaping of both fonts (the baseline subset rows were extracted with the old font's kerning on, so highlight pens come from live `kern: False` shaping instead — matching the app's `font-kerning: none` rendering)."""
+"""Unit enrichment for the review surface (rebuild/REVIEW-PLAN.md §2.2): letter-name notation, old seams from the §13.1 baseline subsets, the settle and explain results (new seams, extensions, eliminations, explain text), divergent positions computed against the alias map, and highlight x-ranges in font units. The judged pair and the secondary seams are placed on positions whose ink differs when there are any, so a position that only renames a glyph stays in the divergent positions without moving them. The highlight x-ranges come from kern-neutral shaping of both fonts, matching the app's `font-kerning: none` rendering, because the baseline subset rows were extracted with the old font's kerning on."""
 
 from __future__ import annotations
 
@@ -141,7 +141,7 @@ def notation(codepoint_values: tuple[int, ...]) -> str:
 
 
 def notation_tokens(codepoint_values: tuple[int, ...]) -> tuple[str, ...]:
-    """Display tokens aligned one-to-one with codepoint positions: letter names (·May) and the boundary tokens (◊ZWNJ, ␣, ·) exactly as `notation` renders them, so joining them with `notation`'s spacing rule reproduces the caption string."""
+    """Display tokens aligned one-to-one with codepoint positions: letter names (·May) and the boundary tokens (◊ZWNJ, ␣, ·) as `notation` renders them, so joining them with `notation`'s spacing rule reproduces the caption string."""
     return tuple(
         (
             letter_display(LETTERS[value])
@@ -180,7 +180,7 @@ def cell_token(cell: CellId) -> str:
 
 @dataclass
 class SecondarySeam:
-    """One divergent adjacency beyond a unit's primary pair: the (left, right) after-cell indices, the same per-side highlight rects the primary band uses, and — after `resolve_secondary_homes` — either the home unit id where this behavior is the primary judgment, None when no home exists, or `suppressed` when the home is ink- or picture-identical (nothing visible to judge, so no marker is emitted)."""
+    """One divergent adjacency beyond a unit's primary pair: the (left, right) after-cell indices and per-side highlight rects like the primary band's. Once homes are resolved, `home` is the id of the unit where this behavior is the primary pair, or None when no such unit exists; `suppressed` is set instead when the home is ink- or picture-identical, since nothing is visible to judge and no marker is emitted."""
 
     pair: tuple[int, int]
     highlight_before: dict
@@ -191,7 +191,7 @@ class SecondarySeam:
 
 @dataclass(frozen=True)
 class TracePosition:
-    """One settled position as the drafters read it — the cell that settled there and the stage that decided it — and nothing else."""
+    """One settled position as the drafters read it: the cell that settled there and the stage that decided it."""
 
     settled: Settled
     decided_stage: str
@@ -199,7 +199,7 @@ class TracePosition:
 
 @dataclass(frozen=True)
 class TraceReport:
-    """What an enriched unit keeps of its `ExplainReport` once `enrich` is done with it: one `TracePosition` per position, which is the whole of what the three drafters read (`positions[i].settled`, `.settled.cell`, `.decided_stage`, and how many there are). The report itself never leaves `enrich` — the explain text is rendered and filtered there and the summary is written from it — so what an enriched unit carries until its fragment is drafted is the trace the drafters read and not the full report, which is by far the largest thing an enrichment produces."""
+    """The part of an `ExplainReport` an enriched unit keeps: one `TracePosition` per position, which is all the drafters read. `enrich` renders the explain text and writes the summary from the full report and then drops it, since the report is the largest thing an enrichment produces."""
 
     positions: tuple[TracePosition, ...]
 
@@ -267,7 +267,7 @@ def _highlight(
 
 
 def _advance_drift_cell(before_pens: list[int], after_pens: list[int], cell_count: int) -> int | None:
-    """The first cell whose kern-neutral advance differs between the two fonts, or None. Locates a position-only divergence with no cell- or seam-grain pair — the kern-channel-out-of-scope residue, an advance-only one-pixel drift on the boundary-adjacent letter. The drift's gap is the word break beside it, so the caller marks the nearest boundary token (the ◊ZWNJ / ␣ / · that brackets the gap), not the letter, and never lights up a sample band."""
+    """The first cell whose kern-neutral advance differs between the two fonts, or None. It locates a position-only divergence, which has no cell or seam difference to form a pair from, such as a one-pixel advance change on a letter next to a boundary. The change sits at the word break beside the letter, so the caller marks the nearest boundary token (◊ZWNJ, ␣, or ·), when there is one, instead of the letter and draws no sample band."""
     limit = min(cell_count, len(before_pens) - 1, len(after_pens) - 1)
     for index in range(limit):
         if before_pens[index + 1] - before_pens[index] != after_pens[index + 1] - after_pens[index]:
@@ -276,7 +276,7 @@ def _advance_drift_cell(before_pens: list[int], after_pens: list[int], cell_coun
 
 
 class Enricher:
-    """Holds the loaded spec, the packed baseline subset tables, a kern-neutral shaper per font, and the alias map; `enrich` computes every precomputed shard field for one unit under its first config. The pack is `subset_pack` — the build passes the one it wrote before its pool started, and a caller that names none gets the one `ensure_pack` keeps beside the tables under `subset_dir` over `ACCEPTANCE_CONFIGS`, written on demand. Both are deferred to the first `subset_row` call in whichever process makes it: construction hashes and writes nothing, and a spawn worker opens its own read-only mapping of the file the parent wrote and holds no table of its own."""
+    """Holds the loaded spec, the packed baseline subset tables, a shaper per font, and the alias map; `enrich` computes every precomputed shard field for one unit under its first config. The pack is `subset_pack` when given (the build passes the one it wrote before starting its pool); otherwise it is the one `ensure_pack` keeps beside the tables under `subset_dir` over `ACCEPTANCE_CONFIGS`, written on demand. The pack is opened, and written if needed, at the first `subset_row` call in each process: construction hashes and writes nothing, and a spawned worker maps the parent's file read-only instead of holding its own tables."""
 
     def __init__(
         self,
@@ -305,7 +305,7 @@ class Enricher:
         self.mismatches: list[str] = []
 
     def subset_row(self, config: str, codepoints: str) -> SubsetRow | None:
-        """One window's baseline row under `config`, materialized out of the pack, which is mapped on the first call and held to the tables on disk as they are hashed then; a pack no caller named is ensured beside the tables on that same call."""
+        """One window's baseline row under `config`, read from the pack. The first call hashes the tables on disk, runs `ensure_pack` if no caller named a pack, and opens the pack against those digests."""
         if self._pack is None:
             digests = table_digests(self.subset_dir, ACCEPTANCE_CONFIGS)
             if self.subset_pack is None:
@@ -314,7 +314,7 @@ class Enricher:
         return self._pack.row(config, codepoints)
 
     def subset_pack_census(self) -> tuple[int, int]:
-        """The pile tally's reading of the pack: the rows it holds and the bytes it maps once opened, and nothing before."""
+        """The pack's rows and mapped bytes for the pile tally, or (0, 0) before it is opened."""
         return self._pack.census() if self._pack is not None else (0, 0)
 
     def formed_spans(self, codepoint_values: tuple[int, ...]) -> list[tuple[int, int]]:
@@ -361,7 +361,7 @@ class Enricher:
     def explain_unit_batches(
         self, units: Sequence[Unit]
     ) -> Iterator[tuple[tuple[Unit, ...], list[ExplainReport]]]:
-        """Settle bounded batches so the complete surface never retains every verbose trace at once."""
+        """Settle the units in batches of `EXPLAIN_UNIT_BATCH_SIZE`, so the full reports for all units are never held at once."""
         for unit_batch in batched(units, EXPLAIN_UNIT_BATCH_SIZE):
             yield unit_batch, self.explain_units(unit_batch)
 
@@ -375,7 +375,7 @@ class Enricher:
         settled = list(report.settled)
 
         derived_cells = tuple(cell_token(item.cell) for item in settled)
-        # The audit's `new` column is overloaded: for cell/seam rows it is the settled cell tokens, but for position-only rows (the kern-channel-out-of-scope residue) it carries per-slot position diagnostics, never cell tokens. Compare the re-settlement against the audit only when `new` is cell-shaped, and always render `after_cells` from the re-derived cells so they parallel `after_seams`.
+        # The audit's `new` column holds the settled cell tokens for cell and seam rows, but per-slot position diagnostics for position-only rows. Compare the re-settlement with the audit only when `new` holds cell tokens, and always take `after_cells` from the re-derived cells so they line up with `after_seams`.
         if all("/" in token for token in unit.new) and derived_cells != unit.new:
             self.mismatches.append(
                 f"{config} {unit.codepoints}: derived cells {derived_cells} != audit {unit.new}"
@@ -401,7 +401,7 @@ class Enricher:
             raise ValueError(f"no baseline subset row for {config} {unit.codepoints}")
         before_spans = _spans_from_clusters(row.clusters, len(values))
         before_seams = tuple(row.seams[row.clusters[index + 1] - 1] for index in range(len(row.glyphs) - 1))
-        # Two ways to read the glyph-grain seams out of a codepoint-grain subset row — take the seam at each cluster's last codepoint, or drop the `lig` seams that live inside a cluster — and they must agree, which is what the second one being one expression rather than a test makes cheap to keep saying.
+        # The per-glyph seams can be read from the per-codepoint row in two ways: the seam at each cluster's last codepoint, or the row's seams without the `lig` seams inside clusters. The assert checks that the two agree.
         assert before_seams == tuple(
             seam for seam in row.seams if seam != "lig"
         ), f"{config} {unit.codepoints}: before seams {before_seams} disagree with the lig-filtered row seams"
@@ -413,7 +413,7 @@ class Enricher:
         shaped = self.after_shaper.shape("".join(chr(value) for value in values), hb_features)
         after_pens = _pen_positions(shaped.positions)
         after_cluster_spans = _spans_from_clusters(shaped.clusters, len(values))
-        # The subset row's positions were extracted with the old font's kerning on; the before pens come from a live kern-neutral re-shape instead, with the glyph identities checked against the audited row.
+        # The subset row's positions were extracted with the old font's kerning on, so the before pens come from a kern-neutral shaping, whose glyph names are checked against the subset row.
         before_shaped = self.before_shaper.shape("".join(chr(value) for value in values), hb_features)
         if before_shaped.names != tuple(row.glyphs):
             self.mismatches.append(
@@ -484,7 +484,7 @@ class Enricher:
             and not is_boundary_settled(report.positions[index].trace.settled)
         )
         provenance = _collect_provenance(diff_traces)
-        # A slim unit (`audit.slim_fragment`) ships no explain at all, so the candidate table is never rendered for it; the report still feeds the summary line the row shows.
+        # A slim unit (`audit.slim_fragment`) ships no explain text, so none is rendered for it; the report still feeds its summary line.
         explain_text = "" if unit.slim_fragment else _filter_explain(report.render(), diff_positions)
         summary = _summarize(
             settled=settled,
@@ -571,7 +571,10 @@ class Enricher:
         return self.seam_token(settled[index].seam, False) if settled[index].seam is not None else "break"
 
     def _segment_pieces(self, side: str, shaped, pens: list[int], spans, cp_start: int, cp_end: int) -> tuple:
-        """The placed ink of one font's shaped glyphs covering codepoints [cp_start, cp_end), as sorted (shape key, x, y) pieces from the intern both fonts share, jointly translated so the segment's leftmost ink sits at x=0 (the config_diff normalization). Anchoring on the ink rather than on a pen position matters twice over: the two fonts compose the same absolute placement through different advance/offset mechanics, and divergent ink elsewhere in the window moves the absolute pens apart without touching this segment's drawing. The tuple stands in for the translated geometry this used to build: a shape sits with its leftmost, lowest point at (0, 0) in its own canonical frame, so a placed piece's leftmost point is its absolute x and its translated outline is the canonical value moved by exactly (x - x0, y) — a map the geometry inverts (the leftmost, lowest point gives back the translation, and what remains is the canonical shape the key is derived from), so two pieces compare equal precisely when the translated outlines would, across fonts because both go through one intern. The one shape that map does not invert is one with no point at all, which every translation leaves alone; it is recorded at (0, 0) so its placement is as invisible to the comparison as it was to the translation. No translated outline is built on this path, which `_ink_visible_positions` walks twice per divergent position."""
+        """The placed ink of one font's shaped glyphs covering codepoints [cp_start, cp_end), as sorted (shape key, x, y) pieces from the intern both fonts share, translated together so the segment's leftmost ink is at x=0 (the `config_diff` normalization). The pieces are aligned on the ink and not on a pen position, because the two fonts reach the same placement through different advances and offsets, and divergent ink elsewhere in the window moves the pens apart without changing this segment.
+
+        Each shape's canonical frame puts its leftmost, lowest point at (0, 0), so a piece's translated outline is its canonical outline moved by (x - x0, y), where x0 is the segment's leftmost ink. Two pieces therefore compare equal exactly when their translated outlines would, across fonts too, since both fonts use one intern. No outline is built, which matters because `_ink_visible_positions` calls this twice per divergent position. A shape with no points is recorded at (0, 0), since translation does not change it.
+        """
         outlines = self._outlines[side]
         intern = self._intern
         placed = []
@@ -598,7 +601,7 @@ class Enricher:
         before_cluster_spans: list[tuple[int, int]],
         before_pens: list[int],
     ) -> tuple[int, ...]:
-        """The divergent positions whose divergence is visible in ink: the glyphs covering the position's codepoint span place different outlines in the two fonts. A position whose segments match diverges only on the annotation grain — a rename like bare qsNo vs qsNo/loop/None/x-height/, where the base drawing already carries the live join — and rides along in diff_positions without anchoring the judged pair or spawning a secondary seam."""
+        """The divergent positions whose divergence is visible in ink: the glyphs covering the position's codepoint span place different outlines in the two fonts. A position whose segments match differs only in its name, such as bare qsNo against qsNo/loop/None/x-height/ where the base drawing already carries the join. It stays in `diff_positions` but does not anchor the judged pair or produce a secondary seam."""
         visible = []
         for position in diff_positions:
             cp_start, cp_end = after_spans[position]
@@ -617,7 +620,7 @@ class Enricher:
         after_seams: tuple[str, ...],
         cell_count: int,
     ) -> tuple[int, int] | None:
-        """The unit's judged pair over the anchor-worthy divergences: the first divergent gap, else the first adjacent run of anchor positions, else the join-direction fallback around a lone position. The caller passes the ink-visible divergent positions when any exist (falling back to all divergent positions only when the unit is a pure rename with no divergent gap), so annotation-grain renames never drag the pair off the ink."""
+        """The unit's judged pair: the first divergent gap, else the first two adjacent anchor positions, else a lone anchor position paired with the neighbor it joins toward. The caller passes the ink-visible divergent positions as anchors, or all divergent positions when none is ink-visible and there is no divergent gap, so a rename-only position does not move the pair off the ink."""
         if divergent_gaps:
             return divergent_gaps[0]
         if not anchor_positions or cell_count < 2:
@@ -640,7 +643,7 @@ def _secondary_pairs(
     after_seams: tuple[str, ...],
     cell_count: int,
 ) -> tuple[tuple[int, int], ...]:
-    """Every anchor-worthy divergent adjacency beyond the primary pair, in left-index order: the remaining divergent gaps, plus a derived neighbor seam for each anchor position not already covered by the primary or a gap (mirroring `_pick_pair`'s adjacency-then-join-direction fallback). The caller passes the same ink-visible anchor set `_pick_pair` judged, so annotation-grain renames never spawn a marker of their own."""
+    """Every divergent adjacency beyond the primary pair, in left-index order: the remaining divergent gaps, plus a neighbor seam for each anchor position the primary and the gaps do not cover, chosen as `_pick_pair` chooses (adjacent anchors first, then the join direction). The caller passes the same anchors `_pick_pair` used, so a rename-only position gets no marker."""
     pairs: list[tuple[int, int]] = []
 
     def add(candidate: tuple[int, int]) -> None:
@@ -672,7 +675,7 @@ def _secondary_pairs(
 
 @dataclass(frozen=True)
 class SeamHomeUnit:
-    """The slim, picklable projection of an EnrichedUnit that `resolve_secondary_homes` reads — every field its home search touches, and none of the heavy ones (no ExplainReport, no highlights). Surface workers return these to the parent so the global secondary-home reduce runs there without round-tripping the full enriched units."""
+    """The fields of an `EnrichedUnit` that the secondary-home search reads, as a small picklable record without the trace, the explain text, or the highlight rects. Surface workers return these to the parent, which runs the search over the whole corpus."""
 
     unit_id: str
     codepoint_values: tuple[int, ...]
@@ -706,9 +709,9 @@ def seam_home_projection(enriched: EnrichedUnit) -> SeamHomeUnit:
 
 
 class SeamHomeSource(Protocol):
-    """The whole corpus as the secondary-home reduce reads it: random access by ordinal, and nothing else. The reduce touches nine units in ten only to learn that they carry no seam and to index their window, so a source that holds its units as columns and builds a `SeamHomeUnit` on demand costs the parent a handful of tuples per lookup instead of a live object per unit — which is why the reduce asks for this protocol rather than for a list. A list of projections is one such source through `_ListSource`; the packed unit store is the other, and the protocol is declared here rather than beside the store so that `unit_store` imports `enrich` and never the reverse.
+    """The corpus as the secondary-home search reads it, by ordinal. Most units are read only for their window and their seam count, so a source that stores units as columns and builds a `SeamHomeUnit` on demand saves the parent a live object per unit. `_ListSource` wraps a list of projections, and the packed unit store is the other source. The protocol is declared here so that `unit_store` imports `enrich` and not the reverse.
 
-    Every method is keyed by the unit's ordinal, the source's own dense index over `0 … len(source)`, and every parameter is positional so an implementation names them as it likes. `id_word` answers the total order the reduce breaks ties on: it must rank units exactly as their `unit_id` strings do, which for a corpus id is the integer the base58 spelling encodes (`unit_cache.base58_64` is fixed width over an ASCII-ordered alphabet, so the two orders are one order). `invisible` is the home-side reading of `ink_identical or picture_identical`, asked only of a resolved home. `set_homes` receives home *ordinals*, not ids, so the reduce never materializes a name the caller may not want. The reduce reads no `unit_id` off a `projection` — the ordinal and `id_word` carry identity — so a source may leave that field empty rather than spell an id for every candidate.
+    Every method takes the unit's ordinal, a dense index over `0 … len(source)`, and every parameter is positional. `id_word` gives the order ties break on and must rank units as their `unit_id` strings do; for a corpus id that is the integer the base58 id encodes, since `unit_cache.base58_64` is fixed width over an ASCII-ordered alphabet. `invisible` is `ink_identical or picture_identical`, asked only of a resolved home. The search passes `set_homes` home ordinals (or None), and a source needs to accept only those. The search reads identity from the ordinal and `id_word`, never from a projection's `unit_id`, so a source may leave that field empty.
     """
 
     def __len__(self) -> int: ...
@@ -727,9 +730,9 @@ class SeamHomeSource(Protocol):
 
 
 class _ListSource:
-    """A list of projections as a `SeamHomeSource`, for the callers that hold the objects already: `resolve_secondary_homes`, which has one projection per enriched unit in hand, and the tests, which build their corpora by hand. The ordinal is the list index, the id word is the id string read as a big-endian integer — exact for ids of one width, which every `unit_cache.unit_id_for` id is — and `set_homes` translates the reduce's home ordinals back into the ids the `assignments` dict is keyed and valued by, so this path hands back what `apply_home_assignments` and the surface's fragment writers read.
+    """A list of projections as a `SeamHomeSource`, for callers that already hold the objects: `resolve_secondary_homes` and the tests. The ordinal is the list index, and the id word is the id string read as a big-endian integer, which orders correctly for ids of one width, as every `unit_cache.unit_id_for` id is. `set_homes` translates home ordinals back into ids in `assignments`, the dict `apply_home_assignments` reads.
 
-    A seam-free unit gets no entry: nine units in ten carry no secondary seam, and every reader of an absent entry does with `()` what it would have done with an empty list (issue #278).
+    A unit with no secondary seam gets no entry, and readers treat a missing entry as an empty list.
     """
 
     __slots__ = ("projections", "assignments")
@@ -770,7 +773,7 @@ class _ListSource:
 def _seam_outcomes_match(
     item: SeamHomeUnit, left: int, right: int, candidate: SeamHomeUnit, offset: int
 ) -> bool:
-    """Whether `candidate`, occurring at codepoint `offset` inside `item`, has the same before AND after outcomes at the seam (item's after cells `left`/`right`) — identical covering spans after offset adjustment, identical glyph/cell identities, identical seam tokens — and judges that seam as its own primary pair."""
+    """Whether `candidate`, found at codepoint `offset` inside `item`, has the same before and after outcomes at the seam between item's after cells `left` and `right` (the same covering spans after the offset, glyph and cell names, and seam tokens) and has that seam as its own primary pair."""
     span_left = item.after_spans[left]
     span_right = item.after_spans[right]
     shifted_left = (span_left[0] - offset, span_left[1] - offset)
@@ -814,7 +817,7 @@ def _find_home(
     source: SeamHomeSource,
     held: dict[int, SeamHomeUnit],
 ) -> int | None:
-    """The seam's home, as the home's ordinal: the shortest unit in the universe whose codepoint string is a substring of `item`'s containing the seam's two cells, with matching before/after outcomes at the seam and that seam as its primary pair. Shortest substring length wins; ties break to the lowest unit id, which `source.id_word` ranks as an integer. None when no unit qualifies. The self-skip compares ordinals rather than ids because the ordinal is the unit's identity here — a corpus carries one unit per id, which the store's index enforces when it builds. `held` is the item's memo of candidates already materialized: one candidate answers several probes (every length and offset that reaches its window, and every seam of the item), so a source that builds its projection from columns is asked once per candidate per item, and the caller drops the memo with the item so it never grows past one item's candidates."""
+    """The ordinal of the seam's home: the shortest other unit whose codepoint string is a substring of `item`'s containing the seam's two cells, with the same before and after outcomes at the seam and that seam as its primary pair. Ties break to the lowest unit id, ranked by `source.id_word`. None when no unit qualifies. The self-skip compares ordinals because a corpus has one unit per id, which the store's index enforces. `held` caches the candidates already materialized for this item, since one candidate can match several lengths, offsets, and seams; the caller discards it after each item."""
     values = item.codepoint_values
     left, right = pair
     minimum = item.after_spans[right][1] - item.after_spans[left][0]
@@ -840,9 +843,9 @@ def _find_home(
 def resolve_home_assignments(
     source: SeamHomeSource | list[SeamHomeUnit],
 ) -> tuple[dict[str, list[tuple[str | None, bool]]], dict[str, int]]:
-    """The global secondary-home reduce over the whole corpus: for every unit that carries a secondary seam, resolve each seam to (home or None, suppressed) in the seam's order, write the row back through the source, and tally the census. A seam whose home is ink- or picture-identical is suppressed (an invisible name-grain rename, no marker); a seam with no home keeps home None and stays visible so it is never silently unmarked.
+    """Resolve the home of every secondary seam in the corpus. For each unit with secondary seams, each seam gets (home or None, suppressed) in seam order, written back through `source.set_homes`, and the census is counted. A seam whose home is ink- or picture-identical is suppressed: the divergence is an invisible name-grain rename, so it gets no marker. A seam with no home keeps home None and stays visible, so it is never left unmarked.
 
-    The reduce reads the corpus through `SeamHomeSource`, so the window index it builds holds ordinals rather than objects and a unit is materialized only when it bears a seam or answers a lookup — nine units in ten are read for their window and their seam count alone. A list of projections is accepted directly and wrapped, which is what makes the returned dict: the list path collects the assignments keyed by unit id for `apply_home_assignments` and the fragment writers, while a source that keeps its own homes (the unit store's side column) leaves that dict empty and takes the rows through `set_homes`. Either way the census is the same four counts.
+    The window index holds ordinals, and a unit is materialized only when it has a seam or is a candidate. A list of projections is wrapped in `_ListSource`, and only then is the returned dict filled, keyed by unit id for `apply_home_assignments`. A source that stores its own homes, such as the unit store, gets them through `set_homes`, and the dict is empty. The census has the same four counts either way.
     """
     if isinstance(source, list):
         adapter = _ListSource(source)
@@ -888,7 +891,7 @@ def resolve_home_assignments(
 def apply_home_assignments(
     enriched_units: list[EnrichedUnit], assignments: dict[str, list[tuple[str | None, bool]]]
 ) -> None:
-    """Write a `resolve_home_assignments` result back onto each unit's secondary seams in place. A unit with no secondary seam has no entry at all, and `zip` against the empty default writes nothing, which is the same nothing an empty row would have written."""
+    """Write a `resolve_home_assignments` result onto each unit's secondary seams in place. A unit with no secondary seam has no entry and is left unchanged."""
     for item in enriched_units:
         for seam, (home, suppressed) in zip(item.secondary_seams, assignments.get(item.unit.unit_id, ())):
             seam.home = home
@@ -896,7 +899,7 @@ def apply_home_assignments(
 
 
 def resolve_secondary_homes(enriched_units: list[EnrichedUnit]) -> dict[str, int]:
-    """Resolve every secondary seam's home unit across the whole universe, mutating the seams in place, and return the census. A seam whose home is ink- or picture-identical is suppressed (the divergence is an invisible name-grain rename, so no marker is emitted); a seam with no home keeps `home: None` and is still emitted so it is never silently unmarked."""
+    """Resolve the home of every secondary seam across the given units, set it on the seams in place, and return the census (`resolve_home_assignments` has the rules)."""
     projections = [seam_home_projection(item) for item in enriched_units]
     assignments, census = resolve_home_assignments(projections)
     apply_home_assignments(enriched_units, assignments)
@@ -916,7 +919,7 @@ def _summarize(
     report: ExplainReport,
     provenance: tuple[str, ...],
 ) -> str:
-    """The always-visible one-line prose summary: what the new pipeline chose at the primary divergence and the single deciding record, e.g. "New: ·May joins ·It at the baseline (the old pipeline broke there) — decided by qsMay.yaml policy.extend[3] (join-count rank).". The caller passes the ink-visible divergent positions when any exist, so the summarized position is the one the judged pair anchors on, not an annotation-grain rename earlier in the window."""
+    """The one-line summary shown on every unit: what the new pipeline chose at the primary divergence and the first record in its provenance, e.g. "New: ·May joins ·It at the baseline (the old pipeline broke there) — decided by qsMay.yaml policy.extend[3] (join-count rank).". The caller passes the ink-visible divergent positions when any exist, so the summary describes the position the judged pair is placed on and not a rename-only position earlier in the window."""
     position = None
     for index in diff_positions:
         if index < len(report.positions) and not is_boundary_settled(report.positions[index].trace.settled):
@@ -1010,7 +1013,7 @@ def _collect_provenance(traces) -> tuple[str, ...]:
 
 
 def _filter_explain(rendered: str, diff_positions: tuple[int, ...]) -> str:
-    """Keep the header lines and only the divergent positions' blocks of an ExplainReport.render()."""
+    """Keep the header lines of an `ExplainReport.render()` and only the divergent positions' blocks, or every block when there are no divergent positions."""
     blocks = rendered.split("\n\nposition ")
     if len(blocks) == 1:
         return blocks[0]

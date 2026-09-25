@@ -1,4 +1,11 @@
-"""M1-mode unit assembly for the review surface (rebuild/REVIEW-PLAN.md §1.1, §2.1): load rebuild/out/m1/divergence-audit.tsv and rebuild/m1-divergences.yaml, dedupe the audit rows to (codepoints, baseline, new) units, and order them for triage — ledger class in ledger file order, then lead-family-pair group in code-point order, then codepoints, then the unit's own id (`triage_key`) — with fixed batch slices assigned over that order (`assign_batches`). A unit's id is not assigned here: it is `unit_cache.unit_id_for` over the content key the build stamps once the unit is enriched, so it names what the reviewer judges and nothing about where the unit sits. The name-grain dedupe key can split one visual question into sibling units when a config merely relabels a glyph without moving ink; the build folds those back together with `merge_ink_duplicate_units` before enrichment and batching. The workload is held as packed columns over the unit's ordinal (`UnitTable`, following `unit_store.UnitStore`'s idiom over the same `columns` kit) rather than as a list of records: the `Unit` dataclass is the materialized per-unit record a worker, the enricher, the drafter and the fragment writer read, built one at a time by `UnitTable.unit` and never held as a list by the build's parent. The rows likewise are five id columns (`RowColumns`) rather than row objects: the parsed `AuditRow` a line yields lives only until the loader has written its ids, and what the parent holds through the load phase — the unit content key is the last reader of a row's fields — is about seventeen bytes a row."""
+"""M1-mode unit assembly for the review surface (rebuild/REVIEW-PLAN.md §1.1, §2.1). It loads rebuild/out/m1/divergence-audit.tsv and rebuild/m1-divergences.yaml, dedupes the audit rows to (codepoints, baseline, new) units, and orders them for triage (`triage_key`): ledger class in ledger file order, then the lead family-pair group in code-point order, then the window's length and codepoints, then the unit's id. `assign_batches` assigns fixed batch slices over that order.
+
+This module does not assign unit ids. A unit's id is `unit_cache.unit_id_for` over the content key the build stamps once the unit is enriched, so it depends on what the reviewer judges and not on where the unit sits in the order.
+
+The dedupe key is name-grain, so a config that renames a glyph without moving ink splits one visual question into sibling units. The build merges them back with `merge_ink_duplicate_units` before enrichment and batching.
+
+The workload is held as packed columns over the unit's ordinal (`UnitTable`, built on the `columns` module like `unit_store.UnitStore`), not as a list of records. `Unit` is the per-unit record that a worker, the enricher, the drafter and the fragment writer read; `UnitTable.unit` builds one at a time, and the build's parent never holds a list of them. The audit rows are likewise five id columns (`RowColumns`), about seventeen bytes a row: one byte for the config and four each for the kinds, entry, baseline and new ids. A parsed `AuditRow` lives only until the loader has written its ids.
+"""
 
 from __future__ import annotations
 
@@ -27,7 +34,7 @@ AUDIT_HEADER = ("config", "codepoints", "kinds", "matched_entry", "baseline", "n
 
 @dataclass(frozen=True, slots=True)
 class AuditRow:
-    """One parsed line of the audit, the record `load_audit` yields and the build never retains: `build_units` writes its ids into the row columns as it streams past, and every later reader of a row — the ink-signature keys, the unit content key — reads the columns."""
+    """One parsed line of the audit. `load_audit` yields these and the build does not keep them: `load_table` writes each row's ids into the row columns as the rows stream past, and later readers (the ink-signature keys, the unit content key) read the columns."""
 
     config: str
     codepoints: str
@@ -38,7 +45,7 @@ class AuditRow:
 
 
 class RowView(NamedTuple):
-    """One row of the columns as the ink-signature key reads it (`unit_cache.UnitKeyer.signature_key`, whose parameter is any record carrying these four names, `AuditRow` included), with `row` naming the row's index in the columns so a caller can come back to it."""
+    """One row of the row columns in the shape `unit_cache.UnitKeyer.signature_key` reads (its `SignatureRow` protocol, which `AuditRow` also satisfies), with `row` giving the row's index in the columns."""
 
     config: str
     codepoints: str
@@ -62,25 +69,25 @@ MACHINE_CHANNELS = ("ink_identical", "picture_identical", "junior_equivalent")
 
 
 def machine_approved(fragment) -> bool:
-    """Whether a unit's JSON fragment carries any machine-approval flag, in the one precedence order MACHINE_CHANNELS fixes (ink identity is tried first, picture identity only where ink identity fails, Junior equivalence only where both fail, so at most one is ever true)."""
+    """Whether a unit's JSON fragment has any machine-approval flag set. The build tries the channels in `MACHINE_CHANNELS` order (picture identity only where ink identity fails, Junior equivalence only where both fail), so at most one is true."""
     return any(fragment.get(channel) is True for channel in MACHINE_CHANNELS)
 
 
-# What a slim fragment leaves out. A unit the build machine-approves (any of MACHINE_CHANNELS) or the ledger exempts (`no_verdict`) is never paged to a human, and the app reaches its fragment only from a show-machine fold or a deep link, where it draws the window, both fonts' cells and seams, the badge and the summary — never the explain panel's candidate table, the drafts a reviewer would act on, or the pair band. Those three fields were the bulk of every shard's bytes and largest on exactly the shards nobody opens, and the pin draft replayed a shaping per unit besides, so the build omits them outright: absent keys rather than emptied values, which is what lets the app tell a slim fragment from a full one with a blank field. `build.check_unit` holds the shape exact in both directions, `build.unit_to_json` is the one writer, and `rebuild/review/static/slim.js` is the app's reader of the same rule.
+# The keys a slim fragment leaves out. A unit that is machine-approved (any of MACHINE_CHANNELS) or exempt by its ledger class (`no_verdict`) is never paged to a human. The app reaches its fragment only from a show-machine fold or a deep link, which draw the window, both fonts' cells and seams, the badge and the summary, but not the explain panel's candidate table, the drafts, or the pair band (`highlight`). The build omits these keys because `explain` and `drafts` are the largest fields of a full fragment, and computing the pin draft costs a shaping per unit. The keys are absent, not null, so the app can tell a slim fragment from a full one with a blank field. `build.check_unit` checks the shape in both directions, `build.unit_to_json` is the only writer, and `rebuild/review/static/slim.js` reads the same rule.
 SLIM_OMITTED_KEYS = ("highlight", "explain", "drafts")
 
 
 def slim_fragment(fragment) -> bool:
-    """Whether a unit's JSON fragment is written slim — every machine-approved or verdict-exempt unit, and no other. Read off the flags the fragment carries rather than off which keys it lacks, so the checker can hold a fragment to the shape its flags demand; the unit-cache store record carries the same answer as its `slim` flag, since two of its inputs (picture identity and the exemption) sit outside the content key and a served fragment has to be the shape this build would write."""
+    """Whether a unit's JSON fragment is written slim: true for every machine-approved or verdict-exempt unit, and no other. It reads the fragment's flags, not which keys are missing, so the checker can check a fragment against the shape its flags require. The unit cache's store record keeps the same value as its `slim` flag, because the exemption comes from the ledger, which the content key does not cover, and a served fragment must have the shape this build would write."""
     return machine_approved(fragment) or fragment.get("no_verdict") is True
 
 
-# A plain dict rather than a read-only proxy: a Unit is pickled to every surface worker, and a mappingproxy cannot be. The field's `Mapping` type is what refuses an in-place write.
+# A plain dict, not a mappingproxy, because a Unit is pickled to every surface worker and a mappingproxy cannot be pickled. The field's `Mapping` type is what rules out an in-place write.
 NO_DELTAS: Mapping[str, str] = {}
 
 
 class UnitStoreView(Protocol):
-    """What this module reads off the per-unit store by ordinal: the columns `UnitTable.unit` copies onto a materialized record, the id word `sort_for_triage` orders by and the machine-approval bit `assign_batches` skips on. Stated structurally so that this module never imports `unit_store`, which imports it — and so that the verdict chain, which reaches this module through the app index, reaches no telemetry through the store's own import of the debug tally (rebuild/test_plumbing_closure.py walks `if TYPE_CHECKING:` imports too). `unit_store.UnitStore` is the one implementation."""
+    """The per-unit store methods this module calls, each by ordinal: the columns `UnitTable.unit` copies onto a materialized record, the id word `sort_for_triage` orders by, and the machine-approval bit `assign_batches` skips on. `unit_store.UnitStore` is the only implementation. This is a Protocol so that this module does not import `unit_store`, which imports this module and the debug tally (`pile_tally`). The verdict chain reaches this module through `status`, and rebuild/test_plumbing_closure.py follows `if TYPE_CHECKING:` imports too, so importing `unit_store` here, even for types, would put the tally in the chain's closure."""
 
     def input_key_hex(self, ordinal: int) -> str: ...
     def folded(self, ordinal: int) -> bool: ...
@@ -92,7 +99,14 @@ class UnitStoreView(Protocol):
 
 @dataclass(slots=True)
 class Unit:
-    """One (codepoints, baseline, new) triple of the audit and everything the build derives per unit, materialized from the workload table (`UnitTable.unit`) for the reader that needs a record in hand — the worker's phase 1, the enricher, the drafter, `build.unit_scaffold` at the write, the verification sample, the census CLI and the tests — and never held as a list by the build's parent, whose per-unit state is the table's columns and the unit store's. Its audit rows are a run of the workload's row columns (`RowColumns`), `row_count` rows from `rows_start`, in config order with the file's order within a config; the run is read by the ink-signature keys and by the build's content key, the last reader of a row's fields, after which `release_rows` drops the columns and `row_count` alone answers for the rows in the manifest. The count is stated by whoever builds the unit — a constructor that omits it is refused rather than read as zero, since the manifest's row totals are summed from it. `ordinal` is the unit's row in the workload table and in the build's unit store (`unit_store.UnitStore`), one index from the plan boundary on; it is -1 on a unit built outside a table. `input_key` is the unit cache's content key over the unit's inputs (`unit_cache.UnitKeyer.key`), the handle the plan serves the unit by, copied off the store's column when the record is materialized with a store in hand. `unit_id` and the three machine flags are the store's too, copied at materialization and empty or False on a unit the store has not folded; the worker's phase 1 writes them onto its own copy and hands them back on the projection. `ink_deltas` is the shared empty mapping `NO_DELTAS` on every unit the build materializes — the store carries the per-config deltas, and the drafting reads them as an argument — so nothing assigns or mutates it, and the field is typed as a read-only `Mapping` so that a write through it is a type error at the line that makes it rather than a corpus-wide value; `config_classes` is the pooled mapping the table holds for the unit, typed the same way for the same reason. `order` and `batch` are the unit's place in the manifest's triage index — its position among the human units and the batch that position falls in — and null for a unit that takes no verdict; neither is written into the unit's fragment."""
+    """One (codepoints, baseline, new) unit of the audit and what the build derives for it. `UnitTable.unit` materializes one from the workload table for a reader that needs a record: the worker's phase 1, the enricher, the drafter, `build.unit_scaffold` at the write, the verification sample, the census CLI and the tests. The build's parent never holds a list of them.
+
+    `rows_start` and `row_count` address the unit's run of the row columns (`RowColumns`): its audit rows in config order, in file order within a config. The ink-signature keys and the build's content key read the run. After that, `release_rows` drops the columns and only `row_count` remains. `row_count` has no default, because the manifest's row totals are summed from it and a missing count must not read as zero.
+
+    `ordinal` is the unit's row in the workload table and in the build's unit store (`unit_store.UnitStore`), which share one index from the plan boundary on. It is -1 on a unit built outside a table. `input_key` is the unit cache's content key over the unit's inputs (`unit_cache.UnitKeyer.key`), which the plan serves the unit by; it is copied from the store's column when a store is given. `unit_id` and the three machine flags also come from the store, and are empty or False on a unit the store has not folded. The worker's phase 1 sets them on its own copy and returns them on the projection.
+
+    `ink_deltas` is always the shared empty mapping `NO_DELTAS` on a unit the build materializes: the store holds the per-config deltas, and drafting takes them as an argument. `ink_deltas` and `config_classes` (the table's pooled mapping) are typed `Mapping`, so a write through either is a type error at that line instead of a change every unit sharing the instance would see. `order` and `batch` are the unit's position in the manifest's triage index and the batch that position falls in, and None for a unit that takes no verdict. Neither is written into the fragment.
+    """
 
     codepoints: str
     baseline: tuple[str, ...]
@@ -142,7 +156,7 @@ def format_codepoints(values: tuple[int, ...]) -> str:
 
 
 def load_audit(path: Path, names: TuplePool[str] | None = None) -> Iterator[AuditRow]:
-    """Every row the divergence audit states, in file order, one `AuditRow` at a time — a generator, so the parsed rows are never a list: `load_table` takes each one's ids as it goes and the row is garbage before the next line is split. Every label — a config name, a class id, a glyph name, a kind, a window's codepoint string — goes through `sys.intern`, the one table the whole surface build shares: the subset pack's glyph names and seam tokens (its string table, interned once as `subset_pack.SubsetPack` opens; its codepoint keys are packed integers, never strings), the unit store's records (the store parse in `unit_cache.stream_store`) and the parent's per-unit state all intern through it too, so a name the audit states and a name a worker or the cache hands back are one object rather than one per site. The three name tuples of a row — its kinds and the window's rendered names in either font — are pooled through `names`, keyed on the built tuple rather than on the raw field text, so the split strings the file states are the only thing the reader drops; a caller that hands in the pool the row columns will index (as `load_workload` does) gets rows whose tuples are the very instances the columns' ids name, and a unit's own `baseline` and `new` are those instances too."""
+    """Yield every row of the divergence audit in file order, one `AuditRow` at a time, so the parsed rows are never held as a list: `load_table` takes each row's ids and the row can be freed before the next line is split. Every label (a config name, a class id, a glyph name, a kind, a window's codepoint string) goes through `sys.intern`. The subset pack's string table (`subset_pack.SubsetPack`), the unit store's records (`unit_cache.stream_store`) and the parent's per-unit state intern through it too, so a name from the audit and the same name from a worker or the cache are one object. A row's three name tuples (its kinds and the window's rendered names in either font) are pooled through `names`, keyed on the built tuple. A caller that passes the pool the row columns will index (as `load_workload` does) gets rows whose tuples are the instances the columns' ids name, and a unit's `baseline` and `new` are those instances too."""
     pool = (names if names is not None else TuplePool[str]()).pooled
     label = sys.intern
 
@@ -198,7 +212,7 @@ def synthesize_family_classes(
     family_order: list[str],
     family_why: dict[str, str],
 ) -> list[LedgerClass]:
-    """Synthetic LedgerClass records for the verdict families present among the UNMATCHED units, in `family_order`, counted off the table's family column. `status='unmatched'` marks them as a presentation-only grouping — no ledger predicate, the oracle stays dirty until they are adjudicated. Appended after the real ledger classes by the build so `build_m1`'s existing class loop emits a shard + manifest entry per family with no new build logic. `family_order`/`family_why` come from `rebuild.review.families`, passed in so this module stays free of the enrich/families import cycle."""
+    """Synthetic `LedgerClass` records for the verdict families present among the UNMATCHED units, in `family_order`, counted from the table's family column. `status='unmatched'` marks them as a grouping for presentation only: they have no ledger predicate, and the oracle stays dirty until they are adjudicated. The build appends them after the ledger classes, so each family gets a shard and a manifest entry the way a ledger class does. The build passes `families.FAMILY_ORDER` and `families.FAMILY_WHY`."""
     counts = table.family_counts()
     return [
         LedgerClass(
@@ -228,7 +242,7 @@ def _config_index(config: str) -> int:
 
 
 def render_groups_for_rows(rows: Iterable[tuple[Hashable, Hashable, str]]) -> tuple[tuple[str, ...], ...]:
-    """Partition a unit's configs by rendered-outcome identity — each row as its (baseline, new) cell-name identity and its config, the names being everything position-bearing the rows record, stated as the pooled tuples or as their ids. The M1 dedupe key already includes both tuples, so every real unit yields exactly one group (the documented invariant, locked in by tests); the grouping is computed rather than assumed so data whose configs render differently would surface as extra stacked groups instead of being silently collapsed."""
+    """Partition a unit's configs by rendered outcome. Each row is its (baseline, new) cell names, as pooled tuples or their ids, and its config. The M1 dedupe key already includes both tuples, so every real unit has one group (`rebuild/test_review_audit.py` checks this). The grouping is computed anyway, so that configs that render differently show up as extra groups instead of being merged without notice."""
     groups: dict[tuple[Hashable, Hashable], list[str]] = {}
     for baseline, new, config in rows:
         groups.setdefault((baseline, new), []).append(config)
@@ -239,7 +253,10 @@ _CONFIG_VOCABULARY = 256
 
 
 class RowColumns:
-    """Every row of the audit as five flat columns, in runs: one run per unit, the unit's rows in config order (`_config_index`) with the file's order within a config, addressed by the unit's `rows_start` and `row_count`. `config` is a byte naming one of at most `_CONFIG_VOCABULARY` configs in `vocabulary` (the vocabulary is the audit's, a config's rank is a sort key and never stored); `kinds`, `baseline` and `new` are ids into `names`, the tuple pool `load_audit` pooled the rows' tuples through and `load_table` seals once its columns are written, so the tuples the ids name are the instances the units hold; `entry` is an id into `table` for the row's matched ledger class, the string table the workload table shares, so a unit's class id and its rows' entry ids are one vocabulary. A row is about seventeen bytes here against the object graph a parsed row is, and a whole row is reconstructed on demand: `line` is the audit's own line for the row minus its newline, byte for byte, because a tab-joined split round-trips, which is what the unit content key hashes, and `view` is the shape the ink-signature key reads. The ink-duplicate fold appends a merged run for a survivor (`merge_runs`) rather than editing in place, so the two runs it replaces stay as `orphaned` rows: they cost their bytes, which the debug tally's reading of the columns charges (`build.row_columns_census`), and are outside `live`, the count that reading carries — the audit's rows, each under exactly one unit — so a tally line over the columns reads the same count the manifest states. The tally itself is not imported here: the verdict chain reaches this module through `status`, and a telemetry module in its closure would re-run the chain for an edit that cannot move a verdict."""
+    """Every row of the audit as five flat columns, grouped in runs: one run per unit, addressed by the unit's `rows_start` and `row_count`, holding the unit's rows in config order (`_config_index`) and in file order within a config. `config` is a byte naming one of at most `_CONFIG_VOCABULARY` configs in `vocabulary`, and `ranks` holds each config id's rank (`_config_index`), which orders the rows within a run. `kinds`, `baseline` and `new` are ids into `names`, the tuple pool `load_audit` pooled the rows' tuples through and `load_table` seals after the rows are read, so the ids name the same tuple instances the units hold. `entry` is an id into `table`, the string table the workload table shares, for the row's matched ledger class, so a unit's class id and its rows' entry ids are in one vocabulary.
+
+    A row takes about seventeen bytes here. A whole row is rebuilt on demand: `line` returns the audit's line for the row without its newline, byte for byte, which is what the unit content key hashes, and `view` returns the shape the ink-signature key reads. The ink-duplicate merge appends a merged run for a survivor (`merge_runs`) instead of editing in place, so the two runs it replaces remain as `orphaned` rows. The debug tally's reading of the columns (`build.row_columns_census`) counts their bytes but reports `live` as its count: the number of audit rows, each belonging to one unit. So a tally line shows the same row count the manifest states. The tally is not imported here: the verdict chain reaches this module through `status`, and a telemetry module in the chain's closure would re-run the chain for an edit that cannot change a verdict.
+    """
 
     __slots__ = (
         "config",
@@ -362,16 +379,16 @@ LIVE = 4
 
 
 class Compaction(NamedTuple):
-    """What `UnitTable.compact` answers: for every row the table held before the fold, the row its survivor holds after it — its own new row for a row that stayed live, its survivor's for one the fold removed — and a byte per pre-fold row saying which of the two it was."""
+    """What `UnitTable.compact` returns. `survivor` maps every pre-merge row to its survivor's post-merge row: its own new row if it stayed live, its survivor's if the merge removed it. `folded` has a byte per pre-merge row that is 1 for a removed row."""
 
     survivor: array
     folded: bytearray
 
 
 class UnitTable:
-    """The workload as columns over the unit's ordinal, the table the build's parent holds from the load to the cache write in place of a list of `Unit` records, following `unit_store.UnitStore`'s idiom: allocated by the loader with one row per audit triple, a fixed-width `array` per field, every name an id into one `columns.StringTable` — the instance the row columns and the unit store share, so a class the audit states, a family a worker names and an echo the reduce assigns are one vocabulary — and every tuple or mapping an id into a pool of its own. `configs` and `kinds` name into `tuples`, a vocabulary of a few dozen distinct tuples over the whole audit, and `render_groups` into `groups`, a few distinct tuples of them; a read hands back the pooled instance, so two units stating the same configs hold the same tuple and the echo key hashes a tuple the interpreter has hashed before. `baseline` and `new` name into `names`, the tuple pool the row columns share, until `release_names` drops both columns and the pool once the worker has read its copies and nothing in the parent reads a name tuple again. `config_classes` names into `mappings`, a `columns.MappingPool` keyed on the mapping's own insertion order — the order the audit states the unit's configs in, which is in the shipped fragment's bytes — and a read hands back the pooled mapping typed read-only, one instance per distinct map over the corpus rather than a dict per unit. The window is parsed once at load into `(start, count)` over a `u16` side column; the ledger's two flags and the fold's `live` bit share one byte; `order` and `batch` are `u32` with `NONE` for a unit outside the triage index; `rows_start` and `row_count` address the unit's run of the row columns; `survivor` is written by the ink-duplicate fold for a row it removes.
+    """The workload as columns over the unit's ordinal. The build's parent holds this from the load to the cache write instead of a list of `Unit` records, in the style of `unit_store.UnitStore`. The loader allocates one row per unit, and each field is a fixed-width `array`. Every name is an id into one `columns.StringTable`, the instance the row columns and the unit store share, so a class from the audit, a family from a worker and an echo id from a reduce are in one vocabulary. Each tuple or mapping field is an id into a pool, and a read returns the pooled instance, so units with equal values share one object. `configs` and `kinds` are ids into `tuples`, and `render_groups` into `groups`. `baseline` and `new` are ids into `names`, the tuple pool the row columns share, until `release_names` drops both columns and the pool. `config_classes` are ids into `mappings`, a `columns.MappingPool` keyed on each mapping's insertion order (the order the audit states the unit's configs in, which appears in the fragment's bytes); a read returns the pooled mapping typed read-only. The window is parsed once at load into `(start, count)` over a `u16` side column. The ledger's two flags and the merge's `LIVE` bit share one byte. `order` and `batch` are `u32`, with `NONE` for a unit outside the triage index. `rows_start` and `row_count` address the unit's run of the row columns. `survivor` is set by the ink-duplicate merge for a row it removes.
 
-    Row index is the ordinal. The loader writes the rows in triage load order — ledger class, group, window, the UNMATCHED units behind every ledger class — so the table stands in the order a list of units stood in; the fold marks its victims dead and `compact` drops them, renumbering the survivors in place, after which every row is live and the unit store is allocated over the same count, so one index reads both tables for the rest of the build. The triage order the manifest pages by is a permutation over the rows (`sort_for_triage`), never a reordering of them. The three machine flags and the unit's id have one home, the unit store; `unit` materializes a `Unit` off both tables for the reader that needs a record in hand, the way `UnitStore.cached_unit` materializes a store record, and `units` materializes the whole list for the census CLI and the tests. A `config_classes` write goes through the pool, which refuses a mapping an id column could not name. The debug tally prices the table exactly through `build.unit_table_census` over `columns` and `pools`; the tally is not imported here, for the reason `RowColumns` gives.
+    The row index is the ordinal. The loader writes the rows in load order (ledger class, group, window, with the UNMATCHED units after every ledger class). The merge marks the rows it removes (`fold_into`), and `compact` drops them and renumbers the rest in place. After that every row is live, and the unit store is allocated over the same count, so one index reads both tables for the rest of the build. The manifest's triage order is a permutation over the rows (`sort_for_triage`) and does not reorder them. The machine flags and the unit id are stored only in the unit store. `unit` materializes a `Unit` from both tables, as `UnitStore.cached_unit` does for a store record, and `units` materializes the whole list for the census CLI and the tests. The debug tally measures the table through `build.unit_table_census` over `columns` and `pools`; the tally is not imported here, for the reason `RowColumns` gives.
     """
 
     __slots__ = (
@@ -513,11 +530,11 @@ class UnitTable:
         return tuple(self._window_values[start : start + self._window_n[ordinal]])
 
     def codepoints_text(self, ordinal: int) -> str:
-        """The window as the audit spells it — colon-joined uppercase hex, four digits a codepoint — which `parse_codepoints` inverts, so the string the loader parsed is the string this rebuilds."""
+        """The window in the audit's format: colon-joined uppercase hex, at least four digits a codepoint. `parse_codepoints` inverts it, so this returns the string the loader parsed."""
         return format_codepoints(self.codepoints(ordinal))
 
     def config_rank(self, ordinal: int) -> int:
-        """`_config_index` over the unit's first config, the one it settles under, memoized per distinct config tuple."""
+        """`_config_index` of the unit's first config (a unit's configs are in rank order), memoized per distinct config tuple."""
         return self._ranks[self._configs[ordinal]]
 
     def rows_start(self, ordinal: int) -> int:
@@ -579,14 +596,14 @@ class UnitTable:
         self._row_count[ordinal] = count
 
     def fold_into(self, ordinal: int, survivor: int) -> None:
-        """Mark the row removed by the ink-duplicate fold, folded into `survivor`; `compact` drops it."""
+        """Mark the row as removed by the ink-duplicate merge into `survivor`; `compact` drops it."""
         if not self._flags[survivor] & LIVE:
             raise ValueError(f"row {ordinal} folds into row {survivor}, which is not live")
         self._flags[ordinal] &= ~LIVE
         self._survivor[ordinal] = survivor
 
     def compact(self) -> Compaction:
-        """Drop every row the fold removed and renumber the survivors in place, answering the map from each pre-fold row to the post-fold row of its survivor. The window values, the pools and the string table are untouched — a row's `(start, count)` moves with the row — so a snapshot taken before the fold that copied a row's window offsets still reads the same values through them."""
+        """Drop every row the merge removed, renumber the rest in place, and return the map from each pre-merge row to its survivor's post-merge row. The window values, the pools and the string table are not changed, and a row's `(start, count)` moves with the row, so a snapshot taken before the merge that copied the window offsets still reads the same values through them."""
         flags = self._flags
         n = self.n
         remap = array("I", [NONE]) * n
@@ -626,7 +643,7 @@ class UnitTable:
         return Compaction(remap, folded)
 
     def release_names(self) -> None:
-        """Drop the `baseline` and `new` columns and the name pool behind them: the worker read each unit's name tuples through the copy it was handed and the verification sample holds its own copies, so past phase 1 nothing in the parent reads one, and `baseline` and `new` answer the empty tuple from here on."""
+        """Drop the `baseline` and `new` columns and their name pool; afterward `baseline` and `new` return the empty tuple. Nothing in the parent reads a name tuple after phase 1: each worker read them from the copy it was sent, and the verification sample holds its own copies."""
         self._baseline = self._new = None
         self.names = None
 
@@ -667,7 +684,7 @@ class UnitTable:
         return array("B", self._flags)
 
     def windows(self) -> tuple[array, array, array]:
-        """The window offsets copied and the values shared: `(start, count, values)`, for a snapshot that outlives a compaction."""
+        """`(start, count, values)`: copies of the window offsets and the shared values column, for a snapshot that outlives a compaction."""
         return array("I", self._window_start), array("B", self._window_n), self._window_values
 
     def columns(self) -> Iterator[array]:
@@ -694,7 +711,7 @@ class UnitTable:
         yield self._survivor
 
     def pools(self) -> Iterator[TuplePool | MappingPool]:
-        """The pools a packed side column stands over, priced beside the columns: the config and kind tuples, the render groups, the class maps, and the name tuples while the table still holds them."""
+        """The pools the id columns point into, which the debug tally measures with the columns: the config and kind tuples, the render groups, the class maps, and the name tuples until `release_names`."""
         yield self.tuples
         yield self.groups
         yield self.mappings
@@ -704,7 +721,7 @@ class UnitTable:
     # --- materialization ----------------------------------------------------------------------
 
     def unit(self, ordinal: int, store: UnitStoreView | None = None) -> Unit:
-        """The unit as a record in hand, off this table and, when a store is given, off the store's columns too: the id and the three machine flags from the store's row when it is folded, the input key from the store's column, and everything else from here. The worker is handed one batch of these per `phase1` message, the write materializes one at a time, and the parent never holds a list of them."""
+        """Materialize the unit at `ordinal` as a `Unit`. With a store, the input key comes from the store, and the id and the three machine flags come from it too once the store has folded the unit; everything else comes from this table. Each `phase1` message sends a worker one batch of these, the write materializes one at a time, and the parent never holds a list of them."""
         flags = self._flags[ordinal]
         unit_id = ""
         input_key = ""
@@ -742,7 +759,7 @@ class UnitTable:
         )
 
     def units(self, store: UnitStoreView | None = None) -> list[Unit]:
-        """Every live row materialized, in row order — one record per unit, for the census CLI and the tests; the build's parent never asks for this."""
+        """Every live row materialized, in row order, for the census CLI and the tests. The build's parent does not call this."""
         return [self.unit(ordinal, store) for ordinal in range(self.n) if self._flags[ordinal] & LIVE]
 
 
@@ -752,9 +769,11 @@ def load_table(
     family_of: dict[int, str],
     names: TuplePool[str] | None = None,
 ) -> tuple[UnitTable, RowColumns]:
-    """Dedupe to (codepoints, baseline, new) units and return them as a `UnitTable` in load order — ledger class, group, codepoints, with the UNMATCHED units behind every ledger class since their families are assigned only at enrichment; the build orders them for the manifest by `sort_for_triage` once every unit has its family and its id, and assigns batches then — beside the row columns the units' runs address. A triple's matched ledger class can vary by config — most often a window already blessed under ss03 but UNMATCHED (novel) under the default config — so each unit carries the full per-config class map in `config_classes`, in the order the file states the configs, and its own `class_id` is the single matched class when the triple is everywhere-matched, or the UNMATCHED sentinel when any config leaves it unmatched (UNMATCHED-wins, so the novel default behavior is what gets adjudicated; the blessed configs ride along in `config_classes` for display). A triple resolving to two distinct *matched* classes would be a genuine classification bug and still raises. A unit's config set, its kinds, its render groups and its class map are each drawn from a vocabulary of a few dozen values over the whole audit, and its group name from a few thousand family pairs, so each is an id into a pool rather than a value built once per unit.
+    """Dedupe the audit rows to (codepoints, baseline, new) units, and return them as a `UnitTable` in load order together with the row columns the units' runs address. Load order is ledger class, group, window, with the UNMATCHED units after every ledger class, because families are assigned only at enrichment. Once every unit has its family and id, the build orders the units for the manifest with `sort_for_triage` and assigns batches.
 
-    The rows stream past once: each row's five ids go into flat file-order arrays and its unit's first-seen index into one more, and the grouping is a counting placement over the per-unit counts — one pass writing each row's position into its unit's run, which leaves every run in file order — followed by a rank sort of the few positions of any run the file does not already state in config order, so the runs read as a stable sort by config rank with the file's order within a config. The columns are then the file-order arrays permuted by the placed positions, and every unit's run is a slice of them, read once to derive the unit's row of the table. Nothing per triple is built but the table's row and nothing per row but an array cell: the transient is the file-order arrays, the position array, the map from triple to unit index — keyed by the row's window, baseline and new ids packed into one integer — the window vocabulary and the sort's one integer word a row (`_triage_permutation`), all gone at return. The tuple pool is sealed as the stream ends, so its lookup dict — the one term of the pool that is a dict over every distinct name tuple — dies here too rather than riding the load phase beside the table and the signature tables. The table's rows are written in first-seen order and then permuted into load order, so row index is the position a list of units would have had.
+    A unit's matched ledger class can differ by config, most often a window matched under ss03 but UNMATCHED under the default config. Each unit keeps the full per-config class map in `config_classes`, in the order the file states the configs. Its `class_id` is the single matched class if every config matched, and UNMATCHED if any config did not, so the unmatched default behavior is what gets reviewed; the matched configs stay in `config_classes` for display. A unit whose rows match two different ledger classes raises `ValueError`.
+
+    The rows are read once. Each row's five ids go into file-order arrays, and its unit's first-seen index into one more. A counting placement over the per-unit counts writes each row's position into its unit's run in file order. Any run whose configs are not already in rank order is then sorted by config rank, so each run is a stable sort by config rank. The columns are the file-order arrays permuted by those positions. The transient state (the file-order arrays, the position array, the map from each (window, baseline, new) id triple, packed into one integer, to its unit, the window list, and the triage sort's one integer per row in `_triage_permutation`) is freed before return. The tuple pool is sealed when the stream ends, which frees its lookup dict before the load phase goes on. Table rows are written in first-seen order and then permuted into load order.
     """
     exempt_classes = {entry.id for entry in ledger if entry.no_verdict}
     columns = RowColumns(names)
@@ -904,7 +923,7 @@ def load_table(
 
 
 def _permute(table: UnitTable, permutation: Sequence[int]) -> None:
-    """Reorder every per-row column of a freshly loaded table so row `i` becomes the row `permutation[i]` held; the window values and the pools stay where they are, since the rows address them by offset and id."""
+    """Reorder every per-row column of a freshly loaded table so that row `i` becomes the row `permutation[i]` was. The window values and the pools do not move, since the rows address them by offset and id."""
     for name in (
         "_class",
         "_group",
@@ -937,13 +956,13 @@ def build_units(
     family_of: dict[int, str],
     names: TuplePool[str] | None = None,
 ) -> tuple[list[Unit], RowColumns]:
-    """`load_table` with its units materialized into a list, for the census CLI's re-derivations and the tests; the build loads the table."""
+    """`load_table` with its units materialized into a list, for the tests; the build uses the table."""
     table, columns = load_table(rows, ledger, family_of, names)
     return table.units(), columns
 
 
 def family_ranks(family_of: Mapping[int, str]) -> dict[str, int]:
-    """Each family's rank in code-point order, the order a group's two families sort by."""
+    """Map each family name to its code point, the key a group's two families sort by."""
     return {name: value for value, name in family_of.items()}
 
 
@@ -954,7 +973,7 @@ def triage_key(
     unit_id: str,
     family_rank: Mapping[str, int],
 ) -> tuple:
-    """The order a surface pages its human units in — the manifest's `human_unit_ids` — as a sort key over what any reader of a unit holds: the class's index in the manifest's class list, the group's families in code-point order, the window's length and codepoints, and last the unit's own id, which breaks the tie between sibling units of one window (different name tuples, different ink) on content rather than on the order the audit happened to state them in. Every term is a function of the unit and the ledger, so the order is the same on every surface the same units appear on, and `build.check_shards` holds every manifest's index to it."""
+    """The sort key for the order a surface pages its human units in (the manifest's `human_unit_ids`): the class's index in the manifest's class list, the group's families by code point, the window's length and codepoints, and last the unit's id. The id breaks ties between sibling units of one window by content instead of by audit order. Every term depends only on the unit and the ledger, so the same units sort the same way on every surface. `build.check_shards` checks every manifest's index against this key."""
     return (
         class_index,
         tuple(family_rank.get(name, 10**6) for name in group.split(":")),
@@ -967,7 +986,7 @@ def triage_key(
 def sort_for_triage(
     table: UnitTable, store: UnitStoreView, class_order: Mapping[str, int], family_of: Mapping[int, str]
 ) -> array:
-    """The triage order as a permutation of the table's rows — the ordinals in `triage_key` order over each unit's final class (the ledger class, or the verdict family the build promoted an UNMATCHED unit to), with `class_order` mapping every class the manifest lists to its index — and never a reordering of the rows, so row index stays the ordinal. The id term is the store's `id_word`, the content key's first eight bytes as an integer, whose order is the string order of the ids `triage_key` names (`unit_store.UnitStore.unit_id` spells a fixed-width base58 over an ascending alphabet); every other term is `triage_key`'s, with the class and group terms resolved once per distinct id rather than once per unit."""
+    """Return the triage order as a permutation of the table's rows. The rows are not reordered, so the row index stays the ordinal. The class term is each unit's final class (its ledger class, or the verdict family the build promoted an UNMATCHED unit to), indexed through `class_order`, which maps every class the manifest lists. The id term is the store's `id_word`, the content key's first eight bytes as an integer. It sorts like the id strings `triage_key` uses, because `unit_cache.base58_64` writes a fixed-width base58 over an ascending alphabet. The other terms are `triage_key`'s."""
     return _triage_permutation(table, class_order, family_ranks(family_of), store.id_word)
 
 
@@ -977,7 +996,7 @@ def _triage_permutation(
     family_rank: Mapping[str, int],
     id_word: Callable[[int], int] | None = None,
 ) -> array:
-    """The rows in `triage_key` order, as a permutation, sorted on one integer word a row rather than a tuple of its terms: the class index, the group's rank among the distinct groups sorted by their family-rank tuples (equal tuples take one rank, so two groups `triage_key` cannot tell apart stay tied), the window's length, the window's codepoints big-endian, the id word when the caller has one, and the row itself last, so the sort is stable and never compares beyond the word. Each field is as wide as its largest value and no wider, so the word is exact for any class count, group count and window length the table holds. What the sort holds is that one `int` per row, a few dozen bytes, beside the list it sorts in place — no tuple, no window tuple built from the side column, no separate list of boxed ordinals — and all of it is gone when the permutation returns."""
+    """Return the rows in `triage_key` order as a permutation, sorting one integer per row instead of a tuple. From the high bits down, the integer packs: the class index; the group's rank among the distinct family-rank tuples (equal tuples share a rank, so groups `triage_key` cannot tell apart stay tied); the window's length; the window's codepoints, big-endian; the id word, when given; and the row index, which makes the sort stable. Each field is wide enough for its largest value, so the packing is exact for any table. The sort holds one `int` per row, a few dozen bytes each, in the list it sorts in place, and frees it on return."""
     strings = table.strings
     unranked = len(class_order)
     class_rank = {index: class_order.get(strings[index], unranked) for index in set(table._class)}
@@ -1027,7 +1046,7 @@ def _triage_permutation(
 
 
 def _sibling_windows(table: UnitTable) -> dict[bytes, list[int]]:
-    """Every window two or more live units share, as the window's packed values against those units' ordinals in row order. The one dict over every window holds an int per window rather than a list, so the transient is the windows' keys alone; the sibling lists exist only for the windows that have them."""
+    """Every window that two or more live units share, mapped from the window's packed values to those units' ordinals in row order. The dict over all windows holds one int per window, and a list exists only for a shared window."""
     first: dict[bytes, int] = {}
     siblings: dict[bytes, list[int]] = {}
     values = table._window_values
@@ -1050,7 +1069,7 @@ def _sibling_windows(table: UnitTable) -> dict[bytes, list[int]]:
 
 
 class SignatureRows:
-    """One `RowView` per signature `merge_ink_duplicate_units` will ask for: every config of every sibling in a multi-sibling window, as the row that pins that (window, config)'s rendered names in both fonts, in the order `_sibling_windows` states the windows and each window its siblings. Iterable as often as a caller needs — the views are built on each pass rather than held, one in hand at a time — over the sibling ordinals gathered once. Sharing `_sibling_windows` with the merge is what keeps this enumeration exact: a signature provider built over these rows can never be asked for a pair outside them."""
+    """One `RowView` per signature `merge_ink_duplicate_units` asks for: every row of every sibling in a shared window, in `_sibling_windows` order. It can be iterated any number of times; the views are built during iteration and not held. Because it uses the same `_sibling_windows` as the merge, a signature provider built over these rows covers every pair the merge asks for."""
 
     def __init__(self, table: UnitTable, rows: RowColumns) -> None:
         self._siblings = array(
@@ -1076,7 +1095,10 @@ def signature_rows(table: UnitTable, rows: RowColumns) -> SignatureRows:
 def merge_ink_duplicate_units(
     table: UnitTable, rows: RowColumns, ink_sig, exempt_classes: Collection[str] = frozenset()
 ) -> dict:
-    """Fold sibling units of the same window whose placed ink is identical in both fonts across every config they cover. The (codepoints, baseline, new) dedupe key is name-grain, so a config that merely relabels a glyph — the old font's ss04 lookups rename word-initial ·It without changing its ink — splits one visual question into two units and asks it twice. `ink_sig(text, config)` supplies the rendered-outcome identity (see InkComparator.signature, which is the pair of run-order ink lists `config_diff` itself consumes); units are only folded when every config on both sides yields the same signature, so a fold leaves every downstream reading of the ink — the delta, its digest, the ink verdict — identical between the survivor and what it absorbed, by definition rather than by resemblance. The survivor is the sibling with the earliest config; it takes a merged run of its rows and the absorbed unit's in the columns (`RowColumns.merge_runs`, its own rows ahead at equal rank, so each row keeps its own rendered names and the content key over the run stays the key over the rows), and absorbs the other's configs, kinds, and config_classes — the merged map re-pooled, the survivor's entries ahead of the absorbed unit's — keeps its own (earliest-config) baseline/new name tuples for display, re-resolves its class with the same UNMATCHED-wins rule as `load_table`, and collapses to a single render group (ink identity is exactly render-group identity). A fold that would put two distinct matched ledger classes on one unit is skipped — different names legitimately hit different ledger predicates — and counted in the returned stats. Rewrites the survivor's row in place and marks each absorbed unit's row removed (`UnitTable.fold_into`); the caller compacts the table afterward. Run before enrichment and batch assignment."""
+    """Merge sibling units of one window whose placed ink is identical in both fonts under every config they cover. The (codepoints, baseline, new) dedupe key is name-grain, so a config that only renames a glyph splits one visual question into two units; for example, the old font's ss04 lookups rename word-initial ·It without changing its ink. `ink_sig(text, config)` returns the rendered-outcome identity (`InkComparator.signature`, the pair of run-order ink lists that `config_diff` reads). Units merge only when every config on both sides has the same signature, so the delta, its digest and the ink verdict are identical for the survivor and the units it absorbs.
+
+    The survivor is the sibling with the earliest config. It gets a merged run of both units' rows (`RowColumns.merge_runs`, its own rows first at equal rank, so each row keeps its own rendered names and the content key over the run is the key over the rows), the union of the configs and kinds, and the merged `config_classes` (its own entries first). It keeps its own baseline and new name tuples for display, re-resolves its class with `load_table`'s UNMATCHED-wins rule, and collapses to a single render group, since ink identity implies render-group identity. A merge that would give one unit two different matched ledger classes is skipped, because different names can match different ledger predicates, and is counted in the returned stats. The survivor's row is rewritten in place and each absorbed row is marked with `UnitTable.fold_into`; the caller compacts the table afterward. Run before enrichment and batch assignment.
+    """
     stats = {"windows_folded": 0, "units_folded": 0, "kept_split_matched_classes": 0}
     folded = 0
     for siblings in _sibling_windows(table).values():
@@ -1132,14 +1154,14 @@ def merge_ink_duplicate_units(
 
 
 def release_rows(workload: Workload) -> None:
-    """Drop the workload's row columns, leaving each unit's `row_count` to answer for its rows. The rows exist to be deduped into units, folded by the ink-duplicate merge, and read into the unit content key and the ink-signature keys, all of which the build does before its first unit is enriched; past that point nothing reads a row's fields, only how many there were, so the columns and their class table go here rather than riding the units phase and the shard write for the sake of a count. The tuple pool the columns index is the table's `names` and goes with `UnitTable.release_names`."""
+    """Drop the workload's row columns; after this, each unit's `row_count` is the only record of its rows. The build reads row fields only to dedupe, to merge ink duplicates, and to compute the unit content key and the ink-signature keys, all before the first unit is enriched, so the columns are freed here instead of being held through the units phase for a count. The string table the columns share with the unit table stays. The tuple pool the columns index is the table's `names`, which `UnitTable.release_names` frees."""
     workload.rows = None
 
 
 def assign_batches(
     table: UnitTable, store: UnitStoreView, order: Sequence[int], batch_size: int = BATCH_SIZE
 ) -> int:
-    """The manifest's triage index over the units as `order` states them: every human unit — one no machine channel approves (the store's flags) and no ledger class exempts (the table's) — takes its position among the human units as `order` and the fixed slice of `batch_size` that position falls in as `batch`, while machine-approved units (ink-identical, picture-identical, or junior-equivalent) and units of no-verdict ledger classes carry None for both, since none is ever paged to a human. Neither value is written into a fragment: the manifest's `human_unit_ids` is the index, and a batch is a partition of it. Returns the batch count."""
+    """Set each unit's place in the manifest's triage index, walking the units in `order`. A human unit (no machine channel approves it, per the store, and its ledger class does not exempt it, per the table) gets its position among the human units as `order` and the slice of `batch_size` that position falls in as `batch`. Machine-approved and no-verdict units get None for both, since none is paged to a human. Neither value is written into a fragment: the manifest's `human_unit_ids` is the index, and a batch is a slice of it. Returns the batch count."""
     index = 0
     machine_approved = store.machine_approved
     no_verdict = table.no_verdict
@@ -1153,13 +1175,13 @@ def assign_batches(
 
 
 def batch_of(order: int | None, batch_size: int) -> int | None:
-    """The batch a triage-index position falls in, or None for a unit outside the index — the one rule every reader of a surface's index derives a batch by, so the manifest's `human_unit_ids` and `batch_size` are all a batch number ever comes from."""
+    """The batch a triage-index position falls in, or None for a unit outside the index."""
     return None if order is None else order // batch_size
 
 
 @dataclass
 class Workload:
-    """What `load_workload` hands the build: the unit table, the ledger, the audit's row count, the row columns until `release_rows` drops them, and the ledger classes the units reach. `units` materializes the table's rows into a list for a caller that wants records in hand — the census CLI, the tests — and is never what the build holds."""
+    """What `load_workload` returns to the build: the unit table, the ledger, the audit's row count, the row columns until `release_rows` drops them, and the ledger classes the units reach. `units` materializes the table's rows into a list for the census CLI and the tests; the build does not hold that list."""
 
     table: UnitTable
     ledger: list[LedgerClass]

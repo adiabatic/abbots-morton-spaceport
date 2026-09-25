@@ -65,7 +65,7 @@ export function pinStylisticSetScope(stylisticSet, featureDescriptions) {
 const STYLISTIC_SET_MENTION = /\bss\d{2}\b/gu;
 
 export function explainRuns(text) {
-  // The dump is the engine's own output, so the emphasis partitions it instead of rewriting it: concatenating every run's text gives back the input character for character.
+  // The explain text is the engine's output, so the runs partition it without changing it: their concatenated text equals the input.
   if (typeof text !== 'string' || text === '') return [];
   const runs = [];
   let plainFrom = 0;
@@ -100,7 +100,7 @@ export function highlightRect(highlight, fontSize, upem) {
   return { left: highlight.x_min * scale, width: (highlight.x_max - highlight.x_min) * scale };
 }
 
-// The amber band over the judged pair on one side, or null when there is none to draw: a unit with no primary pair has no band, and neither has a slim fragment, which carries no highlight at all rather than an empty one — so a show-machine fold draws its rows from the cells and seams alone and never reaches for geometry the build left out.
+// The amber band over the judged pair on one side, or null. A unit with no judged pair has none, and neither does a slim fragment, which has no `highlight` at all, so a show-machine fold draws its rows from the cells and seams alone.
 export function pairBand(unit, side, fontSize, upem) {
   const highlight = unit.highlight?.[side];
   if (unit.pair === null || !highlight) return null;
@@ -133,7 +133,7 @@ export function seamChip(seam) {
 }
 
 export function cellCodepointSpans(cells) {
-  // Mirrors the build's after-span walk behind pair_codepoints: a settled cell covers one codepoint position, except a formed ligature (the qsX_qsY underscore in its rune segment), which covers two.
+  // Follows the build's after spans behind pair_codepoints (`formed_spans` in rebuild/review/enrich.py): a settled cell covers one codepoint position, and a formed ligature (an underscore in its rune segment, qsX_qsY) covers two.
   const spans = [];
   let position = 0;
   for (const cell of cells) {
@@ -145,7 +145,7 @@ export function cellCodepointSpans(cells) {
 }
 
 export function onlyHereSeamSpans(unit) {
-  // Cross-checked against the build's pair_codepoints: on any disagreement the text lines degrade to unmarked rather than underlining the wrong letters.
+  // Checked against the build's pair_codepoints first. If the spans derived from the cells disagree with it, no only-here seam is underlined, so the text lines never underline the wrong letters. The pair mark, which tokenMarkRuns takes from pair_codepoints, is unaffected.
   const cells = unit.after?.cells;
   if (!Array.isArray(cells) || !unit.pair || !unit.pair_codepoints) return [];
   const spans = cellCodepointSpans(cells);
@@ -164,11 +164,11 @@ export function onlyHereSeamSpans(unit) {
 const MACHINE_CHANNELS = ['ink_identical', 'picture_identical', 'junior_equivalent'];
 
 export function needsNoVerdict(unit) {
-  // The disjunction audit.slim_fragment reads on the build side: a unit any machine channel approved, or one of a no-verdict ledger class, takes no verdict. It is read off the flags rather than off a batch because a fragment carries no batch — a unit's place in the queue is the manifest's triage index, and only the app index's rows carry it — and those rows, which are human by construction, carry none of the flags either, so they read as human here.
+  // Matches audit.slim_fragment in the build: a unit approved by any machine channel, or in a no-verdict ledger class, takes no verdict. It reads the flags, not the batch, because only app-index rows carry a batch. Those rows are all human units and omit the flags, so they read as human here.
   return Boolean(unit) && (unit.no_verdict === true || MACHINE_CHANNELS.some((channel) => unit[channel] === true));
 }
 
-// A human row's place in the manifest's triage index — the order the app pages in — or Infinity for a record that carries none.
+// A human row's position in the manifest's triage index, the order the app pages in, or Infinity for a record without one.
 export function triageOrder(unit) {
   return typeof unit?.order === 'number' ? unit.order : Number.POSITIVE_INFINITY;
 }
@@ -200,7 +200,7 @@ export function unitWorklist(value) {
 
 export function orderWorklist(units, order) {
   if (order === 'given') return units;
-  // Triage order where the rows carry it; the group and the id order the records that do not (a worklist's machine records).
+  // Sort by triage order where rows have it. Records without it (a worklist's machine records) sort after them by group, then id.
   return [...units].sort(
     (a, b) => triageOrder(a) - triageOrder(b) || a.group.localeCompare(b.group) || a.id.localeCompare(b.id),
   );
@@ -243,12 +243,12 @@ export function humanClassCount(cls) {
   return cls.unit_count - (cls.machine_approved_count ?? 0);
 }
 
-// A class's units that need no verdict: everything in a no-verdict class, the machine-approved ones anywhere else. The app reads it from the manifest so a show-machine fold can state its size without fetching the class.
+// A class's units that take no verdict: all of a no-verdict class, else its machine-approved units. It comes from the manifest so a show-machine fold can show its size without fetching the class.
 export function machineFoldTotal(cls) {
   return cls.no_verdict ? cls.unit_count : (cls.machine_approved_count ?? 0);
 }
 
-// The badge that fold wears, from the manifest's per-class channel counts rather than from the class's loaded units: the narrowest channel that accounts for every one of them, and the no-verdict badge when none does.
+// The badge for that fold, from the manifest's per-class channel counts. Channels are tried from narrowest to widest (ink-identical, picture-identical, Junior-equivalent), and the first whose count plus the narrower channels' counts equals the fold total is the badge; otherwise the fold gets the no-verdict badge.
 export function machineFoldChannel(cls) {
   const total = machineFoldTotal(cls);
   const channels = cls.machine_channels ?? {};
@@ -405,7 +405,7 @@ export function availableBatches(manifest, classId) {
 }
 
 export function classesInBatch(manifest, batch, showMachine = true) {
-  // Mirrors unitsForView's class selection: batchless classes hold nothing but machine-approved and no-verdict units, so they ride along with batch 0 only when those are on screen to be seen.
+  // Selects classes as machineFoldPlan does: the classes in the batch, plus the batchless classes in batch 0 when machine units are shown, since those classes hold only units that take no verdict.
   const ids = new Set();
   for (const cls of manifest.classes) {
     if (cls.batches.includes(batch)) ids.add(cls.id);
@@ -418,7 +418,7 @@ export function copyPreamble(unit) {
   return `I'm looking at rebuild/out/review/ unit ${unit.id} — ${unit.codepoints} (${unit.notation}). `;
 }
 
-// Keyed on the unit object, which is immutable once parsed, so the cache can never go stale and collects with the rows it describes; without it a keystroke rebuilds and lowercases one array per unit in the whole queue.
+// Keyed on the unit object, which is not modified after parsing, so an entry cannot go stale and is collected with its row. Without the cache every keystroke would rebuild and lowercase one string per unit in the queue.
 const haystacks = new WeakMap();
 
 export function searchHaystack(unit) {
@@ -470,7 +470,7 @@ export function isLetterToken(token) {
 }
 
 export function tokenSeparators(tokens) {
-  // Mirrors the build's notation() spacing rule: letters concatenate, boundary tokens (◊ZWNJ, ␣, the bare namer dot ·) are space-separated, so joining separators[i] + tokens[i] reproduces unit.notation.
+  // Follows the build's notation() spacing (rebuild/review/enrich.py): letters concatenate and boundary tokens (◊ZWNJ, ␣, the bare namer dot ·) are separated by spaces, so joining separators[i] + tokens[i] reproduces unit.notation.
   const separators = [];
   let previousWasLetter = false;
   for (const token of tokens) {
@@ -482,7 +482,7 @@ export function tokenSeparators(tokens) {
 }
 
 export function tokenMarkRuns(tokens, separators, pairSpan, seamSpans) {
-  // A separator carries a mark only when both its neighbors do, so the separator before the first marked token stays outside the mark; adjacent pieces under the same marks merge into one run.
+  // A separator is marked only when both its neighbors are, so the separator before the first marked token stays outside the mark. Adjacent pieces with the same marks merge into one run.
   const marksAt = (index) => ({
     pair: Boolean(pairSpan) && index >= pairSpan[0] && index <= pairSpan[1],
     seam: seamSpans.some((span) => index >= span[0] && index <= span[1]),

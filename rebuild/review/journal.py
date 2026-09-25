@@ -1,4 +1,7 @@
-"""Append-only history of the review app's verdict store. Every write to verdicts-autosave.json — the app's /autosave POSTs and the headless merge tool — first records what changed in verdicts-journal.ndjson as one event line (source, time, manifest stamp) followed by one line per changed verdict, including explicit clears, which the store files themselves cannot represent (a cleared verdict is simply absent from them). A base event carries the full store rather than a diff: one opens every journal (seeding the pre-journal state) and one marks every surface-stamp change, so replay(as_of=...) can reconstruct the exact store at any recorded moment from the journal alone. That replay is what makes every store mutation reversible — the corrective path for a bad merge, a clobbered store, or an accidental clear is rebuild.tools.merge_verdicts --restore-as-of, not archaeology over stash files."""
+"""Append-only log of changes to the review app's verdict store.
+
+After each write to verdicts-autosave.json, the review server's store (`rebuild.review.verdict_store`) and `rebuild.tools.merge_verdicts` append the change to verdicts-journal.ndjson: one event line (source, time, manifest stamp) followed by one line per changed verdict. Clears get their own lines, because the store files cannot represent them (a cleared verdict is absent). A base event carries the full store instead of a diff. One is written at every surface-stamp change, and one seeds a new journal when the store it starts from is not empty, so `replay(as_of=...)` can reconstruct the store at any recorded moment from the journal alone. `rebuild.tools.merge_verdicts --restore-as-of` uses that replay to undo a bad merge, an overwritten store, or an accidental clear.
+"""
 
 from __future__ import annotations
 
@@ -67,7 +70,7 @@ def record_transition(
     stashed: str | None = None,
     at: str | None = None,
 ) -> dict:
-    """Append the transition from the store's previous content to its new content. Same-stamp transitions journal as a diff (sets plus clears); a stamp change journals as a base event holding the full new store, since unit ids are never joinable across stamps. When the journal file does not exist yet and the previous store is same-stamp and non-empty, a seed base event of that previous store is prepended so replay is complete from the journal's first line."""
+    """Append the change from the store's previous content to its new content. A same-stamp change is written as a diff (sets and clears). A stamp change is written as a base event holding the full new store, because unit ids from different stamps cannot be matched. When the journal file does not exist yet and the previous store has the same stamp and is not empty, a seed base event holding the previous store is written first, so replay is complete from the journal's first line."""
     journal_path = Path(journal_path)
     at = at or now_stamp()
     base = old_stamp != stamp
@@ -100,7 +103,7 @@ def record_transition(
 def record_delta(
     journal_path, *, source: str, stamp: str, sets, clears, seed_records=None, at: str | None = None
 ) -> dict:
-    """Append a same-stamp change the caller already knows the shape of — the records set and the units cleared — without diffing two whole stores. `seed_records` is the store as it stood before the change, less the changed units; it is written as a seed base event only when the journal file does not exist yet, the same completeness rule `record_transition` applies, and a caller that knows the file exists passes None."""
+    """Append a same-stamp change given as the records set and the units cleared, without diffing two whole stores. `seed_records` is the store before the change, without the changed units. It is written as a seed base event only when the journal file does not exist yet, as in `record_transition`; a caller that knows the file exists passes None."""
     journal_path = Path(journal_path)
     at = at or now_stamp()
     sets = [record for record in sets if isinstance(record, dict) and isinstance(record.get("unit"), str)]
@@ -151,7 +154,7 @@ def _append(journal_path, *, source, at, stamp, base, stashed, sets, clears, see
 
 
 def _iter_entries(journal_path):
-    """The journal's parseable entries, a line at a time off the open handle so only one is ever resident: every reader here walks the file once and keeps a handful of events or one store's worth of records out of it, where slurping the file first would cost its whole size again as a str and again as a list of lines before yielding anything. Scanning stops at the first line that will not decode or parse, so a tail torn by a crashed append is never reinterpreted — and reading bytes rather than text is what extends that tolerance to a tail torn mid-character, which the notes' non-ASCII makes reachable and which a text-mode read raises on before any reader sees a line, the restore path included. `compact` splits the file the same way for the same reason, so the two never disagree about where a line begins."""
+    """Yield the journal's parseable entries, reading one line at a time so only one line is in memory. Scanning stops at the first line that does not decode or parse, so a tail torn by a crashed append is never misread. Reading bytes extends that to a tail torn mid-character, which can happen because notes may hold non-ASCII text. A text-mode read would raise on such a tail before yielding a line, and every reader, the restore path included, would fail. `compact` splits the file the same way, so the two agree on where each line begins."""
     try:
         handle = Path(journal_path).open("rb")
     except OSError:
@@ -175,7 +178,7 @@ def iter_events(journal_path):
 
 
 def replay(journal_path, as_of: str | None = None) -> tuple[str | None, dict[str, dict]]:
-    """Reconstruct (stamp, records) as of the last event whose `at` is lexicographically <= as_of (events append in time order, so a truncated ISO prefix works). None stamp with empty records means the journal holds no event at or before that moment."""
+    """Return (stamp, records) as of the last event whose `at` is lexicographically <= `as_of`. Events are appended in time order, so a truncated ISO prefix works as `as_of`. A None stamp with empty records means the journal holds no event at or before that moment."""
     stamp: str | None = None
     records: dict[str, dict] = {}
     for entry in _iter_entries(journal_path):
@@ -205,9 +208,9 @@ def replay(journal_path, as_of: str | None = None) -> tuple[str | None, dict[str
 
 
 def compact(journal_path, *, cutoff: str) -> dict:
-    """Rewrite the journal to begin at the newest base event whose `at` is lexicographically at or before `cutoff` (an ISO-Z stamp), dropping every earlier line. A base event carries the full store, so replay and --restore-as-of stay exact for every moment from that base onward; every earlier moment becomes unrecoverable, which is why the caller chooses the cutoff, not this function. Kept lines are carried byte-for-byte (scanning stops where `_iter_entries` stops, at the first line that will not decode or parse, so a torn tail is never reinterpreted) and the rewrite is atomic. A journal with no parseable base at or before the cutoff, or one already starting at that base, is left untouched.
+    """Rewrite the journal to begin at the newest base event whose `at` is lexicographically at or before `cutoff` (an ISO-Z stamp), dropping every earlier line. A base event carries the full store, so replay and --restore-as-of stay exact for every moment from that base on, and every earlier moment becomes unrecoverable; that is why the caller chooses the cutoff. Kept lines are copied byte for byte, and the rewrite is atomic. The scan for the base stops where `_iter_entries` stops, at the first line that does not decode or parse. A journal with no parseable base at or before the cutoff, or one that already starts at that base, is left untouched.
 
-    The scan reads bytes and remembers the floor's offset rather than its text, and the rewrite copies from that offset in fixed-size blocks, so nothing here is ever larger than one line plus one block. Holding the file as a str, then as a list of lines, then as the joined tail cost three whole copies of it — spent even on the common case, where the newest base is already the first line and the answer is to do nothing.
+    The scan reads bytes and records the base's offset, and the rewrite copies from that offset in fixed-size blocks, so memory use stays at one line plus one block, including in the common case where the journal already starts at the newest base and nothing is rewritten.
     """
     journal_path = Path(journal_path)
     untouched = {"compacted": False, "floor_at": None, "dropped_lines": 0, "kept_lines": 0}

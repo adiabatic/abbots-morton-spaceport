@@ -124,7 +124,7 @@ const NEITHER_MENU_CHOICES = [
 
 const manifest = await (await fetch('manifest.json')).json();
 const store = createStore();
-// The only queue-scaled retention in the tab: one slim row per unit awaiting a verdict, holding what the docket, search, filters and progress read across the whole queue. What a card draws — the sample text, the pair band, the settled cells — is Range-fetched from the shard record as the card renders, and the explain table when its panel opens, through fullRecords, which is bounded. Machine-approved and no-verdict units are never resident as a class: a show-machine fold reads its class's locator rows one block at a time and draws them a window at a time, keeping the records of the rows on screen (foldRecords, dropped with the view), a worklist keeps its own machine records while it is the view (worklist.records), and a deep link keeps the one unit it revealed (transientMachineUnit). The locator's block table is the one thing retained on the machine side, and it is the machine workload divided by the block size.
+// The only memory in the tab that grows with the queue: one app-index row per unit awaiting a verdict, holding what the docket, search, filters and progress read. A card's sample text, pair band and settled cells, and its explain table when the panel opens, are Range-fetched from the shard record into fullRecords, which is bounded. Units that take no verdict are never loaded a class at a time. A show-machine fold reads its class's locator rows a block at a time and draws a window at a time, keeping the records of the rows on screen (foldRecords, cleared on each re-render). A worklist keeps its own machine records while it is the view (worklist.records), and a deep link keeps the one unit it revealed (transientMachineUnit). On the machine side only the locator's block table stays loaded, with one entry per block of machine units.
 const humanRows = new Map();
 const humanList = [];
 const rowsByClass = new Map();
@@ -254,7 +254,7 @@ async function* streamNdjson(name) {
   const source = response.body.getReader();
   const { value: first } = await source.read();
   let body = restream(source, first);
-  // Through rebuild.review.serve the sidecar arrives already decoded, because that handler declares Content-Encoding: gzip; through anything else — an archived surface under a plain static file server — it arrives as the gzip bytes sitting on disk. The magic number is what says which happened, so the surface reads the same either way.
+  // rebuild.review.serve declares Content-Encoding: gzip, so the browser has already decoded the sidecar. A plain static file server serving an archived surface sends the gzip bytes as stored. The magic number tells the two cases apart.
   if (looksGzipped(first) && typeof DecompressionStream === 'function') {
     body = body.pipeThrough(new DecompressionStream('gzip'));
   }
@@ -280,7 +280,7 @@ function parseHeaderLine(line) {
   }
 }
 
-// The whole boot load: one streaming pass over the slim index, parsed a line at a time so the tab never holds the source text and the rows at once. Everything downstream — docket, search, worklists, progress, filters, echo chips — reads these rows and nothing else.
+// Loads the app index in one streaming pass, parsing a line at a time so the tab never holds the source text and the rows at once. The docket, search, worklists, progress, filters and echo chips read only these rows.
 async function loadHumanIndex() {
   const families = new Set();
   try {
@@ -303,7 +303,7 @@ async function loadHumanIndex() {
       }
       for (const family of familiesOfGroup(row.group)) families.add(family);
     }
-    // A truncated index yields no lines at all, so the header check above never runs. Refusing it here is what keeps an interrupted build from booting as a clean, fully-verdicted-looking corpus.
+    // A truncated index has no lines, so the header check never runs. Failing here keeps an interrupted build from loading as an empty, fully verdicted queue.
     if (header === null) throw new Error('it carries no lines at all, so the build that wrote it did not finish');
     indexLoaded = true;
   } catch (error) {
@@ -326,7 +326,7 @@ function unitFor(unitId) {
   );
 }
 
-// The locator's block table: which gzip member of the rows file holds which class's rows and which unit numbers, loaded once on first need. A fold reads its class's blocks in order, a deep link binary-searches every class's blocks for the one that can hold its id, and neither reads a row outside the block it asked for.
+// Loads the locator's block table once, on first use: which gzip member of the rows file holds which class's rows and which ids. A fold reads its class's blocks in order, a deep link binary-searches every class's blocks for the one that can hold its id, and neither reads rows outside the blocks it fetches.
 function loadLocator() {
   locatorReady ??= (async () => {
     const blocks = [];
@@ -351,14 +351,14 @@ function loadLocator() {
   return locatorReady;
 }
 
-// A Range response's body as text. A block of the rows file arrives as its own gzip member's bytes — the file goes out identity-encoded, since Chrome refuses a partial response that declares a content encoding — and is decompressed here; the magic number is what says so, in case a server decoded it anyway.
+// A Range response's body as text. The rows file is served identity-encoded, because Chrome rejects a partial response that declares a content encoding, so a block arrives as its gzip member's bytes and is decompressed here. The magic-number check covers a server that decoded it anyway.
 async function readMaybeGzipped(response) {
   const bytes = new Uint8Array(await response.arrayBuffer());
   if (!looksGzipped(bytes) || typeof DecompressionStream !== 'function') return new TextDecoder().decode(bytes);
   return new Response(new Blob([bytes]).stream().pipeThrough(new DecompressionStream('gzip'))).text();
 }
 
-// One block of locator rows, fetched by the span the table names and held in a small cache so a fold's next window and a deep link's neighbors read it back without another request.
+// One block of locator rows, fetched by the span the table gives and cached so that a fold's next window or a later deep link reads it without another request.
 async function fetchLocatorBlock(block) {
   const key = `${block.class}\u0000${block.byte_start}`;
   const cached = locatorBlocks.get(key);
@@ -382,7 +382,7 @@ async function fetchLocatorBlock(block) {
   } catch {
     rows.length = 0;
   }
-  // The table and the rows file land together, so a block that does not start where the table says is a rows file this table was not written for.
+  // The table and the rows file are written together, so a block that does not start where the table says belongs to a different build.
   if (rows.length !== block.units || rows[0]?.id !== block.first) {
     toast(`The ${block.class} locator rows are not where this page was told they would be — the surface was rebuilt; reload.`);
     return null;
@@ -391,7 +391,7 @@ async function fetchLocatorBlock(block) {
   return rows;
 }
 
-// The addresses of machine-approved or no-verdict units, for a deep link or a worklist: each id names at most one candidate block per class, those blocks are fetched once each, and only the rows asked for are kept.
+// Looks up the locator rows of units that take no verdict, for a deep link or a worklist. Each id has at most one candidate block per class; each block is fetched once, and only the requested rows are kept.
 async function resolveMachineIds(unitIds) {
   const wanted = new Set(unitIds);
   const found = new Map();
@@ -415,7 +415,7 @@ async function resolveMachineIds(unitIds) {
   return found;
 }
 
-// The shard records behind a set of addresses, as few Range requests as their spans allow: neighbors in a part share one request, and each record is sliced out of the returned text at its own span. Every record read is cached, so a card's fetch also serves the explain panel that opens on it.
+// Fetches the shard records for a set of addresses with as few Range requests as the spans allow: neighbors in a part share one request, and each record is sliced from the response at its own span. Every record read goes into fullRecords, so a card's fetch also serves its explain panel.
 async function fetchRecordsBySpans(rows) {
   const found = new Map();
   const wanted = [];
@@ -448,7 +448,7 @@ async function fetchRecordsBySpans(rows) {
         } catch {
           record = null;
         }
-        // A surface rebuilt under this tab moves its shards, so a stale span can land on a neighboring record rather than on nothing; the id is what says which happened.
+        // A rebuild rewrites the shards, so a stale span can land on a neighboring record instead of failing. Comparing the id detects that.
         if (!record || record.id !== row.id) {
           toast(`${row.id} is not where this page was told it would be — the surface was rebuilt; reload.`);
           continue;
@@ -493,7 +493,7 @@ async function resolveWorklist(key, records) {
   return units;
 }
 
-// A worklist resolves once and stays resolved for as long as it is the view. Resolving a machine id is a locator block per candidate class and a shard fetch per unit, so re-deriving the list per call would put those requests behind every cursor move and every verdict — applyHashState runs on all of them. Pinning the records it found does the second job too: a worklist longer than the record cache's cap would otherwise evict its own earlier units, and a machine unit the app cannot look up is one it can neither cursor to nor copy.
+// A worklist is resolved once and kept while it is the view. Resolving a machine id costs a locator block per candidate class and a shard fetch per unit, and applyHashState runs on every cursor move and verdict, so resolving per call would put those requests behind each of them. Keeping the records also means a worklist longer than the fullRecords cap does not evict its own earlier units, which the app could then neither move the cursor to nor copy.
 function worklistFor(key) {
   if (!worklist || worklist.key !== key) {
     const records = new Map();
@@ -508,7 +508,7 @@ async function unitsForView(batch, classFilter) {
   await indexReady;
   if (state.units) return orderWorklist(await worklistFor(state.units), state.order);
   worklist = null;
-  // The batch's rows in the manifest's triage order — each row carries its position in that index — so the group folds and the default cursor land where the queue puts them rather than where the shards, which are written in id order, happen to. The class selection is what keeps a walk over the batches from touching every class's rows on every step.
+  // The batch's rows in triage order (each row carries its `order`), so the group folds and the default cursor follow the queue, not the shards' id order. Selecting classes first keeps a walk over the batches from scanning every class's rows.
   const units = [];
   for (const cls of manifest.classes) {
     if (classFilter) {
@@ -536,7 +536,7 @@ function el(tag, className, text) {
   return node;
 }
 
-// One side's sample cell. A row out of the app index has no text to draw yet — the cell is built empty and hydrateSamples rebuilds it from the record, which is why the cell remembers its side and its feature settings.
+// One side's sample cell. An app-index row has no text yet, so the cell starts empty and hydrateSamples rebuilds it from the record; the cell stores its side and feature settings for that.
 function buildSample(unit, side, featureSettings) {
   const cell = el('div', `qs ${side}`);
   cell.style.fontFeatureSettings = featureSettings;
@@ -626,7 +626,7 @@ function buildCodepointsCode(unit) {
   return code;
 }
 
-// A card built from a slim row draws its label at once and its samples once the unit's record arrives — one Range request against the class shard, the same one the explain panel makes. The marked runs on the text lines come back with the record too, since the seam underline reads the settled cells.
+// A card built from an app-index row draws its label at once and its samples when the record arrives, from one Range request against the class shard (the same one the explain panel uses). The marked runs on the text lines are rebuilt from the record, because the seam underline reads the settled cells.
 async function hydrateSamples(container, unit) {
   const record = await fetchFullRecord(unit);
   if (!record || !container.isConnected) return;
@@ -887,7 +887,7 @@ function renderBatch(units, machine, plan) {
     container.append(el('p', 'empty', 'No units match the current batch and filters.'));
     return;
   }
-  // A provisional plan cannot say whether its folds hold anything under this filter, so the queue answers for itself rather than leaving a filter that matched nothing looking like a view full of units.
+  // A provisional plan's fold totals are upper bounds, so the folds may hold no unit that matches the filter. Say that no unit awaiting a verdict matches, so a filter that matched nothing does not look like a full view.
   if (units.length === 0 && machine.length === 0 && plan.some((fold) => fold.provisional)) {
     container.append(el('p', 'empty', 'No units awaiting a verdict match the current batch and filters.'));
   }
@@ -939,7 +939,7 @@ function renderMachineSection(container, machine, plan) {
         ? `No verdict needed in your worklist: ${machine.length} unit${machine.length === 1 ? '' : 's'} shown below`
         : 'This deep-linked unit needs no verdict — it stays out of your queue and disappears when you move on.';
   container.append(el('h2', 'machine-heading', heading));
-  // The filters a fold applies once it is opened, frozen at render time the way partitionUnits froze them; the status filter never reaches a unit that takes no verdict.
+  // The filters an opened fold applies, captured at render time. The status filter is dropped, as partitionUnits drops it for units that take no verdict.
   const foldFilters = { ...state, status: null };
   for (const fold of plan) {
     const pinned = machine.filter((unit) => unit.class === fold.classId);
@@ -998,7 +998,7 @@ function buildMachineFold(classId, total, badge, records, pinned, foldFilters, {
     }
     return fold;
   }
-  // The class's rows come off the locator a block at a time and its records off the shard a window at a time, so opening the fold costs one window whatever the class holds, and every further window is asked for. The filters a fold applies are per record, so under one a window shows the rows it read that match and says how many it has read.
+  // Rows come from the locator a block at a time and records from the shard a window at a time, so opening a fold costs one window whatever the class size, and the reader requests each further window. Filters apply per record, so under a filter a window shows only the matching rows it read, and the count line says how many rows have been read.
   const pinnedIds = new Set(pinned.map((unit) => unit.id));
   const more = el('button', 'fold-more');
   more.type = 'button';
@@ -1008,7 +1008,7 @@ function buildMachineFold(classId, total, badge, records, pinned, foldFilters, {
   let read = 0;
   let shown = 0;
   let loading = null;
-  // The count line speaks of the windows alone: a pinned row is the unit the reader deep-linked to, drawn ahead of the windows whether or not its window has been read yet.
+  // The count line covers the windows only. A pinned row is the deep-linked unit, drawn before the windows whether or not its window has been read.
   const describe = () => {
     const unread = classRows - read;
     if (unread <= 0) {
@@ -1114,7 +1114,7 @@ function cursorUnitId() {
   if (state.unit) {
     if (visibleUnits.some((unit) => unit.id === state.unit)) return state.unit;
     if (document.querySelector(`#batch .row:not(.machine)[data-unit="${state.unit}"]`)) return state.unit;
-    // A machine-approved unit can hold the URL cursor for deep links, but it is never the verdict cursor: keys and auto-advance operate over the human workload only.
+    // A unit that takes no verdict can be the URL cursor for a deep link but never the verdict cursor: keys and auto-advance act only on human units.
     if (machineUnits.some((unit) => unit.id === state.unit)) return null;
   }
   return visibleUnits.length > 0 ? visibleUnits[0].id : null;
@@ -1128,7 +1128,7 @@ async function ensureCursor() {
   if (state.unit && !inView(state.unit)) {
     const unit = await findUnitAnywhere(state.unit);
     if (unit && needsNoVerdict(unit)) {
-      // Deep-linking to a machine-approved or no-verdict unit reveals just that unit transiently; the persistent toggle stays off and any navigation away hides it again. The record is held here rather than left to the record cache, which the cards' own fetches churn through.
+      // A deep link to a unit that takes no verdict shows just that unit; the show-machine toggle stays off, and navigating away hides it. The record is kept here because the cards' own fetches would evict it from fullRecords.
       transientMachineUnitId = unit.id;
       transientMachineUnit = unit;
       setStateReplace({});
@@ -1160,7 +1160,7 @@ function updateCursorDom(scroll = true) {
   if (scroll) row.scrollIntoView({ block: 'start', behavior: reducedMotion.matches ? 'auto' : 'smooth' });
 }
 
-// Every write here is guarded by a read: the counts are unchanged for most of the calls that reach this function, and an unconditional textContent assignment would dirty layout across the whole batch grid anyway.
+// Writes only when the text differs. Most calls pass unchanged counts, and assigning textContent, even the same text, invalidates layout for the whole batch grid.
 function setText(node, text) {
   if (node.textContent !== text) node.textContent = text;
 }
@@ -1183,7 +1183,7 @@ function updateUnexportedNudge() {
   setText(nudge, `${store.unexported.size} unexported${autosaveHealthy() ? ' (autosaved)' : ''}`);
 }
 
-// One walk of the queue, not one per class button: the sidebar tally and the selected-class line ask the same question of the same rows, and answering it separately for each of the two dozen classes made every store mutation quadratic in the queue.
+// One pass over the queue for both the sidebar tallies and the selected-class line. A pass per class button would make every store mutation cost the number of classes times the queue size.
 function verdictedByClass() {
   const counts = new Map();
   for (const row of humanList) {
@@ -1203,7 +1203,7 @@ function updateProgress() {
   const byClass = verdictedByClass();
   updateClassProgress(byClass);
   if (state.view === 'docket') {
-    // renderDocket owns the batch-progress line in the docket view; a store mutation here (undo, import, autosave restore) just re-derives the queue.
+    // In the docket view renderDocket writes the batch-progress line, so a store mutation (undo, import, a sync from another session) only re-derives the queue.
     scheduleDocketRefresh();
   } else {
     let batchVerdicted = 0;
@@ -1318,7 +1318,7 @@ function scheduleDocketRefresh() {
   }, 150);
 }
 
-// A live refresh drops every newly judged cluster, so restoring the old pixel offset would slide the page under the reader by the height of whatever vanished above them; anchoring to the first card still in view keeps the card being read in place while the judged ones melt away around it.
+// A live refresh removes newly judged clusters, so restoring the old scroll offset would shift the page by the height of the removed cards. Anchoring on the first card still in view keeps that card in place.
 function captureDocketAnchor() {
   const docket = document.getElementById('docket');
   if (docket.hidden) return null;
@@ -1349,7 +1349,7 @@ function worklistHref(unitIds) {
   return `#units=${unitIds.join(',')}`;
 }
 
-// Docket-launched worklists carry the flag that turns worklist exhaustion into an auto-advance to the next docket decision, plus the surface stamp that lets a resumed tab notice the ids in its hash were minted for an earlier build (see docketResumeAction); conflict stacks stay plain because settling one means changing existing verdicts, not filling blanks.
+// Docket worklists carry `docket=1`, which makes finishing the worklist advance to the next docket decision, and the surface stamp, which lets a resumed tab detect that its ids came from an earlier build (see docketResumeAction). Conflict stacks use plain worklists, because resolving a conflict changes existing verdicts instead of filling blanks.
 function docketWorklistHref(unitIds) {
   return `${worklistHref(unitIds)}&docket=1&stamp=${encodeURIComponent(manifest.generated_at)}`;
 }
@@ -1535,7 +1535,7 @@ function renderDocket({ anchor = null } = {}) {
   const ruledIds = ruledClassIds(manifest.classes);
   const { tranche, later, singletons, ruledBlankUnits } = partitionClusters(clusters, ruledIds);
   const conflicts = echoConflicts(echoIndex, humanRows, recordOf);
-  // The headline counts cover the workable queue — the note below already presents the ledger-ruled blanks as excluded from it.
+  // The headline counts leave out ledger-ruled classes; the note below reports their blank units.
   const totals = docketTotals(clusters.filter((cluster) => !ruledIds.has(cluster.class)));
 
   const header = el('header', 'docket-header');
@@ -1619,7 +1619,7 @@ function syncFilterControls() {
   document.getElementById('filter-family').value = state.family ?? '';
   const configSelect = document.getElementById('filter-config');
   configSelect.value = state.config ?? '';
-  // Safari's native select popup doesn't surface per-option tooltips, so the closed control carries the selected set's gloss too.
+  // Safari's native select popup does not show per-option tooltips, so the closed control also gets the selected option's title.
   configSelect.title = configSelect.selectedOptions[0]?.title ?? '';
   document.getElementById('filter-status').value = state.status ?? '';
   document.getElementById('show-machine').checked = state.machine === '1';
@@ -1645,7 +1645,7 @@ async function applyHashState(resume = false) {
     updateSidebarHighlights();
     return;
   }
-  // A docket worklist that arrives finished or stamped for another surface never renders — it restacks from the live queue instead, so a tab resumed after a rebuild (whose hash names ids the new surface reassigned to unrelated units) or reopened on an already-judged screenful lands on the next docket decision, not a dead or misdirected list. Gated on resume (boot and hashchange) so an in-view adjustment — a cursor move, Shift+Enter's deliberate stay, an undo — can never yank a worklist the reviewer is still looking at.
+  // On boot and hashchange (`resume`), a docket worklist that is stamped for another surface or already finished is not rendered; advanceDocket stacks the next decision from the live queue instead, because a rebuild gives every changed unit a new id, so an old hash's worklist was stacked from a queue that no longer exists. The check runs only on resume, so a cursor move, Shift+Enter, or an undo never replaces a worklist the reviewer is looking at.
   if (resume && state.units && state.docket) {
     const action = docketResumeAction({
       stamp: state.stamp,
@@ -1654,7 +1654,7 @@ async function applyHashState(resume = false) {
       recordOf: (id) => store.records.get(id),
     });
     if (action) {
-      // The cold-boot index load can take a while; a navigation that lands meanwhile owns the view, and the restack yields to it instead of clobbering it.
+      // The boot index load can be slow. If another navigation starts meanwhile, renderToken changes and this restack is dropped.
       await indexReady;
       if (token !== renderToken) return;
       await advanceDocket({ stale: action === 'restack' });
@@ -1719,7 +1719,7 @@ async function applyHashState(resume = false) {
 }
 
 let toastTimer = null;
-// Reading time, not a flat timeout: each digit adds half a word because numerals ("3,193", "e-0061") are read digit-by-digit, slower than a word of the same length.
+// Scales with reading time. Each digit adds half a word, because numerals such as "3,193" are read digit by digit.
 function toastDuration(message) {
   let units = 0;
   for (const token of message.split(/\s+/)) {
@@ -1747,7 +1747,7 @@ function applyVerdict(unitId, verdict, { toggle = true, note = null } = {}) {
   if (toggle && existing && existing.verdict === verdict) {
     recordVerdict(store, unitId, null);
   } else {
-    // A verdict fills the unverdicted rest of the unit's echo group (same change, same judged pair — one question); skip is a per-unit deferral and never echoes, and already-verdicted members are never overwritten.
+    // A verdict also goes to the unverdicted members of the unit's echo group, which show the same change on the same judged pair. Skip is a per-unit deferral and is never copied, and members that already have a record, a skip included, are not overwritten.
     const unit = unitFor(unitId);
     const echoes =
       verdict === 'skip' || !unit
@@ -1803,7 +1803,7 @@ async function advanceFrom(unitId) {
   updateTitle();
 }
 
-// The docket flow's analog of the cross-batch advance: when a docket worklist is fully judged, stack the next decision straight away — the queue recomputes from the live store, so "next" is the top card among the decisions this sitting has not already opened, and only once those run out does it come back round to a postponed one. Replaces (not pushes) history so Back still returns to the docket in one step.
+// When a docket worklist is fully judged, stack the next decision at once, as advanceFrom moves on to the next batch. The queue is recomputed from the live store, so the next decision is the top one not yet opened (docketShown); postponed ones come back only after those run out. History is replaced, not pushed, so Back returns to the docket in one step.
 async function advanceDocket({ stale = false } = {}) {
   await indexReady;
   const recordOf = (id) => store.records.get(id);
@@ -1837,7 +1837,7 @@ function verdictCursor(verdict) {
 
 let lastVerdictedUnitId = null;
 
-// Repeat reads the source unit's live record rather than a snapshot, so a note typed or edited after the verdict landed is what gets repeated; it never toggle-clears, so hammering r across a run of identical screwups is safe.
+// Repeats the source unit's current record, so a note typed after the verdict is repeated too. It never toggles a verdict off, so pressing r across a run of identical cases is safe.
 function repeatLast(unitId = cursorUnitId()) {
   const source = lastVerdictedUnitId === null ? null : store.records.get(lastVerdictedUnitId);
   if (!source) {
@@ -1884,7 +1884,7 @@ let rejectMenuUnitId = null;
 let rejectMenuNode = null;
 let rejectMenuRecents = [];
 
-// The keys 1–9 then 0 pick from this sitting's ten most recent distinct comments of the menu's own verdict kind, so a repeated objection is typed once and reused until it ages off the list.
+// Keys 1–9 then 0 pick from the ten most recent distinct notes in the store with the menu's verdict kind, leaving out the menu's preset notes, so a repeated objection is typed once.
 function recentKeyLabel(index) {
   return index === 9 ? '0' : String(index + 1);
 }
@@ -2091,7 +2091,7 @@ function approveGroupOf(unitId) {
   for (const candidate of visibleUnits) {
     if (candidate.group === unit.group && !store.records.has(candidate.id)) ids.push(candidate.id);
   }
-  // Each approval echoes to the rest of its echo group, wherever those windows live; groupApprove skips anything already verdicted, so duplicates in the list are harmless.
+  // Each approval is also copied to the rest of its echo group, including members in other batches. groupApprove skips units that already have a record, so duplicate ids in the list are harmless.
   const expanded = [...ids];
   for (const id of ids) {
     const member = humanRows.get(id);
@@ -2121,7 +2121,7 @@ function undoLast() {
   toast(`Undid ${result.units.length === 1 ? result.cursor : `${result.units.length} verdicts`}`);
 }
 
-// A slim row carries no explain material, so opening the panel is where its shard record gets read back — one Range request against the class shard, or none when the card's own fetch of the same record is still in the cache. Machine rows are built from their shard record — a slim fragment, whose panel fills with the note saying what the build left out — and open with the panel already filled, as they always did.
+// An app-index row has no explain material, so opening its panel fetches the shard record: one Range request, or none if the card's fetch left the record in fullRecords. Rows that take no verdict are built from their shard record and open with the panel already filled.
 async function toggleExplain(unitId) {
   const row = rowFor(unitId);
   if (!row) return;
@@ -2132,7 +2132,7 @@ async function toggleExplain(unitId) {
   const locator = humanRows.get(unitId);
   if (!locator) return;
   panel.dataset.loading = '1';
-  // A read that failed left its line behind for the reader to see; this open replaces it rather than stacking another one under it.
+  // Remove the message a failed read left, so a retry replaces it instead of adding another.
   for (const stale of panel.querySelectorAll('.explain-pending')) stale.remove();
   const pending = el('p', 'explain-pending', 'Reading this unit’s explain table out of its shard…');
   panel.append(pending);
@@ -2168,7 +2168,7 @@ function exportPayload() {
   return JSON.stringify(assembleExport(store, manifest.generated_at), null, 2);
 }
 
-// The autosave is a stream of changes, not a copy of the store: a flush POSTs the records of the units in store.dirty (a set or a clear each) and nothing else, so its cost is the size of what the reader just did rather than the size of the queue, which by now holds every carried and filled verdict on the surface. The server keeps the store resident, applies the delta, and hands back a sync token; syncVerdictsFromServer sends that token back to be given only what changed since, so the focus re-merge and the docket poll cost nothing while nothing has changed. Flushes run one at a time: two deltas in flight could land out of order and a clear could lose to the set it undid.
+// The autosave sends changes, not the store. A flush POSTs a set or a clear for each unit in store.dirty, so its size follows what the reader just did, not the store, which holds every carried and filled verdict on the surface. The server keeps the store in memory, applies the delta, and returns a sync token. syncVerdictsFromServer sends the token back and receives only the changes since, so the focus re-merge and the docket poll get an empty delta while nothing changes. Flushes run one at a time, because two deltas in flight could arrive out of order and a clear could lose to the set it undid.
 const AUTOSAVE_DEBOUNCE_MS = 800;
 const AUTOSAVE_CHUNK = 20000;
 let autosaveTimer = null;
@@ -2207,7 +2207,7 @@ async function flushAutosave() {
   const ids = takeDirty();
   autosaveInFlight = true;
   try {
-    // An ordinary flush is one decision and its echoes; an Import of a whole master is every record in the file, so a flush goes out in bounded pieces and no single body can reach the server's request-size cap.
+    // A normal flush is one decision and its echoes, but an Import can dirty every record in a file, so the ids go out in chunks of AUTOSAVE_CHUNK and no body reaches the server's request-size limit.
     for (let start = 0; start < ids.length; start += AUTOSAVE_CHUNK) {
       const chunk = ids.slice(start, start + AUTOSAVE_CHUNK);
       let response;
@@ -2237,7 +2237,7 @@ async function flushAutosave() {
     }
     autosaveWorks = true;
     autosaveFailed = false;
-    // Anything that went dirty during the flight goes out next; a failed save leaves its ids dirty for the next mutation's flush instead of retrying on a timer.
+    // Send anything that became dirty during the request. A failed save leaves its ids dirty for the next mutation's flush; there is no retry timer.
     if (store.dirty.size > 0) scheduleAutosave();
   } catch (error) {
     console.warn('autosave failed', error);
@@ -2283,7 +2283,7 @@ async function restoreAutosave() {
   if (result.added > 0) toast(`Restored ${result.added} autosaved verdicts`);
 }
 
-// The store is this page's memory alone, restored from the server only at boot — so a docket left open in another tab or window goes stale as verdicts land elsewhere. Re-merging the server's changes whenever the page regains focus keeps every open copy of the app fresh (newer `at` wins, exactly the import rule). With a token the server answers with just the records changed since this page last heard from it; without one, or when the server no longer recognizes it (a restart, an external rewrite of the file), it answers with the whole store and a fresh token. A clear made in another session is not applied here: clearing is rare and visible, and a copy that keeps the record only sends it back when the reader touches it again.
+// The store lives in this page and is restored from the server only at boot, so a copy open in another tab goes stale as verdicts are recorded elsewhere. When the page regains focus it merges the server's changes, the newer `at` winning as in an import. With a token the server returns only the records changed since; without one, or when the server does not recognize it (after a restart or an external rewrite of the file), it returns the whole store and a new token. A clear made in another session is not applied: clears are rare and visible, and a copy that keeps the record sends it back only when the reader changes it again.
 let verdictSyncInFlight = false;
 let verdictSyncLastAt = 0;
 let bootRestoreDone = false;
@@ -2445,9 +2445,9 @@ function selectSearchResult(unitId) {
   if (!unitId) return;
   closeSearch();
   document.getElementById('unit-search').blur();
-  // The hash carries only the unit id — the same deep-link form as a seam chip — so the existing machinery relocates across batches and classes and transiently reveals a machine-approved home.
+  // The hash names only the unit, the same deep-link form as a seam chip, so applyHashState finds it in any batch or class and shows it even when it takes no verdict.
   const next = `unit=${unitId}`;
-  // Re-selecting the unit you're already deep-linked to leaves the hash byte-identical, so the browser fires no hashchange; re-resolve directly so the row still re-cursors and re-scrolls.
+  // Selecting the unit already in the hash leaves the hash unchanged and fires no hashchange, so call applyHashState directly to move the cursor and scroll.
   if (location.hash.replace(/^#/, '') === next) applyHashState();
   else location.hash = next;
 }
@@ -2463,7 +2463,7 @@ function selectSearchRow(row) {
   if (row.dataset.units) {
     closeSearch();
     document.getElementById('unit-search').blur();
-    // The hash carries the group's unit ids as a worklist — the same form as the echo chip — so the group renders stacked.
+    // The hash lists the echo group's unit ids as a worklist, the same form as the echo chip, so the group renders stacked.
     location.hash = `units=${row.dataset.units}`;
     return;
   }
@@ -2723,14 +2723,14 @@ function wireEvents() {
     const chip = event.target.closest('.seam-chip');
     if (chip) {
       event.preventDefault();
-      // The hash carries only the home unit id — the same deep-link form as a pasted URL — so the existing machinery relocates across batches and classes, or transiently reveals a machine-approved home.
+      // The hash names only the home unit, the same form as a pasted deep link, so applyHashState finds it in any batch or class and shows it even when it takes no verdict.
       if (chip.dataset.home) location.hash = `unit=${chip.dataset.home}`;
       return;
     }
     const echoLink = event.target.closest('.echo-chip');
     if (echoLink) {
       event.preventDefault();
-      // The hash carries the group's unit ids as a worklist — the existing #units= machinery renders exactly those units, stacked and grouped.
+      // The hash lists the group's unit ids as a worklist, which renders those units stacked and grouped.
       location.hash = echoLink.getAttribute('href').replace(/^#/, '');
       return;
     }
@@ -2763,7 +2763,7 @@ function wireEvents() {
     }
     const copy = event.target.closest('.copy-unit');
     if (copy && row) {
-      // A fold's records stay resident while its rows are on screen, so a row without one behind it is one from a view that has since re-rendered; re-opening its fold brings it back.
+      // A fold's records are kept only while its rows are on screen, so a row without one is left from a view that has since re-rendered; re-opening its fold loads it again.
       const unit = unitFor(row.dataset.unit);
       if (unit) copyToClipboard(copyPreamble(unit), copy);
       else toast(`${row.dataset.unit} is no longer loaded — re-open its fold and copy again.`);
@@ -2790,7 +2790,7 @@ function wireEvents() {
     if (!note) return;
     const row = note.closest('.row');
     if (updateNote(store, row.dataset.unit, note.value)) {
-      // Note text moves no verdict and no count, so the only progress readout it can change is the unexported tally — the full sweep would be per-keystroke work for an unchanged display.
+      // A note changes no verdict and no count, so only the unexported tally needs updating; a full updateProgress per keystroke would redo work for an unchanged display.
       updateUnexportedNudge();
       scheduleAutosave();
     }
@@ -2828,7 +2828,7 @@ function wireEvents() {
   });
   searchInput.addEventListener('input', runSearch);
   searchInput.addEventListener('keydown', (event) => {
-    // Only intercept navigation when real result rows exist — during the index load only the placeholder is shown, so let the browser keep native caret movement.
+    // Intercept the arrow keys and Enter only when result rows exist. While the index loads only a placeholder is shown, and the input keeps its native caret movement.
     if (searchResults.hidden || !searchResults.querySelector('.search-result')) return;
     if (event.key === 'ArrowDown') {
       event.preventDefault();
@@ -2841,7 +2841,7 @@ function wireEvents() {
       selectSearchRow(activeSearchRow() ?? searchResults.querySelector('.search-result'));
     }
   });
-  // Hide on blur after a beat so a result's mousedown still registers as a selection; the timer is cancelled if the box is re-focused first (so a fast reopen isn't blanked).
+  // Close after a short delay on blur so that a mousedown on a result still selects it. Focusing the box again cancels the timer, so a quick reopen is not cleared.
   searchInput.addEventListener('blur', () => {
     blurTimer = setTimeout(closeSearch, 150);
   });
@@ -2856,7 +2856,7 @@ function wireEvents() {
   document.getElementById('open-docket').addEventListener('click', () => {
     syncVerdictsFromServer();
     const next = 'view=docket';
-    // Re-clicking while already in the docket leaves the hash byte-identical (no hashchange), so re-resolve directly — a free manual refresh.
+    // Clicking Docket while in the docket leaves the hash unchanged and fires no hashchange, so call applyHashState directly, which also refreshes the view.
     if (location.hash.replace(/^#/, '') === next) applyHashState();
     else location.hash = next;
   });
@@ -2890,7 +2890,7 @@ function wireEvents() {
     }
   });
 
-  // A docket kept open beside the judging tab never regains focus between decisions, so the focus re-merge above can't keep it fresh; while the docket is on screen, poll the server store instead. syncVerdictsFromServer's own guard bounds the rate, and each pickup re-derives the queue, so judged cluster decisions leave the page by themselves instead of waiting for a tab switch.
+  // A docket open beside the judging tab never regains focus between decisions, so the focus re-merge does not update it. While the docket is visible, poll the server store instead. syncVerdictsFromServer limits the rate, and each pickup re-derives the queue, so judged decisions leave the page without a tab switch.
   setInterval(() => {
     if (state.view === 'docket' && !document.hidden) syncVerdictsFromServer();
   }, 3000);

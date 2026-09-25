@@ -1,4 +1,7 @@
-"""Readiness logic for the review surface: is the served surface present, does it still reflect the runes and code on disk — the after font it ships still the M1 font on disk, its per-unit index and both app sidecars still stamped for its manifest — was it produced by a green artifact cycle, and is there a stamp-aligned verdict store to adjudicate against? It reads the surface manifest and the files it answers for, the persisted cycle summary, the autosave, and the verdicts files at the repo root and under rebuild/evidence/. The one state it keeps between calls is a memo of what each of those verdicts files answered (its stamp, and its effective count once the file has been parsed), keyed on the file's stat, so a long-lived server answers an unchanged tree with a stat per file. The serve.py /status handler and the verdict_ready CLI both render this one dict, so the shape here is a contract other code encodes against."""
+"""Compute the review surface's readiness: whether the served surface exists, whether it matches the runes and code on disk (its after font is the M1 font on disk, and its per-unit index and both app sidecars are stamped for its manifest), whether a green artifact cycle produced it, and whether the verdict store (the autosave) is stamped for it. The serve.py /status handler and the verdict_ready CLI both render the dict `compute_status` returns, so a change to its shape changes theirs.
+
+An effective verdict is a unit's latest verdict when that verdict is not skip. The only state kept between calls is `_MEMO`, keyed on each verdicts file's stat. It records the file's stamp and, once the file has been parsed, its effective count, so a long-lived server checks an unchanged file with one stat.
+"""
 
 from __future__ import annotations
 
@@ -38,7 +41,7 @@ def count_effective(records) -> int:
 
 
 def _verdict_paths(repo_root) -> list[Path]:
-    """Carried masters land under rebuild/evidence/, so the sweep covers both that directory and the repo root, where exports and fill files live. The live autosave is excluded by name; callers that want it read it separately."""
+    """Return the verdicts-*.json files at the repo root, which holds the cycle's carried masters and fill files and any exports, and under rebuild/evidence/, which holds the checked-in carried master. The live autosave is excluded; callers that need it read it separately."""
     root = Path(repo_root)
     candidates = sorted(root.glob("verdicts-*.json")) + sorted(
         (root / "rebuild" / "evidence").glob("verdicts-*.json")
@@ -55,7 +58,7 @@ def _effective_count(data) -> int | None:
 
 @dataclass(frozen=True, slots=True)
 class _Candidate:
-    """What the frontier and the carry source need from one verdicts file. A stamp of None means the file is not a verdicts document; on a parsed file, a count of None means a record in it could not be counted. An unparsed candidate is one whose head alone was read: its stamp is the head's reading, and its count is unknown rather than absent."""
+    """One verdicts file's stamp and effective count, as the frontier and the carry source need them. A stamp of None means the file is not a verdicts document. On a parsed file, a count of None means a record could not be counted. On an unparsed file only the head was read, so the stamp comes from the head and the count is unknown."""
 
     stamp: str | None
     count: int | None
@@ -63,7 +66,7 @@ class _Candidate:
 
 
 def _summarize(raw: bytes) -> _Candidate:
-    """The stamp and effective count of one verdicts file. Only these two scalars leave the frame, so the parsed store is released before the caller reads the next file."""
+    """Parse one verdicts file and return its stamp and effective count. Only the two scalars are returned, so the parsed store is freed before the caller reads the next file."""
     data = parse_autosave_payload(raw)
     if data is None:
         return _Candidate(None, None, True)
@@ -80,7 +83,12 @@ def _skip_whitespace(text: str, index: int) -> int:
 
 
 def _head_stamp(head: bytes) -> str | None:
-    """The top-level manifest_generated_at of a verdicts file, read from the first bytes of it without parsing its records. The head settles a stamp only when it decodes as strict UTF-8 to a JSON object whose top-level members, walked one at a time with the decoder json.loads runs, reach the `verdicts` key after exactly one manifest_generated_at, and that one's value is a string. Any other head settles nothing — one that ends first, that is not an object, that starts with a BOM or is in another encoding, whose stamp is not a string, that names the stamp twice before `verdicts`, or whose object closes before `verdicts` — and the caller parses the whole file instead. The one input on which a settled stamp differs from json.loads's reading is a second top-level manifest_generated_at after the `verdicts` array, which json.loads lets win; such a file is out of contract, and pick_frontier's answer on it also depends on the calls before it: once resolve_carry_source has memoized the file's whole parse, pick_frontier answers from that parse's stamp, the later one. Every writer serializes one dict or one JS object (json.dumps, VerdictStore.payload_bytes, the app's JSON.stringify), and the only path that writes bytes it did not serialize is VerdictStore._receive_full, which writes a full-store POST verbatim once it parses, so only a POST built by some client other than the app could leave such a file on disk."""
+    """Return the top-level manifest_generated_at of a verdicts file from its first bytes, without parsing its records, or None when the head does not settle it.
+
+    The head settles a stamp only when it decodes as strict UTF-8 to a JSON object whose top-level members, decoded one at a time with the decoder json.loads uses, reach the `verdicts` key after exactly one manifest_generated_at with a string value. Any other head returns None and the caller parses the whole file: a head that ends first, is not an object, starts with a BOM or uses another encoding, has a non-string stamp, has the stamp twice before `verdicts`, or closes before `verdicts`.
+
+    The result differs from json.loads only on a file with a second top-level manifest_generated_at after the `verdicts` array, where json.loads takes the later one. On such a file, pick_frontier's result also depends on earlier calls: once resolve_carry_source has memoized the file's whole parse, pick_frontier uses that parse's stamp, the later one. No writer in the repo produces such a file. Each serializes one dict or one JS object (json.dumps, VerdictStore.payload_bytes, the app's JSON.stringify), and VerdictStore._receive_full, the only path that writes bytes it did not serialize, writes a full-store POST verbatim after parsing it, so only a POST from a client other than the app could leave one on disk.
+    """
     try:
         text = codecs.getincrementaldecoder("utf-8")().decode(head)
         decoder = json.JSONDecoder()
@@ -123,7 +131,7 @@ def _stat_key(stat: os.stat_result) -> _StatKey:
 
 
 def _read_candidate(path: Path, manifest_stamp, *, counts: bool) -> tuple[_StatKey, bool, _Candidate] | None:
-    """One verdicts file's stat key as the open handle saw it, whether its last change came at least _SETTLE_NS before the read began, and its candidate; or None when the file cannot be read. Counting parses every file whole. Otherwise a head that settles a stamp other than manifest_stamp answers alone, and every other file is parsed whole, so a matching head is validated by the parse and the parsed stamp, not the head's, is the one returned. The handle is unbuffered, so a whole-file read after the head returns one bytes object rather than the buffered head joined onto the rest; the head is the whole file only when the size fstat reported fits inside it."""
+    """Read one verdicts file and return its stat key from the open handle, whether its last change was at least _SETTLE_NS before the read began, and its candidate; or None when the file cannot be read. With `counts`, every file is parsed whole. Without it, a file whose head settles a stamp other than manifest_stamp returns a head-only candidate, and every other file is parsed whole, so a candidate stamped manifest_stamp always carries the parsed stamp. The handle is unbuffered so that the whole-file read after the head returns one bytes object, with no copy that joins a buffered head onto the rest. The head is the whole file only when the size fstat reported fits inside it."""
     try:
         with path.open("rb", buffering=0) as handle:
             stat = os.fstat(handle.fileno())
@@ -153,7 +161,7 @@ def _read_autosave(autosave_path: Path) -> _Candidate | None:
 
 
 def _survey(repo_root, manifest_stamp, *, counts: bool) -> list[tuple[Path, _Candidate]]:
-    """Every verdicts file this call's glob finds, in glob order and spelled as the glob spells it, with what the frontier or the carry source needs from it; a path that cannot be stat'ed or read is left out. A file answers from _MEMO when its _stat_key still equals the entry's and the entry holds what this call needs: a parsed entry always, a head-only entry only when counts is false and its stamp is not manifest_stamp. Any other file is read, and the read is memoized only when the file's last change came at least _SETTLE_NS before the read began, so a same-size rewrite inside one timestamp tick is read again rather than answered from the old entry. The memo is then rebound to this walk's hits and settled reads alone, so a file the last walk did not find has no entry and the memo holds no more than one glob's files."""
+    """Return every verdicts file `_verdict_paths` finds, in its order and under the path it returns, paired with its candidate. A file that cannot be stat'ed or read is left out. A file is taken from _MEMO when its _stat_key is unchanged and the entry is enough for this call: a parsed entry always, and a head-only entry only when `counts` is false and its stamp is set and is not manifest_stamp. Any other file is read, and the read is memoized only when the file's last change was at least _SETTLE_NS before the read began, so a same-size rewrite within one timestamp tick is read again. _MEMO is then replaced by this call's entries, so it holds only files the latest glob found."""
     global _MEMO
     memo: dict[Path, tuple[_StatKey, _Candidate]] = {}
     surveyed: list[tuple[Path, _Candidate]] = []
@@ -183,7 +191,7 @@ def _survey(repo_root, manifest_stamp, *, counts: bool) -> list[tuple[Path, _Can
 
 
 def pick_frontier(repo_root, manifest_stamp) -> tuple[Path, int] | None:
-    """The frontier: the verdicts file stamped for manifest_stamp with the most effective verdicts, the first in glob order on a tie, or None when no file qualifies; the live autosave is not a candidate. A file whose head settles a different stamp costs a bounded read and is never parsed. One whose head matches, or settles nothing, is parsed and validated whole before its stamp and count are trusted. A file unchanged since a settled read answers from the memo _survey keeps, for the cost of a stat."""
+    """Return the frontier: the verdicts file stamped manifest_stamp with the most effective verdicts, with that count, taking the first in glob order on a tie; or None when no file qualifies. The live autosave is not a candidate. A file whose head settles a different stamp costs one bounded read and is not parsed. Any other file is parsed whole before its stamp and count are used. A file unchanged since a memoized read costs one stat."""
     best: tuple[Path, int] | None = None
     for path, candidate in _survey(repo_root, manifest_stamp, counts=False):
         if candidate.stamp is None or candidate.stamp != manifest_stamp:
@@ -196,7 +204,12 @@ def pick_frontier(repo_root, manifest_stamp) -> tuple[Path, int] | None:
 
 
 def resolve_carry_source(repo_root, manifest_stamp, autosave_path) -> dict | None:
-    """Choose the verdicts file the artifact cycle carries forward when the caller didn't name one. Candidates are the live autosave plus every verdicts-*.json export at the repo root and under rebuild/evidence; the stamp-aligned candidate with the most effective verdicts wins (the autosave breaks ties, since it is the live store). When nothing aligns — the served surface was restamped outside a recorded cycle, or a pass stopped between its surface build and its carry, so that nothing was ever stamped for the surface it built — the newest-stamped candidate is returned with aligned=False. The flag words the line that names the master and decides the cycle's route for it: an aligned master may be merged straight into the store when the surface build is skipped, and an unaligned one is always carried by unit id, since a verdict names its unit by content id and lands on the unit of that id on the live surface or on nothing. None means no candidate holds a single effective verdict. It counts every export whatever its stamp, from the memo it shares with pick_frontier, and parses whole any file pick_frontier read by its head alone; the autosave is read whole on every call and never memoized."""
+    """Return the verdicts file the artifact cycle carries forward when the caller names none, as a dict of `path`, `stamp`, `count`, and `aligned`, or None when no candidate has an effective verdict.
+
+    The candidates are the live autosave and every verdicts-*.json at the repo root and under rebuild/evidence. Among those stamped manifest_stamp, the one with the most effective verdicts wins, and the autosave wins a tie because it is the live store. When none is stamped manifest_stamp, the candidates with the newest stamp compete the same way and `aligned` is False. That happens when the served surface was restamped outside a recorded cycle, or when a pass stopped between its surface build and its carry. The cycle uses `aligned` in the line that names the master and to choose its route: an aligned master can be merged straight into the store when the surface build is skipped, and an unaligned one is always carried by unit id. A verdict names its unit by content id, so a carried verdict reaches the unit with that id on the live surface or none.
+
+    Every export is counted whatever its stamp, through the memo shared with pick_frontier, so a file pick_frontier read by its head alone is parsed whole here. The autosave is read whole on every call and is not memoized.
+    """
     entries: list[tuple[Path, str, int, bool]] = []
     autosave_path = Path(autosave_path)
     autosave = _read_autosave(autosave_path)
@@ -234,7 +247,7 @@ def load_human_unit_ids(review_dir) -> frozenset[str]:
             continue
         for shard in unit_index.class_shards(entry):
             for unit in json.loads((review_dir / shard).read_text()):
-                # A manifest without the index is one written before it existed, whose fragments carried the batch themselves; read that where it is, and the flags otherwise.
+                # A manifest without `human_unit_ids` is an older one whose fragments may carry `batch` themselves. A set `batch` marks a human unit; without the key, a fragment that is not slim is human.
                 human = unit["batch"] is not None if "batch" in unit else not slim_fragment(unit)
                 if human:
                     ids.add(unit["id"])
@@ -380,7 +393,7 @@ def _freshness_check(
 
 
 def _gates_check(summary, generated_at, manifest_fp, artifact_cycle_remedy) -> dict:
-    """Keyed on each gate entry's `skip` field rather than its prose. A skip the driver marked "proved" rode a matching green record, which is proof that this exact content already passed, so it satisfies readiness; every other kind blocks a sitting, and the wording is what separates them. A "forced" skip and a gate that never ran read as unverified, while a real failure reads as one. Reading the status string instead is what once let `--skip-conform` report READY, since every skip kind spells itself "skipped (...)". Summaries written before the field existed carry no `skip` key at all, and fall back to the old prose rule so a cycle recorded under the previous shape keeps its former verdict instead of turning spuriously red."""
+    """Check the recorded cycle's gates by each gate entry's `skip` field. A "proved" skip means a matching green record showed that this content already passed, so it counts toward readiness. Every other non-green gate blocks a sitting: a "forced" skip or a gate that did not run is reported as unverified, and anything else as failing. The status string cannot make this distinction, because every skip kind's status starts with "skipped (", so reading it would let a `--skip-conform` pass report READY. A summary with a non-green entry that has no `skip` key predates the field, and is judged by its status strings so that its result does not change: all skipped is a warning, and anything else fails."""
     if summary is None:
         return {
             "level": "fail",
@@ -554,7 +567,7 @@ def compute_status(
     recompute=None,
     autosave=None,
 ) -> dict:
-    """`autosave` is the parsed autosave document when the caller already holds it — the serve.py handler hands over its resident store rather than having the file read and parsed again per status request — and None to read `autosave_path`."""
+    """Return the readiness dict. `autosave` is the parsed autosave when the caller already holds it (serve.py passes its in-memory store so that each /status request does not read and parse the file again), and None to read `autosave_path`."""
     if recompute is None:
         recompute = fingerprint.compute_all
     repo_root = Path(repo_root)

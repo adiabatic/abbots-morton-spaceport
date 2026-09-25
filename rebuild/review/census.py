@@ -1,15 +1,15 @@
-"""The review-surface census: the groups a surface build reduces its own state to, and the regenerator that writes them into rebuild/review-census-pins.json — the last accepted census. Every artifact-cycle pass rewrites that file from the surface's census-facts.json sidecar, names what moved in its invariant block, and committing the rewritten file is the acceptance. Nothing asserts the checked-in numbers, so a moved count is something to read rather than a baseline to re-bless.
+"""The review-surface census: the counts and structural facts a surface build reduces its state to, and the regenerator that writes them to rebuild/review-census-pins.json, the last accepted census. Every non-rehearsal artifact-cycle pass rewrites that file from the surface's census-facts.json sidecar and names what moved in its invariant block. Committing the rewritten file accepts the census. No gate checks the checked-in numbers, so a changed count is something to read, not a failure.
 
-The file is two blocks so that the cycle can say which kind of movement a pass produced. `volatile` holds what legitimately moves with every migrated letter: the manifest, built, audit, ink, and families groups, counts and all. `invariant` holds the structural facts whose movement deserves a human — which classes the surface ships, which classes the build machine-approves, which are exempt from individual verdicts, and which verdict families the corpus reaches. The invariant block deliberately restates structure the volatile dicts' keys already carry; both blocks are machine-written from one emission so they cannot drift apart, and hoisting the structure out is what lets `invariant_delta` name a new class or a new no-verdict exemption in one summary line, and what scopes the diff the cycle prints to that block alone. The volatile totals have their own home in `rebuild/out/cycle_summary.json`; the invariant block's machine-approved and family lists have none, since both are emergent — a class is machine-approved when the build approved at least one of its units through any channel, whatever the ledger declares — which is why `reach` holds the ledger's declarations against them.
+The file has two blocks so the cycle can say what kind of change a pass made. `volatile` holds the manifest, built, audit, ink, and families groups, which change with every migrated letter. `invariant` holds the structural facts a person should review when they change: which classes the surface ships, which classes the build machine-approves, which are exempt from individual verdicts, and which verdict families the corpus reaches. The invariant block repeats structure that the volatile groups' keys already carry. Both blocks come from one emission, so they cannot disagree, and the separate block lets `invariant_delta` name a new class or a new no-verdict exemption in one summary line and lets the cycle print a diff of that block alone. `rebuild/out/cycle_summary.json` also records the surface's totals. The machine-approved and family lists are recorded nowhere else, because both are emergent: a class is machine-approved when the build approved at least one of its units through any channel, whatever the ledger declares. `reach` compares the ledger's declarations with them.
 
-The tests no longer read this file at all — a build asserting the numbers it just wrote proves nothing. They assert internal consistency (the deduped units still account for every audit row), source-derived invariants (the manifest's own totals, the ledger's no-verdict classes), and mirrors (a shard walk against the sidecar the same build wrote from memory).
+No test reads this file, since a build asserting the numbers it just wrote would check nothing. The tests check internal consistency (the deduplicated units account for every audit row), invariants derived from the sources (the manifest's own totals, the ledger's no-verdict classes), and that each in-memory reduction matches the shard walk or shaping it replaces.
 
-Three grains coexist and must not be conflated. The manifest and built groups are post-merge, read from a built surface after the ink-duplicate fold; the audit, ink, and families groups are the pre-merge name grain, which no surface shard reports.
+The manifest and built groups are post-merge: they are read from a built surface after the ink-duplicate fold. The audit, ink, and families groups count pre-merge units, the (codepoints, baseline, new) triples before the fold, which no surface shard reports, so their class counts can differ from the manifest's. `audit.row_count` counts raw audit rows.
 
-The pre-merge groups are read from the surface's census-facts.json sidecar, which `build_m1` writes as a by-product: it derives them from the pre-merge state it captured just before folding plus the phase-1 products it computed anyway — each post-merge unit's ink verdict and each UNMATCHED unit's verdict family — instead of re-shaping and re-enriching the whole corpus a second time. That deliberately trades some of the comparison's independence from the build for a census that costs milliseconds rather than minutes. `--from-scratch` retains the standalone re-derivation from the source inputs (TSV + ledger + fonts + spec) for when the two must be compared. What the derivation needs beyond that is not sampled but asserted where it is derived: `derive_premerge` refuses a default-novel UNMATCHED unit that was folded away, refuses an UNMATCHED unit that resolved to no family, and holds one ink flag per captured unit, which between them are the grain bookkeeping the retired sample tests were re-deriving.
+The pre-merge groups come from the census-facts.json sidecar, which `build_m1` writes. It derives them from the pre-merge state it captured just before the fold and the phase-1 products it computes anyway (each post-merge unit's ink verdict and each UNMATCHED unit's verdict family), instead of shaping and enriching the whole corpus a second time. The census is then less independent of the build, but it takes milliseconds instead of minutes. `--from-scratch` recomputes the groups from the source inputs (TSV, ledger, fonts, spec) when an independent comparison is wanted. `derive_premerge` checks the derivation's assumptions: it fails on a default-novel UNMATCHED unit that was folded away and on an UNMATCHED unit with no family, and it writes one ink flag per captured unit.
 
 Usage:
-    uv run python -m rebuild.review.census --update --surface rebuild/out/review  # what every artifact-cycle pass runs
+    uv run python -m rebuild.review.census --update --surface rebuild/out/review  # what every non-rehearsal artifact-cycle pass runs
     uv run python -m rebuild.review.census --check --surface rebuild/out/review   # the manual comparison
     uv run python -m rebuild.review.census            # --check, building a fresh temporary surface first
     uv run python -m rebuild.review.census --check --from-scratch
@@ -96,7 +96,7 @@ def manifest_group(manifest: dict) -> dict:
 
 
 def invariant_group(manifest: dict, families_census: dict[str, int]) -> dict:
-    """The structural half of the pins, in the orders their sources already carry: which classes the surface ships, which classes the build machine-approves, which are exempt from individual verdicts, and which verdict families the corpus reaches. Every one of these is implied by some volatile group's keys, and that restatement is deliberate — both blocks come from one machine emission, so they cannot drift apart, and hoisting the structure into a block of its own is what lets `invariant_delta` name a class, a no-verdict exemption, or a family appearing or going, instead of leaving it to be found among the counts a rune commit moves anyway. The classes are listed rather than counted for the same reason: a count can say that one appeared, and only the list can say which."""
+    """The invariant block: which classes the surface ships, which the build machine-approves, which are exempt from individual verdicts, and which verdict families the corpus reaches, each in its source's order. The classes are listed, not counted, so `invariant_delta` can say which class appeared or went."""
     return {
         "classes": [meta["id"] for meta in manifest["classes"]],
         "machine_approved_classes": list(manifest["machine_approved"]["by_class"]),
@@ -118,7 +118,7 @@ def _named(ids: Sequence[str]) -> str:
 
 
 def invariant_delta(accepted: Mapping, current: Mapping) -> list[str]:
-    """What moved in the invariant block since the accepted census, named: for each list it holds, the ids that appeared and the ids that went — `classes +2 (a, b)`, `machine-approved -1 (c)` — in the block's own key order. Empty exactly when nothing moved, which is what lets a summary line say the invariant is unchanged and mean it. A list whose membership held but whose order moved says so, since the orders are the sources' own and a reorder there is a ledger or manifest reorder rather than a census fact; a key one side lacks is named as the block's shape changing, so the pass that changes what the block records reads as that and not as a corpus that grew thirty classes at once."""
+    """The changes in the invariant block since the accepted census, one finding per list and direction (`classes +2 (a, b)`, `machine-approved -1 (c)`), in the block's key order. The list is empty only when nothing changed. A list with the same members in a new order is reported only as `reordered`, because its order comes from the ledger or the manifest and says nothing new about the corpus. A key that only one side has is reported as newly or no longer recorded, so a change to the block's shape does not read as a list of new classes."""
     findings: list[str] = []
     keys = list(accepted) + [key for key in current if key not in accepted]
     for key in keys:
@@ -146,7 +146,7 @@ def invariant_delta(accepted: Mapping, current: Mapping) -> list[str]:
 
 
 def invariant_diff(accepted: Mapping, current: Mapping) -> list[str]:
-    """The invariant block's unified diff, accepted against current, over the same pretty-printing the pins file uses — the part of `git diff -- rebuild/review-census-pins.json` a reader is asked to look at, without the volatile hunks that surround it there."""
+    """The invariant block's unified diff, accepted against current, in the pins file's JSON formatting: the part of `git diff -- rebuild/review-census-pins.json` a reader needs, without the volatile hunks."""
     return list(
         difflib.unified_diff(
             json.dumps(accepted, indent=2).splitlines(),
@@ -160,7 +160,7 @@ def invariant_diff(accepted: Mapping, current: Mapping) -> list[str]:
 
 @dataclass(frozen=True)
 class Reach:
-    """The ledger's declarations held against what the corpus reached, off the invariant block and the ledger the surface was built over. `unreached` are the ledger entries no unit in the corpus matched, so the surface ships no class for them. `machine_approved` is emergent — a class is in it when the build approved at least one of its units through any channel — and is held against the ledger's `ink_identical` declarations in both directions: `ink_declared_unapproved` is a declared class the machinery approved no unit of, `machine_approved_undeclared` an approving class the ledger never declared. `no_verdict` is declared in the ledger and copied onto each class the surface ships, so its one possible disagreement is a declared class the corpus never reached. Neither file says any of this on its own: the ledger holds the declarations and the pins the reach, and `describe` is the one line that puts them side by side."""
+    """The ledger's declarations compared with what the corpus reached, from the ledger the surface was built over and the invariant block. `unreached` lists the ledger entries no unit matched, so the surface ships no class for them. `machine_approved` is emergent (a class is in it when the build approved at least one of its units through any channel) and is compared with the ledger's `ink_identical` declarations both ways: `ink_declared_unapproved` lists declared classes with no machine-approved unit, and `machine_approved_undeclared` lists approving classes the ledger never declared. `no_verdict` is declared in the ledger and copied onto each class the surface ships, so its only possible disagreement is a declared class the corpus never reached. `describe` puts all of this on one line."""
 
     ledger: tuple[str, ...]
     unreached: tuple[str, ...]
@@ -173,7 +173,7 @@ class Reach:
     no_verdict_unreached: tuple[str, ...]
 
     def describe(self) -> str:
-        """The one summary line. The classes that approve units without a declaration are counted rather than named, since approving through the picture or Junior channel, or as a deferred family, is the ordinary case and a class joining them is the invariant delta's news; the names are in `as_json`. What is named is each disagreement in the other direction — a declaration the corpus cannot show."""
+        """The one summary line. Approving classes without a declaration are counted, not named, because approval through the picture or Junior channel, or as a deferred family, is the usual case and `invariant_delta` already names a class that joins them; `as_json` has the names. Each declaration the corpus does not show is named."""
         machine = (
             f"machine-approved: {len(self.machine_approved)} classes approve units,"
             f" {len(self.machine_approved_undeclared)} undeclared;"
@@ -239,7 +239,7 @@ def _shard_units(out_dir: Path, meta: dict) -> Iterable[dict]:
 
 
 def built_group(out_dir: Path, manifest: dict) -> dict:
-    """The post-merge facts computed by walking the surface's unit shards — the human-workload size, the config-note histogram, and the worked example's echo-sibling count (the distinct windows one ·It·Day·Tea·No verdict answers), none of which is a manifest key. The echo-sibling count is None when the worked example is not in the human workload: only the live corpus is obliged to carry it, and the sidecar is written by every build — the unit-cache tests' mini surfaces included — so the obligation is enforced where it belongs, by the pins diff replacing an accepted count with a computed None."""
+    """The post-merge facts that need a walk of the surface's unit shards: the human-workload size, the config-note histogram, and the worked example's echo-sibling count (the distinct windows one ·It·Day·Tea·No verdict covers). The echo-sibling count is None when the worked example is not in the human workload. Every build writes the sidecar, including the unit-cache tests' small surfaces, so only the live corpus is required to contain the example, and the pins diff shows a missing one as an accepted count replaced by None."""
     out_dir = Path(out_dir)
     human_units = 0
     distribution: dict[str | None, int] = {}
@@ -278,7 +278,7 @@ def audit_group(repo_root: Path = REPO_ROOT) -> dict:
 
 
 def ink_histogram(workload: Workload, comparator) -> dict:
-    """The kern-neutral ink census over the pre-merge workload, materialized into records: flag every unit whose placed ink is identical in both fonts under every config in its set, tally the machine-approved units per class, and count the boundary-echo no-verdict exemptions, the human workload and its batches — the plain slice of the human units, as `ink_group_from_flags` counts them, since the ink verdict alone decides the pre-merge index. The records are this call's own and the flags go onto them, exactly as the census reference does."""
+    """The ink group over the pre-merge workload, computed by shaping: flag every unit whose placed ink is identical in both fonts under every config in its set, count the machine-approved units per class, and count the boundary-echo no-verdict exemptions, the human workload, and its batches. It counts as `ink_group_from_flags` does: the ink verdict alone decides, and the batches are the human units cut into `BATCH_SIZE` slices. `workload.units()` materializes new records, and the flags are set on those."""
     units = workload.units()
     machine_by_class: dict[str, int] = {}
     for unit in units:
@@ -305,7 +305,7 @@ def ink_group(repo_root: Path = REPO_ROOT) -> dict:
 
 
 def family_assignments(repo_root: Path = REPO_ROOT) -> list[str]:
-    """Assign every UNMATCHED window (pre-merge name grain) to its verdict family: load the audit, group by (codepoints, baseline, new) triple, enrich each triple whose class is UNMATCHED under any config, and run the seam-gain/seam-loss discriminator. Returns the family label per window in iteration order."""
+    """Assign every UNMATCHED pre-merge unit to its verdict family: load the audit, group rows by (codepoints, baseline, new) triple, enrich each triple that is UNMATCHED under any config, and classify it with `assign_family`. Returns one family label per such triple, in audit order."""
     by_triple: dict[tuple, list] = {}
     for row in load_audit(AUDIT_PATH):
         by_triple.setdefault((row.codepoints, row.baseline, row.new), []).append(row)
@@ -354,7 +354,7 @@ def families_group(repo_root: Path = REPO_ROOT) -> dict:
 
 
 class CensusGrain(Protocol):
-    """The four fields the pre-merge census is defined over. A materialized `Unit` and a `PremergeSnapshot` row (`PremergeSnapshot.grains`) both satisfy it, so the digest that identifies a workload can be taken from either side of the fold."""
+    """The four fields the pre-merge census is defined over. A materialized `Unit` and a `PremergeSnapshot` row (`PremergeSnapshot.grains`) both satisfy it, so `workload_digest` can be taken from either."""
 
     @property
     def codepoints(self) -> str: ...
@@ -370,7 +370,7 @@ class CensusGrain(Protocol):
 
 
 class Grain(NamedTuple):
-    """One pre-merge unit as the census grain reads it: the snapshot materializes one at a time for `workload_digest`."""
+    """One pre-merge unit's census fields. The snapshot yields one at a time for `workload_digest`."""
 
     codepoints: str
     class_id: str
@@ -379,14 +379,14 @@ class Grain(NamedTuple):
 
 
 class _Configs(NamedTuple):
-    """The config-gating axis of a pre-merge row, the shape `families.deferred_family` reads."""
+    """A pre-merge row's config fields, in the shape `families.deferred_family` reads."""
 
     config_classes: Mapping[str, str]
     configs: tuple[str, ...]
 
 
 class PremergeSnapshot:
-    """The workload as the build saw it before the ink-duplicate fold, as columns copied off the table one per pre-fold row: the class id and the config-set id into the table's own string table and tuple pool, the exemption byte, the window's offsets into the table's value column (which no compaction moves), and the deferred stylistic-set bucket, which can only be decided here — deferral is pure config logic over the pre-merge config classes, and folding moves those: an ss03-only survivor that absorbs an ss04-only sibling is deferred-ss03 before the fold and would read as deferred-ss04 after it. `rebase` takes the fold's compaction and records, per pre-fold row, the post-fold row of its survivor and whether the row was folded away, after which `derive_premerge` reads the survivor's phase-1 products off the store and the table with no join and no search. About ten bytes a row, where a record per row was the largest pile the plateau held past the fold."""
+    """The workload as the build saw it before the ink-duplicate fold, as columns copied from the table with one entry per pre-fold row: the class id and config-set id (into the table's string table and tuple pool), the no-verdict byte, the window's offsets into the table's value column (which compaction does not move), and the deferred stylistic-set bucket. The bucket must be decided here, because deferral depends only on the pre-merge config classes and the fold changes them: an ss03-only survivor that absorbs an ss04-only sibling is deferred-ss03 before the fold and would read as deferred-ss04 after it. `rebase` takes the fold's compaction and records, for each pre-fold row, its survivor's post-fold row and whether the row was folded away; `derive_premerge` then reads the survivor's phase-1 products from the store and the table by index. The columns take 18 bytes a row, 23 after `rebase`; a list of per-row records was the largest collection the build held after the fold."""
 
     __slots__ = (
         "n",
@@ -475,7 +475,7 @@ class PremergeSnapshot:
 
 @dataclass(frozen=True)
 class PremergeFacts:
-    """The pre-merge census grain as a build can report it: how many units the workload held, the digest identifying them, one '0'/'1' ink flag per unit in capture order, and the verdict family of every UNMATCHED unit keyed by its index into that order."""
+    """The pre-merge facts a build reports: how many units the workload held, the digest identifying them, one '0'/'1' ink flag per unit in capture order, and the verdict family of every UNMATCHED unit with its index in that order."""
 
     units: int
     workload_digest: str
@@ -484,12 +484,12 @@ class PremergeFacts:
 
 
 def capture_premerge(table: UnitTable) -> PremergeSnapshot:
-    """Snapshot the workload for the sidecar, called immediately before `merge_ink_duplicate_units`: the columns the census grain is defined over, copied, and each UNMATCHED row's deferral decided now, from config classes the fold is about to widen. A matched row is never asked for one — `deferred_family` falls back to reading every config as novel, which is meaningless outside UNMATCHED."""
+    """Snapshot the workload for the sidecar. Call it immediately before `merge_ink_duplicate_units`, because each UNMATCHED row's deferral is decided here, from config classes the fold is about to widen. Matched rows get no deferral, since `deferred_family` has no meaningful answer outside UNMATCHED."""
     return PremergeSnapshot(table)
 
 
 def workload_digest(units: Iterable[CensusGrain]) -> str:
-    """A sha256 over the census grain of a unit sequence, in order — what lets a consumer prove the workload it just loaded is the one a sidecar's flags are indexed against, since an index into that flag string means nothing against a different list. The grains are streamed through the hash one line at a time, newline-joined, so a snapshot of millions of rows never spells its payload whole."""
+    """A sha256 over the census fields of a unit sequence, in order. It identifies the unit list that the sidecar's ink flags and family indices refer to. The units are hashed one newline-separated line at a time, so the payload for millions of rows is never built as one string."""
     digest = hashlib.sha256()
     first = True
     for unit in units:
@@ -503,9 +503,9 @@ def workload_digest(units: Iterable[CensusGrain]) -> str:
 
 
 def derive_premerge(snapshot: PremergeSnapshot, table: UnitTable, store: UnitStore) -> PremergeFacts:
-    """Project the build's post-merge phase-1 products back onto the pre-merge grain the census pins are defined over. A unit that survived the fold answers for itself; one that was folded away answers through the survivor the fold recorded for it (`PremergeSnapshot.rebase`), the ink flag read off the store's row and the family off the table's.
+    """Project the build's post-merge phase-1 products back onto the pre-merge units the census pins count. A unit that survived the fold reads its own row. A unit that was folded away reads the survivor the fold recorded for it (`PremergeSnapshot.rebase`): the ink flag from the store and the family from the table.
 
-    Both projections are sound by construction. A fold happens only when every config of every folded sibling yields one identical `InkComparator.signature`, and that signature is defined as the two run-order ink lists `config_diff` reads — so a folded sibling's delta, and therefore its ink verdict, is its survivor's by definition rather than by a sampled resemblance. And a pre-merge UNMATCHED unit that is novel under the default config necessarily leads its window's fold order, so it is always its own survivor and its family is the phase-1 family on that same row; everything else UNMATCHED never carries the default config, is therefore deferred, and took its bucket at capture time. That second argument is asserted rather than trusted below, at the one place it could fail — an UNMATCHED, undeferred row that was folded away — which is the whole of what the retired families sample was checking.
+    Both projections are exact. The fold groups units only when every config of every sibling gives one identical `InkComparator.signature`, which is the pair of run-order ink lists `config_diff` reads, so a folded sibling's delta and ink verdict equal its survivor's. A pre-merge UNMATCHED unit that is novel under the default config always leads its window's fold order, so it is its own survivor and its phase-1 family is on its own row. Every other UNMATCHED unit is deferred and took its bucket at capture. The assert below checks the second argument where it could fail: an UNMATCHED, undeferred row that was folded away.
     """
     if snapshot.survivor is None or snapshot.folded is None:
         raise ValueError(
@@ -544,7 +544,7 @@ def derive_premerge(snapshot: PremergeSnapshot, table: UnitTable, store: UnitSto
 
 
 def ink_group_from_flags(class_rows: Iterable[tuple[str, bool]], flags: str) -> dict:
-    """The ink group rebuilt from one '0'/'1' flag per pre-merge unit plus that unit's (class, no-verdict) pair, the pairs streamed in capture order. This and `ink_histogram` are mirrors and must agree key for key, insertion order of `by_class` included; rebuild/test_census_facts.py holds them equal over synthetic units. Neither Junior equivalence nor picture identity plays a part on either side — the pre-merge census counts the ink verdict alone, and the batch count is the plain slice of whatever is left over."""
+    """The ink group computed from one '0'/'1' flag per pre-merge unit and that unit's (class, no-verdict) pair, both in capture order. It must match `ink_histogram` key for key, including the insertion order of `by_class`; rebuild/test_census_facts.py checks this on synthetic units. Neither side uses Junior equivalence or picture identity: the pre-merge census counts the ink verdict alone."""
     machine_by_class: dict[str, int] = {}
     exempt = 0
     human = 0
@@ -569,13 +569,13 @@ def ink_group_from_flags(class_rows: Iterable[tuple[str, bool]], flags: str) -> 
 
 
 def families_group_from(assignments: list[str]) -> dict:
-    """The families group over families already assigned — the aggregate half of `families_group`, split out so a build can report the census over the families phase 1 computed instead of enriching every UNMATCHED window again."""
+    """The families group over families already assigned, so a build can report the families phase 1 computed without enriching every UNMATCHED window again."""
     census = family_census(assignments)
     return {"census": census, "total": sum(census.values())}
 
 
 def built_group_from_memory(table: UnitTable, config_notes: Mapping[int, str | None]) -> dict:
-    """`built_group` over the build's own in-memory state rather than the shards it wrote — the same three facts by the same rules, the None-when-absent worked-example contract included, so the surface build can report them without re-parsing hundreds of megabytes it just serialized. The units are the table's rows; `config_notes` is each unit's `config_note` by ordinal, the one fragment field this group reads, kept by the build as the fragments went by rather than the fragments themselves."""
+    """`built_group` computed from the build's in-memory state instead of the shards it wrote: the same three facts by the same rules, including None for a missing worked example, without parsing the shards again. The units are the table's rows; `config_notes` maps each unit's ordinal to its `config_note`, the one fragment field this group reads."""
     human_units = 0
     distribution: dict[str | None, int] = {}
     example_echo: str | None = None
@@ -608,7 +608,7 @@ def build_facts(
     premerge: PremergeFacts,
     row_count: int,
 ) -> dict:
-    """The sidecar payload: the finished pins the regenerator copies into the checked-in file, plus the pre-merge records they were reduced from, stamped with the identity of the surface that owns them. The records ride along so a reader can re-reduce the pre-merge groups itself, which is what `--from-scratch` compares against."""
+    """The sidecar payload: the finished pins the regenerator copies into the checked-in file, the pre-merge records they were reduced from, and the identity of the surface that owns them. The pre-merge records let a reader re-reduce the pre-merge groups. Only rebuild/test_census_facts.py reads them."""
     families = families_group_from([family for _index, family in premerge.families])
     return {
         "format": FACTS_FORMAT,
@@ -637,13 +637,13 @@ def build_facts(
 
 
 def write_facts(out_dir: Path, facts: dict) -> None:
-    """Write the sidecar beside the manifest, compact: the flag string alone is one character per pre-merge unit, so the whole file stays a fraction of a single shard."""
+    """Write the sidecar beside the manifest as compact JSON. The flag string has one character per pre-merge unit, and the file stays a small fraction of one shard."""
     path = Path(out_dir) / FACTS_FILENAME
     path.write_text(json.dumps(facts, separators=(",", ":"), ensure_ascii=True) + "\n", encoding="utf-8")
 
 
 def load_facts(out_dir: Path, manifest: dict) -> dict:
-    """The sidecar of a built surface, refused unless it is that surface's own. A missing file or an unrecognized format means the surface predates the sidecar; a generated_at disagreeing with the manifest means the two were written by different builds and the pins would describe neither."""
+    """The sidecar of a built surface. Raises ValueError when the file is missing or in another format (the surface predates the sidecar), or when its generated_at differs from the manifest's (the two came from different builds)."""
     path = Path(out_dir) / FACTS_FILENAME
     try:
         facts = json.loads(path.read_text(encoding="utf-8"))
@@ -661,7 +661,7 @@ def load_facts(out_dir: Path, manifest: dict) -> dict:
 
 @contextlib.contextmanager
 def _build_or_load_surface(surface: Path | None):
-    """Yield (out_dir, manifest). With --surface, read the given built surface read-only; otherwise build a fresh surface into a self-cleaning temp directory under the project tmp/ so the pins can never describe a stale surface and no multi-MB scratch surface is left behind."""
+    """Yield (out_dir, manifest). With --surface, read that built surface without writing to it. Otherwise build a fresh surface into a temporary directory under the project tmp/, which is deleted afterward, so the pins never describe a stale surface."""
     if surface is not None:
         out_dir = Path(surface)
         manifest = json.loads((out_dir / "manifest.json").read_text(encoding="utf-8"))
@@ -680,7 +680,7 @@ def _build_or_load_surface(surface: Path | None):
 def compute_pins(
     surface: Path | None = None, repo_root: Path = REPO_ROOT, from_scratch: bool = False
 ) -> dict:
-    """The full pin set, both blocks. By default the volatile groups are read from the surface's census-facts.json sidecar, which the build derived from the same state it shaped the surface out of, and the invariant block is reduced again from the surface's manifest and the sidecar's family census — the same two sources the build reduced it from — so the checked-in file carries the block's current shape whatever build wrote the sidecar. `from_scratch` recomputes all five volatile groups from the source artifacts instead, re-shaping and re-enriching the corpus."""
+    """Both blocks of the pins. By default the volatile block is read from the surface's census-facts.json sidecar, and the invariant block is reduced again from the surface's manifest and the sidecar's family census, the same sources the build used, so the checked-in file has the block's current shape whichever build wrote the sidecar. With `from_scratch`, all five volatile groups are recomputed from the source artifacts, which shapes and enriches the corpus again."""
     if from_scratch:
         with _build_or_load_surface(surface) as (out_dir, manifest):
             families = families_group(repo_root)
@@ -715,7 +715,7 @@ def _flatten(obj, prefix: str, out: dict) -> None:
 
 
 def _mismatches(old: dict, new: dict) -> list[tuple[str, object, object]]:
-    """Per-key mismatches over the whole pin set — every key of both blocks, since the file carries nothing descriptive to skip."""
+    """Per-key mismatches over every flattened key of both blocks."""
     old_flat: dict = {}
     new_flat: dict = {}
     _flatten(old, "", old_flat)

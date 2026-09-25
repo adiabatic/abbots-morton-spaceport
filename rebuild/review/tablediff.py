@@ -1,4 +1,4 @@
-"""The general table-vs-table treaty-diff mode (rebuild/REVIEW-PLAN.md §2.3, design §8): key-aligned diff of two settlement/treaty table directories, remove+add pairing into regrouped rows, provenance-only demotion, witness-string search through the settlement function, and the baseline snapshot writer."""
+"""Diff two directories of settlement and treaty tables for the review surface's table-diff mode (rebuild/REVIEW-PLAN.md §2.3, design §8). Rows are matched by key, removals and additions that share an input are paired into one regrouped entry, and settlement changes that move only provenance go to the low-priority `provenance-only` bucket, which sorts last. `WitnessIndex` finds a witness string for each entry by settling every short sequence, and `write_snapshot` writes the baseline a later diff compares against."""
 
 from __future__ import annotations
 
@@ -108,7 +108,7 @@ def load_settlement(path: Path) -> dict[SettlementKey, SettlementValue]:
                 continue
             fields = line.rstrip("\n").split("\t")
             if len(fields) == 7:
-                # A pre-depth-3 snapshot: no lookahead3 column, every rule effectively unconstrained there.
+                # A table without the lookahead3 and lookahead4 columns: both slots are unconstrained.
                 input_glyph, backtrack, look1, look2, outcome, joint, provenance = fields
                 look3 = "-"
                 look4 = "-"
@@ -252,7 +252,7 @@ def _load_if_exists(path: Path, loader):
 
 
 class WitnessIndex:
-    """A per-config settlement sweep over every sequence of letters and boundaries up to `max_depth`, indexed two ways: per-position context tuples (input, settled left, raw right1, raw right2) for settlement-row witnesses, and adjacent settled-label pairs for treaty-row witnesses. Sequences enumerate shortest-first in codepoint order, so the recorded witness is always the first (shortest) one. Each depth streams through the crate `chunk` sequences at a time — the whole batch settles in waves, one invocation per wave rather than one per text — and a sequence the kernel refuses is dropped with the rest of its batch left standing, which is what a sweep over texts nobody chose needs."""
+    """Settle every sequence of letters and boundaries up to `max_depth` under one configuration and index the results two ways: per-position context tuples (input, settled left, raw right1 through right4) for settlement-row witnesses, and adjacent settled-label pairs for treaty-row witnesses. Sequences are enumerated shortest first and in codepoint order, and each index keeps the first sequence it sees, so a witness is always a shortest one. Each depth is sent to the crate `chunk` sequences at a time, and `kernel_exec.settle_sequences` settles each batch in waves, one per position, so the kernel is called per wave rather than per text. The sweep covers every text, so some are expected to fail: a sequence whose ligature formation or labeling raises, or that the kernel rejects, is skipped, and the rest of its batch is kept."""
 
     EDGE = "#EDGE"
     NA = "#NA"

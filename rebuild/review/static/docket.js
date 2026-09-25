@@ -1,4 +1,4 @@
-// The live in-app docket: pure data transforms mirroring rebuild/tools/review_docket.py's clustering semantics, so the view over the in-memory store always matches what a bake of the same verdicts would say. Blank = unverdicted or skip; clusters group blank human units by the build-emitted `cluster` signature (the echo key minus the judged pair, so every echo group nests inside exactly one cluster); evidence comes from judged units sharing the signature.
+// The in-app docket as pure functions over the in-memory store. They follow rebuild/tools/review_docket.py's clustering, so the view agrees with a bake of the same verdicts. A blank unit is unverdicted or skipped. Clusters group blank human units by the build's `cluster` signature, which is the echo key without the judged pair, so every echo group falls inside one cluster. Evidence comes from judged units with the same signature.
 
 export const TRANCHE_SIZE = 25;
 export const SINGLETON_CHUNK = 40;
@@ -10,7 +10,7 @@ export function isBlank(record) {
   return !record || record.verdict === 'skip';
 }
 
-// A human row's place in the manifest's triage index, the order the app pages in; a row without one sorts last, and ties (none among human rows) break on the id.
+// A human row's position in the manifest's triage index, the order the app pages in. A row without one sorts last. Human rows have distinct positions; byTriageOrder breaks any other tie on the id.
 function triageOrder(unit) {
   return typeof unit?.order === 'number' ? unit.order : Number.POSITIVE_INFINITY;
 }
@@ -20,7 +20,7 @@ function byTriageOrder(a, b) {
 }
 
 export function buildClusters(units, recordOf) {
-  // Triage order: within a class (and every cluster is single-class) the docket tool orders human units by their place in the manifest's index, and exemplars, representatives, and evidence samples are all "first in that order".
+  // Sort in triage order, as review_docket.py does, so each exemplar, rep and evidence sample is the first unit in the order the app pages in.
   const human = [];
   for (const unit of units) {
     if (unit.batch !== null && unit.batch !== undefined && typeof unit.cluster === 'string') human.push(unit);
@@ -107,7 +107,7 @@ export function partitionClusters(clusters, ruledIds) {
 
 const ACCEPTING_MIX = ['approve', 'identical'];
 
-// Whether a set of recorded verdicts on one echo group speaks with a single voice. Unanimity qualifies, and so does an approve/identical mix: both accept the new rendering, one reviewer merely having found the highlighted portion visually unchanged. Mirrors verdicts_agree in rebuild/tools/review_docket.py.
+// Whether the recorded verdicts on one echo group agree: they are all the same, or they mix only approve and identical, which both accept the new rendering. Mirrors verdicts_agree in rebuild/tools/review_docket.py.
 export function verdictsAgree(verdicts) {
   if (verdicts.size <= 1) return true;
   return verdicts.size === ACCEPTING_MIX.length && ACCEPTING_MIX.every((verdict) => verdicts.has(verdict));
@@ -182,7 +182,7 @@ export function decisionKey(units) {
   return signatures.size === 1 ? [...signatures][0] : SINGLETON_DECISION;
 }
 
-// The next decision to put in front of the reviewer. The open decisions stand in queue order — the largest cluster first, a rep per echo group nobody has seen, then the singletons — and the flow takes the first it has never shown. A record on a still-blank member can only be a skip, so any recorded member marks its whole echo group as consciously deferred; `shown` (the keys a sitting has stacked, least recently stacked first) defers a whole decision the same way, so walking away from a cluster postpones it and the flow steps on to a card it has never opened rather than handing back the one just left. Once every open decision has been shown, it comes round to whichever was shown longest ago, flagged `revisit`. Returns null when every blank unit sits in a deferred group.
+// The next decision to show the reviewer. Open decisions are in queue order: the largest cluster first, with one rep per echo group that has no record, then the singletons. A record on a blank member can only be a skip, so any recorded member defers its whole echo group. `shown` holds the decision keys stacked for this surface, least recently stacked first (the app keeps it in localStorage). The first open decision not in `shown` is returned, so leaving a cluster postpones it. When every open decision has been shown, the one shown longest ago is returned with `revisit` set. Returns null when every blank unit is in a deferred group.
 export function nextDocketDecision(units, recordOf, ruledIds, shown = new Set()) {
   const clusters = buildClusters(units, recordOf);
   const { tranche, later, singletons } = partitionClusters(clusters, ruledIds);
@@ -214,7 +214,7 @@ export function nextDocketDecision(units, recordOf, ruledIds, shown = new Set())
   return { ...oldest.decision, revisit: true };
 }
 
-// A docket-launched worklist names units by id, and a unit whose content moved under a rebuild carries a new one — so a tab resuming an old worklist hash could otherwise show a queue that no longer holds those units, or holds them under other batches, a plausible-looking screenful that has nothing to do with the docket queue. The stamp pins the worklist to the surface it was stacked for: a mismatch (including the stampless hash of an older tab) means the id list is meaningless and the flow should restack from the live queue, and a current worklist whose every listed unit already carries a real verdict is a finished screenful being resumed, which advances exactly as finishing it live would have. A skip is a record but not a verdict: a skipped-through cluster keeps its docket card, and clicking that card means "show me the deferred reps again", never "teleport to a different decision" — so a worklist holding any skip renders. A current worklist with blanks left renders as-is.
+// What to do with a docket worklist from the URL hash. A worklist names units by id, and a rebuild gives a changed unit a new id, so a worklist stamped for another surface (or with no stamp) is meaningless: 'restack' stacks the next decision from the live queue. A current worklist whose units all have a verdict other than skip was finished, so it gets 'advance', as finishing it live would. A skip is a record but not a verdict, and clicking a skipped-through cluster's card should show its deferred reps again, so a worklist with any skip or blank renders (null).
 export function docketResumeAction({ stamp, manifestStamp, unitIds, recordOf }) {
   if (stamp !== manifestStamp) return 'restack';
   const judged = (id) => {

@@ -418,7 +418,7 @@ test('pairBand draws the judged pair from a whole record and nothing from a slim
 });
 
 test('a slim fragment reaching the fold renderer yields a row from its cells and seams alone', () => {
-  // Every pure piece of buildRow, run over the fixture's machine fragment exactly as the app runs them over a fold's rows: none may throw on the absent explain, drafts and highlight, and what they yield is the badge, the sample cells and the summary the fold shows.
+  // Runs the pure helpers buildRow uses over the fixture's machine fragment, as the app does for a fold's rows. None may throw on the missing explain, drafts, and highlight.
   const slim = shardA.find((unit) => needsNoVerdict(unit));
   for (const key of ['explain', 'drafts', 'highlight']) assert.equal(key in slim, false, key);
   assert.equal(needsNoVerdict(slim), true);
@@ -586,7 +586,7 @@ test('triageOrder reads a row\'s place in the manifest index and puts a record w
   assert.deepEqual(orderWorklist(rows, 'given').map((row) => row.id), ['b', 'a', 'c']);
 });
 
-// The app index drops the four machine-channel flags because a unit carrying a batch is provably not machine-approved and not exempt; these pin that the readers behave the same over a row that lacks them as over a whole shard record that carries them false.
+// App index rows leave out the three machine-channel flags and `no_verdict`, because only human units have a row (app_index.app_row). These tests check that the readers treat a row without the flags the same as a shard record with them false.
 const slimRow = (unit) => {
   const row = { ...unit };
   for (const field of ['ink_identical', 'picture_identical', 'junior_equivalent', 'no_verdict', 'explain', 'drafts', 'provenance']) {
@@ -1057,7 +1057,7 @@ test('onlyHereSeamSpans yields nothing for machine-approved units, missing cells
   assert.deepEqual(onlyHereSeamSpans({ ...onlyHereUnit, pair_codepoints: [0, 2] }), []);
 });
 
-// Why the app index may ship `after: null` on a row whose secondary seams all have a home: with the cells present the walk computes the spans and then continues past every homed seam, so the two answers are the same [] and the row need not carry the cells at all.
+// App index rows carry no `after` (app_index.app_row). When every secondary seam has a home, onlyHereSeamSpans skips them all, so the result is [] with or without the cells.
 test('onlyHereSeamSpans reads a homed-only row the same with cells present and with after nulled', () => {
   const homedOnly = {
     ...onlyHereUnit,
@@ -1122,7 +1122,7 @@ test('fixture units satisfy the contract fields the frontend relies on', () => {
     }
     assert.ok(Array.isArray(unit.render_groups) && unit.render_groups.length >= 1);
     assert.ok(typeof unit.summary === 'string' && unit.summary.length > 0);
-    // A unit that takes no verdict ships slim: the build omits the three fields the fold never draws, keys absent rather than null, and a human unit is whole.
+    // A unit that takes no verdict is written slim: the keys in audit.SLIM_OMITTED_KEYS are absent, not null. A human unit has them all.
     if (needsNoVerdict(unit)) {
       for (const key of ['explain', 'drafts', 'highlight']) assert.equal(key in unit, false, `${unit.id} carries ${key}`);
     } else {
@@ -1236,7 +1236,7 @@ test('searchUnits requires every whitespace-separated token to match (AND)', () 
 });
 
 test('searchUnits ranks an exact id hit ahead of incidental substring hits', () => {
-  // "u-JSRuJ51yvVj" appears verbatim only in u-JSRuJ51yvVj, but a 3-codepoint substring could in principle collide; the exact-id rank keeps it first.
+  // Only one fixture unit contains this id. searchScore ranks an exact id match first, so it would stay first even if another unit's haystack contained the id.
   const { matches } = searchUnits(allUnits, 'u-JSRuJ51yvVj');
   assert.equal(matches[0].id, 'u-JSRuJ51yvVj');
 });

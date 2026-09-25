@@ -1,14 +1,22 @@
-"""Regenerate the hermetic mini-M1 bundle beside this file from the live build output.
+"""Regenerate the mini-M1 bundle beside this file from the live build output in `rebuild/out/m1`.
 
-The bundle is what lets `rebuild/test_unit_cache.py` prove the surface cache's contracts — a warm store serves every unit, an incremental rebuild lands byte-identical on a from-scratch one, a corrupt store degrades — in the contracts lane, at full xdist width, without any test reaching `rebuild/out/`. Those are properties of `unit_cache.py` and `build_m1`'s fan-out rather than of any glyph, so a frozen workload witnesses them as well as the live one and costs seconds instead of minutes. The same reasoning carries the review surface's worked examples: which position the enricher judges, how the drafter words a policy record, what the ink comparator makes of a placed run, whether a witness re-settles to the row it was drawn from — none of them is a claim about today's corpus, so all of them read the frozen windows here rather than the live audit.
+The bundle lets the contracts lane test the surface cache without reading `rebuild/out/`. `rebuild/test_unit_cache.py` checks that a warm store serves every unit, that an incremental rebuild is byte-identical to a from-scratch one, and that a corrupt store falls back to a full build. Those are properties of `unit_cache.py` and `build_m1`'s fan-out, not of any glyph, so a frozen workload tests them as well as the live one and takes seconds instead of minutes. The review surface's worked examples (which position the enricher judges, how the drafter words a policy record, what the ink comparator reports for a placed run, whether a witness re-settles to the row it was drawn from) also read the frozen windows, because none of them is a claim about the current corpus.
 
-What it holds: `audit.tsv`, the live divergence audit filtered twice over — every window drawn from the four letters below plus the boundary tokens, and every window named in `EXAMPLE_WINDOWS`, which is the set the worked examples in `rebuild/test_review_enrich.py` and `rebuild/test_review_drafts.py` name by codepoint. The second filter is what moved those examples off the live audit: each one wants a particular window rather than a particular corpus, so freezing the whole set here costs a megabyte and buys a lane. A window in that set that selects no row at all is a dissolved exemplar and refuses the regeneration, which is where a lost example should be found rather than in a red lane a rune edit later. Beside the audit: `baseline-<config>.subset.tsv.gz` for each of `conform.ACCEPTANCE_CONFIGS` and no other configuration, sliced to those same windows — the live build still carries subset tables from configurations an earlier matrix accepted, and a slice of one of those is a file nothing reads; `M1.otf`, a frozen copy of the after-font the slices were extracted against; the default settlement and treaty tables, which `rebuild/test_review_tablediff.py` and the table-diff build test want as a directory of real tables beside a real font rather than as anything about today's rules; and `pin.json`, the tree and blob shas of `glyph_data/runes`, `rebuild/schema`, `rebuild/script.yaml` and `rebuild/m1-divergences.yaml` at the commit this ran on (`pin.PINNED_PATHS` is the authority). All of it moves together, and only together — a slice from one build beside a font from another, or a pin from a third, would have the enricher reporting glyph disagreements that are the bundle's fault rather than the code's.
+The bundle holds:
 
-The pin is what makes the bundle hermetic, and it stands in for a checked-in copy of the spec. `build_m1` takes a `spec_root`; the `mini_bundle` fixture in `rebuild/conftest.py` materializes the pinned objects out of git into a session temp directory and every mini-bundle test hands that over, so the settlement the enricher re-derives is the one these rows were written under, a rune edit cannot leave the frozen `new` cells describing a rebuild that no longer happens, and no second copy of the runes sits in the tree waiting to be edited by mistake. Everything else in a mini build still comes from the repo root — the fingerprints, the git head, the relative paths in the manifest, the corpus the pin drafts validate against — because those are facts about this checkout rather than about the workload.
+- `audit.tsv`, the live divergence audit filtered to the union of two sets: every window drawn from `LETTERS` and `BOUNDARIES`, and every window in `EXAMPLE_WINDOWS`, which the worked examples in `rebuild/test_review_enrich.py` and `rebuild/test_review_drafts.py` name by codepoint. Regeneration fails when a window in `EXAMPLE_WINDOWS` selects no row, so a lost example is found here and not in a test failure after a later rune edit.
+- `baseline-<config>.subset.tsv.gz` for each of `conform.ACCEPTANCE_CONFIGS` and no other configuration, sliced to the same windows. The live build directory can also hold subset tables for other configurations, which nothing reads.
+- `M1.otf`, a copy of the after font the slices were extracted against.
+- `settlement-default.tsv` and `treaties-default.tsv`, which `rebuild/test_review_tablediff.py` and the table-diff build test use as real tables beside a real font.
+- `pin.json`, the tree and blob shas of `pin.PINNED_PATHS` at the commit this ran on.
 
-Two guards are what make HEAD trustworthy to pin against. The pinned paths must be clean, so HEAD's bytes are the working tree's bytes; and the live build's recorded `data` fingerprint must equal the one the tree hashes to now, so the rows being frozen really did settle under them. Fail either and the pin would name a spec no build ever ran, which is the one failure a content-addressed pin cannot detect later.
+All of it must be regenerated together. A slice from one build beside a font from another, or a pin from a third, would make the enricher report glyph disagreements caused by the bundle and not by the code.
 
-Run it after `run_m1` has left a fresh `rebuild/out/m1`:
+The pin replaces a checked-in copy of the spec. `build_m1` takes a `spec_root`, and the `mini_bundle` fixture in `rebuild/conftest.py` writes the pinned objects out of git into a session temp directory that every mini-bundle test passes as that root. So the enricher re-derives the settlement these rows were written under, a rune edit cannot make the frozen `new` cells stale, and there is no second copy of the runes in the tree to edit by mistake. Everything else in a mini build (the fingerprints, the git head, the manifest's relative paths, the corpus the pin drafts are validated against) comes from the repo root, because those describe the checkout and not the workload.
+
+Two checks make HEAD safe to pin. The pinned paths must be clean, so HEAD's bytes are the working tree's. The live build's recorded `data` fingerprint must equal the one the tree hashes to now, so the frozen rows settled under that spec. If either fails, the pin could name a spec no build ran, and a content-addressed pin cannot detect that later.
+
+Run it after `run_m1` has written a fresh `rebuild/out/m1`:
 
     uv run python rebuild/review/fixtures/mini/regenerate.py
 """
@@ -32,7 +40,7 @@ LIVE = REPO_ROOT / "rebuild" / "out" / "m1"
 LETTERS = {"E650", "E652", "E653", "E668"}
 BOUNDARIES = {"0020", "200C", "00B7"}
 
-# The windows the review surface's worked examples name, and the reason the bundle is filtered on two rules rather than one. Every test that reaches for one of these spells its codepoints out — none asks for "some unit of class X" — so the set is a list of exemplars rather than a sample, and a member selecting nothing means the exemplar dissolved rather than that the filter drifted.
+# The windows the review surface's worked examples name by codepoint. Each test asks for a specific window, not for any unit of a class, so a member that selects no audit row means that window has left the audit, not that the filter is wrong.
 EXAMPLE_WINDOWS = frozenset(
     {
         "0020:E650:E650",
@@ -56,7 +64,7 @@ EXAMPLE_WINDOWS = frozenset(
 
 
 def selected_windows(audit: Path) -> tuple[str, list[str]]:
-    """The audit's header plus every row either filter keeps: a window drawn entirely from `LETTERS` and `BOUNDARIES` and touching at least one letter, or a window `EXAMPLE_WINDOWS` names outright. The two are a union rather than a widened letter set on purpose — the exemplars reach letters the four-letter slice has no business dragging in whole."""
+    """Return the audit's header and every row either filter keeps: a window drawn entirely from `LETTERS` and `BOUNDARIES` that contains at least one letter, or a window in `EXAMPLE_WINDOWS`. The example windows are added by name instead of by widening `LETTERS`, which would pull in every window of the letters they use."""
     lines = audit.read_text(encoding="utf-8").splitlines()
     header, rows = lines[0], lines[1:]
     kept = []
@@ -112,7 +120,7 @@ def main() -> int:
         out = HERE / table.name
         with gzip.open(table, "rt", encoding="utf-8", newline="") as source:
             with open(out, "wb") as raw:
-                # A gzip header stamps the wall clock unless it is told not to, which would leave every regeneration a diff even where the rows did not move. mtime=0 and an empty filename make the container a function of the content alone.
+                # gzip writes the current time into its header unless told otherwise, which would make every regeneration a diff even when the rows are unchanged. mtime=0 and an empty filename make the file depend only on its content.
                 with gzip.GzipFile(filename="", fileobj=raw, mode="wb", compresslevel=9, mtime=0) as packed:
                     with io.TextIOWrapper(packed, encoding="utf-8", newline="") as sink:
                         for line in source:

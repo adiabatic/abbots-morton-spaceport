@@ -1,10 +1,14 @@
-"""The baseline subset tables packed once and mapped read-only by every process that reads a row.
+"""Pack the baseline subset tables into one binary file that every process maps read-only.
 
-`write_pack` streams each acceptance configuration's `baseline-<config>.subset.tsv.gz` once through `rowmodel.open_table`, projects exactly the three fields `SubsetRow` carries plus the codepoint key, holds every row's seams to `is_seam_token` on the way, and writes one binary file: a JSON header carrying the format tag, this module's own prose-blind code digest (`PACKER_DIGEST`, so a tightening of the seam vocabulary or of the projection rewrites every pack it reaches rather than being served stale rows by one), the writer's byte order, the tables' sha256 digests (the ones `unit_cache.environment_stamp` already computes for its `subsets` line, passed in rather than rehashed), one string table over every glyph name and seam token, and each configuration's row count and section offsets; then, per configuration, a sorted array of 8-byte keys beside a fixed-width record array of glyph ids, cluster starts and seam ids. What the packer holds while it runs is priced under `SURFACE_PARENT_BYTES` in rebuild/tools/artifact_cycle.py, since it runs in the surface build's parent before the workload loads: every table's keys as one `array` of unsigned 64-bit integers and its rows as one `array` of indices into the pool of distinct `(glyphs, clusters, seams)` triples, which repeat heavily within and across configurations, and one configuration's encoded section at a time on its way to the file. A key is the window's codepoints packed right-aligned into one unsigned 64-bit integer, four 16-bit slots zero-padded on the left, so that the canonical `(length, codepoints)` order the extractor writes is the integer order and a table arrives already sorted; a table that does not is sorted here. The file is written to a temporary name and renamed into place, so a reader never maps a torn pack.
+`write_pack` reads each acceptance configuration's `baseline-<config>.subset.tsv.gz` once through `rowmodel.open_table`, keeps the codepoint key and the three fields `SubsetRow` has, checks every seam token with `is_seam_token`, and writes one file. The file starts with a JSON header: the format tag, `PACKER_DIGEST` (this module's prose-blind code digest, so a change to the seam vocabulary or the projection rewrites every existing pack), the writer's byte order, the tables' sha256 digests (the caller passes the ones `unit_cache.environment_stamp` computes for its `subsets` line), one string table of every glyph name and seam token, and each configuration's row count and section offsets. Each configuration's section follows: a sorted array of 8-byte keys and a fixed-width record array of glyph ids, cluster starts, and seam ids.
 
-`SubsetPack.open` maps the file with `mmap.ACCESS_READ`, refuses a header whose format, packer digest, byte order or table digests disagree with this process's code and with what the caller measured off the tables on disk, interns the string table once through `sys.intern`, and answers `row` by bisecting the key array as a cast `memoryview` and materializing one frozen `SubsetRow` from the record at that index. The mapping is shared through the page cache by every worker on the box, and a process's resident share of it is the pages its lookups touch rather than the tables, which is what takes a surface worker's cost off the alphabet (`SURFACE_WORKER_BYTES` in rebuild/tools/artifact_cycle.py prices the rest). `ensure_pack` is the one entry a reader needs: a current pack beside the tables, or one written on demand.
+A key is the window's codepoints packed right-aligned into one unsigned 64-bit integer, four 16-bit slots zero-padded on the left. The extractor writes rows in `(length, codepoints)` order, which is also the integer order, so a table normally arrives sorted; one that does not is sorted here.
 
-The whole-table vocabulary sweep lives at pack time rather than at lookup on purpose: these rows are the sole source of a unit's `before.seams`, and a check that ran only over the rows a worker happened to look up would say nothing about the table. The packer refuses at the first bad row, before any file is renamed into place, so a table the classifier wrote a compound token into never becomes a pack.
+The packer runs in the surface build's parent before the workload loads, and its memory is budgeted under `SURFACE_PARENT_BYTES` in rebuild/tools/artifact_cycle.py. It holds every table's keys as one `array` of unsigned 64-bit integers and its rows as one `array` of indices into a pool of distinct `(glyphs, clusters, seams)` triples, which repeat heavily within and across configurations, plus one encoded record per distinct triple and one configuration's encoded section at a time while it is written. The file is written under a temporary name and renamed into place, so a reader never maps a partly written pack.
+
+`SubsetPack.open` maps the file with `mmap.ACCESS_READ` and fails when the header's format, packer digest, byte order, or table digests differ from this process's code and from the digests the caller computed from the tables on disk. It interns the string table once through `sys.intern`. `row` bisects the key array through a cast `memoryview` and builds one frozen `SubsetRow` from the record at that index. Every worker shares the mapping through the page cache, and a process's resident share is the pages its lookups touch, so a surface worker's memory does not grow with the tables or the alphabet (`SURFACE_WORKER_BYTES` in rebuild/tools/artifact_cycle.py budgets the rest). `ensure_pack` is the entry point a reader needs: it returns a current pack beside the tables, writing one if needed.
+
+The seam vocabulary check runs over every row at pack time. These rows are the only source of a unit's `before.seams`, and a check over only the rows a worker looks up would not cover the table. The packer fails at the first bad row, before any file is renamed into place, so a table with a compound seam token never becomes a pack.
 """
 
 from __future__ import annotations
@@ -35,7 +39,7 @@ _SEAM_TOKENS = ("break", "lig", "absent")
 
 
 def is_seam_token(token) -> bool:
-    """Whether a token is one the seam vocabulary admits: `break`, `lig`, `absent`, or `y` followed by a height. The compound tokens `SeamClassifier.classify` can emit when two heights join at once (`y0+y5`) are deliberately outside it — a shard's seams are single-height, and a baseline row carrying a compound one is a table the surface cannot describe."""
+    """Return whether `token` is in the seam vocabulary: `break`, `lig`, `absent`, or `y` followed by a height. The compound tokens `SeamClassifier.classify` emits when two heights join at once (`y0+y5`) are excluded, because a shard's seams are single-height and the surface cannot describe a baseline row with a compound seam."""
     return isinstance(token, str) and (
         token in _SEAM_TOKENS or (token.startswith("y") and token[1:].isdigit())
     )
@@ -43,7 +47,7 @@ def is_seam_token(token) -> bool:
 
 @dataclass(frozen=True, slots=True)
 class SubsetRow:
-    """What the enricher reads off one baseline subset row, and nothing else: the old font's glyph names, which the kern-neutral re-shape is checked against; the cluster starts, which are the before spans; and the seams, which are the before seams and the seam-grain half of the divergence. The full `rowmodel.Row` carries two fields more, and this path reads neither — `positions` is dead here by design, since the subset was extracted with the old font's kerning on and the before pens come from a live kern-neutral re-shape instead, and `codepoints` is the key the pack is bisected by. A row is materialized per lookup out of the mapped pack and lives as long as the enrichment that asked for it, so no process holds a table's worth of these."""
+    """The fields the enricher reads from one baseline subset row: the old font's glyph names, which the kern-neutral re-shape is checked against; the cluster starts, which give the before spans; and the seams, which give the before seams and the seam-grain half of the divergence. `rowmodel.Row` also has `positions`, which this path does not use because the subset was extracted with the old font's kerning on and the before pens come from a kern-neutral re-shape, and `codepoints`, which is the key the pack is searched by. A row is built per lookup from the mapped pack and lives only as long as the enrichment that asked for it, so no process holds a table of these."""
 
     glyphs: tuple[str, ...]
     clusters: tuple[int, ...]
@@ -55,12 +59,12 @@ def table_path(subset_dir: Path, config: str) -> Path:
 
 
 def table_digests(subset_dir: Path, configs: Sequence[str]) -> dict[str, str]:
-    """Each configuration's table hashed whole, keyed by configuration: the digests the pack header records and the reader holds it to."""
+    """Return each configuration's table sha256, keyed by configuration: the digests the pack header records and `SubsetPack.open` checks."""
     return {config: file_sha256(table_path(subset_dir, config)) for config in configs}
 
 
 def pack_key(codepoints: str) -> int:
-    """The colon-joined codepoint string as the pack's integer key: right-aligned 16-bit slots, so a shorter window sorts before every longer one and windows of one length sort by their codepoints. `KEY_SLOTS` is the widest window the extractor writes into a baseline table, four codepoints (the belt's `conform.BELT_HORIZON`), and a slot's width is the Basic Multilingual Plane, which every codepoint the tables carry is in; a window wider than that, or one carrying a codepoint past a slot's width, has no key and cannot be in a pack, so the packer refuses a table holding one and `SubsetPack.row` answers None for one."""
+    """Return the pack's integer key for a colon-joined codepoint string. The 16-bit slots are right-aligned, so a shorter window sorts before every longer one and windows of one length sort by their codepoints. `KEY_SLOTS` is four, the longest window the baseline extractor writes (`MAX_LENGTH` in rebuild/baseline/alphabet.py, equal to `conform.BELT_HORIZON`), and a 16-bit slot covers the Basic Multilingual Plane, which holds every codepoint in the tables. A longer window or a codepoint above U+FFFF raises ValueError, so the packer fails on a table that contains one and `SubsetPack.row` returns None for one."""
     key = 0
     slots = 0
     for part in codepoints.split(":"):
@@ -79,7 +83,7 @@ def pack_key(codepoints: str) -> int:
 
 
 def key_codepoints(key: int) -> str:
-    """The canonical uppercase codepoint string a key was packed from."""
+    """Return the canonical uppercase codepoint string a key was packed from."""
     parts = []
     while key:
         parts.append(f"{key & 0xFFFF:04X}")
@@ -96,7 +100,7 @@ def _record_struct(glyph_slots: int, cluster_slots: int, seam_slots: int) -> str
 
 
 def _projected_rows(path: Path) -> Iterator[tuple[int, tuple[str, ...], tuple[int, ...], tuple[str, ...]]]:
-    """Every data row of one table as `(key, glyphs, clusters, seams)`, the seam field checked against the vocabulary the first time each distinct field text is seen — which still refuses the table at its first bad row, since a field that fails is never memoized — and the key re-derived through `int` so a table's spelling of its codepoints never decides what a window is found under."""
+    """Yield every data row of one table as `(key, glyphs, clusters, seams)`. Each distinct seam field is checked against the vocabulary the first time it appears, and only a field that passes is memoized, so the table still fails at its first bad row. The key is derived through `int`, so how the table formats a codepoint does not change the key."""
     seams_by_field: dict[str, tuple[str, ...]] = {}
     clusters_by_field: dict[str, tuple[int, ...]] = {}
     with open_table(path) as handle:
@@ -128,7 +132,7 @@ class _Table:
 
 
 def _load_table(path: Path, distinct: dict[tuple, int]) -> _Table:
-    """One table projected and keyed: its keys as one unsigned 64-bit array and its rows as one array of indices into `distinct`, the pool of `(glyphs, clusters, seams)` triples shared by every table of the pack, since a row that repeats across configurations, or within one, is then one index rather than one tuple per line."""
+    """Load one table as its keys, one unsigned 64-bit array, and its rows, one array of indices into `distinct`. `distinct` is the pool of `(glyphs, clusters, seams)` triples shared by every table in the pack, so a row that repeats within or across configurations costs one index. A table out of key order is sorted, and two rows for one window raise ValueError."""
     keys = array("Q")
     rows = array("I")
     for key, glyphs, clusters, seams in _projected_rows(path):
@@ -148,7 +152,7 @@ def _load_table(path: Path, distinct: dict[tuple, int]) -> _Table:
 def write_pack(
     subset_dir: Path, configs: Sequence[str], digests: Mapping[str, str], destination: Path
 ) -> Path:
-    """Pack every named configuration's table into `destination`, through a temporary file beside it that is renamed into place only once every table has been read, projected and checked. Each configuration's section is encoded and written in turn once the header is down, so the file holds at most one section's bytes beside the loaded tables."""
+    """Pack every named configuration's table into `destination` through a temporary file beside it, which is renamed into place only after every table has been read and checked. After the header, sections are encoded and written one configuration at a time, so the process holds at most one encoded section beside the loaded tables and the encoded records of the distinct rows."""
     subset_dir = Path(subset_dir)
     destination = Path(destination)
     distinct: dict[tuple, int] = {}
@@ -217,7 +221,7 @@ def write_pack(
 
 
 def _read_header(path: Path) -> tuple[dict, int]:
-    """The pack's header and the file offset its body starts at, or a `ValueError` for a file that is not a pack."""
+    """Return the pack's header and the file offset where its body starts, or raise ValueError for a file that is not a pack."""
     with open(path, "rb") as handle:
         prefix = handle.read(_LENGTH.size)
         if len(prefix) != _LENGTH.size:
@@ -252,7 +256,7 @@ def ensure_pack(
     digests: Mapping[str, str] | None = None,
     pack: Path | None = None,
 ) -> Path:
-    """A pack beside the tables that is current for them — the one on disk when its header records these tables' digests and this packer's code digest, or one written on this call. `digests` is what the caller already measured; left out, the tables are hashed here. `pack` names another home for the file; the default is `PACK_NAME` under `subset_dir`, outside the `baseline-*.subset.tsv.gz` glob the subset stamp reads, so the stamp never takes it for an orphan."""
+    """Return a pack that is current for the tables: the file on disk when its header records these configurations, these tables' digests, this byte order, and this packer's code digest, or else one written by this call. `digests` are the table digests the caller already computed; when omitted, the tables are hashed here. `pack` overrides the file's location. The default is `PACK_NAME` under `subset_dir`, which is outside the `baseline-*.subset.tsv.gz` glob that the subset stamp in rebuild/pipeline/baseline_subset.py reads, so the stamp does not treat the pack as an orphan."""
     subset_dir = Path(subset_dir)
     destination = Path(pack) if pack is not None else subset_dir / PACK_NAME
     if digests is None:
@@ -279,7 +283,7 @@ class _Section:
 
 
 class SubsetPack:
-    """One mapped pack. `row` is the lookup the enricher makes; `rows` walks one configuration in key order for a reader that wants the whole table; `census` is the pile tally's reading of what the mapping is; `close` releases the views and the mapping."""
+    """One mapped pack. `row` is the enricher's lookup, `rows` iterates one configuration in key order, `census` reports the pack's size to the pile tally, and `close` releases the views and the mapping."""
 
     def __init__(self, path: Path, mapping: mmap.mmap, header: dict, base: int) -> None:
         self.path = Path(path)
@@ -302,7 +306,7 @@ class SubsetPack:
 
     @classmethod
     def open(cls, path: Path, digests: Mapping[str, str]) -> SubsetPack:
-        """Map `path` read-only, refusing a pack whose header disagrees with `digests`, the tables as the caller measured them on disk, or with the packer code this process runs."""
+        """Map `path` read-only. Raises ValueError when the file is not a pack, or when the header's packer digest or byte order differs from this process's, or its table digests differ from `digests`, which the caller computed from the tables on disk."""
         path = Path(path)
         header, base = _read_header(path)
         disagreement = _header_disagreement(header, digests)
@@ -332,7 +336,7 @@ class SubsetPack:
         )
 
     def row(self, config: str, codepoints: str) -> SubsetRow | None:
-        """The row for `codepoints` under `config`, or None when the pack holds no such configuration or the table no such window — a window no key can spell among them, since the packer refuses a table that holds one."""
+        """Return the row for `codepoints` under `config`, or None when the pack has no such configuration or window. A window that has no key returns None, since the packer fails on a table that contains one."""
         section = self._sections.get(config)
         if section is None:
             return None
@@ -346,13 +350,13 @@ class SubsetPack:
         return self._materialize(section, index)
 
     def rows(self, config: str) -> Iterator[tuple[str, SubsetRow]]:
-        """Every row of one configuration in key order, as `(codepoints, row)`."""
+        """Yield every row of one configuration in key order as `(codepoints, row)`."""
         section = self._sections[config]
         for index in range(section.rows):
             yield key_codepoints(section.keys[index]), self._materialize(section, index)
 
     def census(self) -> tuple[int, int]:
-        """The rows the pack holds across every configuration, beside the bytes the mapping spans — what the pile tally prints for it, since a mapping's resident share is the pages touched and not a figure a process can read of itself."""
+        """Return the pack's row count across all configurations and the mapping's size in bytes, which the pile tally prints. The tally reports the mapping's size because a process's resident share of a mapping is the pages it has touched, which the process cannot read for itself."""
         return sum(section.rows for section in self._sections.values()), len(self._mapping)
 
     def close(self) -> None:
