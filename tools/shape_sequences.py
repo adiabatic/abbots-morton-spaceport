@@ -38,7 +38,7 @@ from build_font import load_glyph_data
 from glyph_compiler import compile_glyph_set
 from quikscript_ir import JoinGlyph
 
-DEFAULT_FONT = ROOT / "test" / "AbbotsMortonSpaceportSansSenior-Regular.otf"
+DEFAULT_FONT = ROOT / "site" / "AbbotsMortonSpaceportSansSenior-Regular.otf"
 PS_NAMES_PATH = ROOT / "postscript_glyph_names.yaml"
 
 
