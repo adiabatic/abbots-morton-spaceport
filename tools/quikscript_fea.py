@@ -1219,7 +1219,7 @@ def _can_eventually_exit_at(
 _CONTRACT_EMIT_DUMP_PATH = Path(__file__).resolve().parent.parent / "tmp" / "leak-contract-emit.txt"
 
 # The number of cross-break selections the derived join contract drops from the production font. Dropping them is intended, so `_JoinContractRecorder.flush` warns only when the count differs from this. Update it when an intended change moves the count; `tmp/leak-contract-emit.txt` lists every dropped selection.
-_EXPECTED_CONTRACT_DROP_COUNT = 719
+_EXPECTED_CONTRACT_DROP_COUNT = 717
 
 # The expected count applies only to the production font. Unit tests run the emitter over small glyph sets that drop other counts, so the check runs only when the glyph set contains all of these letters.
 _BASELINE_REPERTOIRE_SENTINELS = frozenset({"qsPea", "qsHe", "qsOoze"})
@@ -1243,14 +1243,21 @@ class _JoinContractRecorder:
     bk_replacements: dict[str, dict[int, str]] = field(default_factory=dict)
     fwd_replacements: dict[str, dict[int, str]] = field(default_factory=dict)
     base_to_variants: dict[str, set[str]] = field(default_factory=dict)
+    reverse_only_upgrades: list[tuple[str, list[str], list[int], list[str], list[str]]] = field(
+        default_factory=list
+    )
     verdicts: dict[tuple[str, str, str], str] = field(default_factory=dict)
     pivots: dict[tuple[str, str, str], set[str]] = field(default_factory=dict)
     _entry_cache: dict[tuple[str, str], frozenset[int]] = field(default_factory=dict)
     _exit_cache: dict[tuple[str, str], frozenset[int]] = field(default_factory=dict)
     _leads: dict[str, set[str]] = field(default_factory=dict)
     _trails: dict[str, set[str]] = field(default_factory=dict)
+    _reverse_upgrades_from: dict[str, list[tuple[str, list[str]]]] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
+        for upgrade_name, sources, _entry_ys, after, _not_before in self.reverse_only_upgrades:
+            for source in sources:
+                self._reverse_upgrades_from.setdefault(source, []).append((upgrade_name, after))
         # base -> ligature variant names that lead (sequence[0]) / trail (sequence[-1]) with that base.
         for name, meta in self.glyph_meta.items():
             seq = meta.sequence
@@ -1293,7 +1300,7 @@ class _JoinContractRecorder:
     def _reachable_entry_ys(self, neighbor: str, source_family: str) -> frozenset[int]:
         """Return the entry Ys the follower `neighbor` can have in context, for a rule whose variant belongs to `source_family`.
 
-        Every neighbor gets its own entries and those of the ligatures its family leads. A bare family glyph also gets the entries of its backward replacements and of its pair overrides whose `after` names `source_family` (`qsFee.en-y5` after `qsLow.ex-ext-1`). Any other stance with an exit and no entry, such as `qsFee.ex-y5`, also gets the entries of the backward replacements that keep its exit. Other stances get nothing more.
+        Every neighbor gets its own entries and those of the ligatures its family leads. A bare family glyph also gets the entries of its backward replacements and of its pair overrides whose `after` names `source_family` (`qsFee.en-y5` after `qsLow.ex-ext-1`). Any other stance with an exit and no entry, such as `qsFee.ex-y5`, also gets the entries of the backward replacements that keep its exit, and of the `reverse_upgrade_from` stances that name it and have no `after` or an `after` that names `source_family` (`qsPea.half.ex-y5.ex-dips` gains y6 through `qsPea.half.en-y6.ex-y5.ex-dips`). Other stances get nothing more.
         """
         key = (neighbor, source_family)
         cached = self._entry_cache.get(key)
@@ -1321,6 +1328,10 @@ class _JoinContractRecorder:
                 vm = self.glyph_meta.get(var)
                 if vm is not None and proxy_exits <= set(vm.exit_ys):
                     ys.update(vm.all_entry_ys)
+            for upgrade_name, after in self._reverse_upgrades_from.get(neighbor, ()):
+                um = self.glyph_meta.get(upgrade_name)
+                if um is not None and (not after or self._source_matches(tuple(after), source_family)):
+                    ys.update(um.all_entry_ys)
         for lig in self._leads.get(base, ()):
             lm = self.glyph_meta.get(lig)
             if lm is not None:
@@ -2339,6 +2350,7 @@ def _emit_quikscript_calt(analysis: _JoinAnalysis) -> str | None:
         bk_replacements=plan.bk_replacements,
         fwd_replacements=plan.fwd_replacements,
         base_to_variants=plan.base_to_variants,
+        reverse_only_upgrades=plan.reverse_only_upgrades,
     )
 
     # Function-local import: quikscript_join_analysis imports from quikscript_fea, so a top-of-module import here would cycle.

@@ -2071,6 +2071,31 @@ def test_pea_keeps_its_onward_join_after_et_and_awe(text: str, expects: list[str
     _assert_expect_any(text, expects)
 
 
+@pytest.mark.parametrize(
+    ("text", "expects"),
+    [
+        pytest.param(
+            _qs_text("qsPea", "qsPea", "qsCheer"),
+            ["·Pea.half ~6~ ·Pea.half ~x~ ·Cheer"],
+            id="pea-pea-cheer",
+        ),
+        pytest.param(
+            _qs_text("qsEt", "qsPea", "qsPea", "qsCheer"),
+            ["·Et | ·Pea.half ~6~ ·Pea.half ~x~ ·Cheer"],
+            id="et-pea-pea-cheer",
+        ),
+        pytest.param(
+            _qs_text("qsPea", "qsPea", "qsIt"), ["·Pea.half ~6~ ·Pea.half ~x~ ·It"], id="pea-pea-it"
+        ),
+        pytest.param(
+            _qs_text("qsPea", "qsPea", "qsNo"), ["·Pea.half ~6~ ·Pea.half ~x~ ·No"], id="pea-pea-no"
+        ),
+    ],
+)
+def test_pea_joins_a_pea_that_dips_into_its_follower_at_y6(text: str, expects: list[str]):
+    _assert_expect_any(text, expects)
+
+
 def _pea_after_et_and_awe_seam_failures() -> list[str]:
     followers = [(name,) for name, _ in _context_chars()] + [()]
     followers += [sequence for _, sequence in _two_component_ligatures()]
