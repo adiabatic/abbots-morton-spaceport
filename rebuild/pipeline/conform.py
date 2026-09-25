@@ -722,7 +722,7 @@ class _MemoStore:
 
     A probe maps the window's six labels through `label_ids`, and a label the table lacks is a miss before any hashing. It hashes the six ids as the writer did: each id times its slot's odd 64-bit constant in `_MEMO_MIX`, summed modulo 2^64 and shifted right by 64 - k for 2^k slots, then linear probing from there. The hash is written out so the file does not depend on Python's tuple hash, and `_memo_slots` is the writer's vectorized form of it. It sums per-column products because a multiply-shift over the six ids packed into one word clusters on the live ids, which are small and structured, while the sum keeps chains near one probe at the writer's half-full sizing. The file's keys are distinct (`_write_settle_memo` keeps one row per key), so a probe stops at the first row whose ids match: a dead row is a miss, and a live row is marked reached and returned.
 
-    The load reads the header and the two tables, and reads the columns only for the stale fold or the ask restriction, one pass each. It does not scan for corruption. An id past a table or a probe chain longer than the row count occurs only in a corrupt file, and the probe that meets it retires every row (`_retire`), so the walk settles everything it asks from then on.
+    The load reads the header and the two tables, and reads the columns only for the stale fold or the ask restriction, one pass each. It does not scan for corruption. A valid index is at least half empty, so every chain reaches a row or an empty slot within N + 1 reads for N rows, the last read of a miss landing on the empty slot. An id past a table or a chain longer than N + 1 reads occurs only in a corrupt file, and the probe that meets it retires every row (`_retire`), so the walk settles everything it asks from then on.
 
     `items` yields the live rows as (window, outcome) pairs in file order: all of them, only the reached ones, or only the unreached ones. `selector` makes the same choice as one flag per row, which `carry_into` uses to copy rows into a new file straight from the columns without building a key tuple per row. `close` drops the views and the mapping. A walk that replaced the file reads the old inode until then, because a mapping outlives the directory entry it was opened through. A mapping that an `items` iterator still reads stays open until that iterator is released.
     """
@@ -951,7 +951,7 @@ class _MemoStore:
         )
 
     def probe(self, window: _Window) -> _Outcome | None:
-        """The outcome the store holds for `window`, marking its row reached, or None. A label the file lacks is a miss before any hashing, and a dead row is a miss. A valid index holds one occupied slot per row, so the chain is bounded by the row count. A chain longer than that, a slot naming a row past the columns, or a value past the outcome table retires the store."""
+        """The outcome the store holds for `window`, marking its row reached, or None. A label the file lacks is a miss before any hashing, and a dead row is a miss. A valid index holds one occupied slot per row and at least as many empty ones, so a run of occupied slots is at most the row count N long and the chain ends within N + 1 reads. A chain longer than that, a slot naming a row past the columns, or a value past the outcome table retires the store."""
         if not self.live:
             return None
         try:
@@ -964,7 +964,7 @@ class _MemoStore:
         index = self.index
         mask = self._mask
         c0, c1, c2, c3, c4, c5 = self.columns
-        left = len(self.dead)
+        left = len(self.dead) + 1
         try:
             while left:
                 row = index[slot]
