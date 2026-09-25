@@ -242,7 +242,7 @@ class TestBuildStageHandoff:
         out_dir, _tables, _digests = build_a
         for config in conform.OVERLAY_CONFIGS:
             assert not [path.name for path in out_dir.glob(f"*-{config}.tsv*")]
-        stale = run_m1.overlay_table_files(tmp_path, conform.OVERLAY_CONFIGS[0])
+        stale = run_m1.config_table_files(tmp_path, conform.OVERLAY_CONFIGS[0])
         for path in stale:
             path.write_bytes(b"a table an earlier build left behind\n")
         run_m1.build_tables(SPEC, tmp_path, inputs="fp-sources")
@@ -250,6 +250,31 @@ class TestBuildStageHandoff:
         assert sorted(path.name for path in tmp_path.glob("windows-*")) == sorted(
             table_module.windows_path(tmp_path, config).name for config in conform.SETTLEMENT_CONFIGS
         )
+
+    def test_a_configuration_outside_the_settlement_set_leaves_no_table_behind(self, tmp_path):
+        """A configuration outside `conform.SETTLEMENT_CONFIGS` keeps no tables in the out dir: the build removes the ones an earlier build wrote under its name, so a snapshot or table diff of the directory never picks them up. The sweep reaches only such configurations, so a narrowed build keeps the tables of the settled configurations it does not name."""
+        unsettled = "ss02+ss03"
+        assert unsettled not in conform.ACCEPTANCE_CONFIGS
+        stale = [
+            tmp_path / f"settlement-{unsettled}.tsv",
+            tmp_path / f"treaties-{unsettled}.tsv",
+            table_module.windows_path(tmp_path, unsettled),
+        ]
+        for path in stale:
+            path.write_bytes(b"a table an earlier build left behind\n")
+        assert "ss03" in conform.SETTLEMENT_CONFIGS
+        kept = [
+            tmp_path / "settlement-ss03.tsv",
+            tmp_path / "treaties-ss03.tsv",
+            table_module.windows_path(tmp_path, "ss03"),
+        ]
+        for path in kept:
+            path.write_bytes(f"{path.name} from another build\n".encode())
+        run_m1.build_tables(SPEC, tmp_path, inputs="fp-sources", configs=["default"])
+        assert not any(path.exists() for path in stale)
+        for path in kept:
+            assert path.read_bytes() == f"{path.name} from another build\n".encode(), path.name
+        assert (tmp_path / "settlement-default.tsv").exists()
 
     @pytest.mark.parametrize("config", conform.SETTLEMENT_CONFIGS)
     def test_the_crates_artifacts_are_what_this_sides_writers_write_back(self, build_a, tmp_path, config):
