@@ -65,3 +65,8 @@ def test_uppercase_j_top_marks_are_positioned(font, text):
 
     assert [glyph["name"] for glyph in glyphs] == ["J", "uni0302"]
     assert (glyphs[1]["x_offset"], glyphs[1]["y_offset"]) != (0, 0)
+
+
+@pytest.mark.parametrize(("text", "glyph_name"), [("ù", "ugrave"), ("ú", "uacute")])
+def test_precomposed_u_with_accent_is_encoded(font, text, glyph_name):
+    assert [glyph["name"] for glyph in shape(font, text)] == [glyph_name]

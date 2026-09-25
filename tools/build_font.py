@@ -261,9 +261,9 @@ def _resolve_codepoint(glyph_name: str, postscript_names: dict[str, int]) -> int
     if glyph_name.startswith("u") and not glyph_name.startswith("uni") and len(glyph_name) == 6:
         try:
             cp = int(glyph_name[1:], 16)
-            return cp if cp > 0xFFFF else None
         except ValueError:
-            return None
+            return postscript_names.get(glyph_name)
+        return cp if cp > 0xFFFF else None
     return postscript_names.get(glyph_name)
 
 
