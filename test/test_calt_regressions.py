@@ -68,10 +68,11 @@ def _is_intentional_gay_exit_extension(left_meta, right_meta) -> bool:
 
 
 def _surround_combos(context_set, max_chars: int, *, first_only: str | None = None) -> tuple:
-    """Return every combination of 0 to ``max_chars`` entries drawn from ``context_set``. The ``first_only`` shard filter keeps only the non-empty combinations whose first entry is named ``first_only``; the empty combination is always kept."""
+    """Return every combination of 0 to ``max_chars`` entries drawn from ``context_set``. The ``first_only`` shard filter keeps only the non-empty combinations whose first entry is named ``first_only``, plus the empty combination in the one shard named for ``context_set[0]``, so a parametrization over every entry sweeps each combination exactly once."""
     combos = tuple(combo for n in range(max_chars + 1) for combo in product(context_set, repeat=n))
     if first_only is not None:
-        combos = tuple(combo for combo in combos if not combo or combo[0][0] == first_only)
+        keeps_empty = first_only == context_set[0][0]
+        combos = tuple(combo for combo in combos if (combo[0][0] == first_only if combo else keeps_empty))
     return combos
 
 
@@ -289,7 +290,7 @@ def _collect_pair_must_not_join_regardless_of_what_comes_before_or_after(
 
     For "·A·B may join, but not at this height", use ``_collect_pair_must_not_join_at_y_regardless_of_what_comes_before_or_after``.
 
-    ``before_first_only`` keeps only the non-empty prefixes whose first entry is the named context entry (such as ``"qsPea"`` or ``"ZWNJ"``); the empty prefix is always swept. Parametrized callers use it to split one sweep across pytest-xdist workers.
+    ``before_first_only`` keeps only the non-empty prefixes whose first entry is the named context entry (such as ``"qsPea"`` or ``"ZWNJ"``); the empty prefix is swept only in the shard named for the first entry of ``_context_chars()``. Parametrized callers use it to split one sweep across pytest-xdist workers.
     """
     failures: list[str] = []
     meta_map = _compiled_meta()
@@ -1657,6 +1658,16 @@ def test_nonjoining_pairs_do_not_connect(text: str, expects: list[str]):
 
 
 _PAIR_SWEEP_BEFORE_FIRSTS = tuple(name for name, _ in _context_chars())
+
+
+def test_pair_sweep_shards_cover_every_surround_exactly_once():
+    context_set = _context_chars()
+    sharded = [
+        combo
+        for name in _PAIR_SWEEP_BEFORE_FIRSTS
+        for combo in _surround_combos(context_set, 2, first_only=name)
+    ]
+    assert sorted(sharded) == sorted(_surround_combos(context_set, 2))
 
 
 @pytest.mark.parametrize("before_first", _PAIR_SWEEP_BEFORE_FIRSTS)

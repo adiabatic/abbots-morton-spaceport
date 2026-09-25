@@ -56,7 +56,7 @@ Let `Σ = _context_chars()`: the 44 plain Quikscript letters plus the two bounda
         in_scope(i)  →  ¬(Fₗ ⊆ Tₗᵢ  ∧  Fᵣ ⊆ Tᵣᵢ)
 ```
 
-With the default `max_chars_before = max_chars_after = 1`, that is (1 + 46) × (1 + 46) = 2209 shaped strings. With both set to 2 it is (1 + 46 + 46²)² = 2163² ≈ 4.7 M, so consider sharding. `before_first_only` is the sharding parameter: it keeps only the non-empty `before` sequences whose first entry is the named context entry (`"qsPea"`, `"ZWNJ"`, …), and still sweeps the empty prefix. Parametrized callers use it to spread one logical test across pytest-xdist workers, as with the other `_collect_pair_*` helpers.
+With the default `max_chars_before = max_chars_after = 1`, that is (1 + 46) × (1 + 46) = 2209 shaped strings. With both set to 2 it is (1 + 46 + 46²)² = 2163² ≈ 4.7 M, so consider sharding. `before_first_only` is the sharding parameter: it keeps only the non-empty `before` sequences whose first entry is the named context entry (`"qsPea"`, `"ZWNJ"`, …), and sweeps the empty prefix only in the shard named for the first entry of `_context_chars()`. Parametrized callers use it to spread one logical test across pytest-xdist workers, as with the other `_collect_pair_*` helpers.
 
 ## Worked example
 
