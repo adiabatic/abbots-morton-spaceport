@@ -1,6 +1,6 @@
 """Tests for `make job-costs` (`rebuild/tools/calibrate_budgets.py`): which journal records count as observations of each unit, when an observation is an overrun, and what the report prints.
 
-`_main` passes no seed stamps, so the seed bound excludes no fixture record. The tests of the seed bound pass their own stamps. A peak that a test compares with a constant is computed from the real constant, so the tests still pass after a constant is re-seeded.
+`_main` passes no constant commit times, so the measurement cutoff excludes no fixture record. The tests of the measurement cutoff pass their own commit times. A peak that a test compares with a constant is computed from the real constant, so the tests still pass after a constant is re-measured.
 """
 
 import json
@@ -54,8 +54,11 @@ def _journal(tmp_path, entries):
     return path
 
 
-def _main(path, *args, seed_stamps=None):
-    return cb.main(["--journal", str(path), *args], seed_stamps={} if seed_stamps is None else seed_stamps)
+def _main(path, *args, constant_commit_times=None):
+    return cb.main(
+        ["--journal", str(path), *args],
+        constant_commit_times={} if constant_commit_times is None else constant_commit_times,
+    )
 
 
 def _run(capsys, path, *args):
@@ -127,7 +130,7 @@ def test_an_overrun_of_the_belt_constant_trips_the_check(tmp_path, capsys):
     over = _journal(tmp_path, [_pool("conform-belt", [CONSTANTS["conform-belt"] + 1])])
     code, out = _run(capsys, over, "--check")
     assert code == 1
-    assert "re-seed CONFORM_BELT_BYTES in rebuild/tools/artifact_cycle.py" in out
+    assert "re-measure CONFORM_BELT_BYTES in rebuild/tools/artifact_cycle.py" in out
     under = _journal(tmp_path, [_pool("conform-belt", [CONSTANTS["conform-belt"] - 1])])
     assert _main(under, "--host", HOST, "--check") == 0
 
@@ -237,9 +240,9 @@ def test_a_unit_with_no_rows_from_this_host_says_the_constant_is_unverified_here
     assert "never which box a constant was sized on" in out
 
 
-def test_a_seeded_unit_this_host_never_ran_keeps_the_never_ran_wording(tmp_path, capsys):
+def test_a_committed_unit_this_host_never_ran_keeps_the_never_ran_wording(tmp_path, capsys):
     path = _journal(tmp_path, [_pool("font-suite", [CONSTANTS["font-suite"] // 2], host=OTHER)])
-    assert _main(path, "--host", HOST, seed_stamps={"font-suite": "2026-09-01T00:00:00Z"}) == 0
+    assert _main(path, "--host", HOST, constant_commit_times={"font-suite": "2026-09-01T00:00:00Z"}) == 0
     block = next(block for block in capsys.readouterr().out.split("\n\n") if block.startswith("font-suite"))
     assert "never which box a constant was sized on" in block
     assert "measured since the commit that set the constant" not in block
@@ -295,8 +298,8 @@ def test_a_record_older_than_the_constants_commit_is_never_held_against_it(tmp_p
         [_step("run_m1", over, at="2026-09-04T08:00:00Z", run="old")]
         + [_step("run_m1", under, at="2026-09-06T08:00:00Z", run="new")],
     )
-    seeded = {"kernel-build": "2026-09-05T20:18:22Z"}
-    assert _main(path, "--host", HOST, "--check", seed_stamps=seeded) == 0
+    committed = {"kernel-build": "2026-09-05T20:18:22Z"}
+    assert _main(path, "--host", HOST, "--check", constant_commit_times=committed) == 0
     out = capsys.readouterr().out
     assert (
         "since     : 2026-09-05T20:18:22Z, the commit that set TABLE_BUILD_PEAK_BYTES to its current value; 1 older record set aside"
@@ -306,21 +309,21 @@ def test_a_record_older_than_the_constants_commit_is_never_held_against_it(tmp_p
     assert "has no commit yet" in capsys.readouterr().out
 
 
-def test_the_archaeology_pass_reads_past_the_constants_commit(tmp_path, capsys):
+def test_the_full_history_run_reads_past_the_constants_commit(tmp_path, capsys):
     over = CONSTANTS["kernel-build"] * 3
     path = _journal(tmp_path, [_step("run_m1", over, at="2026-09-04T08:00:00Z")])
-    seeded = {"kernel-build": "2026-09-05T20:18:22Z"}
-    assert _main(path, "--host", HOST, "--check", seed_stamps=seeded) == 0
+    committed = {"kernel-build": "2026-09-05T20:18:22Z"}
+    assert _main(path, "--host", HOST, "--check", constant_commit_times=committed) == 0
     block = next(block for block in capsys.readouterr().out.split("\n\n") if block.startswith("kernel-build"))
     assert (
         "no record from this host for this unit has been measured since the commit that set the constant"
         in block
     )
     assert "never which box a constant was sized on" not in block
-    assert _main(path, "--host", HOST, "--check", "--recent", "0", seed_stamps=seeded) == 1
+    assert _main(path, "--host", HOST, "--check", "--recent", "0", constant_commit_times=committed) == 1
 
 
-def test_a_record_with_no_stamp_is_kept_under_the_seed_bound():
+def test_a_record_with_no_stamp_is_kept_under_the_measurement_cutoff():
     record = _step("run_m1", 1)
     del record["finished_at"]
     observed, _, older = cb.observations(
@@ -330,7 +333,7 @@ def test_a_record_with_no_stamp_is_kept_under_the_seed_bound():
     assert older == 0
 
 
-def test_the_seed_stamp_is_the_committer_time_of_the_constants_own_line(tmp_path):
+def test_the_constant_commit_time_is_the_committer_time_of_the_constants_own_line(tmp_path):
     import subprocess
 
     tree = tmp_path / "tree"
@@ -349,13 +352,13 @@ def test_the_seed_stamp_is_the_committer_time_of_the_constants_own_line(tmp_path
     git = lambda *args: subprocess.run(["git", *args], cwd=tree, env=env, check=True, capture_output=True)
     git("init", "-q")
     git("add", ".")
-    git("commit", "-q", "-m", "seed")
-    assert cb.constant_seeded_at(source, "DELTA_PEAK_BYTES", root=tree) == "2026-09-05T20:18:22Z"
+    git("commit", "-q", "-m", "measure")
+    assert cb.constant_set_at(source, "DELTA_PEAK_BYTES", root=tree) == "2026-09-05T20:18:22Z"
     source.write_text("OTHER = 1\nDELTA_PEAK_BYTES = 3_000_000_000\n", encoding="utf-8")
-    assert cb.constant_seeded_at(source, "DELTA_PEAK_BYTES", root=tree) is None
+    assert cb.constant_set_at(source, "DELTA_PEAK_BYTES", root=tree) is None
     env["GIT_COMMITTER_DATE"] = env["GIT_AUTHOR_DATE"] = "2026-09-06T01:02:03Z"
-    git("commit", "-q", "-am", "re-seed")
-    assert cb.constant_seeded_at(source, "DELTA_PEAK_BYTES", root=tree) == "2026-09-06T01:02:03Z"
+    git("commit", "-q", "-am", "re-measure")
+    assert cb.constant_set_at(source, "DELTA_PEAK_BYTES", root=tree) == "2026-09-06T01:02:03Z"
 
 
 def test_a_constant_moves_only_when_its_value_differs_from_heads(tmp_path):
@@ -377,7 +380,7 @@ def test_a_constant_moves_only_when_its_value_differs_from_heads(tmp_path):
     git = lambda *args: subprocess.run(["git", *args], cwd=tree, env=env, check=True, capture_output=True)
     git("init", "-q")
     git("add", ".")
-    git("commit", "-q", "-m", "seed")
+    git("commit", "-q", "-m", "measure")
     kernel = tree / cb.KERNEL_SOURCE
     text = kernel.read_text(encoding="utf-8")
     kernel.write_text('"""A rewritten docstring."""\n' + text, encoding="utf-8")
@@ -411,16 +414,16 @@ def test_the_moved_listing_names_each_constant_where_the_cycle_reads_it(capsys, 
     ]
 
 
-def test_a_tree_that_is_not_a_checkout_has_no_bound(tmp_path):
+def test_a_tree_that_is_not_a_checkout_has_no_measurement_cutoff(tmp_path):
     source = tmp_path / "kernel_exec.py"
     source.write_text("DELTA_PEAK_BYTES = 4_000_000_000\n", encoding="utf-8")
-    assert cb.constant_seeded_at(source, "DELTA_PEAK_BYTES", root=tmp_path) is None
+    assert cb.constant_set_at(source, "DELTA_PEAK_BYTES", root=tmp_path) is None
 
 
 def test_the_live_tree_dates_its_constants_in_the_journals_own_stamp_shape():
     import re
 
-    stamps = cb.read_seed_stamps()
+    stamps = cb.read_constant_commit_times()
     priced = {unit.name for unit in cb.UNITS if unit.constant is not None}
     assert set(stamps) <= priced
     for stamp in stamps.values():
@@ -510,7 +513,9 @@ def test_the_width_clauses_answer_for_the_box_and_the_tree_they_are_given(tmp_pa
     (tree / cb.CONFORM_SOURCE).write_text(
         'SETTLEMENT_CONFIGS = ("a", "b", "c")\nOVERLAY_CONFIGS = ("d",)\n', encoding="utf-8"
     )
-    rows = cb.build_rows([], {}, constants=CONSTANTS, host=HOST, recent=20, tolerance=0.0, seeded_at={})
+    rows = cb.build_rows(
+        [], {}, constants=CONSTANTS, host=HOST, recent=20, tolerance=0.0, constant_commit_times={}
+    )
     out = "\n".join(cb.render_rows(rows, host=HOST, total_bytes=48_000_000_000, cores=12, root=tree))
     assert "48.00 GB total" in out
     assert "capped at 3" in out

@@ -5748,7 +5748,7 @@ def test_do_job_costs_reports_a_clean_check():
 
 
 def test_do_job_costs_diffs_the_constants_when_the_check_trips():
-    """When the check trips, the step asks `calibrate_budgets --moved` which constants differ from their values at `HEAD`, to learn whether one has already been re-seeded in the working tree (so the commit in hand is already the acceptance), and the status names each one. Unlike the invariant diff, this one runs only on a trip."""
+    """When the check trips, the step asks `calibrate_budgets --moved` which constants differ from their values at `HEAD`, to learn whether one has already been re-measured in the working tree (so the commit in hand is already the acceptance), and the status names each one. Unlike the invariant diff, this one runs only on a trip."""
     calls: list[str] = []
     seen: dict[str, list[str]] = {}
 
