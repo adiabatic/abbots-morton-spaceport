@@ -224,7 +224,7 @@ fn a_case_replay_writes_either_result_shape_and_the_liveness_verb_refuses_the_fl
     assert_eq!(refused.status.code(), Some(2), "{}", complaint(&refused));
 }
 
-/// `guard-sweep --config=` writes one configuration's late-formation surface with as many rows as the default sweep over the feature powerset, and accepts `default` for the no-feature configuration. Each of these is a usage error (exit 2): an empty or non-canonical configuration token, as `--configs=` parses it; a repeated `--config=`; `--features=`, which this subcommand does not take; and any mode flag, because `guard.rs` fixes the guard's modes. A feature the spec never mentions fails the run (exit 1), as it does in `settle-cases`.
+/// `guard-sweep --config=` writes one configuration's guard verdict map with as many rows as the default sweep over the feature powerset, and accepts `default` for the no-feature configuration. Each of these is a usage error (exit 2): an empty or non-canonical configuration token, as `--configs=` parses it; a repeated `--config=`; `--features=`, which this subcommand does not take; and any mode flag, because `guard.rs` fixes the guard's modes. A feature the spec never mentions fails the run (exit 1), as it does in `settle-cases`.
 #[test]
 fn a_guard_sweep_answers_one_configuration_and_refuses_a_world_flag() {
     let root = scratch("cli-guard");
@@ -253,7 +253,7 @@ fn a_guard_sweep_answers_one_configuration_and_refuses_a_world_flag() {
                 .iter()
                 .filter(|byte| **byte == b'\n')
                 .count(),
-            "{token}'s surface has the quantified surface's rows"
+            "{token}'s map has the quantified map's rows"
         );
     }
     for tail in [

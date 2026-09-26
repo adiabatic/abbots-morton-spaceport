@@ -4,7 +4,7 @@ The semantics defaults live here beside the flags that pass them to the kernel. 
 
 The build is `cargo build --release` against the crate's manifest. Release is the only profile anything in the repository runs: the pipeline and the spec-echo test in `rebuild/test_kernel_io.py` both run `target/release/ams-m1-kernel`, and a debug binary is too slow to substitute for it. A machine without `cargo` gets a `KernelBuildError` that says how to install it. `ensure_built` builds once per process, and every caller in the process shares that build.
 
-`build_table_files` is what `run_m1` calls. One `build-tables` process enumerates every settlement configuration and folds each in place. It writes each configuration's settlement TSV, treaty TSV and plain window enumeration, and returns the contract digest of each configuration's pair of tables. No transition stream is written, because the fold reads the product the worklist still holds; that saves writing, reading and parsing several hundred megabytes per configuration. The configurations after `default` are deltas over it. `default` enumerates first and keeps its trace memo, and each other configuration reads that memo for every window whose key names none of its own unlocking runes and whose settlement read none of them, and traces only the rest. The memo is also carried across builds in the `memo-<config>.tsv.gz` files packed beside the tables. The next build reuses a memoized window only if its settlement read no rune whose content has changed and no predicate class whose membership has changed. `rebuild/kernel-rs/src/memo.rs` gives the argument, and `run_m1.previous_memos` decides which files may be read.
+`build_table_files` is what `run_m1` calls. One `build-tables` process enumerates every settlement configuration and folds each in place. It writes each configuration's settlement TSV, treaty TSV and plain window enumeration, and returns the table digest of each configuration's pair of tables. No transition stream is written, because the fold reads the product the worklist still holds; that saves writing, reading and parsing several hundred megabytes per configuration. The configurations after `default` are deltas over it. `default` enumerates first and keeps its trace memo, and each other configuration reads that memo for every window whose key names none of its own unlocking runes and whose settlement read none of them, and traces only the rest. The memo is also carried across builds in the `memo-<config>.tsv.gz` files packed beside the tables. The next build reuses a memoized window only if its settlement read no rune whose content has changed and no predicate class whose membership has changed. `rebuild/kernel-rs/src/memo.rs` gives the argument, and `run_m1.previous_memos` decides which files may be read.
 
 `enumerate_configs` is the stream fan-out. One process enumerates every named configuration and writes each one's transition stream to its own file. Nothing on the build's path calls it; `enumerate_transitions` and the tests do.
 
@@ -351,11 +351,11 @@ def build_table_files(
     moved_classes: Sequence[str] = (),
     memo_stamp: str | None = None,
 ) -> dict[str, str]:
-    """Every named configuration folded in the crate: its settlement TSV, its treaty TSV, its plain window enumeration stamped `inputs`, and the contract digest of the pair, returned as `{config: digest}`.
+    """Every named configuration folded in the crate: its settlement TSV, its treaty TSV, its plain window enumeration stamped `inputs`, and the table digest of the pair, returned as `{config: digest}`.
 
     This is `enumerate-configs` plus the fold in one process, so there is no stream between them: the fold runs on the product the worklist still holds. The windows payload is written uncompressed because the crate depends only on serde_json, and `run_m1.build_tables` packs it into the `.gz` artifact.
 
-    One process handles every named configuration because the configurations after `default` are enumerated as deltas over it. `default` enumerates first and keeps its trace memo. Each other configuration reads that memo for every window whose key names none of its own unlocking runes and whose settlement read none of them, and settles only the rest, `threads` worker slots at a time, with `default`'s fold in one of them. `rebuild/kernel-rs/src/memo.rs` gives the argument; the configuration corollary of the window-locality theorem makes the shared results exact. `default_memo_sharing=False` enumerates every configuration from scratch, and `rebuild/test_kernel_exec.py` checks that it writes the same bytes as the delta build.
+    One process handles every named configuration because the configurations after `default` are enumerated as deltas over it. `default` enumerates first and keeps its trace memo. Each other configuration reads that memo for every window whose key names none of its own unlocking runes and whose settlement read none of them, and settles only the rest, `threads` worker slots at a time, with `default`'s fold in one of them. `rebuild/kernel-rs/src/memo.rs` gives the argument; the window locality rule, applied across configurations, makes the shared results exact. `default_memo_sharing=False` enumerates every configuration from scratch, and `rebuild/test_kernel_exec.py` checks that it writes the same bytes as the delta build.
 
     The memo is also carried across builds. `previous_memos` is a directory of a previous build's plain `memo-<config>.tsv` files. They are read with `edited` (the runes whose content changed since) and `moved_classes` (the predicate classes whose membership changed) excluded, so a window whose settlement read none of them settles as it did then. The crate's read journal records what each entry read (`rebuild/kernel-rs/src/index.rs`). `memo_stamp` is the stamp this build writes its own plain `memo-<config>.tsv` files under, beside the tables; `run_m1.build_tables` packs them into `.gz` artifacts. Python decides which files may be read and which runes count as edited (`run_m1.previous_memos`), from the stamp in each head; the crate checks only that a file matches its configuration and world.
 
@@ -1147,7 +1147,9 @@ def _guard_verdicts(spec: ResolvedSpec, spec_path: Path, config: str | None = No
             detail.append(f"missing {len(missing)}")
         if extra:
             detail.append(f"carrying {len(extra)} unexpected")
-        raise KernelRunError(f"guard-sweep returned an incomplete surface ({', '.join(detail)} verdicts)")
+        raise KernelRunError(
+            f"guard-sweep returned an incomplete guard verdict map ({', '.join(detail)} verdicts)"
+        )
     return verdicts
 
 

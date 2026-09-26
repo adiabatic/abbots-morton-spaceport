@@ -474,19 +474,19 @@ mod tests {
         let index = alphabet_unlocking_the_ligature_exit();
         let ss03 = fixtures::sym(&index, "ss03");
         let quantified = sweep(&index).expect("the sweep runs");
-        let surfaces = [
+        let maps = [
             sweep_under(&index, Vec::new()).expect("the sweep runs"),
             sweep_under(&index, vec![ss03]).expect("the sweep runs"),
         ];
         let quantified = verdicts(&quantified);
-        let surfaces = surfaces.each_ref().map(|surface| verdicts(surface));
+        let maps = maps.each_ref().map(|map| verdicts(map));
         let mut disagreements = 0;
         for (seat, (key, blocked)) in quantified.iter().enumerate() {
-            let under_each: Vec<bool> = surfaces
+            let under_each: Vec<bool> = maps
                 .iter()
-                .map(|surface| {
-                    assert_eq!(surface[seat].0, *key, "every surface walks the same order");
-                    surface[seat].1
+                .map(|map| {
+                    assert_eq!(map[seat].0, *key, "every map walks the same order");
+                    map[seat].1
                 })
                 .collect();
             assert_eq!(*blocked, under_each.iter().all(|blocked| *blocked), "{key}");

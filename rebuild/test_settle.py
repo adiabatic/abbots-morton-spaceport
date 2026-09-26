@@ -529,15 +529,15 @@ def guard_by_configuration(real_spec) -> dict[frozenset[str], kernel_exec.Format
 
 
 def test_no_configuration_frees_a_window_the_quantified_guard_blocks(real_guard, guard_by_configuration):
-    """Every configuration's surface has the quantified surface's keys and blocks wherever the quantified surface blocks, so a single configuration's surface is the same or stricter."""
+    """Every configuration's guard verdict map has the quantified map's keys and blocks wherever the quantified map blocks, so a single configuration's map is the same or stricter."""
     assert len(guard_by_configuration) > len(conform.ACCEPTANCE_CONFIGS)
-    for features, surface in guard_by_configuration.items():
-        assert surface.keys() == real_guard.keys(), sorted(features)
-        assert all(surface[key] for key, blocked in real_guard.items() if blocked), sorted(features)
+    for features, verdict_map in guard_by_configuration.items():
+        assert verdict_map.keys() == real_guard.keys(), sorted(features)
+        assert all(verdict_map[key] for key, blocked in real_guard.items() if blocked), sorted(features)
 
 
-def test_ss03_is_the_one_set_the_guard_surface_depends_on(real_spec, real_guard, guard_by_configuration):
-    """The guard surface is not the same in every configuration, and ss03 is the only feature that changes it. Every configuration with ss03 sweeps the quantified surface. Every configuration without it (default, ss04, ss05, ss04+ss05, ss10) sweeps one stricter surface, which also blocks the windows `(X_qsUtter, ·Tea, r2)` for the qsUtter-trailing ligatures that qsTea's ss03 unlock names as lefts: there, the ss03 x-height entry into full ·Tea is the only join the ligature can offer the ·Tea. The font is correct either way, because formation runs before the ss markers and `settle.form_ligatures` reads the quantified sweep in every configuration: ·Day·Utter·Tea forms the ligature under default with ·Tea unjoined, and ·Tea joins it only under ss03 (`test_formation_survives_where_the_ligature_serves_the_follower` checks both). So a configuration delta may assume that ss04, ss05, and ss10 change no formation verdict, and that ss03 changes only these."""
+def test_ss03_is_the_one_set_the_guard_verdict_map_depends_on(real_spec, real_guard, guard_by_configuration):
+    """The guard verdict map is not the same in every configuration, and ss03 is the only feature that changes it. Every configuration with ss03 sweeps the quantified map. Every configuration without it (default, ss04, ss05, ss04+ss05, ss10) sweeps one stricter map, which also blocks the windows `(X_qsUtter, ·Tea, r2)` for the qsUtter-trailing ligatures that qsTea's ss03 unlock names as lefts: there, the ss03 x-height entry into full ·Tea is the only join the ligature can offer the ·Tea. The font is correct either way, because formation runs before the ss markers and `settle.form_ligatures` reads the quantified sweep in every configuration: ·Day·Utter·Tea forms the ligature under default with ·Tea unjoined, and ·Tea joins it only under ss03 (`test_formation_survives_where_the_ligature_serves_the_follower` checks both). So a configuration delta may assume that ss04, ss05, and ss10 change no formation verdict, and that ss03 changes only these."""
     tea = RightToken("letter", "qsTea")
     ligatures_ss03_names = {
         name
@@ -549,22 +549,22 @@ def test_ss03_is_the_one_set_the_guard_surface_depends_on(real_spec, real_guard,
     }
     assert ligatures_ss03_names
     without_ss03: dict[frozenset[str], frozenset] = {}
-    for features, surface in guard_by_configuration.items():
-        disagreements = frozenset(key for key, blocked in surface.items() if blocked != real_guard[key])
+    for features, verdict_map in guard_by_configuration.items():
+        disagreements = frozenset(key for key, blocked in verdict_map.items() if blocked != real_guard[key])
         if "ss03" in features:
             assert not disagreements, sorted(features)
         else:
             without_ss03[features] = disagreements
     assert {frozenset(), frozenset({"ss04"}), frozenset({"ss05"}), frozenset({"ss10"})} <= without_ss03.keys()
     (disagreements,) = set(without_ss03.values())
-    assert disagreements, "the finding has dissolved: every configuration sweeps the quantified surface"
+    assert disagreements, "the finding has dissolved: every configuration sweeps the quantified map"
     assert {right1 for _ligature, right1, _right2 in disagreements} == {tea}
     assert {ligature for ligature, _right1, _right2 in disagreements} == ligatures_ss03_names
     assert not any(real_guard[key] for key in disagreements)
 
 
-def test_the_guard_reads_letters_only_and_indexes_the_surface_it_was_given(real_guard):
-    """`guard_blocks` never blocks when the first slot is not a letter, because the guard only protects a following letter's join, so the sweep has no rows for boundaries. Every other triple is an indexed read, so a window the surface does not cover raises KeyError. A `.get(key, False)` there would silently form every ligature the emitted lookup withholds."""
+def test_the_guard_reads_letters_only_and_indexes_the_verdict_map_it_was_given(real_guard):
+    """`guard_blocks` never blocks when the first slot is not a letter, because the guard only protects a following letter's join, so the sweep has no rows for boundaries. Every other triple is an indexed read, so a window the verdict map does not cover raises KeyError. A `.get(key, False)` there would silently form every ligature the emitted lookup withholds."""
     utter = RightToken("letter", "qsUtter")
     assert not guard_blocks(real_guard, "qsDay_qsUtter", EDGE, utter)
     assert not guard_blocks(real_guard, "qsDay_qsUtter", RightToken("space"), utter)
@@ -647,7 +647,7 @@ REAL_WINDOWS = tuple(
 
 @pytest.fixture(scope="module")
 def real_guard(real_spec):
-    """The crate's complete late-formation verdict surface for the loaded rune YAML, the same memoized sweep `_traces` forms every real-spec window against."""
+    """The crate's complete late-formation guard verdict map for the loaded rune YAML, the same memoized sweep `_traces` forms every real-spec window against."""
     return kernel_exec.guard_sweep(real_spec)
 
 

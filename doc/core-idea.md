@@ -51,7 +51,7 @@ The product is **a real font that people can use on today’s computers**, with 
 
 ## Greenfield encoding, sacred cargo
 
-“Recreate it totally differently” means the **encoding** is replaced: the YAML structure, the patch stances and override lists, and the Python/FEA pipeline. The _content and the concepts_ carry over mostly unchanged:
+“Recreate it totally differently” means the **encoding** is replaced: the YAML structure, the override stances and override lists, and the Python/FEA pipeline. The _content and the concepts_ carry over mostly unchanged:
 
 - **Anchor points**, which OpenType’s cursive attachment (`curs`) uses to join glyphs.
 - **The Manual corpus and its `data-expect` notation** for stating which joins must happen at which heights.
@@ -62,7 +62,7 @@ The product is **a real font that people can use on today’s computers**, with 
 
 ### The stance set’s truth is held jointly by ductus _and_ bitmaps — and finishing the ductus gates the rewrite
 
-The stances-first model depends on each rune’s full set of motions. **Two equal sources** define that set, and neither contains the other:
+The stance-list authoring model depends on each rune’s full set of motions. **Two equal sources** define that set, and neither contains the other:
 
 - the **ductus**, which lists _how_ the rune is drawn (the strokes, their order, and the number of distinct motions), and
 - the **bitmaps**, the pixels that realize those motions. They are authoritative on their own, and none is derived from another.
@@ -73,12 +73,12 @@ The ductus is incomplete, and the author wants to **finish writing all of it bef
 
 This principle underlies all the specifics. **Much of this project is _discovering_ what looks good, what looks bad, and which rules produce good results.** The author is not transcribing a finished design. So the spec must never require a boundary to be drawn correctly _in advance_. Each important classification is **discovered over time and changed in place**, and the tooling should make that change easy:
 
-- **don’t-care → do-care:** when the author looks at a pair he never considered, he finds that he cares about it.
-- **one-off tiebreak → named case-group:** a conflict resolved by hand recurs, and the author turns the pattern into one named rule.
+- **unpinned → pinned:** when the author looks at a pair he never considered, he finds that he cares about it.
+- **one-off tiebreak → grouped resolve:** a conflict resolved by hand recurs, and the author turns the pattern into one named rule.
 - **ugly-with-a-signature → broken invariant:** a recurring ugliness turns out to have a structural sign, and the author adds it to the machine-checked set.
 - **broken → declared-OK:** a join the detector rejects looks fine, and the author records the exception.
 
-This is a confirmed design decision, not a side effect of an unfinished font. The system is a tool for _finding_ the right rules. Its defaults are permissive _where that is safe_ (the selection level: don’t-care, more joins are better) and opt-in where they must be (the capability level: nothing joins until a stance declares that it can). Its boundaries can move, and “I couldn’t have known that in advance” is a supported workflow. Read every “default”, “veto”, “pin”, and “forbid” below with this in mind.
+This is a confirmed design decision, not a side effect of an unfinished font. The system is a tool for _finding_ the right rules. Its defaults are permissive _where that is safe_ (the selection level: pairs start unpinned, and more joins are better) and opt-in where they must be (the capability level: nothing joins until a stance declares that it can). Its boundaries can move, and “I couldn’t have known that in advance” is a supported workflow. Read every “default”, “veto”, “pin”, and “forbid” below with this in mind.
 
 ## Where the authority for “correct” lives
 
@@ -97,11 +97,11 @@ No single source decides correctness. Correctness has **tiers**, and each tier h
 
 The “fine either way” verdict matters: for some pairs, _more than one_ outcome is acceptable. A spec that pins every pair to one exact result would report false failures on acceptable changes. A spec that pins nothing misses real regressions. The rebuild must let the author say how tightly each pair is _pinned_ and how much it is left _free_.
 
-## Don’t-care is the default — and it’s discovered, not declared
+## Unpinned is the default — and it’s discovered, not declared
 
-In ordinary text, most joins are don’t-care. A sequence of four or five characters might have one or two firm requirements from the Manual, and the author does not want to specify the rest. One global preference applies to the don’t-care space: **all else equal, more joins are better than fewer.**
+In ordinary text, most pairs are unpinned. A sequence of four or five characters might have one or two firm requirements from the Manual, and the author does not want to specify the rest. One global preference applies to the unpinned pairs: **all else equal, more joins are better than fewer.**
 
-The author **cannot reliably classify** a pair as don’t-care or do-care in advance. A pair stays don’t-care until the author looks at a result and decides that he cares. So the spec must not require an up-front verdict for every pair. It must support **incremental pinning**: start permissive, and let the author mark a pair as cared-about when he notices something, recording the verdict then.
+The author **cannot reliably classify** a pair as unpinned or pinned in advance. A pair stays unpinned until the author looks at a result and decides that he cares. So the spec must not require an up-front verdict for every pair. It must support **incremental pinning**: start permissive, and let the author mark a pair as cared-about when he notices something, recording the verdict then.
 
 This changes the to-do list. Only a few kinds of change should need human attention:
 
@@ -109,11 +109,11 @@ This changes the to-do list. Only a few kinds of change should need human attent
 - **Objective defects**: never on the _human’s_ to-do list. They are detected automatically so an agent can fix them. They take more of the author’s time than anything else (see below).
 - **A previously blessed discretionary pair that changed**: this is the only legitimate item on the to-do list.
 
-A changed don’t-care pair is not an error. It is shown for a quick review (see “Trusting a change”). The author acts only on pairs he already cares about and on defects the machine finds.
+A changed unpinned pair is not an error. It is shown for a quick review (see “Trusting a change”). The author acts only on pairs he already cares about and on defects the machine finds.
 
 ## The real job: cleanly express what each rune may and may not do
 
-The author’s main complaint about the current design is that it **does not clearly express what a given rune may and may not do.** Most of the debugging of constrained-but-free cases happens here, and fixing it is the rebuild’s central task.
+The author’s main complaint about the current design is that it **does not clearly express what a given rune may and may not do.** Most of the debugging of cases with several permitted outcomes happens here, and fixing it is the rebuild’s central task.
 
 A rune’s join behavior depends largely on **how the rune is physically written**, not on taste. These are structural capabilities. For example:
 
@@ -123,7 +123,7 @@ So each rune, and each stance, has a **join surface**: which entry heights it ac
 
 ## Contextual preference is a first-class, common pattern
 
-A common case of a constrained but free choice: a stance is **preferred in isolation**, but should give way when another stance improves the surrounding joins. Example: `·It·No.alt` is preferable to plain `·It·No` on its own. **But** if plain `·It·No` improves the wider context, by allowing a baseline join into ·It before it or an x-height join out of ·No after it, then plain `·It·No` should win. The spec must be able to say “prefer X in isolation, but switch to Y when Y gives a better neighbor join”, without special-purpose machinery for each case.
+A common case with several permitted outcomes: a stance is **preferred in isolation**, but should give way when another stance improves the surrounding joins. Example: `·It·No.alt` is preferable to plain `·It·No` on its own. **But** if plain `·It·No` improves the wider context, by allowing a baseline join into ·It before it or an x-height join out of ·No after it, then plain `·It·No` should win. The spec must be able to say “prefer X in isolation, but switch to Y when Y gives a better neighbor join”, without special-purpose machinery for each case.
 
 ## Defects must be found by the machine, not the eye
 
@@ -134,9 +134,9 @@ Defective pairs take **most** of the author’s debugging time. Detecting them a
 
 Both can be derived from accurate capability and geometry data, and neither should require the author to see it.
 
-## The unit of authoring is the written stance (stances-first)
+## The unit of authoring is the written stance (stance-list authoring)
 
-The spec is **stances-first**, not capability-matrix-first. A rune is written as a small, **closed, explicitly declared set of stances**: the real motions a hand would draw it with. ·May, for example, can be written counterclockwise or clockwise, and each motion needs its own bitmap to look right. The author wants to state that ·May has _only these N motions_ for being written and joined, and no more.
+The spec uses **stance-list authoring**, not capability-matrix authoring. A rune is written as a small, **closed, explicitly declared set of stances**: the real motions a hand would draw it with. ·May, for example, can be written counterclockwise or clockwise, and each motion needs its own bitmap to look right. The author wants to state that ·May has _only these N motions_ for being written and joined, and no more.
 
 Two properties are required, and they pull against each other:
 
@@ -145,7 +145,7 @@ Two properties are required, and they pull against each other:
 
 The legal join surface (which entry and exit heights, and which combinations, a rune supports) is **derived** from the stance set and shown to the author, not declared separately. The readability of a heights-first view is kept as a _derived display_, while authoring stays based on real written stances.
 
-**Open question:** stances-first _is_ essentially the current model, and the current problem is stances added one patch at a time. So the rebuild depends on a principled answer to this question: _what makes a stance a legitimate member of the stance set (a real motion for writing the rune), and what makes it a patch (a stance that exists only to fix one join bug)?_ Without that rule, a stances-first design could lead back to the same local maximum.
+**Open question:** stance-list authoring _is_ essentially the current model, and the current problem is stances added one patch at a time. So the rebuild depends on a principled answer to this question: _what makes a stance a legitimate member of the stance set (a real motion for writing the rune), and what makes it an override stance (a stance that exists only to fix one join bug)?_ Without that rule, a design built on stance-list authoring could lead back to the same local maximum.
 
 ## Attachment heights
 
@@ -166,13 +166,13 @@ This is also a current source of bugs: an LLM does not reliably extend _exactly_
 
 The author’s definition: **a stance belongs in a rune’s stance list if and only if it specifies a bitmap together with everything that is possible with it and how it should join to other things.** A stance fully describes one real motion for writing the rune and all its join capability.
 
-The patch stances contradict that definition. Stance lists grow because adding a stance is the easiest way in the current YAML to express something that is not a _motion for writing the rune_. It is a **contextual join override**, most often a _suppression_: “in this case, don’t join in _this_ way, even though it would otherwise be allowed.” The stance exists only to hold that override. Such stances are named after the _context that caused them_ (`*.before-day-exam`, `*_after_it_and_vie`, `*.ex-noentry`), not after a motion for writing the rune, and the name reliably shows it.
+The override stances contradict that definition. Stance lists grow because adding a stance is the easiest way in the current YAML to express something that is not a _motion for writing the rune_. It is a **contextual join override**, most often a _suppression_: “in this case, don’t join in _this_ way, even though it would otherwise be allowed.” The stance exists only to hold that override. Such stances are named after the _context that caused them_ (`*.before-day-exam`, `*_after_it_and_vie`, `*.ex-noentry`), not after a motion for writing the rune, and the name reliably shows it.
 
 The override complexity is real, and the author believes it is **irreducible**: the domain and OpenType’s limits are that complex. The goal is to **put it in the right place**, not to remove it. The author moves as much logic as possible into the Python. What can’t go there has become long override lists in `quikscript.yaml` that “smell like warts.”
 
 ### Where the pressure goes when stances stop carrying it
 
-Split what a patch stance does into its parts, each with its proper place:
+Split what an override stance does into its parts, each with its proper place:
 
 - **A different written shape** stays a stance, because it has its own bitmap and the definition above requires it to be a stance. But its _triggering context_ must not be part of its identity or name.
 - **The same shape, extended to reach** an awkward attachment, is an **extension/contraction**, not a new stance.
@@ -219,7 +219,7 @@ So the review workflow’s verdicts need at least approve or reject for each cha
 
 ## The readability bar: local completeness, even if the length is crazy-long
 
-The decided definition of clear, easy-to-understand YAML is **local completeness, not minimal size.** Reading one rune’s entry from top to bottom tells you everything the rune does and every join it permits or forbids. Understanding a _pair_ may require **both** runes open at once: one rune per editor pane, two panes. That is two-place locality in practice.
+The decided definition of clear, easy-to-understand YAML is **local completeness, not minimal size.** Reading one rune’s entry from top to bottom tells you everything the rune does and every join it permits or forbids. Understanding a _pair_ may require **both** runes open at once: one rune per editor pane, two panes. That is what it means for a pair to be described entirely in its two rune files.
 
 Two admissions:
 
@@ -279,7 +279,7 @@ Kerning is **both** a global and a per-pair fact:
 
 It applies to joined and unjoined pairs. It must also be aware of _resolved stances_, so it is not a static table. ·No·Pea needs no special kerning, but ·No.alt·Pea only looks right two pixels tighter. ·No·Tea needs none, but in ·No.alt·Tea.half·It the ·No.alt and ·Tea.half should sit closer because the ·Tea “isn’t anywhere near the baseline anymore.”
 
-These two facts seem to conflict. Stance-aware kerning seems to need the full rule machinery, but kerning is in a **separate flat file** (`glyph_data/senior_quikscript_kerning.yaml`). The separation is **only a tooling accommodation**, not part of the model. The author doesn’t trust a dependency-free, “vibe-coded” JavaScript editor to modify a deeply nested, well-commented YAML file safely, but a flat YAML file with `---`-separated entries is “boringly reliable” for such a tool. (This is the one allowed exception to two-place locality, described above.)
+These two facts seem to conflict. Stance-aware kerning seems to need the full rule machinery, but kerning is in a **separate flat file** (`glyph_data/senior_quikscript_kerning.yaml`). The separation is **only a tooling accommodation**, not part of the model. The author doesn’t trust a dependency-free, “vibe-coded” JavaScript editor to modify a deeply nested, well-commented YAML file safely, but a flat YAML file with `---`-separated entries is “boringly reliable” for such a tool. (This is the one allowed exception to describing a pair entirely in its two rune files, described above.)
 
 **This is the same tooling choice as for the review app (see “This is a real application”).** There are two kinds of editor: a simple `<textarea>` copy-and-paste tool, which is safe only for flat data, and a **full web app with its own server that edits the nested YAML source on disk directly.** If that app exists, the _tooling_ reason for keeping kerning in a separate flat file is weaker, because the app could safely edit nested source. The separate flat file suits the current simple tool. It says nothing about the kerning model.
 
@@ -312,7 +312,7 @@ Specificity gives a _total_ order only when conditions nest. Two rules can be **
 
 - **Default: don’t guess.** An incomparable conflict is a **hard build error**. The author must record an explicit tiebreak, which becomes a readable, more specific rule on the two runes. The build never resolves such a conflict silently, so a wrong outcome is caught by the machine and not left for the author to see. A fixed axis-priority ordering (a global ranking of which condition axes outrank which) is **rejected as the foundation**, because the author is confident he would never get such an ordering correct and complete.
 - **Known risk:** refusing to guess can produce a large number of hand-recorded tiebreaks, and a long rule list is itself hard to read (“there’s just _so much there_”). Without a way to group them, the tiebreaks could become another set of special cases added one patch at a time.
-- **The remedy: named case-groups using set algebra.** The author thinks in terms of **“ill-defined case groups”**: clusters of conflicts that should resolve the same way but whose membership isn’t yet stated precisely. The author can _name_ such a group, define its membership with set **union and subtraction** over stance and context sets, and attach **one** resolution to the group. This replaces many individual tiebreaks with one readable rule. It provides sensible defaults, and it is **group-based, not axis-based**, because a global axis ordering will never be complete. Like don’t-care, these groups are **discovered incrementally**: start with explicit hand-recorded tiebreaks, and turn a recurring pattern into a named group once it appears. A small, fixed axis-priority default may be added later for a few universal cases, on top of the groups, never beneath them.
+- **The remedy: grouped resolves using set algebra.** The author thinks in terms of **“ill-defined case groups”**: clusters of conflicts that should resolve the same way but whose membership isn’t yet stated precisely. The author can _name_ such a group, define its membership with set **union and subtraction** over stance and context sets, and attach **one** resolution to the group. This replaces many individual tiebreaks with one readable rule. It provides sensible defaults, and it is **group-based, not axis-based**, because a global axis ordering will never be complete. Like pinning, these groups are **discovered incrementally**: start with explicit hand-recorded tiebreaks, and turn a recurring pattern into a named group once it appears. A small, fixed axis-priority default may be added later for a few universal cases, on top of the groups, never beneath them.
 
 ## Trusting a change
 
@@ -321,11 +321,11 @@ This is the hardest part. After a change rebuilds the font, the results fall int
 1. **A pin broke.** The build fails, like a failing test. Not a to-do item.
 2. **A defect appeared** (collision, capability mismatch). Reported automatically, and must be fixed. Not a judgment call.
 3. **A previously pinned pair changed.** Reviewed.
-4. **A don’t-care pair changed.** **Shown by default**, and reviewed quickly.
+4. **An unpinned pair changed.** **Shown by default**, and reviewed quickly.
 
 ### The review workflow: fast, keyboard-driven, opinion-stamping
 
-Level 4 is shown by default, not hidden, because hiding it would lose the _moment of discovery_ when a don’t-care pair turns out to matter. The author has had good results with **keyboard-driven web apps that record many opinions quickly**, so the review app is one: every change is shown, and the author marks each with a **verdict from a small, mostly standard vocabulary**. The vocabulary has two requirements:
+Level 4 is shown by default, not hidden, because hiding it would lose the _moment of discovery_ when an unpinned pair turns out to matter. The author has had good results with **keyboard-driven web apps that record many opinions quickly**, so the review app is one: every change is shown, and the author marks each with a **verdict from a small, mostly standard vocabulary**. The vocabulary has two requirements:
 
 - Verdicts **can be copied into to-do lists** that drive the next round of agent edits.
 - Verdicts eventually **become pinned assertions**, concretely `data-expect` assertions that fix the behavior. Generating the right assertion is easy in simple cases and hard in complicated ones, and the tooling should do as much of it as possible.

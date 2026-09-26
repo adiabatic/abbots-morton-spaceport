@@ -148,7 +148,7 @@ class Surface:
     pairings: Pairings = field(default_factory=Pairings)
     cells: tuple[CellBinding, ...] = ()
     unlocks: tuple[Unlock, ...] = ()
-    require: tuple[str, ...] = ()  # ("entry",) / ("exit",) for join-born stances
+    require: tuple[str, ...] = ()  # ("entry",) / ("exit",) for stances that exist only when joined
 
 
 @dataclass(frozen=True)

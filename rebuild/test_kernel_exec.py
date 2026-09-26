@@ -435,7 +435,7 @@ class TestTheInvocationInterface:
         assert kernel_exec.guard_sweep(fixtures.mini_spec()) == first
         assert len(sweeps) == 2
 
-    def test_guard_sweep_returns_the_complete_semantic_surface(self):
+    def test_guard_sweep_returns_the_complete_guard_verdict_map(self):
         verdicts = kernel_exec.guard_sweep(SPEC)
         letters = tuple(RightToken("letter", name) for name in sorted(SPEC.runes))
         ligatures = tuple(name for name, rune in SPEC.runes.items() if rune.sequence)
@@ -448,18 +448,18 @@ class TestTheInvocationInterface:
             assert (ligature, first, NAMER_DOT) in verdicts
 
     def test_one_configuration_sweeps_the_same_keys_and_the_quantified_verdict_needs_every_one_to_block(self):
-        """`guard_sweep_under` returns one configuration's surface with the same keys as the quantified surface from `guard_sweep`, and runs the crate on every call. A quantified verdict blocks only where the verdict under every subset of the capability-unlock features blocks; `guard.rs` quantifies over the same powerset."""
+        """`guard_sweep_under` returns one configuration's guard verdict map with the same keys as the quantified map from `guard_sweep`, and runs the crate on every call. A quantified verdict blocks only where the verdict under every subset of the capability-unlock features blocks; `guard.rs` quantifies over the same powerset."""
         quantified = kernel_exec.guard_sweep(SPEC)
         features = spec_load.capability_features(SPEC)
-        surfaces = [
+        maps = [
             kernel_exec.guard_sweep_under(SPEC, frozenset(subset))
             for size in range(len(features) + 1)
             for subset in itertools.combinations(features, size)
         ]
-        assert len(surfaces) == 2 ** len(features)
-        assert all(surface.keys() == quantified.keys() for surface in surfaces)
+        assert len(maps) == 2 ** len(features)
+        assert all(verdict_map.keys() == quantified.keys() for verdict_map in maps)
         for key, blocked in quantified.items():
-            assert blocked == all(surface[key] for surface in surfaces), key
+            assert blocked == all(verdict_map[key] for verdict_map in maps), key
 
 
 @pytest.mark.parametrize(
@@ -672,7 +672,7 @@ class TestTheKernelInvocation:
             assert head is not None and head.stamp == run_m1.memo_stamp(edited)
 
     def test_a_configuration_delta_files_the_bytes_a_from_scratch_build_files(self, tmp_path):
-        """Every configuration after `default`, enumerated as a delta over `default`'s memo, writes the same settlement TSV, treaty TSV, and window enumeration, byte for byte, and returns the same digest as the same configuration enumerated on its own (the configuration corollary of the window-locality theorem). The mini fixture's `ss03` unlocks a half-·Tea x-height entry, so the delta has windows to share and windows to settle itself. The memo-sharing run claims its deltas heaviest-first (`fanout::delta_worklist`), and its results must still match the from-scratch run configuration by configuration."""
+        """Every configuration after `default`, enumerated as a delta over `default`'s memo, writes the same settlement TSV, treaty TSV, and window enumeration, byte for byte, and returns the same digest as the same configuration enumerated on its own (the window locality rule applied across configurations). The mini fixture's `ss03` unlocks a half-·Tea x-height entry, so the delta has windows to share and windows to settle itself. The memo-sharing run claims its deltas heaviest-first (`fanout::delta_worklist`), and its results must still match the from-scratch run configuration by configuration."""
         spec_path = tmp_path / "spec.json"
         kernel_io.write_spec(SPEC, spec_path)
         kernel_exec.ensure_built()
