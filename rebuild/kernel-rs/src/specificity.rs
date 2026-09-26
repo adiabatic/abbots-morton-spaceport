@@ -864,7 +864,7 @@ mod tests {
     }
 
     #[test]
-    fn crossing_axes_and_overlapping_lists_are_incomparable() {
+    fn non_nested_axes_and_overlapping_lists_are_incomparable() {
         let index = host_spec();
         assert_eq!(
             ranked(&index, "left-tea", "right-it"),

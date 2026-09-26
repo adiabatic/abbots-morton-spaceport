@@ -609,7 +609,7 @@ def test_ligature_left_admits_trailing_family_scopes(real_labels, sequence, expe
     assert real_labels[(sequence, ())] == expected
 
 
-def test_resolve_record_breaks_the_tea_oy_it_no_crossing(real_labels):
+def test_resolve_record_breaks_the_tea_oy_it_no_conflict(real_labels):
     """A resolve record against a named record (§5.8): qsTea_qsOy's resolve against qsIt's `withhold-before-no-after-oy` prefer picks the ligature's baseline exit in the tied ·It·No windows, so the ligature renders like the approved bare-·Oy case instead of raising E-INCOMPARABLE."""
     assert real_labels[("qsTea qsOy qsIt qsNo qsAh", ())] == (
         "qsTea_qsOy.hapax.ex-y0",

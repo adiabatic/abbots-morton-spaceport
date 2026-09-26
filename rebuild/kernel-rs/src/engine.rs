@@ -599,7 +599,7 @@ impl TraceNotesSeat {
     }
 }
 
-/// What the trace memo holds per window: two-byte seats into the memo's settled and notes pools, four-byte seats into [`Engine::deltas`] and the engine's reads pool, and one byte packing the prospect, the joint flag and the stage. That is sixteen bytes at four-byte alignment, with no heap. Packing the three fields into a byte saves nothing alone, because the alignment pads it. The two-byte seats are what take the entry from twenty bytes to sixteen. An instrumented run of an earlier layout (issue #165), which held the whole [`TransitionTrace`] and a boxed delta per entry, measured over a million entries per configuration naming a couple of hundred distinct settled records, about a hundred distinct notes lists and a few tens of thousands of distinct deltas. The ranking is stored separately in [`TraceMemo::rankings`], because only an engine built with [`EngineModes::explain_ranking`] has one, and neither the fixpoint nor the string replay is.
+/// What the trace memo holds per window: two-byte indexes into the memo's settled and notes pools, four-byte indexes into [`Engine::deltas`] and the engine's reads pool, and one byte packing the prospect, the joint flag and the stage. That is sixteen bytes at four-byte alignment, with no heap. Packing the three fields into a byte saves nothing alone, because the alignment pads it. The two-byte indexes are what take the entry from twenty bytes to sixteen. An instrumented run of an earlier layout (issue #165), which held the whole [`TransitionTrace`] and a boxed delta per entry, measured over a million entries per configuration naming a couple of hundred distinct settled records, about a hundred distinct notes lists and a few tens of thousands of distinct deltas. The ranking is stored separately in [`TraceMemo::rankings`], because only an engine built with [`EngineModes::explain_ranking`] has one, and neither the fixpoint nor the string replay is.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) struct TraceEntry {
     pub(crate) settled: TraceSettledSeat,
@@ -2290,10 +2290,10 @@ impl<'i> Engine<'i> {
                 ));
                 continue;
             }
-            let mut crossed = 0;
-            while crossed < applied.len() {
-                let previous = applied[crossed];
-                crossed += 1;
+            let mut conflicted = 0;
+            while conflicted < applied.len() {
+                let previous = applied[conflicted];
+                conflicted += 1;
                 let rank = specificity::outranks(
                     index,
                     previous.record,
@@ -2329,9 +2329,9 @@ impl<'i> Engine<'i> {
         Ok(current)
     }
 
-    /// The design section 5.8 resolution against a named record: a crossing between two runes' prefers resolves without an error when a `resolve:` on either rune names the other record in `against:` and its own `when:` does not definitely refuse this window. Unknown deep slots count as matching, as they do for refusals and unlocks.
+    /// The design section 5.8 resolution against a named record: a conflict between two runes' prefers resolves without an error when a `resolve:` on either rune names the other record in `against:` and its own `when:` does not definitely refuse this window. Unknown deep slots count as matching, as they do for refusals and unlocks.
     ///
-    /// The `pick:` pattern filters the stage's whole survivor set, not the narrowed list, because the resolve overrides both colliding records. Its provenance is added to the fired set and the notes, so explain output and the dead-policy check both see it. `None` means no resolve covers this crossing, which makes the collision E-INCOMPARABLE. Two matching resolves with different picks, and a pick that admits no survivor, raise E-INCOMPARABLE themselves.
+    /// The `pick:` pattern filters the stage's whole survivor set, not the narrowed list, because the resolve overrides both colliding records. Its provenance is added to the fired set and the notes, so explain output and the dead-policy check both see it. `None` means no resolve covers this conflict, which makes the collision E-INCOMPARABLE. Two matching resolves with different picks, and a pick that admits no survivor, raise E-INCOMPARABLE themselves.
     fn apply_resolution(
         &mut self,
         a: OwnedRecord<'i>,
@@ -4890,7 +4890,7 @@ mod tests {
         assert!(!Engine::new(&index, no_features()).trace_memo());
     }
 
-    /// A trace memo entry is two two-byte seats, two four-byte seats, and one byte packing the prospect, the joint flag, and the stage: sixteen bytes with no heap allocation. Its key is twenty bytes. [`TraceEntry`] and [`TraceKey`] say why the sizes matter.
+    /// A trace memo entry is two two-byte indexes, two four-byte indexes, and one byte packing the prospect, the joint flag, and the stage: sixteen bytes with no heap allocation. Its key is twenty bytes. [`TraceEntry`] and [`TraceKey`] say why the sizes matter.
     #[test]
     fn a_memoized_window_is_sixteen_bytes_under_a_twenty_byte_key() {
         assert_eq!(std::mem::size_of::<TraceEntry>(), 16);
@@ -4927,7 +4927,7 @@ mod tests {
         }
     }
 
-    /// A two-byte seat covers every index below its `CAPACITY`. The last one widens to the pool's own seat, and `try_at` returns `None` for the first index past the range instead of wrapping to a low seat.
+    /// A two-byte index covers every pool index below its `CAPACITY`. The last one widens to the pool's own seat, and `try_at` returns `None` for the first index past the range instead of wrapping to a low seat.
     #[test]
     fn a_trace_seat_covers_its_range_and_wraps_past_none_of_it() {
         let last = TraceSettledSeat::CAPACITY - 1;
@@ -5892,7 +5892,7 @@ mod tests {
                     Slots::new(tea_token, may_token, pea_token, UNKNOWN)
                 ),
                 Ok(Some(true)),
-                "our own rune's record reads the seat's raw deep slots whatever the follower prefer's mode"
+                "our own rune's record reads the window's raw deep slots whatever the follower prefer's mode"
             );
             assert_eq!(
                 engine.prefer_favors(
@@ -5932,7 +5932,7 @@ mod tests {
                 Slots::new(tea_token, may_token, may_token, may_token)
             ),
             Some(true),
-            "the pinned follower prefer answers the same whatever the seat's deep slots hold"
+            "the pinned follower prefer answers the same whatever the window's deep slots hold"
         );
 
         let mut shifted = Engine::new(&index, no_features());
@@ -5960,7 +5960,7 @@ mod tests {
     }
 
     /// Two prefers from different runes with equal specificity and conflicting demands, the case a `resolve` record settles. `qsPea` prefers a cell that uses its x-height exit, and `qsTea`'s follower prefer favors whichever `qsPea` cell leaves its own baseline exit usable. The caller passes `qsPea`'s `resolve` list.
-    fn crossing_spec(pea_resolve: &str) -> SpecIndex {
+    fn conflicting_prefers_spec(pea_resolve: &str) -> SpecIndex {
         let pea_policy = fixtures::policy(&[
             (
                 "prefer",
@@ -5985,15 +5985,15 @@ mod tests {
         ranking_spec(&pea_policy, &tea_policy)
     }
 
-    fn crossing_slots(index: &SpecIndex) -> Slots {
+    fn conflicting_prefers_slots(index: &SpecIndex) -> Slots {
         Slots::pair(letter_token(index, "qsTea"), letter_token(index, "qsMay"))
     }
 
     #[test]
-    fn a_crossing_between_two_runes_prefers_prints_the_resolve_that_would_settle_it() {
-        let index = crossing_spec("[]");
+    fn a_conflict_between_two_runes_prefers_prints_the_resolve_that_would_settle_it() {
+        let index = conflicting_prefers_spec("[]");
         let mut engine = Engine::new(&index, no_features());
-        let complaint = settle_pea(&mut engine, crossing_slots(&index))
+        let complaint = settle_pea(&mut engine, conflicting_prefers_slots(&index))
             .expect_err("neither rune's prefer contains the other's");
         assert_eq!(complaint.kind(), SettleErrorKind::Incomparable);
         assert_eq!(
@@ -6130,10 +6130,10 @@ mod tests {
                 ("pick", &fixtures::map(&[("exit", "\"x-height\"")])),
             ],
         )]);
-        let index = crossing_spec(&resolve);
+        let index = conflicting_prefers_spec(&resolve);
         let mut engine = Engine::new(&index, no_features());
-        let trace = settle_pea(&mut engine, crossing_slots(&index))
-            .expect("the resolve settles the crossing");
+        let trace = settle_pea(&mut engine, conflicting_prefers_slots(&index))
+            .expect("the resolve settles the conflict");
         assert_eq!(
             trace.settled.cell.exit,
             Some(fixtures::sym(&index, "x-height"))
@@ -6163,9 +6163,9 @@ mod tests {
                 ("pick", &fixtures::map(&[("stance", "\"ghost\"")])),
             ],
         )]);
-        let index = crossing_spec(&empty_pick);
+        let index = conflicting_prefers_spec(&empty_pick);
         let mut engine = Engine::new(&index, no_features());
-        let complaint = settle_pea(&mut engine, crossing_slots(&index))
+        let complaint = settle_pea(&mut engine, conflicting_prefers_slots(&index))
             .expect_err("a pick naming no stance of this rune admits no survivor");
         assert_eq!(complaint.kind(), SettleErrorKind::Incomparable);
         assert_eq!(
@@ -6193,9 +6193,9 @@ mod tests {
                 ],
             ),
         ]);
-        let index = crossing_spec(&disagreeing);
+        let index = conflicting_prefers_spec(&disagreeing);
         let mut engine = Engine::new(&index, no_features());
-        let complaint = settle_pea(&mut engine, crossing_slots(&index))
+        let complaint = settle_pea(&mut engine, conflicting_prefers_slots(&index))
             .expect_err("two resolves cannot both name the winner");
         assert_eq!(
             complaint.message(),
@@ -6943,7 +6943,7 @@ mod tests {
                 file: fixtures::sym(&index, "qsPea.yaml"),
                 path: fixtures::sym(&index, "policy.prefer[0]"),
             }),
-            "the record that applied before the crossing demonstrably fired"
+            "the record that applied before the conflict demonstrably fired"
         );
         let again = settle_pea(&mut engine, slots).expect_err("the window is still ambiguous");
         assert_eq!(first, again);

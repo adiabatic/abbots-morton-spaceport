@@ -718,7 +718,7 @@ mod tests {
         );
         assert!(
             fibers[0].members.len() == 1 && fibers[1].members.len() == 3,
-            "the one third whose fourth slot moves the seat is a class of its own, and the three that never do share one"
+            "the one third whose fourth slot moves the input letter's cell is a class of its own, and the three that never do share one"
         );
     }
 
@@ -865,7 +865,7 @@ mod tests {
     fn a_probed_window_records_four_outcomes_that_never_collapse() {
         let index = raising_spec();
         let mut engine = engine_in(&index);
-        let seat = fixtures::letter(&index, "qsPea");
+        let input = fixtures::letter(&index, "qsPea");
         let window = |third: &str| {
             Slots::new(
                 fixtures::letter(&index, "qsTea"),
@@ -891,17 +891,17 @@ mod tests {
         );
         assert_eq!(
             engine
-                .transition_trace(&committed, seat, window("qsPea"))
+                .transition_trace(&committed, input, window("qsPea"))
                 .map(|_| ())
                 .map_err(|error| error.kind()),
             Err(SettleErrorKind::UnacceptedExit),
             "qsPea bears no entry at all, so it accepts no committed seam"
         );
 
-        let settled = record(&mut engine, &edge, seat, window("qsPea"));
-        let incomparable = record(&mut engine, &edge, seat, window("qsMay"));
-        let ambiguous = record(&mut engine, &edge, seat, window("qsIt"));
-        let unreachable = record(&mut engine, &committed, seat, window("qsPea"));
+        let settled = record(&mut engine, &edge, input, window("qsPea"));
+        let incomparable = record(&mut engine, &edge, input, window("qsMay"));
+        let ambiguous = record(&mut engine, &edge, input, window("qsIt"));
+        let unreachable = record(&mut engine, &committed, input, window("qsPea"));
         let four = [&settled, &incomparable, &ambiguous, &unreachable];
         for (seat, own) in four.iter().enumerate() {
             for other in &four[seat + 1..] {
@@ -935,7 +935,7 @@ mod tests {
     fn a_settled_record_carries_every_stored_row_field() {
         let index = raising_spec();
         let mut engine = engine_in(&index);
-        let seat = fixtures::letter(&index, "qsPea");
+        let input = fixtures::letter(&index, "qsPea");
         let edge = LeftContext::boundary(TokenKind::Edge);
         let slots = Slots::new(
             fixtures::letter(&index, "qsTea"),
@@ -944,10 +944,10 @@ mod tests {
             EDGE,
         );
         let trace = engine
-            .transition_trace(&edge, seat, slots)
+            .transition_trace(&edge, input, slots)
             .expect("the fixture settles");
         assert_eq!(
-            record(&mut engine, &edge, seat, slots),
+            record(&mut engine, &edge, input, slots),
             FiberRecord::Settled {
                 settled: trace.settled,
                 prospect: trace.prospect,

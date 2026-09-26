@@ -327,30 +327,28 @@ def _store_environment(corpus: Path) -> str:
         return json.loads(next(stream))["environment"]
 
 
-def _crossing_class(corpus: Path, *, no_verdict: bool) -> tuple[str, int]:
+def _flipping_class(corpus: Path, *, no_verdict: bool) -> tuple[str, int]:
     """Return a mini-corpus class whose `no_verdict` is as given and that holds units no machine channel approves, with the number of those units. Flipping the class's exemption moves those units between the fragment shapes."""
     manifest = json.loads((corpus / "manifest.json").read_text(encoding="utf-8"))
     for meta in manifest["classes"]:
-        crossing = meta["unit_count"] - meta["machine_approved_count"]
-        if bool(meta["no_verdict"]) is no_verdict and crossing > 0:
-            return meta["id"], crossing
+        flipping = meta["unit_count"] - meta["machine_approved_count"]
+        if bool(meta["no_verdict"]) is no_verdict and flipping > 0:
+            return meta["id"], flipping
     raise AssertionError(
         f"the mini corpus holds no {'exempt' if no_verdict else 'human'} class a flip could move"
     )
 
 
-def test_a_unit_crossing_into_the_human_units_is_re_enriched_in_full(
-    mini_corpus, mini_bundle, tmp_path, capfd
-):
+def test_a_unit_that_loses_its_exemption_is_re_enriched_in_full(mini_corpus, mini_bundle, tmp_path, capfd):
     """`no_verdict` comes from the ledger and is outside the content key, so a unit whose key does not change could be given a fragment of the wrong shape unless the store records which shape it holds. When a class loses its `no_verdict`, every unit in it that no machine channel approves is a cache miss and is drafted in full, the machine-approved ones stay cached, and the corpus is byte-identical to a from-scratch build under the edited ledger."""
-    EXEMPT_CLASS, crossing = _crossing_class(mini_corpus, no_verdict=True)
+    EXEMPT_CLASS, flipping = _flipping_class(mini_corpus, no_verdict=True)
     assert not _class_meta(mini_corpus, EXEMPT_CLASS)["batches"]
     ledger = _ledger_with(mini_bundle, tmp_path, EXEMPT_CLASS, no_verdict=False)
     incremental = _copy(mini_corpus, tmp_path)
     capfd.readouterr()
     _build(incremental, mini_bundle, ledger_path=ledger, jobs=1)
     cached, total = _cached(capfd)
-    assert total - cached == crossing
+    assert total - cached == flipping
     for fragment in _class_fragments(incremental, EXEMPT_CLASS):
         assert fragment["no_verdict"] is False
         whole = not slim_fragment(fragment)
@@ -362,15 +360,15 @@ def test_a_unit_crossing_into_the_human_units_is_re_enriched_in_full(
     assert _tree(incremental) == _tree(scratch)
 
 
-def test_a_unit_crossing_out_of_the_human_units_is_written_slim(mini_corpus, mini_bundle, tmp_path, capfd):
+def test_a_unit_that_gains_its_exemption_is_written_slim(mini_corpus, mini_bundle, tmp_path, capfd):
     """The reverse flip: when a class gains `no_verdict`, its human units are re-drafted slim instead of being reused whole with drafts nobody will read, so the cached corpus matches what a from-scratch build writes."""
-    HUMAN_CLASS, crossing = _crossing_class(mini_corpus, no_verdict=False)
+    HUMAN_CLASS, flipping = _flipping_class(mini_corpus, no_verdict=False)
     ledger = _ledger_with(mini_bundle, tmp_path, HUMAN_CLASS, no_verdict=True)
     incremental = _copy(mini_corpus, tmp_path)
     capfd.readouterr()
     _build(incremental, mini_bundle, ledger_path=ledger, jobs=1)
     cached, total = _cached(capfd)
-    assert total - cached == crossing
+    assert total - cached == flipping
     for fragment in _class_fragments(incremental, HUMAN_CLASS):
         assert fragment["no_verdict"] is True and "batch" not in fragment
         assert not any(key in fragment for key in SLIM_OMITTED_KEYS), fragment["id"]

@@ -452,7 +452,7 @@ def _resolve_record(context: _FileContext, raw: dict, path: str, provenance: Pro
     if isinstance(raw.get("when"), dict) and "self" in raw["when"]:
         context.error(
             path,
-            "self: conditions on a resolve are not yet implemented (a resolve is consulted before any cell of its seat is chosen)",
+            "self: conditions on a resolve are not yet implemented (a resolve is consulted before any cell at its position is chosen)",
         )
     against = (against_raw["rune"], against_raw.get("id")) if against_raw else None
     return PolicyRecord(

@@ -1605,7 +1605,7 @@ mod tests {
         assert!(!back.is_empty());
     }
 
-    /// A file with more settled records or notes lists than a trace entry's two-byte seat can index fails at the first line past the range, naming that line, instead of wrapping the seat. A file with exactly the range reads.
+    /// A file with more settled records or notes lists than a trace entry's two-byte index can address fails at the first line past the range, naming that line, instead of wrapping the seat. A file with exactly the range reads.
     #[test]
     fn a_memo_seating_more_than_a_trace_seat_names_is_refused() {
         let index = fixtures::mini();
@@ -1681,7 +1681,7 @@ mod tests {
         }
     }
 
-    /// The same range at the writer: a union with more distinct settled records or notes lists than a trace entry's two-byte seat can index fails at the write, naming the file, instead of producing a file the next build would reject. A union at exactly the range writes and reads back whole. Each source here is within the range on its own, so only the union exceeds it.
+    /// The same range at the writer: a union with more distinct settled records or notes lists than a trace entry's two-byte index can address fails at the write, naming the file, instead of producing a file the next build would reject. A union at exactly the range writes and reads back whole. Each source here is within the range on its own, so only the union exceeds it.
     #[test]
     fn a_union_seating_more_than_a_trace_seat_names_is_refused_at_the_write() {
         let index = fixtures::mini();
