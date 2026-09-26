@@ -443,7 +443,7 @@ const threeClusters = () => [
   makeUnit('u-0021', { cluster: 'c-small', echo: 'e-0021' }),
 ];
 
-test('nextDocketDecision steps past a cluster the sitting has already shown, however large, to one it never opened', () => {
+test('nextDocketDecision steps past a cluster the session has already shown, however large, to one it never opened', () => {
   const units = threeClusters();
   const first = nextDocketDecision(units, blank, new Set(), new Set(['c-big']));
   assert.equal(first.cluster.id, 'c-mid');

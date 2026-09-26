@@ -1,6 +1,6 @@
 # The review cycle
 
-This is the operator's guide to the artifact cycle: what a pass does, what it skips, what it writes while the review app is running, and what it leaves on disk. The module docstring of `rebuild/tools/artifact_cycle.py` is the authority on the plan a pass resolves, and the Makefile comments above the targets named here are the authority on each target's flags. To prepare a sitting on the surface, use the `review-docket` skill. To turn a repeated verdict into a checked-in rule, use `dont-bug-me-about-this-ever-again`. To act on a sitting's rejects, use `just-verdicted-now-what`.
+This is the operator's guide to the artifact cycle: what a pass does, what it skips, what it writes while the review app is running, and what it leaves on disk. The module docstring of `rebuild/tools/artifact_cycle.py` is the authority on the plan a pass resolves, and the Makefile comments above the targets named here are the authority on each target's flags. To prepare a review session on the surface, use the `review-docket` skill. To turn a repeated verdict into a checked-in rule, use `dont-bug-me-about-this-ever-again`. To act on a review session's rejects, use `just-verdicted-now-what`.
 
 ## The commands
 

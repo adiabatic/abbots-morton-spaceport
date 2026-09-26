@@ -1,6 +1,6 @@
 ---
 name: just-verdicted-now-what
-description: Turn a just-finished review sitting's reject/neither verdicts into rune YAML changes — bake the complaint docket, collapse groups to flaws, design the minimal record change against the baseline TSV, verify with probe and the gates, and land it. The aftermath companion to review-docket (which prepares a sitting; this consumes one).
+description: Turn a just-finished review session's reject/neither verdicts into rune YAML changes — bake the complaint docket, collapse groups to flaws, design the minimal record change against the baseline TSV, verify with probe and the gates, and land it. The aftermath companion to review-docket (which prepares a session; this consumes one).
 argument-hint: "[verdicts-file]"
 ---
 

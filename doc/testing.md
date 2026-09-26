@@ -10,8 +10,8 @@ This file maps each kind of change to the gate that checks it, and says what eac
 | Anything under `rebuild/`                                  | `make test-rebuild`                                                        |
 | Settlement or proof-fold semantics in `rebuild/kernel-rs/` | `make kernel-gate`, then `make test-rebuild`                               |
 | A rune or pipeline edit, to rebuild and recheck the tables | `uv run python -m rebuild.pipeline.run_m1` (or a `make review-cycle` pass) |
-| Commit time                                                | `make artifact-cycle`; `make review-cycle` when a sitting follows          |
-| Is a sitting ready?                                        | `make verdict-ready`                                                       |
+| Commit time                                                | `make artifact-cycle`; `make review-cycle` when a review session follows   |
+| Is it ready for review?                                    | `make verdict-ready`                                                       |
 | Periodic, by hand or overnight                             | `make test-rebuild-slow`, `make conform-deep`, `make replay-deep`          |
 
 Never single-thread a broad run; `doc/parallelism.md` has the width rules. Run anything that includes the heavy gates detached; `doc/running-long-steps.md` has the recipe.
@@ -43,7 +43,7 @@ Never single-thread a broad run; `doc/parallelism.md` has the width rules. Run a
   - The review surface's per-unit checks, `check_unit` and `check_shards` in `rebuild/review/build.py`. A build runs `check_unit` in the worker that drafts a fragment and again in the parent that writes it, each time over the fields settled by then, and runs `check_shards` over the surface read back from disk.
   - The rule certificates the crate writes beside every table's rules. `run_m1`'s witness stage (`run_rule_witnesses`) settles each certificate and asserts that its rule is the first to match at some position in it. It runs on the table-only branch beside the glyph chain, which is joined before the run_m1 gate is decided. `rebuild/test_rule_witnesses.py` tests the witness code on the mini fixture, and `rebuild/test_run_m1_tail.py` tests the branch's join and its error order.
   - The order the settlement lookup ships its rules in. The shipped-order walk on the same branch replays it against every configuration's rows (`run_emitted_order`, over the crate's `replay-emitted` subcommand); `rebuild/test_emitted_order.py` tests it on the same fixture.
-  - Every ligature stance's declared outgoing mapping, settled against the formed rune before the tables are built (`run_m1.run_ligature_outgoing` over `rebuild/pipeline/ligature_outgoing_check.py`). `rebuild/test_ligature_outgoing_check.py` tests it on the synthetic fixture, and `rebuild/test_ligature_outgoing.py` tests the loader's inheritance rules. A ligature-local record that loses or moves a join its trailing letter permits fails the build instead of showing up in a sitting.
+  - Every ligature stance's declared outgoing mapping, settled against the formed rune before the tables are built (`run_m1.run_ligature_outgoing` over `rebuild/pipeline/ligature_outgoing_check.py`). `rebuild/test_ligature_outgoing_check.py` tests it on the synthetic fixture, and `rebuild/test_ligature_outgoing.py` tests the loader's inheritance rules. A ligature-local record that loses or moves a join its trailing letter permits fails the build instead of showing up in a review session.
 - No suite test can fail on a stale artifact, because none reads one. After a rune or pipeline edit, run the M1 build to recheck the tables.
 - `make test-rebuild` is also the pyright gate for `rebuild/`: `make_test_exempt` exempts that whole tree, so `make test` never checks it.
   - Pyright skips on its own green record here as it does under `make test`, so a run narrowed to a rune edit's tests starts no pyright.

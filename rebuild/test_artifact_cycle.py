@@ -5067,7 +5067,7 @@ def test_main_takes_no_route_at_all_under_fresh(tmp_path, monkeypatch, capsys):
 def test_run_cycle_skips_the_sweep_after_run_m1_on_the_key_the_finished_artifacts_carry(
     monkeypatch, tmp_path, capsys
 ):
-    """The conform skip is decided after run_m1, not in the plan, because only a finished build knows what the font came out as. All three run_m1 routes (skipped, gates-only, rebuilt) end on this same key. A skip over the artifacts the pass leaves behind is recorded as "proved", which is what `review/status.py` needs to call a surface sitting-ready."""
+    """The conform skip is decided after run_m1, not in the plan, because only a finished build knows what the font came out as. All three run_m1 routes (skipped, gates-only, rebuilt) end on this same key. A skip over the artifacts the pass leaves behind is recorded as "proved", which is what `review/status.py` needs to call a surface ready for review."""
     monkeypatch.setattr(cycle_paths, "CONFORM_GREEN", tmp_path / "conform-green.json")
     monkeypatch.setattr(ac, "conform_skip_fingerprint", lambda root=None, horizon=None: "cfp")
     monkeypatch.setattr(ac, "rebuild_lane_fingerprint", lambda root, lane: f"rfp-{lane}")

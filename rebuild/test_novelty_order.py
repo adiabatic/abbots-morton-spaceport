@@ -179,7 +179,7 @@ def test_main_limit_emits_a_prefix(repo, monkeypatch, capsys):
     assert len(worklist_url(out).split("#units=")[1].split("&")[0].split(",")) == 2
 
 
-def test_main_defaults_to_a_forty_rep_sitting(repo, monkeypatch, capsys):
+def test_main_defaults_to_a_forty_unit_worklist(repo, monkeypatch, capsys):
     write_surface(repo, [unit(f"u-{number:04d}") for number in range(1, 46)])
     write_verdicts(repo, [])
     out = run_main(repo, monkeypatch, capsys)

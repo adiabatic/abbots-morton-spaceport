@@ -29,7 +29,7 @@ Surface loads: every standing_probe.py call except a bare --shapes, and every st
 
 Never run make test, make test-rebuild, make review-cycle, make artifact-cycle, make kernel-gate, make conform-deep or rebuild_gate: this workflow's last step launches the gate-and-cycle chain once, after every commit. Never start or stop the review server. Nothing but this workflow's lander commits; git status, git diff, git log and git show are yours. Never edit rebuild/review-census-pins.json.
 
-The user approved every window in this batch at a sitting, and that approval is the decision to record; the skill's step 3 still applies to each phenomenon: find the record (a verdict family, the rune edit found by git log -S<token> -- glyph_data/runes/qs<Family>.yaml, a sitting note) and cite it in the note:. A survey whose siblings carry neither or reject on the same stroke is a conflict to hold out and report, never a rule.
+The user approved every window in this batch at a review session, and that approval is the decision to record; the skill's step 3 still applies to each phenomenon: find the record (a verdict family, the rune edit found by git log -S<token> -- glyph_data/runes/qs<Family>.yaml, a review-session note) and cite it in the note:. A survey whose siblings carry neither or reject on the same stroke is a conflict to hold out and report, never a rule.
 
 Your final message is the structured result and nothing else.`
 

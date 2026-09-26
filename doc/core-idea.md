@@ -370,7 +370,7 @@ Most of what is rendered and compared is **generated nonsense**: synthetic chara
 Consequences for verification:
 
 - The Manual corpus is the cheap, authoritative **required** subset. The generated corpus is the **exhaustive** bulk that finds the bugs.
-- Changes shown by default are therefore mostly _synthetic_ combinations. That is why the review application must handle **hundreds** of decisions in one sitting, and why the success metric (the machine notices, the human only judges) depends on that tool.
+- Changes shown by default are therefore mostly _synthetic_ combinations. That is why the review application must handle **hundreds** of decisions in one review session, and why the success metric (the machine notices, the human only judges) depends on that tool.
 
 ## Selection is local and explainable — and the real activity is saying no
 

@@ -50,7 +50,7 @@ NO_FONTS = (
 )
 DOCKET_NOTE = (
     "  a docket, not an instruction to widen: each form, follower and cell above joins the rule only once "
-    "its own recorded decision has been found — the verdict family, the rune edit, or the sitting that "
+    "its own recorded decision has been found — the verdict family, the rune edit, or the review session that "
     "decided it"
 )
 

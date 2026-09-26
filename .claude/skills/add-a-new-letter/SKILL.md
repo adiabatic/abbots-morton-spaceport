@@ -49,7 +49,7 @@ Add the codepoint to `M1_ALPHABET` in `rebuild/pipeline/baseline_subset.py`. Not
 
 ## 4 — batch scratch and WHATNEXT
 
-Create `rebuild/M1-BATCH<n+1>-PROGRESS.md` (n = the newest existing batch) holding only what the note-taking rules allow: what's parked, recorded design overrides, the verification recipe, resume commands. Delete an older batch file only if its sitting has closed, lifting survivors into WHATNEXT.md. Update WHATNEXT's frontier paragraph in place, and edit or delete any letter-keyed bullet this migration discharges.
+Create `rebuild/M1-BATCH<n+1>-PROGRESS.md` (n = the newest existing batch) holding only what the note-taking rules allow: what's parked, recorded design overrides, the verification recipe, resume commands. Delete an older batch file only if its review session has closed, lifting survivors into WHATNEXT.md. Update WHATNEXT's frontier paragraph in place, and edit or delete any letter-keyed bullet this migration discharges.
 
 ## 5 — verify
 
@@ -73,7 +73,7 @@ make verdict-ready
 
 ## 6 — land and hand off
 
-Show the diff, present the sub-agent's commit-message candidates, wait for the go-ahead, land everything as the single `Add ·X` commit. Afterward the user runs `make review-cycle` and adjudicates the new units in a sitting — preparing one is `/review-docket`'s job and consuming its verdicts is `/just-verdicted-now-what`'s. The batch closes when its sitting does; only then does its progress file go.
+Show the diff, present the sub-agent's commit-message candidates, wait for the go-ahead, land everything as the single `Add ·X` commit. Afterward the user runs `make review-cycle` and adjudicates the new units in a review session — preparing one is `/review-docket`'s job and consuming its verdicts is `/just-verdicted-now-what`'s. The batch closes when its review session does; only then does its progress file go.
 
 ## The bundled evidence tool
 
