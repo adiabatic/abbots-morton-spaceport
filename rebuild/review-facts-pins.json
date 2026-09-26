@@ -5,7 +5,7 @@
       "zwnj-word-initial-unification",
       "post-marker-ligature-formation",
       "pre-ligature-cleanup-regularized",
-      "regrouping-floor-drift",
+      "regrouped-chain",
       "ss03-chain-join-gains",
       "entered-it-baseline-join-gain",
       "pea-chain-regularized",
