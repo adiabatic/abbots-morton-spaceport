@@ -1,6 +1,6 @@
 """Print whether the review corpus is ready to adjudicate now.
 
-It runs `rebuild.review.status.compute_status` over the production paths, adds a check that the review server is listening on port 7294, and prints a checklist, or the status dict as JSON under `--json`. It exits 0 only when every blocking check passes and the server is up, so it can serve as a Makefile guard. The artifact cycle calls `readiness` and `checklist` to print the same checklist at the end of every green pass that is not a rehearsal, so this CLI is for asking the question between passes.
+It runs `rebuild.review.status.compute_status` over the production paths, adds a check that the review server is listening on port 7294, and prints a checklist, or the status dict as JSON under `--json`. It exits 0 only when every blocking check passes and the server is up, so it can serve as a Makefile guard. The artifact cycle calls `readiness` and `checklist` to print the same checklist at the end of every green pass that is not a staging pass, so this CLI is for asking the question between passes.
 """
 
 import argparse

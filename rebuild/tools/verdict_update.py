@@ -127,7 +127,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--no-merge",
         action="store_true",
-        help="carry only: never write the live store, and run neither fill nor the complaint list (the rehearsal form)",
+        help="carry only: never write the live store, and run neither fill nor the complaint list (the staging form)",
     )
     parser.add_argument(
         "--no-complaints",

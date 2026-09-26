@@ -31,7 +31,7 @@ Every other heavy stage skips on the same principle: a content fingerprint over 
 - run_m1 skips on rebuild/out/run-m1-green.json (the Stage A fingerprint components plus the contact allow-list, the oracle's subset tables and uv.lock's dependency pins) and re-evaluates its gate from the summary JSONs on disk.
 - gate:conform skips on conform-green.json, keyed on what the belt tests for, not on run_m1's closure: the emitted lookup's behavior classes, the font-compilation code and its tools/ closure, the uharfbuzz version, and the sweep horizon (`conform_skip_fingerprint`). A rune edit that creates no new rule shape leaves that key unchanged, because the crate's string replay inside run_m1 has already checked the new tables against the engine over every string.
 - The rebuild suite skips on rebuild-contracts-green.json, keyed by `rebuild_lane_fingerprint` over its closure: the repo files under rebuild/ and glyph_data/, the harness files in REBUILD_GATE_HARNESS_PATHS, conftest.py, pyproject.toml, uv.lock by its dependency pins, and the site fonts without their head and name tables. The closure contains no build artifact, so the suite can skip whether or not run_m1 rebuilt: an M1 rebuild writes only under rebuild/out, which the closure does not include. The record also stores each test's input closure, so a pass whose key changed runs only the tests whose closure the diff reaches; a rune edit reruns the tests that load the spec and nothing else. rebuild.tools.contracts_closure defines what a closure holds and when a test may be skipped, and runs the test whenever it cannot tell. rebuild.tools.rebuild_gate (`make test-rebuild`) writes the same record, so interactive and cycle greens share it.
-- corpus-build skips when the manifest's recorded inputs fingerprint equals the one a build would stamp now. A rebuild would then be byte-identical, including `generated_at` (the latest input mtime, floored), so the autosave stays aligned. When the live corpus does not match but a rehearsal's directory does (the last cycle summary's `plan.review_out`, or var/rehearsal-review), that directory is moved into rebuild/out/review with its stores instead (`corpus-promote`; `promotable_corpus` checks the preconditions). Every stamp inside a corpus depends only on content relative to its manifest, and the move keeps the `generated_at` a rebuild would reset.
+- corpus-build skips when the manifest's recorded inputs fingerprint equals the one a build would stamp now. A rebuild would then be byte-identical, including `generated_at` (the latest input mtime, floored), so the autosave stays aligned. When the live corpus does not match but a staged corpus does (the last cycle summary's `plan.review_out`, or var/staged-review), that directory is moved into rebuild/out/review with its stores instead (`corpus-promote`; `promotable_corpus` checks the preconditions). Every stamp inside a corpus depends only on content relative to its manifest, and the move keeps the `generated_at` a rebuild would reset.
 - The census step has no key and never skips: it reads the corpus build's census-facts.json sidecar and rewrites one small checked-in file in milliseconds.
 
 The corpus skip applies only on passes where run_m1 skipped, and on a gates-only rerun when the Stage A record on disk already matches what that pass will write (`m1_stage_a_current`), because the corpus reads nothing else the pass writes. That happens on a contact-allow bless, the only comparison-side edit outside every Stage A component.
@@ -48,11 +48,11 @@ A pass whose corpus did not change but whose store did has its own mode, the dir
 
 An edit confined to rebuild/review/static/ also has its own mode. The copied app assets are the one corpus input no unit depends on, so the pass copies them over the served copy and restamps that one fingerprint component (`assets-refresh`). Every shard, both sidecars, the unit-cache store and `generated_at` stay as they were, so nothing the tab is keyed on changes, the review server keeps running, and livereload reloads the tab with the new assets.
 
-A corpus promotion is the opposite case under the same skip. The whole tree under the app is replaced by the rehearsal's and the stamp changes with it, so the pass stops the review server. Both the verdict-update skip and the direct merge are off, because both assume the corpus did not change, and here the store's verdicts must be carried onto the promoted units by id.
+A corpus promotion is the opposite case under the same skip. The whole tree under the app is replaced by the staged corpus's and the stamp changes with it, so the pass stops the review server. Both the verdict-update skip and the direct merge are off, because both assume the corpus did not change, and here the store's verdicts must be carried onto the promoted units by id.
 
 A pass that writes under the app needs the review server stopped. --stop-server (which `make review-cycle` passes) lets it terminate the server and wait until the port is free; without it the pass stops and prints how to proceed. Retention also writes: the app appends to the journal as verdicts are recorded, and a compaction rewrites the file around a read, so while a server is up the journal and the stash sweep that depends on it are left for a later pass.
 
-A green finish ends with a retention pass over the cycle's own files, all of them regenerable or covered by the journal. Root verdicts-carried-*.json files not stamped for the live corpus are deleted, since `status.pick_frontier` reads only files stamped for the live corpus, and the tracked copy under rebuild/evidence/ is never touched. verdicts-autosave-* stashes not referenced by a journal event at or after the last base event are deleted. The journal, not the stashes, is the supported recovery path, and the check uses the journal's references because a stash's mtime predates the event that created it. The journal is compacted to the newest base event older than RETENTION_WINDOW_DAYS, keeping at least that many days of --restore-as-of history, and build-log run directories beyond the newest `cycle_paths.BUILD_LOGS_KEEP` are deleted. Failed, interrupted, first-run, and rehearsal cycles never prune, --keep-history turns retention off, and a retention error prints a warning and never turns a green cycle red.
+A green finish ends with a retention pass over the cycle's own files, all of them regenerable or covered by the journal. Root verdicts-carried-*.json files not stamped for the live corpus are deleted, since `status.pick_frontier` reads only files stamped for the live corpus, and the tracked copy under rebuild/evidence/ is never touched. verdicts-autosave-* stashes not referenced by a journal event at or after the last base event are deleted. The journal, not the stashes, is the supported recovery path, and the check uses the journal's references because a stash's mtime predates the event that created it. The journal is compacted to the newest base event older than RETENTION_WINDOW_DAYS, keeping at least that many days of --restore-as-of history, and build-log run directories beyond the newest `cycle_paths.BUILD_LOGS_KEEP` are deleted. Failed, interrupted, first-run, and staging passes never prune, --keep-history turns retention off, and a retention error prints a warning and never turns a green cycle red.
 
 Run as: uv run python rebuild/tools/artifact_cycle.py. The carry source is resolved from the autosave and the verdicts-*.json exports; pass --verdicts to name one.
 """
@@ -123,7 +123,7 @@ UNDECIDED_UNTIL_RUN_M1 = {
     "gate:conform": CONFORM_MAYBE_NOTE,
 }
 ASSETS_REFRESH_NOTE = "only the review UI assets moved since the corpus was stamped; they are copied over the served copy and the manifest's static component restamped in place — no shard, sidecar or generated_at moves; --fresh overrides"
-CORPUS_PROMOTE_NOTE = "a rehearsal already built the corpus these inputs produce, byte for byte, unit store and signature store beside it; that directory is moved into place instead of being rebuilt; --fresh overrides"
+CORPUS_PROMOTE_NOTE = "a staging pass already built the corpus these inputs produce, byte for byte, unit store and signature store beside it; that directory is moved into place instead of being rebuilt; --fresh overrides"
 SERVER_KEEPS_RUNNING_NOTE = (
     "rewrites no unit shard, moves no manifest stamp, and leaves the verdict store alone"
 )
@@ -790,7 +790,7 @@ def corpus_build_skippable(
 
     The after font is compared with the file on disk because no fingerprint component covers it: the key hashes the font's inputs and the two site fonts, never rebuild/out/m1/M1.otf itself, so a run_m1 that finished after this corpus was built changes nothing the comparison above sees, while the corpus still ships the previous build's font. The build asserts at copy time that the font it ships is the font it hashed at load, so the manifest's after-font sha describes fonts/after.otf, and comparing that sha with the current M1.otf shows the skip is not passing over a newer font.
 
-    `ignore` names fingerprint components left out of the comparison, for a caller asking a narrower question than byte identity, with the same hard/warn split `status._freshness_check` uses. The cycle asks three questions in turn. The strict one comes first, since a corpus that reproduces byte for byte needs nothing done. When only an ASSET_COMPONENTS member differs, the cycle copies those assets over the served corpus and restamps that one component (`assets-refresh`) instead of rebuilding units that cannot have changed. When the live corpus fails both, `promotable_corpus` asks the strict question of a rehearsal's directory, and the pass moves that directory into place when it matches (`corpus-promote`). A component missing from either side still fails the comparison: only a component present in both the recorded and the expected set can be ignored.
+    `ignore` names fingerprint components left out of the comparison, for a caller asking a narrower question than byte identity, with the same hard/warn split `status._freshness_check` uses. The cycle asks three questions in turn. The strict one comes first, since a corpus that reproduces byte for byte needs nothing done. When only an ASSET_COMPONENTS member differs, the cycle copies those assets over the served corpus and restamps that one component (`assets-refresh`) instead of rebuilding units that cannot have changed. When the live corpus fails both, `promotable_corpus` asks the strict question of a staged corpus, and the pass moves that directory into place when it matches (`corpus-promote`). A component missing from either side still fails the comparison: only a component present in both the recorded and the expected set can be ignored.
     """
     from rebuild.pipeline import fingerprint
 
@@ -842,9 +842,9 @@ def _manifest_stamp_at(corpus: Path) -> str | None:
 def promotable_corpus(
     root: Path = ROOT, summary_path: Path | None = None, live: Path | None = None
 ) -> Path | None:
-    """Return the rehearsal directory a live pass can move into rebuild/out/review instead of rebuilding, or None. A rehearsal (`--review-out`) writes a whole corpus (shards, sidecars, unit store and signature store) where the live pass never reads, and the next live pass would otherwise rebuild the same bytes cold, because its own store is stamped for the pre-rehearsal environment. Candidates are checked in order: the `plan.review_out` the last cycle summary recorded (a repo-relative string, resolved against `root`), then `var/rehearsal-review` under `root`, the conventional directory (`--review-out` takes any path, but a rehearsal is expected to use that one). Every path derives from `root`, so a scratch repo never reads the live rehearsal.
+    """Return the staged corpus a live pass can move into rebuild/out/review instead of rebuilding, or None. A staging pass (`--review-out`) writes a whole corpus (shards, sidecars, unit store and signature store) where the live pass never reads, and the next live pass would otherwise rebuild the same bytes cold, because its own store is stamped for the pre-staging environment. Candidates are checked in order: the `plan.review_out` the last cycle summary recorded (a repo-relative string, resolved against `root`), then `var/staged-review` under `root`, the conventional directory (`--review-out` takes any path, but a staging pass is expected to use that one). Every path derives from `root`, so a scratch repo never reads the live staged corpus.
 
-    A candidate is promotable when it is a directory other than the live one, on the live directory's filesystem (`os.replace` cannot cross filesystems, and a plan must never print a move it cannot make), when `corpus_build_skippable` returns True for it (that function defines "reproduces these inputs byte for byte", including the after font and the three stamped sidecars), and when its `generated_at` is not older than the live corpus's. The byte-identity check cannot supply the stamp condition: `generated_at` is the latest input mtime, not a build time (`_generated_at` in rebuild/review/build.py), so a rehearsal can have a stamp older than the corpus it would replace, and merge_verdicts refuses a store stamped newer than the corpus it merges onto. A backwards promotion would fail the verdict-update step after the tree had already moved. An unreadable manifest rules the candidate out, which costs only a rebuild.
+    A candidate is promotable when it is a directory other than the live one, on the live directory's filesystem (`os.replace` cannot cross filesystems, and a plan must never print a move it cannot make), when `corpus_build_skippable` returns True for it (that function defines "reproduces these inputs byte for byte", including the after font and the three stamped sidecars), and when its `generated_at` is not older than the live corpus's. The byte-identity check cannot supply the stamp condition: `generated_at` is the latest input mtime, not a build time (`_generated_at` in rebuild/review/build.py), so a staged corpus can have a stamp older than the corpus it would replace, and merge_verdicts refuses a store stamped newer than the corpus it merges onto. A backwards promotion would fail the verdict-update step after the tree had already moved. An unreadable manifest rules the candidate out, which costs only a rebuild.
     """
     live_dir = live if live is not None else REVIEW_OUT
     summary = summary_path if summary_path is not None else root / "rebuild" / "out" / "cycle_summary.json"
@@ -855,7 +855,7 @@ def promotable_corpus(
         recorded = None
     if isinstance(recorded, str) and recorded:
         candidates.append(root / recorded if not Path(recorded).is_absolute() else Path(recorded))
-    candidates.append(root / "var" / "rehearsal-review")
+    candidates.append(root / "var" / "staged-review")
     live_stamp = _manifest_stamp_at(live_dir)
     if live_stamp is None:
         return None
@@ -878,9 +878,9 @@ def promotable_corpus(
 
 
 def promote_corpus(source: Path, live: Path | None = None) -> None:
-    """Move a rehearsal's corpus into place as the live one. It uses two renames instead of a removal and a move: the live tree is renamed to `.superseded`, the source takes its place, and only then is the old tree deleted. So a corpus is on disk throughout the seconds a 3.5 GB rmtree takes, and if the second rename fails the live tree is put back. Deleting the old tree is best effort: once the second rename has returned, the promotion is done, so a tree that will not delete is left for `recover_superseded_corpus` at the next real pass's start instead of being reported as a failed move. That function also handles a pass that died between the two renames, when the `.superseded` tree is the only corpus on disk; the rmtree at the start here clears a leftover beside a live tree.
+    """Move a staged corpus into place as the live one. It uses two renames instead of a removal and a move: the live tree is renamed to `.superseded`, the source takes its place, and only then is the old tree deleted. So a corpus is on disk throughout the seconds a 3.5 GB rmtree takes, and if the second rename fails the live tree is put back. Deleting the old tree is best effort: once the second rename has returned, the promotion is done, so a tree that will not delete is left for `recover_superseded_corpus` at the next real pass's start instead of being reported as a failed move. That function also handles a pass that died between the two renames, when the `.superseded` tree is the only corpus on disk; the rmtree at the start here clears a leftover beside a live tree.
 
-    Moving is safe where reconstructing would not be. Every stamp inside a corpus depends only on content, through `unit_index.manifest_sha256` (the per-unit index, both app sidecars, the unit store's header and the signature store's), the manifest records no output path, and a rebuild would restamp `generated_at`, which the autosave alignment depends on. So the promoted directory satisfies `corpus_build_skippable` as it did where it was built, and both stores arrive warm. The one manifest field the move leaves stale is `repo_head`, the commit the rehearsal ran at: the app banner and `make verdict-ready` show it, and a commit outside every fingerprint component changes HEAD without changing whether the corpus is promotable. Nothing the cycle keys on reads it.
+    Moving is safe where reconstructing would not be. Every stamp inside a corpus depends only on content, through `unit_index.manifest_sha256` (the per-unit index, both app sidecars, the unit store's header and the signature store's), the manifest records no output path, and a rebuild would restamp `generated_at`, which the autosave alignment depends on. So the promoted directory satisfies `corpus_build_skippable` as it did where it was built, and both stores arrive warm. The one manifest field the move leaves stale is `repo_head`, the commit the staging pass ran at: the app banner and `make verdict-ready` show it, and a commit outside every fingerprint component changes HEAD without changing whether the corpus is promotable. Nothing the cycle keys on reads it.
     """
     live_dir = live if live is not None else REVIEW_OUT
     superseded = live_dir.with_name(f"{live_dir.name}.superseded")
@@ -1028,7 +1028,7 @@ STEP_DESCRIPTIONS = {
     "run_m1:gates-only": "Reruns the defect gates, the Manual-pin gate, and the oracle over the tables and font already on disk, rebuilding nothing. Taken when only comparison-side inputs moved since the last green build.",
     "corpus-build": "Rebuilds the review corpus: every unit the tables reach is drafted, enriched, and checked, with cache-served units re-verified by content key. Writes the shards, manifest, and census sidecar that the app and the verdict update read.",
     "assets-refresh": "Overwrites the served copy of the review app's JS, CSS, and HTML and restamps only the manifest's static component. No shard or sidecar moves, so the open tab's store stays aligned.",
-    "corpus-promote": "Moves the corpus a rehearsal already built for these exact inputs into rebuild/out/review, unit store and signature store with it, and deletes the corpus it replaces. Two renames in this process; no unit is drafted, enriched, or checked.",
+    "corpus-promote": "Moves the corpus a staging pass already built for these exact inputs into rebuild/out/review, unit store and signature store with it, and deletes the corpus it replaces. Two renames in this process; no unit is drafted, enriched, or checked.",
     "verdict-update": "Carries the verdicts master onto the new corpus by unit id, merges it into the store, and runs the echo and standing fills to their fixpoint. Ends by writing the complaint list of what still needs a human.",
     "census": "Rewrites rebuild/review-census-pins.json from the census sidecar the corpus build emitted, names what moved in its invariant block against the last accepted census (diffing that block alone when it did), and holds the ledger's declarations against the classes the corpus reached. Committing the rewritten pins is how the census is accepted.",
     "gates": "The four post-build gates, skipped together under --skip-gates.",
@@ -1249,7 +1249,7 @@ def replay_threads_derivation(
 
 
 def sweep_job_budget(ncores: int | None = None, total_bytes: int | None = None) -> int:
-    """Return the `--jobs` width for run_m1's oracle, whose unit is a row range of one configuration's table: memory, less the reserve, divided by one range worker's peak (ORACLE_SHARD_BYTES), capped at the usable cores. `make conform-deep` (rebuild/tools/deep_sweep.py) uses it as its default too. gate:conform's belt has its own budget, `conform_job_budget`, because its worker holds different data and runs beside the corpus build. Nothing is subtracted for gate:make-test's pytest pool, which can still be running when the oracle starts on a non-rehearsal pass: at this divisor that pool fits inside the reserve on every fleet machine, and reserving for it would narrow this phase on every pass for a few seconds of overlap. Nothing is subtracted for run_m1's table-only branch either, whose witness stage and shipped-order walks can still be running when the pool starts (`doc/parallelism.md` describes this overlap), because what they hold is far below the reserve. run_m1's peak memory is in the table build, whose width is --kernel-threads, and these jobs never reach it. `ncores` and `total_bytes` are keywords so a test can compute the width for an invented machine."""
+    """Return the `--jobs` width for run_m1's oracle, whose unit is a row range of one configuration's table: memory, less the reserve, divided by one range worker's peak (ORACLE_SHARD_BYTES), capped at the usable cores. `make conform-deep` (rebuild/tools/deep_sweep.py) uses it as its default too. gate:conform's belt has its own budget, `conform_job_budget`, because its worker holds different data and runs beside the corpus build. Nothing is subtracted for gate:make-test's pytest pool, which can still be running when the oracle starts on a non-staging pass: at this divisor that pool fits inside the reserve on every fleet machine, and reserving for it would narrow this phase on every pass for a few seconds of overlap. Nothing is subtracted for run_m1's table-only branch either, whose witness stage and shipped-order walks can still be running when the pool starts (`doc/parallelism.md` describes this overlap), because what they hold is far below the reserve. run_m1's peak memory is in the table build, whose width is --kernel-threads, and these jobs never reach it. `ncores` and `total_bytes` are keywords so a test can compute the width for an invented machine."""
     from rebuild.tools import memory_budget
 
     cores = ncores or memory_budget.usable_cores()
@@ -1896,7 +1896,7 @@ def build_plan(
         plan.steps.append(Step("corpus-build", corpus_argv, lane="build"))
 
     if review_out is not None:
-        plan.complaints_note = "rehearsal: reads the live autosave"
+        plan.complaints_note = "staging: reads the live autosave"
     elif first_run:
         plan.complaints_note = "first run: no verdicts to cluster"
     elif skip_verdict_update:
@@ -1930,7 +1930,7 @@ def build_plan(
         verdict_update_argv += ["--standing-fill-jobs", str(fill_jobs)]
         if do_carry and not do_merge:
             note = (
-                "carry only (rehearsal: the live autosave is never written)"
+                "carry only (staging: the live autosave is never written)"
                 if review_out is not None
                 else "carry only (--no-merge)"
             )
@@ -1948,7 +1948,7 @@ def build_plan(
             Step(
                 "census",
                 None,
-                "SKIPPED (rehearsal: the checked-in pins track the live corpus)",
+                "SKIPPED (staging: the checked-in pins track the live corpus)",
                 lane="build",
                 skipped=True,
             )
@@ -2053,7 +2053,7 @@ def build_plan(
             Step(
                 "retention",
                 None,
-                "SKIPPED (rehearsal: the live piles are not this cycle's to prune)",
+                "SKIPPED (staging: the live piles are not this cycle's to prune)",
                 skipped=True,
             )
         )
@@ -2263,7 +2263,7 @@ def render_plan(plan: Plan) -> list[str]:
     lines.append(f"  carry output : {plan.carry_out if plan.carry_out is not None else '(no carry)'}")
     if plan.review_out is not None:
         lines.append(
-            f"  rehearsal    : corpus writes redirected to {plan.review_out}; the live corpus at rebuild/out/review is never written."
+            f"  staging      : corpus writes redirected to {plan.review_out}; the live corpus at rebuild/out/review is never written."
         )
     lines.extend(_render_concurrency(plan))
     return lines
@@ -2644,7 +2644,7 @@ def _do_assets_refresh(
 
 
 def _do_promote_corpus(report: CycleReport, *, emit: console.CycleConsole, plan: Plan) -> bool:
-    """Move a rehearsal's corpus into place, in this process, on a pass whose plan found one that reproduces these inputs byte for byte. It runs in place of the corpus build, which then reports itself skipped over the promoted manifest. The move replaces every shard and the manifest stamp, so a promoting pass never keeps the review server running."""
+    """Move a staged corpus into place, in this process, on a pass whose plan found one that reproduces these inputs byte for byte. It runs in place of the corpus build, which then reports itself skipped over the promoted manifest. The move replaces every shard and the manifest stamp, so a promoting pass never keeps the review server running."""
     assert plan.promote_corpus is not None
     emit.step_start("corpus-promote", None, plan.describe("corpus-promote"))
     started = time.perf_counter()
@@ -2659,7 +2659,7 @@ def _do_promote_corpus(report: CycleReport, *, emit: console.CycleConsole, plan:
         return False
     report.step_seconds["corpus-promote"] = time.perf_counter() - started
     report.promote_status = (
-        f"moved {plan.promote_corpus} into place (stores warm, generated_at the rehearsal's)"
+        f"moved {plan.promote_corpus} into place (stores warm, generated_at the staged corpus's)"
     )
     emit.step_end("corpus-promote", None, "ok", report.promote_status)
     return True
@@ -3391,9 +3391,9 @@ def _run_cycle(
         if plan.complaints_note:
             report.complaints_status = f"skipped ({plan.complaints_note})"
         if plan.review_out is not None:
-            report.census_status = "skipped (rehearsal: the checked-in pins track the live corpus)"
-            report.census_reach = "skipped (rehearsal)"
-            emit.step_skipped("census", "rehearsal: the checked-in pins track the live corpus")
+            report.census_status = "skipped (staging: the checked-in pins track the live corpus)"
+            report.census_reach = "skipped (staging)"
+            emit.step_skipped("census", "staging: the checked-in pins track the live corpus")
         else:
             _do_census(report, spawn=spawn, emit=emit, registry=registry, plan=plan)
         if (
@@ -3444,7 +3444,7 @@ _CARRY_COUNTS = re.compile(r"^carry counts: human=(\d+) matched=(\d+) unmatched=
 
 
 def carry_counts(lines: list[str]) -> dict[str, int] | None:
-    """Parse the carry's `carry counts:` line: the human units on the new corpus, how many a prior verdict matched, how many none matched, and how many prior verdicts matched no unit. The counts are written to the cycle summary and to the run line in the timings journal. Returns None when the carry printed no such line (a direct merge, a rehearsal, or a verdict update that failed before the carry)."""
+    """Parse the carry's `carry counts:` line: the human units on the new corpus, how many a prior verdict matched, how many none matched, and how many prior verdicts matched no unit. The counts are written to the cycle summary and to the run line in the timings journal. Returns None when the carry printed no such line (a direct merge, a staging pass, or a verdict update that failed before the carry)."""
     for line in lines:
         match = _CARRY_COUNTS.match(line)
         if match is not None:
@@ -3453,7 +3453,7 @@ def carry_counts(lines: list[str]) -> dict[str, int] | None:
 
 
 def carry_detail(lines: list[str]) -> str:
-    """Summarize the carry from its two headline lines: how many verdicts it carried onto the new corpus, and the human queue before and after. The verdict update runs as one child with the carry as a step inside it, so these counts reach this process only as printed lines. Returns the empty string when the carry printed neither line (a direct merge, a rehearsal, or a verdict update that failed before the carry)."""
+    """Summarize the carry from its two headline lines: how many verdicts it carried onto the new corpus, and the human queue before and after. The verdict update runs as one child with the carry as a step inside it, so these counts reach this process only as printed lines. Returns the empty string when the carry printed neither line (a direct merge, a staging pass, or a verdict update that failed before the carry)."""
     carried = ""
     queue = ""
     for line in lines:
@@ -3566,7 +3566,7 @@ def _step_outcome(report: CycleReport, plan: Plan, step: Step, *, retention_ran:
 
     A gate's outcome comes from its status string. Any other step that ran takes its outcome from run_m1's failure flag or the child's exit code, since having a recorded time only shows that it ran. A nonzero exit from census or job-costs (`INFORMATIONAL_STEPS`) is not a failure, because they gate nothing and their details report the problem.
 
-    Retention runs inside `_finish`, so it reads `not run` when an upstream failure ended the pass before retention, or a stop signal ended it before retention finished. It reads `FAILED` when retention raised, which `_finish` records in `retention_outcome`; the pass verdict stays green. A stop signal that lands after retention finished leaves the row reading as retention ended (`ok` or `FAILED`), because `_finish_interrupted` reads the same field. It reads `skipped` only when the plan ruled it out (`--keep-history`, a first run, or a rehearsal).
+    Retention runs inside `_finish`, so it reads `not run` when an upstream failure ended the pass before retention, or a stop signal ended it before retention finished. It reads `FAILED` when retention raised, which `_finish` records in `retention_outcome`; the pass verdict stays green. A stop signal that lands after retention finished leaves the row reading as retention ended (`ok` or `FAILED`), because `_finish_interrupted` reads the same field. It reads `skipped` only when the plan ruled it out (`--keep-history`, a first run, or a staging pass).
     """
     status = _GATE_STATUS_FIELDS.get(step.name)
     if status is not None:
@@ -3800,7 +3800,7 @@ def _emit_cycle_summary(
 def _preflight(args: argparse.Namespace, *, can_keep_running: bool = False) -> bool:
     if args.review_out is not None:
         print(
-            f"Rehearsal mode: corpus writes redirected to {args.review_out}; the live corpus at rebuild/out/review is never written."
+            f"Staging pass: corpus writes redirected to {args.review_out}; the live corpus at rebuild/out/review is never written."
         )
         return True
     if not server_listening():
@@ -3839,7 +3839,7 @@ def _preflight(args: argparse.Namespace, *, can_keep_running: bool = False) -> b
     print(r"  2. stop the review server:  pkill -f 'rebuild\.review\.serve'")
     print("     (or pass --stop-server and let this command stop it for you)")
     print("  3. re-run this command (or pass --yes to override at your own risk)")
-    print("  (or pass --review-out <dir> to rehearse without touching the live corpus)")
+    print("  (or pass --review-out <dir> for a staging pass that never touches the live corpus)")
     print("=" * 68)
     return False
 
@@ -4056,7 +4056,7 @@ def main(argv: list[str] | None = None) -> int:
         "--review-out",
         type=Path,
         default=None,
-        help="rehearsal mode: redirect the corpus write to this dir so the cycle can run while the live server is up; the next live pass moves this dir into rebuild/out/review and consumes it when it still reproduces the inputs byte for byte (promotable_corpus)",
+        help="staging pass: redirect the corpus write to this dir so the cycle can run while the live server is up; the next live pass moves this dir into rebuild/out/review and consumes it when it still reproduces the inputs byte for byte (promotable_corpus)",
     )
     parser.add_argument(
         "--keep-history",
@@ -4291,7 +4291,7 @@ def main(argv: list[str] | None = None) -> int:
 
 
 def readiness_block(plan: Plan) -> list[str]:
-    """Return the checklist `make verdict-ready` prints, so a green pass ends with it. It reads the cycle summary, so it must run after `_emit_cycle_summary`. A rehearsal returns nothing, since its corpus is not the served one. When `--stop-server` is passed (as `make review-cycle` does), the server row is left out, because the recipe starts the server after the pass, or reports that it left it stopped. The rebuild suite switches this off with `cycle_paths.READINESS_ENABLED`, because it reads the live corpus."""
+    """Return the checklist `make verdict-ready` prints, so a green pass ends with it. It reads the cycle summary, so it must run after `_emit_cycle_summary`. A staging pass returns nothing, since its corpus is not the served one. When `--stop-server` is passed (as `make review-cycle` does), the server row is left out, because the recipe starts the server after the pass, or reports that it left it stopped. The rebuild suite switches this off with `cycle_paths.READINESS_ENABLED`, because it reads the live corpus."""
     if plan.review_out is not None:
         return []
     from rebuild.tools import verdict_ready

@@ -223,7 +223,7 @@ def test_the_carry_step_hands_the_verdicts_file_and_the_loaded_index_to_the_carr
     assert merges[0][0] == str(tmp_path / "carried.json")
 
 
-def test_the_rehearsal_form_stops_after_the_carry(tmp_path, monkeypatch):
+def test_the_staging_form_stops_after_the_carry(tmp_path, monkeypatch):
     """`--no-merge` never writes the live store: the carry runs and nothing after it does."""
     code, _index, carries, merges = _carrying_verdict_update(tmp_path, monkeypatch, ("--no-merge",))
     assert code == 0

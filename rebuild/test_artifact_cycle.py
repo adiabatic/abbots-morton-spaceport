@@ -421,14 +421,14 @@ def test_dry_run_plan_no_merge_carries_and_stops():
     assert plan.do_merge is False
 
 
-def test_dry_run_plan_rehearsal_never_touches_the_autosave(tmp_path):
-    plan = _plan(review_out=tmp_path / "reh")
+def test_dry_run_plan_staging_pass_never_touches_the_autosave(tmp_path):
+    plan = _plan(review_out=tmp_path / "staged")
     step = {step.name: step for step in plan.steps}["verdict-update"]
     assert step.argv is not None
     assert "--no-merge" in step.argv
     assert "--no-complaints" in step.argv
-    assert step.argv[step.argv.index("--corpus") + 1] == str(tmp_path / "reh")
-    assert "rehearsal" in step.note
+    assert step.argv[step.argv.index("--corpus") + 1] == str(tmp_path / "staged")
+    assert "staging" in step.note
     assert plan.do_merge is False
 
 
@@ -446,16 +446,16 @@ def test_dry_run_plan_complaints_rides_inside_the_verdict_update(tmp_path, monke
     assert plan.complaints_note == ""
 
 
-def test_the_verdict_update_is_told_to_skip_the_complaint_list_on_rehearsal_first_run_and_a_missing_store(
+def test_the_verdict_update_is_told_to_skip_the_complaint_list_on_a_staging_pass_first_run_and_a_missing_store(
     tmp_path, monkeypatch
 ):
     autosave = tmp_path / "verdicts-autosave.json"
     autosave.write_text("{}")
     monkeypatch.setattr(ac, "AUTOSAVE", autosave)
-    rehearsal = _plan(review_out=tmp_path / "reh")
-    step = {step.name: step for step in rehearsal.steps}["verdict-update"]
+    staging = _plan(review_out=tmp_path / "staged")
+    step = {step.name: step for step in staging.steps}["verdict-update"]
     assert step.argv is not None and "--no-complaints" in step.argv
-    assert "rehearsal" in rehearsal.complaints_note
+    assert "staging" in staging.complaints_note
 
     first = _plan(first_run=True, verdicts=None)
     by_name = {step.name: step for step in first.steps}
@@ -659,7 +659,7 @@ def test_every_plan_step_says_what_it_is_for():
         _plan(rerun_gates_only=True, run_m1_note="comparison-side"),
         _plan(
             skip_corpus=True,
-            promote_corpus=Path("var/rehearsal-review"),
+            promote_corpus=Path("var/staged-review"),
             corpus_note=ac.CORPUS_PROMOTE_NOTE,
         ),
     ):
@@ -1127,7 +1127,7 @@ def test_a_later_echo_round_failure_leaves_the_first_round_reported_as_run(round
 
 
 def test_a_carry_only_verdict_update_reports_the_fills_as_never_run():
-    """--no-merge and rehearsal both stop the verdict update after the carry, so the fills print no `[phase]` line and the summary reports them as not run."""
+    """--no-merge and a staging pass both stop the verdict update after the carry, so the fills print no `[phase]` line and the summary reports them as not run."""
     report, failures = _run_verdict_update(
         _plan(no_merge=True), _verdict_update_stdout(_FULL_VERDICT_UPDATE[0], fixpoint=False)
     )
@@ -2775,8 +2775,8 @@ def test_dry_run_skip_gates_appends_jobs_budgets():
     assert _argv(default_by_name["corpus-build"])[-4:-2] == ["--jobs", str(gated_width)]
 
 
-def test_review_out_rehearsal_plan(monkeypatch, tmp_path):
-    rehearsal_out = tmp_path / "reh"
+def test_review_out_staging_plan(monkeypatch, tmp_path):
+    staged_out = tmp_path / "staged"
     plan = ac.build_plan(
         verdicts=Path("v.json"),
         no_carry=False,
@@ -2784,19 +2784,19 @@ def test_review_out_rehearsal_plan(monkeypatch, tmp_path):
         skip_gates=False,
         first_run=False,
         short_id="abc1234",
-        review_out=rehearsal_out,
+        review_out=staged_out,
     )
     by_name = {step.name: step for step in plan.steps}
-    assert _argv(by_name["corpus-build"])[-2:] == ["--out", str(rehearsal_out)]
+    assert _argv(by_name["corpus-build"])[-2:] == ["--out", str(staged_out)]
     assert by_name["census"].argv is None
-    assert by_name["census"].note == "SKIPPED (rehearsal: the checked-in pins track the live corpus)"
+    assert by_name["census"].note == "SKIPPED (staging: the checked-in pins track the live corpus)"
     argv = _argv(by_name["verdict-update"])
-    assert argv[argv.index("--corpus") + 1] == str(rehearsal_out)
-    assert plan.corpus_dir == rehearsal_out
-    assert plan.review_out == rehearsal_out
+    assert argv[argv.index("--corpus") + 1] == str(staged_out)
+    assert plan.corpus_dir == staged_out
+    assert plan.review_out == staged_out
 
     monkeypatch.setattr(ac, "server_listening", lambda *a, **k: True)
-    waiver = argparse.Namespace(review_out=rehearsal_out, yes=False, stop_server=False)
+    waiver = argparse.Namespace(review_out=staged_out, yes=False, stop_server=False)
     assert ac._preflight(waiver) is True
     refuse = argparse.Namespace(review_out=None, yes=False, stop_server=False)
     assert ac._preflight(refuse) is False
@@ -4452,11 +4452,11 @@ def _write_corpus(corpus, recorded, stamp):
     app_index.write_app_artifacts(corpus, {}, {})
 
 
-def test_promotable_corpus_names_a_current_rehearsal_and_refuses_the_rest(tmp_path):
-    """`promotable_corpus` returns a directory a live pass may move into place, so each precondition must reject on its own: a missing directory, the live directory itself, a rehearsal whose fingerprint no longer matches, one stamped older than the live corpus, and an unreadable manifest on either side. `corpus_build_skippable` cannot detect the stamp case, because `generated_at` is the newest input mtime, not a build time. Rejecting it prevents `merge_verdicts` from refusing the store after the move."""
+def test_promotable_corpus_names_a_current_staged_corpus_and_refuses_the_rest(tmp_path):
+    """`promotable_corpus` returns a directory a live pass may move into place, so each precondition must reject on its own: a missing directory, the live directory itself, a staged corpus whose fingerprint no longer matches, one stamped older than the live corpus, and an unreadable manifest on either side. `corpus_build_skippable` cannot detect the stamp case, because `generated_at` is the newest input mtime, not a build time. Rejecting it prevents `merge_verdicts` from refusing the store after the move."""
     expected = _promotion_root(tmp_path)
     live = tmp_path / "rebuild" / "out" / "review"
-    rehearsal = tmp_path / "var" / "rehearsal-review"
+    staged = tmp_path / "var" / "staged-review"
     summary = tmp_path / "rebuild" / "out" / "cycle_summary.json"
     _write_corpus(live, expected, "2026-01-01T00:00:00Z")
     summary.parent.mkdir(parents=True, exist_ok=True)
@@ -4466,30 +4466,30 @@ def test_promotable_corpus_names_a_current_rehearsal_and_refuses_the_rest(tmp_pa
     _write_corpus(live, {**expected, "data": "stale"}, "2026-01-01T00:00:00Z")
     assert ac.promotable_corpus(tmp_path, summary, live) is None
 
-    _write_corpus(rehearsal, expected, "2026-01-02T00:00:00Z")
-    assert ac.promotable_corpus(tmp_path, summary, live) == rehearsal
+    _write_corpus(staged, expected, "2026-01-02T00:00:00Z")
+    assert ac.promotable_corpus(tmp_path, summary, live) == staged
 
-    _write_corpus(rehearsal, {**expected, "review_code": "moved"}, "2026-01-02T00:00:00Z")
+    _write_corpus(staged, {**expected, "review_code": "moved"}, "2026-01-02T00:00:00Z")
     assert ac.promotable_corpus(tmp_path, summary, live) is None
 
-    _write_corpus(rehearsal, expected, "2025-12-31T00:00:00Z")
+    _write_corpus(staged, expected, "2025-12-31T00:00:00Z")
     assert ac.promotable_corpus(tmp_path, summary, live) is None
-    _write_corpus(rehearsal, expected, "2026-01-01T00:00:00Z")
-    assert ac.promotable_corpus(tmp_path, summary, live) == rehearsal
+    _write_corpus(staged, expected, "2026-01-01T00:00:00Z")
+    assert ac.promotable_corpus(tmp_path, summary, live) == staged
 
-    (rehearsal / "manifest.json").write_text("{ not json")
+    (staged / "manifest.json").write_text("{ not json")
     assert ac.promotable_corpus(tmp_path, summary, live) is None
-    _write_corpus(rehearsal, expected, "2026-01-02T00:00:00Z")
+    _write_corpus(staged, expected, "2026-01-02T00:00:00Z")
     (live / "manifest.json").write_text("{ not json")
     assert ac.promotable_corpus(tmp_path, summary, live) is None
 
 
 def test_promotable_corpus_reads_the_recorded_pointer_before_the_convention(tmp_path):
-    """`--review-out` accepts any path, so the directory recorded in the last cycle summary is tried first, resolved against the root because the summary stores it repo-relative. A summary with no pointer, one that does not parse, or one naming a missing directory falls back to `var/rehearsal-review` without raising."""
+    """`--review-out` accepts any path, so the directory recorded in the last cycle summary is tried first, resolved against the root because the summary stores it repo-relative. A summary with no pointer, one that does not parse, or one naming a missing directory falls back to `var/staged-review` without raising."""
     expected = _promotion_root(tmp_path)
     live = tmp_path / "rebuild" / "out" / "review"
     _write_corpus(live, {**expected, "data": "stale"}, "2026-01-01T00:00:00Z")
-    conventional = tmp_path / "var" / "rehearsal-review"
+    conventional = tmp_path / "var" / "staged-review"
     recorded = tmp_path / "var" / "elsewhere"
     _write_corpus(conventional, expected, "2026-01-02T00:00:00Z")
     _write_corpus(recorded, expected, "2026-01-02T00:00:00Z")
@@ -4508,7 +4508,7 @@ def test_promotable_corpus_reads_the_recorded_pointer_before_the_convention(tmp_
 def test_promote_corpus_swaps_the_trees_and_leaves_no_leftover(tmp_path, monkeypatch):
     """After the move the live path holds the source's files, the source is gone, and no `.superseded` directory remains. A leftover `.superseded` tree from an interrupted pass is removed first. When the second rename fails, the live tree is restored, which a removal followed by a move could not do."""
     live = tmp_path / "review"
-    source = tmp_path / "rehearsal"
+    source = tmp_path / "staged"
     superseded = tmp_path / "review.superseded"
     live.mkdir()
     (live / "old.txt").write_text("old")
@@ -4545,7 +4545,7 @@ def test_promote_corpus_swaps_the_trees_and_leaves_no_leftover(tmp_path, monkeyp
 def test_a_promotion_whose_outgoing_tree_will_not_delete_still_counts(tmp_path, monkeypatch):
     """Once the second rename succeeds, the promotion is complete. An outgoing tree that cannot be deleted stays under its `.superseded` name for the next pass to remove, and the promotion is not reported as failed."""
     live = tmp_path / "review"
-    source = tmp_path / "rehearsal"
+    source = tmp_path / "staged"
     superseded = tmp_path / "review.superseded"
     live.mkdir()
     (live / "old.txt").write_text("old")
@@ -4605,7 +4605,7 @@ def test_a_promoted_corpus_still_answers_for_itself(tmp_path, mini_corpus):
     """Every stamp inside a corpus depends only on its manifest's content, so a real corpus moved to another path still passes the skip's checks (the per-unit index and both app sidecars), and both stores load under the environment recorded in their headers."""
     from rebuild.review import app_index, unit_cache, unit_index
 
-    source = tmp_path / "rehearsal"
+    source = tmp_path / "staged"
     shutil.copytree(mini_corpus, source)
     live = tmp_path / "review"
     live.mkdir()
@@ -4877,7 +4877,7 @@ def test_a_green_finish_closes_on_the_readiness_checklist_instead_of_naming_the_
 
 
 def test_the_readiness_block_leaves_the_server_row_to_the_recipe_that_serves(monkeypatch):
-    """`make review-cycle` passes `--stop-server` and starts the server after the pass, so that pass's checklist leaves out the server row instead of reporting the server as absent. A plain `make artifact-cycle` includes the row, and a rehearsal prints no checklist."""
+    """`make review-cycle` passes `--stop-server` and starts the server after the pass, so that pass's checklist leaves out the server row instead of reporting the server as absent. A plain `make artifact-cycle` includes the row, and a staging pass prints no checklist."""
     from rebuild.tools import verdict_ready
 
     asked: list[bool] = []
@@ -4891,7 +4891,7 @@ def test_the_readiness_block_leaves_the_server_row_to_the_recipe_that_serves(mon
     assert ac.readiness_block(_plan(recipe_serves=True))[-1].startswith("READY")
     assert ac.readiness_block(_plan())[-1].startswith("READY")
     assert asked == [False, True]
-    assert ac.readiness_block(_plan(review_out=Path("/tmp/rehearsal"))) == []
+    assert ac.readiness_block(_plan(review_out=Path("/tmp/staged"))) == []
     assert asked == [False, True]
 
 
@@ -5705,11 +5705,11 @@ def test_a_failed_census_refresh_never_fails_the_cycle(monkeypatch):
     assert json.loads(cycle_paths.CYCLE_SUMMARY.read_text())["failures"] == []
 
 
-def test_a_rehearsal_never_runs_the_census(monkeypatch, tmp_path):
-    """The checked-in pins describe the live corpus. A rehearsal builds elsewhere, so refreshing the pins from it would replace the accepted census with the census of a corpus nobody serves."""
+def test_a_staging_pass_never_runs_the_census(monkeypatch, tmp_path):
+    """The checked-in pins describe the live corpus. A staging pass builds elsewhere, so refreshing the pins from it would replace the accepted census with the census of a corpus nobody serves."""
 
     def census_must_not_run(*args, **kwargs):
-        raise AssertionError("a rehearsal must not run the census")
+        raise AssertionError("a staging pass must not run the census")
 
     monkeypatch.setattr(ac, "_do_run_m1", _pass_run_m1)
     monkeypatch.setattr(ac, "_gate_js_task", _js_ok)
@@ -5719,13 +5719,13 @@ def test_a_rehearsal_never_runs_the_census(monkeypatch, tmp_path):
     _patch_build_chain(monkeypatch)
     monkeypatch.setattr(ac, "_do_census", census_must_not_run)
 
-    plan = _plan(review_out=tmp_path / "reh")
+    plan = _plan(review_out=tmp_path / "staged")
     report = ac.CycleReport()
     rc = ac._run_cycle(plan, report, ac._Emitter(), ac._ChildRegistry(), spawn=lambda *a, **k: _step())
 
     assert rc == 0
-    assert report.census_status == "skipped (rehearsal: the checked-in pins track the live corpus)"
-    assert report.census_reach == "skipped (rehearsal)"
+    assert report.census_status == "skipped (staging: the checked-in pins track the live corpus)"
+    assert report.census_reach == "skipped (staging)"
 
 
 def test_do_job_costs_reports_a_clean_check():
@@ -5834,8 +5834,8 @@ def test_a_tripped_job_costs_check_never_fails_the_cycle(monkeypatch):
     assert "job_costs" not in summary["gates"]
 
 
-def test_the_job_costs_check_runs_in_a_rehearsal_too(monkeypatch, tmp_path):
-    """The job-costs check runs in a rehearsal, unlike the census. The pins track the live corpus, which a rehearsal never writes, but every pass appends to the timings journal, and a rehearsal's pool measurements are as valid as any."""
+def test_the_job_costs_check_runs_in_a_staging_pass_too(monkeypatch, tmp_path):
+    """The job-costs check runs in a staging pass, unlike the census. The pins track the live corpus, which a staging pass never writes, but every pass appends to the timings journal, and a staging pass's pool measurements are as valid as any."""
     ran: list[str] = []
 
     def job_costs_ran(report, *, spawn, emit, registry, plan):
@@ -5851,7 +5851,7 @@ def test_the_job_costs_check_runs_in_a_rehearsal_too(monkeypatch, tmp_path):
     _patch_build_chain(monkeypatch)
     monkeypatch.setattr(ac, "_do_job_costs", job_costs_ran)
 
-    plan = _plan(review_out=tmp_path / "reh")
+    plan = _plan(review_out=tmp_path / "staged")
     report = ac.CycleReport()
     rc = ac._run_cycle(plan, report, ac._Emitter(), ac._ChildRegistry(), spawn=lambda *a, **k: _step())
 
@@ -6360,14 +6360,14 @@ def test_main_never_skips_the_verdict_update_on_a_pass_that_writes_the_corpus(tm
 
 
 def test_main_never_skips_the_verdict_update_under_fresh_or_a_partial_run(tmp_path, monkeypatch, capsys):
-    """--fresh, --no-merge, --no-carry, a rehearsal and --carry-out each disable the verdict-update skip. --carry-out is on the list because the skip writes no carried file, so the flag could not be honored."""
+    """--fresh, --no-merge, --no-carry, a staging pass and --carry-out each disable the verdict-update skip. --carry-out is on the list because the skip writes no carried file, so the flag could not be honored."""
     _settled_repo(tmp_path, monkeypatch)
     ac.record_verdict_update_green("plu")
     for argv in (
         ["--dry-run", "--fresh"],
         ["--dry-run", "--no-merge"],
         ["--dry-run", "--no-carry"],
-        ["--dry-run", "--review-out", str(tmp_path / "rehearse")],
+        ["--dry-run", "--review-out", str(tmp_path / "staged")],
         ["--dry-run", "--carry-out", str(tmp_path / "carried.json")],
     ):
         assert ac.main(argv) == 0
@@ -6579,26 +6579,26 @@ def test_main_keeps_the_review_server_running_for_an_assets_refresh_pass(tmp_pat
     assert "REFUSING TO RUN" in capsys.readouterr().out
 
 
-def _rehearsal_repo(tmp_path, monkeypatch):
-    """A settled repo whose live corpus fails both the byte-identity check and the assets-exempt check, while a rehearsal directory passes the byte-identity check. This is the third check `main` makes, and the condition for the promotion step."""
+def _staged_repo(tmp_path, monkeypatch):
+    """A settled repo whose live corpus fails both the byte-identity check and the assets-exempt check, while a staged corpus passes the byte-identity check. This is the third check `main` makes, and the condition for the promotion step."""
     _settled_repo(tmp_path, monkeypatch)
-    rehearsal = tmp_path / "var" / "rehearsal-review"
-    rehearsal.mkdir(parents=True)
+    staged = tmp_path / "var" / "staged-review"
+    staged.mkdir(parents=True)
     monkeypatch.setattr(
         ac,
         "corpus_build_skippable",
         lambda root=None, review_out=None, ignore=(): review_out is not None,
     )
-    monkeypatch.setattr(ac, "promotable_corpus", lambda root=None, summary_path=None, live=None: rehearsal)
-    return rehearsal
+    monkeypatch.setattr(ac, "promotable_corpus", lambda root=None, summary_path=None, live=None: staged)
+    return staged
 
 
-def test_main_promotes_a_current_rehearsal_instead_of_rebuilding(tmp_path, monkeypatch, capsys):
-    """A live pass after a rehearsal plans a move, not a build: the promotion step names the directory it moves, the corpus build reads as skipped under the promotion note, and no review.build command appears in the plan."""
-    rehearsal = _rehearsal_repo(tmp_path, monkeypatch)
+def test_main_promotes_a_current_staged_corpus_instead_of_rebuilding(tmp_path, monkeypatch, capsys):
+    """A live pass after a staging pass plans a move, not a build: the promotion step names the directory it moves, the corpus build reads as skipped under the promotion note, and no review.build command appears in the plan."""
+    staged = _staged_repo(tmp_path, monkeypatch)
     assert ac.main(["--dry-run"]) == 0
     out = capsys.readouterr().out
-    assert str(rehearsal) in _step_lines(out, "corpus-promote")
+    assert str(staged) in _step_lines(out, "corpus-promote")
     assert f"SKIPPED ({ac.CORPUS_PROMOTE_NOTE})" in _step_lines(out, "corpus-build")
     assert "rebuild.review.build" not in out
     assert "assets-refresh" not in out
@@ -6606,7 +6606,7 @@ def test_main_promotes_a_current_rehearsal_instead_of_rebuilding(tmp_path, monke
 
 def test_a_promoting_pass_runs_the_whole_verdict_update(tmp_path, monkeypatch, capsys):
     """A promoting pass runs the full verdict update. The verdict-update skip and the direct merge both require an unmoved corpus, and a promotion moves it and gives it a new stamp. So even with a matching verdict-update record the verdict update runs the full carry, which puts the store's verdicts onto the promoted units by id, and the carry-source line says the master is stamped for the corpus this pass replaces."""
-    _rehearsal_repo(tmp_path, monkeypatch)
+    _staged_repo(tmp_path, monkeypatch)
     ac.record_verdict_update_green("plu")
     assert ac.main(["--dry-run"]) == 0
     out = capsys.readouterr().out
@@ -6626,7 +6626,7 @@ def test_a_promoting_pass_stops_the_review_server(tmp_path, monkeypatch, capsys)
     assert ac.server_can_keep_running(skip_corpus=True, writes_store=True) is False
     assert ac.server_can_keep_running(skip_corpus=False, writes_store=False) is False
 
-    _rehearsal_repo(tmp_path, monkeypatch)
+    _staged_repo(tmp_path, monkeypatch)
     monkeypatch.setattr(ac, "server_listening", lambda port=ac.REVIEW_PORT: True)
     monkeypatch.setattr(ac, "_run_cycle", lambda plan, report, emit, registry, **_: 0)
     stops: list[int] = []
@@ -6806,11 +6806,11 @@ def test_build_plan_retention_off_on_first_run():
     assert "first run" in by_name["retention"].note
 
 
-def test_build_plan_retention_off_on_rehearsal(tmp_path):
-    plan = _plan(review_out=tmp_path / "reh")
+def test_build_plan_retention_off_on_a_staging_pass(tmp_path):
+    plan = _plan(review_out=tmp_path / "staged")
     assert plan.retention is False
     by_name = {step.name: step for step in plan.steps}
-    assert "rehearsal" in by_name["retention"].note
+    assert "staging" in by_name["retention"].note
 
 
 def test_retention_never_runs_for_real_during_the_suite(monkeypatch):
@@ -7113,7 +7113,7 @@ def test_run_cycle_promotes_before_it_reports_the_corpus_skipped(monkeypatch, tm
     live = tmp_path / "rebuild" / "out" / "review"
     live.mkdir(parents=True)
     (live / "manifest.json").write_text(json.dumps({"totals": {"units": 1, "rows": 1}}))
-    source = tmp_path / "var" / "rehearsal-review"
+    source = tmp_path / "var" / "staged-review"
     source.mkdir(parents=True)
     (source / "manifest.json").write_text(json.dumps({"totals": {"units": 7, "rows": 9}}))
     monkeypatch.setattr(ac, "REVIEW_OUT", live)
@@ -7148,7 +7148,7 @@ def test_a_failed_promotion_stops_the_pass_and_joins_the_suite_it_started(monkey
 
     monkeypatch.setattr(ac, "promote_corpus", refuse)
     plan = _plan(
-        skip_corpus=True, promote_corpus=Path("var/rehearsal-review"), corpus_note=ac.CORPUS_PROMOTE_NOTE
+        skip_corpus=True, promote_corpus=Path("var/staged-review"), corpus_note=ac.CORPUS_PROMOTE_NOTE
     )
     report = ac.CycleReport()
     rc = ac._run_cycle(
@@ -7171,7 +7171,7 @@ def test_a_promoting_pass_journals_no_corpus_build_line(monkeypatch, tmp_path):
     monkeypatch.setattr(ac, "promote_corpus", lambda source, live=None: moved.append(source))
 
     journal_path = tmp_path / "timings.ndjson"
-    source = tmp_path / "var" / "rehearsal-review"
+    source = tmp_path / "var" / "staged-review"
     report = ac.CycleReport()
     rc = ac._run_cycle(
         _plan(skip_corpus=True, promote_corpus=source, corpus_note=ac.CORPUS_PROMOTE_NOTE),
