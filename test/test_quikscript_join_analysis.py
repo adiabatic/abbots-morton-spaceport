@@ -17,7 +17,7 @@ from quikscript_ir import ExtensionSpec, JoinGlyph
 from quikscript_join_analysis import (
     FwdStripGuard,
     JoinReachability,
-    OrphanAnchorWarning,
+    UnpartneredHeightWarning,
     _compute_derived_fwd_strip_guards,
     _RESIDUAL_BITMAP_GAPS,
     _bitmap_join_gap,
@@ -29,7 +29,7 @@ from quikscript_join_analysis import (
 
 def _validate_synthetic(glyph_meta: Mapping[str, JoinGlyph]) -> None:
     with warnings.catch_warnings():
-        warnings.simplefilter("ignore", OrphanAnchorWarning)
+        warnings.simplefilter("ignore", UnpartneredHeightWarning)
         validate_join_consistency(glyph_meta)
 
 
@@ -1570,18 +1570,18 @@ def test_derive_fwd_strip_guards_skips_qstea_qsit_at_xheight():
     assert "qsIt" not in mid_bases
 
 
-def test_derive_fwd_strip_guards_skips_terminus_predecessors():
+def test_derive_fwd_strip_guards_skips_non_reaching_predecessors():
     """qsUtter's alt stances without an exit extension are Short letters whose y=0 exit is on their bottom row, with no ink below it. Nothing dangles when their follower loses its entry, so the pass keys no y=0 guard on any of them."""
     glyph_meta = _real_join_glyphs()
     reach = JoinReachability.from_join_glyphs(glyph_meta)
 
     fwd_strip = derive_pending_fwd_strip_guards(reach)
 
-    terminus_alts = {
+    non_reaching_alts = {
         name
         for name, meta in glyph_meta.items()
         if meta.base_name == "qsUtter" and "alt" in meta.traits and meta.extended_exit_suffix is None
     }
-    assert reach.fwd_replacements["qsUtter"][0] in terminus_alts
-    alt_keys = [k for k in fwd_strip if k[1] in terminus_alts and k[2] == 0]
+    assert reach.fwd_replacements["qsUtter"][0] in non_reaching_alts
+    alt_keys = [k for k in fwd_strip if k[1] in non_reaching_alts and k[2] == 0]
     assert not alt_keys, alt_keys

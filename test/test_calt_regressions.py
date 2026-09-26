@@ -516,15 +516,15 @@ def _collect_sequence_must_match_any_expect_regardless_of_what_comes_before_or_a
     return failures
 
 
-def _collect_see_out_connecting_body_without_xheight_receiver_failures(
+def _collect_see_out_xheight_exit_without_xheight_receiver_failures(
     *,
     max_chars_before: int = 2,
     max_chars_after: int = 2,
     before_first_only: str | None = None,
 ) -> list[str]:
-    """Flag every ·See·Out where ·Out has its x-height connecting body but the next glyph has no entry at the x-height (y=5). A word-final ·Out with that body is also a failure.
+    """Flag every ·See·Out where ·Out takes an x-height exit stance but the next glyph has no entry at the x-height (y=5). A word-final ·Out in that stance is also a failure.
 
-    ·Out counts as connecting when it carries the ``ex-y5`` modifier (``_declares_xheight_exit``). Checking its exit anchor instead would miss a glyph whose anchor was removed while its connecting body is still drawn. ``test_declared_exit_height_matches_exit_anchor`` checks that every ``ex-y5`` modifier has a matching exit anchor.
+    ·Out counts as exiting at the x-height when it carries the ``ex-y5`` modifier (``_declares_xheight_exit``). Checking its exit anchor instead would miss a glyph whose anchor was removed while its exit stroke is still drawn. ``test_declared_exit_height_matches_exit_anchor`` checks that every ``ex-y5`` modifier has a matching exit anchor.
 
     A ligature whose sequence ends with ``qsSee`` counts as ·See, and one whose sequence starts with ``qsOut`` counts as ·Out. The surrounds and ``before_first_only`` work as in ``_collect_pair_must_not_join_regardless_of_what_comes_before_or_after``.
     """
@@ -564,17 +564,17 @@ def _collect_see_out_connecting_body_without_xheight_receiver_failures(
                 if not left_is_see or not out_is_out:
                     continue
                 out_glyph_name = glyphs[out_index]
-                connecting = _declares_xheight_exit(out_glyph_name)
+                exits_at_xheight = _declares_xheight_exit(out_glyph_name)
                 follower_receives_at_xheight = (out_index + 1 < len(glyphs)) and (
                     5 in _entry_ys(glyphs[out_index + 1])
                 )
-                if connecting and not follower_receives_at_xheight:
+                if exits_at_xheight and not follower_receives_at_xheight:
                     follower = glyphs[out_index + 1] if out_index + 1 < len(glyphs) else "word-final"
                     follower_entry_ys = (
                         sorted(_entry_ys(glyphs[out_index + 1])) if out_index + 1 < len(glyphs) else []
                     )
                     failures.append(
-                        f"{label}: {out_glyph_name} declares the x-height connecting body "
+                        f"{label}: {out_glyph_name} declares an x-height exit stance "
                         f"(ex-y5) but its follower {follower!r} does not receive at the x-height "
                         f"(follower entry Ys={follower_entry_ys}) in {glyphs}"
                     )
@@ -583,9 +583,9 @@ def _collect_see_out_connecting_body_without_xheight_receiver_failures(
 
 
 def _collect_declared_exit_height_without_matching_anchor_failures() -> list[str]:
-    """Flag every compiled glyph with an ``ex-yN`` modifier but no exit anchor at y=N. Such a glyph draws a connecting body that nothing can attach to, which leaves a dangling stub.
+    """Flag every compiled glyph with an ``ex-yN`` modifier but no exit anchor at y=N. Such a glyph draws an exit stroke that nothing can attach to, which leaves a dangling stub.
 
-    Other tests use the ``ex-y5`` modifier to decide whether a glyph is connecting (see ``_declares_xheight_exit``), and this check keeps that modifier consistent with the anchors.
+    Other tests use the ``ex-y5`` modifier to decide whether a glyph exits at the x-height (see ``_declares_xheight_exit``), and this check keeps that modifier consistent with the anchors.
 
     The converse is not checked: a stance's default exit height carries no ``ex-yN`` modifier, so many valid exit-bearing glyphs have no such modifier.
     """
@@ -1345,7 +1345,7 @@ def _two_component_ligatures() -> tuple[tuple[str, tuple[str, str]], ...]:
     return tuple(sorted(out))
 
 
-def _no_orphan_exit_into_ligature_failures(
+def _unmatched_exit_into_ligature_failures(
     feature_items: tuple[tuple[str, bool], ...] = (),
 ) -> list[str]:
     failures: list[str] = []
@@ -1382,12 +1382,12 @@ def _no_orphan_exit_into_ligature_failures(
                 if not contextual_exit_ys and not has_extended_exit:
                     continue
                 next_entry_ys = _entry_ys(next_glyph)
-                orphan = left_exit_ys - next_entry_ys
-                if orphan:
+                unmatched = left_exit_ys - next_entry_ys
+                if unmatched:
                     failures.append(
                         f"{left_name} / {mid_base} / {right_base} "
                         f"(features={dict(feature_items) or None}): "
-                        f"{glyph} has exit Y={sorted(orphan)} not present in "
+                        f"{glyph} has unmatched exit Y={sorted(unmatched)} not present in "
                         f"{next_glyph} entries Y={sorted(next_entry_ys)} "
                         f"(base {left_meta.base_name!r} exits Y={sorted(base_exit_ys)}, "
                         f"extended_exit_suffix={left_meta.extended_exit_suffix!r}) "
@@ -1407,10 +1407,10 @@ def _no_orphan_exit_into_ligature_failures(
     ],
 )
 def test_letter_does_not_reach_into_two_glyph_ligature(feature_items):
-    _assert_no_failures(_no_orphan_exit_into_ligature_failures(feature_items))
+    _assert_no_failures(_unmatched_exit_into_ligature_failures(feature_items))
 
 
-def _word_initial_promoted_entry_failures(
+def _word_initial_unneeded_entry_failures(
     feature_items: tuple[tuple[str, bool], ...] = (),
 ) -> list[str]:
     """Return a failure for every word-initial glyph shaped as a variant with an entry anchor, over every ordered pair of distinct plain letters under the given features.
@@ -1451,8 +1451,8 @@ def _word_initial_promoted_entry_failures(
                 f"(features={dict(feature_items) or None}) "
                 f"shaped {head!r} with entry_ys={head_entry_ys}; "
                 f"base {head_meta.base_name!r} has no entry anchor and no "
-                f"sibling shares this bitmap, so this variant is a "
-                f"phantom-entry promotion. Glyphs: {glyphs}"
+                f"sibling shares this bitmap, so this variant has an "
+                f"unneeded word-initial entry. Glyphs: {glyphs}"
             )
     return failures
 
@@ -1466,8 +1466,8 @@ def _word_initial_promoted_entry_failures(
         pytest.param(_SS07_FEATURE, id="ss07"),
     ],
 )
-def test_word_initial_quikscript_glyph_never_promotes_to_phantom_entry_anchor(feature_items):
-    _assert_no_failures(_word_initial_promoted_entry_failures(feature_items))
+def test_word_initial_quikscript_glyph_never_takes_an_unneeded_entry(feature_items):
+    _assert_no_failures(_word_initial_unneeded_entry_failures(feature_items))
 
 
 def test_utter_keeps_middle_pea_xheight_left_join_when_pea_also_joins_right():
@@ -1747,9 +1747,9 @@ def test_may_stays_bare_before_a_gay_with_no_baseline_entry(letters: tuple[str, 
 
 
 @pytest.mark.parametrize("before_first", _PAIR_SWEEP_BEFORE_FIRSTS)
-def test_see_out_connecting_body_only_when_next_receives_at_xheight(before_first: str):
+def test_see_out_xheight_exit_only_when_next_receives_at_xheight(before_first: str):
     _assert_no_failures(
-        _collect_see_out_connecting_body_without_xheight_receiver_failures(
+        _collect_see_out_xheight_exit_without_xheight_receiver_failures(
             max_chars_before=2,
             max_chars_after=2,
             before_first_only=before_first,
@@ -1758,8 +1758,8 @@ def test_see_out_connecting_body_only_when_next_receives_at_xheight(before_first
     )
 
 
-def test_see_out_touch_body_wins_word_final_by_declared_precedence():
-    """·Out has two connecting bodies after ·See: the touch body (`before-other`, +0px, as in ·See·Out·Oy) and the +1px body (`before-fee`, as in ·See·Out·Fee). Both are reverse upgrades with no lookahead, so the lookup emitted first also takes a word-final ·Out. The touch body's `terminal_default` flag puts its lookup first even though `before-other` sorts after `before-fee`. If that flag is dropped, or a sibling that sorts earlier is added, a word-final ·Out can take the +1px body and this test fails.
+def test_see_out_plus_0px_xheight_exit_stance_wins_word_final_by_declared_precedence():
+    """·Out has two x-height exit stances after ·See: the +0px x-height exit stance (`before-other`, as in ·See·Out·Oy) and the +1px one (`before-fee`, as in ·See·Out·Fee). Both are reverse upgrades with no lookahead, so the lookup emitted first also takes a word-final ·Out. The +0px stance's `terminal_default` flag puts its lookup first even though `before-other` sorts after `before-fee`. If that flag is dropped, or a sibling that sorts earlier is added, a word-final ·Out can take the +1px stance and this test fails.
 
     Word-final ·See·Out ends up with the entry-trimmed after-·See stance, which has no x-height exit.
     """
@@ -2437,7 +2437,7 @@ def test_may_thaw_ing_is_sensible():
     )
 
 
-def _may_thaw_orphan_failures(glyphs: list[str], label: str) -> list[str]:
+def _may_thaw_unmatched_exit_failures(glyphs: list[str], label: str) -> list[str]:
     """Return a failure for every adjacent ·May·Thaw where ·May took an ``ex-y0`` variant but the ·Thaw variant has no baseline entry.
 
     Only ``ex-y0`` is checked because ·May's default and ``.noentry`` stances exit at the x-height, which never joins ·Thaw. The defect is ·May switching to ``ex-y0`` for ·Thaw's default baseline entry and ·Thaw's own substitution then removing that entry.
@@ -2489,8 +2489,8 @@ def _no_thaw_alt_failures(glyphs: list[str], label: str) -> list[str]:
     "suffix_name",
     [pytest.param(name, id=name[2:].lower()) for name, _ in _plain_quikscript_letters()],
 )
-def test_may_thaw_pair_never_orphans_in_left_context(suffix_name: str):
-    failures = _may_thaw_orphan_failures(
+def test_may_thaw_pair_never_leaves_an_unmatched_exit_in_left_context(suffix_name: str):
+    failures = _may_thaw_unmatched_exit_failures(
         _shape_qs(suffix_name, "qsMay", "qsThaw", "qsIng"),
         f"{suffix_name} / qsMay / qsThaw / qsIng",
     )
@@ -2505,8 +2505,8 @@ def test_may_thaw_pair_never_orphans_in_left_context(suffix_name: str):
     "right_name",
     [pytest.param(name, id=name[2:].lower()) for name, _ in _plain_quikscript_letters()],
 )
-def test_may_thaw_ing_surrounded_is_never_orphaned(left_name: str, right_name: str):
-    failures = _may_thaw_orphan_failures(
+def test_may_thaw_ing_surrounded_never_leaves_an_unmatched_exit(left_name: str, right_name: str):
+    failures = _may_thaw_unmatched_exit_failures(
         _shape_qs(left_name, "qsMay", "qsThaw", "qsIng", right_name),
         f"{left_name} / qsMay / qsThaw / qsIng / {right_name}",
     )
@@ -3121,7 +3121,7 @@ _DAY_PAIR_LIGATURES = frozenset(
 )
 
 
-def _non_bridging_middle_bases() -> list[tuple[str, str]]:
+def _letters_that_cannot_carry_a_baseline_join_to_the_xheight() -> list[tuple[str, str]]:
     """Return the plain letters whose variants enter at both y=0 and y=5 but none of which enters at y=0 and exits at y=5. Such a letter cannot carry qsWay.half's y=0 exit on to a follower that enters only at y=5.
 
     Letters that enter only at y=0 (such as ·Ah, ·Exam, and ·Excite) are excluded: the 1-glyph rule `sub qsWay' @entry_only_y0 by qsWay.half.ex-y0;` picks half-·Way before them, which is correct.
@@ -3136,20 +3136,20 @@ def _non_bridging_middle_bases() -> list[tuple[str, str]]:
         variants = variants_by_base.get(base_name, [])
         can_enter_y0 = any(0 in v.entry_ys for v in variants)
         can_enter_y5 = any(5 in v.entry_ys for v in variants)
-        can_bridge_y0_to_y5 = any(0 in v.entry_ys and 5 in v.exit_ys for v in variants)
-        if can_enter_y0 and can_enter_y5 and not can_bridge_y0_to_y5:
+        can_carry_y0_to_y5 = any(0 in v.entry_ys and 5 in v.exit_ys for v in variants)
+        if can_enter_y0 and can_enter_y5 and not can_carry_y0_to_y5:
             result.append((base_name, base_char))
     return result
 
 
-def _way_not_half_before_non_bridging_failures() -> list[str]:
-    """Return a failure for every ·Way·M·X that picks half-·Way, where M is from ``_non_bridging_middle_bases`` and X is any plain letter."""
+def _half_way_before_letter_that_cannot_carry_failures() -> list[str]:
+    """Return a failure for every ·Way·M·X that picks half-·Way, where M is from ``_letters_that_cannot_carry_a_baseline_join_to_the_xheight`` and X is any plain letter."""
     failures: list[str] = []
     chars = _char_map()
     way = chars["qsWay"]
     meta_map = _compiled_meta()
 
-    for middle_name, middle_char in _non_bridging_middle_bases():
+    for middle_name, middle_char in _letters_that_cannot_carry_a_baseline_join_to_the_xheight():
         for right_name, right_char in _plain_quikscript_letters():
             text = way + middle_char + right_char
             glyphs = _shape(text)
@@ -3164,13 +3164,13 @@ def _way_not_half_before_non_bridging_failures() -> list[str]:
             if "half" in first_meta.traits:
                 failures.append(
                     f"qsWay / {middle_name} / {right_name}: half-Way selected "
-                    f"before a non-bridging middle: {glyphs}"
+                    f"before a letter that cannot carry a baseline join to the x-height: {glyphs}"
                 )
     return failures
 
 
-def test_way_full_before_any_non_bridging_middle():
-    failures = _way_not_half_before_non_bridging_failures()
+def test_way_full_before_any_letter_that_cannot_carry_a_baseline_join_to_the_xheight():
+    failures = _half_way_before_letter_that_cannot_carry_failures()
     assert not failures, "\n".join(failures[:50])
 
 
@@ -4124,9 +4124,7 @@ def _collect_he_ye_single_baseline_direction_failures(center: str) -> list[str]:
             label = f"[{pred_name or '∅'}] / {center_label} / [{follower_name or '∅'}]"
 
             if back and fwd:
-                failures.append(
-                    f"{label}: {center_label} double-backs — joins at the baseline on both sides in {glyphs}"
-                )
+                failures.append(f"{label}: {center_label} has a baseline join on both sides in {glyphs}")
             if back_possible[pred_name] and fwd_possible[follower_name] and not (fwd and not back):
                 failures.append(
                     f"{label}: baseline join possible in both directions, so {center_label} should join the "

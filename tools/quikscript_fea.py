@@ -4840,7 +4840,7 @@ def _emit_quikscript_calt(analysis: _JoinAnalysis) -> str | None:
                         lines.append(f"        sub {left_context_token} {plain}' by {target};")
                 lines.append(f"    }} calt_reverse_upgrade_{safe};")
 
-        # Competing reverse-upgrade stances (same base, same source stances, same after-context) each emit a `sub … by …` with no lookahead, so the lookup emitted first takes the word-final input that the others' ignore rules don't exclude (e.g. qsOut's after-·See touch body and its +1px before-·Fee body). Within each such group a `terminal_default` stance moves to the front so it takes that input, whatever order `plan.reverse_only_upgrades` has. A group only reorders the emission slots it already occupies, so every other lookup keeps its position.
+        # Competing reverse-upgrade stances (same base, same source stances, same after-context) each emit a `sub … by …` with no lookahead, so the lookup emitted first takes the word-final input that the others' ignore rules don't exclude (e.g. qsOut's after-·See +0px x-height exit stance and its +1px before-·Fee stance). Within each such group a `terminal_default` stance moves to the front so it takes that input, whatever order `plan.reverse_only_upgrades` has. A group only reorders the emission slots it already occupies, so every other lookup keeps its position.
         competitor_slots: dict[tuple[str, tuple, tuple], list[int]] = {}
         competitor_members: dict[tuple[str, tuple, tuple], list[tuple[int, tuple]]] = {}
         for original_index, entry in enumerate(plan.reverse_only_upgrades):

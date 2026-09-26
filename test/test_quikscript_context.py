@@ -11,7 +11,7 @@ from typing import Any
 from build_font import load_glyph_data
 from glyph_compiler import CompiledGlyphSet, compile_glyph_set
 from quikscript_ir import JoinGlyph, generate_noentry_variants
-from quikscript_join_analysis import JoinMetadataWarning, OrphanAnchorWarning
+from quikscript_join_analysis import JoinMetadataWarning, UnpartneredHeightWarning
 
 
 @cache
@@ -23,7 +23,7 @@ def _compiled_set(data: Any = None) -> CompiledGlyphSet:
     if data is None:
         return _real_compiled_set()
     with warnings.catch_warnings():
-        warnings.simplefilter("ignore", OrphanAnchorWarning)
+        warnings.simplefilter("ignore", UnpartneredHeightWarning)
         warnings.simplefilter("ignore", JoinMetadataWarning)
         return compile_glyph_set(data, "senior")
 

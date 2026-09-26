@@ -29,7 +29,7 @@ class JoinMetadataWarning(UserWarning):
     """A glyph's join metadata fails one of the consistency checks in `collect_join_warnings`."""
 
 
-class OrphanAnchorWarning(UserWarning):
+class UnpartneredHeightWarning(UserWarning):
     """An entry or exit anchor at some Y has no opposite anchor at that Y on any glyph, so no cursive attachment can happen there."""
 
 
@@ -46,7 +46,7 @@ __all__ = [
     "JoinMetadataWarning",
     "JoinReachability",
     "NonJoiningNeighborSelectionWarning",
-    "OrphanAnchorWarning",
+    "UnpartneredHeightWarning",
     "collect_join_warnings",
     "derive_pending_bk_entry_guards",
     "derive_pending_fwd_strip_guards",
@@ -236,7 +236,7 @@ class JoinReachability:
 def validate_join_consistency(join_glyphs: Mapping[str, JoinGlyph]) -> None:
     """Raise ``ValueError`` listing every join-selector mismatch in ``join_glyphs``.
 
-    For each stance with a ``select.before`` or ``select.after`` selector and the matching anchor, some reachable variant of each named family must have the opposite anchor at the same Y. This is checked with no stylistic set on and under each stylistic set that gates a pair override. ``_check_concrete_selector_consistency`` then checks each selector against the glyphs it expands to under ``_analyze_quikscript_joins``. Orphan anchors (a Y with an exit but no entry anywhere, or the reverse) are reported as ``OrphanAnchorWarning`` warnings, not errors.
+    For each stance with a ``select.before`` or ``select.after`` selector and the matching anchor, some reachable variant of each named family must have the opposite anchor at the same Y. This is checked with no stylistic set on and under each stylistic set that gates a pair override. ``_check_concrete_selector_consistency`` then checks each selector against the glyphs it expands to under ``_analyze_quikscript_joins``. Unpartnered anchor heights (a Y with an exit but no entry anywhere, or the reverse) are reported as ``UnpartneredHeightWarning`` warnings, not errors.
     """
     reachability = JoinReachability.from_join_glyphs(join_glyphs)
     glyph_meta_dict = dict(reachability.glyph_meta)
@@ -259,7 +259,7 @@ def validate_join_consistency(join_glyphs: Mapping[str, JoinGlyph]) -> None:
             errors=errors,
         )
     _check_concrete_selector_consistency(glyph_meta_dict, errors)
-    _warn_orphans(reachability)
+    _warn_unpartnered_heights(reachability)
     if errors:
         raise ValueError("Join consistency mismatches:\n" + "\n".join(f"  - {e}" for e in errors))
 
@@ -1052,7 +1052,7 @@ def _ss_tags(reachability: JoinReachability) -> list[str]:
     return sorted(tags)
 
 
-def _warn_orphans(reachability: JoinReachability) -> None:
+def _warn_unpartnered_heights(reachability: JoinReachability) -> None:
     entry_owners: dict[int, list[str]] = {y: sorted(names) for y, names in reachability.entry_classes.items()}
     exit_owners: dict[int, list[str]] = {}
     for name, meta in reachability.glyph_meta.items():
@@ -1063,15 +1063,15 @@ def _warn_orphans(reachability: JoinReachability) -> None:
     for y in sorted(set(entry_owners) - set(exit_owners)):
         for name in entry_owners[y]:
             warnings.warn(
-                f"orphan entry_y={y} on {name} (no exit_y={y} anywhere)",
-                OrphanAnchorWarning,
+                f"unpartnered entry_y={y} on {name} (no exit_y={y} anywhere)",
+                UnpartneredHeightWarning,
                 stacklevel=2,
             )
     for y in sorted(set(exit_owners) - set(entry_owners)):
         for name in sorted(exit_owners[y]):
             warnings.warn(
-                f"orphan exit_y={y} on {name} (no entry_y={y} anywhere)",
-                OrphanAnchorWarning,
+                f"unpartnered exit_y={y} on {name} (no entry_y={y} anywhere)",
+                UnpartneredHeightWarning,
                 stacklevel=2,
             )
 
