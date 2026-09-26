@@ -1,4 +1,4 @@
-"""Tests for the green records and check lines run_m1 writes, plus its exit handling and the oracle and belt fan-in. An interactive run_m1, `--conform-only`, and `--gates-only` record the same green files the artifact cycle skips on, so a fix verified by hand is not verified again by the next cycle, and each records its verdict as a check line in the timings journal. The verdicts come from artifact_cycle's evaluators (`evaluate_run_m1_gate`, `evaluate_conform_gate`). Unmatched oracle rows are not a failure, so a run that has them records a green and exits zero. `--gates-only` records run_m1's green only when a prior green exists and every input that moved since it is comparison-side (`artifact_cycle.gates_only_reuse`), so the next cycle can skip run_m1 after a ledger edit."""
+"""Tests for the green records and check lines run_m1 writes, plus its exit handling and the oracle and belt fan-in. An interactive run_m1, `--conform-only`, and `--gates-only` record the same green files the artifact cycle skips on, so a fix verified by hand is not verified again by the next cycle, and each records its result as a check line in the timings journal. The results come from artifact_cycle's evaluators (`evaluate_run_m1_gate`, `evaluate_conform_gate`). Unmatched oracle rows are not a failure, so a run that has them records a green and exits zero. `--gates-only` records run_m1's green only when a prior green exists and every input that moved since it is comparison-side (`artifact_cycle.gates_only_reuse`), so the next cycle can skip run_m1 after a ledger edit."""
 
 import gzip
 import itertools
@@ -290,10 +290,10 @@ def test_a_multi_matched_oracle_row_fails_the_run_and_clears_the_record(monkeypa
         run_m1.main([])
     assert "multi_matched = 2" in str(error.value)
     assert ac.read_green_record(store) is None
-    assert _checks()[0]["verdict"] == "red"
+    assert _checks()[0]["outcome"] == "red"
 
 
-def test_an_interactive_run_files_the_gates_verdict(monkeypatch):
+def test_an_interactive_run_files_the_gates_result(monkeypatch):
     """The check line records the gate's green despite the unmatched rows. It has no `run` field because no cycle started this run."""
     monkeypatch.setattr(ac, "run_m1_skip_fingerprint", lambda root=None: "fp-live")
     _stub_full_run(monkeypatch)
@@ -301,19 +301,19 @@ def test_an_interactive_run_files_the_gates_verdict(monkeypatch):
     checks = _checks()
     assert len(checks) == 1
     assert checks[0]["check"] == "run_m1"
-    assert checks[0]["verdict"] == "green"
+    assert checks[0]["outcome"] == "green"
     assert "run" not in checks[0]
 
 
-def test_a_run_that_never_reached_its_judge_files_the_message_it_died_with(monkeypatch):
-    """A defect gate that stops the build leaves nothing for the evaluator to judge, so the red check line carries the message the run raised and no failed ids."""
+def test_a_run_that_never_reached_its_evaluator_files_the_message_it_died_with(monkeypatch):
+    """A defect gate that stops the build leaves nothing for the evaluator to read, so the red check line carries the message the run raised and no failed ids."""
     monkeypatch.setattr(ac, "run_m1_skip_fingerprint", lambda root=None: "fp-live")
     _stub_full_run(monkeypatch, defect_errors=["qsAh: contact"])
     with pytest.raises(SystemExit):
         run_m1.main([])
     checks = _checks()
     assert len(checks) == 1
-    assert checks[0]["verdict"] == "red"
+    assert checks[0]["outcome"] == "red"
     assert checks[0]["failures"] == ["1 defect-gate errors; see pipeline_summary.json"]
     assert checks[0]["failed_ids"] == []
 
@@ -1082,7 +1082,7 @@ class TestGatesOnly:
 
     @pytest.mark.parametrize("left_behind", [None, "{ not a summary", "[]"])
     def test_it_refuses_a_build_that_left_no_summary_to_rewrite(self, monkeypatch, tmp_path, left_behind):
-        """The defect fields are rewritten into the build's own summary, so the pass exits with an error when the build left none or left something that is not a summary. Otherwise it would write a summary no build produced and judge itself against it."""
+        """The defect fields are rewritten into the build's own summary, so the pass exits with an error when the build left none or left something that is not a summary. Otherwise it would write a summary no build produced and evaluate itself against it."""
         self._reuse(monkeypatch, {})
         (tmp_path / "M1.otf").write_bytes(b"font")
         if left_behind is not None:
@@ -1177,7 +1177,7 @@ class TestGatesOnly:
         assert ac.read_green_record(store) is None
         checks = _checks()
         assert len(checks) == 1
-        assert checks[0]["verdict"] == "red"
+        assert checks[0]["outcome"] == "red"
         assert checks[0]["failures"] == ["1 defect-gate errors; see pipeline_summary.json"]
         assert json.loads((tmp_path / "pipeline_summary.json").read_text())["defect_errors"] == [
             "E-CONTACT qsAh~qsBay: ink collision"
@@ -1212,7 +1212,7 @@ class TestGatesOnly:
         run_m1.run_gates_only(out_dir=tmp_path)
         assert not store.exists()
         assert "there is no prior green M1 build for this pass to stand on" in capsys.readouterr().out
-        assert [check["verdict"] for check in _checks()] == ["green"]
+        assert [check["outcome"] for check in _checks()] == ["green"]
 
     def test_a_build_side_input_among_the_moved_records_nothing_and_names_it(
         self, monkeypatch, tmp_path, capsys
@@ -1253,8 +1253,8 @@ class TestGatesOnly:
         assert record is not None
         assert record["fingerprint"] == "fp-prior"
 
-    def test_it_files_the_re_adjudications_verdict(self, monkeypatch, tmp_path):
-        """The pass is judged by the same evaluator the cycle uses, records that verdict as a check line with no `run` field, and exits accordingly."""
+    def test_it_files_the_re_adjudications_result(self, monkeypatch, tmp_path):
+        """The pass takes its result from the same evaluator the cycle uses, records that result as a check line with no `run` field, and exits accordingly."""
         ran = self._reuse(monkeypatch, {})
         self._build(monkeypatch, tmp_path, ran)
         self._summary(tmp_path)
@@ -1264,7 +1264,7 @@ class TestGatesOnly:
         checks = _checks()
         assert len(checks) == 1
         assert checks[0]["check"] == "run_m1"
-        assert checks[0]["verdict"] == "green"
+        assert checks[0]["outcome"] == "green"
         assert "run" not in checks[0]
 
     def test_a_pin_gate_that_refuses_the_build_files_a_red_and_clears_the_green(self, monkeypatch, tmp_path):
@@ -1282,11 +1282,11 @@ class TestGatesOnly:
         assert ac.read_green_record(store) is None
         checks = _checks()
         assert len(checks) == 1
-        assert checks[0]["verdict"] == "red"
+        assert checks[0]["outcome"] == "red"
         assert "replayed 3 of 4 pins" in checks[0]["failures"][0]
 
-    def test_a_pre_flight_refusal_judges_nothing_and_files_nothing(self, monkeypatch, tmp_path):
-        """A stamp that no longer matches the runes stops the pass before any gate runs. Nothing was judged, so the pass records no check line."""
+    def test_a_pre_flight_refusal_evaluates_nothing_and_files_nothing(self, monkeypatch, tmp_path):
+        """A stamp that no longer matches the runes stops the pass before any gate runs. Nothing was evaluated, so the pass records no check line."""
         self._reuse(monkeypatch, None)
         with pytest.raises(SystemExit):
             run_m1.run_gates_only(out_dir=tmp_path)

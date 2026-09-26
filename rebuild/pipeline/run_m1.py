@@ -71,7 +71,7 @@ from rebuild.pipeline.settle import FormationGuard, cell_label
 from rebuild.pipeline.spec_load import load_default_spec
 from rebuild.pipeline.table import DecisionTable
 from rebuild.tools import console
-from rebuild.tools.cycle_timings import CYCLE_RUN_ENV, CheckVerdict, record_check, record_pool
+from rebuild.tools.cycle_timings import CYCLE_RUN_ENV, CheckResult, record_check, record_pool
 from rebuild.tools.memory_budget import describe_fit, usable_cores
 from rebuild.tools.peak_rss import peak_rss_self_bytes, process_peak_rss_bytes, rss_token
 
@@ -1595,21 +1595,21 @@ def run_oracle(
     return summary
 
 
-def _record_cli_check(verdict: CheckVerdict, started: float) -> None:
-    """Record this invocation's verdict in the timings journal, unless the artifact cycle is recording it. The verdict is recorded before the final `SystemExit`, so the exit cannot change it. `CYCLE_RUN_ENV` in the environment means the artifact cycle started this run and records the same verdict under its own run id, so this function records nothing, keeping one line per invocation."""
+def _record_cli_check(result: CheckResult, started: float) -> None:
+    """Record this invocation's check result in the timings journal, unless the artifact cycle is recording it. The result is recorded before the final `SystemExit`, so the exit cannot change it. `CYCLE_RUN_ENV` in the environment means the artifact cycle started this run and records the same result under its own run id, so this function records nothing, keeping one line per invocation."""
     if CYCLE_RUN_ENV in os.environ:
         return
     record_check(
-        verdict,
+        result,
         argv=sys.argv,
         elapsed_s=time.perf_counter() - started,
         peak_rss_bytes=process_peak_rss_bytes(),
     )
 
 
-def _failed_check(check: str, message: str) -> CheckVerdict:
-    """Return the verdict for a run that failed before its gate was evaluated: a defect gate that stopped the build, a pin gate failure, a read-back or emit error. The error message is all that is known, so it is the only failure text, and there are no failed ids because nothing enumerated cases."""
-    return CheckVerdict(check=check, verdict="red", status="FAILED", failures=[message], failed_ids=[])
+def _failed_check(check: str, message: str) -> CheckResult:
+    """Return the check result for a run that failed before its gate was evaluated: a defect gate that stopped the build, a pin gate failure, a read-back or emit error. The error message is all that is known, so it is the only failure text, and there are no failed ids because nothing enumerated cases."""
+    return CheckResult(check=check, outcome="red", status="FAILED", failures=[message], failed_ids=[])
 
 
 def _run_pregate_guards() -> None:
@@ -1863,16 +1863,16 @@ def main(argv: list[str] | None = None) -> None:
             flush=True,
         )
         print(json.dumps(conformance, indent=2))
-        verdict = evaluate_conform_gate(conformance)
+        result = evaluate_conform_gate(conformance)
         _settle_green(
             CONFORM_GREEN,
             before,
-            verdict.ok,
+            result.ok,
             conform_key,
             "gate:conform",
             files_of=lambda: conform_skip_files(REPO_ROOT, args.conform_horizon),
         )
-        _record_cli_check(verdict, started)
+        _record_cli_check(result, started)
         if not conformance["pass"]:
             raise SystemExit("font conformance failed; see conform_summary.json")
         return

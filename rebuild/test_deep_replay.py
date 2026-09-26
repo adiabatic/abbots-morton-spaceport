@@ -27,7 +27,7 @@ def bench(tmp_path, monkeypatch):
     monkeypatch.setattr(deep_replay, "tables_stamped", lambda: True)
     JOURNAL.clear()
     monkeypatch.setattr(
-        deep_replay, "record_check", lambda verdict, **kw: JOURNAL.append((verdict.verdict, kw.get("argv")))
+        deep_replay, "record_check", lambda result, **kw: JOURNAL.append((result.outcome, kw.get("argv")))
     )
     monkeypatch.setattr(deep_replay, "load_default_spec", lambda: Spec())
     monkeypatch.setattr(deep_replay.fingerprint, "rune_digests", lambda root: dict(RUNES))
@@ -188,16 +188,14 @@ def test_the_walk_hands_the_crate_its_memo_ceiling(bench, monkeypatch, capsys):
     ceilings: list = []
     _stub_walk(monkeypatch, ceilings=ceilings)
     checks: list = []
-    monkeypatch.setattr(
-        deep_replay, "record_check", lambda verdict, **kw: checks.append((verdict.verdict, kw))
-    )
+    monkeypatch.setattr(deep_replay, "record_check", lambda result, **kw: checks.append((result.outcome, kw)))
     monkeypatch.setattr(deep_replay.peak_rss, "peak_rss_children_bytes", lambda: 123)
     assert deep_replay.main(["--families", "qsTea", "--threads", "1"]) == 0
     assert ceilings == [deep_replay.DEEP_REPLAY_MEMO_WINDOWS]
     out = capsys.readouterr().out
     assert f"at most {deep_replay.DEEP_REPLAY_MEMO_WINDOWS} windows memoized per walk" in out
     assert "deep replay[default]: 1 texts, 1 window settles, 0 skipped" in out
-    assert [(verdict, kw["peak_rss_bytes"]) for verdict, kw in checks] == [("green", 123)]
+    assert [(outcome, kw["peak_rss_bytes"]) for outcome, kw in checks] == [("green", 123)]
     monkeypatch.setenv("AMS_DEEP_REPLAY_MEMO_WINDOWS", "2000000")
     assert deep_replay.main(["--families", "qsTea", "--threads", "1"]) == 0
     assert ceilings == [deep_replay.DEEP_REPLAY_MEMO_WINDOWS, 2_000_000]
@@ -209,7 +207,7 @@ def test_the_walk_hands_the_crate_its_memo_ceiling(bench, monkeypatch, capsys):
     monkeypatch.delenv("AMS_DEEP_REPLAY_MEMO_WINDOWS")
     _stub_walk(monkeypatch, disagree="replay disagreement at position 1 of qsTea qsIt")
     assert deep_replay.main(["--families", "qsTea", "--threads", "1"]) == 1
-    assert [(verdict, kw["peak_rss_bytes"]) for verdict, kw in checks[2:]] == [("red", 123)]
+    assert [(outcome, kw["peak_rss_bytes"]) for outcome, kw in checks[2:]] == [("red", 123)]
 
 
 def test_runes_moving_mid_walk_record_nothing(bench, monkeypatch, capsys):

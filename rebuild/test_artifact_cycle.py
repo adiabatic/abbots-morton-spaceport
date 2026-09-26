@@ -115,97 +115,97 @@ def _pass_summaries():
 
 def test_gate_passes_on_clean_summaries():
     s = _pass_summaries()
-    outcome = ac.evaluate_run_m1_gate(s["pipeline"], s["manual_pins"], s["oracle"])
-    assert outcome.check == "run_m1"
-    assert outcome.verdict == "green"
-    assert outcome.status == "green"
-    assert outcome.ok
-    assert outcome.failures == []
-    assert outcome.failed_ids == []
+    result = ac.evaluate_run_m1_gate(s["pipeline"], s["manual_pins"], s["oracle"])
+    assert result.check == "run_m1"
+    assert result.outcome == "green"
+    assert result.status == "green"
+    assert result.ok
+    assert result.failures == []
+    assert result.failed_ids == []
 
 
 def test_gate_fails_on_defect_errors():
     s = _pass_summaries()
     s["pipeline"]["defect_errors"] = ["E-ANCHOR convention:foo: bad"]
-    outcome = ac.evaluate_run_m1_gate(s["pipeline"], s["manual_pins"], s["oracle"])
-    assert not outcome.ok
-    assert outcome.verdict == "red"
-    assert outcome.status == "FAILED"
-    assert any("defect" in reason for reason in outcome.failures)
+    result = ac.evaluate_run_m1_gate(s["pipeline"], s["manual_pins"], s["oracle"])
+    assert not result.ok
+    assert result.outcome == "red"
+    assert result.status == "FAILED"
+    assert any("defect" in reason for reason in result.failures)
 
 
 def test_gate_fails_on_a_manual_pin_gate_with_nothing_in_scope():
-    """A Manual-pin summary with nothing in scope has `pass` true, because `pass` is `not disagreements`. The verdict uses run_m1's `manual_pin_gate_failure`, which also checks the scope, so the gate fails."""
+    """A Manual-pin summary with nothing in scope has `pass` true, because `pass` is `not disagreements`. The gate uses run_m1's `manual_pin_gate_failure`, which also checks the scope, so the gate fails."""
     s = _pass_summaries()
     s["manual_pins"] = {"pass": True, "disagreements": [], "pins_in_scope": 0, "replayed": 0}
-    outcome = ac.evaluate_run_m1_gate(s["pipeline"], s["manual_pins"], s["oracle"])
-    assert not outcome.ok
-    assert any("no pins in scope" in reason for reason in outcome.failures)
+    result = ac.evaluate_run_m1_gate(s["pipeline"], s["manual_pins"], s["oracle"])
+    assert not result.ok
+    assert any("no pins in scope" in reason for reason in result.failures)
 
 
 def test_gate_fails_on_manual_pins():
     s = _pass_summaries()
     s["manual_pins"] = {"pass": False, "disagreements": ["one", "two"]}
-    outcome = ac.evaluate_run_m1_gate(s["pipeline"], s["manual_pins"], s["oracle"])
-    assert not outcome.ok
-    assert any("Manual-pin" in reason for reason in outcome.failures)
+    result = ac.evaluate_run_m1_gate(s["pipeline"], s["manual_pins"], s["oracle"])
+    assert not result.ok
+    assert any("Manual-pin" in reason for reason in result.failures)
 
 
 def test_gate_fails_on_multi_matched():
     s = _pass_summaries()
     s["oracle"] = {"unmatched": 8423, "multi_matched": 2}
-    outcome = ac.evaluate_run_m1_gate(s["pipeline"], s["manual_pins"], s["oracle"])
-    assert not outcome.ok
-    assert any("multi_matched" in reason for reason in outcome.failures)
+    result = ac.evaluate_run_m1_gate(s["pipeline"], s["manual_pins"], s["oracle"])
+    assert not result.ok
+    assert any("multi_matched" in reason for reason in result.failures)
 
 
 def test_gate_unmatched_alone_is_not_a_failure():
     s = _pass_summaries()
     s["oracle"] = {"unmatched": 999999, "multi_matched": 0}
-    outcome = ac.evaluate_run_m1_gate(s["pipeline"], s["manual_pins"], s["oracle"])
-    assert outcome.ok
+    result = ac.evaluate_run_m1_gate(s["pipeline"], s["manual_pins"], s["oracle"])
+    assert result.ok
 
 
 def test_the_gate_carries_no_oracle_counts():
-    """The verdict carries the judgment only. Callers read the oracle counts from the oracle summary they already hold."""
+    """The result carries the outcome only. Callers read the oracle counts from the oracle summary they already hold."""
     s = _pass_summaries()
-    outcome = ac.evaluate_run_m1_gate(s["pipeline"], s["manual_pins"], s["oracle"])
-    assert not hasattr(outcome, "unmatched")
-    assert not hasattr(outcome, "multi_matched")
+    result = ac.evaluate_run_m1_gate(s["pipeline"], s["manual_pins"], s["oracle"])
+    assert not hasattr(result, "unmatched")
+    assert not hasattr(result, "multi_matched")
 
 
 def test_conform_gate_passes_on_clean_summary():
-    verdict = ac.evaluate_conform_gate({"divergences": 0, "pass": True})
-    assert verdict.check == "conform"
-    assert verdict.verdict == "green"
-    assert verdict.status == "green"
-    assert verdict.failures == []
+    result = ac.evaluate_conform_gate({"divergences": 0, "pass": True})
+    assert result.check == "conform"
+    assert result.outcome == "green"
+    assert result.status == "green"
+    assert result.failures == []
 
 
 def test_conform_gate_fails_on_divergences():
-    verdict = ac.evaluate_conform_gate({"divergences": 3, "pass": False})
-    assert verdict.verdict == "red"
-    assert verdict.status == "FAILED"
-    assert verdict.failures == ["conform gate: 3 font-vs-settle divergence(s)"]
+    result = ac.evaluate_conform_gate({"divergences": 3, "pass": False})
+    assert result.outcome == "red"
+    assert result.status == "FAILED"
+    assert result.failures == ["conform gate: 3 font-vs-settle divergence(s)"]
 
 
 def test_conform_gate_fails_on_missing_summary():
-    verdict = ac.evaluate_conform_gate(None)
-    assert verdict.verdict == "red"
-    assert verdict.status == "FAILED (no conform_summary.json)"
-    assert verdict.failures == ["conform gate: run_m1 --conform-only wrote no summary"]
+    result = ac.evaluate_conform_gate(None)
+    assert result.outcome == "red"
+    assert result.status == "FAILED (no conform_summary.json)"
+    assert result.failures == ["conform gate: run_m1 --conform-only wrote no summary"]
 
 
 def test_conform_gate_names_no_failed_ids():
-    """A divergence names a window, not a test, so the verdict lists no failed ids. The audit written beside the summary lists the windows."""
+    """A divergence names a window, not a test, so the result lists no failed ids. The audit written beside the summary lists the windows."""
     assert ac.evaluate_conform_gate({"divergences": 3, "pass": False}).failed_ids == []
     assert ac.evaluate_conform_gate(None).failed_ids == []
 
 
 def test_conform_gate_fails_on_bare_false_pass():
-    verdict = ac.evaluate_conform_gate({"pass": False})
-    assert verdict.status == "FAILED"
-    assert verdict.failures == ["conform gate: pass is false"]
+    result = ac.evaluate_conform_gate({"pass": False})
+    assert result.status == "FAILED"
+    assert result.failures == ["conform gate: pass is false"]
 
 
 def test_classify_review_module_failures_are_hard():
@@ -217,20 +217,20 @@ def test_classify_review_module_failures_are_hard():
             "ERROR rebuild/test_review_ink.py::test_y",
         ]
     )
-    outcome = ac.classify_rebuild_output(stdout, 1, "rebuild-contracts")
-    assert outcome.check == "rebuild-contracts"
-    assert outcome.verdict == "red"
-    assert outcome.status == "FAILED (3 unexplained)"
-    assert outcome.failed_ids == [
+    result = ac.classify_rebuild_output(stdout, 1, "rebuild-contracts")
+    assert result.check == "rebuild-contracts"
+    assert result.outcome == "red"
+    assert result.status == "FAILED (3 unexplained)"
+    assert result.failed_ids == [
         "rebuild/test_review_build.py::test_totals",
         "rebuild/test_settle.py::test_x",
         "rebuild/test_review_ink.py::test_y",
     ]
-    assert not outcome.recordable
+    assert not result.recordable
 
 
 def test_classify_rebuild_output_is_lane_blind():
-    """The check name is copied into the verdict to name the suite. The classification ignores it, so the same output gets the same verdict under any name."""
+    """The check name is copied into the result to name the suite. The classification ignores it, so the same output gets the same result under any name."""
     stdout = "FAILED rebuild/test_settle.py::test_x"
     contracts = ac.classify_rebuild_output(stdout, 1, "rebuild-contracts")
     other = ac.classify_rebuild_output(stdout, 1, "rebuild-other")
@@ -839,20 +839,20 @@ def _step(name="x", rc=0, stdout="", stderr=""):
 
 
 def _run_m1_green():
-    """Return the verdict `_do_run_m1` returns for a passing build. A stubbed stage returns this and sets the oracle counts on the report itself, as the real stage does."""
-    return ct.CheckVerdict(check="run_m1", verdict="green", status="green", failures=[], failed_ids=[])
+    """Return the result `_do_run_m1` returns for a passing build. A stubbed stage returns this and sets the oracle counts on the report itself, as the real stage does."""
+    return ct.CheckResult(check="run_m1", outcome="green", status="green", failures=[], failed_ids=[])
 
 
 def _run_m1_red(*failures):
-    return ct.CheckVerdict(
-        check="run_m1", verdict="red", status="FAILED", failures=list(failures), failed_ids=[]
+    return ct.CheckResult(
+        check="run_m1", outcome="red", status="FAILED", failures=list(failures), failed_ids=[]
     )
 
 
-def _lane_verdict(check, status="green", failed_ids=()):
-    return ct.CheckVerdict(
+def _lane_result(check, status="green", failed_ids=()):
+    return ct.CheckResult(
         check=check,
-        verdict="red" if failed_ids else "green",
+        outcome="red" if failed_ids else "green",
         status=status,
         failures=[f"rebuild suite: {len(failed_ids)} unexplained failure(s)"] if failed_ids else [],
         failed_ids=list(failed_ids),
@@ -860,10 +860,10 @@ def _lane_verdict(check, status="green", failed_ids=()):
     )
 
 
-def _conform_verdict(status="green", failures=()):
-    return ct.CheckVerdict(
+def _conform_result(status="green", failures=()):
+    return ct.CheckResult(
         check="conform",
-        verdict="red" if failures else "green",
+        outcome="red" if failures else "green",
         status=status,
         failures=list(failures),
         failed_ids=[],
@@ -996,11 +996,11 @@ def _make_ok(argv, spawn, emit, registry):
 
 
 def _contracts_green(pool_policy, conform_fut, make_fut, spawn, emit, registry, argv):
-    return _lane_verdict("rebuild-contracts")
+    return _lane_result("rebuild-contracts")
 
 
 def _conform_green(pool_policy, make_fut, spawn, emit, registry, argv):
-    return _conform_verdict()
+    return _conform_result()
 
 
 def _patch_gate_fingerprints(monkeypatch):
@@ -1288,7 +1288,7 @@ def test_the_rebuild_suite_waits_for_run_m1_pass(monkeypatch):
 
     def fake_contracts(pool_policy, conform_fut, make_fut, spawn, emit, registry, argv):
         record["contracts_invoked"] = time.monotonic()
-        return _lane_verdict("rebuild-contracts")
+        return _lane_result("rebuild-contracts")
 
     monkeypatch.setattr(ac, "_do_run_m1", fake_run_m1)
     monkeypatch.setattr(ac, "_gate_contracts_task", fake_contracts)
@@ -1312,7 +1312,7 @@ def test_the_rebuild_suite_is_skipped_when_run_m1_fails(monkeypatch, capsys):
 
     def fake_contracts(pool_policy, conform_fut, make_fut, spawn, emit, registry, argv):
         called["contracts"] = True
-        return _lane_verdict("rebuild-contracts")
+        return _lane_result("rebuild-contracts")
 
     monkeypatch.setattr(ac, "_do_run_m1", fake_run_m1)
     monkeypatch.setattr(ac, "_gate_contracts_task", fake_contracts)
@@ -1432,7 +1432,7 @@ def test_pool_queue_runs_make_test_then_conform_then_contracts(monkeypatch):
         conform_running.set()
         release_conform.wait()
         record["conform_finish"] = time.monotonic()
-        return _conform_verdict()
+        return _conform_result()
 
     def fake_spawn(name, argv, *, emit, registry, stream, env=None):
         if name == "gate:rebuild-contracts":
@@ -1559,7 +1559,7 @@ def test_summary_exact_under_out_of_order_completion(monkeypatch, capsys):
 
     def fake_contracts(pool_policy, conform_fut, make_fut, spawn, emit, registry, argv):
         ev_contracts.wait()
-        return _lane_verdict("rebuild-contracts", "green (annotated)")
+        return _lane_result("rebuild-contracts", "green (annotated)")
 
     monkeypatch.setattr(ac, "_do_run_m1", fake_run_m1)
     monkeypatch.setattr(ac, "_do_surface_build", fake_surface)
@@ -1724,18 +1724,18 @@ def test_a_rebuild_lane_stays_captured_and_parses_failures(lane, capsys):
     emit = ac._Emitter()
     registry = ac._ChildRegistry()
     argv = ac.rebuild_lane_argv(lane)
-    outcome = ac._gate_contracts_task("overlap", None, None, fake_spawn, emit, registry, argv)
+    result = ac._gate_contracts_task("overlap", None, None, fake_spawn, emit, registry, argv)
 
     assert seen["name"] == f"gate:rebuild-{lane}"
     assert seen["stream"] is False
-    assert outcome.check == f"rebuild-{lane}"
-    assert len(outcome.failed_ids) == 3
-    assert outcome.status == "FAILED (3 unexplained)"
+    assert result.check == f"rebuild-{lane}"
+    assert len(result.failed_ids) == 3
+    assert result.status == "FAILED (3 unexplained)"
 
     report = ac.CycleReport()
     failures = []
     with ThreadPoolExecutor(max_workers=1) as pool:
-        fut = pool.submit(lambda: outcome)
+        fut = pool.submit(lambda: result)
         ac._join_gates(report, failures, None, fut, None, None, emit)
     assert report.gate_contracts == "FAILED (3 unexplained)"
 
@@ -1791,7 +1791,7 @@ def test_a_failed_gate_never_restates_its_outcome_as_its_figure(capsys):
         emit,
         "gate:rebuild-contracts",
         _step("gate:rebuild-contracts", 1),
-        _lane_verdict("rebuild-contracts", "FAILED (3 unexplained)", failed_ids=["a", "b", "c"]),
+        _lane_result("rebuild-contracts", "FAILED (3 unexplained)", failed_ids=["a", "b", "c"]),
     )
     ac._close_gate(emit, "gate:conform", _step("gate:conform", 0))
     lines = [line for line in capsys.readouterr().out.splitlines() if line.startswith("  ")]
@@ -1803,9 +1803,9 @@ def test_a_failed_gate_never_restates_its_outcome_as_its_figure(capsys):
 def test_classify_rebuild_reads_colored_pytest_output():
     """Under FORCE_COLOR, which the agent harness sets, pytest wraps its FAILED lines in ANSI escapes, and the classifier must still parse the failing ids from them instead of reporting only the exit-code placeholder."""
     colored = "\x1b[31mFAILED\x1b[0m rebuild/test_settle.py::\x1b[1mtest_x\x1b[0m - x"
-    outcome = ac.classify_rebuild_output(colored, 1, "rebuild-contracts")
-    assert outcome.failed_ids == ["rebuild/test_settle.py::test_x"]
-    assert outcome.status == "FAILED (1 unexplained)"
+    result = ac.classify_rebuild_output(colored, 1, "rebuild-contracts")
+    assert result.failed_ids == ["rebuild/test_settle.py::test_x"]
+    assert result.status == "FAILED (1 unexplained)"
 
 
 def test_failure_funnels_from_concurrent_branch(monkeypatch, capsys):
@@ -4803,7 +4803,7 @@ def test_run_cycle_never_spawns_a_skipped_rebuild_suite(monkeypatch):
 
     def fake_contracts(pool_policy, conform_fut, make_fut, spawn, emit, registry, argv):
         record["contracts"] += 1
-        return _lane_verdict("rebuild-contracts")
+        return _lane_result("rebuild-contracts")
 
     monkeypatch.setattr(ac, "_gate_contracts_task", fake_contracts)
     monkeypatch.setattr(ac, "_gate_js_task", _js_ok)
@@ -5047,7 +5047,7 @@ def test_main_rebuilds_when_the_tables_on_disk_no_longer_carry_their_stamp(tmp_p
 
 
 def test_main_rebuilds_when_anything_build_side_moved(tmp_path, monkeypatch, capsys):
-    """One moved build-side label forces a rebuild, whatever comparison-side labels moved with it: the artifacts on disk were built from sources that no longer exist, and re-running the gates over them would judge a font built from the previous runes."""
+    """One moved build-side label forces a rebuild, whatever comparison-side labels moved with it: the artifacts on disk were built from sources that no longer exist, and re-running the gates over them would evaluate a font built from the previous runes."""
     _comparison_side_drift(tmp_path, monkeypatch, moved="glyph_data/runes/qsX.yaml")
     assert ac.main(["--dry-run"]) == 0
     out = capsys.readouterr().out
@@ -5079,7 +5079,7 @@ def test_run_cycle_skips_the_sweep_after_run_m1_on_the_key_the_finished_artifact
 
     def conform_spy(pool_policy, make_fut, spawn, emit, registry, argv):
         swept.append(argv)
-        return _conform_verdict()
+        return _conform_result()
 
     monkeypatch.setattr(ac, "_gate_conform_task", conform_spy)
     monkeypatch.setattr(ac, "_gate_js_task", _js_ok)
@@ -5114,7 +5114,7 @@ def test_run_cycle_sweeps_when_the_finished_artifacts_carry_no_green(monkeypatch
 
     def conform_spy(pool_policy, make_fut, spawn, emit, registry, argv):
         swept.append(argv)
-        return _conform_verdict()
+        return _conform_result()
 
     monkeypatch.setattr(ac, "_gate_conform_task", conform_spy)
     monkeypatch.setattr(ac, "_gate_js_task", _js_ok)
@@ -5531,7 +5531,7 @@ def test_the_summary_table_carries_each_steps_figure_and_what_it_cost():
 
 
 def test_a_step_that_came_back_nonzero_never_reads_as_an_ok_row():
-    """The outcome column comes from each step's result (its exit status, or for run_m1 its gate verdict), not from whether the step took any time. Filled from seconds, it would read `ok` for every step that ran, including a run_m1 whose Manual pins failed and a surface build whose child died. The two informational steps, census and job-costs, are the exception: neither gates anything, and each reports its failure in its own figure."""
+    """The outcome column comes from each step's result (its exit status, or for run_m1 its gate result), not from whether the step took any time. Filled from seconds, it would read `ok` for every step that ran, including a run_m1 whose Manual pins failed and a surface build whose child died. The two informational steps, census and job-costs, are the exception: neither gates anything, and each reports its failure in its own figure."""
     plan = _plan()
     report = ac.CycleReport()
     report.unmatched = 5
@@ -5888,7 +5888,7 @@ def test_the_contracts_suite_is_submitted_before_the_surface_build_starts(monkey
     def fake_contracts(pool_policy, conform_fut, make_fut, spawn, emit, registry, argv):
         order.append("contracts")
         contracts_invoked.set()
-        return _lane_verdict("rebuild-contracts")
+        return _lane_result("rebuild-contracts")
 
     def surface_after(report, *, spawn, emit, registry, review_out, **_):
         assert contracts_invoked.wait(timeout=30)
@@ -5919,7 +5919,7 @@ def test_surface_build_failure_still_joins_the_rebuild_suite_it_started(monkeypa
 
     def fake_contracts(pool_policy, conform_fut, make_fut, spawn, emit, registry, argv):
         calls["contracts"] += 1
-        return _lane_verdict("rebuild-contracts")
+        return _lane_result("rebuild-contracts")
 
     def failing_surface(report, *, spawn, emit, registry, review_out, **_):
         return False
@@ -7168,8 +7168,8 @@ def test_a_promoting_pass_journals_no_surface_build_line(monkeypatch, tmp_path):
     assert run["plan"]["promote_surface"] == str(source)
 
 
-def test_green_cycle_files_one_check_line_per_gate_it_judged(monkeypatch, tmp_path):
-    """Every gate the cycle joins writes one check line under this run, including js and make-test, which are judged by exit code alone. The children that did the work write nothing: they inherit the run id and skip their own line, so the lines count checks, not processes."""
+def test_green_cycle_files_one_check_line_per_gate_it_evaluated(monkeypatch, tmp_path):
+    """Every gate the cycle joins writes one check line under this run, including js and make-test, which are evaluated by exit code alone. The children that did the work write nothing: they inherit the run id and skip their own line, so the lines count checks, not processes."""
     _patch_timing_cycle(monkeypatch)
 
     journal_path = tmp_path / "timings.ndjson"
@@ -7192,7 +7192,7 @@ def test_green_cycle_files_one_check_line_per_gate_it_judged(monkeypatch, tmp_pa
         "rebuild-contracts",
     ]
     assert {entry["run"] for entry in checks} == {timings.run_id}
-    assert {entry["verdict"] for entry in checks} == {"green"}
+    assert {entry["outcome"] for entry in checks} == {"green"}
     assert all(entry["status"] == "green" for entry in checks)
     assert all("recordable" not in entry for entry in checks)
 
@@ -7200,7 +7200,7 @@ def test_green_cycle_files_one_check_line_per_gate_it_judged(monkeypatch, tmp_pa
 def test_a_red_lane_files_the_ids_it_failed_on(tmp_path):
     """A red lane writes the test ids it failed on. The lane's status already reaches the cycle summary, but the failed ids are recorded only here, and `--by-outcome` ranks them."""
     timings = CycleTimings(tmp_path / "timings.ndjson")
-    verdict = ac.classify_rebuild_output(
+    result = ac.classify_rebuild_output(
         "FAILED rebuild/test_settle.py::test_x\nERROR rebuild/test_boom.py::test_y",
         1,
         "rebuild-contracts",
@@ -7209,12 +7209,12 @@ def test_a_red_lane_files_the_ids_it_failed_on(tmp_path):
     failures: list[str] = []
     with ThreadPoolExecutor(max_workers=1) as pool:
         ac._join_rebuild_lane(
-            report, failures, pool.submit(lambda: verdict), "contracts", ac._Emitter(), timings
+            report, failures, pool.submit(lambda: result), "contracts", ac._Emitter(), timings
         )
 
     (line,) = ct.load_checks(timings.path)
     assert line["check"] == "rebuild-contracts"
-    assert line["verdict"] == "red"
+    assert line["outcome"] == "red"
     assert line["status"] == "FAILED (2 unexplained)"
     assert line["failed_ids"] == ["rebuild/test_settle.py::test_x", "rebuild/test_boom.py::test_y"]
     assert line["run"] == timings.run_id
@@ -7222,7 +7222,7 @@ def test_a_red_lane_files_the_ids_it_failed_on(tmp_path):
 
 
 def test_a_lane_that_raised_files_no_check_line(tmp_path):
-    """ "FAILED (exception)" describes the pool, not the suite: nothing judged the lane, so no check line is written."""
+    """ "FAILED (exception)" describes the pool, not the suite: nothing evaluated the lane, so no check line is written."""
     timings = CycleTimings(tmp_path / "timings.ndjson")
 
     def boom():
@@ -7237,8 +7237,8 @@ def test_a_lane_that_raised_files_no_check_line(tmp_path):
     assert ct.load_checks(timings.path) == []
 
 
-def test_a_failing_make_test_files_its_exit_code_as_a_red_verdict(tmp_path):
-    """make-test is judged by its exit code alone, which is reliable for the font suite (unlike run_m1's), so the verdict is built at the join with the same status strings the summary prints."""
+def test_a_failing_make_test_files_its_exit_code_as_a_red_outcome(tmp_path):
+    """make-test is evaluated by its exit code alone, which is reliable for the font suite (unlike run_m1's), so the result is built at the join with the same status strings the summary prints."""
     timings = CycleTimings(tmp_path / "timings.ndjson")
     report = ac.CycleReport()
     failures: list[str] = []
@@ -7255,14 +7255,14 @@ def test_a_failing_make_test_files_its_exit_code_as_a_red_verdict(tmp_path):
         )
 
     (line,) = ct.load_checks(timings.path)
-    assert (line["check"], line["verdict"], line["status"]) == ("make-test", "red", "FAILED (exit 3)")
+    assert (line["check"], line["outcome"], line["status"]) == ("make-test", "red", "FAILED (exit 3)")
     assert line["failures"] == ["make test failed"]
     assert report.gate_make_test == "FAILED (exit 3)"
     assert failures == ["make test failed"]
 
 
 def test_do_run_m1_files_a_check_line_on_the_skip_path(monkeypatch, tmp_path):
-    """The skip path writes a check line too: the skip is a judgment over this build's own summaries, so it belongs in run_m1's record beside the passes that did the work."""
+    """The skip path writes a check line too: the skip is an evaluation of this build's own summaries, so it belongs in run_m1's record beside the passes that did the work."""
     files = {name: tmp_path / f"{name}.json" for name in cycle_paths.M1_SUMMARY_FILES}
     monkeypatch.setattr(cycle_paths, "M1_SUMMARY_FILES", files)
     files["pipeline"].write_text(json.dumps({"defect_errors": []}))
@@ -7283,7 +7283,7 @@ def test_do_run_m1_files_a_check_line_on_the_skip_path(monkeypatch, tmp_path):
 
     assert gate is not None and gate.ok
     (line,) = ct.load_checks(timings.path)
-    assert (line["check"], line["verdict"], line["status"]) == ("run_m1", "green", "green")
+    assert (line["check"], line["outcome"], line["status"]) == ("run_m1", "green", "green")
     assert line["run"] == timings.run_id
     assert (report.unmatched, report.multi_matched) == (7, 0)
 
@@ -7309,12 +7309,12 @@ def test_do_run_m1_files_a_red_when_no_summaries_landed(monkeypatch, tmp_path):
 
     assert gate is None
     (line,) = ct.load_checks(timings.path)
-    assert (line["check"], line["verdict"], line["status"]) == ("run_m1", "red", "FAILED (no summaries)")
+    assert (line["check"], line["outcome"], line["status"]) == ("run_m1", "red", "FAILED (no summaries)")
     assert line["failures"] == ac._run_m1_reasons(None)
 
 
-def test_a_cycle_without_timings_still_judges_every_gate(monkeypatch):
-    """The timings handle is optional wherever it is passed, so a caller without one (every test that drives the cycle for its console output) reaches the same verdicts without recording them."""
+def test_a_cycle_without_timings_still_evaluates_every_gate(monkeypatch):
+    """The timings handle is optional wherever it is passed, so a caller without one (every test that drives the cycle for its console output) reaches the same results without recording them."""
     _patch_timing_cycle(monkeypatch)
     report = ac.CycleReport()
     rc = ac._run_cycle(

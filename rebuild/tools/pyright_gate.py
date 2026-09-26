@@ -2,7 +2,7 @@
 
 The check's input closure is every `.py` and `.pyi` file under the `include`, `extraPaths` and `stubPath` of `[tool.pyright]` in pyproject.toml, tracked or untracked but not ignored, plus pyproject.toml, which holds the checker's settings, and uv.lock, which pins the checker and the packages it resolves imports against. uv.lock is hashed by its dependency pins (`rebuild.tools.lock_digest`), because the project's own block names nothing pyright resolves. The sources and pyproject.toml are hashed raw, because a `# pyright: ignore` comment changes the result. Nothing else pyright reads can change through an edit in this repository. A rune, glyph or Markdown edit, or a verdict, leaves the closure unchanged, so the suite that such an edit re-runs has no type check ahead of it. The green record (`cycle_paths.PYRIGHT_GREEN`) is written only after a passing run whose closure still matches the one it checked, and a failing run whose closure matches the record deletes the record. `AMS_RUN_PYRIGHT=1` requests the check subject to the skip, and `AMS_RUN_PYRIGHT=force`, which the make targets set for `FORCE=1`, runs it regardless. Without git there is no closure to key on, so the check runs and records nothing.
 
-The root conftest calls this module from two hooks. In an xdist controller, `pytest_configure` starts the check before the workers spawn. A run that builds the fonts waits for the check there, beside the build, so a type error fails the run before any test starts. A run that skips the build (a rebuild-only run whose site fonts are present, which is what `make test-rebuild` starts) defers the check, and `pytest_sessionfinish` joins it. The check then runs beside the xdist pool, and a failure is reported as a nonzero exit after the suite, printed below the pytest summary. If the run was interrupted, that hook abandons the check (`Check.abandon`) instead of judging it, because the Ctrl-C that stopped the suite also stopped pyright. Because the conftest imports this module, its repo imports are limited to the leaf modules `cycle_paths`, `green_record` and `lock_digest`. The conftest's static import closure is added to every rebuild test's closure, so importing the cycle driver here would add the whole pipeline to it (`rebuild.tools.cycle_paths` explains why that matters).
+The root conftest calls this module from two hooks. In an xdist controller, `pytest_configure` starts the check before the workers spawn. A run that builds the fonts waits for the check there, beside the build, so a type error fails the run before any test starts. A run that skips the build (a rebuild-only run whose site fonts are present, which is what `make test-rebuild` starts) defers the check, and `pytest_sessionfinish` joins it. The check then runs beside the xdist pool, and a failure is reported as a nonzero exit after the suite, printed below the pytest summary. If the run was interrupted, that hook abandons the check (`Check.abandon`) instead of evaluating it, because the Ctrl-C that stopped the suite also stopped pyright. Because the conftest imports this module, its repo imports are limited to the leaf modules `cycle_paths`, `green_record` and `lock_digest`. The conftest's static import closure is added to every rebuild test's closure, so importing the cycle driver here would add the whole pipeline to it (`rebuild.tools.cycle_paths` explains why that matters).
 """
 
 from __future__ import annotations
@@ -111,12 +111,14 @@ class Check:
         return returncode
 
     def abandon(self) -> None:
-        """Terminate and reap a check the run stopped waiting for, without judging it or touching the green record. A Ctrl-C reaches pyright as well as the suite, and a check killed that way has not failed."""
+        """Terminate and reap a check the run stopped waiting for, without evaluating it or touching the green record. A Ctrl-C reaches pyright as well as the suite, and a check killed that way has not failed."""
         if self.process is None:
             return
         self.process.terminate()
         self.process.wait()
-        print("pyright: abandoned — the run was interrupted, so nothing was judged or recorded", flush=True)
+        print(
+            "pyright: abandoned — the run was interrupted, so nothing was evaluated or recorded", flush=True
+        )
 
 
 def begin(

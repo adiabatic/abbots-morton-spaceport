@@ -31,7 +31,7 @@ from rebuild.tools.artifact_cycle import (
     read_green_record,
     record_deep_replay_green,
 )
-from rebuild.tools.cycle_timings import CheckVerdict, record_check
+from rebuild.tools.cycle_timings import CheckResult, record_check
 from rebuild.tools.deep_sweep import tables_stamped
 
 # The most windows one configuration's walk holds memoized (the crate's `--memo-windows`; `AMS_DEEP_REPLAY_MEMO_WINDOWS` overrides it). Before any text that could take the walk memo past it, the walk releases that memo and its engine's memos and continues. It is counted in windows, not bytes, so a release happens at the same point on every machine and the printed window count depends only on the rune set. The value is 7/8 of 2^23, the most entries a hash table of 2^23 buckets holds before it doubles. The memo never passes the ceiling, so it fills that table and never doubles into a larger one that a release's `clear()` would keep; the `--cache-census` rows of the walks cited under DEEP_REPLAY_PEAK_BYTES show the walk memo at that capacity at every release and at the end of every walk, never above it. Three capacity steps were measured (1,835,008, 3,670,016 and 7,340,032 windows). This is the largest of the three whose measured peak, as DEEP_REPLAY_PEAK_BYTES derives it, stays under 5.2 GB, a margin below the 5.27 GB per walk at which the 32 GiB machine drops from five walks to four; all three keep both fleet machines at the configuration count. Its cost, over `default` at horizon 5 with `--families=qsAh` on the alphabet with ·Ye, on the 18-core M5 Pro 48 GiB MacBook Pro (`doc/fleet.md`): 15,469,605 window settles against the uncapped walk's 14,748,571 distinct windows (4.9% more), in 45.4 s against the uncapped 42.8 s. The two smaller steps settle 10.5% and 18.1% more, in 46.0 s and 48.6 s, so a larger ceiling costs fewer settles and less wall-clock time.
@@ -184,7 +184,7 @@ def main(argv: list[str] | None = None) -> int:
         message = f"the tables disagree with the engine at horizon {args.horizon}: {error}"
         print(f"deep replay: {message}", file=sys.stderr)
         record_check(
-            CheckVerdict(check=CHECK, verdict="red", status="FAILED", failures=[message], failed_ids=[]),
+            CheckResult(check=CHECK, outcome="red", status="FAILED", failures=[message], failed_ids=[]),
             argv=list(argv) if argv is not None else sys.argv[1:],
             elapsed_s=time.perf_counter() - started,
             peak_rss_bytes=peak_rss.peak_rss_children_bytes(),
@@ -194,7 +194,7 @@ def main(argv: list[str] | None = None) -> int:
     elapsed = time.perf_counter() - started
     print(f"[t] {CHECK} {elapsed:.1f}s", flush=True)
     record_check(
-        CheckVerdict(check=CHECK, verdict="green", status="green", failures=[], failed_ids=[]),
+        CheckResult(check=CHECK, outcome="green", status="green", failures=[], failed_ids=[]),
         argv=list(argv) if argv is not None else sys.argv[1:],
         elapsed_s=elapsed,
         peak_rss_bytes=peak_rss.peak_rss_children_bytes(),

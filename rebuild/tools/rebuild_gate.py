@@ -2,7 +2,7 @@
 
 The suite has one lane, contracts, which rebuild/conftest.py defines. No test under rebuild/ reads live build output (the audit guard in that conftest fails one that does), so the suite runs on every usable core, and its closure contains no build output, which lets an artifact-only cycle skip it. The closure is the rebuild/ and glyph_data/ sources (without Markdown and the paths in `cycle_paths.REBUILD_GATE_EXEMPT_PREFIXES`), conftest.py, pyproject.toml, uv.lock, the site fonts the suite shapes against, and `artifact_cycle.REBUILD_GATE_HARNESS_PATHS`, the files the suite reads outside those two directories. The green record (rebuild/out/rebuild-contracts-green.json) is shared with the artifact cycle's gate:rebuild-contracts, so a green from either one counts for the other. The build checks its own artifacts: `run_m1.run_rule_witnesses` settles and checks every table's rule certificates on every M1 build, so no lane here reads `rebuild/out/m1`.
 
-A run that spawns the suite is judged by the cycle's failure classifier, `classify_rebuild_output`, which parses the FAILED and ERROR summary lines so each failure is named. The result is also written as a kind:"check" line in the timings journal under the lane's name, rebuild-contracts (the name its pool line uses), with the failing test ids, so `make cycle-timings ARGS='--by-outcome'` can count which tests have caught failures across every run, not only the runs a cycle started. This wrapper always writes that line, because no cycle spawns it: `make test-rebuild` is only run from a terminal, so there is never a parent that writes the line instead, as the cycle does for the `make test` gate. A skip also writes a check line, with verdict skipped and no duration. An unchanged closure is still a result worth counting, but a suite that did not run has no duration, and a zero would pull the timing figures down.
+A run that spawns the suite gets its result from the cycle's failure classifier, `classify_rebuild_output`, which parses the FAILED and ERROR summary lines so each failure is named. The result is also written as a kind:"check" line in the timings journal under the lane's name, rebuild-contracts (the name its pool line uses), with the failing test ids, so `make cycle-timings ARGS='--by-outcome'` can count which tests have caught failures across every run, not only the runs a cycle started. This wrapper always writes that line, because no cycle spawns it: `make test-rebuild` is only run from a terminal, so there is never a parent that writes the line instead, as the cycle does for the `make test` gate. A skip also writes a check line, with outcome skipped and no duration. An unchanged closure is still a result worth counting, but a suite that did not run has no duration, and a zero would pull the timing figures down.
 
 The green record follows separate rules. A passing run during which the closure changed records nothing, because the tested content is no longer on disk. A failing run whose closure still matches the record deletes the record. Without git there is no closure to key on, so the suite always runs and records nothing. `make test-rebuild FORCE=1` (`--force`) runs the suite regardless.
 
@@ -37,7 +37,7 @@ from rebuild.tools.artifact_cycle import (
     rebuild_lane_green,
     record_green,
 )
-from rebuild.tools.cycle_timings import POOL_UNIT_ENV, CheckVerdict, record_check
+from rebuild.tools.cycle_timings import POOL_UNIT_ENV, CheckResult, record_check
 from rebuild.tools.pyright_gate import PYRIGHT_ENV
 
 POOL_UNIT_BY_LANE = {"contracts": "rebuild-contracts"}
@@ -69,7 +69,7 @@ def _run_lane(lane: str, env: dict[str, str], force: bool) -> tuple[int, bool]:
             "Run `make test-rebuild FORCE=1` to run it anyway."
         )
         record_check(
-            CheckVerdict(check=check, verdict="skipped", status="skipped", failures=[], failed_ids=[])
+            CheckResult(check=check, outcome="skipped", status="skipped", failures=[], failed_ids=[])
         )
         return 0, False
 
@@ -79,21 +79,21 @@ def _run_lane(lane: str, env: dict[str, str], force: bool) -> tuple[int, bool]:
     started = time.perf_counter()
     returncode, stdout = _run_suite(argv, lane_env)
     elapsed = time.perf_counter() - started
-    outcome = classify_rebuild_output(stdout, returncode, check)
-    record_check(outcome, argv=argv, elapsed_s=elapsed)
-    for test_id in outcome.failed_ids:
+    result = classify_rebuild_output(stdout, returncode, check)
+    record_check(result, argv=argv, elapsed_s=elapsed)
+    for test_id in result.failed_ids:
         print(f"  hard rebuild failure ({lane}): {test_id}")
-    if not outcome.ok:
+    if not result.ok:
         clear_contradicted_green(record_path, before)
-        print(f"make test-rebuild: {lane} lane {outcome.status}")
+        print(f"make test-rebuild: {lane} lane {result.status}")
         return (returncode if returncode != 0 else 1), True
     if before is None:
         print(
-            f"make test-rebuild: {lane} lane {outcome.status} (closure fingerprint unavailable without git — not recorded)"
+            f"make test-rebuild: {lane} lane {result.status} (closure fingerprint unavailable without git — not recorded)"
         )
         return 0, True
     after, after_roster = rebuild_lane_closure(ROOT, lane)
-    drifted = f"make test-rebuild: {lane} lane {outcome.status}, but its input closure changed while the suite ran — green not recorded"
+    drifted = f"make test-rebuild: {lane} lane {result.status}, but its input closure changed while the suite ran — green not recorded"
     if after != before:
         print(drifted)
         return 0, True
@@ -106,7 +106,7 @@ def _run_lane(lane: str, env: dict[str, str], force: bool) -> tuple[int, bool]:
     record_green(record_path, before, files=payload.files, closures=payload.closures)
     recorded_what = "closure fingerprint and per-test closures" if payload.closures else "closure fingerprint"
     where = record_path.relative_to(ROOT) if record_path.is_relative_to(ROOT) else record_path
-    print(f"make test-rebuild: {lane} lane {outcome.status} — {recorded_what} recorded in {where}")
+    print(f"make test-rebuild: {lane} lane {result.status} — {recorded_what} recorded in {where}")
     return 0, True
 
 
@@ -131,7 +131,7 @@ def _narrow(
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
-        description="Run the rebuild pytest suite unless its input closure is unchanged since its last green run, judging the result through the artifact cycle's failure classifier."
+        description="Run the rebuild pytest suite unless its input closure is unchanged since its last green run, taking its result from the artifact cycle's failure classifier."
     )
     parser.add_argument(
         "--force",

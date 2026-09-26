@@ -374,7 +374,7 @@ def test_gates_real_failure_named_as_failing_not_unverified(tmp_path):
 
 
 def test_gates_an_unverified_conform_blocks_readiness(tmp_path):
-    """The readiness check reads each gate entry's fields without special-casing any gate, so conform is judged like the others: a skip that is not proved blocks as unverified, a failure blocks as failing, and only a pass or a proved skip is ready."""
+    """The readiness check reads each gate entry's fields without special-casing any gate, so conform is evaluated like the others: a skip that is not proved blocks as unverified, a failure blocks as failing, and only a pass or a proved skip is ready."""
     write_surface(tmp_path / "rebuild" / "out" / "review")
     write_summary(
         tmp_path,
@@ -432,7 +432,7 @@ def test_gates_a_legacy_deferred_skip_reads_as_unverified(tmp_path):
     assert call(tmp_path)["ready"] is False
 
 
-def test_gates_legacy_summary_without_skip_key_keeps_its_old_verdict(tmp_path):
+def test_gates_legacy_summary_without_skip_key_keeps_its_old_outcome(tmp_path):
     write_surface(tmp_path / "rebuild" / "out" / "review")
     write_summary(
         tmp_path,

@@ -158,14 +158,14 @@ def test_pyright_rides_into_the_spawned_lane(green_store, monkeypatch):
     assert spawned[0][1].get(rg.PYRIGHT_ENV) == "1"
 
 
-def test_a_green_run_files_its_verdict_under_the_lanes_check_name(green_store, monkeypatch):
+def test_a_green_run_files_its_result_under_the_lanes_check_name(green_store, monkeypatch):
     """One check line under the lane's pool name, with the spawned argv and the elapsed seconds. It has no `run` key, because only `make test-rebuild` runs this wrapper and no artifact cycle is its parent."""
     _fingerprints(monkeypatch, ["c-1"] * 2)
     _suite_stub(monkeypatch, (0, ""))
     assert rg.main([]) == 0
     (check,) = _checks()
     assert check["check"] == "rebuild-contracts"
-    assert check["verdict"] == "green"
+    assert check["outcome"] == "green"
     assert check["status"] == "green"
     assert check["failed_ids"] == []
     assert check["argv"] == ac.rebuild_lane_argv(LANE)
@@ -181,7 +181,7 @@ def test_a_skipped_lane_files_a_skipped_check_with_no_timing(green_store, monkey
     assert rg.main([]) == 0
     (check,) = _checks()
     assert check["check"] == "rebuild-contracts"
-    assert check["verdict"] == "skipped"
+    assert check["outcome"] == "skipped"
     assert "argv" not in check
     assert "elapsed_s" not in check
 
@@ -193,6 +193,6 @@ def test_a_hard_failure_files_the_ids_it_failed_on(green_store, monkeypatch):
     assert rg.main([]) == 3
     (check,) = _checks()
     assert check["check"] == "rebuild-contracts"
-    assert check["verdict"] == "red"
+    assert check["outcome"] == "red"
     assert check["failed_ids"] == ["rebuild/test_settle.py::test_x"]
     assert check["argv"] == ac.rebuild_lane_argv(LANE)

@@ -8,9 +8,9 @@ The job-costs step never fails the pass, for the same reason the census pins are
 
 The plumbing is one step run by one child process, rebuild.tools.verdict_chain. It carries prior verdicts forward onto the fresh manifest, merges the carried file into the live autosave (--no-merge opts out), writes echo-fill verdicts for the blanks in unanimously judged echo groups, writes standing-approval verdicts from the rules in rebuild/standing-approvals.yaml, merges each fill as it is written, repeats the echo pass until it writes nothing, and clusters the open complaints. The chain reads the build's per-unit index sidecar, and its one process holds one copy of it. Each chain step opens with a `[phase] <step>` line and closes with `[t] <step>`. The cycle console pairs the two into one line per step, and the cycle-timings journal reads the step's cost from the `[t]` line. The `[chain] fixpoint:` and `[chain] failed:` lines are results, not phases: `plumbing_sections` starts a section at each `[phase]` line and closes it at either `[chain]` line.
 
-run_m1's exit status is its own gate's verdict, but this driver judges from the three summary JSONs it writes, so a build that died before its judge is reported by what it left behind. The gates are defect_errors, the Manual-pin verdict (including its scope, so a gate that replayed nothing cannot pass), and multi_matched == 0.
+run_m1's exit status is its own gate's result, but this driver evaluates the three summary JSONs it writes, so a build that died before its evaluator is reported by what it left behind. The gates are defect_errors, the Manual-pin gate (including its scope, so a gate that replayed nothing cannot pass), and multi_matched == 0.
 
-This process, not its children, records each check's verdict in the timings journal. Every judged check (run_m1, conform, rebuild-contracts, make-test, js) appends one kind:"check" line tagged with this run, carrying the judge's verdict, not the process's exit code; `make cycle-timings ARGS='--by-outcome'` reads them. run_m1's CLI and make_test_gate record their own line when run by hand, so this driver sets its run id in the environment as AMS_CYCLE_RUN (cycle_timings.CYCLE_RUN_ENV), and those children record nothing when they inherit it. Each check invocation gets one line.
+This process, not its children, records each check's result in the timings journal. Every evaluated check (run_m1, conform, rebuild-contracts, make-test, js) appends one kind:"check" line tagged with this run, carrying the evaluator's outcome, not the process's exit code; `make cycle-timings ARGS='--by-outcome'` reads them. run_m1's CLI and make_test_gate record their own line when run by hand, so this driver sets its run id in the environment as AMS_CYCLE_RUN (cycle_timings.CYCLE_RUN_ENV), and those children record nothing when they inherit it. Each check invocation gets one line.
 
 gate:js and gate:make-test depend on no build artifact, so they start at t=0 in a small thread pool while the build steps run in sequence in the main thread. gate:conform (the exhaustive font-versus-settlement sweep at the per-edit horizon, `run_m1 --conform-only`) starts after the run_m1 gate passes, queued behind make-test by default. Its deeper form, `make conform-deep`, never runs in the cycle; the summary has one line saying whether the emitted lookup has a shape the last deep run did not shape. gate:rebuild-contracts runs every test under rebuild/, and none of them reads a live build artifact (rebuild/conftest.py's audit hook enforces this). A hand run uses every core. Under a cycle the suite is submitted with the conform lane, right after the run_m1 gate passes, and runs beside the surface build at `contracts_pool_width`: the cores less the build's parent and its `surface_job_budget` workers, set on that one child as PYTEST_XDIST_AUTO_NUM_WORKERS, so the pool and the build together run about one process per core. The suite reads nothing the build lane writes, the census pins included, so it waits for nothing downstream, and on a pass where every upstream stage skips it starts at t=0.
 
@@ -97,7 +97,7 @@ from rebuild.tools.green_record import (  # noqa: E402
     read_green_record,
     record_green,
 )
-from rebuild.tools.cycle_timings import CYCLE_RUN_ENV, CheckVerdict  # noqa: E402
+from rebuild.tools.cycle_timings import CYCLE_RUN_ENV, CheckResult  # noqa: E402
 from rebuild.tools.peak_rss import reap_peak_rss_bytes  # noqa: E402
 from rebuild.tools.review_server import REVIEW_PORT, server_listening  # noqa: E402
 
@@ -965,8 +965,8 @@ def plumbing_skip_fingerprint(
     return _digest_lines(lines)
 
 
-def evaluate_run_m1_gate(pipeline: dict, manual_pins: dict, oracle: dict) -> CheckVerdict:
-    """Decide whether the M1 build passed from its three summary JSONs: defect_errors, the Manual-pin verdict, and multi_matched. UNMATCHED oracle rows are never a failure; they are expected during the migration and are judged on the review surface. The verdict carries no UNMATCHED or multi_matched counts, because both callers already hold the oracle summary. The pin verdict is run_m1's own (`manual_pin_gate_failure`), including its scope, so a gate that replayed nothing cannot pass here either."""
+def evaluate_run_m1_gate(pipeline: dict, manual_pins: dict, oracle: dict) -> CheckResult:
+    """Decide whether the M1 build passed from its three summary JSONs: defect_errors, the Manual-pin gate, and multi_matched. UNMATCHED oracle rows are never a failure; they are expected during the migration and are judged on the review surface. The result carries no UNMATCHED or multi_matched counts, because both callers already hold the oracle summary. The pin gate is run_m1's own (`manual_pin_gate_failure`), including its scope, so a gate that replayed nothing cannot pass here either."""
     from rebuild.pipeline.run_m1 import manual_pin_gate_failure
 
     failures: list[str] = []
@@ -983,21 +983,21 @@ def evaluate_run_m1_gate(pipeline: dict, manual_pins: dict, oracle: dict) -> Che
     if multi_matched is not None and multi_matched > 0:
         failures.append(f"oracle multi_matched = {multi_matched} (must be 0)")
 
-    return CheckVerdict(
+    return CheckResult(
         check="run_m1",
-        verdict="red" if failures else "green",
+        outcome="red" if failures else "green",
         status="FAILED" if failures else "green",
         failures=failures,
         failed_ids=[],
     )
 
 
-def evaluate_conform_gate(summary: dict | None) -> CheckVerdict:
-    """Judge gate:conform from conform_summary.json's contents (None when the subprocess wrote none). `pass` is the verdict, and the belt fails in only one way: a font-versus-settlement divergence, which is a compiler defect. Whether the font holds every rule the build planned is checked by read-back inside run_m1 on every build, and dead generated rules by the build's witness stage (`run_m1.run_rule_witnesses`, over the certificates the crate writes beside the rules); neither reaches this summary. The sweep reports a count of divergences, not named cases, so there are no failed ids: a divergence names a window, and the audit beside the summary lists them."""
+def evaluate_conform_gate(summary: dict | None) -> CheckResult:
+    """Evaluate gate:conform from conform_summary.json's contents (None when the subprocess wrote none). `pass` is the outcome, and the belt fails in only one way: a font-versus-settlement divergence, which is a compiler defect. Whether the font holds every rule the build planned is checked by read-back inside run_m1 on every build, and dead generated rules by the build's witness stage (`run_m1.run_rule_witnesses`, over the certificates the crate writes beside the rules); neither reaches this summary. The sweep reports a count of divergences, not named cases, so there are no failed ids: a divergence names a window, and the audit beside the summary lists them."""
     if summary is None:
-        return CheckVerdict(
+        return CheckResult(
             check="conform",
-            verdict="red",
+            outcome="red",
             status="FAILED (no conform_summary.json)",
             failures=["conform gate: run_m1 --conform-only wrote no summary"],
             failed_ids=[],
@@ -1007,9 +1007,9 @@ def evaluate_conform_gate(summary: dict | None) -> CheckVerdict:
         failures.append(f"conform gate: {summary['divergences']} font-vs-settle divergence(s)")
     if not summary.get("pass") and not failures:
         failures.append("conform gate: pass is false")
-    return CheckVerdict(
+    return CheckResult(
         check="conform",
-        verdict="red" if failures else "green",
+        outcome="red" if failures else "green",
         status="FAILED" if failures else "green",
         failures=failures,
         failed_ids=[],
@@ -2272,9 +2272,9 @@ def render_plan(plan: Plan) -> list[str]:
 
 @dataclass
 class CycleReport:
-    """The pass's running record. The `*_status` strings are prose for the summary. The gate strings (`gate_js` and the others) are prose too, but `_step_outcome` reads their leading words (`not run`, `skipped`, `self-skipped`, `green`) to fill the table's outcome column. Decisions read the booleans (`gate_*_green`, `complaints_ok`), which are set when each outcome is judged. A gate that was never joined, because it was skipped or never submitted, leaves its boolean None, which is neither green nor red.
+    """The pass's running record. The `*_status` strings are prose for the summary. The gate strings (`gate_js` and the others) are prose too, but `_step_outcome` reads their leading words (`not run`, `skipped`, `self-skipped`, `green`) to fill the table's outcome column. Decisions read the booleans (`gate_*_green`, `complaints_ok`), which are set when each outcome is decided. A gate that was never joined, because it was skipped or never submitted, leaves its boolean None, which is neither green nor red.
 
-    `step_seconds` and `step_returncodes` fill the summary table's last two columns. They come from the same `_StepResult` the timings journal records, so the table and the journal agree, and they are keyed through STEP_ALIASES, so the gates-only child fills the run_m1 row. `run_m1_failed` records the cycle's own judgment of the run_m1 gate from the three summary JSONs, which `_step_outcome` reads before the return code. `retention_outcome` is how `_finish`'s retention attempt ended (`ok` or `FAILED`, empty until the attempt ends), so the table reports it even when a stop signal lands after retention.
+    `step_seconds` and `step_returncodes` fill the summary table's last two columns. They come from the same `_StepResult` the timings journal records, so the table and the journal agree, and they are keyed through STEP_ALIASES, so the gates-only child fills the run_m1 row. `run_m1_failed` records the cycle's own evaluation of the run_m1 gate from the three summary JSONs, which `_step_outcome` reads before the return code. `retention_outcome` is how `_finish`'s retention attempt ended (`ok` or `FAILED`, empty until the attempt ends), so the table reports it even when a stop signal lands after retention.
     """
 
     unmatched: int | None = None
@@ -2514,17 +2514,17 @@ def _run_step(
 _ANSI_SGR = re.compile(r"\x1b\[[0-9;]*[A-Za-z]")
 
 
-def classify_rebuild_output(stdout: str, returncode: int, check: str) -> CheckVerdict:
-    """Return the rebuild suite's gate verdict from pytest's FAILED and ERROR summary lines. The cycle's rebuild gate and `rebuild.tools.rebuild_gate` both use it. `check` ("rebuild-contracts") is only copied into the verdict to name the suite. ANSI escape codes are stripped first, because pytest colors its output whenever FORCE_COLOR is set (the agent harness sets it), and a colored line does not start with "FAILED " or "ERROR ". A nonzero exit with no parsed failure lines is red. Every failure counts as unexplained, because the suite has no list of accepted failures, and every green verdict is recordable."""
+def classify_rebuild_output(stdout: str, returncode: int, check: str) -> CheckResult:
+    """Return the rebuild suite's gate result from pytest's FAILED and ERROR summary lines. The cycle's rebuild gate and `rebuild.tools.rebuild_gate` both use it. `check` ("rebuild-contracts") is only copied into the result to name the suite. ANSI escape codes are stripped first, because pytest colors its output whenever FORCE_COLOR is set (the agent harness sets it), and a colored line does not start with "FAILED " or "ERROR ". A nonzero exit with no parsed failure lines is red. Every failure counts as unexplained, because the suite has no list of accepted failures, and every green result is recordable."""
     lines = [_ANSI_SGR.sub("", line) for line in stdout.splitlines()]
     failed_ids = [line.split(None, 2)[1] for line in lines if line.startswith("FAILED ")]
     error_ids = [line.split(None, 2)[1] for line in lines if line.startswith("ERROR ")]
     hard = failed_ids + error_ids
     if returncode != 0 and not hard:
         hard.append(f"pytest exited {returncode} with no parsed FAILED/ERROR lines")
-    return CheckVerdict(
+    return CheckResult(
         check=check,
-        verdict="red" if hard else "green",
+        outcome="red" if hard else "green",
         status=f"FAILED ({len(hard)} unexplained)" if hard else "green",
         failures=[f"rebuild suite: {len(hard)} unexplained failure(s)"] if hard else [],
         failed_ids=hard,
@@ -2553,12 +2553,12 @@ def _do_run_m1(
     record: bool = False,
     fingerprint: str | None = None,
     timings: CycleTimings | None = None,
-) -> CheckVerdict | None:
-    """Run the M1 build, or reuse it when `skip` is set, and judge its gate from the three summary JSONs. The skip path leaves rebuild/out/m1 untouched and re-evaluates the summaries on disk, which is sound because run_m1's outputs are deterministic and carry no timestamps. A live green is recorded only if the fingerprint still matches after the run, because an input edited mid-run means the tested content is no longer on disk. A live red whose fingerprint matches the green record deletes the record.
+) -> CheckResult | None:
+    """Run the M1 build, or reuse it when `skip` is set, and evaluate its gate from the three summary JSONs. The skip path leaves rebuild/out/m1 untouched and re-evaluates the summaries on disk, which is sound because run_m1's outputs are deterministic and carry no timestamps. A live green is recorded only if the fingerprint still matches after the run, because an input edited mid-run means the tested content is no longer on disk. A live red whose fingerprint matches the green record deletes the record.
 
     With `reuse`, the child is `run_m1 --gates-only` over the tables and font on disk. It rewrites the defect fields of `pipeline_summary.json` in place and exits with an error when that file is missing, so it is the one summary not deleted before the spawn. Everything after the spawn follows the full build's path, green recording included. That green rests on the conditions the route was planned on (`gates_only_reuse` and `m1_tables_stamped`), which the child checks again before recording its own green. The child spawns as `RUN_M1_REUSE_STEP`, not `run_m1`, because `make cycle-timings ARGS='--by-step'` groups rows by step name and host, and a gates-only run of a few seconds recorded as `run_m1` would distort the figures for a full M1 build.
 
-    Every path, the skip included, records a check line in the timings journal, because a skip is a judgment on this build's summaries. The child records none of its own, because it inherits CYCLE_RUN_ENV. A build that wrote no summaries is recorded red with `_NO_SUMMARIES_REASONS`, the reason the cycle's failure list also gets.
+    Every path, the skip included, records a check line in the timings journal, because a skip is an evaluation of this build's summaries. The child records none of its own, because it inherits CYCLE_RUN_ENV. A build that wrote no summaries is recorded red with `_NO_SUMMARIES_REASONS`, the reason the cycle's failure list also gets.
     """
     step = RUN_M1_REUSE_STEP if reuse else "run_m1"
     result: _StepResult | None = None
@@ -2581,9 +2581,9 @@ def _do_run_m1(
             _close_step(emit, report, step, result, "FAILED (no summaries)")
         if timings is not None:
             timings.record_check(
-                CheckVerdict(
+                CheckResult(
                     check="run_m1",
-                    verdict="red",
+                    outcome="red",
                     status="FAILED (no summaries)",
                     failures=list(_NO_SUMMARIES_REASONS),
                     failed_ids=[],
@@ -2610,7 +2610,7 @@ def _do_run_m1(
     return gate
 
 
-def _run_m1_reasons(gate: CheckVerdict | None) -> list[str]:
+def _run_m1_reasons(gate: CheckResult | None) -> list[str]:
     if gate is None:
         return list(_NO_SUMMARIES_REASONS)
     return list(gate.failures)
@@ -3004,8 +3004,8 @@ def _gate_conform_task(
     emit: console.CycleConsole,
     registry: _ChildRegistry,
     argv: list[str],
-) -> CheckVerdict:
-    """Run gate:conform, the exhaustive font-versus-settlement sweep over the fresh M1.otf (`run_m1 --conform-only`), and return its verdict. Under the queue policy it waits for gate:make-test, and the rebuild suite waits for it, so only one heavy pool runs at a time. Run at the same time, the sweep and the rebuild suite oversubscribed the cores roughly 2:1, and that contention was measured to roughly triple the suite's wall-clock time (commit b5881022), which is worse than running them in sequence. The previous conform_summary.json is deleted just before the sweep starts, so the verdict can only come from this pass's sweep. A skipped gate never runs this task and leaves the file alone."""
+) -> CheckResult:
+    """Run gate:conform, the exhaustive font-versus-settlement sweep over the fresh M1.otf (`run_m1 --conform-only`), and return its result. Under the queue policy it waits for gate:make-test, and the rebuild suite waits for it, so only one heavy pool runs at a time. Run at the same time, the sweep and the rebuild suite oversubscribed the cores roughly 2:1, and that contention was measured to roughly triple the suite's wall-clock time (commit b5881022), which is worse than running them in sequence. The previous conform_summary.json is deleted just before the sweep starts, so the result can only come from this pass's sweep. A skipped gate never runs this task and leaves the file alone."""
     cycle_paths.CONFORM_SUMMARY.unlink(missing_ok=True)
     if pool_policy == "queue":
         _await_gate_futures(make_fut)
@@ -3016,18 +3016,18 @@ def _gate_conform_task(
             summary = json.loads(cycle_paths.CONFORM_SUMMARY.read_text())
         except ValueError:
             summary = None
-    verdict = evaluate_conform_gate(summary)
-    if result.returncode != 0 and not verdict.failures:
-        # A sweep whose summary passed but whose process exited nonzero stopped somewhere the summary does not describe, so the exit code overrides the summary's verdict.
-        verdict = CheckVerdict(
+    gate = evaluate_conform_gate(summary)
+    if result.returncode != 0 and not gate.failures:
+        # A sweep whose summary passed but whose process exited nonzero stopped somewhere the summary does not describe, so the exit code overrides the summary's outcome.
+        gate = CheckResult(
             check="conform",
-            verdict="red",
+            outcome="red",
             status=f"FAILED (exit {result.returncode})",
             failures=[f"conform gate: exited {result.returncode} despite a passing summary"],
             failed_ids=[],
         )
-    _close_gate(emit, "gate:conform", result, verdict)
-    return verdict
+    _close_gate(emit, "gate:conform", result, gate)
+    return gate
 
 
 def _await_gate_futures(*futures: Future | None) -> None:
@@ -3048,14 +3048,14 @@ def _gate_contracts_task(
     emit: console.CycleConsole,
     registry: _ChildRegistry,
     argv: list[str],
-) -> CheckVerdict:
-    """Run gate:rebuild-contracts, the rebuild suite (every test under rebuild/, none of which reads a live build artifact), and return its verdict. Because it reads no build output, it is submitted right after gate:conform, once the run_m1 gate has passed, and runs beside the surface build at the width `contracts_pool_width` sets on its environment: the cores the build's parent and workers leave free. Under the queue policy it also waits for gate:make-test and gate:conform, so only one heavy gate pool runs at a time."""
+) -> CheckResult:
+    """Run gate:rebuild-contracts, the rebuild suite (every test under rebuild/, none of which reads a live build artifact), and return its result. Because it reads no build output, it is submitted right after gate:conform, once the run_m1 gate has passed, and runs beside the surface build at the width `contracts_pool_width` sets on its environment: the cores the build's parent and workers leave free. Under the queue policy it also waits for gate:make-test and gate:conform, so only one heavy gate pool runs at a time."""
     if pool_policy == "queue":
         _await_gate_futures(conform_fut, make_fut)
     result = spawn("gate:rebuild-contracts", argv, emit=emit, registry=registry, stream=False)
-    verdict = classify_rebuild_output(result.stdout, result.returncode, "rebuild-contracts")
-    _close_gate(emit, "gate:rebuild-contracts", result, verdict)
-    return verdict
+    gate = classify_rebuild_output(result.stdout, result.returncode, "rebuild-contracts")
+    _close_gate(emit, "gate:rebuild-contracts", result, gate)
+    return gate
 
 
 def _gate_result(fut: Future, name: str, failures: list[str]):
@@ -3066,11 +3066,11 @@ def _gate_result(fut: Future, name: str, failures: list[str]):
         return None
 
 
-def _rc_verdict(check: str, returncode: int, failure: str) -> CheckVerdict:
-    """Return the verdict for a gate judged by its exit code alone, with the summary's status strings. It names no failed ids because neither suite's output is parsed."""
-    return CheckVerdict(
+def _rc_result(check: str, returncode: int, failure: str) -> CheckResult:
+    """Return the result for a gate evaluated by its exit code alone, with the summary's status strings. It names no failed ids because neither suite's output is parsed."""
+    return CheckResult(
         check=check,
-        verdict="green" if returncode == 0 else "red",
+        outcome="green" if returncode == 0 else "red",
         status="green" if returncode == 0 else f"FAILED (exit {returncode})",
         failures=[] if returncode == 0 else [failure],
         failed_ids=[],
@@ -3085,17 +3085,17 @@ def _join_rebuild_lane(
     emit: console.CycleConsole,
     timings: CycleTimings | None = None,
 ) -> None:
-    """Record one rebuild lane's outcome in the report and its verdict in the timings journal. A task that raised records no check line, because the exception is a failure of the thread pool, not a verdict from the suite; the report shows "FAILED (exception)"."""
-    verdict = _gate_result(fut, f"gate:rebuild-{lane}", failures)
-    if verdict is None:
+    """Record one rebuild lane's outcome in the report and its check result in the timings journal. A task that raised records no check line, because the exception is a failure of the thread pool, not a result from the suite; the report shows "FAILED (exception)"."""
+    gate = _gate_result(fut, f"gate:rebuild-{lane}", failures)
+    if gate is None:
         status, green, recordable = "FAILED (exception)", False, False
     else:
-        status, green, recordable = verdict.status, not verdict.failures, verdict.recordable
-        for test_id in verdict.failed_ids:
+        status, green, recordable = gate.status, not gate.failures, gate.recordable
+        for test_id in gate.failed_ids:
             emit.note(f"gate:rebuild-{lane}", f"hard rebuild failure ({lane}): {test_id}")
-        failures.extend(verdict.failures)
+        failures.extend(gate.failures)
         if timings is not None:
-            timings.record_check(verdict)
+            timings.record_check(gate)
     report.gate_contracts, report.gate_contracts_green = status, green
     report.contracts_recordable = recordable
 
@@ -3110,19 +3110,19 @@ def _join_gates(
     emit: console.CycleConsole,
     timings: CycleTimings | None = None,
 ) -> None:
-    """Record every gate that ran in the report, and each gate's verdict in the timings journal. The JS suite and `make test` are judged by exit code alone, so `_rc_verdict` builds their verdicts here. gate:make-test's wrapper records no check line when CYCLE_RUN_ENV is set, so the line recorded here is the only one for it."""
+    """Record every gate that ran in the report, and each gate's check result in the timings journal. The JS suite and `make test` are evaluated by exit code alone, so `_rc_result` builds their results here. gate:make-test's wrapper records no check line when CYCLE_RUN_ENV is set, so the line recorded here is the only one for it."""
     if js_fut is not None:
         js = _gate_result(js_fut, "gate:js", failures)
         if js is None:
             report.gate_js = "FAILED (exception)"
             report.gate_js_green = False
         else:
-            verdict = _rc_verdict("js", js.returncode, "JS suite failed")
-            report.gate_js_green = verdict.ok
-            report.gate_js = verdict.status
-            failures.extend(verdict.failures)
+            gate = _rc_result("js", js.returncode, "JS suite failed")
+            report.gate_js_green = gate.ok
+            report.gate_js = gate.status
+            failures.extend(gate.failures)
             if timings is not None:
-                timings.record_check(verdict)
+                timings.record_check(gate)
     if contracts_fut is not None:
         _join_rebuild_lane(report, failures, contracts_fut, "contracts", emit, timings)
     if conform_fut is not None:
@@ -3142,16 +3142,14 @@ def _join_gates(
             report.gate_make_test = "FAILED (exception)"
             report.gate_make_test_green = False
         else:
-            verdict = _rc_verdict("make-test", make.returncode, "make test failed")
-            report.gate_make_test_green = verdict.ok
+            gate = _rc_result("make-test", make.returncode, "make test failed")
+            report.gate_make_test_green = gate.ok
             report.gate_make_test = (
-                MAKE_TEST_SELF_SKIP_STATUS
-                if verdict.ok and make_test_self_skipped(make.stdout)
-                else verdict.status
+                MAKE_TEST_SELF_SKIP_STATUS if gate.ok and make_test_self_skipped(make.stdout) else gate.status
             )
-            failures.extend(verdict.failures)
+            failures.extend(gate.failures)
             if timings is not None:
-                timings.record_check(verdict)
+                timings.record_check(gate)
 
 
 def _plumbing_settled(report: CycleReport) -> bool:
@@ -3476,7 +3474,7 @@ _GATE_STATUS_FIELDS = {
 def step_figure(report: CycleReport, name: str) -> str:
     """Return one step's figure for the summary table and the step's closing line, or the empty string when the step has nothing to report.
 
-    `summary_rows` drops the figure on a `skipped` or `not run` row, because the report can still hold the previous build's numbers for a step this pass did not run. A gate's figure is the status string its judge wrote (the report field `_GATE_STATUS_FIELDS` names), with a plain "green" dropped because the outcome column already says it.
+    `summary_rows` drops the figure on a `skipped` or `not run` row, because the report can still hold the previous build's numbers for a step this pass did not run. A gate's figure is the status string its evaluator wrote (the report field `_GATE_STATUS_FIELDS` names), with a plain "green" dropped because the outcome column already says it.
     """
 
     def count(value: int | None) -> str:
@@ -3515,8 +3513,8 @@ def step_figure(report: CycleReport, name: str) -> str:
         return report.retention_figure
     status = _GATE_STATUS_FIELDS.get(name)
     if status is not None:
-        judged = prose(str(getattr(report, status)))
-        return "" if judged == "green" else judged
+        shown = prose(str(getattr(report, status)))
+        return "" if shown == "green" else shown
     return ""
 
 
@@ -3537,23 +3535,22 @@ def _close_step(
     result: _StepResult | None,
     outcome: str | None = None,
 ) -> None:
-    """Print a spawned step's closing line with its figure. `outcome` defaults to one derived from the child's exit status; callers that judge otherwise pass their own (run_m1 judges by its summaries, and census and job-costs always pass `ok` because they gate nothing)."""
-    verdict = outcome
-    if verdict is None:
-        verdict = "ok" if result is None or result.returncode == 0 else f"FAILED (exit {result.returncode})"
+    """Print a spawned step's closing line with its figure. `outcome` defaults to one derived from the child's exit status; callers that decide it otherwise pass their own (run_m1 decides from its summaries, and census and job-costs always pass `ok` because they gate nothing)."""
+    if outcome is None:
+        outcome = "ok" if result is None or result.returncode == 0 else f"FAILED (exit {result.returncode})"
     figure = step_figure(report, STEP_ALIASES.get(name, name))
-    emit.step_end(name, result, verdict, _figure_beside(verdict, figure))
+    emit.step_end(name, result, outcome, _figure_beside(outcome, figure))
 
 
 def _close_gate(
-    emit: console.CycleConsole, name: str, result: _StepResult, verdict: CheckVerdict | None = None
+    emit: console.CycleConsole, name: str, result: _StepResult, gate: CheckResult | None = None
 ) -> None:
-    """Print a gate's closing line from the verdict its task just reached, or from the exit status when there is no verdict. `_close_step` would read the report, which `_join_gates` fills in only later, so at this point it still says the gate has not run. A plain green status is dropped from the figure, as in the table."""
-    if verdict is None:
+    """Print a gate's closing line from the result its task just reached, or from the exit status when there is no result. `_close_step` would read the report, which `_join_gates` fills in only later, so at this point it still says the gate has not run. A plain green status is dropped from the figure, as in the table."""
+    if gate is None:
         status = "green" if result.returncode == 0 else f"FAILED (exit {result.returncode})"
         passed = result.returncode == 0
     else:
-        status, passed = verdict.status, verdict.ok
+        status, passed = gate.status, gate.ok
     outcome = "ok" if passed else "FAILED"
     emit.step_end(name, result, outcome, _figure_beside(outcome, "" if status == "green" else status))
 
@@ -3561,7 +3558,7 @@ def _close_gate(
 def _step_outcome(report: CycleReport, plan: Plan, step: Step, *, retention_ran: bool) -> str:
     """Return the table's outcome for one step: `ok`, `FAILED`, `skipped`, or `not run`. The figure carries any detail, and the plan block says why a step did not run.
 
-    A gate's outcome comes from its status string. Any other step that ran is judged by run_m1's failure flag or the child's exit code, since having a recorded time only shows that it ran. A nonzero exit from census or job-costs (`INFORMATIONAL_STEPS`) is not a failure, because they gate nothing and their figures report the problem.
+    A gate's outcome comes from its status string. Any other step that ran takes its outcome from run_m1's failure flag or the child's exit code, since having a recorded time only shows that it ran. A nonzero exit from census or job-costs (`INFORMATIONAL_STEPS`) is not a failure, because they gate nothing and their figures report the problem.
 
     Retention runs inside `_finish`, so it reads `not run` when an upstream failure ended the pass before retention, or a stop signal ended it before retention finished. It reads `FAILED` when retention raised, which `_finish` records in `retention_outcome`; the pass verdict stays green. A stop signal that lands after retention finished leaves the row reading as retention ended (`ok` or `FAILED`), because `_finish_interrupted` reads the same field. It reads `skipped` only when the plan ruled it out (`--keep-history`, a first run, or a rehearsal).
     """

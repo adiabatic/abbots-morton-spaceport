@@ -2,9 +2,9 @@
 
 The journal is rebuild/out/cycle-timings.ndjson. It is gitignored with the rest of rebuild/out and the retention pass does not prune it, so each machine keeps its own history. It holds four kinds of line.
 
-A "check" line records one judged check invocation: the check's name, the verdict (green, red, or skipped), the status string the judge printed, the failure messages the cycle adds to its summary, and the ids of the tests that failed. The artifact cycle tags each check it judges with its run id. The interactive entry points (rebuild.tools.rebuild_gate, rebuild.tools.make_test_gate, rebuild.tools.deep_replay, and run_m1's CLI) record their checks with no run. Each invocation is recorded by one process: run_m1's CLI and make_test_gate, which a cycle spawns, record nothing when AMS_CYCLE_RUN (`CYCLE_RUN_ENV`) is set, and the cycle records their line instead. A check line carries its own host, cpu count, and total memory, because most check lines have no run line to take them from. The verdict is what the judge decided, never the process's return code, so a run that died before its judge and a run the judge failed can be told apart.
+A "check" line records one evaluated check invocation: the check's name, the outcome (green, red, or skipped), the status string the evaluator printed, the failure messages the cycle adds to its summary, and the ids of the tests that failed. The artifact cycle tags each check it evaluates with its run id. The interactive entry points (rebuild.tools.rebuild_gate, rebuild.tools.make_test_gate, rebuild.tools.deep_replay, and run_m1's CLI) record their checks with no run. Each invocation is recorded by one process: run_m1's CLI and make_test_gate, which a cycle spawns, record nothing when AMS_CYCLE_RUN (`CYCLE_RUN_ENV`) is set, and the cycle records their line instead. A check line carries its own host, cpu count, and total memory, because most check lines have no run line to take them from. The outcome is what the evaluator decided, never the process's return code, so a run that died before its evaluator and a run the evaluator failed can be told apart.
 
-A "step" line records one subprocess the cycle spawned: the driver's step name (run_m1, gate:conform, merge, ...), the argv, the return code, the wall seconds, and the step's peak RSS in bytes. The driver measures the peak as it reaps the child (`peak_rss.reap_peak_rss_bytes`), and it is the largest of the child and its descendants. The line also carries every `[t] <label> <secs>s` phase line parsed from the child's captured output, so the per-configuration conform sweeps and run_m1's phases are kept even for steps whose output is not shown on the console. A phase line may end with a peak-RSS token `rss_gb=<n>` (`peak_rss.rss_token`) and a current-RSS token `rss_now_gb=<n>` (`peak_rss.rss_now_token`), both in decimal GB, which are stored as `rss_gb` and `rss_now_gb`. A step line has a return code and no verdict, and no reader here derives a verdict from it. A skipped stage spawns nothing and so writes no step line; the run line's plan and gates blocks say which stages were skipped.
+A "step" line records one subprocess the cycle spawned: the driver's step name (run_m1, gate:conform, merge, ...), the argv, the return code, the wall seconds, and the step's peak RSS in bytes. The driver measures the peak as it reaps the child (`peak_rss.reap_peak_rss_bytes`), and it is the largest of the child and its descendants. The line also carries every `[t] <label> <secs>s` phase line parsed from the child's captured output, so the per-configuration conform sweeps and run_m1's phases are kept even for steps whose output is not shown on the console. A phase line may end with a peak-RSS token `rss_gb=<n>` (`peak_rss.rss_token`) and a current-RSS token `rss_now_gb=<n>` (`peak_rss.rss_now_token`), both in decimal GB, which are stored as `rss_gb` and `rss_now_gb`. A step line has a return code and no outcome, and no reader here derives an outcome from it. A skipped stage spawns nothing and so writes no step line; the run line's plan and gates blocks say which stages were skipped.
 
 A "run" line is written when a cycle finishes, including an interrupted one. It carries the host, cpu count, total memory, start and finish stamps, total wall seconds, the cycle summary's exit, failures, gates, plan, and argv, and the carry's figures (`artifact_cycle.carry_figures` parses them from the carry's own output line). The total memory is recorded because a step's peak read months later needs the size of the machine it ran on beside it.
 
@@ -108,14 +108,14 @@ def record_pool(
 
 
 @dataclass
-class CheckVerdict:
-    """What one judged check invocation decided, in the shape every judge returns and every writer records. `verdict` is green, red, or skipped, which a report can group on. `status` is the label the console and the cycle summary print for the same judgment ("green", a FAILED clause with the unexplained count, "FAILED (no conform_summary.json)"). Each judge words its own status, and that output must not change, so the two are separate fields and neither is derived from the other.
+class CheckResult:
+    """What one evaluated check invocation decided, in the shape every evaluator returns and every writer records. `outcome` is green, red, or skipped, which a report can group on. `status` is the label the console and the cycle summary print for the same result ("green", a FAILED clause with the unexplained count, "FAILED (no conform_summary.json)"). Each evaluator words its own status, and that output must not change, so the two are separate fields and neither is derived from the other.
 
     `failures` is the text the cycle adds to its summary, and `failed_ids` is the failing test ids, which `--by-outcome` counts across invocations. `recordable` says whether this pass may write a green record; the caller reads it, and it is not written to the journal.
     """
 
     check: str
-    verdict: str
+    outcome: str
     status: str
     failures: list[str]
     failed_ids: list[str]
@@ -123,11 +123,11 @@ class CheckVerdict:
 
     @property
     def ok(self) -> bool:
-        return self.verdict == "green"
+        return self.outcome == "green"
 
 
 def record_check(
-    verdict: CheckVerdict,
+    result: CheckResult,
     *,
     run: str | None = None,
     argv: list[str] | None = None,
@@ -135,19 +135,19 @@ def record_check(
     peak_rss_bytes: int | None = None,
     path: Path | None = None,
 ) -> None:
-    """Append one kind:"check" line for a judged check invocation. `run` is the optional parent run id: the artifact cycle passes it through `CycleTimings.record_check`, and an interactive entry point passes nothing.
+    """Append one kind:"check" line for an evaluated check invocation. `run` is the optional parent run id: the artifact cycle passes it through `CycleTimings.record_check`, and an interactive entry point passes nothing.
 
-    The host, cpu count, and total memory are read here because most check lines have no run line to take them from, and so parented and unparented lines can be compared directly. `recordable` is not written. `elapsed_s` is rounded to a tenth, as step lines are. Nothing here raises, because the callers are gate wrappers and the cycle's reporting path, where an unwritable journal should warn once and never fail a check that already has a verdict. `path` is resolved at call time, not bound as a default, so a test that patches `JOURNAL` redirects this write too.
+    The host, cpu count, and total memory are read here because most check lines have no run line to take them from, and so parented and unparented lines can be compared directly. `recordable` is not written. `elapsed_s` is rounded to a tenth, as step lines are. Nothing here raises, because the callers are gate wrappers and the cycle's reporting path, where an unwritable journal should warn once and never fail a check that already has a result. `path` is resolved at call time, not bound as a default, so a test that patches `JOURNAL` redirects this write too.
     """
     journal = JOURNAL if path is None else path
     entry: dict = {
         "format": FORMAT,
         "kind": "check",
-        "check": verdict.check,
-        "verdict": verdict.verdict,
-        "status": verdict.status,
-        "failures": list(verdict.failures),
-        "failed_ids": list(verdict.failed_ids),
+        "check": result.check,
+        "outcome": result.outcome,
+        "status": result.status,
+        "failures": list(result.failures),
+        "failed_ids": list(result.failed_ids),
         "host": socket.gethostname(),
         "cpu_count": os.cpu_count(),
         "mem_total_bytes": memory_budget.total_memory_bytes(),
@@ -183,7 +183,7 @@ def parse_inner_timings(text: str) -> list[dict]:
 
 
 class CycleTimings:
-    """The journal writer for one cycle run. `wrap_spawn` wraps the driver's spawn callable so each subprocess that ran records a step line when it completes; `record_check` records a verdict under this run; `finish` records the run line from the built cycle summary. Appends are serialized by the module lock, because the gate tasks spawn from pool threads, and an unwritable journal warns once and never fails the cycle. Any other keyword argument a caller passes to a spawn, such as a per-child environment, is passed through unchanged."""
+    """The journal writer for one cycle run. `wrap_spawn` wraps the driver's spawn callable so each subprocess that ran records a step line when it completes; `record_check` records a check result under this run; `finish` records the run line from the built cycle summary. Appends are serialized by the module lock, because the gate tasks spawn from pool threads, and an unwritable journal warns once and never fails the cycle. Any other keyword argument a caller passes to a spawn, such as a per-child environment, is passed through unchanged."""
 
     def __init__(self, path: Path) -> None:
         self.path = path
@@ -222,9 +222,9 @@ class CycleTimings:
             entry["inner"] = inner
         self._append(entry)
 
-    def record_check(self, verdict: CheckVerdict, **kw) -> None:
-        """Record a check line tagged with this run. The cycle records every check it judges, including checks whose work a child process did, because a child the cycle spawned records nothing when CYCLE_RUN_ENV is set; one line per invocation keeps the `--by-outcome` counts accurate."""
-        record_check(verdict, run=self.run_id, path=self.path, **kw)
+    def record_check(self, result: CheckResult, **kw) -> None:
+        """Record a check line tagged with this run. The cycle records every check it evaluates, including checks whose work a child process did, because a child the cycle spawned records nothing when CYCLE_RUN_ENV is set; one line per invocation keeps the `--by-outcome` counts accurate."""
+        record_check(result, run=self.run_id, path=self.path, **kw)
 
     def finish(self, summary: dict) -> None:
         self._append(
@@ -423,9 +423,9 @@ def render_by_step(steps: dict[str, list[dict]], order: list[str], checks: list[
 
 
 def render_by_outcome(checks: list[dict]) -> list[str]:
-    """Return, per check, the number of invocations, the green, red, and skipped counts, and the test ids it failed on, across every host and with or without a parent run. This shows whether a check ever fails and which tests fail, so a suite's cost can be weighed against the failures it has found. Failed ids are ordered by how often each failed, ties by id. Checks are ordered by name, so rows stay in place as verdicts are added.
+    """Return, per check, the number of invocations, the green, red, and skipped counts, and the test ids it failed on, across every host and with or without a parent run. This shows whether a check ever fails and which tests fail, so a suite's cost can be weighed against the failures it has found. Failed ids are ordered by how often each failed, ties by id. Checks are ordered by name, so rows stay in place as check lines are added.
 
-    Check lines with a run are counted here, unlike in `--by-step`, because a verdict is recorded nowhere else; only the seconds duplicate a step line.
+    Check lines with a run are counted here, unlike in `--by-step`, because a check's outcome is recorded nowhere else; only the seconds duplicate a step line. A check line without an `outcome` key carries it under `verdict`, the key older journals use, and is counted from that.
     """
     counts: dict[str, dict[str, int]] = {}
     totals: dict[str, int] = {}
@@ -434,9 +434,9 @@ def render_by_outcome(checks: list[dict]) -> list[str]:
         name = str(entry.get("check", "?"))
         tally = counts.setdefault(name, {"green": 0, "red": 0, "skipped": 0})
         totals[name] = totals.get(name, 0) + 1
-        verdict = entry.get("verdict")
-        if isinstance(verdict, str) and verdict in tally:
-            tally[verdict] += 1
+        outcome = entry.get("outcome", entry.get("verdict"))
+        if isinstance(outcome, str) and outcome in tally:
+            tally[outcome] += 1
         histogram = histograms.setdefault(name, {})
         for test_id in entry.get("failed_ids") or []:
             histogram[str(test_id)] = histogram.get(str(test_id), 0) + 1

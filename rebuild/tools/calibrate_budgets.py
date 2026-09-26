@@ -666,7 +666,7 @@ def main(argv: list[str] | None = None, *, seed_stamps: Mapping[str, str] | None
     parser.add_argument(
         "--check",
         action="store_true",
-        help="exit 1 when an observed peak outruns its constant; a unit with no observations and a unit with no constant are informational and never fail, and a failure of the check itself exits 2 so a caller can tell a verdict from a crash",
+        help="exit 1 when an observed peak outruns its constant; a unit with no observations and a unit with no constant are informational and never fail, and a failure of the check itself exits 2 so a caller can tell a check result from a crash",
     )
     parser.add_argument(
         "--moved",

@@ -393,7 +393,7 @@ def _freshness_check(
 
 
 def _gates_check(summary, generated_at, manifest_fp, artifact_cycle_remedy) -> dict:
-    """Check the recorded cycle's gates by each gate entry's `skip` field. A "proved" skip means a matching green record showed that this content already passed, so it counts toward readiness. Every other non-green gate blocks a review session: a "forced" skip or a gate that did not run is reported as unverified, and anything else as failing. The status string cannot make this distinction, because every skip kind's status starts with "skipped (", so reading it would let a `--skip-conform` pass report READY. A summary with a non-green entry that has no `skip` key predates the field, and is judged by its status strings so that its result does not change: all skipped is a warning, and anything else fails."""
+    """Check the recorded cycle's gates by each gate entry's `skip` field. A "proved" skip means a matching green record showed that this content already passed, so it counts toward readiness. Every other non-green gate blocks a review session: a "forced" skip or a gate that did not run is reported as unverified, and anything else as failing. The status string cannot make this distinction, because every skip kind's status starts with "skipped (", so reading it would let a `--skip-conform` pass report READY. A summary with a non-green entry that has no `skip` key predates the field, and is evaluated by its status strings so that its result does not change: all skipped is a warning, and anything else fails."""
     if summary is None:
         return {
             "level": "fail",

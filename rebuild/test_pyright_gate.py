@@ -149,7 +149,7 @@ def test_a_red_check_over_its_recorded_closure_deletes_the_record(monkeypatch, c
     assert "pyright: FAILED (exit 1)" in capsys.readouterr().out
 
 
-def test_an_abandoned_check_is_ended_and_judges_nothing(monkeypatch, capsys):
+def test_an_abandoned_check_is_ended_and_evaluates_nothing(monkeypatch, capsys):
     """An interrupted run terminates and joins the process, keeps the green record despite the nonzero exit, and prints that the check was abandoned instead of failed."""
     ac.record_green(cycle_paths.PYRIGHT_GREEN, "p-1")
     _fingerprints(monkeypatch, ["p-1"])
@@ -367,7 +367,7 @@ class TestWhenTheCheckIsJoined:
         assert (check.waits, check.abandons) == (0, 1)
         assert root._deferred_pyright == []
 
-    def test_an_inner_impl_that_raises_still_reaps_the_check_without_judging_it(
+    def test_an_inner_impl_that_raises_still_reaps_the_check_without_evaluating_it(
         self, root: ModuleType, builds: list[list[str]], monkeypatch: pytest.MonkeyPatch
     ):
         """When an inner sessionfinish hook raises, the wrapper still abandons the deferred check so no pyright process is left running, and the exception propagates."""

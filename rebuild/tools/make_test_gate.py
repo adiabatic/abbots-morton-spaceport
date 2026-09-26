@@ -4,7 +4,7 @@ The closure and its fingerprint come from artifact_cycle. The closure is every t
 
 The suite child gets POOL_UNIT in AMS_POOL_UNIT, which makes its xdist controller append a kind:"pool" line to the cycle-timings journal with every worker's peak. `make job-costs` compares that measurement with FONT_SUITE_WORKER_BYTES. The variable is set on the child's own environment, not on this process's, so nothing spawned later inherits it and records its pool under the font suite's name. This applies to the cycle's gate:make-test too, because that step runs `make test`.
 
-Each run is also recorded as a kind:"check" line in the same journal, under the name the cycle's step uses: green or red from `judge_make_test`, or skipped when the green record matched. When AMS_CYCLE_RUN (CYCLE_RUN_ENV) is set, a cycle spawned this process as gate:make-test and records the check line itself, so this process records nothing on any path, the skip included. Otherwise each suite run would be counted twice in `--by-outcome`.
+Each run is also recorded as a kind:"check" line in the same journal, under the name the cycle's step uses: green or red from `make_test_result`, or skipped when the green record matched. When AMS_CYCLE_RUN (CYCLE_RUN_ENV) is set, a cycle spawned this process as gate:make-test and records the check line itself, so this process records nothing on any path, the skip included. Otherwise each suite run would be counted twice in `--by-outcome`.
 """
 
 from __future__ import annotations
@@ -27,33 +27,33 @@ from rebuild.tools.artifact_cycle import (
     read_make_test_green,
     record_make_test_green,
 )
-from rebuild.tools.cycle_timings import CYCLE_RUN_ENV, POOL_UNIT_ENV, CheckVerdict, record_check
+from rebuild.tools.cycle_timings import CYCLE_RUN_ENV, POOL_UNIT_ENV, CheckResult, record_check
 
 PYTEST_ARGV = ["uv", "run", "pytest", "test/", "site/", "-n", "auto", "--dist", "worksteal"]
 POOL_UNIT = "font-suite"
 CHECK = "make-test"
 
 
-def judge_make_test(returncode: int) -> CheckVerdict:
-    """Return the font suite's verdict from its return code alone: zero is green, and any nonzero exit is red, whether a test, `make all` or pyright failed. Nothing reads the child's output, so the child keeps the terminal and prints its progress, colors and tracebacks directly. As a result `failed_ids` is always empty. The rebuild suite differs: `artifact_cycle.classify_rebuild_output` captures its output to name the failing tests. The status strings match the cycle's `_rc_verdict`, so a check line and a cycle summary use the same label."""
+def make_test_result(returncode: int) -> CheckResult:
+    """Return the font suite's result from its return code alone: zero is green, and any nonzero exit is red, whether a test, `make all` or pyright failed. Nothing reads the child's output, so the child keeps the terminal and prints its progress, colors and tracebacks directly. As a result `failed_ids` is always empty. The rebuild suite differs: `artifact_cycle.classify_rebuild_output` captures its output to name the failing tests. The status strings match the cycle's `_rc_result`, so a check line and a cycle summary use the same label."""
     if returncode == 0:
-        return CheckVerdict(
-            check=CHECK, verdict="green", status="green", failures=[], failed_ids=[], recordable=True
+        return CheckResult(
+            check=CHECK, outcome="green", status="green", failures=[], failed_ids=[], recordable=True
         )
-    return CheckVerdict(
+    return CheckResult(
         check=CHECK,
-        verdict="red",
+        outcome="red",
         status=f"FAILED (exit {returncode})",
         failures=["make test failed"],
         failed_ids=[],
     )
 
 
-def _record(verdict: CheckVerdict, **kw) -> None:
+def _record(result: CheckResult, **kw) -> None:
     """Record this invocation's check line, unless a cycle spawned this process and records the line itself. The environment is read at call time, not at import, so a variable the parent set is seen however this module was loaded."""
     if CYCLE_RUN_ENV in os.environ:
         return
-    record_check(verdict, **kw)
+    record_check(result, **kw)
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -75,14 +75,14 @@ def main(argv: list[str] | None = None) -> int:
             "Nothing the suite reads has changed (make_test_exempt in rebuild/tools/artifact_cycle.py is the authority on what is outside its closure: the exempt trees and files, Markdown, and the Makefile beyond what `make -n all` and `make -n test` print). "
             "Run `make test FORCE=1` to run it anyway."
         )
-        _record(CheckVerdict(check=CHECK, verdict="skipped", status="skipped", failures=[], failed_ids=[]))
+        _record(CheckResult(check=CHECK, outcome="skipped", status="skipped", failures=[], failed_ids=[]))
         return 0
 
     started = time.perf_counter()
     returncode = subprocess.run(
         PYTEST_ARGV, cwd=ROOT, env={**os.environ, POOL_UNIT_ENV: POOL_UNIT}
     ).returncode
-    _record(judge_make_test(returncode), argv=PYTEST_ARGV, elapsed_s=time.perf_counter() - started)
+    _record(make_test_result(returncode), argv=PYTEST_ARGV, elapsed_s=time.perf_counter() - started)
     if returncode != 0:
         if recorded is not None and before is not None and before == recorded["fingerprint"]:
             cycle_paths.MAKE_TEST_GREEN.unlink(missing_ok=True)

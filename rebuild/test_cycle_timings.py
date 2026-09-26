@@ -12,17 +12,17 @@ def _result(name="run_m1", rc=0, stdout="", stderr="", elapsed=1.0):
     return SimpleNamespace(name=name, returncode=rc, stdout=stdout, stderr=stderr, elapsed=elapsed)
 
 
-def _verdict(
+def _check_result(
     check="make-test",
-    verdict="green",
+    outcome="green",
     status="green",
     failures=None,
     failed_ids=None,
     recordable=False,
 ):
-    return ct.CheckVerdict(
+    return ct.CheckResult(
         check=check,
-        verdict=verdict,
+        outcome=outcome,
         status=status,
         failures=list(failures or []),
         failed_ids=list(failed_ids or []),
@@ -232,21 +232,21 @@ def test_the_format_stamp_names_the_check_keyed_shape():
     assert ct.FORMAT == "ams-cycle-timings/2"
 
 
-def test_check_verdict_ok_is_green_and_nothing_else():
-    assert _verdict(verdict="green").ok
-    assert not _verdict(verdict="red").ok
-    assert not _verdict(verdict="skipped").ok
+def test_check_result_ok_is_green_and_nothing_else():
+    assert _check_result(outcome="green").ok
+    assert not _check_result(outcome="red").ok
+    assert not _check_result(outcome="skipped").ok
 
 
 def test_record_check_writes_one_parentless_check_line(tmp_path):
     path = tmp_path / "j.ndjson"
-    ct.record_check(_verdict(), path=path)
+    ct.record_check(_check_result(), path=path)
     (entry,) = _lines(path)
     assert entry == {
         "format": ct.FORMAT,
         "kind": "check",
         "check": "make-test",
-        "verdict": "green",
+        "outcome": "green",
         "status": "green",
         "failures": [],
         "failed_ids": [],
@@ -261,7 +261,7 @@ def test_record_check_writes_one_parentless_check_line(tmp_path):
 def test_a_check_line_carries_its_own_box_context(tmp_path):
     """A check line records its own host, cores, and memory, because an interactive check has no run line to say which machine it ran on."""
     path = tmp_path / "j.ndjson"
-    ct.record_check(_verdict(), path=path)
+    ct.record_check(_check_result(), path=path)
     (entry,) = _lines(path)
     assert entry["host"] == socket.gethostname()
     assert entry["cpu_count"] == os.cpu_count()
@@ -271,9 +271,9 @@ def test_a_check_line_carries_its_own_box_context(tmp_path):
 def test_record_check_carries_the_parent_and_the_cost_when_given_them(tmp_path):
     path = tmp_path / "j.ndjson"
     ct.record_check(
-        _verdict(
+        _check_result(
             check="rebuild-contracts",
-            verdict="red",
+            outcome="red",
             status="FAILED (2 unexplained)",
             failures=["rebuild suite: 2 unexplained failure(s)"],
             failed_ids=["rebuild/test_a.py::test_x", "rebuild/test_b.py::test_y"],
@@ -286,7 +286,7 @@ def test_record_check_carries_the_parent_and_the_cost_when_given_them(tmp_path):
     )
     (entry,) = _lines(path)
     assert entry["check"] == "rebuild-contracts"
-    assert entry["verdict"] == "red"
+    assert entry["outcome"] == "red"
     assert entry["status"] == "FAILED (2 unexplained)"
     assert entry["failures"] == ["rebuild suite: 2 unexplained failure(s)"]
     assert entry["failed_ids"] == ["rebuild/test_a.py::test_x", "rebuild/test_b.py::test_y"]
@@ -299,7 +299,7 @@ def test_record_check_carries_the_parent_and_the_cost_when_given_them(tmp_path):
 def test_a_check_line_never_journals_recordable(tmp_path):
     """`recordable` only tells the current pass whether it may write a green record, so it is not journaled."""
     path = tmp_path / "j.ndjson"
-    ct.record_check(_verdict(recordable=True), path=path)
+    ct.record_check(_check_result(recordable=True), path=path)
     (entry,) = _lines(path)
     assert "recordable" not in entry
 
@@ -308,14 +308,14 @@ def test_record_check_resolves_the_journal_when_the_call_is_made(tmp_path, monke
     """rebuild/conftest.py's autouse redirect patches `JOURNAL`, which works only because no default argument binds it at import."""
     journal = tmp_path / "redirected.ndjson"
     monkeypatch.setattr(ct, "JOURNAL", journal)
-    ct.record_check(_verdict())
+    ct.record_check(_check_result())
     assert [entry["check"] for entry in _lines(journal)] == ["make-test"]
 
 
 def test_cycle_record_check_tags_the_run_and_writes_to_the_instance_journal(tmp_path):
     path = tmp_path / "j.ndjson"
     timings = ct.CycleTimings(path)
-    timings.record_check(_verdict(check="conform"), elapsed_s=3.04)
+    timings.record_check(_check_result(check="conform"), elapsed_s=3.04)
     (entry,) = _lines(path)
     assert entry["kind"] == "check"
     assert entry["check"] == "conform"
@@ -328,7 +328,7 @@ def test_record_check_warns_once_when_the_journal_cannot_be_written(tmp_path, ca
     blocker = tmp_path / "notadir"
     blocker.write_text("")
     for _ in range(2):
-        ct.record_check(_verdict(), path=blocker / "j.ndjson")
+        ct.record_check(_check_result(), path=blocker / "j.ndjson")
     err = capsys.readouterr().err
     assert err.count("warning: failed to append") == 1
 
@@ -336,10 +336,10 @@ def test_record_check_warns_once_when_the_journal_cannot_be_written(tmp_path, ca
 def test_load_checks_returns_every_check_line_in_file_order(tmp_path):
     path = tmp_path / "j.ndjson"
     timings = ct.CycleTimings(path)
-    ct.record_check(_verdict(check="rebuild-contracts"), path=path)
+    ct.record_check(_check_result(check="rebuild-contracts"), path=path)
     timings.record_step(_result(), [])
-    timings.record_check(_verdict(check="run_m1"))
-    ct.record_check(_verdict(check="make-test", verdict="skipped", status="skipped"), path=path)
+    timings.record_check(_check_result(check="run_m1"))
+    ct.record_check(_check_result(check="make-test", outcome="skipped", status="skipped"), path=path)
     timings.finish({})
     checks = ct.load_checks(path)
     assert [check["check"] for check in checks] == ["rebuild-contracts", "run_m1", "make-test"]
@@ -374,9 +374,9 @@ def test_load_journal_ignores_check_lines_parented_or_not(tmp_path):
         path,
         [
             {"kind": "step", "run": "r1", "host": "h1", "name": "gate:make-test", "elapsed_s": 1.0},
-            {"kind": "check", "run": "r1", "check": "make-test", "verdict": "green", "elapsed_s": 1.0},
-            {"kind": "check", "check": "rebuild-contracts", "verdict": "red", "elapsed_s": 2.0},
-            {"kind": "check", "run": "r9", "check": "conform", "verdict": "green"},
+            {"kind": "check", "run": "r1", "check": "make-test", "outcome": "green", "elapsed_s": 1.0},
+            {"kind": "check", "check": "rebuild-contracts", "outcome": "red", "elapsed_s": 2.0},
+            {"kind": "check", "run": "r9", "check": "conform", "outcome": "green"},
         ],
     )
     runs, steps, order = ct.load_journal(path)
@@ -550,7 +550,7 @@ def test_main_does_not_report_an_empty_journal_when_only_checks_are_recorded(tmp
     path = tmp_path / "j.ndjson"
     _write_journal(
         path,
-        [{"kind": "check", "host": "h1", "check": "make-test", "verdict": "green", "elapsed_s": 90.0}],
+        [{"kind": "check", "host": "h1", "check": "make-test", "outcome": "green", "elapsed_s": 90.0}],
     )
     assert ct.main(["--journal", str(path), "--by-outcome"]) == 0
     out = capsys.readouterr().out
@@ -728,12 +728,12 @@ def _check_timing_journal(tmp_path):
                 "run": "r1",
                 "host": "h1",
                 "check": "make-test",
-                "verdict": "green",
+                "outcome": "green",
                 "elapsed_s": 200.0,
             },
-            {"kind": "check", "host": "h1", "check": "make-test", "verdict": "green", "elapsed_s": 100.0},
-            {"kind": "check", "host": "h1", "check": "make-test", "verdict": "green", "elapsed_s": 120.0},
-            {"kind": "check", "host": "h1", "check": "make-test", "verdict": "skipped"},
+            {"kind": "check", "host": "h1", "check": "make-test", "outcome": "green", "elapsed_s": 100.0},
+            {"kind": "check", "host": "h1", "check": "make-test", "outcome": "green", "elapsed_s": 120.0},
+            {"kind": "check", "host": "h1", "check": "make-test", "outcome": "skipped"},
         ],
     )
     return path
@@ -765,7 +765,7 @@ def test_main_by_step_keeps_the_run_m1_check_out_of_the_run_m1_build_row(tmp_pat
         [
             {"kind": "step", "run": "r1", "host": "h1", "name": "run_m1", "rc": 0, "elapsed_s": 600.0},
             {"kind": "step", "run": "r2", "host": "h1", "name": "run_m1", "rc": 0, "elapsed_s": 620.0},
-            {"kind": "check", "host": "h1", "check": "run_m1", "verdict": "green", "elapsed_s": 9.0},
+            {"kind": "check", "host": "h1", "check": "run_m1", "outcome": "green", "elapsed_s": 9.0},
         ],
     )
     assert ct.main(["--journal", str(path), "--by-step"]) == 0
@@ -779,12 +779,12 @@ def _outcome_journal(tmp_path):
     _write_journal(
         path,
         [
-            {"kind": "check", "host": "h1", "check": "make-test", "verdict": "green", "failed_ids": []},
+            {"kind": "check", "host": "h1", "check": "make-test", "outcome": "green", "failed_ids": []},
             {
                 "kind": "check",
                 "host": "h1",
                 "check": "make-test",
-                "verdict": "red",
+                "outcome": "red",
                 "status": "FAILED (rc 1)",
                 "failed_ids": ["test/test_a.py::test_x", "test/test_b.py::test_y"],
             },
@@ -793,11 +793,11 @@ def _outcome_journal(tmp_path):
                 "run": "r1",
                 "host": "h2",
                 "check": "make-test",
-                "verdict": "red",
+                "outcome": "red",
                 "failed_ids": ["test/test_b.py::test_y"],
             },
-            {"kind": "check", "host": "h1", "check": "make-test", "verdict": "skipped"},
-            {"kind": "check", "run": "r1", "host": "h2", "check": "conform", "verdict": "green"},
+            {"kind": "check", "host": "h1", "check": "make-test", "outcome": "skipped"},
+            {"kind": "check", "run": "r1", "host": "h2", "check": "conform", "outcome": "green"},
             {"kind": "step", "run": "r1", "host": "h2", "name": "gate:conform", "rc": 0, "elapsed_s": 60.0},
         ],
     )
@@ -828,6 +828,19 @@ def test_main_by_outcome_reads_check_lines_only(tmp_path, capsys):
     assert ct.main(["--journal", str(path), "--by-outcome"]) == 0
     out = capsys.readouterr().out
     assert "gate:conform" not in out
+
+
+def test_main_by_outcome_counts_a_check_line_that_carries_the_older_verdict_key(tmp_path, capsys):
+    path = tmp_path / "j.ndjson"
+    _write_journal(
+        path,
+        [
+            {"kind": "check", "host": "h1", "check": "make-test", "verdict": "red"},
+            {"kind": "check", "host": "h1", "check": "make-test", "outcome": "green"},
+        ],
+    )
+    assert ct.main(["--journal", str(path), "--by-outcome"]) == 0
+    assert re.search(r"^make-test\s+2\s+1\s+1\s+0$", capsys.readouterr().out, re.MULTILINE)
 
 
 def test_parse_inner_timings_finds_every_label_when_two_branches_interleave():

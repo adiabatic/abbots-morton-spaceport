@@ -138,7 +138,7 @@ def test_a_green_run_files_a_green_check(green_store, monkeypatch):
     checks = _checks()
     assert len(checks) == 1
     assert checks[0]["check"] == "make-test"
-    assert checks[0]["verdict"] == "green"
+    assert checks[0]["outcome"] == "green"
     assert checks[0]["status"] == "green"
     assert checks[0]["argv"] == mtg.PYTEST_ARGV
     assert isinstance(checks[0]["elapsed_s"], int | float)
@@ -146,13 +146,13 @@ def test_a_green_run_files_a_green_check(green_store, monkeypatch):
 
 
 def test_a_red_run_files_the_exit_code_as_its_status(green_store, monkeypatch):
-    """The exit code alone decides this suite's verdict, and the status is the cycle's label for a nonzero exit. `failed_ids` stays empty because the child's output goes straight to the terminal and is never captured."""
+    """The exit code alone decides this suite's outcome, and the status is the cycle's label for a nonzero exit. `failed_ids` stays empty because the child's output goes straight to the terminal and is never captured."""
     _fingerprints(monkeypatch, ["fp-2"])
     _pytest_stub(monkeypatch, returncode=3)
     assert mtg.main([]) == 3
     checks = _checks()
     assert len(checks) == 1
-    assert checks[0]["verdict"] == "red"
+    assert checks[0]["outcome"] == "red"
     assert checks[0]["status"] == "FAILED (exit 3)"
     assert checks[0]["failed_ids"] == []
 
@@ -165,7 +165,7 @@ def test_the_skip_path_files_a_skipped_check_with_no_timing(green_store, monkeyp
     assert spawned == []
     checks = _checks()
     assert len(checks) == 1
-    assert checks[0]["verdict"] == "skipped"
+    assert checks[0]["outcome"] == "skipped"
     assert "argv" not in checks[0]
     assert "elapsed_s" not in checks[0]
 
