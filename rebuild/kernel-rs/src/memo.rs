@@ -1,12 +1,12 @@
 //! A finished trace memo detached from the engine that filled it, and the rule under which another engine may read it. An entry records what one engine settled for one window (a collapsed left, an input and four raw slots), with the pointers that evaluation fired and the runes and classes it read. By the window-locality theorem (`doc/rebuild-design.md` §10), that result depends only on the crate, the script registry and the rune files the key names. So one enumeration's memo can answer another enumeration's windows wherever the two agree on every rune a key names. By the configuration corollary, a configuration can differ from `default` only on the windows naming a rune with an unlock, a `feature:`-conditioned record, or an unlock gate under that configuration.
 //!
-//! This is how the per-configuration delta enumeration works. `default` enumerates first and returns its memo as a [`MemoSnapshot`]. Every other configuration's engine takes that snapshot as a [`MemoBase`] whose [`Exclusion`] names the configuration's unlocking runes ([`unlocking_runes`]), runs the same worklist from the same seeds in the same order, and reads from the base every window whose key names no unlocking rune and whose evaluation read none. The worklist is not seeded: each traversal re-derives reachability, because the memo records what a window settles to, never whether the window exists. So a cell that another configuration reaches first, or reaches only there, is still found. The fired journal carries over as it does for a hit on the engine's own memo: a base entry stores the delta its evaluation journaled and a hit replays it, so a delta configuration's `cited_provenance` is the union over the windows it visited, as in a from-scratch enumeration.
+//! This is how the per-configuration delta enumeration works. `default` enumerates first and returns its memo as a [`MemoSnapshot`]. Every other configuration's engine takes that snapshot as a [`SharedMemo`] whose [`Exclusion`] names the configuration's unlocking runes ([`unlocking_runes`]), runs the same worklist from the same seeds in the same order, and reads from the shared memo every window whose key names no unlocking rune and whose evaluation read none. The worklist is not seeded: each traversal re-derives reachability, because the memo records what a window settles to, never whether the window exists. So a cell that another configuration reaches first, or reaches only there, is still found. The fired journal carries over as it does for a hit on the engine's own memo: a shared memo entry stores the delta its evaluation journaled and a hit replays it, so a delta configuration's `cited_provenance` is the union over the windows it visited, as in a from-scratch enumeration.
 //!
-//! The same rule carries a memo across builds. A table build writes each configuration's finished memo beside its tables as `memo-<config>.tsv` ([`write_memo`]), and the next build reads it back as a base whose exclusion names every rune edited in between ([`read_memo`]). A window naming no edited rune settles as it did last time, and only the rest are traced. The file holds every window the memo holds, not only the rows' windows: it includes the probe windows the liveness and fiber derivations trace, with their virtual lefts and unknown coordinates. So those derivations, which quantify over the whole alphabet, run every build and are read from the base wherever a probe names no edited rune, and a verdict that aggregates over every letter stays exact without being stored. `run_m1` decides which runes count as edited and whether the file may be read at all. The head carries the configuration, the world and an opaque stamp the writer chose. The crate fails on a file whose configuration or world is not the one asked for; the stamp, with the structure it names and the rune digests it records, is read only on the Python side.
+//! The same rule carries a memo across builds. A table build writes each configuration's finished memo beside its tables as `memo-<config>.tsv` ([`write_memo`]), and the next build reads it back as a shared memo whose exclusion names every rune edited in between ([`read_memo`]). A window naming no edited rune settles as it did last time, and only the rest are traced. The file holds every window the memo holds, not only the rows' windows: it includes the probe windows the liveness and fiber derivations trace, with their virtual lefts and unknown coordinates. So those derivations, which quantify over the whole alphabet, run every build and are read from the shared memo wherever a probe names no edited rune, and a verdict that aggregates over every letter stays exact without being stored. `run_m1` decides which runes count as edited and whether the file may be read at all. The head carries the configuration, the world and an opaque stamp the writer chose. The crate fails on a file whose configuration or world is not the one asked for; the stamp, with the structure it names and the rune digests it records, is read only on the Python side.
 //!
-//! Which windows a base may answer is decided by what each entry's evaluation read. While a capture is open, the index journals every rune whose resolved content and every predicate class whose membership its accessors return ([`crate::index`]), and the entry stores that set beside its fired delta. An [`Exclusion`] naming runes and classes therefore rejects the entries that read one of them. A window whose deep slots name a rune its evaluation never consulted can still be read from the base when that rune changes, and a class whose membership changed invalidates only the windows that consulted it. The six runes a key names are also rejected, as a redundant check on the journal: over-invalidation costs a trace, and under-invalidation costs a wrong table.
+//! Which windows a shared memo may answer is decided by what each entry's evaluation read. While a capture is open, the index journals every rune whose resolved content and every predicate class whose membership its accessors return ([`crate::index`]), and the entry stores that set beside its fired delta. An [`Exclusion`] naming runes and classes therefore rejects the entries that read one of them. A window whose deep slots name a rune its evaluation never consulted can still be read from the shared memo when that rune changes, and a class whose membership changed invalidates only the windows that consulted it. The six runes a key names are also rejected, as a redundant check on the journal: over-invalidation costs a trace, and under-invalidation costs a wrong table.
 //!
-//! The snapshot is shared behind an [`Arc`] instead of copied per configuration, because the memo is the largest structure the enumeration holds, and a copy per delta configuration would again limit by memory how many delta configurations run at once. So it holds no `Rc`, no reference into any engine, and no ranking (the fixpoint never records one), and a base is read-only once built.
+//! The snapshot is shared behind an [`Arc`] instead of copied per configuration, because the memo is the largest structure the enumeration holds, and a copy per delta configuration would again limit by memory how many delta configurations run at once. So it holds no `Rc`, no reference into any engine, and no ranking (the fixpoint never records one), and a shared memo is read-only once built.
 
 use std::fmt::Write as _;
 use std::hash::{Hash, Hasher};
@@ -236,12 +236,12 @@ impl MemoSnapshot {
     }
 }
 
-/// What a base may not answer for. An entry whose evaluation read any of these runes' content or any of these classes' membership is a miss on that base. So is an entry whose key names one of the runes: the left cell's, the input's, or a raw slot's ([`TraceKey::runes_named`]). The read journal makes that second test redundant; the module doc says why it is kept.
+/// What a shared memo may not answer for. An entry whose evaluation read any of these runes' content or any of these classes' membership is a miss on that shared memo. So is an entry whose key names one of the runes: the left cell's, the input's, or a raw slot's ([`TraceKey::runes_named`]). The read journal makes that second test redundant; the module doc says why it is kept.
 #[derive(Clone, Debug, Default)]
 pub struct Exclusion {
     runes: HashSet<Sym>,
     classes: HashSet<Sym>,
-    /// The runes as the keys name them: one flag per rune-field [`crate::index::Ordinal`], indexed by ordinal up to the highest one named, so that [`Exclusion::admits`] tests a key's ordinals against a slice on every base probe without resolving or hashing. A name the registry knows no family by has no ordinal and no flag, and no key can name it.
+    /// The runes as the keys name them: one flag per rune-field [`crate::index::Ordinal`], indexed by ordinal up to the highest one named, so that [`Exclusion::admits`] tests a key's ordinals against a slice on every shared memo probe without resolving or hashing. A name the registry knows no family by has no ordinal and no flag, and no key can name it.
     named: Box<[bool]>,
 }
 
@@ -272,7 +272,7 @@ impl Exclusion {
         self
     }
 
-    /// An exclusion naming nothing, under which a base supplies every key it holds.
+    /// An exclusion naming nothing, under which a shared memo supplies every key it holds.
     pub fn none() -> Self {
         Self::default()
     }
@@ -283,7 +283,7 @@ impl Exclusion {
             .any(|ordinal| self.named.get(usize::from(ordinal.get())).copied() == Some(true))
     }
 
-    /// Whether this base may answer for `key` given what its entry read: no named rune among the key's, and no excluded rune or class among the reads.
+    /// Whether this shared memo may answer for `key` given what its entry read: no named rune among the key's, and no excluded rune or class among the reads.
     pub(crate) fn admits(&self, key: &TraceKey, reads: &[Read]) -> bool {
         if self.runes.is_empty() && self.classes.is_empty() {
             return true;
@@ -308,14 +308,14 @@ impl Exclusion {
 
 /// One memo another engine may read, and the runes it may not read it for.
 #[derive(Clone, Debug)]
-pub struct MemoBase {
+pub struct SharedMemo {
     pub memo: Arc<MemoSnapshot>,
     pub excluded: Exclusion,
 }
 
 /// Every rune whose settlement can differ between `default` and the configuration enabling `features`: a rune with an unlock for one of them, or with any record whose `when:` names one (an unlock's own gate, a refusal, a prefer, an extension, a contraction or a resolution). The scan reads every `when:` a rune can carry rather than the record kinds `rebuild/test_spec_load.py` pins feature conditions to, so a kind that gains a feature gate widens this set without an edit here.
 ///
-/// A rune outside this set has no record whose outcome depends on these features, so every window naming only such runes settles identically under both configurations. That is the configuration corollary of the window-locality theorem, and the reason the delta enumeration excludes this set from its base.
+/// A rune outside this set has no record whose outcome depends on these features, so every window naming only such runes settles identically under both configurations. That is the configuration corollary of the window-locality theorem, and the reason the delta enumeration excludes this set from its shared memo.
 pub fn unlocking_runes(index: &SpecIndex, features: &[Sym]) -> HashSet<Sym> {
     let enabled: HashSet<Sym> = features.iter().copied().collect();
     let gated = |when: &When| {
@@ -530,16 +530,16 @@ fn pool_seat(index: usize) -> u32 {
     u32::try_from(index).expect("a memo pool seats fewer than 2^32 records")
 }
 
-/// The memo file one configuration's build writes: its path, its head, and the bases whose admitted windows are written with its own, so the file is the union a later build reads. [`crate::fixpoint::enumerate_for_tables`] writes it at the enumeration's release point, from the finished snapshot the engine returns after freeing its other memos and before that snapshot is dropped, so a configuration that does not keep its memo for other enumerations (`keep_memo`) holds none past its enumeration.
+/// The memo file one configuration's build writes: its path, its head, and the shared memos whose admitted windows are written with its own, so the file is the union a later build reads. [`crate::fixpoint::enumerate_for_tables`] writes it at the enumeration's release point, from the finished snapshot the engine returns after freeing its other memos and before that snapshot is dropped, so a configuration that does not keep its memo for other enumerations (`keep_memo`) holds none past its enumeration.
 pub struct MemoFile {
     pub path: PathBuf,
     pub head: MemoHead,
-    pub carried: Vec<MemoBase>,
+    pub carried: Vec<SharedMemo>,
 }
 
 /// Writes one configuration's memo as `memo-<config>.tsv`: the head line, then five tables, then one `E` line per window. The tables are `Y` for every symbol the file names, `S` for the settled records, `N` for the notes lists, `D` for the fired deltas and `R` for the read sets, each seated in file order, with list members separated by [`LIST_SEPARATOR`]. An `E` line names its key by symbol seats, then its four record seats, its prospect, its joint flag and its stage.
 ///
-/// The windows are `own`'s, then every window of each carried base that the base's exclusion admits and that no earlier source both holds and admits, so the file is the union a later build may read, with each window written once. They are written in key order, so two builds of the same memo write the same file. Every name is written as text once, in the `Y` table, because a symbol's integer is this spec's interning order and the next spec's may differ. The windows are streamed to the file, and per window only one [`Row`] is held until the last byte is written, because a configuration's memo holds millions of windows.
+/// The windows are `own`'s, then every window of each carried shared memo that its exclusion admits and that no earlier source both holds and admits, so the file is the union a later build may read, with each window written once. They are written in key order, so two builds of the same memo write the same file. Every name is written as text once, in the `Y` table, because a symbol's integer is this spec's interning order and the next spec's may differ. The windows are streamed to the file, and per window only one [`Row`] is held until the last byte is written, because a configuration's memo holds millions of windows.
 ///
 /// Neither the stamp nor the configuration may contain a tab or a newline, since the head is one tab-separated line; the writer returns an error for either.
 pub fn write_memo(
@@ -547,14 +547,18 @@ pub fn write_memo(
     path: &Path,
     head: &MemoHead,
     own: &MemoSnapshot,
-    carried: &[MemoBase],
+    carried: &[SharedMemo],
 ) -> Result<(), String> {
     if head.stamp.contains(['\t', '\n']) || head.config.contains(['\t', '\n']) {
         return Err("a memo stamp is one line with no tabs".to_owned());
     }
     let none = Exclusion::none();
     let sources: Vec<(&MemoSnapshot, &Exclusion)> = std::iter::once((own, &none))
-        .chain(carried.iter().map(|base| (&*base.memo, &base.excluded)))
+        .chain(
+            carried
+                .iter()
+                .map(|shared| (&*shared.memo, &shared.excluded)),
+        )
         .collect();
     let held_earlier = |seat: usize, key: &TraceKey| {
         sources[..seat].iter().any(|(memo, excluded)| {
@@ -1055,7 +1059,7 @@ pub(crate) fn read_memo(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::fixpoint::{EnumerationModes, Seed, enumerate_for_tables};
+    use crate::fixpoint::{EnumerationModes, MemoAccess, enumerate_for_tables};
     use crate::index::fixtures;
     use crate::stream::emit_transitions;
 
@@ -1069,7 +1073,7 @@ mod tests {
         directory
     }
 
-    /// The mini dump with `qsTea`'s refusal removed, the edit the seeding tests exclude `qsTea` for.
+    /// The mini dump with `qsTea`'s refusal removed, the edit the previous-memo tests exclude `qsTea` for.
     fn mini_dump_without_the_tea_refusal() -> String {
         let refusal = format!(
             "\"refuse\":{}",
@@ -1220,34 +1224,34 @@ mod tests {
                 fresh.reads(*entry).iter().collect::<HashSet<_>>()
             );
         }
-        let (seeded, own) = enumerate_keeping(
+        let (over_shared, own) = enumerate_keeping(
             &after,
             &[],
-            vec![MemoBase {
+            vec![SharedMemo {
                 memo: Arc::new(back),
                 excluded: Exclusion::none(),
             }],
         );
         assert!(own.is_empty());
         assert_eq!(
-            emit_transitions(&after, &seeded),
+            emit_transitions(&after, &over_shared),
             emit_transitions(&after, &expected)
         );
     }
 
-    /// One configuration enumerated with its memo kept, over whatever bases it is handed.
+    /// One configuration enumerated with its memo kept, over whatever shared memos it is handed.
     fn enumerate_keeping(
         index: &SpecIndex,
         features: &[Sym],
-        bases: Vec<MemoBase>,
+        shared_memos: Vec<SharedMemo>,
     ) -> (crate::stream::FixpointProduct, MemoSnapshot) {
         let enumeration = enumerate_for_tables(
             index,
             features,
             EnumerationModes::default(),
             None,
-            Seed {
-                bases,
+            MemoAccess {
+                shared_memos,
                 keep_memo: true,
             },
             None,
@@ -1256,7 +1260,7 @@ mod tests {
         (enumeration.product, enumeration.memo.expect("kept"))
     }
 
-    /// Written and read back over the same spec, the file holds every window with its record, notes, delta, read set and stage. An enumeration using it as a base reads every window from it and reaches the same product. A union of two bases that both hold every window writes the same file as the memo alone, with each window written once, from the first base.
+    /// Written and read back over the same spec, the file holds every window with its record, notes, delta, read set and stage. An enumeration using it as a shared memo reads every window from it and reaches the same product. A union of two shared memos that both hold every window writes the same file as the memo alone, with each window written once, from the first one.
     #[test]
     fn a_memo_file_reads_back_as_the_memo_that_wrote_it() {
         let index = fixtures::mini();
@@ -1285,23 +1289,23 @@ mod tests {
             );
         }
         let back = Arc::new(back);
-        let base = MemoBase {
+        let shared = SharedMemo {
             memo: Arc::clone(&back),
             excluded: Exclusion::none(),
         };
-        let (seeded, own) = enumerate_keeping(&index, &[], vec![base]);
+        let (over_shared, own) = enumerate_keeping(&index, &[], vec![shared]);
         assert_eq!(
             emit_transitions(&index, &product),
-            emit_transitions(&index, &seeded)
+            emit_transitions(&index, &over_shared)
         );
         assert!(own.is_empty(), "every window was answered out of the file");
         let twice = dir.join("memo-default-twice.tsv");
         let both = [
-            MemoBase {
+            SharedMemo {
                 memo: Arc::clone(&back),
                 excluded: Exclusion::none(),
             },
-            MemoBase {
+            SharedMemo {
                 memo: Arc::clone(&back),
                 excluded: Exclusion::none(),
             },
@@ -1317,13 +1321,13 @@ mod tests {
         assert_eq!(
             std::fs::read(&twice).expect("the union file"),
             std::fs::read(&path).expect("the first file"),
-            "a window two bases hold is written once, out of the first"
+            "a window two shared memos hold is written once, out of the first"
         );
     }
 
-    /// Seeding across builds: the edited spec enumerated over the previous spec's memo, with an exclusion naming the edited rune, reaches the edited spec's from-scratch product. The two specs' products differ, so the edit changes the output.
+    /// Previous memos across builds: the edited spec enumerated over the previous spec's memo, with an exclusion naming the edited rune, reaches the edited spec's from-scratch product. The two specs' products differ, so the edit changes the output.
     #[test]
-    fn an_edited_spec_seeded_from_the_previous_memo_reaches_its_from_scratch_product() {
+    fn an_edited_spec_reading_the_previous_memo_reaches_its_from_scratch_product() {
         let before = fixtures::mini();
         let after = fixtures::index_of(&mini_dump_without_the_tea_refusal());
         let (product_before, memo_before) = enumerate_keeping(&before, &[], Vec::new());
@@ -1339,17 +1343,17 @@ mod tests {
             .expect("reads over the edited spec");
         let tea = fixtures::sym(&after, "qsTea");
         let tea_ordinal = after.rune_ordinal(tea).expect("qsTea is modeled");
-        let (seeded, own) = enumerate_keeping(
+        let (over_shared, own) = enumerate_keeping(
             &after,
             &[],
-            vec![MemoBase {
+            vec![SharedMemo {
                 memo: Arc::new(previous),
                 excluded: Exclusion::of(&after, [tea]),
             }],
         );
         assert_eq!(
             emit_transitions(&after, &product_after),
-            emit_transitions(&after, &seeded)
+            emit_transitions(&after, &over_shared)
         );
         assert!(
             !own.is_empty(),
@@ -1364,7 +1368,7 @@ mod tests {
         );
     }
 
-    /// Dropping keys that name edited runes while reading keeps fewer entries without changing the product, the base hits, or the union bytes written for the next build. Lookup still checks each remaining entry's reads.
+    /// Dropping keys that name edited runes while reading keeps fewer entries without changing the product, the shared memo hits, or the union bytes written for the next build. Lookup still checks each remaining entry's reads.
     #[test]
     fn filtering_edited_keys_preserves_products_hits_and_memo_bytes() {
         let before = fixtures::mini();
@@ -1397,7 +1401,7 @@ mod tests {
             assert!(filtered.entries.keys().all(|key| !edited.names(key)));
             let mut expected = None;
             for (arm, previous) in [("unfiltered", unfiltered), ("filtered", filtered)] {
-                let bases = vec![MemoBase {
+                let shared = vec![SharedMemo {
                     memo: Arc::new(previous),
                     excluded: edited.clone(),
                 }];
@@ -1407,21 +1411,21 @@ mod tests {
                     &features(&after),
                     EnumerationModes::default(),
                     Some(&mut stats),
-                    Seed {
-                        bases: bases.clone(),
+                    MemoAccess {
+                        shared_memos: shared.clone(),
                         keep_memo: true,
                     },
                     None,
                 )
-                .expect("the edited spec closes over either base");
+                .expect("the edited spec closes over either shared memo");
                 let hits = stats
                     .iter()
-                    .find(|line| line.contains(" memo_base_hits count="))
+                    .find(|line| line.contains(" shared_memo_hits count="))
                     .expect("the cache stats report hits")
                     .clone();
                 let own = enumeration.memo.expect("the fresh memo is kept");
                 let output = root.join(format!("{arm}-{token}.tsv"));
-                write_memo(&after, &output, &head(token), &own, &bases).expect("the union writes");
+                write_memo(&after, &output, &head(token), &own, &shared).expect("the union writes");
                 let actual = (
                     enumeration.product,
                     hits,
@@ -1437,9 +1441,9 @@ mod tests {
         }
     }
 
-    /// A window held by two sources is written from the first source that admits it, and `own` is the first source. With the previous spec's memo and the edited spec's, the file equals the edited memo's file in either carry order as long as the previous memo excludes the edited rune, since every window it holds beyond the edited memo names or reads that rune. Carried first with no exclusion, the previous memo supplies every window it holds, so the windows that name or read the rune come from it, and at least one of them differs from the edited memo's. `own` beside one base writes the same file as two bases in that order, so the shape every seeded build writes (a fresh `own` beside the previous build's memo) is covered too.
+    /// A window held by two sources is written from the first source that admits it, and `own` is the first source. With the previous spec's memo and the edited spec's, the file equals the edited memo's file in either carry order as long as the previous memo excludes the edited rune, since every window it holds beyond the edited memo names or reads that rune. Carried first with no exclusion, the previous memo supplies every window it holds, so the windows that name or read the rune come from it, and at least one of them differs from the edited memo's. `own` beside one shared memo writes the same file as two shared memos in that order, so the shape every build that reads previous memos writes (a fresh `own` beside the previous build's memo) is covered too.
     #[test]
-    fn a_window_two_bases_hold_is_written_from_the_first_source_that_admits_it() {
+    fn a_window_two_shared_memos_hold_is_written_from_the_first_source_that_admits_it() {
         let before = fixtures::mini();
         let after = fixtures::index_of(&mini_dump_without_the_tea_refusal());
         let (_, memo_before) = enumerate_keeping(&before, &[], Vec::new());
@@ -1455,14 +1459,14 @@ mod tests {
         let memo_after = Arc::new(memo_after);
         let tea = fixtures::sym(&after, "qsTea");
         let tea_ordinal = after.rune_ordinal(tea).expect("qsTea is modeled");
-        let base = |memo: &Arc<MemoSnapshot>, excluded: Exclusion| MemoBase {
+        let shared = |memo: &Arc<MemoSnapshot>, excluded: Exclusion| SharedMemo {
             memo: Arc::clone(memo),
             excluded,
         };
         let alone = dir.join("memo-alone.tsv");
         write_memo(&after, &alone, &head("default"), &memo_after, &[]).expect("writes");
         let alone_bytes = std::fs::read(&alone).expect("the file");
-        let union = |name: &str, carried: Vec<MemoBase>| {
+        let union = |name: &str, carried: Vec<SharedMemo>| {
             let path = dir.join(name);
             write_memo(
                 &after,
@@ -1477,8 +1481,8 @@ mod tests {
         let edited_first = union(
             "memo-edited-first.tsv",
             vec![
-                base(&memo_after, Exclusion::none()),
-                base(&previous, Exclusion::of(&after, [tea])),
+                shared(&memo_after, Exclusion::none()),
+                shared(&previous, Exclusion::of(&after, [tea])),
             ],
         );
         assert_eq!(
@@ -1489,8 +1493,8 @@ mod tests {
         let previous_behind_tea = union(
             "memo-previous-behind-tea.tsv",
             vec![
-                base(&previous, Exclusion::of(&after, [tea])),
-                base(&memo_after, Exclusion::none()),
+                shared(&previous, Exclusion::of(&after, [tea])),
+                shared(&memo_after, Exclusion::none()),
             ],
         );
         assert_eq!(
@@ -1501,8 +1505,8 @@ mod tests {
         let previous_first = union(
             "memo-previous-first.tsv",
             vec![
-                base(&previous, Exclusion::none()),
-                base(&memo_after, Exclusion::none()),
+                shared(&previous, Exclusion::none()),
+                shared(&memo_after, Exclusion::none()),
             ],
         );
         let previous_first_bytes = std::fs::read(&previous_first).expect("the file");
@@ -1513,27 +1517,27 @@ mod tests {
             &own_first,
             &head("default"),
             &previous,
-            &[base(&memo_after, Exclusion::none())],
+            &[shared(&memo_after, Exclusion::none())],
         )
         .expect("writes");
         assert_eq!(
             std::fs::read(&own_first).expect("the file"),
             previous_first_bytes,
-            "own is the first source, and a base beside it is written as a second base is"
+            "own is the first source, and a shared memo beside it is written as a second shared memo is"
         );
-        let own_behind_a_base = dir.join("memo-own-behind-a-base.tsv");
+        let own_behind_a_shared_memo = dir.join("memo-own-behind-a-shared-memo.tsv");
         write_memo(
             &after,
-            &own_behind_a_base,
+            &own_behind_a_shared_memo,
             &head("default"),
             &memo_after,
-            &[base(&previous, Exclusion::of(&after, [tea]))],
+            &[shared(&previous, Exclusion::of(&after, [tea]))],
         )
         .expect("writes");
         assert_eq!(
-            std::fs::read(&own_behind_a_base).expect("the file"),
+            std::fs::read(&own_behind_a_shared_memo).expect("the file"),
             alone_bytes,
-            "a seeded build's shape: own beside the previous memo behind the edited rune"
+            "a previous-memo build's shape: own beside the previous memo behind the edited rune"
         );
         let back =
             read_memo(&after, &previous_first, &head("default"), |_| true).expect("reads back");
@@ -1740,7 +1744,7 @@ mod tests {
                 built
             };
             let own = build(i16::MIN..=-1);
-            let carried = |last: i16| MemoBase {
+            let carried = |last: i16| SharedMemo {
                 memo: Arc::new(build(0..=last)),
                 excluded: Exclusion::none(),
             };

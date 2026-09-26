@@ -2,9 +2,9 @@
 //!
 //! Each ranking stage narrows the survivor list the next stage reads, so the order of the stages determines the result, and `decided_stage` names the stage that narrowed the list to one. The two prefer stages can raise instead of choosing: prefer records that demand different outcomes at non-nested specificity raise E-AMBIGUOUS within one rune and E-INCOMPARABLE across two. The E-INCOMPARABLE message ends in a paste-ready `resolve:` stub that the author copies into the rune's YAML, so its wording must stay as it is.
 //!
-//! An engine is one (spec, feature configuration) pair. It borrows the spec as a [`SpecIndex`], so the guard's engines for every feature combination and every replay share one index and one string pool. Everything the engine holds is cache, because the table build's fixpoint asks the same questions about the same windows many times. An engine can also read another engine's finished trace memo: the memo leaves as a [`crate::memo::MemoSnapshot`] and is passed to another engine as a base, behind an exclusion naming the runes and classes the two engines do not settle alike ([`Engine::seed_bases`]). That is how a configuration enumerates as a delta over `default`. Per-stance caches are ordinary maps with no size cap, because a [`StanceId`] is a stable index pair that is never reused.
+//! An engine is one (spec, feature configuration) pair. It borrows the spec as a [`SpecIndex`], so the guard's engines for every feature combination and every replay share one index and one string pool. Everything the engine holds is cache, because the table build's fixpoint asks the same questions about the same windows many times. An engine can also read another engine's finished trace memo: the memo leaves as a [`crate::memo::MemoSnapshot`] and is passed to another engine as a shared memo, behind an exclusion naming the runes and classes the two engines do not settle alike ([`Engine::attach_shared_memos`]). That is how a configuration enumerates as a delta over `default`. Per-stance caches are ordinary maps with no size cap, because a [`StanceId`] is a stable index pair that is never reused.
 //!
-//! The fired-provenance journal must be exact. `fired` is the set of authored records that fired under this configuration, and the dead-policy check reads it, so a memo hit must not lose the firings its first evaluation performed. Every cache entry stores the delta its computation journaled, and every hit replays that delta into whatever capture is open. A hit adds the delta to the set itself only when the set may not hold it yet, which is a base entry's delta on its first hit: an own entry's pointers entered the set when the entry was recorded. This makes each entry's delta independent of evaluation order and a warm engine's `fired` equal to a cold one's. The journal runs only in trace-memo mode, the only mode that asks for a per-evaluation delta. Outside it there is no journal, and [`Engine::candidates`] skips its cache, since an entry could not carry a delta to replay.
+//! The fired-provenance journal must be exact. `fired` is the set of authored records that fired under this configuration, and the dead-policy check reads it, so a memo hit must not lose the firings its first evaluation performed. Every cache entry stores the delta its computation journaled, and every hit replays that delta into whatever capture is open. A hit adds the delta to the set itself only when the set may not hold it yet, which is a shared memo entry's delta on its first hit: an own entry's pointers entered the set when the entry was recorded. This makes each entry's delta independent of evaluation order and a warm engine's `fired` equal to a cold one's. The journal runs only in trace-memo mode, the only mode that asks for a per-evaluation delta. Outside it there is no journal, and [`Engine::candidates`] skips its cache, since an entry could not carry a delta to replay.
 //!
 //! A [`Pointer`] is a provenance's `file:path` pair, kept as two symbols so it is `Copy` and hashes on two integers. The string is built only where one is written out.
 //!
@@ -15,7 +15,7 @@ use std::num::NonZeroU16;
 use crate::error::SettleError;
 use crate::hash::{HashMap, HashSet};
 use crate::index::{Ordinal, Read, SpecIndex, StanceId};
-use crate::memo::{MemoBase, MemoSnapshot};
+use crate::memo::{MemoSnapshot, SharedMemo};
 use crate::model::{
     Condition, PolicyRecord, Provenance, Rune, Stance, SurfaceRow, Sym, Table, When,
 };
@@ -724,12 +724,12 @@ pub struct Engine<'i> {
     explain_ranking: bool,
     /// The window memo, present only in trace-memo mode. It is the engine's largest collection and sets the enumeration's peak memory, which is why its entries are seats into the [`TraceMemo`] pools instead of whole traces (issue #165). A hit rebuilds the trace from the pools, and the caller sees the same trace a stored one would give.
     trace_cache: Option<TraceMemo>,
-    /// Finished memos of other enumerations this engine may read, in lookup order, each behind an exclusion that says which keys it may not supply ([`crate::memo`]). A window the engine's own memo misses is looked up here before it is settled. A hit is returned, with its delta replayed, as an own hit is, but is not copied into the own memo: the bases are shared read-only across a whole fan-out, and copying each hit would rebuild the memory the sharing saves.
-    bases: Vec<MemoBase>,
-    /// Per base, which of its delta seats this engine has already added to its fired set, so a second hit on the same base delta skips the set.
-    base_fired: Vec<Vec<bool>>,
-    /// How many windows each base seat supplied, for the cache stats.
-    base_hits: Vec<u64>,
+    /// Finished memos of other enumerations this engine may read, in lookup order, each behind an exclusion that says which keys it may not supply ([`crate::memo`]). A window the engine's own memo misses is looked up here before it is settled. A hit is returned, with its delta replayed, as an own hit is, but is not copied into the own memo: the shared memos are read-only across a whole fan-out, and copying each hit would rebuild the memory the sharing saves.
+    shared_memos: Vec<SharedMemo>,
+    /// Per shared memo, which of its delta seats this engine has already added to its fired set, so a second hit on the same shared delta skips the set.
+    shared_memo_fired: Vec<Vec<bool>>,
+    /// How many windows each shared memo supplied, in lookup order, for the cache stats.
+    shared_memo_hits: Vec<u64>,
 }
 
 impl<'i> Engine<'i> {
@@ -764,37 +764,37 @@ impl<'i> Engine<'i> {
             pairing_sets: HashMap::default(),
             explain_ranking: modes.explain_ranking,
             trace_cache: modes.trace_memo.then(TraceMemo::default),
-            bases: Vec::new(),
-            base_fired: Vec::new(),
-            base_hits: Vec::new(),
+            shared_memos: Vec::new(),
+            shared_memo_fired: Vec::new(),
+            shared_memo_hits: Vec::new(),
         }
     }
 
-    /// Give this engine the finished memos it may read windows from, in lookup order. Only a trace-memo engine reads them, because only it journals and so can replay a base hit's delta. Seeding any other engine panics.
-    pub fn seed_bases(&mut self, bases: Vec<MemoBase>) {
+    /// Give this engine the finished memos it may read windows from, in lookup order. Only a trace-memo engine reads them, because only it journals and so can replay a shared memo hit's delta. Attaching them to any other engine panics.
+    pub fn attach_shared_memos(&mut self, memos: Vec<SharedMemo>) {
         assert!(
             self.trace_cache.is_some(),
-            "a memo base can only answer an engine that journals, which is the trace-memo engine"
+            "a shared memo can only answer an engine that journals, which is the trace-memo engine"
         );
-        self.base_fired = bases
+        self.shared_memo_fired = memos
             .iter()
-            .map(|base| vec![false; base.memo.deltas.len()])
+            .map(|shared| vec![false; shared.memo.deltas.len()])
             .collect();
-        self.base_hits = vec![0; bases.len()];
-        self.bases = bases;
+        self.shared_memo_hits = vec![0; memos.len()];
+        self.shared_memos = memos;
     }
 
-    /// How many windows the bases supplied so far.
-    pub fn base_hits(&self) -> u64 {
-        self.base_hits.iter().sum()
+    /// How many windows the shared memos supplied so far.
+    pub fn shared_memo_hits(&self) -> u64 {
+        self.shared_memo_hits.iter().sum()
     }
 
-    /// How many windows each base supplied, in lookup order, since the bases were seeded.
-    pub fn base_hits_by_seat(&self) -> &[u64] {
-        &self.base_hits
+    /// How many windows each shared memo supplied, in lookup order, since they were attached.
+    pub fn shared_memo_hits_by_seat(&self) -> &[u64] {
+        &self.shared_memo_hits
     }
 
-    /// Detach this engine's trace memo: the entries compacted into an immutable array, with the tables their seats index and every fired delta and read set the engine stored. The candidate, closure and prospect memos are released before compaction, as [`Engine::release_memos`] releases them, because they index the delta table that leaves with the snapshot. The live trace map is consumed and freed before the array is partitioned and sorted. Returns `None` for an engine without a trace memo. The bases are not included: a snapshot holds only what this engine settled, and a caller that wants the union reads the bases beside it.
+    /// Detach this engine's trace memo: the entries compacted into an immutable array, with the tables their seats index and every fired delta and read set the engine stored. The candidate, closure and prospect memos are released before compaction, as [`Engine::release_memos`] releases them, because they index the delta table that leaves with the snapshot. The live trace map is consumed and freed before the array is partitioned and sorted. Returns `None` for an engine without a trace memo. The shared memos are not included: a snapshot holds only what this engine settled, and a caller that wants the union reads the shared memos beside it.
     pub fn take_memo(&mut self) -> Option<MemoSnapshot> {
         let memo = self.trace_cache.take()?;
         let deltas = std::mem::take(&mut self.deltas);
@@ -2695,7 +2695,7 @@ impl<'i> Engine<'i> {
 
     /// Settle one window, returning the full trace the table builder and the explain CLI read.
     ///
-    /// In trace-memo mode the result is memoized over the reduced left key. The kernel reads the left only through its kind and the settled cell's rune, stance, seam and extension: condition matching reads the rune and stance, the stroke axis the committed seam, the scoring the seam's presence, and the same-seam suppression the extension. It never reads the left cell's entry or adjustments, so two lefts differing only there share one entry. The memo holds seats, not traces, so a hit is rebuilt from the memo's pools, returns what its miss returned, and replays the miss's fired delta. A window the own memo misses is looked up in the bases next and answered from the first base that holds and admits it. Only then is it settled. Raising windows are never cached: the E-UNACCEPTED-EXIT message includes the left's full label, which the key does not, and the liveness probes that hit settlement errors memoize their own verdicts above this call.
+    /// In trace-memo mode the result is memoized over the reduced left key. The kernel reads the left only through its kind and the settled cell's rune, stance, seam and extension: condition matching reads the rune and stance, the stroke axis the committed seam, the scoring the seam's presence, and the same-seam suppression the extension. It never reads the left cell's entry or adjustments, so two lefts differing only there share one entry. The memo holds seats, not traces, so a hit is rebuilt from the memo's pools, returns what its miss returned, and replays the miss's fired delta. A window the own memo misses is looked up in the shared memos next and answered from the first one that holds and admits it. Only then is it settled. Raising windows are never cached: the E-UNACCEPTED-EXIT message includes the left's full label, which the key does not, and the liveness probes that hit settlement errors memoize their own verdicts above this call.
     pub fn transition_trace(
         &mut self,
         left: &LeftContext,
@@ -2728,18 +2728,18 @@ impl<'i> Engine<'i> {
             crate::index::journal_extend(self.reads.get(entry.reads));
             return Ok(trace);
         }
-        if let Some((seat, base, entry)) = base_entry(&self.bases, &key) {
-            let trace = base.memo.trace(entry);
-            replay_base(
+        if let Some((seat, shared, entry)) = shared_memo_entry(&self.shared_memos, &key) {
+            let trace = shared.memo.trace(entry);
+            replay_shared(
                 &mut self.fired,
                 &mut self.fired_log,
                 &self.capture_starts,
-                &mut self.base_fired[seat],
+                &mut self.shared_memo_fired[seat],
                 entry.delta,
-                base.memo.delta(entry),
+                shared.memo.delta(entry),
             );
-            crate::index::journal_extend(base.memo.reads(entry));
-            self.base_hits[seat] += 1;
+            crate::index::journal_extend(shared.memo.reads(entry));
+            self.shared_memo_hits[seat] += 1;
             return Ok(trace);
         }
         self.begin_capture();
@@ -2792,7 +2792,7 @@ impl<'i> Engine<'i> {
         Ok(read(&trace.settled))
     }
 
-    /// The memo's answer for one window, from the engine's own trace memo or a base: the read applied to the settled record where it sits, with the entry's fired delta replayed. `None` is a miss (a non-letter token, an engine with no memo, or a window no memo has) and says nothing about how the caller should settle it.
+    /// The memo's answer for one window, from the engine's own trace memo or a shared memo: the read applied to the settled record where it sits, with the entry's fired delta replayed. `None` is a miss (a non-letter token, an engine with no memo, or a window no memo has) and says nothing about how the caller should settle it.
     fn settled_from_memo<T>(
         &mut self,
         left: &LeftContext,
@@ -2815,18 +2815,18 @@ impl<'i> Engine<'i> {
             crate::index::journal_extend(self.reads.get(entry.reads));
             return Some(answer);
         }
-        let (seat, base, entry) = base_entry(&self.bases, &key)?;
-        let answer = read(base.memo.settled(entry));
-        replay_base(
+        let (seat, shared, entry) = shared_memo_entry(&self.shared_memos, &key)?;
+        let answer = read(shared.memo.settled(entry));
+        replay_shared(
             &mut self.fired,
             &mut self.fired_log,
             &self.capture_starts,
-            &mut self.base_fired[seat],
+            &mut self.shared_memo_fired[seat],
             entry.delta,
-            base.memo.delta(entry),
+            shared.memo.delta(entry),
         );
-        crate::index::journal_extend(base.memo.reads(entry));
-        self.base_hits[seat] += 1;
+        crate::index::journal_extend(shared.memo.reads(entry));
+        self.shared_memo_hits[seat] += 1;
         Some(answer)
     }
 
@@ -3035,17 +3035,18 @@ fn record_elimination(
     }
 }
 
-/// The first base that holds `key` and admits it, with its index among the bases and the entry. A base whose exclusion covers the key's runes or the entry's reads is skipped, because that entry was settled under runes or classes this engine does not share.
-fn base_entry<'b>(
-    bases: &'b [MemoBase],
+/// The first shared memo that holds `key` and admits it, with its index among the shared memos and the entry. A shared memo whose exclusion covers the key's runes or the entry's reads is skipped, because that entry was settled under runes or classes this engine does not share.
+fn shared_memo_entry<'b>(
+    shared_memos: &'b [SharedMemo],
     key: &TraceKey,
-) -> Option<(usize, &'b MemoBase, TraceEntry)> {
-    bases.iter().enumerate().find_map(|(seat, base)| {
-        base.memo
+) -> Option<(usize, &'b SharedMemo, TraceEntry)> {
+    shared_memos.iter().enumerate().find_map(|(seat, shared)| {
+        shared
+            .memo
             .entries
             .get(key)
-            .filter(|entry| base.excluded.admits(key, base.memo.reads(**entry)))
-            .map(|&entry| (seat, base, entry))
+            .filter(|entry| shared.excluded.admits(key, shared.memo.reads(**entry)))
+            .map(|&entry| (seat, shared, entry))
     })
 }
 
@@ -3060,8 +3061,8 @@ fn replay_into(fired_log: &mut Option<Vec<Pointer>>, capture_starts: &[usize], d
     log.extend_from_slice(delta);
 }
 
-/// Replay a base entry's fired delta the same way, except that the base's pointers were journaled by another engine, so the fired set holds them only after this engine has replayed that delta seat once. `replayed` has one flag per delta seat of the base.
-fn replay_base(
+/// Replay a shared memo entry's fired delta the same way, except that the shared memo's pointers were journaled by another engine, so the fired set holds them only after this engine has replayed that delta seat once. `replayed` has one flag per delta seat of the shared memo.
+fn replay_shared(
     fired: &mut HashSet<Pointer>,
     fired_log: &mut Option<Vec<Pointer>>,
     capture_starts: &[usize],
@@ -5051,7 +5052,7 @@ mod tests {
     }
 
     #[test]
-    fn base_hit_stats_track_trace_and_settled_reads_by_seat() {
+    fn shared_memo_hit_stats_track_trace_and_settled_reads_by_seat() {
         let index = firing_spec();
         let modes = EngineModes {
             trace_memo: true,
@@ -5064,7 +5065,7 @@ mod tests {
             Slots::pair(letter_token(&index, "qsTea"), EDGE),
             Slots::pair(letter_token(&index, "qsTea"), UNKNOWN),
         ];
-        let bases: Vec<_> = windows
+        let shared: Vec<_> = windows
             .iter()
             .map(|&slots| {
                 let mut source = Engine::with_modes(&index, [ss03], modes);
@@ -5078,21 +5079,21 @@ mod tests {
                     .collect::<HashMap<_, _>>()
                     .into();
                 assert_eq!(memo.len(), 1);
-                MemoBase {
+                SharedMemo {
                     memo: std::sync::Arc::new(memo),
                     excluded: crate::memo::Exclusion::none(),
                 }
             })
             .collect();
         let mut engine = Engine::with_modes(&index, [ss03], modes);
-        engine.seed_bases(bases.clone());
-        assert_eq!(engine.base_hits_by_seat(), &[0, 0]);
+        engine.attach_shared_memos(shared.clone());
+        assert_eq!(engine.shared_memo_hits_by_seat(), &[0, 0]);
         for slots in windows {
             engine
                 .transition_trace(&left, token, slots)
-                .expect("the base answers the trace");
+                .expect("the shared memo answers the trace");
         }
-        assert_eq!(engine.base_hits_by_seat(), &[1, 1]);
+        assert_eq!(engine.shared_memo_hits_by_seat(), &[1, 1]);
         for slots in windows {
             assert!(
                 engine
@@ -5100,25 +5101,25 @@ mod tests {
                     .is_some()
             );
         }
-        assert_eq!(engine.base_hits_by_seat(), &[2, 2]);
-        assert_eq!(engine.base_hits(), 4);
+        assert_eq!(engine.shared_memo_hits_by_seat(), &[2, 2]);
+        assert_eq!(engine.shared_memo_hits(), 4);
         assert_eq!(
-            engine.base_hits(),
-            engine.base_hits_by_seat().iter().sum::<u64>()
+            engine.shared_memo_hits(),
+            engine.shared_memo_hits_by_seat().iter().sum::<u64>()
         );
         engine.take_memo().expect("the reader journals");
         engine.release_memos();
-        assert_eq!(engine.base_hits_by_seat(), &[2, 2]);
+        assert_eq!(engine.shared_memo_hits_by_seat(), &[2, 2]);
         engine
             .transition_trace(&left, token, windows[1])
-            .expect("retained bases still answer after releasing own memos");
-        assert_eq!(engine.base_hits_by_seat(), &[2, 3]);
-        engine.seed_bases(bases);
-        assert_eq!(engine.base_hits_by_seat(), &[0, 0]);
-        assert_eq!(engine.base_hits(), 0);
-        engine.seed_bases(Vec::new());
-        assert!(engine.base_hits_by_seat().is_empty());
-        assert_eq!(engine.base_hits(), 0);
+            .expect("retained shared memos still answer after releasing own memos");
+        assert_eq!(engine.shared_memo_hits_by_seat(), &[2, 3]);
+        engine.attach_shared_memos(shared);
+        assert_eq!(engine.shared_memo_hits_by_seat(), &[0, 0]);
+        assert_eq!(engine.shared_memo_hits(), 0);
+        engine.attach_shared_memos(Vec::new());
+        assert!(engine.shared_memo_hits_by_seat().is_empty());
+        assert_eq!(engine.shared_memo_hits(), 0);
     }
 
     /// Two windows that enumerate the same lists share one seat in each pool, and an entry's lists read back from the pools as its miss returned them, descriptions included. `elimination_text_bytes` counts each description the pool holds once, not once per entry that names it.
@@ -6846,7 +6847,7 @@ mod tests {
         );
     }
 
-    /// The ranking asks each surviving candidate's prospect once: a base that holds every follower window but not the ranked window itself supplies one window per ranked candidate.
+    /// The ranking asks each surviving candidate's prospect once: a shared memo that holds every follower window but not the ranked window itself supplies one window per ranked candidate.
     #[test]
     fn the_ranking_asks_each_candidates_prospect_once() {
         let modes = EngineModes {
@@ -6876,7 +6877,7 @@ mod tests {
             .collect::<HashMap<_, _>>()
             .into();
         let mut engine = Engine::with_modes(&index, no_features(), modes);
-        engine.seed_bases(vec![MemoBase {
+        engine.attach_shared_memos(vec![SharedMemo {
             memo: std::sync::Arc::new(memo),
             excluded: crate::memo::Exclusion::none(),
         }]);
@@ -6885,7 +6886,7 @@ mod tests {
             .expect("the fixture settles");
         let ranked = trace.ranking().ranked.len();
         assert!(ranked > 1, "the fixture ranks several candidates");
-        assert_eq!(engine.base_hits(), ranked as u64);
+        assert_eq!(engine.shared_memo_hits(), ranked as u64);
     }
 
     #[test]

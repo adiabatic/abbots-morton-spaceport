@@ -19,7 +19,7 @@ use crate::fiber::DeepFiberDeriver;
 use crate::hash::{HashMap, HashSet};
 use crate::index::SpecIndex;
 use crate::liveness::ProspectLiveness;
-use crate::memo::{MemoBase, MemoFile, MemoSnapshot, write_memo};
+use crate::memo::{MemoFile, MemoSnapshot, SharedMemo, write_memo};
 use crate::model::Sym;
 use crate::options::{FollowerMap, WindowOptions};
 use crate::sha256;
@@ -89,10 +89,10 @@ impl EnumerationModes {
     }
 }
 
-/// What one enumeration may read before settling a window itself, and whether it returns its own memo ([`crate::memo`]). The bases are consulted in the order given. `keep_memo` is set for the configuration other enumerations will read; it returns the snapshot to the caller, at the cost of holding it through the drain and the sort. Writing the memo to a file is independent of it: [`enumerate_for_tables`] writes the file at the release point whether or not the snapshot is kept.
+/// What one enumeration may read before settling a window itself, and whether it returns its own memo ([`crate::memo`]). The shared memos are consulted in the order given. `keep_memo` is set for the configuration other enumerations will read; it returns the snapshot to the caller, at the cost of holding it through the drain and the sort. Writing the memo to a file is independent of it: [`enumerate_for_tables`] writes the file at the release point whether or not the snapshot is kept.
 #[derive(Debug, Default)]
-pub struct Seed {
-    pub bases: Vec<MemoBase>,
+pub struct MemoAccess {
+    pub shared_memos: Vec<SharedMemo>,
     pub keep_memo: bool,
 }
 
@@ -216,19 +216,19 @@ pub fn enumerate_transitions(
     features: &[Sym],
     modes: EnumerationModes,
 ) -> Result<FixpointProduct, String> {
-    enumerate_seeded(
+    enumerate_from_seeds(
         index,
         features,
         modes,
         contract_seeds,
         None,
-        Seed::default(),
+        MemoAccess::default(),
         None,
     )
     .map(|enumeration| enumeration.product)
 }
 
-/// What [`enumerate_for_tables`] returns: the fixpoint, the [`WindowOptions`] it ran over, the engine's finished memo when the seed asked to keep it, and how long the memo file took to write when one was named. The write runs inside the enumeration, so it is timed here for the caller to report under its own label.
+/// What [`enumerate_for_tables`] returns: the fixpoint, the [`WindowOptions`] it ran over, the engine's finished memo when `access` asked to keep it, and how long the memo file took to write when one was named. The write runs inside the enumeration, so it is timed here for the caller to report under its own label.
 pub struct TablesEnumeration<'i> {
     pub product: FixpointProduct,
     pub options: WindowOptions<'i>,
@@ -236,27 +236,27 @@ pub struct TablesEnumeration<'i> {
     pub memo_write: Option<Duration>,
 }
 
-/// [`enumerate_transitions`] that also returns the [`WindowOptions`] it ran over, the `--cache-stats` lines when `cache_stats` is given, and the engine's finished memo when the seed asks for it. The table build folds the product it holds, and the fold's certificates read the formation guard through the same options, whose verdict memo the worklist already filled, instead of sweeping the guard again. The seed lets one configuration's enumeration read another's settled windows ([`crate::memo`]). With a `file`, the finished memo is written there at the release point, after the engine's other memos are freed, so a configuration whose seed does not keep the memo holds none through its drain or its sort.
+/// [`enumerate_transitions`] that also returns the [`WindowOptions`] it ran over, the `--cache-stats` lines when `cache_stats` is given, and the engine's finished memo when `access` asks for it. The table build folds the product it holds, and the fold's certificates read the formation guard through the same options, whose verdict memo the worklist already filled, instead of sweeping the guard again. The memo access lets one configuration's enumeration read another's settled windows ([`crate::memo`]). With a `file`, the finished memo is written there at the release point, after the engine's other memos are freed, so a configuration whose memo access does not keep the memo holds none through its drain or its sort.
 pub fn enumerate_for_tables<'i>(
     index: &'i SpecIndex,
     features: &[Sym],
     modes: EnumerationModes,
     cache_stats: Option<&mut Vec<String>>,
-    seed: Seed,
+    access: MemoAccess,
     file: Option<MemoFile>,
 ) -> Result<TablesEnumeration<'i>, String> {
-    enumerate_seeded(
+    enumerate_from_seeds(
         index,
         features,
         modes,
         contract_seeds,
         cache_stats,
-        seed,
+        access,
         file,
     )
 }
 
-/// [`enumerate_transitions`] that also appends the `--cache-stats` lines to `cache_stats`: each collection's length and capacity once the worklist finishes, the size of the elimination text the memos hold, the memo base hits in total and per base, and the process's resident size before the memo release, after it, after the memo file is written (when [`enumerate_for_tables`] names one), and after the sort. The caller writes the lines to stderr. None of this is computed unless asked for.
+/// [`enumerate_transitions`] that also appends the `--cache-stats` lines to `cache_stats`: each collection's length and capacity once the worklist finishes, the size of the elimination text the memos hold, the shared memo hits in total and per shared memo, and the process's resident size before the memo release, after it, after the memo file is written (when [`enumerate_for_tables`] names one), and after the sort. The caller writes the lines to stderr. None of this is computed unless asked for.
 ///
 /// Memory decisions in this crate come down to entry counts, and a count read from a live alphabet settles in one run what a struct-size argument can only estimate.
 pub fn enumerate_with_cache_stats(
@@ -265,26 +265,26 @@ pub fn enumerate_with_cache_stats(
     modes: EnumerationModes,
     cache_stats: &mut Vec<String>,
 ) -> Result<FixpointProduct, String> {
-    enumerate_seeded(
+    enumerate_from_seeds(
         index,
         features,
         modes,
         contract_seeds,
         Some(cache_stats),
-        Seed::default(),
+        MemoAccess::default(),
         None,
     )
     .map(|enumeration| enumeration.product)
 }
 
-/// [`enumerate_transitions`] with the seeding passed in, so a test can permute the seed order and check that the product does not change. Production always passes [`contract_seeds`]. The permuted-seed tests cover both the pinned world and class grain, where each fiber's row is traced at its least member regardless of which item reaches it first.
-fn enumerate_seeded<'i>(
+/// [`enumerate_transitions`] with the seeds passed in, so a test can permute the seed order and check that the product does not change. Production always passes [`contract_seeds`]. The permuted-seed tests cover both the pinned world and class grain, where each fiber's row is traced at its least member regardless of which item reaches it first.
+fn enumerate_from_seeds<'i>(
     index: &'i SpecIndex,
     features: &[Sym],
     modes: EnumerationModes,
     seeds: fn(&WindowOptions<'_>) -> Vec<Item>,
     mut cache_stats: Option<&mut Vec<String>>,
-    seed: Seed,
+    access: MemoAccess,
     file: Option<MemoFile>,
 ) -> Result<TablesEnumeration<'i>, String> {
     let mut engine = Engine::with_modes(
@@ -299,7 +299,7 @@ fn enumerate_seeded<'i>(
             ..EngineModes::default()
         },
     );
-    engine.seed_bases(seed.bases);
+    engine.attach_shared_memos(access.shared_memos);
     let config = feature_config_token(index, features.iter().copied());
     let mut options = WindowOptions::new(index).map_err(complaint)?;
     // Either engine mode makes a deep world. This is the only place the enumeration combines the two flags.
@@ -819,12 +819,12 @@ fn enumerate_seeded<'i>(
             engine.elimination_text_bytes()
         ));
         lines.push(format!(
-            "[c] {config} memo_base_hits count={}",
-            engine.base_hits()
+            "[c] {config} shared_memo_hits count={}",
+            engine.shared_memo_hits()
         ));
-        for (seat, count) in engine.base_hits_by_seat().iter().enumerate() {
+        for (seat, count) in engine.shared_memo_hits_by_seat().iter().enumerate() {
             lines.push(format!(
-                "[c] {config} memo_base_hits seat={seat} count={count}"
+                "[c] {config} shared_memo_hits seat={seat} count={count}"
             ));
         }
         lines.push(format!(
@@ -840,7 +840,7 @@ fn enumerate_seeded<'i>(
         .map(|pointer| pointer.text(index))
         .collect();
     // The drain and the sort below are the run's other large working set, and they do not need the memos. Releasing the memos here keeps the two from coexisting, which would otherwise be the enumeration's peak memory. The memo file is written here too, from the trace memo the engine returns as a snapshot after freeing its prospect, candidate and closure memos, so the writer's buffers never coexist with them. The snapshot is then dropped, except for the configuration other enumerations will read, whose snapshot is held through the drain and the sort.
-    let memo = if seed.keep_memo || file.is_some() {
+    let memo = if access.keep_memo || file.is_some() {
         engine.take_memo()
     } else {
         engine.release_memos();
@@ -865,7 +865,7 @@ fn enumerate_seeded<'i>(
         )?;
         memo_write = Some(started.elapsed());
     }
-    let memo = memo.filter(|_| seed.keep_memo);
+    let memo = memo.filter(|_| access.keep_memo);
     if memo_write.is_some()
         && let Some(lines) = cache_stats.as_mut()
     {
@@ -2368,24 +2368,24 @@ mod tests {
     #[test]
     fn a_permuted_seed_order_reaches_the_same_pinned_world_product() {
         let index = deep_alphabet();
-        let contract = enumerate_seeded(
+        let contract = enumerate_from_seeds(
             &index,
             &[],
             PINNED,
             contract_seeds,
             None,
-            Seed::default(),
+            MemoAccess::default(),
             None,
         )
         .expect("the fixpoint closes")
         .product;
-        let reversed = enumerate_seeded(
+        let reversed = enumerate_from_seeds(
             &index,
             &[],
             PINNED,
             reversed_seeds,
             None,
-            Seed::default(),
+            MemoAccess::default(),
             None,
         )
         .expect("the fixpoint closes")
@@ -2410,24 +2410,24 @@ mod tests {
     fn a_permuted_seed_order_reaches_the_same_class_grain_product() {
         let index = crate::liveness::tests::prospect_spec();
         let modes = EnumerationModes::default();
-        let contract = enumerate_seeded(
+        let contract = enumerate_from_seeds(
             &index,
             &[],
             modes,
             contract_seeds,
             None,
-            Seed::default(),
+            MemoAccess::default(),
             None,
         )
         .expect("the fixpoint closes")
         .product;
-        let reversed = enumerate_seeded(
+        let reversed = enumerate_from_seeds(
             &index,
             &[],
             modes,
             reversed_seeds,
             None,
-            Seed::default(),
+            MemoAccess::default(),
             None,
         )
         .expect("the fixpoint closes")
@@ -2442,20 +2442,20 @@ mod tests {
         );
     }
 
-    /// An `ss03` enumeration that reads `default`'s finished memo for every window naming no unlocking rune of `ss03` produces the from-scratch product byte for byte (rows, classes, cells and fired provenance, which is what the stream contains) while answering windows from the base. The exclusion is required: the same base read without one gives `ss03` the wrong results for `qsMay`'s windows, which is what makes the equality assertion able to fail.
+    /// An `ss03` enumeration that reads `default`'s finished memo for every window naming no unlocking rune of `ss03` produces the from-scratch product byte for byte (rows, classes, cells and fired provenance, which is what the stream contains) while answering windows from the shared memo. The exclusion is required: the same shared memo read without one gives `ss03` the wrong results for `qsMay`'s windows, which is what makes the equality assertion able to fail.
     #[test]
-    fn a_configuration_seeded_from_default_reaches_its_from_scratch_product() {
+    fn a_configuration_sharing_defaults_memo_reaches_its_from_scratch_product() {
         let index = fixtures::mini();
         let ss03 = fixtures::sym(&index, "ss03");
         let modes = EnumerationModes::default();
-        let memo = enumerate_seeded(
+        let memo = enumerate_from_seeds(
             &index,
             &[],
             modes,
             contract_seeds,
             None,
-            Seed {
-                bases: Vec::new(),
+            MemoAccess {
+                shared_memos: Vec::new(),
                 keep_memo: true,
             },
             None,
@@ -2464,27 +2464,27 @@ mod tests {
         .memo;
         let memo = Arc::new(memo.expect("a kept memo comes back"));
         assert!(!memo.is_empty());
-        let scratch = enumerate_seeded(
+        let scratch = enumerate_from_seeds(
             &index,
             &[ss03],
             modes,
             contract_seeds,
             None,
-            Seed::default(),
+            MemoAccess::default(),
             None,
         )
         .expect("ss03 closes from scratch")
         .product;
-        let seeded_with = |excluded: Exclusion| {
+        let shared_with = |excluded: Exclusion| {
             let mut stats: Vec<String> = Vec::new();
-            let product = enumerate_seeded(
+            let product = enumerate_from_seeds(
                 &index,
                 &[ss03],
                 modes,
                 contract_seeds,
                 Some(&mut stats),
-                Seed {
-                    bases: vec![MemoBase {
+                MemoAccess {
+                    shared_memos: vec![SharedMemo {
                         memo: Arc::clone(&memo),
                         excluded,
                     }],
@@ -2492,45 +2492,46 @@ mod tests {
                 },
                 None,
             )
-            .expect("ss03 closes over a base")
+            .expect("ss03 closes over a shared memo")
             .product;
             let hits = stats
                 .iter()
-                .find_map(|line| line.strip_prefix("[c] ss03 memo_base_hits count="))
-                .expect("the cache stats report the base hits")
+                .find_map(|line| line.strip_prefix("[c] ss03 shared_memo_hits count="))
+                .expect("the cache stats report the shared memo hits")
                 .parse::<u64>()
                 .expect("as a count");
-            assert!(stats.contains(&format!("[c] ss03 memo_base_hits seat=0 count={hits}")));
+            assert!(stats.contains(&format!("[c] ss03 shared_memo_hits seat=0 count={hits}")));
             (product, hits)
         };
-        let (seeded, hits) = seeded_with(Exclusion::of(&index, unlocking_runes(&index, &[ss03])));
-        assert!(hits > 0, "the base answered windows");
+        let (over_shared, hits) =
+            shared_with(Exclusion::of(&index, unlocking_runes(&index, &[ss03])));
+        assert!(hits > 0, "the shared memo answered windows");
         assert_eq!(
             emit_transitions(&index, &scratch),
-            emit_transitions(&index, &seeded)
+            emit_transitions(&index, &over_shared)
         );
-        let (unfiltered, _) = seeded_with(Exclusion::none());
+        let (unfiltered, _) = shared_with(Exclusion::none());
         assert_ne!(
             emit_transitions(&index, &scratch),
             emit_transitions(&index, &unfiltered),
-            "without the exclusion the base answers qsMay's windows as default settles them"
+            "without the exclusion the shared memo answers qsMay's windows as default settles them"
         );
     }
 
-    /// A configuration that keeps no memo writes it at the release point and returns none: `ss03` enumerated over `default`'s base with a file named and `keep_memo` off returns no snapshot, times the write, and leaves a file that reads back as the memo a kept run of the same enumeration returns, window for window.
+    /// A configuration that keeps no memo writes it at the release point and returns none: `ss03` enumerated over `default`'s shared memo with a file named and `keep_memo` off returns no snapshot, times the write, and leaves a file that reads back as the memo a kept run of the same enumeration returns, window for window.
     #[test]
     fn a_configuration_keeping_no_memo_files_it_at_the_release_point() {
         let index = fixtures::mini();
         let ss03 = fixtures::sym(&index, "ss03");
         let modes = EnumerationModes::default();
-        let base = enumerate_seeded(
+        let default_memo = enumerate_from_seeds(
             &index,
             &[],
             modes,
             contract_seeds,
             None,
-            Seed {
-                bases: Vec::new(),
+            MemoAccess {
+                shared_memos: Vec::new(),
                 keep_memo: true,
             },
             None,
@@ -2538,26 +2539,26 @@ mod tests {
         .expect("default closes")
         .memo
         .expect("a kept memo comes back");
-        let base = Arc::new(base);
-        let bases = || {
-            vec![MemoBase {
-                memo: Arc::clone(&base),
+        let default_memo = Arc::new(default_memo);
+        let shared = || {
+            vec![SharedMemo {
+                memo: Arc::clone(&default_memo),
                 excluded: Exclusion::of(&index, unlocking_runes(&index, &[ss03])),
             }]
         };
-        let kept = enumerate_seeded(
+        let kept = enumerate_from_seeds(
             &index,
             &[ss03],
             modes,
             contract_seeds,
             None,
-            Seed {
-                bases: bases(),
+            MemoAccess {
+                shared_memos: shared(),
                 keep_memo: true,
             },
             None,
         )
-        .expect("ss03 closes over a base")
+        .expect("ss03 closes over a shared memo")
         .memo
         .expect("a kept memo comes back");
         assert!(!kept.is_empty(), "ss03 traces windows of its own");
@@ -2568,14 +2569,14 @@ mod tests {
             world: modes.world_token(),
             stamp: "release-point".to_owned(),
         };
-        let filed = enumerate_seeded(
+        let filed = enumerate_from_seeds(
             &index,
             &[ss03],
             modes,
             contract_seeds,
             None,
-            Seed {
-                bases: bases(),
+            MemoAccess {
+                shared_memos: shared(),
                 keep_memo: false,
             },
             Some(MemoFile {
@@ -2584,7 +2585,7 @@ mod tests {
                 carried: Vec::new(),
             }),
         )
-        .expect("ss03 closes over a base");
+        .expect("ss03 closes over a shared memo");
         assert!(
             filed.memo.is_none(),
             "a memo nobody reads is let go of at the release point"

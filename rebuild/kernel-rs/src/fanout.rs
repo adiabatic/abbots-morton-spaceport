@@ -1,6 +1,6 @@
 //! Runs settlement configurations: one into a caller's sink, or a named set concurrently into a directory of files. The `enumerate` and `enumerate-configs` subcommands both serialize a configuration through [`run_config`], so a file the fan-out writes cannot differ from what `enumerate` writes to stdout for the same configuration.
 //!
-//! The output does not depend on the thread count. All configurations share one [`SpecIndex`], which has no mutable state. The engine, the window options, the two slot filters, the liveness probe, and the fiber deriver are built inside the fixpoint on each call, so each configuration has its own. The only data shared between configurations are read-only memo snapshots behind an [`Arc`], each read through an exclusion that says which of its windows a reader may use ([`crate::memo`]): `default`'s finished memo, and, when the seed directory has one, the previous build's `default` memo. `default`'s enumeration, including its memo file write, finishes before any delta starts. Its fold then runs in one of the wave's worker slots and does not use the memo.
+//! The output does not depend on the thread count. All configurations share one [`SpecIndex`], which has no mutable state. The engine, the window options, the two slot filters, the liveness probe, and the fiber deriver are built inside the fixpoint on each call, so each configuration has its own. The only data shared between configurations are read-only memo snapshots behind an [`Arc`], each read through an exclusion that says which of its windows a reader may use ([`crate::memo`]): `default`'s finished memo, and, when the previous memo directory has one, the previous build's `default` memo. `default`'s enumeration, including its memo file write, finishes before any delta starts. Its fold then runs in one of the wave's worker slots and does not use the memo.
 //!
 //! Parallelism stops at the configuration. A configuration's product depends only on its row set, not on the order the worklist visits windows, because a class-grain row is traced at its fiber's canonical representative. The fixpoint keeps its LIFO worklist order fixed anyway. A configuration's `cited_provenance` is what its one engine fired while tracing its windows. Splitting one configuration's worklist across threads would require the threads to share one engine's memo and fired set to reproduce the sequential result, which would cost what the split was meant to save.
 
@@ -14,12 +14,12 @@ use std::time::{Duration, Instant};
 
 use crate::artifacts;
 use crate::engine::EngineModes;
-use crate::fixpoint::{self, EnumerationModes, Seed};
+use crate::fixpoint::{self, EnumerationModes, MemoAccess};
 use crate::fold;
 use crate::hash::HashSet;
 use crate::index::SpecIndex;
 use crate::memo::{
-    Exclusion, MemoBase, MemoFile, MemoHead, MemoSnapshot, memo_path, read_memo, unlocking_runes,
+    Exclusion, MemoFile, MemoHead, MemoSnapshot, SharedMemo, memo_path, read_memo, unlocking_runes,
 };
 use crate::model::Sym;
 use crate::options::WindowOptions;
@@ -34,23 +34,23 @@ pub struct Configuration<'a> {
 
 /// Which memos a table build may read before it settles a window itself, and which memo file it writes ([`crate::memo`]).
 ///
-/// - `config_seed`: `default` enumerates first, alone, and every other configuration then reads `default`'s finished memo for the windows that name none of its own unlocking runes. When it is off, no configuration reads `default`'s in-process memo; `tests/cli.rs` checks that both settings write the same tables.
-/// - `seed_dir`: a previous build's memo files, each read as a base for its own configuration behind an exclusion of `edited` (the runes whose content changed since that build) and `moved_classes` (the predicate classes whose membership changed). A configuration with no file there reads nothing.
+/// - `default_memo_sharing`: `default` enumerates first, alone, and every other configuration then reads `default`'s finished memo for the windows that name none of its own unlocking runes. When it is off, no configuration reads `default`'s in-process memo; `tests/cli.rs` checks that both settings write the same tables.
+/// - `previous_memos`: a previous build's memo files, each read as a shared memo for its own configuration behind an exclusion of `edited` (the runes whose content changed since that build) and `moved_classes` (the predicate classes whose membership changed). A configuration with no file there reads nothing.
 /// - `memo_stamp`: the stamp this build writes its own memo files under, beside its tables. With no stamp, no memo files are written.
 #[derive(Clone, Debug)]
-pub struct Seeding {
-    pub config_seed: bool,
-    pub seed_dir: Option<PathBuf>,
+pub struct MemoSharing {
+    pub default_memo_sharing: bool,
+    pub previous_memos: Option<PathBuf>,
     pub edited: Vec<Sym>,
     pub moved_classes: Vec<Sym>,
     pub memo_stamp: Option<String>,
 }
 
-impl Default for Seeding {
+impl Default for MemoSharing {
     fn default() -> Self {
         Self {
-            config_seed: true,
-            seed_dir: None,
+            default_memo_sharing: true,
+            previous_memos: None,
             edited: Vec::new(),
             moved_classes: Vec::new(),
             memo_stamp: None,
@@ -58,15 +58,15 @@ impl Default for Seeding {
     }
 }
 
-/// A previous build's memo for one configuration, read from the seed directory and filtered through `keep`, or `None` when the directory has no file for it. A file that exists but belongs to another configuration or world is an error, because the caller named the seed directory so that it would be read.
-fn load_seed(
+/// A previous build's memo for one configuration, read from the previous memo directory and filtered through `keep`, or `None` when the directory has no file for it. A file that exists but belongs to another configuration or world is an error, because the caller named the previous memo directory so that it would be read.
+fn load_previous_memo(
     index: &SpecIndex,
-    seeding: &Seeding,
+    sharing: &MemoSharing,
     token: &str,
     world: &str,
     keep: impl Fn(&crate::engine::TraceKey) -> bool,
 ) -> Result<Option<Arc<MemoSnapshot>>, String> {
-    let Some(dir) = &seeding.seed_dir else {
+    let Some(dir) = &sharing.previous_memos else {
         return Ok(None);
     };
     let path = memo_path(dir, token);
@@ -81,15 +81,15 @@ fn load_seed(
     read_memo(index, &path, &expected, keep).map(|memo| Some(Arc::new(memo)))
 }
 
-/// The memo file one configuration writes under this seeding, or `None` when the build has no stamp to write under.
+/// The memo file one configuration writes under this memo sharing, or `None` when the build has no stamp to write under.
 fn memo_file(
-    seeding: &Seeding,
+    sharing: &MemoSharing,
     outdir: &Path,
     token: &str,
     world: &str,
-    carried: Vec<MemoBase>,
+    carried: Vec<SharedMemo>,
 ) -> Option<MemoFile> {
-    seeding.memo_stamp.as_ref().map(|stamp| MemoFile {
+    sharing.memo_stamp.as_ref().map(|stamp| MemoFile {
         path: memo_path(outdir, token),
         head: MemoHead {
             config: token.to_owned(),
@@ -100,9 +100,9 @@ fn memo_file(
     })
 }
 
-/// A base over a previous memo behind an exclusion, or `None` when there is no previous memo.
-fn base_over(memo: Option<&Arc<MemoSnapshot>>, excluded: Exclusion) -> Option<MemoBase> {
-    memo.map(|memo| MemoBase {
+/// A shared memo over a previous memo behind an exclusion, or `None` when there is no previous memo.
+fn shared_behind(memo: Option<&Arc<MemoSnapshot>>, excluded: Exclusion) -> Option<SharedMemo> {
+    memo.map(|memo| SharedMemo {
         memo: Arc::clone(memo),
         excluded,
     })
@@ -356,9 +356,9 @@ pub struct TableAnswer {
     pub timed: Vec<String>,
 }
 
-/// Builds every configuration's settlement table, treaty table, window file, and digest under `outdir`, running at most `workers` at once. Each configuration reads the memos `seeding` allows and writes the memo file `seeding` asks for.
+/// Builds every configuration's settlement table, treaty table, window file, and digest under `outdir`, running at most `workers` at once. Each configuration reads the memos `sharing` allows and writes the memo file `sharing` asks for.
 ///
-/// When `config_seed` is on and the set has the no-feature configuration and at least one other:
+/// When `default_memo_sharing` is on and the set has the no-feature configuration and at least one other:
 ///
 /// - `default` enumerates first and alone, keeps its memo, and writes its memo file inside that enumeration, before the wave.
 /// - `default`'s fold then runs in one of the `workers` slots while the deltas run in the others ([`claim_all_leading`]). Each delta reads `default`'s memo behind an exclusion of its own unlocking runes. Wall-clock time is one full enumeration and its memo write, plus one wave. The memo is held once and shared. Because `default`'s memo write finishes before the wave starts, the rows the writer holds for the largest memo are never resident at the same time as a delta at its peak.
@@ -381,38 +381,38 @@ pub fn run_configs_tables(
     inputs: &str,
     workers: usize,
     report: Report,
-    seeding: Seeding,
+    sharing: MemoSharing,
 ) -> Result<Vec<TableAnswer>, String> {
     std::fs::create_dir_all(outdir).map_err(|error| format!("{}: {error}", outdir.display()))?;
     let world = modes.world_token();
-    let edited = Exclusion::of(index, seeding.edited.iter().copied())
-        .with_classes(seeding.moved_classes.iter().copied());
-    let default_seat = seeding
-        .config_seed
+    let edited = Exclusion::of(index, sharing.edited.iter().copied())
+        .with_classes(sharing.moved_classes.iter().copied());
+    let default_seat = sharing
+        .default_memo_sharing
         .then(|| configs.iter().position(|config| config.features.is_empty()))
         .flatten()
         .filter(|_| configs.len() > 1);
     let Some(default_seat) = default_seat else {
         return claim_all(configs, workers, |config| {
-            let previous = load_seed(index, &seeding, config.token, &world, |key| {
+            let previous = load_previous_memo(index, &sharing, config.token, &world, |key| {
                 !edited.names(key)
             })?;
-            let seed = Seed {
-                bases: base_over(previous.as_ref(), edited.clone())
+            let access = MemoAccess {
+                shared_memos: shared_behind(previous.as_ref(), edited.clone())
                     .into_iter()
                     .collect(),
                 keep_memo: false,
             };
-            let carried = base_over(previous.as_ref(), edited.clone())
+            let carried = shared_behind(previous.as_ref(), edited.clone())
                 .into_iter()
                 .collect();
-            let file = memo_file(&seeding, outdir, config.token, &world, carried);
-            run_config_tables(index, config, modes, outdir, inputs, report, seed, file)
+            let file = memo_file(&sharing, outdir, config.token, &world, carried);
+            run_config_tables(index, config, modes, outdir, inputs, report, access, file)
                 .map_err(|complaint| format!("{}: {complaint}", config.token))
         });
     };
     let default = &configs[default_seat];
-    let previous_default = load_seed(index, &seeding, default.token, &world, |key| {
+    let previous_default = load_previous_memo(index, &sharing, default.token, &world, |key| {
         !edited.names(key)
     })
     .map_err(|complaint| format!("{}: {complaint}", default.token))?;
@@ -421,18 +421,18 @@ pub fn run_configs_tables(
         default,
         modes,
         report,
-        Seed {
-            bases: base_over(previous_default.as_ref(), edited.clone())
+        MemoAccess {
+            shared_memos: shared_behind(previous_default.as_ref(), edited.clone())
                 .into_iter()
                 .collect(),
             keep_memo: true,
         },
         memo_file(
-            &seeding,
+            &sharing,
             outdir,
             default.token,
             &world,
-            base_over(previous_default.as_ref(), edited.clone())
+            shared_behind(previous_default.as_ref(), edited.clone())
                 .into_iter()
                 .collect(),
         ),
@@ -454,35 +454,35 @@ pub fn run_configs_tables(
             let config = work.config;
             let unlocking = &work.unlocking;
             let behind_unlocking = Exclusion::of(index, unlocking.iter().copied());
-            let previous_own = load_seed(index, &seeding, config.token, &world, |key| {
+            let previous_own = load_previous_memo(index, &sharing, config.token, &world, |key| {
                 behind_unlocking.names(key) && !edited.names(key)
             })?;
-            let mut bases = vec![MemoBase {
+            let mut shared = vec![SharedMemo {
                 memo: Arc::clone(&memo),
                 excluded: behind_unlocking,
             }];
-            bases.extend(base_over(
+            shared.extend(shared_behind(
                 previous_default.as_ref(),
                 Exclusion::of(index, unlocking.iter().chain(edited.runes()).copied())
                     .with_classes(edited.classes().iter().copied()),
             ));
-            bases.extend(base_over(previous_own.as_ref(), edited.clone()));
-            let carried = base_over(previous_own.as_ref(), edited.clone())
+            shared.extend(shared_behind(previous_own.as_ref(), edited.clone()));
+            let carried = shared_behind(previous_own.as_ref(), edited.clone())
                 .into_iter()
                 .collect();
-            let file = memo_file(&seeding, outdir, config.token, &world, carried);
-            let seed = Seed {
-                bases,
+            let file = memo_file(&sharing, outdir, config.token, &world, carried);
+            let access = MemoAccess {
+                shared_memos: shared,
                 keep_memo: false,
             };
-            run_config_tables(index, config, modes, outdir, inputs, report, seed, file)
+            run_config_tables(index, config, modes, outdir, inputs, report, access, file)
                 .map_err(|complaint| format!("{}: {complaint}", config.token))
         })?;
     answered.push((default_seat, default_answer));
     Ok(seat_answers(answered, configs.len()))
 }
 
-/// Builds one configuration's tables on the current thread: [`enumerate_config_tables`] then [`finish_config_tables`]. The fixpoint reads what `seed` allows and writes `file`, when given, at its release point. The fold over the product builds the rule certificates with the enumeration's own [`WindowOptions`], so the formation guard is swept once. It writes the three artifact files and returns the digest. When asked, the timing lines are `enumerate[<config>]`, `memo[<config>]`, and `fold[<config>]`, after the cache stats' `[c]` lines. The seeded fan-out calls the two halves separately so that `default`'s second half can run alongside the wave.
+/// Builds one configuration's tables on the current thread: [`enumerate_config_tables`] then [`finish_config_tables`]. The fixpoint reads what `access` allows and writes `file`, when given, at its release point. The fold over the product builds the rule certificates with the enumeration's own [`WindowOptions`], so the formation guard is swept once. It writes the three artifact files and returns the digest. When asked, the timing lines are `enumerate[<config>]`, `memo[<config>]`, and `fold[<config>]`, after the cache stats' `[c]` lines. The memo-sharing fan-out calls the two halves separately so that `default`'s second half can run alongside the wave.
 #[allow(clippy::too_many_arguments)]
 pub fn run_config_tables(
     index: &SpecIndex,
@@ -491,16 +491,16 @@ pub fn run_config_tables(
     outdir: &Path,
     inputs: &str,
     report: Report,
-    seed: Seed,
+    access: MemoAccess,
     file: Option<MemoFile>,
 ) -> Result<TableAnswer, String> {
-    let pending = enumerate_config_tables(index, config, modes, report, seed, file)?;
+    let pending = enumerate_config_tables(index, config, modes, report, access, file)?;
     finish_config_tables(index, config, outdir, inputs, report, pending)
 }
 
 /// One configuration between the two halves of its table build: enumerated, its memo file written, and holding what the fold and the file writes need.
 ///
-/// It cannot cross threads, because the product's label pool holds `Rc<str>` ([`crate::stream`]) and the window options hold `Rc<FollowerMap>` ([`crate::options`]). That is why the second half runs on the thread that enumerated, and why a caller clones the memo out first: behind its [`Arc`], the memo is the only part of an enumeration that other configurations read. Only a configuration whose seed set `keep_memo` has a memo here. A delta's memo was written to its file and dropped at the fixpoint's release point.
+/// It cannot cross threads, because the product's label pool holds `Rc<str>` ([`crate::stream`]) and the window options hold `Rc<FollowerMap>` ([`crate::options`]). That is why the second half runs on the thread that enumerated, and why a caller clones the memo out first: behind its [`Arc`], the memo is the only part of an enumeration that other configurations read. Only a configuration whose memo access set `keep_memo` has a memo here. A delta's memo was written to its file and dropped at the fixpoint's release point.
 struct EnumeratedTables<'i> {
     product: FixpointProduct,
     options: WindowOptions<'i>,
@@ -508,13 +508,13 @@ struct EnumeratedTables<'i> {
     timed: Vec<String>,
 }
 
-/// [`run_config_tables`]'s first half: the fixpoint over what the seed allows, writing the memo file at the release point when one is named, and keeping the finished memo behind an [`Arc`] when the seed asks. The timing lines are `enumerate[<config>]`, which excludes the memo write, and `memo[<config>]`, which is the write, after the cache stats' `[c]` lines.
+/// [`run_config_tables`]'s first half: the fixpoint over what `access` allows, writing the memo file at the release point when one is named, and keeping the finished memo behind an [`Arc`] when `access` asks. The timing lines are `enumerate[<config>]`, which excludes the memo write, and `memo[<config>]`, which is the write, after the cache stats' `[c]` lines.
 fn enumerate_config_tables<'i>(
     index: &'i SpecIndex,
     config: &Configuration<'_>,
     modes: EnumerationModes,
     report: Report,
-    seed: Seed,
+    access: MemoAccess,
     file: Option<MemoFile>,
 ) -> Result<EnumeratedTables<'i>, String> {
     let token = config.token;
@@ -531,7 +531,7 @@ fn enumerate_config_tables<'i>(
         &config.features,
         modes,
         report.cache_stats.then_some(&mut stats),
-        seed,
+        access,
         file,
     )?;
     timed.append(&mut stats);
@@ -736,7 +736,7 @@ mod tests {
     /// Two configurations the fixture tells apart: `ss03` unlocks a `qsMay` entry, and `default` unlocks nothing.
     const TOKENS: [&str; 2] = ["default", "ss03"];
 
-    /// A set whose claim order differs from its listed order: `default`; `ss09`, a delta that unlocks nothing; and `ss03`, the delta that unlocks `qsMay`, which the wave claims first although it is listed last. `ss09` has no features because the fixture declares no second feature. It still runs as a delta, because only the first no-feature configuration seeds.
+    /// A set whose claim order differs from its listed order: `default`; `ss09`, a delta that unlocks nothing; and `ss03`, the delta that unlocks `qsMay`, which the wave claims first although it is listed last. `ss09` has no features because the fixture declares no second feature. It still runs as a delta, because only the first no-feature configuration shares its memo.
     const PERMUTING: [&str; 3] = ["default", "ss09", "ss03"];
 
     /// A scratch directory for one test under `target/test-scratch`, which is gitignored. It is cleared first so a stale file cannot pass for one the run should have written, and it is not created, because creating it is part of what the run does.
@@ -1001,11 +1001,11 @@ mod tests {
     /// The inputs stamp every table build below writes its window files under.
     const INPUTS: &str = "fixture-stamp";
 
-    /// A seeding that writes memo files, so every configuration writes one at its release point and `default` writes its file before the wave reads its snapshot.
-    fn stamped() -> Seeding {
-        Seeding {
+    /// Memo sharing that writes memo files, so every configuration writes one at its release point and `default` writes its file before the wave reads its snapshot.
+    fn stamped() -> MemoSharing {
+        MemoSharing {
             memo_stamp: Some("identity".to_owned()),
-            ..Seeding::default()
+            ..MemoSharing::default()
         }
     }
 
@@ -1072,8 +1072,11 @@ mod tests {
         let configs = permuting(&index);
         let root = scratch("fan-out-tables");
         let mut unstamped: Vec<Filed> = Vec::new();
-        for (arm, seeding) in [("unstamped", Seeding::default()), ("stamped", stamped())] {
-            let with_memo = seeding.memo_stamp.is_some();
+        for (arm, sharing) in [
+            ("unstamped", MemoSharing::default()),
+            ("stamped", stamped()),
+        ] {
+            let with_memo = sharing.memo_stamp.is_some();
             let mut first: Option<Filed> = None;
             for (width, workers) in [0, 1, 2, 8].into_iter().enumerate() {
                 let outdir = root.join(arm).join(format!("at-{workers}"));
@@ -1085,7 +1088,7 @@ mod tests {
                     INPUTS,
                     workers,
                     Report::timed(false),
-                    seeding.clone(),
+                    sharing.clone(),
                 )
                 .expect("every configuration answers");
                 assert_eq!(answers.len(), configs.len());
@@ -1208,7 +1211,7 @@ mod tests {
             INPUTS,
             2,
             Report::timed(false),
-            Seeding::default(),
+            MemoSharing::default(),
         )
         .expect_err("a directory in the settlement table's place is not writable");
         assert!(
@@ -1231,7 +1234,7 @@ mod tests {
             INPUTS,
             2,
             Report::timed(false),
-            Seeding::default(),
+            MemoSharing::default(),
         )
         .expect_err("no seat can write its settlement table");
         assert!(

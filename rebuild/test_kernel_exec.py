@@ -1,4 +1,4 @@
-"""Tests for `rebuild/pipeline/kernel_exec.py`, the Python side of the kernel boundary, and for the `run_m1` code that calls it: the mode flags passed to the crate, the product and tables it returns, the memo seed, the thread widths, the CLI, and the string replay. Every table is built on the mini fixture, which is enough to check the shape of the results; enumerating the live alphabet is the build's job.
+"""Tests for `rebuild/pipeline/kernel_exec.py`, the Python side of the kernel boundary, and for the `run_m1` code that calls it: the mode flags passed to the crate, the product and tables it returns, the previous memos, the thread widths, the CLI, and the string replay. Every table is built on the mini fixture, which is enough to check the shape of the results; enumerating the live alphabet is the build's job.
 
 No test skips. On a machine without `cargo` these tests fail with the remedy `KernelBuildError` carries, because the M1 build cannot run there either.
 """
@@ -503,7 +503,7 @@ def test_the_enumeration_tokens_name_every_flag_that_is_on(
 
 
 def test_the_tables_stamp_appends_exactly_the_enumeration_tokens(monkeypatch):
-    """`run_m1.tables_inputs` appends exactly the tokens `kernel_exec.enumeration_tokens` returns. `run_m1.memo_seed` (the memo head's world) and `run_m1.locality_lines` read the same function, so a new engine flag reaches all three."""
+    """`run_m1.tables_inputs` appends exactly the tokens `kernel_exec.enumeration_tokens` returns. `run_m1.previous_memos` (the memo head's world) and `run_m1.locality_lines` read the same function, so a new engine flag reaches all three."""
     monkeypatch.setattr(run_m1.fingerprint, "tables_value", lambda repo_root: "sources")
     assert run_m1.tables_inputs() == "+".join(["sources", *kernel_exec.enumeration_tokens()])
 
@@ -565,7 +565,7 @@ class TestTheKernelInvocation:
             assert (one / name).read_bytes() == (every / name).read_bytes(), name
 
     def _observe_build(self, monkeypatch, tmp_path, asked, configs=None):
-        """Record the arguments `build_tables` passes to `kernel_exec.build_table_files`: the configurations, the thread width, the timings tag, the stamp, and `config_seed`. The stub raises `Reached`, so the run ends there."""
+        """Record the arguments `build_tables` passes to `kernel_exec.build_table_files`: the configurations, the thread width, the timings tag, the stamp, and `default_memo_sharing`. The stub raises `Reached`, so the run ends there."""
         seen = []
 
         def build_table_files(
@@ -577,10 +577,10 @@ class TestTheKernelInvocation:
             threads,
             timings=False,
             timings_tag=None,
-            config_seed=True,
+            default_memo_sharing=True,
             **memo,
         ):
-            seen.append((tuple(configs), threads, timings_tag, inputs, config_seed))
+            seen.append((tuple(configs), threads, timings_tag, inputs, default_memo_sharing))
             raise Reached
 
         monkeypatch.setattr(kernel_exec, "ensure_built", lambda: None)
@@ -609,12 +609,12 @@ class TestTheKernelInvocation:
         """One process builds every settlement configuration, `default` first and the rest as deltas over its memo, and `threads` is how many deltas run at once. The crate labels each configuration's timing lines itself, so no tag is passed, and the overlay configuration is never requested."""
         seen = self._observe_build(monkeypatch, tmp_path, asked)
         assert len(seen) == 1
-        configs, threads, tag, stamp, config_seed = seen[0]
+        configs, threads, tag, stamp, default_memo_sharing = seen[0]
         assert configs == conform.SETTLEMENT_CONFIGS
         assert threads == min(wanted, len(conform.SETTLEMENT_CONFIGS), run_m1.usable_cores())
         assert tag is None
         assert stamp == STAMP
-        assert config_seed
+        assert default_memo_sharing
 
     def test_a_narrowed_cpu_allowance_narrows_the_fan_out(self, monkeypatch, tmp_path):
         """The width is also capped at `usable_cores()`, the cores this process may run on, so a container limited to part of its host's CPUs stays within that limit whatever the memory allows. The test fixes the allowance at two and asks for every configuration, so the test passes only if the cap applies."""
@@ -623,16 +623,16 @@ class TestTheKernelInvocation:
         seen = self._observe_build(monkeypatch, tmp_path, len(conform.SETTLEMENT_CONFIGS))
         assert seen[0][1] == min(len(conform.SETTLEMENT_CONFIGS), allowance)
 
-    def test_a_build_seeded_from_the_previous_memo_files_the_bytes_a_from_scratch_build_files(
+    def test_a_build_reading_the_previous_memos_files_the_bytes_a_from_scratch_build_files(
         self, tmp_path, monkeypatch
     ):
-        """A build of an edited spec into a directory holding the previous build's memos seeds from them, with the edited rune named, and writes the same packed windows, settlement TSVs, and treaty TSVs, byte for byte, as a build of the edited spec into an empty directory. It also leaves its own memos under the edited spec's stamp."""
+        """A build of an edited spec into a directory holding the previous build's memos reads them, with the edited rune named, and writes the same packed windows, settlement TSVs, and treaty TSVs, byte for byte, as a build of the edited spec into an empty directory. It also leaves its own memos under the edited spec's stamp."""
         asked = []
         asked_classes = []
         real = kernel_exec.build_table_files
 
         def build_table_files(*args, **rest):
-            asked.append((rest.get("seed"), rest.get("edited"), rest.get("memo_stamp")))
+            asked.append((rest.get("previous_memos"), rest.get("edited"), rest.get("memo_stamp")))
             asked_classes.append(rest.get("moved_classes"))
             return real(*args, **rest)
 
@@ -644,17 +644,17 @@ class TestTheKernelInvocation:
         assert run_m1.memo_edited(run_m1.memo_stamp(SPEC), run_m1.memo_stamp(edited)) == run_m1.MemoDelta(
             runes=("qsTea",), classes=()
         )
-        seeded = tmp_path / "seeded"
-        run_m1.build_tables(SPEC, seeded, inputs=STAMP)
+        reusing = tmp_path / "reusing"
+        run_m1.build_tables(SPEC, reusing, inputs=STAMP)
         assert asked[-1] == (None, (), run_m1.memo_stamp(SPEC))
         for config in conform.SETTLEMENT_CONFIGS:
-            assert kernel_exec.read_memo_head(kernel_exec.memo_path(seeded, config)) == kernel_exec.MemoHead(
+            assert kernel_exec.read_memo_head(kernel_exec.memo_path(reusing, config)) == kernel_exec.MemoHead(
                 config, "+".join(kernel_exec.enumeration_tokens()), run_m1.memo_stamp(SPEC)
             )
-        before = {path.name: path.read_bytes() for path in seeded.iterdir()}
-        run_m1.build_tables(edited, seeded, inputs=STAMP)
-        seed, named, stamp = asked[-1]
-        assert seed is not None and named == ("qsTea",) and stamp == run_m1.memo_stamp(edited)
+        before = {path.name: path.read_bytes() for path in reusing.iterdir()}
+        run_m1.build_tables(edited, reusing, inputs=STAMP)
+        previous, named, stamp = asked[-1]
+        assert previous is not None and named == ("qsTea",) and stamp == run_m1.memo_stamp(edited)
         assert asked_classes[-1] == ()
         scratch = tmp_path / "scratch"
         run_m1.build_tables(edited, scratch, inputs=STAMP)
@@ -664,33 +664,33 @@ class TestTheKernelInvocation:
             if path.name.startswith("memo-"):
                 continue
             expected = path.read_bytes()
-            assert (seeded / path.name).read_bytes() == expected, path.name
+            assert (reusing / path.name).read_bytes() == expected, path.name
             moved |= before[path.name] != expected
         assert moved, "striking the refusal moves the tables, so the identity is not trivial"
         for config in conform.SETTLEMENT_CONFIGS:
-            head = kernel_exec.read_memo_head(kernel_exec.memo_path(seeded, config))
+            head = kernel_exec.read_memo_head(kernel_exec.memo_path(reusing, config))
             assert head is not None and head.stamp == run_m1.memo_stamp(edited)
 
     def test_a_configuration_delta_files_the_bytes_a_from_scratch_build_files(self, tmp_path):
-        """Every configuration after `default`, enumerated as a delta over `default`'s memo, writes the same settlement TSV, treaty TSV, and window enumeration, byte for byte, and returns the same digest as the same configuration enumerated on its own (the configuration corollary of the window-locality theorem). The mini fixture's `ss03` unlocks a half-·Tea x-height entry, so the delta has windows to share and windows to settle itself. The seeded run claims its deltas heaviest-first (`fanout::delta_worklist`), and its results must still match the from-scratch run configuration by configuration."""
+        """Every configuration after `default`, enumerated as a delta over `default`'s memo, writes the same settlement TSV, treaty TSV, and window enumeration, byte for byte, and returns the same digest as the same configuration enumerated on its own (the configuration corollary of the window-locality theorem). The mini fixture's `ss03` unlocks a half-·Tea x-height entry, so the delta has windows to share and windows to settle itself. The memo-sharing run claims its deltas heaviest-first (`fanout::delta_worklist`), and its results must still match the from-scratch run configuration by configuration."""
         spec_path = tmp_path / "spec.json"
         kernel_io.write_spec(SPEC, spec_path)
         kernel_exec.ensure_built()
         answers = {}
-        for name, config_seed in (("seeded", True), ("scratch", False)):
+        for name, default_memo_sharing in (("sharing", True), ("scratch", False)):
             answers[name] = kernel_exec.build_table_files(
                 spec_path,
                 tmp_path / name,
                 conform.SETTLEMENT_CONFIGS,
                 inputs=STAMP,
                 threads=2,
-                config_seed=config_seed,
+                default_memo_sharing=default_memo_sharing,
             )
-        assert answers["seeded"] == answers["scratch"]
+        assert answers["sharing"] == answers["scratch"]
         for config in conform.SETTLEMENT_CONFIGS:
             for family in ("settlement", "treaties", "windows"):
                 name = f"{family}-{config}.tsv"
-                assert (tmp_path / "seeded" / name).read_bytes() == (
+                assert (tmp_path / "sharing" / name).read_bytes() == (
                     tmp_path / "scratch" / name
                 ).read_bytes(), name
 
@@ -710,12 +710,14 @@ class TestTheKernelInvocation:
         assert kernel_exec.UNSTAMPED_WINDOWS
 
     @pytest.mark.parametrize("configs", [None, ("default",), ("ss03", "default")])
-    def test_the_table_build_seeds_from_the_configurations_it_builds(self, monkeypatch, tmp_path, configs):
-        """`build_tables` passes `memo_seed` the same configurations it passes the crate, so a whole-set build seeds from every settlement configuration's memo and a narrowed build only from its own."""
+    def test_the_table_build_reads_previous_memos_of_the_configurations_it_builds(
+        self, monkeypatch, tmp_path, configs
+    ):
+        """`build_tables` passes `previous_memos` the same configurations it passes the crate, so a whole-set build reads every settlement configuration's previous memo and a narrowed build only its own."""
         seen = {}
 
-        def memo_seed(out_dir, stamp, scratch, configs):
-            seen["seed"] = tuple(configs)
+        def previous_memos(out_dir, stamp, scratch, configs):
+            seen["previous"] = tuple(configs)
             return None
 
         def build_table_files(spec_path, out_dir, configs, **rest):
@@ -723,7 +725,7 @@ class TestTheKernelInvocation:
             raise Reached
 
         monkeypatch.setattr(kernel_exec, "ensure_built", lambda: None)
-        monkeypatch.setattr(run_m1, "memo_seed", memo_seed)
+        monkeypatch.setattr(run_m1, "previous_memos", previous_memos)
         monkeypatch.setattr(kernel_exec, "build_table_files", build_table_files)
         with pytest.raises(Reached):
             if configs is None:
@@ -731,7 +733,7 @@ class TestTheKernelInvocation:
             else:
                 run_m1.build_tables(SPEC, tmp_path, configs=configs)
         expected = tuple(conform.SETTLEMENT_CONFIGS) if configs is None else configs
-        assert seen == {"seed": expected, "crate": expected}
+        assert seen == {"previous": expected, "crate": expected}
 
     def test_run_hands_the_width_to_the_table_build(self, monkeypatch, tmp_path):
         seen = {}
@@ -833,7 +835,7 @@ class TestTheMemoStamp:
             runes=(), classes=(name,)
         )
 
-    def test_the_seed_reads_only_memos_whose_head_and_stamp_hold(self, tmp_path):
+    def test_previous_memos_reads_only_memos_whose_head_and_stamp_hold(self, tmp_path):
         stamp = run_m1.memo_stamp(SPEC)
         world = "+".join(kernel_exec.enumeration_tokens())
         wrong = json.dumps({**json.loads(stamp), "structure": "elsewhere"})
@@ -844,14 +846,14 @@ class TestTheMemoStamp:
         ):
             with gzip.open(kernel_exec.memo_path(tmp_path, config), "wt") as handle:
                 handle.write(head)
-        seed = run_m1.memo_seed(tmp_path, stamp, tmp_path / "seed")
-        assert seed is not None
-        assert seed.edited == ()
-        assert seed.moved_classes == ()
-        assert sorted(path.name for path in seed.directory.iterdir()) == ["memo-default.tsv"]
-        assert run_m1.memo_seed(tmp_path / "empty", stamp, tmp_path / "seed2") is None
+        previous = run_m1.previous_memos(tmp_path, stamp, tmp_path / "previous")
+        assert previous is not None
+        assert previous.edited == ()
+        assert previous.moved_classes == ()
+        assert sorted(path.name for path in previous.directory.iterdir()) == ["memo-default.tsv"]
+        assert run_m1.previous_memos(tmp_path / "empty", stamp, tmp_path / "previous2") is None
 
-    def test_the_seed_reads_only_the_configurations_the_build_names(self, tmp_path):
+    def test_previous_memos_reads_only_the_configurations_the_build_names(self, tmp_path):
         """A narrowed build unpacks only its own configurations' memos and collects edited runes only from them. The default, the whole settlement set, reads every usable memo and collects edited runes from all of them."""
         stamp = run_m1.memo_stamp(SPEC)
         world = "+".join(kernel_exec.enumeration_tokens())
@@ -864,37 +866,37 @@ class TestTheMemoStamp:
         ):
             with gzip.open(kernel_exec.memo_path(tmp_path, config), "wt") as handle:
                 handle.write(head)
-        narrowed = run_m1.memo_seed(tmp_path, stamp, tmp_path / "narrowed", configs=("default",))
+        narrowed = run_m1.previous_memos(tmp_path, stamp, tmp_path / "narrowed", configs=("default",))
         assert narrowed is not None
         assert narrowed.edited == ()
         assert sorted(path.name for path in narrowed.directory.iterdir()) == ["memo-default.tsv"]
-        whole = run_m1.memo_seed(tmp_path, stamp, tmp_path / "whole")
+        whole = run_m1.previous_memos(tmp_path, stamp, tmp_path / "whole")
         assert whole is not None
         assert whole.edited == (rune,)
         assert sorted(path.name for path in whole.directory.iterdir()) == [
             "memo-default.tsv",
             "memo-ss03.tsv",
         ]
-        assert run_m1.memo_seed(tmp_path, stamp, tmp_path / "ss04", configs=("ss04",)) is None
+        assert run_m1.previous_memos(tmp_path, stamp, tmp_path / "ss04", configs=("ss04",)) is None
 
     def test_a_memo_damaged_in_its_head_block_is_skipped_and_left_in_place(self, tmp_path):
         """Zeroed bytes after a valid gzip header make the head's decompression raise `zlib.error`, which `read_memo_head` treats as no readable memo."""
         packed = kernel_exec.memo_path(tmp_path, "default")
         packed.write_bytes(gzip.compress(b"")[:10] + bytes(4096))
         assert kernel_exec.read_memo_head(packed) is None
-        assert run_m1.memo_seed(tmp_path, run_m1.memo_stamp(SPEC), tmp_path / "seed") is None
+        assert run_m1.previous_memos(tmp_path, run_m1.memo_stamp(SPEC), tmp_path / "previous") is None
         assert packed.exists()
 
     def test_a_memo_damaged_after_a_readable_head_is_skipped_and_left_in_place(self, tmp_path):
-        """A readable head followed by a gzip member whose deflate data is zeroed passes the head check, then raises `zlib.error` during unpacking, so the seed drops its partial plain file and reads no memo."""
+        """A readable head followed by a gzip member whose deflate data is zeroed passes the head check, then raises `zlib.error` during unpacking, so `previous_memos` drops its partial plain file and reads no memo."""
         stamp = run_m1.memo_stamp(SPEC)
         world = "+".join(kernel_exec.enumeration_tokens())
         packed = kernel_exec.memo_path(tmp_path, "default")
         head = f"# {kernel_exec.MEMO_FORMAT}\tdefault\t{world}\t{stamp}\n"
         packed.write_bytes(gzip.compress(head.encode()) + gzip.compress(b"")[:10] + bytes(4096))
         assert kernel_exec.read_memo_head(packed) is not None
-        assert run_m1.memo_seed(tmp_path, stamp, tmp_path / "seed") is None
-        assert list((tmp_path / "seed").iterdir()) == []
+        assert run_m1.previous_memos(tmp_path, stamp, tmp_path / "previous") is None
+        assert list((tmp_path / "previous").iterdir()) == []
         assert packed.exists()
 
 

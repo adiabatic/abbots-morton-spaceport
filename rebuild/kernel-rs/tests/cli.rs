@@ -387,15 +387,18 @@ fn a_table_build_files_three_artifacts_and_answers_one_digest_per_configuration(
     }
 }
 
-/// Seeding from `default`'s memo does not change the artifacts: a table build that reuses `default`'s memo for the other configurations writes the same three files per configuration, byte for byte, and the same digests as a build with `--config-seed-off`, which enumerates every configuration from scratch.
+/// Sharing `default`'s memo does not change the artifacts: a table build that reuses `default`'s memo for the other configurations writes the same three files per configuration, byte for byte, and the same digests as a build with `--no-default-memo-sharing`, which enumerates every configuration from scratch.
 #[test]
-fn a_seeded_table_build_files_the_bytes_a_from_scratch_one_files() {
-    let root = scratch("cli-config-seed");
+fn a_table_build_sharing_defaults_memo_files_the_bytes_a_from_scratch_one_files() {
+    let root = scratch("cli-default-memo-sharing");
     let spec = spec_at(&root);
-    let seeded = root.join("seeded");
+    let shared = root.join("shared");
     let scratch_built = root.join("scratch");
     let mut answers: Vec<String> = Vec::new();
-    for (outdir, extra) in [(&seeded, None), (&scratch_built, Some("--config-seed-off"))] {
+    for (outdir, extra) in [
+        (&shared, None),
+        (&scratch_built, Some("--no-default-memo-sharing")),
+    ] {
         let mut arguments = vec![
             "build-tables",
             word(&spec),
@@ -414,7 +417,7 @@ fn a_seeded_table_build_files_the_bytes_a_from_scratch_one_files() {
         for family in ["settlement", "treaties", "windows"] {
             let name = format!("{family}-{token}.tsv");
             assert_eq!(
-                std::fs::read(seeded.join(&name)).expect("the seeded build filed it"),
+                std::fs::read(shared.join(&name)).expect("the memo-sharing build filed it"),
                 std::fs::read(scratch_built.join(&name)).expect("and so did the other"),
                 "{name}"
             );
@@ -422,10 +425,10 @@ fn a_seeded_table_build_files_the_bytes_a_from_scratch_one_files() {
     }
 }
 
-/// Seeding across builds: a build of an edited spec that reads the previous build's memo files, with the edited rune named, writes the bytes a from-scratch build of the edited spec writes for every configuration, and writes memo files of its own under the stamp it was given.
+/// Previous memos across builds: a build of an edited spec that reads the previous build's memo files, with the edited rune named, writes the bytes a from-scratch build of the edited spec writes for every configuration, and writes memo files of its own under the stamp it was given.
 #[test]
-fn a_build_seeded_from_the_previous_memo_files_the_bytes_a_from_scratch_one_files() {
-    let root = scratch("cli-memo-seed");
+fn a_build_reading_the_previous_memos_files_the_bytes_a_from_scratch_one_files() {
+    let root = scratch("cli-previous-memos");
     let before = spec_at(&root);
     let after = root.join("edited.json");
     let refusal = format!(
@@ -458,14 +461,14 @@ fn a_build_seeded_from_the_previous_memo_files_the_bytes_a_from_scratch_one_file
     for (token, _) in CONFIGS {
         assert!(previous.join(format!("memo-{token}.tsv")).is_file());
     }
-    let seeded = root.join("seeded");
+    let reusing = root.join("reusing");
     let output = run(&[
         "build-tables",
         word(&after),
-        word(&seeded),
+        word(&reusing),
         "--configs=default,ss03",
         "--inputs=cli-stamp",
-        &format!("--seed={}", word(&previous)),
+        &format!("--previous-memos={}", word(&previous)),
         "--edited=qsTea",
         "--memo-stamp=after",
         "--timings",
@@ -487,33 +490,34 @@ fn a_build_seeded_from_the_previous_memo_files_the_bytes_a_from_scratch_one_file
         for family in ["settlement", "treaties", "windows"] {
             let name = format!("{family}-{token}.tsv");
             assert_eq!(
-                std::fs::read(seeded.join(&name)).expect("the seeded build filed it"),
+                std::fs::read(reusing.join(&name))
+                    .expect("the build reading previous memos filed it"),
                 std::fs::read(scratch_built.join(&name)).expect("and so did the other"),
                 "{name}"
             );
         }
-        assert!(seeded.join(format!("memo-{token}.tsv")).is_file());
+        assert!(reusing.join(format!("memo-{token}.tsv")).is_file());
         assert!(!scratch_built.join(format!("memo-{token}.tsv")).exists());
     }
     for (arm, configs, extra, tokens) in [
         (
-            "config-seed-off",
+            "no-default-memo-sharing",
             "--configs=default,ss03",
-            Some("--config-seed-off"),
+            Some("--no-default-memo-sharing"),
             vec!["default", "ss03"],
         ),
         ("single", "--configs=default", None, vec!["default"]),
         ("without-default", "--configs=ss03", None, vec!["ss03"]),
     ] {
         let outdir = root.join(arm);
-        let seed = format!("--seed={}", word(&previous));
+        let previous_memos = format!("--previous-memos={}", word(&previous));
         let mut args = vec![
             "build-tables",
             word(&after),
             word(&outdir),
             configs,
             "--inputs=cli-stamp",
-            &seed,
+            &previous_memos,
             "--edited=qsTea",
             "--memo-stamp=after",
         ];
@@ -524,7 +528,8 @@ fn a_build_seeded_from_the_previous_memo_files_the_bytes_a_from_scratch_one_file
             for family in ["settlement", "treaties", "windows"] {
                 let name = format!("{family}-{token}.tsv");
                 assert_eq!(
-                    std::fs::read(outdir.join(&name)).expect("the seeded build filed it"),
+                    std::fs::read(outdir.join(&name))
+                        .expect("the build reading previous memos filed it"),
                     std::fs::read(scratch_built.join(&name)).expect("the scratch build filed it"),
                     "{arm}: {name}"
                 );
@@ -543,7 +548,7 @@ fn a_build_seeded_from_the_previous_memo_files_the_bytes_a_from_scratch_one_file
     assert_eq!(
         output.status.code(),
         Some(2),
-        "--edited= without --seed= is a usage error"
+        "--edited= without --previous-memos= is a usage error"
     );
     let output = run(&[
         "build-tables",
@@ -556,7 +561,7 @@ fn a_build_seeded_from_the_previous_memo_files_the_bytes_a_from_scratch_one_file
     assert_eq!(
         output.status.code(),
         Some(2),
-        "--moved-classes= without --seed= is a usage error too"
+        "--moved-classes= without --previous-memos= is a usage error too"
     );
 }
 

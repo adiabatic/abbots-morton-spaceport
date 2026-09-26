@@ -198,7 +198,7 @@ def memo_edited(previous: str, current: str) -> MemoDelta | None:
 
 
 @dataclass(frozen=True)
-class MemoSeed:
+class PreviousMemos:
     """The previous build's memo files that a table build reads before settling a window itself: the directory they were unpacked into, and the runes and predicate classes that no memo may be trusted for."""
 
     directory: Path
@@ -206,9 +206,9 @@ class MemoSeed:
     moved_classes: tuple[str, ...]
 
 
-def memo_seed(
+def previous_memos(
     out_dir: Path, stamp: str, scratch: Path, configs: Sequence[str] = conform.SETTLEMENT_CONFIGS
-) -> MemoSeed | None:
+) -> PreviousMemos | None:
     """Unpack into `scratch` the previous build's memos under `out_dir` that this build may read, or return None when there are none. Each named configuration's packed memo is read for its head, checked against this process's world and against `stamp` through `memo_edited`, and unpacked for the crate only if both pass. The edited runes are the union over every memo unpacked, so a rune that one memo cannot be trusted for is served by no memo. Only the memos of `configs` are read, because the crate reads only the memos of the configurations it builds; a narrowed build therefore unpacks only its own configurations' memos, and a memo that narrowed builds never rewrite cannot add every rune changed since the last whole build to the union. A memo whose head, stamp, or gzip stream fails is left in place and not read, and this build's own memo replaces it."""
     world = "+".join(kernel_exec.enumeration_tokens()) or "pinned"
     edited: set[str] = set()
@@ -235,7 +235,7 @@ def memo_seed(
         unpacked = True
     if not unpacked:
         return None
-    return MemoSeed(
+    return PreviousMemos(
         directory=scratch, edited=tuple(sorted(edited)), moved_classes=tuple(sorted(moved_classes))
     )
 
@@ -345,7 +345,7 @@ def build_tables(
 
     Per configuration, Python reads the enumeration's head back for the rules, the reachable cells and the fired provenance every downstream stage needs, parses the treaty TSV back for the defect gates, and packs the plain window payload into its `.gz` artifact. The head reads run on a thread pool at the table build's width once the crate has exited, and this call waits for them. The packing (`_pack_config`, memo file included) runs on a `Packing` pool at `_core_bound_threads` width, one packer per configuration up to the cores, whatever the crate's width, because a packer holds only a zlib stream and a copy buffer and the compressor releases the interpreter lock. When `packing` is passed, the tables are returned as soon as the heads are read, and the caller waits on each pack through `Packing.wait` and closes the pool. Without it, packing finishes before the return.
 
-    A build with an `out_dir` also reuses its trace memos across builds. `memo_seed` reads the previous build's `memo-<config>.tsv.gz` files for the configurations this build names, unpacks those whose stamp still matches, and names the runes whose content changed as edited, so a window naming no edited rune settles as it did last time. This build's own memos are packed under the same names, stamped with `memo_stamp` over the spec in hand. A caller with no `out_dir` reads and writes no memo.
+    A build with an `out_dir` also reuses its trace memos across builds. `previous_memos` reads the previous build's `memo-<config>.tsv.gz` files for the configurations this build names, unpacks those whose stamp still matches, and names the runes whose content changed as edited, so a window naming no edited rune settles as it did last time. This build's own memos are packed under the same names, stamped with `memo_stamp` over the spec in hand. A caller with no `out_dir` reads and writes no memo.
 
     `out_dir`, when given, receives the TSVs listed in `doc/rebuild-design.md` §8. The second returned mapping is each configuration's `table.table_digest` as the crate reported it, computed while the window rows are still in memory, which avoids recomputing the fixpoint. The crate also prints it on stdout, where `rebuild/tools/scaling_sweep.py` reads it. Both returned mappings are built in `configs` order however the configurations finish, so completion order cannot affect an artifact.
 
@@ -370,14 +370,14 @@ def build_tables(
             path.unlink(missing_ok=True)
 
         stamp = memo_stamp(spec) if out_dir is not None else None
-        seed = None
+        previous = None
         if out_dir is not None and stamp is not None:
             start = time.perf_counter()
-            seed = memo_seed(out_dir, stamp, directory / "seed", configs)
+            previous = previous_memos(out_dir, stamp, directory / "previous-memos", configs)
             console.timing(
-                "memo_seed",
+                "previous_memos",
                 time.perf_counter() - start,
-                f"edited={','.join(seed.edited) if seed else '-'} classes={','.join(seed.moved_classes) if seed else '-'}",
+                f"edited={','.join(previous.edited) if previous else '-'} classes={','.join(previous.moved_classes) if previous else '-'}",
             )
         start = time.perf_counter()
         digests = kernel_exec.build_table_files(
@@ -387,9 +387,9 @@ def build_tables(
             inputs=inputs if inputs is not None else kernel_exec.UNSTAMPED_WINDOWS,
             threads=threads,
             timings=True,
-            seed=seed.directory if seed else None,
-            edited=seed.edited if seed else (),
-            moved_classes=seed.moved_classes if seed else (),
+            previous_memos=previous.directory if previous else None,
+            edited=previous.edited if previous else (),
+            moved_classes=previous.moved_classes if previous else (),
             memo_stamp=stamp,
         )
         console.timing("kernel_build_tables", time.perf_counter() - start)
