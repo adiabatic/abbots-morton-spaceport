@@ -67,7 +67,7 @@ class TestTheInvocationSeam:
     def test_settlement_flags_exclude_the_enumerations_deep_grain(self, monkeypatch):
         for _flag, module, attribute in kernel_exec.WORLD_FLAGS:
             monkeypatch.setattr(module, attribute, False)
-        assert kernel_exec.settlement_flags() == ["--candidacy-prospect", "--vote-slots-off"]
+        assert kernel_exec.settlement_flags() == ["--candidacy-prospect", "--follower-prefer-slots-off"]
         assert "--deep-classes-off" not in kernel_exec.settlement_flags()
 
     def test_settle_cases_batches_questions_with_canonical_features_and_modes(self, monkeypatch, tmp_path):
@@ -103,7 +103,7 @@ class TestTheInvocationSeam:
         ]
         assert "--features=ss03,ss05" in arguments
         assert "--candidacy-prospect" in arguments
-        assert "--vote-slots-off" in arguments
+        assert "--follower-prefer-slots-off" in arguments
         assert "--deep-classes-off" not in arguments
         assert "--settled-only" not in arguments
 
@@ -159,7 +159,7 @@ class TestTheInvocationSeam:
         assert builds == [1]
 
     def test_a_named_mode_overrides_the_processs_own_world(self, monkeypatch, tmp_path):
-        """A `SettlementModes` passed to `_settle_cases` overrides the module defaults in both directions. With every default on, modes that turn both off add `--candidacy-prospect` and `--vote-slots-off`. With every default off, modes that turn both on add no flag."""
+        """A `SettlementModes` passed to `_settle_cases` overrides the module defaults in both directions. With every default on, modes that turn both off add `--candidacy-prospect` and `--follower-prefer-slots-off`. With every default off, modes that turn both on add no flag."""
         question = kernel_exec.case_line(LeftContext("edge"), RightToken("letter", "qsMay"), (EDGE,) * 4)
         calls = []
 
@@ -180,9 +180,9 @@ class TestTheInvocationSeam:
             tmp_path / "cases.tsv",
             [question],
             frozenset(),
-            kernel_exec.SettlementModes(simulated_prospect=False, vote_slots=False),
+            kernel_exec.SettlementModes(simulated_prospect=False, follower_prefer_slots=False),
         )
-        assert calls[0][4:] == ["--candidacy-prospect", "--vote-slots-off"]
+        assert calls[0][4:] == ["--candidacy-prospect", "--follower-prefer-slots-off"]
         for _flag, module, attribute in kernel_exec.WORLD_FLAGS:
             monkeypatch.setattr(module, attribute, False)
         kernel_exec._settle_cases(
@@ -190,7 +190,7 @@ class TestTheInvocationSeam:
             tmp_path / "cases.tsv",
             [question],
             frozenset(),
-            kernel_exec.SettlementModes(simulated_prospect=True, vote_slots=True),
+            kernel_exec.SettlementModes(simulated_prospect=True, follower_prefer_slots=True),
         )
         assert calls[1][4:] == []
 
@@ -463,7 +463,7 @@ class TestTheInvocationSeam:
 
 
 @pytest.mark.parametrize(
-    ("deep", "prospect", "votes", "wanted"),
+    ("deep", "prospect", "follower_prefers", "wanted"),
     [
         (True, True, True, True),
         (True, True, False, True),
@@ -473,29 +473,31 @@ class TestTheInvocationSeam:
         (False, False, False, False),
     ],
 )
-def test_the_class_grain_rule_needs_a_fiber_source(monkeypatch, deep, prospect, votes, wanted):
-    """`AMS_DEEP_CLASSES` asks for class grain, and `class_grain` grants it only when the simulated prospect or the shifted vote slots are on. With both off, the crate has no deep token to probe and enumerates at label grain whatever the flag says."""
+def test_the_class_grain_rule_needs_a_fiber_source(monkeypatch, deep, prospect, follower_prefers, wanted):
+    """`AMS_DEEP_CLASSES` asks for class grain, and `class_grain` grants it only when the simulated prospect or the shifted follower prefer slots are on. With both off, the crate has no deep token to probe and enumerates at label grain whatever the flag says."""
     monkeypatch.setattr(kernel_exec, "DEEP_CLASSES_DEFAULT", deep)
     monkeypatch.setattr(kernel_exec, "SIMULATED_PROSPECT_DEFAULT", prospect)
-    monkeypatch.setattr(kernel_exec, "VOTE_SLOTS_DEFAULT", votes)
+    monkeypatch.setattr(kernel_exec, "FOLLOWER_PREFER_SLOTS_DEFAULT", follower_prefers)
     assert kernel_exec.class_grain() is wanted
 
 
 @pytest.mark.parametrize(
-    ("prospect", "votes", "deep", "wanted"),
+    ("prospect", "follower_prefers", "deep", "wanted"),
     [
-        (True, True, True, ["simulated-prospect", "vote-slots", "deep-classes"]),
+        (True, True, True, ["simulated-prospect", "follower-prefer-slots", "deep-classes"]),
         (True, False, True, ["simulated-prospect", "deep-classes"]),
-        (False, True, True, ["vote-slots", "deep-classes"]),
-        (True, True, False, ["simulated-prospect", "vote-slots"]),
+        (False, True, True, ["follower-prefer-slots", "deep-classes"]),
+        (True, True, False, ["simulated-prospect", "follower-prefer-slots"]),
         (False, False, True, []),
         (False, False, False, []),
     ],
 )
-def test_the_enumeration_tokens_name_every_flag_that_is_on(monkeypatch, prospect, votes, deep, wanted):
+def test_the_enumeration_tokens_name_every_flag_that_is_on(
+    monkeypatch, prospect, follower_prefers, deep, wanted
+):
     """Each flag changes settlement or enumeration grain without changing any hashed source, so a key over the sources alone could not tell a flag-on enumeration from a flag-off one. The tokens come in the order a stamp appends them. The class-grain token follows `class_grain`, not `DEEP_CLASSES_DEFAULT` alone, because with both settlement flags off the crate enumerates at label grain."""
     monkeypatch.setattr(kernel_exec, "SIMULATED_PROSPECT_DEFAULT", prospect)
-    monkeypatch.setattr(kernel_exec, "VOTE_SLOTS_DEFAULT", votes)
+    monkeypatch.setattr(kernel_exec, "FOLLOWER_PREFER_SLOTS_DEFAULT", follower_prefers)
     monkeypatch.setattr(kernel_exec, "DEEP_CLASSES_DEFAULT", deep)
     assert kernel_exec.enumeration_tokens() == wanted
 

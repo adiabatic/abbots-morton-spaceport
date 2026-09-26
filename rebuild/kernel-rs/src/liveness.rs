@@ -2,7 +2,7 @@
 //!
 //! The check has two stages because cheaper checks open far too many windows. Tracking which slots the recursion consults opens nearly everything, since it consults slots past the window almost everywhere. Stopping at follower-prospect variance still opens fifteen times as many as needed on the real spec (1,543 consulted triples have a prospect some token changes, and only 103 ever change a seat outcome). That is enough to push the emitted settlement lookup's subtable-offset headroom below the floor that read-back checks (`SUBTABLE_OFFSET_HEADROOM_FLOOR` in `rebuild/pipeline/readback.py`).
 //!
-//! Stage one is a cheap prefilter. For each `(stance, seam)` shape the input can commit, it evaluates the follower's simulated prospect for each concrete token and compares it with the value at `EDGE`, which is what a dead slot is given. The virtual left's entry is never read, so entry states collapse. If nothing varies, the token has no way into the seat's ranking: a deep token reaches settlement only through prospect values, follower votes, and own-rune chains, and the chain branch already covers the chains.
+//! Stage one is a cheap prefilter. For each `(stance, seam)` shape the input can commit, it evaluates the follower's simulated prospect for each concrete token and compares it with the value at `EDGE`, which is what a dead slot is given. The virtual left's entry is never read, so entry states collapse. If nothing varies, the token has no way into the seat's ranking: a deep token reaches settlement only through prospect values, follower prefers, and own-rune chains, and the chain branch already covers the chains.
 //!
 //! Stage two runs only where stage one fired. It replays the seat's own transition for each token over the collapsed left classes (the four boundary kinds, then one virtual left per distinct input-frame signature) and reports the slot live only where some class's settled cell changes.
 //!
@@ -10,11 +10,11 @@
 //!
 //! In stage two, a left class whose baseline window raises E-UNACCEPTED-EXIT or a plain settlement error is one the fixpoint cannot reach, and it is skipped. A prefer conflict that raises E-INCOMPARABLE or E-AMBIGUOUS marks the slot live instead, so the enumeration reports the conflict instead of hiding it behind a dead slot. [`crate::error::SettleError`] says how its variants map to these outcomes.
 //!
-//! With shifted vote slots on, stage one also has a vote branch, which calls [`Engine::probe_prefer_favors`] with the follower's `prefer` records. A vote reads the deep slots in two ways: through its record's shifted `when:` chain, and through the follower-cell enumeration the vote runs over the shifted window. So a row scope or closure verdict that changes with the token changes which continuations the vote can favor. The vote branch is skipped when the follower is the input's own family, because `prefer_favors` then takes its own-rune branch, which the chain branch covers. It is also skipped when the follower has no `prefer` records.
+//! With shifted follower prefer slots on, stage one also has a follower prefer branch, which calls [`Engine::probe_prefer_favors`] with the follower's `prefer` records. A follower prefer reads the deep slots in two ways: through its record's shifted `when:` chain, and through the follower-cell enumeration the follower prefer runs over the shifted window. So a row scope or closure verdict that changes with the token changes which continuations the follower prefer can favor. The follower prefer branch is skipped when the follower is the input's own family, because `prefer_favors` then takes its own-rune branch, which the chain branch covers. It is also skipped when the follower has no `prefer` records.
 //!
 //! [`ProspectLiveness::third_live`] also ORs in [`ProspectLiveness::fourth_live`] over every concrete letter in the third slot. This is the joint34 belt. Without it, a live fourth slot behind an unenumerated third would never be consulted. The per-token comparisons alone cannot see a seat that changes only under a specific `(third, fourth)` letter pair, because the optimistic reading of unknown slots ends the recursion the same way for an `EDGE` fourth and an `UNKNOWN` one. The recorded counterexample is `·See·No·No·Roe·No·Oy`: seat `qsNo`, window `(qsNo, qsRoe, qsNo, qsOy)`, left `·See`. The fourth-slot `·Oy` changes the seat's cell through two levels of simulation, while every probe with an `EDGE` or `UNKNOWN` fourth agrees.
 //!
-//! Evaluation order affects the output. Every probe records the pointers it fires in `Engine::fired`, which the fixpoint reports as the product's `cited_provenance`, and a probe that never runs fires nothing. So each short-circuit, early return, loop order, and memo key must stay as it is. The prospect and vote branches key their memos on the collapsed signature instead of the input family, so two families with the same signature share one verdict and run its probes once. The seat replay and the joint34 belt key on the family.
+//! Evaluation order affects the output. Every probe records the pointers it fires in `Engine::fired`, which the fixpoint reports as the product's `cited_provenance`, and a probe that never runs fires nothing. So each short-circuit, early return, loop order, and memo key must stay as it is. The prospect and follower prefer branches key their memos on the collapsed signature instead of the input family, so two families with the same signature share one verdict and run its probes once. The seat replay and the joint34 belt key on the family.
 //!
 //! One instance serves a whole fixpoint run and is lent to both filters and to [`crate::fiber::DeepFiberDeriver`]. It holds no engine. Every call takes the caller's engine, so the probes share its trace memo and fired set. The memos are not keyed on engine modes, so every call on one instance must pass the same engine.
 
@@ -33,7 +33,7 @@ use crate::types::{
 /// One shape the input frame can commit: a stance of the input's own rune and the exit seam it offers there, `None` for the shape that offers no exit.
 type Shape = (Sym, Option<Sym>);
 
-/// The collapsed input-frame signature: the committed seam, then the follower's own left-reading conditions answered against the virtual left, in the order [`ProspectLiveness::left_conditions`] gathers them. The verdicts are behind an [`Rc`] because the signature is copied into every memo key the prospect and vote branches write.
+/// The collapsed input-frame signature: the committed seam, then the follower's own left-reading conditions answered against the virtual left, in the order [`ProspectLiveness::left_conditions`] gathers them. The verdicts are behind an [`Rc`] because the signature is copied into every memo key the prospect and follower prefer branches write.
 type Signature = (Option<Sym>, Rc<Vec<bool>>);
 
 /// What the seat replay saw at one probed window. `Raised` is a prefer conflict the enumeration must report, so the slot is live. `Unreachable` is a window the fixpoint cannot reach from this left class; at the baseline the replay skips the class.
@@ -58,14 +58,14 @@ pub struct ProspectLiveness<'i> {
     joint34: HashMap<(Sym, Sym, Sym), bool>,
     /// The third slot's prospect branch, keyed `(right1, right2, signature)`.
     prospect3: HashMap<(Sym, Sym, Signature), bool>,
-    /// The third slot's vote branch, keyed `(right1, right2, signature)`.
-    vote3: HashMap<(Sym, Sym, Signature), bool>,
+    /// The third slot's follower prefer branch, keyed `(right1, right2, signature)`.
+    follower_prefer3: HashMap<(Sym, Sym, Signature), bool>,
     /// The fourth-slot seat replay, keyed `(family, right1, right2, right3)`.
     seat4: HashMap<(Sym, Sym, Sym, Sym), bool>,
     /// The fourth slot's prospect branch, keyed `(right1, right2, right3, signature)`.
     prospect4: HashMap<(Sym, Sym, Sym, Signature), bool>,
-    /// The fourth slot's vote branch, keyed `(right1, right2, right3, signature)`.
-    vote4: HashMap<(Sym, Sym, Sym, Signature), bool>,
+    /// The fourth slot's follower prefer branch, keyed `(right1, right2, right3, signature)`.
+    follower_prefer4: HashMap<(Sym, Sym, Sym, Signature), bool>,
 }
 
 impl<'i> ProspectLiveness<'i> {
@@ -81,10 +81,10 @@ impl<'i> ProspectLiveness<'i> {
             seat3: HashMap::default(),
             joint34: HashMap::default(),
             prospect3: HashMap::default(),
-            vote3: HashMap::default(),
+            follower_prefer3: HashMap::default(),
             seat4: HashMap::default(),
             prospect4: HashMap::default(),
-            vote4: HashMap::default(),
+            follower_prefer4: HashMap::default(),
         }
     }
 
@@ -97,7 +97,7 @@ impl<'i> ProspectLiveness<'i> {
 
     /// Whether the raw third slot can change the settled outcome of some reachable window at `(family, right1, right2)`.
     ///
-    /// Stage one is `(simulated_prospect and prospect_varies_third) or (vote_slots and vote_varies_third)`, and the `or` short-circuits. Where stage one fires, the seat replay runs, and a true result is returned at once. Otherwise the verdict is the joint34 belt: [`ProspectLiveness::fourth_live`] for each letter token in [`ProspectLiveness::probe_tokens`] order, stopping at the first live one.
+    /// Stage one is `(simulated_prospect and prospect_varies_third) or (follower_prefer_slots and follower_prefer_varies_third)`, and the `or` short-circuits. Where stage one fires, the seat replay runs, and a true result is returned at once. Otherwise the verdict is the joint34 belt: [`ProspectLiveness::fourth_live`] for each letter token in [`ProspectLiveness::probe_tokens`] order, stopping at the first live one.
     pub fn third_live(
         &mut self,
         engine: &mut Engine<'_>,
@@ -111,8 +111,9 @@ impl<'i> ProspectLiveness<'i> {
         if engine.simulated_prospect() {
             stage_one = self.prospect_varies_third(engine, family, right1, right2, r1tok, r2tok)?;
         }
-        if !stage_one && engine.vote_slots() {
-            stage_one = self.vote_varies_third(engine, family, right1, right2, r1tok, r2tok)?;
+        if !stage_one && engine.follower_prefer_slots() {
+            stage_one =
+                self.follower_prefer_varies_third(engine, family, right1, right2, r1tok, r2tok)?;
         }
         if stage_one {
             let key = (family, right1, right2);
@@ -166,9 +167,10 @@ impl<'i> ProspectLiveness<'i> {
                 engine, family, right1, right2, right3, r1tok, r2tok, r3tok,
             )?;
         }
-        if !stage_one && engine.vote_slots() {
-            stage_one = self
-                .vote_varies_fourth(engine, family, right1, right2, right3, r1tok, r2tok, r3tok)?;
+        if !stage_one && engine.follower_prefer_slots() {
+            stage_one = self.follower_prefer_varies_fourth(
+                engine, family, right1, right2, right3, r1tok, r2tok, r3tok,
+            )?;
         }
         if !stage_one {
             return Ok(false);
@@ -310,8 +312,8 @@ impl<'i> ProspectLiveness<'i> {
         conds
     }
 
-    /// The follower's `prefer` records, which the vote branch probes in declaration order.
-    fn vote_records(&self, follower: Sym) -> &'i [PolicyRecord] {
+    /// The follower's `prefer` records, which the follower prefer branch probes in declaration order.
+    fn follower_prefer_records(&self, follower: Sym) -> &'i [PolicyRecord] {
         let index = self.index;
         &index
             .rune(follower)
@@ -462,8 +464,8 @@ impl<'i> ProspectLiveness<'i> {
         Ok(false)
     }
 
-    /// Stage one's vote branch at the third slot. It returns false at once when the follower is the input's own family or has no `prefer` records (see the module doc).
-    fn vote_varies_third(
+    /// Stage one's follower prefer branch at the third slot. It returns false at once when the follower is the input's own family or has no `prefer` records (see the module doc).
+    fn follower_prefer_varies_third(
         &mut self,
         engine: &mut Engine<'_>,
         family: Sym,
@@ -472,18 +474,19 @@ impl<'i> ProspectLiveness<'i> {
         r1tok: RightToken,
         r2tok: RightToken,
     ) -> Result<bool, SettleError> {
-        if right1 == family || self.vote_records(right1).is_empty() {
+        if right1 == family || self.follower_prefer_records(right1).is_empty() {
             return Ok(false);
         }
         for (stance, seam) in self.input_shapes(family).iter().copied() {
             let signature = self.signature(engine, right1, family, stance, seam)?;
             let key = (right1, right2, signature);
-            let verdict = match self.vote3.get(&key) {
+            let verdict = match self.follower_prefer3.get(&key) {
                 Some(&cached) => cached,
                 None => {
-                    let verdict =
-                        self.vote_class_live(engine, family, stance, seam, r1tok, r2tok, None)?;
-                    self.vote3.insert(key, verdict);
+                    let verdict = self.follower_prefer_class_live(
+                        engine, family, stance, seam, r1tok, r2tok, None,
+                    )?;
+                    self.follower_prefer3.insert(key, verdict);
                     verdict
                 }
             };
@@ -494,9 +497,9 @@ impl<'i> ProspectLiveness<'i> {
         Ok(false)
     }
 
-    /// Stage one's vote branch at the fourth slot, with the same two early returns.
+    /// Stage one's follower prefer branch at the fourth slot, with the same two early returns.
     #[allow(clippy::too_many_arguments)]
-    fn vote_varies_fourth(
+    fn follower_prefer_varies_fourth(
         &mut self,
         engine: &mut Engine<'_>,
         family: Sym,
@@ -507,16 +510,16 @@ impl<'i> ProspectLiveness<'i> {
         r2tok: RightToken,
         r3tok: RightToken,
     ) -> Result<bool, SettleError> {
-        if right1 == family || self.vote_records(right1).is_empty() {
+        if right1 == family || self.follower_prefer_records(right1).is_empty() {
             return Ok(false);
         }
         for (stance, seam) in self.input_shapes(family).iter().copied() {
             let signature = self.signature(engine, right1, family, stance, seam)?;
             let key = (right1, right2, right3, signature);
-            let verdict = match self.vote4.get(&key) {
+            let verdict = match self.follower_prefer4.get(&key) {
                 Some(&cached) => cached,
                 None => {
-                    let verdict = self.vote_class_live(
+                    let verdict = self.follower_prefer_class_live(
                         engine,
                         family,
                         stance,
@@ -525,7 +528,7 @@ impl<'i> ProspectLiveness<'i> {
                         r2tok,
                         Some(r3tok),
                     )?;
-                    self.vote4.insert(key, verdict);
+                    self.follower_prefer4.insert(key, verdict);
                     verdict
                 }
             };
@@ -536,11 +539,11 @@ impl<'i> ProspectLiveness<'i> {
         Ok(false)
     }
 
-    /// Whether some follower vote's verdict at this seat changes with the probed deep token.
+    /// Whether some follower prefer's verdict at this seat changes with the probed deep token.
     ///
     /// With `r3tok` absent this probes the third slot, with the same two comparisons as [`ProspectLiveness::third_class_live`]. With a concrete `r3tok` it probes the fourth slot at that third. The records are the outer loop and the probe tokens the inner one, and the first variance returns.
     #[allow(clippy::too_many_arguments)]
-    fn vote_class_live(
+    fn follower_prefer_class_live(
         &mut self,
         engine: &mut Engine<'_>,
         family: Sym,
@@ -553,7 +556,7 @@ impl<'i> ProspectLiveness<'i> {
         let candidate = frame_candidate(self.index, family, stance, seam);
         let owner = r1tok.letter();
         let edge_left = LeftContext::boundary(TokenKind::Edge);
-        let records = self.vote_records(owner);
+        let records = self.follower_prefer_records(owner);
         let tokens = self.probe_tokens();
         for record in records.iter() {
             match r3tok {
@@ -815,13 +818,17 @@ pub(crate) mod tests {
     }
 
     /// An engine with the two mode flags the caller names. The trace memo is on, as it is in the fixpoint.
-    fn engine_in(index: &SpecIndex, simulated_prospect: bool, vote_slots: bool) -> Engine<'_> {
+    fn engine_in(
+        index: &SpecIndex,
+        simulated_prospect: bool,
+        follower_prefer_slots: bool,
+    ) -> Engine<'_> {
         Engine::with_modes(
             index,
             Vec::<Sym>::new(),
             EngineModes {
                 simulated_prospect,
-                vote_slots,
+                follower_prefer_slots,
                 trace_memo: true,
                 ..EngineModes::default()
             },
@@ -953,8 +960,8 @@ pub(crate) mod tests {
         spec_of(&[pea, tea, may, it])
     }
 
-    /// The vote-slots shape. `qsPea` offers a baseline exit and an x-height exit that tie at every score. `qsTea` accepts one height per stance and offers no exit, so the seat's prospect cannot change. `qsTea`'s own `prefer` votes for its `hook` continuation where the slots past the seat are `qsMay·qsIt`. The vote is the only way the third token affects the seat here.
-    fn vote_spec() -> SpecIndex {
+    /// The follower-prefer-slots shape. `qsPea` offers a baseline exit and an x-height exit that tie at every score. `qsTea` accepts one height per stance and offers no exit, so the seat's prospect cannot change. `qsTea`'s own `prefer` favors its `hook` continuation where the slots past the seat are `qsMay·qsIt`. The follower prefer is the only way the third token affects the seat here.
+    fn follower_prefer_spec() -> SpecIndex {
         let pea = letter(
             "qsPea",
             &[stance(
@@ -1235,13 +1242,13 @@ pub(crate) mod tests {
             "no record on qsPea chains anywhere near the third slot, so the chain arm alone reads the window dead"
         );
 
-        for (prospect, votes, expected) in [
+        for (prospect, follower_prefers, expected) in [
             (true, true, true),
             (true, false, true),
             (false, true, false),
             (false, false, false),
         ] {
-            let mut engine = engine_in(&index, prospect, votes);
+            let mut engine = engine_in(&index, prospect, follower_prefers);
             let mut liveness = ProspectLiveness::new(&index);
             assert_eq!(
                 liveness.third_live(&mut engine, pea, tea, may),
@@ -1251,26 +1258,26 @@ pub(crate) mod tests {
         }
     }
 
-    /// The vote branch opens a window the prospect branch leaves dead: `qsTea` offers no exit, so the seat's prospect cannot change, and only `qsTea`'s vote reads the third token.
+    /// The follower prefer branch opens a window the prospect branch leaves dead: `qsTea` offers no exit, so the seat's prospect cannot change, and only `qsTea`'s follower prefer reads the third token.
     #[test]
-    fn the_vote_arm_opens_a_slot_the_prospect_arm_leaves_shut() {
-        let index = vote_spec();
+    fn the_follower_prefer_arm_opens_a_slot_the_prospect_arm_leaves_shut() {
+        let index = follower_prefer_spec();
         let pea = fixtures::sym(&index, "qsPea");
         let tea = fixtures::sym(&index, "qsTea");
         let may = fixtures::sym(&index, "qsMay");
 
-        for (prospect, votes, expected) in [
+        for (prospect, follower_prefers, expected) in [
             (true, true, true),
             (true, false, false),
             (false, true, true),
             (false, false, false),
         ] {
-            let mut engine = engine_in(&index, prospect, votes);
+            let mut engine = engine_in(&index, prospect, follower_prefers);
             let mut liveness = ProspectLiveness::new(&index);
             assert_eq!(
                 liveness.third_live(&mut engine, pea, tea, may),
                 Ok(expected),
-                "the vote arm is the only channel this fixture's third token has"
+                "the follower prefer arm is the only channel this fixture's third token has"
             );
         }
 
@@ -1284,15 +1291,15 @@ pub(crate) mod tests {
             "stage one's prospect arm sees nothing here"
         );
         assert_eq!(
-            liveness.vote_varies_third(&mut engine, pea, tea, may, r1tok, r2tok),
+            liveness.follower_prefer_varies_third(&mut engine, pea, tea, may, r1tok, r2tok),
             Ok(true),
-            "and its vote arm is what fires"
+            "and its follower prefer arm is what fires"
         );
     }
 
-    /// Stage one is `(simulated_prospect and prospect) or (vote_slots and vote)`, and the `or` short-circuits: where the prospect branch fires, the vote branch does not run. Both orders reach the same verdict, but a vote probe records the pointers its records fire, so running the vote branch first would add provenance to the product. The vote branch's empty memo shows it did not run.
+    /// Stage one is `(simulated_prospect and prospect) or (follower_prefer_slots and follower prefer)`, and the `or` short-circuits: where the prospect branch fires, the follower prefer branch does not run. Both orders reach the same verdict, but a follower prefer probe records the pointers its records fire, so running the follower prefer branch first would add provenance to the product. The follower prefer branch's empty memo shows it did not run.
     #[test]
-    fn a_fired_prospect_arm_leaves_the_vote_arm_unasked() {
+    fn a_fired_prospect_arm_leaves_the_follower_prefer_arm_unasked() {
         let index = prospect_spec();
         let pea = fixtures::sym(&index, "qsPea");
         let tea = fixtures::sym(&index, "qsTea");
@@ -1306,12 +1313,12 @@ pub(crate) mod tests {
             "the prospect arm is what fired here"
         );
         assert!(
-            liveness.vote3.is_empty(),
-            "and the vote arm was never reached, though this follower carries a prefer record it would have probed"
+            liveness.follower_prefer3.is_empty(),
+            "and the follower prefer arm was never reached, though this follower carries a prefer record it would have probed"
         );
         assert!(
-            !liveness.vote_records(tea).is_empty(),
-            "which is worth saying, because a follower with no votes would have answered empty either way"
+            !liveness.follower_prefer_records(tea).is_empty(),
+            "which is worth saying, because a follower with no prefer records would have answered empty either way"
         );
     }
 
@@ -1334,9 +1341,9 @@ pub(crate) mod tests {
             "no third token moves the seat's simulated prospect at an EDGE or UNKNOWN fourth"
         );
         assert_eq!(
-            liveness.vote_varies_third(&mut engine, pea, tea, may, r1tok, r2tok),
+            liveness.follower_prefer_varies_third(&mut engine, pea, tea, may, r1tok, r2tok),
             Ok(false),
-            "and no vote reads it either"
+            "and no follower prefer reads it either"
         );
         assert_eq!(
             liveness.seat_varies(&mut engine, pea, r1tok, r2tok, None),
@@ -1466,7 +1473,7 @@ pub(crate) mod tests {
         );
     }
 
-    /// The prospect and vote branches key on the collapsed signature instead of the input family, so two families the follower cannot tell apart share one verdict and run its probes once.
+    /// The prospect and follower prefer branches key on the collapsed signature instead of the input family, so two families the follower cannot tell apart share one verdict and run its probes once.
     #[test]
     fn two_families_sharing_a_signature_share_one_probe() {
         let index = twin_spec();
@@ -1501,7 +1508,7 @@ pub(crate) mod tests {
     /// Liveness and fibers under their real caller: a whole configuration enumerated at class grain expands, member set by member set, to the same window rows a label-grain enumeration (`--deep-classes-off`) emits. The fixpoint's partition assertion also runs on both products.
     #[test]
     fn a_class_grain_enumeration_expands_to_the_label_grain_one() {
-        for index in [prospect_spec(), vote_spec()] {
+        for index in [prospect_spec(), follower_prefer_spec()] {
             let grains: Vec<Vec<String>> = [true, false]
                 .into_iter()
                 .map(|deep_classes| {
@@ -1510,7 +1517,7 @@ pub(crate) mod tests {
                         &[],
                         EnumerationModes {
                             simulated_prospect: true,
-                            vote_slots: true,
+                            follower_prefer_slots: true,
                             deep_classes,
                         },
                     )

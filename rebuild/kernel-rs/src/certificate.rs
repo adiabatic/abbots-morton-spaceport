@@ -627,7 +627,7 @@ mod tests {
 
     const SHIPPING: EnumerationModes = EnumerationModes {
         simulated_prospect: true,
-        vote_slots: true,
+        follower_prefer_slots: true,
         deep_classes: true,
     };
 
@@ -814,7 +814,7 @@ mod tests {
         );
     }
 
-    /// The production search matches the reference search with deep classes on and off and with each simulated-prospect and vote-slot setting.
+    /// The production search matches the reference search with deep classes on and off and with each simulated-prospect and follower-prefer-slot setting.
     #[test]
     fn prefixes_match_the_reference_in_every_enumeration_world() {
         let index = fixtures::mini();
@@ -822,22 +822,22 @@ mod tests {
             SHIPPING,
             EnumerationModes {
                 simulated_prospect: true,
-                vote_slots: true,
+                follower_prefer_slots: true,
                 deep_classes: false,
             },
             EnumerationModes {
                 simulated_prospect: true,
-                vote_slots: false,
+                follower_prefer_slots: false,
                 deep_classes: true,
             },
             EnumerationModes {
                 simulated_prospect: false,
-                vote_slots: true,
+                follower_prefer_slots: true,
                 deep_classes: true,
             },
             EnumerationModes {
                 simulated_prospect: false,
-                vote_slots: false,
+                follower_prefer_slots: false,
                 deep_classes: true,
             },
         ] {

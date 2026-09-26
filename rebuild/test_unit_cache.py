@@ -778,12 +778,12 @@ def test_unit_store_environment_tracks_each_kernel_settlement_mode(monkeypatch):
         )
 
     prospect = kernel_exec.SIMULATED_PROSPECT_DEFAULT
-    votes = kernel_exec.VOTE_SLOTS_DEFAULT
+    follower_prefers = kernel_exec.FOLLOWER_PREFER_SLOTS_DEFAULT
     base = stamp()
     monkeypatch.setattr(kernel_exec, "SIMULATED_PROSPECT_DEFAULT", not prospect)
     assert stamp() != base
     monkeypatch.setattr(kernel_exec, "SIMULATED_PROSPECT_DEFAULT", prospect)
-    monkeypatch.setattr(kernel_exec, "VOTE_SLOTS_DEFAULT", not votes)
+    monkeypatch.setattr(kernel_exec, "FOLLOWER_PREFER_SLOTS_DEFAULT", not follower_prefers)
     assert stamp() != base
 
 

@@ -641,7 +641,7 @@ pub fn run_config_replay(
         .map_err(|complaint| format!("{}: {complaint}", settlement.display()))?;
     let engine_modes = EngineModes {
         simulated_prospect: modes.simulated_prospect,
-        vote_slots: modes.vote_slots,
+        follower_prefer_slots: modes.follower_prefer_slots,
         ..EngineModes::default()
     };
     let mut walk = replay::Replay::new(index, config.features.clone(), engine_modes, &rules);
@@ -729,7 +729,7 @@ mod tests {
     /// The shipping world (the [`EnumerationModes`] default), in which the deep slots enumerate at class grain. The tests below check byte-identity across schedules in this world.
     const SHIPPING: EnumerationModes = EnumerationModes {
         simulated_prospect: true,
-        vote_slots: true,
+        follower_prefer_slots: true,
         deep_classes: true,
     };
 

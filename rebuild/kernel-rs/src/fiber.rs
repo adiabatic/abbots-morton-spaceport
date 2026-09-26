@@ -121,7 +121,7 @@ impl DeepFiberDeriver {
         let lefts = liveness.seat_left_classes(engine, family)?;
         let mut full_coords: Vec<RightToken> = liveness.probe_tokens().as_ref().clone();
         full_coords.push(UNKNOWN);
-        let deep_world = engine.simulated_prospect() || engine.vote_slots();
+        let deep_world = engine.simulated_prospect() || engine.follower_prefer_slots();
 
         let mut seats: HashMap<Rc<FiberKey>, usize> = HashMap::default();
         let mut grouped: Vec<(Rc<FiberKey>, Vec<RightToken>)> = Vec::new();
@@ -562,7 +562,7 @@ mod tests {
         )
     }
 
-    /// A fixture in which the third letter decides between the two record-vs-record errors. With lookahead `qsTea qsMay qsIt`, `qsPea`'s first two prefers demand different stances, which is E-AMBIGUOUS within one rune. With lookahead `qsTea qsMay qsMay`, `qsPea`'s third prefer conflicts with `qsTea`'s vote, which is E-INCOMPARABLE across two runes. Every other third letter settles.
+    /// A fixture in which the third letter decides between the two record-vs-record errors. With lookahead `qsTea qsMay qsIt`, `qsPea`'s first two prefers demand different stances, which is E-AMBIGUOUS within one rune. With lookahead `qsTea qsMay qsMay`, `qsPea`'s third prefer conflicts with `qsTea`'s follower prefer, which is E-INCOMPARABLE across two runes. Every other third letter settles.
     fn raising_spec() -> SpecIndex {
         let pea = letter(
             "qsPea",

@@ -49,13 +49,13 @@ const SEED_KINDS: [TokenKind; 4] = [
     TokenKind::NamerDot,
 ];
 
-/// The world one enumeration runs in, and at which grain. Python reads the three flags from module-level defaults that environment variables override (`kernel_exec.SIMULATED_PROSPECT_DEFAULT`, `kernel_exec.VOTE_SLOTS_DEFAULT` and `kernel_exec.DEEP_CLASSES_DEFAULT`). This crate reads no environment, so the caller passes them, and [`Default`] is the shipping configuration. [`EnumerationModes::world_token`] names the world; a memo file's head carries it so a memo traced in one world is never read in another.
+/// The world one enumeration runs in, and at which grain. Python reads the three flags from module-level defaults that environment variables override (`kernel_exec.SIMULATED_PROSPECT_DEFAULT`, `kernel_exec.FOLLOWER_PREFER_SLOTS_DEFAULT` and `kernel_exec.DEEP_CLASSES_DEFAULT`). This crate reads no environment, so the caller passes them, and [`Default`] is the shipping configuration. [`EnumerationModes::world_token`] names the world; a memo file's head carries it so a memo traced in one world is never read in another.
 ///
 /// Either engine mode on makes a deep world: both deep-slot rune sets widen to every rune and the filters get their liveness probe. `deep_classes` only takes effect in a deep world. In the pinned world it is accepted and does nothing, because there is no fiber source to enumerate at class grain.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct EnumerationModes {
     pub simulated_prospect: bool,
-    pub vote_slots: bool,
+    pub follower_prefer_slots: bool,
     pub deep_classes: bool,
 }
 
@@ -63,7 +63,7 @@ impl Default for EnumerationModes {
     fn default() -> Self {
         Self {
             simulated_prospect: true,
-            vote_slots: true,
+            follower_prefer_slots: true,
             deep_classes: true,
         }
     }
@@ -76,10 +76,10 @@ impl EnumerationModes {
         if self.simulated_prospect {
             tokens.push("simulated-prospect");
         }
-        if self.vote_slots {
-            tokens.push("vote-slots");
+        if self.follower_prefer_slots {
+            tokens.push("follower-prefer-slots");
         }
-        if self.deep_classes && (self.simulated_prospect || self.vote_slots) {
+        if self.deep_classes && (self.simulated_prospect || self.follower_prefer_slots) {
             tokens.push("deep-classes");
         }
         if tokens.is_empty() {
@@ -292,7 +292,7 @@ fn enumerate_seeded<'i>(
         features.iter().copied(),
         EngineModes {
             simulated_prospect: modes.simulated_prospect,
-            vote_slots: modes.vote_slots,
+            follower_prefer_slots: modes.follower_prefer_slots,
             trace_memo: true,
             // The rows read only the settled triple, the prospect, the joint floor and the notes, never how a trace was decided, and the explain ladder costs more than every other explain-only allocation together.
             explain_ladder: false,
@@ -303,7 +303,7 @@ fn enumerate_seeded<'i>(
     let config = feature_config_token(index, features.iter().copied());
     let mut options = WindowOptions::new(index).map_err(complaint)?;
     // Either engine mode makes a deep world. This is the only place the enumeration combines the two flags.
-    let deep_world = modes.simulated_prospect || modes.vote_slots;
+    let deep_world = modes.simulated_prospect || modes.follower_prefer_slots;
     let deep_inputs = third_slot_inputs(index, deep_world);
     let deep4_inputs = fourth_slot_inputs(index, deep_world);
     let mut third_slot_matters = ThirdSlotFilter::new(index);
@@ -1652,10 +1652,10 @@ mod tests {
         fixtures::policy(&[("prefer", &fixtures::seq(records))])
     }
 
-    /// The pinned candidacy world that every fixture below is read in: `simulated_prospect` and `vote_slots` both off, so there is no deep world, the rune sets are the chain sets, and class grain cannot arise whatever `deep_classes` says.
+    /// The pinned candidacy world that every fixture below is read in: `simulated_prospect` and `follower_prefer_slots` both off, so there is no deep world, the rune sets are the chain sets, and class grain cannot arise whatever `deep_classes` says.
     const PINNED: EnumerationModes = EnumerationModes {
         simulated_prospect: false,
-        vote_slots: false,
+        follower_prefer_slots: false,
         deep_classes: true,
     };
 
@@ -2151,7 +2151,7 @@ mod tests {
             Vec::<Sym>::new(),
             EngineModes {
                 simulated_prospect: false,
-                vote_slots: false,
+                follower_prefer_slots: false,
                 trace_memo: true,
                 ..EngineModes::default()
             },

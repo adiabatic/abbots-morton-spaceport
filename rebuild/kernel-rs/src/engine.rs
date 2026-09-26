@@ -130,12 +130,12 @@ const UNKNOWN_TAIL: [RightToken; 1] = [UNKNOWN];
 /// The modes an engine is built with. The crate reads no environment, so the caller passes them. [`Default`] is the shipping configuration.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct EngineModes {
-    /// The follower vote's slots past `right1` when `vote_slots` is off. `UNKNOWN` is the optimistic comparison state. The section 5.7 guard's engines set it to `EDGE`, so a vote that needs deeper text than the guard's verdict is keyed on can never change a formation verdict.
-    pub vote_deep_slot: RightToken,
+    /// The follower prefer's slots past `right1` when `follower_prefer_slots` is off. `UNKNOWN` is the optimistic comparison state. The section 5.7 guard's engines set it to `EDGE`, so a follower prefer that needs deeper text than the guard's verdict is keyed on can never change a formation verdict.
+    pub follower_prefer_deep_slot: RightToken,
     /// Whether the third join-count term is the follower's simulated transition (the default) or the optimistic candidacy estimate.
     pub simulated_prospect: bool,
-    /// Whether a follower vote reads the window's slots shifted by one, or reads `vote_deep_slot` for everything past its own `right1`.
-    pub vote_slots: bool,
+    /// Whether a follower prefer reads the window's slots shifted by one, or reads `follower_prefer_deep_slot` for everything past its own `right1`.
+    pub follower_prefer_slots: bool,
     /// Whether the engine memoizes whole windows and journals a fired delta per memoized evaluation. On only in the table fixpoint, the `settle-cases` and `liveness-cases` subcommands, and the string replay.
     pub trace_memo: bool,
     /// Whether a trace carries its explain ladder: the ranking, the eliminations with their descriptions, and the runner-up. On wherever a person reads a trace (the explain report, the review corpus, the probe). Off in the table fixpoint, whose rows read only the settled triple, the prospect, the joint floor and the notes, and in the string replay, which reads only the settled record. Formatting ladders nobody reads is the largest avoidable allocation in either.
@@ -145,9 +145,9 @@ pub struct EngineModes {
 impl Default for EngineModes {
     fn default() -> Self {
         Self {
-            vote_deep_slot: UNKNOWN,
+            follower_prefer_deep_slot: UNKNOWN,
             simulated_prospect: true,
-            vote_slots: true,
+            follower_prefer_slots: true,
             trace_memo: false,
             explain_ladder: true,
         }
@@ -701,9 +701,9 @@ impl TraceMemo {
 pub struct Engine<'i> {
     index: &'i SpecIndex,
     features: HashSet<Sym>,
-    vote_deep_slot: RightToken,
+    follower_prefer_deep_slot: RightToken,
     simulated_prospect: bool,
-    vote_slots: bool,
+    follower_prefer_slots: bool,
     simulated_prospect_fallbacks: u64,
     fired: HashSet<Pointer>,
     fired_log: Option<Vec<Pointer>>,
@@ -733,7 +733,7 @@ pub struct Engine<'i> {
 }
 
 impl<'i> Engine<'i> {
-    /// An engine over one spec and one feature configuration, in the shipping modes: `simulated_prospect` and `vote_slots` on, the vote's deep slot `UNKNOWN`, and no trace memo.
+    /// An engine over one spec and one feature configuration, in the shipping modes: `simulated_prospect` and `follower_prefer_slots` on, the follower prefer's deep slot `UNKNOWN`, and no trace memo.
     pub fn new(index: &'i SpecIndex, features: impl IntoIterator<Item = Sym>) -> Self {
         Self::with_modes(index, features, EngineModes::default())
     }
@@ -747,9 +747,9 @@ impl<'i> Engine<'i> {
         Self {
             index,
             features: features.into_iter().collect(),
-            vote_deep_slot: modes.vote_deep_slot,
+            follower_prefer_deep_slot: modes.follower_prefer_deep_slot,
             simulated_prospect: modes.simulated_prospect,
-            vote_slots: modes.vote_slots,
+            follower_prefer_slots: modes.follower_prefer_slots,
             simulated_prospect_fallbacks: 0,
             fired: HashSet::default(),
             fired_log: modes.trace_memo.then(Vec::new),
@@ -827,14 +827,14 @@ impl<'i> Engine<'i> {
         self.simulated_prospect
     }
 
-    /// Whether follower votes read the window's slots shifted by one.
-    pub fn vote_slots(&self) -> bool {
-        self.vote_slots
+    /// Whether follower prefers read the window's slots shifted by one.
+    pub fn follower_prefer_slots(&self) -> bool {
+        self.follower_prefer_slots
     }
 
-    /// The pin a follower vote's beyond-`right1` slots take when [`Engine::vote_slots`] is off.
-    pub fn vote_deep_slot(&self) -> RightToken {
-        self.vote_deep_slot
+    /// The pin a follower prefer's beyond-`right1` slots take when [`Engine::follower_prefer_slots`] is off.
+    pub fn follower_prefer_deep_slot(&self) -> RightToken {
+        self.follower_prefer_deep_slot
     }
 
     /// How often a simulated prospect's replayed settlement raised and fell back to the candidacy estimate. Diagnostic only.
@@ -2039,9 +2039,9 @@ impl<'i> Engine<'i> {
 
     // --- prefers ---------------------------------------------------------------------
 
-    /// Whether one prefer record favors this candidate. `None` means the record has nothing to say about this window, which keeps an irrelevant record out of the stage instead of counting it as a vote against.
+    /// Whether one prefer record favors this candidate. `None` means the record has nothing to say about this window, which keeps an irrelevant record out of the stage instead of counting it against the candidate.
     ///
-    /// A record of our own rune targets the candidate's stance or cell directly and reads the window's deep slots as they are. A record with both a stance and a cell compares cells only within that stance: the stance limits where the preference applies and is not itself the demand. A follower's record instead votes: it favors the candidates under which its own preferred continuation is admissible, evaluated one position over with `joined_at` bound to the candidate's seam. With `vote_slots` on, the vote reads the window's slots shifted by one, so a chained condition resolves inside the window. With it off, everything past the vote's own `right1` is `vote_deep_slot`, and unknown verdicts there count as firing, so a deep-chained condition has to be repeated on every possible left rune instead of written once on the rune that owns it.
+    /// A record of our own rune targets the candidate's stance or cell directly and reads the window's deep slots as they are. A record with both a stance and a cell compares cells only within that stance: the stance limits where the preference applies and is not itself the demand. A follower's record is instead a follower prefer: it favors the candidates under which its own preferred continuation is admissible, evaluated one position over with `joined_at` bound to the candidate's seam. With `follower_prefer_slots` on, the follower prefer reads the window's slots shifted by one, so a chained condition resolves inside the window. With it off, everything past the follower prefer's own `right1` is `follower_prefer_deep_slot`, and unknown verdicts there count as firing, so a deep-chained condition has to be repeated on every possible left rune instead of written once on the rune that owns it.
     fn prefer_favors(
         &mut self,
         owner: Sym,
@@ -2088,14 +2088,24 @@ impl<'i> Engine<'i> {
             return Ok(None);
         }
         let virtual_left = Self::virtual_left(rune_name, candidate);
-        let (vote_right2, vote_right3) = if self.vote_slots {
+        let (follower_prefer_right2, follower_prefer_right3) = if self.follower_prefer_slots {
             (slots.right3, slots.right4)
         } else {
-            (self.vote_deep_slot, UNKNOWN)
+            (self.follower_prefer_deep_slot, UNKNOWN)
         };
-        let follower_cells =
-            self.candidates(&virtual_left, owner, slots.right2, vote_right2, None)?;
-        let vote_slots = Slots::new(slots.right2, vote_right2, vote_right3, UNKNOWN);
+        let follower_cells = self.candidates(
+            &virtual_left,
+            owner,
+            slots.right2,
+            follower_prefer_right2,
+            None,
+        )?;
+        let shifted_slots = Slots::new(
+            slots.right2,
+            follower_prefer_right2,
+            follower_prefer_right3,
+            UNKNOWN,
+        );
         let mut relevant = false;
         for cell in &follower_cells {
             if record.cell.is_some() && record.stance.is_some_and(|stance| cell.stance != stance) {
@@ -2107,7 +2117,7 @@ impl<'i> Engine<'i> {
                 &virtual_left,
                 cell.entry,
                 cell.seam,
-                vote_slots,
+                shifted_slots,
             )?;
             if verdict == Some(false) {
                 continue;
@@ -2153,7 +2163,7 @@ impl<'i> Engine<'i> {
         self.prospect(rune_name, candidate, slots)
     }
 
-    /// [`Engine::prefer_favors`], exposed to the liveness probe's vote branch, like [`Engine::probe_prospect`].
+    /// [`Engine::prefer_favors`], exposed to the liveness probe's follower prefer branch, like [`Engine::probe_prospect`].
     #[allow(dead_code)]
     pub(crate) fn probe_prefer_favors(
         &mut self,
@@ -2208,7 +2218,7 @@ impl<'i> Engine<'i> {
             let mut favored: HashSet<Candidate> = HashSet::default();
             let mut supported = false;
             for candidate in survivors {
-                let Some(vote) =
+                let Some(favors) =
                     self.prefer_favors(owner, record, rune_name, *candidate, left, slots)?
                 else {
                     if record.stance.is_some() && record.cell.is_some() {
@@ -2216,7 +2226,7 @@ impl<'i> Engine<'i> {
                     }
                     continue;
                 };
-                if vote {
+                if favors {
                     supported = true;
                     favored.insert(*candidate);
                 }
@@ -5744,7 +5754,7 @@ mod tests {
                     Slots::pair(letter_token(&index, "qsTea"), letter_token(&index, "qsMay")),
                 ),
                 Ok(Some(expected)),
-                "an entered full stance cannot exit; the half stance's available exit does not vote for this record"
+                "an entered full stance cannot exit; the half stance's available exit is not one this record favors"
             );
         }
     }
@@ -5795,8 +5805,8 @@ mod tests {
         );
     }
 
-    /// [`ranking_spec`] with two chained prefers for the vote tests. `qsPea`'s record favors its `stroke` stance when the slots after `qsPea` are qsTea·qsMay·qsPea. `qsTea`'s record favors its `hook` stance when the slots after `qsTea` are qsMay·qsPea. Its chain is one hop shorter because a follower's record is evaluated one position to the right.
-    fn vote_slot_spec() -> SpecIndex {
+    /// [`ranking_spec`] with two chained prefers for the follower prefer tests. `qsPea`'s record favors its `stroke` stance when the slots after `qsPea` are qsTea·qsMay·qsPea. `qsTea`'s record favors its `hook` stance when the slots after `qsTea` are qsMay·qsPea. Its chain is one hop shorter because a follower's record is evaluated one position to the right.
+    fn follower_prefer_slot_spec() -> SpecIndex {
         let pea_chain = fixtures::condition(&[
             ("family", &fixtures::names(&["qsTea"])),
             (
@@ -5845,8 +5855,8 @@ mod tests {
     }
 
     #[test]
-    fn the_prefer_arms_read_their_own_deep_slots_and_the_vote_reads_them_shifted() {
-        let index = vote_slot_spec();
+    fn the_prefer_arms_read_their_own_deep_slots_and_the_follower_prefer_reads_them_shifted() {
+        let index = follower_prefer_slot_spec();
         let pea = fixtures::sym(&index, "qsPea");
         let tea = fixtures::sym(&index, "qsTea");
         let own = &index.rune(pea).expect("qsPea is modeled").policy.prefer[0];
@@ -5865,7 +5875,7 @@ mod tests {
         let tea_token = letter_token(&index, "qsTea");
         let may_token = letter_token(&index, "qsMay");
         let pinned = EngineModes {
-            vote_slots: false,
+            follower_prefer_slots: false,
             ..EngineModes::default()
         };
 
@@ -5881,7 +5891,7 @@ mod tests {
                     Slots::new(tea_token, may_token, pea_token, UNKNOWN)
                 ),
                 Ok(Some(true)),
-                "our own rune's record reads the seat's raw deep slots whatever the vote's mode"
+                "our own rune's record reads the seat's raw deep slots whatever the follower prefer's mode"
             );
             assert_eq!(
                 engine.prefer_favors(
@@ -5897,58 +5907,58 @@ mod tests {
             );
         }
 
-        let vote = |engine: &mut Engine<'_>, slots: Slots| {
+        let follower_prefer = |engine: &mut Engine<'_>, slots: Slots| {
             engine
                 .prefer_favors(tea, follower, pea, candidate, &edge, slots)
                 .expect("the fixture raises nothing")
         };
         let mut pinned_engine = Engine::with_modes(&index, no_features(), pinned);
         assert_eq!(
-            vote(&mut pinned_engine, Slots::pair(tea_token, may_token)),
+            follower_prefer(&mut pinned_engine, Slots::pair(tea_token, may_token)),
             Some(true),
-            "everything past the vote's own right1 is pinned, so the chain's tail is unknown and the vote fires optimistically"
+            "everything past the follower prefer's own right1 is pinned, so the chain's tail is unknown and the follower prefer fires optimistically"
         );
         assert_eq!(
-            vote(
+            follower_prefer(
                 &mut pinned_engine,
                 Slots::new(tea_token, may_token, pea_token, pea_token)
             ),
             Some(true)
         );
         assert_eq!(
-            vote(
+            follower_prefer(
                 &mut pinned_engine,
                 Slots::new(tea_token, may_token, may_token, may_token)
             ),
             Some(true),
-            "the pinned vote answers the same whatever the seat's deep slots hold"
+            "the pinned follower prefer answers the same whatever the seat's deep slots hold"
         );
 
         let mut shifted = Engine::new(&index, no_features());
         assert_eq!(
-            vote(
+            follower_prefer(
                 &mut shifted,
                 Slots::new(tea_token, may_token, pea_token, UNKNOWN)
             ),
             Some(true),
-            "shifted once, the vote's chain resolves inside the window and fires"
+            "shifted once, the follower prefer's chain resolves inside the window and fires"
         );
         assert_eq!(
-            vote(
+            follower_prefer(
                 &mut shifted,
                 Slots::new(tea_token, may_token, may_token, UNKNOWN)
             ),
             None,
-            "the same slots refute it definitively, and an irrelevant record is no vote against"
+            "the same slots refute it definitively, and an irrelevant record does not count against the candidate"
         );
         assert_eq!(
-            vote(&mut shifted, Slots::pair(tea_token, may_token)),
+            follower_prefer(&mut shifted, Slots::pair(tea_token, may_token)),
             Some(true),
             "where the window really does end, the shifted reading is unknown-optimistic too"
         );
     }
 
-    /// Two prefers from different runes with equal specificity and conflicting demands, the case a `resolve` record settles. `qsPea` prefers a cell that uses its x-height exit, and `qsTea` votes for whichever `qsPea` cell leaves its own baseline exit usable. The caller passes `qsPea`'s `resolve` list.
+    /// Two prefers from different runes with equal specificity and conflicting demands, the case a `resolve` record settles. `qsPea` prefers a cell that uses its x-height exit, and `qsTea`'s follower prefer favors whichever `qsPea` cell leaves its own baseline exit usable. The caller passes `qsPea`'s `resolve` list.
     fn crossing_spec(pea_resolve: &str) -> SpecIndex {
         let pea_policy = fixtures::policy(&[
             (

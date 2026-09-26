@@ -262,7 +262,7 @@ fn a_guard_sweep_answers_one_configuration_and_refuses_a_world_flag() {
         vec!["--config=default", "--config=ss03"],
         vec!["--features=ss03"],
         vec!["--candidacy-prospect"],
-        vec!["--vote-slots-off"],
+        vec!["--follower-prefer-slots-off"],
         vec!["--deep-classes-off"],
     ] {
         let mut arguments = vec!["guard-sweep", word(&spec)];
@@ -768,7 +768,7 @@ fn a_shipped_order_walk_answers_a_tables_rows_from_a_file_or_stdin() {
         &table_flag,
         &order_flag,
         &context_flag,
-        "--vote-slots-off",
+        "--follower-prefer-slots-off",
     ]);
     assert_eq!(worldly.status.code(), Some(2));
 }

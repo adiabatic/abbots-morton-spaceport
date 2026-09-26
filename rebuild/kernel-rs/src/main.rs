@@ -6,17 +6,17 @@
 //!
 //! Three make targets build and check the crate. `make kernel-build` compiles the release binary the Python side runs. `make kernel-check` runs `cargo fmt --check`, `cargo clippy --all-targets -- -D warnings`, and `cargo test`. `make kernel-gate` is the target to run after a kernel-semantics change; it runs `kernel-check` and nothing else. Beyond the crate's own tests, gate:conform checks settlement by shaping every swept text through HarfBuzz and comparing the result with this kernel's per-window settlement.
 //!
-//! The CLI takes positional arguments and scans flags by hand, with no argument parser. stdout carries the answer and nothing else. The three mode flags are written as negations of the shipping configuration (`--candidacy-prospect`, `--vote-slots-off`, `--deep-classes-off`), so a bare invocation runs what ships and every departure from it shows in the command line:
+//! The CLI takes positional arguments and scans flags by hand, with no argument parser. stdout carries the answer and nothing else. The three mode flags are written as negations of the shipping configuration (`--candidacy-prospect`, `--follower-prefer-slots-off`, `--deep-classes-off`), so a bare invocation runs what ships and every departure from it shows in the command line:
 //!
 //! - `ams-m1-kernel spec-echo <spec>` writes the canonical dump plus one newline.
-//! - `ams-m1-kernel settle-cases <spec> <cases> [--features=a,b,…] [--settled-only] [--candidacy-prospect] [--vote-slots-off]` settles a plain-text case file through one engine, in file order. Each line of the file is one tab-separated window, as `kernel_exec.case_line` writes it. Each output line is the input line, a tab, and the answer: the whole trace as JSON (`kernel_exec.trace_of` reads it), or with `--settled-only` the settled record as seven tab-separated fields (`kernel_exec._settled_of_fields` reads it). A window that raises a settlement error gets an ordinary answer line, the same `{"raise":…,"message":…}` object in either shape, and does not change the exit status.
+//! - `ams-m1-kernel settle-cases <spec> <cases> [--features=a,b,…] [--settled-only] [--candidacy-prospect] [--follower-prefer-slots-off]` settles a plain-text case file through one engine, in file order. Each line of the file is one tab-separated window, as `kernel_exec.case_line` writes it. Each output line is the input line, a tab, and the answer: the whole trace as JSON (`kernel_exec.trace_of` reads it), or with `--settled-only` the settled record as seven tab-separated fields (`kernel_exec._settled_of_fields` reads it). A window that raises a settlement error gets an ordinary answer line, the same `{"raise":…,"message":…}` object in either shape, and does not change the exit status.
 //! - `ams-m1-kernel guard-sweep <spec> [--config=<token>]` writes the section 5.7 late-formation surface, one tab-separated verdict per line. Without `--config=`, each verdict is quantified over the powerset of capability-unlock features, which is the surface the font ships. With `--config=`, the surface is answered under that one configuration, named by a token in `--configs=` form; `default` names the no-feature configuration, which an empty `--features=` could not. The rebuild suite compares each configuration's surface with the quantified one. The guard fixes its own engine modes, so the two mode flags are a usage error here.
-//! - `ams-m1-kernel enumerate <spec> [--features=a,b,…] [--candidacy-prospect] [--vote-slots-off] [--deep-classes-off] [--timings] [--cache-stats]` runs one configuration's table-build fixpoint and writes the uncompressed `ams-m1-transitions/1` stream (a head line and one row per window), which `kernel_exec.read_stream` reads. `--deep-classes-off` selects label grain, like Python's `AMS_DEEP_CLASSES=0`. With both `--candidacy-prospect` and `--vote-slots-off`, enumeration is label grain anyway, so the flag is accepted and has no effect.
-//! - `ams-m1-kernel enumerate-configs <spec> <outdir> --configs=a,b,… [--threads=N] [--candidacy-prospect] [--vote-slots-off] [--deep-classes-off] [--timings] [--cache-stats]` runs several configurations' fixpoints in one process and writes each stream to `<outdir>/transitions-<config>.ndjson`. It creates the directory with its parents and overwrites existing streams. Before writing, it deletes every other `transitions-*.ndjson` in the directory, so after exit 0 the directory holds only the configurations the command line named. stdout stays empty. The files are valid only on exit 0: a failing configuration exits 1 with its name in the message and leaves the other configurations' files in place. `--configs=` is required and uses Python's tokens (`conform.ACCEPTANCE_CONFIGS`): `default` for no features, otherwise a `+`-joined feature list whose names are checked against the spec as `--features=` names are. A token that is not the canonical form of its features (out of order, repeated, empty, or with an empty part between two `+`) is a usage error, so the filename, the stream head's `config`, and the caller's name for the configuration always agree. The mode flags apply to every configuration in the run.
-//! - `ams-m1-kernel build-tables <spec> <outdir> --configs=a,b,… --inputs=<stamp> [--threads=N] [--config-seed-off] [--seed=<dir> [--edited=a,b,…] [--moved-classes=a,b,…]] [--memo-stamp=<text>] [--candidacy-prospect] [--vote-slots-off] [--deep-classes-off] [--timings] [--cache-stats]` runs the same fixpoints and folds each product in memory, writing `<outdir>/settlement-<config>.tsv`, `<outdir>/treaties-<config>.tsv`, and the uncompressed `<outdir>/windows-<config>.tsv` under the fingerprint `--inputs=` names, and one `{"config":…,"digest":…}` line per configuration to stdout in command-line order. `default` enumerates first and alone and keeps its trace memo. The other configurations then run as deltas, `--threads` at a time, heaviest first by unlocking-rune count, with `default`'s fold taking one of the worker slots. Each delta reads `default`'s memo for every window that names none of its own unlocking runes ([`ams_m1_kernel::memo`]) and writes the same bytes a from-scratch enumeration writes. `--config-seed-off` enumerates every configuration from scratch, and a set without `default` does so anyway. `--memo-stamp=<text>` writes each configuration's finished memo as `<outdir>/memo-<config>.tsv`, with a head naming the configuration, the world, and the stamp. `--seed=<dir>` reads a previous build's memo files from that directory. `--edited=` names the runes whose content changed since that build and `--moved-classes=` the predicate classes whose membership changed, and a window whose settlement read none of them reuses its earlier answer. A seed file for another configuration or world is an error, a missing one is skipped, a moved class this spec no longer declares is ignored (no valid memo entry can have read it), and `--edited=` or `--moved-classes=` without `--seed=` is a usage error. No stream is written or read, because the fold runs on the product the worklist still holds; this saves writing and reading back several hundred megabytes per configuration. `run_m1.build_tables` gzips the windows payload and the memo files, because the crate has no compressor. The directory is created if needed and nothing in it is deleted, because a build writes into its artifact directory beside other artifacts. `--inputs=` is required because a persisted enumeration is accepted or rejected on the stamp it carries.
-//! - `ams-m1-kernel replay-strings <spec> <outdir> --configs=a,b,… --max-length=N [--families=a,b,…] [--memo-dir=<dir> | --memo-windows=N] [--threads=N] [--candidacy-prospect] [--vote-slots-off] [--timings] [--cache-stats]` reads each configuration's `<outdir>/settlement-<config>.tsv` and walks every text of length 1 through `N` over the spec's alphabet ([`ams_m1_kernel::replay`]). With `--families=`, it walks only the texts that name one of those runes; a ligature is named through its components. It applies the rules first-match, feeding each settled left forward, and compares every window's rule outcome with this engine's settlement of that window. `run_m1` runs it after every table build as the enumeration-completeness check. A clean run writes one `{"config":…,"texts":…,"windows":…,"skipped":…}` line per configuration to stdout. `--memo-dir=<dir>` also writes each passing walk's window memo there as `replay-windows-<config>.bin`, the input to the build's settle memo ([`ams_m1_kernel::replay::Replay::write_window_memo`]). `--memo-windows=N` caps each walk's memo at `N` windows, or at one text's windows when `N` is below the maximum length: before any text that could push the memo past the cap, the walk releases its memo and its engine's memos. The walk's memory then does not grow with the size of the text set, apart from the settled records and labels it keeps, and `windows` counts window settles instead of distinct windows. `--memo-windows=` with `--memo-dir=` is a usage error, because a released memo is incomplete. A window where the rules and the engine disagree, or that the engine refuses, exits 1 with a message naming the configuration, the window, and the text it was reached in. The maximum length is required because the caller records the depth the walk covered. There is no grain flag, because a replay settles single windows, which have no grain.
+//! - `ams-m1-kernel enumerate <spec> [--features=a,b,…] [--candidacy-prospect] [--follower-prefer-slots-off] [--deep-classes-off] [--timings] [--cache-stats]` runs one configuration's table-build fixpoint and writes the uncompressed `ams-m1-transitions/1` stream (a head line and one row per window), which `kernel_exec.read_stream` reads. `--deep-classes-off` selects label grain, like Python's `AMS_DEEP_CLASSES=0`. With both `--candidacy-prospect` and `--follower-prefer-slots-off`, enumeration is label grain anyway, so the flag is accepted and has no effect.
+//! - `ams-m1-kernel enumerate-configs <spec> <outdir> --configs=a,b,… [--threads=N] [--candidacy-prospect] [--follower-prefer-slots-off] [--deep-classes-off] [--timings] [--cache-stats]` runs several configurations' fixpoints in one process and writes each stream to `<outdir>/transitions-<config>.ndjson`. It creates the directory with its parents and overwrites existing streams. Before writing, it deletes every other `transitions-*.ndjson` in the directory, so after exit 0 the directory holds only the configurations the command line named. stdout stays empty. The files are valid only on exit 0: a failing configuration exits 1 with its name in the message and leaves the other configurations' files in place. `--configs=` is required and uses Python's tokens (`conform.ACCEPTANCE_CONFIGS`): `default` for no features, otherwise a `+`-joined feature list whose names are checked against the spec as `--features=` names are. A token that is not the canonical form of its features (out of order, repeated, empty, or with an empty part between two `+`) is a usage error, so the filename, the stream head's `config`, and the caller's name for the configuration always agree. The mode flags apply to every configuration in the run.
+//! - `ams-m1-kernel build-tables <spec> <outdir> --configs=a,b,… --inputs=<stamp> [--threads=N] [--config-seed-off] [--seed=<dir> [--edited=a,b,…] [--moved-classes=a,b,…]] [--memo-stamp=<text>] [--candidacy-prospect] [--follower-prefer-slots-off] [--deep-classes-off] [--timings] [--cache-stats]` runs the same fixpoints and folds each product in memory, writing `<outdir>/settlement-<config>.tsv`, `<outdir>/treaties-<config>.tsv`, and the uncompressed `<outdir>/windows-<config>.tsv` under the fingerprint `--inputs=` names, and one `{"config":…,"digest":…}` line per configuration to stdout in command-line order. `default` enumerates first and alone and keeps its trace memo. The other configurations then run as deltas, `--threads` at a time, heaviest first by unlocking-rune count, with `default`'s fold taking one of the worker slots. Each delta reads `default`'s memo for every window that names none of its own unlocking runes ([`ams_m1_kernel::memo`]) and writes the same bytes a from-scratch enumeration writes. `--config-seed-off` enumerates every configuration from scratch, and a set without `default` does so anyway. `--memo-stamp=<text>` writes each configuration's finished memo as `<outdir>/memo-<config>.tsv`, with a head naming the configuration, the world, and the stamp. `--seed=<dir>` reads a previous build's memo files from that directory. `--edited=` names the runes whose content changed since that build and `--moved-classes=` the predicate classes whose membership changed, and a window whose settlement read none of them reuses its earlier answer. A seed file for another configuration or world is an error, a missing one is skipped, a moved class this spec no longer declares is ignored (no valid memo entry can have read it), and `--edited=` or `--moved-classes=` without `--seed=` is a usage error. No stream is written or read, because the fold runs on the product the worklist still holds; this saves writing and reading back several hundred megabytes per configuration. `run_m1.build_tables` gzips the windows payload and the memo files, because the crate has no compressor. The directory is created if needed and nothing in it is deleted, because a build writes into its artifact directory beside other artifacts. `--inputs=` is required because a persisted enumeration is accepted or rejected on the stamp it carries.
+//! - `ams-m1-kernel replay-strings <spec> <outdir> --configs=a,b,… --max-length=N [--families=a,b,…] [--memo-dir=<dir> | --memo-windows=N] [--threads=N] [--candidacy-prospect] [--follower-prefer-slots-off] [--timings] [--cache-stats]` reads each configuration's `<outdir>/settlement-<config>.tsv` and walks every text of length 1 through `N` over the spec's alphabet ([`ams_m1_kernel::replay`]). With `--families=`, it walks only the texts that name one of those runes; a ligature is named through its components. It applies the rules first-match, feeding each settled left forward, and compares every window's rule outcome with this engine's settlement of that window. `run_m1` runs it after every table build as the enumeration-completeness check. A clean run writes one `{"config":…,"texts":…,"windows":…,"skipped":…}` line per configuration to stdout. `--memo-dir=<dir>` also writes each passing walk's window memo there as `replay-windows-<config>.bin`, the input to the build's settle memo ([`ams_m1_kernel::replay::Replay::write_window_memo`]). `--memo-windows=N` caps each walk's memo at `N` windows, or at one text's windows when `N` is below the maximum length: before any text that could push the memo past the cap, the walk releases its memo and its engine's memos. The walk's memory then does not grow with the size of the text set, apart from the settled records and labels it keeps, and `windows` counts window settles instead of distinct windows. `--memo-windows=` with `--memo-dir=` is a usage error, because a released memo is incomplete. A window where the rules and the engine disagree, or that the engine refuses, exits 1 with a message naming the configuration, the window, and the text it was reached in. The maximum length is required because the caller records the depth the walk covered. There is no grain flag, because a replay settles single windows, which have no grain.
 //! - `ams-m1-kernel replay-emitted <windows> --config=<token> --table=<settlement.tsv> --order=<order.tsv> --context=<context.tsv> [--timings]` walks one configuration's window enumeration (the plain `ams-m1-windows/2` payload at `<windows>`, or standard input for `-`) against the settlement order the font ships ([`ams_m1_kernel::shipped_order`]). `--order=` holds every configuration's rules in the order the emitter ships them, written as a settlement TSV whose provenance column names the table rules each row was folded from. `--context=` holds the configuration's marker renames and deep classes, one `rename` or `class` record per line. `--table=` is the configuration's own settlement TSV, read only to name the table's rule in a disagreement. Each row is renamed through the configuration's marker renames, and the first emitted rule for its input that matches it must give the row's outcome. A clean run writes one `{"config":…,"rows":…,"expanded":…}` line to stdout, where `expanded` counts the rows tried member by member because an emitted class matched only part of their deep class. A row for which the shipped order gives a different outcome exits 1 with a message naming the configuration, the row, the emitted rule that fired, and the table's rule. No spec is read: the tables already hold the settled answers, and the walk checks that the shipped lookup reproduces them.
-//! - `ams-m1-kernel liveness-cases <spec> <keys> [--features=a,b,…] [--candidacy-prospect] [--vote-slots-off]` reads one deep-slot query per line of the key file. `3<tab><input><tab><r1><tab><r2>` and `4<tab><input><tab><r1><tab><r2><tab><r3>` return `live` or `dead`, the full filter verdict (the chain check and the liveness check together). `fibers<tab><input><tab><r1><tab><r2>` returns the context's fiber partition as compact JSON. Every name must be a rune family name, and any other name stops the run. Each output line is the key line, a tab, and the answer, in file order.
+//! - `ams-m1-kernel liveness-cases <spec> <keys> [--features=a,b,…] [--candidacy-prospect] [--follower-prefer-slots-off]` reads one deep-slot query per line of the key file. `3<tab><input><tab><r1><tab><r2>` and `4<tab><input><tab><r1><tab><r2><tab><r3>` return `live` or `dead`, the full filter verdict (the chain check and the liveness check together). `fibers<tab><input><tab><r1><tab><r2>` returns the context's fiber partition as compact JSON. Every name must be a rune family name, and any other name stops the run. Each output line is the key line, a tab, and the answer, in file order.
 //!
 //! Concurrency is per configuration. `enumerate-configs`, `build-tables`, and `replay-strings` run at most `--threads` configurations at once: one when the flag is absent, and never more than the machine's available parallelism or the number of configurations. When the set includes `default` and `--config-seed-off` is not given, `build-tables` enumerates `default` alone first and then runs the other configurations at that width, with `default`'s fold in one of the worker slots. [`ams_m1_kernel::fanout`] explains why the output bytes do not depend on the schedule and why one configuration's worklist stays sequential. Peak memory grows roughly linearly with the width, because each configuration in flight holds its whole working set, so a machine with less memory than cores should pass a smaller `--threads`.
 //!
@@ -45,7 +45,7 @@ use ams_m1_kernel::options::WindowOptions;
 use ams_m1_kernel::stream::feature_config_token;
 use ams_m1_kernel::{artifacts, cases, emit, fanout, guard, parse, shipped_order};
 
-const USAGE: &str = "usage: ams-m1-kernel spec-echo <spec>\n       ams-m1-kernel settle-cases <spec> <cases> [--features=a,b] [--settled-only] [--candidacy-prospect] [--vote-slots-off]\n       ams-m1-kernel guard-sweep <spec> [--config=default|ss03+ss05]\n       ams-m1-kernel enumerate <spec> [--features=a,b] [--candidacy-prospect] [--vote-slots-off] [--deep-classes-off] [--timings] [--cache-stats]\n       ams-m1-kernel enumerate-configs <spec> <outdir> --configs=default,ss03 [--threads=N] [--candidacy-prospect] [--vote-slots-off] [--deep-classes-off] [--timings] [--cache-stats]\n       ams-m1-kernel build-tables <spec> <outdir> --configs=default,ss03 --inputs=<stamp> [--threads=N] [--config-seed-off] [--seed=<dir> [--edited=qsPea,qsTea] [--moved-classes=a,b]] [--memo-stamp=<text>] [--candidacy-prospect] [--vote-slots-off] [--deep-classes-off] [--timings] [--cache-stats]\n       ams-m1-kernel replay-strings <spec> <outdir> --configs=default,ss03 --max-length=N [--families=qsPea,qsTea] [--memo-dir=<dir> | --memo-windows=N] [--threads=N] [--candidacy-prospect] [--vote-slots-off] [--timings] [--cache-stats]\n       ams-m1-kernel replay-emitted <windows> --config=default --table=<settlement.tsv> --order=<order.tsv> --context=<context.tsv> [--timings]\n       ams-m1-kernel liveness-cases <spec> <keys> [--features=a,b] [--candidacy-prospect] [--vote-slots-off]";
+const USAGE: &str = "usage: ams-m1-kernel spec-echo <spec>\n       ams-m1-kernel settle-cases <spec> <cases> [--features=a,b] [--settled-only] [--candidacy-prospect] [--follower-prefer-slots-off]\n       ams-m1-kernel guard-sweep <spec> [--config=default|ss03+ss05]\n       ams-m1-kernel enumerate <spec> [--features=a,b] [--candidacy-prospect] [--follower-prefer-slots-off] [--deep-classes-off] [--timings] [--cache-stats]\n       ams-m1-kernel enumerate-configs <spec> <outdir> --configs=default,ss03 [--threads=N] [--candidacy-prospect] [--follower-prefer-slots-off] [--deep-classes-off] [--timings] [--cache-stats]\n       ams-m1-kernel build-tables <spec> <outdir> --configs=default,ss03 --inputs=<stamp> [--threads=N] [--config-seed-off] [--seed=<dir> [--edited=qsPea,qsTea] [--moved-classes=a,b]] [--memo-stamp=<text>] [--candidacy-prospect] [--follower-prefer-slots-off] [--deep-classes-off] [--timings] [--cache-stats]\n       ams-m1-kernel replay-strings <spec> <outdir> --configs=default,ss03 --max-length=N [--families=qsPea,qsTea] [--memo-dir=<dir> | --memo-windows=N] [--threads=N] [--candidacy-prospect] [--follower-prefer-slots-off] [--timings] [--cache-stats]\n       ams-m1-kernel replay-emitted <windows> --config=default --table=<settlement.tsv> --order=<order.tsv> --context=<context.tsv> [--timings]\n       ams-m1-kernel liveness-cases <spec> <keys> [--features=a,b] [--candidacy-prospect] [--follower-prefer-slots-off]";
 
 /// The flags and positionals a command line named, before the subcommand checks its positional count. The three mode flags are written as negations because all three modes are on in the shipping configuration.
 struct Flags<'a> {
@@ -71,7 +71,7 @@ struct Flags<'a> {
     context: Option<&'a str>,
     settled_only: bool,
     simulated_prospect: bool,
-    vote_slots: bool,
+    follower_prefer_slots: bool,
     deep_classes: bool,
 }
 
@@ -199,7 +199,7 @@ struct CasesPlan<'a> {
     features: Vec<&'a str>,
     settled_only: bool,
     simulated_prospect: bool,
-    vote_slots: bool,
+    follower_prefer_slots: bool,
 }
 
 /// What a `guard-sweep` command line asked for. `config` is `None` for the surface quantified over the powerset.
@@ -213,7 +213,7 @@ struct EnumeratePlan<'a> {
     spec: &'a str,
     features: Vec<&'a str>,
     simulated_prospect: bool,
-    vote_slots: bool,
+    follower_prefer_slots: bool,
     deep_classes: bool,
     timings: bool,
     cache_stats: bool,
@@ -226,7 +226,7 @@ struct ConfigsPlan<'a> {
     configs: Vec<ConfigRequest<'a>>,
     threads: Option<usize>,
     simulated_prospect: bool,
-    vote_slots: bool,
+    follower_prefer_slots: bool,
     deep_classes: bool,
     timings: bool,
     cache_stats: bool,
@@ -251,7 +251,7 @@ struct TablesPlan<'a> {
     moved_classes: Vec<&'a str>,
     memo_stamp: Option<&'a str>,
     simulated_prospect: bool,
-    vote_slots: bool,
+    follower_prefer_slots: bool,
     deep_classes: bool,
     timings: bool,
     cache_stats: bool,
@@ -268,7 +268,7 @@ struct ReplayPlan<'a> {
     memo_windows: Option<usize>,
     threads: Option<usize>,
     simulated_prospect: bool,
-    vote_slots: bool,
+    follower_prefer_slots: bool,
     timings: bool,
     cache_stats: bool,
 }
@@ -289,7 +289,7 @@ struct LivenessPlan<'a> {
     keys: &'a str,
     features: Vec<&'a str>,
     simulated_prospect: bool,
-    vote_slots: bool,
+    follower_prefer_slots: bool,
 }
 
 fn main() -> ExitCode {
@@ -400,13 +400,13 @@ fn scan_flags(rest: &[String], vocabulary: Vocabulary) -> Option<Flags<'_>> {
     let mut context: Option<&str> = None;
     let mut settled_only = false;
     let mut simulated_prospect = true;
-    let mut vote_slots = true;
+    let mut follower_prefer_slots = true;
     let mut deep_classes = true;
     for argument in rest {
         if argument == "--candidacy-prospect" {
             simulated_prospect = false;
-        } else if argument == "--vote-slots-off" {
-            vote_slots = false;
+        } else if argument == "--follower-prefer-slots-off" {
+            follower_prefer_slots = false;
         } else if vocabulary.grain && argument == "--deep-classes-off" {
             deep_classes = false;
         } else if vocabulary.seeding && argument == "--config-seed-off" {
@@ -560,7 +560,7 @@ fn scan_flags(rest: &[String], vocabulary: Vocabulary) -> Option<Flags<'_>> {
         context,
         settled_only,
         simulated_prospect,
-        vote_slots,
+        follower_prefer_slots,
         deep_classes,
     })
 }
@@ -576,13 +576,13 @@ fn plan_cases(rest: &[String]) -> Option<CasesPlan<'_>> {
         features: flags.features,
         settled_only: flags.settled_only,
         simulated_prospect: flags.simulated_prospect,
-        vote_slots: flags.vote_slots,
+        follower_prefer_slots: flags.follower_prefer_slots,
     })
 }
 
 fn plan_guard(rest: &[String]) -> Option<GuardPlan<'_>> {
     let flags = scan_flags(rest, GUARD_FLAGS)?;
-    if !flags.simulated_prospect || !flags.vote_slots {
+    if !flags.simulated_prospect || !flags.follower_prefer_slots {
         return None;
     }
     let [spec] = flags.positionals.as_slice() else {
@@ -604,7 +604,7 @@ fn plan_enumerate(rest: &[String]) -> Option<EnumeratePlan<'_>> {
         spec,
         features: flags.features,
         simulated_prospect: flags.simulated_prospect,
-        vote_slots: flags.vote_slots,
+        follower_prefer_slots: flags.follower_prefer_slots,
         deep_classes: flags.deep_classes,
         timings: flags.timings,
         cache_stats: flags.cache_stats,
@@ -653,7 +653,7 @@ fn plan_configs(rest: &[String]) -> Option<ConfigsPlan<'_>> {
         configs,
         threads: flags.threads,
         simulated_prospect: flags.simulated_prospect,
-        vote_slots: flags.vote_slots,
+        follower_prefer_slots: flags.follower_prefer_slots,
         deep_classes: flags.deep_classes,
         timings: flags.timings,
         cache_stats: flags.cache_stats,
@@ -682,7 +682,7 @@ fn plan_tables(rest: &[String]) -> Option<TablesPlan<'_>> {
         moved_classes: flags.moved_classes.unwrap_or_default(),
         memo_stamp: flags.memo_stamp,
         simulated_prospect: flags.simulated_prospect,
-        vote_slots: flags.vote_slots,
+        follower_prefer_slots: flags.follower_prefer_slots,
         deep_classes: flags.deep_classes,
         timings: flags.timings,
         cache_stats: flags.cache_stats,
@@ -699,7 +699,7 @@ fn plan_liveness(rest: &[String]) -> Option<LivenessPlan<'_>> {
         keys,
         features: flags.features,
         simulated_prospect: flags.simulated_prospect,
-        vote_slots: flags.vote_slots,
+        follower_prefer_slots: flags.follower_prefer_slots,
     })
 }
 
@@ -723,7 +723,7 @@ fn plan_replay(rest: &[String]) -> Option<ReplayPlan<'_>> {
         memo_windows: flags.memo_windows,
         threads: flags.threads,
         simulated_prospect: flags.simulated_prospect,
-        vote_slots: flags.vote_slots,
+        follower_prefer_slots: flags.follower_prefer_slots,
         timings: flags.timings,
         cache_stats: flags.cache_stats,
     })
@@ -732,7 +732,7 @@ fn plan_replay(rest: &[String]) -> Option<ReplayPlan<'_>> {
 /// The mode flags and `--cache-stats` are usage errors here, because the walk settles nothing.
 fn plan_emitted(rest: &[String]) -> Option<EmittedPlan<'_>> {
     let flags = scan_flags(rest, EMITTED_FLAGS)?;
-    if flags.cache_stats || !flags.simulated_prospect || !flags.vote_slots {
+    if flags.cache_stats || !flags.simulated_prospect || !flags.follower_prefer_slots {
         return None;
     }
     let [windows] = flags.positionals.as_slice() else {
@@ -780,14 +780,14 @@ fn engine_for<'i>(
     index: &'i SpecIndex,
     features: Vec<Sym>,
     simulated_prospect: bool,
-    vote_slots: bool,
+    follower_prefer_slots: bool,
 ) -> Engine<'i> {
     Engine::with_modes(
         index,
         features,
         EngineModes {
             simulated_prospect,
-            vote_slots,
+            follower_prefer_slots,
             trace_memo: true,
             ..EngineModes::default()
         },
@@ -797,7 +797,12 @@ fn engine_for<'i>(
 fn settle_cases(plan: &CasesPlan<'_>) -> Result<(), String> {
     let index = read_index(plan.spec)?;
     let features = feature_syms(&index, plan.spec, &plan.features)?;
-    let mut engine = engine_for(&index, features, plan.simulated_prospect, plan.vote_slots);
+    let mut engine = engine_for(
+        &index,
+        features,
+        plan.simulated_prospect,
+        plan.follower_prefer_slots,
+    );
     let text =
         std::fs::read_to_string(plan.cases).map_err(|error| format!("{}: {error}", plan.cases))?;
     let answer = if plan.settled_only {
@@ -823,7 +828,7 @@ fn enumerate(plan: &EnumeratePlan<'_>) -> Result<(), String> {
     let features = feature_syms(&index, plan.spec, &plan.features)?;
     let modes = EnumerationModes {
         simulated_prospect: plan.simulated_prospect,
-        vote_slots: plan.vote_slots,
+        follower_prefer_slots: plan.follower_prefer_slots,
         deep_classes: plan.deep_classes,
     };
     let token = feature_config_token(&index, features.iter().copied());
@@ -866,7 +871,7 @@ fn enumerate_configs(plan: &ConfigsPlan<'_>) -> Result<(), String> {
     }
     let modes = EnumerationModes {
         simulated_prospect: plan.simulated_prospect,
-        vote_slots: plan.vote_slots,
+        follower_prefer_slots: plan.follower_prefer_slots,
         deep_classes: plan.deep_classes,
     };
     // Without `--threads` the run is serial, because only the caller knows what else is using memory. Any width is capped at the machine's parallelism, since a worker beyond it adds no throughput while its configuration holds a whole working set, and at the number of configurations, since a worker beyond that has nothing to do.
@@ -910,7 +915,7 @@ fn build_tables(plan: &TablesPlan<'_>) -> Result<(), String> {
     }
     let modes = EnumerationModes {
         simulated_prospect: plan.simulated_prospect,
-        vote_slots: plan.vote_slots,
+        follower_prefer_slots: plan.follower_prefer_slots,
         deep_classes: plan.deep_classes,
     };
     let workers = plan
@@ -999,7 +1004,7 @@ fn replay_strings(plan: &ReplayPlan<'_>) -> Result<(), String> {
     };
     let modes = EnumerationModes {
         simulated_prospect: plan.simulated_prospect,
-        vote_slots: plan.vote_slots,
+        follower_prefer_slots: plan.follower_prefer_slots,
         deep_classes: true,
     };
     let workers = plan
@@ -1140,7 +1145,12 @@ fn guard_sweep(plan: &GuardPlan<'_>) -> Result<(), String> {
 fn liveness_cases(plan: &LivenessPlan<'_>) -> Result<(), String> {
     let index = read_index(plan.spec)?;
     let features = feature_syms(&index, plan.spec, &plan.features)?;
-    let mut engine = engine_for(&index, features, plan.simulated_prospect, plan.vote_slots);
+    let mut engine = engine_for(
+        &index,
+        features,
+        plan.simulated_prospect,
+        plan.follower_prefer_slots,
+    );
     let text =
         std::fs::read_to_string(plan.keys).map_err(|error| format!("{}: {error}", plan.keys))?;
     let mut scaffolding = LivenessScaffolding::new(&index)
@@ -1177,10 +1187,10 @@ impl<'i> LivenessScaffolding<'i> {
 
     /// One key line's answer: `live` or `dead` for a `3` or `4` key, and the context's fiber partition as compact JSON for a `fibers` key.
     ///
-    /// The filters get the liveness probe only in a deep world (`simulated_prospect` or `vote_slots` on), which is the only place they have a liveness check. With both modes off they are the own-rune chain sets alone, and passing a probe would answer a question the enumeration never asks. The deriver accepts any `fibers` key; choosing contexts where a partition is meaningful is up to the caller.
+    /// The filters get the liveness probe only in a deep world (`simulated_prospect` or `follower_prefer_slots` on), which is the only place they have a liveness check. With both modes off they are the own-rune chain sets alone, and passing a probe would answer a question the enumeration never asks. The deriver accepts any `fibers` key; choosing contexts where a partition is meaningful is up to the caller.
     fn answer(&mut self, engine: &mut Engine<'i>, line: &str) -> Result<String, String> {
         let index = engine.index();
-        let deep_world = engine.simulated_prospect() || engine.vote_slots();
+        let deep_world = engine.simulated_prospect() || engine.follower_prefer_slots();
         let fields: Vec<&str> = line.split('\t').collect();
         match fields.as_slice() {
             ["3", input, right1, right2] => {
@@ -1236,7 +1246,7 @@ impl<'i> LivenessScaffolding<'i> {
     }
 }
 
-/// The probe to pass a filter: `Some` when `simulated_prospect` or `vote_slots` is on, and `None` when both are off, where the chain check alone decides the verdict.
+/// The probe to pass a filter: `Some` when `simulated_prospect` or `follower_prefer_slots` is on, and `None` when both are off, where the chain check alone decides the verdict.
 fn probe_in<'l, 'i>(
     deep_world: bool,
     liveness: &'l mut ProspectLiveness<'i>,
@@ -1325,7 +1335,7 @@ mod tests {
         positionals: Vec<String>,
         features: Vec<String>,
         simulated_prospect: bool,
-        vote_slots: bool,
+        follower_prefer_slots: bool,
         deep_classes: bool,
         timings: bool,
         cache_stats: bool,
@@ -1338,7 +1348,7 @@ mod tests {
         configs: Vec<(String, Vec<String>)>,
         threads: Option<usize>,
         simulated_prospect: bool,
-        vote_slots: bool,
+        follower_prefer_slots: bool,
         deep_classes: bool,
         timings: bool,
         cache_stats: bool,
@@ -1355,7 +1365,7 @@ mod tests {
             positionals: vec![plan.spec.to_owned()],
             features: owned(&plan.features),
             simulated_prospect: plan.simulated_prospect,
-            vote_slots: plan.vote_slots,
+            follower_prefer_slots: plan.follower_prefer_slots,
             deep_classes: plan.deep_classes,
             timings: plan.timings,
             cache_stats: plan.cache_stats,
@@ -1374,7 +1384,7 @@ mod tests {
                 .collect(),
             threads: plan.threads,
             simulated_prospect: plan.simulated_prospect,
-            vote_slots: plan.vote_slots,
+            follower_prefer_slots: plan.follower_prefer_slots,
             deep_classes: plan.deep_classes,
             timings: plan.timings,
             cache_stats: plan.cache_stats,
@@ -1388,7 +1398,7 @@ mod tests {
             positionals: vec![plan.spec.to_owned(), plan.cases.to_owned()],
             features: owned(&plan.features),
             simulated_prospect: plan.simulated_prospect,
-            vote_slots: plan.vote_slots,
+            follower_prefer_slots: plan.follower_prefer_slots,
             deep_classes: true,
             timings: false,
             cache_stats: false,
@@ -1402,7 +1412,7 @@ mod tests {
             positionals: vec![plan.spec.to_owned(), plan.keys.to_owned()],
             features: owned(&plan.features),
             simulated_prospect: plan.simulated_prospect,
-            vote_slots: plan.vote_slots,
+            follower_prefer_slots: plan.follower_prefer_slots,
             deep_classes: true,
             timings: false,
             cache_stats: false,
@@ -1420,7 +1430,7 @@ mod tests {
         memo_windows: Option<usize>,
         threads: Option<usize>,
         simulated_prospect: bool,
-        vote_slots: bool,
+        follower_prefer_slots: bool,
         timings: bool,
         cache_stats: bool,
     }
@@ -1441,7 +1451,7 @@ mod tests {
             memo_windows: plan.memo_windows,
             threads: plan.threads,
             simulated_prospect: plan.simulated_prospect,
-            vote_slots: plan.vote_slots,
+            follower_prefer_slots: plan.follower_prefer_slots,
             timings: plan.timings,
             cache_stats: plan.cache_stats,
         })
@@ -1468,7 +1478,7 @@ mod tests {
             Some(vec!["qsPea".to_owned(), "qsTea".to_owned()])
         );
         assert_eq!(plan.threads, Some(2));
-        assert!(plan.simulated_prospect && plan.vote_slots && plan.timings);
+        assert!(plan.simulated_prospect && plan.follower_prefer_slots && plan.timings);
         assert_eq!(plan.memo_dir, None);
         let whole = replayed(&["spec.json", "out", "--configs=default", "--max-length=4"])
             .expect("no family list walks every text");
@@ -1500,10 +1510,10 @@ mod tests {
             "--configs=default",
             "--max-length=4",
             "--candidacy-prospect",
-            "--vote-slots-off",
+            "--follower-prefer-slots-off",
         ])
         .expect("the replay names its world the way the fan-out does");
-        assert!(!pinned.simulated_prospect && !pinned.vote_slots);
+        assert!(!pinned.simulated_prospect && !pinned.follower_prefer_slots);
     }
 
     /// The replay rejects a missing, repeated, or non-positive maximum length; an empty or repeated family list or memo directory; a memo ceiling that is not a positive count, is repeated, or is given with a memo directory; a missing configuration set or output directory; and the flags it does not accept (the grain flag, the stamp, and a feature list). No other subcommand accepts the replay's own flags.
@@ -1632,44 +1642,48 @@ mod tests {
     fn a_bare_command_line_names_the_shipping_world() {
         let plan = enumerated(&["spec.json"]).expect("one positional is enough");
         assert_eq!(plan.positionals, ["spec.json"]);
-        assert!(plan.simulated_prospect && plan.vote_slots && plan.deep_classes);
+        assert!(plan.simulated_prospect && plan.follower_prefer_slots && plan.deep_classes);
         assert!(plan.features.is_empty());
         let cases = cased(&["spec.json", "cases.txt"]).expect("two positionals");
-        assert!(cases.simulated_prospect && cases.vote_slots);
+        assert!(cases.simulated_prospect && cases.follower_prefer_slots);
         let liveness = livened(&["spec.json", "keys.txt"]).expect("two positionals");
         assert_eq!(liveness.positionals, ["spec.json", "keys.txt"]);
-        assert!(liveness.simulated_prospect && liveness.vote_slots);
+        assert!(liveness.simulated_prospect && liveness.follower_prefer_slots);
     }
 
     /// Each mode flag turns off only its own mode: the two world flags together give the pinned candidacy world, and `--deep-classes-off` alone gives label grain in the deep world.
     #[test]
     fn each_mode_flag_turns_off_the_mode_it_names() {
-        let pinned = enumerated(&["spec.json", "--candidacy-prospect", "--vote-slots-off"])
-            .expect("the flags are optional, not required");
-        assert!(!pinned.simulated_prospect && !pinned.vote_slots);
+        let pinned = enumerated(&[
+            "spec.json",
+            "--candidacy-prospect",
+            "--follower-prefer-slots-off",
+        ])
+        .expect("the flags are optional, not required");
+        assert!(!pinned.simulated_prospect && !pinned.follower_prefer_slots);
         assert!(
             pinned.deep_classes,
             "the grain flag is independent of the world flags, and in this world it does nothing"
         );
         let label_grain = enumerated(&["spec.json", "--deep-classes-off"])
             .expect("the label-grain arm of the deep world");
-        assert!(label_grain.simulated_prospect && label_grain.vote_slots);
+        assert!(label_grain.simulated_prospect && label_grain.follower_prefer_slots);
         assert!(!label_grain.deep_classes);
         let cases = cased(&["spec.json", "cases.txt", "--candidacy-prospect"])
             .expect("the case replay names its world the same way");
-        assert!(!cases.simulated_prospect && cases.vote_slots);
-        let liveness = livened(&["spec.json", "keys.txt", "--vote-slots-off"])
+        assert!(!cases.simulated_prospect && cases.follower_prefer_slots);
+        let liveness = livened(&["spec.json", "keys.txt", "--follower-prefer-slots-off"])
             .expect("and so does the liveness sweep");
-        assert!(liveness.simulated_prospect && !liveness.vote_slots);
+        assert!(liveness.simulated_prospect && !liveness.follower_prefer_slots);
         let fan_out = fanned(&[
             "spec.json",
             "out",
             "--configs=default,ss03",
             "--candidacy-prospect",
-            "--vote-slots-off",
+            "--follower-prefer-slots-off",
         ])
         .expect("a fan-out names one world for the whole set");
-        assert!(!fan_out.simulated_prospect && !fan_out.vote_slots);
+        assert!(!fan_out.simulated_prospect && !fan_out.follower_prefer_slots);
     }
 
     /// Only `settle-cases` accepts `--settled-only`; a liveness answer has no trace to omit.
@@ -1741,7 +1755,7 @@ mod tests {
                 ),
             ]
         );
-        assert!(plan.simulated_prospect && plan.vote_slots && plan.deep_classes);
+        assert!(plan.simulated_prospect && plan.follower_prefer_slots && plan.deep_classes);
         assert!(plan.threads.is_none() && !plan.timings);
     }
 

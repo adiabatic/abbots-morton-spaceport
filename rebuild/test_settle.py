@@ -280,7 +280,7 @@ def prospect_settled():
     """Both prospect windows settled with the simulated prospect off and on, one batch each. `SettlementModes` sets the mode flags on each kernel invocation, so the test does not change the process defaults."""
     settled = {}
     for simulated in (False, True):
-        modes = kernel_exec.SettlementModes(simulated_prospect=simulated, vote_slots=True)
+        modes = kernel_exec.SettlementModes(simulated_prospect=simulated, follower_prefer_slots=True)
         windows = tuple((names, ()) for names in PROSPECT_WINDOWS)
         for (names, _features), row in _window_settled(PROSPECT_SPEC, windows, modes=modes).items():
             settled[(names, simulated)] = row

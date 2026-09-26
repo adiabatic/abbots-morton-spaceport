@@ -749,10 +749,10 @@ def test_ligature_transparency_expands_left_facing_family_lists(spec):
     alt_from = spec.runes["qsUtter"].stances["alternate"].surface.entries["x-height"].scope
     assert set(alt_from[0].family) >= {"qsUtter", "qsDay_qsUtter", "qsSee_qsUtter"}
 
-    vote = spec.runes["qsIt"].policy.prefer[0]
-    assert vote.when.left is not None
-    assert set(vote.when.left.family) == {"qsOy", "qsTea_qsOy"}
-    assert vote.when.right is not None and vote.when.right.family == ("qsNo",)
+    follower_prefer = spec.runes["qsIt"].policy.prefer[0]
+    assert follower_prefer.when.left is not None
+    assert set(follower_prefer.when.left.family) == {"qsOy", "qsTea_qsOy"}
+    assert follower_prefer.when.right is not None and follower_prefer.when.right.family == ("qsNo",)
 
     tea_half_from = spec.runes["qsTea"].stances["half"].surface.entries["x-height"].scope
     assert tea_half_from[0].except_[0].family == ("qsDay_qsUtter",)

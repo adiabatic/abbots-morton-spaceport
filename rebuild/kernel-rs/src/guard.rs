@@ -1,6 +1,6 @@
-//! The section 5.7 late-formation guard, the only place its verdict is computed: whether a ligature yields to its components in one window because the trailing component, left unformed, would join toward the follower while the formed ligature could not. The trail side is settled at ranking grain: a full [`Engine::transition_trace`] with the lead's default stance, unjoined, as its left, so follower votes and the runes' prefers count as well as candidacy. The ligature side is checked more generously, at candidacy grain with the run edge as its left.
+//! The section 5.7 late-formation guard, the only place its verdict is computed: whether a ligature yields to its components in one window because the trailing component, left unformed, would join toward the follower while the formed ligature could not. The trail side is settled at ranking grain: a full [`Engine::transition_trace`] with the lead's default stance, unjoined, as its left, so follower prefers and the runes' prefers count as well as candidacy. The ligature side is checked more generously, at candidacy grain with the run edge as its left.
 //!
-//! The verdict depends only on the ligature and the two raw slots past its sequence, which is why it can compile into the formation lookup the font ships. That lookup runs before the stylistic-set marker substitutions and so cannot see the configuration, so the verdict is quantified over the powerset of capability-unlock features and blocks only where every configuration blocks. The engines that compute it have `simulated_prospect` and `vote_slots` off and bind every slot past the verdict's two to the window edge: `vote_deep_slot` is [`EDGE`], and the trace's third and fourth slots are `EDGE`. A vote or prefer that needs deeper raw text therefore cannot change a formation verdict as a side effect of a settlement-scoring change. Making the guard follow either flag is a separate reviewed change, so the modes are pinned here ([`GUARD_MODES`]) instead of read from the engine defaults.
+//! The verdict depends only on the ligature and the two raw slots past its sequence, which is why it can compile into the formation lookup the font ships. That lookup runs before the stylistic-set marker substitutions and so cannot see the configuration, so the verdict is quantified over the powerset of capability-unlock features and blocks only where every configuration blocks. The engines that compute it have `simulated_prospect` and `follower_prefer_slots` off and bind every slot past the verdict's two to the window edge: `follower_prefer_deep_slot` is [`EDGE`], and the trace's third and fourth slots are `EDGE`. A prefer, own or follower, that needs deeper raw text therefore cannot change a formation verdict as a side effect of a settlement-scoring change. Making the guard follow either flag is a separate reviewed change, so the modes are pinned here ([`GUARD_MODES`]) instead of read from the engine defaults.
 //!
 //! [`GuardState`] is per-spec state, built once and kept, and it holds the powerset's engines itself. Python's `settle.form_ligatures` reads the verdicts from the complete sweep, which `kernel_exec.guard_sweep` memoizes per spec. No verdict reads a fired delta, so the engines have no trace memo: nothing is journaled and [`Engine::candidates`] runs uncached. [`GuardState::under`] and [`sweep_under`] compute the same guard for one named configuration instead of the powerset. The font does not use them; the rebuild suite uses them to check, per configuration, where that configuration's verdicts differ from the quantified ones.
 //!
@@ -28,11 +28,11 @@ pub struct GuardState<'i> {
     verdicts: HashMap<VerdictKey, bool>,
 }
 
-/// The guard's engine modes: `simulated_prospect` and `vote_slots` off and the vote's deep slot pinned to the window edge, whatever the engine defaults are.
+/// The guard's engine modes: `simulated_prospect` and `follower_prefer_slots` off and the follower prefer's deep slot pinned to the window edge, whatever the engine defaults are.
 const GUARD_MODES: EngineModes = EngineModes {
-    vote_deep_slot: EDGE,
+    follower_prefer_deep_slot: EDGE,
     simulated_prospect: false,
-    vote_slots: false,
+    follower_prefer_slots: false,
     trace_memo: false,
     explain_ladder: true,
 };
@@ -573,7 +573,10 @@ mod tests {
     fn the_guard_engines_pin_the_modes_the_shipping_world_leaves_on() {
         let shipping = EngineModes::default();
         assert!(shipping.simulated_prospect, "the shipping world simulates");
-        assert!(shipping.vote_slots, "and reads a vote's slots shifted");
+        assert!(
+            shipping.follower_prefer_slots,
+            "and reads a follower prefer's slots shifted"
+        );
         let baseline = object(&[row("baseline", &[])]);
         let unlocks = fixtures::seq(&[&unlock("ss03"), &unlock("ss05")]);
         let pea = rune(
@@ -596,8 +599,8 @@ mod tests {
         assert_eq!(state.engine_count(), 4);
         for engine in &state.engines {
             assert!(!engine.simulated_prospect());
-            assert!(!engine.vote_slots());
-            assert_eq!(engine.vote_deep_slot(), EDGE);
+            assert!(!engine.follower_prefer_slots());
+            assert_eq!(engine.follower_prefer_deep_slot(), EDGE);
             assert!(
                 !engine.trace_memo(),
                 "no verdict reads a fired delta, so nothing journals"

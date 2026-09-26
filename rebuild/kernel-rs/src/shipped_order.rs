@@ -467,7 +467,7 @@ mod tests {
 
     const SHIPPING: EnumerationModes = EnumerationModes {
         simulated_prospect: true,
-        vote_slots: true,
+        follower_prefer_slots: true,
         deep_classes: true,
     };
 

@@ -23,10 +23,10 @@ SPEC = fixtures.mini_spec()
 
 
 def candidacy_tables(spec, features):
-    """Builds tables in the pinned world (`simulated_prospect` and `vote_slots` both off), whatever the shipping defaults are. In this world a deep slot opens only for an input whose own `then:` chains reach it, which is what the lazy-enumeration tests below check. `kernel_exec.world_flags` reads these module defaults at call time and passes them to the kernel. `MonkeyPatch.setattr` fails on a missing attribute, so a renamed default fails here instead of being set on a name nothing reads."""
+    """Builds tables in the pinned world (`simulated_prospect` and `follower_prefer_slots` both off), whatever the shipping defaults are. In this world a deep slot opens only for an input whose own `then:` chains reach it, which is what the lazy-enumeration tests below check. `kernel_exec.world_flags` reads these module defaults at call time and passes them to the kernel. `MonkeyPatch.setattr` fails on a missing attribute, so a renamed default fails here instead of being set on a name nothing reads."""
     with pytest.MonkeyPatch.context() as patch:
         patch.setattr(kernel_exec, "SIMULATED_PROSPECT_DEFAULT", False)
-        patch.setattr(kernel_exec, "VOTE_SLOTS_DEFAULT", False)
+        patch.setattr(kernel_exec, "FOLLOWER_PREFER_SLOTS_DEFAULT", False)
         return build_tables(spec, features)
 
 
