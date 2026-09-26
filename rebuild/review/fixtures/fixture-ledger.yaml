@@ -12,8 +12,8 @@
   why: |
     Fixture class A: hand-written units exercising the multi-config, ZWNJ, ligation, and duplicate-pin branches of the shard contract.
 
-- id: fixture-drift
-  status: drift-accepted
+- id: fixture-mismatch
+  status: accepted-pending-review
   ink_identical: false
   no_verdict: false
   why: |

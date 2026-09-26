@@ -2,7 +2,7 @@
 
 Nothing here builds a table or a font; everything runs against tables and an M1.otf that are already built. So this module is left out of the stamp a serialized window enumeration carries (`fingerprint.table_code_paths` subtracts `fingerprint.COMPARISON_CODE_MODULES`), and rebuild/test_build_code_closure.py fails if the import graph from any build-side module or from `run_m1.run` reaches it. An edit to `classify_divergence`, a predicate, `compile_ledger`, `_match_compiled`, or the position comparison therefore keeps every enumeration on disk, and `run_m1 --gates-only` re-runs the oracle over them. Both files stay in `fingerprint.pipeline_code_paths`, so an edit here still changes the Stage A `pipeline_code` component, the artifact cycle's run_m1 skip key, and the Stage A record the review corpus's manifest copies.
 
-The rows the oracle classifies are produced in conform.py. `_compare_row` and `_SettledWindowWalk` are the entry points whose import graph `oracle_cache.ORACLE_ROW_CODE_PATHS` must cover, and the record codec (`_cached_verdict`, `_served_verdict`) and `_verify_served_sample` sit beside them. No module under that stamp imports this one, so after a classifier edit every row verdict is still served from the store; rebuild/test_oracle_code_closure.py fails if conform.py's import graph reaches this module. The position comparison is rebuild/pipeline/oracle_positions.py, the only module `oracle_cache.POSITION_CODE_PATHS` names. It never imports this module either, so a classifier edit also keeps every stored position, and the same test checks that direction. `_compare_config` calls the position comparison through the `oracle_positions` module, not through imported names, so monkeypatching `oracle_positions._position_drift` affects both the rows this pass shapes and `_verify_served_positions` (rebuild/test_conform.py relies on this).
+The rows the oracle classifies are produced in conform.py. `_compare_row` and `_SettledWindowWalk` are the entry points whose import graph `oracle_cache.ORACLE_ROW_CODE_PATHS` must cover, and the record codec (`_cached_verdict`, `_served_verdict`) and `_verify_served_sample` sit beside them. No module under that stamp imports this one, so after a classifier edit every row verdict is still served from the store; rebuild/test_oracle_code_closure.py fails if conform.py's import graph reaches this module. The position comparison is rebuild/pipeline/oracle_positions.py, the only module `oracle_cache.POSITION_CODE_PATHS` names. It never imports this module either, so a classifier edit also keeps every stored position, and the same test checks that direction. `_compare_config` calls the position comparison through the `oracle_positions` module, not through imported names, so monkeypatching `oracle_positions._position_mismatch` affects both the rows this pass shapes and `_verify_served_positions` (rebuild/test_conform.py relies on this).
 
 `compare_against_baseline` is the serial path. For each configuration it streams the subset table and settles each row, or, given an `OracleRowCache`, serves the row verdict from the previous pass's store and walks only the rows an edit can reach (rebuild/pipeline/oracle_cache.py documents what the keys cover). It compares ligation, seams, and cells through the alias map and matches each divergent row against the `CompiledLedger` (`compile_ledger`). Rows the ledger calls ink-identical are shaped against M1.otf to compare positions, or have their position verdict served from the same store under the position key.
 
@@ -227,7 +227,7 @@ def classify_divergence(row: DivergentRow) -> str | None:
     if not tags or any(item.startswith("unaliased") for item in tags):
         return None
     if any(item.startswith("position") for item in tags):
-        # A cell-grain class claims the ink is identical, and the position comparison is the test of that claim, so a row with position drift must not take one. Such rows are left to the function predicates (`kern_out_of_scope`, `may_ligature_seam_loosened`).
+        # A cell-grain class claims the ink is identical, and the position comparison is the test of that claim, so a row with a position mismatch must not take one. Such rows are left to the function predicates (`kern_out_of_scope`, `may_ligature_seam_loosened`).
         return None
     if {"0020", "200C"} & set(row.codepoints.split(":")):
         # Design section 3.4: the new font renders each segment of a window split by a space or ZWNJ the same as that segment alone, and the belt's split-buffer check verifies this on every build. So a boundary row can diverge from the baseline only where the old font was inconsistent across the boundary, and every divergence inside a segment also appears on that segment's own row. Boundary rows need no review of their own and take this class ahead of every other.
@@ -252,7 +252,7 @@ def classify_divergence(row: DivergentRow) -> str | None:
         return None
     if "seam-loss" in tags:
         if gains:
-            return "regrouping-floor-drift"
+            return "regrouped-chain"
         return None
     if gains:
         gain_runes = {item.split(":", 1)[1] for item in gains}
@@ -353,7 +353,7 @@ for _class_id in (
     "boundary-echo",
     "ss03-out-tea-ligature-kept",
     "marker-staging-ligature-formation",
-    "regrouping-floor-drift",
+    "regrouped-chain",
     "zwnj-word-initial-seam-moved",
     "zwnj-follower-exit-restored",
     "pre-ligature-cleanup-regularized",
@@ -380,7 +380,7 @@ for _class_id in (
 
 @predicate("kern_out_of_scope")
 def _kern_out_of_scope(row: DivergentRow) -> bool:
-    """Match position-only rows whose drift the position comparison marked kern-attributable (`oracle_positions._position_drift` sets this when every drift comes after a slot whose old advance carries a nonzero sidecar kern or that sits next to a ZWNJ). Other position drift is not matched here, so it stays unmatched for review unless another predicate matches it."""
+    """Match position-only rows whose mismatch the position comparison marked kern-attributable (`oracle_positions._position_mismatch` sets this when every mismatch comes after a slot whose old advance carries a nonzero sidecar kern or that sits next to a ZWNJ). Other position mismatches are not matched here, so they stay unmatched for review unless another predicate matches them."""
     return row.kinds == ("position",) and "position-kern-attributable" in row.divergence_tags
 
 
@@ -392,8 +392,8 @@ _NAME_GRAIN_TOKENS = frozenset(
 
 @predicate("may_ligature_seam_loosened")
 def _may_ligature_seam_loosened(row: DivergentRow) -> bool:
-    """Match the reviewed `·Day+Utter ~x~ ·May` seam. The old font tucks ·May's x-height entry one pixel into the ligature's exit; the new model places it at the anchor-aligned column and draws no connector, which is the intended design (the may-ligature-seam-loosened ledger entry records the decision). Matches non-kern position drift on rows whose old glyph names contain that pair and whose other cell-grain tokens, if any, are all in `_NAME_GRAIN_TOKENS`."""
-    if "position-drift" not in row.divergence_tags or "position-kern-attributable" in row.divergence_tags:
+    """Match the reviewed `·Day+Utter ~x~ ·May` seam. The old font tucks ·May's x-height entry one pixel into the ligature's exit; the new model places it at the anchor-aligned column and draws no connector, which is the intended design (the may-ligature-seam-loosened ledger entry records the decision). Matches non-kern position mismatches on rows whose old glyph names contain that pair and whose other cell-grain tokens, if any, are all in `_NAME_GRAIN_TOKENS`."""
+    if "position-mismatch" not in row.divergence_tags or "position-kern-attributable" in row.divergence_tags:
         return False
     cell_grain = {item for item in row.divergence_tags if not item.startswith("position")}
     if not cell_grain <= _NAME_GRAIN_TOKENS:
@@ -683,15 +683,15 @@ def _compare_config(
                 if topology_clean and class_claims_ink_identity:
                     if carried is not None and store is not None and position_sample is not None:
                         assert not isinstance(position, oracle_cache._Unshaped)
-                        drift = oracle_positions._served_position(position)
+                        mismatch = oracle_positions._served_position(position)
                         store.positions_served += 1
                         position_sample.offer(index, row, carried[1])
                     else:
-                        drift = oracle_positions._position_drift(shaper, kern, features, row)
-                        position, position_at = oracle_positions._cached_position(drift), this_pass
+                        mismatch = oracle_positions._position_mismatch(shaper, kern, features, row)
+                        position, position_at = oracle_positions._cached_position(mismatch), this_pass
                     result.positions_compared += 1
-                    if drift is not None:
-                        drift_notes, kern_attributable = drift
+                    if mismatch is not None:
+                        mismatch_notes, kern_attributable = mismatch
                         position_tags = ("position-kern-attributable",) if kern_attributable else ()
                         prior_ink_match = matches[0] if len(matches) == 1 else None
                         if divergent is None:
@@ -702,9 +702,9 @@ def _compare_config(
                                 position=-1,
                                 baseline_glyphs=tuple(row.glyphs),
                                 baseline_seams=tuple(row.seams),
-                                new_cells=tuple(glyph for glyph in drift_notes),
+                                new_cells=tuple(glyph for glyph in mismatch_notes),
                                 new_seams=(),
-                                divergence_tags=position_tags + ("position-drift",),
+                                divergence_tags=position_tags + ("position-mismatch",),
                             )
                         else:
                             divergent = replace(
@@ -712,10 +712,10 @@ def _compare_config(
                                 kinds=divergent.kinds + ("position",),
                                 divergence_tags=divergent.divergence_tags
                                 + position_tags
-                                + ("position-drift",),
+                                + ("position-mismatch",),
                             )
                         rematch = _match_compiled(ledger, divergent)
-                        # Kern-attributable drift is out of scope, so when nothing matches after it is added, a row that already matched a single ink-identical class keeps that match. In every other case, including drift that is not kern-attributable (a real ink shift), the match list computed with the drift replaces the old one.
+                        # A kern-attributable mismatch is out of scope, so when nothing matches after it is added, a row that already matched a single ink-identical class keeps that match. In every other case, including a mismatch that is not kern-attributable (a real ink shift), the match list computed with the mismatch replaces the old one.
                         if not rematch and kern_attributable and prior_ink_match is not None:
                             matches = [prior_ink_match]
                         else:

@@ -19,10 +19,10 @@ ss02+ss03+ss05	E652:E670	cell	fixture-intended	qsTea.half.ex-y5|qsIt.en-y5.ex-y0
 ss02	E650:E665	cell,seam	fixture-intended	qsPea|qsMay.en-y0.ex-y5.en-ext-1	qsPea/full/None/baseline/|qsMay/loop/baseline/None/en-ext-1
 ss02+ss03	E650:E665	cell,seam	fixture-intended	qsPea|qsMay.en-y0.ex-y5.en-ext-1	qsPea/full/None/baseline/|qsMay/loop/baseline/None/en-ext-1
 ss02+ss03+ss05	E650:E665	cell,seam	fixture-intended	qsPea|qsMay.en-y0.ex-y5.en-ext-1	qsPea/full/None/baseline/|qsMay/loop/baseline/None/en-ext-1
-default	00B7:E679:E652	cell	fixture-drift	periodcentered.lowered|qsOy|qsTea.en-y0	namer-dot/boundary/None/None/|qsOy/hapax/None/baseline/|qsTea/full/baseline/None/
-ss04	00B7:E679:E652	cell	fixture-drift	periodcentered.lowered|qsOy|qsTea.en-y0	namer-dot/boundary/None/None/|qsOy/hapax/None/baseline/|qsTea/full/baseline/None/
-ss05	00B7:E679:E652	cell	fixture-drift	periodcentered.lowered|qsOy|qsTea.en-y0	namer-dot/boundary/None/None/|qsOy/hapax/None/baseline/|qsTea/full/baseline/None/
-ss03	E652:E679	ligation	fixture-drift	qsTea|qsOy	qsTea_qsOy/hapax/None/None/
-ss02+ss03	E652:E679	ligation	fixture-drift	qsTea|qsOy	qsTea_qsOy/hapax/None/None/
-ss02+ss03+ss05	E652:E679	ligation	fixture-drift	qsTea|qsOy	qsTea_qsOy/hapax/None/None/
-ss10	E652:E679	ligation	fixture-drift	qsTea|qsOy	qsTea_qsOy/hapax/None/None/
+default	00B7:E679:E652	cell	fixture-mismatch	periodcentered.lowered|qsOy|qsTea.en-y0	namer-dot/boundary/None/None/|qsOy/hapax/None/baseline/|qsTea/full/baseline/None/
+ss04	00B7:E679:E652	cell	fixture-mismatch	periodcentered.lowered|qsOy|qsTea.en-y0	namer-dot/boundary/None/None/|qsOy/hapax/None/baseline/|qsTea/full/baseline/None/
+ss05	00B7:E679:E652	cell	fixture-mismatch	periodcentered.lowered|qsOy|qsTea.en-y0	namer-dot/boundary/None/None/|qsOy/hapax/None/baseline/|qsTea/full/baseline/None/
+ss03	E652:E679	ligation	fixture-mismatch	qsTea|qsOy	qsTea_qsOy/hapax/None/None/
+ss02+ss03	E652:E679	ligation	fixture-mismatch	qsTea|qsOy	qsTea_qsOy/hapax/None/None/
+ss02+ss03+ss05	E652:E679	ligation	fixture-mismatch	qsTea|qsOy	qsTea_qsOy/hapax/None/None/
+ss10	E652:E679	ligation	fixture-mismatch	qsTea|qsOy	qsTea_qsOy/hapax/None/None/

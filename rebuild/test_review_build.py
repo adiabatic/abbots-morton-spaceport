@@ -1517,7 +1517,7 @@ def _export_corpus():
     """
     manifest = copy.deepcopy(json.loads((FIXTURES / "manifest.json").read_text(encoding="utf-8")))
     units = {unit["id"]: unit for unit in _load_fixture_units()}
-    template = units["u-WJSK8gMxjxy"]
+    template = units["u-KtPjucTyfbt"]
 
     def clone(unit_id, **changes):
         clone = copy.deepcopy(template)
@@ -1610,7 +1610,7 @@ def test_load_units_refuses_a_shard_missing_a_field_the_export_reads(tmp_path):
     """A field the triage export reads but the shard lacks means the corpus was built by a version this reader does not know. Read through `.get`, it would appear in the YAML as a null the reviewer cannot tell from a real absence, so the loader names the field and exits."""
     shutil.copytree(FIXTURES / "units", tmp_path / "units")
     shutil.copy(FIXTURES / "manifest.json", tmp_path / "manifest.json")
-    shard = tmp_path / "units" / "fixture-drift.json"
+    shard = tmp_path / "units" / "fixture-mismatch.json"
     units = json.loads(shard.read_text(encoding="utf-8"))
     del units[0]["drafts"]
     _write_json(shard, units)

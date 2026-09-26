@@ -60,8 +60,8 @@
   "u-2WvdGAWe6bX",
   "u-DdcTojn1hba",
   "u-8nacGTcgMRS",
-  "u-Ng8Npb18Kha",
-  "u-WJSK8gMxjxy"
+  "u-HZub95WTHju",
+  "u-KtPjucTyfbt"
  ],
  "totals": {
   "units": 6,
@@ -117,8 +117,8 @@
    ]
   },
   {
-   "id": "fixture-drift",
-   "status": "drift-accepted",
+   "id": "fixture-mismatch",
+   "status": "accepted-pending-review",
    "ink_identical": false,
    "no_verdict": false,
    "why": "Fixture class B: hand-written units exercising the namer-dot and pair-null branches.",
@@ -131,7 +131,7 @@
     "junior_equivalent": 0
    },
    "shards": [
-    "units/fixture-drift.json"
+    "units/fixture-mismatch.json"
    ],
    "batches": [
     0

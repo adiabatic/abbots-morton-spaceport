@@ -346,7 +346,7 @@ class TestAliasAndLedger:
             new_seams=("break",),
         )
         position_kern = row(
-            "ss04", "E650:E652", ("position",), ("position-kern-attributable", "position-drift")
+            "ss04", "E650:E652", ("position",), ("position-kern-attributable", "position-mismatch")
         )
         unclassified = row("default", "E650:E652", ("cell",), ("+ex-bind-1",))
         scoped_out = row("ss05", "E650:E665:E652", ("cell",), ("exit-dropped",))
@@ -468,7 +468,7 @@ class TestAliasAndLedger:
             (("+ex-bind-pulled-back", "exit-dropped"), None),
             (("seam-gain:qsIt", "exit-added"), "entered-it-baseline-join-gain"),
             (("seam-gain:qsPea", "entry-dropped"), "pea-chain-regularized"),
-            (("seam-gain:qsMay", "seam-loss"), "regrouping-floor-drift"),
+            (("seam-gain:qsMay", "seam-loss"), "regrouped-chain"),
             (("seam-loss",), None),
             ((), None),
         ]
@@ -528,7 +528,9 @@ class TestAliasAndLedger:
             replace(row, new_cells=(row.new_cells[0], "qsZoo/full/x-height/None/en-con-2")),
             replace(row, divergence_tags=("+en-con-1",)),
             replace(row, divergence_tags=divergence_tags + ("+ex-ext-1",)),
-            replace(row, kinds=("cell", "position"), divergence_tags=divergence_tags + ("position-drift",)),
+            replace(
+                row, kinds=("cell", "position"), divergence_tags=divergence_tags + ("position-mismatch",)
+            ),
         ):
             assert oracle.classify_divergence(other) is None
 
@@ -745,8 +747,8 @@ class TestClassifierRouting:
             == "entered-it-baseline-join-gain"
         )
 
-    def test_position_drift_never_falls_under_a_cell_grain_class(self):
-        assert oracle.classify_divergence(self._row("default", ("exit-dropped", "position-drift"))) is None
+    def test_position_mismatch_never_falls_under_a_cell_grain_class(self):
+        assert oracle.classify_divergence(self._row("default", ("exit-dropped", "position-mismatch"))) is None
 
     def test_ss10_ligation_boundary_rows_stay_on_the_blanket(self):
         row = self._row("ss10", ("ligation",), codepoints="200C:E653:E67A")
@@ -861,7 +863,7 @@ _AUDIT_SHAPES = (
     {
         "ss04": [
             "ss04\tE670:E653\tcell\t·It~b~·Day.half\tqsIt|qsDay\tqsIt|qsDay.half",
-            "ss04\tE676:E677\tposition\tdrift\tqsAh|qsAwe\tslot 1 (qsAwe): origin want (7, 0)\t\ttrailing",
+            "ss04\tE676:E677\tposition\tmismatch\tqsAh|qsAwe\tslot 1 (qsAwe): origin want (7, 0)\t\ttrailing",
         ],
     },
 )
@@ -1332,7 +1334,7 @@ def _cache_position_ages(path: Path) -> list[int]:
 
 
 def _cache_position_tags(path: Path) -> list[str]:
-    """Each record's position tag, read without loading the store: `?` never shaped, `-` shaped with no drift, `D` drifted."""
+    """Each record's position tag, read without loading the store: `?` never shaped, `-` shaped with no mismatch, `D` mismatched."""
     tags: list[str] = []
     for line in gzip.decompress(path.read_bytes()).decode("utf-8").splitlines()[1:-1]:
         fields = line.split("\t")
@@ -1538,7 +1540,7 @@ class TestOracleRowCache:
         return _position_bench(spec, tmp_path, ledger_entries)
 
     def test_a_served_position_comparison_writes_the_audit_a_cold_one_writes(self, spec, tmp_path):
-        """A pass that took its position verdicts from the previous pass's store writes the same `divergence-audit.tsv` as a cold pass over the same font, and so does the uncached path, while serving every position outside the scheduled re-derivation. The bench drifts for real (old-font positions against the frozen after font), so the audit has position rows and the equality covers drift descriptions, not an empty position comparison."""
+        """A pass that took its position verdicts from the previous pass's store writes the same `divergence-audit.tsv` as a cold pass over the same font, and so does the uncached path, while serving every position outside the scheduled re-derivation. The bench's positions mismatch for real (old-font positions against the frozen after font), so the audit has position rows and the equality covers mismatch descriptions, not an empty position comparison."""
         tables, aliases, ledger, stamps, configs, rows = self._position_bench(spec, tmp_path)
         keys = self._keys(spec)
         position = oracle_cache.position_keys(REPO_ROOT, keys, MINI / "M1.otf", None)
@@ -1575,7 +1577,7 @@ class TestOracleRowCache:
     def test_a_served_position_comparison_that_disagrees_with_harfbuzz_is_a_hard_stop(
         self, spec, tmp_path, monkeypatch
     ):
-        """The served-position verifier must stop the run: a served pass whose sampled positions re-shape to something other than what the store holds aborts instead of writing them into the audit. No other test triggers this check. The test replaces `_position_drift` in the position comparison's module, which `oracle._compare_config` calls through the module and not through an imported name. The scheduled re-derivation's fresh shaping therefore stores the same wrong answer (the abort prevents that store from being promoted), and the sampled served rows, re-shaped through the replaced function, disagree with the records they were served from. A verifier with nothing to re-shape would let this pass."""
+        """The served-position verifier must stop the run: a served pass whose sampled positions re-shape to something other than what the store holds aborts instead of writing them into the audit. No other test triggers this check. The test replaces `_position_mismatch` in the position comparison's module, which `oracle._compare_config` calls through the module and not through an imported name. The scheduled re-derivation's fresh shaping therefore stores the same wrong answer (the abort prevents that store from being promoted), and the sampled served rows, re-shaped through the replaced function, disagree with the records they were served from. A verifier with nothing to re-shape would let this pass."""
         tables, aliases, ledger, stamps, configs, _rows = self._position_bench(spec, tmp_path)
         keys = self._keys(spec)
         position = oracle_cache.position_keys(REPO_ROOT, keys, MINI / "M1.otf", None)
@@ -1585,13 +1587,13 @@ class TestOracleRowCache:
         shared.update(font=MINI / "M1.otf", position=position)
         _cold, _, cold_stores = self._pass(spec, tmp_path, "cold", **shared)
 
-        real = oracle_positions._position_drift
+        real = oracle_positions._position_mismatch
 
         def poisoned(shaper, kern, features, row):
-            drift = real(shaper, kern, features, row)
-            return (("poisoned",), False) if drift is None else (drift[0] + ("poisoned",), drift[1])
+            mismatch = real(shaper, kern, features, row)
+            return (("poisoned",), False) if mismatch is None else (mismatch[0] + ("poisoned",), mismatch[1])
 
-        monkeypatch.setattr(oracle_positions, "_position_drift", poisoned)
+        monkeypatch.setattr(oracle_positions, "_position_mismatch", poisoned)
         with pytest.raises(SystemExit, match="the oracle position store served a stale verdict"):
             self._pass(spec, tmp_path, "served", read_dir=cold_stores, **shared)
 
@@ -2224,16 +2226,16 @@ class TestOracleRowRanges:
 
 
 class TestFontBlindComparison:
-    """Two signatures and one mutation rule that the row cache's keys depend on: the comparison takes no font, the position comparison takes no settled stream, and a drift only appends to a row. If any of these changed, the store's key would silently cover the wrong inputs and the cache tests above would still pass."""
+    """Two signatures and one mutation rule that the row cache's keys depend on: the comparison takes no font, the position comparison takes no settled stream, and a mismatch only appends to a row. If any of these changed, the store's key would silently cover the wrong inputs and the cache tests above would still pass."""
 
     def test_the_comparison_takes_no_font_and_the_position_comparison_takes_no_settlement(self):
         comparison = list(inspect.signature(conform._compare_row).parameters)
         assert comparison == ["spec", "aliases", "config", "features", "row", "settled"]
-        position = list(inspect.signature(oracle_positions._position_drift).parameters)
+        position = list(inspect.signature(oracle_positions._position_mismatch).parameters)
         assert position == ["shaper", "kern", "features", "row"]
 
     def test_the_position_comparison_only_appends_position_to_kinds(self, spec, tmp_path, monkeypatch):
-        """A constructed drift over two rows, one the alias map leaves clean and one it leaves unaliased, observed through the ledger matches the position comparison makes before and after the drift. The clean row's drift creates a new divergent row whose kinds are exactly `position`. The divergent row's drift keeps every field it already had and appends `position` to its kinds and `position-drift` to its divergence tags."""
+        """A constructed mismatch over two rows, one the alias map leaves clean and one it leaves unaliased, observed through the ledger matches the position comparison makes before and after the mismatch. The clean row's mismatch creates a new divergent row whose kinds are exactly `position`. The divergent row's mismatch keeps every field it already had and appends `position` to its kinds and `position-mismatch` to its divergence tags."""
         tables = tmp_path / "tables"
         _cache_subset_table(tables, "default", [(0xE650,), (0xE652,)])
         aliases = tmp_path / "aliases.yaml"
@@ -2266,14 +2268,14 @@ class TestFontBlindComparison:
         minted = seen[0]
         assert minted.codepoints == "E650"
         assert minted.kinds == ("position",)
-        assert minted.divergence_tags == ("position-drift",)
+        assert minted.divergence_tags == ("position-mismatch",)
         assert minted.position == -1
 
         before, after = seen[1], seen[2]
         assert before.codepoints == after.codepoints == "E652"
         assert before.kinds == ("unaliased",)
         assert after.kinds == before.kinds + ("position",)
-        assert after.divergence_tags == before.divergence_tags + ("position-drift",)
+        assert after.divergence_tags == before.divergence_tags + ("position-mismatch",)
         assert replace(after, kinds=before.kinds, divergence_tags=before.divergence_tags) == before
 
 

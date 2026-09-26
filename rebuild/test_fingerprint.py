@@ -341,7 +341,7 @@ LEDGER = textwrap.dedent("""\
       why: |
         A window holding a run-splitting boundary never needs its own verdict.
     - id: seam-moved
-      status: drift-accepted
+      status: accepted-pending-review
       match: {predicate: seam_moved, configs: all}
       count: 3
       exemplars:
@@ -386,7 +386,8 @@ def test_divergence_ledger_digest_ignores_prose_and_falls_back_to_bytes(tmp_path
     assert _ledger_digest(path, reflowed) == parsed
     assert _ledger_digest(path, LEDGER.replace("no_verdict: true", "no_verdict: false")) != parsed
     assert (
-        _ledger_digest(path, LEDGER.replace("status: drift-accepted", "status: reviewed-approved")) != parsed
+        _ledger_digest(path, LEDGER.replace("status: accepted-pending-review", "status: reviewed-approved"))
+        != parsed
     )
     assert _ledger_digest(path, LEDGER.replace("count: 12", "count: 13")) != parsed
     assert (

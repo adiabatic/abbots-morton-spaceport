@@ -56,8 +56,8 @@ MINI_AUDIT = MINI / "audit.tsv"
 MINI_FONT = MINI / "M1.otf"
 # How many of the bundle's windows the drafter tests enrich: enough to include each shape those tests ask for, and few enough for one settlement pass.
 MINI_SLICE = 64
-SEAM_BEARER = "u-WJSK8gMxjxy"
-SEAM_HOME = "u-Ng8Npb18Kha"
+SEAM_BEARER = "u-KtPjucTyfbt"
+SEAM_HOME = "u-HZub95WTHju"
 PLAIN_UNIT = "u-DdcTojn1hba"
 ECHO_MATE = "u-8nacGTcgMRS"
 THIRD_UNIT = "u-2WvdGAWe6bX"

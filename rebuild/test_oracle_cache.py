@@ -970,9 +970,9 @@ def test_the_position_stamp_names_the_position_comparison_s_code_the_toolchain_a
 
 
 def test_a_record_carries_both_verdicts_and_their_ages():
-    """Round-trips every form of position verdict (not shaped, shaped with no drift, and drifted with descriptions that contain commas) alongside both forms of row verdict, each with its own age."""
-    drifted = oracle_cache.CachedPosition(
-        drifts=(
+    """Round-trips every form of position verdict (not shaped, shaped with no mismatch, and mismatched with descriptions that contain commas) alongside both forms of row verdict, each with its own age."""
+    mismatched = oracle_cache.CachedPosition(
+        mismatches=(
             "slot 1 (qsTea.en-y0): origin want (150, 0), got (100, 0)",
             "total advance: want 500, got 450",
         ),
@@ -988,7 +988,7 @@ def test_a_record_carries_both_verdicts_and_their_ages():
     for cached, position, ages in (
         (None, oracle_cache.UNSHAPED, (3, 3)),
         (None, None, (3, 4)),
-        (row, drifted, (2, 5)),
+        (row, mismatched, (2, 5)),
         (row, oracle_cache.UNSHAPED, (7, 0)),
     ):
         line = oracle_cache.encode_record((PEA, TEA), cached, ages[0], position, ages[1])
@@ -1008,12 +1008,12 @@ def test_a_moved_position_stamp_keeps_the_rows_and_retires_every_position(repo):
     stamp, keys = _stamp(repo, spec), _keys(repo, spec)
     position_keys, position_stamp = _position(repo, spec, MINI_FONT)
     rows = ((PEA, TEA), (TEA, OY), (PEA,))
-    drifted = oracle_cache.CachedPosition(("slot 1 (qsTea): origin want (150, 0), got (100, 0)",), True)
+    mismatched = oracle_cache.CachedPosition(("slot 1 (qsTea): origin want (150, 0), got (100, 0)",), True)
     path = repo / "store.tsv.gz"
     with oracle_cache.RowWriter(
         path, stamp, "subset-digest", 5, keys, position_stamp, position_keys
     ) as writer:
-        writer.append(rows[0], None, 5, drifted, 5)
+        writer.append(rows[0], None, 5, mismatched, 5)
         writer.append(rows[1], None, 5, None, 5)
         writer.append(rows[2], None, 5)
 
@@ -1029,7 +1029,7 @@ def test_a_moved_position_stamp_keeps_the_rows_and_retires_every_position(repo):
     same = opened(position_stamp, position_keys)
     assert not same.position_mask.everything
     assert [same.serve(index, row).position for index, row in enumerate(rows)] == [
-        drifted,
+        mismatched,
         None,
         oracle_cache.UNSHAPED,
     ]

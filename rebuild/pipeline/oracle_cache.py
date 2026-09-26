@@ -1,10 +1,10 @@
 """Stores the baseline oracle's per-row verdicts between runs, keyed per rune family. After a rune edit, only the subset rows that can reach an edited family are compared again; the rest are served from the previous pass's store.
 
-Each row has two verdicts, each under its own key. The row verdict is `conform._compare_row`'s result, a `DivergentRow` or None. `_compare_row(spec, aliases, config, features, row, settled)` takes no font and no shaper, so the row key covers no font: `M1.otf`, the GSUB fold and `glyph_data/senior_quikscript_kerning.yaml` are outside it, and a rune edit serves every row that reaches no edited family. The position verdict is `oracle_positions._position_drift`'s result for the same row: the drift descriptions and the kern-attribution flag, or None. Its per-family key (`position_family_keys`) adds the after font's compiled-glyph digest for that family (`fingerprint.after_font_glyph_digests`: decomposed outlines, advances, cursive anchors) to the row key. Its whole-store stamp (`position_keys`) covers `POSITION_CODE_PATHS`, the toolchain lock that pins uharfbuzz and fontTools, the font's non-family glyphs, cmap and GPOS wiring, and the kern sidecar. `_position_drift(shaper, kern, features, row)` takes no settled stream, so the position key needs no settlement input beyond the row key it contains.
+Each row has two verdicts, each under its own key. The row verdict is `conform._compare_row`'s result, a `DivergentRow` or None. `_compare_row(spec, aliases, config, features, row, settled)` takes no font and no shaper, so the row key covers no font: `M1.otf`, the GSUB fold and `glyph_data/senior_quikscript_kerning.yaml` are outside it, and a rune edit serves every row that reaches no edited family. The position verdict is `oracle_positions._position_mismatch`'s result for the same row: the mismatch descriptions and the kern-attribution flag, or None. Its per-family key (`position_family_keys`) adds the after font's compiled-glyph digest for that family (`fingerprint.after_font_glyph_digests`: decomposed outlines, advances, cursive anchors) to the row key. Its whole-store stamp (`position_keys`) covers `POSITION_CODE_PATHS`, the toolchain lock that pins uharfbuzz and fontTools, the font's non-family glyphs, cmap and GPOS wiring, and the kern sidecar. `_position_mismatch(shaper, kern, features, row)` takes no settled stream, so the position key needs no settlement input beyond the row key it contains.
 
 The after font's GSUB wiring is in neither key, for the reason `fingerprint.after_font_glyph_digests` gives: a rune edit changes the lookup list on nearly every cycle, and the glyphs a row shapes to are already covered. A position is served only while the row's key is unchanged, so its settled cells are unchanged, and `gate:conform` checks every cycle that the compiled font selects the settlement's cells.
 
-The position comparison adds `"position"` to a row's `kinds` and `"position-drift"`, and optionally `"position-kern-attributable"`, to its `divergence_tags`, and changes nothing else, so a served row verdict and a fresh one enter the position comparison in the same state. The position verdict is stored before the ledger decides whether the row goes through the position comparison. A row the previous pass never shaped is recorded as `UNSHAPED` and is shaped when a ledger edit makes it eligible, and a shaped row's position verdict is written forward even when this pass's ledger excludes the row. If any of the facts above stops holding, the cache serves wrong verdicts without any error, and `STORE_FORMAT` must change.
+The position comparison adds `"position"` to a row's `kinds` and `"position-mismatch"`, and optionally `"position-kern-attributable"`, to its `divergence_tags`, and changes nothing else, so a served row verdict and a fresh one enter the position comparison in the same state. The position verdict is stored before the ledger decides whether the row goes through the position comparison. A row the previous pass never shaped is recorded as `UNSHAPED` and is shaped when a ledger edit makes it eligible, and a shaped row's position verdict is written forward even when this pass's ledger excludes the row. If any of the facts above stops holding, the cache serves wrong verdicts without any error, and `STORE_FORMAT` must change.
 
 Classification is outside both keys because it always runs: `classify_divergence` and `_match_compiled` run over every row on every pass, served or fresh, so `rebuild/m1-divergences.yaml` and every ledger predicate are applied again to the served verdict. A ledger-only edit therefore serves every row and still rewrites every `matched_entry`; this is the `run_m1 --gates-only` workflow. The classifier's code is outside both stamps for the same reason. It lives in `rebuild/pipeline/oracle.py`, which neither `conform.py` nor `oracle_positions.py` imports, so a classifier edit serves every row verdict and every position verdict. The producer (`_compare_row`, `_cell_deltas`, the walk, and the record codec) is in `conform.py`, which is always in `ORACLE_ROW_CODE_PATHS`. `rebuild/test_build_code_closure.py` checks that the roster names no comparison-side module.
 
@@ -48,7 +48,7 @@ from rebuild.pipeline.fingerprint import EnvironmentStamp, moved_note
 from rebuild.pipeline.model import ResolvedSpec
 from rebuild.validation.rowmodel import Row, format_codepoints
 
-STORE_FORMAT = "ams-m1-oracle-rows/2"
+STORE_FORMAT = "ams-m1-oracle-rows/3"
 STORE_STEM = "oracle-rows"
 SCRATCH_SUBDIR = "oracle-rows"
 ROW_COUNT_TRAILER = "#rows"
@@ -57,7 +57,7 @@ ROW_CHECK_WIDTH = 12
 MAX_RECORD_AGE = 20
 VERIFICATION_SAMPLE_PER_FAMILY = 8
 
-# The position comparison's code that the row stamp does not cover: `_position_drift`, `_kern_normalized_positions`, the position record codec, `_verify_served_positions`, `KernEvaluator` and `_shaper_for`, which picks the shaper every stored position comes from. They share one module so this stamp works at module grain, like `ORACLE_ROW_CODE_PATHS`, and rebuild/test_oracle_code_closure.py walks that module's imports. The classifier in oracle.py is outside this stamp, so a classifier edit re-shapes no position. `Shaper` and `geometry.PIXEL` are in `ORACLE_ROW_CODE_PATHS`, so the row stamp covers them for both verdicts.
+# The position comparison's code that the row stamp does not cover: `_position_mismatch`, `_kern_normalized_positions`, the position record codec, `_verify_served_positions`, `KernEvaluator` and `_shaper_for`, which picks the shaper every stored position comes from. They share one module so this stamp works at module grain, like `ORACLE_ROW_CODE_PATHS`, and rebuild/test_oracle_code_closure.py walks that module's imports. The classifier in oracle.py is outside this stamp, so a classifier edit re-shapes no position. `Shaper` and `geometry.PIXEL` are in `ORACLE_ROW_CODE_PATHS`, so the row stamp covers them for both verdicts.
 POSITION_CODE_PATHS = ("rebuild/pipeline/oracle_positions.py",)
 # The lock that pins uharfbuzz and fontTools, which decide the positions the same font bytes shape to. It is hashed by its dependency pins (`fingerprint.lock_digest`), so a change to the project's own version block does not move the stamp. For the same reason `artifact_cycle.comparison_side_label` does not count it as a comparison-side input, so a toolchain bump rebuilds the tables and the font.
 TOOLCHAIN_LOCK = "uv.lock"
@@ -358,9 +358,9 @@ class CachedRow:
 
 @dataclass(frozen=True, slots=True)
 class CachedPosition:
-    """One row's position-comparison verdict when the row drifted: `oracle_positions._position_drift`'s drift descriptions, which the audit prints as a position-only row's new cells, and whether every drifted slot follows a kern-attributable one. A row whose positions matched is stored as `None`, and a row the position comparison never shaped as `UNSHAPED`. Only a `CachedPosition` or `None` may be served, and `==` over them is the verification sample's check."""
+    """One row's position-comparison verdict when the row's positions do not match: `oracle_positions._position_mismatch`'s mismatch descriptions, which the audit prints as a position-only row's new cells, and whether every mismatched slot follows a kern-attributable one. A row whose positions matched is stored as `None`, and a row the position comparison never shaped as `UNSHAPED`. Only a `CachedPosition` or `None` may be served, and `==` over them is the verification sample's check."""
 
-    drifts: tuple[str, ...]
+    mismatches: tuple[str, ...]
     kern_attributable: bool
 
 
@@ -403,7 +403,7 @@ def encode_record(
     position: PositionVerdict = UNSHAPED,
     position_at_pass: int = 0,
 ) -> str:
-    """Return one store line: the row check digest; then `-` for a clean row, or `P` and the row verdict's five fields; then `?` for a position never shaped, `-` for one that matched, or `D`, the `|`-joined drift descriptions and `k` or `n` for the kern-attribution flag; then the two derivation passes, the row verdict's first. `|` separates cells and `,` separates the token tuples, as in `divergence-audit.tsv`. The drift descriptions contain commas, so they are joined on `|` alone and the flag has its own field."""
+    """Return one store line: the row check digest; then `-` for a clean row, or `P` and the row verdict's five fields; then `?` for a position never shaped, `-` for one that matched, or `D`, the `|`-joined mismatch descriptions and `k` or `n` for the kern-attribution flag; then the two derivation passes, the row verdict's first. `|` separates cells and `,` separates the token tuples, as in `divergence-audit.tsv`. The mismatch descriptions contain commas, so they are joined on `|` alone and the flag has its own field."""
     fields = [row_check_digest(codepoints)]
     if cached is None:
         fields.append("-")
@@ -422,7 +422,7 @@ def encode_record(
         fields.append("-")
     else:
         assert isinstance(position, CachedPosition)
-        fields += ["D", "|".join(position.drifts), "k" if position.kern_attributable else "n"]
+        fields += ["D", "|".join(position.mismatches), "k" if position.kern_attributable else "n"]
     fields += [str(derived_at_pass), str(position_at_pass)]
     return "\t".join(fields)
 
@@ -450,7 +450,7 @@ def decode_record(line: str) -> StoredRecord:
     elif tag == "-":
         position = None
     else:
-        position = CachedPosition(drifts=_split(fields[at], "|"), kern_attributable=fields[at + 1] == "k")
+        position = CachedPosition(mismatches=_split(fields[at], "|"), kern_attributable=fields[at + 1] == "k")
         at += 2
     return StoredRecord(row=row, row_age=int(fields[at]), position=position, position_age=int(fields[at + 1]))
 

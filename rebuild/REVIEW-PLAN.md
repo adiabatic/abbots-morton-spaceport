@@ -284,7 +284,7 @@ The example is abridged; `check_manifest` checks every required key.
   "classes": [
     {
       "id": "dangling-anchor-dropped",
-      "status": "drift-accepted",
+      "status": "accepted-pending-review",
       "ink_identical": false,
       "why": "…the ledger's reviewed rationale, verbatim…",
       "unit_count": …,

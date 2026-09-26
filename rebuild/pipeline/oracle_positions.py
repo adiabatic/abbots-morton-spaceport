@@ -1,4 +1,4 @@
-"""The baseline oracle's position comparison (M1-PLAN section 6): the kern-normalized old positions, the drift between them and the new font's shaped positions, the codec between a drift and the row store's position record, the served-position verifier, the kern sidecar evaluator, and `_shaper_for`, which picks the shaper every stored position comes from. The oracle.py module docstring says why `oracle._compare_config` calls these through the module.
+"""The baseline oracle's position comparison (M1-PLAN section 6): the kern-normalized old positions, the mismatch between them and the new font's shaped positions, the codec between a mismatch and the row store's position record, the served-position verifier, the kern sidecar evaluator, and `_shaper_for`, which picks the shaper every stored position comes from. The oracle.py module docstring says why `oracle._compare_config` calls these through the module.
 
 This module is the only entry in `oracle_cache.POSITION_CODE_PATHS`: the position store's stamp covers this file's prose-insensitive digest and nothing else from the comparison side. It must never import rebuild/pipeline/oracle.py, or the classifier's code would be in the position stamp and a classifier edit would re-shape every position. rebuild/test_oracle_code_closure.py walks the import graph from here and checks that every reachable module is named by `ORACLE_ROW_CODE_PATHS` or `POSITION_CODE_PATHS` and that `rebuild.pipeline.oracle` is unreachable. What the position comparison reads outside this file (`conform.Shaper`, `geometry.PIXEL`, the row model) is in `ORACLE_ROW_CODE_PATHS`, and a store whose row stamp moved is not loaded at all.
 
@@ -57,15 +57,15 @@ def _kern_normalized_positions(
     return tuple(expected), tuple(attributable)
 
 
-def _position_drift(
+def _position_mismatch(
     shaper: "Shaper | IsolatedOverlayShaper", kern: "KernEvaluator | None", features: frozenset[str], row: Row
 ) -> tuple[tuple[str, ...], bool] | None:
-    """Shape the row with the new font through the shaper's position projection (offsets and advances only) and compare the drawn positions with the kern-normalized baseline. The comparison is visual: per-slot glyph origins (pen + x_offset, y_offset) plus the run's total advance, because the two fonts can split a seam differently between the left glyph's advance and the right glyph's x_offset while drawing the same join. Returns None when every slot and the total match, and otherwise the drift descriptions and whether every drift follows a kern-attributable slot. A slot-count mismatch returns one description and False."""
+    """Shape the row with the new font through the shaper's position projection (offsets and advances only) and compare the drawn positions with the kern-normalized baseline. The comparison is visual: per-slot glyph origins (pen + x_offset, y_offset) plus the run's total advance, because the two fonts can split a seam differently between the left glyph's advance and the right glyph's x_offset while drawing the same join. Returns None when every slot and the total match, and otherwise the mismatch descriptions and whether every mismatch follows a kern-attributable slot. A slot-count mismatch returns one description and False."""
     shaped = shaper.positions(row.text, features)
     if len(shaped) != len(row.glyphs):
         return ((f"slot-count {len(row.glyphs)} (old) vs {len(shaped)} (new)",), False)
     expected, attributable = _kern_normalized_positions(kern, row, geometry.PIXEL)
-    drifts: list[str] = []
+    mismatches: list[str] = []
     kern_attributable = True
     pen_old = 0
     pen_new = 0
@@ -76,27 +76,31 @@ def _position_drift(
         want = (pen_old + x, y)
         got = (pen_new + new_x_offset, new_y_offset)
         if got != want:
-            drifts.append(f"slot {index} ({row.glyphs[index]}): origin want {want}, got {got}")
+            mismatches.append(f"slot {index} ({row.glyphs[index]}): origin want {want}, got {got}")
             kern_attributable = kern_attributable and upstream_attributable
         pen_old += advance
         pen_new += new_advance
         upstream_attributable = upstream_attributable or attributable[index]
     if pen_old != pen_new:
-        drifts.append(f"total advance: want {pen_old}, got {pen_new}")
+        mismatches.append(f"total advance: want {pen_old}, got {pen_new}")
         kern_attributable = kern_attributable and upstream_attributable
-    if not drifts:
+    if not mismatches:
         return None
-    return (tuple(drifts), kern_attributable)
+    return (tuple(mismatches), kern_attributable)
 
 
-def _cached_position(drift: tuple[tuple[str, ...], bool] | None) -> oracle_cache.CachedPosition | None:
-    """Convert a fresh `_position_drift` result to the stored form: `None` for a row that matched, otherwise a `CachedPosition` with the drift descriptions and the kern flag."""
-    return None if drift is None else oracle_cache.CachedPosition(drifts=drift[0], kern_attributable=drift[1])
+def _cached_position(mismatch: tuple[tuple[str, ...], bool] | None) -> oracle_cache.CachedPosition | None:
+    """Convert a fresh `_position_mismatch` result to the stored form: `None` for a row that matched, otherwise a `CachedPosition` with the mismatch descriptions and the kern flag."""
+    return (
+        None
+        if mismatch is None
+        else oracle_cache.CachedPosition(mismatches=mismatch[0], kern_attributable=mismatch[1])
+    )
 
 
 def _served_position(cached: oracle_cache.CachedPosition | None) -> tuple[tuple[str, ...], bool] | None:
-    """Convert a stored position verdict back to `_position_drift`'s return shape, so the code after the position comparison cannot tell a served row from a freshly shaped one."""
-    return None if cached is None else (cached.drifts, cached.kern_attributable)
+    """Convert a stored position verdict back to `_position_mismatch`'s return shape, so the code after the position comparison cannot tell a served row from a freshly shaped one."""
+    return None if cached is None else (cached.mismatches, cached.kern_attributable)
 
 
 def _verify_served_positions(
@@ -108,7 +112,7 @@ def _verify_served_positions(
 ) -> None:
     """Shape the pass's stratified sample of served positions again and compare each with the record it was served from; the position counterpart of `conform._verify_served_sample`. The sample is drawn per family over the rows whose position was served, so a family whose glyphs changed without its key changing is always caught. A mismatch exits, as a row mismatch does, because the audit is a fingerprinted artifact and a stale position in it would never be detected later. Each sampled entry carries the `Row` the main loop offered it with, so nothing here re-reads the table."""
     for index, row in sample.sampled_rows():
-        fresh = _cached_position(_position_drift(shaper, kern, features, row))
+        fresh = _cached_position(_position_mismatch(shaper, kern, features, row))
         recorded = store.serve(index, row.codepoints).position
         if fresh != recorded:
             raise SystemExit(

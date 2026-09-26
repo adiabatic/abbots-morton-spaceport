@@ -36,7 +36,7 @@ rebuild/pipeline/
   readback.py         post-compile read-back: the written font re-parsed and checked against the plan, GSUB offset headroom included
   conform.py          HarfBuzz sweep against settlement, the per-row baseline comparison and its memoized walk
   oracle.py           baseline-oracle driver, divergence classifier, ledger matching (outside the tables' stamp)
-  oracle_positions.py the position comparison: kern normalization, the drift diff, the served-position codec and verifier, the sidecar evaluator, the shaper factory (outside the tables' stamp and the row stamp)
+  oracle_positions.py the position comparison: kern normalization, the mismatch diff, the served-position codec and verifier, the sidecar evaluator, the shaper factory (outside the tables' stamp and the row stamp)
   explain.py          the §6.3 item (a) CLI (python -m rebuild.pipeline.explain)
   baseline_subset.py  streaming filter of rebuild/out/baseline-*.tsv.gz to the migrated alphabet; refilters when the alphabet or the sources change
   coretext_smoke.py   CoreText-vs-HarfBuzz comparison over the extended sequence set
@@ -307,7 +307,7 @@ def verify_withdrawal_safe(record: GlyphRecord, side: str, height: Height) -> bo
 # defects.py
 def run_gates(spec, tables_by_config, glyphs: Mapping[CellId, GlyphRecord]) -> DefectReport: ...
     # E-DANGLE (every reachable declined side), E-UNREALIZED (gap == 0 for every treaty join row),
-    # E-ANCHOR (convention drift), off-anchor contact (overlay every reachable adjacency at settled offset),
+    # E-ANCHOR (convention violations), off-anchor contact (overlay every reachable adjacency at settled offset),
     # extension band (ok:), dead policy. Dead policy splits into (a) records waiting on unmigrated
     # letters, where every family the condition can match lacks a rune file (reported, not failed), and
     # (b) unused records, which wait on no unmigrated letter and still never fire; each must be absent or carry
@@ -432,8 +432,8 @@ One entry per divergence **class**, with a matching predicate, the observed coun
 5. **ss03-zwnj-leak-fixed** — `qsMay ZWNJ qsTea` under ss03 does not join (prototype divergence 4; cross-shaper finding 1). Not in the ledger: the baseline seam was already a break, and every such row contains a ZWNJ, so the `boundary-echo` class covers it.
 6. **marker-staging-ligature-formation** — `qsMay qsTea qsOy` under ss03 and `ZWNJ qsTea qsOy` form the ligature (markers staged after formation; prototype divergence 5 and deviation 5).
 7. **ss03-chain-join-gains** — ·It·May·Tea and ·Tea·May·Tea under ss03 gain the second join under window join count (prototype deviation 3).
-8. **structural-floor-drift** — the remaining greedy-vs-old differences in unpinned windows per §15.4, the catch-all that must stay small and itemized; every member row is listed in the audit TSV and checked by eye. Implemented as the narrower **regrouping-floor-drift** (rows with both a gain and a loss).
-9. **kern-out-of-scope** — position-only differences that the position comparison marks kern-attributable (every drifted slot follows a kerned pair or sits next to a ZWNJ). Its status is `triaged`, so its rows are never accepted automatically. It is expected to be near zero after kern normalization.
+8. **structural-floor-mismatches** — the remaining greedy-vs-old differences in unpinned windows per §15.4, the catch-all that must stay small and itemized; every member row is listed in the audit TSV and checked by eye. Implemented as the narrower **regrouped-chain** (rows with both a gain and a loss).
+9. **kern-out-of-scope** — position-only differences that the position comparison marks kern-attributable (every mismatched slot follows a kerned pair or sits next to a ZWNJ). Its status is `triaged`, so its rows are never accepted automatically. It is expected to be near zero after kern normalization.
 
 A divergence that matches none of these gets a new reviewed entry with a `why:`, a fix, or a verdict on the review corpus.
 

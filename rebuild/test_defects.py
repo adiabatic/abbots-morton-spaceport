@@ -104,7 +104,7 @@ class TestDangle:
 
 
 class TestAnchorConvention:
-    def test_convention_drift_is_an_error(self, spec):
+    def test_convention_violation_is_an_error(self, spec):
         cell = CellId("qsIt", "hapax", None, "baseline", ())
         record = GlyphRecord(name="qsIt.bad", bitmap=("#",) * 6, y_offset=0, exit=(2, 0))
         report = defects.run_gates(spec, _tables(rules=[_cite_all_policy(spec)]), {cell: record})
@@ -182,7 +182,7 @@ class TestAnchorConvention:
                     baseline: {EXIT}
             """)
         cell = CellId("qsIt", "hapax", "baseline", "baseline", ())
-        for entry_row, exit_row, exempt, drifting in (
+        for entry_row, exit_row, exempt, violating in (
             ("x: 0, x_off_convention: true", "x: 3, withdrawal: safe", ("entry",), "exit"),
             ("x: 0", "x: 3, withdrawal: safe, x_off_convention: true", ("exit",), "entry"),
         ):
@@ -196,7 +196,7 @@ class TestAnchorConvention:
             assert record.convention_exempt == exempt
             report = defects.run_gates(spec, _tables(rules=[_cite_all_policy(spec)]), {plan.cell: record})
             errors = [d for d in report.errors if d.code == "E-ANCHOR"]
-            assert [d.signature for d in errors] == [f"anchor:{record.name}:{drifting}"]
+            assert [d.signature for d in errors] == [f"anchor:{record.name}:{violating}"]
 
 
 class TestUnrealized:

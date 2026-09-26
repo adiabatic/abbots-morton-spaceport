@@ -92,10 +92,10 @@
   },
   {
    "id": "dangling-anchor-dropped",
-   "status": "drift-accepted",
+   "status": "accepted-pending-review",
    "ink_identical": false,
    "no_verdict": false,
-   "why": "The rebuild drops exits that dangle toward entryless followers; accepted drift pending eyeballs.",
+   "why": "The rebuild drops exits that dangle toward entryless followers; accepted mismatch pending eyeballs.",
    "unit_count": 2,
    "row_count": 5,
    "machine_approved_count": 0,

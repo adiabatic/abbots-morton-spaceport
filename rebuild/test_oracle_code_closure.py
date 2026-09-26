@@ -22,7 +22,7 @@ ORACLE_ENTRY_MODULES = ("rebuild.pipeline.conform",)
 POSITION_ENTRY_MODULES = ("rebuild.pipeline.oracle_positions",)
 POSITION_COMPARISON_NAMES = frozenset(
     {
-        "_position_drift",
+        "_position_mismatch",
         "_kern_normalized_positions",
         "_cached_position",
         "_served_position",

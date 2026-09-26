@@ -266,7 +266,7 @@ def _highlight(
     return {"x_min": pens[first], "x_max": pens[last + 1], "advance_total": pens[-1]}
 
 
-def _advance_drift_cell(before_pens: list[int], after_pens: list[int], cell_count: int) -> int | None:
+def _advance_mismatch_cell(before_pens: list[int], after_pens: list[int], cell_count: int) -> int | None:
     """The first cell whose kern-neutral advance differs between the two fonts, or None. It locates a position-only divergence, which has no cell or seam difference to form a pair from, such as a one-pixel advance change on a letter next to a boundary. The change sits at the word break beside the letter, so the caller marks the nearest boundary token (◊ZWNJ, ␣, or ·), when there is one, instead of the letter and draws no sample band."""
     limit = min(cell_count, len(before_pens) - 1, len(after_pens) - 1)
     for index in range(limit):
@@ -436,10 +436,10 @@ class Enricher:
 
         pair_codepoints = (after_spans[pair[0]][0], after_spans[pair[1]][1] - 1) if pair is not None else None
         if pair is None and not diff_positions:
-            drifted = _advance_drift_cell(before_pens, after_pens, len(settled))
-            if drifted is not None:
+            mismatched = _advance_mismatch_cell(before_pens, after_pens, len(settled))
+            if mismatched is not None:
                 boundaries = [i for i in range(len(settled)) if values[after_spans[i][0]] in BOUNDARIES]
-                mark = min(boundaries, key=lambda i: (abs(i - drifted), i)) if boundaries else drifted
+                mark = min(boundaries, key=lambda i: (abs(i - mismatched), i)) if boundaries else mismatched
                 pair_codepoints = (after_spans[mark][0], after_spans[mark][1] - 1)
         if pair is not None:
             assert pair_codepoints is not None
