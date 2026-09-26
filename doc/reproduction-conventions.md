@@ -1,4 +1,4 @@
-# Historical admonitions
+# Conventions for reproducing the font
 
 These conventions are for anyone who wants to reproduce how this font was made. `AGENTS.md` does not point agents here because the rules rarely matter during normal authoring. They apply when rebuilding the test setup or the Senior shaping corpus from scratch.
 
