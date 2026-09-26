@@ -32,8 +32,8 @@ from rebuild.review.facts import (
     invariant_delta,
     invariant_diff,
     invariant_group,
+    ledger_coverage,
     load_facts,
-    reach,
     workload_digest,
     write_facts,
 )
@@ -581,8 +581,8 @@ def test_invariant_diff_is_the_blocks_own_unified_diff():
     assert invariant_diff(_ACCEPTED_INVARIANT, dict(_ACCEPTED_INVARIANT)) == []
 
 
-def test_reach_holds_the_ledgers_declarations_against_what_the_corpus_reached():
-    """A class is machine-approved when the build approved any of its units, so the ledger's ink-identical declarations and the machine-approved classes can disagree in both directions. A no-verdict declaration or a ledger entry is unreached when no unit in the corpus matches it. `reach` compares the ledger's declarations with the invariant block."""
+def test_ledger_coverage_holds_the_ledgers_declarations_against_what_the_corpus_reached():
+    """A class is machine-approved when the build approved any of its units, so the ledger's ink-identical declarations and the machine-approved classes can disagree in both directions. A no-verdict declaration or a ledger entry is unreached when no unit in the corpus matches it. `ledger_coverage` compares the ledger's declarations with the invariant block."""
     ledger = [
         _ledger_entry("boundary-echo", no_verdict=True),
         _ledger_entry("bare-name-live-join", ink_identical=True),
@@ -595,33 +595,33 @@ def test_reach_holds_the_ledgers_declarations_against_what_the_corpus_reached():
         "no_verdict_classes": ["boundary-echo"],
         "families": ["deferred-ss10"],
     }
-    reached = reach(ledger, invariant)
-    assert reached.unreached == ("vie-baseline-entry-extension-dropped",)
-    assert reached.ink_declared == ("bare-name-live-join", "see-out-fused")
-    assert reached.ink_declared_unapproved == ("see-out-fused",)
-    assert reached.machine_approved_undeclared == ("boundary-echo", "deferred-ss10")
-    assert reached.no_verdict_declared == ("boundary-echo", "vie-baseline-entry-extension-dropped")
-    assert reached.no_verdict_reached == ("boundary-echo",)
-    assert reached.no_verdict_unreached == ("vie-baseline-entry-extension-dropped",)
-    assert reached.describe() == (
+    coverage = ledger_coverage(ledger, invariant)
+    assert coverage.unreached == ("vie-baseline-entry-extension-dropped",)
+    assert coverage.ink_declared == ("bare-name-live-join", "see-out-fused")
+    assert coverage.ink_declared_unapproved == ("see-out-fused",)
+    assert coverage.machine_approved_undeclared == ("boundary-echo", "deferred-ss10")
+    assert coverage.no_verdict_declared == ("boundary-echo", "vie-baseline-entry-extension-dropped")
+    assert coverage.no_verdict_reached == ("boundary-echo",)
+    assert coverage.no_verdict_unreached == ("vie-baseline-entry-extension-dropped",)
+    assert coverage.describe() == (
         "machine-approved: 3 classes approve units, 2 undeclared;"
         " ink-identical: 2 declared, 1 (see-out-fused) approving none;"
         " no-verdict: 1 of 2 declared reached, unreached 1 (vie-baseline-entry-extension-dropped);"
         " ledger: 3 of 4 classes reached, unreached 1 (vie-baseline-entry-extension-dropped)"
     )
-    assert reached.as_json()["ink_declared_unapproved"] == ["see-out-fused"]
+    assert coverage.as_json()["ink_declared_unapproved"] == ["see-out-fused"]
 
 
-def test_reach_reads_clean_when_the_ledger_and_the_corpus_agree():
+def test_ledger_coverage_reads_clean_when_the_ledger_and_the_corpus_agree():
     ledger = [
         _ledger_entry("boundary-echo", no_verdict=True),
         _ledger_entry("bare-name-live-join", ink_identical=True),
     ]
-    reached = reach(ledger, _ACCEPTED_INVARIANT)
-    assert reached.unreached == ()
-    assert reached.ink_declared_unapproved == ()
-    assert reached.no_verdict_unreached == ()
-    assert reached.describe() == (
+    coverage = ledger_coverage(ledger, _ACCEPTED_INVARIANT)
+    assert coverage.unreached == ()
+    assert coverage.ink_declared_unapproved == ()
+    assert coverage.no_verdict_unreached == ()
+    assert coverage.describe() == (
         "machine-approved: 2 classes approve units, 1 undeclared; ink-identical: 1 declared, all approving;"
         " no-verdict: 1 of 1 declared reached; ledger: 2 of 2 classes reached"
     )

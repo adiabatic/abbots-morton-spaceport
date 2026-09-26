@@ -5433,7 +5433,7 @@ _LEDGER_YAML = """- id: boundary-echo
 
 
 def _review_facts_fixture(monkeypatch, tmp_path, *, accepted, current):
-    """The review-facts step's inputs outside the real tree: the pins file standing in for what the refresh child just wrote, the index copy the step compares it with, and a three-entry ledger for the reach line."""
+    """The review-facts step's inputs outside the real tree: the pins file standing in for what the refresh child just wrote, the index copy the step compares it with, and a three-entry ledger for the ledger-coverage line."""
     pins = tmp_path / "review-facts-pins.json"
     pins.write_text(json.dumps(current, indent=2) + "\n")
     ledger = tmp_path / "m1-divergences.yaml"
@@ -5581,8 +5581,8 @@ def test_every_spawned_step_closes_with_its_own_detail_and_peak(capsys, tmp_path
     assert any("ok  15,903 units, 81,894 rows  rss 1.0G" in line for line in closing), closing
 
 
-def test_do_review_facts_names_the_invariant_movement_and_reports_reach(monkeypatch, tmp_path):
-    """The review-facts status names the invariant movement: which classes appeared, and which no-verdict exemptions and families came with them. Beside it, the reach line compares the ledger's declarations with the classes the corpus reached. Both go to the cycle log and to cycle_summary.json."""
+def test_do_review_facts_names_the_invariant_movement_and_reports_ledger_coverage(monkeypatch, tmp_path):
+    """The review-facts status names the invariant movement: which classes appeared, and which no-verdict exemptions and families came with them. Beside it, the ledger-coverage line compares the ledger's declarations with the classes the corpus reached. Both go to the cycle log and to cycle_summary.json."""
     _review_facts_fixture(monkeypatch, tmp_path, accepted=_ACCEPTED_PINS, current=_moved_invariant())
     calls: list[str] = []
 
@@ -5598,16 +5598,16 @@ def test_do_review_facts_names_the_invariant_movement_and_reports_reach(monkeypa
         " no-verdict +1 (vie-baseline-entry-extension-dropped); families +1 (deferred-ss10)"
         " — its diff is shown above; review it at commit time"
     )
-    assert report.census_reach == (
+    assert report.ledger_coverage == (
         "machine-approved: 2 classes approve units, 1 undeclared; ink-identical: 1 declared, all approving;"
         " no-verdict: 2 of 2 declared reached; ledger: 3 of 3 classes reached"
     )
-    assert report.census_reach_sets is not None
-    assert report.census_reach_sets["machine_approved_undeclared"] == ["boundary-echo"]
+    assert report.ledger_coverage_sets is not None
+    assert report.ledger_coverage_sets["machine_approved_undeclared"] == ["boundary-echo"]
     payload = ac.cycle_summary_payload(report, [], _plan(), "ok")
     assert payload["facts_status"] == report.facts_status
-    assert payload["census_reach"] == report.census_reach
-    assert payload["census_reach_sets"] == report.census_reach_sets
+    assert payload["ledger_coverage"] == report.ledger_coverage
+    assert payload["ledger_coverage_sets"] == report.ledger_coverage_sets
 
 
 def test_do_review_facts_says_the_invariant_is_unchanged_when_only_the_volatile_block_moved(
@@ -5632,8 +5632,8 @@ def test_do_review_facts_says_the_invariant_is_unchanged_when_only_the_volatile_
         "invariant unchanged (only the volatile totals moved; cycle_summary.json carries the corpus's)"
     )
     assert not any(line.startswith(("---", "+++", "@@")) for line in printed)
-    assert report.census_reach.startswith("machine-approved: ")
-    assert "unreached 1 (vie-baseline-entry-extension-dropped)" in report.census_reach
+    assert report.ledger_coverage.startswith("machine-approved: ")
+    assert "unreached 1 (vie-baseline-entry-extension-dropped)" in report.ledger_coverage
 
 
 def test_do_review_facts_says_so_when_the_refresh_moved_nothing(monkeypatch, tmp_path):
@@ -5655,7 +5655,7 @@ def test_do_review_facts_says_so_when_the_refresh_moved_nothing(monkeypatch, tmp
 def test_do_review_facts_says_when_there_are_no_accepted_facts_to_hold_the_pins_against(
     monkeypatch, tmp_path
 ):
-    """An untracked pins file, or no git, leaves the step nothing to compare with. The reach line is still computed, since it needs only the ledger and the pins just written."""
+    """An untracked pins file, or no git, leaves the step nothing to compare with. The ledger-coverage line is still computed, since it needs only the ledger and the pins just written."""
     _review_facts_fixture(monkeypatch, tmp_path, accepted=None, current=_moved_invariant())
 
     report = ac.CycleReport()
@@ -5670,7 +5670,7 @@ def test_do_review_facts_says_when_there_are_no_accepted_facts_to_hold_the_pins_
         report.facts_status
         == "updated (no accepted review facts to compare against: the pins are not in the index)"
     )
-    assert report.census_reach.startswith("machine-approved: ")
+    assert report.ledger_coverage.startswith("machine-approved: ")
 
 
 def test_do_review_facts_reports_a_failed_refresh_and_compares_nothing():
@@ -5685,7 +5685,7 @@ def test_do_review_facts_reports_a_failed_refresh_and_compares_nothing():
     ac._do_review_facts(report, spawn=spawn, emit=ac._Emitter(), registry=ac._ChildRegistry(), plan=_plan())
     assert calls == ["review-facts"]
     assert report.facts_status == "update FAILED (exit 2) — informational"
-    assert report.census_reach == "not computed (the refresh failed)"
+    assert report.ledger_coverage == "not computed (the refresh failed)"
 
 
 def test_a_failed_review_facts_refresh_never_fails_the_cycle(monkeypatch):
@@ -5729,7 +5729,7 @@ def test_a_staging_pass_never_runs_the_review_facts(monkeypatch, tmp_path):
 
     assert rc == 0
     assert report.facts_status == "skipped (staging: the checked-in pins track the live corpus)"
-    assert report.census_reach == "skipped (staging)"
+    assert report.ledger_coverage == "skipped (staging)"
 
 
 def test_do_job_costs_reports_a_clean_check():

@@ -2300,8 +2300,8 @@ class CycleReport:
     standing_merge_lines: list[str] = field(default_factory=list)
     verdict_update_fixpoint: bool = False
     facts_status: str = "not run"
-    census_reach: str = "not run"
-    census_reach_sets: dict | None = None
+    ledger_coverage: str = "not run"
+    ledger_coverage_sets: dict | None = None
     job_costs_status: str = "not run"
     job_costs_ok: bool | None = None
     complaints_status: str = "not run"
@@ -2864,20 +2864,20 @@ def _do_review_facts(
 ) -> None:
     """Rewrite the review-facts pins from the corpus's review-facts.json sidecar and report what changed against the last accepted review facts (`accepted_facts`). When only the volatile block changed, the status says the invariant is unchanged. When the invariant block changed, the status lists the changes (`facts.invariant_delta`) and the invariant block's diff is printed under the banner without the volatile hunks. The volatile block changes with nearly every letter, so a full diff on every pass would teach a reader to ignore it.
 
-    The step also reports reach: the ledger's `ink_identical` and `no_verdict` declarations compared with the classes the corpus reached and machine-approved. Neither the ledger nor the pins shows on its own that a declared class went unreached or that an undeclared class started approving units.
+    The step also reports ledger coverage: the ledger's `ink_identical` and `no_verdict` declarations compared with the classes the corpus reached and machine-approved. Neither the ledger nor the pins shows on its own that a declared class went unreached or that an undeclared class started approving units.
 
     The step records no green and never fails the cycle. A failed refresh (for example over a corpus built before the sidecar existed) is reported and left for the next pass that rebuilds the corpus.
     """
     refresh = spawn("review-facts", plan.argv("review-facts"), emit=emit, registry=registry, stream=False)
     if refresh.returncode != 0:
         report.facts_status = f"update FAILED (exit {refresh.returncode}) — informational"
-        report.census_reach = "not computed (the refresh failed)"
+        report.ledger_coverage = "not computed (the refresh failed)"
         _close_step(emit, report, "review-facts", refresh, "ok")
         return
     current = json.loads(FACTS_PINS.read_text(encoding="utf-8"))
-    reached = facts.reach(load_ledger(DIVERGENCE_LEDGER), current["invariant"])
-    report.census_reach = reached.describe()
-    report.census_reach_sets = reached.as_json()
+    coverage = facts.ledger_coverage(load_ledger(DIVERGENCE_LEDGER), current["invariant"])
+    report.ledger_coverage = coverage.describe()
+    report.ledger_coverage_sets = coverage.as_json()
     accepted = accepted_facts()
     if accepted is None:
         report.facts_status = (
@@ -3392,7 +3392,7 @@ def _run_cycle(
             report.complaints_status = f"skipped ({plan.complaints_note})"
         if plan.review_out is not None:
             report.facts_status = "skipped (staging: the checked-in pins track the live corpus)"
-            report.census_reach = "skipped (staging)"
+            report.ledger_coverage = "skipped (staging)"
             emit.step_skipped("review-facts", "staging: the checked-in pins track the live corpus")
         else:
             _do_review_facts(report, spawn=spawn, emit=emit, registry=registry, plan=plan)
@@ -3639,7 +3639,7 @@ def summary_cycle_lines(report: CycleReport, plan: Plan, retention_lines: list[s
         ),
         f"  complaint groups : {report.complaints_status}",
         f"  review facts     : {report.facts_status}",
-        f"  census reach     : {report.census_reach}",
+        f"  ledger coverage  : {report.ledger_coverage}",
         f"  job costs        : {report.job_costs_status}",
         f"  deep sweep       : {deep_status} ({deep_note})",
         f"  deep replay      : {replay_status} ({replay_note})",
@@ -3740,8 +3740,8 @@ def cycle_summary_payload(report: CycleReport, failures: list[str], plan: Plan, 
         "standing_merge_status": report.standing_merge_status,
         "standing_merge_lines": list(report.standing_merge_lines),
         "facts_status": report.facts_status,
-        "census_reach": report.census_reach,
-        "census_reach_sets": report.census_reach_sets,
+        "ledger_coverage": report.ledger_coverage,
+        "ledger_coverage_sets": report.ledger_coverage_sets,
         "job_costs_status": report.job_costs_status,
         "job_costs_ok": report.job_costs_ok,
         "complaints_status": report.complaints_status,

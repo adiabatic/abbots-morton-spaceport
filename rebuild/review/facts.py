@@ -1,6 +1,6 @@
 """The review facts: the counts and structural facts a corpus build reduces its state to, and the regenerator that writes them to rebuild/review-facts-pins.json, the last accepted review facts. Every non-staging artifact-cycle pass rewrites that file from the corpus's review-facts.json sidecar and names what moved in its invariant block. Committing the rewritten file accepts the new review facts. No gate checks the checked-in numbers, so a changed count is something to read, not a failure.
 
-The file has two blocks so the cycle can say what kind of change a pass made. `volatile` holds the manifest, built, audit, ink, and families groups, which change with every migrated letter. `invariant` holds the structural facts a person should review when they change: which classes the corpus ships, which classes the build machine-approves, which are exempt from individual verdicts, and which verdict families the corpus reaches. The invariant block repeats structure that the volatile groups' keys already carry. Both blocks come from one emission, so they cannot disagree, and the separate block lets `invariant_delta` name a new class or a new no-verdict exemption in one summary line and lets the cycle print a diff of that block alone. `rebuild/out/cycle_summary.json` also records the corpus's totals. The machine-approved and family lists are recorded nowhere else, because both are emergent: a class is machine-approved when the build approved at least one of its units through any channel, whatever the ledger declares. `reach` compares the ledger's declarations with them.
+The file has two blocks so the cycle can say what kind of change a pass made. `volatile` holds the manifest, built, audit, ink, and families groups, which change with every migrated letter. `invariant` holds the structural facts a person should review when they change: which classes the corpus ships, which classes the build machine-approves, which are exempt from individual verdicts, and which verdict families the corpus reaches. The invariant block repeats structure that the volatile groups' keys already carry. Both blocks come from one emission, so they cannot disagree, and the separate block lets `invariant_delta` name a new class or a new no-verdict exemption in one summary line and lets the cycle print a diff of that block alone. `rebuild/out/cycle_summary.json` also records the corpus's totals. The machine-approved and family lists are recorded nowhere else, because both are emergent: a class is machine-approved when the build approved at least one of its units through any channel, whatever the ledger declares. `ledger_coverage` compares the ledger's declarations with them.
 
 No test reads this file, since a build asserting the numbers it just wrote would check nothing. The tests check internal consistency (the deduplicated units account for every audit row), invariants derived from the sources (the manifest's own totals, the ledger's no-verdict classes), and that each in-memory reduction matches the shard walk or shaping it replaces.
 
@@ -159,7 +159,7 @@ def invariant_diff(accepted: Mapping, current: Mapping) -> list[str]:
 
 
 @dataclass(frozen=True)
-class Reach:
+class LedgerCoverage:
     """The ledger's declarations compared with what the corpus reached, from the ledger the corpus was built over and the invariant block. `unreached` lists the ledger entries no unit matched, so the corpus ships no class for them. `machine_approved` is emergent (a class is in it when the build approved at least one of its units through any channel) and is compared with the ledger's `ink_identical` declarations both ways: `ink_declared_unapproved` lists declared classes with no machine-approved unit, and `machine_approved_undeclared` lists approving classes the ledger never declared. `no_verdict` is declared in the ledger and copied onto each class the corpus ships, so its only possible disagreement is a declared class the corpus never reached. `describe` puts all of this on one line."""
 
     ledger: tuple[str, ...]
@@ -207,13 +207,13 @@ class Reach:
         }
 
 
-def reach(ledger: Sequence[LedgerClass], invariant: Mapping) -> Reach:
-    """`Reach` over a loaded ledger and an invariant block, every list in its source's order: ledger lists in ledger order, reached lists in the block's."""
+def ledger_coverage(ledger: Sequence[LedgerClass], invariant: Mapping) -> LedgerCoverage:
+    """`LedgerCoverage` over a loaded ledger and an invariant block, every list in its source's order: ledger lists in ledger order, reached lists in the block's."""
     reached = set(invariant["classes"])
     machine = tuple(invariant["machine_approved_classes"])
     ink_declared = tuple(entry.id for entry in ledger if entry.ink_identical)
     no_verdict_declared = tuple(entry.id for entry in ledger if entry.no_verdict)
-    return Reach(
+    return LedgerCoverage(
         ledger=tuple(entry.id for entry in ledger),
         unreached=tuple(entry.id for entry in ledger if entry.id not in reached),
         machine_approved=machine,
