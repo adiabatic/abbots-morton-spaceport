@@ -432,9 +432,9 @@ def _shapes():
 
 COVERAGE_SHAPES = {
     "extension-dropped": ("--extension-cells", "pivot_cells", "follower_cells"),
-    "join-retargeted": ("--retarget-cells", "pivot_cells", "receiver_cells"),
-    "join-created": ("--retarget-cells", "pivot_cells", "receiver_cells"),
-    "join-dropped": ("--retarget-cells", "pivot_cells", "receiver_cells"),
+    "join-retargeted": ("--retarget-cells", "pivot_cells", "follower_after_cells"),
+    "join-created": ("--retarget-cells", "pivot_cells", "follower_after_cells"),
+    "join-dropped": ("--retarget-cells", "pivot_cells", "follower_after_cells"),
     "slide": ("--survey", None, None),
     "ink-gain": ("--survey", None, None),
     "entry-extension-dropped": ("--survey", None, None),

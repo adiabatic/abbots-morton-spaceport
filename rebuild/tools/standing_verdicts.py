@@ -12,7 +12,7 @@ A rule declares one shape, a row in `SHAPES`, by the field its `match.after` car
 
 - `ink-gain` (declared by `gained`): the pivot's new form is its old picture plus a named set of own-frame cells, and everything after the pivot moves by the declared count: zero when the fuller form keeps its advance, positive when the added ink lengthens it. ·Roe keeping the baseline bar the old shortened-bottom form dropped matches at zero, and ·Gay's extra exit cell moving ·No one column right matches at one.
 
-- `join-dropped` (declared by `gap`): a named join becomes a break. The pivot keeps its picture and own-frame origin, or, where the rule names in full the cells both letters settle into, only its origin, so it may redraw in place (as a ·No raised to the x-height does when it loses its reach down to ·Thaw). The follower keeps its picture and origin and sits the declared number of columns further away, and everything after it moves by the same gap. The gap may be zero only where the pivot may redraw (the flipped ·No losing its x-height join into ·Cheer leaves ·Cheer where it was). A rule may also declare `follower_give_back`: the follower's joining form had inserted columns at its left edge, so as the join goes its own-frame origin moves right by that count and it redraws inside the named receiver cells (·Gay when the ·No in front of it is raised past reaching it). The unmoved origin is what separates a dropped join from a sidebearing change, which is the `slide` shape.
+- `join-dropped` (declared by `gap`): a named join becomes a break. The pivot keeps its picture and own-frame origin, or, where the rule names in full the cells both letters settle into, only its origin, so it may redraw in place (as a ·No raised to the x-height does when it loses its reach down to ·Thaw). The follower keeps its picture and origin and sits the declared number of columns further away, and everything after it moves by the same gap. The gap may be zero only where the pivot may redraw (the flipped ·No losing its x-height join into ·Cheer leaves ·Cheer where it was). A rule may also declare `follower_columns_removed`: the follower's joining form had inserted columns at its left edge, so as the join goes its own-frame origin moves right by that count and it redraws inside the named follower after cells (·Gay when the ·No in front of it is raised past reaching it). The unmoved origin is what separates a dropped join from a sidebearing change, which is the `slide` shape.
 
 - `entry-extension-dropped` (declared by `entry_drop`): the pivot gives up a named stretch of left-side entry. Either its own-frame picture is the old one compacted left by that many columns, with every dropped cell in the removed columns and its origin and placement unchanged, or its after form names an `en-con-N` that brings the letter that many columns closer. Everything after the pivot moves closer by the count. ·Low losing the extra baseline pixel the old font drew after ·See matches.
 
@@ -24,7 +24,7 @@ A rule declares one shape, a row in `SHAPES`, by the field its `match.after` car
 
 - `join-retargeted` (declared by `retarget`): a named join changes height. The pivot and follower may both redraw but keep their own-frame origins, the pivot keeps its placement, the follower moves by `follower_shift` (zero where the new join leaves it standing, -2 where ·Utter reaching ·May at the x-height pulls ·May back), and everything after the follower moves by `shift`. Half-·Tea joining ·No at the x-height becoming full ·Tea joining flipped ·No at the baseline is an example.
 
-- `join-created` (declared by `joined`): a named pair that was a break now joins at the named height, and the pivot and follower may redraw. The pivot keeps its own-frame origin, and its placement stays or moves up to `pivot_stub_drop` columns right when the left-side entry the old font drew in front of the join comes off (·May's own entry in front of its new baseline join into ·Gay). The follower keeps its own-frame origin, or moves it left by `follower_reach` when its joining form inserts columns at its left edge (·Gay's stroke that reaches the baseline). The follower moves by `shift` plus the pivot's placement move, and everything after it by that plus `follower_advance`. Two counts are needed because a follower that redraws wider gives back what the join closed: the reaches-way-back ·Utter comes a column nearer ·May and leaves the rest of the word where it was. The pivot may name several families, which records one letter's new entry for every left neighbor that now reaches it. `except_pivots` declines before forms that nest under a pivot prefix but need another count: the ·J'ai the old font drew with a stacked crown entry gives the follower a column, while the ·J'ai drawn without one gains a reach that cancels it.
+- `join-created` (declared by `joined`): a named pair that was a break now joins at the named height, and the pivot and follower may redraw. The pivot keeps its own-frame origin, and its placement stays or moves up to `pivot_stub_drop` columns right when the left-side entry the old font drew in front of the join comes off (·May's own entry in front of its new baseline join into ·Gay). The follower keeps its own-frame origin, or moves it left by `follower_columns_added` when its joining form inserts columns at its left edge (·Gay's stroke that reaches the baseline). The follower moves by `shift` plus the pivot's placement move, and everything after it by that plus `follower_advance`. Two counts are needed because a follower that redraws wider gives back what the join closed: the reaches-way-back ·Utter comes a column nearer ·May and leaves the rest of the word where it was. The pivot may name several families, which records one letter's new entry for every left neighbor that now reaches it. `except_pivots` declines before forms that nest under a pivot prefix but need another count: the ·J'ai the old font drew with a stacked crown entry gives the follower a column, while the ·J'ai drawn without one gains a reach that cancels it.
 
 The combined match, which no rule declares, runs before any single rule is checked. It asks whether two or more approved changes together account for every rendered pixel of one window. For example, where the grounded ·See slides a column closer to what precedes it and ·J'ai also gives up its exit extension, neither rule covers the window alone: `slide` fails on the extension pixel, and `extension-dropped` does not look at ink outside its judged seam.
 
@@ -36,7 +36,7 @@ The walk (`_combined_walk`) re-shapes the window in the corpus's font pair and c
 
 - slide: the pivot leads the next span, and the displacement grows by the declared slide.
 - extension: the pivot sits at the running displacement and loses, on the row its `seam_out` height names, the tail the rule names (the named extension less any shorter one its after cell keeps, or the named contraction). The displacement shrinks by that width. The follower leads the next span, which must be a translation, the same picture compacted left by the follower's dropped entry extension, or, when the follower redrew inside its named cell, a translation of the span without the follower.
-- join (dropped): the pivot sits at the running displacement, and the displacement grows by the gap. The follower leads the next span, or, where the rule declares `follower_give_back`, is judged by the event and left out of the span.
+- join (dropped): the pivot sits at the running displacement, and the displacement grows by the gap. The follower leads the next span, or, where the rule declares `follower_columns_removed`, is judged by the event and left out of the span.
 - gain: the pivot sits at the running displacement, and the displacement grows by the declared shift.
 - entry: the pivot sits left of the running displacement by the part of its entry contraction its own frame did not take (zero for a dropped entry extension), and the displacement moves closer by the entry count, adjusted for an `entry-contracted` rule by any exit-extension change on the pivot. The next span is compared together with the pivot's after picture, so a cell handed between them does not count as a change.
 - redrawn: the pivot sits at the running displacement, or left of it by up to the part of its new form's extra entry contraction its frame did not take, and the displacement grows by the declared shift plus that placement move.
@@ -50,7 +50,7 @@ Two events may share a letter only in these cases:
 
 - A created join behind an entry, ink-gain, or redrawn event at the same position. The earlier event judges the picture the pivot settles into, and the created join judges the seam that picture opens and its follower. Examples: ·Ah's contracted entry after ·J'ai and its new x-height join into ·Gay; ·Tea's full bar under ss03 and the baseline join it takes; ·Eight's smaller loop and the baseline join into ·It that only that loop reaches.
 - A created join, redrawn trade, dropped join, or further retarget whose pivot is a retarget's follower. The retarget judges that letter's incoming seam and its placement. A further retarget or dropped join takes nothing of the first retarget's `shift` beyond its follower's move, because its own counts are measured with its pivot standing and already include that letter's advance. A redrawn trade there must leave the letter where the retarget put it, so a new form naming an entry contraction fails. Examples: ·Gay's raised join into ·No with the break ·No now leaves before ·Thaw, or with ·No's own raised join into ·Day or ·No; ·It's lowered join into ·No and ·No's new join into ·Gay; ·Utter's raised join into ·May and the loop ·May draws with no exit left.
-- A created join, retarget, extension drop, ink gain, or redrawn trade whose pivot is a created join's follower. The created join judges that letter's incoming seam. A following retarget receives only the created join's `follower_reach`, for the same reason as above, and any other following event receives the whole `follower_advance`. Such a retarget may have moved its pivot's own-frame origin, because the created join's `follower_reach` declared that move. Examples: ·Bay's new baseline join into ·Utter and ·Utter's raised join into ·May, which puts ·May three columns back; ·Et's new baseline join into ·Gay and ·Gay's raised join into ·No; ·Pea's lowered join into ·No, ·No's new join into ·Ah, and ·Ah's dropped tail before ·Bay; ·Ah's new x-height join into ·Gay and ·Gay's own redraw, which meets that seam and gives up its baseline tail.
+- A created join, retarget, extension drop, ink gain, or redrawn trade whose pivot is a created join's follower. The created join judges that letter's incoming seam. A following retarget receives only the created join's `follower_columns_added`, for the same reason as above, and any other following event receives the whole `follower_advance`. Such a retarget may have moved its pivot's own-frame origin, because the created join's `follower_columns_added` declared that move. Examples: ·Bay's new baseline join into ·Utter and ·Utter's raised join into ·May, which puts ·May three columns back; ·Et's new baseline join into ·Gay and ·Gay's raised join into ·No; ·Pea's lowered join into ·No, ·No's new join into ·Ah, and ·Ah's dropped tail before ·Bay; ·Ah's new x-height join into ·Gay and ·Gay's own redraw, which meets that seam and gives up its baseline tail.
 - A dropped join or extension drop whose follower is itself an event. That event is judged next, under the displacement the first one applied (·At's dropped x-height join and ·It's dropped exit extension).
 
 Any other pair of events at one position, or a created join or retarget whose follower position is also an event, makes the walk return None. A created join whose pivot moved its own-frame origin is an event only behind an entry, ink-gain, or redrawn event at that position. A retarget whose pivot moved its origin is an event only behind a created join at the position before it, or behind an entry, ink-gain, or redrawn event at the same position, where it shares the letter the way a created join there does.
@@ -625,7 +625,7 @@ def _validate_ink_gain(rule_id, match) -> None:
 
 
 def _join_pairs(match, unit):
-    """Return the before-glyph indices where the named join became a break. The unit must line up letter for letter. At each index the glyph carries the pivot prefix, the next glyph is in a named follower family, the before seam between them is `seam_out` and the after seam is a break, and each after cell belongs to its before glyph's family. Where the rule names `pivot_cells` and `receiver_cells`, the two after cells must be among them."""
+    """Return the before-glyph indices where the named join became a break. The unit must line up letter for letter. At each index the glyph carries the pivot prefix, the next glyph is in a named follower family, the before seam between them is `seam_out` and the after seam is a break, and each after cell belongs to its before glyph's family. Where the rule names `pivot_cells` and `follower_after_cells`, the two after cells must be among them."""
     if not _letter_for_letter(unit):
         return []
     glyphs, seams = unit["before"]["glyphs"], unit["before"]["seams"]
@@ -634,7 +634,7 @@ def _join_pairs(match, unit):
     pivot = match["before"]["pivot"]
     seam = match["before"]["seam_out"]
     pivot_cells = match["after"].get("pivot_cells")
-    receiver_cells = match["after"].get("receiver_cells")
+    follower_after_cells = match["after"].get("follower_after_cells")
     reach = min(len(glyphs), len(cells), len(seams) + 1, len(after_seams) + 1) - 1
     return [
         i
@@ -644,7 +644,7 @@ def _join_pairs(match, unit):
         and seams[i] == seam
         and after_seams[i] == "break"
         and (pivot_cells is None or cells[i] in pivot_cells)
-        and (receiver_cells is None or cells[i + 1] in receiver_cells)
+        and (follower_after_cells is None or cells[i + 1] in follower_after_cells)
         and _cell_rune(cells[i]) == _family(glyphs[i])
         and _cell_rune(cells[i + 1]) == _family(glyphs[i + 1])
     ]
@@ -667,15 +667,15 @@ def _join_pivot_holds(match, before, after):
 
 
 def _join_follower_holds(match, before, after):
-    """Whether a dropped join's follower passes its rule's check: its picture and own-frame origin are unchanged where the rule declares no `follower_give_back`. Where it declares one, its own-frame origin moves right by that many columns and its picture may change within the receiver cells the rule names. That is the reverse of a created join's `follower_reach`: the columns the joining form inserted at its left edge come off as the join goes."""
-    give_back = match["after"].get("follower_give_back", 0)
-    if give_back:
-        return _retarget_piece_holds(before, after, -give_back)
+    """Whether a dropped join's follower passes its rule's check: its picture and own-frame origin are unchanged where the rule declares no `follower_columns_removed`. Where it declares one, its own-frame origin moves right by that many columns and its picture may change within the follower after cells the rule names. That is the reverse of a created join's `follower_columns_added`: the columns the joining form inserted at its left edge come off as the join goes."""
+    columns_removed = match["after"].get("follower_columns_removed", 0)
+    if columns_removed:
+        return _retarget_piece_holds(before, after, -columns_removed)
     return _join_piece_holds(before, after)
 
 
 def _join_geometry(match, unit, comparator):
-    """Whether the window's rendered before→after change is the named join becoming a gap, shaped under the unit's first config. For every pair `_join_pairs` finds, the pivot must pass `_join_pivot_holds` and the follower `_join_follower_holds`. Each span must paint the same pixels once displaced by the cumulative gap: the span before the first follower by nothing, the span the first follower leads by one gap, and one more gap for each further pair. A pivot that may redraw, or a follower with a give-back, is left out of the spans and only its placement is checked. No pair, a before run that differs from the recorded glyphs, a glyph count that differs from the recorded cells, a piece that fails its check, or an off-grid placement returns False, so the unit queues."""
+    """Whether the window's rendered before→after change is the named join becoming a gap, shaped under the unit's first config. For every pair `_join_pairs` finds, the pivot must pass `_join_pivot_holds` and the follower `_join_follower_holds`. Each span must paint the same pixels once displaced by the cumulative gap: the span before the first follower by nothing, the span the first follower leads by one gap, and one more gap for each further pair. A pivot that may redraw, or a follower with removed columns, is left out of the spans and only its placement is checked. No pair, a before run that differs from the recorded glyphs, a glyph count that differs from the recorded cells, a piece that fails its check, or an off-grid placement returns False, so the unit queues."""
     codepoints = unit.get("codepoints") or ""
     if not codepoints:
         return False
@@ -707,7 +707,7 @@ def _join_geometry(match, unit, comparator):
     gap = match["after"]["gap"]
     followers = {index + 1 for index in pairs}
     pivots = set(pairs) if match["after"].get("pivot_cells") else set()
-    redrawn = followers if match["after"].get("follower_give_back") else set()
+    redrawn = followers if match["after"].get("follower_columns_removed") else set()
     before_span: list = []
     after_span: list = []
     step = 0
@@ -734,7 +734,7 @@ def _join_geometry(match, unit, comparator):
 
 
 def _matches_join_dropped(match, unit, excluded, context=None):
-    """A named join that is now a break, matched at the rendered-pixel grain: the pivot keeps its own-frame origin, and its picture too unless the rule names in full the cells both letters settle into. The follower keeps its picture and origin, or, where the rule declares `follower_give_back`, moves its origin right by that count and redraws inside the receiver cells. The follower sits the declared number of columns further away, and everything after it moves by the same gap (`_join_geometry`). The origin check separates a cursive attachment going away from a sidebearing change, so a slide of the follower fails it. Any other ink change in the window fails this match; the combined match handles a window that also carries a second approved change. The unit's ink-delta digest must be the same under every config it lists, so shaping the first config stands for all of them. except_left reads the whole window."""
+    """A named join that is now a break, matched at the rendered-pixel grain: the pivot keeps its own-frame origin, and its picture too unless the rule names in full the cells both letters settle into. The follower keeps its picture and origin, or, where the rule declares `follower_columns_removed`, moves its origin right by that count and redraws inside the follower after cells. The follower sits the declared number of columns further away, and everything after it moves by the same gap (`_join_geometry`). The origin check separates a cursive attachment going away from a sidebearing change, so a slide of the follower fails it. Any other ink change in the window fails this match; the combined match handles a window that also carries a second approved change. The unit's ink-delta digest must be the same under every config it lists, so shaping the first config stands for all of them. except_left reads the whole window."""
     deltas = unit.get("ink_deltas")
     if not isinstance(deltas, dict) or not deltas:
         return False
@@ -752,8 +752,8 @@ def _matches_join_dropped(match, unit, excluded, context=None):
         tuple(_families(match["before"]["follower"])),
         match["after"]["gap"],
         tuple(match["after"].get("pivot_cells", ())),
-        tuple(match["after"].get("receiver_cells", ())),
-        match["after"].get("follower_give_back", 0),
+        tuple(match["after"].get("follower_after_cells", ())),
+        match["after"].get("follower_columns_removed", 0),
         unit["id"],
     )
     verdict = context.memo.get(key)
@@ -765,7 +765,7 @@ def _matches_join_dropped(match, unit, excluded, context=None):
 
 
 def _validate_join_dropped(rule_id, match) -> None:
-    """Check a join-dropped rule at load. The gap must not be negative, because a dropped join moves the letters apart. It may be zero only where the rule names the cells both letters settle into: with both pictures unchanged a zero gap is ink-identical and machine-approved already, while a pivot that may redraw can lose its join and leave the follower where it stood (the flipped ·No before ·Cheer). `seam_out` must be a yK height, since a break has no join to drop. `pivot_cells` and `receiver_cells` are optional but come as a pair, because naming both is what lets the pivot redraw, and their cells must belong to the named pivot and follower families. A declared `follower_give_back` must be at least 1 and needs `receiver_cells`: a follower that keeps its left edge leaves the field off, and one that reaches back over it belongs to the join-created shape."""
+    """Check a join-dropped rule at load. The gap must not be negative, because a dropped join moves the letters apart. It may be zero only where the rule names the cells both letters settle into: with both pictures unchanged a zero gap is ink-identical and machine-approved already, while a pivot that may redraw can lose its join and leave the follower where it stood (the flipped ·No before ·Cheer). `seam_out` must be a yK height, since a break has no join to drop. `pivot_cells` and `follower_after_cells` are optional but come as a pair, because naming both is what lets the pivot redraw, and their cells must belong to the named pivot and follower families. A declared `follower_columns_removed` must be at least 1 and needs `follower_after_cells`: a follower that keeps its left edge leaves the field off, and one whose joining form adds columns there belongs to the join-created shape."""
     if match["after"]["gap"] == 0 and "pivot_cells" not in match["after"]:
         _fail(
             f"rule {rule_id!r}: match.after.gap is 0 with both pictures held; an unmoved window is "
@@ -783,11 +783,11 @@ def _validate_join_dropped(rule_id, match) -> None:
         )
     named = (
         ("pivot_cells", [_family(match["before"]["pivot"])]),
-        ("receiver_cells", _families(match["before"]["follower"])),
+        ("follower_after_cells", _families(match["before"]["follower"])),
     )
     if len([field for field, _runes in named if field in match["after"]]) == 1:
         _fail(
-            f"rule {rule_id!r}: match.after names one of pivot_cells and receiver_cells; a rule "
+            f"rule {rule_id!r}: match.after names one of pivot_cells and follower_after_cells; a rule "
             "that frees its pivot to redraw names the cells both letters settle into, or neither "
             "and holds both pictures"
         )
@@ -798,18 +798,18 @@ def _validate_join_dropped(rule_id, match) -> None:
                     f"rule {rule_id!r}: match.after.{field} entry {cell!r} is not a cell of "
                     f"{' or '.join(runes)}"
                 )
-    if "follower_give_back" in match["after"]:
-        if match["after"]["follower_give_back"] < 1:
+    if "follower_columns_removed" in match["after"]:
+        if match["after"]["follower_columns_removed"] < 1:
             _fail(
-                f"rule {rule_id!r}: match.after.follower_give_back is "
-                f"{match['after']['follower_give_back']}; a follower that keeps its own pen leaves "
-                "the field off, and one that reaches back over it is a created join's, not a "
+                f"rule {rule_id!r}: match.after.follower_columns_removed is "
+                f"{match['after']['follower_columns_removed']}; a follower that keeps its own pen leaves "
+                "the field off, and one whose joining form adds columns is a created join's, not a "
                 "dropped join's"
             )
-        if "receiver_cells" not in match["after"]:
+        if "follower_after_cells" not in match["after"]:
             _fail(
-                f"rule {rule_id!r}: match.after.follower_give_back needs receiver_cells; the names "
-                "the follower settles into are what bound the redraw the give-back frees it to make"
+                f"rule {rule_id!r}: match.after.follower_columns_removed needs follower_after_cells; the names "
+                "the follower settles into are what bound the redraw that removing the columns frees it to make"
             )
 
 
@@ -1335,7 +1335,7 @@ def _validate_redrawn(rule_id, match) -> None:
 
 
 def _retarget_pairs(match, unit):
-    """Return the before-glyph indices where the named pair changed its join state. The unit must line up letter for letter. At each index the glyph carries one of the pivot prefixes and none of the `except_pivots` forms, the next glyph is in a named follower family, the before seam between them is `seam_out` and the after seam is the rule's `retarget` or `joined` height, the two after cells are in `pivot_cells` and `receiver_cells`, and each after cell belongs to its before glyph's family. `except_pivots` lets a rule skip a before form that falls under one of its prefixes but needs a different count, since a prefix also matches every longer form."""
+    """Return the before-glyph indices where the named pair changed its join state. The unit must line up letter for letter. At each index the glyph carries one of the pivot prefixes and none of the `except_pivots` forms, the next glyph is in a named follower family, the before seam between them is `seam_out` and the after seam is the rule's `retarget` or `joined` height, the two after cells are in `pivot_cells` and `follower_after_cells`, and each after cell belongs to its before glyph's family. `except_pivots` lets a rule skip a before form that falls under one of its prefixes but needs a different count, since a prefix also matches every longer form."""
     if not _letter_for_letter(unit):
         return []
     glyphs, seams = unit["before"]["glyphs"], unit["before"]["seams"]
@@ -1355,23 +1355,25 @@ def _retarget_pairs(match, unit):
         and seams[i] == seam
         and after_seams[i] == retarget
         and cells[i] in match["after"]["pivot_cells"]
-        and cells[i + 1] in match["after"]["receiver_cells"]
+        and cells[i + 1] in match["after"]["follower_after_cells"]
         and _cell_rune(cells[i]) == _family(glyphs[i])
         and _cell_rune(cells[i + 1]) == _family(glyphs[i + 1])
     ]
 
 
-def _retarget_piece_holds(before, after, reach=0):
-    """Whether one piece of a created or retargeted join kept its own-frame origin, or moved it left by exactly `reach` columns (right, for a negative `reach`), with its placements on the pixel grid. Its height and picture may change. The caller checks its placement against the running displacement."""
+def _retarget_piece_holds(before, after, columns_added=0):
+    """Whether one piece of a created or retargeted join kept its own-frame origin, or moved it left by exactly `columns_added` columns (right, for a negative `columns_added`, which is columns removed), with its placements on the pixel grid. Its height and picture may change. The caller checks its placement against the running displacement."""
     if before is None or after is None:
         return False
-    if after[4] != before[4] - reach * PIXEL_SIZE:
+    if after[4] != before[4] - columns_added * PIXEL_SIZE:
         return False
     return before[2] % PIXEL_SIZE == 0 and after[2] % PIXEL_SIZE == 0 and before[3] % PIXEL_SIZE == 0
 
 
-def _retarget_geometry(match, unit, comparator, follower_shift, onward, follower_reach=0, pivot_room=0):
-    """Whether the window's rendered before→after change is the named pair gaining a join or changing its join height, shaped under the unit's first config. For every pair `_retarget_pairs` finds, the pivot keeps its own-frame origin and its placement stays put or sits up to `pivot_room` columns further right (`_push`). The follower keeps its own-frame origin or moves it left by `follower_reach`, and its placement moves by `follower_shift` plus the pivot offsets so far, this pair's included. Each span outside the pairs must render identically, displaced by `onward` for each pair before it plus the pivot offsets so far. A retarget passes its `follower_shift` and `shift`; a created join passes its `shift` as `follower_shift`, and its `shift` plus `follower_advance` as `onward`. No pair, a before run that differs from the recorded glyphs, a mismatched glyph count, a piece that moved in a way the rule does not declare, or an off-grid placement returns False, so the unit queues."""
+def _retarget_geometry(
+    match, unit, comparator, follower_shift, onward, follower_columns_added=0, pivot_room=0
+):
+    """Whether the window's rendered before→after change is the named pair gaining a join or changing its join height, shaped under the unit's first config. For every pair `_retarget_pairs` finds, the pivot keeps its own-frame origin and its placement stays put or sits up to `pivot_room` columns further right (`_push`). The follower keeps its own-frame origin or moves it left by `follower_columns_added`, and its placement moves by `follower_shift` plus the pivot offsets so far, this pair's included. Each span outside the pairs must render identically, displaced by `onward` for each pair before it plus the pivot offsets so far. A retarget passes its `follower_shift` and `shift`; a created join passes its `shift` as `follower_shift`, and its `shift` plus `follower_advance` as `onward`. No pair, a before run that differs from the recorded glyphs, a mismatched glyph count, a piece that moved in a way the rule does not declare, or an off-grid placement returns False, so the unit queues."""
     codepoints = unit.get("codepoints") or ""
     if not codepoints:
         return False
@@ -1407,7 +1409,7 @@ def _retarget_geometry(match, unit, comparator, follower_shift, onward, follower
         push = _push(pivot_before, pivot_after, taken[-1], pivot_room)
         if push is None:
             return False
-        if not _retarget_piece_holds(follower_before, follower_after, follower_reach):
+        if not _retarget_piece_holds(follower_before, follower_after, follower_columns_added):
             return False
         if follower_after[2] != follower_before[2] + (follower_shift + taken[-1] + push) * PIXEL_SIZE:
             return False
@@ -1454,7 +1456,7 @@ def _matches_join_retarget(match, unit, excluded, context=None):
         tuple(_families(match["before"]["follower"])),
         match["after"]["retarget"],
         tuple(match["after"]["pivot_cells"]),
-        tuple(match["after"]["receiver_cells"]),
+        tuple(match["after"]["follower_after_cells"]),
         match["after"]["shift"],
         match["after"]["follower_shift"],
         unit["id"],
@@ -1470,7 +1472,7 @@ def _matches_join_retarget(match, unit, excluded, context=None):
 
 
 def _matches_join_created(match, unit, excluded, context=None):
-    """A named pair, or any of several named pivots into one follower, that has newly joined, matched at the rendered-pixel grain: the recorded break becomes the `joined` height, and the pivot and follower may both redraw (`_retarget_geometry`). The pivot keeps its own-frame origin, and its placement stays put or sits up to `pivot_stub_drop` columns further right. The follower keeps its own-frame origin or moves it left by `follower_reach`, and its placement moves by `shift` plus the pivot's offset. Everything after the follower moves by that plus `follower_advance`. Any other ink change in the window fails this match; the combined match handles a window that also carries a second approved change. The unit's ink-delta digest must be the same under every config it lists, so shaping the first config stands for all of them. except_left reads the whole window."""
+    """A named pair, or any of several named pivots into one follower, that has newly joined, matched at the rendered-pixel grain: the recorded break becomes the `joined` height, and the pivot and follower may both redraw (`_retarget_geometry`). The pivot keeps its own-frame origin, and its placement stays put or sits up to `pivot_stub_drop` columns further right. The follower keeps its own-frame origin or moves it left by `follower_columns_added`, and its placement moves by `shift` plus the pivot's offset. Everything after the follower moves by that plus `follower_advance`. Any other ink change in the window fails this match; the combined match handles a window that also carries a second approved change. The unit's ink-delta digest must be the same under every config it lists, so shaping the first config stands for all of them. except_left reads the whole window."""
     deltas = unit.get("ink_deltas")
     if not isinstance(deltas, dict) or not deltas:
         return False
@@ -1489,10 +1491,10 @@ def _matches_join_created(match, unit, excluded, context=None):
         tuple(_families(match["before"]["follower"])),
         match["after"]["joined"],
         tuple(match["after"]["pivot_cells"]),
-        tuple(match["after"]["receiver_cells"]),
+        tuple(match["after"]["follower_after_cells"]),
         match["after"]["shift"],
         match["after"]["follower_advance"],
-        match["after"]["follower_reach"],
+        match["after"]["follower_columns_added"],
         match["after"].get("pivot_stub_drop", 0),
         unit["id"],
     )
@@ -1505,7 +1507,7 @@ def _matches_join_created(match, unit, excluded, context=None):
             context.comparator,
             shift,
             shift + match["after"]["follower_advance"],
-            match["after"]["follower_reach"],
+            match["after"]["follower_columns_added"],
             match["after"].get("pivot_stub_drop", 0),
         )
     if not verdict:
@@ -1514,7 +1516,7 @@ def _matches_join_created(match, unit, excluded, context=None):
 
 
 def _validate_join_retarget(rule_id, match) -> None:
-    """Check a join-retargeted rule at load: `seam_out` and `retarget` must both be yK heights and must differ, and the pivot and receiver cells must belong to the named pivot and follower families. A break before has no join to retarget, a break after belongs to the join-dropped shape, and an unchanged height belongs to the extension-dropped shape."""
+    """Check a join-retargeted rule at load: `seam_out` and `retarget` must both be yK heights and must differ, and the pivot and follower after cells must belong to the named pivot and follower families. A break before has no join to retarget, a break after belongs to the join-dropped shape, and an unchanged height belongs to the extension-dropped shape."""
     if not SEAM_ROW.fullmatch(match["before"]["seam_out"]):
         _fail(
             f"rule {rule_id!r}: match.before.seam_out names {match['before']['seam_out']!r}, "
@@ -1532,7 +1534,7 @@ def _validate_join_retarget(rule_id, match) -> None:
         )
     named = (
         ("pivot_cells", [_family(match["before"]["pivot"])]),
-        ("receiver_cells", _families(match["before"]["follower"])),
+        ("follower_after_cells", _families(match["before"]["follower"])),
     )
     for field, runes in named:
         for cell in match["after"][field]:
@@ -1544,7 +1546,7 @@ def _validate_join_retarget(rule_id, match) -> None:
 
 
 def _validate_join_created(rule_id, match) -> None:
-    """Check a join-created rule at load. `seam_out` must be `break` and `joined` a yK height, since a pair that already joined belongs to the retarget or extension shape and a new break to the join-dropped shape. `follower_reach` must not be negative, since a follower that pulls its left edge in is an entry contraction. A declared `pivot_stub_drop` must be at least 1; a rule without a stub drop leaves the field off. Every `except_pivots` form must fall under one of the named pivots, since a declined form outside them declines nothing and misstates the rule's scope. The pivot and receiver cells must belong to the named pivot and follower families. Naming several pivot families lets one rule record a letter's new entry for every left neighbor that now reaches it."""
+    """Check a join-created rule at load. `seam_out` must be `break` and `joined` a yK height, since a pair that already joined belongs to the retarget or extension shape and a new break to the join-dropped shape. `follower_columns_added` must not be negative, since a follower that pulls its left edge in is an entry contraction. A declared `pivot_stub_drop` must be at least 1; a rule without a stub drop leaves the field off. Every `except_pivots` form must fall under one of the named pivots, since a declined form outside them declines nothing and misstates the rule's scope. The pivot and follower after cells must belong to the named pivot and follower families. Naming several pivot families lets one rule record a letter's new entry for every left neighbor that now reaches it."""
     if match["before"]["seam_out"] != "break":
         _fail(
             f"rule {rule_id!r}: match.before.seam_out names {match['before']['seam_out']!r}; "
@@ -1555,10 +1557,10 @@ def _validate_join_created(rule_id, match) -> None:
             f"rule {rule_id!r}: match.after.joined names {match['after']['joined']!r}, "
             "which is not a yK height"
         )
-    if match["after"]["follower_reach"] < 0:
+    if match["after"]["follower_columns_added"] < 0:
         _fail(
-            f"rule {rule_id!r}: match.after.follower_reach is negative; a follower reaches back over "
-            "its old left edge or stands where it was, and a frame that pulls in is a contraction"
+            f"rule {rule_id!r}: match.after.follower_columns_added is negative; a follower's joining form adds columns at "
+            "its left edge or none, and a frame that pulls in is a contraction"
         )
     if "pivot_stub_drop" in match["after"] and match["after"]["pivot_stub_drop"] < 1:
         _fail(
@@ -1575,7 +1577,7 @@ def _validate_join_created(rule_id, match) -> None:
             )
     named = (
         ("pivot_cells", [_family(name) for name in pivots]),
-        ("receiver_cells", _families(match["before"]["follower"])),
+        ("follower_after_cells", _families(match["before"]["follower"])),
     )
     for field, runes in named:
         for cell in match["after"][field]:
@@ -1591,9 +1593,9 @@ class Event(NamedTuple):
 
     `kind` names the shape: `slide`, `extension`, `gain`, `join` (dropped), `entry`, `stub`, `redrawn`, `retarget`, or `joined` (created). `shift` is the columns the running displacement moves at this position: the declared slide, minus the extension's dropped columns, the declared gap, the entry shortening plus any exit-extension change on the pivot, the created join's shift, the columns a retarget moves its follower, or the declared ink-gain or redrawn shift. For `stub`, `shift` is the pivot's own placement offset instead, and the followers do not move.
 
-    `pivot_judged` is False only for a `retarget` or `joined` event whose pivot moved its own-frame origin. The walk keeps either kind only when it shares its pivot with an entry, gain, or redrawn event at the same position, which has judged the pivot, and also keeps such a retarget behind a created join at the previous position, whose `follower_reach` has already checked that move.
+    `pivot_judged` is False only for a `retarget` or `joined` event whose pivot moved its own-frame origin. The walk keeps either kind only when it shares its pivot with an entry, gain, or redrawn event at the same position, which has judged the pivot, and also keeps such a retarget behind a created join at the previous position, whose `follower_columns_added` has already checked that move.
 
-    `lead` is an entry event's expected placement offset from the running displacement, zero or negative; it is nonzero only for an entry contraction the after form's own frame did not fully take into its origin. `room` is how far the pivot's placement may sit from the running displacement: to the left for a redrawn event, by the part of its new form's entry contraction its frame did not take, and to the right for a created join, by its `pivot_stub_drop`. `advance` is the further displacement applied once the walk is past the follower: a created join's `follower_advance`, or what a retarget's `shift` leaves after its `follower_shift`. `reach` is a created join's `follower_reach`, the part of its advance a retarget that shares a letter with it still needs. On a dropped join it is `follower_give_back`, which makes the follower's picture part of the event instead of the head of the next span.
+    `lead` is an entry event's expected placement offset from the running displacement, zero or negative; it is nonzero only for an entry contraction the after form's own frame did not fully take into its origin. `room` is how far the pivot's placement may sit from the running displacement: to the left for a redrawn event, by the part of its new form's entry contraction its frame did not take, and to the right for a created join, by its `pivot_stub_drop`. `advance` is the further displacement applied once the walk is past the follower: a created join's `follower_advance`, or what a retarget's `shift` leaves after its `follower_shift`. `follower_columns` is a created join's `follower_columns_added`, the part of its advance a retarget that shares a letter with it still needs. On a dropped join it is `follower_columns_removed`, which makes the follower's picture part of the event instead of the head of the next span.
     """
 
     rule_id: str
@@ -1603,7 +1605,7 @@ class Event(NamedTuple):
     lead: int = 0
     advance: int = 0
     room: int = 0
-    reach: int = 0
+    follower_columns: int = 0
 
 
 def _shape_of(match):
@@ -1850,19 +1852,19 @@ def _extension_event(match, rule_id, index, intern, before_pieces, after_pieces,
 
 
 def _join_event(match, rule_id, index, before_pieces, after_pieces):
-    """Return a join Event at `index` when the pivot passes `_join_pivot_holds` and the follower has ink on both sides, or None, which leaves both pieces to be judged as span ink. When the rule declares `follower_give_back`, the follower must also pass `_join_follower_holds`, and the walk treats the follower as part of this event instead of the head of the next span. Without a give-back, a follower that is itself an event is judged by that event, and any other follower heads the next span, so a redrawn follower still fails there."""
+    """Return a join Event at `index` when the pivot passes `_join_pivot_holds` and the follower has ink on both sides, or None, which leaves both pieces to be judged as span ink. When the rule declares `follower_columns_removed`, the follower must also pass `_join_follower_holds`, and the walk treats the follower as part of this event instead of the head of the next span. Without removed columns, a follower that is itself an event is judged by that event, and any other follower heads the next span, so a redrawn follower still fails there."""
     if not _join_pivot_holds(match, before_pieces.get(index), after_pieces.get(index)):
         return None
     if before_pieces.get(index + 1) is None or after_pieces.get(index + 1) is None:
         return None
-    give_back = match["after"].get("follower_give_back", 0)
-    if give_back and not _join_follower_holds(match, before_pieces[index + 1], after_pieces[index + 1]):
+    columns_removed = match["after"].get("follower_columns_removed", 0)
+    if columns_removed and not _join_follower_holds(match, before_pieces[index + 1], after_pieces[index + 1]):
         return None
-    return Event(rule_id, "join", match["after"]["gap"], reach=give_back)
+    return Event(rule_id, "join", match["after"]["gap"], follower_columns=columns_removed)
 
 
 def _retarget_event(match, rule_id, index, before_pieces, after_pieces):
-    """Return a retarget Event at `index` when the pivot has ink on both sides and the follower keeps its own-frame origin on the grid (`_retarget_piece_holds`), or None, which leaves both pieces to be judged as span ink. Height and picture may change. `pivot_judged` is False when the pivot moved its own-frame origin; the walk keeps such an event only behind a created join at the previous position, whose follower reach has already checked that move, or behind an entry, gain, or redrawn event at the same position, so a letter that redrew its own left edge never passes through a retarget alone. `shift` is how far the follower moves and `advance` is the rest of the declared shift, applied past the follower. Both are measured with the pivot standing, so they already include the pivot's own advance: a created join in front passes on only its follower reach (`_handed_on`), and a retarget in front passes on nothing."""
+    """Return a retarget Event at `index` when the pivot has ink on both sides and the follower keeps its own-frame origin on the grid (`_retarget_piece_holds`), or None, which leaves both pieces to be judged as span ink. Height and picture may change. `pivot_judged` is False when the pivot moved its own-frame origin; the walk keeps such an event only behind a created join at the previous position, whose `follower_columns_added` has already checked that move, or behind an entry, gain, or redrawn event at the same position, so a letter that redrew its own left edge never passes through a retarget alone. `shift` is how far the follower moves and `advance` is the rest of the declared shift, applied past the follower. Both are measured with the pivot standing, so they already include the pivot's own advance: a created join in front carries past only its follower's added columns (`_carried_past`), and a retarget in front passes on nothing."""
     if before_pieces.get(index) is None or after_pieces.get(index) is None:
         return None
     if not _retarget_piece_holds(before_pieces.get(index + 1), after_pieces.get(index + 1)):
@@ -1878,9 +1880,9 @@ def _retarget_event(match, rule_id, index, before_pieces, after_pieces):
 
 
 def _created_join_event(match, rule_id, index, before_pieces, after_pieces):
-    """Return a created-join (`joined`) Event at `index` when the follower keeps its own-frame origin or moves it left by `follower_reach`, on the grid, and the pivot has ink on both sides, or None, which leaves both pieces to be judged as span ink. Height and picture may change. `pivot_judged` is False when the pivot moved its own-frame origin; the walk keeps such an event only when it shares its pivot with an entry, gain, or redrawn event at the same position, which has judged the pivot. In the walk the pivot sits at the running displacement or up to `pivot_stub_drop` columns right of it, the follower moves by the shift plus that offset, and the follower's advance delta is carried past it."""
+    """Return a created-join (`joined`) Event at `index` when the follower keeps its own-frame origin or moves it left by `follower_columns_added`, on the grid, and the pivot has ink on both sides, or None, which leaves both pieces to be judged as span ink. Height and picture may change. `pivot_judged` is False when the pivot moved its own-frame origin; the walk keeps such an event only when it shares its pivot with an entry, gain, or redrawn event at the same position, which has judged the pivot. In the walk the pivot sits at the running displacement or up to `pivot_stub_drop` columns right of it, the follower moves by the shift plus that offset, and the follower's advance delta is carried past it."""
     if not _retarget_piece_holds(
-        before_pieces.get(index + 1), after_pieces.get(index + 1), match["after"]["follower_reach"]
+        before_pieces.get(index + 1), after_pieces.get(index + 1), match["after"]["follower_columns_added"]
     ):
         return None
     if before_pieces.get(index) is None or after_pieces.get(index) is None:
@@ -1893,7 +1895,7 @@ def _created_join_event(match, rule_id, index, before_pieces, after_pieces):
         pivot_judged,
         advance=match["after"]["follower_advance"],
         room=match["after"].get("pivot_stub_drop", 0),
-        reach=match["after"]["follower_reach"],
+        follower_columns=match["after"]["follower_columns_added"],
     )
 
 
@@ -1940,9 +1942,9 @@ def _span_explained(
     return False
 
 
-def _handed_on(event, follower_event):
-    """Return the displacement a created join carries past its follower when that follower is the next event: only the follower's reach when the next event is a retarget, whose counts are measured with its pivot standing and so already include that letter's advance, and otherwise the whole declared advance."""
-    return event.reach if follower_event.kind == "retarget" else event.advance
+def _carried_past(event, follower_event):
+    """Return the displacement a created join carries past its follower when that follower is the next event: only the follower's added columns when the next event is a retarget, whose counts are measured with its pivot standing and so already include that letter's advance, and otherwise the whole declared advance."""
+    return event.follower_columns if follower_event.kind == "retarget" else event.advance
 
 
 def _combined_walk(rules, unit, context):
@@ -2132,7 +2134,7 @@ def _combined_walk(rules, unit, context):
                 after_anchor = None
                 counted.setdefault(joined.rule_id, []).append(position)
                 if index in behind_join:
-                    carried = _handed_on(joined, events[index])
+                    carried = _carried_past(joined, events[index])
                 else:
                     displacement += joined.advance
                     index += 1
@@ -2162,7 +2164,7 @@ def _combined_walk(rules, unit, context):
                         if after_pieces[index][2] != before_pieces[index][2] + displacement * PIXEL_SIZE:
                             return None
                         if index in behind_join:
-                            carried = _handed_on(trailing, events[index])
+                            carried = _carried_past(trailing, events[index])
                         else:
                             displacement += trailing.advance
                             index += 1
@@ -2176,7 +2178,7 @@ def _combined_walk(rules, unit, context):
                 return None
             before_span, after_span = [], []
             if index + 1 in behind_join:
-                carried = _handed_on(event, events[index + 1])
+                carried = _carried_past(event, events[index + 1])
                 index += 1
             else:
                 displacement += event.advance
@@ -2197,7 +2199,9 @@ def _combined_walk(rules, unit, context):
                 )
                 if follower_after[2] != follower_before[2] + displacement * PIXEL_SIZE:
                     return None
-                before_span, after_span = ([], []) if event.reach else ([follower_before], [follower_after])
+                before_span, after_span = (
+                    ([], []) if event.follower_columns else ([follower_before], [follower_after])
+                )
                 if event.kind == "extension":
                     compact = _dropped_entry(glyphs[follower_index], cells[follower_index])
                     skippable = True
@@ -2364,11 +2368,11 @@ SHAPES = {
         keyed_by="gap",
         before=("pivot", "seam_out", "follower"),
         after=("gap",),
-        cell_lists=("pivot_cells", "receiver_cells"),
+        cell_lists=("pivot_cells", "follower_after_cells"),
         matcher=_matches_join_dropped,
         validate=_validate_join_dropped,
-        optional=("pivot_cells", "receiver_cells", "follower_give_back"),
-        int_fields=("gap", "follower_give_back"),
+        optional=("pivot_cells", "follower_after_cells", "follower_columns_removed"),
+        int_fields=("gap", "follower_columns_removed"),
         family_fields=("follower",),
         combinable=True,
         font_backed=True,
@@ -2437,8 +2441,8 @@ SHAPES = {
     "join-retargeted": Shape(
         keyed_by="retarget",
         before=("pivot", "seam_out", "follower"),
-        after=("retarget", "pivot_cells", "receiver_cells", "shift", "follower_shift"),
-        cell_lists=("pivot_cells", "receiver_cells"),
+        after=("retarget", "pivot_cells", "follower_after_cells", "shift", "follower_shift"),
+        cell_lists=("pivot_cells", "follower_after_cells"),
         matcher=_matches_join_retarget,
         validate=_validate_join_retarget,
         int_fields=("shift", "follower_shift"),
@@ -2451,14 +2455,21 @@ SHAPES = {
     "join-created": Shape(
         keyed_by="joined",
         before=("pivot", "seam_out", "follower"),
-        after=("joined", "pivot_cells", "receiver_cells", "shift", "follower_advance", "follower_reach"),
-        cell_lists=("pivot_cells", "receiver_cells"),
+        after=(
+            "joined",
+            "pivot_cells",
+            "follower_after_cells",
+            "shift",
+            "follower_advance",
+            "follower_columns_added",
+        ),
+        cell_lists=("pivot_cells", "follower_after_cells"),
         matcher=_matches_join_created,
         validate=_validate_join_created,
         optional=("pivot_stub_drop",),
         before_optional=("except_pivots",),
         name_lists=("except_pivots",),
-        int_fields=("shift", "follower_advance", "follower_reach", "pivot_stub_drop"),
+        int_fields=("shift", "follower_advance", "follower_columns_added", "pivot_stub_drop"),
         family_fields=("pivot", "follower"),
         combinable=True,
         font_backed=True,

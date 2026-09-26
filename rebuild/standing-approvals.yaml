@@ -116,12 +116,12 @@ rules:
         joined: y5
         pivot_cells:
           - qsFee/loop/None/x-height/ex-ext-1
-        receiver_cells:
+        follower_after_cells:
           - qsTea/full/x-height/None/
           - qsTea/full/x-height/baseline/
         shift: -3
         follower_advance: 0
-        follower_reach: 0
+        follower_columns_added: 0
       except_left: []
   - id: et-may-exit-contracted
     verdict: approve
@@ -240,7 +240,7 @@ rules:
           - qsTea/full/None/baseline/
           - qsTea/full/x-height/baseline/
           - qsTea/full/top/baseline/
-        receiver_cells:
+        follower_after_cells:
           - qsNo/flipped/baseline/None/
           - qsNo/flipped/baseline/baseline/
         shift: -1
@@ -260,7 +260,7 @@ rules:
           - qsPea/full/None/baseline/
           - qsPea/full/x-height/baseline/
           - qsPea/full/y6/baseline/
-        receiver_cells:
+        follower_after_cells:
           - qsNo/flipped/baseline/None/
           - qsNo/flipped/baseline/baseline/
         shift: -1
@@ -445,11 +445,11 @@ rules:
           - qsEt/hapax/None/baseline/
           - qsEt/hapax/x-height/baseline/
           - qsEt/hapax/x-height/baseline/en-ext-1
-        receiver_cells:
+        follower_after_cells:
           - qsPea/full/baseline/None/
         shift: -4
         follower_advance: 0
-        follower_reach: 0
+        follower_columns_added: 0
       except_left: []
   - id: gay-no-xheight-extension-added
     verdict: approve
@@ -567,12 +567,12 @@ rules:
           - qsAh/hapax/None/x-height/
           - qsAh/hapax/baseline/x-height/
           - qsAh/hapax/baseline/x-height/en-con-1
-        receiver_cells:
+        follower_after_cells:
           - qsGay/hapax/x-height/None/
           - qsGay/hapax/x-height/baseline/
         shift: -3
         follower_advance: 0
-        follower_reach: 0
+        follower_columns_added: 0
       except_left: []
   - id: it-baseline-join-created
     verdict: approve
@@ -602,13 +602,13 @@ rules:
           - qsOy/hapax/x-height/baseline/
           - qsOoze/hapax/None/baseline/
           - qsOoze/hapax/baseline/baseline/
-        receiver_cells:
+        follower_after_cells:
           - qsIt/hapax/baseline/None/
           - qsIt/hapax/baseline/baseline/
           - qsIt/hapax/baseline/x-height/
         shift: -1
         follower_advance: 0
-        follower_reach: 0
+        follower_columns_added: 0
       except_left: []
   - id: it-no-xheight-join-retargeted
     verdict: approve
@@ -623,7 +623,7 @@ rules:
         pivot_cells:
           - qsIt/hapax/None/baseline/
           - qsIt/hapax/baseline/baseline/
-        receiver_cells:
+        follower_after_cells:
           - qsNo/flipped/baseline/None/
           - qsNo/flipped/baseline/baseline/
         shift: 0
@@ -684,7 +684,7 @@ rules:
           - qsGay/hapax/None/x-height/ex-ext-1
           - qsGay/hapax/baseline/x-height/ex-ext-1
           - qsGay/hapax/baseline/x-height/en-con-1+ex-ext-1
-        receiver_cells:
+        follower_after_cells:
           - qsNo/loop/x-height/None/
           - qsNo/loop/x-height/x-height/
           - qsNo/loop/x-height/x-height/ex-ext-1
@@ -715,7 +715,7 @@ rules:
           - qsAwe/hapax/None/baseline/
           - qsAwe/hapax/x-height/baseline/
           - qsAwe/hapax/x-height/baseline/en-ext-1
-        receiver_cells:
+        follower_after_cells:
           - qsGay/hapax/baseline/None/en-con-1
           - qsGay/hapax/baseline/x-height/en-con-1
           - qsGay/hapax/baseline/x-height/en-con-1+ex-ext-1
@@ -723,7 +723,7 @@ rules:
           - qsGay/hapax/baseline/x-height/en-con-1+ex-ext-3
         shift: -2
         follower_advance: 0
-        follower_reach: 0
+        follower_columns_added: 0
       except_left: []
   - id: et-gay-baseline-join-created
     verdict: approve
@@ -739,12 +739,12 @@ rules:
           - qsEt/hapax/None/baseline/ex-con-1
           - qsEt/hapax/x-height/baseline/en-ext-1+ex-con-1
           - qsEt/hapax/x-height/baseline/ex-con-1
-        receiver_cells:
+        follower_after_cells:
           - qsGay/hapax/baseline/None/en-con-1
           - qsGay/hapax/baseline/x-height/en-con-1+ex-ext-1
         shift: -3
         follower_advance: 0
-        follower_reach: 0
+        follower_columns_added: 0
       except_left: []
   - id: no-ah-baseline-join-created
     verdict: approve
@@ -759,13 +759,13 @@ rules:
         pivot_cells:
           - qsNo/flipped/None/baseline/
           - qsNo/flipped/baseline/baseline/
-        receiver_cells:
+        follower_after_cells:
           - qsAh/hapax/baseline/None/
           - qsAh/hapax/baseline/x-height/
           - qsAh/hapax/baseline/x-height/ex-ext-1
         shift: -1
         follower_advance: 0
-        follower_reach: 0
+        follower_columns_added: 0
       except_left: []
   - id: no-thaw-baseline-join-created
     verdict: approve
@@ -780,11 +780,11 @@ rules:
         pivot_cells:
           - qsNo/flipped/None/baseline/
           - qsNo/flipped/baseline/baseline/
-        receiver_cells:
+        follower_after_cells:
           - qsThaw/hapax/baseline/None/
         shift: -3
         follower_advance: 0
-        follower_reach: 0
+        follower_columns_added: 0
       except_left: []
   - id: no-no-xheight-join-retargeted
     verdict: approve
@@ -799,7 +799,7 @@ rules:
         pivot_cells:
           - qsNo/flipped/None/baseline/
           - qsNo/flipped/baseline/baseline/
-        receiver_cells:
+        follower_after_cells:
           - qsDay/half/baseline/None/
           - qsDay/half/baseline/baseline/
           - qsNo/flipped/baseline/None/
@@ -832,11 +832,11 @@ rules:
         pivot_cells:
           - qsUtter/alternate/None/baseline/
           - qsUtter/alternate/x-height/baseline/
-        receiver_cells:
+        follower_after_cells:
           - qsTea/full/baseline/None/
         shift: -1
         follower_advance: 0
-        follower_reach: 0
+        follower_columns_added: 0
       except_left: []
   - id: utter-xheight-join-created
     verdict: approve
@@ -858,11 +858,11 @@ rules:
           - qsNo/loop/x-height/x-height/
           - qsUtter/mono/None/x-height/
           - qsUtter/mono/baseline/x-height/
-        receiver_cells:
+        follower_after_cells:
           - qsUtter/alternate/x-height/baseline/
         shift: -1
         follower_advance: 1
-        follower_reach: 0
+        follower_columns_added: 0
       except_left: []
   - id: may-ah-baseline-join-created
     verdict: approve
@@ -877,13 +877,13 @@ rules:
         pivot_cells:
           - qsMay/grounded-loop/None/baseline/
           - qsMay/grounded-loop/x-height/baseline/
-        receiver_cells:
+        follower_after_cells:
           - qsAh/hapax/baseline/None/
           - qsAh/hapax/baseline/x-height/
           - qsAh/hapax/baseline/x-height/ex-ext-1
         shift: -2
         follower_advance: 0
-        follower_reach: 0
+        follower_columns_added: 0
       except_left: []
   - id: utter-may-baseline-join-retargeted
     verdict: approve
@@ -898,7 +898,7 @@ rules:
         pivot_cells:
           - qsUtter/mono/None/x-height/
           - qsUtter/mono/baseline/x-height/
-        receiver_cells:
+        follower_after_cells:
           - qsMay/grounded-loop/x-height/baseline/
           - qsMay/loop/x-height/None/
         shift: -2
@@ -919,13 +919,13 @@ rules:
           - qsBay/hapax/x-height/baseline/
           - qsGay/hapax/None/baseline/
           - qsGay/hapax/x-height/baseline/
-        receiver_cells:
+        follower_after_cells:
           - qsUtter/mono/baseline/None/
           - qsUtter/mono/baseline/x-height/
           - qsUtter/mono/baseline/x-height/ex-ext-1
         shift: -1
         follower_advance: 1
-        follower_reach: 0
+        follower_columns_added: 0
       except_left: []
   - id: it-xheight-join-created
     verdict: approve
@@ -943,12 +943,12 @@ rules:
           - qsAh/hapax/None/x-height/
           - qsAh/hapax/baseline/x-height/
           - qsAh/hapax/baseline/x-height/en-con-1
-        receiver_cells:
+        follower_after_cells:
           - qsIt/hapax/x-height/None/
           - qsIt/hapax/x-height/baseline/
         shift: -1
         follower_advance: 0
-        follower_reach: 0
+        follower_columns_added: 0
       except_left: []
   - id: gay-xheight-entry-exit-extension-dropped
     verdict: approve
@@ -979,13 +979,13 @@ rules:
           - qsJai/hapax/x-height/baseline/
           - qsJai/hapax/x-height/baseline/en-con-1
           - qsJai/hapax/x-height/baseline/en-con-2
-        receiver_cells:
+        follower_after_cells:
           - qsGay/hapax/baseline/None/
           - qsGay/hapax/baseline/x-height/
           - qsGay/hapax/baseline/x-height/ex-ext-1
         shift: -2
         follower_advance: 1
-        follower_reach: 1
+        follower_columns_added: 1
       except_left: []
   - id: may-gay-baseline-join-created
     verdict: approve
@@ -1000,13 +1000,13 @@ rules:
         pivot_cells:
           - qsMay/grounded-loop/None/baseline/
           - qsMay/grounded-loop/x-height/baseline/
-        receiver_cells:
+        follower_after_cells:
           - qsGay/hapax/baseline/None/
           - qsGay/hapax/baseline/x-height/
           - qsGay/hapax/baseline/x-height/ex-ext-1
         shift: -3
         follower_advance: 1
-        follower_reach: 1
+        follower_columns_added: 1
         pivot_stub_drop: 1
       except_left: []
   - id: jai-crown-contracted
@@ -1059,11 +1059,11 @@ rules:
           - qsGay/hapax/None/baseline/
           - qsGay/hapax/x-height/baseline/
           - qsJai/hapax/None/baseline/
-        receiver_cells:
+        follower_after_cells:
           - qsGay/hapax/baseline/x-height/ex-ext-3
         shift: -2
         follower_advance: 2
-        follower_reach: 1
+        follower_columns_added: 1
       except_left: []
   - id: jai-entry-extension-dropped
     verdict: approve
@@ -1102,11 +1102,11 @@ rules:
         pivot_cells:
           - qsMay/grounded-loop/None/baseline/
           - qsMay/grounded-loop/x-height/baseline/
-        receiver_cells:
+        follower_after_cells:
           - qsGay/hapax/baseline/x-height/ex-ext-3
         shift: -3
         follower_advance: 2
-        follower_reach: 1
+        follower_columns_added: 1
         pivot_stub_drop: 1
       except_left: []
   - id: may-i-baseline-join-created
@@ -1122,13 +1122,13 @@ rules:
         pivot_cells:
           - qsMay/grounded-loop/None/baseline/
           - qsMay/grounded-loop/x-height/baseline/
-        receiver_cells:
+        follower_after_cells:
           - qsI/smaller-loop/baseline/None/
           - qsI/smaller-loop/baseline/x-height/
           - qsI/smaller-loop/baseline/x-height/ex-ext-1
         shift: -2
         follower_advance: 0
-        follower_reach: 0
+        follower_columns_added: 0
       except_left: []
   - id: fee-unjoined-loop
     verdict: approve
@@ -1167,7 +1167,7 @@ rules:
         pivot_cells:
           - qsNo/loop/None/x-height/
           - qsNo/loop/x-height/x-height/
-        receiver_cells:
+        follower_after_cells:
           - qsDay/full/x-height/None/
           - qsDay/full/x-height/baseline/
           - qsNo/loop/x-height/None/
@@ -1191,12 +1191,12 @@ rules:
         gap: 3
         pivot_cells:
           - qsNo/loop/x-height/None/
-        receiver_cells:
+        follower_after_cells:
           - qsThaw/hapax/None/None/
       except_left: []
   - id: no-gay-baseline-join-dropped
     verdict: approve
-    note: "·Gay sits two columns further from ·No and gives up the stroke it reached back with — the two no longer join, because a ·No that takes an x-height entry has no baseline exit left to reach down with: qsNo's policy order takes the loop stance first, and that stance's surface carries an x-height entry and an x-height exit and nothing else, while qsGay's x-height entry names only ·Ah and ·Utter on its from-list and its baseline entry, which does carry ·No, wants a baseline exit this ·No has not. Both from-lists date from “Add ·Gay” and were last revisited in “Bring back the ·Ah ~x~ ·Gay join”; the ·Gay ~x~ ·No exit that raises ·No in the first place arrived in “Join ·Gay ~x~ ·Et and ·Gay ~x~ ·No”. ·No redraws into that loop as the seam behind it rises and ·Gay settles onto the form it draws when nothing joins it, handing back the column its reachable-at-the-baseline stroke inserted at its left edge — the same column gay-baseline-join-created-reaching-back declares where that stroke is taking a join rather than losing one — which is why the rule names the cells both letters settle into and the column the follower gives up. Where ·Gay raises ·No the two rules explain the window between them, gay-no-baseline-join-retargeted naming ·No's incoming seam and this one the reach it no longer has; no-thaw-baseline-join-dropped is the same break behind the same raised ·No, and at-it-xheight-join-dropped and it-et-xheight-join-dropped are the other breaks on the books. The rule is bounded to the ·No that took an x-height entry, which is the ·No with no reach left; one still drawing its baseline exit settles into a different cell and carries ·Gay into a different one, so it is a window of its own. Every window that reached a review session approved the break"
+    note: "·Gay sits two columns further from ·No and gives up the stroke it reached back with — the two no longer join, because a ·No that takes an x-height entry has no baseline exit left to reach down with: qsNo's policy order takes the loop stance first, and that stance's surface carries an x-height entry and an x-height exit and nothing else, while qsGay's x-height entry names only ·Ah and ·Utter on its from-list and its baseline entry, which does carry ·No, wants a baseline exit this ·No has not. Both from-lists date from “Add ·Gay” and were last revisited in “Bring back the ·Ah ~x~ ·Gay join”; the ·Gay ~x~ ·No exit that raises ·No in the first place arrived in “Join ·Gay ~x~ ·Et and ·Gay ~x~ ·No”. ·No redraws into that loop as the seam behind it rises and ·Gay settles onto the form it draws when nothing joins it, removing the column its reachable-at-the-baseline stroke inserted at its left edge — the same column gay-baseline-join-created-reaching-back declares where that stroke is taking a join rather than losing one — which is why the rule names the cells both letters settle into and the column the follower removes. Where ·Gay raises ·No the two rules explain the window between them, gay-no-baseline-join-retargeted naming ·No's incoming seam and this one the reach it no longer has; no-thaw-baseline-join-dropped is the same break behind the same raised ·No, and at-it-xheight-join-dropped and it-et-xheight-join-dropped are the other breaks on the books. The rule is bounded to the ·No that took an x-height entry, which is the ·No with no reach left; one still drawing its baseline exit settles into a different cell and carries ·Gay into a different one, so it is a window of its own. Every window that reached a review session approved the break"
     match:
       before:
         pivot: qsNo
@@ -1206,9 +1206,9 @@ rules:
         gap: 2
         pivot_cells:
           - qsNo/loop/x-height/None/
-        receiver_cells:
+        follower_after_cells:
           - qsGay/hapax/None/None/
-        follower_give_back: 1
+        follower_columns_removed: 1
       except_left: []
   - id: no-cheer-xheight-join-dropped
     verdict: approve
@@ -1222,7 +1222,7 @@ rules:
         gap: 0
         pivot_cells:
           - qsNo/flipped/baseline/None/
-        receiver_cells:
+        follower_after_cells:
           - qsCheer/hapax/None/None/
           - qsCheer/hapax/None/baseline/
       except_left: []
@@ -1239,17 +1239,17 @@ rules:
         pivot_cells:
           - qsNo/loop/None/x-height/
           - qsNo/loop/x-height/x-height/
-        receiver_cells:
+        follower_after_cells:
           - qsJai/hapax/x-height/None/en-con-1
           - qsJai/hapax/x-height/baseline/en-con-1
           - qsJai/hapax/x-height/baseline/en-con-1+ex-ext-1
         shift: -3
         follower_advance: 0
-        follower_reach: 0
+        follower_columns_added: 0
       except_left: []
   - id: no-fee-xheight-join-created
     verdict: approve
-    note: "·No reaches a pixel further and joins ·Fee at the x-height where the old font left a break, and ·Fee turns its loop around and comes one column nearer — the extra pixel is qsNo's own extend record, an x-height exit lengthened by 1 before ·Fee, and the reversed loop is the only x-height entry qsFee has, carrying qsNo on its from-list since the letter landed in “Add ·Fee” and last touched in “Make ·Fee join forward at the x-height, and back into ·Day·Utter”. ·Fee draws it only where it has nothing to reach forward to: qsFee's prefer takes the forward exit over that backward entry on the user's why at “Generally connecting to the next letter is easier to do than to bend ·Fee backwards”, generalized to every neighbor in “·Fee: Prefer connecting to the next letter, not the previous”, so the receiver cell carries no exit at all. ·No's side is the loop stance's open x-height exit, which has no toward-list, so every follower with an open x-height entry meets it; that stance and the reach before ·Fee both landed in “Checkpoint the qsDay/qsUtter/qsNo migration batch with its triage residue down to 2,535”. ·Fee holds its own advance across the change, so whatever follows the pair moves with it. no-jai-xheight-join-created and no-xheight-join-created are the same seam into other followers, no-ah-baseline-join-created and no-thaw-baseline-join-created are ·No's new joins one height down, and no-baseline-join-retargeted, no-thaw-baseline-join-dropped and no-gay-baseline-join-dropped are its other outgoing seams on this corpus; utter-xheight-join-created records the same break becoming an x-height join with ·No among its pivots, ah-bay-exit-extension-dropped is this same ·Fee entry where the old font already joined the pair, and fee-unjoined-loop is the ·Fee that is left unjoined instead. Where ·Gay leads, gay-no-baseline-join-retargeted names ·No's incoming seam and this rule its outgoing one, and the join ·Gay itself takes — gay-baseline-join-created or gay-baseline-join-created-reaching-back — is a third change in the same window, so those windows are the combined match's. Every window that reached a review session approved the join"
+    note: "·No reaches a pixel further and joins ·Fee at the x-height where the old font left a break, and ·Fee turns its loop around and comes one column nearer — the extra pixel is qsNo's own extend record, an x-height exit lengthened by 1 before ·Fee, and the reversed loop is the only x-height entry qsFee has, carrying qsNo on its from-list since the letter landed in “Add ·Fee” and last touched in “Make ·Fee join forward at the x-height, and back into ·Day·Utter”. ·Fee draws it only where it has nothing to reach forward to: qsFee's prefer takes the forward exit over that backward entry on the user's why at “Generally connecting to the next letter is easier to do than to bend ·Fee backwards”, generalized to every neighbor in “·Fee: Prefer connecting to the next letter, not the previous”, so the follower's after cell carries no exit at all. ·No's side is the loop stance's open x-height exit, which has no toward-list, so every follower with an open x-height entry meets it; that stance and the reach before ·Fee both landed in “Checkpoint the qsDay/qsUtter/qsNo migration batch with its triage residue down to 2,535”. ·Fee holds its own advance across the change, so whatever follows the pair moves with it. no-jai-xheight-join-created and no-xheight-join-created are the same seam into other followers, no-ah-baseline-join-created and no-thaw-baseline-join-created are ·No's new joins one height down, and no-baseline-join-retargeted, no-thaw-baseline-join-dropped and no-gay-baseline-join-dropped are its other outgoing seams on this corpus; utter-xheight-join-created records the same break becoming an x-height join with ·No among its pivots, ah-bay-exit-extension-dropped is this same ·Fee entry where the old font already joined the pair, and fee-unjoined-loop is the ·Fee that is left unjoined instead. Where ·Gay leads, gay-no-baseline-join-retargeted names ·No's incoming seam and this rule its outgoing one, and the join ·Gay itself takes — gay-baseline-join-created or gay-baseline-join-created-reaching-back — is a third change in the same window, so those windows are the combined match's. Every window that reached a review session approved the join"
     match:
       before:
         pivot: qsNo
@@ -1260,11 +1260,11 @@ rules:
         pivot_cells:
           - qsNo/loop/None/x-height/ex-ext-1
           - qsNo/loop/x-height/x-height/ex-ext-1
-        receiver_cells:
+        follower_after_cells:
           - qsFee/reversed-loop/x-height/None/
         shift: -1
         follower_advance: 0
-        follower_reach: 0
+        follower_columns_added: 0
       except_left: []
   - id: no-oy-xheight-join-created
     verdict: approve
@@ -1279,12 +1279,12 @@ rules:
         pivot_cells:
           - qsNo/loop/None/x-height/
           - qsNo/loop/x-height/x-height/
-        receiver_cells:
+        follower_after_cells:
           - qsOy/hapax/x-height/None/
           - qsOy/hapax/x-height/baseline/
         shift: -1
         follower_advance: -3
-        follower_reach: 0
+        follower_columns_added: 0
       except_left: []
   - id: it-thaw-baseline-join-dropped
     verdict: approve
@@ -1298,7 +1298,7 @@ rules:
         gap: 2
         pivot_cells:
           - qsIt/hapax/baseline/None/
-        receiver_cells:
+        follower_after_cells:
           - qsThaw/hapax/None/None/
       except_left: []
   - id: utter-day-xheight-join-retargeted
@@ -1313,7 +1313,7 @@ rules:
         retarget: y0
         pivot_cells:
           - qsUtter/alternate/x-height/baseline/
-        receiver_cells:
+        follower_after_cells:
           - qsDay/half/baseline/None/
           - qsDay/half/baseline/baseline/
         shift: 1
@@ -1332,7 +1332,7 @@ rules:
         pivot_cells:
           - qsNo/loop/None/x-height/
           - qsNo/loop/x-height/x-height/
-        receiver_cells:
+        follower_after_cells:
           - qsDay/full/x-height/None/
           - qsIt/hapax/x-height/None/
           - qsIt/hapax/x-height/baseline/
@@ -1349,7 +1349,7 @@ rules:
           - qsOx/hapax/x-height/baseline/
         shift: -1
         follower_advance: 0
-        follower_reach: 0
+        follower_columns_added: 0
       except_left: []
   - id: tea-thaw-baseline-join-dropped
     verdict: approve
@@ -1375,12 +1375,12 @@ rules:
         pivot_cells:
           - qsGay/hapax/None/baseline/
           - qsGay/hapax/x-height/baseline/
-        receiver_cells:
+        follower_after_cells:
           - qsMay/loop/baseline/None/
           - qsMay/loop/baseline/x-height/ex-ext-1
         shift: -1
         follower_advance: 0
-        follower_reach: 0
+        follower_columns_added: 0
       except_left: []
   - id: gay-jai-xheight-extension-added
     verdict: approve
@@ -1418,15 +1418,15 @@ rules:
         pivot_cells:
           - qsAh/hapax/None/x-height/
           - qsAh/hapax/baseline/x-height/
-        receiver_cells:
+        follower_after_cells:
           - qsTea/full/x-height/None/
         shift: -2
         follower_advance: 0
-        follower_reach: 0
+        follower_columns_added: 0
       except_left: []
   - id: tea-baseline-join-created
     verdict: approve
-    note: "·Tea takes the full bar after a flat x-height stroke and joins the follower at the baseline where the old font drew the half stub and left a break, the follower coming one column nearer and holding its own advance. qsTea's full stance carries a baseline exit with no toward-list, so every follower whose baseline entry is open meets it, and the letters its policy refuses that exit before — ·Thaw, ·Excite, ·Exam and ·It, on the why recorded there — keep the break; what puts the full bar there is the same stance's x-height entry, unlocked under ss03 in “Make ·Tea under ss03 work right” for a left letter whose stroke arrives flat at the x-height and a follower that can enter at the baseline, and freed of that follower gate in “Always draw ·Tea's full bar after a flat x-height stroke under ss03”, so the bar descends whether or not anything takes it. The divergence ledger's reviewed-approved `ss03-chain-join-gains` entry is where the decision lives, capability-grained with no except list. tea-full-bar-after-xheight-stroke-ss03 names the picture ·Tea settles into and this rule the seam it opens, so the two speak at one position and explain between them every window that carries anything else; tea-no-xheight-join-retargeted is the same bar meeting a ·No the old font already joined at the x-height, utter-tea-baseline-join-created runs the other way into ·Tea, and tea-i-exit-extension-dropped and tea-oy-ligature-break are ·Tea's other standing changes on this corpus. The followers named are the ones that hold their own advance: ·Day and ·Roe take the join on an entry the rebuild extends by a column and ·May on an exit it extends, each handing that column back past itself, and one rule declares one advance, so they want their own; ·Roe's contracted x-height entry moves its own frame, which a created join can only declare as a reach back over the old left edge, so those windows, and the ligature followers whose every window here is word-final and so never shows what the follower hands on, stay in the review queue. The shape judges the two letters' origins and placements and trusts the cells it names for their pictures, so a fill is only as honest as the rest of the window — closed against any other ink on its own line, judged pixel by pixel in a combined match. Every window that reached a review session approved the join"
+    note: "·Tea takes the full bar after a flat x-height stroke and joins the follower at the baseline where the old font drew the half stub and left a break, the follower coming one column nearer and holding its own advance. qsTea's full stance carries a baseline exit with no toward-list, so every follower whose baseline entry is open meets it, and the letters its policy refuses that exit before — ·Thaw, ·Excite, ·Exam and ·It, on the why recorded there — keep the break; what puts the full bar there is the same stance's x-height entry, unlocked under ss03 in “Make ·Tea under ss03 work right” for a left letter whose stroke arrives flat at the x-height and a follower that can enter at the baseline, and freed of that follower gate in “Always draw ·Tea's full bar after a flat x-height stroke under ss03”, so the bar descends whether or not anything takes it. The divergence ledger's reviewed-approved `ss03-chain-join-gains` entry is where the decision lives, capability-grained with no except list. tea-full-bar-after-xheight-stroke-ss03 names the picture ·Tea settles into and this rule the seam it opens, so the two speak at one position and explain between them every window that carries anything else; tea-no-xheight-join-retargeted is the same bar meeting a ·No the old font already joined at the x-height, utter-tea-baseline-join-created runs the other way into ·Tea, and tea-i-exit-extension-dropped and tea-oy-ligature-break are ·Tea's other standing changes on this corpus. The followers named are the ones that hold their own advance: ·Day and ·Roe take the join on an entry the rebuild extends by a column and ·May on an exit it extends, each handing that column back past itself, and one rule declares one advance, so they want their own; ·Roe's contracted x-height entry moves its own frame, which a created join can only declare as columns its follower's joining form adds at its left edge, so those windows, and the ligature followers whose every window here is word-final and so never shows what the join carries past the follower, stay in the review queue. The shape judges the two letters' origins and placements and trusts the cells it names for their pictures, so a fill is only as honest as the rest of the window — closed against any other ink on its own line, judged pixel by pixel in a combined match. Every window that reached a review session approved the join"
     match:
       before:
         pivot: qsTea.half.en-y5.after-xheight-exit
@@ -1436,7 +1436,7 @@ rules:
         joined: y0
         pivot_cells:
           - qsTea/full/x-height/baseline/
-        receiver_cells:
+        follower_after_cells:
           - qsVie/normal/baseline/None/
           - qsVie/swept-out/baseline/baseline/
           - qsSee/curled-over/baseline/y6/
@@ -1465,7 +1465,7 @@ rules:
           - qsOoze/hapax/baseline/baseline/
         shift: -1
         follower_advance: 0
-        follower_reach: 0
+        follower_columns_added: 0
       except_left: []
   - id: pea-it-baseline-join-retargeted
     verdict: approve
@@ -1481,7 +1481,7 @@ rules:
           - qsPea/half/None/x-height/
           - qsPea/half/x-height/x-height/
           - qsPea/half/y6/x-height/
-        receiver_cells:
+        follower_after_cells:
           - qsIt/hapax/x-height/None/
           - qsIt/hapax/x-height/baseline/
         shift: 0
@@ -1500,7 +1500,7 @@ rules:
         pivot_cells:
           - qsUtter/mono/None/x-height/
           - qsUtter/mono/baseline/x-height/
-        receiver_cells:
+        follower_after_cells:
           - qsIt/hapax/x-height/None/
           - qsIt/hapax/x-height/baseline/
         shift: 0
@@ -1525,13 +1525,13 @@ rules:
           - qsI/loop/None/x-height/ex-ext-1
           - qsI/loop/baseline/x-height/ex-ext-1
           - qsI/smaller-loop/baseline/x-height/ex-ext-1
-        receiver_cells:
+        follower_after_cells:
           - qsIt/hapax/x-height/None/
           - qsIt/hapax/x-height/baseline/
           - qsIt/hapax/x-height/baseline/ex-ext-1
         shift: 0
         follower_advance: 0
-        follower_reach: 0
+        follower_columns_added: 0
       except_left: []
   - id: jai-it-baseline-join-created
     verdict: approve
@@ -1549,13 +1549,13 @@ rules:
           - qsJai/hapax/x-height/baseline/en-con-1+ex-ext-1
           - qsJai/hapax/x-height/baseline/en-con-2+ex-ext-1
           - qsJai/hapax/x-height/baseline/ex-ext-1
-        receiver_cells:
+        follower_after_cells:
           - qsIt/hapax/baseline/None/
           - qsIt/hapax/baseline/baseline/
           - qsIt/hapax/baseline/x-height/
         shift: 0
         follower_advance: 0
-        follower_reach: 0
+        follower_columns_added: 0
       except_left: []
   - id: key-it-baseline-join-created
     verdict: approve
@@ -1570,13 +1570,13 @@ rules:
         pivot_cells:
           - qsKey/hapax/None/baseline/ex-con-1
           - qsKey/hapax/top/baseline/ex-con-1
-        receiver_cells:
+        follower_after_cells:
           - qsIt/hapax/baseline/None/en-ext-1
           - qsIt/hapax/baseline/baseline/en-ext-1
           - qsIt/hapax/baseline/x-height/en-ext-1
         shift: -1
         follower_advance: 1
-        follower_reach: 0
+        follower_columns_added: 0
       except_left: []
   - id: key-it-entry-extension-drawn
     verdict: approve
@@ -1620,12 +1620,12 @@ rules:
         joined: y0
         pivot_cells:
           - qsKey/hapax/None/baseline/ex-con-1
-        receiver_cells:
+        follower_after_cells:
           - qsNo/flipped/baseline/None/
           - qsNo/flipped/baseline/baseline/
         shift: -1
         follower_advance: 0
-        follower_reach: 0
+        follower_columns_added: 0
       except_left: []
   - id: jai-crown-contracted-by-two
     verdict: approve
@@ -1643,7 +1643,7 @@ rules:
       except_left: []
   - id: tea-baseline-join-created-follower-widened
     verdict: approve
-    note: "·Tea's full bar joins ·Day, ·Roe and ·May at the baseline where the old font drew the half stub and left a break, and each of those followers takes the join on a stroke the rebuild extends by a column, so the follower comes one column nearer and hands that column straight back past itself. tea-baseline-join-created is the same seam into the followers that hold their own advance, and its note parks these three for exactly this reason — one rule declares one advance. ·Day's and ·Roe's baseline entries carry the extra column on their own extend records, qsDay's before ·Tea and ·Ye since “Checkpoint the qsDay/qsUtter/qsNo migration batch with its triage residue down to 2,535” and qsRoe's before an exitless ·Tea since “Set ·Roe back a pixel off ·Tea's bar when nothing joins on after it”, while ·May's column comes off its own x-height exit, the by-1 extend qsMay draws whenever its entry is live. What puts the full bar in front of them is qsTea's ss03 x-height unlock, authored as “Always draw ·Tea's full bar after a flat x-height stroke under ss03” and merged into the one record that carries its why: in “Consolidate ·Tea's `ss03` rules”, and the ·Et-scoped ss05 unlock of the full stance's baseline-entry-and-baseline-exit pairing, which is why the rule names the ·Tea entered at the baseline beside the one entered at the x-height; the divergence ledger's reviewed-approved `ss03-chain-join-gains` entry is where the decision lives, capability-grained with no except list. The rule speaks only for the followers that hand back exactly one column: the ·Roe that gives up a baseline exit of its own as it takes the entry hands back two, the ·May whose old font already drew the reach hands back none, and the ·Roe that settles into a contracted x-height entry moves its own frame, which a created join can only declare as a reach back over the old left edge — all three stay in the review queue, as do the ·Day+Utter windows, every one of which is word-final and so never shows what the follower hands on. Every window that reached a review session approved the join"
+    note: "·Tea's full bar joins ·Day, ·Roe and ·May at the baseline where the old font drew the half stub and left a break, and each of those followers takes the join on a stroke the rebuild extends by a column, so the follower comes one column nearer and hands that column straight back past itself. tea-baseline-join-created is the same seam into the followers that hold their own advance, and its note parks these three for exactly this reason — one rule declares one advance. ·Day's and ·Roe's baseline entries carry the extra column on their own extend records, qsDay's before ·Tea and ·Ye since “Checkpoint the qsDay/qsUtter/qsNo migration batch with its triage residue down to 2,535” and qsRoe's before an exitless ·Tea since “Set ·Roe back a pixel off ·Tea's bar when nothing joins on after it”, while ·May's column comes off its own x-height exit, the by-1 extend qsMay draws whenever its entry is live. What puts the full bar in front of them is qsTea's ss03 x-height unlock, authored as “Always draw ·Tea's full bar after a flat x-height stroke under ss03” and merged into the one record that carries its why: in “Consolidate ·Tea's `ss03` rules”, and the ·Et-scoped ss05 unlock of the full stance's baseline-entry-and-baseline-exit pairing, which is why the rule names the ·Tea entered at the baseline beside the one entered at the x-height; the divergence ledger's reviewed-approved `ss03-chain-join-gains` entry is where the decision lives, capability-grained with no except list. The rule speaks only for the followers that hand back exactly one column: the ·Roe that gives up a baseline exit of its own as it takes the entry hands back two, the ·May whose old font already drew the reach hands back none, and the ·Roe that settles into a contracted x-height entry moves its own frame, which a created join can only declare as columns its follower's joining form adds at its left edge — all three stay in the review queue, as do the ·Day+Utter windows, every one of which is word-final and so never shows what the join carries past the follower. Every window that reached a review session approved the join"
     match:
       before:
         pivot: qsTea
@@ -1654,14 +1654,14 @@ rules:
         pivot_cells:
           - qsTea/full/baseline/baseline/
           - qsTea/full/x-height/baseline/
-        receiver_cells:
+        follower_after_cells:
           - qsDay/half/baseline/None/en-ext-1
           - qsDay/half/baseline/baseline/en-ext-1
           - qsMay/loop/baseline/x-height/ex-ext-1
           - qsRoe/hapax/baseline/None/en-ext-1
         shift: -1
         follower_advance: 1
-        follower_reach: 0
+        follower_columns_added: 0
       except_left: []
   - id: ah-tea-xheight-join-created-after-contracted-entry
     verdict: approve
@@ -1675,11 +1675,11 @@ rules:
         joined: y5
         pivot_cells:
           - qsAh/hapax/baseline/x-height/en-con-1
-        receiver_cells:
+        follower_after_cells:
           - qsTea/full/x-height/None/
         shift: -1
         follower_advance: 0
-        follower_reach: 0
+        follower_columns_added: 0
       except_left: []
   - id: may-fee-xheight-join-dropped
     verdict: approve
@@ -1693,7 +1693,7 @@ rules:
         gap: 1
         pivot_cells:
           - qsMay/loop/None/None/
-        receiver_cells:
+        follower_after_cells:
           - qsFee/loop/None/x-height/
           - qsFee/loop/None/x-height/ex-ext-1
       except_left: []
@@ -1722,11 +1722,11 @@ rules:
         pivot_cells:
           - qsAh/hapax/None/x-height/ex-ext-1
           - qsAh/hapax/baseline/x-height/ex-ext-1
-        receiver_cells:
+        follower_after_cells:
           - qsMay/loop/x-height/None/
         shift: -2
         follower_advance: 0
-        follower_reach: 0
+        follower_columns_added: 0
       except_left: []
   - id: ah-may-xheight-join-created-after-contracted-entry
     verdict: approve
@@ -1740,11 +1740,11 @@ rules:
         joined: y5
         pivot_cells:
           - qsAh/hapax/baseline/x-height/en-con-1+ex-ext-1
-        receiver_cells:
+        follower_after_cells:
           - qsMay/loop/x-height/None/
         shift: -3
         follower_advance: 0
-        follower_reach: 0
+        follower_columns_added: 0
       except_left: []
   - id: it-roe-xheight-join-retargeted
     verdict: approve
@@ -1759,14 +1759,14 @@ rules:
         pivot_cells:
           - qsIt/hapax/baseline/baseline/
           - qsIt/hapax/baseline/baseline/en-ext-1
-        receiver_cells:
+        follower_after_cells:
           - qsRoe/hapax/baseline/x-height/en-ext-1
         shift: 0
         follower_shift: 0
       except_left: []
   - id: roe-oy-xheight-join-created
     verdict: approve
-    note: "·Roe joins ·Oy at the x-height where the old font left a break, ·Oy opens its loop on the left to receive it, and the pair holds its column: the open form is three columns narrower, so whatever follows comes that much nearer while ·Oy itself stands where it was. The open-on-the-left bitmap hangs off the only x-height entry ·Oy has, whose from-list has carried qsRoe since “Migrate the four worst families to the new rune-file format, conformance-verified”, so the redraw is the follower half of this join rather than a change of its own, and qsRoe's x-height exit has named qsOy on its toward-list since the letter landed in “Declare ·I done and add ·Roe”. no-oy-xheight-join-created is the same break becoming the same join from ·No, where the pivot closes a column onto the follower as well. The rule names the ·Roe that takes a baseline entry beside the one that takes none, since the letter draws the same closing arm either way, and the word-final ·Oy beside the one that goes on to a baseline exit, for the same reason; the ·Roe whose entry contracts moves its own frame, which a created join can only declare as a reach back over its old left edge, so those windows are not this one. Where ·It's seam into ·Roe comes down in the same window, it-roe-xheight-join-retargeted names ·Roe's incoming seam and this rule its outgoing one. Every window that reached a review session approved the join"
+    note: "·Roe joins ·Oy at the x-height where the old font left a break, ·Oy opens its loop on the left to receive it, and the pair holds its column: the open form is three columns narrower, so whatever follows comes that much nearer while ·Oy itself stands where it was. The open-on-the-left bitmap hangs off the only x-height entry ·Oy has, whose from-list has carried qsRoe since “Migrate the four worst families to the new rune-file format, conformance-verified”, so the redraw is the follower half of this join rather than a change of its own, and qsRoe's x-height exit has named qsOy on its toward-list since the letter landed in “Declare ·I done and add ·Roe”. no-oy-xheight-join-created is the same break becoming the same join from ·No, where the pivot closes a column onto the follower as well. The rule names the ·Roe that takes a baseline entry beside the one that takes none, since the letter draws the same closing arm either way, and the word-final ·Oy beside the one that goes on to a baseline exit, for the same reason; the ·Roe whose entry contracts moves its own frame, which a created join can only declare as columns its follower's joining form adds at its left edge, so those windows are not this one. Where ·It's seam into ·Roe comes down in the same window, it-roe-xheight-join-retargeted names ·Roe's incoming seam and this rule its outgoing one. Every window that reached a review session approved the join"
     match:
       before:
         pivot: qsRoe
@@ -1778,12 +1778,12 @@ rules:
           - qsRoe/hapax/None/x-height/
           - qsRoe/hapax/baseline/x-height/
           - qsRoe/hapax/baseline/x-height/en-ext-1
-        receiver_cells:
+        follower_after_cells:
           - qsOy/hapax/x-height/None/
           - qsOy/hapax/x-height/baseline/
         shift: 0
         follower_advance: -3
-        follower_reach: 0
+        follower_columns_added: 0
       except_left: []
   - id: it-roe-baseline-join-retargeted
     verdict: approve
@@ -1797,7 +1797,7 @@ rules:
         retarget: y5
         pivot_cells:
           - qsIt/hapax/baseline/x-height/
-        receiver_cells:
+        follower_after_cells:
           - qsRoe/hapax/x-height/None/en-ext-1
           - qsRoe/hapax/x-height/baseline/en-ext-1
           - qsRoe/hapax/x-height/baseline/en-ext-1+ex-ext-1
@@ -1817,11 +1817,11 @@ rules:
         pivot_cells:
           - qsRoe/hapax/None/baseline/
           - qsRoe/hapax/x-height/baseline/en-ext-1
-        receiver_cells:
+        follower_after_cells:
           - qsThaw/hapax/baseline/None/
         shift: -3
         follower_advance: 0
-        follower_reach: 0
+        follower_columns_added: 0
       except_left: []
   - id: tea-jai-xheight-extension-added
     verdict: approve
@@ -1858,12 +1858,12 @@ rules:
         joined: y0
         pivot_cells:
           - qsJai/hapax/x-height/baseline/ex-ext-1
-        receiver_cells:
+        follower_after_cells:
           - qsIt/hapax/baseline/baseline/
           - qsIt/hapax/baseline/x-height/
         shift: -1
         follower_advance: 0
-        follower_reach: 0
+        follower_columns_added: 0
       except_left: []
   - id: gay-entry-contracted-xheight-extension-added
     verdict: approve
@@ -1889,7 +1889,7 @@ rules:
         joined: y0
         pivot_cells:
           - qsThey_qsZoo/hapax/None/baseline/
-        receiver_cells:
+        follower_after_cells:
           - qsTea/full/baseline/None/
           - qsDay/half/baseline/None/
           - qsDay/half/baseline/baseline/
@@ -1940,7 +1940,7 @@ rules:
           - qsOoze/hapax/baseline/baseline/
         shift: -1
         follower_advance: 0
-        follower_reach: 0
+        follower_columns_added: 0
       except_left: []
   - id: gay-jai-xheight-extension-added-after-full-entry
     verdict: approve
@@ -1965,7 +1965,7 @@ rules:
         joined: y5
         pivot_cells:
           - qsFee/loop/None/x-height/
-        receiver_cells:
+        follower_after_cells:
           - qsZoo/full/x-height/None/
           - qsZoo/full/x-height/baseline/
           - qsAwe/hapax/x-height/None/
@@ -1974,7 +1974,7 @@ rules:
           - qsOx/hapax/x-height/baseline/
         shift: -1
         follower_advance: 0
-        follower_reach: 0
+        follower_columns_added: 0
       except_left: []
   - id: pea-half-xheight-dip-kept
     verdict: approve

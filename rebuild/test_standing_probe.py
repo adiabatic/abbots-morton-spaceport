@@ -45,7 +45,7 @@ RETARGET_RULE = {
         "after": {
             "retarget": "y0",
             "pivot_cells": ["qsTea/full/None/baseline/"],
-            "receiver_cells": ["qsNo/flipped/baseline/None/"],
+            "follower_after_cells": ["qsNo/flipped/baseline/None/"],
             "shift": -1,
             "follower_shift": 0,
         },
@@ -69,7 +69,7 @@ GAP_RULE = {
         "after": {
             "gap": 2,
             "pivot_cells": ["qsNo/loop/x-height/None/"],
-            "receiver_cells": ["qsGay/hapax/None/None/"],
+            "follower_after_cells": ["qsGay/hapax/None/None/"],
         },
         "except_left": [],
     },

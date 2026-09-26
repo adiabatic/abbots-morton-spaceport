@@ -166,7 +166,7 @@ REDRAWN_JOIN_RULE = {
         "after": {
             "gap": 1,
             "pivot_cells": ["qsNo/flipped/baseline/None/"],
-            "receiver_cells": ["qsF3/full/None/None/"],
+            "follower_after_cells": ["qsF3/full/None/None/"],
         },
         "except_left": [],
     },
@@ -181,23 +181,23 @@ UNMOVED_JOIN_RULE = {
         "after": {
             "gap": 0,
             "pivot_cells": ["qsNo/flipped/baseline/None/"],
-            "receiver_cells": ["qsF3/full/None/None/"],
+            "follower_after_cells": ["qsF3/full/None/None/"],
         },
         "except_left": [],
     },
 }
 
-GIVE_BACK_JOIN_RULE = {
-    "id": "fixture-join-dropped-with-a-follower-handing-a-column-back",
+COLUMNS_REMOVED_JOIN_RULE = {
+    "id": "fixture-join-dropped-with-a-follower-removing-a-column",
     "verdict": "approve",
-    "note": "·F2 sits two columns further from ·No and hands back the column its reaching form inserted to take the join",
+    "note": "·F2 sits two columns further from ·No and removes the column its joining form inserted to take the join",
     "match": {
         "before": {"pivot": "qsNo", "seam_out": "y0", "follower": "qsF2"},
         "after": {
             "gap": 2,
             "pivot_cells": ["qsNo/flipped/baseline/None/"],
-            "receiver_cells": ["qsF2/full/None/None/"],
-            "follower_give_back": 1,
+            "follower_after_cells": ["qsF2/full/None/None/"],
+            "follower_columns_removed": 1,
         },
         "except_left": [],
     },
@@ -266,7 +266,7 @@ RETARGET_RULE = {
                 "qsTea/full/x-height/baseline/",
                 "qsTea/full/top/baseline/",
             ],
-            "receiver_cells": [
+            "follower_after_cells": [
                 "qsNo/flipped/baseline/None/",
                 "qsNo/flipped/baseline/baseline/",
             ],
@@ -286,7 +286,7 @@ MOVING_RETARGET_RULE = {
         "after": {
             "retarget": "y0",
             "pivot_cells": ["qsTea/full/None/baseline/"],
-            "receiver_cells": [
+            "follower_after_cells": [
                 "qsNo/flipped/baseline/None/",
                 "qsNo/flipped/baseline/baseline/",
             ],
@@ -306,10 +306,10 @@ CREATED_JOIN_RULE = {
         "after": {
             "joined": "y0",
             "pivot_cells": ["qsJ/hapax/None/baseline/ex-ext-1"],
-            "receiver_cells": ["qsF3/full/None/None/"],
+            "follower_after_cells": ["qsF3/full/None/None/"],
             "shift": -2,
             "follower_advance": 0,
-            "follower_reach": 0,
+            "follower_columns_added": 0,
         },
         "except_left": [],
     },
@@ -324,10 +324,10 @@ RETARGETED_CREATED_JOIN_RULE = {
         "after": {
             "joined": "y0",
             "pivot_cells": ["qsNo/flipped/baseline/baseline/"],
-            "receiver_cells": ["qsF3/full/None/None/"],
+            "follower_after_cells": ["qsF3/full/None/None/"],
             "shift": -2,
             "follower_advance": 0,
-            "follower_reach": 0,
+            "follower_columns_added": 0,
         },
         "except_left": [],
     },
@@ -342,10 +342,10 @@ RETARGET_BEHIND_CREATED_JOIN_RULE = {
         "after": {
             "joined": "y0",
             "pivot_cells": ["qsJ/hapax/None/baseline/ex-ext-1"],
-            "receiver_cells": ["qsTea/full/None/baseline/"],
+            "follower_after_cells": ["qsTea/full/None/baseline/"],
             "shift": -2,
             "follower_advance": 0,
-            "follower_reach": 0,
+            "follower_columns_added": 0,
         },
         "except_left": [],
     },
@@ -360,10 +360,10 @@ EXTENSION_BEHIND_CREATED_JOIN_RULE = {
         "after": {
             "joined": "y0",
             "pivot_cells": ["qsNo/flipped/baseline/baseline/"],
-            "receiver_cells": ["qsJ/full/None/None/"],
+            "follower_after_cells": ["qsJ/full/None/None/"],
             "shift": -1,
             "follower_advance": 0,
-            "follower_reach": 0,
+            "follower_columns_added": 0,
         },
         "except_left": [],
     },
@@ -378,10 +378,10 @@ CREATED_JOIN_BEHIND_CREATED_JOIN_RULE = {
         "after": {
             "joined": "y0",
             "pivot_cells": ["qsJ/full/None/None/"],
-            "receiver_cells": ["qsF3/full/None/None/"],
+            "follower_after_cells": ["qsF3/full/None/None/"],
             "shift": -1,
             "follower_advance": 0,
-            "follower_reach": 0,
+            "follower_columns_added": 0,
         },
         "except_left": [],
     },
@@ -396,10 +396,10 @@ CONTRACTED_REDRAWN_SHARED_LETTER_RULE = {
         "after": {
             "joined": "y5",
             "pivot_cells": ["qsMay/loop/baseline/x-height/en-con-1"],
-            "receiver_cells": ["qsEight/smaller-loop/None/None/"],
+            "follower_after_cells": ["qsEight/smaller-loop/None/None/"],
             "shift": -2,
             "follower_advance": 0,
-            "follower_reach": 0,
+            "follower_columns_added": 0,
         },
         "except_left": [],
     },
@@ -414,10 +414,10 @@ GAIN_BEHIND_CREATED_JOIN_RULE = {
         "after": {
             "joined": "y0",
             "pivot_cells": ["qsNo/flipped/baseline/baseline/"],
-            "receiver_cells": ["qsRoe/hapax/None/None/"],
+            "follower_after_cells": ["qsRoe/hapax/None/None/"],
             "shift": -1,
             "follower_advance": 0,
-            "follower_reach": 0,
+            "follower_columns_added": 0,
         },
         "except_left": [],
     },
@@ -432,10 +432,10 @@ REDRAWN_BEHIND_CREATED_JOIN_RULE = {
         "after": {
             "joined": "y0",
             "pivot_cells": ["qsNo/flipped/baseline/baseline/"],
-            "receiver_cells": ["qsEight/smaller-loop/None/None/"],
+            "follower_after_cells": ["qsEight/smaller-loop/None/None/"],
             "shift": -1,
             "follower_advance": 0,
-            "follower_reach": 0,
+            "follower_columns_added": 0,
         },
         "except_left": [],
     },
@@ -450,7 +450,7 @@ RETARGET_BEHIND_RETARGET_RULE = {
         "after": {
             "retarget": "y5",
             "pivot_cells": ["qsNo/flipped/baseline/baseline/"],
-            "receiver_cells": ["qsF3/full/None/None/"],
+            "follower_after_cells": ["qsF3/full/None/None/"],
             "shift": 0,
             "follower_shift": 0,
         },
@@ -467,7 +467,7 @@ REDRAWN_BEHIND_RETARGET_RULE = {
         "after": {
             "retarget": "y0",
             "pivot_cells": ["qsTea/full/None/baseline/"],
-            "receiver_cells": ["qsEight/smaller-loop/None/None/"],
+            "follower_after_cells": ["qsEight/smaller-loop/None/None/"],
             "shift": 0,
             "follower_shift": 0,
         },
@@ -484,10 +484,10 @@ WIDENED_CREATED_JOIN_RULE = {
         "after": {
             "joined": "y0",
             "pivot_cells": ["qsJ/hapax/None/baseline/ex-ext-1"],
-            "receiver_cells": ["qsF3/full/None/None/"],
+            "follower_after_cells": ["qsF3/full/None/None/"],
             "shift": -2,
             "follower_advance": 1,
-            "follower_reach": 0,
+            "follower_columns_added": 0,
         },
         "except_left": [],
     },
@@ -502,10 +502,10 @@ RETARGET_BEHIND_WIDENED_JOIN_RULE = {
         "after": {
             "joined": "y0",
             "pivot_cells": ["qsJ/hapax/None/baseline/ex-ext-1"],
-            "receiver_cells": ["qsTea/full/None/baseline/"],
+            "follower_after_cells": ["qsTea/full/None/baseline/"],
             "shift": -2,
             "follower_advance": 1,
-            "follower_reach": 0,
+            "follower_columns_added": 0,
         },
         "except_left": [],
     },
@@ -514,16 +514,16 @@ RETARGET_BEHIND_WIDENED_JOIN_RULE = {
 REACHING_JOIN_BEFORE_RETARGET_RULE = {
     "id": "fixture-join-created-reaching-before-a-retarget",
     "verdict": "approve",
-    "note": "·J joins ·Tea at the baseline where the old font left a break, and ·Tea takes the join on a form that reaches back a column",
+    "note": "·J joins ·Tea at the baseline where the old font left a break, and ·Tea takes the join on a form that adds a column at its left edge",
     "match": {
         "before": {"pivot": "qsJ", "seam_out": "break", "follower": "qsTea"},
         "after": {
             "joined": "y0",
             "pivot_cells": ["qsJ/hapax/None/baseline/ex-ext-1"],
-            "receiver_cells": ["qsTea/full/None/baseline/"],
+            "follower_after_cells": ["qsTea/full/None/baseline/"],
             "shift": -3,
             "follower_advance": 1,
-            "follower_reach": 1,
+            "follower_columns_added": 1,
         },
         "except_left": [],
     },
@@ -532,16 +532,16 @@ REACHING_JOIN_BEFORE_RETARGET_RULE = {
 REACHING_CREATED_JOIN_RULE = {
     "id": "fixture-join-created-with-a-reaching-follower",
     "verdict": "approve",
-    "note": "·J joins ·F3 where the old font left a break, and ·F3 takes the join on a form that reaches back a column",
+    "note": "·J joins ·F3 where the old font left a break, and ·F3 takes the join on a form that adds a column at its left edge",
     "match": {
         "before": {"pivot": "qsJ", "seam_out": "break", "follower": "qsF3"},
         "after": {
             "joined": "y0",
             "pivot_cells": ["qsJ/hapax/None/baseline/ex-ext-1"],
-            "receiver_cells": ["qsF3/full/None/None/"],
+            "follower_after_cells": ["qsF3/full/None/None/"],
             "shift": -3,
             "follower_advance": 1,
-            "follower_reach": 1,
+            "follower_columns_added": 1,
         },
         "except_left": [],
     },
@@ -556,10 +556,10 @@ STUB_CREATED_JOIN_RULE = {
         "after": {
             "joined": "y0",
             "pivot_cells": ["qsJ/hapax/None/baseline/ex-ext-1"],
-            "receiver_cells": ["qsF3/full/None/None/"],
+            "follower_after_cells": ["qsF3/full/None/None/"],
             "shift": -2,
             "follower_advance": 0,
-            "follower_reach": 0,
+            "follower_columns_added": 0,
             "pivot_stub_drop": 1,
         },
         "except_left": [],
@@ -590,10 +590,10 @@ GAINED_CREATED_JOIN_RULE = {
         "after": {
             "joined": "y0",
             "pivot_cells": ["qsTea/full/x-height/baseline/"],
-            "receiver_cells": ["qsF3/full/baseline/None/"],
+            "follower_after_cells": ["qsF3/full/baseline/None/"],
             "shift": -2,
             "follower_advance": 0,
-            "follower_reach": 0,
+            "follower_columns_added": 0,
         },
         "except_left": [],
     },
@@ -624,10 +624,10 @@ REDRAWN_CREATED_JOIN_RULE = {
         "after": {
             "joined": "y0",
             "pivot_cells": ["qsEight/smaller-loop/baseline/baseline/"],
-            "receiver_cells": ["qsF3/full/baseline/None/"],
+            "follower_after_cells": ["qsF3/full/baseline/None/"],
             "shift": -2,
             "follower_advance": 0,
-            "follower_reach": 0,
+            "follower_columns_added": 0,
         },
         "except_left": [],
     },
@@ -642,10 +642,10 @@ CONTRACTED_CREATED_JOIN_RULE = {
         "after": {
             "joined": "y5",
             "pivot_cells": ["qsMay/loop/baseline/x-height/en-con-1"],
-            "receiver_cells": ["qsF3/full/x-height/None/"],
+            "follower_after_cells": ["qsF3/full/x-height/None/"],
             "shift": -2,
             "follower_advance": 0,
-            "follower_reach": 0,
+            "follower_columns_added": 0,
         },
         "except_left": [],
     },
@@ -2696,22 +2696,24 @@ def test_a_pivot_moving_its_own_frame_origin_defeats_the_join_match(slide_contex
     )
 
 
-def test_a_join_dropped_rule_may_declare_the_column_its_follower_hands_back(slide_context):
-    """A follower form that inserted a column at its left edge to take the join gives that column up when the join goes away. Its own-frame origin moves right by the declared count, and it redraws inside the receiver cells. ·Gay does this when the ·No in front of it is raised and can no longer reach it."""
-    assert sv._matches(GIVE_BACK_JOIN_RULE["match"], give_back_join_window(), context=slide_context())
+def test_a_join_dropped_rule_may_declare_the_column_its_follower_removes(slide_context):
+    """A follower form that inserted a column at its left edge to take the join gives that column up when the join goes away. Its own-frame origin moves right by the declared count, and it redraws inside the follower after cells. ·Gay does this when the ·No in front of it is raised and can no longer reach it."""
+    assert sv._matches(
+        COLUMNS_REMOVED_JOIN_RULE["match"], columns_removed_join_window(), context=slide_context()
+    )
 
 
-def test_a_follower_keeping_its_own_pen_defeats_the_give_back_match(slide_context):
+def test_a_follower_keeping_its_own_pen_defeats_the_columns_removed_match(slide_context):
     assert not sv._matches(
-        GIVE_BACK_JOIN_RULE["match"],
-        give_back_join_window(),
+        COLUMNS_REMOVED_JOIN_RULE["match"],
+        columns_removed_join_window(),
         context=slide_context("after-join-follower-keeping-its-pen"),
     )
 
 
-def test_a_follower_settling_into_an_unnamed_cell_defeats_the_give_back_match(slide_context):
-    window = give_back_join_window(cell="qsF2/hapax/None/None/")
-    assert not sv._matches(GIVE_BACK_JOIN_RULE["match"], window, context=slide_context())
+def test_a_follower_settling_into_an_unnamed_cell_defeats_the_columns_removed_match(slide_context):
+    window = columns_removed_join_window(cell="qsF2/hapax/None/None/")
+    assert not sv._matches(COLUMNS_REMOVED_JOIN_RULE["match"], window, context=slide_context())
 
 
 def test_a_redrawn_follower_defeats_the_join_match(slide_context):
@@ -2816,10 +2818,10 @@ def test_malformed_join_rules_are_refused(tmp_path, mutate):
 
 
 def test_a_join_rule_naming_one_of_its_two_cell_lists_is_refused_at_load(tmp_path):
-    for field in ("pivot_cells", "receiver_cells"):
+    for field in ("pivot_cells", "follower_after_cells"):
         rule = json.loads(json.dumps(REDRAWN_JOIN_RULE))
         del rule["match"]["after"][field]
-        with pytest.raises(SystemExit, match="names one of pivot_cells and receiver_cells"):
+        with pytest.raises(SystemExit, match="names one of pivot_cells and follower_after_cells"):
             sv.load_rules(_write_rules(tmp_path / "rules.yaml", [rule]))
 
 
@@ -2830,19 +2832,19 @@ def test_a_join_rule_naming_another_letters_cell_is_refused_at_load(tmp_path):
         sv.load_rules(_write_rules(tmp_path / "rules.yaml", [rule]))
 
 
-def test_a_give_back_that_hands_nothing_back_is_refused_at_load(tmp_path):
+def test_a_follower_removing_no_columns_is_refused_at_load(tmp_path):
     for columns in (0, -1):
-        rule = json.loads(json.dumps(GIVE_BACK_JOIN_RULE))
-        rule["match"]["after"]["follower_give_back"] = columns
+        rule = json.loads(json.dumps(COLUMNS_REMOVED_JOIN_RULE))
+        rule["match"]["after"]["follower_columns_removed"] = columns
         with pytest.raises(SystemExit, match="follower that keeps its own pen leaves the field off"):
             sv.load_rules(_write_rules(tmp_path / "rules.yaml", [rule]))
 
 
-def test_a_give_back_without_receiver_cells_is_refused_at_load(tmp_path):
-    rule = json.loads(json.dumps(GIVE_BACK_JOIN_RULE))
+def test_removed_columns_without_follower_after_cells_are_refused_at_load(tmp_path):
+    rule = json.loads(json.dumps(COLUMNS_REMOVED_JOIN_RULE))
     del rule["match"]["after"]["pivot_cells"]
-    del rule["match"]["after"]["receiver_cells"]
-    with pytest.raises(SystemExit, match="follower_give_back needs receiver_cells"):
+    del rule["match"]["after"]["follower_after_cells"]
+    with pytest.raises(SystemExit, match="follower_columns_removed needs follower_after_cells"):
         sv.load_rules(_write_rules(tmp_path / "rules.yaml", [rule]))
 
 
@@ -5301,11 +5303,11 @@ JOIN_BEHIND_RETARGET_GLYPHS = ["qsL", "qsTea.half.ex-y5", "qsNo.en-ext-1.gap-fix
 JOIN_BEHIND_RETARGET_CODEPOINTS = spell(LEAD, TEA, NO_GAP_REDRAWN, FOLLOWER_3)
 JOIN_BEHIND_RETARGET_RULES = [RETARGET_RULE, REDRAWN_JOIN_RULE]
 UNMOVED_JOIN_BEHIND_RETARGET_RULES = [RETARGET_RULE, UNMOVED_JOIN_RULE]
-GIVE_BACK_JOIN_GLYPHS = ["qsL", "qsNo.en-ext-1.gap-fixture", "qsF2"]
-GIVE_BACK_JOIN_CODEPOINTS = spell(LEAD, NO_GAP_REDRAWN, FOLLOWER_2)
-GIVE_BACK_BEHIND_RETARGET_GLYPHS = ["qsL", "qsTea.half.ex-y5", "qsNo.en-ext-1.gap-fixture", "qsF2"]
-GIVE_BACK_BEHIND_RETARGET_CODEPOINTS = spell(LEAD, TEA, NO_GAP_REDRAWN, FOLLOWER_2)
-GIVE_BACK_BEHIND_RETARGET_RULES = [RETARGET_RULE, GIVE_BACK_JOIN_RULE]
+COLUMNS_REMOVED_JOIN_GLYPHS = ["qsL", "qsNo.en-ext-1.gap-fixture", "qsF2"]
+COLUMNS_REMOVED_JOIN_CODEPOINTS = spell(LEAD, NO_GAP_REDRAWN, FOLLOWER_2)
+COLUMNS_REMOVED_BEHIND_RETARGET_GLYPHS = ["qsL", "qsTea.half.ex-y5", "qsNo.en-ext-1.gap-fixture", "qsF2"]
+COLUMNS_REMOVED_BEHIND_RETARGET_CODEPOINTS = spell(LEAD, TEA, NO_GAP_REDRAWN, FOLLOWER_2)
+COLUMNS_REMOVED_BEHIND_RETARGET_RULES = [RETARGET_RULE, COLUMNS_REMOVED_JOIN_RULE]
 RETARGET_BEHIND_RETARGET_GLYPHS = [
     "qsL",
     "qsTea.half.ex-y5",
@@ -5783,24 +5785,24 @@ def join_behind_retarget_window(uid="jbr-1"):
     )
 
 
-def give_back_join_window(uid="gbj-1", cell="qsF2/full/None/None/"):
+def columns_removed_join_window(uid="gbj-1", cell="qsF2/full/None/None/"):
     return unit(
         uid,
-        list(GIVE_BACK_JOIN_GLYPHS),
+        list(COLUMNS_REMOVED_JOIN_GLYPHS),
         ["y0", "y0"],
         ["qsL/full/None/None/", "qsNo/flipped/baseline/None/", cell],
         ["y0", "break"],
-        codepoints=GIVE_BACK_JOIN_CODEPOINTS,
+        codepoints=COLUMNS_REMOVED_JOIN_CODEPOINTS,
         configs=("default",),
         ink_deltas={"default": SLIDE_DELTA},
         pair={"left": 1, "right": 2},
     )
 
 
-def give_back_behind_retarget_window(uid="gbr-1"):
+def columns_removed_behind_retarget_window(uid="gbr-1"):
     return unit(
         uid,
-        list(GIVE_BACK_BEHIND_RETARGET_GLYPHS),
+        list(COLUMNS_REMOVED_BEHIND_RETARGET_GLYPHS),
         ["y0", "y5", "y0"],
         [
             "qsL/full/None/None/",
@@ -5809,7 +5811,7 @@ def give_back_behind_retarget_window(uid="gbr-1"):
             "qsF2/full/None/None/",
         ],
         ["y0", "y0", "break"],
-        codepoints=GIVE_BACK_BEHIND_RETARGET_CODEPOINTS,
+        codepoints=COLUMNS_REMOVED_BEHIND_RETARGET_CODEPOINTS,
         configs=("default",),
         ink_deltas={"default": SLIDE_DELTA},
         pair={"left": 1, "right": 2},
@@ -5926,7 +5928,7 @@ def test_a_pair_that_remains_broken_does_not_match_a_created_join(slide_context)
     assert not sv._matches(CREATED_JOIN_RULE["match"], broken, context=slide_context())
 
 
-def test_a_created_join_whose_receiver_does_not_move_by_the_declared_shift_is_refused(slide_context):
+def test_a_created_join_whose_follower_does_not_move_by_the_declared_shift_is_refused(slide_context):
     assert not sv._matches(
         CREATED_JOIN_RULE["match"],
         created_join_window(),
@@ -5954,16 +5956,20 @@ def test_a_created_join_rule_declaring_no_advance_is_refused_by_a_widened_follow
     assert not sv._matches(unwidened["match"], widened_created_join_window(), context=slide_context())
 
 
-def test_a_new_join_whose_follower_reaches_back_matches(slide_context):
+def test_a_new_join_whose_follower_adds_columns_matches(slide_context):
     assert sv._matches(
         REACHING_CREATED_JOIN_RULE["match"], reaching_created_join_window(), context=slide_context()
     )
 
 
-def test_a_created_join_rule_declaring_no_reach_is_refused_by_a_follower_that_reaches_back(slide_context):
-    unreaching = json.loads(json.dumps(REACHING_CREATED_JOIN_RULE))
-    unreaching["match"]["after"]["follower_reach"] = 0
-    assert not sv._matches(unreaching["match"], reaching_created_join_window(), context=slide_context())
+def test_a_created_join_rule_declaring_no_added_columns_is_refused_by_a_follower_that_adds_them(
+    slide_context,
+):
+    without_added_columns = json.loads(json.dumps(REACHING_CREATED_JOIN_RULE))
+    without_added_columns["match"]["after"]["follower_columns_added"] = 0
+    assert not sv._matches(
+        without_added_columns["match"], reaching_created_join_window(), context=slide_context()
+    )
 
 
 def test_a_created_join_whose_follower_keeps_its_origin_is_refused_by_the_reaching_rule(slide_context):
@@ -6008,10 +6014,10 @@ def test_a_created_join_rule_dropping_no_stub_at_all_is_refused_at_load(tmp_path
         sv.load_rules(_write_rules(tmp_path / "rules.yaml", [rule]))
 
 
-def test_a_created_join_rule_reaching_back_a_negative_count_is_refused_at_load(tmp_path):
+def test_a_created_join_rule_adding_a_negative_column_count_is_refused_at_load(tmp_path):
     rule = json.loads(json.dumps(REACHING_CREATED_JOIN_RULE))
-    rule["match"]["after"]["follower_reach"] = -1
-    with pytest.raises(SystemExit, match="a follower reaches back"):
+    rule["match"]["after"]["follower_columns_added"] = -1
+    with pytest.raises(SystemExit, match="a follower's joining form adds columns"):
         sv.load_rules(_write_rules(tmp_path / "rules.yaml", [rule]))
 
 
@@ -6269,7 +6275,7 @@ def test_a_retarget_rule_loads(tmp_path):
         lambda rule: rule["match"]["after"].update(retarget=""),
         lambda rule: rule["match"]["after"].update(shift="-1"),
         lambda rule: rule["match"]["after"].update(pivot_cells=[]),
-        lambda rule: rule["match"]["after"].update(receiver_cells=[]),
+        lambda rule: rule["match"]["after"].update(follower_after_cells=[]),
         lambda rule: rule["match"].update(except_left="qsL"),
     ],
 )
@@ -6358,7 +6364,7 @@ def test_a_slide_and_a_widened_created_join_in_one_window_combine(slide_context)
 
 
 def test_a_retarget_sharing_a_letter_with_a_created_join_spends_the_follower_advance(slide_context):
-    """When a retarget's pivot is a widened created join's follower, the walk places that letter by the join's shift alone. The retarget's own counts are read with its pivot in place, so they already include the advance the wider form gave back (`_handed_on`)."""
+    """When a retarget's pivot is a widened created join's follower, the walk places that letter by the join's shift alone. The retarget's own counts are read with its pivot in place, so they already include the advance the wider form gave back (`_carried_past`)."""
     events = sv._combined_match(
         RETARGET_BEHIND_WIDENED_JOIN_RULES, retarget_behind_created_join_window(), slide_context()
     )
@@ -6494,8 +6500,8 @@ def test_a_retarget_shares_a_letter_with_a_created_join_on_its_follower(slide_co
     assert events == {RETARGET_BEHIND_CREATED_JOIN_RULE["id"]: [1], RETARGET_RULE["id"]: [2]}
 
 
-def test_a_retarget_shares_a_letter_with_a_created_join_whose_follower_reached_back(slide_context):
-    """The created join's declared `follower_reach` accounts for its follower's moved own-frame origin. So a follower that reached back over its old left edge to take the join can still be a retarget's pivot, and the join passes the retarget only the reached-back columns (`_handed_on`)."""
+def test_a_retarget_shares_a_letter_with_a_created_join_whose_follower_added_columns(slide_context):
+    """The created join's declared `follower_columns_added` accounts for its follower's moved own-frame origin. So a follower whose joining form added columns at its left edge to take the join can still be a retarget's pivot, and the join carries past it only the added columns (`_carried_past`)."""
     events = sv._combined_match(
         RETARGET_BEHIND_REACHING_JOIN_RULES, retarget_behind_reaching_join_window(), slide_context()
     )
@@ -6697,17 +6703,17 @@ def test_a_zero_gap_sharing_a_letter_with_a_retarget_refuses_a_follower_sitting_
     assert events is None
 
 
-def test_a_join_drop_whose_follower_hands_a_column_back_shares_a_letter_with_a_retarget(slide_context):
-    """The follower's give-back is part of the join-dropped event, so the retarget on ·No's incoming seam and the join drop on its outgoing seam still explain the window, however far the follower redrew."""
+def test_a_join_drop_whose_follower_removes_a_column_shares_a_letter_with_a_retarget(slide_context):
+    """The follower's removed columns are part of the join-dropped event, so the retarget on ·No's incoming seam and the join drop on its outgoing seam still explain the window, however far the follower redrew."""
     events = sv._combined_match(
-        GIVE_BACK_BEHIND_RETARGET_RULES, give_back_behind_retarget_window(), slide_context()
+        COLUMNS_REMOVED_BEHIND_RETARGET_RULES, columns_removed_behind_retarget_window(), slide_context()
     )
-    assert events == {RETARGET_RULE["id"]: [1], GIVE_BACK_JOIN_RULE["id"]: [2]}
+    assert events == {RETARGET_RULE["id"]: [1], COLUMNS_REMOVED_JOIN_RULE["id"]: [2]}
 
 
-def test_neither_rule_alone_reads_a_give_back_join_behind_a_retarget(slide_context):
-    window = give_back_behind_retarget_window()
-    for rule in GIVE_BACK_BEHIND_RETARGET_RULES:
+def test_neither_rule_alone_reads_a_columns_removed_join_behind_a_retarget(slide_context):
+    window = columns_removed_behind_retarget_window()
+    for rule in COLUMNS_REMOVED_BEHIND_RETARGET_RULES:
         assert not sv._matches(rule["match"], window, context=slide_context())
         assert sv._combined_walk([rule], window, slide_context()) is None
 
@@ -7246,9 +7252,9 @@ COMBINED_WALK_CORPORA = {
         lambda: [redrawn_join_window(), join_behind_retarget_window(), join_window()],
         ("after", "after-join-pivot-moved-origin"),
     ),
-    "join-dropped-with-a-follower-handing-a-column-back": (
-        GIVE_BACK_JOIN_RULE,
-        lambda: [give_back_join_window(), give_back_behind_retarget_window(), join_window()],
+    "join-dropped-with-a-follower-removing-a-column": (
+        COLUMNS_REMOVED_JOIN_RULE,
+        lambda: [columns_removed_join_window(), columns_removed_behind_retarget_window(), join_window()],
         ("after", "after-join-follower-keeping-its-pen"),
     ),
     "entry-extension-dropped": (
