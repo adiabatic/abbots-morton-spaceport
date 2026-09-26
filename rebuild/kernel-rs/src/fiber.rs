@@ -2,17 +2,17 @@
 //!
 //! A fiber is a set of third-slot letters that the enumeration may collapse into one row. A candidate letter `t3`'s fiber key has three parts:
 //!
-//! 1. The probe results: for every left class in [`ProspectLiveness::seat_left_classes`] and every probed coordinate, the full stored row fields, which are the settled triple, the prospect, the joint-floor flag, and the notes. An error is one of three values: E-INCOMPARABLE, E-AMBIGUOUS, or unreachable. Unreachable covers E-UNACCEPTED-EXIT and every other [`crate::error::SettleError`], as the `E-UNREACHABLE` raise does in `settle-cases` output. Merging any two of the three would merge fibers that the review corpus and the treaty fold tell apart.
+//! 1. The probe results: for every representative left in [`ProspectLiveness::representative_lefts`] and every probed coordinate, the full stored row fields, which are the settled triple, the prospect, the joint-floor flag, and the notes. An error is one of three values: E-INCOMPARABLE, E-AMBIGUOUS, or unreachable. Unreachable covers E-UNACCEPTED-EXIT and every other [`crate::error::SettleError`], as the `E-UNREACHABLE` raise does in `settle-cases` output. Merging any two of the three would merge fibers that the review corpus and the treaty fold tell apart.
 //! 2. The `fourth_slot_matters` verdict.
 //! 3. Where that verdict is true, the r4 option list [`WindowOptions::right4_options`] computes for this member. Because the key stores the computed list, a filter added to that pipeline without a key update makes [`crate::fixpoint`]'s partition assertion fail instead of silently splitting a fiber.
 //!
-//! The probed coordinates are bounded. Where the fourth slot is dead they are `(EDGE, UNKNOWN)`: an r4-dead member's row is traced only at `EDGE` and enqueues no r4 pin, so no letter in the fourth slot is read for it. Where `fourth_slot_matters` is true they are the whole probe alphabet followed by `UNKNOWN`. Those are the contexts where the input letter's settlement can change under a specific `(third, fourth)` pair, which is how the fibers account for the joint34 counterexample ([`crate::liveness`]).
+//! The probed coordinates are bounded. Where the fourth slot is dead they are `(EDGE, UNKNOWN)`: an r4-dead member's row is traced only at `EDGE` and enqueues no r4 pin, so no letter in the fourth slot is read for it. Where `fourth_slot_matters` is true they are the whole probe alphabet followed by `UNKNOWN`. Those are the contexts where the input letter's settlement can change under a specific `(third, fourth)` pair, which is how the fibers account for the fourth-slot fallback counterexample ([`crate::liveness`]).
 //!
 //! Parts 2 and 3 make the members of one r3 fiber share one r4 sub-enumeration, whose r4 fibers are the r4 option letters grouped by their probe results. Because the probe results depend on `t3`, the r4 partition is per `(context, r3 fiber)`, not per context. Grouping follows option-pipeline order: each boundary is its own singleton where it stands, and letters with the same column of the probe matrix share a group placed at its first member.
 //!
 //! The deriver asks for the raw filter verdict `fourth_slot_matters(family, right1, right2, t3)`, not that verdict ANDed with the depth-4 rune set. The fixpoint applies the rune set (`deep4_inputs`) separately when it decides whether a fiber's r4 groups become slot-4 entries, and the partition assertion does the same. In the deep world the rune set is every rune, so the AND changes nothing there; the pinned-world assertions still read it.
 //!
-//! The probes run on the build's own tracing engine, so their traces go into the shared memo and their fired pointers into `Engine::fired`, as the liveness probes' do. The one assumption taken from elsewhere instead of probed is the left-class collapse in [`ProspectLiveness::seat_left_classes`]. The fixpoint's member cross-check tests it on every build at real lefts, real entries, and real adjustments.
+//! The probes run on the build's own tracing engine, so their traces go into the shared memo and their fired pointers into `Engine::fired`, as the liveness probes' do. The one assumption taken from elsewhere instead of probed is the left-class assumption in [`ProspectLiveness::representative_lefts`]: that every left sharing a representative's left-condition signature settles a follower alike. The fixpoint's member cross-check tests it on every build at actual lefts, actual entries, and actual adjustments.
 
 use std::rc::Rc;
 
@@ -42,7 +42,7 @@ enum FiberRecord {
     Unreachable,
 }
 
-/// One candidate third letter's fiber key: the `fourth_slot_matters` verdict, the computed r4 option list where that verdict is true, and the probe matrix, with one row per left class and one column per probed coordinate.
+/// One candidate third letter's fiber key: the `fourth_slot_matters` verdict, the computed r4 option list where that verdict is true, and the probe matrix, with one row per representative left and one column per probed coordinate.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 struct FiberKey {
     fourth_matters: bool,
@@ -118,7 +118,7 @@ impl DeepFiberDeriver {
             .copied()
             .filter(|option| option.kind() != TokenKind::Letter)
             .collect();
-        let lefts = liveness.seat_left_classes(engine, family)?;
+        let lefts = liveness.representative_lefts(engine, family)?;
         let mut full_coords: Vec<RightToken> = liveness.probe_tokens().as_ref().clone();
         full_coords.push(UNKNOWN);
         let deep_world = engine.simulated_prospect() || engine.follower_prefer_slots();
@@ -216,7 +216,7 @@ fn record(
 
 /// One r3 fiber's r4 sub-enumeration: its computed option list, split in pipeline order. Each boundary is a singleton where it stands, and letters are grouped by their column of the probe matrix, each group placed where its first member falls.
 ///
-/// A letter's column is its records under every left class at that letter's own coordinate, found by its position in `full_coords`. The column borrows the records instead of cloning them, since a column is only compared with other columns of the same matrix.
+/// A letter's column is its records under every representative left at that letter's own coordinate, found by its position in `full_coords`. The column borrows the records instead of cloning them, since a column is only compared with other columns of the same matrix.
 fn r4_groups(key: &FiberKey, full_coords: &[RightToken]) -> Vec<Vec<RightToken>> {
     let coord_index: HashMap<RightToken, usize> = full_coords
         .iter()
@@ -357,8 +357,8 @@ mod tests {
         )
     }
 
-    /// The `belt_spec` fixture from [`crate::liveness`]'s tests, whose one context has a live fourth slot at exactly one third letter.
-    fn belt_spec() -> SpecIndex {
+    /// The `fourth_slot_fallback_spec` fixture from [`crate::liveness`]'s tests, whose one context has a live fourth slot at exactly one third letter.
+    fn fourth_slot_fallback_spec() -> SpecIndex {
         let pea = letter(
             "qsPea",
             &[stance(
@@ -692,12 +692,12 @@ mod tests {
         }
     }
 
-    /// The full partition of the joint34 context: the static list's boundaries in their own order, its letters split by the outcome probe, and the one fiber with a live fourth slot carrying its r4 sub-enumeration.
+    /// The full partition of the fourth-slot fallback context: the static list's boundaries in their own order, its letters split by the outcome probe, and the one fiber with a live fourth slot carrying its r4 sub-enumeration.
     ///
     /// The r4 groups follow the option pipeline: each boundary a singleton where it stands, then the letters grouped by probe-matrix column, with `qsIt` apart from the three that probe alike.
     #[test]
     fn a_context_partitions_its_thirds_and_hands_each_fiber_its_r4_groups() {
-        let index = belt_spec();
+        let index = fourth_slot_fallback_spec();
         let mut scaffolding = Scaffolding::new(&index);
         let context = scaffolding.context(&index, ["qsPea", "qsTea", "qsMay"]);
         assert_eq!(
@@ -725,7 +725,7 @@ mod tests {
     /// Two requests for one context return the same derivation instead of probing twice.
     #[test]
     fn a_context_is_derived_once_and_handed_out_by_reference() {
-        let index = belt_spec();
+        let index = fourth_slot_fallback_spec();
         let mut scaffolding = Scaffolding::new(&index);
         let first = scaffolding.context(&index, ["qsPea", "qsTea", "qsMay"]);
         let second = scaffolding.context(&index, ["qsPea", "qsTea", "qsMay"]);
@@ -767,7 +767,7 @@ mod tests {
     /// The deriver probes an r4-dead member only at `EDGE` and `UNKNOWN`, and a live one across the whole alphabet. Probing the dead member more widely would not change the partition, but every traced window adds its fired pointers to the product's `cited_provenance`, so the coordinate list affects the output.
     #[test]
     fn a_dead_fourth_member_is_probed_at_two_coordinates_and_a_live_one_at_the_alphabet() {
-        let index = belt_spec();
+        let index = fourth_slot_fallback_spec();
         let mut scaffolding = Scaffolding::new(&index);
         let context = scaffolding.context(&index, ["qsPea", "qsTea", "qsMay"]);
         let [pea, tea, may] = ["qsPea", "qsTea", "qsMay"].map(|name| fixtures::sym(&index, name));

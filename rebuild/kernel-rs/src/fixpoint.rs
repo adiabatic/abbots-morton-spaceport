@@ -4,7 +4,7 @@
 //!
 //! The product depends only on the set of rows, not on the traversal order, at either grain. At label grain the dedup is by window key, and a hit reuses the recorded settled state because the left label is injective into the trace's inputs, so the fired set is a union over a window set that no order changes. At class grain a fiber's row is traced at the fiber's representative, its least member under the label order (the first entry of the fiber's sorted member list), whichever item reaches the fiber first and whatever subset of it that item's pins admit. The admitted members accumulate as a union across items, which is also order-independent. The worklist is LIFO with the `seen` check at pop time, so the traversal is a fixed function of the seeds, and the two permuted-seed tests below check order-independence at each grain.
 //!
-//! In the deep world with the deep-classes flag on, the deep slots enumerate at class grain: the same static option lists, their letters split into the outcome fibers of [`crate::fiber::DeepFiberDeriver`], one in-flight row per base and fiber identity accumulating the admitted members across items, successor pins carrying those member sets instead of singletons, and a content-addressed id per multi-member set in the product's `deep_classes` map. Two checks run with it. The member cross-check re-traces a second member of every multi-member row at the row's real left and requires the same stored row fields. `DeepPartitionCheck` runs over the finished product before it is returned. With the flag off, or in the pinned world where class grain cannot arise, only the label-grain path runs, and the deep slots still enumerate: the rune sets and the filters decide which deep slots are live.
+//! In the deep world with the deep-classes flag on, the deep slots enumerate at class grain: the same static option lists, their letters split into the outcome fibers of [`crate::fiber::DeepFiberDeriver`], one in-flight row per base and fiber identity accumulating the admitted members across items, successor pins carrying those member sets instead of singletons, and a content-addressed id per multi-member set in the product's `deep_classes` map. Two checks run with it. The member cross-check re-traces a second member of every multi-member row at the row's actual left and requires the same stored row fields. `DeepPartitionCheck` runs over the finished product before it is returned. With the flag off, or in the pinned world where class grain cannot arise, only the label-grain path runs, and the deep slots still enumerate: the rune sets and the filters decide which deep slots are live.
 //!
 //! One engine settles everything, and the two slot filters, the liveness probe and the fiber deriver all borrow it. The trace memo makes a re-reached window free, and `Engine::fired` becomes the product's `cited_provenance`, so a probe running on a second engine would silently drop entries from what the dead-policy gate sees as fired. For the same reason one liveness probe is lent to both filters and to the deriver.
 
@@ -696,7 +696,7 @@ fn enumerate_from_seeds<'i>(
 
     let mut deep_classes: Vec<(String, Vec<String>)> = Vec::new();
     let mut named_classes: HashSet<String> = HashSet::default();
-    // The member cross-check, and the emission of the class rows: for every multi-member row, the last admitted third-slot member is re-traced at the row's real left (and the last r4 member at the representative third), and its stored row fields must all equal the representative's. This checks, on every build, the virtual-left collapse the fibers rely on at real lefts, entries and adjustments.
+    // The member cross-check, and the emission of the class rows: for every multi-member row, the last admitted third-slot member is re-traced at the row's actual left (and the last r4 member at the representative third), and its stored row fields must all equal the representative's. This checks, on every build, the left-class assumption the fibers rely on at actual lefts, entries and adjustments.
     for pending in &pending_rows {
         let (label3, admitted3) = match pending.boundary3 {
             Some(token) => (labels.token(index, token), vec![token]),
@@ -1114,7 +1114,7 @@ fn deep_label(
     token
 }
 
-/// The member a class row's cross-check re-traces: the last admitted member, or the first one when the last is the representative, since cross-checking the representative would re-trace the window the row already carries. A representative the pins never admitted is cross-checked against an admitted member, which still checks the fiber at a real left.
+/// The member a class row's cross-check re-traces: the last admitted member, or the first one when the last is the representative, since cross-checking the representative would re-trace the window the row already carries. A representative the pins never admitted is cross-checked against an admitted member, which still checks the fiber at an actual left.
 fn cross_check_member(members: &[RightToken], representative: RightToken) -> RightToken {
     let last = members[members.len() - 1];
     if last == representative {
@@ -1124,7 +1124,7 @@ fn cross_check_member(members: &[RightToken], representative: RightToken) -> Rig
     }
 }
 
-/// The member cross-check's `PartitionError` message: a member of a class row traced a different record than the representative, meaning the virtual-left fiber collapse fails at a real left. The representative's settled record and notes are passed in resolved, since the row holds only their indexes.
+/// The member cross-check's `PartitionError` message: a member of a class row traced a different record than the representative, meaning the left-class assumption fails at an actual left. The representative's settled record and notes are passed in resolved, since the row holds only their indexes.
 fn member_mismatch(
     index: &SpecIndex,
     key: &[&str; 6],

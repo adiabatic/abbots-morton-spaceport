@@ -2,19 +2,19 @@
 //!
 //! The check has two stages because cheaper checks open far too many windows. Tracking which slots the recursion consults opens nearly everything, since it consults slots past the window almost everywhere. Stopping at follower-prospect variance still opens fifteen times as many as needed on the real spec (1,543 consulted triples have a prospect some token changes, and only 103 ever change a seat outcome). That is enough to push the emitted settlement lookup's subtable-offset headroom below the floor that read-back checks (`SUBTABLE_OFFSET_HEADROOM_FLOOR` in `rebuild/pipeline/readback.py`).
 //!
-//! Stage one is a cheap prefilter. For each `(stance, seam)` shape the input can commit, it evaluates the follower's simulated prospect for each concrete token and compares it with the value at `EDGE`, which is what a dead slot is given. The virtual left's entry is never read, so entry states collapse. If nothing varies, the token has no way into the seat's ranking: a deep token reaches settlement only through prospect values, follower prefers, and own-rune chains, and the chain branch already covers the chains.
+//! Stage one is a cheap prefilter. For each `(stance, seam)` shape the input can commit, it evaluates the follower's simulated prospect for each concrete token and compares it with the value at `EDGE`, which is what a dead slot is given. The synthetic left's entry is never read, so entry states collapse. If nothing varies, the token has no way into the seat's ranking: a deep token reaches settlement only through prospect values, follower prefers, and own-rune chains, and the chain branch already covers the chains.
 //!
-//! Stage two runs only where stage one fired. It replays the seat's own transition for each token over the collapsed left classes (the four boundary kinds, then one virtual left per distinct input-frame signature) and reports the slot live only where some class's settled cell changes.
+//! Stage two runs only where stage one fired. It replays the seat's own transition for each token over the representative lefts (the four boundary kinds, then one synthetic left per distinct left-condition signature) and reports the slot live only where some representative left's settled cell changes.
 //!
-//! The signature that collapses the left classes is `(seam, verdicts)`. The verdicts are [`Engine::cond_matches_left`] over the follower's own left-reading conditions, in the order [`ProspectLiveness::left_conditions`] gathers them. They are plain booleans, unlike the three-valued answer of a right condition, because a left is always already settled or a known boundary. The virtual left is `CellId(rune=family, stance=stance, entry=None, exit=seam, adjustments=())` inside a `Settled` at that seam with no extension. Extend and contract records change only adjustments, and neither an extension nor the left cell's entry interacts with a deep token, so these shapes cover every reachable settled left.
+//! The left-condition signature that picks the representative lefts is `(seam, verdicts)`. The verdicts are [`Engine::cond_matches_left`] over the follower's own left-reading conditions, in the order [`ProspectLiveness::left_conditions`] gathers them. They are plain booleans, unlike the three-valued answer of a right condition, because a left is always already settled or a known boundary. The synthetic left is `CellId(rune=family, stance=stance, entry=None, exit=seam, adjustments=())` inside a `Settled` at that seam with no extension. Extend and contract records change only adjustments, and neither an extension nor the left cell's entry interacts with a deep token, so these shapes cover every reachable settled left.
 //!
-//! In stage two, a left class whose baseline window raises E-UNACCEPTED-EXIT or a plain settlement error is one the fixpoint cannot reach, and it is skipped. A prefer conflict that raises E-INCOMPARABLE or E-AMBIGUOUS marks the slot live instead, so the enumeration reports the conflict instead of hiding it behind a dead slot. [`crate::error::SettleError`] says how its variants map to these outcomes.
+//! In stage two, a representative left whose baseline window raises E-UNACCEPTED-EXIT or a plain settlement error is one the fixpoint cannot reach, and it is skipped. A prefer conflict that raises E-INCOMPARABLE or E-AMBIGUOUS marks the slot live instead, so the enumeration reports the conflict instead of hiding it behind a dead slot. [`crate::error::SettleError`] says how its variants map to these outcomes.
 //!
 //! With shifted follower prefer slots on, stage one also has a follower prefer branch, which calls [`Engine::probe_prefer_favors`] with the follower's `prefer` records. A follower prefer reads the deep slots in two ways: through its record's shifted `when:` chain, and through the follower-cell enumeration the follower prefer runs over the shifted window. So a row scope or closure verdict that changes with the token changes which continuations the follower prefer can favor. The follower prefer branch is skipped when the follower is the input's own family, because `prefer_favors` then takes its own-rune branch, which the chain branch covers. It is also skipped when the follower has no `prefer` records.
 //!
-//! [`ProspectLiveness::third_live`] also ORs in [`ProspectLiveness::fourth_live`] over every concrete letter in the third slot. This is the joint34 belt. Without it, a live fourth slot behind an unenumerated third would never be consulted. The per-token comparisons alone cannot see a seat that changes only under a specific `(third, fourth)` letter pair, because the optimistic reading of unknown slots ends the recursion the same way for an `EDGE` fourth and an `UNKNOWN` one. The recorded counterexample is `·See·No·No·Roe·No·Oy`: seat `qsNo`, window `(qsNo, qsRoe, qsNo, qsOy)`, left `·See`. The fourth-slot `·Oy` changes the seat's cell through two levels of simulation, while every probe with an `EDGE` or `UNKNOWN` fourth agrees.
+//! [`ProspectLiveness::third_live`] also ORs in [`ProspectLiveness::fourth_live`] over every concrete letter in the third slot. This is the fourth-slot fallback. Without it, a live fourth slot behind an unenumerated third would never be consulted. The per-token comparisons alone cannot see a seat that changes only under a specific `(third, fourth)` letter pair, because the optimistic reading of unknown slots ends the recursion the same way for an `EDGE` fourth and an `UNKNOWN` one. The recorded counterexample is `·See·No·No·Roe·No·Oy`: seat `qsNo`, window `(qsNo, qsRoe, qsNo, qsOy)`, left `·See`. The fourth-slot `·Oy` changes the seat's cell through two levels of simulation, while every probe with an `EDGE` or `UNKNOWN` fourth agrees.
 //!
-//! Evaluation order affects the output. Every probe records the pointers it fires in `Engine::fired`, which the fixpoint reports as the product's `cited_provenance`, and a probe that never runs fires nothing. So each short-circuit, early return, loop order, and memo key must stay as it is. The prospect and follower prefer branches key their memos on the collapsed signature instead of the input family, so two families with the same signature share one verdict and run its probes once. The seat replay and the joint34 belt key on the family.
+//! Evaluation order affects the output. Every probe records the pointers it fires in `Engine::fired`, which the fixpoint reports as the product's `cited_provenance`, and a probe that never runs fires nothing. So each short-circuit, early return, loop order, and memo key must stay as it is. The prospect and follower prefer branches key their memos on the left-condition signature instead of the input family, so two families with the same signature share one verdict and run its probes once. The seat replay and the fourth-slot fallback key on the family.
 //!
 //! One instance serves a whole fixpoint run and is lent to both filters and to [`crate::fiber::DeepFiberDeriver`]. It holds no engine. Every call takes the caller's engine, so the probes share its trace memo and fired set. The memos are not keyed on engine modes, so every call on one instance must pass the same engine.
 
@@ -30,13 +30,13 @@ use crate::types::{
     SPACE, Settled, TokenKind, UNKNOWN, ZWNJ,
 };
 
-/// One shape the input frame can commit: a stance of the input's own rune and the exit seam it offers there, `None` for the shape that offers no exit.
+/// One shape a probe candidate can commit: a stance of the input's own rune and the exit seam it offers there, `None` for the shape that offers no exit.
 type Shape = (Sym, Option<Sym>);
 
-/// The collapsed input-frame signature: the committed seam, then the follower's own left-reading conditions answered against the virtual left, in the order [`ProspectLiveness::left_conditions`] gathers them. The verdicts are behind an [`Rc`] because the signature is copied into every memo key the prospect and follower prefer branches write.
-type Signature = (Option<Sym>, Rc<Vec<bool>>);
+/// The left-condition signature: the committed seam, then the follower's own left-reading conditions answered against the synthetic left, in the order [`ProspectLiveness::left_conditions`] gathers them. The verdicts are behind an [`Rc`] because the signature is copied into every memo key the prospect and follower prefer branches write.
+type LeftConditionSignature = (Option<Sym>, Rc<Vec<bool>>);
 
-/// What the seat replay saw at one probed window. `Raised` is a prefer conflict the enumeration must report, so the slot is live. `Unreachable` is a window the fixpoint cannot reach from this left class; at the baseline the replay skips the class.
+/// What the seat replay saw at one probed window. `Raised` is a prefer conflict the enumeration must report, so the slot is live. `Unreachable` is a window the fixpoint cannot reach from this representative left; at the baseline the replay skips that left.
 #[derive(Clone, Debug, PartialEq, Eq)]
 enum SeatOutcome {
     Cell(CellId),
@@ -48,24 +48,24 @@ enum SeatOutcome {
 pub struct ProspectLiveness<'i> {
     index: &'i SpecIndex,
     tokens: Option<Rc<Vec<RightToken>>>,
-    left_classes: HashMap<Sym, Rc<Vec<LeftContext>>>,
+    representative_lefts: HashMap<Sym, Rc<Vec<LeftContext>>>,
     shapes: HashMap<Sym, Rc<Vec<Shape>>>,
     conds: HashMap<Sym, Rc<Vec<&'i Condition>>>,
-    sigs: HashMap<(Sym, Sym, Sym, Option<Sym>), Signature>,
+    sigs: HashMap<(Sym, Sym, Sym, Option<Sym>), LeftConditionSignature>,
     /// The third-slot seat replay, keyed `(family, right1, right2)`.
     seat3: HashMap<(Sym, Sym, Sym), bool>,
-    /// The joint34 belt over every concrete letter third, keyed `(family, right1, right2)`.
-    joint34: HashMap<(Sym, Sym, Sym), bool>,
+    /// The fourth-slot fallback over every concrete letter third, keyed `(family, right1, right2)`.
+    fourth_into_third: HashMap<(Sym, Sym, Sym), bool>,
     /// The third slot's prospect branch, keyed `(right1, right2, signature)`.
-    prospect3: HashMap<(Sym, Sym, Signature), bool>,
+    prospect3: HashMap<(Sym, Sym, LeftConditionSignature), bool>,
     /// The third slot's follower prefer branch, keyed `(right1, right2, signature)`.
-    follower_prefer3: HashMap<(Sym, Sym, Signature), bool>,
+    follower_prefer3: HashMap<(Sym, Sym, LeftConditionSignature), bool>,
     /// The fourth-slot seat replay, keyed `(family, right1, right2, right3)`.
     seat4: HashMap<(Sym, Sym, Sym, Sym), bool>,
     /// The fourth slot's prospect branch, keyed `(right1, right2, right3, signature)`.
-    prospect4: HashMap<(Sym, Sym, Sym, Signature), bool>,
+    prospect4: HashMap<(Sym, Sym, Sym, LeftConditionSignature), bool>,
     /// The fourth slot's follower prefer branch, keyed `(right1, right2, right3, signature)`.
-    follower_prefer4: HashMap<(Sym, Sym, Sym, Signature), bool>,
+    follower_prefer4: HashMap<(Sym, Sym, Sym, LeftConditionSignature), bool>,
 }
 
 impl<'i> ProspectLiveness<'i> {
@@ -74,12 +74,12 @@ impl<'i> ProspectLiveness<'i> {
         Self {
             index,
             tokens: None,
-            left_classes: HashMap::default(),
+            representative_lefts: HashMap::default(),
             shapes: HashMap::default(),
             conds: HashMap::default(),
             sigs: HashMap::default(),
             seat3: HashMap::default(),
-            joint34: HashMap::default(),
+            fourth_into_third: HashMap::default(),
             prospect3: HashMap::default(),
             follower_prefer3: HashMap::default(),
             seat4: HashMap::default(),
@@ -97,7 +97,7 @@ impl<'i> ProspectLiveness<'i> {
 
     /// Whether the raw third slot can change the settled outcome of some reachable window at `(family, right1, right2)`.
     ///
-    /// Stage one is `(simulated_prospect and prospect_varies_third) or (follower_prefer_slots and follower_prefer_varies_third)`, and the `or` short-circuits. Where stage one fires, the seat replay runs, and a true result is returned at once. Otherwise the verdict is the joint34 belt: [`ProspectLiveness::fourth_live`] for each letter token in [`ProspectLiveness::probe_tokens`] order, stopping at the first live one.
+    /// Stage one is `(simulated_prospect and prospect_varies_third) or (follower_prefer_slots and follower_prefer_varies_third)`, and the `or` short-circuits. Where stage one fires, the seat replay runs, and a true result is returned at once. Otherwise the verdict is the fourth-slot fallback: [`ProspectLiveness::fourth_live`] for each letter token in [`ProspectLiveness::probe_tokens`] order, stopping at the first live one.
     pub fn third_live(
         &mut self,
         engine: &mut Engine<'_>,
@@ -130,7 +130,7 @@ impl<'i> ProspectLiveness<'i> {
             }
         }
         let key = (family, right1, right2);
-        if let Some(&cached) = self.joint34.get(&key) {
+        if let Some(&cached) = self.fourth_into_third.get(&key) {
             return Ok(cached);
         }
         let tokens = self.probe_tokens();
@@ -143,13 +143,13 @@ impl<'i> ProspectLiveness<'i> {
                 break;
             }
         }
-        self.joint34.insert(key, verdict);
+        self.fourth_into_third.insert(key, verdict);
         Ok(verdict)
     }
 
     /// Whether the raw fourth slot can change the settled outcome of some reachable window at `(family, right1, right2, right3)`.
     ///
-    /// The same two stages one slot deeper, with no belt. If stage one does not fire, the slot is dead. Where it fires, the seat replay is the verdict.
+    /// The same two stages one slot deeper, with no fallback. If stage one does not fire, the slot is dead. Where it fires, the seat replay is the verdict.
     pub fn fourth_live(
         &mut self,
         engine: &mut Engine<'_>,
@@ -184,17 +184,17 @@ impl<'i> ProspectLiveness<'i> {
         Ok(verdict)
     }
 
-    /// The left classes the seat replay and the fiber probes settle this family against: the four boundary lefts, then one virtual `(family, stance, seam)` left per distinct input-frame signature.
+    /// The representative lefts the seat replay and the fiber probes settle this family against: the four boundary lefts, then one synthetic `(family, stance, seam)` left per distinct left-condition signature.
     ///
-    /// The runes are visited in the dump's declaration order ([`SpecIndex::runes`]), not sorted order, and the first left with a given signature is the one kept. A different order keeps a different virtual left, which can change both a liveness verdict and a fiber key.
+    /// The runes are visited in the dump's declaration order ([`SpecIndex::runes`]), not sorted order, and the first left with a given signature is the one kept. A different order keeps a different synthetic left, which can change both a liveness verdict and a fiber key.
     ///
     /// Memoized per family, because the seat replay and the fiber deriver each ask for it once per context.
-    pub fn seat_left_classes(
+    pub fn representative_lefts(
         &mut self,
         engine: &mut Engine<'_>,
         family: Sym,
     ) -> Result<Rc<Vec<LeftContext>>, SettleError> {
-        if let Some(cached) = self.left_classes.get(&family) {
+        if let Some(cached) = self.representative_lefts.get(&family) {
             return Ok(Rc::clone(cached));
         }
         let mut out = vec![
@@ -203,20 +203,20 @@ impl<'i> ProspectLiveness<'i> {
             LeftContext::boundary(TokenKind::Zwnj),
             LeftContext::boundary(TokenKind::NamerDot),
         ];
-        let mut seen: HashSet<Signature> = HashSet::default();
+        let mut seen: HashSet<LeftConditionSignature> = HashSet::default();
         let left_families: Vec<Sym> = self.index.runes().iter().map(|(name, _)| *name).collect();
         for left_family in left_families {
-            for (stance, seam) in self.input_shapes(left_family).iter().copied() {
+            for (stance, seam) in self.probe_candidate_shapes(left_family).iter().copied() {
                 let signature = self.signature(engine, family, left_family, stance, seam)?;
                 if !seen.insert(signature) {
                     continue;
                 }
-                out.push(virtual_left(self.index, left_family, stance, seam));
+                out.push(synthetic_left(self.index, left_family, stance, seam));
             }
         }
-        let classes = Rc::new(out);
-        self.left_classes.insert(family, Rc::clone(&classes));
-        Ok(classes)
+        let lefts = Rc::new(out);
+        self.representative_lefts.insert(family, Rc::clone(&lefts));
+        Ok(lefts)
     }
 
     /// The tokens every probe sweeps: the four boundaries, then one letter token per rune sorted by name. Built once.
@@ -234,10 +234,10 @@ impl<'i> ProspectLiveness<'i> {
         Rc::clone(self.tokens.as_ref().expect("the token list was just built"))
     }
 
-    /// The `(stance, seam)` shapes this family's input frame can commit, in the stances' declaration order.
+    /// The `(stance, seam)` shapes this family's probe candidate can commit, in the stances' declaration order.
     ///
     /// Each stance contributes, in order: the exitless shape, unless the stance requires an exit; its declared exit rows; then the exits an unlock adds that the surface does not declare. Repeated seams within a stance are dropped after the first.
-    fn input_shapes(&mut self, family: Sym) -> Rc<Vec<Shape>> {
+    fn probe_candidate_shapes(&mut self, family: Sym) -> Rc<Vec<Shape>> {
         if let Some(cached) = self.shapes.get(&family) {
             return Rc::clone(cached);
         }
@@ -322,7 +322,7 @@ impl<'i> ProspectLiveness<'i> {
             .prefer
     }
 
-    /// The input frame's collapsed signature at this shape: the seam it commits, and the follower's left conditions evaluated against the virtual left for that shape.
+    /// The probe candidate's left-condition signature at this shape: the seam it commits, and the follower's left conditions evaluated against the synthetic left for that shape.
     ///
     /// A left condition carrying a `then:` makes [`Engine::cond_matches_left`] return an error. The error is not memoized, so a second call returns it again.
     fn signature(
@@ -332,23 +332,23 @@ impl<'i> ProspectLiveness<'i> {
         family: Sym,
         stance: Sym,
         seam: Option<Sym>,
-    ) -> Result<Signature, SettleError> {
+    ) -> Result<LeftConditionSignature, SettleError> {
         let key = (follower, family, stance, seam);
         if let Some(cached) = self.sigs.get(&key) {
             return Ok(cached.clone());
         }
-        let left = virtual_left(self.index, family, stance, seam);
+        let left = synthetic_left(self.index, family, stance, seam);
         let conds = self.left_conditions(follower);
         let mut verdicts: Vec<bool> = Vec::with_capacity(conds.len());
         for cond in conds.iter() {
             verdicts.push(engine.cond_matches_left(Some(follower), cond, &left, seam)?);
         }
-        let signature: Signature = (seam, Rc::new(verdicts));
+        let signature: LeftConditionSignature = (seam, Rc::new(verdicts));
         self.sigs.insert(key, signature.clone());
         Ok(signature)
     }
 
-    /// Stage one's prospect branch at the third slot: whether some shape of the input frame has a simulated follower choice that changes with the third token.
+    /// Stage one's prospect branch at the third slot: whether some shape of the probe candidate has a simulated follower choice that changes with the third token.
     fn prospect_varies_third(
         &mut self,
         engine: &mut Engine<'_>,
@@ -358,7 +358,7 @@ impl<'i> ProspectLiveness<'i> {
         r1tok: RightToken,
         r2tok: RightToken,
     ) -> Result<bool, SettleError> {
-        for (stance, seam) in self.input_shapes(family).iter().copied() {
+        for (stance, seam) in self.probe_candidate_shapes(family).iter().copied() {
             let signature = self.signature(engine, right1, family, stance, seam)?;
             let key = (right1, right2, signature);
             let verdict = match self.prospect3.get(&key) {
@@ -387,7 +387,7 @@ impl<'i> ProspectLiveness<'i> {
         r1tok: RightToken,
         r2tok: RightToken,
     ) -> Result<bool, SettleError> {
-        let candidate = frame_candidate(self.index, family, stance, seam);
+        let candidate = probe_candidate(self.index, family, stance, seam);
         let baseline =
             engine.probe_prospect(family, candidate, Slots::new(r1tok, r2tok, EDGE, EDGE))?;
         let tokens = self.probe_tokens();
@@ -419,7 +419,7 @@ impl<'i> ProspectLiveness<'i> {
         r2tok: RightToken,
         r3tok: RightToken,
     ) -> Result<bool, SettleError> {
-        for (stance, seam) in self.input_shapes(family).iter().copied() {
+        for (stance, seam) in self.probe_candidate_shapes(family).iter().copied() {
             let signature = self.signature(engine, right1, family, stance, seam)?;
             let key = (right1, right2, right3, signature);
             let verdict = match self.prospect4.get(&key) {
@@ -450,7 +450,7 @@ impl<'i> ProspectLiveness<'i> {
         r2tok: RightToken,
         r3tok: RightToken,
     ) -> Result<bool, SettleError> {
-        let candidate = frame_candidate(self.index, family, stance, seam);
+        let candidate = probe_candidate(self.index, family, stance, seam);
         let baseline =
             engine.probe_prospect(family, candidate, Slots::new(r1tok, r2tok, r3tok, EDGE))?;
         let tokens = self.probe_tokens();
@@ -477,7 +477,7 @@ impl<'i> ProspectLiveness<'i> {
         if right1 == family || self.follower_prefer_records(right1).is_empty() {
             return Ok(false);
         }
-        for (stance, seam) in self.input_shapes(family).iter().copied() {
+        for (stance, seam) in self.probe_candidate_shapes(family).iter().copied() {
             let signature = self.signature(engine, right1, family, stance, seam)?;
             let key = (right1, right2, signature);
             let verdict = match self.follower_prefer3.get(&key) {
@@ -513,7 +513,7 @@ impl<'i> ProspectLiveness<'i> {
         if right1 == family || self.follower_prefer_records(right1).is_empty() {
             return Ok(false);
         }
-        for (stance, seam) in self.input_shapes(family).iter().copied() {
+        for (stance, seam) in self.probe_candidate_shapes(family).iter().copied() {
             let signature = self.signature(engine, right1, family, stance, seam)?;
             let key = (right1, right2, right3, signature);
             let verdict = match self.follower_prefer4.get(&key) {
@@ -553,7 +553,7 @@ impl<'i> ProspectLiveness<'i> {
         r2tok: RightToken,
         r3tok: Option<RightToken>,
     ) -> Result<bool, SettleError> {
-        let candidate = frame_candidate(self.index, family, stance, seam);
+        let candidate = probe_candidate(self.index, family, stance, seam);
         let owner = r1tok.letter();
         let edge_left = LeftContext::boundary(TokenKind::Edge);
         let records = self.follower_prefer_records(owner);
@@ -622,7 +622,7 @@ impl<'i> ProspectLiveness<'i> {
         Ok(false)
     }
 
-    /// Stage two: the seat's own transition replayed for each probe token over its collapsed left classes. Returns true where some class's settled cell changes.
+    /// Stage two: the seat's own transition replayed for each probe token over its representative lefts. Returns true where some representative left's settled cell changes.
     ///
     /// A left whose baseline window is unreachable is skipped, because the fixpoint cannot reach it either. A raise at the baseline is live, and so is any probe token whose window raises, is unreachable, or settles to a different cell. With `r3tok` absent this probes the third slot, with the fourth set first to `EDGE` and then to `UNKNOWN`; with a concrete `r3tok` it probes the fourth slot.
     fn seat_varies(
@@ -634,7 +634,7 @@ impl<'i> ProspectLiveness<'i> {
         r3tok: Option<RightToken>,
     ) -> Result<bool, SettleError> {
         let token = self.letter(family);
-        let lefts = self.seat_left_classes(engine, family)?;
+        let lefts = self.representative_lefts(engine, family)?;
         let tokens = self.probe_tokens();
         for left in lefts.iter() {
             let third = r3tok.unwrap_or(EDGE);
@@ -693,8 +693,8 @@ impl<'i> ProspectLiveness<'i> {
     }
 }
 
-/// The virtual left for one `(family, stance, seam)` shape: the cell with no entry and no adjustments, settled at that seam with no extension. Nothing a deep token can reach reads the entry, so all entries collapse to this one.
-fn virtual_left(index: &SpecIndex, family: Sym, stance: Sym, seam: Option<Sym>) -> LeftContext {
+/// The synthetic left for one `(family, stance, seam)` shape: the cell with no entry and no adjustments, settled at that seam with no extension. Nothing a deep token can reach reads the entry, so all entries collapse to this one.
+fn synthetic_left(index: &SpecIndex, family: Sym, stance: Sym, seam: Option<Sym>) -> LeftContext {
     LeftContext::letter(
         index,
         Settled {
@@ -711,8 +711,8 @@ fn virtual_left(index: &SpecIndex, family: Sym, stance: Sym, seam: Option<Sym>) 
     )
 }
 
-/// The input-frame candidate every stage-one probe runs for: no entry, the shape's own seam, order index 0, and the `NO_EXIT_INDEX` sentinel, because the frame is a shape the input can commit and not a candidate the enumeration produced.
-fn frame_candidate(index: &SpecIndex, family: Sym, stance: Sym, seam: Option<Sym>) -> Candidate {
+/// The probe candidate every stage-one probe runs for: no entry, the shape's own seam, order index 0, and the `NO_EXIT_INDEX` sentinel, because it is a shape the input can commit and not a candidate the enumeration produced.
+fn probe_candidate(index: &SpecIndex, family: Sym, stance: Sym, seam: Option<Sym>) -> Candidate {
     Candidate {
         stance,
         entry: None,
@@ -1046,10 +1046,10 @@ pub(crate) mod tests {
         fixtures::index_of(&fixtures::dump(&object(runes), &three_height_registry()))
     }
 
-    /// The recorded joint34 shape at fixture scale: a seat whose settled cell moves under one specific `(third, fourth)` letter pair and under nothing else.
+    /// The recorded fourth-slot fallback shape at fixture scale: a seat whose settled cell moves under one specific `(third, fourth)` letter pair and under nothing else.
     ///
     /// `qsIt` requires an exit, so it has cells at all only where the fourth slot is a letter that accepts its baseline exit — the one r4 dependence that reads `EDGE` and `UNKNOWN` alike, since neither is a letter and the closure asks for a letter. `qsMay` exits at the x-height, which only `qsIt` enters, so `qsMay`'s onward join is available exactly at that third; joining it ties `qsTea`'s two cells, and `qsTea`'s cap-entered prefer yields the join there. That yields the seat's cap exit its prospect, which is the tie its own prefer would otherwise win — so `qsPea` settles into its cap exit everywhere except at `(qsIt, qsPea)`, where it settles into its baseline one.
-    fn belt_spec() -> SpecIndex {
+    fn fourth_slot_fallback_spec() -> SpecIndex {
         let pea = letter(
             "qsPea",
             &[stance(
@@ -1175,7 +1175,7 @@ pub(crate) mod tests {
         spec_of(&[pea, tea, may])
     }
 
-    /// Two structurally identical runes, declared in the reverse of sorted order, so the representative the collapse keeps shows which order it iterated in.
+    /// Two structurally identical runes, declared in the reverse of sorted order, so the representative left the probe keeps shows which order it iterated in.
     fn twin_spec() -> SpecIndex {
         let twin = |name: &str| {
             letter(
@@ -1190,16 +1190,16 @@ pub(crate) mod tests {
         spec_of(&[twin("qsTea"), twin("qsPea")])
     }
 
-    /// The left classes are the four boundaries and then one virtual left per distinct signature, kept for the first rune in declaration order, not the first in sorted order.
+    /// The representative lefts are the four boundaries and then one synthetic left per distinct signature, kept for the first rune in declaration order, not the first in sorted order.
     #[test]
-    fn the_left_class_collapse_keeps_the_first_representative_in_collection_order() {
+    fn the_representative_lefts_keep_the_first_rune_in_collection_order() {
         let index = twin_spec();
         let mut engine = engine_in(&index, true, true);
         let mut liveness = ProspectLiveness::new(&index);
-        let classes = liveness
-            .seat_left_classes(&mut engine, fixtures::sym(&index, "qsPea"))
+        let lefts = liveness
+            .representative_lefts(&mut engine, fixtures::sym(&index, "qsPea"))
             .expect("the fixture settles");
-        let spelled: Vec<String> = classes
+        let spelled: Vec<String> = lefts
             .iter()
             .map(|left| match left.settled.as_ref() {
                 None => left.kind.as_str().to_owned(),
@@ -1217,12 +1217,12 @@ pub(crate) mod tests {
         );
         assert!(
             Rc::ptr_eq(
-                &classes,
+                &lefts,
                 &liveness
-                    .seat_left_classes(&mut engine, fixtures::sym(&index, "qsPea"))
+                    .representative_lefts(&mut engine, fixtures::sym(&index, "qsPea"))
                     .expect("the fixture settles")
             ),
-            "the collapse is memoized per family, because the deriver reads it once per candidate third of every live context"
+            "the representative lefts are memoized per family, because the deriver reads them once per candidate third of every live context"
         );
     }
 
@@ -1322,10 +1322,10 @@ pub(crate) mod tests {
         );
     }
 
-    /// The recorded joint34 counterexample at fixture scale: the seat's own probes agree under every third token with an `EDGE` or `UNKNOWN` fourth, and the slot opens only because a fourth slot hanging off one concrete third is live.
+    /// The recorded fourth-slot fallback counterexample at fixture scale: the seat's own probes agree under every third token with an `EDGE` or `UNKNOWN` fourth, and the slot opens only because a fourth slot hanging off one concrete third is live.
     #[test]
-    fn the_joint34_belt_opens_a_third_slot_whose_own_seat_probes_agree() {
-        let index = belt_spec();
+    fn the_fourth_slot_fallback_opens_a_third_slot_whose_own_seat_probes_agree() {
+        let index = fourth_slot_fallback_spec();
         let pea = fixtures::sym(&index, "qsPea");
         let tea = fixtures::sym(&index, "qsTea");
         let may = fixtures::sym(&index, "qsMay");
@@ -1348,7 +1348,7 @@ pub(crate) mod tests {
         assert_eq!(
             liveness.seat_varies(&mut engine, pea, r1tok, r2tok, None),
             Ok(false),
-            "the seat replay agrees at the third grain — which is the whole point, since a port without the belt would answer dead here"
+            "the seat replay agrees at the third grain — which is the whole point, since a port without the fallback would answer dead here"
         );
         assert_eq!(
             liveness.fourth_live(&mut engine, pea, tea, may, it),
@@ -1358,7 +1358,7 @@ pub(crate) mod tests {
         assert_eq!(
             liveness.third_live(&mut engine, pea, tea, may),
             Ok(true),
-            "so the belt opens the third slot the enumeration would otherwise never consult it through"
+            "so the fallback opens the third slot the enumeration would otherwise never consult it through"
         );
         assert_eq!(
             liveness.seat3.get(&(pea, tea, may)),
@@ -1378,24 +1378,24 @@ pub(crate) mod tests {
         assert_eq!(
             fourths,
             ["qsIt"],
-            "one concrete third carries the live fourth, which is what the belt's any() is for"
+            "one concrete third carries the live fourth, which is what the fallback's any() is for"
         );
     }
 
-    /// A left class the fixpoint can never reach raises in the replay and is skipped. Counting it as a raise would open every window of a seat that enters at one height only.
+    /// A representative left the fixpoint can never reach raises in the replay and is skipped. Counting it as a raise would open every window of a seat that enters at one height only.
     #[test]
-    fn an_unreachable_left_class_is_skipped_rather_than_marked_live() {
-        let index = belt_spec();
+    fn an_unreachable_representative_left_is_skipped_rather_than_marked_live() {
+        let index = fourth_slot_fallback_spec();
         let pea = fixtures::sym(&index, "qsPea");
         let tea = fixtures::sym(&index, "qsTea");
         let may = fixtures::sym(&index, "qsMay");
         let mut engine = engine_in(&index, true, true);
         let mut liveness = ProspectLiveness::new(&index);
-        let classes = liveness
-            .seat_left_classes(&mut engine, pea)
+        let lefts = liveness
+            .representative_lefts(&mut engine, pea)
             .expect("the fixture settles");
 
-        let unaccepted: Vec<SettleErrorKind> = classes
+        let unaccepted: Vec<SettleErrorKind> = lefts
             .iter()
             .filter_map(|left| {
                 engine
@@ -1415,7 +1415,7 @@ pub(crate) mod tests {
             .collect();
         assert!(
             unaccepted.contains(&SettleErrorKind::UnacceptedExit),
-            "qsPea enters at the baseline alone, so the cap-committing and x-height-committing left classes commit exits it cannot accept"
+            "qsPea enters at the baseline alone, so the cap-committing and x-height-committing representative lefts commit exits it cannot accept"
         );
         assert!(
             unaccepted
@@ -1431,13 +1431,13 @@ pub(crate) mod tests {
                 None
             ),
             Ok(false),
-            "the replay skips those classes rather than reading their raise as movement"
+            "the replay skips those lefts rather than reading their raise as movement"
         );
     }
 
     /// A prefer conflict is a raise the enumeration must report, so it marks the slot live instead of being skipped.
     #[test]
-    fn a_raising_left_class_marks_the_slot_live() {
+    fn a_raising_representative_left_marks_the_slot_live() {
         let index = ambiguous_spec();
         let pea = fixtures::sym(&index, "qsPea");
         let tea = fixtures::sym(&index, "qsTea");
@@ -1473,7 +1473,7 @@ pub(crate) mod tests {
         );
     }
 
-    /// The prospect and follower prefer branches key on the collapsed signature instead of the input family, so two families the follower cannot tell apart share one verdict and run its probes once.
+    /// The prospect and follower prefer branches key on the left-condition signature instead of the input family, so two families the follower cannot tell apart share one verdict and run its probes once.
     #[test]
     fn two_families_sharing_a_signature_share_one_probe() {
         let index = twin_spec();
@@ -1496,7 +1496,7 @@ pub(crate) mod tests {
         assert_eq!(
             liveness.prospect3.len(),
             1,
-            "the twins' input frames collapse to one signature, so the second family reads the first's verdict"
+            "the twins' probe candidates share one left-condition signature, so the second family reads the first's verdict"
         );
         assert_eq!(
             liveness.seat3.len(),

@@ -158,7 +158,7 @@ impl<'i> GuardState<'i> {
         );
         let lead = sequence[sequence.len() - 2];
         let trail = sequence[sequence.len() - 1];
-        let virtual_left = LeftContext::letter(
+        let synthetic_left = LeftContext::letter(
             index,
             Settled {
                 cell: CellId {
@@ -178,7 +178,7 @@ impl<'i> GuardState<'i> {
             },
         );
         if !engine
-            .candidates(&virtual_left, trail, right1, right2, None)?
+            .candidates(&synthetic_left, trail, right1, right2, None)?
             .iter()
             .any(|candidate| candidate.seam.is_some())
         {
@@ -186,7 +186,7 @@ impl<'i> GuardState<'i> {
         }
         if engine
             .transition_trace(
-                &virtual_left,
+                &synthetic_left,
                 index
                     .letter(trail)
                     .expect("a ligature's trail is a modeled rune"),

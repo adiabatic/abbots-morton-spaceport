@@ -491,7 +491,7 @@ class TestProspectLiveSlots:
 
 
 class TestDeepClasses:
-    """Tests class-grain enumeration, where deep slots hold outcome fibers that `expanded_transitions` expands back to labels. The `test_two_arm_expansion_equality_*` tests build one spec with `DEEP_CLASSES_DEFAULT` on and off (off runs the kernel's label-grain path, which uses no fiber code) and assert the same expanded rows, rules, identity-guard count, reachable cells, cited provenance, and treaty rows. `test_real_lefts_agree_with_the_fiber_collapse` settles every member of every multi-member row at the row's settled left, one window at a time, so a fiber whose members settle differently there fails."""
+    """Tests class-grain enumeration, where deep slots hold outcome fibers that `expanded_transitions` expands back to labels. The `test_two_arm_expansion_equality_*` tests build one spec with `DEEP_CLASSES_DEFAULT` on and off (off runs the kernel's label-grain path, which uses no fiber code) and assert the same expanded rows, rules, identity-guard count, reachable cells, cited provenance, and treaty rows. `test_actual_lefts_agree_with_the_left_class_assumption` settles every member of every multi-member row at the row's settled left, one window at a time, so a fiber whose members settle differently there fails."""
 
     @pytest.fixture()
     def deep_world(self, monkeypatch):
@@ -583,8 +583,10 @@ class TestDeepClasses:
         [("prospect_spec", False), ("synthetic_depth4_spec", True)],
         ids=["prospect", "synthetic-depth4"],
     )
-    def test_real_lefts_agree_with_the_fiber_collapse(self, request, deep_world, spec_fixture, expect_r4):
-        """Asserts that for every multi-member deep-class token in the enumeration, every member traces the same at the row's settled left: the same settled cell, prospect, joint floor, and notes. The classes come from the enumeration and the traces from `settle-cases`, so a class whose members settle differently at the real left fails here. The test reads the enumeration product (`kernel_exec.enumerate_transitions`) because the tables drop each row's settled left. All member windows go to one `settle_cases` call, in the world the enumeration ran in. The prospect spec creates no r4 classes, so the synthetic depth-4 spec is the case that checks r4 classes (per context and r3 class) at real lefts, and the `checked4` assertion fails if it stops creating them."""
+    def test_actual_lefts_agree_with_the_left_class_assumption(
+        self, request, deep_world, spec_fixture, expect_r4
+    ):
+        """Asserts that for every multi-member deep-class token in the enumeration, every member traces the same at the row's settled left: the same settled cell, prospect, joint floor, and notes. The classes come from the enumeration and the traces from `settle-cases`, so a class whose members settle differently at the actual left fails here. The test reads the enumeration product (`kernel_exec.enumerate_transitions`) because the tables drop each row's settled left. All member windows go to one `settle_cases` call, in the world the enumeration ran in. The prospect spec creates no r4 classes, so the synthetic depth-4 spec is the case that checks r4 classes (per context and r3 class) at actual lefts, and the `checked4` assertion fails if it stops creating them."""
         from rebuild.pipeline.settle import EDGE, LeftContext, RightToken
 
         spec = request.getfixturevalue(spec_fixture)

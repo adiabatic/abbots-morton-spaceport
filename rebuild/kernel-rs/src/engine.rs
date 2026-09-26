@@ -1805,7 +1805,7 @@ impl<'i> Engine<'i> {
     }
 
     /// The left a follower would settle against if this candidate won: the candidate's cell with no adjustments and no extension, which is everything the follower's enumeration reads. It is built on every call, not memoized: construction moves two arguments, creates an empty `Vec` without allocating, and reuses the candidate's ordinals, so a memo lookup on this hot path would cost more than it saves.
-    fn virtual_left(rune_name: Sym, candidate: Candidate) -> LeftContext {
+    fn synthetic_left(rune_name: Sym, candidate: Candidate) -> LeftContext {
         LeftContext::seated(
             Settled {
                 cell: CellId {
@@ -1853,10 +1853,10 @@ impl<'i> Engine<'i> {
             crate::index::journal_extend(self.reads.get(reads));
             return Ok(cached);
         }
-        let virtual_left = Self::virtual_left(rune_name, *candidate);
+        let synthetic_left = Self::synthetic_left(rune_name, *candidate);
         if self.fired_log.is_none() {
             let result = !self
-                .candidates(&virtual_left, follower, right2, UNKNOWN, None)?
+                .candidates(&synthetic_left, follower, right2, UNKNOWN, None)?
                 .is_empty();
             let delta = self.deltas.seat(Box::default());
             let reads = self.reads.seat(Box::default());
@@ -1864,7 +1864,7 @@ impl<'i> Engine<'i> {
             return Ok(result);
         }
         self.begin_capture();
-        let result = match self.candidates(&virtual_left, follower, right2, UNKNOWN, None) {
+        let result = match self.candidates(&synthetic_left, follower, right2, UNKNOWN, None) {
             Ok(cells) => !cells.is_empty(),
             Err(error) => {
                 self.abort_capture();
@@ -1909,7 +1909,7 @@ impl<'i> Engine<'i> {
     ///
     /// A replayed settlement can raise where real settlement never would, for example on a prefer conflict or a definitely firing unlock scope in a window whose candidate never wins. A raising replay falls back to the candidacy estimate and counts in [`Engine::simulated_prospect_fallbacks`]. The fallback catches every [`SettleError`], including the unresolvable-class spec defect, which `spec_load` rejects long before settlement.
     ///
-    /// The memo stores a term beside the seat of its fired delta, and with a trace memo in simulated mode it holds only the asks whose replayed settlement raised (issue #166). A settling replay's delta equals the trace memo's delta for the follower's window: the virtual left journals nothing, and deduplicating what [`Engine::with_settled`] journaled (a replayed trace delta, or the raw firings the trace memo deduplicated into that same delta) gives that delta again. The trace memo already holds that entry, under a key without this candidate's entry, so the capture is discarded instead of stored ([`Engine::abort_capture`]). The next ask with this key reads the trace memo through `with_settled`, which replays the same first-fired sequence into the same enclosing capture at the same point. A raising replay is never stored in the trace memo, so its fallback is what this memo is for. Candidacy mode runs no replay and memoizes every ask, and so does simulated mode without a trace memo, where nothing else can answer the next ask.
+    /// The memo stores a term beside the seat of its fired delta, and with a trace memo in simulated mode it holds only the asks whose replayed settlement raised (issue #166). A settling replay's delta equals the trace memo's delta for the follower's window: the synthetic left journals nothing, and deduplicating what [`Engine::with_settled`] journaled (a replayed trace delta, or the raw firings the trace memo deduplicated into that same delta) gives that delta again. The trace memo already holds that entry, under a key without this candidate's entry, so the capture is discarded instead of stored ([`Engine::abort_capture`]). The next ask with this key reads the trace memo through `with_settled`, which replays the same first-fired sequence into the same enclosing capture at the same point. A raising replay is never stored in the trace memo, so its fallback is what this memo is for. Candidacy mode runs no replay and memoizes every ask, and so does simulated mode without a trace memo, where nothing else can answer the next ask.
     ///
     /// A replayed settlement asked for while no window is being evaluated is a probe's ask. [`Engine::probe_prospect`] is the only caller that reaches the term that way, because the ranking asks only from inside a trace. Its follower window is settled through [`Engine::with_settled_unrecorded`]: read from the trace memo when the memo holds it, and not added when it does not (issue #168). The probes memoize their verdicts above this call on their own keys, so the window is asked for again only by a row whose ranking reaches the same shifted window. An instrumented run over the whole alphabet measured how rarely that happens: the probes' replays wrote well over a third of the trace memo's entries and nearly all were never read, and the fourth-slot probes' windows (a letter third and an unknown fourth, which a row reaches only past a live fourth slot) almost never. Recording them pushed the memo's bucket table past a power-of-two doubling at the whole alphabet, and leaving them out keeps it under. The replays that a probe's replay runs in turn are recorded as usual, since every ranking shares those windows.
     fn prospect(
@@ -2002,25 +2002,25 @@ impl<'i> Engine<'i> {
         follower: Sym,
         recorded: bool,
     ) -> Result<(i64, ProspectTerm), SettleError> {
-        let virtual_left = Self::virtual_left(rune_name, candidate);
+        let synthetic_left = Self::synthetic_left(rune_name, candidate);
         if !self.simulated_prospect {
             let estimate =
-                self.seam_bearing_follower_exists(&virtual_left, follower, slots.right2)?;
+                self.seam_bearing_follower_exists(&synthetic_left, follower, slots.right2)?;
             return Ok((estimate, ProspectTerm::Estimated));
         }
         let shifted = Slots::new(slots.right2, slots.right3, slots.right4, UNKNOWN);
         let read_seam = |settled: &Settled| i64::from(settled.seam.is_some());
         let simulated = if recorded {
-            self.with_settled(&virtual_left, slots.right1, shifted, read_seam)
+            self.with_settled(&synthetic_left, slots.right1, shifted, read_seam)
         } else {
-            self.with_settled_unrecorded(&virtual_left, slots.right1, shifted, read_seam)
+            self.with_settled_unrecorded(&synthetic_left, slots.right1, shifted, read_seam)
         };
         match simulated {
             Ok(seam_bearing) => Ok((seam_bearing, ProspectTerm::Simulated)),
             Err(_) => {
                 self.simulated_prospect_fallbacks += 1;
                 let estimate =
-                    self.seam_bearing_follower_exists(&virtual_left, follower, slots.right2)?;
+                    self.seam_bearing_follower_exists(&synthetic_left, follower, slots.right2)?;
                 Ok((estimate, ProspectTerm::Estimated))
             }
         }
@@ -2029,11 +2029,11 @@ impl<'i> Engine<'i> {
     /// The candidacy estimate: whether any follower cell that survives enumeration offers a seam onward.
     fn seam_bearing_follower_exists(
         &mut self,
-        virtual_left: &LeftContext,
+        synthetic_left: &LeftContext,
         follower: Sym,
         right2: RightToken,
     ) -> Result<i64, SettleError> {
-        let cells = self.candidates(virtual_left, follower, right2, UNKNOWN, None)?;
+        let cells = self.candidates(synthetic_left, follower, right2, UNKNOWN, None)?;
         Ok(i64::from(cells.iter().any(|cell| cell.seam.is_some())))
     }
 
@@ -2087,14 +2087,14 @@ impl<'i> Engine<'i> {
         if slots.right1.rune() != Some(owner) {
             return Ok(None);
         }
-        let virtual_left = Self::virtual_left(rune_name, candidate);
+        let synthetic_left = Self::synthetic_left(rune_name, candidate);
         let (follower_prefer_right2, follower_prefer_right3) = if self.follower_prefer_slots {
             (slots.right3, slots.right4)
         } else {
             (self.follower_prefer_deep_slot, UNKNOWN)
         };
         let follower_cells = self.candidates(
-            &virtual_left,
+            &synthetic_left,
             owner,
             slots.right2,
             follower_prefer_right2,
@@ -2114,7 +2114,7 @@ impl<'i> Engine<'i> {
             let verdict = self.when_matches(
                 Some(owner),
                 &record.when,
-                &virtual_left,
+                &synthetic_left,
                 cell.entry,
                 cell.seam,
                 shifted_slots,
@@ -2152,7 +2152,7 @@ impl<'i> Engine<'i> {
 
     /// [`Engine::prospect`], exposed to the deep-slot liveness probes.
     ///
-    /// The probes read an internal ranking term, and these two wrappers keep that access visible without widening the settlement API. The probes are the only callers, and the wrappers only delegate. The candidate a probe passes is [`crate::liveness`]'s input-frame candidate (no entry, order index 0, and the `NO_EXIT_INDEX` sentinel), not one the enumeration produced.
+    /// The probes read an internal ranking term, and these two wrappers keep that access visible without widening the settlement API. The probes are the only callers, and the wrappers only delegate. The candidate a probe passes is [`crate::liveness`]'s probe candidate (no entry, order index 0, and the `NO_EXIT_INDEX` sentinel), not one the enumeration produced.
     #[allow(dead_code)]
     pub(crate) fn probe_prospect(
         &mut self,

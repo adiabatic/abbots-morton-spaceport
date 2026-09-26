@@ -517,7 +517,7 @@ impl LeftContext {
         }
     }
 
-    /// A letter left whose ordinals the caller already has, such as a candidate's, for the virtual left a follower is settled against.
+    /// A letter left whose ordinals the caller already has, such as a candidate's, for the synthetic left a follower is settled against.
     pub fn seated(settled: Settled, ordinals: LeftOrdinals) -> Self {
         Self {
             kind: TokenKind::Letter,
@@ -543,7 +543,7 @@ impl LeftContext {
     }
 }
 
-/// A candidate's cell in the form the memo keys store: its rune, stance, entry, and seam, each as the [`Ordinal`] of its key field, resolved once when the candidate is enumerated. The prospect memo keys on these and the follower's virtual left carries them, so a lookup resolves nothing.
+/// A candidate's cell in the form the memo keys store: its rune, stance, entry, and seam, each as the [`Ordinal`] of its key field, resolved once when the candidate is enumerated. The prospect memo keys on these and the follower's synthetic left carries them, so a lookup resolves nothing.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct CandidateOrdinals {
     pub rune: Ordinal,
