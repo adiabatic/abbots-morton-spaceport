@@ -1,4 +1,4 @@
-"""Run the cycle's verdict update in one process: carry, merge, echo fill, standing fill, their merges, a witnessed echo fixpoint, and the complaint docket.
+"""Run the cycle's verdict update in one process: carry, merge, echo fill, standing fill, their merges, an echo fixpoint, and the complaint docket.
 
 The first index walk keeps every surface id and, for human units, only the `echo_record` projection (id, echo group, notation). The carry reads that projection, and every echo round reuses it. The standing fill and the complaint docket each get a fresh stream of human index records, so full records stay in memory only for the step that reads them. Machine units' index lines contribute their ids without being parsed.
 
@@ -234,9 +234,9 @@ def main(argv: list[str] | None = None) -> int:
     print(
         console.FIXPOINT_LINE
         + (
-            "witnessed — a re-run of the fill cascade writes nothing"
+            "reached — a rerun of the fills writes nothing"
             if settled
-            else f"not witnessed after {MAX_ECHO_ROUNDS} echo rounds"
+            else f"not reached after {MAX_ECHO_ROUNDS} echo rounds"
         ),
         flush=True,
     )

@@ -2770,7 +2770,7 @@ def _do_verdict_update(
                 failed, failed_round = match.group(1), int(match.group(2))
     later_round = failed_round > 1
     report.verdict_update_fixpoint = any(
-        line.startswith(console.FIXPOINT_LINE + "witnessed") for line in result.stdout.splitlines()
+        line.startswith(console.FIXPOINT_LINE + "reached") for line in result.stdout.splitlines()
     )
 
     report.carry_lines = _scrape(
@@ -3156,7 +3156,7 @@ def _join_gates(
 
 
 def _verdict_update_settled(report: CycleReport) -> bool:
-    """Return whether the verdict update reached a fixpoint, which the verdict-update green record claims. The verdict update prints its `fixpoint: witnessed` line only after an echo round writes nothing new. A standing merge that writes nothing would not be enough: a standing fill on one unit can make its echo group unanimous and leave a blank member that only another echo fill would fill."""
+    """Return whether the verdict update reached a fixpoint, which the verdict-update green record claims. The verdict update prints its `fixpoint: reached` line only after an echo round writes nothing new. A standing merge that writes nothing would not be enough: a standing fill on one unit can make its echo group unanimous and leave a blank member that only another echo fill would fill."""
     return report.verdict_update_fixpoint
 
 

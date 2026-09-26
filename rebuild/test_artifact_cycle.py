@@ -898,7 +898,7 @@ def _verdict_update_stdout(*sections, fixpoint=True, failed=None):
             lines.append(f"{console.FAILED_LINE}{name} (exit 1)")
             break
     if failed is None and fixpoint:
-        lines.append(f"{console.FIXPOINT_LINE}witnessed — a re-run of the fill cascade writes nothing")
+        lines.append(f"{console.FIXPOINT_LINE}reached — a rerun of the fills writes nothing")
     return "\n".join(lines) + "\n"
 
 
@@ -6256,7 +6256,7 @@ def test_run_cycle_records_the_verdict_update_green_only_after_a_complete_run(mo
     assert not green.exists()
 
 
-def test_run_cycle_records_no_verdict_update_green_until_it_witnesses_its_fixpoint(monkeypatch, tmp_path):
+def test_run_cycle_records_no_verdict_update_green_until_it_reaches_its_fixpoint(monkeypatch, tmp_path):
     """The verdict-update green is recorded only when the verdict update reports a fixpoint. The verdict update runs the echo pass again after the standing merge and reports whether that pass would have written anything; if the verdict update stopped short of that, the next pass runs it again."""
 
     def unsettled(report, *, spawn, emit, registry, plan):
@@ -6300,7 +6300,7 @@ def test_run_cycle_records_no_verdict_update_green_until_it_witnesses_its_fixpoi
     assert green.exists()
 
 
-def test_verdict_update_settled_reads_its_own_witness():
+def test_verdict_update_settled_reads_its_own_fixpoint_line():
     report = ac.CycleReport()
     assert ac._verdict_update_settled(report) is False
     report, _failures = _run_verdict_update(
