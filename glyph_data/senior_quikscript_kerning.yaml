@@ -744,7 +744,12 @@ value: -1
 ---
 left_family: [qsEt]
 right_family: [qsPea]
+except_right: [qsPea.en-y0]
 value: -3
+---
+left_family: [qsEt]
+right_stance: [qsPea.en-y0]
+value: 0
 ---
 left_family: [qsEt]
 right_family: [qsLlan]
@@ -884,7 +889,12 @@ value: -1
 ---
 left_family: [qsAwe]
 right_family: [qsPea]
+except_right: [qsPea.en-y0]
 value: -3
+---
+left_family: [qsAwe]
+right_stance: [qsPea.en-y0]
+value: 0
 ---
 left_family: [qsAwe]
 right_family: [qsLlan]

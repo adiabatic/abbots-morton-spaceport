@@ -102,7 +102,7 @@
       },
       "class_unit_count": {
         "boundary-echo": 289485,
-        "dangling-anchor-dropped": 362939,
+        "dangling-anchor-dropped": 362928,
         "bare-name-live-join": 611125
       },
       "secondary_seams": {
@@ -199,12 +199,12 @@
         "oy-it-baseline": 126,
         "may-utter-gains": 1069,
         "seam-loss-withdrawal": 15879,
-        "extension-non-summing": 101568,
+        "extension-non-summing": 101578,
         "unmatched-misc": 12986,
         "deferred-ss04": 11452,
-        "deferred-ss03": 7378
+        "deferred-ss03": 7379
       },
-      "total": 153521
+      "total": 153532
     }
   }
 }

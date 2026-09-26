@@ -2,6 +2,7 @@ from functools import cache
 from itertools import product
 
 import pytest
+import uharfbuzz as hb
 
 from quikscript_shaping_helpers import (
     ROOT,
@@ -18,6 +19,8 @@ from quikscript_shaping_helpers import (
     _entry_ys,
     _exit_ys,
     _find_base_index,
+    _font,
+    _gid_to_full_name,
     _pair_join_ys,
     _plain_quikscript_letters,
     _qs_text,
@@ -2101,6 +2104,51 @@ def test_pea_joins_et_and_awe_at_baseline_when_it_joins_nothing_after(text: str,
 )
 def test_pea_keeps_its_onward_join_after_et_and_awe(text: str, expects: list[str]):
     _assert_expect_any(text, expects)
+
+
+def _pea_offset_from_its_predecessor(text: str, *, kern: bool) -> tuple[list[str], int]:
+    """Shape `text`, whose first two glyphs are ·Et or ·Awe and then ·Pea, with the `kern` feature on or off, and return the glyph names and the font-unit distance from the first glyph's origin to ·Pea's."""
+    buf = hb.Buffer()
+    buf.add_str(text)
+    buf.guess_segment_properties()
+    hb.shape(_font(), buf, {"kern": kern})
+    glyphs = [_gid_to_full_name(info.codepoint) for info in buf.glyph_infos]
+    origins = _origin_xs(buf.glyph_positions)
+    return glyphs, origins[1] - origins[0]
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        pytest.param(_qs_text("qsEt", "qsPea"), id="et-pea"),
+        pytest.param(_qs_text("qsAwe", "qsPea"), id="awe-pea"),
+        pytest.param(_qs_text("qsEt", "qsPea", "qsTea"), id="et-pea-tea"),
+        pytest.param(_qs_text("qsEt", "qsPea", "qsAt", "qsMay"), id="et-pea-at-may"),
+        pytest.param(_qs_text("qsAwe", "qsPea", "qsSee", "qsEat"), id="awe-pea-see-eat"),
+    ],
+)
+def test_pea_joined_to_et_and_awe_at_baseline_is_not_kerned(text: str):
+    glyphs, kerned = _pea_offset_from_its_predecessor(text, kern=True)
+    assert _pair_join_ys(glyphs, 0) == {0}, glyphs
+    _, unkerned = _pea_offset_from_its_predecessor(text, kern=False)
+    assert (
+        kerned == unkerned
+    ), f"{glyphs}: ·Pea sits {kerned - unkerned} units from where its baseline join puts it"
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        pytest.param(_qs_text("qsEt", "qsPea", "qsIt"), id="et-pea-it"),
+        pytest.param(_qs_text("qsAwe", "qsPea", "qsDay"), id="awe-pea-day"),
+        pytest.param(_qs_text("qsEt", "qsPea", "qsUtter", "qsAh"), id="et-pea-utter-ah"),
+    ],
+)
+def test_pea_not_joined_to_et_and_awe_keeps_its_kern(text: str):
+    glyphs, kerned = _pea_offset_from_its_predecessor(text, kern=True)
+    assert not _pair_join_ys(glyphs, 0), glyphs
+    _, unkerned = _pea_offset_from_its_predecessor(text, kern=False)
+    assert kerned - unkerned == -3 * PIXEL_SIZE, glyphs
 
 
 @pytest.mark.parametrize(
