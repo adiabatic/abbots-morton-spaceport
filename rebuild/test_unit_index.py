@@ -348,9 +348,9 @@ def test_an_index_line_opens_with_the_id_order_and_batch(tmp_path):
 
 
 def test_a_fragment_carrying_its_own_batch_reads_as_human():
-    """`workload_slot`'s branch for a fragment that carries its own `batch` and has no `order` writes a head ending in a number instead of `null`, so the record is classified as human. It is the only form in which `batch` is not null without an `order`."""
+    """`human_unit_slot`'s branch for a fragment that carries its own `batch` and has no `order` writes a head ending in a number instead of `null`, so the record is classified as human. It is the only form in which `batch` is not null without an `order`."""
     fragment = {"id": "u-0001", "batch": 2}
-    slot = unit_index.workload_slot({}, 300, fragment)
+    slot = unit_index.human_unit_slot({}, 300, fragment)
     assert slot == {"order": None, "batch": 2}
     line = unit_index.index_line(fragment, **slot)
     head = line[: line.index(unit_index.CLASS_SEAM)]

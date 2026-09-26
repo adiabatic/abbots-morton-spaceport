@@ -2924,7 +2924,7 @@ function renderChrome() {
     `${formatCount(manifest.totals.units)} units on the corpus — ` +
     `${formatCount(machine?.units ?? 0)} machine-approved` +
     `${exempt ? `, ${formatCount(exempt)} in no-verdict classes` : ''}, and ` +
-    `${formatCount(humanTotal(manifest))} human-workload in ${manifest.totals.batches} batches — ` +
+    `${formatCount(humanTotal(manifest))} human units in ${manifest.totals.batches} batches — ` +
     `covering ${formatCount(manifest.totals.rows)} rows.`;
   const stamp = document.getElementById('corpus-stamp');
   const stampText = corpusStampLine(manifest);

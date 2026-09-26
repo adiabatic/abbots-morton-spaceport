@@ -889,4 +889,4 @@ def test_an_echo_the_parent_nulls_still_fails_the_build(mini_bundle, monkeypatch
     with pytest.raises(SystemExit) as raised:
         _build_mini(tmp_path / "corpus", mini_bundle)
     assert "contract check failed" in str(raised.value)
-    assert "human-workload units must carry an echo group id" in str(raised.value)
+    assert "human units must carry an echo group id" in str(raised.value)

@@ -351,7 +351,7 @@ def test_unit_ids_batches_and_positions_are_unassigned_until_the_build_knows_the
         assert unit.picture_identical is False
 
 
-def test_assign_batches_indexes_the_human_workload_and_nulls_machine_units(mini):
+def test_assign_batches_indexes_the_human_units_and_nulls_machine_units(mini):
     """`assign_batches` depends only on the table, the store's flags and an order, so the mini workload tests it as well as the live one would. Every human unit gets its position among the human units in the order and the batch that position falls in. Every other unit gets neither, and a materialized unit carries the same values."""
     table = mini.table
     store = UnitStore(table.n, strings=table.strings)

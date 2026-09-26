@@ -239,7 +239,7 @@ def _shard_units(out_dir: Path, meta: dict) -> Iterable[dict]:
 
 
 def built_group(out_dir: Path, manifest: dict) -> dict:
-    """The post-merge facts that need a walk of the corpus's unit shards: the human-workload size, the config-note histogram, and the worked example's echo-sibling count (the distinct windows one ·It·Day·Tea·No verdict covers). The echo-sibling count is None when the worked example is not in the human workload. Every build writes the sidecar, including the unit-cache tests' small corpora, so only the live corpus is required to contain the example, and the pins diff shows a missing one as an accepted count replaced by None."""
+    """The post-merge facts that need a walk of the corpus's unit shards: the human-unit count, the config-note histogram, and the worked example's echo-sibling count (the distinct windows one ·It·Day·Tea·No verdict covers). The echo-sibling count is None when the worked example is not a human unit. Every build writes the sidecar, including the unit-cache tests' small corpora, so only the live corpus is required to contain the example, and the pins diff shows a missing one as an accepted count replaced by None."""
     out_dir = Path(out_dir)
     human_units = 0
     distribution: dict[str | None, int] = {}
@@ -278,7 +278,7 @@ def audit_group(repo_root: Path = REPO_ROOT) -> dict:
 
 
 def ink_histogram(workload: Workload, comparator) -> dict:
-    """The ink group over the pre-merge workload, computed by shaping: flag every unit whose placed ink is identical in both fonts under every config in its set, count the machine-approved units per class, and count the boundary-echo no-verdict exemptions, the human workload, and its batches. It counts as `ink_group_from_flags` does: the ink verdict alone decides, and the batches are the human units cut into `BATCH_SIZE` slices. `workload.units()` materializes new records, and the flags are set on those."""
+    """The ink group over the pre-merge workload, computed by shaping: flag every unit whose placed ink is identical in both fonts under every config in its set, count the machine-approved units per class, and count the boundary-echo no-verdict exemptions, the human units, and their batches. It counts as `ink_group_from_flags` does: the ink verdict alone decides, and the batches are the human units cut into `BATCH_SIZE` slices. `workload.units()` materializes new records, and the flags are set on those."""
     units = workload.units()
     machine_by_class: dict[str, int] = {}
     for unit in units:

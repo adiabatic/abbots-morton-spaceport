@@ -45,11 +45,11 @@ def class_shards(meta: Mapping[str, Any]) -> list[str]:
 
 
 def human_positions(manifest: Mapping[str, Any]) -> dict[str, int]:
-    """Return each human unit's position in the manifest's triage index, keyed by id. This is the only source of a unit's `order`; its batch is that position divided by `batch_size`, computed inline by `workload_slot` and by `audit.batch_of` elsewhere. A manifest without the index puts every unit outside it; every manifest this build writes has one."""
+    """Return each human unit's position in the manifest's triage index, keyed by id. This is the only source of a unit's `order`; its batch is that position divided by `batch_size`, computed inline by `human_unit_slot` and by `audit.batch_of` elsewhere. A manifest without the index puts every unit outside it; every manifest this build writes has one."""
     return {unit_id: position for position, unit_id in enumerate(manifest.get("human_unit_ids") or ())}
 
 
-def workload_slot(
+def human_unit_slot(
     positions: Mapping[str, int], batch_size: int, fragment: Mapping[str, Any]
 ) -> dict[str, int | None]:
     """Return a unit's `order` and `batch` as the index gives them, or None for both when the index does not hold the unit. The exception is a fragment that carries its own `batch`, which only a fragment from an older corpus does: that batch is returned with `order` None, since such a corpus paged in id order and its index, where it has one, gives the same batch."""
@@ -262,7 +262,7 @@ def slot_reader(corpus: Path):
         batch_size = 1
 
     def slot(fragment: Mapping[str, Any]) -> dict[str, int | None]:
-        return workload_slot(positions, batch_size, fragment)
+        return human_unit_slot(positions, batch_size, fragment)
 
     return slot
 
@@ -384,7 +384,7 @@ def load_units(corpus: Path, *, fields: Iterable[str] | None = None) -> list[Uni
 def iter_human_units(
     corpus: Path, *, unit_ids: set[str] | None = None, fields: Iterable[str] | None = None
 ) -> Iterator[UnitRecord]:
-    """Yield the human units' index records in shard order. When `unit_ids` is given, every unit id on the corpus is added to it during the same walk; the set is complete only once the iterator is exhausted. Machine units' lines contribute only their heads and are not parsed as JSON. An absent or stale index falls back to the projected shards, which classify each unit through `workload_slot`. A corrupt current index raises, because restarting a partly consumed stream from the shards would yield units twice."""
+    """Yield the human units' index records in shard order. When `unit_ids` is given, every unit id on the corpus is added to it during the same walk; the set is complete only once the iterator is exhausted. Machine units' lines contribute only their heads and are not parsed as JSON. An absent or stale index falls back to the projected shards, which classify each unit through `human_unit_slot`. A corrupt current index raises, because restarting a partly consumed stream from the shards would yield units twice."""
     reader = _RecordReader(fields)
     return _iter_human_units(corpus, reader, unit_ids)
 
@@ -416,9 +416,9 @@ def _stream_human_shards(
     for fragment in iter_shard_fragments(corpus):
         if unit_ids is not None:
             unit_ids.add(fragment["id"])
-        workload = slot(fragment)
-        if workload["batch"] is not None:
-            yield reader.record(index_record(fragment, **workload))
+        place = slot(fragment)
+        if place["batch"] is not None:
+            yield reader.record(index_record(fragment, **place))
 
 
 def load_human_units(

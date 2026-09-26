@@ -304,7 +304,7 @@ def test_exempt_units_never_complain_and_are_never_deferred(repo):
 
 
 def test_the_absent_unit_warning_counts_against_every_id_on_the_corpus(repo, capsys):
-    """A verdict on a unit outside the human workload names a unit that is on the corpus, so it is not absent; only an id missing from the whole corpus is. The fixture corpus has shards but no index, so the tool goes through the loader's shard fallback."""
+    """A verdict on a unit that is not a human unit names a unit that is on the corpus, so it is not absent; only an id missing from the whole corpus is. The fixture corpus has shards but no index, so the tool goes through the loader's shard fallback."""
     write_corpus(repo, [unit("u-0001", [P_EXTEND_1]), unit("u-0002", [P_EXTEND_1], batch=None)])
     write_verdicts(repo, [v("u-0001", "reject"), v("u-0002", "reject")])
     assert run(repo) == 0

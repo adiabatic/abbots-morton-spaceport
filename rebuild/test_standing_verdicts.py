@@ -3010,7 +3010,7 @@ def test_main_fills_only_blank_matching_human_units(tmp_path, monkeypatch):
     assert record["note"].startswith(f"[standing: {RULE['id']}]")
 
 
-def test_main_never_fills_a_unit_outside_the_human_workload(tmp_path, monkeypatch):
+def test_main_never_fills_a_unit_outside_the_human_units(tmp_path, monkeypatch):
     """A machine-approved unit has a null batch, and a Junior-equivalent one can still have the nonempty ink_deltas that the ink-delta and slide shapes read, so the candidate filter must read the batch field instead of relying on an empty delta field."""
     units = [canonical("u-1"), canonical("u-2")]
     units[1]["batch"] = None

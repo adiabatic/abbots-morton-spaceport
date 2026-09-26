@@ -339,7 +339,7 @@ def _crossing_class(corpus: Path, *, no_verdict: bool) -> tuple[str, int]:
     )
 
 
-def test_a_unit_crossing_into_the_human_workload_is_re_enriched_in_full(
+def test_a_unit_crossing_into_the_human_units_is_re_enriched_in_full(
     mini_corpus, mini_bundle, tmp_path, capfd
 ):
     """`no_verdict` comes from the ledger and is outside the content key, so a unit whose key does not change could be served a fragment of the wrong shape unless the store records which shape it holds. When a class loses its `no_verdict`, every unit in it that no machine channel approves is a cache miss and is drafted in full, the machine-approved ones stay served, and the corpus is byte-identical to a from-scratch build under the edited ledger."""
@@ -362,7 +362,7 @@ def test_a_unit_crossing_into_the_human_workload_is_re_enriched_in_full(
     assert _tree(incremental) == _tree(scratch)
 
 
-def test_a_unit_crossing_out_of_the_human_workload_is_written_slim(mini_corpus, mini_bundle, tmp_path, capfd):
+def test_a_unit_crossing_out_of_the_human_units_is_written_slim(mini_corpus, mini_bundle, tmp_path, capfd):
     """The reverse flip: when a class gains `no_verdict`, its human units are re-drafted slim instead of being served whole with drafts nobody will read, so the served corpus matches what a from-scratch build writes."""
     HUMAN_CLASS, crossing = _crossing_class(mini_corpus, no_verdict=False)
     ledger = _ledger_with(mini_bundle, tmp_path, HUMAN_CLASS, no_verdict=True)

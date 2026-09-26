@@ -701,7 +701,7 @@ test('machineFoldChannel falls back to the no-verdict badge for a class carrying
   assert.equal(machineFoldChannel(marker), 'ink_identical');
 });
 
-test('a no-verdict class contributes nothing to the human workload and everything non-identical to the exempt total', () => {
+test('a no-verdict class contributes nothing to the human units and everything non-identical to the exempt total', () => {
   const exemptClass = { id: 'boundary-echo', no_verdict: true, unit_count: 6344, machine_approved_count: 4465 };
   assert.equal(humanClassCount(exemptClass), 0);
   const synthetic = { totals: { units: 6350 }, classes: [exemptClass, { id: 'x', no_verdict: false, unit_count: 6, machine_approved_count: 1 }] };
@@ -735,7 +735,7 @@ test('machineChannels splits the machine-approved total and treats a channel-les
   assert.deepEqual(machineChannels({}), { units: 0, inkIdentical: 0, pictureIdentical: 0, juniorEquivalent: 0 });
 });
 
-test('the collapsed chip carries the corpus total and the popover breaks it down to the human workload', () => {
+test('the collapsed chip carries the corpus total and the popover breaks it down to the human units', () => {
   assert.equal(corpusChipLabel(manifest), '6 units');
   assert.deepEqual(
     corpusDetailRows(manifest).map((row) => [row.label, row.value]),

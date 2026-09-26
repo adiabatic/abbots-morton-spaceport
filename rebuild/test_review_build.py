@@ -218,8 +218,8 @@ def test_check_unit_admits_one_machine_channel_at_most():
     assert any("at most one machine channel" in error for error in check_unit(unit, "m1-audit"))
 
 
-def test_check_unit_takes_picture_identical_units_out_of_the_human_workload():
-    """A picture-identical unit leaves the human workload as an ink-identical one does: no echo, no cluster, the slim fragment shape, and empty `ink_deltas`, because the deltas are read at picture granularity and the flag means they are empty under every config."""
+def test_check_unit_takes_picture_identical_units_out_of_the_human_units():
+    """A picture-identical unit stops being a human unit as an ink-identical one does: no echo, no cluster, the slim fragment shape, and empty `ink_deltas`, because the deltas are read at picture granularity and the flag means they are empty under every config."""
     unit = _fixture_unit(ink_identical=False)
     unit["picture_identical"] = True
     assert any("echo null" in error for error in check_unit(unit, "m1-audit"))
@@ -1552,7 +1552,7 @@ def test_the_machine_approved_classes_are_listed_in_the_manifests_class_order(mi
 
 
 def test_export_skips_verdicts_landing_on_picture_identical_units():
-    """The picture-identical channel removes units from the human workload as the other two channels do, so a verdict on a unit it approved (one recorded before this channel approved the unit) is counted as inert history and drafts nothing."""
+    """The picture-identical channel takes units out of the set of human units as the other two channels do, so a verdict on a unit it approved (one recorded before this channel approved the unit) is counted as inert history and drafts nothing."""
     manifest, units = _export_corpus()
     unit_id = manifest["human_unit_ids"][-1]
     unit = units[unit_id]

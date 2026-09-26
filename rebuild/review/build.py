@@ -2020,7 +2020,7 @@ def build_m1(
             report = console.say if note == unit_cache.NO_STORE_NOTE else console.warn
             report(f"unit cache: {note}", file=sys.stderr)
         else:
-            # The store parses only records the workload names, so every record it returns is a candidate. A record's address is the span the shard writer returned when the previous corpus was written, so the record is folded as soon as it is parsed. A record without an address (from an older store, or in a part whose size changed, as `unit_cache.stream_store` describes) is buffered for one walk over the previous corpus's shards after the stream; on a corpus this code wrote there are none. A candidate is served only when two conditions hold. First, the fragment at its address must carry the stamp the store recorded for it. The walk reads the stamp as it goes, a store address carries the record's own stamp, and `unit_cache.PriorFragmentReader` checks the id and stamp again when the write reads the bytes, which for a store-addressed fragment is the only time they are read. Skipping `check_unit` on a served fragment is safe only because of this equality. Second, the fragment must have the shape (slim or full) this build would write, because the ledger exemption that decides the shape is not covered by the key (`_slim_for`). So a unit that moves into the human workload after a ledger edit is re-enriched in full, and one that moves out is re-drafted slim. The plan keeps only the fragment's address, folded into the unit store beside the record's projection. A served unit's id comes from its stored content key, so it is known before phase 1; a fresh unit's id is stamped when it is drafted and returns with the projection. If the store fails partway, the rows already folded cannot be trusted, so the plan discards them and falls back to a full build over the same input keys.
+            # The store parses only records the workload names, so every record it returns is a candidate. A record's address is the span the shard writer returned when the previous corpus was written, so the record is folded as soon as it is parsed. A record without an address (from an older store, or in a part whose size changed, as `unit_cache.stream_store` describes) is buffered for one walk over the previous corpus's shards after the stream; on a corpus this code wrote there are none. A candidate is served only when two conditions hold. First, the fragment at its address must carry the stamp the store recorded for it. The walk reads the stamp as it goes, a store address carries the record's own stamp, and `unit_cache.PriorFragmentReader` checks the id and stamp again when the write reads the bytes, which for a store-addressed fragment is the only time they are read. Skipping `check_unit` on a served fragment is safe only because of this equality. Second, the fragment must have the shape (slim or full) this build would write, because the ledger exemption that decides the shape is not covered by the key (`_slim_for`). So a unit that becomes a human unit after a ledger edit is re-enriched in full, and one that stops being one is re-drafted slim. The plan keeps only the fragment's address, folded into the unit store beside the record's projection. A served unit's id comes from its stored content key, so it is known before phase 1; a fresh unit's id is stamped when it is drafted and returns with the projection. If the store fails partway, the rows already folded cannot be trusted, so the plan discards them and falls back to a full build over the same input keys.
             try:
                 for cached in stream:
                     ordinal = named[cached.key]
@@ -2549,7 +2549,7 @@ def build_table_diff(
         machine_count = 0
         channel_counts = {channel: 0 for channel in MACHINE_CHANNELS}
         for entry in members:
-            # An entry without a witness has no text to shape, so it cannot be shown ink- or picture-identical and stays in the human workload.
+            # An entry without a witness has no text to shape, so it cannot be shown ink- or picture-identical and stays a human unit.
             text = "".join(chr(value) for value in entry.witness) if entry.witness else ""
             ink_identical = bool(text) and comparator.ink_identical(text, (entry.config,))
             picture_identical = (
@@ -3130,9 +3130,9 @@ def check_unit(unit: dict, mode: str = "m1-audit", *, at: tuple[str, ...] = CHEC
         )
         if mode == "m1-audit":
             if human:
-                need(isinstance(echo, str), "human-workload units must carry an echo group id")
+                need(isinstance(echo, str), "human units must carry an echo group id")
             else:
-                need(echo is None, "units outside the human workload must carry echo null")
+                need(echo is None, "machine-approved and no-verdict units must carry echo null")
         need("cluster" in unit, "cluster must be present")
         cluster = unit.get("cluster")
         need(
@@ -3141,9 +3141,9 @@ def check_unit(unit: dict, mode: str = "m1-audit", *, at: tuple[str, ...] = CHEC
         )
         if mode == "m1-audit":
             if human:
-                need(isinstance(cluster, str), "human-workload units must carry a cluster signature id")
+                need(isinstance(cluster, str), "human units must carry a cluster signature id")
             else:
-                need(cluster is None, "units outside the human workload must carry cluster null")
+                need(cluster is None, "machine-approved and no-verdict units must carry cluster null")
 
         seams = unit.get("secondary_seams")
         if seams is not None:
@@ -3335,7 +3335,7 @@ class _CorpusCheck:
         )
         index_valid = isinstance(recorded_index, list) and len(human_unit_ids) == len(recorded_index)
         if index_valid and set(human_unit_ids) != set(self._human_units):
-            errors.append("human_unit_ids does not match the shards' human workload")
+            errors.append("human_unit_ids does not match the shards' human units")
         machine = manifest.get("machine_approved") or {}
         if sum(self._seen_machine_by_class.values()) != machine.get("units"):
             errors.append(
@@ -3435,7 +3435,7 @@ def check_shards(
 ) -> list[str]:
     """Run the per-unit and cross-unit §7 checks over shard payloads held in memory, keyed by class id. The table-diff build passes the dicts it serialized and `check_output_dir` passes the shards it re-parsed from disk; the m1 build runs the same predicates through `_CorpusCheck` one fragment at a time as it writes. A class missing from the mapping is skipped here and reported by the caller. When `repo_root` is given, each distinct policy-draft file is checked to exist; every other predicate reads only the payload.
 
-    The cross-unit predicates check what no single fragment can: each echo group and each cluster holds one class and one config set, every echo group lies inside one cluster, the manifest's `human_unit_ids` is the human workload in `audit.triage_key` order, every class's `batches` are the slices its units occupy in it, and each secondary seam's home is a unit whose window this unit's window contains and which has a primary pair and a visible change.
+    The cross-unit predicates check what no single fragment can: each echo group and each cluster holds one class and one config set, every echo group lies inside one cluster, the manifest's `human_unit_ids` lists the human units in `audit.triage_key` order, every class's `batches` are the slices its units occupy in it, and each secondary seam's home is a unit whose window this unit's window contains and which has a primary pair and a visible change.
 
     Apart from the policy-draft files, the cross-unit predicates read only fields that slim and full fragments both carry (the machine flags, the window, the pair, the class, group, configs, echo and cluster), so the manifest's counts are checked over both kinds. `check_unit` checks that a slim fragment (`audit.slim_fragment`) omits `SLIM_OMITTED_KEYS` and a full one carries them.
 

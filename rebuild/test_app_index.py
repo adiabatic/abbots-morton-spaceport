@@ -194,7 +194,7 @@ def test_every_row_addresses_the_fragment_it_was_projected_from(fixture_corpus):
 
 
 def test_the_slimmed_flags_are_absent_and_every_row_carries_an_integer_batch(fixture_corpus):
-    """A row in this file is a human unit: the corpus check (`_CorpusCheck.finish`, which the m1 build and `check_shards` both run) fails a build whose `human_unit_ids` differs from the shards' human workload, which excludes machine-approved and no-verdict units. So the four flags are dropped instead of carried as four falses per unit, and a reader finds them undefined, which is falsy."""
+    """A row in this file is a human unit: the corpus check (`_CorpusCheck.finish`, which the m1 build and `check_shards` both run) fails a build whose `human_unit_ids` differs from the shards' human units, which excludes machine-approved and no-verdict units. So the four flags are dropped instead of carried as four falses per unit, and a reader finds them undefined, which is falsy."""
     rows = app_index.load_rows(fixture_corpus, app_index.APP_INDEX_NAME)
     assert rows
     for row in rows:
@@ -204,7 +204,7 @@ def test_the_slimmed_flags_are_absent_and_every_row_carries_an_integer_batch(fix
 
 
 def test_a_row_whose_flags_are_not_false_refuses_to_be_written():
-    """`app_row` asserts the flags are false, so a build that put a machine-approved unit into the human workload fails instead of writing a row the app would draw as human."""
+    """`app_row` asserts the flags are false, so a build that counted a machine-approved unit among the human units fails instead of writing a row the app would draw as human."""
     fragment = {"id": "u-0000", "picture_identical": True}
     with pytest.raises(AssertionError):
         app_index.app_row(fragment, 0, 0, 10, order=3, batch=0)
@@ -368,7 +368,7 @@ def _shard_order_ids(manifest: dict, shards: dict[str, list[dict]], *, human: bo
 
 
 def test_the_two_files_partition_the_corpus_on_the_manifests_own_split(fixture_corpus):
-    """The app index holds the manifest's human workload and the locator holds the rest, both in shard order, so every id the app can be deep-linked to resolves in exactly one file."""
+    """The app index holds the manifest's human units and the locator holds the rest, both in shard order, so every id the app can be deep-linked to resolves in exactly one file."""
     manifest, shards = _corpus_shards(fixture_corpus)
     human = _ids(fixture_corpus, app_index.APP_INDEX_NAME)
     machine = _ids(fixture_corpus, app_index.LOCATOR_NAME)
