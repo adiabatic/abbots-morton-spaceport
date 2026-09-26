@@ -13,7 +13,7 @@ Round 1 is closed. Its edits are in the runes, its per-class rationale in the `w
 ## Two ways the audit will mislead you
 
 - **A record the audit cannot see is not redundant.** The acceptance oracle's windows are at most four letters long, so removing a record whose effect is on longer sequences leaves the divergence audit byte-identical. Never delete a record because removing it and rerunning shows no diff. Work out what it does beyond four letters and pin that length by hand in `rebuild/test_settle.py`, which is the only test of that behavior.
-- **A unit id changes when the unit's content changes.** The id is derived from the unit's content key (`unit_cache.unit_id_for`), which covers its before and after outcomes, so any change to a window's outcome gives it a new id. Don't cite a `u-` id as durable provenance unless a rune's `why:` names it. The carry (`rebuild/tools/carry_verdicts.py`) moves a verdict to the unit with the same id and reports the rest as stranded on its `carry figures:` line. Account for every stranded verdict as resolved by a revert or queued to be shown again; none may be dropped.
+- **A unit id changes when the unit's content changes.** The id is derived from the unit's content key (`unit_cache.unit_id_for`), which covers its before and after outcomes, so any change to a window's outcome gives it a new id. Don't cite a `u-` id as durable provenance unless a rune's `why:` names it. The carry (`rebuild/tools/carry_verdicts.py`) moves a verdict to the unit with the same id and reports the rest as orphaned on its `carry counts:` line. Account for every orphaned verdict as resolved by a revert or queued to be shown again; none may be dropped.
 
 ## Two invariants an apply phase must not break
 

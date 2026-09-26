@@ -45,7 +45,7 @@ STORE_NAME = "unit-cache.ndjson.gz"
 SIGNATURE_STORE_FORMAT = "ams-review-ink-signatures/2"
 SIGNATURE_STORE_NAME = "ink-signatures.tsv.gz"
 
-# The fields the carry projection leaves out; rebuild/test_carry_verdicts.py checks them. `no_verdict`, `exemplar`, `echo`, and `cluster` come from the ledger or the reduces. `id` is the projection's own digest and `content_key` is the stamp of this projection, so neither can be an input to it. `batch` is excluded so a fragment from an older surface that still carries one hashes the same. `explain`, `drafts`, `provenance`, and `secondary_seams` are derived presentation, whose content is already covered by the window and both fonts' glyphs, cells, and seams. `ink_deltas` is the same delta identity stored per config. `picture_identical` follows from the window and both fonts' placed glyphs, which the projection already covers, so excluding it changes nothing the key distinguishes, and including it would change the id of every unit whose flag changed and strand their verdicts. `ink_identical` and `junior_equivalent` are derived flags inside the projection. Every fragment carries both, so removing either would change every unit id. The projection includes `highlight`, which a slim fragment (`audit.slim_fragment`) omits, so a slim fragment's stamp differs from the one its full fragment would have. That strands nothing, because slim units take no verdicts.
+# The fields the carry projection leaves out; rebuild/test_carry_verdicts.py checks them. `no_verdict`, `exemplar`, `echo`, and `cluster` come from the ledger or the reduces. `id` is the projection's own digest and `content_key` is the stamp of this projection, so neither can be an input to it. `batch` is excluded so a fragment from an older surface that still carries one hashes the same. `explain`, `drafts`, `provenance`, and `secondary_seams` are derived presentation, whose content is already covered by the window and both fonts' glyphs, cells, and seams. `ink_deltas` is the same delta identity stored per config. `picture_identical` follows from the window and both fonts' placed glyphs, which the projection already covers, so excluding it changes nothing the key distinguishes, and including it would change the id of every unit whose flag changed and orphan their verdicts. `ink_identical` and `junior_equivalent` are derived flags inside the projection. Every fragment carries both, so removing either would change every unit id. The projection includes `highlight`, which a slim fragment (`audit.slim_fragment`) omits, so a slim fragment's stamp differs from the one its full fragment would have. That orphans nothing, because slim units take no verdicts.
 CARRY_PRESENTATION_KEYS = frozenset(
     {
         "id",
@@ -66,7 +66,7 @@ CARRY_PRESENTATION_KEYS = frozenset(
 
 
 def carry_projection(unit: Mapping) -> str:
-    """Return the input of the carry content key: the unit's fields outside `CARRY_PRESENTATION_KEYS` as sorted-key JSON. A unit's id is derived from this projection's digest, so changing the serialization or the exclusion set changes every unit id and strands every recorded verdict."""
+    """Return the input of the carry content key: the unit's fields outside `CARRY_PRESENTATION_KEYS` as sorted-key JSON. A unit's id is derived from this projection's digest, so changing the serialization or the exclusion set changes every unit id and orphans every recorded verdict."""
     return json.dumps(
         {key: value for key, value in unit.items() if key not in CARRY_PRESENTATION_KEYS},
         sort_keys=True,

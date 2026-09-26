@@ -147,7 +147,7 @@ SURFACE_JOBS_CAP = 8
 # The peak memory of one worker in the standing fill's refill pool, the divisor of that pool's width (`standing_fill_jobs`). A worker is a spawn process holding its interpreter, the rules, a `SlideContext` over the surface's font pair (two shapers), and one chunk of `_STANDING_POOL_CHUNK` units (rebuild/tools/standing_verdicts.py) with that chunk's shape and walk memos and its alignment cache. All three are emptied after every chunk, so the peak depends on the chunk, not on the pool's share of the units. The seed is three hand refills in the verdict update's form (`--open-only --require-reach`) with the memo dropped (`--fresh-memo`), each worker's resident set sampled every 0.1 s on the 18-core 48 GiB machine (`doc/fleet.md`). Two ran eighteen wide, and their thirty-six workers read 95 to 104 MB. One ran two wide, and its workers, which decided about fifty-eight chunks each, read 99 MB, so a worker's peak does not grow with the chunks it decides. The constant is more than three times the highest reading, because no journal row measures this worker: `make job-costs` has no standing-fill-worker row, since writing pool records from the fill would put cycle_timings and peak_rss into the memo's code stamp (`MEMO_CODE_MODULES`) and drop the memo on every width change. Re-measure by hand at the chunk width when the chunk size or what a decision holds changes. At this figure the cores, not memory, limit this pool on every fleet machine.
 STANDING_FILL_WORKER_BYTES = 350_000_000
 # The peak memory of the verdict update's process while the standing fill's pool runs, subtracted from the machine's memory before dividing by STANDING_FILL_WORKER_BYTES. The parent holds every surface id, the human id/echo/notation projection, and the fill's rules, primed keys, decisions and memo. Full human records stream through the verdict update's steps. Refill misses go to a temporary gzipped spool, with at most one pool round of records in memory, bounded by the width times `_STANDING_POOL_CHUNK` (rebuild/tools/standing_verdicts.py). The complaint docket keeps compact grouping projections. A serial refill, and the memo check `_prefill` runs on every served unit, hold one unit's `SlideContext` memos and alignment-cache entries at a time, because `Decider._release` empties both after each unit.
-# The standing-fill-parent row of `make job-costs` reads the whole verdict-update step through `peak_rss.reap_peak_rss_bytes`, and the verdict update reaches that peak after the fill, not during its pool: sampled every 0.1 s over two served passes that merge straight in on the 18-core 48 GiB machine (`doc/fleet.md`), the verdict update holds at most 2.06 GB during the standing fill and 2.74 GB in the complaint docket. A standalone fill over every unit puts the in-flight round at about 18 MB a worker: its parent reads 1.17 GB two wide and 1.45 GB eighteen wide. The seed is the highest step reading any fleet machine has recorded since the previous seed: 4.36 GB on the 32 GiB machine, over a carry across a rune edit (run 2ca8c2192122 at cb205186, with 709 verdicts stranded and three echo rounds). The 18-core 48 GiB machine reads 3.10 to 3.11 GB on carried served passes, 2.74 GB on served passes that merge straight in (6444755ee9aa, 169f78e7d20d, 376f72a5e4e7), 3.28 GB on a rules commit whose 1,219 misses are decided serially below `_STANDING_POOL_THRESHOLD` (8a407a3d83f4, 08a24101190c), and 2.19 and 2.33 GB on memo-drop passes pooled eighteen wide (6ec8760f21c2) and sixteen wide (27aa6ac52892). The constant is the seed plus more than a quarter, rounded up to the next whole gigabyte. No fleet width changes at this figure: the cores limit the refill pool, and the belt stays at its configuration count. Ids and decisions grow with the alphabet, and no rune edit has run through the verdict update on that 48 GiB machine yet, so watch the row as letters are added.
+# The standing-fill-parent row of `make job-costs` reads the whole verdict-update step through `peak_rss.reap_peak_rss_bytes`, and the verdict update reaches that peak after the fill, not during its pool: sampled every 0.1 s over two served passes that merge straight in on the 18-core 48 GiB machine (`doc/fleet.md`), the verdict update holds at most 2.06 GB during the standing fill and 2.74 GB in the complaint docket. A standalone fill over every unit puts the in-flight round at about 18 MB a worker: its parent reads 1.17 GB two wide and 1.45 GB eighteen wide. The seed is the highest step reading any fleet machine has recorded since the previous seed: 4.36 GB on the 32 GiB machine, over a carry across a rune edit (run 2ca8c2192122 at cb205186, with 709 verdicts orphaned and three echo rounds). The 18-core 48 GiB machine reads 3.10 to 3.11 GB on carried served passes, 2.74 GB on served passes that merge straight in (6444755ee9aa, 169f78e7d20d, 376f72a5e4e7), 3.28 GB on a rules commit whose 1,219 misses are decided serially below `_STANDING_POOL_THRESHOLD` (8a407a3d83f4, 08a24101190c), and 2.19 and 2.33 GB on memo-drop passes pooled eighteen wide (6ec8760f21c2) and sixteen wide (27aa6ac52892). The constant is the seed plus more than a quarter, rounded up to the next whole gigabyte. No fleet width changes at this figure: the cores limit the refill pool, and the belt stays at its configuration count. Ids and decisions grow with the alphabet, and no rune edit has run through the verdict update on that 48 GiB machine yet, so watch the row as letters are added.
 STANDING_FILL_PARENT_BYTES = 6_000_000_000
 # The peak memory of one oracle row-range worker, the divisor of the oracle's width (`sweep_job_budget`). A worker is a spawn process. It holds its interpreter, a HarfBuzz shaper over M1.otf, and the crate's formation surface. It holds the records of its own row range of its configuration's row store: one buffer of the range's record bytes with three packed arrays beside it (an offset and two ages a record), loaded without scanning the whole member (`oracle_cache.load_store`), so it holds its range's rows and not the configuration's. It maps its configuration's settle memo read-only on the first wave that reaches the crate, which every pass does, since the renewal slice re-derives one row in `oracle_cache.MAX_RECORD_AGE`. `conform._MemoStore` reads the file's own layout: the six id columns, the value column and the 2^k >= 2N-slot probe index are views over the mapping, 69.8 MB for a live memo of 2.6M windows (the `[t] settle_memo` lines count them). Those pages belong to the page cache, resident once per machine however many workers map the file, and count in a worker's resident set as its probes touch them: a store-warm walk probes the one row in twenty the store does not serve, and a store-cold walk probes nearly every row. On a pass after a family changed, the retirement fold reads the six id columns whole once (36.2 MB of the mapping, `conform._MemoStore.load` over `mask.moved`); the seed's passes ran on an unchanged tree, every `[t] settle_memo` line at stale=0, so that fold is outside the seed and inside the headroom. The worker's own heap holds the file's interned label and outcome tables, a dead byte and a reached byte a row, 0.005 GB at the load. Last, it holds the walk's state over the range: the chunk of rows in flight (`oracle.ORACLE_ROW_CHUNK`), the waves of windows the crate settles for it, and `windows`, the dict of entries the walk promotes from the mapping or settles fresh.
 # No range writes the memo file. Every range, whether or not its configuration is split, writes the windows it settled fresh as a part (`run_m1._shard_settle_memo`). The parent's absorb, one task per settlement configuration on this same pool, runs once every range has finished and the witness stage has returned (`run_m1.run_oracle`'s `memo_ready`). It holds the existing rows, the parts, the existing index and the writer's folded copies at once (`conform._write_settle_memo`), roughly the file's size plus the columns'. Its reading is recorded in the pool record beside the ranges' as `<config> absorb`. It is a process peak like the rest, so it reads at or above the range its worker ran before it. In every seed record, each of which has an absorb for every settlement configuration, it reads at a range's peak and never above the record's highest range.
@@ -2291,7 +2291,7 @@ class CycleReport:
     promote_status: str = "not run"
     carry_out: Path | None = None
     carry_lines: list[str] = field(default_factory=list)
-    carry_figures: dict[str, int] | None = None
+    carry_counts: dict[str, int] | None = None
     merge_status: str = "not run"
     merge_lines: list[str] = field(default_factory=list)
     echo_fill_status: str = "not run"
@@ -2322,7 +2322,7 @@ class CycleReport:
     conform_proven: bool = False
     interrupted: bool = False
     run_m1_failed: bool = False
-    retention_figure: str = ""
+    retention_detail: str = ""
     retention_outcome: str = ""
     step_seconds: dict[str, float] = field(default_factory=dict)
     step_returncodes: dict[str, int] = field(default_factory=dict)
@@ -2453,7 +2453,7 @@ def _run_step(
     stream: bool,
     env: dict[str, str] | None = None,
 ) -> _StepResult:
-    """Run one child to completion, passing every line of both pipes to the console, which logs each line and shows the ones that matter. This opens the step's banner but does not close it: the caller closes it with `_close_step` once it has read the step's headline figure from the files the child wrote. `env`, when given, is overlaid on this process's environment for this child only.
+    """Run one child to completion, passing every line of both pipes to the console, which logs each line and shows the ones that matter. This opens the step's banner but does not close it: the caller closes it with `_close_step` once it has read the step's detail from the files the child wrote. `env`, when given, is overlaid on this process's environment for this child only.
 
     `stream` also sends the child's unparsed lines to the terminal. Only the job-costs diff uses it, because it is the one child output a person must read to act on. Other child output reaches the terminal only as console events, and every line reaches the log, so a failed step's full output is replayed under its banner.
 
@@ -2775,9 +2775,9 @@ def _do_verdict_update(
 
     report.carry_lines = _scrape(
         sections.get("carry", []),
-        lambda line: any(word in line for word in ("carried", "kinds", "queue", "fallback", "figures")),
+        lambda line: any(word in line for word in ("carried", "kinds", "queue", "fallback", "carry counts")),
     )
-    report.carry_figures = carry_figures(report.carry_lines)
+    report.carry_counts = carry_counts(report.carry_lines)
     for name in ("merge", "echo-merge", "standing-merge"):
         setattr(
             report,
@@ -3444,19 +3444,19 @@ INFORMATIONAL_STEPS = ("census", "job-costs")
 
 _CARRY_WROTE = re.compile(r"^wrote \S+: (\d+) carried onto manifest")
 _CARRY_QUEUE = re.compile(r"^human queue: (\d+) -> (\d+)")
-_CARRY_FIGURES = re.compile(r"^carry figures: human=(\d+) key_hits=(\d+) unhit=(\d+) stranded=(\d+)$")
+_CARRY_COUNTS = re.compile(r"^carry counts: human=(\d+) matched=(\d+) unmatched=(\d+) orphaned=(\d+)$")
 
 
-def carry_figures(lines: list[str]) -> dict[str, int] | None:
-    """Parse the carry's `carry figures:` line: the human units on the new surface, how many a prior verdict matched, how many none matched, and how many prior verdicts matched no unit. The figures are written to the cycle summary and to the run line in the timings journal. Returns None when the carry printed no such line (a direct merge, a rehearsal, or a verdict update that failed before the carry)."""
+def carry_counts(lines: list[str]) -> dict[str, int] | None:
+    """Parse the carry's `carry counts:` line: the human units on the new surface, how many a prior verdict matched, how many none matched, and how many prior verdicts matched no unit. The counts are written to the cycle summary and to the run line in the timings journal. Returns None when the carry printed no such line (a direct merge, a rehearsal, or a verdict update that failed before the carry)."""
     for line in lines:
-        match = _CARRY_FIGURES.match(line)
+        match = _CARRY_COUNTS.match(line)
         if match is not None:
-            return dict(zip(("human", "key_hits", "unhit", "stranded"), map(int, match.groups())))
+            return dict(zip(("human", "matched", "unmatched", "orphaned"), map(int, match.groups())))
     return None
 
 
-def carry_figure(lines: list[str]) -> str:
+def carry_detail(lines: list[str]) -> str:
     """Summarize the carry from its two headline lines: how many verdicts it carried onto the new surface, and the human queue before and after. The verdict update runs as one child with the carry as a step inside it, so these counts reach this process only as printed lines. Returns the empty string when the carry printed neither line (a direct merge, a rehearsal, or a verdict update that failed before the carry)."""
     carried = ""
     queue = ""
@@ -3481,10 +3481,10 @@ _GATE_STATUS_FIELDS = {
 }
 
 
-def step_figure(report: CycleReport, name: str) -> str:
-    """Return one step's figure for the summary table and the step's closing line, or the empty string when the step has nothing to report.
+def step_detail(report: CycleReport, name: str) -> str:
+    """Return one step's detail for the summary table and the step's closing line, or the empty string when the step has nothing to report.
 
-    `summary_rows` drops the figure on a `skipped` or `not run` row, because the report can still hold the previous build's numbers for a step this pass did not run. A gate's figure is the status string its evaluator wrote (the report field `_GATE_STATUS_FIELDS` names), with a plain "green" dropped because the outcome column already says it.
+    `summary_rows` drops the detail on a `skipped` or `not run` row, because the report can still hold the previous build's numbers for a step this pass did not run. A gate's detail is the status string its evaluator wrote (the report field `_GATE_STATUS_FIELDS` names), with a plain "green" dropped because the outcome column already says it.
     """
 
     def count(value: int | None) -> str:
@@ -3510,7 +3510,7 @@ def step_figure(report: CycleReport, name: str) -> str:
     if name == "surface-promote":
         return prose(report.promote_status)
     if name == "verdict-update":
-        head = carry_figure(report.carry_lines)
+        head = carry_detail(report.carry_lines)
         if not head:
             merged = prose(report.merge_status)
             head = f"merge {merged}" if merged else ""
@@ -3520,7 +3520,7 @@ def step_figure(report: CycleReport, name: str) -> str:
     if name == "job-costs":
         return prose(report.job_costs_status)
     if name == "retention":
-        return report.retention_figure
+        return report.retention_detail
     status = _GATE_STATUS_FIELDS.get(name)
     if status is not None:
         shown = prose(str(getattr(report, status)))
@@ -3528,14 +3528,14 @@ def step_figure(report: CycleReport, name: str) -> str:
     return ""
 
 
-def _figure_beside(outcome: str, figure: str) -> str:
-    """Return `figure` with the leading `outcome` word removed, so `FAILED (exit 1)` beside the outcome `FAILED` becomes `exit 1`. Returns the empty string when the figure only repeats the outcome."""
-    if not figure or figure == outcome:
+def _detail_beside(outcome: str, detail: str) -> str:
+    """Return `detail` with the leading `outcome` word removed, so `FAILED (exit 1)` beside the outcome `FAILED` becomes `exit 1`. Returns the empty string when the detail only repeats the outcome."""
+    if not detail or detail == outcome:
         return ""
-    if figure.startswith(outcome):
-        rest = figure[len(outcome) :].strip()
+    if detail.startswith(outcome):
+        rest = detail[len(outcome) :].strip()
         return rest[1:-1].strip() if rest.startswith("(") and rest.endswith(")") else rest
-    return figure
+    return detail
 
 
 def _close_step(
@@ -3545,30 +3545,30 @@ def _close_step(
     result: _StepResult | None,
     outcome: str | None = None,
 ) -> None:
-    """Print a spawned step's closing line with its figure. `outcome` defaults to one derived from the child's exit status; callers that decide it otherwise pass their own (run_m1 decides from its summaries, and census and job-costs always pass `ok` because they gate nothing)."""
+    """Print a spawned step's closing line with its detail. `outcome` defaults to one derived from the child's exit status; callers that decide it otherwise pass their own (run_m1 decides from its summaries, and census and job-costs always pass `ok` because they gate nothing)."""
     if outcome is None:
         outcome = "ok" if result is None or result.returncode == 0 else f"FAILED (exit {result.returncode})"
-    figure = step_figure(report, STEP_ALIASES.get(name, name))
-    emit.step_end(name, result, outcome, _figure_beside(outcome, figure))
+    detail = step_detail(report, STEP_ALIASES.get(name, name))
+    emit.step_end(name, result, outcome, _detail_beside(outcome, detail))
 
 
 def _close_gate(
     emit: console.CycleConsole, name: str, result: _StepResult, gate: CheckResult | None = None
 ) -> None:
-    """Print a gate's closing line from the result its task just reached, or from the exit status when there is no result. `_close_step` would read the report, which `_join_gates` fills in only later, so at this point it still says the gate has not run. A plain green status is dropped from the figure, as in the table."""
+    """Print a gate's closing line from the result its task just reached, or from the exit status when there is no result. `_close_step` would read the report, which `_join_gates` fills in only later, so at this point it still says the gate has not run. A plain green status is dropped from the detail, as in the table."""
     if gate is None:
         status = "green" if result.returncode == 0 else f"FAILED (exit {result.returncode})"
         passed = result.returncode == 0
     else:
         status, passed = gate.status, gate.ok
     outcome = "ok" if passed else "FAILED"
-    emit.step_end(name, result, outcome, _figure_beside(outcome, "" if status == "green" else status))
+    emit.step_end(name, result, outcome, _detail_beside(outcome, "" if status == "green" else status))
 
 
 def _step_outcome(report: CycleReport, plan: Plan, step: Step, *, retention_ran: bool) -> str:
-    """Return the table's outcome for one step: `ok`, `FAILED`, `skipped`, or `not run`. The figure carries any detail, and the plan block says why a step did not run.
+    """Return the table's outcome for one step: `ok`, `FAILED`, `skipped`, or `not run`. The detail column carries anything more, and the plan block says why a step did not run.
 
-    A gate's outcome comes from its status string. Any other step that ran takes its outcome from run_m1's failure flag or the child's exit code, since having a recorded time only shows that it ran. A nonzero exit from census or job-costs (`INFORMATIONAL_STEPS`) is not a failure, because they gate nothing and their figures report the problem.
+    A gate's outcome comes from its status string. Any other step that ran takes its outcome from run_m1's failure flag or the child's exit code, since having a recorded time only shows that it ran. A nonzero exit from census or job-costs (`INFORMATIONAL_STEPS`) is not a failure, because they gate nothing and their details report the problem.
 
     Retention runs inside `_finish`, so it reads `not run` when an upstream failure ended the pass before retention, or a stop signal ended it before retention finished. It reads `FAILED` when retention raised, which `_finish` records in `retention_outcome`; the pass verdict stays green. A stop signal that lands after retention finished leaves the row reading as retention ended (`ok` or `FAILED`), because `_finish_interrupted` reads the same field. It reads `skipped` only when the plan ruled it out (`--keep-history`, a first run, or a rehearsal).
     """
@@ -3599,7 +3599,7 @@ def _step_outcome(report: CycleReport, plan: Plan, step: Step, *, retention_ran:
 
 
 def summary_rows(report: CycleReport, plan: Plan, *, retention_ran: bool) -> list[console.SummaryRow]:
-    """Return one summary-table row per planned step. A step that did not run gets no figure, because the report can still hold the previous build's counts for it (a skipped run_m1's unmatched count, a skipped surface build's totals)."""
+    """Return one summary-table row per planned step. A step that did not run gets no detail, because the report can still hold the previous build's counts for it (a skipped run_m1's unmatched count, a skipped surface build's totals)."""
     rows: list[console.SummaryRow] = []
     for step in plan.steps:
         outcome = _step_outcome(report, plan, step, retention_ran=retention_ran)
@@ -3609,7 +3609,7 @@ def summary_rows(report: CycleReport, plan: Plan, *, retention_ran: bool) -> lis
                 number=None,
                 name=step.name,
                 outcome=outcome,
-                figure=_figure_beside(outcome, step_figure(report, step.name)) if ran else "",
+                detail=_detail_beside(outcome, step_detail(report, step.name)) if ran else "",
                 seconds=report.step_seconds.get(step.name),
             )
         )
@@ -3732,7 +3732,7 @@ def cycle_summary_payload(report: CycleReport, failures: list[str], plan: Plan, 
         "echo_groups": report.echo_groups,
         "carry_out": _as_str(report.carry_out),
         "carry_lines": list(report.carry_lines),
-        "carry": report.carry_figures,
+        "carry": report.carry_counts,
         "merge_status": report.merge_status,
         "merge_lines": list(report.merge_lines),
         "echo_fill_status": report.echo_fill_status,
@@ -3914,14 +3914,14 @@ def prune_build_logs(root: Path, keep: int) -> list[Path]:
 
 @dataclass(frozen=True)
 class RetentionResult:
-    """A retention pass's result: `lines` for the summary block, and `figure` for the retention row and closing line."""
+    """A retention pass's result: `lines` for the summary block, and `detail` for the retention row and closing line."""
 
     lines: list[str]
-    figure: str
+    detail: str
 
 
-def _retention_figure(removed: list[str], intact: list[str], journal_state: str) -> str:
-    """Format the retention figure: the removal counts, the kinds of file left intact, and the journal's state. A kind left intact is named instead of counted as zero, because "nothing to remove" and "not pruned on this pass" are different facts."""
+def _retention_detail(removed: list[str], intact: list[str], journal_state: str) -> str:
+    """Format the retention detail: the removal counts, the kinds of file left intact, and the journal's state. A kind left intact is named instead of counted as zero, because "nothing to remove" and "not pruned on this pass" are different facts."""
     clauses = ["removed " + (", ".join(removed) if removed else "nothing")]
     if intact:
         named = intact[0] if len(intact) == 1 else f"{', '.join(intact[:-1])} and {intact[-1]}"
@@ -3932,7 +3932,7 @@ def _retention_figure(removed: list[str], intact: list[str], journal_state: str)
 
 
 def run_retention(plan: Plan) -> RetentionResult:
-    """Prune stale carried files, build logs, autosave stashes, and old journal history after a green pass, and return the summary lines and figure. It returns the lines instead of printing them so they appear in the summary block below the table. Stashes and the journal are left alone while the review server is listening, because the app appends to the journal."""
+    """Prune stale carried files, build logs, autosave stashes, and old journal history after a green pass, and return the summary lines and detail. It returns the lines instead of printing them so they appear in the summary block below the table. Stashes and the journal are left alone while the review server is listening, because the app appends to the journal."""
     from rebuild.review import journal
 
     def rel(path: Path) -> str:
@@ -3979,7 +3979,7 @@ def run_retention(plan: Plan) -> RetentionResult:
             "  journal   : left intact (the review server is up: the app appends to the journal as you verdict, and a compaction rewrites the whole file around a read, so anything landing in between would be dropped)"
         )
         intact.extend(["stashes", "journal"])
-        return RetentionResult(lines, _retention_figure(removed_counts, intact, ""))
+        return RetentionResult(lines, _retention_detail(removed_counts, intact, ""))
 
     removed_stashes = prune_stashes(ROOT, journal_path)
     if removed_stashes is None:
@@ -4001,7 +4001,7 @@ def run_retention(plan: Plan) -> RetentionResult:
     else:
         lines.append(f"  journal   : left intact (no base event older than {RETENTION_WINDOW_DAYS} days)")
         journal_state = "journal intact"
-    return RetentionResult(lines, _retention_figure(removed_counts, intact, journal_state))
+    return RetentionResult(lines, _retention_detail(removed_counts, intact, journal_state))
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -4321,7 +4321,7 @@ def _finish(
     timings: CycleTimings | None = None,
     emit: console.CycleConsole | None = None,
 ) -> int:
-    """Finish the pass and return its exit status: run retention on a green pass, write the cycle summary, then print the summary block, ending with the readiness checklist on a green pass. Retention runs before the table is printed so its row has an outcome and figure. The rebuild suite sets `cycle_paths.RETENTION_ENABLED` False so a test that reaches a green finish does not prune the live repo; retention then counts as run with no lines. `cycle_paths.READINESS_ENABLED` switches the checklist off the same way."""
+    """Finish the pass and return its exit status: run retention on a green pass, write the cycle summary, then print the summary block, ending with the readiness checklist on a green pass. Retention runs before the table is printed so its row has an outcome and detail. The rebuild suite sets `cycle_paths.RETENTION_ENABLED` False so a test that reaches a green finish does not prune the live repo; retention then counts as run with no lines. `cycle_paths.READINESS_ENABLED` switches the checklist off the same way."""
     cycle_console = console.CycleConsole() if emit is None else emit
     retention_lines: list[str] = []
     retention_ran = False
@@ -4331,13 +4331,13 @@ def _finish(
         try:
             pruned = run_retention(plan) if cycle_paths.RETENTION_ENABLED else RetentionResult([], "")
             retention_lines = list(pruned.lines)
-            report.retention_figure = pruned.figure
+            report.retention_detail = pruned.detail
             retention_ran = True
         except Exception as exc:
             retention_lines = [f"warning: retention pass failed: {exc!r}"]
         report.step_seconds["retention"] = time.perf_counter() - started
         report.retention_outcome = "ok" if retention_ran else "FAILED"
-        cycle_console.step_end("retention", None, report.retention_outcome, report.retention_figure)
+        cycle_console.step_end("retention", None, report.retention_outcome, report.retention_detail)
     _emit_cycle_summary(report, failures, plan, "failed" if failures else "ok", timings)
     readiness = [] if failures or not cycle_paths.READINESS_ENABLED else readiness_block(plan)
     cycle_console.summary(

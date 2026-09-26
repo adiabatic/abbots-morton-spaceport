@@ -461,7 +461,7 @@ def test_the_heartbeat_thread_starts_and_stops_with_the_console(tmp_path):
     assert "console-heartbeat" not in names()
 
 
-def test_the_closing_line_carries_the_outcome_the_figure_and_the_peak(capsys):
+def test_the_closing_line_carries_the_outcome_the_detail_and_the_peak(capsys):
     cycle_console = _cycle_console()
     cycle_console.step_start("run_m1", ["true"], "")
     cycle_console.step_end(
@@ -473,7 +473,7 @@ def test_the_closing_line_carries_the_outcome_the_figure_and_the_peak(capsys):
 
 
 def test_a_pytest_lane_closes_saying_how_many_times_it_warned(capsys):
-    """A pytest step's closing line reports the warning count from pytest's terminal summary rule, between the figure and the peak, so warnings are not hidden behind a bare `ok`. The warnings themselves stay in the log. A non-pytest step ignores the same line."""
+    """A pytest step's closing line reports the warning count from pytest's terminal summary rule, between the detail and the peak, so warnings are not hidden behind a bare `ok`. The warnings themselves stay in the log. A non-pytest step ignores the same line."""
     cycle_console = _cycle_console(steps=["gate:make-test", "gate:js"])
     cycle_console.step_start("gate:make-test", ["make", "test"], "")
     cycle_console.child_line("gate:make-test", console.STDOUT, "=========== warnings summary ===========")

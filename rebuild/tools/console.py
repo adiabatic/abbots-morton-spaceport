@@ -138,12 +138,12 @@ class PlanRow:
 
 @dataclass(frozen=True)
 class SummaryRow:
-    """One row of the closing table. `figure` is the step's headline number, already formatted by the driver in the step's own unit; `seconds` is None for a step that did not run."""
+    """One row of the closing table. `detail` is the step's short detail, a count or a gate's status string, already formatted by the driver in the step's own unit; `seconds` is None for a step that did not run."""
 
     number: int | None
     name: str
     outcome: str
-    figure: str = ""
+    detail: str = ""
     seconds: float | None = None
 
 
@@ -485,8 +485,8 @@ class CycleConsole:
                 lines.append(f"$ {' '.join(argv)}")
             self.emit_block(lines)
 
-    def step_end(self, name: str, result: StepResult | None, outcome: str, figure: str = "") -> None:
-        """Close a step with its outcome, headline figure, and peak RSS. The elapsed time is the driver's measurement when it has one, so it agrees with the timings journal. A pytest step that emitted warnings closes with `N warnings, see log`; the warnings summary itself stays in the log."""
+    def step_end(self, name: str, result: StepResult | None, outcome: str, detail: str = "") -> None:
+        """Close a step with its outcome, detail, and peak RSS. The elapsed time is the driver's measurement when it has one, so it agrees with the timings journal. A pytest step that emitted warnings closes with `N warnings, see log`; the warnings summary itself stays in the log."""
         with self._lock:
             state = self._open.get(self._key(name))
             now = self._clock()
@@ -496,7 +496,7 @@ class CycleConsole:
             warned = (
                 "" if not (state and state.warnings) else f"{fmt_count(state.warnings)} warnings, see log"
             )
-            body = "  ".join(part for part in (outcome, figure, warned, f"rss {rss}" if rss else "") if part)
+            body = "  ".join(part for part in (outcome, detail, warned, f"rss {rss}" if rss else "") if part)
             if state is None:
                 self._one_line(name, body)
                 return
@@ -747,13 +747,13 @@ class CycleConsole:
 
 
 def _summary_table(rows: Sequence[SummaryRow]) -> list[str]:
-    header = ("#", "step", "outcome", "figure", "time")
+    header = ("#", "step", "outcome", "detail", "time")
     body = [
         (
             "-" if row.number is None else str(row.number),
             row.name,
             row.outcome,
-            row.figure,
+            row.detail,
             "" if row.seconds is None else fmt_duration(row.seconds),
         )
         for row in rows
@@ -763,9 +763,9 @@ def _summary_table(rows: Sequence[SummaryRow]) -> list[str]:
         return []
     lines = []
     for cells in (header, *body):
-        number, name, outcome, figure, elapsed = cells
+        number, name, outcome, detail, elapsed = cells
         lines.append(
             f"  {number:>{widths[0]}}  {name:<{widths[1]}}  {outcome:<{widths[2]}}  "
-            f"{figure:<{widths[3]}}  {elapsed:>{widths[4]}}".rstrip()
+            f"{detail:<{widths[3]}}  {elapsed:>{widths[4]}}".rstrip()
         )
     return lines

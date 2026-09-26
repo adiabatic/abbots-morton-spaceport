@@ -1,6 +1,6 @@
 """Tests for the carry: the content key a unit's id is derived from, and the join of prior verdicts onto a new surface by that id.
 
-The key leaves out `CARRY_PRESENTATION_KEYS`, the fields a rebuild changes without changing what the reviewer judged, so adding or changing one cannot change a unit's id and strand its verdicts. Every judged field stays in the key, so a real change to the window drops the old verdict. The key tests use the shipped review fixtures, which `rebuild/test_review_build.py` also runs through the §7 contract checker.
+The key leaves out `CARRY_PRESENTATION_KEYS`, the fields a rebuild changes without changing what the reviewer judged, so adding or changing one cannot change a unit's id and orphan its verdicts. Every judged field stays in the key, so a real change to the window drops the old verdict. The key tests use the shipped review fixtures, which `rebuild/test_review_build.py` also runs through the §7 contract checker.
 """
 
 import hashlib
@@ -134,7 +134,7 @@ def _carry(tmp_path, surface_units, *verdict_files, machine=(), **held):
 
 
 def test_a_verdict_lands_on_the_unit_of_its_id_and_a_stale_stamp_is_no_bar(tmp_path):
-    """The carry matches verdicts to units by id alone, so a verdicts file stamped for an older surface still carries. The unit still on the surface gets its verdict under the new manifest stamp, and the verdict whose unit is gone is stranded."""
+    """The carry matches verdicts to units by id alone, so a verdicts file stamped for an older surface still carries. The unit still on the surface gets its verdict under the new manifest stamp, and the verdict whose unit is gone is orphaned."""
     kept, gone = _content_unit("E650:E652"), _content_unit("E652:E653")
     verdicts = tmp_path / "verdicts.json"
     _write_verdicts(
@@ -164,32 +164,32 @@ def test_the_newest_verdict_per_unit_wins_across_files_and_skips_never_carry(tmp
     ]
 
 
-def test_the_carry_prints_its_four_figures_whatever_it_landed(tmp_path, capsys):
-    """The `carry figures:` line, which the cycle records: the human units on the new surface, how many matched a prior verdict, how many did not, and how many prior verdicts matched no unit."""
+def test_the_carry_prints_its_four_counts_whatever_it_landed(tmp_path, capsys):
+    """The `carry counts:` line, which the cycle records: the human units on the new surface, how many matched a prior verdict, how many did not, and how many prior verdicts matched no unit."""
     kept, gone, fresh = _content_unit("E650:E652"), _content_unit("E652:E653"), _content_unit("E653:E654")
     verdicts = tmp_path / "verdicts.json"
     _write_verdicts(verdicts, "S0", [_record(kept, "approve"), _record(gone, "reject")])
     _carry(tmp_path, [kept, fresh], verdicts)
-    assert "carry figures: human=2 key_hits=1 unhit=1 stranded=1" in capsys.readouterr().out.splitlines()
+    assert "carry counts: human=2 matched=1 unmatched=1 orphaned=1" in capsys.readouterr().out.splitlines()
 
 
-def test_a_prior_verdict_on_a_machine_unit_is_not_stranded(tmp_path, capsys):
-    """`stranded` counts prior verdicts whose unit is not on the surface at all, so it is checked against every surface id, machine units included. The test covers both ways the tool gets its units: loading the surface itself, and being passed the human records with the full id set."""
+def test_a_prior_verdict_on_a_machine_unit_is_not_orphaned(tmp_path, capsys):
+    """`orphaned` counts prior verdicts whose unit is not on the surface at all, so it is checked against every surface id, machine units included. The test covers both ways the tool gets its units: loading the surface itself, and being passed the human records with the full id set."""
     kept, machine = _content_unit("E650:E652"), _content_unit("E652:E653")
     verdicts = tmp_path / "verdicts.json"
     _write_verdicts(verdicts, "S0", [_record(kept, "approve"), _record(machine, "reject")])
     _carry(tmp_path, [kept], verdicts, machine=[machine])
-    assert "carry figures: human=1 key_hits=1 unhit=0 stranded=0" in capsys.readouterr().out.splitlines()
+    assert "carry counts: human=1 matched=1 unmatched=0 orphaned=0" in capsys.readouterr().out.splitlines()
 
     held = [{"id": kept["id"], "batch": 0}]
     _carry(
         tmp_path / "held", [kept], verdicts, current_units=iter(held), current_ids={kept["id"], machine["id"]}
     )
-    assert "carry figures: human=1 key_hits=1 unhit=0 stranded=0" in capsys.readouterr().out.splitlines()
+    assert "carry counts: human=1 matched=1 unmatched=0 orphaned=0" in capsys.readouterr().out.splitlines()
 
 
 def test_the_human_records_without_the_id_set_are_refused(tmp_path):
-    """`main` exits when passed `current_units` without `current_ids`, or the reverse. The `stranded` figure needs the id of every unit on the surface, which the human records alone do not give."""
+    """`main` exits when passed `current_units` without `current_ids`, or the reverse. The `orphaned` count needs the id of every unit on the surface, which the human records alone do not give."""
     kept = _content_unit("E650:E652")
     verdicts = tmp_path / "verdicts.json"
     _write_verdicts(verdicts, "S0", [_record(kept, "approve")])

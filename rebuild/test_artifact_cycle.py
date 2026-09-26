@@ -509,7 +509,7 @@ def test_the_docket_headline_is_scraped_and_never_fails_the_cycle(tmp_path, monk
 def test_the_verdict_update_row_counts_the_carry_and_the_summary_quotes_what_the_fills_wrote(
     tmp_path, monkeypatch
 ):
-    """The verdict update runs as one child, so its steps reach this process only through the lines they print. The carry count and the human queue before and after become the row's figure. The other lines are quoted in the summary under the line they belong to, instead of appearing only in `cycle_summary.json` and the step's log."""
+    """The verdict update runs as one child, so its steps reach this process only through the lines they print. The carry count and the human queue before and after become the row's detail. The other lines are quoted in the summary under the line they belong to, instead of appearing only in `cycle_summary.json` and the step's log."""
     autosave = tmp_path / "verdicts-autosave.json"
     autosave.write_text("{}")
     monkeypatch.setattr(ac, "AUTOSAVE", autosave)
@@ -536,7 +536,7 @@ def test_the_verdict_update_row_counts_the_carry_and_the_summary_quotes_what_the
     )
     assert failures == []
     assert (
-        ac.step_figure(report, "verdict-update")
+        ac.step_detail(report, "verdict-update")
         == "15,903 carried, queue 81 -> 12; 3 open complaints in 2 groups"
     )
 
@@ -564,10 +564,10 @@ def test_the_verdict_update_row_falls_back_to_the_merge_when_no_carry_ran(tmp_pa
         ),
     )
     assert failures == []
-    assert ac.carry_figure(report.carry_lines) == ""
-    assert report.carry_figures is None
+    assert ac.carry_detail(report.carry_lines) == ""
+    assert report.carry_counts is None
     assert ac.cycle_summary_payload(report, [], plan, "ok")["carry"] is None
-    assert ac.step_figure(report, "verdict-update") == "merge merged; no open complaints"
+    assert ac.step_detail(report, "verdict-update") == "merge merged; no open complaints"
 
 
 def test_dry_run_plan_skips_the_verdict_update_without_a_carry():
@@ -908,7 +908,7 @@ _FULL_VERDICT_UPDATE = (
         [
             "wrote verdicts-carried-abc.json: 51946 carried onto manifest S1",
             "kinds: {'approve': 5}",
-            "carry figures: human=60000 key_hits=51946 unhit=8054 stranded=12",
+            "carry counts: human=60000 matched=51946 unmatched=8054 orphaned=12",
         ],
     ),
     (
@@ -1165,8 +1165,8 @@ def test_the_driver_reads_a_line_per_step_out_of_one_child(capsys):
     assert report.standing_merge_status == "merged"
     assert any(line.startswith("nothing changed") for line in report.standing_merge_lines)
     assert any("carried onto manifest" in line for line in report.carry_lines)
-    assert report.carry_figures == {"human": 60000, "key_hits": 51946, "unhit": 8054, "stranded": 12}
-    assert ac.cycle_summary_payload(report, [], _plan(), "ok")["carry"] == report.carry_figures
+    assert report.carry_counts == {"human": 60000, "matched": 51946, "unmatched": 8054, "orphaned": 12}
+    assert ac.cycle_summary_payload(report, [], _plan(), "ok")["carry"] == report.carry_counts
     assert report.complaints_status == "no open complaints"
     assert report.verdict_update_fixpoint is True
 
@@ -1778,7 +1778,7 @@ def test_gate_make_test_says_so_when_the_font_suite_stood_itself_down(capsys):
     assert report.gate_make_test_green is True
     row = {row.name: row for row in ac.summary_rows(report, _plan(), retention_ran=False)}
     assert row["gate:make-test"].outcome == "ok"
-    assert row["gate:make-test"].figure == ac.MAKE_TEST_SELF_SKIP_STATUS
+    assert row["gate:make-test"].detail == ac.MAKE_TEST_SELF_SKIP_STATUS
 
     ran = ac._gate_make_test_task(
         ["make", "test"],
@@ -1792,8 +1792,8 @@ def test_gate_make_test_says_so_when_the_font_suite_stood_itself_down(capsys):
     assert ac.MAKE_TEST_SELF_SKIP_STATUS not in capsys.readouterr().out
 
 
-def test_a_failed_gate_never_restates_its_outcome_as_its_figure(capsys):
-    """A failed gate's figure leaves out the word FAILED, which the outcome column beside it already shows."""
+def test_a_failed_gate_never_restates_its_outcome_as_its_detail(capsys):
+    """A failed gate's detail leaves out the word FAILED, which the outcome column beside it already shows."""
     emit = ac._Emitter()
     ac._close_gate(emit, "gate:js", _step("gate:js", 1))
     ac._close_gate(
@@ -5487,8 +5487,8 @@ def test_the_census_invariant_diff_prints_under_the_census_step_in_full(tmp_path
     assert not (log_dir / "00-invariant-diff.log").exists()
 
 
-def test_the_summary_table_carries_each_steps_figure_and_what_it_cost():
-    """The summary table shows, per step, the outcome, the step's headline figure, and the seconds it took. A step that did not run shows no figure; otherwise a run_m1 the plan skipped would report the last build's unmatched count as this pass's. A failed gate's figure keeps only what the outcome column does not say: `FAILED  3 unexplained`, not `FAILED  FAILED (3 unexplained)`. The retention row reads `skipped` when the plan ruled it out and `not run` when a failure or a stop signal ended the pass before `_finish` reached it."""
+def test_the_summary_table_carries_each_steps_detail_and_what_it_cost():
+    """The summary table shows, per step, the outcome, the step's detail, and the seconds it took. A step that did not run shows no detail; otherwise a run_m1 the plan skipped would report the last build's unmatched count as this pass's. A failed gate's detail keeps only what the outcome column does not say: `FAILED  3 unexplained`, not `FAILED  FAILED (3 unexplained)`. The retention row reads `skipped` when the plan ruled it out and `not run` when a failure or a stop signal ended the pass before `_finish` reached it."""
     plan = _plan(skip_conform=True, conform_note=ac.CONFORM_SKIP_NOTE)
     report = ac.CycleReport()
     report.unmatched = 8423
@@ -5498,25 +5498,25 @@ def test_the_summary_table_carries_each_steps_figure_and_what_it_cost():
     report.gate_conform = f"skipped ({ac.CONFORM_SKIP_NOTE})"
     report.gate_contracts = "FAILED (3 unexplained)"
     report.gate_contracts_green = False
-    report.retention_figure = "removed 1 carried, 0 build logs, 0 stashes; journal intact"
+    report.retention_detail = "removed 1 carried, 0 build logs, 0 stashes; journal intact"
     report.step_seconds = {"run_m1": 1988.0, "surface-build": 61.0, "gate:rebuild-contracts": 92.0}
     report.step_returncodes = {"run_m1": 0, "surface-build": 0, "gate:rebuild-contracts": 1}
 
     rows = {row.name: row for row in ac.summary_rows(report, plan, retention_ran=False)}
-    assert rows["run_m1"].figure == "8,423 unmatched, pins pass"
+    assert rows["run_m1"].detail == "8,423 unmatched, pins pass"
     assert rows["run_m1"].outcome == "ok"
     assert rows["run_m1"].seconds == 1988.0
-    assert rows["surface-build"].figure == "15,903 units, 81,894 rows"
+    assert rows["surface-build"].detail == "15,903 units, 81,894 rows"
     assert rows["gate:conform"].outcome == "skipped"
-    assert rows["gate:conform"].figure == ""
+    assert rows["gate:conform"].detail == ""
     assert rows["gate:rebuild-contracts"].outcome == "FAILED"
-    assert rows["gate:rebuild-contracts"].figure == "3 unexplained"
+    assert rows["gate:rebuild-contracts"].detail == "3 unexplained"
     assert rows["gate:js"].outcome == "not run"
     assert rows["retention"].outcome == "not run"
     assert all(row.number is None for row in ac.summary_rows(report, plan, retention_ran=False))
     swept = {row.name: row for row in ac.summary_rows(report, plan, retention_ran=True)}
     assert swept["retention"].outcome == "ok"
-    assert swept["retention"].figure == report.retention_figure
+    assert swept["retention"].detail == report.retention_detail
 
     ruled_out = _plan(keep_history=True, skip_conform=True, conform_note=ac.CONFORM_SKIP_NOTE)
     parked = {row.name: row for row in ac.summary_rows(report, ruled_out, retention_ran=False)}
@@ -5530,7 +5530,7 @@ def test_the_summary_table_carries_each_steps_figure_and_what_it_cost():
     )
     reused = {row.name: row for row in ac.summary_rows(report, stale, retention_ran=False)}
     assert reused["run_m1"].outcome == "skipped"
-    assert reused["run_m1"].figure == ""
+    assert reused["run_m1"].detail == ""
 
     rerun = _plan(rerun_gates_only=True, run_m1_note="only comparison-side inputs moved")
     rerun_report = ac.CycleReport()
@@ -5547,7 +5547,7 @@ def test_the_summary_table_carries_each_steps_figure_and_what_it_cost():
 
 
 def test_a_step_that_came_back_nonzero_never_reads_as_an_ok_row():
-    """The outcome column comes from each step's result (its exit status, or for run_m1 its gate result), not from whether the step took any time. Filled from seconds, it would read `ok` for every step that ran, including a run_m1 whose Manual pins failed and a surface build whose child died. The two informational steps, census and job-costs, are the exception: neither gates anything, and each reports its failure in its own figure."""
+    """The outcome column comes from each step's result (its exit status, or for run_m1 its gate result), not from whether the step took any time. Filled from seconds, it would read `ok` for every step that ran, including a run_m1 whose Manual pins failed and a surface build whose child died. The two informational steps, census and job-costs, are the exception: neither gates anything, and each reports its failure in its own detail."""
     plan = _plan()
     report = ac.CycleReport()
     report.unmatched = 5
@@ -5560,14 +5560,14 @@ def test_a_step_that_came_back_nonzero_never_reads_as_an_ok_row():
 
     rows = {row.name: row for row in ac.summary_rows(report, plan, retention_ran=False)}
     assert rows["run_m1"].outcome == "FAILED"
-    assert rows["run_m1"].figure == "5 unmatched, PINS FAILED"
+    assert rows["run_m1"].detail == "5 unmatched, PINS FAILED"
     assert rows["surface-build"].outcome == "FAILED"
     assert rows["census"].outcome == "ok"
     assert rows["job-costs"].outcome == "ok"
 
 
-def test_every_spawned_step_closes_with_its_own_figure_and_peak(capsys, tmp_path):
-    """Each spawned step's closing line carries the figure its summary row will show and its peak memory. No stage knows its figure when its child exits (run_m1 reads three summaries, the surface build opens a manifest, the verdict update splits its sections), so the closing line is written by the stage that reads them."""
+def test_every_spawned_step_closes_with_its_own_detail_and_peak(capsys, tmp_path):
+    """Each spawned step's closing line carries the detail its summary row will show and its peak memory. No stage knows its detail when its child exits (run_m1 reads three summaries, the surface build opens a manifest, the verdict update splits its sections), so the closing line is written by the stage that reads them."""
     surface = _built_surface(tmp_path, units=15903, rows=81894, batches=16, echo_groups=402)
 
     def spawn(name, argv, *, emit, registry, stream, **passthrough):
@@ -6919,7 +6919,7 @@ def test_retention_leaves_the_journal_and_stashes_alone_while_the_server_is_up(t
     assert compacted == [] and swept == []
     assert "journal   : left intact (the review server is up" in out
     assert "stashes   : left intact (the review server is up" in out
-    assert swept_up.figure.endswith("stashes and journal left intact")
+    assert swept_up.detail.endswith("stashes and journal left intact")
     assert not (tmp_path / "verdicts-carried-old.json").exists()
 
 
@@ -7485,7 +7485,7 @@ def test_retention_prunes_the_build_logs_under_a_live_server_too(tmp_path, monke
         f"build logs: removed 3; kept the last {cycle_paths.BUILD_LOGS_KEEP} runs" in line
         for line in pruned.lines
     )
-    assert "3 build logs" in pruned.figure
+    assert "3 build logs" in pruned.detail
     assert len(list((tmp_path / "var" / "build-logs").iterdir())) == cycle_paths.BUILD_LOGS_KEEP
 
 

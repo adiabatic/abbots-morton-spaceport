@@ -191,7 +191,7 @@ def test_finish_copies_the_summary_blocks(tmp_path):
         "gates": {"js": {"status": "green"}},
         "plan": {"short_id": "abc"},
         "argv": ["prog", "--fresh"],
-        "carry": {"human": 60000, "key_hits": 51946, "unhit": 8054, "stranded": 12},
+        "carry": {"human": 60000, "matched": 51946, "unmatched": 8054, "orphaned": 12},
         "census_status": "clean",
     }
     timings.finish(payload)

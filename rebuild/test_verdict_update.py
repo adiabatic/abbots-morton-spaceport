@@ -207,7 +207,7 @@ def _carrying_verdict_update(tmp_path, monkeypatch, extra=()):
 
 
 def test_the_carry_step_hands_the_verdicts_file_and_the_loaded_index_to_the_carry(tmp_path, monkeypatch):
-    """The verdict update passes the carry the verdicts file, the human echo records, and every surface id, because the stranded count also checks machine ids. It names only the live surface as `--current-surface`, then merges the carried file."""
+    """The verdict update passes the carry the verdicts file, the human echo records, and every surface id, because the orphaned count also checks machine ids. It names only the live surface as `--current-surface`, then merges the carried file."""
     code, index, carries, merges = _carrying_verdict_update(tmp_path, monkeypatch)
     assert code == 0
     [(argv, units, unit_ids)] = carries

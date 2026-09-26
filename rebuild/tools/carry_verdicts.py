@@ -1,6 +1,6 @@
 """Carry prior verdicts onto the live review surface by unit id.
 
-A unit's id is derived from its content key (`rebuild.review.unit_cache.unit_id_for`; `rebuild/REVIEW-PLAN.md` §2.1 gives the shape), so a verdict names the same unit on every surface where that unit's content is unchanged. The carry is a join on that id. A verdict whose unit is a human unit on the new surface is carried, and one whose unit is not on the surface at all is stranded. Skip verdicts are neither carried nor counted as stranded. No prior surface is opened, and a verdicts file's stamp is only printed, so a file recorded against any older surface carries the same way the autosave does. `artifact_cycle.carry_figures` parses the `carry figures:` line, and the cycle records those figures on its run line in the timings journal.
+A unit's id is derived from its content key (`rebuild.review.unit_cache.unit_id_for`; `rebuild/REVIEW-PLAN.md` §2.1 gives the shape), so a verdict names the same unit on every surface where that unit's content is unchanged. The carry is a join on that id. A verdict whose unit is a human unit on the new surface is carried, and one whose unit is not on the surface at all is orphaned. Skip verdicts are neither carried nor counted as orphaned. No prior surface is opened, and a verdicts file's stamp is only printed, so a file recorded against any older surface carries the same way the autosave does. `artifact_cycle.carry_counts` parses the `carry counts:` line, and the cycle records those counts on its run line in the timings journal.
 """
 
 import argparse
@@ -53,7 +53,7 @@ def main(
 ):
     """Write the carried verdicts file for the current surface.
 
-    `current_units` and `current_ids` are passed together or not at all. `current_units` is a single-pass stream of human unit records that need only an `id`, and `current_ids` holds every surface id, machine units included, for the stranded count. The verdict update passes its echo records; a standalone run streams the human index and collects the ids in the same pass.
+    `current_units` and `current_ids` are passed together or not at all. `current_units` is a single-pass stream of human unit records that need only an `id`, and `current_ids` holds every surface id, machine units included, for the orphaned count. The verdict update passes its echo records; a standalone run streams the human index and collects the ids in the same pass.
     """
     parser = argparse.ArgumentParser(
         description="Carry prior verdicts onto the live surface, landing each on the unit of the id it names."
@@ -87,13 +87,13 @@ def main(
 
     carried = []
     kinds = collections.Counter()
-    unhit = 0
+    unmatched = 0
     human_count = 0
     for unit in human:
         human_count += 1
         hit = prior.get(unit["id"])
         if hit is None:
-            unhit += 1
+            unmatched += 1
             continue
         record, source = hit
         if record["verdict"] == "skip":
@@ -103,13 +103,13 @@ def main(
         carried.append({"unit": unit["id"], "verdict": record["verdict"], "note": note, "at": record["at"]})
         kinds[record["verdict"]] += 1
 
-    stranded = sum(
+    orphaned = sum(
         1
         for unit_id, (record, _source) in prior.items()
         if unit_id not in current_ids and record["verdict"] != "skip"
     )
     print(
-        f"carry figures: human={human_count} key_hits={human_count - unhit} unhit={unhit} stranded={stranded}"
+        f"carry counts: human={human_count} matched={human_count - unmatched} unmatched={unmatched} orphaned={orphaned}"
     )
 
     carried.sort(key=lambda r: r["unit"])
