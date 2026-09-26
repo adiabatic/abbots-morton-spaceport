@@ -136,7 +136,7 @@ context_sets:
   # Predecessors (·May, ·Utter) that exit at the x-height, so they join into ·Pea's x-height entry.
   xheight_exit_into_pea_xheight_entry: [{family: qsMay, exit_y: 5}, {family: qsUtter, exit_y: 5}]
 restore_isolated_form_overrides:
-  # Each entry covers a `prior target follower` sequence where a forward-pair `not_after` keeps `target` from being upgraded, but isolated shaping of `target follower` gives `isolated_form`. The emitter adds rules `sub [prior variants] target_stance' follower_variant by isolated_form;` under `calt_pair_guard_reflip_<target_base>`, where each `target_stance` is a forward replacement of `target` at an exit height that `isolated_form` lacks. The in-context result then matches the isolated one.
+  # Each entry covers a `prior target follower` sequence where a forward-pair `not_after` keeps `target` from being upgraded, but isolated shaping of `target follower` gives `isolated_form`. The emitter adds rules `sub [prior variants] target_stance' follower_variant by isolated_form;` under `calt_pair_guard_restore_<target_base>`, where each `target_stance` is a forward replacement of `target` at an exit height that `isolated_form` lacks. The in-context result then matches the isolated one.
 - {prior: qsNo, target: qsIt, follower: qsDay, isolated_form: qsIt.en-y5.ex-y0}
 - {prior: qsJay, target: qsIt, follower: qsZoo, isolated_form: qsIt.ex-y0}
 - {prior: qsJay, target: qsIt, follower: qsNo, isolated_form: qsIt.ex-y0}

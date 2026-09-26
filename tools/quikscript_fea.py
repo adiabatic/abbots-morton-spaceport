@@ -97,7 +97,7 @@ class _JoinAnalysis:
     exit_reachability_before: dict[tuple[str, str], set[int]] = field(default_factory=dict)
     gated_exit_reachability: dict[tuple[str, str], set[int]] = field(default_factory=dict)
     gated_exit_reachability_before: dict[tuple[str, str, str], set[int]] = field(default_factory=dict)
-    # Each entry is (prior_family, target_family, follower_family, isolated_form), from `restore_isolated_form_overrides` in `glyph_data/quikscript.yaml`, whose comment describes the rules. They become `calt_pair_guard_reflip_*` rules and the `calt_post_reflip_bk_*` lookups that follow them.
+    # Each entry is (prior_family, target_family, follower_family, isolated_form), from `restore_isolated_form_overrides` in `glyph_data/quikscript.yaml`, whose comment describes the rules. They become `calt_pair_guard_restore_*` rules and the `calt_post_restore_bk_*` lookups that follow them.
     restore_isolated_form_overrides: tuple[tuple[str, str, str, str], ...] = ()
     # Each entry is (backtrack_stance or None, predecessor_stance, trigger_stance, isolated_form), from `predecessor_demote_overrides` in `glyph_data/quikscript.yaml`, whose comment describes the rules. A backtrack stance limits the demote to one stance of the glyph before the predecessor, as when `qsMay.en-y0.ex-y5` precedes `qsGay.en-y0.ex-y5`.
     predecessor_demote_overrides: tuple[tuple[str | None, str, str, str], ...] = ()
@@ -1325,10 +1325,10 @@ class _NeighborJoinFilterRecorder:
                     ys.update(vm.all_entry_ys)
         elif nmeta.exit_ys and not nmeta.all_entry_ys:
             # `neighbor` has already chosen its exit, and a later backward upgrade can still give it an entry. Only the upgrades that keep that exit can fire, so only their entries count. `qsTea.half.ex-y5` before `qsIt.ex-y0` joins because ·It becomes `qsIt.en-y5.ex-y0`, and `qsRoe.ex-y0` before `qsMay.ex-ext-1` joins through `qsMay.en-y0.ex-y5`. `qsJai.ex-y0` before `qsIt.ex-y0` stays a leak, because the upgrade it needs, `qsIt.en-y0.ex-y5`, moves ·It's exit to the x-height.
-            proxy_exits = set(nmeta.exit_ys)
+            class_stand_in_exits = set(nmeta.exit_ys)
             for var in self.bk_replacements.get(base, {}).values():
                 vm = self.glyph_meta.get(var)
-                if vm is not None and proxy_exits <= set(vm.exit_ys):
+                if vm is not None and class_stand_in_exits <= set(vm.exit_ys):
                     ys.update(vm.all_entry_ys)
             for upgrade_name, after in self._reverse_upgrades_from.get(neighbor, ()):
                 um = self.glyph_meta.get(upgrade_name)
@@ -2447,17 +2447,17 @@ def _emit_quikscript_calt(analysis: _JoinAnalysis) -> str | None:
 
     lines = ["feature calt {"]
 
-    # Re-flip rules recorded alongside the backward guards and emitted later as `calt_pair_guard_reflip_*` lookups. A guard `ignore sub [prior_slot] candidate base';` keeps `base` plain, so the candidate's forward replacement is chosen against `base`'s plain entry Y. The re-flip `sub [prior_slot] pre_stance' base by isolated_form;` puts the candidate on the stance it would take if `base` had been upgraded, which is its stance when the pair is shaped in isolation.
-    # Keyed by the candidate's base name (``qsIt``); each entry is ``(prior_slot, pre_stance, base_name, isolated_form)``.
-    pair_guard_reflip: dict[str, list[tuple[frozenset[str], str, str, str]]] = {}
+    # Isolated-restore rules recorded alongside the backward guards and emitted later as `calt_pair_guard_restore_*` lookups. A guard `ignore sub [prior_slot] candidate base';` keeps `base` plain, so the candidate's forward replacement is chosen against `base`'s plain entry Y. The isolated restore `sub [prior_slot] stance_to_restore' base by isolated_form;` puts the candidate on the stance it would take if `base` had been upgraded, which is its stance when the pair is shaped in isolation.
+    # Keyed by the candidate's base name (``qsIt``); each entry is ``(prior_slot, stance_to_restore, base_name, isolated_form)``.
+    pair_guard_restore: dict[str, list[tuple[frozenset[str], str, str, str]]] = {}
 
-    def _record_pair_guard_reflip(
+    def _record_pair_guard_restore(
         prior_slot: frozenset[str],
         candidate_name: str,
         base_name: str,
         variant_entry_ys: set[int],
     ) -> None:
-        # Record re-flips for the guard ``ignore sub [prior_slot] candidate base';``. Without the guard, ``base_name`` would take a variant entering at one of ``variant_entry_ys``, and the candidate's forward replacement would exit there. With it, the candidate is bare or on its forward replacement for one of ``base_name``'s plain entry Ys. Record a re-flip from each such stance to each isolated form.
+        # Record isolated restores for the guard ``ignore sub [prior_slot] candidate base';``. Without the guard, ``base_name`` would take a variant entering at one of ``variant_entry_ys``, and the candidate's forward replacement would exit there. With it, the candidate is bare or on its forward replacement for one of ``base_name``'s plain entry Ys. Record an isolated restore from each such stance to each isolated form.
         candidate_meta = glyph_meta.get(candidate_name)
         if candidate_meta is None:
             return
@@ -2495,33 +2495,33 @@ def _emit_quikscript_calt(analysis: _JoinAnalysis) -> str | None:
             if not isolated_forms:
                 return
         # The stance to replace is the bare candidate (when no forward replacement fired, for example because of a `not_before` guard) or its forward replacement at one of `base_name`'s plain entry Ys.
-        pre_stances: set[str] = {candidate_name}
+        stances_to_restore: set[str] = {candidate_name}
         for base_entry_y in base_meta.entry_ys:
             if base_entry_y in variant_entry_ys:
                 continue
-            pre_stance = candidate_fwd.get(base_entry_y)
-            if pre_stance is not None:
-                pre_stances.add(pre_stance)
+            stance_to_restore = candidate_fwd.get(base_entry_y)
+            if stance_to_restore is not None:
+                stances_to_restore.add(stance_to_restore)
         for isolated_form in isolated_forms:
-            for pre_stance in pre_stances:
-                if pre_stance == isolated_form:
+            for stance_to_restore in stances_to_restore:
+                if stance_to_restore == isolated_form:
                     continue
-                pair_guard_reflip.setdefault(candidate_base, []).append(
-                    (prior_slot, pre_stance, base_name, isolated_form)
+                pair_guard_restore.setdefault(candidate_base, []).append(
+                    (prior_slot, stance_to_restore, base_name, isolated_form)
                 )
 
-    def _record_fwd_pair_not_after_reflip(
+    def _record_fwd_pair_not_after_restore(
         prior_slot: frozenset[str],
         target_name: str,
         follower_glyphs,
         isolated_form: str,
     ) -> None:
-        # A forward-pair lookup's `not_after` guard ``ignore sub [prior_slot] target' [followers];`` leaves ``target_name`` unchanged, although shaping ``target follower`` in isolation gives ``isolated_form``. Record a re-flip ``sub [prior_slot] target_name' follower by isolated_form;`` for each follower. The entries use `_record_pair_guard_reflip`'s tuple, with the follower in the ``base_name`` slot.
+        # A forward-pair lookup's `not_after` guard ``ignore sub [prior_slot] target' [followers];`` leaves ``target_name`` unchanged, although shaping ``target follower`` in isolation gives ``isolated_form``. Record an isolated restore ``sub [prior_slot] target_name' follower by isolated_form;`` for each follower. The entries use `_record_pair_guard_restore`'s tuple, with the follower in the ``base_name`` slot.
         target_meta = glyph_meta.get(target_name)
         if target_meta is None:
             return
         candidate_base = target_meta.base_name
-        bucket = pair_guard_reflip.setdefault(candidate_base, [])
+        bucket = pair_guard_restore.setdefault(candidate_base, [])
         for follower in follower_glyphs:
             entry = (prior_slot, target_name, follower, isolated_form)
             if entry not in bucket:
@@ -3301,87 +3301,87 @@ def _emit_quikscript_calt(analysis: _JoinAnalysis) -> str | None:
         resolved = resolve_known_glyph_names(list(meta.not_after), glyph_names)
         return _expand_exclusions(resolved)
 
-    def _emit_fpt_revert(
-        fpt: str,
+    def _emit_fwd_pair_variant_revert(
+        fwd_pair_variant: str,
         default_replacement: str,
         *,
         member_set: set[str],
         member_list_token: str | None = None,
     ) -> None:
-        # Emit the rules that replace the forward-pair variant `fpt` with a backward replacement after `member_set`. When `_refined_bk_replacement` picks a different glyph whose `not_after` lists some members, those members get `default_replacement` and the rest get the refined glyph.
-        fpt_replacement = _refined_bk_replacement(fpt, default_replacement)
-        if fpt_replacement == default_replacement:
+        # Emit the rules that replace the forward-pair variant `fwd_pair_variant` with a backward replacement after `member_set`. When `_refined_bk_replacement` picks a different glyph whose `not_after` lists some members, those members get `default_replacement` and the rest get the refined glyph.
+        fwd_pair_replacement = _refined_bk_replacement(fwd_pair_variant, default_replacement)
+        if fwd_pair_replacement == default_replacement:
             token = member_list_token or f"[{' '.join(sorted(member_set))}]"
             _emit_entry_strip_guards_for_replacement_exit(
-                fpt,
+                fwd_pair_variant,
                 default_replacement,
                 left_context=token,
             )
-            lines.append(f"        sub {token} {fpt}' by {default_replacement};")
+            lines.append(f"        sub {token} {fwd_pair_variant}' by {default_replacement};")
             return
-        not_after_set = _expand_not_after_set(fpt_replacement)
+        not_after_set = _expand_not_after_set(fwd_pair_replacement)
         excluded = member_set & not_after_set
         usable = member_set - not_after_set
         if not excluded:
             token = member_list_token or f"[{' '.join(sorted(member_set))}]"
             _emit_entry_strip_guards_for_replacement_exit(
-                fpt,
-                fpt_replacement,
+                fwd_pair_variant,
+                fwd_pair_replacement,
                 left_context=token,
             )
-            lines.append(f"        sub {token} {fpt}' by {fpt_replacement};")
+            lines.append(f"        sub {token} {fwd_pair_variant}' by {fwd_pair_replacement};")
             return
         if excluded:
             excl_list = " ".join(sorted(excluded))
             _emit_entry_strip_guards_for_replacement_exit(
-                fpt,
+                fwd_pair_variant,
                 default_replacement,
                 left_context=f"[{excl_list}]",
             )
-            lines.append(f"        sub [{excl_list}] {fpt}' by {default_replacement};")
+            lines.append(f"        sub [{excl_list}] {fwd_pair_variant}' by {default_replacement};")
         if usable:
             usable_list = " ".join(sorted(usable))
             _emit_entry_strip_guards_for_replacement_exit(
-                fpt,
-                fpt_replacement,
+                fwd_pair_variant,
+                fwd_pair_replacement,
                 left_context=f"[{usable_list}]",
             )
-            lines.append(f"        sub [{usable_list}] {fpt}' by {fpt_replacement};")
+            lines.append(f"        sub [{usable_list}] {fwd_pair_variant}' by {fwd_pair_replacement};")
 
-    def _refined_bk_replacement(fpt: str, default_replacement: str) -> str:
-        """Return the backward replacement for the forward-pair variant `fpt`, keeping `fpt`'s exit extension when possible.
+    def _refined_bk_replacement(fwd_pair_variant: str, default_replacement: str) -> str:
+        """Return the backward replacement for the forward-pair variant `fwd_pair_variant`, keeping `fwd_pair_variant`'s exit extension when possible.
 
-        `fpt` is replaced because its entry doesn't fit the preceding glyph; `default_replacement` is the backward replacement for that glyph. When `fpt` has an exit-extension suffix, the result is the first that applies:
+        `fwd_pair_variant` is replaced because its entry doesn't fit the preceding glyph; `default_replacement` is the backward replacement for that glyph. When `fwd_pair_variant` has an exit-extension suffix, the result is the first that applies:
 
-        1. `default_replacement`, when ``default_replacement + ext_suffix`` exists but some follower family in `fpt`'s `before` has no entry at its exit Y, so the extension would reach toward nothing. In ·May·It·Owe, qsOwe never enters at the baseline, so ``qsIt.en-y5.ex-y0.ex-ext-1`` would leave its last pixel unjoined. The entryless-sibling fallback is skipped too, because it would only move that ink to the predecessor's side.
-        2. ``default_replacement + ext_suffix``, when its exit Y is one that `fpt`'s base takes before those followers when shaped in isolation (`_isolated_exit_ys_for_fpt`), even if its bitmap differs from `fpt`'s. This keeps ``·Ah ·It ·Zoo`` matching ``·It ·Zoo`` on the ·It side: ``qsIt.en-y5.ex-y0.ex-ext-1``, not an entryless sibling.
-        3. ``default_replacement + ext_suffix``, when its exit Ys are compatible with `fpt`'s and its bitmap and y offset match.
-        4. An entryless, non-`.noentry`, ungated sibling of `fpt` with the same extension suffix, exit Ys, bitmap, and y offset, whose exit every follower family accepts (``qsTea.ex-y0.ex-ext-1`` for ``qsTea.en-y8.ex-y0.ex-ext-1``). It drops the entry that doesn't fit and keeps the extension into the next glyph.
+        1. `default_replacement`, when ``default_replacement + ext_suffix`` exists but some follower family in `fwd_pair_variant`'s `before` has no entry at its exit Y, so the extension would reach toward nothing. In ·May·It·Owe, qsOwe never enters at the baseline, so ``qsIt.en-y5.ex-y0.ex-ext-1`` would leave its last pixel unjoined. The entryless-sibling fallback is skipped too, because it would only move that ink to the predecessor's side.
+        2. ``default_replacement + ext_suffix``, when its exit Y is one that `fwd_pair_variant`'s base takes before those followers when shaped in isolation (`_isolated_exit_ys_for_fwd_pair_variant`), even if its bitmap differs from `fwd_pair_variant`'s. This keeps ``·Ah ·It ·Zoo`` matching ``·It ·Zoo`` on the ·It side: ``qsIt.en-y5.ex-y0.ex-ext-1``, not an entryless sibling.
+        3. ``default_replacement + ext_suffix``, when its exit Ys are compatible with `fwd_pair_variant`'s and its bitmap and y offset match.
+        4. An entryless, non-`.noentry`, ungated sibling of `fwd_pair_variant` with the same extension suffix, exit Ys, bitmap, and y offset, whose exit every follower family accepts (``qsTea.ex-y0.ex-ext-1`` for ``qsTea.en-y8.ex-y0.ex-ext-1``). It drops the entry that doesn't fit and keeps the extension into the next glyph.
         5. `default_replacement` otherwise.
         """
-        fpt_meta = _meta(fpt)
-        ext_suffix = fpt_meta.extended_exit_suffix
+        fwd_pair_meta = _meta(fwd_pair_variant)
+        ext_suffix = fwd_pair_meta.extended_exit_suffix
         if not ext_suffix:
             return default_replacement
-        fpt_exit_ys = set(fpt_meta.exit_ys)
+        fwd_pair_exit_ys = set(fwd_pair_meta.exit_ys)
         candidate = default_replacement + ext_suffix
         cand_meta = glyph_meta.get(candidate)
-        isolated_exit_ys = _isolated_exit_ys_for_fpt(fpt, fpt_meta)
+        isolated_exit_ys = _isolated_exit_ys_for_fwd_pair_variant(fwd_pair_variant, fwd_pair_meta)
         if cand_meta is not None:
             cand_exit_ys = set(cand_meta.exit_ys)
-            if not _all_follower_families_accept(fpt, fpt_meta, cand_exit_ys):
-                # Skip the sibling fallback too. It is for a candidate glyph that doesn't exist. Here the follower is the problem, and an entryless sibling would move the unjoined ink to the predecessor's side, because the predecessor took its `.ex-ext-1` stance expecting `fpt`'s old entry Y.
+            if not _all_follower_families_accept(fwd_pair_variant, fwd_pair_meta, cand_exit_ys):
+                # Skip the sibling fallback too. It is for a candidate glyph that doesn't exist. Here the follower is the problem, and an entryless sibling would move the unjoined ink to the predecessor's side, because the predecessor took its `.ex-ext-1` stance expecting `fwd_pair_variant`'s old entry Y.
                 return default_replacement
             if isolated_exit_ys and cand_exit_ys & isolated_exit_ys:
                 return candidate
             if (
-                (not fpt_exit_ys or not cand_exit_ys or fpt_exit_ys & cand_exit_ys)
-                and cand_meta.bitmap == fpt_meta.bitmap
-                and cand_meta.y_offset == fpt_meta.y_offset
+                (not fwd_pair_exit_ys or not cand_exit_ys or fwd_pair_exit_ys & cand_exit_ys)
+                and cand_meta.bitmap == fwd_pair_meta.bitmap
+                and cand_meta.y_offset == fwd_pair_meta.y_offset
             ):
                 return candidate
-        if fpt_meta.entry or fpt_meta.entry_curs_only:
-            for sibling in sorted(base_to_variants.get(fpt_meta.base_name, ())):
+        if fwd_pair_meta.entry or fwd_pair_meta.entry_curs_only:
+            for sibling in sorted(base_to_variants.get(fwd_pair_meta.base_name, ())):
                 sib_meta = _meta(sibling)
                 if sib_meta.entry or sib_meta.entry_curs_only:
                     continue
@@ -3391,22 +3391,22 @@ def _emit_quikscript_calt(analysis: _JoinAnalysis) -> str | None:
                     continue
                 if sib_meta.extended_exit_suffix != ext_suffix:
                     continue
-                if set(sib_meta.exit_ys) != fpt_exit_ys:
+                if set(sib_meta.exit_ys) != fwd_pair_exit_ys:
                     continue
-                if sib_meta.bitmap != fpt_meta.bitmap:
+                if sib_meta.bitmap != fwd_pair_meta.bitmap:
                     continue
-                if sib_meta.y_offset != fpt_meta.y_offset:
+                if sib_meta.y_offset != fwd_pair_meta.y_offset:
                     continue
-                if not _all_follower_families_accept(fpt, fpt_meta, set(sib_meta.exit_ys)):
+                if not _all_follower_families_accept(fwd_pair_variant, fwd_pair_meta, set(sib_meta.exit_ys)):
                     continue
                 return sibling
         return default_replacement
 
-    def _all_follower_families_accept(fpt: str, fpt_meta, cand_exit_ys: set[int]) -> bool:
-        """Return whether every follower family in `fpt`'s `before` has a variant entering at one of ``cand_exit_ys``, so an exit extension at those Ys always has something to join. Empty ``cand_exit_ys`` or an empty `before` returns True."""
+    def _all_follower_families_accept(fwd_pair_variant: str, fwd_pair_meta, cand_exit_ys: set[int]) -> bool:
+        """Return whether every follower family in `fwd_pair_variant`'s `before` has a variant entering at one of ``cand_exit_ys``, so an exit extension at those Ys always has something to join. Empty ``cand_exit_ys`` or an empty `before` returns True."""
         if not cand_exit_ys:
             return True
-        before_glyphs = _resolve_fpt_before(fpt, fpt_meta.base_name)
+        before_glyphs = _resolve_fwd_pair_variant_before(fwd_pair_variant, fwd_pair_meta.base_name)
         if not before_glyphs:
             return True
         seen_families: set[str] = set()
@@ -3426,16 +3426,16 @@ def _emit_quikscript_calt(analysis: _JoinAnalysis) -> str | None:
                 return False
         return True
 
-    def _isolated_exit_ys_for_fpt(fpt: str, fpt_meta) -> set[int]:
-        """Return the exit Ys `fpt`'s base takes before `fpt`'s followers when shaped in isolation: the followers' entry Ys at which ``fwd_replacements`` has a replacement for the base."""
-        base_name = fpt_meta.base_name
+    def _isolated_exit_ys_for_fwd_pair_variant(fwd_pair_variant: str, fwd_pair_meta) -> set[int]:
+        """Return the exit Ys `fwd_pair_variant`'s base takes before `fwd_pair_variant`'s followers when shaped in isolation: the followers' entry Ys at which ``fwd_replacements`` has a replacement for the base."""
+        base_name = fwd_pair_meta.base_name
         base_fwd = fwd_replacements.get(base_name)
         if not base_fwd:
             return set()
         candidate_exit_ys = set(base_fwd.keys())
         if not candidate_exit_ys:
             return set()
-        before_glyphs = _resolve_fpt_before(fpt, base_name)
+        before_glyphs = _resolve_fwd_pair_variant_before(fwd_pair_variant, base_name)
         if not before_glyphs:
             return set()
         expanded_followers = _expand_all_variants(list(before_glyphs))
@@ -3447,10 +3447,10 @@ def _emit_quikscript_calt(analysis: _JoinAnalysis) -> str | None:
             follower_entry_ys.update(f_meta.all_entry_ys)
         return follower_entry_ys & candidate_exit_ys
 
-    def _resolve_fpt_before(fpt: str, base_name: str) -> set[str]:
-        """Return `fpt`'s resolved ``before`` glyphs from ``fwd_pair_overrides[base_name]``; the ``before`` on its metadata is unresolved."""
+    def _resolve_fwd_pair_variant_before(fwd_pair_variant: str, base_name: str) -> set[str]:
+        """Return `fwd_pair_variant`'s resolved ``before`` glyphs from ``fwd_pair_overrides[base_name]``; the ``before`` on its metadata is unresolved."""
         for fwd_variant, before_glyphs, _not_after in fwd_pair_overrides.get(base_name, ()):
-            if fwd_variant == fpt:
+            if fwd_variant == fwd_pair_variant:
                 return set(before_glyphs)
         return set()
 
@@ -3730,7 +3730,7 @@ def _emit_quikscript_calt(analysis: _JoinAnalysis) -> str | None:
                                 continue
                             if override_iso not in glyph_names:
                                 continue
-                            _record_fwd_pair_not_after_reflip(
+                            _record_fwd_pair_not_after_restore(
                                 frozenset(prior_matches),
                                 target,
                                 follower_matches,
@@ -4171,7 +4171,7 @@ def _emit_quikscript_calt(analysis: _JoinAnalysis) -> str | None:
         base_name: str,
         entry_ys: set[int],
     ) -> None:
-        # Emit `ignore sub [prior] candidate base';` for each prior slot `_collect_two_glyph_lookbehind_guards` finds, and record the matching re-flips. Those guards cover a candidate whose own backward replacement, triggered by a later change to the glyph before it, would move its exit off `entry_ys`, so this rule's match would no longer hold. `_collect_pending_bk_pair_guards` covers the single-glyph case.
+        # Emit `ignore sub [prior] candidate base';` for each prior slot `_collect_two_glyph_lookbehind_guards` finds, and record the matching isolated restores. Those guards cover a candidate whose own backward replacement, triggered by a later change to the glyph before it, would move its exit off `entry_ys`, so this rule's match would no longer hold. `_collect_pending_bk_pair_guards` covers the single-glyph case.
         if not entry_ys:
             return
         members = frozenset(member_iter)
@@ -4190,7 +4190,7 @@ def _emit_quikscript_calt(analysis: _JoinAnalysis) -> str | None:
             cand_token = cands[0] if len(cands) == 1 else f"[{' '.join(cands)}]"
             lines.append(f"        ignore sub [{prior_list}] {cand_token} {base_name}';")
             for cand_name in cands:
-                _record_pair_guard_reflip(
+                _record_pair_guard_restore(
                     prior_slot,
                     cand_name,
                     base_name,
@@ -4311,7 +4311,7 @@ def _emit_quikscript_calt(analysis: _JoinAnalysis) -> str | None:
                         if guard_glyphs:
                             guard_list = " ".join(sorted(guard_glyphs))
                             lines.append(f"        ignore sub [{guard_list}] {candidate_name} {base_name}';")
-                            _record_pair_guard_reflip(
+                            _record_pair_guard_restore(
                                 frozenset(guard_glyphs),
                                 candidate_name,
                                 base_name,
@@ -4367,9 +4367,9 @@ def _emit_quikscript_calt(analysis: _JoinAnalysis) -> str | None:
                             )
                             _emit_two_glyph_lookbehind_guards(filtered, base_name, {entry_y})
                             lines.append(f"        sub [{member_list}] {base_name}' by {variant_name};")
-                            for fpt in _fwd_pair_bk_targets(base_name, entry_y):
-                                _emit_fpt_revert(
-                                    fpt,
+                            for fwd_pair_variant in _fwd_pair_bk_targets(base_name, entry_y):
+                                _emit_fwd_pair_variant_revert(
+                                    fwd_pair_variant,
                                     variant_name,
                                     member_set=set(filtered),
                                     member_list_token=f"[{member_list}]",
@@ -4393,9 +4393,9 @@ def _emit_quikscript_calt(analysis: _JoinAnalysis) -> str | None:
                             lines.append(
                                 f"        sub [{' '.join(sorted(kept_preds))}] {base_name}' by {variant_name};"
                             )
-                        for fpt in _fwd_pair_bk_targets(base_name, entry_y):
-                            _emit_fpt_revert(
-                                fpt,
+                        for fwd_pair_variant in _fwd_pair_bk_targets(base_name, entry_y):
+                            _emit_fwd_pair_variant_revert(
+                                fwd_pair_variant,
                                 variant_name,
                                 member_set=set(exit_classes.get(entry_y, set())),
                                 member_list_token=f"@exit_y{entry_y}",
@@ -4436,11 +4436,13 @@ def _emit_quikscript_calt(analysis: _JoinAnalysis) -> str | None:
                             )
                             _emit_two_glyph_lookbehind_guards(filtered, base_name, {entry_y})
                             lines.append(f"        sub [{member_list}] {base_name}' by {variant_name};")
-                            for fpt in _fwd_pair_bk_targets(base_name, entry_y):
+                            for fwd_pair_variant in _fwd_pair_bk_targets(base_name, entry_y):
                                 for tok in excl_tokens:
-                                    lines.append(f"        ignore sub [{member_list}] {fpt}' {tok};")
-                                _emit_fpt_revert(
-                                    fpt,
+                                    lines.append(
+                                        f"        ignore sub [{member_list}] {fwd_pair_variant}' {tok};"
+                                    )
+                                _emit_fwd_pair_variant_revert(
+                                    fwd_pair_variant,
                                     variant_name,
                                     member_set=set(filtered),
                                     member_list_token=f"[{member_list}]",
@@ -4463,11 +4465,13 @@ def _emit_quikscript_calt(analysis: _JoinAnalysis) -> str | None:
                             lines.append(
                                 f"        sub [{' '.join(sorted(kept_preds))}] {base_name}' by {variant_name};"
                             )
-                        for fpt in _fwd_pair_bk_targets(base_name, entry_y):
+                        for fwd_pair_variant in _fwd_pair_bk_targets(base_name, entry_y):
                             for tok in excl_tokens:
-                                lines.append(f"        ignore sub @exit_y{entry_y} {fpt}' {tok};")
-                            _emit_fpt_revert(
-                                fpt,
+                                lines.append(
+                                    f"        ignore sub @exit_y{entry_y} {fwd_pair_variant}' {tok};"
+                                )
+                            _emit_fwd_pair_variant_revert(
+                                fwd_pair_variant,
                                 variant_name,
                                 member_set=set(exit_classes.get(entry_y, set())),
                                 member_list_token=f"@exit_y{entry_y}",
@@ -4612,11 +4616,11 @@ def _emit_quikscript_calt(analysis: _JoinAnalysis) -> str | None:
                         )
                         _emit_two_glyph_lookbehind_guards(filtered, base_name, {entry_y})
                         lines.append(f"        sub [{member_list}] {base_name}' by {relevant[entry_y]};")
-                        for fpt in _fwd_pair_bk_targets(base_name, entry_y):
+                        for fwd_pair_variant in _fwd_pair_bk_targets(base_name, entry_y):
                             for tok in excl_tokens:
-                                lines.append(f"        ignore sub [{member_list}] {fpt}' {tok};")
-                            _emit_fpt_revert(
-                                fpt,
+                                lines.append(f"        ignore sub [{member_list}] {fwd_pair_variant}' {tok};")
+                            _emit_fwd_pair_variant_revert(
+                                fwd_pair_variant,
                                 relevant[entry_y],
                                 member_set=set(filtered),
                                 member_list_token=f"[{member_list}]",
@@ -4639,11 +4643,11 @@ def _emit_quikscript_calt(analysis: _JoinAnalysis) -> str | None:
                         lines.append(
                             f"        sub [{' '.join(sorted(kept_preds))}] {base_name}' by {relevant[entry_y]};"
                         )
-                    for fpt in _fwd_pair_bk_targets(base_name, entry_y):
+                    for fwd_pair_variant in _fwd_pair_bk_targets(base_name, entry_y):
                         for tok in excl_tokens:
-                            lines.append(f"        ignore sub @exit_y{entry_y} {fpt}' {tok};")
-                        _emit_fpt_revert(
-                            fpt,
+                            lines.append(f"        ignore sub @exit_y{entry_y} {fwd_pair_variant}' {tok};")
+                        _emit_fwd_pair_variant_revert(
+                            fwd_pair_variant,
                             relevant[entry_y],
                             member_set=set(exit_classes.get(entry_y, set())),
                             member_list_token=f"@exit_y{entry_y}",
@@ -5429,11 +5433,11 @@ def _emit_quikscript_calt(analysis: _JoinAnalysis) -> str | None:
                             left_context=f"[{member_list}]",
                         )
                         lines.append(f"        sub [{member_list}] {cycle_base}' by {relevant[entry_y]};")
-                        for fpt in _fwd_pair_bk_targets(cycle_base, entry_y):
+                        for fwd_pair_variant in _fwd_pair_bk_targets(cycle_base, entry_y):
                             for tok in excl_tokens:
-                                lines.append(f"        ignore sub [{member_list}] {fpt}' {tok};")
-                            _emit_fpt_revert(
-                                fpt,
+                                lines.append(f"        ignore sub [{member_list}] {fwd_pair_variant}' {tok};")
+                            _emit_fwd_pair_variant_revert(
+                                fwd_pair_variant,
                                 relevant[entry_y],
                                 member_set=set(filtered),
                                 member_list_token=f"[{member_list}]",
@@ -5456,11 +5460,11 @@ def _emit_quikscript_calt(analysis: _JoinAnalysis) -> str | None:
                         lines.append(
                             f"        sub [{' '.join(sorted(kept_preds))}] {cycle_base}' by {relevant[entry_y]};"
                         )
-                    for fpt in _fwd_pair_bk_targets(cycle_base, entry_y):
+                    for fwd_pair_variant in _fwd_pair_bk_targets(cycle_base, entry_y):
                         for tok in excl_tokens:
-                            lines.append(f"        ignore sub @exit_y{entry_y} {fpt}' {tok};")
-                        _emit_fpt_revert(
-                            fpt,
+                            lines.append(f"        ignore sub @exit_y{entry_y} {fwd_pair_variant}' {tok};")
+                        _emit_fwd_pair_variant_revert(
+                            fwd_pair_variant,
                             relevant[entry_y],
                             member_set=set(exit_classes.get(entry_y, set())),
                             member_list_token=f"@exit_y{entry_y}",
@@ -5936,8 +5940,8 @@ def _emit_quikscript_calt(analysis: _JoinAnalysis) -> str | None:
             lines.extend(_format_post_liga_cleanup_rules(post_liga_cleanup_rules))
             lines.append("    } calt_post_liga_cleanup;")
 
-        # `calt_post_reflip_bk_*` re-fires a follower's backward substitution after a predecessor that reached a `restore_isolated_form_overrides` isolated form after the follower's backward lookups ran, but it names only the bare follower. A ligature led by that follower needs the same re-fire, and it must run before the ligature's `noentry_after` lookup claims it, so that `qsIt.en-y5.ex-y0 qsDay_qsEat` takes `qsDay_qsEat.half.en-y0.ex-y0` as `qsIt.en-y5.ex-y0 qsDay` takes `qsDay.half.en-y0.ex-y0`.
-        lig_reflip_rules: dict[str, set[tuple[str, str]]] = {}
+        # `calt_post_restore_bk_*` re-fires a follower's backward substitution after a predecessor that reached a `restore_isolated_form_overrides` isolated form after the follower's backward lookups ran, but it names only the bare follower. A ligature led by that follower needs the same re-fire, and it must run before the ligature's `noentry_after` lookup claims it, so that `qsIt.en-y5.ex-y0 qsDay_qsEat` takes `qsDay_qsEat.half.en-y0.ex-y0` as `qsIt.en-y5.ex-y0 qsDay` takes `qsDay.half.en-y0.ex-y0`.
+        lig_restore_rules: dict[str, set[tuple[str, str]]] = {}
         for _prior, _target_base, follower_base, isolated_form in plan.restore_isolated_form_overrides:
             isolated_meta = glyph_meta.get(isolated_form)
             if isolated_form not in glyph_names or isolated_meta is None:
@@ -5947,14 +5951,14 @@ def _emit_quikscript_calt(analysis: _JoinAnalysis) -> str | None:
                 for exit_y in sorted(set(isolated_meta.exit_ys)):
                     replacement = lig_bk.get(exit_y)
                     if replacement and replacement != lig_name and replacement in glyph_names:
-                        lig_reflip_rules.setdefault(lig_name, set()).add((isolated_form, replacement))
-        for lig_name in sorted(lig_reflip_rules):
+                        lig_restore_rules.setdefault(lig_name, set()).add((isolated_form, replacement))
+        for lig_name in sorted(lig_restore_rules):
             safe = lig_name.replace(".", "_").replace("-", "_")
             lines.append("")
-            lines.append(f"    lookup calt_post_liga_reflip_bk_{safe} {{")
-            for isolated_form, replacement in sorted(lig_reflip_rules[lig_name]):
+            lines.append(f"    lookup calt_post_liga_restore_bk_{safe} {{")
+            for isolated_form, replacement in sorted(lig_restore_rules[lig_name]):
                 lines.append(f"        sub {isolated_form} {lig_name}' by {replacement};")
-            lines.append(f"    }} calt_post_liga_reflip_bk_{safe};")
+            lines.append(f"    }} calt_post_liga_restore_bk_{safe};")
 
         # One lookup per variant. In a GSUB type-6 lookup, an `ignore` rule that matches at a position stops every later subtable of that lookup there, so if variants shared a lookup, one variant's `not_before` ignore could block another variant's substitution.
         for base_name, variant_name, after_glyphs in post_liga_rules:
@@ -6019,7 +6023,7 @@ def _emit_quikscript_calt(analysis: _JoinAnalysis) -> str | None:
         for base_name in sorted(lig_fwd_bases):
             _emit_fwd(base_name)
 
-    # Register a re-flip for every `restore_isolated_form_overrides` entry. These are cases the check in `_record_pair_guard_reflip` (the isolated form's exit Y must meet the follower's plain entry Y) would reject. For ·It before ·No (e.g. qsJay qsIt qsNo), that check sees qsNo's plain entry at the x-height and rejects qsIt.ex-y0, but the post-reflip follower backward lookup re-fires qsNo.alt anyway.
+    # Register an isolated restore for every `restore_isolated_form_overrides` entry. These are cases the check in `_record_pair_guard_restore` (the isolated form's exit Y must meet the follower's plain entry Y) would reject. For ·It before ·No (e.g. qsJay qsIt qsNo), that check sees qsNo's plain entry at the x-height and rejects qsIt.ex-y0, but the post-restore follower backward lookup re-fires qsNo.alt anyway.
     for prior_base, target_base, follower_base, isolated_form in plan.restore_isolated_form_overrides:
         if isolated_form not in glyph_names:
             continue
@@ -6030,14 +6034,14 @@ def _emit_quikscript_calt(analysis: _JoinAnalysis) -> str | None:
         target_fwd = fwd_replacements.get(target_base, {})
         if not target_fwd:
             continue
-        # The stance to replace is a forward replacement at an exit Y the isolated form doesn't have: the stance the follower's default entry selected for the target. Limiting pre_stances to these keeps the rules from covering every stance of the target.
-        pre_stances: set[str] = set()
+        # The stance to replace is a forward replacement at an exit Y the isolated form doesn't have: the stance the follower's default entry selected for the target. Limiting stances_to_restore to these keeps the rules from covering every stance of the target.
+        stances_to_restore: set[str] = set()
         for fwd_exit_y, fwd_variant in target_fwd.items():
             if fwd_exit_y in isolated_exit_ys:
                 continue
             if fwd_variant in glyph_names and fwd_variant != isolated_form:
-                pre_stances.add(fwd_variant)
-        if not pre_stances:
+                stances_to_restore.add(fwd_variant)
+        if not stances_to_restore:
             continue
         prior_slot = frozenset(_fwd_pair_source_slot(prior_base) & glyph_names)
         if not prior_slot:
@@ -6045,37 +6049,37 @@ def _emit_quikscript_calt(analysis: _JoinAnalysis) -> str | None:
         follower_variants = sorted(base_to_variants.get(follower_base, set()) & glyph_names)
         if not follower_variants:
             continue
-        bucket = pair_guard_reflip.setdefault(target_base, [])
-        for pre_stance in sorted(pre_stances):
+        bucket = pair_guard_restore.setdefault(target_base, [])
+        for stance_to_restore in sorted(stances_to_restore):
             for follower_variant in follower_variants:
-                entry = (prior_slot, pre_stance, follower_variant, isolated_form)
+                entry = (prior_slot, stance_to_restore, follower_variant, isolated_form)
                 if entry not in bucket:
                     bucket.append(entry)
 
-    # Emit the re-flips recorded in `pair_guard_reflip`. Each rule changes the candidate's stance back to its isolated form in the (prior_slot, candidate, follower) context of the guard or override that caused it. These lookups come after the `calt_fwd_*` lookups, which produce the stance being replaced, and after the backward lookups that emitted the guards.
-    for candidate_base in sorted(pair_guard_reflip):
-        rules = pair_guard_reflip[candidate_base]
-        reflip_seen: set[tuple[frozenset[str], str, str, str]] = set()
-        reflip_unique: list[tuple[frozenset[str], str, str, str]] = []
+    # Emit the isolated restores recorded in `pair_guard_restore`. Each rule changes the candidate's stance back to its isolated form in the (prior_slot, candidate, follower) context of the guard or override that caused it. These lookups come after the `calt_fwd_*` lookups, which produce the stance being replaced, and after the backward lookups that emitted the guards.
+    for candidate_base in sorted(pair_guard_restore):
+        rules = pair_guard_restore[candidate_base]
+        restore_seen: set[tuple[frozenset[str], str, str, str]] = set()
+        restore_unique: list[tuple[frozenset[str], str, str, str]] = []
         for entry in rules:
-            if entry in reflip_seen:
+            if entry in restore_seen:
                 continue
-            reflip_seen.add(entry)
-            reflip_unique.append(entry)
-        if not reflip_unique:
+            restore_seen.add(entry)
+            restore_unique.append(entry)
+        if not restore_unique:
             continue
         safe = candidate_base.replace(".", "_").replace("-", "_")
         lines.append("")
-        lines.append(f"    lookup calt_pair_guard_reflip_{safe} {{")
-        for prior_slot, pre_stance, base_name, isolated_form in sorted(
-            reflip_unique,
+        lines.append(f"    lookup calt_pair_guard_restore_{safe} {{")
+        for prior_slot, stance_to_restore, base_name, isolated_form in sorted(
+            restore_unique,
             key=lambda item: (item[2], item[1], item[3], sorted(item[0])),
         ):
             prior_list = " ".join(sorted(prior_slot))
-            lines.append(f"        sub [{prior_list}] {pre_stance}' {base_name} by {isolated_form};")
-        lines.append(f"    }} calt_pair_guard_reflip_{safe};")
+            lines.append(f"        sub [{prior_list}] {stance_to_restore}' {base_name} by {isolated_form};")
+        lines.append(f"    }} calt_pair_guard_restore_{safe};")
 
-    # Re-apply each forward replacement's `extend_exit_before` refinement, keyed only on the follower. A forward reselection (`calt_fwd_*`) or a pair-guard re-flip can move a glyph onto its bare baseline-exit forward replacement after the earlier `extend_exit_before` lookups ran on its previous stance, which loses the connecting pixel (e.g. `qsIt.en-y0.ex-y5 -> qsIt.ex-y0` before qsI, when ·It's predecessor joins it backward and the follower then reselects it). These lookups run before `calt_pred_demote_*`, so a predecessor that joined the extended glyph still demotes, because its trigger list includes the `.ex-ext-N` variants. A glyph already on its extended stance doesn't match the bare `variant'` input, so the extension cannot apply twice.
+    # Re-apply each forward replacement's `extend_exit_before` refinement, keyed only on the follower. A forward reselection (`calt_fwd_*`) or a pair-guard isolated restore can move a glyph onto its bare baseline-exit forward replacement after the earlier `extend_exit_before` lookups ran on its previous stance, which loses the connecting pixel (e.g. `qsIt.en-y0.ex-y5 -> qsIt.ex-y0` before qsI, when ·It's predecessor joins it backward and the follower then reselects it). These lookups run before `calt_pred_demote_*`, so a predecessor that joined the extended glyph still demotes, because its trigger list includes the `.ex-ext-N` variants. A glyph already on its extended stance doesn't match the bare `variant'` input, so the extension cannot apply twice.
     for base in sorted(fwd_replacements):
         ext_rules: list[tuple[str, str, str]] = []
         ext_seen: set[tuple[str, str, str]] = set()
@@ -6093,13 +6097,13 @@ def _emit_quikscript_calt(analysis: _JoinAnalysis) -> str | None:
             continue
         safe = base.replace(".", "_").replace("-", "_")
         lines.append("")
-        lines.append(f"    lookup calt_post_reflip_ext_{safe} {{")
+        lines.append(f"    lookup calt_post_restore_ext_{safe} {{")
         for variant, trigger_list, extended_var in ext_rules:
             lines.append(f"        sub {variant}' [{trigger_list}] by {extended_var};")
-        lines.append(f"    }} calt_post_reflip_ext_{safe};")
+        lines.append(f"    }} calt_post_restore_ext_{safe};")
 
-    # For each `restore_isolated_form_overrides` entry whose isolated form has an exit at Y, the re-flip runs after the follower's backward lookups, which therefore missed `bk_replacements[follower][Y]`. Re-fire that substitution after the isolated form, with the same `not_before` ignore rules and entry-strip guards the earlier backward lookups use.
-    post_reflip_emissions: dict[str, dict[tuple[int, str], set[str]]] = {}
+    # For each `restore_isolated_form_overrides` entry whose isolated form has an exit at Y, the isolated restore runs after the follower's backward lookups, which therefore missed `bk_replacements[follower][Y]`. Re-fire that substitution after the isolated form, with the same `not_before` ignore rules and entry-strip guards the earlier backward lookups use.
+    post_restore_emissions: dict[str, dict[tuple[int, str], set[str]]] = {}
     for _prior, _target_base, follower_base, isolated_form in plan.restore_isolated_form_overrides:
         if isolated_form not in glyph_names:
             continue
@@ -6115,14 +6119,14 @@ def _emit_quikscript_calt(analysis: _JoinAnalysis) -> str | None:
                 continue
             if replacement not in glyph_names:
                 continue
-            post_reflip_emissions.setdefault(follower_base, {}).setdefault((exit_y, replacement), set()).add(
+            post_restore_emissions.setdefault(follower_base, {}).setdefault((exit_y, replacement), set()).add(
                 isolated_form
             )
-    for follower_base in sorted(post_reflip_emissions):
+    for follower_base in sorted(post_restore_emissions):
         safe = follower_base.replace(".", "_").replace("-", "_")
         lines.append("")
-        lines.append(f"    lookup calt_post_reflip_bk_{safe} {{")
-        for (entry_y, replacement), isolated_forms in sorted(post_reflip_emissions[follower_base].items()):
+        lines.append(f"    lookup calt_post_restore_bk_{safe} {{")
+        for (entry_y, replacement), isolated_forms in sorted(post_restore_emissions[follower_base].items()):
             sorted_iso_forms = sorted(isolated_forms)
             prior_token = (
                 sorted_iso_forms[0] if len(sorted_iso_forms) == 1 else "[" + " ".join(sorted_iso_forms) + "]"
@@ -6137,7 +6141,7 @@ def _emit_quikscript_calt(analysis: _JoinAnalysis) -> str | None:
                 left_context=prior_token,
             )
             lines.append(f"        sub {prior_token} {follower_base}' by {replacement};")
-        lines.append(f"    }} calt_post_reflip_bk_{safe};")
+        lines.append(f"    }} calt_post_restore_bk_{safe};")
 
     if cycle_bases:
         for cycle_base in sorted(cycle_bases):
@@ -6538,26 +6542,26 @@ def _emit_quikscript_calt(analysis: _JoinAnalysis) -> str | None:
             if any(a[1] == target_y for a in (*_meta(g).entry, *_meta(g).entry_curs_only))
         )
 
-    # `extend_exit_when_entered`: lengthen the exit of a backward-entry-upgrade stance toward the receivers at its exit Y, only after the predecessor that gave it its entry join. The carrier and its entry-extension siblings appear only after that join (word-initial and non-baseline contexts settle on the bare base), so these lookups match them with no backtrack and never reach the bare stance. They come after the successor demotes and `calt_final_pred_demote_*`, so they see whichever entry-side stance the predecessor produced (plain or en-ext-1).
+    # `extend_exit_when_entered`: lengthen the exit of a backward-entry-upgrade stance toward the receivers at its exit Y, only after the predecessor that gave it its entry join. The extending stance and its entry-extension siblings appear only after that join (word-initial and non-baseline contexts settle on the bare base), so these lookups match them with no backtrack and never reach the bare stance. They come after the successor demotes and `calt_final_pred_demote_*`, so they see whichever entry-side stance the predecessor produced (plain or en-ext-1).
     receivers_by_exit_y: dict[int, str] = {}
-    for carrier in sorted(n for n in glyph_names if _meta(n).extend_exit_when_entered):
-        carrier_meta = _meta(carrier)
-        by = carrier_meta.extend_exit_when_entered
+    for extending_stance in sorted(n for n in glyph_names if _meta(n).extend_exit_when_entered):
+        extending_stance_meta = _meta(extending_stance)
+        by = extending_stance_meta.extend_exit_when_entered
         if by is None:
             continue
         suffix_word = _EXIT_EXTENSION_WORD_BY_COUNT.get(by)
         if suffix_word is None:
             continue
-        carrier_mods = set(carrier_meta.modifiers)
+        extending_stance_mods = set(extending_stance_meta.modifiers)
         when_entered_rules: list[str] = []
-        for variant in sorted(base_to_variants.get(carrier_meta.base_name, ())):
+        for variant in sorted(base_to_variants.get(extending_stance_meta.base_name, ())):
             vm = _meta(variant)
-            # Match the carrier and its entry-side siblings (en-ext-1, …) but not the bare base nor any already exit-modified stance.
+            # Match the extending stance and its entry-side siblings (en-ext-1, …) but not the bare base nor any already exit-modified stance.
             if not vm.entry or not vm.exit or vm.is_noentry:
                 continue
-            if not carrier_mods <= set(vm.modifiers):
+            if not extending_stance_mods <= set(vm.modifiers):
                 continue
-            if any(not extra.startswith("en-") for extra in set(vm.modifiers) - carrier_mods):
+            if any(not extra.startswith("en-") for extra in set(vm.modifiers) - extending_stance_mods):
                 continue
             if vm.extended_exit_suffix or vm.contracted_exit_suffix:
                 continue
@@ -6572,7 +6576,7 @@ def _emit_quikscript_calt(analysis: _JoinAnalysis) -> str | None:
                 if receivers:
                     when_entered_rules.append(f"        sub {variant}' [{receivers}] by {combined};")
         if when_entered_rules:
-            safe = carrier.replace(".", "_").replace("-", "_")
+            safe = extending_stance.replace(".", "_").replace("-", "_")
             lines.append("")
             lines.append(f"    lookup calt_when_entered_{safe} {{")
             lines.extend(when_entered_rules)
