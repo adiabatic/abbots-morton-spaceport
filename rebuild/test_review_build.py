@@ -1,4 +1,4 @@
-"""Tests for the review-app build: the §7 contract checker over rebuild/review/fixtures/ (the same checker `build_m1` runs over its own output), the config-note badge text, the app shell and its scripts, the assets refresh, the shard writer and the fresh spool, the pool records and the pile tally, the shape-memo release, `_write_json`, the triage export, and the table-diff build.
+"""Tests for the review-app build: the §7 contract checker over rebuild/review/fixtures/ (the same checker `build_m1` runs over its own output), the config-note badge text, the app shell and its scripts, the assets refresh, the shard writer and the fresh spool, the pool records and the memory tally, the shape-memo release, `_write_json`, the triage export, and the table-diff build.
 
 No test here reads the live corpus. `build_m1` checks the per-unit and per-shard contracts over every unit it writes and fails the build on any violation, and what the manifest writer computes from its own inputs (the fingerprint, the feature descriptions, the sidebar order) needs no separate check. Two claims about a built corpus are tested elsewhere. The sidecars' byte addressing is tested in `rebuild/test_app_index.py` over a mini build, and the staging in `app_index.write_app_artifacts` and the currency check in `artifact_cycle.corpus_build_skippable` keep a shipped corpus from carrying a sidecar built for other shards. The ink-duplicate merge rests on the checks in `facts.derive_premerge` and on `InkComparator.signature` ignoring glyph names, which `rebuild/test_review_ink.py` tests on the marker font; a count in rebuild/review-facts-pins.json records that the merge ran on the corpus. The shipped ink deltas are covered by the build's verification sample, which re-shapes `VERIFICATION_SAMPLE` served windows on every build.
 """
@@ -57,7 +57,7 @@ from rebuild.review.export import _triage_projection, build_triage, load_units, 
 from rebuild.review.ink import shape_memo_sizes
 from rebuild.review.columns import StringTable, TuplePool
 from rebuild.review.unit_store import UnitStore
-from rebuild.tools import console, pile_tally
+from rebuild.tools import console, memory_tally
 from rebuild.tools.cycle_timings import parse_inner_timings
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
@@ -834,9 +834,9 @@ def test_a_pooled_build_counts_its_units_and_closes_every_phase_it_opens(
 ):
     """Checks what someone watching a multi-minute build learns from it, on the one workload small enough to test: which phase it is in, and how many units its pool has finished. Every `[phase]` line the terminal opens is closed by the `[t] review.build <phase>` line the timings journal reads. The counter is a running sum over the workers' batch replies, one line per batch as it arrives, and the mini workload spreads into several batches across the two workers (`_handout_width`). The count must reach the manifest's unit total, so a batch left unread or a worker the parent stopped reading from fails here.
 
-    Every timing line also carries the parent's peak RSS as the `rss_gb=` token `parse_inner_timings` reads, before the phase's note, so `make cycle-timings ARGS='--inner'` can show which phase reached the step's peak memory. With `AMS_CORPUS_MEMORY_TALLY=1` in the environment the workers inherit, each worker tallies its own piles on stdout at every batch boundary: the projections it is about to return, each with its fragment's spool address and bounded by the hand-out width; the mapped subset pack; and the shape memo, with no enrichment among them. A spawned child's output bypasses the parent's `sys.stdout`, so this test captures at the file-descriptor level. At the parent's boundaries the returned projections are folded into the unit store, which holds a row per unit from the plan boundary on and reports in place of the per-unit piles it replaces, and no pile of enrichments exists.
+    Every timing line also carries the parent's peak RSS as the `rss_gb=` token `parse_inner_timings` reads, before the phase's note, so `make cycle-timings ARGS='--inner'` can show which phase reached the step's peak memory. With `AMS_CORPUS_MEMORY_TALLY=1` in the environment the workers inherit, each worker tallies its own collections on stdout at every batch boundary: the projections it is about to return, each with its fragment's spool address and bounded by the hand-out width; the mapped subset pack; and the shape memo, with no enrichment among them. A spawned child's output bypasses the parent's `sys.stdout`, so this test captures at the file-descriptor level. At the parent's boundaries the returned projections are folded into the unit store, which holds a row per unit from the plan boundary on and reports in place of the per-unit collections it replaces, and no collection of enrichments exists.
     """
-    monkeypatch.setenv(pile_tally.TALLY_ENV, "1")
+    monkeypatch.setenv(memory_tally.TALLY_ENV, "1")
     out = tmp_path / "corpus"
     manifest = review_build.build_m1(
         out,
@@ -894,7 +894,7 @@ def test_a_pooled_build_counts_its_units_and_closes_every_phase_it_opens(
         assert 0 < after_batch["worker.projections"] <= width
         assert after_batch["worker.subset_pack"] > 0 and "ink.shape_memo" in after_batch
     assert sum(tallies[name]["worker.projections"] for name in boundaries) == total
-    assert not _enrichment_piles(tallies)
+    assert not _enrichment_collections(tallies)
     parent_only = _tally_lines(captured.out, parent=True)
     assert list(parent_only) == ["load", "plan", "units", "manifest+check", "review-facts", "cache"]
     assert parent_only["load"]["signatures"] > 0
@@ -902,7 +902,7 @@ def test_a_pooled_build_counts_its_units_and_closes_every_phase_it_opens(
         assert "signatures" not in parent_only[boundary]
         assert parent_only[boundary]["unit_store"] == total
     assert parent_only["units"]["runner.subset_pack"] == 0
-    assert not _subsumed_piles(parent_only)
+    assert not _subsumed_collections(parent_only)
 
 
 def test_the_pool_is_handed_the_pile_in_configuration_order(mini_bundle):
@@ -923,7 +923,7 @@ def test_the_window_keyed_signatures_die_where_the_ink_duplicate_merge_returns(
     tmp_path, mini_bundle, monkeypatch
 ):
     """The window-keyed digest table `_resolve_signature_digests` returns is read only by the ink-duplicate merge, so it must be alive when the merge is called and collected before the plan phase keys a unit. The build runs with the tally on, so the test also fails if the tally's load-boundary reading keeps a reference to the table. The store records share the digest strings and are released by the store write that opens the units phase; `test_the_signature_store_records_die_where_the_store_is_written` below checks that on both paths, and `test_the_signature_write_holds_no_entries_once_the_store_is_written` in rebuild/test_unit_cache.py checks the writer thread's release. This test covers the keyed table: its tuple keys and its container."""
-    monkeypatch.setenv(pile_tally.TALLY_ENV, "1")
+    monkeypatch.setenv(memory_tally.TALLY_ENV, "1")
     resolve = review_build._resolve_signature_digests
     merge = review_build.merge_ink_duplicate_units
     release = review_build.release_rows
@@ -967,7 +967,7 @@ def test_the_window_keyed_signatures_die_where_the_ink_duplicate_merge_returns(
 @pytest.mark.parametrize("jobs", [1, 2])
 def test_the_signature_store_records_die_where_the_store_is_written(tmp_path, mini_bundle, monkeypatch, jobs):
     """The store records `_resolve_signature_digests` returns are held through the plan phase and released by the store write that opens the units phase. A serial build writes inline and has released them before `_FreshRunner.phase1` drafts a unit; a pooled build's `_SignatureWrite` thread has released them by the time its `join` returns. The test watches a weakref to the returned dict, not a `_SignatureWrite` attribute, so it fails if `build_m1` keeps its own reference on either path or if the tally holds them; the tally is on for that reason, as in the test above."""
-    monkeypatch.setenv(pile_tally.TALLY_ENV, "1")
+    monkeypatch.setenv(memory_tally.TALLY_ENV, "1")
     resolve = review_build._resolve_signature_digests
     release = review_build.release_rows
     phase1 = review_build._FreshRunner.phase1
@@ -1019,25 +1019,25 @@ def test_the_signature_store_records_die_where_the_store_is_written(tmp_path, mi
 
 
 _SIGNATURE_NOTE = r"\(signatures: \d[\d,]* cached, \d[\d,]* shaped(?: serially| across \d+ workers)?\)"
-_TALLY_PILE = re.compile(
+_TALLY_COLLECTION = re.compile(
     r"^\[tally\] (\S+) (\S+) count=(\d+) est_bytes=(\d+) est_gb=\d+\.\d\d"
     r"( packed_bytes=(\d+) packed_per=\d+\.\d walked_per=\d+\.\d ratio=(?:\d+\.\d\d|-) strings=\d+ string_bytes=\d+)?$"
 )
 _TALLY_LARGEST = re.compile(r"^\[tally\] (\S+) largest=(\S+)$")
 
 
-def _enrichment_piles(tallies: dict[str, dict[str, int]]) -> list[str]:
-    """Return every pile in `tallies` whose name marks it as holding enrichments. There should be none, because no process keeps an EnrichedUnit past the batch that drafted its fragment."""
+def _enrichment_collections(tallies: dict[str, dict[str, int]]) -> list[str]:
+    """Return every collection in `tallies` whose name marks it as holding enrichments. There should be none, because no process keeps an EnrichedUnit past the batch that drafted its fragment."""
     return sorted(
-        f"{boundary}/{pile}"
-        for boundary, piles in tallies.items()
-        for pile in piles
-        if "retained" in pile or "emitted" in pile or "enriched" in pile
+        f"{boundary}/{collection}"
+        for boundary, collections in tallies.items()
+        for collection in collections
+        if "retained" in collection or "emitted" in collection or "enriched" in collection
     )
 
 
-# The per-unit pile names the packed unit store replaces. The store is the only place those records are kept, so none of these may print at any boundary.
-_SUBSUMED_PILES = frozenset(
+# The per-unit collection names the packed unit store replaces. The store is the only place those records are kept, so none of these may print at any boundary.
+_SUBSUMED_COLLECTIONS = frozenset(
     {
         "states",
         "runner.spooled",
@@ -1053,24 +1053,24 @@ _SUBSUMED_PILES = frozenset(
 )
 
 
-def _subsumed_piles(tallies: dict[str, dict[str, int]]) -> list[str]:
-    """Return every pile in `tallies` that the unit store replaces; a tally must print none of them."""
+def _subsumed_collections(tallies: dict[str, dict[str, int]]) -> list[str]:
+    """Return every collection in `tallies` that the unit store replaces; a tally must print none of them."""
     return sorted(
-        f"{boundary}/{pile}"
-        for boundary, piles in tallies.items()
-        for pile in piles
-        if pile in _SUBSUMED_PILES
+        f"{boundary}/{collection}"
+        for boundary, collections in tallies.items()
+        for collection in collections
+        if collection in _SUBSUMED_COLLECTIONS
     )
 
 
 def _store_lines_are_exact(
-    text: str, pile: str = "unit_store", *, holds_table: bool = False
+    text: str, collection: str = "unit_store", *, holds_table: bool = False
 ) -> dict[str, bool]:
-    """Return, per boundary, whether the named pile's tally line is exact: its walked figure (`est_bytes`) equals its `packed_bytes`, plus `string_bytes` on the one line that holds the shared string table (`holds_table`, the workload table's). This applies to the piles that report their own columns: the workload table (`workload.units`), the unit store, the audit's row columns (`workload.rows`), and the pre-merge snapshot (`facts.premerge`). All four index one string table, which `pile_tally` prints beside each line rather than inside `packed_bytes`. The test compares these figures rather than the printed ratio, which on the table-holding line is `1.00` on the corpus but a few hundredths higher on the mini bundle."""
+    """Return, per boundary, whether the named collection's tally line is exact: its walked figure (`est_bytes`) equals its `packed_bytes`, plus `string_bytes` on the one line that holds the shared string table (`holds_table`, the workload table's). This applies to the collections that report their own columns: the workload table (`workload.units`), the unit store, the audit's row columns (`workload.rows`), and the pre-merge snapshot (`facts.premerge`). All four index one string table, which `memory_tally` prints beside each line rather than inside `packed_bytes`. The test compares these figures rather than the printed ratio, which on the table-holding line is `1.00` on the corpus but a few hundredths higher on the mini bundle."""
     exact: dict[str, bool] = {}
     for line in text.splitlines():
         match = re.match(
-            rf"^\[tally\] (\S+) {re.escape(pile)} .* est_bytes=(\d+) .* packed_bytes=(\d+) .* string_bytes=(\d+)$",
+            rf"^\[tally\] (\S+) {re.escape(collection)} .* est_bytes=(\d+) .* packed_bytes=(\d+) .* string_bytes=(\d+)$",
             line,
         )
         if match:
@@ -1080,44 +1080,44 @@ def _store_lines_are_exact(
 
 
 def _tally_lines(text: str, parent: bool = False) -> dict[str, dict[str, int]]:
-    """Parse every `[tally]` boundary in `text` into {boundary: {pile: count}}, in first-seen order, checking that each boundary's `largest=` line names the first pile its count lines list and that those lines are sorted largest first, which covers the whole format rebuild/tools/pile_tally.py documents. With `parent`, keep only the parent's boundaries, whose names have no worker prefix."""
+    """Parse every `[tally]` boundary in `text` into {boundary: {collection: count}}, in first-seen order, checking that each boundary's `largest=` line names the first collection its count lines list and that those lines are sorted largest first, which covers the whole format rebuild/tools/memory_tally.py documents. With `parent`, keep only the parent's boundaries, whose names have no worker prefix."""
     boundaries: dict[str, dict[str, int]] = {}
     sizes: dict[str, list[int]] = {}
     for line in text.splitlines():
-        pile = _TALLY_PILE.match(line)
-        if pile:
-            boundaries.setdefault(pile.group(1), {})[pile.group(2)] = int(pile.group(3))
-            sizes.setdefault(pile.group(1), []).append(int(pile.group(4)))
+        collection = _TALLY_COLLECTION.match(line)
+        if collection:
+            boundaries.setdefault(collection.group(1), {})[collection.group(2)] = int(collection.group(3))
+            sizes.setdefault(collection.group(1), []).append(int(collection.group(4)))
             continue
         largest = _TALLY_LARGEST.match(line)
         if largest:
-            piles = boundaries.setdefault(largest.group(1), {})
-            expected = next(iter(piles)) if piles else "-"
+            collections = boundaries.setdefault(largest.group(1), {})
+            expected = next(iter(collections)) if collections else "-"
             assert largest.group(2) == expected, line
             assert sizes.get(largest.group(1), []) == sorted(sizes.get(largest.group(1), []), reverse=True)
         else:
             assert not line.startswith("[tally]"), line
     if parent:
-        return {name: piles for name, piles in boundaries.items() if "/" not in name}
+        return {name: collections for name, collections in boundaries.items() if "/" not in name}
     return boundaries
 
 
-def _packed_piles(text: str) -> dict[str, dict[str, int]]:
-    """Map every boundary in `text` to {pile: packed_bytes} over the piles whose line carries the packed tokens, so a test can tell which piles declare a packed shape, which print the plain line, and what the declared shape estimated. A pile with a declared shape prints the tokens at every count, zero included."""
+def _packed_collections(text: str) -> dict[str, dict[str, int]]:
+    """Map every boundary in `text` to {collection: packed_bytes} over the collections whose line carries the packed tokens, so a test can tell which collections declare a packed shape, which print the plain line, and what the declared shape estimated. A collection with a declared shape prints the tokens at every count, zero included."""
     packed: dict[str, dict[str, int]] = {}
     for line in text.splitlines():
-        pile = _TALLY_PILE.match(line)
-        if pile:
-            boundary = packed.setdefault(pile.group(1), {})
-            if pile.group(5):
-                boundary[pile.group(2)] = int(pile.group(6))
+        collection = _TALLY_COLLECTION.match(line)
+        if collection:
+            boundary = packed.setdefault(collection.group(1), {})
+            if collection.group(5):
+                boundary[collection.group(2)] = int(collection.group(6))
     return packed
 
 
-def test_a_serial_build_tallies_its_piles_at_every_phase_boundary_and_writes_the_same_bytes(
+def test_a_serial_build_tallies_its_collections_at_every_phase_boundary_and_writes_the_same_bytes(
     tmp_path, mini_bundle, capsys, monkeypatch
 ):
-    """The tally only reports and changes no output. With `AMS_CORPUS_MEMORY_TALLY=1` a serial build prints one boundary per phase on stdout, listing the piles the parent holds and their counts. The workload table has a row per unit at every boundary, its line is exact in the same way as the store's (packed columns and pools plus the string table), and it shrinks at the units boundary when the name tuples leave it. The audit's row columns are exact, full at load, and empty once the content keys have read them. The pre-merge snapshot has a row per pre-merge unit. The packed unit store has a row per unit from the plan boundary on, is exact, and prints in place of every per-unit pile it replaces. The checker's identity pile has an entry for every unit written. The cache boundary has no pile of store records, because the store is written record by record, and no boundary has a pile of enrichments. The shards and manifest are byte-identical to those the same build writes with the variable unset."""
+    """The tally only reports and changes no output. With `AMS_CORPUS_MEMORY_TALLY=1` a serial build prints one boundary per phase on stdout, listing the collections the parent holds and their counts. The workload table has a row per unit at every boundary, its line is exact in the same way as the store's (packed columns and pools plus the string table), and it shrinks at the units boundary when the name tuples leave it. The audit's row columns are exact, full at load, and empty once the content keys have read them. The pre-merge snapshot has a row per pre-merge unit. The packed unit store has a row per unit from the plan boundary on, is exact, and prints in place of every per-unit collection it replaces. The checker's identity collection has an entry for every unit written. The cache boundary has no collection of store records, because the store is written record by record, and no boundary has a collection of enrichments. The shards and manifest are byte-identical to those the same build writes with the variable unset."""
 
     def build(out: Path) -> dict:
         return review_build.build_m1(
@@ -1131,12 +1131,12 @@ def test_a_serial_build_tallies_its_piles_at_every_phase_boundary_and_writes_the
             fresh_unit_cache=True,
         )
 
-    monkeypatch.delenv(pile_tally.TALLY_ENV, raising=False)
+    monkeypatch.delenv(memory_tally.TALLY_ENV, raising=False)
     silent = tmp_path / "silent"
     build(silent)
     assert "[tally]" not in capsys.readouterr().out
 
-    monkeypatch.setenv(pile_tally.TALLY_ENV, "1")
+    monkeypatch.setenv(memory_tally.TALLY_ENV, "1")
     tallied = tmp_path / "tallied"
     manifest = build(tallied)
     captured = capsys.readouterr()
@@ -1161,15 +1161,15 @@ def test_a_serial_build_tallies_its_piles_at_every_phase_boundary_and_writes_the
     assert "unit_cache.records" not in tallies["cache"]
     for name in tallies:
         assert "/" not in name
-    assert not _enrichment_piles(tallies)
-    assert not _subsumed_piles(tallies)
+    assert not _enrichment_collections(tallies)
+    assert not _subsumed_collections(tallies)
     assert "[tally]" not in captured.err
-    packed = _packed_piles(captured.out)
+    packed = _packed_collections(captured.out)
     assert packed["load"].keys() >= {"workload.units", "workload.rows"}
     assert packed["plan"].keys() >= {"unit_cache.keys", "unit_cache.unplaced", "unit_store"}
     assert packed["units"].keys() >= {"workload.units", "unit_store"}
     assert packed["cache"].keys() >= {"unit_store", "checker.identity"}
-    assert min(packed["units"][pile] for pile in ("workload.units", "unit_store")) > 0
+    assert min(packed["units"][collection] for collection in ("workload.units", "unit_store")) > 0
     assert _store_lines_are_exact(captured.out) == {
         boundary: True for boundary in ("plan", "units", "manifest+check", "review-facts", "cache")
     }
@@ -1188,8 +1188,8 @@ def test_a_serial_build_tallies_its_piles_at_every_phase_boundary_and_writes_the
         > packed["units"]["workload.units"]
     )
     assert packed["units"]["workload.units"] == packed["cache"]["workload.units"] > 0
-    for boundary, piles in packed.items():
-        assert not piles.keys() & {
+    for boundary, collections in packed.items():
+        assert not collections.keys() & {
             "verified",
             "signatures",
             "ink.shape_memo",
@@ -1225,16 +1225,16 @@ def _strip_addresses(corpus: Path) -> None:
         stream.write("\n".join(edited) + "\n")
 
 
-def test_a_served_rebuild_holds_no_pile_of_the_records_the_cache_handed_it(
+def test_a_served_rebuild_holds_no_collection_of_the_records_the_cache_handed_it(
     tmp_path, mini_bundle, capsys, monkeypatch
 ):
     """A rebuild over the first build's corpus serves every unit from the store, and the plan boundary holds none of the served records, because each is folded into the unit store as the stream yields it. `unit_cache.named` never prints, and `unit_cache.unplaced` (records still waiting for the walk) is empty, since every record in a store this code wrote has an address. The unit store, filled row by row, reports exactly over the whole workload."""
-    monkeypatch.delenv(pile_tally.TALLY_ENV, raising=False)
+    monkeypatch.delenv(memory_tally.TALLY_ENV, raising=False)
     corpus = tmp_path / "corpus"
     _served_build(corpus, mini_bundle)
     capsys.readouterr()
 
-    monkeypatch.setenv(pile_tally.TALLY_ENV, "1")
+    monkeypatch.setenv(memory_tally.TALLY_ENV, "1")
     manifest = _served_build(corpus, mini_bundle)
     captured = capsys.readouterr()
     total = manifest["totals"]["units"]
@@ -1242,8 +1242,8 @@ def test_a_served_rebuild_holds_no_pile_of_the_records_the_cache_handed_it(
     tallies = _tally_lines(captured.out)
     assert tallies["plan"]["unit_cache.unplaced"] == 0
     assert tallies["plan"]["unit_store"] == total
-    assert not _subsumed_piles(tallies)
-    packed = _packed_piles(captured.out)
+    assert not _subsumed_collections(tallies)
+    packed = _packed_collections(captured.out)
     assert "unit_cache.unplaced" in packed["plan"]
     assert packed["plan"]["unit_store"] > 0
     assert _store_lines_are_exact(captured.out)["plan"]
@@ -1252,14 +1252,14 @@ def test_a_served_rebuild_holds_no_pile_of_the_records_the_cache_handed_it(
 def test_a_served_rebuild_prices_the_records_the_walk_has_to_place(
     tmp_path, mini_bundle, capsys, monkeypatch
 ):
-    """The records a served plan buffers are measured whenever there are any. In a store written before addresses were recorded, every record waits for the walk, so the plan boundary estimates one record per unit under `unit_cache.unplaced`, by the declared shape and above zero, which shows the pile is estimated and not only declared. Every unit is still served."""
-    monkeypatch.delenv(pile_tally.TALLY_ENV, raising=False)
+    """The records a served plan buffers are measured whenever there are any. In a store written before addresses were recorded, every record waits for the walk, so the plan boundary estimates one record per unit under `unit_cache.unplaced`, by the declared shape and above zero, which shows the collection is estimated and not only declared. Every unit is still served."""
+    monkeypatch.delenv(memory_tally.TALLY_ENV, raising=False)
     corpus = tmp_path / "corpus"
     _served_build(corpus, mini_bundle)
     _strip_addresses(corpus)
     capsys.readouterr()
 
-    monkeypatch.setenv(pile_tally.TALLY_ENV, "1")
+    monkeypatch.setenv(memory_tally.TALLY_ENV, "1")
     manifest = _served_build(corpus, mini_bundle)
     captured = capsys.readouterr()
     total = manifest["totals"]["units"]
@@ -1267,8 +1267,8 @@ def test_a_served_rebuild_prices_the_records_the_walk_has_to_place(
     tallies = _tally_lines(captured.out)
     assert tallies["plan"]["unit_cache.unplaced"] == total
     assert tallies["plan"]["unit_store"] == total
-    assert not _subsumed_piles(tallies)
-    packed = _packed_piles(captured.out)
+    assert not _subsumed_collections(tallies)
+    packed = _packed_collections(captured.out)
     assert packed["plan"]["unit_cache.unplaced"] > 0
 
 
@@ -1452,8 +1452,8 @@ def test_a_pool_worker_releases_the_shape_memo_behind_each_batch(mini_bundle, mo
 def test_a_pool_worker_holds_one_batch_of_projections_and_addresses(
     mini_bundle, monkeypatch, tmp_path, capfd
 ):
-    """Checks, on the fixture, the pile-tally reading behind `CORPUS_WORKER_BYTES`: with `AMS_CORPUS_MEMORY_TALLY=1` the worker tallies a `w0/phase1-<n>` boundary per batch, and at each one `worker.projections` counts only the batch it was given, because projections are released after the reply. The mapped subset pack and the shape memo appear beside it, and no enrichment appears."""
-    monkeypatch.setenv(pile_tally.TALLY_ENV, "1")
+    """Checks, on the fixture, the memory-tally reading behind `CORPUS_WORKER_BYTES`: with `AMS_CORPUS_MEMORY_TALLY=1` the worker tallies a `w0/phase1-<n>` boundary per batch, and at each one `worker.projections` counts only the batch it was given, because projections are released after the reply. The mapped subset pack and the shape memo appear beside it, and no enrichment appears."""
+    monkeypatch.setenv(memory_tally.TALLY_ENV, "1")
     chunks = _two_chunks(mini_bundle)
     replies = _drive_worker_in_thread(mini_bundle, tmp_path, chunks)
     assert [reply[0] for reply in replies] == ["batch", "batch", "ok", "peak"]
@@ -1462,8 +1462,8 @@ def test_a_pool_worker_holds_one_batch_of_projections_and_addresses(
     for chunk, name in zip(chunks, tallies, strict=True):
         assert tallies[name]["worker.projections"] == len(chunk)
         assert tallies[name]["worker.subset_pack"] > 0 and "ink.shape_memo" in tallies[name]
-    assert not _enrichment_piles(tallies)
-    assert not _subsumed_piles(tallies)
+    assert not _enrichment_collections(tallies)
+    assert not _subsumed_collections(tallies)
 
 
 @pytest.mark.parametrize(

@@ -27,7 +27,7 @@ EXPANDED_DIRS = (REVIEW_DIR, PIPELINE_DIR, VALIDATION_DIR)
 
 BUILD_ENTRY_MODULES = ("rebuild.review.build",)
 SIGNATURE_ENTRY_MODULES = ("rebuild.review.ink",)
-# The modules the build reaches under rebuild/tools, and the only ones it may reach. The fan-out width: `artifact_cycle.corpus_job_budget`, and `memory_budget` under it and under kernel_exec's own width. The cost and progress readings: `peak_rss`, the `cycle_timings` pool record, the `console` phase and progress lines the cycle reads back, and the `pile_tally` debug tally, which a build prints only when its environment sets `AMS_CORPUS_MEMORY_TALLY`. Two leaf modules the fingerprints read: `site_fonts`, the two site font paths, a leaf so the root conftest can name the fonts without importing the pipeline (the build shapes with its own `SITE_BEFORE_FONT` and `SITE_JUNIOR_FONT`, and the manifest's `fonts` component hashes the fonts at the named paths, so a changed path changes the manifest stamp, not a unit's output); and `lock_digest`, the `uv.lock` digest, a leaf because the pyright gate, which the root conftest imports, hashes the lock with it, and read by no stamp of the corpus's stores. None of these can change a unit's output (rebuild/test_unit_cache.py's check that serial and parallel builds write identical bytes covers the width modules), so none is in `corpus_code_paths`. A new module here needs that argument before it is added.
+# The modules the build reaches under rebuild/tools, and the only ones it may reach. The fan-out width: `artifact_cycle.corpus_job_budget`, and `memory_budget` under it and under kernel_exec's own width. The cost and progress readings: `peak_rss`, the `cycle_timings` pool record, the `console` phase and progress lines the cycle reads back, and the `memory_tally` debug tally, which a build prints only when its environment sets `AMS_CORPUS_MEMORY_TALLY`. Two leaf modules the fingerprints read: `site_fonts`, the two site font paths, a leaf so the root conftest can name the fonts without importing the pipeline (the build shapes with its own `SITE_BEFORE_FONT` and `SITE_JUNIOR_FONT`, and the manifest's `fonts` component hashes the fonts at the named paths, so a changed path changes the manifest stamp, not a unit's output); and `lock_digest`, the `uv.lock` digest, a leaf because the pyright gate, which the root conftest imports, hashes the lock with it, and read by no stamp of the corpus's stores. None of these can change a unit's output (rebuild/test_unit_cache.py's check that serial and parallel builds write identical bytes covers the width modules), so none is in `corpus_code_paths`. A new module here needs that argument before it is added.
 WIDTH_AND_TELEMETRY_MODULES = frozenset(
     {
         "rebuild.tools.artifact_cycle",
@@ -35,8 +35,8 @@ WIDTH_AND_TELEMETRY_MODULES = frozenset(
         "rebuild.tools.cycle_timings",
         "rebuild.tools.lock_digest",
         "rebuild.tools.memory_budget",
+        "rebuild.tools.memory_tally",
         "rebuild.tools.peak_rss",
-        "rebuild.tools.pile_tally",
         "rebuild.tools.site_fonts",
     }
 )

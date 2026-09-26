@@ -314,7 +314,7 @@ class Enricher:
         return self._pack.row(config, codepoints)
 
     def subset_pack_sizes(self) -> tuple[int, int]:
-        """The pack's rows and mapped bytes for the pile tally, or (0, 0) before it is opened."""
+        """The pack's rows and mapped bytes for the memory tally, or (0, 0) before it is opened."""
         return self._pack.sizes() if self._pack is not None else (0, 0)
 
     def formed_spans(self, codepoint_values: tuple[int, ...]) -> list[tuple[int, int]]:

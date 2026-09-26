@@ -283,7 +283,7 @@ class _Section:
 
 
 class SubsetPack:
-    """One mapped pack. `row` is the enricher's lookup, `rows` iterates one configuration in key order, `sizes` reports the pack's size to the pile tally, and `close` releases the views and the mapping."""
+    """One mapped pack. `row` is the enricher's lookup, `rows` iterates one configuration in key order, `sizes` reports the pack's size to the memory tally, and `close` releases the views and the mapping."""
 
     def __init__(self, path: Path, mapping: mmap.mmap, header: dict, base: int) -> None:
         self.path = Path(path)
@@ -356,7 +356,7 @@ class SubsetPack:
             yield key_codepoints(section.keys[index]), self._materialize(section, index)
 
     def sizes(self) -> tuple[int, int]:
-        """Return the pack's row count across all configurations and the mapping's size in bytes, which the pile tally prints. The tally reports the mapping's size because a process's resident share of a mapping is the pages it has touched, which the process cannot read for itself."""
+        """Return the pack's row count across all configurations and the mapping's size in bytes, which the memory tally prints. The tally reports the mapping's size because a process's resident share of a mapping is the pages it has touched, which the process cannot read for itself."""
         return sum(section.rows for section in self._sections.values()), len(self._mapping)
 
     def close(self) -> None:

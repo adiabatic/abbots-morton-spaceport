@@ -1,10 +1,10 @@
-"""A debug tally of the large collections (piles) a corpus build holds, read at its phase boundaries, so that a peak in the timings journal can be attributed to the pile that caused it. It is off unless the environment sets `AMS_CORPUS_MEMORY_TALLY=1` (`TALLY_ENV`). The artifact cycle never sets it; the build child inherits it from the caller's environment. With it unset, `from_environment` returns None, the build skips its `if tally:` branches, and the shards and the build's other output are unchanged.
+"""A debug tally of the large collections a corpus build holds, read at its phase boundaries, so that a peak in the timings journal can be attributed to the collection that caused it. It is off unless the environment sets `AMS_CORPUS_MEMORY_TALLY=1` (`TALLY_ENV`). The artifact cycle never sets it; the build child inherits it from the caller's environment. With it unset, `from_environment` returns None, the build skips its `if tally:` branches, and the shards and the build's other output are unchanged.
 
-The figures are for attribution and are approximate. A held pile's estimate is the container's own `sys.getsizeof` plus a deep `sys.getsizeof` walk over a sample of up to `SAMPLE_SIZE` members, scaled by the member count. `_sample` takes every nth member from the start, with n the count divided by `SAMPLE_SIZE` and rounded down, so for a pile larger than `SAMPLE_SIZE` whose count is not a multiple of it, the sample covers only the first part of the pile, as little as about half. That takes seconds over a corpus of a million units, where walking every member would take minutes. The walk descends into the stdlib containers, `__dict__`, and every slot, and stops at strings, bytes, and numbers. An object reached twice within one pile's sample is counted once, so members that share a pooled tuple or an interned name are charged for one copy, as the process is. `leaf_types` names types the walk counts without entering, so a pile of records that point into another pile does not also count that pile's members and outrank it. `nested` is for a pile whose members are themselves tables: each sampled member is estimated by its own bounded sample instead of walked whole, and the count is the members' lengths summed, so a boundary stays cheap over tables of a million rows each.
+The figures are for attribution and are approximate. A held collection's estimate is the container's own `sys.getsizeof` plus a deep `sys.getsizeof` walk over a sample of up to `SAMPLE_SIZE` members, scaled by the member count. `_sample` takes every nth member from the start, with n the count divided by `SAMPLE_SIZE` and rounded down, so for a collection larger than `SAMPLE_SIZE` whose count is not a multiple of it, the sample covers only the first part of the collection, as little as about half. That takes seconds over a corpus of a million units, where walking every member would take minutes. The walk descends into the stdlib containers, `__dict__`, and every slot, and stops at strings, bytes, and numbers. An object reached twice within one collection's sample is counted once, so members that share a pooled tuple or an interned name are charged for one copy, as the process is. `leaf_types` names types the walk counts without entering, so a collection of records that point into another collection does not also count that collection's members and outrank it. `nested` is for a collection whose members are themselves tables: each sampled member is estimated by its own bounded sample instead of walked whole, and the count is the members' lengths summed, so a boundary stays cheap over tables of a million rows each.
 
-A pile registered with `hold` is re-estimated at every later boundary, because the build mutates and drains what it holds. A pile the build has emptied reads as empty at later boundaries and stays in the output. `hold_reading` registers a callable instead, returning `(count, bytes)` or a `Measure`. It serves a pile that keeps its own exact figures (`ink.shape_memo_sizes`), a pile stored as packed columns (`column_sizes`, as used by `UnitStore.sizes` and `build.row_column_sizes`), and a pile the build holds only through another object. `build_m1`, `_FreshRunner.hold_piles`, `_write_corpus` and `_corpus_worker` in `rebuild/review/build.py` register what they hold. A fresh unit's fragment is written to the spool as it is drafted, so no process holds a pile of enrichments. What remains of a fresh unit after its batch is its spool address: a column of the parent's packed unit store (`unit_store`), and a field of the projections a pooled worker holds until it has sent them (`worker.projections`).
+A collection registered with `hold` is re-estimated at every later boundary, because the build mutates and drains what it holds. A collection the build has emptied reads as empty at later boundaries and stays in the output. `hold_reading` registers a callable instead, returning `(count, bytes)` or a `Measure`. It serves a collection that keeps its own exact figures (`ink.shape_memo_sizes`), a collection stored as packed columns (`column_sizes`, as used by `UnitStore.sizes` and `build.row_column_sizes`), and a collection the build holds only through another object. `build_m1`, `_FreshRunner.hold_collections`, `_write_corpus` and `_corpus_worker` in `rebuild/review/build.py` register what they hold. A fresh unit's fragment is written to the spool as it is drafted, so no process holds a collection of enrichments. What remains of a fresh unit after its batch is its spool address: a column of the parent's packed unit store (`unit_store`), and a field of the projections a pooled worker holds until it has sent them (`worker.projections`).
 
-A pile can also declare the packed layout of one member (`hold(..., packed=)`, or `measure(..., packed=)` under `hold_reading`). Its line then also reports what a packed row of the same fields would take. `packed_estimate` sizes the layout over the same sample the walk reads, so the ratio compares like with like. A layout is a tree of these declarations, one per field of the record:
+A collection can also declare the packed layout of one member (`hold(..., packed=)`, or `measure(..., packed=)` under `hold_reading`). Its line then also reports what a packed row of the same fields would take. `packed_estimate` sizes the layout over the same sample the walk reads, so the ratio compares like with like. A layout is a tree of these declarations, one per field of the record:
 
 - `Slot(width)`: a fixed-width column, such as a flag byte, an ordinal, an integer of a stated width, or the two cell indices of a pair.
 - `Flag()`: one bit of a flag byte.
@@ -15,17 +15,17 @@ A pile can also declare the packed layout of one member (`hold(..., packed=)`, o
 - `Table(key, value)`: the same as `Many`, over a mapping's entries.
 - `Record(fields)`, `Keyed(fields)`, `Positional(shapes)`: an object's named attributes, a dict's named keys, and a tuple's slots in order. An absent value (None) still costs every slot under it, because a column has no gaps, but adds nothing to the string table.
 
-Over a mapping pile, the layout sizes the values, and the key is taken to be the ordinal a packed store indexes by. A `Table` layout instead sizes the pile's own entries as key and value.
+Over a mapping collection, the layout sizes the values, and the key is taken to be the ordinal a packed store indexes by. A `Table` layout instead sizes the collection's own entries as key and value.
 
-The string table is not sampled, because a vocabulary saturates instead of growing with the count. It is counted over every member of the pile, in one pass per id-bearing column. The bare `Id` fields of one record are read together by one multi-argument getter, so a record with a dozen names costs one pass. Every pass uses only `map`, `filter`, `chain` and the `operator` getters, so it runs in C, and the distinct strings are held in one set during the pass. A pile of a million members with five id columns therefore costs five million reads and a set of the vocabulary, which is seconds and a few megabytes at every boundary the pile is held at. Each distinct string is charged once, at its UTF-8 length plus an `OFFSET_WIDTH` offset. Absent and empty strings add nothing to the table.
+The string table is not sampled, because a vocabulary saturates instead of growing with the count. It is counted over every member of the collection, in one pass per id-bearing column. The bare `Id` fields of one record are read together by one multi-argument getter, so a record with a dozen names costs one pass. Every pass uses only `map`, `filter`, `chain` and the `operator` getters, so it runs in C, and the distinct strings are held in one set during the pass. A collection of a million members with five id columns therefore costs five million reads and a set of the vocabulary, which is seconds and a few megabytes at every boundary the collection is held at. Each distinct string is charged once, at its UTF-8 length plus an `OFFSET_WIDTH` offset. Absent and empty strings add nothing to the table.
 
-Each boundary prints one line per pile, largest first, then one line naming the largest. Every line starts with `[tally] ` (`TALLY`) and is whitespace-separated, so a `grep '^\\[tally\\]'` over the cycle's corpus-build step log (`var/build-logs/<run>/<nn>-corpus-build.log`, which receives the build's stdout) recovers the whole record:
+Each boundary prints one line per collection, largest first, then one line naming the largest. Every line starts with `[tally] ` (`TALLY`) and is whitespace-separated, so a `grep '^\\[tally\\]'` over the cycle's corpus-build step log (`var/build-logs/<run>/<nn>-corpus-build.log`, which receives the build's stdout) recovers the whole record:
 
-    [tally] <boundary> <pile> count=<n> est_bytes=<n> est_gb=<x.xx>
-    [tally] <boundary> <pile> count=<n> est_bytes=<n> est_gb=<x.xx> packed_bytes=<n> packed_per=<x.x> walked_per=<x.x> ratio=<x.xx|-> strings=<n> string_bytes=<n>
-    [tally] <boundary> largest=<pile>
+    [tally] <boundary> <collection> count=<n> est_bytes=<n> est_gb=<x.xx>
+    [tally] <boundary> <collection> count=<n> est_bytes=<n> est_gb=<x.xx> packed_bytes=<n> packed_per=<x.x> walked_per=<x.x> ratio=<x.xx|-> strings=<n> string_bytes=<n>
+    [tally] <boundary> largest=<collection>
 
-The first form is a pile with no packed layout declared, and the second is a pile with one. `packed_bytes` is the packed rows over the whole count. `packed_per` and `walked_per` are bytes per member for the packed row and for the walk. `ratio` is `walked_per` divided by `packed_per`, or `-` when either is zero, as for an empty pile. `strings` and `string_bytes` are the pile's string table: the number of distinct strings and their bytes. The table is left out of `packed_bytes` and of both per-member figures, because one table would serve every pile, and adding it to each would count the same strings several times. It is printed so a reader can add it back where it matters; on the corpus the build measures, it is under a megabyte against piles of gigabytes. `<boundary>` is the build phase at whose end the reading was taken (`load`, `plan`, `units`, `manifest+check`, `review-facts`, `cache`), or `w<i>/phase1-<n>` for a pooled worker's own piles after its nth batch. Neither contains whitespace. `est_gb` is in decimal gigabytes, the unit of the `rss_gb=` token on the same phase's `[t]` line. A boundary with nothing held prints only the `largest=` line, with `-` as the name.
+The first form is a collection with no packed layout declared, and the second is a collection with one. `packed_bytes` is the packed rows over the whole count. `packed_per` and `walked_per` are bytes per member for the packed row and for the walk. `ratio` is `walked_per` divided by `packed_per`, or `-` when either is zero, as for an empty collection. `strings` and `string_bytes` are the collection's string table: the number of distinct strings and their bytes. The table is left out of `packed_bytes` and of both per-member figures, because one table would serve every collection, and adding it to each would count the same strings several times. It is printed so a reader can add it back where it matters; on the corpus the build measures, it is under a megabyte against collections of gigabytes. `<boundary>` is the build phase at whose end the reading was taken (`load`, `plan`, `units`, `manifest+check`, `review-facts`, `cache`), or `w<i>/phase1-<n>` for a pooled worker's own collections after its nth batch. Neither contains whitespace. `est_gb` is in decimal gigabytes, the unit of the `rss_gb=` token on the same phase's `[t]` line. A boundary with nothing held prints only the `largest=` line, with `-` as the name.
 
 The module imports only the standard library. rebuild/test_review_code_closure.py lists it in `WIDTH_AND_TELEMETRY_MODULES`, the rebuild/tools modules the build may import that cannot change a unit's output.
 """
@@ -62,7 +62,7 @@ def enabled(environ: Mapping[str, str] = os.environ) -> bool:
 
 
 def deep_size(root: object, seen: set[int], leaf_types: tuple[type, ...] = ()) -> int:
-    """Return the bytes reachable from `root` that `seen` has not already counted: container sizes, slots and instance dicts, and the leaves under them. The caller shares `seen` across one sample, so an object shared by several members is counted once per pile."""
+    """Return the bytes reachable from `root` that `seen` has not already counted: container sizes, slots and instance dicts, and the leaves under them. The caller shares `seen` across one sample, so an object shared by several members is counted once per collection."""
     total = 0
     stack: list[object] = [root]
     while stack:
@@ -95,9 +95,9 @@ def deep_size(root: object, seen: set[int], leaf_types: tuple[type, ...] = ()) -
     return total
 
 
-def _sample(pile: Collection, size: int) -> list:
-    members: Iterable = pile.items() if isinstance(pile, Mapping) else pile
-    step = max(1, len(pile) // size)
+def _sample(collection: Collection, size: int) -> list:
+    members: Iterable = collection.items() if isinstance(collection, Mapping) else collection
+    step = max(1, len(collection) // size)
     return list(islice(members, 0, None, step))[:size]
 
 
@@ -106,22 +106,22 @@ def _is_table(value: object) -> bool:
 
 
 def estimate(
-    pile: Collection,
+    collection: Collection,
     *,
     leaf_types: tuple[type, ...] = (),
     sample_size: int = SAMPLE_SIZE,
     nested: bool = False,
 ) -> tuple[int, int]:
-    """Return (count, estimated bytes) for one pile: the container's own size plus the deep size of a sample of its members (`_sample`), scaled by the count. A mapping's sample is its items, so keys and values are both counted. With `nested`, each sampled member that is a collection is estimated by its own bounded sample instead of walked in full, and the count is the members' lengths summed, which is the number of rows the pile's tables hold."""
-    members = len(pile)
-    total = sys.getsizeof(pile)
+    """Return (count, estimated bytes) for one collection: the container's own size plus the deep size of a sample of its members (`_sample`), scaled by the count. A mapping's sample is its items, so keys and values are both counted. With `nested`, each sampled member that is a collection is estimated by its own bounded sample instead of walked in full, and the count is the members' lengths summed, which is the number of rows the collection's tables hold."""
+    members = len(collection)
+    total = sys.getsizeof(collection)
     if members == 0:
         return 0, total
-    sample = _sample(pile, sample_size)
+    sample = _sample(collection, sample_size)
     seen: set[int] = set()
     sampled = 0
     for member in sample:
-        key, value = member if isinstance(pile, Mapping) else (None, member)
+        key, value = member if isinstance(collection, Mapping) else (None, member)
         if key is not None:
             sampled += deep_size(key, seen, leaf_types)
         if nested and _is_table(value):
@@ -130,7 +130,7 @@ def estimate(
             sampled += deep_size(value, seen, leaf_types)
     count = members
     if nested:
-        values: Iterable = pile.values() if isinstance(pile, Mapping) else pile
+        values: Iterable = collection.values() if isinstance(collection, Mapping) else collection
         count = sum(len(value) if _is_table(value) else 1 for value in values)
     return count, total + round(sampled * members / len(sample))
 
@@ -252,7 +252,7 @@ _Column = Callable[[Iterable], Iterable]
 
 
 def _string_columns(shape: Shape, take: _Column) -> list[_Column]:
-    """Return the column readers for the `Id`s under `shape`. Each reader turns an iterable of values shaped like `shape` into the strings its id columns hold, and is built from `map`, `filter`, `chain` and `operator` getters only, so the pass over a corpus runs in C. There is one reader per id column, except that the bare `Id` members of one record or tuple share a reader (`_fold_members`), because one getter reads them all at once. `take` maps the pile's members to this shape's values; an absent value along the path (`filter(None, ...)`) contributes nothing."""
+    """Return the column readers for the `Id`s under `shape`. Each reader turns an iterable of values shaped like `shape` into the strings its id columns hold, and is built from `map`, `filter`, `chain` and `operator` getters only, so the pass over a corpus runs in C. There is one reader per id column, except that the bare `Id` members of one record or tuple share a reader (`_fold_members`), because one getter reads them all at once. `take` maps the collection's members to this shape's values; an absent value along the path (`filter(None, ...)`) contributes nothing."""
     if isinstance(shape, Id):
         return [lambda values: filter(None, take(values))]
     if isinstance(shape, Many):
@@ -305,25 +305,25 @@ class PackedCost:
     string_bytes: int
 
 
-def packed_estimate(pile: Collection, shape: Shape, *, sample_size: int = SAMPLE_SIZE) -> PackedCost:
-    """Return what a packed store of `pile` takes: the rows, sized over the same sample `estimate` walks and scaled by the count, and the string table, counted over every member (the module docstring says why the table is not sampled). Over a mapping, the shape sizes the values and the key is the ordinal, unless the shape is a `Table`, which sizes the entries."""
-    members = len(pile)
+def packed_estimate(collection: Collection, shape: Shape, *, sample_size: int = SAMPLE_SIZE) -> PackedCost:
+    """Return what a packed store of `collection` takes: the rows, sized over the same sample `estimate` walks and scaled by the count, and the string table, counted over every member (the module docstring says why the table is not sampled). Over a mapping, the shape sizes the values and the key is the ordinal, unless the shape is a `Table`, which sizes the entries."""
+    members = len(collection)
     if members == 0:
         return PackedCost(0, 0, 0)
-    sample = _sample(pile, sample_size)
+    sample = _sample(collection, sample_size)
     strings: set[str] = set()
-    if isinstance(pile, Mapping) and isinstance(shape, Table):
+    if isinstance(collection, Mapping) and isinstance(shape, Table):
         sampled = sum(packed_size(shape.key, key) + packed_size(shape.value, value) for key, value in sample)
-        items = pile.items()
+        items = collection.items()
         columns = _string_columns(shape.key, lambda members: map(itemgetter(0), members)) + _string_columns(
             shape.value, lambda members: map(itemgetter(1), members)
         )
         for column in columns:
             strings.update(column(items))
     else:
-        members_view: Collection = pile.values() if isinstance(pile, Mapping) else pile
+        members_view: Collection = collection.values() if isinstance(collection, Mapping) else collection
         sampled = sum(
-            packed_size(shape, member[1] if isinstance(pile, Mapping) else member) for member in sample
+            packed_size(shape, member[1] if isinstance(collection, Mapping) else member) for member in sample
         )
         for column in _string_columns(shape, lambda members: members):
             strings.update(column(members_view))
@@ -335,7 +335,7 @@ def packed_estimate(pile: Collection, shape: Shape, *, sample_size: int = SAMPLE
 
 def _refuse_nested_packed(nested: bool, packed: Shape | None) -> None:
     if nested and packed is not None:
-        raise ValueError("a nested pile counts the rows of its tables, which a packed row cannot price")
+        raise ValueError("a nested collection counts the rows of its tables, which a packed row cannot price")
 
 
 @dataclass(frozen=True)
@@ -378,37 +378,37 @@ def column_sizes(
     *,
     holds_table: bool = True,
 ) -> Measure:
-    """Return the exact reading of a packed pile: `n` rows, with the columns' bytes plus `extra_bytes` (a tuple pool's `pool_bytes`, or lines the pile keeps as objects beside its arrays) as the packed figure. The string table is reported beside it, counted as `packed_estimate` counts one: each distinct string once at its UTF-8 length plus an offset. The walked figure is the packed figure plus the table, so the line's ratio shows the table's share, which reads `1.00` when the columns are gigabytes and the table kilobytes. A pile whose table another pile's line already counts passes `holds_table=False`, and its walked figure is then its rows alone, with the table still printed beside them. The workload table's strings are shared this way by the audit's row columns, the unit store and the pre-merge snapshot, so they are counted on one line, and a boundary's `largest=` compares what each pile holds on its own."""
+    """Return the exact reading of a packed collection: `n` rows, with the columns' bytes plus `extra_bytes` (a tuple pool's `pool_bytes`, or lines the collection keeps as objects beside its arrays) as the packed figure. The string table is reported beside it, counted as `packed_estimate` counts one: each distinct string once at its UTF-8 length plus an offset. The walked figure is the packed figure plus the table, so the line's ratio shows the table's share, which reads `1.00` when the columns are gigabytes and the table kilobytes. A collection whose table another collection's line already counts passes `holds_table=False`, and its walked figure is then its rows alone, with the table still printed beside them. The workload table's strings are shared this way by the audit's row columns, the unit store and the pre-merge snapshot, so they are counted on one line, and a boundary's `largest=` compares what each collection holds on its own."""
     rows = sum(bytes_of(column) for column in columns) + extra_bytes
     strings = table.chars + len(table) * OFFSET_WIDTH
     return Measure(n, rows + strings if holds_table else rows, PackedCost(rows, len(table), strings))
 
 
 def measure(
-    pile: Collection,
+    collection: Collection,
     *,
     leaf_types: tuple[type, ...] = (),
     sample_size: int = SAMPLE_SIZE,
     nested: bool = False,
     packed: Shape | None = None,
 ) -> Measure:
-    """Return `estimate` and, given a shape, `packed_estimate` over one pile as one `Measure`. A nested pile cannot take a packed shape: its count is the rows of the tables under it, while the packed figure is one row per member, so the per-member figures would divide bytes by the wrong count."""
+    """Return `estimate` and, given a shape, `packed_estimate` over one collection as one `Measure`. A nested collection cannot take a packed shape: its count is the rows of the tables under it, while the packed figure is one row per member, so the per-member figures would divide bytes by the wrong count."""
     _refuse_nested_packed(nested, packed)
-    count, est_bytes = estimate(pile, leaf_types=leaf_types, sample_size=sample_size, nested=nested)
-    cost = None if packed is None else packed_estimate(pile, packed, sample_size=sample_size)
+    count, est_bytes = estimate(collection, leaf_types=leaf_types, sample_size=sample_size, nested=nested)
+    cost = None if packed is None else packed_estimate(collection, packed, sample_size=sample_size)
     return Measure(count, est_bytes, cost)
 
 
 @dataclass(frozen=True)
 class Reading:
-    pile: str
+    collection: str
     count: int
     est_bytes: int
     packed: PackedCost | None = None
 
     @property
     def line_body(self) -> str:
-        body = f"{self.pile} count={self.count} est_bytes={self.est_bytes} est_gb={self.est_bytes / _BYTES_PER_GB:.2f}"
+        body = f"{self.collection} count={self.count} est_bytes={self.est_bytes} est_gb={self.est_bytes / _BYTES_PER_GB:.2f}"
         if self.packed is None:
             return body
         packed_per = self.packed.est_bytes / self.count if self.count else 0.0
@@ -420,8 +420,8 @@ class Reading:
         )
 
 
-class PileTally:
-    """The piles one process holds, registered as they are created and read at every later boundary. With `out` unset, each write goes to the `sys.stdout` of that moment, for the reason `rebuild.tools.console` gives: the cycle replaces `sys.stdout` with a tee after this module is imported."""
+class MemoryTally:
+    """The collections one process holds, registered as they are created and read at every later boundary. With `out` unset, each write goes to the `sys.stdout` of that moment, for the reason `rebuild.tools.console` gives: the cycle replaces `sys.stdout` with a tee after this module is imported."""
 
     def __init__(self, *, out: IO[str] | None = None, sample_size: int = SAMPLE_SIZE) -> None:
         self._out = out
@@ -432,7 +432,7 @@ class PileTally:
     def hold(
         self,
         name: str,
-        pile: Collection,
+        collection: Collection,
         *,
         leaf_types: tuple[type, ...] = (),
         nested: bool = False,
@@ -440,7 +440,7 @@ class PileTally:
     ) -> None:
         _refuse_nested_packed(nested, packed)
         self._readings.pop(name, None)
-        self._held[name] = (pile, leaf_types, nested, packed)
+        self._held[name] = (collection, leaf_types, nested, packed)
 
     def hold_reading(self, name: str, read: Callable[[], tuple[int, int] | Measure]) -> None:
         self._held.pop(name, None)
@@ -452,9 +452,9 @@ class PileTally:
 
     def readings(self) -> list[Reading]:
         readings = []
-        for name, (pile, leaf_types, nested, packed) in self._held.items():
+        for name, (collection, leaf_types, nested, packed) in self._held.items():
             measured = measure(
-                pile, leaf_types=leaf_types, sample_size=self._sample_size, nested=nested, packed=packed
+                collection, leaf_types=leaf_types, sample_size=self._sample_size, nested=nested, packed=packed
             )
             readings.append(Reading(name, measured.count, measured.est_bytes, measured.packed))
         for name, read in self._readings.items():
@@ -464,12 +464,12 @@ class PileTally:
             else:
                 count, est_bytes = result
                 readings.append(Reading(name, int(count), int(est_bytes)))
-        return sorted(readings, key=lambda reading: (-reading.est_bytes, reading.pile))
+        return sorted(readings, key=lambda reading: (-reading.est_bytes, reading.collection))
 
     def boundary(self, name: str) -> list[Reading]:
         readings = self.readings()
         lines = [f"{TALLY}{name} {reading.line_body}" for reading in readings]
-        lines.append(f"{TALLY}{name} largest={readings[0].pile if readings else '-'}")
+        lines.append(f"{TALLY}{name} largest={readings[0].collection if readings else '-'}")
         stream = sys.stdout if self._out is None else self._out
         stream.write("\n".join(lines) + "\n")
         stream.flush()
@@ -478,6 +478,6 @@ class PileTally:
 
 def from_environment(
     environ: Mapping[str, str] = os.environ, *, out: IO[str] | None = None
-) -> PileTally | None:
+) -> MemoryTally | None:
     """Return a tally when `AMS_CORPUS_MEMORY_TALLY=1` is in the environment, and None otherwise. The None is the only off switch: a build given None prints and estimates nothing."""
-    return PileTally(out=out) if enabled(environ) else None
+    return MemoryTally(out=out) if enabled(environ) else None

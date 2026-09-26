@@ -38,7 +38,7 @@ from rebuild.review.build import row_column_sizes, signature_text, unit_table_si
 from rebuild.review.columns import MappingPool, TuplePool
 from rebuild.review.enrich import LETTERS
 from rebuild.review.unit_store import UnitStore
-from rebuild.tools import pile_tally
+from rebuild.tools import memory_tally
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 MINI = REPO_ROOT / "rebuild" / "review" / "fixtures" / "mini"
@@ -594,7 +594,7 @@ def test_the_name_tuples_are_released_after_phase_one(mini):
     assert unit.baseline and unit.new and unit.baseline is table.baseline(0)
     before = unit_table_sizes(table)
     assert before.packed is not None
-    pooled = pile_tally.pool_bytes(table.names)
+    pooled = memory_tally.pool_bytes(table.names)
     columns = 2 * 4 * table.n
     table.release_names()
     after = unit_table_sizes(table)
@@ -611,12 +611,12 @@ def test_the_table_sizes_are_the_columns_bytes_and_the_pools_priced_beside_the_s
     reading = unit_table_sizes(table)
     assert reading.packed is not None
     columns = sum(len(column) * column.itemsize for column in table.columns())
-    pools = sum(pile_tally.pool_bytes(pool) for pool in table.pools())
-    strings = table.strings.chars + len(table.strings) * pile_tally.OFFSET_WIDTH
-    assert reading == pile_tally.Measure(
+    pools = sum(memory_tally.pool_bytes(pool) for pool in table.pools())
+    strings = table.strings.chars + len(table.strings) * memory_tally.OFFSET_WIDTH
+    assert reading == memory_tally.Measure(
         table.n,
         columns + pools + strings,
-        pile_tally.PackedCost(columns + pools, len(table.strings), strings),
+        memory_tally.PackedCost(columns + pools, len(table.strings), strings),
     )
     assert reading.packed.est_bytes / table.n < 200
     table.fold_into(1, 0)

@@ -87,7 +87,7 @@ NO_DELTAS: Mapping[str, str] = {}
 
 
 class UnitStoreView(Protocol):
-    """The per-unit store methods this module calls, each by ordinal: the columns `UnitTable.unit` copies onto a materialized record, the id word `sort_for_triage` orders by, and the machine-approval bit `assign_batches` skips on. `unit_store.UnitStore` is the only implementation. This is a Protocol so that this module does not import `unit_store`, which imports this module and the debug tally (`pile_tally`). The verdict update reaches this module through `status`, and rebuild/test_verdict_update_closure.py follows `if TYPE_CHECKING:` imports too, so importing `unit_store` here, even for types, would put the tally in the verdict update's closure."""
+    """The per-unit store methods this module calls, each by ordinal: the columns `UnitTable.unit` copies onto a materialized record, the id word `sort_for_triage` orders by, and the machine-approval bit `assign_batches` skips on. `unit_store.UnitStore` is the only implementation. This is a Protocol so that this module does not import `unit_store`, which imports this module and the debug tally (`memory_tally`). The verdict update reaches this module through `status`, and rebuild/test_verdict_update_closure.py follows `if TYPE_CHECKING:` imports too, so importing `unit_store` here, even for types, would put the tally in the verdict update's closure."""
 
     def input_key_hex(self, ordinal: int) -> str: ...
     def folded(self, ordinal: int) -> bool: ...

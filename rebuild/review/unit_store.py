@@ -8,7 +8,7 @@ Every string (a digest, a cluster, an unmatched group, a config name, a glyph or
 
 The accessors build one unit's values on demand, in the shapes the build writes: `seam_home` is the `enrich.SeamHomeUnit` the home reduce compares, `seam_home_record` the `proj` dict of a store record, `seam_rects` the `[{"pair", "before", "after"}]` list `patch_fragment` reads, `homes_record` the `[[home, suppressed]]` list, `cached_unit` the `unit_cache.CachedUnit` for `record_line`, and `source` the `unit_cache.PriorFragment` the fragment is read back through. JSON key order is part of the shipped bytes, so each accessor builds its dicts in the order the writer reads them, and the fold raises on input it could not rebuild byte for byte: rect dicts whose keys are not `x_min`, `x_max`, `advance_total` in that order, and rows whose spans, names and seams disagree in length. The store is also the home reduce's `enrich.SeamHomeSource` (`windows`, `seam_count`, `projection`, `id_word`, `invisible` and `set_homes`), so `enrich.resolve_home_assignments` skips units with no secondary seam without building anything and writes its result straight into the seam side column.
 
-`sizes` reports the store to the debug tally (`pile_tally.column_sizes`). The packed figure is the arrays' bytes plus the mismatch lines, with the string table printed beside it. The walked figure adds the table only when the store owns it; a store built over the workload table's strings reports its rows alone, because the workload table's tally line already counts the table.
+`sizes` reports the store to the debug tally (`memory_tally.column_sizes`). The packed figure is the arrays' bytes plus the mismatch lines, with the string table printed beside it. The walked figure adds the table only when the store owns it; a store built over the workload table's strings reports its rows alone, because the workload table's tally line already counts the table.
 """
 
 from __future__ import annotations
@@ -21,7 +21,7 @@ from typing import NamedTuple, Protocol
 from rebuild.review import enrich, unit_cache
 from rebuild.review.audit import MACHINE_CHANNELS, format_codepoints
 from rebuild.review.columns import StringTable
-from rebuild.tools import pile_tally
+from rebuild.tools import memory_tally
 
 KEY_BYTES = 32
 ID_BYTES = 8
@@ -794,13 +794,13 @@ class UnitStore:
             if isinstance(value, (array, bytearray)):
                 yield value
 
-    def sizes(self) -> pile_tally.Measure:
-        """Return the store's reading for the debug tally (`pile_tally.column_sizes`). The packed figure is every array's bytes plus the mismatch lines, and the string table is printed beside it. The walked figure adds the table only when the store owns it. A store built over the workload table's strings reports its rows alone, because `build.unit_table_sizes` counts that table."""
+    def sizes(self) -> memory_tally.Measure:
+        """Return the store's reading for the debug tally (`memory_tally.column_sizes`). The packed figure is every array's bytes plus the mismatch lines, and the string table is printed beside it. The walked figure adds the table only when the store owns it. A store built over the workload table's strings reports its rows alone, because `build.unit_table_sizes` counts that table."""
         lines = sum(
-            len(line.encode()) + pile_tally.OFFSET_WIDTH
+            len(line.encode()) + memory_tally.OFFSET_WIDTH
             for lines in self._mismatches.values()
             for line in lines
         )
-        return pile_tally.column_sizes(
+        return memory_tally.column_sizes(
             self.n, self._columns(), self._table, lines, holds_table=self._holds_table
         )

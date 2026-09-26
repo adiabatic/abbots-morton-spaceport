@@ -682,7 +682,7 @@ def test_a_step_that_spawns_nothing_leaves_no_log_behind(capsys, tmp_path):
     run = tmp_path / "run"
     with _cycle_console(log_dir=run) as cycle_console:
         cycle_console.step_start(
-            "retention", None, "Prunes the regenerable piles a green cycle leaves behind."
+            "retention", None, "Prunes the regenerable files a green cycle leaves behind."
         )
         cycle_console.step_end("retention", None, "ok", "removed 1 carried; journal intact")
         cycle_console.step_start("run_m1", ["true"], "Builds the tables.")

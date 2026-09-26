@@ -19,7 +19,7 @@ from rebuild.review.audit import load_workload, sort_for_triage, triage_key
 from rebuild.review.build import _seam_records
 from rebuild.review.enrich import LETTERS, SeamHomeUnit
 from rebuild.review.unit_store import UnitStore
-from rebuild.tools import pile_tally
+from rebuild.tools import memory_tally
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 MINI = REPO_ROOT / "rebuild" / "review" / "fixtures" / "mini"
@@ -471,11 +471,11 @@ def _column_bytes(store: UnitStore) -> int:
 
 def _string_bytes(store: UnitStore) -> tuple[int, int]:
     strings = {string for string in store._table._strings if string}
-    return len(strings), sum(len(string.encode()) + pile_tally.OFFSET_WIDTH for string in strings)
+    return len(strings), sum(len(string.encode()) + memory_tally.OFFSET_WIDTH for string in strings)
 
 
 def test_the_sizes_are_the_arrays_bytes_and_empty_homes_and_mismatches_cost_none():
-    """`sizes` reports the columns' bytes plus the mismatch lines as the packed figure, with the string table's counts beside it, and the packed figure plus the string table as the walked figure (`pile_tally.column_sizes`). A unit with no seam and no mismatch adds nothing to the seam side arrays, the home columns, or the mismatch dict."""
+    """`sizes` reports the columns' bytes plus the mismatch lines as the packed figure, with the string table's counts beside it, and the packed figure plus the string table as the walked figure (`memory_tally.column_sizes`). A unit with no seam and no mismatch adds nothing to the seam side arrays, the home columns, or the mismatch dict."""
     store = UnitStore(2)
     seamless = _projection("seamless", seam_home=_seam_home("", (0xE652, 0xE670), seams=False))
     seamless = replace(seamless, seam_home=replace(seamless.seam_home, unit_id=seamless.unit_id))
@@ -502,19 +502,19 @@ def test_the_sizes_are_the_arrays_bytes_and_empty_homes_and_mismatches_cost_none
     assert store.seam_count(0) == 0
     before = store.sizes()
     strings, string_bytes = _string_bytes(store)
-    assert before == pile_tally.Measure(
+    assert before == memory_tally.Measure(
         2,
         _column_bytes(store) + string_bytes,
-        pile_tally.PackedCost(_column_bytes(store), strings, string_bytes),
+        memory_tally.PackedCost(_column_bytes(store), strings, string_bytes),
     )
     store.fold_projection(_projection("seamed", mismatches=("a line",)), no_verdict=False, ordinal=1)
     after = store.sizes()
     strings, string_bytes = _string_bytes(store)
-    lines = len("a line".encode()) + pile_tally.OFFSET_WIDTH
-    assert after == pile_tally.Measure(
+    lines = len("a line".encode()) + memory_tally.OFFSET_WIDTH
+    assert after == memory_tally.Measure(
         2,
         _column_bytes(store) + string_bytes + lines,
-        pile_tally.PackedCost(_column_bytes(store) + lines, strings, string_bytes),
+        memory_tally.PackedCost(_column_bytes(store) + lines, strings, string_bytes),
     )
     assert after.est_bytes > before.est_bytes
     assert after.packed is not None and after.packed.strings == strings
@@ -614,10 +614,10 @@ def test_the_mini_bundle_folds_and_reads_back_every_projection(mini_bundle, tmp_
     assert [window for _, window in store.windows()] == [unit.codepoint_values for unit in units]
     reading = store.sizes()
     strings, string_bytes = _string_bytes(store)
-    assert reading == pile_tally.Measure(
+    assert reading == memory_tally.Measure(
         len(units),
         _column_bytes(store),
-        pile_tally.PackedCost(_column_bytes(store), strings, string_bytes),
+        memory_tally.PackedCost(_column_bytes(store), strings, string_bytes),
     )
     restarted = store.emptied().sizes()
     assert restarted.packed is not None and restarted.est_bytes == restarted.packed.est_bytes

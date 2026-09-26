@@ -89,7 +89,7 @@ from rebuild.review.enrich import (
 from rebuild.review.subset_pack import ensure_pack, is_seam_token, table_digests
 from rebuild.review.unit_store import UnitStore
 from rebuild.review.unmatched_groups import assign_unmatched_group
-from rebuild.tools import console, pile_tally
+from rebuild.tools import console, memory_tally
 from rebuild.tools.cycle_timings import record_pool
 from rebuild.tools.peak_rss import current_rss_bytes, peak_rss_self_bytes, rss_now_token, rss_token
 
@@ -1107,7 +1107,7 @@ def _corpus_worker(conn, init: dict) -> None:
             subset_pack=init["subset_pack"],
         )
         drafter = Drafter(init["after_font"], repo_root=init["repo_root"], shaper_factory=shaper_for)
-        tally = pile_tally.from_environment()
+        tally = memory_tally.from_environment()
         if tally:
             tally.hold_reading("worker.subset_pack", enricher.subset_pack_sizes)
             tally.hold_reading("ink.shape_memo", shape_memo_sizes)
@@ -1306,8 +1306,8 @@ class _FreshRunner:
     def _count(self, done: int) -> None:
         console.progress(done, len(self._fresh), PHASE1_UNITS, file=sys.stderr)
 
-    def hold_piles(self, tally: pile_tally.PileTally) -> None:
-        """Register with the debug tally the one pile this runner holds in the parent: the serial path's subset-pack mapping, once its enricher exists. Pooled, the workers map the pack and tally it at their own batch boundaries, and the parent's reading stays at zero. The spool addresses are unit-store columns, which the store reports itself."""
+    def hold_collections(self, tally: memory_tally.MemoryTally) -> None:
+        """Register with the debug tally the one collection this runner holds in the parent: the serial path's subset-pack mapping, once its enricher exists. Pooled, the workers map the pack and tally it at their own batch boundaries, and the parent's reading stays at zero. The spool addresses are unit-store columns, which the store reports itself."""
         tally.hold_reading(
             "runner.subset_pack", lambda: self._local[2].subset_pack_sizes() if self._local else (0, 0)
         )
@@ -1617,7 +1617,7 @@ def _write_corpus(
     mismatches: list,
     unit_errors: Sequence[str],
     font_digests: Mapping[str, str],
-    tally: pile_tally.PileTally | None = None,
+    tally: memory_tally.MemoryTally | None = None,
     spec_root: Path | None = None,
 ) -> _WrittenCorpus:
     """Stream the per-unit fragments into shards, copy the fonts, and write the manifest and the sidecars. The manifest's triage index, `human_unit_ids`, is the human units taken in `order`, the permutation `audit.sort_for_triage` returned; a batch is a slice of it. Every per-unit value read here is a column of `table` or `store`, indexed by ordinal; no unit record is materialized on this side of `fragments`.
@@ -1767,50 +1767,50 @@ def _write_corpus(
     return _WrittenCorpus(manifest, verbatim, spool.respooled)
 
 
-def row_column_sizes(rows: RowColumns | None) -> pile_tally.Measure:
-    """Return the row columns' exact reading for the debug tally (`pile_tally.column_sizes`): the live rows as the count, and the five arrays plus the tuple pool at its packed size (orphaned runs included) as the bytes. The string table the columns share with the workload table is printed beside them and counted under `workload.units`. After `release_rows` drops the columns the reading is empty, so the line still appears at every boundary after the load. The pool is sealed by the time a tally reads it, so beyond its packed size it holds only its id list, one pointer per tuple, and the tuples, which the workload table's units use as their `baseline` and `new` until `UnitTable.release_names`."""
+def row_column_sizes(rows: RowColumns | None) -> memory_tally.Measure:
+    """Return the row columns' exact reading for the debug tally (`memory_tally.column_sizes`): the live rows as the count, and the five arrays plus the tuple pool at its packed size (orphaned runs included) as the bytes. The string table the columns share with the workload table is printed beside them and counted under `workload.units`. After `release_rows` drops the columns the reading is empty, so the line still appears at every boundary after the load. The pool is sealed by the time a tally reads it, so beyond its packed size it holds only its id list, one pointer per tuple, and the tuples, which the workload table's units use as their `baseline` and `new` until `UnitTable.release_names`."""
     if rows is None:
-        return pile_tally.Measure(0, 0, pile_tally.PackedCost(0, 0, 0))
-    return pile_tally.column_sizes(
-        rows.live, rows.columns(), rows.table, pile_tally.pool_bytes(rows.names), holds_table=False
+        return memory_tally.Measure(0, 0, memory_tally.PackedCost(0, 0, 0))
+    return memory_tally.column_sizes(
+        rows.live, rows.columns(), rows.table, memory_tally.pool_bytes(rows.names), holds_table=False
     )
 
 
-def unit_table_sizes(table: UnitTable) -> pile_tally.Measure:
+def unit_table_sizes(table: UnitTable) -> memory_tally.Measure:
     """Return the workload table's exact reading for the debug tally, under `workload.units`: the rows as the count, and as the bytes the table's arrays plus every pool a side column indexes at its packed size. The pools are the config and kind tuples, the render groups, the class maps, and the name tuples until `release_names` drops them, so the reading drops between the plan and units boundaries. The walked figure includes the string table and the packed figure prints it beside the rows. It is the build's only string table, which the row columns, the unit store and the pre-merge snapshot also index, so this is the one line that counts it. The line reads `ratio=1.00` on the corpus, since the table is columns; the only memory it adds past the plan is the pools and the string table, which includes the store's digests and cluster ids."""
-    pools = sum(pile_tally.pool_bytes(pool) for pool in table.pools())
-    return pile_tally.column_sizes(table.n, table.columns(), table.strings, pools)
+    pools = sum(memory_tally.pool_bytes(pool) for pool in table.pools())
+    return memory_tally.column_sizes(table.n, table.columns(), table.strings, pools)
 
 
-def premerge_sizes(snapshot: facts.PremergeSnapshot) -> pile_tally.Measure:
+def premerge_sizes(snapshot: facts.PremergeSnapshot) -> memory_tally.Measure:
     """Return the pre-merge snapshot's exact reading for the debug tally, under `facts.premerge`: one row per pre-merge unit, with the snapshot's own columns (its window offsets only; the values are the table's) as the bytes. The string table it indexes is the workload table's, printed beside the rows and counted under `workload.units`."""
-    return pile_tally.column_sizes(snapshot.n, snapshot.columns(), snapshot.strings, holds_table=False)
+    return memory_tally.column_sizes(snapshot.n, snapshot.columns(), snapshot.strings, holds_table=False)
 
 
 @lru_cache(maxsize=None)
-def _packed_shape(pile: str) -> pile_tally.Shape:
-    """Return the packed row the debug tally measures one member of the named pile against (`pile_tally.hold(..., packed=)`; the pile_tally module docstring defines the terms). Each shape matches the record the parent holds, field for field: `unit_cache.ServedUnit` under `unit_cache.unplaced`, the input-key-to-id map under `unit_cache.keys`, and the checker's identity triple under `checker.identity`. The rest of the per-unit state is columns, measured exactly elsewhere: the workload table under `workload.units` (`unit_table_sizes`), the unit store under `unit_store`, the audit's row columns under `workload.rows`, and the pre-merge snapshot under `facts.premerge`.
+def _packed_shape(collection: str) -> memory_tally.Shape:
+    """Return the packed row the debug tally measures one member of the named collection against (`memory_tally.hold(..., packed=)`; the memory_tally module docstring defines the terms). Each shape matches the record the parent holds, field for field: `unit_cache.ServedUnit` under `unit_cache.unplaced`, the input-key-to-id map under `unit_cache.keys`, and the checker's identity triple under `checker.identity`. The rest of the per-unit state is columns, measured exactly elsewhere: the workload table under `workload.units` (`unit_table_sizes`), the unit store under `unit_store`, the audit's row columns under `workload.rows`, and the pre-merge snapshot under `facts.premerge`.
 
     The widths are the unit store's own. Each flag is a bit of one flag byte. A window is a count byte and a `u16` per codepoint, measured from the value since a window is two to four cells. A pair's two cell indices take two bytes. A span is two `u16`, and a seam-rect edge three `i32`. Every interned name (the class, the configs, the glyph and cell names, the seam tokens, the diff and delta digests, the cluster, the echo, a shard part's name, a policy file) is a `u32` id into one string table. A sha256 content or input key is its 32 raw bytes, and a content id the 8 raw bytes it is cut from (`unit_cache.unit_id_for`). Every variable-length field (names, deltas, seam rects, homes) is an offset and count into a side column, so an empty one costs the pair. The shape measures `mismatches` the same way, although the store keeps those lines as tuples in a dict keyed by ordinal.
 
-    A unit's own id costs nothing where the pile is keyed by it, because a packed store indexes by ordinal; that applies to the checker's identity. `unit_cache.keys` does count its key, since it maps the input key to the id and the plan's key map needs an index for that lookup. `unit_cache.unplaced` holds the records a served plan received without an address, buffered whole until the walk over the previous shards places them (none, on a store this code wrote), and each carries its `key` as a digest column because the plan finds the record's unit through it. The shapes are constant and requested at every boundary a pile is held at, so one is built per pile name and cached.
+    A unit's own id costs nothing where the collection is keyed by it, because a packed store indexes by ordinal; that applies to the checker's identity. `unit_cache.keys` does count its key, since it maps the input key to the id and the plan's key map needs an index for that lookup. `unit_cache.unplaced` holds the records a served plan received without an address, buffered whole until the walk over the previous shards places them (none, on a store this code wrote), and each carries its `key` as a digest column because the plan finds the record's unit through it. The shapes are constant and requested at every boundary a collection is held at, so one is built per collection name and cached.
     """
-    flag = pile_tally.Flag()
-    name = pile_tally.Id()
-    names = pile_tally.Many(name)
-    digest = pile_tally.Hex()
-    content_id = pile_tally.Slot(8)
-    window = pile_tally.Derived(lambda text: 1 + 2 * len(parse_codepoints(text)))
-    pair = pile_tally.Slot(2)
-    labeled = pile_tally.Table(name, name)
-    spans = pile_tally.Many(pile_tally.Slot(4))
-    cell_pairs = pile_tally.Many(pair)
-    address = pile_tally.Positional((name, pile_tally.Slot(4), pile_tally.Slot(4)))
-    edge = pile_tally.Keyed(
-        {"x_min": pile_tally.Slot(4), "x_max": pile_tally.Slot(4), "advance_total": pile_tally.Slot(4)}
+    flag = memory_tally.Flag()
+    name = memory_tally.Id()
+    names = memory_tally.Many(name)
+    digest = memory_tally.Hex()
+    content_id = memory_tally.Slot(8)
+    window = memory_tally.Derived(lambda text: 1 + 2 * len(parse_codepoints(text)))
+    pair = memory_tally.Slot(2)
+    labeled = memory_tally.Table(name, name)
+    spans = memory_tally.Many(memory_tally.Slot(4))
+    cell_pairs = memory_tally.Many(pair)
+    address = memory_tally.Positional((name, memory_tally.Slot(4), memory_tally.Slot(4)))
+    edge = memory_tally.Keyed(
+        {"x_min": memory_tally.Slot(4), "x_max": memory_tally.Slot(4), "advance_total": memory_tally.Slot(4)}
     )
-    seam_rects = pile_tally.Many(pile_tally.Keyed({"pair": pair, "before": edge, "after": edge}))
-    served = pile_tally.Record(
+    seam_rects = memory_tally.Many(memory_tally.Keyed({"pair": pair, "before": edge, "after": edge}))
+    served = memory_tally.Record(
         {
             "key": digest,
             "prior_id": content_id,
@@ -1829,7 +1829,7 @@ def _packed_shape(pile: str) -> pile_tally.Shape:
             "echo": name,
             "exemplar": flag,
             "no_verdict": flag,
-            "homes": pile_tally.Many(pile_tally.Positional((content_id, flag))),
+            "homes": memory_tally.Many(memory_tally.Positional((content_id, flag))),
             "policy_file": name,
             "seam_rects": seam_rects,
             "mismatches": names,
@@ -1843,12 +1843,12 @@ def _packed_shape(pile: str) -> pile_tally.Shape:
             "seam_pairs": cell_pairs,
         }
     )
-    shapes: dict[str, pile_tally.Shape] = {
-        "unit_cache.keys": pile_tally.Table(digest, content_id),
+    shapes: dict[str, memory_tally.Shape] = {
+        "unit_cache.keys": memory_tally.Table(digest, content_id),
         "unit_cache.unplaced": served,
-        "checker.identity": pile_tally.Positional((window, flag, flag)),
+        "checker.identity": memory_tally.Positional((window, flag, flag)),
     }
-    return shapes[pile]
+    return shapes[collection]
 
 
 def _slim_for(no_verdict: bool, cached: unit_cache.ServedUnit) -> bool:
@@ -1924,7 +1924,7 @@ def build_m1(
     subset_digests = table_digests(subset_dir, ACCEPTANCE_CONFIGS)
     subset_pack = ensure_pack(subset_dir, ACCEPTANCE_CONFIGS, subset_digests, subset_pack)
 
-    tally = pile_tally.from_environment()
+    tally = memory_tally.from_environment()
     console.phase("review.build load", file=sys.stderr)
     phase = time.perf_counter()
     workload = load_workload(audit_path, ledger_path, dict(LETTERS))
@@ -1966,7 +1966,7 @@ def build_m1(
     premerge_capture = facts.capture_premerge(table)
     signature_count = len(signatures)
     if tally:
-        signature_reading = pile_tally.estimate(signatures)
+        signature_reading = memory_tally.estimate(signatures)
         tally.hold_reading("signatures", lambda: signature_reading)
         tally.hold_reading("facts.premerge", lambda: premerge_sizes(premerge_capture))
     merge_ink_duplicate_units(table, rows, ink_sig, exempt_classes)
@@ -2077,7 +2077,7 @@ def build_m1(
         # Read at each boundary, not held: the map's keys and values are new strings built from the store's columns, and holding the dict would keep them alive for the whole build, which an untallied pass never does.
         tally.hold_reading(
             "unit_cache.keys",
-            lambda: pile_tally.measure(
+            lambda: memory_tally.measure(
                 {
                     store.input_key_hex(ordinal): (store.unit_id(ordinal) if store.folded(ordinal) else "")
                     for ordinal in range(table.n)
@@ -2186,7 +2186,7 @@ def build_m1(
         del echo_groups
         if tally:
             tally.hold("verified", verified)
-            runner.hold_piles(tally)
+            runner.hold_collections(tally)
             tally.boundary("units")
         _phase_timing(
             "review.build units",
