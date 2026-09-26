@@ -644,7 +644,7 @@ rules:
       except_left: []
   - id: jay-entry-contracted-after-pea
     verdict: approve
-    note: "·Jay sits a pixel closer in ·Pea.half ~x~ ·Jay — its x-height entry pulls in one column on qsJay's contract record, which has named qsPea since the letter landed in “Add ·Jay”; the user gave the contraction standing approval at u-6Ha6rWUuXLG, and the same tighter junction was approved in the other windows that reached a review session"
+    note: "·Jay sits a pixel closer in ·Pea.half ~x~ ·Jay — its x-height entry pulls in one column on qsJay's contract record, which has named qsPea since the letter landed in “Add ·Jay”; the user gave the contraction standing approval at u-TyZMZtWgZyq, and the same tighter junction was approved in the other windows that reached a review session"
     match:
       before:
         left: qsPea
@@ -658,7 +658,7 @@ rules:
       except_left: []
   - id: jay-contracted-crown-cell-dropped
     verdict: approve
-    note: "The contracted ·Jay gives up the leftmost cell of its crown while keeping its placement — after ·Pea, qsJay's contract record has named the contraction since the letter landed in “Add ·Jay”, and the user gave the one-cell drop standing approval at u-YLwbQaAT3Xf; after half-·Tea, the tuck from “Tighten the half-·Tea·Jay xheight join by a pixel” is rewritten as ·Jay's entry contraction and declared composite-ink-identical by jai-entry-contraction-renamed, and the user gives that renaming standing approval here after the same change was approved in the other windows that reached a review session"
+    note: "The contracted ·Jay gives up the leftmost cell of its crown while keeping its placement — after ·Pea, qsJay's contract record has named the contraction since the letter landed in “Add ·Jay”, and the user gave the one-cell drop standing approval at u-hj8FYEdMiS5; after half-·Tea, the tuck from “Tighten the half-·Tea·Jay xheight join by a pixel” is rewritten as ·Jay's entry contraction and declared composite-ink-identical by jai-entry-contraction-renamed, and the user gives that renaming standing approval here after the same change was approved in the other windows that reached a review session"
     match:
       before:
         pivots: [qsJay.en-y5.ex-y0]
