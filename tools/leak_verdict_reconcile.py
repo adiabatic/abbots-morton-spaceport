@@ -109,31 +109,31 @@ def confusion_matrix(rows: list[tuple[str, rep.Signature, str, str]]) -> None:
     force_bad = leak_classify.force_bad_signatures()
     force_benign = leak_classify.force_benign_signatures()
     tp = fp = tn = fn = 0
-    broken_misses: list[tuple[str, rep.Signature]] = []  # human bad, proxy benign -> force-bad seed
-    accepted_misses: list[tuple[str, rep.Signature]] = []  # human benign, proxy bad -> force-benign seed
+    broken_misses: list[tuple[str, rep.Signature]] = []  # human bad, test benign -> force-bad seed
+    accepted_misses: list[tuple[str, rep.Signature]] = []  # human benign, test bad -> force-benign seed
     for snap, sig, _v, bucket in rows:
         human_bad = bucket == "broken"
-        proxy = leak_classify.classify(sig, visible=True, force_bad=force_bad, force_benign=force_benign)
-        proxy_bad = proxy == "bad"
-        if human_bad and proxy_bad:
+        verdict = leak_classify.classify(sig, visible=True, force_bad=force_bad, force_benign=force_benign)
+        test_bad = verdict == "bad"
+        if human_bad and test_bad:
             tp += 1
-        elif human_bad and not proxy_bad:
+        elif human_bad and not test_bad:
             fn += 1
             broken_misses.append((snap, sig))
-        elif not human_bad and proxy_bad:
+        elif not human_bad and test_bad:
             fp += 1
             accepted_misses.append((snap, sig))
         else:
             tn += 1
     precision = tp / (tp + fp) if (tp + fp) else 1.0
     recall = tp / (tp + fn) if (tp + fn) else 1.0
-    print("\n== proxy bad/benign vs human verdict ==")
+    print("\n== modifier test bad/benign vs human verdict ==")
     print(f"  tp(bad,bad)={tp}  fp(benign,bad)={fp}  tn(benign,benign)={tn}  fn(bad,benign)={fn}")
     print(f"  precision={precision:.3f}  recall={recall:.3f}")
-    print(f"\n  broken-but-proxy-benign (force-bad seeds): {len(broken_misses)}")
+    print(f"\n  broken-but-modifier-test-benign (force-bad seeds): {len(broken_misses)}")
     for snap, sig in broken_misses:
         print(f"    - {list(sig)}    # {snap}")
-    print(f"\n  accepted-but-proxy-bad (force-benign seeds): {len(accepted_misses)}")
+    print(f"\n  accepted-but-modifier-test-bad (force-benign seeds): {len(accepted_misses)}")
     for snap, sig in accepted_misses:
         print(f"    - {list(sig)}    # {snap}")
 

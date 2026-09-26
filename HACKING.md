@@ -45,7 +45,7 @@ Within that pipeline, `tools/glyph_compiler.py` owns the canonical variant-level
 
 A “shaping leak” is a letter changing shape across a pen-lift (a non-join) because of a neighbor it cannot connect to. The typical case is a stroke reaching out to join a letter that isn’t there, dangling into space. [doc/definitions/shaping-leakage.md](doc/definitions/shaping-leakage.md) has the full definition and the design decisions behind it. The detection and classification tools run on their own; this section covers the decisions a human has to make.
 
-The tools sort every visible leak into **bad** (a defect: a dangle) or **benign** (a subtractive trim, a standalone-variant swap, or an intended cosmetic tuck, the slightly hand-drawn variation we want). The sort is mechanical and is validated against your past triage, but it is a proxy: when it is wrong, you correct it with an override (below). The two sets live in two checked-in files:
+The tools sort every visible leak into **bad** (a defect: a dangle) or **benign** (a subtractive trim, a standalone-variant swap, or an intended cosmetic tuck, the slightly hand-drawn variation we want). The sort is a mechanical modifier test and is validated against your past triage, but when it is wrong, you correct it with an override (below). The two sets live in two checked-in files:
 
 - `site/bad-leak-backlog.txt` — the defects still outstanding. This is the to-do list.
 - `site/benign-leak-list.txt` — the welcome variation. This is a list of accepted variation, not a defect list.
@@ -58,12 +58,12 @@ The tools sort every visible leak into **bad** (a defect: a dangle) or **benign*
 
 ### When the bad/benign call is wrong (overrides)
 
-The proxy occasionally mislabels a leak. Correct it per signature instead of changing the proxy:
+The modifier test occasionally mislabels a leak. Correct it per signature instead of changing the test:
 
-- `site/leak-force-bad.yaml` — a leak the proxy calls benign but you find ugly. Add its 4-tuple signature here and it counts as a defect.
-- `site/leak-force-benign.yaml` — a leak the proxy calls bad but you’ve decided is fine (a legitimate standalone variant). Add its signature here and it stops failing the gate.
+- `site/leak-force-bad.yaml` — a leak the modifier test calls benign but you find ugly. Add its 4-tuple signature here and it counts as a defect.
+- `site/leak-force-benign.yaml` — a leak the modifier test calls bad but you’ve decided is fine (a legitimate standalone variant). Add its signature here and it stops failing the gate.
 
-A signature is the `[isolated_left, left_chosen, isolated_right, right_chosen]` 4-tuple — copy it straight off the `:: *L a->b | *R c->d` line in the backlog or the benign list. After editing either file, run `uv run python tools/leak_verdict_reconcile.py` to confirm the classifier still reconciles cleanly (it scores the proxy against your historical triage and prints precision/recall).
+A signature is the `[isolated_left, left_chosen, isolated_right, right_chosen]` 4-tuple — copy it straight off the `:: *L a->b | *R c->d` line in the backlog or the benign list. After editing either file, run `uv run python tools/leak_verdict_reconcile.py` to confirm the classifier still reconciles cleanly (it scores the modifier test against your historical triage and prints precision/recall).
 
 ### Eyeballing leaks
 
@@ -71,7 +71,7 @@ A signature is the `[isolated_left, left_chosen, isolated_right, right_chosen]` 
 
 ### Fixing the backlog in bulk (the loop)
 
-The autonomous loop that would fix a backlog of bad leaks in bulk is _not yet built_. When it is, you will still launch it and approve the batch it produces. Its brief (how it diagnoses each dangle, the per-fix verify gate, and how it accumulates fixes and stops for one approval instead of committing on its own) is [doc/definitions/shaping-leak-loop.md](doc/definitions/shaping-leak-loop.md). Until it exists, fix bad leaks by hand: pick a backlog entry, apply a subtractive fix, run `make test-leaks`, re-bless, and repeat.
+The leak-fixing loop, which would fix a backlog of bad leaks in bulk, is _not yet built_. When it is, you will still launch it and approve the batch it produces. Its brief (how it diagnoses each dangle, the per-fix verify gate, and how it accumulates fixes and stops for one approval instead of committing on its own) is [doc/definitions/shaping-leak-loop.md](doc/definitions/shaping-leak-loop.md). Until it exists, fix bad leaks by hand: pick a backlog entry, apply a subtractive fix, run `make test-leaks`, re-bless, and repeat.
 
 ## What makes a good tester page
 

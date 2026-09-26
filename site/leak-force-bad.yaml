@@ -4,7 +4,7 @@
 #
 # The entries are of two kinds:
 #
-# - One side strips to its bare form while the neighbor across the break stays unchanged. Where that neighbor is a ligature, such as qsTea_qsOy, this is the cross-lookup-compose leak: the ligature absorbs the join, and the visible defect is on the neighbor, not on the changed edge. In other entries the unchanged neighbor is a stance such as qsThaw.ex-y0.
+# - One side strips to its bare form while the neighbor across the break stays unchanged. Where that neighbor is a ligature, such as qsTea_qsOy, this is a multi-lookup leak: the ligature absorbs the join, and the visible defect is on the neighbor, not on the changed edge. In other entries the unchanged neighbor is a stance such as qsThaw.ex-y0.
 # - ·Excite swaps into its `before-vertical` stances: `qsExcite.en-y0.ex-y0.before-vertical.noentry` right of the break, and `qsExcite.en-y0.ex-y0.before-vertical.after-baseline-letter` left of it.
 #
 # Each signature is [isolated_left, left_chosen, isolated_right, right_chosen], the same 4-tuple tools/leak_snapshot.py keys on.

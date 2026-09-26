@@ -8,7 +8,7 @@ The investigation behind these decisions (the measurement sweep, the triage of t
 
 A **shaping leak** is any difference in a glyph’s shape, across a non-join (pen-lift), between how it is shaped _in context_ and how it is shaped _in isolation_. “In isolation” means each side of the break is re-shaped as its own run, with the real boundary token kept (decision 4).
 
-Leakage is a descriptive notion: any such difference counts. A separate severity, bad or benign, is assigned by an operational proxy. Some benign leakage is wanted, because it adds a little faux-organic variation to the font.
+Leakage is a descriptive notion: any such difference counts. A separate severity, bad or benign, is assigned by the modifier test (decision 6). Some benign leakage is wanted: this accepted benign variation makes the font look a little hand-drawn.
 
 ## Settled decisions
 
@@ -31,11 +31,11 @@ The sweep records identity leaks, keyed by the signature `(isolated_left, left_c
 
 Leaks are looked for at every non-join (`_scan_sequence` in `tools/build_check_html.py`). Two letters separated by a `space` or ZWNJ token always have a break between them, because cursive attachment cannot cross the token. Two adjacent letters with no token between them have a break when their chosen glyphs share no join height: `exit_ys(left) & entry_ys(right)` is empty. Two letters fused into one ligature glyph are not a break. Across a pen-lift no stroke connects the two letters, so neither letter’s shape should depend on what is on the other side.
 
-### 4. The isolated reference is boundary-faithful
+### 4. The isolated reference is token-preserving
 
-The break divides the sequence into a left run and a right run. Each run is re-shaped as its own buffer, with its own internal joins intact. The reference is **boundary-faithful**: where real text has a boundary token, that token is present.
+The break divides the sequence into a left run and a right run. Each run is re-shaped as its own buffer, with its own internal joins intact. The reference is **token-preserving**: where real text has a boundary token, that token is present.
 
-- **Word boundaries**: the real `space` or ZWNJ token is in both the full shaping and each isolated half. Space-keyed `calt` (the `not_after` guards in `glyph_data/quikscript.yaml` that list `space` and `uni200C`) then behaves the same in both, and only a difference reaching _across_ the token is flagged. A real boundary token usually breaks the `calt` contextual match anyway, so boundary-faithfulness tends to remove spurious word-boundary leaks while keeping space-keyed stances in the reference.
+- **Word boundaries**: the real `space` or ZWNJ token is in both the full shaping and each isolated half. Space-keyed `calt` (the `not_after` guards in `glyph_data/quikscript.yaml` that list `space` and `uni200C`) then behaves the same in both, and only a difference reaching _across_ the token is flagged. A real boundary token usually breaks the `calt` contextual match anyway, so preserving the token tends to remove spurious word-boundary leaks while keeping space-keyed stances in the reference.
 - **Mid-word non-joins**: real text has no token between the two letters, so nothing is inserted and isolation only splits them.
 
 The sweep therefore enumerates sequences that contain the boundary tokens as well as letters (`_sweep_alphabet`). It skips sequences with a token at either end or two adjacent tokens.
@@ -44,13 +44,13 @@ The sweep therefore enumerates sequences that contain the boundary tokens as wel
 
 `space` and `uni200C` (ZWNJ) are separate boundary tokens (`BOUNDARY_TOKENS` in `test/quikscript_shaping_helpers.py`), and the sweep uses each. Both appear in the glyph data’s `not_after` context lists, so both are boundaries that real text contains.
 
-### 6. Bad vs benign: operational proxy + author override
+### 6. Bad vs benign: modifier test + author override
 
 The verdict is mechanical, with author overrides:
 
 - **Bad** ⇔ the leak is **visible** _and_ a changed flanking stance is **additive toward the break**: it gained, in context, a break-facing connector that its isolated form lacks. At a non-join the neighbor cannot complete that connector, so the stroke dangles into empty space. This “dangle” is the main defect.
 - **Benign** ⇔ everything else: **subtractive** trims (a contraction, or an entryless, exitless, or trimmed edge) that make the letter more self-contained; swaps to a different **standalone variant** that is a valid stance on its own; and **all invisible** swaps (visual `same`).
-- **Author override**: a changed stance whose modifiers include `before-<family>` / `after-<family>` for the across-break neighbor’s family is an author-declared cosmetic interaction, and is benign whatever the proxy says. Only a force-bad entry (decision 11) overrides it.
+- **Author override**: a changed stance whose modifiers include `before-<family>` / `after-<family>` for the across-break neighbor’s family is an author-declared cosmetic interaction, and is benign whatever the modifier test says. Only a force-bad entry (decision 11) overrides it.
 
 The additive/subtractive axis is read from a stance’s modifier tokens, with no rendering:
 
@@ -63,14 +63,14 @@ The additive/subtractive axis is read from a stance’s modifier tokens, with no
 
 `tools/leak_classify.py` is the authority on the additive sets (`_LEFT_ADDITIVE_RE`, `_RIGHT_ADDITIVE_RE`) and the removed-edge sets (`_LEFT_EDGE_REMOVED`, `_RIGHT_EDGE_REMOVED`). Of the table’s rows, `classify` uses only these sets and the cosmetic check. The subtractive and standalone-variant rows describe changes it leaves benign. The test is a difference: it compares the chosen stance’s modifiers with the isolated form’s and asks what was gained on the break-facing edge (the left glyph’s exit, the right glyph’s entry). A break-facing edge that is removed (`noexit` or `ex-noentry` on the left, `noentry` on the right) makes the side benign, because nothing is left to dangle. A static `ex-ext`/`en-ext` token alone is the wrong signal: in the human triage verdicts (`doc/history/2026-06-03--leak-cleanup/leak-emergent-verdicts.txt`) it matches none of the rows marked broken, while most of them gain a break-facing `ex-yN` or `en-yN` connector.
 
-Every leak the human triage marked outright broken is an additive dangle or a multi-rule composition of additive reaches, and none is a subtractive trim that made a letter look wrong. With the two per-signature override lists (decision 11), the proxy agrees with every human verdict. `uv run python tools/leak_verdict_reconcile.py` prints the confusion matrix.
+Every leak the human triage marked outright broken is an additive dangle or a multi-rule composition of additive reaches, and none is a subtractive trim that made a letter look wrong. With the two per-signature override lists (decision 11), the modifier test agrees with every human verdict. `uv run python tools/leak_verdict_reconcile.py` prints the confusion matrix.
 
 ### 7. CI gates on bad leaks only, with overrides in both directions
 
-The bad-leak gates fail when a **bad** leak (a visible additive dangle, after overrides) is not already listed in `site/bad-leak-backlog.txt`. The benign list also fails `make test-leaks` when it changes (decision 8). Two author override channels sit on either side of the proxy verdict:
+The bad-leak gates fail when a **bad** leak (a visible additive dangle, after overrides) is not already listed in `site/bad-leak-backlog.txt`. The benign list also fails `make test-leaks` when it changes (decision 8). Two author override lists sit on either side of the modifier test's verdict:
 
 - **Force-benign**: a `before-<family>` / `after-<family>` cosmetic declaration on a stance (decision 6), or a per-signature allowlist entry (decision 11).
-- **Force-bad**: a per-signature blocklist entry for a swap the proxy reads as benign but the author finds ugly, so the agent treats it as a defect to fix.
+- **Force-bad**: a per-signature blocklist entry for a swap the modifier test reads as benign but the author finds ugly, so the agent treats it as a defect to fix.
 
 All visible leaks, bad and benign, are recorded for review. `test/test_isolation_leaks.py` has the gates.
 
@@ -81,7 +81,7 @@ The definition sets no maximum depth: a leak is a leak at any sequence length. D
 - The **bad** set is checked at depth 3 and depth 4 against the backlog. A new bad signature fails; a resolved one prints a notice to re-bless.
 - The **benign** set is a reviewed snapshot, the benign list (`site/benign-leak-list.txt`), checked only at depth 4. Any change, gained or lost, fails `test_benign_leak_list_unchanged` in `make test-leaks` until `make leak-snapshot` re-blesses it. The default `make test` does not run it.
 
-### 9. The iteration loop is autonomous detect→fix→verify, commit-gated
+### 9. The leak-fixing loop is unattended detect→fix→verify, commit-gated
 
 Every bad leak is an additive dangle, and its fix is always **subtractive**: for the offending context only, make the break-facing edge subtractive or revert it to the isolated or trimmed stance. The existing mechanisms do this: `not_before` to stop the additive stance being selected, `contract_exit_before` / `contract_entry_after`, an `ex-noentry` trim, or a `predecessor_demote_overrides` / `trailing_demote_overrides` row.
 
@@ -91,14 +91,14 @@ The agent runs the loop unattended: sweep, classify, fix each bad leak, rebuild,
 
 A break can change the left flanking glyph, the right one, both, or a glyph further inside a run. A break is **bad** if a stance that changed because of it is an additive reach toward a connection that isn’t made, and benign otherwise. The dangle always sits on a break-facing edge: `calt` matching is contiguous, so cross-break influence cannot skip the flanking glyph, and an inward change always comes with a flanking identity change. `classify` in `tools/leak_classify.py` therefore reads only the two flanking glyphs in the signature.
 
-The verdict depends on the **resulting stance**, not the rule structure, so it does not matter whether one rule or a chain of lookups produced the dangle. The cross-lookup “compose” emergent leaks are bad when their resulting stance is an additive dangle. The leaks the triage accepted (either stance fine, or one merely preferable) classify benign, some of them through the force-benign allowlist. Ligatures need no special case: `qsThey_qsUtter` → `qsThey_qsUtter.noentry.ex-con-1` is read by its modifiers (`noentry` and `ex-con-1`, both subtractive, so benign) like any other stance.
+The verdict depends on the **resulting stance**, not the rule structure, so it does not matter whether one rule or a chain of lookups produced the dangle. Multi-lookup leaks, the emergent ones that several lookups produce together, are bad when their resulting stance is an additive dangle. The leaks the triage accepted (either stance fine, or one merely preferable) classify benign, some of them through the force-benign allowlist. Ligatures need no special case: `qsThey_qsUtter` → `qsThey_qsUtter.noentry.ex-con-1` is read by its modifiers (`noentry` and `ex-con-1`, both subtractive, so benign) like any other stance.
 
 ### 11. Overrides: force-benign per-stance, force-bad per-signature
 
-The two override channels are keyed to fit their jobs:
+The two override lists are keyed to fit their jobs:
 
-- **Force-benign** has two parts. One is per stance: a `before-<family>` / `after-<family>` modifier saying the cross-break change is intended wherever it appears. The other is per signature: the allowlist `site/leak-force-benign.yaml`. Some human-accepted standalone-variant swaps (for example `qsNo` → `qsNo.alt.en-y0.ex-y0`) gain a break-facing anchor and so trip the proxy, yet carry no cosmetic modifier. Only a per-signature entry can mark that exact swap benign without weakening the proxy elsewhere.
-- **Force-bad** is keyed on the leak **signature** `(isolated_left, left_chosen, isolated_right, right_chosen)`, in the blocklist `site/leak-force-bad.yaml`. It marks only that exact swap bad. Its entries are swaps the human triage marked broken that the proxy reads as benign. Most are the cross-lookup-compose case, where the changed side strips to its bare form while an unchanged ligature neighbor absorbs the join, which a per-stance proxy cannot see. Force-bad takes precedence over every force-benign signal.
+- **Force-benign** has two parts. One is per stance: a `before-<family>` / `after-<family>` modifier saying the cross-break change is intended wherever it appears. The other is per signature: the allowlist `site/leak-force-benign.yaml`. Some human-accepted standalone-variant swaps (for example `qsNo` → `qsNo.alt.en-y0.ex-y0`) gain a break-facing anchor and so trip the modifier test, yet carry no cosmetic modifier. Only a per-signature entry can mark that exact swap benign without weakening the modifier test elsewhere.
+- **Force-bad** is keyed on the leak **signature** `(isolated_left, left_chosen, isolated_right, right_chosen)`, in the blocklist `site/leak-force-bad.yaml`. It marks only that exact swap bad. Its entries are swaps the human triage marked broken that the modifier test reads as benign. Most are multi-lookup leaks, where the changed side strips to its bare form while an unchanged ligature neighbor absorbs the join, which a per-stance test cannot see. Force-bad takes precedence over every force-benign signal.
 
 ### 12. The per-fix verify gate
 
@@ -106,7 +106,7 @@ After applying a fix, the agent rebuilds, re-sweeps to the gate depth, and requi
 
 ## Build work this definition implies
 
-- Detection and the boundary-faithful reference (decisions 2 to 5): `find_leaks`, `find_visible_leaks`, `_scan_sequence`, and `_visual_status` in `tools/build_check_html.py`.
+- Detection and the token-preserving reference (decisions 2 to 5): `find_leaks`, `find_visible_leaks`, `_scan_sequence`, and `_visual_status` in `tools/build_check_html.py`.
 - The bad/benign classifier and both override lists (decisions 6, 10, 11): `tools/leak_classify.py`, `site/leak-force-bad.yaml`, and `site/leak-force-benign.yaml`, checked against the human triage by `tools/leak_verdict_reconcile.py`.
 - The gates (decisions 7 and 8): `test/test_isolation_leaks.py`. `test_no_new_bad_isolation_leaks` runs at depth 3 in `make test`. `test_bad_leak_backlog_unchanged` and `test_benign_leak_list_unchanged` run at depth 4 in `make test-leaks`. `tools/leak_snapshot.py` (`make leak-snapshot`) writes `site/bad-leak-backlog.txt` and `site/benign-leak-list.txt`.
-- Not built: the autonomous detect→fix→verify loop with the per-fix verify gate (decisions 9 and 12). Its brief is `doc/definitions/shaping-leak-loop.md`.
+- Not built: the leak-fixing loop (detect→fix→verify) with the per-fix verify gate (decisions 9 and 12). Its brief is `doc/definitions/shaping-leak-loop.md`.

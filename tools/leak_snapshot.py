@@ -108,14 +108,14 @@ if __name__ == "__main__":
         format_snapshot(
             bad,
             title=f"Bad isolation-leak backlog at depth {MAX_LEN}.",
-            blurb="Visible additive dangles the autonomous fix loop must drain. A NEW signature fails the gate; a resolved one is a re-bless notice.",
+            blurb="Visible additive dangles still to fix, the backlog the leak-fixing loop (not built) would drain. A NEW signature fails the gate; a resolved one is a re-bless notice.",
         )
     )
     BENIGN_LIST_PATH.write_text(
         format_snapshot(
             benign,
             title=f"Benign isolation-leak list at depth {MAX_LEN}.",
-            blurb="The welcome faux-organic variation (subtractive trims, standalone-variant swaps, cosmetic tucks). Any change is surfaced for review.",
+            blurb="The accepted benign variation (subtractive trims, standalone-variant swaps, cosmetic tucks). Any change is surfaced for review.",
         )
     )
     print(

@@ -1,8 +1,8 @@
-# The autonomous bad-leak fix loop (deliverable B)
+# The leak-fixing loop (not built)
 
-This is the brief for the unbuilt part of `doc/definitions/shaping-leakage.md`: an unattended detect→fix→verify loop that empties the bad-leak backlog. **Deliverable A** (the boundary-faithful sweep, the bad/benign classifier, the two override channels, and the gates) is built, and the loop uses its output.
+This is the brief for the unbuilt part of `doc/definitions/shaping-leakage.md`: an unattended detect→fix→verify loop that empties the bad-leak backlog. **The leak gates**, with the token-preserving sweep, the bad/benign classifier, and the two override lists they rely on, are built, and the fix loop uses their output.
 
-## What A hands the loop
+## What the leak gates hand the fix loop
 
 - `site/bad-leak-backlog.txt` is the to-do list. Each line is `<example> [break N] :: *L il->lc | *R ir->rc`, where `*` marks a side that changed. The signature is the `(isolated_left, left_chosen, isolated_right, right_chosen)` tuple after `::`. `tools/leak_snapshot.parse_snapshot` reads it.
 - `tools/leak_classify.py::classify(signature, visible=…)` returns the bad/benign verdict. `force_bad_signatures()` and `force_benign_signatures()` load the per-signature override lists in `site/`.
@@ -17,7 +17,7 @@ For each bad leak in the backlog:
 3. **Verify** with the decision-12 gate. Rebuild (`make all`), then require all three: (a) the targeted bad leak is gone; (b) no new bad leak appears anywhere, checked with `make test-leaks` or with `uv run python tools/leak_snapshot.py` and a diff; (c) `make test` passes, so no real cursive join broke. If any check fails, revert the edit and either try a different mechanism or skip the leak and log it for a human.
 4. The benign list may change. Report the change at the end and don’t stop the loop for it. `make test-leaks` fails on any change to the benign list until `make leak-snapshot` re-blesses it, so check (b) should read only the result of `test_bad_leak_backlog_unchanged`.
 
-Some bad leaks are on the force-bad list, `site/leak-force-bad.yaml`, because the proxy reads them as benign. Most of them are cross-lookup-compose cases: the changed side strips to its bare form while an unchanged ligature neighbor absorbs the join. A one-line record change does not fix these. They need the second-order (downstream-revalidation) contract that Phase 4 of `doc/history/2026-06-03--leak-cleanup/leak-prevention-plan.md` describes. The loop should recognize force-bad signatures and flag them for a human instead of attempting a fix.
+Some bad leaks are on the force-bad list, `site/leak-force-bad.yaml`, because the modifier test reads them as benign. Most of them are multi-lookup leaks: the changed side strips to its bare form while an unchanged ligature neighbor absorbs the join. A one-line record change does not fix these. They need the second-order (downstream-revalidation) contract that Phase 4 of `doc/history/2026-06-03--leak-cleanup/leak-prevention-plan.md` describes. The loop should recognize force-bad signatures and flag them for a human instead of attempting a fix.
 
 ## Substrate and landing (the user’s choices)
 
