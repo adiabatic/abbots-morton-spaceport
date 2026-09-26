@@ -69,7 +69,7 @@ Every row shows a one-line summary under the renderings: what the new pipeline c
 Run the export CLI on the downloaded file. The resulting `tmp/review-triage.yaml` has a `review` header with counts, a `machine_approved` section (see "Machine-approved units"), and five verdict sections:
 
 - **`pins`** (from approvals): whole-word `data-expect` strings, each checked for syntax with the repo's `parse_expect` and for meaning against the after font. Copy each into its `suggested_home` (for example `site/the-manual.html`) as a `data-expect` or `data-expect-noncanonically` attribute; this is how an approved behavior becomes a pin (`doc/rebuild-design.md` §10, item 5). `duplicate_of` flags pins the corpus already has.
-- **`policy_edits`** (from rejections): one-line `policy.prefer[+]`, `policy.refuse[+]`, or `policy.contract[+]` records, each naming the target rune file, an appendable keypath, the provenance records that decided the outcome, and the decided stage. These are _drafts_ and are never applied automatically: review each, paste it into the named `glyph_data/runes/*.yaml`, and rebuild. An entry with `no_mechanical_draft` has no one-line counter-lever; start from its `names_provenance` and the unit's explain panel.
+- **`policy_edits`** (from rejections): one-line `policy.prefer[+]`, `policy.refuse[+]`, or `policy.contract[+]` records, each naming the target rune file, an appendable keypath, the provenance records that decided the outcome, and the decided stage. These are _drafts_ and are never applied automatically: review each, paste it into the named `glyph_data/runes/*.yaml`, and rebuild. An entry with `no_mechanical_draft` has no one-line reversing edit; start from its `names_provenance` and the unit's explain panel.
 - **`any_of`** (from fine-either-way): candidate expect strings, after-behavior first, for the any-of check, which `_assert_expect_any` (`test/quikscript_shaping_helpers.py`) implements until the corpus has an any-of connective. A unit whose before and after behaviors give the same whole-word string (a cell-only divergence) has one candidate.
 - **`neither`** (from neither verdicts): both behaviors look wrong, so nothing is drafted. Each entry has the unit id, code points, notation, the reviewer's note, and `names_provenance`, the `glyph_data/runes/*.yaml` records the outcome is attributed to. These units need new authoring work, starting from those records and the unit's explain panel.
 - **`identical`** (from identical verdicts): the reviewer cannot see the flagged difference. Nothing is drafted; each entry has the unit id, code points, notation, and the reviewer's note. These entries report a difference the ink comparator and highlight tooling flagged that no person can see; they are not judgments on either font.
@@ -145,7 +145,7 @@ The review test modules never read the file. They check internal consistency and
 
 ### Policy drafters
 
-`Drafter.draft_policy` in `drafts.py` picks one counter-lever per rejected unit, at the unit's first divergent position that is not a boundary token. It tries these in order:
+`Drafter.draft_policy` in `drafts.py` picks one reversing edit per rejected unit, at the unit's first divergent position that is not a boundary token. It tries these in order:
 
 - **`policy.refuse[+]` on the new join**: when the new behavior joins a gap the baseline left as a break and the unit has provenance, a `contract` cannot restore the break, so the drafter refuses the anchor that reaches across that gap, scoped to the neighbor on that side (for example `{exit: x-height, when: {right: {family: [qsIt]}}, …}`).
 - **`policy.contract[+]`**: when the cell gained an extension the baseline glyph lacks and the provenance includes a `policy.extend` record, a `contract` record with `by: N` on that side, with its `when` window on the extension's side.
@@ -153,7 +153,7 @@ The review test modules never read the file. They check internal consistency and
 - **`policy.refuse[+]` on the settled cell**: any other unit with provenance gets a refuse of the cell's exit, or of its stance when it has no exit.
 - **`policy.prefer[+]` of the baseline exit**: a unit with no provenance gets a prefer for the baseline's exit at that position.
 
-A seam-identical unit whose baseline cell differs from the new cell only at adjustment grain (post-ZWNJ locked twins, bind pullbacks, non-summing suppressed extensions) has no one-line counter-lever and gets no policy draft. `export.py` still lists it in `policy_edits` with null fields, the unit's provenance, and a `no_mechanical_draft` explanation, so a rejected unit always appears in the triage YAML.
+A seam-identical unit whose baseline cell differs from the new cell only at adjustment grain (post-ZWNJ locked twins, bind pullbacks, non-summing suppressed extensions) has no one-line reversing edit and gets no policy draft. `export.py` still lists it in `policy_edits` with null fields, the unit's provenance, and a `no_mechanical_draft` explanation, so a rejected unit always appears in the triage YAML.
 
 ### Verdict families (UNMATCHED presentation)
 

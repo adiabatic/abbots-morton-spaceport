@@ -1,4 +1,4 @@
-"""The three verdict-export drafters (rebuild/REVIEW-PLAN.md §4.3). An approval drafts a whole-word data-expect pin, checked with `test_shaping.parse_expect` and against the after font through the rebuild-side shaping harness. A rejection drafts the smallest one-line refuse, contract, or prefer record that reverses the change (the counter-lever) and names the provenance records that decided the new outcome, or no draft when a name-grain divergence has no one-line counter-lever. "Fine either way" drafts an any-of record with both behaviors as full expect strings."""
+"""The three verdict-export drafters (rebuild/REVIEW-PLAN.md §4.3). An approval drafts a whole-word data-expect pin, checked with `test_shaping.parse_expect` and against the after font through the rebuild-side shaping harness. A rejection drafts the smallest one-line refuse, contract, or prefer record that reverses the change (the reversing edit) and names the provenance records that decided the new outcome, or no draft when a name-grain divergence has no one-line reversing edit. "Fine either way" drafts an any-of record with both behaviors as full expect strings."""
 
 from __future__ import annotations
 
@@ -392,7 +392,7 @@ class Drafter:
     def _baseline_cell_pin(
         self, enriched: EnrichedUnit, position: int, cell: CellId, why: str
     ) -> dict | None:
-        """The prefer record that pins the baseline cell on a name-grain divergence, where a refuse would break a join both fonts share. It exists when the alias map's cell for the baseline glyph differs from the new cell in its entry, exit, or stance. Differences only in adjustments (locked twins, bind pullbacks, suppressed extensions) have no one-line counter-lever and return None."""
+        """The prefer record that pins the baseline cell on a name-grain divergence, where a refuse would break a join both fonts share. It exists when the alias map's cell for the baseline glyph differs from the new cell in its entry, exit, or stance. Differences only in adjustments (locked twins, bind pullbacks, suppressed extensions) have no one-line reversing edit and return None."""
         span_start = enriched.after_spans[position][0]
         before_index = 0
         for index, (start, end) in enumerate(enriched.before_spans):

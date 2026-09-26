@@ -218,7 +218,7 @@ def build_triage(manifest: dict, units: dict[str, dict], verdicts: dict) -> dict
                         "decided_stage": None,
                         "why_stub": why_stub,
                         "schema_valid": None,
-                        "no_mechanical_draft": "the divergence has no one-line counter-lever (name-grain locked twin, bind pullback, or suppressed extension); start from names_provenance and the unit's explain panel",
+                        "no_mechanical_draft": "the divergence has no one-line reversing edit (name-grain locked copy, bind pullback, or suppressed extension); start from names_provenance and the unit's explain panel",
                     }
                 )
         elif verdict == "either" and drafts.get("any_of"):
