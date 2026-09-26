@@ -19,32 +19,32 @@ MINI = REPO_ROOT / "rebuild" / "review" / "fixtures" / "mini"
 
 SETTLEMENT_OLD = """# settlement table, config default
 input\tbacktrack\tlookahead1\tlookahead2\toutcome\tjoint\tprovenance
-qsIt\tqsTea.half.ex-y5\t-\t-\tqsIt.hapax.en-y5\t-\tglyph_data/runes/qsIt.yaml:policy.extend[0]
+qsIt\tqsTea.half.ex-y5\t-\t-\tqsIt.sole.en-y5\t-\tglyph_data/runes/qsIt.yaml:policy.extend[0]
 qsMay\tqsPea.full.ex-y0\tqsIt\t-\tqsMay.loop.en-y0\t-\t
 qsPea\tspace uni200C\t-\t-\tqsPea.full\t-\told-pointer
-qsTea\tqsOy.hapax.ex-y0\t-\t-\tqsTea.full.en-y0\t-\t
+qsTea\tqsOy.sole.ex-y0\t-\t-\tqsTea.full.en-y0\t-\t
 """
 
 SETTLEMENT_NEW = """# settlement table, config default
 input\tbacktrack\tlookahead1\tlookahead2\toutcome\tjoint\tprovenance
-qsIt\tqsTea.half.ex-y5\t-\t-\tqsIt.hapax.en-y5.en-ext-1\t-\tglyph_data/runes/qsIt.yaml:policy.extend[0]
-qsOy\t-\t-\t-\tqsOy.hapax\t-\t
+qsIt\tqsTea.half.ex-y5\t-\t-\tqsIt.sole.en-y5.en-ext-1\t-\tglyph_data/runes/qsIt.yaml:policy.extend[0]
+qsOy\t-\t-\t-\tqsOy.sole\t-\t
 qsPea\tspace\t-\t-\tqsPea.full\t-\tnew-pointer
 qsPea\tuni200C\t-\t-\tqsPea.full.locked\t-\tnew-pointer
-qsTea\tqsOy.hapax.ex-y0\t-\t-\tqsTea.full.en-y0\t-\t
+qsTea\tqsOy.sole.ex-y0\t-\t-\tqsTea.full.en-y0\t-\t
 """
 
 TREATY_OLD = """# treaty table, config default
 left\tright\tjunction\textension\tkern
-qsIt.hapax\tqsIt.hapax\tbreak\t0\t0
-qsTea.half.ex-y5\tqsIt.hapax.en-y5\ty5\t0\t0
+qsIt.sole\tqsIt.sole\tbreak\t0\t0
+qsTea.half.ex-y5\tqsIt.sole.en-y5\ty5\t0\t0
 """
 
 TREATY_NEW = """# treaty table, config default
 left\tright\tjunction\textension\tkern
-qsIt.hapax\tqsIt.hapax\tbreak\t0\t0
-qsTea.half.ex-y5\tqsIt.hapax.en-y5\ty5\t1\t0
-qsOy.hapax.ex-y0\tqsTea.full.en-y0\ty0\t0\t0
+qsIt.sole\tqsIt.sole\tbreak\t0\t0
+qsTea.half.ex-y5\tqsIt.sole.en-y5\ty5\t1\t0
+qsOy.sole.ex-y0\tqsTea.full.en-y0\ty0\t0\t0
 """
 
 
@@ -71,8 +71,8 @@ def test_diff_classifies_buckets(table_dirs):
     changed = [entry for entry in by_bucket["changed"] if entry.table == "settlement"]
     assert len(changed) == 1
     assert changed[0].key.input == "qsIt"
-    assert changed[0].old.outcome == "qsIt.hapax.en-y5"
-    assert changed[0].new.outcome == "qsIt.hapax.en-y5.en-ext-1"
+    assert changed[0].old.outcome == "qsIt.sole.en-y5"
+    assert changed[0].new.outcome == "qsIt.sole.en-y5.en-ext-1"
 
     added = [entry for entry in by_bucket["added"] if entry.table == "settlement"]
     assert [entry.key.input for entry in added] == ["qsOy"]
@@ -85,7 +85,7 @@ def test_diff_classifies_buckets(table_dirs):
     assert treaty_changed[0].old.extension == 0
     assert treaty_changed[0].new.extension == 1
     treaty_added = [entry for entry in by_bucket["added"] if entry.table == "treaty"]
-    assert [entry.key.left for entry in treaty_added] == ["qsOy.hapax.ex-y0"]
+    assert [entry.key.left for entry in treaty_added] == ["qsOy.sole.ex-y0"]
 
 
 def test_regrouped_pairs_removals_with_additions_sharing_input(table_dirs):
@@ -112,7 +112,7 @@ def test_provenance_only_demotion(tmp_path):
     new_dir = tmp_path / "new"
     old_dir.mkdir()
     new_dir.mkdir()
-    base = "qsIt\t-\t-\t-\tqsIt.hapax\t-\t{pointer}\n"
+    base = "qsIt\t-\t-\t-\tqsIt.sole\t-\t{pointer}\n"
     header = "# settlement table, config default\ninput\tbacktrack\tlookahead1\tlookahead2\toutcome\tjoint\tprovenance\n"
     (old_dir / "settlement-default.tsv").write_text(header + base.format(pointer="old"))
     (new_dir / "settlement-default.tsv").write_text(header + base.format(pointer="new"))
@@ -133,15 +133,15 @@ def test_load_settlement_widths_round_trip(tmp_path):
 
     seven = load(
         "input\tbacktrack\tlookahead1\tlookahead2\toutcome\tjoint\tprovenance\n"
-        "qsIt\tqsTea.half.ex-y5\t-\t-\tqsIt.hapax.en-y5\t-\t\n"
+        "qsIt\tqsTea.half.ex-y5\t-\t-\tqsIt.sole.en-y5\t-\t\n"
     )
     eight = load(
         "input\tbacktrack\tlookahead1\tlookahead2\tlookahead3\toutcome\tjoint\tprovenance\n"
-        "qsIt\tqsTea.half.ex-y5\t-\t-\t-\tqsIt.hapax.en-y5\t-\t\n"
+        "qsIt\tqsTea.half.ex-y5\t-\t-\t-\tqsIt.sole.en-y5\t-\t\n"
     )
     nine = load(
         "input\tbacktrack\tlookahead1\tlookahead2\tlookahead3\tlookahead4\toutcome\tjoint\tprovenance\n"
-        "qsIt\tqsTea.half.ex-y5\t-\t-\t-\tqsLow\tqsIt.hapax.en-y5\t-\t\n"
+        "qsIt\tqsTea.half.ex-y5\t-\t-\t-\tqsLow\tqsIt.sole.en-y5\t-\t\n"
     )
 
     legacy = tablediff.SettlementKey("default", "qsIt", frozenset({"qsTea.half.ex-y5"}), None, None, None)

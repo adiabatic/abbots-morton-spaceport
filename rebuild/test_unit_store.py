@@ -63,7 +63,7 @@ def _primary_unit_projection(
         picture_identical=False,
         pair=(0, 1),
         after_spans=((0, 1), (1, 2)),
-        after_cells=tuple("qsTea/half/None/x-height/ qsIt/hapax/x-height/None/".split()),
+        after_cells=tuple("qsTea/half/None/x-height/ qsIt/sole/x-height/None/".split()),
         after_junctions=tuple("y5".split()),
         before_spans=((0, 1), (1, 2)),
         before_glyphs=tuple("qsTea.half.ex-y5 qsIt.en-y5".split()),

@@ -19,7 +19,7 @@ def runes() -> dict:
     ligature["rune"] = "qsDay_qsIt"
     del ligature["codepoint"]
     ligature["sequence"] = ["qsDay", "qsIt"]
-    stance = ligature["stances"]["hapax"]
+    stance = ligature["stances"]["sole"]
     stance["bitmap"] = ["###"] * 6
     stance["surface"]["exits"]["baseline"]["x"] = 3
     return {"qsIt": source, "qsDay_qsIt": ligature}
@@ -49,17 +49,17 @@ def _error(tmp_path: Path, runes: dict, text: str) -> None:
 
 
 def test_implicit_single_stance_inherits_scope_and_tracks_component_edits(tmp_path, runes):
-    source_row = runes["qsIt"]["stances"]["hapax"]["surface"]["exits"]["baseline"]
+    source_row = runes["qsIt"]["stances"]["sole"]["surface"]["exits"]["baseline"]
     for family in ("qsDay", "qsMay"):
         source_row["toward"] = [{"family": family}]
         spec = _load(tmp_path, runes)
-        assert spec.runes["qsDay_qsIt"].stances["hapax"].surface.exits["baseline"].scope == (
+        assert spec.runes["qsDay_qsIt"].stances["sole"].surface.exits["baseline"].scope == (
             model.Condition(family=(family,)),
         )
 
 
 def test_outgoing_inheritance_preserves_ligature_geometry_and_incoming_state(tmp_path, runes):
-    source = runes["qsIt"]["stances"]["hapax"]
+    source = runes["qsIt"]["stances"]["sole"]
     source["surface"]["entries"]["baseline"]["from"] = [{"family": "qsMay"}]
     source["surface"]["pairings"] = {"never": [{"entry": "baseline", "exit": "baseline"}]}
     source["surface"]["require"] = ["exit"]
@@ -67,7 +67,7 @@ def test_outgoing_inheritance_preserves_ligature_geometry_and_incoming_state(tmp
     source["surface"]["exits"]["baseline"]["unjoined"] = "unjoined"
     source["surface"]["exits"]["baseline"]["stroke"] = "vertical"
     spec = _load(tmp_path, runes)
-    local = spec.runes["qsDay_qsIt"].stances["hapax"]
+    local = spec.runes["qsDay_qsIt"].stances["sole"]
     assert local.bitmap.rows == ("###",) * 6
     assert local.bitmaps == {}
     assert local.surface.entries["baseline"].scope == ()
@@ -80,7 +80,7 @@ def test_outgoing_inheritance_preserves_ligature_geometry_and_incoming_state(tmp
 
 def _multiple_stances(runes: dict) -> None:
     source = runes["qsIt"]
-    stance = source["stances"].pop("hapax")
+    stance = source["stances"].pop("sole")
     source["stances"] = {"full": deepcopy(stance), "half": deepcopy(stance)}
     source["stances"]["full"]["surface"]["exits"]["baseline"]["toward"] = [{"family": "qsDay"}]
     source["stances"]["half"]["surface"]["exits"]["baseline"]["toward"] = [{"family": "qsMay"}]
@@ -99,11 +99,11 @@ def test_mapping_inherits_only_the_selected_stances_policy(tmp_path, runes):
             for stance, family in (("full", "qsDay"), ("half", "qsMay"))
         ]
     }
-    runes["qsDay_qsIt"]["stances"]["hapax"]["outgoing"] = {"stance": "half"}
+    runes["qsDay_qsIt"]["stances"]["sole"]["outgoing"] = {"stance": "half"}
     spec = _load(tmp_path, runes)
     ligature = spec.runes["qsDay_qsIt"]
-    assert ligature.stances["hapax"].surface.exits["baseline"].scope == (model.Condition(family=("qsMay",)),)
-    assert ligature.policy.refuse == (replace(spec.runes["qsIt"].policy.refuse[1], stance="hapax"),)
+    assert ligature.stances["sole"].surface.exits["baseline"].scope == (model.Condition(family=("qsMay",)),)
+    assert ligature.policy.refuse == (replace(spec.runes["qsIt"].policy.refuse[1], stance="sole"),)
 
 
 @pytest.mark.parametrize(
@@ -113,7 +113,7 @@ def test_mapping_inherits_only_the_selected_stances_policy(tmp_path, runes):
         ("refuse", {"exit": "baseline", "when": {"left": {"family": "qsDay"}}}),
         ("refuse", {"exit": "baseline", "when": {"self": {"entry": "none"}}}),
         ("refuse", {"exit": "baseline", "when": {"word": "initial"}}),
-        ("prefer", {"stance": "hapax", "when": {"right": {"family": "qsDay"}}}),
+        ("prefer", {"stance": "sole", "when": {"right": {"family": "qsDay"}}}),
         ("prefer", {"cell": {"exit": "baseline"}, "over": {"entry": "baseline"}}),
         ("prefer", {"cell": {"entry": "none", "exit": "baseline"}}),
         ("extend", {"entry": "baseline", "by": 1, "when": {"right": {"family": "qsDay"}}}),
@@ -129,9 +129,9 @@ def test_a_refusal_naming_neither_side_inherits_as_an_outgoing_veto(tmp_path, ru
     runes["qsIt"]["policy"] = {"refuse": [{"when": {"right": {"family": "qsDay"}}}]}
     spec = _load(tmp_path, runes)
     assert spec.runes["qsDay_qsIt"].policy.refuse == (
-        replace(spec.runes["qsIt"].policy.refuse[0], stance="hapax"),
+        replace(spec.runes["qsIt"].policy.refuse[0], stance="sole"),
     )
-    runes["qsDay_qsIt"]["stances"]["hapax"]["outgoing"] = {
+    runes["qsDay_qsIt"]["stances"]["sole"]["outgoing"] = {
         "exceptions": {"policy.refuse[0]": "The combined stroke still reaches this follower."}
     }
     assert _load(tmp_path, runes).runes["qsDay_qsIt"].policy.refuse == ()
@@ -143,7 +143,7 @@ def test_every_ligature_stance_inherits_the_exit_yield_scoped_to_itself(tmp_path
             {"cell": {"exit": "none"}, "over": {"exit": "baseline"}, "when": {"right": {"family": "qsDay"}}}
         ]
     }
-    stance = runes["qsDay_qsIt"]["stances"].pop("hapax")
+    stance = runes["qsDay_qsIt"]["stances"].pop("sole")
     runes["qsDay_qsIt"]["stances"] = {name: {**deepcopy(stance), "motion": name} for name in ("full", "half")}
     runes["qsDay_qsIt"]["ductus"] = {"full": "A full stroke.", "half": "A half stroke."}
     spec = _load(tmp_path, runes)
@@ -169,7 +169,7 @@ def test_exit_yield_inherits_its_right_chain_and_mode(tmp_path, runes):
     }
     spec = _load(tmp_path, runes)
     assert spec.runes["qsDay_qsIt"].policy.prefer == (
-        replace(spec.runes["qsIt"].policy.prefer[0], stance="hapax"),
+        replace(spec.runes["qsIt"].policy.prefer[0], stance="sole"),
     )
 
 
@@ -183,12 +183,12 @@ def test_exit_policy_keeps_feature_and_adjustment_terms(tmp_path, runes, kind):
     runes["qsIt"]["policy"] = {kind: [record]}
     spec = _load(tmp_path, runes)
     assert getattr(spec.runes["qsDay_qsIt"].policy, kind) == (
-        replace(getattr(spec.runes["qsIt"].policy, kind)[0], stance="hapax"),
+        replace(getattr(spec.runes["qsIt"].policy, kind)[0], stance="sole"),
     )
 
 
 def test_only_exit_unlocks_without_incoming_context_inherit(tmp_path, runes):
-    runes["qsIt"]["stances"]["hapax"]["surface"]["unlocks"] = [
+    runes["qsIt"]["stances"]["sole"]["surface"]["unlocks"] = [
         {"feature": "ss04", "exit": "baseline", "when": {"right": {"family": "qsDay"}}},
         {"feature": "ss04", "entry": "baseline"},
         {"feature": "ss04", "pairing": {"entry": "baseline", "exit": "baseline"}},
@@ -197,26 +197,26 @@ def test_only_exit_unlocks_without_incoming_context_inherit(tmp_path, runes):
         {"feature": "ss04", "exit": "baseline", "when": {"word": "initial"}},
     ]
     spec = _load(tmp_path, runes)
-    assert spec.runes["qsDay_qsIt"].stances["hapax"].surface.unlocks == (
-        spec.runes["qsIt"].stances["hapax"].surface.unlocks[0],
+    assert spec.runes["qsDay_qsIt"].stances["sole"].surface.unlocks == (
+        spec.runes["qsIt"].stances["sole"].surface.unlocks[0],
     )
 
 
 def test_named_unlock_exception_drops_only_that_grant(tmp_path, runes):
-    runes["qsIt"]["stances"]["hapax"]["surface"]["unlocks"] = [
+    runes["qsIt"]["stances"]["sole"]["surface"]["unlocks"] = [
         {"feature": "ss04", "exit": "baseline"},
     ]
-    runes["qsDay_qsIt"]["stances"]["hapax"]["outgoing"] = {
+    runes["qsDay_qsIt"]["stances"]["sole"]["outgoing"] = {
         "exceptions": {"surface.unlocks[0]": "This drawing keeps the exit without a feature."}
     }
     spec = _load(tmp_path, runes)
-    assert spec.runes["qsDay_qsIt"].stances["hapax"].surface.unlocks == ()
-    assert "baseline" in spec.runes["qsDay_qsIt"].stances["hapax"].surface.exits
+    assert spec.runes["qsDay_qsIt"].stances["sole"].surface.unlocks == ()
+    assert "baseline" in spec.runes["qsDay_qsIt"].stances["sole"].surface.exits
 
 
 @pytest.mark.parametrize("missing", [True, False])
 def test_missing_exit_or_changed_scope_needs_a_named_exception(tmp_path, runes, missing):
-    local = runes["qsDay_qsIt"]["stances"]["hapax"]
+    local = runes["qsDay_qsIt"]["stances"]["sole"]
     if missing:
         local["surface"]["exits"] = {}
     else:
@@ -224,7 +224,7 @@ def test_missing_exit_or_changed_scope_needs_a_named_exception(tmp_path, runes, 
     _error(tmp_path, runes, "surface.exits.baseline")
     local["outgoing"] = {"exceptions": {"surface.exits.baseline": "The ligature has its own exit."}}
     spec = _load(tmp_path, runes)
-    exits = spec.runes["qsDay_qsIt"].stances["hapax"].surface.exits
+    exits = spec.runes["qsDay_qsIt"].stances["sole"].surface.exits
     if missing:
         assert exits == {}
     else:
@@ -233,22 +233,22 @@ def test_missing_exit_or_changed_scope_needs_a_named_exception(tmp_path, runes, 
 
 def test_bitmap_policy_requires_exception_and_local_binding(tmp_path, runes):
     source = runes["qsIt"]
-    source["stances"]["hapax"]["bitmaps"] = {"shortened": {"bitmap": [" "] * 6}}
+    source["stances"]["sole"]["bitmaps"] = {"shortened": {"bitmap": [" "] * 6}}
     source["policy"] = {
         "contract": [{"exit": "baseline", "bind": "shortened", "when": {"right": {"family": "qsDay"}}}]
     }
     _error(tmp_path, runes, "binds a component bitmap")
     local = runes["qsDay_qsIt"]
-    local["stances"]["hapax"]["outgoing"] = {
+    local["stances"]["sole"]["outgoing"] = {
         "exceptions": {"policy.contract[0]": "The combined drawing uses its own binding."}
     }
-    local["stances"]["hapax"]["bitmaps"] = {"shortened": {"bitmap": ["## "] * 6}}
+    local["stances"]["sole"]["bitmaps"] = {"shortened": {"bitmap": ["## "] * 6}}
     local["policy"] = deepcopy(source["policy"])
     _error(tmp_path, runes, "needs a replacements entry")
-    local["stances"]["hapax"]["outgoing"]["replacements"] = {"policy.contract[0]": "policy.contract[0]"}
+    local["stances"]["sole"]["outgoing"]["replacements"] = {"policy.contract[0]": "policy.contract[0]"}
     spec = _load(tmp_path, runes)
     assert len(spec.runes["qsDay_qsIt"].policy.contract) == 1
-    assert spec.runes["qsDay_qsIt"].stances["hapax"].bitmaps["shortened"].rows == ("## ",) * 6
+    assert spec.runes["qsDay_qsIt"].stances["sole"].bitmaps["shortened"].rows == ("## ",) * 6
 
 
 def _replacement(runes: dict) -> dict:
@@ -261,7 +261,7 @@ def _replacement(runes: dict) -> dict:
         "exceptions": {"policy.refuse[0]": "The combined stroke refuses a different follower."},
         "replacements": {"policy.refuse[0]": "policy.refuse[0]"},
     }
-    runes["qsDay_qsIt"]["stances"]["hapax"]["outgoing"] = declaration
+    runes["qsDay_qsIt"]["stances"]["sole"]["outgoing"] = declaration
     return declaration
 
 
@@ -290,20 +290,20 @@ def test_policy_replacement_must_name_an_existing_local_record_of_the_same_kind(
     [
         {"stance": "missing"},
         {"exception": "   "},
-        {"exception": "A replacement stroke.", "stance": "hapax"},
+        {"exception": "A replacement stroke.", "stance": "sole"},
         {"exceptions": {"policy.refuse[99]": "A stale reference."}},
         {"exceptions": {"surface.entries.baseline": "An incoming row."}},
         {"exceptions": {"surface.exits.baseline": "   "}},
     ],
 )
 def test_invalid_or_stale_outgoing_declaration_is_rejected(tmp_path, runes, declaration):
-    runes["qsDay_qsIt"]["stances"]["hapax"]["outgoing"] = declaration
+    runes["qsDay_qsIt"]["stances"]["sole"]["outgoing"] = declaration
     load_tmp_error(tmp_path, _texts(runes), _registry(runes))
 
 
 def test_exception_cannot_name_a_policy_that_does_not_apply_to_the_outgoing_stroke(tmp_path, runes):
     runes["qsIt"]["policy"] = {"refuse": [{"entry": "baseline", "when": {"right": {"family": "qsDay"}}}]}
-    runes["qsDay_qsIt"]["stances"]["hapax"]["outgoing"] = {
+    runes["qsDay_qsIt"]["stances"]["sole"]["outgoing"] = {
         "exceptions": {"policy.refuse[0]": "This is an incoming policy."}
     }
     _error(tmp_path, runes, "does not name an applicable inherited")
@@ -312,21 +312,21 @@ def test_exception_cannot_name_a_policy_that_does_not_apply_to_the_outgoing_stro
 def test_unmigrated_trailing_component_requires_a_full_stance_exception(tmp_path, runes):
     del runes["qsIt"]
     _error(tmp_path, runes, "trailing component must be migrated")
-    runes["qsDay_qsIt"]["stances"]["hapax"]["outgoing"] = {
+    runes["qsDay_qsIt"]["stances"]["sole"]["outgoing"] = {
         "exception": "The complete local drawing defines this stroke."
     }
     spec = _load(tmp_path, runes)
-    assert spec.runes["qsDay_qsIt"].stances["hapax"].surface.exits["baseline"].x == 3
+    assert spec.runes["qsDay_qsIt"].stances["sole"].surface.exits["baseline"].x == 3
 
 
 def test_full_stance_exception_keeps_local_policy_and_scope(tmp_path, runes):
     runes["qsIt"]["policy"] = {"refuse": [{"exit": "baseline", "when": {"right": {"family": "qsDay"}}}]}
-    local = runes["qsDay_qsIt"]["stances"]["hapax"]
+    local = runes["qsDay_qsIt"]["stances"]["sole"]
     local["outgoing"] = {"exception": "The combined drawing ends in a different stroke."}
     local["surface"]["exits"] = {}
     spec = _load(tmp_path, runes)
     assert spec.runes["qsDay_qsIt"].policy.refuse == ()
-    assert spec.runes["qsDay_qsIt"].stances["hapax"].surface.exits == {}
+    assert spec.runes["qsDay_qsIt"].stances["sole"].surface.exits == {}
     assert spec_load.rune_closure(spec)["qsDay_qsIt"] == {"qsDay_qsIt", "qsIt"}
 
 
@@ -336,14 +336,14 @@ def test_source_groups_keep_membership_despite_a_local_name_collision(tmp_path, 
             "groups": {"followers": {"union": [{"family": family}]}},
             "refuse": [{"exit": "baseline", "when": {"right": {"class": "followers"}}}],
         }
-    runes["qsIt"]["stances"]["hapax"]["surface"]["exits"]["baseline"]["toward"] = [{"class": "followers"}]
+    runes["qsIt"]["stances"]["sole"]["surface"]["exits"]["baseline"]["toward"] = [{"class": "followers"}]
     spec = _load(tmp_path, runes)
     ligature = spec.runes["qsDay_qsIt"]
     local, inherited = ligature.policy.refuse
     assert local.when.right is not None and inherited.when.right is not None
     assert ligature.policy.groups[local.when.right.klass[0]] == {"qsMay"}
     assert ligature.policy.groups[inherited.when.right.klass[0]] == {"qsDay"}
-    scope = ligature.stances["hapax"].surface.exits["baseline"].scope[0]
+    scope = ligature.stances["sole"].surface.exits["baseline"].scope[0]
     assert ligature.policy.groups[scope.klass[0]] == {"qsDay"}
 
 

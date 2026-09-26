@@ -7,8 +7,8 @@
   ink_identical: true
   no_verdict: false
   exemplars:
-    - {config: ss03, codepoints: "200C:E652:E679", baseline: "space|qsTea_qsOy", new: "zwnj/boundary/None/None/|qsTea_qsOy/hapax/None/None/"}
-    - {config: default, codepoints: "E670:E670", baseline: "qsIt.ex-y5|qsIt", new: "qsIt/hapax/None/None/|qsIt/hapax/None/None/"}
+    - {config: ss03, codepoints: "200C:E652:E679", baseline: "space|qsTea_qsOy", new: "zwnj/boundary/None/None/|qsTea_qsOy/sole/None/None/"}
+    - {config: default, codepoints: "E670:E670", baseline: "qsIt.ex-y5|qsIt", new: "qsIt/sole/None/None/|qsIt/sole/None/None/"}
   why: |
     Fixture class A: hand-written units exercising the multi-config, ZWNJ, ligation, and duplicate-pin branches of the shard contract.
 

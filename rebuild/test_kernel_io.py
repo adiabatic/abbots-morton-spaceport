@@ -37,18 +37,18 @@ def _reaching_mini() -> ResolvedSpec:
     spec = fixtures.mini_spec()
     runes = dict(spec.runes)
     it = runes["qsIt"]
-    hapax = it.stances["hapax"]
+    sole = it.stances["sole"]
     surface = dataclasses.replace(
-        hapax.surface,
+        sole.surface,
         unlocks=(
-            *hapax.surface.unlocks,
+            *sole.surface.unlocks,
             Unlock(feature="ss04", pairing=Pairing("baseline", "baseline")),
         ),
     )
     runes["qsIt"] = dataclasses.replace(
         it,
         mono=Bitmap(("#",) * 6),
-        stances={**it.stances, "hapax": dataclasses.replace(hapax, surface=surface)},
+        stances={**it.stances, "sole": dataclasses.replace(sole, surface=surface)},
     )
     tea_oy = runes["qsTea_qsOy"]
     runes["qsTea_qsOy"] = dataclasses.replace(

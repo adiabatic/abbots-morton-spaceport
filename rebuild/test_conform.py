@@ -229,14 +229,14 @@ class TestAliasAndLedger:
         path.write_text(
             "qsIt.en-y5.ex-y0:\n"
             "  rune: qsIt\n"
-            "  stance: hapax\n"
+            "  stance: sole\n"
             "  entry: x-height\n"
             "  exit: baseline\n"
             "uni200C: boundary\n"
             "qsPea: pending\n"
         )
         aliases = labels.load_alias_map(path)
-        assert aliases["qsIt.en-y5.ex-y0"] == CellId("qsIt", "hapax", "x-height", "baseline", ())
+        assert aliases["qsIt.en-y5.ex-y0"] == CellId("qsIt", "sole", "x-height", "baseline", ())
         assert aliases["uni200C"] == "boundary"
         assert aliases["qsPea"] == "pending"
 
@@ -248,7 +248,7 @@ class TestAliasAndLedger:
             position=1,
             baseline_glyphs=("space", "qsTea.noentry", "qsIt"),
             baseline_junctions=("break", "break"),
-            new_cells=("uni200C", "qsTea/full/None/None/locked", "qsIt/hapax/None/None/"),
+            new_cells=("uni200C", "qsTea/full/None/None/locked", "qsIt/sole/None/None/"),
             new_junctions=("break", "break"),
             divergence_tags=("+locked", "old-noentry"),
         )
@@ -274,7 +274,7 @@ class TestAliasAndLedger:
             position=1,
             baseline_glyphs=("periodcentered", "qsTea.noentry", "qsIt"),
             baseline_junctions=("break", "break"),
-            new_cells=("periodcentered", "qsTea/full/None/None/", "qsIt/hapax/None/None/"),
+            new_cells=("periodcentered", "qsTea/full/None/None/", "qsIt/sole/None/None/"),
             new_junctions=("break", "break"),
             divergence_tags=("old-noentry",),
         )
@@ -457,7 +457,7 @@ class TestAliasAndLedger:
             position=0,
             baseline_glyphs=("qsIt.ex-y5", "qsIt"),
             baseline_junctions=("break",),
-            new_cells=("qsIt/hapax/None/None/", "qsIt/hapax/None/None/"),
+            new_cells=("qsIt/sole/None/None/", "qsIt/sole/None/None/"),
             new_junctions=("break",),
         )
         cases: list[tuple[tuple[str, ...], str | None]] = [
@@ -495,7 +495,7 @@ class TestAliasAndLedger:
                 position=1,
                 baseline_glyphs=("space", "qsIt.ex-y5", "qsIt"),
                 baseline_junctions=("break", "break"),
-                new_cells=("uni200C", "qsIt/hapax/None/None/locked", "qsIt/hapax/None/None/"),
+                new_cells=("uni200C", "qsIt/sole/None/None/locked", "qsIt/sole/None/None/"),
                 new_junctions=("break", "break"),
             )
             for divergence_tags in [
@@ -558,8 +558,8 @@ class TestAliasAndLedger:
             ),
             baseline_junctions=("y5", "break", "y5"),
             new_cells=(
-                "qsIt/hapax/None/x-height/",
-                "qsRoe/hapax/x-height/None/en-ext-1",
+                "qsIt/sole/None/x-height/",
+                "qsRoe/sole/x-height/None/en-ext-1",
                 "qsTea/half/None/x-height/",
                 "qsZoo/full/x-height/None/en-con-1",
             ),
@@ -617,7 +617,7 @@ class TestAliasCompleteness:
 
     def _aliases(self, tmp_path):
         path = tmp_path / "aliases.yaml"
-        path.write_text("qsIt: {rune: qsIt, stance: hapax}\nqsTea.noentry: pending\n")
+        path.write_text("qsIt: {rune: qsIt, stance: sole}\nqsTea.noentry: pending\n")
         return path
 
     def test_known_pending_and_boundary_names_resolve(self, tmp_path):

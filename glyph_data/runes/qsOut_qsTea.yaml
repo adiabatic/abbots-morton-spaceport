@@ -3,13 +3,13 @@ sequence:
 - qsOut
 - qsTea
 ductus:
-  hapax: |
+  sole: |
     The ·Out stroke and the ·Tea stroke drawn as one motion: the ·Out bowl rises from the baseline as in the normal motion, loops around clockwise, and then ends going straight up.
 notes: |
   This letter doesn’t have any exits by design.
 stances:
-  hapax:
-    motion: hapax
+  sole:
+    motion: sole
     outgoing: {exception: The ligature ends in the upward stroke documented by its ductus and has no outgoing stroke.}
     traits: []
     bitmap:
@@ -70,7 +70,7 @@ stances:
       require: []
 policy:
   order:
-  - hapax
+  - sole
   refuse: []
   prefer: []
   extend: []

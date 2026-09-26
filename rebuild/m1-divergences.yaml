@@ -24,7 +24,7 @@
   ink_identical: true
   count: 0
   exemplars:
-    - {config: default, codepoints: "200C:E670:E670", baseline: "space|qsIt.ex-y5|qsIt", new: "uni200C|qsIt.hapax.locked|qsIt.hapax"}
+    - {config: default, codepoints: "200C:E670:E670", baseline: "space|qsIt.ex-y5|qsIt", new: "uni200C|qsIt.sole.locked|qsIt.sole"}
   why: |
     A letter after a ZWNJ is word-initial in the new model (design section 3.4). The new model has no authored `.noentry` variants; the chokepoint mints locked twins instead, so every post-ZWNJ position differs at name grain (the old `<x>.noentry` or a leaked bare name, against the new `<cell>.locked`). The junctions agree, and the locked twin draws the same bitmap as the old `.noentry` glyph. boundary-window takes every ZWNJ row first, so this entry covers only the `.noentry` glyphs the old pipeline also mints after the namer dot. The entry is kept as the record of this ruling, which boundary-window cites.
 
@@ -33,7 +33,7 @@
   match: {predicate: post_marker_ligature_formation, configs: all}
   count: 187
   exemplars:
-    - {config: default, codepoints: "200C:E652:E679", baseline: "space|qsTea.noentry|qsOy (unformed)", new: "uni200C|qsTea_qsOy.hapax.locked"}
+    - {config: default, codepoints: "200C:E652:E679", baseline: "space|qsTea.noentry|qsOy (unformed)", new: "uni200C|qsTea_qsOy.sole.locked"}
   why: |
     Ligature formation is unconditional and runs before the marker lookups and the chokepoint (the prototype's stage order), so ·Tea·Oy forms directly after a ZWNJ and under every stylistic set except ss10, whose pre-empt replaces every letter first. The old pipeline renames the lead letter first, so there the ligature never forms. Prototype divergence 5 / M1-PLAN expected class 6. Round-1 verdict: 32 approvals. The four "·May should use the loop stance" skip notes are superseded by the user's later choice: ·May settles on the loop stance with its full exit terminal and no pull-back. boundary-window takes the post-ZWNJ rows, so the classifier sends this entry the ·Tea·Oy rows under ss03 and the ·Day·Utter rows after the namer dot.
 
@@ -42,7 +42,7 @@
   match: {predicate: zwnj_follower_exit_restored, configs: all}
   count: 0
   exemplars:
-    - {config: default, codepoints: "200C:E665:E665:E670", baseline: "space|qsMay.noentry|qsMay.ex-ext-1|qsIt.en-y5.ex-y0 (break after the locked May)", new: "uni200C|qsMay.grounded-loop.ex-y0.locked|qsMay.loop.en-y0.ex-y5.ex-ext-1|qsIt.hapax.en-y5 (y0 join gained)"}
+    - {config: default, codepoints: "200C:E665:E665:E670", baseline: "space|qsMay.noentry|qsMay.ex-ext-1|qsIt.en-y5.ex-y0 (break after the locked May)", new: "uni200C|qsMay.grounded-loop.ex-y0.locked|qsMay.loop.en-y0.ex-y5.ex-ext-1|qsIt.sole.en-y5 (y0 join gained)"}
   why: |
     In the old font the `qsMay.noentry` stance has no exit anchor, so a post-ZWNJ ·May cannot join to the right at all. The chokepoint twin removes only the entry, because the ZWNJ break is the left junction, so the letter keeps its right-side joins. Design section 3.4: ZWNJ splits the run and does not take away the word-initial letter's joins. Round-1 verdict: 6 approvals. In u-0267's window the rejected en-ext-1 pixel went away when qsIt's halves entry-extension record was deleted, and the gained join remains. boundary-window takes every ZWNJ row first, so this entry covers only namer-dot rows, if any, where the old font's `.noentry` glyphs after the dot also lose their right-side joins. The entry is kept as the record of this ruling, which boundary-window cites.
 
@@ -60,7 +60,7 @@
   match: {predicate: pre_ligature_cleanup_regularized, configs: all}
   count: 38
   exemplars:
-    - {config: default, codepoints: "E652:E670:E652:E679", baseline: "qsTea|qsIt|qsTea_qsOy (Tea.It break)", new: "qsTea.half.ex-y5|qsIt.hapax.en-y5|qsTea_qsOy (y5 join kept)"}
+    - {config: default, codepoints: "E652:E670:E652:E679", baseline: "qsTea|qsIt|qsTea_qsOy (Tea.It break)", new: "qsTea.half.ex-y5|qsIt.sole.en-y5|qsTea_qsOy (y5 join kept)"}
   why: |
     The old font's calt_post_liga_left_cleanup_pred reverts the join on the predecessor's left whenever the predecessor leaves its exit unjoined before the entryless ligature, which also undoes junctions the unjoined exit never touched (the demote and cleanup passes the rebuild does not port, recon section 13.4). Settlement leaves only the one declined exit unjoined, and the unrelated join one position to the left stays. Round-1 verdict: 6 approvals. In u-0272 the kept join lost the rejected en-ext-1 pixel when qsIt's halves entry-extension record was deleted; the exemplar shows the rendering without it.
 
@@ -71,7 +71,7 @@
   exemplars:
     - {config: default, codepoints: "E650:E665:E650:E650", baseline: "qsPea|qsMay.en-y0.ex-y5.en-ext-1|qsPea.half.en-y6.ex-y6|qsPea.en-y6 (y0,break,y6)", new: "qsPea.full.ex-y0|qsMay.loop.en-y0.ex-y5.en-ext-1.ex-ext-1|qsPea.full.en-y5|qsPea.full (y0,y5,break)"}
     - {config: default, codepoints: "200C:E665:E665:E665", baseline: "space|qsMay.noentry|qsMay.ex-y0|qsMay.en-y0.ex-y5 (break,y0 on the second pair)", new: "uni200C|qsMay.grounded-loop.ex-y0.locked|qsMay.loop.en-y0.ex-bind-pulled-back|qsMay.loop (y0 on the first pair)"}
-    - {config: default, codepoints: "E679:E652:E670:E670", baseline: "qsOy|qsTea.en-y0|qsIt.ex-y5|qsIt (y0,break,break)", new: "qsOy.hapax|qsTea.half.ex-y5|qsIt.hapax.en-y5.ex-y0.ex-ext-1|qsIt.hapax.en-y0 (break,y5,y0 — two joins for one)"}
+    - {config: default, codepoints: "E679:E652:E670:E670", baseline: "qsOy|qsTea.en-y0|qsIt.ex-y5|qsIt (y0,break,break)", new: "qsOy.sole|qsTea.half.ex-y5|qsIt.sole.en-y5.ex-y0.ex-ext-1|qsIt.sole.en-y0 (break,y5,y0 — two joins for one)"}
   why: |
     Settlement's ranking (the optimistic third term, then `order:`, then the final tiebreak) groups some chains differently from the old font's greedy chain of substitutions: the same number of joins on a different junction, the mismatches in unpinned windows of design section 15.4.
     Round 1: 43 rejects ("The old way seems nicer to write out by hand"; u-0280 "I think I would rather prefer ·Tea·It to join"). The yielding prefers on qsOy, qsTea_qsOy (the ligature variant), qsIt (the ·It·It-before-·May decline) and qsMay (the greedy ·May·May pairing) restore the old grouping. That left u-0277 (·Pea·May·Pea·Pea, no ·Oy, ·It·It or ·May·May junction), u-0857 (post-ZWNJ ·May·May·May, grouping on the first pair like its space-boundary sibling), and four formerly machine-approved ·Oy windows (·Oy·Tea·It·It, ·Oy·It·May·Tea, ·Oy·It·May·May, ·Oy·Tea·May·Tea), where the qsOy decline gives up the word-initial ·Oy join for the follower joins the user said they prefer.
@@ -89,7 +89,7 @@
   count: 2346
   exemplars:
     - {config: ss03, codepoints: "E652:E665:E652", baseline: "qsTea|qsMay.ex-ext-1|qsTea.half.en-y5.after-xheight-exit (break,y5)", new: "qsTea.full.ex-y0|qsMay.en-y0.ex-y5.en-ext-1.ex-ext-1|qsTea.half.en-y5 (y0,y5)"}
-    - {config: ss03, codepoints: "E670:E665:E652", baseline: "qsIt|qsMay.ex-ext-1|qsTea.half.en-y5.after-xheight-exit (break,y5)", new: "qsIt.hapax.ex-y0|qsMay.loop.en-y0.ex-y5.en-ext-1.ex-ext-1|qsTea.half.en-y5 (y0,y5)"}
+    - {config: ss03, codepoints: "E670:E665:E652", baseline: "qsIt|qsMay.ex-ext-1|qsTea.half.en-y5.after-xheight-exit (break,y5)", new: "qsIt.sole.ex-y0|qsMay.loop.en-y0.ex-y5.en-ext-1.ex-ext-1|qsTea.half.en-y5 (y0,y5)"}
     - {config: ss03, codepoints: "E67A:E652:E67A", baseline: "qsUtter.ex-ext-1|qsTea.half.en-y5.after-xheight-exit|qsUtter (y5,break)", new: "qsUtter.mono.ex-y5.ex-ext-1|qsTea.full.en-y5.ex-y0|qsUtter.mono.en-y0 (y5,y0)"}
   why: |
     Under ss03, maximizing the joins across the window gains chains that the old font's pair-by-pair substitutions cannot see. There are three shapes.
@@ -102,7 +102,7 @@
   match: {predicate: entered_it_baseline_join_gain, configs: all}
   count: 0
   exemplars:
-    - {config: default, codepoints: "E652:E670:E670", baseline: "qsTea.half.ex-y5|qsIt.en-y5.ex-y0|qsIt (y5,break)", new: "qsTea.half.ex-y5|qsIt.hapax.en-y5.ex-y0.ex-ext-1|qsIt.hapax.en-y0 (y5,y0)"}
+    - {config: default, codepoints: "E652:E670:E670", baseline: "qsTea.half.ex-y5|qsIt.en-y5.ex-y0|qsIt (y5,break)", new: "qsTea.half.ex-y5|qsIt.sole.en-y5.ex-y0.ex-ext-1|qsIt.sole.en-y0 (y5,y0)"}
   why: |
     The class matches nothing. The user ruled that ·It never joins itself (IT1), so qsIt refuses its baseline entry after qsIt as it refuses the x-height one, and that rule supersedes the round-1 approvals of these gained joins that the `reviewed-approved` status records. The exemplar shows one of those approved ·It ~b~ ·It joins, which the rebuild no longer makes. The entry is kept as the record of this ruling.
     The gain it recorded: the old YAML puts the not_before [qsTea, qsIt, qsRoe] baseline-exit refusal only on the unentered stance (quikscript.yaml `entry_nowhere_exit_baseline`; the entered en-y5/ex-y0 stance has no such refusal), so a self-scoped refusal is the faithful transcription, and an entered ·It may join a following ·It or ·Tea at the baseline. The old font's break there comes from its chain of substitutions, not from an authored rule. The extended exit (ex-ext-1, the entered-exit extension) keeps the two verticals two columns apart, so the refusal's reason (one extra-thick stroke) does not apply. The classifier sends a gain with an entered ·It on its left here; an unentered-·It gain under ss03 (the ·It·May·Tea chains) goes to ss03-chain-join-gains, and one outside ss03 stays unmatched. The round-1 skips u-0397 and u-0399 ("I like the extra join but the extension between ·Tea and ·It shouldn't change because ·It joins to something else next") were answered by deleting qsIt's halves entry-extension record.
@@ -138,7 +138,7 @@
   count: 71
   exemplars:
     - {config: default, codepoints: "E650:E670:E665", baseline: "qsPea.half.ex-y5.ex-dips|qsIt.en-y5.ex-y0.ex-ext-1|qsMay.en-y0.ex-y5.en-ext-1", new: "...|qsIt...ex-ext-1|qsMay.loop.en-y0 (no en-ext-1)"}
-    - {config: default, codepoints: "E655:E65D", baseline: "qsGay.ex-y5.ex-ext-2|qsJai.en-y5.ex-y0.en-ext-2", new: "qsGay/hapax/None/x-height/ex-ext-3|qsJai/hapax/x-height/None/ (no en-ext-2; ·Gay's exit carries the whole connector)"}
+    - {config: default, codepoints: "E655:E65D", baseline: "qsGay.ex-y5.ex-ext-2|qsJai.en-y5.ex-y0.en-ext-2", new: "qsGay/sole/None/x-height/ex-ext-3|qsJai/sole/x-height/None/ (no en-ext-2; ·Gay's exit carries the whole connector)"}
   why: |
     Extensions never add up on one junction (design section 6.2): when the predecessor's exit already carries the junction's extra pixel, the follower's entry extension is suppressed. The old pipeline applies both on these windows. Prototype divergence 3 / M1-PLAN expected class 4. Round-1 verdict: 28 approvals, 2 rejects, 3 eithers. The 2 rejects (u-0636 "new way has a worse ·May·It join", u-0656 "the old way seems nicer to write out by hand") contradict the 28 approvals of the same kind of change, and honoring them would repeal the non-summing rule, so they are presumed noise pending one ruling, to be shown next to u-0637, u-0654 and u-0663.
     Round 2: the user confirmed the two re-presented rejects (u-0417 ·Pea·May·It·May, u-0437 ◊ZWNJ ·May·It·May). A build-tested search found no record in the closed vocabulary that turns them back to the old ink without changing other windows: the only mechanism that drops ·May's en-ext-1 is this suppression, which fires only on the immediate left predecessor's exit extension. Honoring the rejects would mean repealing the non-summing rule or adding a condition on the letter two to the left, which the engine does not have. The status stays reviewed-approved, because the 28 approvals govern the class, and these 2 windows are documented as limited by the engine. Removing qsMay's baseline-entry extend record resolved the halves-entry-extension-restored windows they were grouped with (see may-baseline-entry-extension-dropped) but does not reach these two: they are same-junction windows where the predecessor's own ex-ext-1 drives the suppression, so an engine fix still needs the condition on the letter two to the left.
@@ -158,8 +158,8 @@
   match: {predicate: day_baseline_entry_extension_dropped, configs: all}
   count: 127
   exemplars:
-    - {config: default, codepoints: "E652:E679:E653", baseline: "qsTea_qsOy|qsDay.half.en-y0.ex-y0.en-ext-1", new: "qsTea_qsOy/hapax/None/baseline/|qsDay/half/baseline/None/ (no en-ext-1)"}
-    - {config: default, codepoints: "E652:E679:E653:E67A", baseline: "qsTea_qsOy|qsDay_qsUtter.half.en-y0.ex-y5.en-ext-1", new: "qsTea_qsOy/hapax/None/baseline/|qsDay_qsUtter/half/baseline/None/ (no en-ext-1)"}
+    - {config: default, codepoints: "E652:E679:E653", baseline: "qsTea_qsOy|qsDay.half.en-y0.ex-y0.en-ext-1", new: "qsTea_qsOy/sole/None/baseline/|qsDay/half/baseline/None/ (no en-ext-1)"}
+    - {config: default, codepoints: "E652:E679:E653:E67A", baseline: "qsTea_qsOy|qsDay_qsUtter.half.en-y0.ex-y5.en-ext-1", new: "qsTea_qsOy/sole/None/baseline/|qsDay_qsUtter/half/baseline/None/ (no en-ext-1)"}
   why: |
     The old font extends half-·Day's (and half-·Day·Utter's) baseline entry by one pixel after the ·Tea·Oy ligature. The runes' baseline extend records name only bare qsTea and qsYe, and the ligature is neither, so the rebuild draws the same baseline join one pixel tighter. This was decided on 2026-07-15 with qsDay's own family, from side-by-side renders of both options. The alternative, adding qsTea_qsOy to both extend scopes, was scratch-built, restored the old ink on exactly these windows with no other change, and was declined, so the drop is intended. The 19 human verdicts on this kind of change, all approvals from 2026-06-29 carried onto every later corpus and covering the plain ·Day and ·Day·Utter forms and the word-final case, had already judged the tighter join right. Word-final members, whose exit is also dropped, match here and not dangling-anchor-dropped, whose ink-identical claim this pixel would break.
 
@@ -170,10 +170,10 @@
   count: 5938
   exemplars:
     - {config: default, codepoints: "E652:E659", baseline: "qsTea.ex-y0|qsVie.en-ext-1", new: "qsTea/full/None/baseline/|qsVie/normal/baseline/None/ (no en-ext-1)"}
-    - {config: default, codepoints: "E670:E659", baseline: "qsIt.ex-y0|qsVie.en-ext-1", new: "qsIt/hapax/None/baseline/|qsVie/normal/baseline/None/ (no en-ext-1)"}
-    - {config: default, codepoints: "E652:E679:E659", baseline: "qsTea_qsOy|qsVie.en-ext-1", new: "qsTea_qsOy/hapax/None/baseline/|qsVie/normal/baseline/None/ (no en-ext-1)"}
+    - {config: default, codepoints: "E670:E659", baseline: "qsIt.ex-y0|qsVie.en-ext-1", new: "qsIt/sole/None/baseline/|qsVie/normal/baseline/None/ (no en-ext-1)"}
+    - {config: default, codepoints: "E652:E679:E659", baseline: "qsTea_qsOy|qsVie.en-ext-1", new: "qsTea_qsOy/sole/None/baseline/|qsVie/normal/baseline/None/ (no en-ext-1)"}
     - {config: default, codepoints: "E650:E659", baseline: "qsPea|qsVie.en-ext-1", new: "qsPea/full/None/baseline/|qsVie/normal/baseline/None/ (no en-ext-1)"}
-    - {config: default, codepoints: "E650:E659:E67A", baseline: "qsPea|qsVie_qsUtter.en-ext-1", new: "qsPea/full/None/baseline/|qsVie_qsUtter/hapax/baseline/None/ (no en-ext-1)"}
+    - {config: default, codepoints: "E650:E659:E67A", baseline: "qsPea|qsVie_qsUtter.en-ext-1", new: "qsPea/full/None/baseline/|qsVie_qsUtter/sole/baseline/None/ (no en-ext-1)"}
   why: |
     The old font extends ·Vie's baseline entry by one pixel after ·It, after ·Tea, after the ·Tea·Oy ligature (by lead expansion) and after ·Pea. The ·Vie-side entry extends name none of those four, so the rebuild draws each of those baseline joins one pixel tighter. The qsVie review session (2026-08-13) decided this from the rendered windows, one left letter at a time. For each left letter shown, the reviewer asked for the shorter junction, and no ·Vie-side record can shorten it for one left letter alone, because `when.left` reads the left cell, whose `joined_at` is the junction in question. So the pixel came off for all of those left letters together, and the option of moving it onto the left letter's own record was dropped with it. ·Pea followed at the qsEight review session (2026-08-22), where the reviewer's note on ·Pea·Vie·See·Out asked for the same junction ("the new ways is an improvement but I want ·Pea·Vie to have the same lack of extra space between the two as ·Tea·Vie"), so qsPea came off the three extend lists, which name only qsYe and qsHe. The class covers the ·Vie·Utter ligature's token as well as ·Vie's own, so the ·X·Vie·Utter rows match here too. The qsIt, qsVie and qsVie_qsUtter runes carry the decision. `no_verdict` because the ruling applies to the junction, not to any one window: a left letter that reaches this class in a later alphabet gets the same answer, and queueing it again would ask a settled question. ·It-side rows where the old font drew an exit extension beside ·Vie are a separate kind of change and stay unmatched: the classifier keeps any row with `-ex-ext-1` out of the name-grain classes, and the `tea-i-exit-extension-dropped` standing approval is the precedent for that side.
 
@@ -200,7 +200,7 @@
   ink_identical: true
   count: 10586
   exemplars:
-    - {config: default, codepoints: "E670:E670", baseline: "qsIt.ex-y5|qsIt", new: "qsIt.hapax|qsIt.hapax"}
+    - {config: default, codepoints: "E670:E670", baseline: "qsIt.ex-y5|qsIt", new: "qsIt.sole|qsIt.sole"}
     - {config: default, codepoints: "E650:E650", baseline: "qsPea.half.en-y6.ex-y6|qsPea.en-y6 (left entry name at word start)", new: "qsPea.half.ex-y6|qsPea.full.en-y6"}
   why: |
     The old compiled names keep anchors that never join: a dangling exit before a letter that does not accept it (·It·It's harmless ex-y5), or an entry name at word start. Settlement's cells carry only committed anchors (E-UNACCEPTED-EXIT and lookahead closure; M1-PLAN expected class 3). The unjoined bindings involved are `safe`, so the ink is identical and the difference is at name grain only.
@@ -211,7 +211,7 @@
   ink_identical: true
   count: 914
   exemplars:
-    - {config: default, codepoints: "E679:E652", baseline: "qsOy|qsTea.en-y0 (y0 join on the bare glyph)", new: "qsOy.hapax.ex-y0|qsTea.full.en-y0"}
+    - {config: default, codepoints: "E679:E652", baseline: "qsOy|qsTea.en-y0 (y0 join on the bare glyph)", new: "qsOy.sole.ex-y0|qsTea.full.en-y0"}
   why: |
     When the base drawing already has the live anchor, the old pipeline leaves the bare cmap glyph in place and joins on it. The new table always substitutes the settled cell glyph, and cell labels are never the bare name. The drawing and the junction are identical, and the difference is at name grain only.
 
@@ -222,7 +222,7 @@
   count: 2624
   exemplars:
     - {config: default, codepoints: "E65A:E67B:E653", baseline: "qsSee.ex-y0.ex-con-1|qsOut.en-y0.ex-y5.after-see.before-other|qsDay", new: "qsSee/straighter/None/baseline/|qsOut/swept-up/baseline/x-height/en-bind-raked+en-trim-1|qsDay/full/x-height/None/"}
-    - {config: default, codepoints: "E65A:E67B:E652", baseline: "qsSee.ex-y0.ex-con-1|qsOut_qsTea.after-see", new: "qsSee/straighter/None/baseline/|qsOut_qsTea/hapax/baseline/None/en-bind-raked+en-trim-1"}
+    - {config: default, codepoints: "E65A:E67B:E652", baseline: "qsSee.ex-y0.ex-con-1|qsOut_qsTea.after-see", new: "qsSee/straighter/None/baseline/|qsOut_qsTea/sole/baseline/None/en-bind-raked+en-trim-1"}
   why: |
     The baseline ·See·Out fusion (the batch-11 review session's ruling) puts the junction's pull-back on the other side from the old font. The old pipeline's `ex-con-1` is a tuck, not a trim: the compiled contracted ·See keeps its whole tail, including the kick-left pixel on the baseline, and only moves the exit anchor in, pulling ·Out one column into the tail. The runes keep the tail whole at its convention anchor and pull back the raked redraw's foot instead, so every ·Out form after ·See (arch, swept-up and the ·Out+Tea ligature) produces the same fused composite as the old font. The renaming itself redraws no ink, which is what `ink_identical: true` states, and the oracle still enforces position equality across the family. The rows are not ink-identical end to end, though: the baseline-exit ·See has no blank column on its left, so every row also carries that one-column shift, and the letter after ·See moves with it. `see-grounded-left-column-dropped` in `rebuild/standing-approvals.yaml` covers that shift; this entry covers only the fusion's name grain.
 
@@ -231,8 +231,8 @@
   match: {predicate: may_jai_extension_consolidated, configs: all}
   count: 1736
   exemplars:
-    - {config: default, codepoints: "E665:E65D", baseline: "qsMay.ex-ext-1|qsJai.en-y5.ex-y0.en-ext-2", new: "qsMay/loop/None/x-height/ex-ext-2|qsJai/hapax/x-height/None/"}
-    - {config: default, codepoints: "E665:E65D:E67A", baseline: "qsMay.ex-ext-1|qsJai_qsUtter.en-ext-2", new: "qsMay/loop/None/x-height/ex-ext-2|qsJai_qsUtter/hapax/x-height/None/"}
+    - {config: default, codepoints: "E665:E65D", baseline: "qsMay.ex-ext-1|qsJai.en-y5.ex-y0.en-ext-2", new: "qsMay/loop/None/x-height/ex-ext-2|qsJai/sole/x-height/None/"}
+    - {config: default, codepoints: "E665:E65D:E67A", baseline: "qsMay.ex-ext-1|qsJai_qsUtter.en-ext-2", new: "qsMay/loop/None/x-height/ex-ext-2|qsJai_qsUtter/sole/x-height/None/"}
   why: |
     The old pipeline splits the ·May·J'ai connector across the junction: ·May's exit extends by 1 and ·J'ai's crown entry extends by 2. M1's same-junction non-summing rule cannot keep that two-sided form, so qsMay's single by-2 exit record toward the qsJai family supplies the reach in every follower context. ·J'ai's aliases record the old names' en-ext-2, so these rows carry the dropped en-ext-2 beside ·May's replaced exit extension, and the classifier's subset guard admits it. That qsMay record has no `why:`. This class covers the resulting ink and name-grain change.
 
@@ -242,8 +242,8 @@
   ink_identical: true
   count: 425
   exemplars:
-    - {config: default, codepoints: "E67A:E65D", baseline: "qsUtter.ex-con-2|qsJai.en-y5.ex-y0", new: "qsUtter/mono/None/x-height/|qsJai/hapax/x-height/None/en-con-2"}
-    - {config: default, codepoints: "E666:E65D:E652", baseline: "qsNo.ex-con-1|qsJai.en-y5.ex-y0.ex-ext-1|qsTea.en-y0", new: "qsNo/loop/None/x-height/|qsJai/hapax/x-height/baseline/en-con-1+ex-ext-1|qsTea/full/baseline/None/"}
+    - {config: default, codepoints: "E67A:E65D", baseline: "qsUtter.ex-con-2|qsJai.en-y5.ex-y0", new: "qsUtter/mono/None/x-height/|qsJai/sole/x-height/None/en-con-2"}
+    - {config: default, codepoints: "E666:E65D:E652", baseline: "qsNo.ex-con-1|qsJai.en-y5.ex-y0.ex-ext-1|qsTea.en-y0", new: "qsNo/loop/None/x-height/|qsJai/sole/x-height/baseline/en-con-1+ex-ext-1|qsTea/full/baseline/None/"}
   why: |
     The old pipeline's exit contractions before ·J'ai (by 1 on qsNo, qsLow and qsI, by 2 on qsAh, qsUtter and the `*_qsUtter` ligatures) are tucks, not trims: the compiled left glyph keeps its whole exit stroke and only the anchor moves in, pulling ·J'ai's crown over the kept ink. M1's contraction removes connector ink, and these exit strokes are too short to lose any (the ·Utter crown is exactly the two pixels a by-2 would take), so the runes put the tuck on the receiver: ·J'ai's own entry contracts, and the shortened crown gives up the columns the old font overlapped and abuts where the old one overlapped. Both forms place the same composite ink at the same coordinates with the same origins and advances. Only ·J'ai's cell name differs: it carries the con token where the old name put the contraction on the left (or, after ·Ah, the en-trim that the aliases already map). Where ·J'ai's exit also extends, the old font demotes its entry adjustment away entirely, and the runes' except-scoped entry records reproduce that, so this class sees only the left-side tucks that remain. ·Jay has the same crown and the same tuck after the unentered half-·Tea (the old `qsTea.half.ex-y5.ex-con-1` before ·Jay, whose alias records no adjustment), rewritten as ·Jay's own one-pixel entry contraction after ·Tea, and the ·Jay·Utter ligature inherits it on its lead.
 

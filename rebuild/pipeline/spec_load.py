@@ -1,4 +1,4 @@
-"""Load the rune files and the script registry into a `ResolvedSpec` (rebuild/M1-PLAN.md §5, Group 1). Loading runs schema validation, the Python lints (stance and motion naming, the `hapax` sentinel, ductus parity, no `right.then` on refusals, the right-side `then:` chain depth cap, registry and reference checks), left-condition `bitmap:` resolution, predicate-class evaluation, rune-local group resolution, ligature outgoing inheritance, and left-facing ligature expansion.
+"""Load the rune files and the script registry into a `ResolvedSpec` (rebuild/M1-PLAN.md §5, Group 1). Loading runs schema validation, the Python lints (stance and motion naming, the reserved `sole` name, ductus parity, no `right.then` on refusals, the right-side `then:` chain depth cap, registry and reference checks), left-condition `bitmap:` resolution, predicate-class evaluation, rune-local group resolution, ligature outgoing inheritance, and left-facing ligature expansion.
 
 Schema validation reads the JSON Schema files under rebuild/schema/ through a small built-in evaluator for the keywords those files use, so the project needs no third-party validator. When `jsonschema` is importable (`uv run --with jsonschema`), `test_jsonschema_agrees_with_builtin_checker` checks that the two agree. Every error carries the YAML file, key path, and line. Errors are collected within each loading stage, and a stage that found any raises them together as one SpecError.
 """
@@ -47,9 +47,9 @@ DEFAULT_SCHEMA_DIR = REPO_ROOT / "rebuild" / "schema"
 
 FORBIDDEN_ID_PATTERN = re.compile(r"(before|after|noentry|noexit|nonjoining|ss[0-9])")
 
-HAPAX_SENTINEL = "hapax"
+SOLE_NAME = "sole"
 
-_NAMING_RULE = "stance IDs and motion names describe pen motions, never neighbors, boundaries, or features (doc/rebuild-design.md section 3.1), except that a single-stance rune names its sole stance and sole motion 'hapax' (a reserved sentinel; the pen-motion label lives in the ductus prose)"
+_NAMING_RULE = "stance IDs and motion names describe pen motions, never neighbors, boundaries, or features (doc/rebuild-design.md section 3.1), except that a single-stance rune names its only stance and only motion 'sole' (a reserved name; the pen-motion label lives in the ductus prose)"
 _WINDOW_RULE = "refuse and require records must be decidable one position to the left of the rune they constrain, so right.then is forbidden on them (doc/rebuild-design.md section 3.3)"
 _CAP_WORDS = {1: "one", 2: "two", 3: "three", 4: "four"}
 _CHAIN_RULE = f"a right-side then: chain may reach at most {_CAP_WORDS[RIGHT_CHAIN_CAP]} letters past the immediate right neighbor — the depth-{RIGHT_CHAIN_CAP + 1} window edge, counting hops carried by except: entries (doc/rebuild-design.md section 3.4)"
@@ -535,8 +535,8 @@ class _Linter:
     def run_shallow(self) -> None:
         """Run the lints that are safe on any document shape. They run even when schema validation already failed, so the design-rule messages always appear beside the schema errors."""
         self._lint_identifiers()
-        self._lint_single_stance_sentinel()
-        self._lint_single_motion_sentinel()
+        self._lint_single_stance_name()
+        self._lint_single_motion_name()
         self._lint_ductus_parity()
         self._lint_refuse_window_rule()
         self._lint_right_chain_depth()
@@ -574,31 +574,31 @@ class _Linter:
                     f"motion name {motion_name!r} matches the forbidden pattern {FORBIDDEN_ID_PATTERN.pattern}; {_NAMING_RULE}",
                 )
 
-    def _lint_single_stance_sentinel(self) -> None:
+    def _lint_single_stance_name(self) -> None:
         keys = list(self._stances())
-        if len(keys) == 1 and keys[0] != HAPAX_SENTINEL:
+        if len(keys) == 1 and keys[0] != SOLE_NAME:
             self.context.error(
                 f"stances.{keys[0]}",
-                f"single-stance rune must name its sole stance {HAPAX_SENTINEL!r} (reserved sentinel for one-stance runes; the pen-motion label lives in the ductus prose), not {keys[0]!r}",
+                f"single-stance rune must name its only stance {SOLE_NAME!r} (the reserved name for one-stance runes; the pen-motion label lives in the ductus prose), not {keys[0]!r}",
             )
-        elif len(keys) > 1 and HAPAX_SENTINEL in keys:
+        elif len(keys) > 1 and SOLE_NAME in keys:
             self.context.error(
-                f"stances.{HAPAX_SENTINEL}",
-                f"{HAPAX_SENTINEL!r} is reserved for the sole stance of a single-stance rune; a rune with multiple stances may not use it",
+                f"stances.{SOLE_NAME}",
+                f"{SOLE_NAME!r} is reserved for the only stance of a single-stance rune; a rune with multiple stances may not use it",
             )
 
-    def _lint_single_motion_sentinel(self) -> None:
+    def _lint_single_motion_name(self) -> None:
         ductus = self.raw.get("ductus")
         keys = list(ductus) if isinstance(ductus, dict) else []
-        if len(keys) == 1 and keys[0] != HAPAX_SENTINEL:
+        if len(keys) == 1 and keys[0] != SOLE_NAME:
             self.context.error(
                 f"ductus.{keys[0]}",
-                f"single-motion ductus must name its sole motion {HAPAX_SENTINEL!r} (reserved sentinel for one-motion runes; the pen-motion label lives in the ductus prose), not {keys[0]!r}",
+                f"single-motion ductus must name its only motion {SOLE_NAME!r} (the reserved name for one-motion runes; the pen-motion label lives in the ductus prose), not {keys[0]!r}",
             )
-        elif len(keys) > 1 and HAPAX_SENTINEL in keys:
+        elif len(keys) > 1 and SOLE_NAME in keys:
             self.context.error(
-                f"ductus.{HAPAX_SENTINEL}",
-                f"{HAPAX_SENTINEL!r} is reserved for the sole motion of a single-motion ductus; a rune with multiple motions may not use it",
+                f"ductus.{SOLE_NAME}",
+                f"{SOLE_NAME!r} is reserved for the only motion of a single-motion ductus; a rune with multiple motions may not use it",
             )
 
     def _lint_refuse_window_rule(self) -> None:

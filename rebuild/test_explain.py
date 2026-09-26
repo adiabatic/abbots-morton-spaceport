@@ -19,7 +19,7 @@ def test_report_settles_and_renders_candidates():
     report = explain(SPEC, parse_sequence(SPEC, "qsMay:qsIt:qsMay"), frozenset())
     text = report.render()
     assert "qsMay.loop.ex-y5.ex-ext-1" in text
-    assert "qsIt.hapax.en-y5.ex-y0.ex-ext-1" in text
+    assert "qsIt.sole.en-y5.ex-y0.ex-ext-1" in text
     assert "join-count" in text
     assert "decided by:" in text
 
@@ -86,7 +86,7 @@ def _panel_report() -> ExplainReport:
     """A hand-built report that exercises every line `render` can emit: a letter position with a ranking, an elimination with a record pointer and one without, a joint tiebreak, a note, and a runner-up; a boundary position that splits the run; a letter position with only one candidate; and a boundary position that does not split the run."""
     loop = Candidate("loop", None, "x-height", 0, 0)
     grounded = Candidate("grounded", None, "baseline", 1, 1)
-    hapax = Candidate("hapax", "x-height", None, 0, 0)
+    sole = Candidate("sole", "x-height", None, 0, 0)
     first = TransitionTrace(
         settled=Settled(CellId("qsMay", "loop", None, "x-height", ("ex-ext-1",)), "x-height", 1),
         joint_tiebreak=True,
@@ -107,10 +107,10 @@ def _panel_report() -> ExplainReport:
     boundary = TransitionTrace(boundary_settled("zwnj"), False, 0, (), (), "boundary", None, ())
     unsplitting = TransitionTrace(boundary_settled("namer-dot"), False, 0, (), (), "boundary", None, ())
     third = TransitionTrace(
-        settled=Settled(CellId("qsIt", "hapax", "x-height", None, ()), None, 0),
+        settled=Settled(CellId("qsIt", "sole", "x-height", None, ()), None, 0),
         joint_tiebreak=False,
         prospect=0,
-        ranked=(RankedCandidate(hapax, 1, 0),),
+        ranked=(RankedCandidate(sole, 1, 0),),
         eliminations=(),
         decided_stage="only-candidate",
         runner_up=None,
@@ -131,7 +131,7 @@ def _panel_report() -> ExplainReport:
 
 PANEL = """\
 sequence E665:200C:E670:00B7   config ss03
-settled: qsMay.loop.ex-y5.ex-ext-1 uni200C qsIt.hapax.en-y5 periodcentered
+settled: qsMay.loop.ex-y5.ex-ext-1 uni200C qsIt.sole.en-y5 periodcentered
 
 position 0: qsMay
   candidates (join-count = left junction + own junction + optimistic prospect):
@@ -150,9 +150,9 @@ position 1: zwnj
 
 position 2: qsIt
   candidates (join-count = left junction + own junction + optimistic prospect):
-  -> hapax            entry=x-height   junction=none       join-count=1 prospect=0
+  -> sole             entry=x-height   junction=none       join-count=1 prospect=0
   decided by: only-candidate
-  settled: qsIt.hapax.en-y5   junction=none   extension=0
+  settled: qsIt.sole.en-y5   junction=none   extension=0
 
 position 3: namer-dot
   boundary token; does not split the run"""

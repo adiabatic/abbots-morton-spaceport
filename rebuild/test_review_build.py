@@ -261,10 +261,10 @@ def test_check_manifest_flags_a_malformed_inputs_fingerprint():
     "human_unit_ids",
     (
         "u-0000",
-        ["u-Zuzfh4544mg", ["u-73QgSVQziGo"]],
+        ["u-6wxep7mamL7", ["u-dy33xBw4wVZ"]],
         ["not-a-unit"],
         ["u-0000"],
-        ["u-Zuzfh4544mg", "u-Zuzfh4544mg"],
+        ["u-6wxep7mamL7", "u-6wxep7mamL7"],
     ),
 )
 def test_check_manifest_flags_malformed_human_unit_ids(human_unit_ids):
@@ -1517,7 +1517,7 @@ def _export_corpus():
     """
     manifest = copy.deepcopy(json.loads((FIXTURES / "manifest.json").read_text(encoding="utf-8")))
     units = {unit["id"]: unit for unit in _load_fixture_units()}
-    template = units["u-BW5ne1qnz1k"]
+    template = units["u-G4pH7trXkME"]
 
     def clone(unit_id, **changes):
         clone = copy.deepcopy(template)

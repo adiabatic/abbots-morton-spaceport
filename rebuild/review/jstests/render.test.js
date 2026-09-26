@@ -451,7 +451,7 @@ test('familiesOfGroup splits the lead pair', () => {
 });
 
 test('unitMatchesFilters covers class, group, family, config, and status', () => {
-  const unit = shardA.find((candidate) => candidate.id === 'u-DG5XZLCzsT9');
+  const unit = shardA.find((candidate) => candidate.id === 'u-bQEkWCxL2Qe');
   const empty = { class: null, group: null, family: null, config: null, status: null };
   assert.equal(unitMatchesFilters(unit, empty, undefined), true);
   assert.equal(unitMatchesFilters(unit, { ...empty, class: 'post-marker-ligature-formation' }, undefined), true);
@@ -470,21 +470,21 @@ test('unitMatchesFilters covers class, group, family, config, and status', () =>
 
 test('orderWorklist sorts by family-pair group then id by default', () => {
   const units = [
-    { id: 'u-d5Ka5gKrm4o', group: 'qsTea:qsOy' },
-    { id: 'u-j12KWNP3e7g', group: 'qsMay:qsNo' },
-    { id: 'u-DG5XZLCzsT9', group: 'qsTea:qsOy' },
+    { id: 'u-Fz3yc89tWFW', group: 'qsTea:qsOy' },
+    { id: 'u-Dc7dDEQpRYc', group: 'qsMay:qsNo' },
+    { id: 'u-bQEkWCxL2Qe', group: 'qsTea:qsOy' },
   ];
-  assert.deepEqual(orderWorklist(units, null).map((u) => u.id), ['u-j12KWNP3e7g', 'u-d5Ka5gKrm4o', 'u-DG5XZLCzsT9']);
-  assert.deepEqual(units.map((u) => u.id), ['u-d5Ka5gKrm4o', 'u-j12KWNP3e7g', 'u-DG5XZLCzsT9'], 'the default sort must not mutate the given list');
+  assert.deepEqual(orderWorklist(units, null).map((u) => u.id), ['u-Dc7dDEQpRYc', 'u-bQEkWCxL2Qe', 'u-Fz3yc89tWFW']);
+  assert.deepEqual(units.map((u) => u.id), ['u-Fz3yc89tWFW', 'u-Dc7dDEQpRYc', 'u-bQEkWCxL2Qe'], 'the default sort must not mutate the given list');
 });
 
 test('orderWorklist preserves the given order under order=given', () => {
   const units = [
-    { id: 'u-d5Ka5gKrm4o', group: 'qsTea:qsOy' },
-    { id: 'u-j12KWNP3e7g', group: 'qsMay:qsNo' },
-    { id: 'u-DG5XZLCzsT9', group: 'qsTea:qsOy' },
+    { id: 'u-Fz3yc89tWFW', group: 'qsTea:qsOy' },
+    { id: 'u-Dc7dDEQpRYc', group: 'qsMay:qsNo' },
+    { id: 'u-bQEkWCxL2Qe', group: 'qsTea:qsOy' },
   ];
-  assert.deepEqual(orderWorklist(units, 'given').map((u) => u.id), ['u-d5Ka5gKrm4o', 'u-j12KWNP3e7g', 'u-DG5XZLCzsT9']);
+  assert.deepEqual(orderWorklist(units, 'given').map((u) => u.id), ['u-Fz3yc89tWFW', 'u-Dc7dDEQpRYc', 'u-bQEkWCxL2Qe']);
 });
 
 test('unitWorklist splits, trims, and drops empties', () => {
@@ -994,14 +994,14 @@ test('every fixture unit joins its notation tokens back into its notation string
 test('secondaryJunctionsOf returns junctions for human units and nothing for machine-approved or legacy units', () => {
   const withPrimary = shardB.find((unit) => unit.id === 'u-GWzZVqhrmiS');
   assert.equal(secondaryJunctionsOf(withPrimary).length, 1);
-  assert.equal(secondaryJunctionsOf(withPrimary)[0].primary_unit, 'u-d5Ka5gKrm4o');
+  assert.equal(secondaryJunctionsOf(withPrimary)[0].primary_unit, 'u-Fz3yc89tWFW');
   const legacy = { ink_identical: false };
   assert.deepEqual(secondaryJunctionsOf(legacy), []);
   const nulled = { ink_identical: false, secondary_junctions: null };
   assert.deepEqual(secondaryJunctionsOf(nulled), []);
-  const machine = { ink_identical: true, secondary_junctions: [{ primary_unit: 'u-d5Ka5gKrm4o' }] };
+  const machine = { ink_identical: true, secondary_junctions: [{ primary_unit: 'u-Fz3yc89tWFW' }] };
   assert.deepEqual(secondaryJunctionsOf(machine), [], 'machine-approved renderings never show junction markers');
-  const picture = { picture_identical: true, secondary_junctions: [{ primary_unit: 'u-d5Ka5gKrm4o' }] };
+  const picture = { picture_identical: true, secondary_junctions: [{ primary_unit: 'u-Fz3yc89tWFW' }] };
   assert.deepEqual(secondaryJunctionsOf(picture), [], 'picture identity is a whole-window property, so it hides them too');
 });
 
@@ -1018,7 +1018,7 @@ test('junctionChip labels a junction that has a primary unit with its id and one
 
 test('cellCodepointSpans gives each cell one codepoint position and a formed ligature two', () => {
   assert.deepEqual(
-    cellCodepointSpans(['uni200C', 'qsTea_qsOy/hapax/None/None/+locked', 'qsUtter/mono/None/None/']),
+    cellCodepointSpans(['uni200C', 'qsTea_qsOy/sole/None/None/+locked', 'qsUtter/mono/None/None/']),
     [[0, 0], [1, 2], [3, 3]],
   );
 });
@@ -1028,11 +1028,11 @@ const onlyHereUnit = {
   pair: { left: 0, right: 1 },
   pair_codepoints: [0, 1],
   after: {
-    cells: ['qsNo/loop/None/x-height/', 'qsIt/hapax/x-height/baseline/', 'qsMay/loop/baseline/None/', 'qsTea/full/None/None/'],
+    cells: ['qsNo/loop/None/x-height/', 'qsIt/sole/x-height/baseline/', 'qsMay/loop/baseline/None/', 'qsTea/full/None/None/'],
   },
   secondary_junctions: [
     { pair: { left: 1, right: 2 }, primary_unit: null },
-    { pair: { left: 2, right: 3 }, primary_unit: 'u-DG5XZLCzsT9' },
+    { pair: { left: 2, right: 3 }, primary_unit: 'u-bQEkWCxL2Qe' },
   ],
 };
 
@@ -1044,7 +1044,7 @@ test('onlyHereJunctionSpans shifts spans across a formed ligature', () => {
   const unit = {
     ...onlyHereUnit,
     pair_codepoints: [0, 2],
-    after: { cells: ['qsTea_qsOy/full/None/None/', 'qsIt/hapax/x-height/baseline/', 'qsMay/loop/baseline/None/'] },
+    after: { cells: ['qsTea_qsOy/full/None/None/', 'qsIt/sole/x-height/baseline/', 'qsMay/loop/baseline/None/'] },
     secondary_junctions: [{ pair: { left: 1, right: 2 }, primary_unit: null }],
   };
   assert.deepEqual(onlyHereJunctionSpans(unit), [[2, 3]]);
@@ -1062,7 +1062,7 @@ test('onlyHereJunctionSpans yields nothing for machine-approved units, missing c
 test('onlyHereJunctionSpans reads a row whose junctions all have primary units the same with cells present and with after nulled', () => {
   const withPrimaryOnly = {
     ...onlyHereUnit,
-    secondary_junctions: [{ pair: { left: 1, right: 2 }, primary_unit: 'u-DG5XZLCzsT9' }],
+    secondary_junctions: [{ pair: { left: 1, right: 2 }, primary_unit: 'u-bQEkWCxL2Qe' }],
   };
   assert.deepEqual(onlyHereJunctionSpans(withPrimaryOnly), []);
   assert.deepEqual(onlyHereJunctionSpans({ ...withPrimaryOnly, after: null }), []);
@@ -1166,8 +1166,8 @@ test('fixture units satisfy the contract fields the frontend relies on', () => {
 });
 
 test('searchHaystack folds id, notation, codepoints, class, group, duplicate group, cluster, and kinds into one lowercase string', () => {
-  const haystack = searchHaystack(shardA.find((unit) => unit.id === 'u-DG5XZLCzsT9'));
-  assert.ok(haystack.includes('u-dg5xzlczst9'), 'the id, folded to lowercase like everything else');
+  const haystack = searchHaystack(shardA.find((unit) => unit.id === 'u-bQEkWCxL2Qe'));
+  assert.ok(haystack.includes('u-bqekwcxl2qe'), 'the id, folded to lowercase like everything else');
   assert.ok(haystack.includes('·tea·oy'));
   assert.ok(haystack.includes('teaoy'), 'notation with the namer dots stripped is searchable');
   assert.ok(haystack.includes('200c:e652:e679'));
@@ -1220,11 +1220,11 @@ test('searchUnits finds a unit by its exact id across every shard', () => {
 test('searchUnits matches notation with and without the namer dots, case-insensitively', () => {
   assert.deepEqual(
     searchUnits(allUnits, '·Pea·May').matches.map((unit) => unit.id),
-    ['u-d5Ka5gKrm4o'],
+    ['u-Fz3yc89tWFW'],
   );
   assert.deepEqual(
     searchUnits(allUnits, 'peamay').matches.map((unit) => unit.id),
-    ['u-d5Ka5gKrm4o'],
+    ['u-Fz3yc89tWFW'],
   );
 });
 
@@ -1237,12 +1237,12 @@ test('searchUnits matches class, group, and kind, and includes machine-approved 
   const byClass = searchUnits(allUnits, 'dangling-anchor-dropped');
   assert.deepEqual(byClass.matches.map((unit) => unit.id).sort(), ['u-GWzZVqhrmiS', 'u-bJaTg1JopmL']);
   const extension = searchUnits(allUnits, 'extension');
-  assert.deepEqual(extension.matches.map((unit) => unit.id), ['u-YkZRtKREEVF']);
+  assert.deepEqual(extension.matches.map((unit) => unit.id), ['u-WtFvMidEFXG']);
   assert.equal(extension.matches[0].ink_identical, true, 'a machine-approved unit is still findable');
 });
 
 test('searchUnits requires every whitespace-separated token to match (AND)', () => {
-  assert.deepEqual(searchUnits(allUnits, 'tea oy').matches.map((unit) => unit.id).sort(), ['u-DG5XZLCzsT9', 'u-j12KWNP3e7g']);
+  assert.deepEqual(searchUnits(allUnits, 'tea oy').matches.map((unit) => unit.id).sort(), ['u-Dc7dDEQpRYc', 'u-bQEkWCxL2Qe']);
   assert.equal(searchUnits(allUnits, 'tea exam').total, 0);
 });
 

@@ -34,11 +34,11 @@ MINIMAL_RUNE = textwrap.dedent("""\
     rune: qsIt
     codepoint: 0xE670
     ductus:
-      hapax: |
+      sole: |
         A vertical stroke.
     stances:
-      hapax:
-        motion: hapax
+      sole:
+        motion: sole
         bitmap:
         - "#"
         - "#"
@@ -104,7 +104,7 @@ def test_ductus_prose_survives_loading(tmp_path):
     with warnings.catch_warnings():
         warnings.simplefilter("ignore", SpecWarning)
         loaded = load_tmp_spec(tmp_path, {"qsIt": text})
-    assert loaded.runes["qsIt"].ductus["hapax"].strip() == prose
+    assert loaded.runes["qsIt"].ductus["sole"].strip() == prose
 
 
 def test_registry_contents(spec):
@@ -230,7 +230,7 @@ def test_scope_condition_parsing(spec):
 
 
 def test_unlock_parsing(spec):
-    unlocks = spec.runes["qsIt"].stances["hapax"].surface.unlocks
+    unlocks = spec.runes["qsIt"].stances["sole"].surface.unlocks
     assert len(unlocks) == 2
     broad, after_cheer = unlocks
     for unlock in unlocks:
@@ -242,22 +242,22 @@ def test_unlock_parsing(spec):
 
 
 def test_forbidden_stance_id(tmp_path):
-    text = MINIMAL_RUNE.replace("hapax", "before-day")
+    text = MINIMAL_RUNE.replace("sole", "before-day")
     error = load_tmp_error(tmp_path, {"qsIt": text})
     assert any("pen motions" in issue.message for issue in error.issues)
     assert any("stances.before-day" in issue.path for issue in error.issues)
 
 
-def test_lone_stance_must_be_hapax(tmp_path):
+def test_lone_stance_must_be_sole(tmp_path):
     text = textwrap.dedent("""\
         rune: qsIt
         codepoint: 0xE670
         ductus:
-          hapax: |
+          sole: |
             A vertical stroke.
         stances:
           bar:
-            motion: hapax
+            motion: sole
             bitmap: ["#", "#", "#", "#", "#", "#"]
             surface:
               exits:
@@ -265,12 +265,12 @@ def test_lone_stance_must_be_hapax(tmp_path):
         """)
     error = load_tmp_error(tmp_path, {"qsIt": text})
     assert any(
-        "single-stance rune must name its sole stance 'hapax'" in issue.message for issue in error.issues
+        "single-stance rune must name its only stance 'sole'" in issue.message for issue in error.issues
     )
     assert any("stances.bar" in issue.path for issue in error.issues)
 
 
-def test_hapax_stance_reserved_for_single_stance_rune(tmp_path):
+def test_sole_stance_reserved_for_single_stance_rune(tmp_path):
     text = textwrap.dedent("""\
         rune: qsIt
         codepoint: 0xE670
@@ -286,7 +286,7 @@ def test_hapax_stance_reserved_for_single_stance_rune(tmp_path):
             surface:
               exits:
                 baseline: {x: 1, unjoined: safe}
-          hapax:
+          sole:
             motion: grounded
             bitmap: ["#", "#", "#", "#", "#", "#"]
             surface:
@@ -294,11 +294,11 @@ def test_hapax_stance_reserved_for_single_stance_rune(tmp_path):
                 baseline: {x: 1, unjoined: safe}
         """)
     error = load_tmp_error(tmp_path, {"qsIt": text})
-    assert any("reserved for the sole stance" in issue.message for issue in error.issues)
-    assert any("stances.hapax" in issue.path for issue in error.issues)
+    assert any("reserved for the only stance" in issue.message for issue in error.issues)
+    assert any("stances.sole" in issue.path for issue in error.issues)
 
 
-def test_lone_motion_must_be_hapax(tmp_path):
+def test_lone_motion_must_be_sole(tmp_path):
     text = textwrap.dedent("""\
         rune: qsIt
         codepoint: 0xE670
@@ -306,7 +306,7 @@ def test_lone_motion_must_be_hapax(tmp_path):
           bar: |
             A vertical stroke.
         stances:
-          hapax:
+          sole:
             motion: bar
             bitmap: ["#", "#", "#", "#", "#", "#"]
             surface:
@@ -315,19 +315,19 @@ def test_lone_motion_must_be_hapax(tmp_path):
         """)
     error = load_tmp_error(tmp_path, {"qsIt": text})
     assert any(
-        "single-motion ductus must name its sole motion 'hapax'" in issue.message for issue in error.issues
+        "single-motion ductus must name its only motion 'sole'" in issue.message for issue in error.issues
     )
     assert any("ductus.bar" in issue.path for issue in error.issues)
 
 
-def test_hapax_motion_reserved_for_single_motion_ductus(tmp_path):
+def test_sole_motion_reserved_for_single_motion_ductus(tmp_path):
     text = textwrap.dedent("""\
         rune: qsIt
         codepoint: 0xE670
         ductus:
           full: |
             A vertical stroke.
-          hapax: |
+          sole: |
             Another vertical stroke.
         stances:
           full:
@@ -337,19 +337,19 @@ def test_hapax_motion_reserved_for_single_motion_ductus(tmp_path):
               exits:
                 baseline: {x: 1, unjoined: safe}
           grounded:
-            motion: hapax
+            motion: sole
             bitmap: ["#", "#", "#", "#", "#", "#"]
             surface:
               exits:
                 baseline: {x: 1, unjoined: safe}
         """)
     error = load_tmp_error(tmp_path, {"qsIt": text})
-    assert any("reserved for the sole motion" in issue.message for issue in error.issues)
-    assert any("ductus.hapax" in issue.path for issue in error.issues)
+    assert any("reserved for the only motion" in issue.message for issue in error.issues)
+    assert any("ductus.sole" in issue.path for issue in error.issues)
 
 
 def test_dangling_motion(tmp_path):
-    text = MINIMAL_RUNE.replace("motion: hapax", "motion: pole")
+    text = MINIMAL_RUNE.replace("motion: sole", "motion: pole")
     error = load_tmp_error(tmp_path, {"qsIt": text})
     assert any("not in the ductus" in issue.message for issue in error.issues)
 
@@ -574,7 +574,7 @@ def test_absolute_prefer_requires_why(tmp_path):
     text = MINIMAL_RUNE + textwrap.dedent("""\
         policy:
           prefer:
-          - {stance: hapax, mode: absolute, when: {left: {family: qsDay}}}
+          - {stance: sole, mode: absolute, when: {left: {family: qsDay}}}
         """)
     error = load_tmp_error(tmp_path, {"qsIt": text})
     assert any("'why'" in issue.message for issue in error.issues)
@@ -641,7 +641,7 @@ def test_ambiguous_extend_target(tmp_path):
 
 
 def test_errors_carry_lines_and_collect(tmp_path):
-    text = MINIMAL_RUNE.replace("motion: hapax", "motion: pole") + textwrap.dedent("""\
+    text = MINIMAL_RUNE.replace("motion: sole", "motion: pole") + textwrap.dedent("""\
         policy:
           refuse:
           - {exit: baseline, when: {right: {family: qsBogus}}}
@@ -664,11 +664,11 @@ def test_duplicate_groups_flagged_across_files(tmp_path):
         rune: qsMay
         codepoint: 0xE665
         ductus:
-          hapax: |
+          sole: |
             A loop.
         stances:
-          hapax:
-            motion: hapax
+          sole:
+            motion: sole
             bitmap: ["#", "#", "#", "#", "#", "#"]
             surface:
               exits:
@@ -682,7 +682,7 @@ def test_resolve_tiebreak_form_still_rejected(tmp_path):
     text = MINIMAL_RUNE + textwrap.dedent("""\
         policy:
           resolve:
-          - {pick: {stance: hapax}, why: Recorded tie-break.}
+          - {pick: {stance: sole}, why: Recorded tie-break.}
         """)
     error = load_tmp_error(tmp_path, {"qsIt": text})
     assert any("not yet implemented" in issue.message for issue in error.issues)
@@ -696,12 +696,12 @@ def test_rune_name_must_match_file_stem(tmp_path):
 BROKEN_DOCUMENTS = (
     MINIMAL_RUNE.replace("rune: qsIt\n", ""),
     MINIMAL_RUNE.replace("codepoint: 0xE670", "codepoint: 0xE670\nsequence: [qsIt, qsDay]"),
-    MINIMAL_RUNE.replace("hapax", "before-day"),
+    MINIMAL_RUNE.replace("sole", "before-day"),
     MINIMAL_RUNE.replace("{x: 0}", "{x: 0, anchor: 3}"),
     MINIMAL_RUNE + "policy:\n  refuse:\n  - {exit: baseline, when: {left2: {family: qsDay}}}\n",
     MINIMAL_RUNE
     + "policy:\n  refuse:\n  - {exit: baseline, when: {right: {family: qsDay, then: {family: qsMay}}}}\n",
-    MINIMAL_RUNE + "policy:\n  prefer:\n  - {stance: hapax, mode: absolute, when: {word: final}}\n",
+    MINIMAL_RUNE + "policy:\n  prefer:\n  - {stance: sole, mode: absolute, when: {word: final}}\n",
 )
 
 
@@ -925,7 +925,7 @@ def test_resolve_when_references_are_checked(tmp_path):
         policy:
           prefer:
           - id: target
-            stance: hapax
+            stance: sole
             when: {right: {family: qsDay}}
             why: x
           resolve:
@@ -954,7 +954,7 @@ class TestStructureDigest:
     def test_moves_when_a_predicate_class_gains_a_member(self):
         classes = dict(MINI_SPEC.registry.predicate_classes)
         name, members = next(iter(classes.items()))
-        classes[name] = frozenset(members | {"qsHapax"})
+        classes[name] = frozenset(members | {"qsSole"})
         widened = replace(MINI_SPEC, registry=replace(MINI_SPEC.registry, predicate_classes=classes))
         assert spec_load.spec_structure_digest(widened) != spec_load.spec_structure_digest(MINI_SPEC)
 
@@ -1183,11 +1183,11 @@ def _bitmap_axis_follower(left: str) -> str:
         rune: qsDay
         codepoint: 0xE653
         ductus:
-          hapax: |
+          sole: |
             A stroke.
         stances:
-          hapax:
-            motion: hapax
+          sole:
+            motion: sole
             bitmap:
             - "###"
             - "#  "

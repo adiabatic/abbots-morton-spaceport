@@ -1,6 +1,6 @@
 [
  {
-  "id": "u-hJQksth4hYb",
+  "id": "u-WTMwXA3Hvr2",
   "ink_identical": false,
   "picture_identical": false,
   "junior_equivalent": false,
@@ -65,7 +65,7 @@
   "after": {
    "cells": [
     "qsTea/half/None/x-height/",
-    "qsIt/hapax/x-height/None/en-ext-1"
+    "qsIt/sole/x-height/None/en-ext-1"
    ],
    "junctions": [
     "y5"
@@ -98,7 +98,7 @@
    }
   },
   "boundary_marks": [],
-  "explain": "sequence E652:E670   config default\nsettled: qsTea.half.ex-y5 qsIt.hapax.en-y5.en-ext-1\n\nposition 1: qsIt\n  decided by: join-count\n  note: glyph_data/runes/qsIt.yaml:policy.extend[0]",
+  "explain": "sequence E652:E670   config default\nsettled: qsTea.half.ex-y5 qsIt.sole.en-y5.en-ext-1\n\nposition 1: qsIt\n  decided by: join-count\n  note: glyph_data/runes/qsIt.yaml:policy.extend[0]",
   "summary": "New: \u00b7Tea\u00b7It settles differently from the baseline \u2014 decided by fixture data (open the explain panel for the candidate table).",
   "provenance": [
    "glyph_data/runes/qsIt.yaml:policy.extend[0]"
@@ -132,10 +132,10 @@
     ]
    }
   },
-  "content_key": "f0f05ecedf0409a0d77f6ef7cf4d1badfef8cc809b82ec54379603ecb0ae079c"
+  "content_key": "b018d1ed7f23a14f209c0392e1b6d37f9fc924f8a3e1aee4220c6d5fed1771c8"
  },
  {
-  "id": "u-73QgSVQziGo",
+  "id": "u-dy33xBw4wVZ",
   "ink_identical": false,
   "picture_identical": false,
   "junior_equivalent": false,
@@ -199,8 +199,8 @@
   },
   "after": {
    "cells": [
-    "qsIt/hapax/None/None/",
-    "qsIt/hapax/None/None/"
+    "qsIt/sole/None/None/",
+    "qsIt/sole/None/None/"
    ],
    "junctions": [
     "break"
@@ -234,7 +234,7 @@
    }
   },
   "boundary_marks": [],
-  "explain": "sequence E670:E670   config default\nsettled: qsIt.hapax qsIt.hapax\n\nposition 0: qsIt\n  decided by: tiebreak",
+  "explain": "sequence E670:E670   config default\nsettled: qsIt.sole qsIt.sole\n\nposition 0: qsIt\n  decided by: tiebreak",
   "summary": "New: \u00b7It\u00b7It settles differently from the baseline \u2014 decided by fixture data (open the explain panel for the candidate table).",
   "provenance": [],
   "drafts": {
@@ -264,10 +264,10 @@
     ]
    }
   },
-  "content_key": "241eb1c4576433f0400d761db37fa3ae6d9c0f27e5202acc1c4104dd58b91f16"
+  "content_key": "dd018b5b21cae2e831368190df362cd0b6eceb243c18fae619a7bf508cc6ad31"
  },
  {
-  "id": "u-Zuzfh4544mg",
+  "id": "u-6wxep7mamL7",
   "ink_identical": false,
   "picture_identical": false,
   "junior_equivalent": false,
@@ -327,7 +327,7 @@
   "after": {
    "cells": [
     "zwnj/boundary/None/None/",
-    "qsTea_qsOy/hapax/None/None/"
+    "qsTea_qsOy/sole/None/None/"
    ],
    "junctions": [
     "break"
@@ -366,7 +366,7 @@
     "x": 0
    }
   ],
-  "explain": "sequence 200C:E652:E679   config ss03\nsettled: uni200C qsTea_qsOy.hapax\n\nposition 1: qsTea_qsOy\n  decided by: only-candidate",
+  "explain": "sequence 200C:E652:E679   config ss03\nsettled: uni200C qsTea_qsOy.sole\n\nposition 1: qsTea_qsOy\n  decided by: only-candidate",
   "summary": "New: \u25caZWNJ \u00b7Tea\u00b7Oy settles differently from the baseline \u2014 decided by fixture data (open the explain panel for the candidate table).",
   "provenance": [],
   "drafts": {
@@ -382,7 +382,7 @@
    "policy": {
     "file": "glyph_data/runes/qsTea_qsOy.yaml",
     "keypath": "policy.refuse[+]",
-    "suggested_record": "{stance: hapax, when: {left: {is: zwnj}}, why: 'Reviewer rejected the M1 outcome for 200C:E652:E679 (\u25caZWNJ \u00b7Tea\u00b7Oy)'}",
+    "suggested_record": "{stance: sole, when: {left: {is: zwnj}}, why: 'Reviewer rejected the M1 outcome for 200C:E652:E679 (\u25caZWNJ \u00b7Tea\u00b7Oy)'}",
     "names_provenance": [],
     "decided_stage": "only-candidate",
     "schema_valid": true,
@@ -399,7 +399,7 @@
     ]
    }
   },
-  "content_key": "c4c732e23cafdf23f8199981a65ef1d2537bba0e5db32aefd67e4dc06c28933e"
+  "content_key": "238ee920c79fb76ce9c2cd279cf10a63156d6a2acabc486e4229698b9ad7512e"
  },
  {
   "id": "u-E8egK4dqX5U",

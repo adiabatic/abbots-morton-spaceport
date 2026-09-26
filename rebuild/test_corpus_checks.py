@@ -56,11 +56,11 @@ MINI_AUDIT = MINI / "audit.tsv"
 MINI_FONT = MINI / "M1.otf"
 # How many of the bundle's windows the drafter tests enrich: enough to include each shape those tests ask for, and few enough for one settlement pass.
 MINI_SLICE = 64
-JUNCTION_BEARER = "u-BW5ne1qnz1k"
-PRIMARY_UNIT = "u-VFVAR2GPEXx"
-PLAIN_UNIT = "u-Zuzfh4544mg"
-DUPLICATE_MATE = "u-73QgSVQziGo"
-THIRD_UNIT = "u-hJQksth4hYb"
+JUNCTION_BEARER = "u-G4pH7trXkME"
+PRIMARY_UNIT = "u-fDT3GBdycaj"
+PLAIN_UNIT = "u-6wxep7mamL7"
+DUPLICATE_MATE = "u-dy33xBw4wVZ"
+THIRD_UNIT = "u-WTMwXA3Hvr2"
 
 
 def _corpus() -> tuple[dict, dict[str, list[dict]]]:

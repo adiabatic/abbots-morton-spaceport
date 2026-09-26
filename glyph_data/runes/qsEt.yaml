@@ -1,7 +1,7 @@
 rune: qsEt
 codepoint: 0xE672
 ductus:
-  hapax: |
+  sole: |
     Begun at the left at the x-height, the stroke runs down in a counterclockwise arc and exits at the baseline.
 mono:
   bitmap:
@@ -12,8 +12,8 @@ mono:
   - "  #  "
   - "   ##"  #
 stances:
-  hapax:
-    motion: hapax
+  sole:
+    motion: sole
     traits: []
     bitmap:
     - "#    "  #
@@ -36,7 +36,7 @@ stances:
       require: []
 policy:
   order:
-  - hapax
+  - sole
   refuse: []
   prefer: []
   extend:

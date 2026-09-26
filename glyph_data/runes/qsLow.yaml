@@ -1,7 +1,7 @@
 rune: qsLow
 codepoint: 0xE667
 ductus:
-  hapax: |
+  sole: |
     Begun at the left along the baseline, the stroke runs rightward and rises, curls back up and to the left, then doubles back to climb up and to the right, finishing with a short vertical rise that stops at the x-height.
 mono:
   bitmap:
@@ -12,8 +12,8 @@ mono:
   - "   # "
   - "###  "  #
 stances:
-  hapax:
-    motion: hapax
+  sole:
+    motion: sole
     traits: []
     bitmap:
     - "    #"  #
@@ -36,7 +36,7 @@ stances:
       require: []
 policy:
   order:
-  - hapax
+  - sole
   refuse: []
   prefer: []
   extend:

@@ -1,6 +1,6 @@
 [
  {
-  "id": "u-VFVAR2GPEXx",
+  "id": "u-fDT3GBdycaj",
   "ink_identical": false,
   "picture_identical": false,
   "junior_equivalent": false,
@@ -53,7 +53,7 @@
   },
   "after": {
    "cells": [
-    "qsTea_qsOy/hapax/None/None/"
+    "qsTea_qsOy/sole/None/None/"
    ],
    "junctions": [],
    "extensions": []
@@ -76,7 +76,7 @@
    }
   },
   "boundary_marks": [],
-  "explain": "sequence E652:E679   config ss03\nsettled: qsTea_qsOy.hapax\n\nposition 0: qsTea_qsOy\n  decided by: only-candidate",
+  "explain": "sequence E652:E679   config ss03\nsettled: qsTea_qsOy.sole\n\nposition 0: qsTea_qsOy\n  decided by: only-candidate",
   "summary": "New: \u00b7Tea\u00b7Oy settles differently from the baseline \u2014 decided by fixture data (open the explain panel for the candidate table).",
   "provenance": [],
   "drafts": {
@@ -92,7 +92,7 @@
    "policy": {
     "file": "glyph_data/runes/qsTea_qsOy.yaml",
     "keypath": "policy.refuse[+]",
-    "suggested_record": "{stance: hapax, when: {word: isolated}, why: 'Reviewer rejected the M1 outcome for E652:E679 (\u00b7Tea\u00b7Oy)'}",
+    "suggested_record": "{stance: sole, when: {word: isolated}, why: 'Reviewer rejected the M1 outcome for E652:E679 (\u00b7Tea\u00b7Oy)'}",
     "names_provenance": [],
     "decided_stage": "only-candidate",
     "schema_valid": true,
@@ -109,10 +109,10 @@
     ]
    }
   },
-  "content_key": "a8e4ebfdc13b57576737031a110a7db731424e7374cf1719ff849caf4bd5e2f8"
+  "content_key": "e4786b4978eef7901617a5325cccab8d5065e28615acd3971100dae906e87673"
  },
  {
-  "id": "u-BW5ne1qnz1k",
+  "id": "u-G4pH7trXkME",
   "ink_identical": false,
   "picture_identical": false,
   "junior_equivalent": false,
@@ -179,7 +179,7 @@
   "after": {
    "cells": [
     "namer-dot/boundary/None/None/",
-    "qsOy/hapax/None/baseline/",
+    "qsOy/sole/None/baseline/",
     "qsTea/full/baseline/None/"
    ],
    "junctions": [
@@ -238,10 +238,10 @@
      "x_max": 550,
      "advance_total": 1100
     },
-    "primary_unit": "u-VFVAR2GPEXx"
+    "primary_unit": "u-fDT3GBdycaj"
    }
   ],
-  "explain": "sequence 00B7:E679:E652   config default\nsettled: periodcentered qsOy.hapax.ex-y0 qsTea.full.en-y0\n\nposition 1: qsOy\n  decided by: join-count",
+  "explain": "sequence 00B7:E679:E652   config default\nsettled: periodcentered qsOy.sole.ex-y0 qsTea.full.en-y0\n\nposition 1: qsOy\n  decided by: join-count",
   "summary": "New: \u00b7 \u00b7Oy\u00b7Tea settles differently from the baseline \u2014 decided by fixture data (open the explain panel for the candidate table).",
   "provenance": [],
   "drafts": {
@@ -271,6 +271,6 @@
     ]
    }
   },
-  "content_key": "3ec8ae0c355f96f70a0ac32d77eda74faa26478c18635c91300b441b6b7e1532"
+  "content_key": "5a1288fd5be77fc14fd5f6fad528ca2709047fda5b8582a84bbe20455bc0bf31"
  }
 ]

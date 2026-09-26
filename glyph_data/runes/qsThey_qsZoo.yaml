@@ -3,11 +3,11 @@ sequence:
 - qsThey
 - qsZoo
 ductus:
-  hapax: |
+  sole: |
     Begun at the x-height, the stroke descends down and to the left into the ·They hook, curls right along its foot and climbs rightwards and then upwards. Just below the baseline, it turns downward into the half-·Zoo foot, curls right along the bottom, and climbs to the right, ending below the baseline.
 stances:
-  hapax:
-    motion: hapax
+  sole:
+    motion: sole
     outgoing: {stance: half}
     traits: []
     bitmap:
@@ -34,7 +34,7 @@ stances:
       require: []
 policy:
   order:
-  - hapax
+  - sole
   refuse: []
   prefer: []
   extend: []

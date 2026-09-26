@@ -226,7 +226,7 @@ def test_single_cell_unit_has_null_pair(enricher):
         ("ligation",),
         "synthetic",
         ("qsOut.en-y0.ex-y5.ex-ext-1", "qsTea.half.en-y5.after-xheight-exit"),
-        ("qsOut_qsTea/hapax/None/None/",),
+        ("qsOut_qsTea/sole/None/None/",),
     )
     unit = Unit(
         codepoints=row.codepoints,

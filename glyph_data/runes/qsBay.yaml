@@ -1,7 +1,7 @@
 rune: qsBay
 codepoint: 0xE651
 ductus:
-  hapax: |
+  sole: |
     Begun at the x-height, the stroke falls straight down past the baseline, loops counterclockwise below it — leftward along the bottom, then up the left side — and closes rightward along the baseline, where it may connect to the next letter.
 mono:
   bitmap:
@@ -16,8 +16,8 @@ mono:
   - " ##  "
   y_offset: -3
 stances:
-  hapax:
-    motion: hapax
+  sole:
+    motion: sole
     traits: []
     bitmap:
     - "   # "  #
@@ -73,7 +73,7 @@ stances:
       require: []
 policy:
   order:
-  - hapax
+  - sole
   refuse: []
   prefer:
   - cell: {exit: none}

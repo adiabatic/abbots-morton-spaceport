@@ -1,7 +1,7 @@
 rune: qsI
 codepoint: 0xE675
 ductus:
-  hapax: |
+  sole: |
     Begun at the baseline on the left, the stroke climbs up and to the right, almost to the x-height. There, it turns back on itself and draws a small loop clockwise — leftward along the top, down the left side, rightwards at the bottom, and then back to diagonally upwards and to the right — crossing the diagonal it arrived on. It leaves the loop at the upper right and finishes rightward at the x-height.
 mono:
   bitmap:
@@ -13,7 +13,7 @@ mono:
   - "#    "  #
 stances:
   loop:
-    motion: hapax
+    motion: sole
     traits: []
     bitmap:
     - " ## #"  #
@@ -35,7 +35,7 @@ stances:
       unlocks: []
       require: []
   smaller-loop:
-    motion: hapax
+    motion: sole
     traits: []
     bitmap:
     - "  # #"  #

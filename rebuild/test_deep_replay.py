@@ -125,7 +125,7 @@ def test_a_rune_edit_walks_the_moved_runes_and_their_readers(bench, monkeypatch)
 def test_a_disagreement_records_nothing(bench, monkeypatch, capsys):
     _stub_walk(
         monkeypatch,
-        disagree="(qsBay, qsUtter.mono.ex-y5.ex-ext-1, qsGay, qsIt, qsPea, #EDGE) at position 1 of qsUtter qsBay qsGay qsIt qsPea: settlement says qsBay.hapax.en-y5.ex-y0, rules say qsBay.hapax.en-y5",
+        disagree="(qsBay, qsUtter.mono.ex-y5.ex-ext-1, qsGay, qsIt, qsPea, #EDGE) at position 1 of qsUtter qsBay qsGay qsIt qsPea: settlement says qsBay.sole.en-y5.ex-y0, rules say qsBay.sole.en-y5",
     )
     assert deep_replay.main(["--families", "qsPea", "--threads", "1"]) == 1
     assert ac.read_green_record(bench / "rebuild" / "out" / "deep-replay-green.json") is None

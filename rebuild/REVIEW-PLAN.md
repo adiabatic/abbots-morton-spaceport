@@ -135,7 +135,7 @@ View state lives in `location.hash` as `URLSearchParams`, as in tables.html: `pa
   "exported_at": "2026-06-10T18:40:02Z",
   "verdicts": [
     {"unit": "u-3mJ7kPq2Xw9", "verdict": "approve", "note": "", "at": "2026-06-10T18:21:09Z"},
-    {"unit": "u-73QgSVQziGo", "verdict": "reject", "note": "junction looks reached-for", "at": "2026-06-10T18:21:40Z"}
+    {"unit": "u-dy33xBw4wVZ", "verdict": "reject", "note": "junction looks reached-for", "at": "2026-06-10T18:21:40Z"}
   ]
 }
 ```
@@ -166,7 +166,7 @@ pins:                       # one per approved unit: a whole-word data-expect pi
     note: ""
 
 policy_edits:               # one per rejected unit: the one-line refuse/contract/prefer edit; a reject with no mechanical draft still appears, with keypath/suggested_record null and a no_mechanical_draft note
-  - unit: u-73QgSVQziGo
+  - unit: u-dy33xBw4wVZ
     codepoints: "E650:E665"
     file: glyph_data/runes/qsMay.yaml
     keypath: policy.refuse[+]               # [+] = append to the list
@@ -178,7 +178,7 @@ policy_edits:               # one per rejected unit: the one-line refuse/contrac
     schema_valid: true
 
 any_of:                     # one per fine-either-way unit: both behaviors as full expect strings
-  - unit: u-Zuzfh4544mg
+  - unit: u-6wxep7mamL7
     text: "qsPea qsOwe qsMay"               # _qs_text-ready family tokens
     features: {}
     candidates:
@@ -188,7 +188,7 @@ any_of:                     # one per fine-either-way unit: both behaviors as fu
     note: ""
 
 neither:                    # one per neither-verdicted unit: both behaviors look wrong; nothing is drafted
-  - unit: u-hJQksth4hYb
+  - unit: u-WTMwXA3Hvr2
     codepoints: "E652:200C:E652:E679"
     notation: "·Tea ◊ZWNJ ·Tea·Oy"
     note: "both joins look wrong; needs a fresh stance"
@@ -328,7 +328,7 @@ Within a class, the parts hold the fragments in id order (§2.1). The example is
   "kinds": ["ligation"],
   "exemplar": true,
   "before": {"glyphs": ["space", "qsTea_qsOy"], "junctions": ["break", "lig"]},
-  "after": {"cells": ["uni200C", "qsTea_qsOy/hapax/None/None/+locked"], "junctions": ["break", "lig"], "extensions": [0, 0]},
+  "after": {"cells": ["uni200C", "qsTea_qsOy/sole/None/None/+locked"], "junctions": ["break", "lig"], "extensions": [0, 0]},
   "diff_positions": [0],
   "pair": {"left": 0, "right": 1},
   "highlight": {

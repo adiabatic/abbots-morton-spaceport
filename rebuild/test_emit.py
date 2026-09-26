@@ -41,15 +41,15 @@ def spec():
 @pytest.fixture(scope="module")
 def glyphs(spec):
     cells = [
-        CellId("qsIt", "hapax", None, None, ()),
-        CellId("qsIt", "hapax", None, "baseline", ()),
-        CellId("qsIt", "hapax", "x-height", "baseline", ()),
+        CellId("qsIt", "sole", None, None, ()),
+        CellId("qsIt", "sole", None, "baseline", ()),
+        CellId("qsIt", "sole", "x-height", "baseline", ()),
         CellId("qsTea", "full", None, None, ()),
         CellId("qsTea", "half", None, "x-height", ()),
         CellId("qsMay", "loop", None, "x-height", ()),
         CellId("qsMay", "loop", "baseline", "x-height", ()),
-        CellId("qsOy", "hapax", None, None, ()),
-        CellId("qsTea_qsOy", "hapax", None, "baseline", ()),
+        CellId("qsOy", "sole", None, None, ()),
+        CellId("qsTea_qsOy", "sole", None, "baseline", ()),
         CellId("qsTea", "full", None, None, ("locked",)),
         CellId("qsPea", "full", "y6", None, ()),
     ]
@@ -82,7 +82,7 @@ def _settle_block(fea):
 
 def _rules(spec, glyphs):
     names = {cell: record.name for cell, record in glyphs.items()}
-    it_ex = names[CellId("qsIt", "hapax", None, "baseline", ())]
+    it_ex = names[CellId("qsIt", "sole", None, "baseline", ())]
     may_en = names[CellId("qsMay", "loop", "baseline", "x-height", ())]
     tea_half = names[CellId("qsTea", "half", None, "x-height", ())]
     return [
@@ -145,7 +145,7 @@ class TestEmitGsub:
 
     def test_three_slot_rule_emits_a_third_lookahead_class(self, spec, glyphs):
         names = {cell: record.name for cell, record in glyphs.items()}
-        it_ex = names[CellId("qsIt", "hapax", None, "baseline", ())]
+        it_ex = names[CellId("qsIt", "sole", None, "baseline", ())]
         rules = [
             FakeRule(
                 "qsIt", None, ("qsMay",), ("qsTea",), it_ex, provenance=("p9",), look3=("qsOy", "qsPea")
@@ -160,7 +160,7 @@ class TestEmitGsub:
 
     def test_four_slot_rule_emits_a_fourth_lookahead_class(self, spec, glyphs):
         names = {cell: record.name for cell, record in glyphs.items()}
-        it_ex = names[CellId("qsIt", "hapax", None, "baseline", ())]
+        it_ex = names[CellId("qsIt", "sole", None, "baseline", ())]
         rules = [
             FakeRule(
                 "qsIt",
@@ -258,7 +258,7 @@ class TestEmitGsub:
 
     def test_fold_conflict_raises(self, spec, glyphs):
         names = {cell: record.name for cell, record in glyphs.items()}
-        it_ex = names[CellId("qsIt", "hapax", None, "baseline", ())]
+        it_ex = names[CellId("qsIt", "sole", None, "baseline", ())]
         a = FakeRule("qsIt", None, ("qsMay",), None, it_ex, provenance=())
         b = FakeRule("qsIt", None, ("qsMay",), None, "qsIt", provenance=())
         with pytest.raises(emit_gsub.EmitError):
@@ -279,7 +279,7 @@ class TestEmitGsub:
 
     def test_folded_rows_carry_their_sources(self, spec, glyphs):
         names = {cell: record.name for cell, record in glyphs.items()}
-        it_ex = names[CellId("qsIt", "hapax", None, "baseline", ())]
+        it_ex = names[CellId("qsIt", "sole", None, "baseline", ())]
         shared = FakeRule("qsIt", None, ("qsMay",), None, it_ex, provenance=("p1",))
         default_only = FakeRule(
             "qsMay", (it_ex,), None, None, names[CellId("qsMay", "loop", "baseline", "x-height", ())]
@@ -449,7 +449,7 @@ class TestEmitGpos:
 
     def test_cross_height_cells_get_null_anchors(self, spec, glyphs):
         curs = emit_gpos.emit_gpos(glyphs, spec=spec)
-        record = glyphs[CellId("qsIt", "hapax", "x-height", "baseline", ())]
+        record = glyphs[CellId("qsIt", "sole", "x-height", "baseline", ())]
         y0 = curs.split("lookup m1_cursive_y0 {")[1].split("}")[0]
         y5 = curs.split("lookup m1_cursive_y5 {")[1].split("}")[0]
         assert f"pos cursive {record.name} <anchor NULL> <anchor 100 0>;" in y0

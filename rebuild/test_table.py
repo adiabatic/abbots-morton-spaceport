@@ -128,7 +128,7 @@ def test_transition_outcomes_match_settlement_examples(default_tables):
     decision, _treaty = default_tables
     by_key = {row.key: row for row in decision.transitions}
     row = by_key[("qsIt", "#EDGE", "qsMay", "#EDGE", "#NA", "#NA")]
-    assert row.outcome == "qsIt.hapax.ex-y0"
+    assert row.outcome == "qsIt.sole.ex-y0"
     row = by_key[("qsTea", "#EDGE", "qsIt", "#EDGE", "#NA", "#NA")]
     assert row.outcome == "qsTea.half.ex-y5"
     row = by_key[("qsTea.noentry", "uni200C", "qsIt", "#EDGE", "#NA", "#NA")]
@@ -169,7 +169,7 @@ def test_ss04_joins_it_at_the_baseline_on_both_sides_after_day(default_tables):
     decision, _treaty = default_tables
     ss04_decision, _ss04_treaty = build_tables(SPEC, frozenset({"ss04"}))
     replay(ss04_decision)
-    both_sides_baseline = "qsIt.hapax.en-y0.ex-y0.ex-ext-1"
+    both_sides_baseline = "qsIt.sole.en-y0.ex-y0.ex-ext-1"
     default_outcomes = {row.outcome for row in decision.transitions}
     assert {row.outcome for row in ss04_decision.transitions} - default_outcomes == {both_sides_baseline}
     assert not default_outcomes - {row.outcome for row in ss04_decision.transitions}
@@ -196,9 +196,7 @@ def test_ss03_table_differs_and_validates(ss03_tables):
 def test_treaty_rows_carry_junction_and_summed_extension(default_tables):
     _decision, treaty = default_tables
     assert (
-        TreatyRow(
-            left="qsMay.loop.ex-y5.ex-ext-1", right="qsIt.hapax.en-y5", junction="x-height", extension=1
-        )
+        TreatyRow(left="qsMay.loop.ex-y5.ex-ext-1", right="qsIt.sole.en-y5", junction="x-height", extension=1)
         in treaty.rows
     )
     assert (

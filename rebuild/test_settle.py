@@ -70,15 +70,15 @@ def _window_settled(spec, windows, *, modes=None):
 
 
 ROWS = (
-    ("qsIt", (), ("qsIt.hapax",)),
+    ("qsIt", (), ("qsIt.sole",)),
     ("qsTea", (), ("qsTea.full",)),
     ("qsMay", (), ("qsMay.loop",)),
     ("qsPea", (), ("qsPea.full",)),
-    ("qsOy", (), ("qsOy.hapax",)),
+    ("qsOy", (), ("qsOy.sole",)),
     # Half ·Tea joins ·It at the x-height, and qsIt's x-height entry extension (policy.extend[0]) fires.
-    ("qsTea qsIt", (), ("qsTea.half.ex-y5", "qsIt.hapax.en-y5.en-ext-1")),
-    ("qsIt qsMay", (), ("qsIt.hapax.ex-y0", "qsMay.loop.en-y0.en-ext-1")),
-    ("qsMay qsIt", (), ("qsMay.loop.ex-y5.ex-ext-1", "qsIt.hapax.en-y5")),
+    ("qsTea qsIt", (), ("qsTea.half.ex-y5", "qsIt.sole.en-y5.en-ext-1")),
+    ("qsIt qsMay", (), ("qsIt.sole.ex-y0", "qsMay.loop.en-y0.en-ext-1")),
+    ("qsMay qsIt", (), ("qsMay.loop.ex-y5.ex-ext-1", "qsIt.sole.en-y5")),
     ("qsMay qsMay", (), ("qsMay.grounded-loop.ex-y0", "qsMay.loop.en-y0")),
     ("qsTea qsMay", (), ("qsTea.full.ex-y0", "qsMay.loop.en-y0.en-ext-1")),
     # qsMay's baseline exit refuses qsTea (the old font breaks ·May·Tea while ·May·May joins, and the loop top touching the bar is an off-anchor contact), so ·May does not join and renders its pulled-back unjoined drawing.
@@ -89,75 +89,75 @@ ROWS = (
     (
         "qsTea qsMay qsIt",
         (),
-        ("qsTea.full.ex-y0", "qsMay.loop.en-y0.ex-y5.en-ext-1.ex-ext-1", "qsIt.hapax.en-y5"),
+        ("qsTea.full.ex-y0", "qsMay.loop.en-y0.ex-y5.en-ext-1.ex-ext-1", "qsIt.sole.en-y5"),
     ),
     # Extensions on one junction do not add up: the middle qsIt's extended exit suppresses the following qsMay's entry extension.
     (
         "qsMay qsIt qsMay",
         (),
-        ("qsMay.loop.ex-y5.ex-ext-1", "qsIt.hapax.en-y5.ex-y0.ex-ext-1", "qsMay.loop.en-y0"),
+        ("qsMay.loop.ex-y5.ex-ext-1", "qsIt.sole.en-y5.ex-y0.ex-ext-1", "qsMay.loop.en-y0"),
     ),
     (
         "qsIt qsMay qsIt",
         (),
-        ("qsIt.hapax.ex-y0", "qsMay.loop.en-y0.ex-y5.en-ext-1.ex-ext-1", "qsIt.hapax.en-y5"),
+        ("qsIt.sole.ex-y0", "qsMay.loop.en-y0.ex-y5.en-ext-1.ex-ext-1", "qsIt.sole.en-y5"),
     ),
     # Full ·Tea refuses a baseline entry after an entered qsIt, so the middle qsIt does not exit, and its `unjoined: safe` leaves the plain exit-none cell.
-    ("qsTea qsIt qsTea", (), ("qsTea.half.ex-y5", "qsIt.hapax.en-y5.en-ext-1", "qsTea.full")),
-    ("qsIt qsTea", (), ("qsIt.hapax", "qsTea.full")),
+    ("qsTea qsIt qsTea", (), ("qsTea.half.ex-y5", "qsIt.sole.en-y5.en-ext-1", "qsTea.full")),
+    ("qsIt qsTea", (), ("qsIt.sole", "qsTea.full")),
     ("qsTea qsTea", (), ("qsTea.full", "qsTea.full")),
-    ("qsIt qsIt", (), ("qsIt.hapax", "qsIt.hapax")),
+    ("qsIt qsIt", (), ("qsIt.sole", "qsIt.sole")),
     # qsPea joins followers through the half motion's x-height dip; the halves-class entry extension excepts qsPea, so qsIt takes no en-ext here.
-    ("qsPea qsIt", (), ("qsPea.half.ex-y5", "qsIt.hapax.en-y5")),
+    ("qsPea qsIt", (), ("qsPea.half.ex-y5", "qsIt.sole.en-y5")),
     # The y6 chain keeps all four heights live.
     ("qsPea qsPea", (), ("qsPea.half.ex-y6", "qsPea.full.en-y6")),
-    ("qsPea qsPea qsIt", (), ("qsPea.half.ex-y6", "qsPea.half.en-y6.ex-y5", "qsIt.hapax.en-y5")),
+    ("qsPea qsPea qsIt", (), ("qsPea.half.ex-y6", "qsPea.half.en-y6.ex-y5", "qsIt.sole.en-y5")),
     ("qsMay qsPea", (), ("qsMay.loop.ex-y5", "qsPea.full.en-y5")),
     # The both-dipped half cell: entered at the x-height and exiting at the x-height in one explicit cells: composition.
-    ("qsMay qsPea qsIt", (), ("qsMay.loop.ex-y5", "qsPea.half.en-y5.ex-y5", "qsIt.hapax.en-y5")),
-    ("qsPea qsOy", (), ("qsPea.full", "qsOy.hapax")),
-    ("qsMay qsOy", (), ("qsMay.loop.ex-y5", "qsOy.hapax.en-y5")),
-    ("qsMay qsOy qsIt", (), ("qsMay.loop.ex-y5", "qsOy.hapax.en-y5.ex-y0", "qsIt.hapax.en-y0")),
-    ("qsOy qsIt", (), ("qsOy.hapax.ex-y0", "qsIt.hapax.en-y0")),
-    ("qsOy qsTea", (), ("qsOy.hapax.ex-y0", "qsTea.full.en-y0")),
-    ("qsIt qsOy", (), ("qsIt.hapax", "qsOy.hapax")),
+    ("qsMay qsPea qsIt", (), ("qsMay.loop.ex-y5", "qsPea.half.en-y5.ex-y5", "qsIt.sole.en-y5")),
+    ("qsPea qsOy", (), ("qsPea.full", "qsOy.sole")),
+    ("qsMay qsOy", (), ("qsMay.loop.ex-y5", "qsOy.sole.en-y5")),
+    ("qsMay qsOy qsIt", (), ("qsMay.loop.ex-y5", "qsOy.sole.en-y5.ex-y0", "qsIt.sole.en-y0")),
+    ("qsOy qsIt", (), ("qsOy.sole.ex-y0", "qsIt.sole.en-y0")),
+    ("qsOy qsTea", (), ("qsOy.sole.ex-y0", "qsTea.full.en-y0")),
+    ("qsIt qsOy", (), ("qsIt.sole", "qsOy.sole")),
     # Formation runs first, and nothing blocks it in these windows. The ligature has no entry, so nothing joins it from the left; how the predecessor draws its unjoined exit is decided by the predecessor's own cells.
-    ("qsTea qsOy", (), ("qsTea_qsOy.hapax",)),
-    ("qsTea qsOy qsIt", (), ("qsTea_qsOy.hapax.ex-y0", "qsIt.hapax.en-y0")),
-    ("qsTea qsOy qsTea", (), ("qsTea_qsOy.hapax.ex-y0", "qsTea.full.en-y0")),
+    ("qsTea qsOy", (), ("qsTea_qsOy.sole",)),
+    ("qsTea qsOy qsIt", (), ("qsTea_qsOy.sole.ex-y0", "qsIt.sole.en-y0")),
+    ("qsTea qsOy qsTea", (), ("qsTea_qsOy.sole.ex-y0", "qsTea.full.en-y0")),
     # qsMay's baseline entry extension lists qsTea_qsOy as a trigger, which matches the old font's en-ext-1 in the baseline.
-    ("qsTea qsOy qsMay", (), ("qsTea_qsOy.hapax.ex-y0", "qsMay.loop.en-y0.en-ext-1")),
-    ("qsIt qsTea qsOy", (), ("qsIt.hapax", "qsTea_qsOy.hapax")),
+    ("qsTea qsOy qsMay", (), ("qsTea_qsOy.sole.ex-y0", "qsMay.loop.en-y0.en-ext-1")),
+    ("qsIt qsTea qsOy", (), ("qsIt.sole", "qsTea_qsOy.sole")),
     # AUTHORED-DATA FINDING (generalized unaccepted-exit-unjoined): qsMay's declined exit before a following letter renders with the pulled-back unjoined binding, which is part of the cell identity.
-    ("qsMay qsTea qsOy", (), ("qsMay.loop.ex-bind-pulled-back", "qsTea_qsOy.hapax")),
-    ("qsTea qsOy qsTea qsOy", (), ("qsTea_qsOy.hapax", "qsTea_qsOy.hapax")),
+    ("qsMay qsTea qsOy", (), ("qsMay.loop.ex-bind-pulled-back", "qsTea_qsOy.sole")),
+    ("qsTea qsOy qsTea qsOy", (), ("qsTea_qsOy.sole", "qsTea_qsOy.sole")),
     (
         "qsMay qsTea qsIt",
         (),
-        ("qsMay.loop.ex-bind-pulled-back", "qsTea.half.ex-y5", "qsIt.hapax.en-y5.en-ext-1"),
+        ("qsMay.loop.ex-bind-pulled-back", "qsTea.half.ex-y5", "qsIt.sole.en-y5.en-ext-1"),
     ),
     # ZWNJ splits the run, and an entry-bearing letter after it settles as its locked twin with no entry.
-    ("qsIt zwnj qsTea", (), ("qsIt.hapax", "uni200C", "qsTea.full.locked")),
-    ("zwnj qsTea qsIt", (), ("uni200C", "qsTea.half.ex-y5.locked", "qsIt.hapax.en-y5.en-ext-1")),
+    ("qsIt zwnj qsTea", (), ("qsIt.sole", "uni200C", "qsTea.full.locked")),
+    ("zwnj qsTea qsIt", (), ("uni200C", "qsTea.half.ex-y5.locked", "qsIt.sole.en-y5.en-ext-1")),
     ("zwnj qsMay qsTea", ("ss03",), ("uni200C", "qsMay.loop.ex-y5.locked.ex-ext-1", "qsTea.half.en-y5")),
     # Under ss03, nothing joins across a ZWNJ.
     ("qsMay zwnj qsTea", ("ss03",), ("qsMay.loop", "uni200C", "qsTea.full.locked")),
     ("qsMay space qsTea", ("ss03",), ("qsMay.loop", "space", "qsTea.full")),
-    ("qsIt zwnj qsTea qsOy", (), ("qsIt.hapax", "uni200C", "qsTea_qsOy.hapax")),
+    ("qsIt zwnj qsTea qsOy", (), ("qsIt.sole", "uni200C", "qsTea_qsOy.sole")),
     # The namer dot does not split runs but has no join surface, so nothing joins across it and nothing after it is locked.
-    ("qsMay namer-dot qsIt", (), ("qsMay.loop", "periodcentered", "qsIt.hapax")),
+    ("qsMay namer-dot qsIt", (), ("qsMay.loop", "periodcentered", "qsIt.sole")),
     # ss05's only unlock needs a qsEt left, which the mini spec lacks, so ss05 settles these windows as default does.
     ("qsMay qsTea", ("ss05",), ("qsMay.loop.ex-bind-pulled-back", "qsTea.full")),
     # AUTHORED-DATA FINDING: qsIt's baseline-exit refusal toward [qsTea, qsRoe, qsIt] applies only to unentered cells, so an entered qsIt joins a following qsIt at the baseline, where the old font breaks. ss04 settles the same way: its baseline-to-baseline unlock needs a baseline entry, and the middle ·It enters at the x-height.
     (
         "qsTea qsIt qsIt",
         (),
-        ("qsTea.half.ex-y5", "qsIt.hapax.en-y5.ex-y0.en-ext-1.ex-ext-1", "qsIt.hapax.en-y0"),
+        ("qsTea.half.ex-y5", "qsIt.sole.en-y5.ex-y0.en-ext-1.ex-ext-1", "qsIt.sole.en-y0"),
     ),
     (
         "qsTea qsIt qsIt",
         ("ss04",),
-        ("qsTea.half.ex-y5", "qsIt.hapax.en-y5.ex-y0.en-ext-1.ex-ext-1", "qsIt.hapax.en-y0"),
+        ("qsTea.half.ex-y5", "qsIt.sole.en-y5.ex-y0.en-ext-1.ex-ext-1", "qsIt.sole.en-y0"),
     ),
 )
 
@@ -356,7 +356,7 @@ def test_round1_greedy_may_chain_pairing(real_labels, length, expected):
 
 def test_bay_may_contracts_mays_baseline_entry(real_labels):
     assert real_labels[("qsBay qsMay", ())] == (
-        "qsBay.hapax.ex-y0",
+        "qsBay.sole.ex-y0",
         "qsMay.loop.en-y0.en-con-1",
     )
 
@@ -369,14 +369,14 @@ MAY_TEA_JAI_WINDOWS = ("qsTea qsJai", "qsMay qsTea qsJai qsTea")
 @pytest.mark.parametrize("features", ((), ("ss03",)))
 def test_may_tea_jai_keeps_a_baseline_gap(real_labels, lead, features):
     assert real_labels[(f"{lead} qsMay qsTea qsJai", features)] == (
-        f"{lead}.{'loop' if lead == 'qsI' else 'hapax'}.ex-y5.ex-ext-1",
+        f"{lead}.{'loop' if lead == 'qsI' else 'sole'}.ex-y5.ex-ext-1",
         "qsMay.loop.en-y5",
         "qsTea.half.ex-y5.ex-ext-1",
-        "qsJai.hapax.en-y5.en-con-1",
+        "qsJai.sole.en-y5.en-con-1",
     )
     assert real_labels[("qsTea qsJai", features)] == (
         "qsTea.half.ex-y5",
-        "qsJai.hapax.en-y5.en-con-1",
+        "qsJai.sole.en-y5.en-con-1",
     )
     follower_labels = real_labels[("qsMay qsTea qsJai qsTea", features)]
     assert follower_labels[1] == ("qsTea.full.en-y5" if features else "qsTea.half.ex-y5")
@@ -388,21 +388,21 @@ def test_may_tea_jai_keeps_a_baseline_gap(real_labels, lead, features):
 ORPHANED_TEA_ROWS = (
     (
         "qsDay qsTea qsUtter qsLow",
-        ("qsDay.full.ex-y0", "qsTea.full.en-y0", "qsUtter.alternate.ex-y0", "qsLow.hapax.en-y0"),
+        ("qsDay.full.ex-y0", "qsTea.full.en-y0", "qsUtter.alternate.ex-y0", "qsLow.sole.en-y0"),
     ),
     (
         "qsOy qsTea qsUtter qsLow",
-        ("qsOy.hapax.ex-y0", "qsTea.full.en-y0", "qsUtter.alternate.ex-y0", "qsLow.hapax.en-y0"),
+        ("qsOy.sole.ex-y0", "qsTea.full.en-y0", "qsUtter.alternate.ex-y0", "qsLow.sole.en-y0"),
     ),
     ("qsDay qsTea qsUtter", ("qsDay.full", "qsTea.full.ex-y0", "qsUtter.mono.en-y0")),
     (
         "qsDay qsTea qsUtter qsMay",
         ("qsDay.full", "qsTea.full.ex-y0", "qsUtter.mono.en-y0.ex-y5", "qsMay.loop.en-y5"),
     ),
-    ("qsTea qsUtter qsLow", ("qsTea.full", "qsUtter.alternate.ex-y0", "qsLow.hapax.en-y0")),
+    ("qsTea qsUtter qsLow", ("qsTea.full", "qsUtter.alternate.ex-y0", "qsLow.sole.en-y0")),
     (
         "qsDay qsIt qsUtter qsLow",
-        ("qsDay.full.ex-y0", "qsIt.hapax.en-y0", "qsUtter.alternate.ex-y0", "qsLow.hapax.en-y0"),
+        ("qsDay.full.ex-y0", "qsIt.sole.en-y0", "qsUtter.alternate.ex-y0", "qsLow.sole.en-y0"),
     ),
 )
 
@@ -485,7 +485,7 @@ def test_late_formation_yields_before_low(real_labels):
     assert real_labels[("qsDay qsUtter qsLow", ())] == (
         "qsDay.full",
         "qsUtter.alternate.ex-y0",
-        "qsLow.hapax.en-y0",
+        "qsLow.sole.en-y0",
     )
 
 
@@ -579,23 +579,23 @@ def test_the_guard_reads_letters_only_and_indexes_the_verdict_map_it_was_given(r
 LIGATURE_TRANSPARENT_PEA_ROWS = (
     (
         "qsSee qsUtter qsPea qsRoe",
-        ("qsSee_qsUtter.hapax.ex-y5", "qsPea.half.en-y5.ex-y5", "qsRoe.hapax.en-y5.en-con-1"),
+        ("qsSee_qsUtter.sole.ex-y5", "qsPea.half.en-y5.ex-y5", "qsRoe.sole.en-y5.en-con-1"),
     ),
     (
         "qsSee qsUtter qsPea qsIt",
-        ("qsSee_qsUtter.hapax.ex-y5", "qsPea.half.en-y5.ex-y5", "qsIt.hapax.en-y5"),
+        ("qsSee_qsUtter.sole.ex-y5", "qsPea.half.en-y5.ex-y5", "qsIt.sole.en-y5"),
     ),
     (
         "qsSee qsUtter qsPea qsEt",
-        ("qsSee_qsUtter.hapax.ex-y5", "qsPea.half.en-y5.ex-y5", "qsEt.hapax.en-y5.en-ext-1"),
+        ("qsSee_qsUtter.sole.ex-y5", "qsPea.half.en-y5.ex-y5", "qsEt.sole.en-y5.en-ext-1"),
     ),
     (
         "qsSee qsUtter qsPea qsNo",
-        ("qsSee_qsUtter.hapax.ex-y5", "qsPea.full.en-y5.ex-y0", "qsNo.flipped.en-y0"),
+        ("qsSee_qsUtter.sole.ex-y5", "qsPea.full.en-y5.ex-y0", "qsNo.flipped.en-y0"),
     ),
     (
         "qsUtter qsPea qsRoe",
-        ("qsUtter.mono.ex-y5", "qsPea.half.en-y5.ex-y5", "qsRoe.hapax.en-y5.en-con-1"),
+        ("qsUtter.mono.ex-y5", "qsPea.half.en-y5.ex-y5", "qsRoe.sole.en-y5.en-con-1"),
     ),
 )
 
@@ -612,10 +612,10 @@ def test_ligature_left_admits_trailing_family_scopes(real_labels, sequence, expe
 def test_resolve_record_breaks_the_tea_oy_it_no_conflict(real_labels):
     """A resolve record against a named record (§5.8): qsTea_qsOy's resolve against qsIt's `withhold-before-no-after-oy` prefer picks the ligature's baseline exit in the tied ·It·No windows, so the ligature renders like the approved bare-·Oy case instead of raising E-INCOMPARABLE."""
     assert real_labels[("qsTea qsOy qsIt qsNo qsAh", ())] == (
-        "qsTea_qsOy.hapax.ex-y0",
-        "qsIt.hapax.en-y0",
+        "qsTea_qsOy.sole.ex-y0",
+        "qsIt.sole.en-y0",
         "qsNo.flipped.ex-y0",
-        "qsAh.hapax.en-y0",
+        "qsAh.sole.en-y0",
     )
 
 

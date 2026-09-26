@@ -4313,11 +4313,11 @@ def test_both_lane_fingerprints_ignore_prose_in_runes(lane, tmp_path):
     subprocess.run(["git", "init", "-q"], cwd=tmp_path, check=True)
     (tmp_path / "glyph_data" / "runes").mkdir(parents=True)
     rune = tmp_path / "glyph_data" / "runes" / "qsX.yaml"
-    rune.write_text("rune: qsX\nductus:\n  hapax: |\n    A stroke.\n")
+    rune.write_text("rune: qsX\nductus:\n  sole: |\n    A stroke.\n")
     before = ac.rebuild_lane_fingerprint(tmp_path, lane)
-    rune.write_text("rune: qsX\nductus:\n  hapax: |\n    A different stroke.\n")
+    rune.write_text("rune: qsX\nductus:\n  sole: |\n    A different stroke.\n")
     assert ac.rebuild_lane_fingerprint(tmp_path, lane) == before
-    rune.write_text("rune: qsY\nductus:\n  hapax: |\n    A different stroke.\n")
+    rune.write_text("rune: qsY\nductus:\n  sole: |\n    A different stroke.\n")
     assert ac.rebuild_lane_fingerprint(tmp_path, lane) != before
 
 

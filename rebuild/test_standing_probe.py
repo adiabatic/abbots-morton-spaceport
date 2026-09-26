@@ -69,7 +69,7 @@ GAP_RULE = {
         "after": {
             "gap": 2,
             "pivot_cells": ["qsNo/loop/x-height/None/"],
-            "follower_after_cells": ["qsGay/hapax/None/None/"],
+            "follower_after_cells": ["qsGay/sole/None/None/"],
         },
         "except_left": [],
     },
@@ -109,7 +109,7 @@ ENTRY_RULE = {
     "match": {
         "before": {"left": ["qsBay"], "pivots": ["qsGay.en-y0.ex-y5"]},
         "after": {
-            "pivots": ["qsGay.hapax.en-y0.en-con-1", "qsGay.hapax.en-y0.ex-y5.en-con-1"],
+            "pivots": ["qsGay.sole.en-y0.en-con-1", "qsGay.sole.en-y0.ex-y5.en-con-1"],
             "entry_contraction": 1,
         },
         "except_left": [],
@@ -248,11 +248,11 @@ def _survey_rows(out, group):
 
 
 CODE_POINT_WINDOWS = [
-    ("e-1", "qsAh", "qsAh/hapax/baseline/None/"),
+    ("e-1", "qsAh", "qsAh/sole/baseline/None/"),
     ("e-2", "qsAt", "qsAt/rising/baseline/None/"),
     ("e-3", "qsMay", "qsMay/loop/baseline/None/"),
     ("e-4", "qsVie", "qsVie/normal/baseline/None/"),
-    ("e-5", "qsVie_qsUtter", "qsVie_qsUtter/hapax/baseline/None/"),
+    ("e-5", "qsVie_qsUtter", "qsVie_qsUtter/sole/baseline/None/"),
 ]
 
 
@@ -265,8 +265,8 @@ def test_family_and_cell_listings_come_out_in_code_point_order(tmp_path, capsys)
     out = _run(tmp_path, capsys, units, ["--extension-cells", "qsTea", "ex-ext-1", "y0"])
     assert _line(out, "followers:") == "followers: ['qsVie', 'qsVie_qsUtter', 'qsMay', 'qsAt', 'qsAh']"
     assert _line(out, "follower cells:") == (
-        "follower cells: ['qsVie/normal/baseline/None/', 'qsVie_qsUtter/hapax/baseline/None/', "
-        "'qsMay/loop/baseline/None/', 'qsAt/rising/baseline/None/', 'qsAh/hapax/baseline/None/']"
+        "follower cells: ['qsVie/normal/baseline/None/', 'qsVie_qsUtter/sole/baseline/None/', "
+        "'qsMay/loop/baseline/None/', 'qsAt/rising/baseline/None/', 'qsAh/sole/baseline/None/']"
     )
     assert _line(out, "pivot cells:") == (
         "pivot cells: ['qsTea/full/None/baseline/', 'qsTea/full/x-height/baseline/']"
@@ -534,9 +534,9 @@ def test_coverage_answers_for_every_shape_but_ligature_and_ink_delta():
 
 
 GAP_WINDOWS = [
-    ("g-1", "qsGay", "qsGay/hapax/None/None/"),
-    ("g-2", "qsThaw", "qsThaw/hapax/None/None/"),
-    ("g-3", "qsGay", "qsGay/hapax/None/baseline/"),
+    ("g-1", "qsGay", "qsGay/sole/None/None/"),
+    ("g-2", "qsThaw", "qsThaw/sole/None/None/"),
+    ("g-3", "qsGay", "qsGay/sole/None/baseline/"),
 ]
 
 
@@ -549,8 +549,8 @@ def test_coverage_dispatches_to_the_gap_enumeration(tmp_path, capsys):
     assert "(join-dropped shape)" in out
     assert _section(out, "  follower families the rule does not name:") == ["1  qsThaw  {'BLANK': 1}"]
     assert _section(out, "  follower cells the rule does not name:") == [
-        "1  qsGay/hapax/None/baseline/  {'BLANK': 1}",
-        "1  qsThaw/hapax/None/None/  {'BLANK': 1}",
+        "1  qsGay/sole/None/baseline/  {'BLANK': 1}",
+        "1  qsThaw/sole/None/None/  {'BLANK': 1}",
     ]
     assert "pivot forms: the rule names every one this enumeration reaches" in out
 
@@ -581,7 +581,7 @@ def test_coverage_of_a_gap_rule_without_cell_lists_reads_only_its_followers(tmp_
 
 def utter_window(uid, pivot, pivot_cell):
     """One window where an ·Utter form settles into a cell in front of ·Gay at the x-height."""
-    return window(uid, [pivot, "qsGay"], [pivot_cell, "qsGay/hapax/x-height/None/"], ["y5"], ["y5"])
+    return window(uid, [pivot, "qsGay"], [pivot_cell, "qsGay/sole/x-height/None/"], ["y5"], ["y5"])
 
 
 def test_coverage_names_the_forms_a_redrawn_rule_does_not(tmp_path, capsys):
@@ -617,7 +617,7 @@ def gay_window(uid, left, pivot, pivot_cell):
     return window(
         uid,
         [left, pivot, "qsNo"],
-        [f"{left}/hapax/None/baseline/", pivot_cell, "qsNo/loop/x-height/None/"],
+        [f"{left}/sole/None/baseline/", pivot_cell, "qsNo/loop/x-height/None/"],
         ["y0", "y5"],
         ["y0", "y5"],
     )
@@ -625,9 +625,9 @@ def gay_window(uid, left, pivot, pivot_cell):
 
 def test_coverage_names_the_left_families_an_entry_contracted_rule_does_not(tmp_path, capsys):
     units = [
-        gay_window("e-1", "qsBay", "qsGay.en-y0.ex-y5", "qsGay/hapax/baseline/x-height/en-con-1"),
-        gay_window("e-2", "qsDay", "qsGay.en-y0.ex-y5", "qsGay/hapax/baseline/x-height/en-con-1"),
-        gay_window("e-3", "qsDay", "qsGay.en-y0", "qsGay/hapax/baseline/None/en-con-1"),
+        gay_window("e-1", "qsBay", "qsGay.en-y0.ex-y5", "qsGay/sole/baseline/x-height/en-con-1"),
+        gay_window("e-2", "qsDay", "qsGay.en-y0.ex-y5", "qsGay/sole/baseline/x-height/en-con-1"),
+        gay_window("e-3", "qsDay", "qsGay.en-y0", "qsGay/sole/baseline/None/en-con-1"),
     ]
     out = _run(tmp_path, capsys, units, ["--coverage", ENTRY_RULE["id"]], rules=(EXT_RULE, ENTRY_RULE))
     assert _section(out, "  left families the rule does not name:") == ["1  qsDay  {'BLANK': 1}"]
@@ -639,12 +639,12 @@ def test_coverage_leaves_a_declined_entry_contraction_form_to_its_companion(tmp_
     rule = json.loads(json.dumps(ENTRY_RULE))
     rule["match"]["before"]["except_pivots"] = ["qsGay.en-y0.ex-y5.en-con-1"]
     units = [
-        gay_window("e-1", "qsBay", "qsGay.en-y0.ex-y5", "qsGay/hapax/baseline/x-height/en-con-1"),
+        gay_window("e-1", "qsBay", "qsGay.en-y0.ex-y5", "qsGay/sole/baseline/x-height/en-con-1"),
         gay_window(
             "e-2",
             "qsDay",
             "qsGay.en-y0.ex-y5.en-con-1",
-            "qsGay/hapax/baseline/x-height/en-con-1",
+            "qsGay/sole/baseline/x-height/en-con-1",
         ),
     ]
     out = _run(tmp_path, capsys, units, ["--coverage", rule["id"]], rules=(EXT_RULE, rule))
@@ -656,27 +656,25 @@ SURVEY_UNITS = [
     window(
         "s-1",
         ["qsAh", "qsKey", "qsIt"],
-        ["qsAh/hapax/None/None/", "qsKey/hapax/None/baseline/ex-con-1", "qsIt/normal/baseline/None/"],
+        ["qsAh/sole/None/None/", "qsKey/sole/None/baseline/ex-con-1", "qsIt/normal/baseline/None/"],
         ["break", "y0"],
         ["break", "y0"],
     ),
     window(
         "s-2",
         ["qsAh", "qsKey", "qsNo"],
-        ["qsAh/hapax/None/None/", "qsKey/hapax/None/baseline/ex-con-1", "qsNo/loop/baseline/None/"],
+        ["qsAh/sole/None/None/", "qsKey/sole/None/baseline/ex-con-1", "qsNo/loop/baseline/None/"],
         ["break", "y0"],
         ["break", "y0"],
     ),
     window(
         "s-3",
         ["qsKey.en-y8", "qsMay"],
-        ["qsKey/hapax/top/None/", "qsMay/loop/None/None/"],
+        ["qsKey/sole/top/None/", "qsMay/loop/None/None/"],
         ["break"],
         ["break"],
     ),
-    window(
-        "s-4", ["qsAh", "qsKey"], ["qsAh/hapax/None/None/", "qsKey/hapax/None/None/"], ["break"], ["break"]
-    ),
+    window("s-4", ["qsAh", "qsKey"], ["qsAh/sole/None/None/", "qsKey/sole/None/None/"], ["break"], ["break"]),
 ]
 
 
@@ -686,27 +684,27 @@ def test_survey_groups_positions_by_form_cell_junctions_and_follower(tmp_path, c
     out = _run(tmp_path, capsys, SURVEY_UNITS, ["--survey", "qsKey"], records=records)
     assert _line(out, "survey of qsKey: 4 positions").endswith("follower family and cell:")
     assert _survey_groups(out) == [
-        "1  qsKey  →  qsKey/hapax/None/None/  {'BLANK': 1}",
-        "2  qsKey  →  qsKey/hapax/None/baseline/ex-con-1  {'BLANK': 1, 'approve': 1}",
-        "1  qsKey.en-y8  →  qsKey/hapax/top/None/  {'BLANK': 1}",
+        "1  qsKey  →  qsKey/sole/None/None/  {'BLANK': 1}",
+        "2  qsKey  →  qsKey/sole/None/baseline/ex-con-1  {'BLANK': 1, 'approve': 1}",
+        "1  qsKey.en-y8  →  qsKey/sole/top/None/  {'BLANK': 1}",
     ]
     assert _survey_rows(
-        out, "2  qsKey  →  qsKey/hapax/None/baseline/ex-con-1  {'BLANK': 1, 'approve': 1}"
+        out, "2  qsKey  →  qsKey/sole/None/baseline/ex-con-1  {'BLANK': 1, 'approve': 1}"
     ) == [
         "1  left qsAh break→break   out y0→y0 → qsNo qsNo/loop/baseline/None/  {'approve': 1}",
         "1  left qsAh break→break   out y0→y0 → qsIt qsIt/normal/baseline/None/  {'BLANK': 1}",
     ]
-    assert _survey_rows(out, "1  qsKey  →  qsKey/hapax/None/None/  {'BLANK': 1}") == [
+    assert _survey_rows(out, "1  qsKey  →  qsKey/sole/None/None/  {'BLANK': 1}") == [
         f"1  left qsAh break→break   out {probe.EDGE} → {probe.EDGE} {probe.EDGE}  {{'BLANK': 1}}"
     ]
-    assert _survey_rows(out, "1  qsKey.en-y8  →  qsKey/hapax/top/None/  {'BLANK': 1}") == [
+    assert _survey_rows(out, "1  qsKey.en-y8  →  qsKey/sole/top/None/  {'BLANK': 1}") == [
         f"1  left {probe.EDGE} {probe.EDGE}   out break→break → qsMay qsMay/loop/None/None/  {{'BLANK': 1}}"
     ]
 
 
 def test_survey_narrows_to_one_after_cell(tmp_path, capsys):
-    out = _run(tmp_path, capsys, SURVEY_UNITS, ["--survey", "qsKey", "qsKey/hapax/top/None/"])
-    assert "survey of qsKey settling into qsKey/hapax/top/None/: 1 positions" in out
+    out = _run(tmp_path, capsys, SURVEY_UNITS, ["--survey", "qsKey", "qsKey/sole/top/None/"])
+    assert "survey of qsKey settling into qsKey/sole/top/None/: 1 positions" in out
     assert "ex-con-1" not in out
 
 
@@ -717,12 +715,12 @@ def test_survey_counts_the_windows_it_cannot_place(tmp_path, capsys):
         window(
             "s-5",
             ["qsKey", "qsTea", "qsOy"],
-            ["qsKey/hapax/None/None/", "qsTea_qsOy/hapax/None/None/"],
+            ["qsKey/sole/None/None/", "qsTea_qsOy/sole/None/None/"],
             ["break", "y5"],
             ["break"],
         ),
         window(
-            "s-6", ["qsAh", "qsMay"], ["qsAh/hapax/None/None/", "qsMay/loop/None/None/"], ["break"], ["break"]
+            "s-6", ["qsAh", "qsMay"], ["qsAh/sole/None/None/", "qsMay/loop/None/None/"], ["break"], ["break"]
         ),
     ]
     out = _run(tmp_path, capsys, units, ["--survey", "qsKey"])
@@ -747,7 +745,7 @@ def test_a_stale_stamp_labels_the_survey_groups_too(tmp_path, capsys):
 
 AFTER_CELLS = [
     CellId("qsTea", "full", "x-height", "baseline", ()),
-    CellId("qsKey", "hapax", None, "baseline", ("ex-con-1",)),
+    CellId("qsKey", "sole", None, "baseline", ("ex-con-1",)),
     CellId("qsMay", "loop", "baseline", "x-height", ("en-con-1", "ex-ext-1")),
     CellId("qsUtter", "mono", None, None, ()),
     *(CellId("qsNo", "loop", height, None, ()) for height in HEIGHT_Y),

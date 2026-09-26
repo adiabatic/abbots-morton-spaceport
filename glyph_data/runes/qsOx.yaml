@@ -1,7 +1,7 @@
 rune: qsOx
 codepoint: 0xE678
 ductus:
-  hapax: |
+  sole: |
     Begun at the left along the x-height, the stroke runs rightward and down in a vaguely parabolic arc.
 mono:
   bitmap:
@@ -12,8 +12,8 @@ mono:
   - "    #"
   - "    #"  #
 stances:
-  hapax:
-    motion: hapax
+  sole:
+    motion: sole
     traits: []
     bitmap:
     - "##   "  #
@@ -77,7 +77,7 @@ stances:
       require: []
 policy:
   order:
-  - hapax
+  - sole
   refuse: []
   prefer:
   - cell: {exit: none}

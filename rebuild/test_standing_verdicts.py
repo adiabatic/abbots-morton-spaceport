@@ -79,9 +79,9 @@ CONTRACTED_RULE = {
         },
         "after": {
             "pivot_cells": [
-                "qsEt/hapax/None/baseline/ex-con-1",
-                "qsEt/hapax/x-height/baseline/ex-con-1",
-                "qsEt/hapax/x-height/baseline/en-ext-1+ex-con-1",
+                "qsEt/sole/None/baseline/ex-con-1",
+                "qsEt/sole/x-height/baseline/ex-con-1",
+                "qsEt/sole/x-height/baseline/en-ext-1+ex-con-1",
             ],
             "follower_cells": [
                 "qsMay/loop/baseline/None/",
@@ -126,7 +126,7 @@ GAIN_RULE = {
     "note": "the bottom of ·Roe sits a pixel closer to ·It",
     "match": {
         "before": {"pivots": ["qsRoe.en-ext-1-at-5"]},
-        "after": {"pivots": ["qsRoe.hapax"], "gained": [[1, 0]], "shift": 0},
+        "after": {"pivots": ["qsRoe.sole"], "gained": [[1, 0]], "shift": 0},
         "except_left": [],
     },
 }
@@ -209,7 +209,7 @@ ENTRY_RULE = {
     "note": "·Low sits a pixel closer to ·See",
     "match": {
         "before": {"pivots": ["qsLow.en-ext-1"]},
-        "after": {"pivots": ["qsLow.hapax"], "entry_drop": 1},
+        "after": {"pivots": ["qsLow.sole"], "entry_drop": 1},
         "except_left": [],
     },
 }
@@ -235,7 +235,7 @@ PLACED_CONTRACTION_RULE = {
     "match": {
         "before": {"left": "qsBay", "pivots": ["qsRoe.ex-y0"]},
         "after": {
-            "pivots": ["qsRoe.hapax.en-y5.ex-y0.en-con-1"],
+            "pivots": ["qsRoe.sole.en-y5.ex-y0.en-con-1"],
             "entry_contraction": 1,
         },
         "except_left": [],
@@ -305,7 +305,7 @@ CREATED_JOIN_RULE = {
         "before": {"pivot": "qsJ", "junction_out": "break", "follower": "qsF3"},
         "after": {
             "joined": "y0",
-            "pivot_cells": ["qsJ/hapax/None/baseline/ex-ext-1"],
+            "pivot_cells": ["qsJ/sole/None/baseline/ex-ext-1"],
             "follower_after_cells": ["qsF3/full/None/None/"],
             "shift": -2,
             "follower_advance": 0,
@@ -341,7 +341,7 @@ RETARGET_BEHIND_CREATED_JOIN_RULE = {
         "before": {"pivot": "qsJ", "junction_out": "break", "follower": "qsTea"},
         "after": {
             "joined": "y0",
-            "pivot_cells": ["qsJ/hapax/None/baseline/ex-ext-1"],
+            "pivot_cells": ["qsJ/sole/None/baseline/ex-ext-1"],
             "follower_after_cells": ["qsTea/full/None/baseline/"],
             "shift": -2,
             "follower_advance": 0,
@@ -414,7 +414,7 @@ GAIN_BEHIND_CREATED_JOIN_RULE = {
         "after": {
             "joined": "y0",
             "pivot_cells": ["qsNo/flipped/baseline/baseline/"],
-            "follower_after_cells": ["qsRoe/hapax/None/None/"],
+            "follower_after_cells": ["qsRoe/sole/None/None/"],
             "shift": -1,
             "follower_advance": 0,
             "follower_columns_added": 0,
@@ -483,7 +483,7 @@ WIDENED_CREATED_JOIN_RULE = {
         "before": {"pivot": "qsJ", "junction_out": "break", "follower": "qsF3"},
         "after": {
             "joined": "y0",
-            "pivot_cells": ["qsJ/hapax/None/baseline/ex-ext-1"],
+            "pivot_cells": ["qsJ/sole/None/baseline/ex-ext-1"],
             "follower_after_cells": ["qsF3/full/None/None/"],
             "shift": -2,
             "follower_advance": 1,
@@ -501,7 +501,7 @@ RETARGET_BEHIND_WIDENED_JOIN_RULE = {
         "before": {"pivot": "qsJ", "junction_out": "break", "follower": "qsTea"},
         "after": {
             "joined": "y0",
-            "pivot_cells": ["qsJ/hapax/None/baseline/ex-ext-1"],
+            "pivot_cells": ["qsJ/sole/None/baseline/ex-ext-1"],
             "follower_after_cells": ["qsTea/full/None/baseline/"],
             "shift": -2,
             "follower_advance": 1,
@@ -519,7 +519,7 @@ REACHING_JOIN_BEFORE_RETARGET_RULE = {
         "before": {"pivot": "qsJ", "junction_out": "break", "follower": "qsTea"},
         "after": {
             "joined": "y0",
-            "pivot_cells": ["qsJ/hapax/None/baseline/ex-ext-1"],
+            "pivot_cells": ["qsJ/sole/None/baseline/ex-ext-1"],
             "follower_after_cells": ["qsTea/full/None/baseline/"],
             "shift": -3,
             "follower_advance": 1,
@@ -537,7 +537,7 @@ REACHING_CREATED_JOIN_RULE = {
         "before": {"pivot": "qsJ", "junction_out": "break", "follower": "qsF3"},
         "after": {
             "joined": "y0",
-            "pivot_cells": ["qsJ/hapax/None/baseline/ex-ext-1"],
+            "pivot_cells": ["qsJ/sole/None/baseline/ex-ext-1"],
             "follower_after_cells": ["qsF3/full/None/None/"],
             "shift": -3,
             "follower_advance": 1,
@@ -555,7 +555,7 @@ STUB_CREATED_JOIN_RULE = {
         "before": {"pivot": "qsJ", "junction_out": "break", "follower": "qsF3"},
         "after": {
             "joined": "y0",
-            "pivot_cells": ["qsJ/hapax/None/baseline/ex-ext-1"],
+            "pivot_cells": ["qsJ/sole/None/baseline/ex-ext-1"],
             "follower_after_cells": ["qsF3/full/None/None/"],
             "shift": -2,
             "follower_advance": 0,
@@ -678,7 +678,7 @@ PURE_LOSS_RULE = {
     "match": {
         "before": {"pivots": ["qsKey"]},
         "after": {
-            "pivots": ["qsKey.hapax.ex-y0.ex-con-1"],
+            "pivots": ["qsKey.sole.ex-y0.ex-con-1"],
             "dropped": [[1, 0]],
             "added": [],
             "shift": -1,
@@ -776,7 +776,7 @@ def canonical(uid="u-1", left="qsAh.ex-ext-1"):
         uid,
         ["qsPea", left, "qsTea.half.en-y5.after-xheight-exit", "qsOy"],
         ["y0", "y5", "break"],
-        ["qsPea/full/None/baseline/", "qsAh/hapax/baseline/None/", "qsTea_qsOy/hapax/None/None/"],
+        ["qsPea/full/None/baseline/", "qsAh/sole/baseline/None/", "qsTea_qsOy/sole/None/None/"],
         ["y0", "break"],
     )
 
@@ -815,7 +815,7 @@ def test_ligature_left_matches_on_its_trailing_component():
         "u-2",
         ["qsDay_qsUtter.alt", "qsTea.half.en-y5", "qsOy"],
         ["y5", "break"],
-        ["qsDay_qsUtter/alt/None/None/", "qsTea_qsOy/hapax/None/None/"],
+        ["qsDay_qsUtter/alt/None/None/", "qsTea_qsOy/sole/None/None/"],
         ["break"],
     )
     assert sv._matches(RULE["match"], joined)
@@ -823,7 +823,7 @@ def test_ligature_left_matches_on_its_trailing_component():
         "u-3",
         ["qsDay_qsOut.alt", "qsTea.half.en-y5", "qsOy"],
         ["y5", "break"],
-        ["qsDay_qsOut/alt/None/None/", "qsTea_qsOy/hapax/None/None/"],
+        ["qsDay_qsOut/alt/None/None/", "qsTea_qsOy/sole/None/None/"],
         ["break"],
     )
     assert not sv._matches(RULE["match"], out_lead)
@@ -869,10 +869,10 @@ def ligating_beside_a_guarded_instance(uid="u-4", second_left="qsOut.ex-y5"):
         ["y5", "break", "break", "y5", "break"],
         [
             "qsPea/full/None/x-height/",
-            "qsTea_qsOy/hapax/x-height/None/",
-            f"{sv._family(second_left)}/hapax/None/x-height/",
+            "qsTea_qsOy/sole/x-height/None/",
+            f"{sv._family(second_left)}/sole/None/x-height/",
             "qsTea/half/x-height/None/",
-            "qsOy/hapax/None/None/",
+            "qsOy/sole/None/None/",
         ],
         ["break", "break", "y5", "break"],
     )
@@ -1050,7 +1050,7 @@ JAI_RULE = {
             "follower": ["qsVie", "qsSee", "qsNo"],
         },
         "after": {
-            "pivot_cells": ["qsJai/hapax/None/baseline/"],
+            "pivot_cells": ["qsJai/sole/None/baseline/"],
             "follower_cells": [
                 "qsVie/normal/baseline/None/",
                 "qsSee/normal/baseline/None/",
@@ -1067,7 +1067,7 @@ def jai_before(uid="u-16", follower="qsVie", follower_cell="qsVie/normal/baselin
         uid,
         ["qsOoze", "qsJai.en-y5.ex-y0.ex-ext-1", follower],
         ["break", "y0"],
-        ["qsOoze/hapax/None/None/", "qsJai/hapax/None/baseline/", follower_cell],
+        ["qsOoze/sole/None/None/", "qsJai/sole/None/baseline/", follower_cell],
         ["break", "y0"],
         pair={"left": 1, "right": 2},
     )
@@ -1086,7 +1086,7 @@ def test_a_follower_list_matches_any_family_it_names():
 
 def test_a_follower_outside_the_list_does_not_match():
     assert not sv._matches(
-        JAI_RULE["match"], jai_before(follower="qsLow", follower_cell="qsLow/hapax/baseline/None/")
+        JAI_RULE["match"], jai_before(follower="qsLow", follower_cell="qsLow/sole/baseline/None/")
     )
 
 
@@ -1153,7 +1153,7 @@ def ligating(uid="u-14", cells=()):
 SAME_MERGES = [
     "qsTea/full/None/baseline/",
     "qsI/smaller-loop/baseline/x-height/",
-    "qsTea_qsOy/hapax/x-height/None/",
+    "qsTea_qsOy/sole/x-height/None/",
     "qsDay/full/None/None/",
     "qsUtter/alternate/None/None/",
 ]
@@ -1162,7 +1162,7 @@ OTHER_MERGES = [
     "qsTea/full/None/baseline/",
     "qsI/smaller-loop/baseline/x-height/",
     "qsTea/full/x-height/None/",
-    "qsOy/hapax/None/None/",
+    "qsOy/sole/None/None/",
     "qsDay_qsUtter/full/None/None/",
 ]
 
@@ -1335,7 +1335,7 @@ def test_the_ink_delta_shape_and_the_structural_shapes_do_not_read_each_others_u
 def et_may(
     uid="u-18",
     pivot="qsEt",
-    pivot_cell="qsEt/hapax/None/baseline/ex-con-1",
+    pivot_cell="qsEt/sole/None/baseline/ex-con-1",
     follower="qsMay.en-y0.ex-y5",
     follower_cell="qsMay/loop/baseline/None/",
 ):
@@ -1360,7 +1360,7 @@ def test_the_checked_in_et_may_rule_reads_the_contraction_and_nothing_wider():
     assert not sv._matches(match, elsewhere)
     extended = et_may(pivot="qsEt.ex-ext-1")
     assert not sv._matches(match, extended)
-    uncontracted = et_may(pivot_cell="qsEt/hapax/None/baseline/")
+    uncontracted = et_may(pivot_cell="qsEt/sole/None/baseline/")
     assert not sv._matches(match, uncontracted)
     other_follower = et_may(follower="qsTea.en-y0", follower_cell="qsTea/full/baseline/None/")
     assert not sv._matches(match, other_follower)
@@ -1369,7 +1369,7 @@ def test_the_checked_in_et_may_rule_reads_the_contraction_and_nothing_wider():
 def it_may(
     uid="u-19",
     pivot="qsIt.en-y5.ex-y0.ex-ext-1",
-    pivot_cell="qsIt/hapax/x-height/baseline/",
+    pivot_cell="qsIt/sole/x-height/baseline/",
     follower="qsMay.en-y0.ex-y5",
     follower_cell="qsMay/loop/baseline/None/",
 ):
@@ -1401,9 +1401,9 @@ def test_the_checked_in_it_may_rule_reads_the_narrowed_junction_and_nothing_wide
 def it_ah(
     uid="u-20",
     pivot="qsIt.en-y5.ex-y0.ex-ext-1",
-    pivot_cell="qsIt/hapax/None/baseline/",
+    pivot_cell="qsIt/sole/None/baseline/",
     follower="qsAh.en-y0",
-    follower_cell="qsAh/hapax/baseline/None/",
+    follower_cell="qsAh/sole/baseline/None/",
 ):
     return unit(
         uid,
@@ -1426,7 +1426,7 @@ def test_the_checked_in_it_ah_rule_reads_the_narrowed_junction_and_nothing_wider
     assert not sv._matches(match, elsewhere)
     kept = it_ah(pivot="qsIt.en-y5.ex-y0")
     assert not sv._matches(match, kept)
-    entered = it_ah(pivot_cell="qsIt/hapax/x-height/baseline/")
+    entered = it_ah(pivot_cell="qsIt/sole/x-height/baseline/")
     assert not sv._matches(match, entered)
     other_follower = it_ah(follower="qsMay.en-y0", follower_cell="qsMay/loop/baseline/None/")
     assert not sv._matches(match, other_follower)
@@ -1445,7 +1445,7 @@ def test_the_checked_in_fee_rule_reads_the_ss03_shortening_and_nothing_wider():
             "qsMay/loop/None/None/",
             "qsFee/loop/None/x-height/ex-ext-1",
             "qsTea/full/x-height/None/",
-            "qsJai/hapax/None/None/",
+            "qsJai/sole/None/None/",
         ],
         ["break", "y5", "break"],
         pair={"left": 1, "right": 2},
@@ -1466,7 +1466,7 @@ def test_the_checked_in_jai_rule_reads_the_narrowed_junction_and_nothing_wider()
     kept = jai_before(follower="qsTea.en-y0", follower_cell="qsTea/full/baseline/None/")
     assert not sv._matches(match, kept)
     yielded = jai_before()
-    yielded["after"]["cells"][1] = "qsJai/hapax/None/None/"
+    yielded["after"]["cells"][1] = "qsJai/sole/None/None/"
     yielded["after"]["junctions"] = ["break", "break"]
     assert not sv._matches(match, yielded)
 
@@ -1568,15 +1568,15 @@ def test_a_contraction_rule_loads(tmp_path):
     [rule] = sv.load_rules(_write_rules(tmp_path / "rules.yaml", [CONTRACTED_RULE]))
     assert rule["match"]["before"]["exit_extension"] == "ex-con-1"
     missing = json.loads(json.dumps(CONTRACTED_RULE))
-    missing["match"]["after"]["pivot_cells"] = ["qsEt/hapax/None/baseline/"]
+    missing["match"]["after"]["pivot_cells"] = ["qsEt/sole/None/baseline/"]
     with pytest.raises(SystemExit, match="carries an exit contraction of 0 columns against the 1"):
         sv.load_rules(_write_rules(tmp_path / "rules.yaml", [missing]))
     longer = json.loads(json.dumps(CONTRACTED_RULE))
-    longer["match"]["after"]["pivot_cells"] = ["qsEt/hapax/None/baseline/ex-con-2"]
+    longer["match"]["after"]["pivot_cells"] = ["qsEt/sole/None/baseline/ex-con-2"]
     with pytest.raises(SystemExit, match="carries an exit contraction of 2 columns against the 1"):
         sv.load_rules(_write_rules(tmp_path / "rules.yaml", [longer]))
     mixed = json.loads(json.dumps(CONTRACTED_RULE))
-    mixed["match"]["after"]["pivot_cells"] = ["qsEt/hapax/None/baseline/ex-ext-1+ex-con-1"]
+    mixed["match"]["after"]["pivot_cells"] = ["qsEt/sole/None/baseline/ex-ext-1+ex-con-1"]
     with pytest.raises(SystemExit, match="still carries an exit extension"):
         sv.load_rules(_write_rules(tmp_path / "rules.yaml", [mixed]))
 
@@ -1592,7 +1592,7 @@ def test_a_follower_list_rule_loads_and_its_cells_are_held_to_the_list(tmp_path)
     [rule] = sv.load_rules(_write_rules(tmp_path / "rules.yaml", [JAI_RULE]))
     assert rule["match"]["before"]["follower"] == ["qsVie", "qsSee", "qsNo"]
     strayed = json.loads(json.dumps(JAI_RULE))
-    strayed["match"]["after"]["follower_cells"].append("qsLow/hapax/baseline/None/")
+    strayed["match"]["after"]["follower_cells"].append("qsLow/sole/baseline/None/")
     with pytest.raises(SystemExit, match="is not a cell of qsVie or qsSee or qsNo"):
         sv.load_rules(_write_rules(tmp_path / "rules.yaml", [strayed]))
 
@@ -1893,26 +1893,26 @@ register_glyph("after", "qsF2", TUCKED_FOLLOWER, 100)
 register_glyph("after", "qsF3", TWO_COLUMNS, 100)
 register_glyph("after", "qsF3.wider", TWO_COLUMNS, 150)
 register_glyph("after", "qsM", TWO_COLUMNS, 100)
-register_glyph("after", "qsJ.hapax.ex-y0", TRIMMED_PIVOT, 50)
-register_glyph("after", "qsJ.hapax.ex-y0.ex-ext-1", EXTENDED_PIVOT, 100)
-register_glyph("after", "qsEt.hapax", TRIMMED_PIVOT, 50)
+register_glyph("after", "qsJ.sole.ex-y0", TRIMMED_PIVOT, 50)
+register_glyph("after", "qsJ.sole.ex-y0.ex-ext-1", EXTENDED_PIVOT, 100)
+register_glyph("after", "qsEt.sole", TRIMMED_PIVOT, 50)
 register_glyph("after", "qsOther", TWO_COLUMNS, 100)
-register_glyph("after", "qsRoe.hapax.en-y5.en-ext-1", KEPT_ROE, 100)
-register_glyph("after", "qsRoe.hapax.shifted-gain", KEPT_ROE, 150)
+register_glyph("after", "qsRoe.sole.en-y5.en-ext-1", KEPT_ROE, 100)
+register_glyph("after", "qsRoe.sole.shifted-gain", KEPT_ROE, 150)
 register_glyph("after", "qsAt", TWO_COLUMNS, 150)
 register_glyph("after", "qsIt", TWO_COLUMNS, 100)
-register_glyph("after", "qsIt.hapax", TWO_COLUMNS, 150)
+register_glyph("after", "qsIt.sole", TWO_COLUMNS, 150)
 register_glyph("after", "qsEt.join", TWO_COLUMNS, 100)
-register_glyph("after", "qsLow.hapax", TWO_COLUMNS, 100)
+register_glyph("after", "qsLow.sole", TWO_COLUMNS, 100)
 register_glyph("after", "qsVie.normal", TWO_COLUMNS, 100)
-register_glyph("after", "qsVie_qsUtter.hapax", TWO_COLUMNS, 100)
+register_glyph("after", "qsVie_qsUtter.sole", TWO_COLUMNS, 100)
 register_glyph("after", "qsMay.loop", TWO_COLUMNS, 100)
 register_glyph("after", "qsMay.loop.en-y0.en-con-1", CONTRACTED_ENTRY_MAY, 150)
 register_glyph("after", "qsMay.loop.en-y0.ex-y5.en-con-1", CONTRACTED_ENTRY_MAY, 50)
 register_glyph("after", "qsMay.loop.unchanged-fixture", TWO_COLUMNS, 100)
 register_glyph("after", "qsMay.loop.en-y0.en-con-1.in-frame-fixture", STUB_CONTRACTED_IN_PLACE_MAY, 50)
 register_glyph("after", "qsBay.contract-lead", TWO_COLUMNS, 50)
-register_glyph("after", "qsFcovered.hapax", TWO_COLUMNS, 100)
+register_glyph("after", "qsFcovered.sole", TWO_COLUMNS, 100)
 register_glyph("after", "qsK", TWO_COLUMNS, 150)
 register_glyph("after", "qsTea", TWO_COLUMNS, 100)
 register_glyph("after", "qsTea.moving-fixture", TWO_COLUMNS, 50)
@@ -1929,8 +1929,8 @@ register_glyph("after", "qsEight.pulled-loop.en-con-1", EIGHTISH_SMALLER, 100)
 register_glyph("after", "qsEight.framed-loop.en-con-1", FRAMED_EIGHTISH, 150)
 register_glyph("after", "qsTea.full.en-y5", FULL_TEA_BAR, 50)
 register_glyph("after", "qsTea.full.en-y5.misaligned", MISALIGNED_FULL_TEA_BAR, 50)
-register_glyph("after", "qsKey.hapax.ex-y0.ex-con-1", SHORTENED_FOOT_KEY, 50)
-register_glyph("after", "qsRoe.hapax.en-y5.ex-y0.en-con-1", PLACED_CONTRACTION_ROE_PULLED, 150)
+register_glyph("after", "qsKey.sole.ex-y0.ex-con-1", SHORTENED_FOOT_KEY, 50)
+register_glyph("after", "qsRoe.sole.en-y5.ex-y0.en-con-1", PLACED_CONTRACTION_ROE_PULLED, 150)
 register_glyph("after", "space", (), 50)
 register_glyph("before", "qsF3.reaching", TUCKED_FOLLOWER, 100)
 register_glyph("after", "qsF3.reached", TWO_COLUMNS, 100)
@@ -1957,19 +1957,19 @@ SEE_UNSETTLED = register_pair("qsSee.ex-y0", "qsOther")
 SEE_SPARE = register_pair("qsSee.ex-y0.spare", "qsSee.spare")
 SEE_WANDERED = register_pair("qsSee.ex-y0.spare", "qsSee.wandered")
 SEE_BLANK = register_pair("qsSee.ex-y0.blank", "qsSee.straighter.blank")
-PIVOT = register_pair("qsJ.ex-y0.ex-ext-1", "qsJ.hapax.ex-y0")
-PIVOT_WIDE_TAIL = register_pair("qsJ.ex-y0.ex-ext-1.wide", "qsJ.hapax.ex-y0")
-PIVOT_CROWNED = register_pair("qsJ.ex-y0.ex-ext-1.crown", "qsJ.hapax.ex-y0")
-PIVOT_SHORTENED = register_pair("qsJ.ex-y0.ex-ext-3.long", "qsJ.hapax.ex-y0.ex-ext-1")
-PIVOT_DROPPED_WHOLE = register_pair("qsJ.ex-y0.ex-ext-3.long", "qsJ.hapax.ex-y0")
-PIVOT_CONTRACTED = register_pair("qsEt", "qsEt.hapax")
-ROE = register_pair("qsRoe.en-ext-1-at-5", "qsRoe.hapax.en-y5.en-ext-1")
-ROE_SHIFTED_GAIN = register_pair("qsRoe.en-ext-1-at-5", "qsRoe.hapax.shifted-gain")
+PIVOT = register_pair("qsJ.ex-y0.ex-ext-1", "qsJ.sole.ex-y0")
+PIVOT_WIDE_TAIL = register_pair("qsJ.ex-y0.ex-ext-1.wide", "qsJ.sole.ex-y0")
+PIVOT_CROWNED = register_pair("qsJ.ex-y0.ex-ext-1.crown", "qsJ.sole.ex-y0")
+PIVOT_SHORTENED = register_pair("qsJ.ex-y0.ex-ext-3.long", "qsJ.sole.ex-y0.ex-ext-1")
+PIVOT_DROPPED_WHOLE = register_pair("qsJ.ex-y0.ex-ext-3.long", "qsJ.sole.ex-y0")
+PIVOT_CONTRACTED = register_pair("qsEt", "qsEt.sole")
+ROE = register_pair("qsRoe.en-ext-1-at-5", "qsRoe.sole.en-y5.en-ext-1")
+ROE_SHIFTED_GAIN = register_pair("qsRoe.en-ext-1-at-5", "qsRoe.sole.shifted-gain")
 AT = register_pair("qsAt", "qsAt")
 IT = register_pair("qsIt", "qsIt")
-IT_EXITING = register_pair("qsIt.ex-y5", "qsIt.hapax")
+IT_EXITING = register_pair("qsIt.ex-y5", "qsIt.sole")
 ET_JOIN = register_pair("qsEt.join", "qsEt.join")
-LOW = register_pair("qsLow.en-ext-1", "qsLow.hapax")
+LOW = register_pair("qsLow.en-ext-1", "qsLow.sole")
 TEA = register_pair("qsTea.half.ex-y5", "qsTea")
 MOVING_TEA = register_pair("qsTea.half.ex-y5.moving-fixture", "qsTea.moving-fixture")
 PEA = register_pair("qsPea.half.ex-y5", "qsPea")
@@ -1983,7 +1983,7 @@ NO_RETARGET_SHARED = register_pair(
 )
 NO_GAP_REDRAWN = register_pair("qsNo.en-ext-1.gap-fixture", "qsNo.gap-fixture")
 VIE = register_pair("qsVie.en-ext-1", "qsVie.normal")
-VIE_UTTER = register_pair("qsVie_qsUtter.en-ext-1", "qsVie_qsUtter.hapax")
+VIE_UTTER = register_pair("qsVie_qsUtter.en-ext-1", "qsVie_qsUtter.sole")
 MAY = register_pair("qsMay.en-y0.ex-y5.en-ext-1", "qsMay.loop")
 CONTRACTED_MAY = register_pair("qsMay.en-y0.ex-y5.contract-fixture", "qsMay.loop.en-y0.en-con-1")
 CONTRACTED_JOINING_MAY = register_pair(
@@ -1991,7 +1991,7 @@ CONTRACTED_JOINING_MAY = register_pair(
 )
 UNCHANGED_MAY = register_pair("qsMay.en-y0.ex-y5.unchanged-fixture", "qsMay.loop.unchanged-fixture")
 CONTRACTION_LEAD = register_pair("qsBay.contract-lead", "qsBay.contract-lead")
-COVERED_FOLLOWER = register_pair("qsFcovered.en-ext-1", "qsFcovered.hapax")
+COVERED_FOLLOWER = register_pair("qsFcovered.en-ext-1", "qsFcovered.sole")
 LEFT_NEIGHBOR = register_pair("qsK", "qsK")
 MAY_STUB = register_pair("qsMay.en-y5", "qsMay.loop")
 MAY_STUB_CONTRACTED_IN_FRAME = register_pair(
@@ -2004,12 +2004,12 @@ EIGHT_UNCHANGED = register_pair("qsEight", "qsEight.normal-sized-loop")
 EIGHT_REVERSED = register_pair("qsEight.smaller-loop", "qsEight.normal-sized-loop")
 EIGHT_PULLED_IN = register_pair("qsEight", "qsEight.pulled-loop.en-con-1")
 EIGHT_FRAME_CONTRACTED = register_pair("qsEight.frame-fixture", "qsEight.framed-loop.en-con-1")
-KEY = register_pair("qsKey", "qsKey.hapax.ex-y0.ex-con-1")
+KEY = register_pair("qsKey", "qsKey.sole.ex-y0.ex-con-1")
 TEA_VERTICAL_GAIN = register_pair("qsTea.half.en-y5.after-xheight-exit", "qsTea.full.en-y5")
 TEA_VERTICAL_GAIN_MISALIGNED = register_pair(
     "qsTea.half.en-y5.after-xheight-exit", "qsTea.full.en-y5.misaligned"
 )
-PLACED_CONTRACTION = register_pair("qsRoe.ex-y0.placed-contraction", "qsRoe.hapax.en-y5.ex-y0.en-con-1")
+PLACED_CONTRACTION = register_pair("qsRoe.ex-y0.placed-contraction", "qsRoe.sole.en-y5.ex-y0.en-con-1")
 FOLLOWER_3_REACHING = register_pair("qsF3.reaching", "qsF3.reached")
 STUB_LEAD = register_pair("qsBay.stub-lead", "qsBay.stub-lead")
 STUB_SEE = register_pair("qsSee.ex-y0.stub-fixture", "qsSee.straighter.stub-fixture")
@@ -2037,19 +2037,19 @@ SLIDE_FONTS = {
     "after-extra-middle-pixel": ({**AFTER_GLYPHS, "qsM": (TWO_COLUMNS_AND_A_PIXEL, 100)}, AFTER_CMAP),
     "after-extra-tail-pixel": ({**AFTER_GLYPHS, "qsF3": (TWO_COLUMNS_AND_A_PIXEL, 100)}, AFTER_CMAP),
     "after-redrawn-follower": ({**AFTER_GLYPHS, "qsF3": (TUCKED_FOLLOWER, 100)}, AFTER_CMAP),
-    "after-contracted-pivot": ({**AFTER_GLYPHS, "qsJ.hapax.ex-y0": (CONTRACTED_PIVOT, 50)}, AFTER_CMAP),
+    "after-contracted-pivot": ({**AFTER_GLYPHS, "qsJ.sole.ex-y0": (CONTRACTED_PIVOT, 50)}, AFTER_CMAP),
     "after-extra-post-follower-pixel": ({**AFTER_GLYPHS, "qsF1": (TWO_COLUMNS_AND_A_PIXEL, 50)}, AFTER_CMAP),
-    "after-unshortened-pivot": ({**AFTER_GLYPHS, "qsJ.hapax.ex-y0": (EXTENDED_PIVOT, 100)}, AFTER_CMAP),
+    "after-unshortened-pivot": ({**AFTER_GLYPHS, "qsJ.sole.ex-y0": (EXTENDED_PIVOT, 100)}, AFTER_CMAP),
     "after-roe-wrong-cell": (
-        {**AFTER_GLYPHS, "qsRoe.hapax.en-y5.en-ext-1": (WRONG_CELL_ROE, 100)},
+        {**AFTER_GLYPHS, "qsRoe.sole.en-y5.en-ext-1": (WRONG_CELL_ROE, 100)},
         AFTER_CMAP,
     ),
     "after-roe-extra-cell": (
-        {**AFTER_GLYPHS, "qsRoe.hapax.en-y5.en-ext-1": (EXTRA_CELL_ROE, 100)},
+        {**AFTER_GLYPHS, "qsRoe.sole.en-y5.en-ext-1": (EXTRA_CELL_ROE, 100)},
         AFTER_CMAP,
     ),
     "after-roe-unmoved": (
-        {**AFTER_GLYPHS, "qsRoe.hapax.en-y5.en-ext-1": (SHORTENED_ROE, 100)},
+        {**AFTER_GLYPHS, "qsRoe.sole.en-y5.en-ext-1": (SHORTENED_ROE, 100)},
         AFTER_CMAP,
     ),
     "after-join-unmoved": ({**AFTER_GLYPHS, "qsAt": (TWO_COLUMNS, 100)}, AFTER_CMAP),
@@ -2067,9 +2067,9 @@ SLIDE_FONTS = {
     "after-join-regrouped": ({**AFTER_GLYPHS, "qsIt": (TWO_COLUMNS, 50)}, AFTER_CMAP),
     "after-join-extra-prefix-pixel": ({**AFTER_GLYPHS, "qsL": (TWO_COLUMNS_AND_A_PIXEL, 100)}, AFTER_CMAP),
     "after-join-extra-tail-pixel": ({**AFTER_GLYPHS, "qsF1": (TWO_COLUMNS_AND_A_PIXEL, 50)}, AFTER_CMAP),
-    "after-low-unmoved": ({**AFTER_GLYPHS, "qsLow.hapax": (EXTENDED_ENTRY_LOW, 150)}, AFTER_CMAP),
-    "after-low-unshifted": ({**AFTER_GLYPHS, "qsLow.hapax": (UNSHIFTED_ENTRY_LOW, 150)}, AFTER_CMAP),
-    "after-low-extra-cell": ({**AFTER_GLYPHS, "qsLow.hapax": (EXTRA_CELL_LOW, 100)}, AFTER_CMAP),
+    "after-low-unmoved": ({**AFTER_GLYPHS, "qsLow.sole": (EXTENDED_ENTRY_LOW, 150)}, AFTER_CMAP),
+    "after-low-unshifted": ({**AFTER_GLYPHS, "qsLow.sole": (UNSHIFTED_ENTRY_LOW, 150)}, AFTER_CMAP),
+    "after-low-extra-cell": ({**AFTER_GLYPHS, "qsLow.sole": (EXTRA_CELL_LOW, 100)}, AFTER_CMAP),
     "after-contracted-entry-extra-cell": (
         {**AFTER_GLYPHS, "qsMay.loop.en-y0.en-con-1": (CONTRACTED_ENTRY_MAY_EXTRA, 150)},
         AFTER_CMAP,
@@ -2079,7 +2079,7 @@ SLIDE_FONTS = {
         AFTER_CMAP,
     ),
     "after-contracted-entry-visible-follower-loss": (
-        {**AFTER_GLYPHS, "qsFcovered.hapax": (TUCKED_FOLLOWER, 100)},
+        {**AFTER_GLYPHS, "qsFcovered.sole": (TUCKED_FOLLOWER, 100)},
         AFTER_CMAP,
     ),
     "after-retarget-unmoved": ({**AFTER_GLYPHS, "qsNo": (TWO_COLUMNS, 100)}, AFTER_CMAP),
@@ -2088,7 +2088,7 @@ SLIDE_FONTS = {
         AFTER_CMAP,
     ),
     "after-created-join-unmoved": (
-        {**AFTER_GLYPHS, "qsJ.hapax.ex-y0.ex-ext-1": (EXTENDED_PIVOT, 200)},
+        {**AFTER_GLYPHS, "qsJ.sole.ex-y0.ex-ext-1": (EXTENDED_PIVOT, 200)},
         AFTER_CMAP,
     ),
     "after-created-join-follower-not-widened": (
@@ -2124,11 +2124,11 @@ SLIDE_FONTS = {
         AFTER_CMAP,
     ),
     "after-extension-behind-created-join-unmoved": (
-        {**AFTER_GLYPHS, "qsJ.hapax.ex-y0": (TRIMMED_PIVOT, 100)},
+        {**AFTER_GLYPHS, "qsJ.sole.ex-y0": (TRIMMED_PIVOT, 100)},
         AFTER_CMAP,
     ),
     "after-created-join-behind-created-join-unmoved": (
-        {**AFTER_GLYPHS, "qsJ.hapax.ex-y0": (TRIMMED_PIVOT, 100)},
+        {**AFTER_GLYPHS, "qsJ.sole.ex-y0": (TRIMMED_PIVOT, 100)},
         AFTER_CMAP,
     ),
     "after-stub-companion-pixel": (
@@ -2148,7 +2148,7 @@ SLIDE_FONTS = {
         AFTER_CMAP,
     ),
     "after-key-crowned": (
-        {**AFTER_GLYPHS, "qsKey.hapax.ex-y0.ex-con-1": (SHORTENED_FOOT_KEY_AND_A_CROWN, 50)},
+        {**AFTER_GLYPHS, "qsKey.sole.ex-y0.ex-con-1": (SHORTENED_FOOT_KEY_AND_A_CROWN, 50)},
         AFTER_CMAP,
     ),
     "after-placed-contraction-unmoved-pivot": (
@@ -2455,7 +2455,7 @@ SHIFTED_GAIN_RULE = {
     "match": {
         "before": {"pivots": ["qsRoe.en-ext-1-at-5"]},
         "after": {
-            "pivots": ["qsRoe.hapax.shifted-gain"],
+            "pivots": ["qsRoe.sole.shifted-gain"],
             "gained": [[1, 0]],
             "shift": 1,
         },
@@ -2558,7 +2558,7 @@ def test_a_gain_rule_loads(tmp_path):
     [rule] = sv.load_rules(_write_rules(tmp_path / "rules.yaml", [GAIN_RULE]))
     assert rule["match"]["before"] == {"pivots": ["qsRoe.en-ext-1-at-5"]}
     assert rule["match"]["after"] == {
-        "pivots": ["qsRoe.hapax"],
+        "pivots": ["qsRoe.sole"],
         "gained": [[1, 0]],
         "shift": 0,
     }
@@ -2578,7 +2578,7 @@ def test_a_gain_rule_loads(tmp_path):
         lambda rule: rule["match"]["after"].update(gained=[[1]]),
         lambda rule: rule["match"]["after"].update(gained=[[1, True]]),
         lambda rule: rule["match"]["after"].update(gained="1,0"),
-        lambda rule: rule["match"]["after"].update(pivots=["qsRoe/hapax/x-height/None/en-ext-1"]),
+        lambda rule: rule["match"]["after"].update(pivots=["qsRoe/sole/x-height/None/en-ext-1"]),
         lambda rule: rule["match"].update(except_left="qsL"),
     ],
 )
@@ -2591,7 +2591,7 @@ def test_malformed_gain_rules_are_refused(tmp_path, mutate):
 
 def test_gain_pivot_lists_spanning_two_families_are_refused_at_load(tmp_path):
     within = json.loads(json.dumps(GAIN_RULE))
-    within["match"]["after"]["pivots"] = ["qsRoe.hapax", "qsSee.hapax"]
+    within["match"]["after"]["pivots"] = ["qsRoe.sole", "qsSee.sole"]
     with pytest.raises(SystemExit, match="covers one letter"):
         sv.load_rules(_write_rules(tmp_path / "rules.yaml", [within]))
     across = json.loads(json.dumps(GAIN_RULE))
@@ -2651,7 +2651,7 @@ def it_et_join_window(uid="je-1"):
         uid,
         list(IT_ET_JOIN_GLYPHS),
         ["y0", "y5", "y0"],
-        ["qsL/full/None/None/", "qsIt/hapax/None/None/", "qsEt/hapax/None/None/", "qsF1/full/None/None/"],
+        ["qsL/full/None/None/", "qsIt/sole/None/None/", "qsEt/sole/None/None/", "qsF1/full/None/None/"],
         ["y0", "break", "y0"],
         codepoints=IT_ET_JOIN_CODEPOINTS,
         configs=("default",),
@@ -2721,7 +2721,7 @@ def test_a_follower_keeping_its_own_pen_defeats_the_columns_removed_match(slide_
 
 
 def test_a_follower_settling_into_an_unnamed_cell_defeats_the_columns_removed_match(slide_context):
-    window = columns_removed_join_window(cell="qsF2/hapax/None/None/")
+    window = columns_removed_join_window(cell="qsF2/sole/None/None/")
     assert not sv._matches(COLUMNS_REMOVED_JOIN_RULE["match"], window, context=slide_context())
 
 
@@ -3136,7 +3136,7 @@ def out_window(uid="o-1"):
         uid,
         ["qsOut.ex-y5", "qsMay"],
         ["y5"],
-        ["qsOut/hapax/None/x-height/", "qsMay/loop/x-height/None/"],
+        ["qsOut/sole/None/x-height/", "qsMay/loop/x-height/None/"],
         ["y5"],
     )
 
@@ -3751,8 +3751,8 @@ def test_dropped_entry_reads_the_lost_en_ext_and_nothing_else():
         sv._dropped_entry("qsMay.en-y0.ex-y5.en-ext-1.ex-ext-1", "qsMay/loop/baseline/x-height/ex-ext-2") == 1
     )
     assert sv._dropped_entry("qsMay.en-ext-1", "qsMay/loop/baseline/None/") == 1
-    assert sv._dropped_entry("qsIt.en-y5.ex-y0.ex-ext-1", "qsIt/hapax/None/baseline/") == 0
-    assert sv._dropped_entry("qsRoe.en-ext-1-at-5", "qsRoe/hapax/x-height/None/") == 0
+    assert sv._dropped_entry("qsIt.en-y5.ex-y0.ex-ext-1", "qsIt/sole/None/baseline/") == 0
+    assert sv._dropped_entry("qsRoe.en-ext-1-at-5", "qsRoe/sole/x-height/None/") == 0
     assert sv._dropped_entry("qsMay.en-ext-2", "qsMay/loop/baseline/None/en-ext-1") == 1
 
 
@@ -3839,7 +3839,7 @@ CONTRACTED_EXT_RULE = {
             "follower": "qsF3",
         },
         "after": {
-            "pivot_cells": ["qsEt/hapax/None/None/ex-con-1"],
+            "pivot_cells": ["qsEt/sole/None/None/ex-con-1"],
             "follower_cells": ["qsF3/full/None/None/"],
         },
         "except_left": [],
@@ -3853,7 +3853,7 @@ def contracted_window(uid="c-con"):
         ["qsL", "qsSee.ex-y0", "qsM", "qsEt", "qsF3", "qsF1"],
         spell(LEAD, SEE, MIDDLE, PIVOT_CONTRACTED, FOLLOWER_3, FOLLOWER_1),
     )
-    window["after"]["cells"][3] = "qsEt/hapax/None/None/ex-con-1"
+    window["after"]["cells"][3] = "qsEt/sole/None/None/ex-con-1"
     return window
 
 
@@ -4512,7 +4512,7 @@ def combined_contracted_entry_covered_window(uid="cec-covered-1"):
 
 def placed_contraction_window(uid="pc-1"):
     window = slide_unit(uid, PLACED_CONTRACTION_GLYPHS, PLACED_CONTRACTION_CODEPOINTS)
-    window["after"]["cells"][1] = "qsRoe/hapax/x-height/baseline/en-con-1"
+    window["after"]["cells"][1] = "qsRoe/sole/x-height/baseline/en-con-1"
     return window
 
 
@@ -4522,7 +4522,7 @@ def combined_placed_contraction_window(uid="cpc-1"):
         COMBINED_PLACED_CONTRACTION_GLYPHS,
         COMBINED_PLACED_CONTRACTION_CODEPOINTS,
     )
-    window["after"]["cells"][3] = "qsRoe/hapax/x-height/baseline/en-con-1"
+    window["after"]["cells"][3] = "qsRoe/sole/x-height/baseline/en-con-1"
     return window
 
 
@@ -4902,7 +4902,7 @@ def test_an_entry_drop_is_not_a_stub_drop(slide_context):
         (
             entry_window,
             "qsLow.en-ext-1",
-            "qsLow.hapax",
+            "qsLow.sole",
             {"slide": False, "entry_drop": True, "stub_drop": False},
         ),
     ],
@@ -5024,7 +5024,7 @@ def test_the_entry_drop_shape_and_the_other_shapes_do_not_read_each_others_units
 def test_an_entry_drop_rule_loads(tmp_path):
     [rule] = sv.load_rules(_write_rules(tmp_path / "rules.yaml", [ENTRY_RULE]))
     assert rule["match"]["before"] == {"pivots": ["qsLow.en-ext-1"]}
-    assert rule["match"]["after"] == {"pivots": ["qsLow.hapax"], "entry_drop": 1}
+    assert rule["match"]["after"] == {"pivots": ["qsLow.sole"], "entry_drop": 1}
 
 
 def test_an_entry_contraction_rule_loads_multiple_left_families(tmp_path):
@@ -5034,7 +5034,7 @@ def test_an_entry_contraction_rule_loads_multiple_left_families(tmp_path):
     assert loaded["match"]["before"]["left"] == ["qsBay", "qsKey"]
 
 
-@pytest.mark.parametrize("left", [["qsBay", "qsKey.alt"], ["qsBay", "qsKey/hapax/None/None/"]])
+@pytest.mark.parametrize("left", [["qsBay", "qsKey.alt"], ["qsBay", "qsKey/sole/None/None/"]])
 def test_an_entry_contraction_rule_refuses_nonfamily_left_names(tmp_path, left):
     rule = json.loads(json.dumps(CONTRACTED_ENTRY_RULE))
     rule["match"]["before"]["left"] = left
@@ -5075,7 +5075,7 @@ def test_a_stub_drop_rule_reads_no_unit_without_ink_deltas():
         lambda rule: rule["match"]["before"].update(pivots=[]),
         lambda rule: rule["match"]["before"].update(pivots="qsLow.en-ext-1"),
         lambda rule: rule["match"]["after"].update(entry_drop="1"),
-        lambda rule: rule["match"]["after"].update(pivots=["qsLow/hapax/baseline/None/"]),
+        lambda rule: rule["match"]["after"].update(pivots=["qsLow/sole/baseline/None/"]),
         lambda rule: rule["match"].update(except_left="qsL"),
     ],
 )
@@ -5102,7 +5102,7 @@ def test_a_widening_entry_drop_is_refused_at_load(tmp_path):
 
 def test_entry_drop_pivot_lists_spanning_two_families_are_refused_at_load(tmp_path):
     within = json.loads(json.dumps(ENTRY_RULE))
-    within["match"]["after"]["pivots"] = ["qsLow.hapax", "qsSee.hapax"]
+    within["match"]["after"]["pivots"] = ["qsLow.sole", "qsSee.sole"]
     with pytest.raises(SystemExit, match="covers one letter"):
         sv.load_rules(_write_rules(tmp_path / "rules.yaml", [within]))
     across = json.loads(json.dumps(ENTRY_RULE))
@@ -5426,7 +5426,7 @@ def created_join_window(uid="cj-1"):
         ["y0", "break"],
         [
             "qsL/full/None/None/",
-            "qsJ/hapax/None/baseline/ex-ext-1",
+            "qsJ/sole/None/baseline/ex-ext-1",
             "qsF3/full/None/None/",
         ],
         ["y0", "y0"],
@@ -5445,7 +5445,7 @@ def combined_created_join_window(uid="ccj-1"):
         [
             "qsL/full/None/None/",
             "qsSee/full/None/None/",
-            "qsJ/hapax/None/baseline/ex-ext-1",
+            "qsJ/sole/None/baseline/ex-ext-1",
             "qsF3/full/None/None/",
         ],
         ["y0", "y0", "y0"],
@@ -5463,7 +5463,7 @@ def widened_created_join_window(uid="wcj-1"):
         ["y0", "break", "y0"],
         [
             "qsL/full/None/None/",
-            "qsJ/hapax/None/baseline/ex-ext-1",
+            "qsJ/sole/None/baseline/ex-ext-1",
             "qsF3/full/None/None/",
             "qsF1/full/None/None/",
         ],
@@ -5483,7 +5483,7 @@ def combined_widened_join_window(uid="cwj-1"):
         [
             "qsL/full/None/None/",
             "qsSee/full/None/None/",
-            "qsJ/hapax/None/baseline/ex-ext-1",
+            "qsJ/sole/None/baseline/ex-ext-1",
             "qsF3/full/None/None/",
             "qsF1/full/None/None/",
         ],
@@ -5502,7 +5502,7 @@ def reaching_created_join_window(uid="rcjr-1"):
         ["y0", "break", "y0"],
         [
             "qsL/full/None/None/",
-            "qsJ/hapax/None/baseline/ex-ext-1",
+            "qsJ/sole/None/baseline/ex-ext-1",
             "qsF3/full/None/None/",
             "qsF1/full/None/None/",
         ],
@@ -5522,7 +5522,7 @@ def combined_reaching_join_window(uid="crjr-1"):
         [
             "qsL/full/None/None/",
             "qsSee/full/None/None/",
-            "qsJ/hapax/None/baseline/ex-ext-1",
+            "qsJ/sole/None/baseline/ex-ext-1",
             "qsF3/full/None/None/",
             "qsF1/full/None/None/",
         ],
@@ -5541,7 +5541,7 @@ def stub_created_join_window(uid="scj-1"):
         ["y0", "break"],
         [
             "qsBay/full/None/None/",
-            "qsJ/hapax/None/baseline/ex-ext-1",
+            "qsJ/sole/None/baseline/ex-ext-1",
             "qsF3/full/None/None/",
         ],
         ["y0", "y0"],
@@ -5560,7 +5560,7 @@ def combined_stub_join_window(uid="csj-1"):
         [
             "qsL/full/None/None/",
             "qsSee/full/None/None/",
-            "qsJ/hapax/None/baseline/ex-ext-1",
+            "qsJ/sole/None/baseline/ex-ext-1",
             "qsF3/full/None/None/",
         ],
         ["y0", "y0", "y0"],
@@ -5671,7 +5671,7 @@ def retarget_behind_reaching_join_window(uid="rbrj-1"):
         ["y0", "break", "y5", "y0"],
         [
             "qsL/full/None/None/",
-            "qsJ/hapax/None/baseline/ex-ext-1",
+            "qsJ/sole/None/baseline/ex-ext-1",
             "qsTea/full/None/baseline/",
             "qsNo/flipped/baseline/None/",
             "qsF1/full/None/None/",
@@ -5691,7 +5691,7 @@ def retarget_behind_created_join_window(uid="rbcj-1"):
         ["y0", "break", "y5", "y0"],
         [
             "qsL/full/None/None/",
-            "qsJ/hapax/None/baseline/ex-ext-1",
+            "qsJ/sole/None/baseline/ex-ext-1",
             "qsTea/full/None/baseline/",
             "qsNo/flipped/baseline/None/",
             "qsF1/full/None/None/",
@@ -5873,7 +5873,7 @@ def gain_behind_created_join_window(uid="gbcj-1"):
         [
             "qsL/full/None/None/",
             "qsNo/flipped/baseline/baseline/",
-            "qsRoe/hapax/None/None/",
+            "qsRoe/sole/None/None/",
             "qsF1/full/None/None/",
         ],
         ["y0", "y0", "y0"],
@@ -6034,7 +6034,7 @@ def _several_pivots(*families):
     rule = json.loads(json.dumps(CREATED_JOIN_RULE))
     rule["id"] = "fixture-join-created-several-pivots"
     rule["match"]["before"]["pivot"] = list(families)
-    rule["match"]["after"]["pivot_cells"] = [f"{family}/hapax/None/baseline/ex-ext-1" for family in families]
+    rule["match"]["after"]["pivot_cells"] = [f"{family}/sole/None/baseline/ex-ext-1" for family in families]
     return rule
 
 
@@ -6110,7 +6110,7 @@ def test_a_created_join_declining_a_form_no_pivot_reaches_is_refused_at_load(tmp
 
 
 def test_a_created_join_declining_a_cell_string_is_refused_at_load(tmp_path):
-    rule = _declining("qsJ/hapax/None/baseline/ex-ext-1")
+    rule = _declining("qsJ/sole/None/baseline/ex-ext-1")
     with pytest.raises(SystemExit, match="glyph-name prefixes"):
         sv.load_rules(_write_rules(tmp_path / "rules.yaml", [rule]))
 
@@ -8378,7 +8378,7 @@ def test_a_listed_unit_gets_its_decision_line_and_moves_no_line_of_the_rules(tmp
             "u-4",
             ["qsPea", "qsAh"],
             ["y0"],
-            ["qsPea/full/None/baseline/", "qsAh/hapax/baseline/None/"],
+            ["qsPea/full/None/baseline/", "qsAh/sole/baseline/None/"],
             ["y0"],
         ),
     ]

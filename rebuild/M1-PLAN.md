@@ -462,7 +462,7 @@ How the first batch was drafted:
 
 - **qsPea** — motions `full` and `half` only. The old font’s third and fourth “dipping” motions are §4 bindings (the same pen motion with join-conditioned attachment ink), so their prose folds into the two motions’ descriptions. They are not motions, or ductus parity would require stances for them.
 - **qsTea** — the old YAML had no ductus for it. Its motions are `full` (the Tall bar, written top to bottom or bottom to top: two bullets of one motion, as for ·It) and `half` (the stroke stopped at the x-height).
-- **qsIt** — one motion (`hapax`). Bullet 1 of the old prose (“Either written from top to bottom or bottom to top.”) is copied verbatim; bullets 2–4 are join constraints and became `pairings: only:` and the ss04 unlock. With the prose byte-identical, the motion carries no DRAFT flag; the structural move still needs sign-off.
+- **qsIt** — one motion (`sole`). Bullet 1 of the old prose (“Either written from top to bottom or bottom to top.”) is copied verbatim; bullets 2–4 are join constraints and became `pairings: only:` and the ss04 unlock. With the prose byte-identical, the motion carries no DRAFT flag; the structural move still needs sign-off.
 - **qsMay** — motions `loop` (the old prose with the mid-sentence “Then” fixed) and `grounded-loop` (the reachable `exits_at_baseline` drawing).
 - **qsOy** — the Manual’s clean-pen note about small loops is context, not stroke prose.
 - **Ligatures** — a ligature rune carries its own ductus (§5.7); `qsTea_qsOy`’s is the ·Tea bar flowing into the ·Oy loop.

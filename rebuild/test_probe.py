@@ -19,7 +19,7 @@ SETTLED = (
         extension=0,
     ),
     Settled(
-        cell=CellId(rune="qsIt", stance="hapax", entry="x-height", exit=None),
+        cell=CellId(rune="qsIt", stance="sole", entry="x-height", exit=None),
         junction=None,
         extension=0,
     ),
@@ -70,7 +70,7 @@ def test_probe_routes_its_configs_through_explain_many(monkeypatch, capsys):
     assert calls[0][1] == [([0xE665, 0xE670], frozenset())]
     output = capsys.readouterr().out
     assert "=== window E665:E670 ===" in output
-    assert "NEW cells : qsMay.loop/en=None/ex=x-height/ | qsIt.hapax/en=x-height/ex=None/" in output
+    assert "NEW cells : qsMay.loop/en=None/ex=x-height/ | qsIt.sole/en=x-height/ex=None/" in output
     assert "NEW junctions : y5" in output
 
 

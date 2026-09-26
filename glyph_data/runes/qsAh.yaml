@@ -1,7 +1,7 @@
 rune: qsAh
 codepoint: 0xE676
 ductus:
-  hapax: |
+  sole: |
     Begun at the left along the baseline, the stroke runs briefly rightward, then climbs up and to the right in a sigmoid curve and finishes rightward at the x-height.
 mono:
   bitmap:
@@ -12,8 +12,8 @@ mono:
   - "  #  "
   - "##   "  #
 stances:
-  hapax:
-    motion: hapax
+  sole:
+    motion: sole
     traits: []
     bitmap:
     - "     ##"  #
@@ -65,7 +65,7 @@ stances:
       require: []
 policy:
   order:
-  - hapax
+  - sole
   refuse: []
   prefer: []
   extend:

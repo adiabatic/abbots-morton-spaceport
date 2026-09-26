@@ -276,7 +276,7 @@ def test_a_comparison_side_data_edit_moves_the_run_key_but_not_the_tables_stamp(
 
 ALLOW_LIST = textwrap.dedent("""\
     # Reviewed accepted signatures for the off-anchor-contact gate.
-    - signature: contact:qsOy.hapax.ex-y0:qsIt.hapax.en-y0:y1
+    - signature: contact:qsOy.sole.ex-y0:qsIt.sole.en-y0:y1
       why: the off-junction contact the old font already draws on a join it also makes
     """)
 
@@ -521,13 +521,13 @@ PROSE_RUNE = textwrap.dedent("""\
     rune: qsPea
     codepoint: 0xE650
     ductus:
-      hapax: |
+      sole: |
         A deep stroke, drawn downward.
     notes: |
       Cannot join at the x-height twice.
     stances:
-      hapax:
-        motion: hapax
+      sole:
+        motion: sole
         bitmap: ["#", "#"]
         surface:
           unlocks:
@@ -536,7 +536,7 @@ PROSE_RUNE = textwrap.dedent("""\
       refuse:
       - {exit: baseline, why: two verticals render thick}
       prefer:
-      - {stance: hapax, why: nicer to write}
+      - {stance: sole, why: nicer to write}
     """)
 
 
@@ -556,7 +556,7 @@ def test_data_value_ignores_ductus_prose_but_not_motion_names(tmp_path):
     root = _fake_repo(tmp_path)
     before = _data_after(root, PROSE_RUNE)
     assert _data_after(root, PROSE_RUNE.replace("drawn downward", "drawn upward")) == before
-    assert _data_after(root, PROSE_RUNE.replace("ductus:\n  hapax:", "ductus:\n  pole:")) != before
+    assert _data_after(root, PROSE_RUNE.replace("ductus:\n  sole:", "ductus:\n  pole:")) != before
 
 
 def test_data_value_ignores_notes_prose_but_not_notes_presence(tmp_path):

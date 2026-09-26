@@ -94,7 +94,7 @@ _DAY_HALF = Bitmap(("    ", "    ", "    ", "    ", "    ", "#  #", "# # ", "## 
 _UTTER_MONO = Bitmap(("   ##", "  #  ", " #   ", " #   ", "#    ", "#    "))
 _UTTER_ALTERNATE = Bitmap(("  ## ", " #   ", "#    ", "#    ", " #   ", "  ###"))
 _UTTER_REACHES_WAY_BACK = Bitmap(("##### ", "  #   ", " #    ", " #    ", "  #   ", "   ###"))
-_LOW_HAPAX = Bitmap(("    #", "    #", "   # ", " ##  ", "   # ", "###  "))
+_LOW_SOLE = Bitmap(("    #", "    #", "   # ", " ##  ", "   # ", "###  "))
 _SEE_NORMAL = Bitmap(("   ##", "  #  ", " #   ", " #   ", "  #  ", "  #  ", "   # ", "   # ", "###  "))
 _SEE_CURLED_OVER = Bitmap(
     ("   ## ", "  #  #", " #   #", " #    ", "  #   ", "  #   ", "   #  ", "   #  ", "###   ")
@@ -152,12 +152,12 @@ def _it() -> Rune:
                     left=Condition(family=("qsDay",)),
                     right=Condition(except_=(Condition(family=("qsDay",)),)),
                 ),
-                provenance=_prov(_IT_FILE, "stances.hapax.surface.unlocks[0]"),
+                provenance=_prov(_IT_FILE, "stances.sole.surface.unlocks[0]"),
             ),
         ),
     )
     policy = Policy(
-        order=("hapax",),
+        order=("sole",),
         refuse=(
             PolicyRecord(
                 kind="refuse",
@@ -167,14 +167,14 @@ def _it() -> Rune:
             ),
             PolicyRecord(
                 kind="refuse",
-                stance="hapax",
+                stance="sole",
                 exit="x-height",
                 when=When(right=Condition(family=("qsDay",))),
                 provenance=_prov(_IT_FILE, "policy.refuse[1]"),
             ),
             PolicyRecord(
                 kind="refuse",
-                stance="hapax",
+                stance="sole",
                 exit="baseline",
                 when=When(self_entry="none", right=Condition(family=("qsTea", "qsRoe", "qsIt"))),
                 why="Two adjacent verticals joined at the baseline render as one extra-thick stroke.",
@@ -184,7 +184,7 @@ def _it() -> Rune:
         extend=(
             PolicyRecord(
                 kind="extend",
-                stance="hapax",
+                stance="sole",
                 entry="x-height",
                 by=1,
                 when=When(
@@ -198,7 +198,7 @@ def _it() -> Rune:
             ),
             PolicyRecord(
                 kind="extend",
-                stance="hapax",
+                stance="sole",
                 exit="baseline",
                 by=1,
                 when=When(self_entry="live"),
@@ -206,7 +206,7 @@ def _it() -> Rune:
             ),
             PolicyRecord(
                 kind="extend",
-                stance="hapax",
+                stance="sole",
                 exit="x-height",
                 by=1,
                 when=When(right=Condition(family=("qsZoo", "qsJai", "qsCheer", "qsOwe"))),
@@ -220,8 +220,8 @@ def _it() -> Rune:
     return Rune(
         name="qsIt",
         codepoint=0xE670,
-        ductus={"hapax": "- Either written from top to bottom or bottom to top."},
-        stances={"hapax": Stance("hapax", motion="hapax", bitmap=_IT_BAR, surface=surface)},
+        ductus={"sole": "- Either written from top to bottom or bottom to top."},
+        stances={"sole": Stance("sole", motion="sole", bitmap=_IT_BAR, surface=surface)},
         policy=policy,
     )
 
@@ -630,8 +630,8 @@ def _may() -> Rune:
 
 def _oy() -> Rune:
     loop = Stance(
-        "hapax",
-        motion="hapax",
+        "sole",
+        motion="sole",
         bitmap=_OY_LOOP,
         bitmaps={"open-on-the-left": _OY_OPEN_LEFT},
         surface=Surface(
@@ -651,7 +651,7 @@ def _oy() -> Rune:
                     exit="baseline",
                     bitmap="open-on-the-left",
                     exit_x=5,
-                    provenance=_prov(_OY_FILE, "stances.hapax.surface.cells[0]"),
+                    provenance=_prov(_OY_FILE, "stances.sole.surface.cells[0]"),
                 ),
             ),
         ),
@@ -659,16 +659,16 @@ def _oy() -> Rune:
     return Rune(
         name="qsOy",
         codepoint=0xE679,
-        ductus={"hapax": "draft"},
-        stances={"hapax": loop},
-        policy=Policy(order=("hapax",)),
+        ductus={"sole": "draft"},
+        stances={"sole": loop},
+        policy=Policy(order=("sole",)),
     )
 
 
 def _tea_oy() -> Rune:
     stance = Stance(
-        "hapax",
-        motion="hapax",
+        "sole",
+        motion="sole",
         bitmap=_TEA_OY,
         surface=Surface(
             entries={},
@@ -678,9 +678,9 @@ def _tea_oy() -> Rune:
     return Rune(
         name="qsTea_qsOy",
         sequence=("qsTea", "qsOy"),
-        ductus={"hapax": "draft"},
-        stances={"hapax": stance},
-        policy=Policy(order=("hapax",)),
+        ductus={"sole": "draft"},
+        stances={"sole": stance},
+        policy=Policy(order=("sole",)),
     )
 
 
@@ -859,17 +859,17 @@ def _utter() -> Rune:
 
 
 def _low() -> Rune:
-    hapax = Stance(
-        "hapax",
-        motion="hapax",
-        bitmap=_LOW_HAPAX,
+    sole = Stance(
+        "sole",
+        motion="sole",
+        bitmap=_LOW_SOLE,
         surface=Surface(
             entries={"baseline": SurfaceRow("baseline", x=0, stroke="horizontal")},
             exits={"x-height": SurfaceRow("x-height", x=5, stroke="vertical")},
         ),
     )
     policy = Policy(
-        order=("hapax",),
+        order=("sole",),
         extend=(
             PolicyRecord(
                 kind="extend",
@@ -897,8 +897,8 @@ def _low() -> Rune:
     return Rune(
         name="qsLow",
         codepoint=0xE667,
-        ductus={"hapax": "draft"},
-        stances={"hapax": hapax},
+        ductus={"sole": "draft"},
+        stances={"sole": sole},
         policy=policy,
     )
 

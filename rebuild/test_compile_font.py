@@ -11,8 +11,8 @@ from rebuild.pipeline.model import CellId, CellPlan
 def built(tmp_path_factory):
     spec = mini_spec()
     cells = [
-        CellId("qsIt", "hapax", None, None, ()),
-        CellId("qsIt", "hapax", None, "baseline", ()),
+        CellId("qsIt", "sole", None, None, ()),
+        CellId("qsIt", "sole", None, "baseline", ()),
         CellId("qsMay", "loop", None, "x-height", ()),
         CellId("qsMay", "loop", "baseline", "x-height", ()),
         CellId("qsPea", "full", "y6", None, ()),
@@ -47,7 +47,7 @@ class TestBuildMiniFont:
         shaped = shaper.shape(chr(0xE670) + chr(0xE665), frozenset())
         got = [glyph["name"] for glyph in shaped]
         assert got == [
-            names[CellId("qsIt", "hapax", None, "baseline", ())],
+            names[CellId("qsIt", "sole", None, "baseline", ())],
             names[CellId("qsMay", "loop", "baseline", "x-height", ())],
         ]
 

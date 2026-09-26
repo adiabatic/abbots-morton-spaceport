@@ -1,7 +1,7 @@
 rune: qsRoe
 codepoint: 0xE668
 ductus:
-  hapax: |
+  sole: |
     - Begun at the left at the x-height, the stroke runs rightward, bends down around a shallow bowl on the right, and comes back leftward along the baseline.
     - Or the same letter drawn the other way round: begun at the left at the baseline, bending up around the bowl, and finishing leftward along the x-height.
     - Either way, when the next letter is to be joined the closing arm turns back out to the right instead of stopping short — running under the bowl when the stroke ends at the baseline, and over it when the stroke ends at the x-height.
@@ -16,8 +16,8 @@ mono:
   - "   # "
   - "###  "  #
 stances:
-  hapax:
-    motion: hapax
+  sole:
+    motion: sole
     traits: []
     bitmap:
     - "###  "  #
@@ -102,7 +102,7 @@ stances:
       require: []
 policy:
   order:
-  - hapax
+  - sole
   refuse: []
   prefer:
   - cell: {entry: x-height}
