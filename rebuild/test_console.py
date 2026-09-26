@@ -712,7 +712,7 @@ def test_a_skip_says_the_word_once(capsys, tmp_path):
 
 
 def test_a_replay_reaches_the_terminal_copy_and_says_nothing_twice(capsys, tmp_path):
-    """The driver prints up to three lines before the console exists: a recovery notice, the carry source or a no-carry notice, and the store-only decline note. `replay` writes them to terminal.log only, because they are already on the terminal. Without a log directory it writes nothing."""
+    """The driver prints up to three lines before the console exists: a recovery notice, the carry source or a no-carry notice, and the direct-merge decline note. `replay` writes them to terminal.log only, because they are already on the terminal. Without a log directory it writes nothing."""
     run = tmp_path / "run"
     preamble = ["No carryable verdicts found; proceeding without carry."]
     print(preamble[0])

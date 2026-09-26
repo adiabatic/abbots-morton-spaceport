@@ -55,7 +55,7 @@ Never single-thread a broad run; `doc/parallelism.md` has the width rules. Run a
 - Codex's macOS sandbox blocks `sysctl -n hw.memsize`, so `rebuild/test_memory_budget.py::TestTheLiveProbe::test_the_portable_probe_is_byte_identical_to_hw_memsize_on_darwin` fails there even when the probe is correct. If it is the suite's only failure, rerun it outside the sandbox. Never weaken the probe or the test.
 - The same sandbox blocks Unix socket binding in `rebuild/test_standing_daemon.py`. A daemon-start traceback ending in `standing_client.bind` with `PermissionError: [Errno 1] Operation not permitted` needs a rerun outside the sandbox. When these sandbox restrictions fail the contracts lane, rerun `make test-rebuild` outside the sandbox so the gate records the result.
 
-## Re-adjudicating without a build
+## Rerunning the gates without a build
 
 The comparison-side inputs (the alias map, the divergence ledger, the contact allow-list, the kern sidecar, the oracle's two modules, and the baselines) are not part of the tables' stamp, so a change to one of them needs no new enumeration:
 
@@ -63,7 +63,7 @@ The comparison-side inputs (the alias map, the divergence ledger, the contact al
 uv run python -m rebuild.pipeline.run_m1 --gates-only
 ```
 
-That reruns the defect gate, the Manual-pin gate, and the oracle over the tables and font already on disk, and fails if the tables' stamp is stale. The artifact cycle takes this route itself when everything that changed since the last passing build is comparison-side (`comparison_side_label` in `rebuild/tools/artifact_cycle.py` lists what counts), and the green record it writes lets the next pass skip the build entirely.
+That reruns the defect gate, the Manual-pin gate, and the oracle over the tables and font already on disk, and fails if the tables' stamp is stale. The artifact cycle plans this gates-only rerun itself when everything that changed since the last passing build is comparison-side (`comparison_side_label` in `rebuild/tools/artifact_cycle.py` lists what counts), and the green record it writes lets the next pass skip the build entirely.
 
 The oracle serves what it can from the per-row stores that `rebuild/pipeline/oracle_cache.py` keeps beside the tables. Each row has two verdicts under two keys: the settlement comparison, keyed by the row's rune keys, and the shaped-position verdict, keyed by those plus the font's per-family glyph digests, the kern sidecar, and the position channel's module (`rebuild/pipeline/oracle_positions.py`).
 

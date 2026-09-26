@@ -551,11 +551,11 @@ def test_the_verdict_update_row_counts_the_carry_and_the_summary_quotes_what_the
 
 
 def test_the_verdict_update_row_falls_back_to_the_merge_when_no_carry_ran(tmp_path, monkeypatch):
-    """The store-only route runs no carry, because the surface did not change, so there is no carry count. The row reports the merge instead of staying blank."""
+    """A direct merge runs no carry, because the surface did not change, so there is no carry count. The row reports the merge instead of staying blank."""
     autosave = tmp_path / "verdicts-autosave.json"
     autosave.write_text("{}")
     monkeypatch.setattr(ac, "AUTOSAVE", autosave)
-    plan = _plan(store_only=True)
+    plan = _plan(direct_merge=True)
     report, failures = _run_verdict_update(
         plan,
         _verdict_update_stdout(
@@ -652,11 +652,11 @@ def test_render_plan_is_stringable():
 
 
 def test_every_plan_step_says_what_it_is_for():
-    """The banner prints every step's description. The reuse route is the one row whose description is not looked up under its own name: it spawns as run_m1:gates-only, reports under run_m1's row, and must describe the re-adjudication, not the build."""
+    """The banner prints every step's description. The gates-only rerun is the one row whose description is not looked up under its own name: it spawns as run_m1:gates-only, reports under run_m1's row, and must describe the gates-only rerun, not the build."""
     for plan in (
         _plan(),
         _plan(skip_gates=True),
-        _plan(reuse_run_m1=True, run_m1_note="comparison-side"),
+        _plan(rerun_gates_only=True, run_m1_note="comparison-side"),
         _plan(
             skip_surface=True,
             promote_surface=Path("var/rehearsal-review"),
@@ -666,9 +666,9 @@ def test_every_plan_step_says_what_it_is_for():
         for step in plan.steps:
             assert step.describe, step.name
             assert step.describe in ac.STEP_DESCRIPTIONS.values(), step.name
-    reuse = _plan(reuse_run_m1=True, run_m1_note="comparison-side")
-    assert reuse.describe("run_m1") == ac.STEP_DESCRIPTIONS[ac.RUN_M1_REUSE_STEP]
-    assert "rebuilding nothing" in reuse.describe("run_m1")
+    rerun = _plan(rerun_gates_only=True, run_m1_note="comparison-side")
+    assert rerun.describe("run_m1") == ac.STEP_DESCRIPTIONS[ac.RUN_M1_GATES_ONLY_STEP]
+    assert "rebuilding nothing" in rerun.describe("run_m1")
     assert _plan().describe("run_m1") == ac.STEP_DESCRIPTIONS["run_m1"]
 
 
@@ -699,9 +699,9 @@ def test_the_plan_block_counts_its_steps_and_leaves_the_sweep_undecided():
     assert "uv run pytest" in _step_lines(text, "gate:rebuild-contracts")
     assert console.counts_line(rows) == f"{len(rows)} steps: {len(rows) - 1}–{len(rows)} will run, 0 skipped"
 
-    reuse = _plan(reuse_run_m1=True, run_m1_note="only comparison-side inputs moved")
-    reuse_by_name = {row.name: row for row in ac.plan_rows(reuse)}
-    assert reuse_by_name["gate:conform"].status == console.STATUS_MAYBE
+    rerun = _plan(rerun_gates_only=True, run_m1_note="only comparison-side inputs moved")
+    rerun_by_name = {row.name: row for row in ac.plan_rows(rerun)}
+    assert rerun_by_name["gate:conform"].status == console.STATUS_MAYBE
 
     settled = _plan(
         skip_run_m1=True,
@@ -1665,9 +1665,9 @@ def test_a_failed_step_replays_its_whole_output_under_its_own_banner(tmp_path, c
     assert lines.index("stderr| on stderr") < len(lines) - 1
 
 
-def test_the_reuse_route_banners_under_the_plans_run_m1_row(tmp_path, capsys):
-    """`make cycle-timings --by-step` groups by step name, so the seconds-long re-adjudication spawns under its own name to keep its time out of the row for a full M1 build. The reader watching the pass expects the plan's run_m1 row, so the alias maps the spawn name to it for the banner, the log filename and the step column."""
-    plan = _plan(reuse_run_m1=True, run_m1_note="only comparison-side inputs moved")
+def test_the_gates_only_rerun_banners_under_the_plans_run_m1_row(tmp_path, capsys):
+    """`make cycle-timings --by-step` groups by step name, so the seconds-long gates-only rerun spawns under its own name to keep its time out of the row for a full M1 build. The reader watching the pass expects the plan's run_m1 row, so the alias maps the spawn name to it for the banner, the log filename and the step column."""
+    plan = _plan(rerun_gates_only=True, run_m1_note="only comparison-side inputs moved")
     log_dir = tmp_path / "logs"
     registry = ac._ChildRegistry()
     report = ac.CycleReport()
@@ -1677,18 +1677,18 @@ def test_the_reuse_route_banners_under_the_plans_run_m1_row(tmp_path, capsys):
         steps=[step.name for step in plan.steps], log_dir=log_dir, aliases=ac.STEP_ALIASES
     ) as cycle_console:
         result = ac._run_step(
-            ac.RUN_M1_REUSE_STEP,
-            [sys.executable, "-c", "print('re-adjudicating')"],
+            ac.RUN_M1_GATES_ONLY_STEP,
+            [sys.executable, "-c", "print('rerunning the gates')"],
             emit=cycle_console,
             registry=registry,
             stream=False,
         )
-        ac._close_step(cycle_console, report, ac.RUN_M1_REUSE_STEP, result, "ok")
+        ac._close_step(cycle_console, report, ac.RUN_M1_GATES_ONLY_STEP, result, "ok")
     out = capsys.readouterr().out
     assert "step 1  run_m1  step" in out
-    assert ac.RUN_M1_REUSE_STEP not in out
+    assert ac.RUN_M1_GATES_ONLY_STEP not in out
     assert "ok  12 unmatched, pins pass" in out
-    assert (log_dir / "01-run_m1.log").read_text() == "re-adjudicating\n"
+    assert (log_dir / "01-run_m1.log").read_text() == "rerunning the gates\n"
 
 
 def test_two_verbatim_children_interleave_between_lines_and_never_inside_one(capsys):
@@ -2910,7 +2910,7 @@ def test_cycle_summary_payload_plan_block_and_argv():
         "skip_gates": False,
         "skip_conform": False,
         "skip_run_m1": False,
-        "reuse_run_m1": False,
+        "rerun_gates_only": False,
         "skip_surface": False,
         "refresh_assets": False,
         "promote_surface": None,
@@ -2934,11 +2934,11 @@ def test_cycle_summary_payload_records_an_assets_refresh():
     assert payload["assets_status"].startswith("refreshed in place")
 
 
-def test_cycle_summary_payload_names_the_reuse_route_and_passes_no_kernel_width_on_it():
-    """The summary must tell the three run_m1 routes apart. A reuse pass is not a skip, and the thread widths it reports are the ones passed to the child, which on this route are none."""
-    plan = _plan(reuse_run_m1=True, run_m1_note="only comparison-side inputs moved")
+def test_cycle_summary_payload_names_the_gates_only_rerun_and_passes_no_kernel_width_to_it():
+    """The summary must tell the three run_m1 modes apart. A gates-only rerun is not a skip, and the thread widths it reports are the ones passed to the child, which for a gates-only rerun are none."""
+    plan = _plan(rerun_gates_only=True, run_m1_note="only comparison-side inputs moved")
     payload = ac.cycle_summary_payload(_green_report(), [], plan, "ok")
-    assert payload["plan"]["reuse_run_m1"] is True
+    assert payload["plan"]["rerun_gates_only"] is True
     assert payload["plan"]["skip_run_m1"] is False
     assert payload["plan"]["kernel_threads"] is None
     assert payload["plan"]["replay_threads"] is None
@@ -3855,7 +3855,7 @@ def _fake_run_m1_root(tmp_path):
 
 
 def test_comparison_side_label_names_only_the_inputs_no_table_stage_reads():
-    """`comparison_side_label` decides which inputs may change while a cycle reuses the enumeration and font on disk, so a label wrongly on it would let a pass re-adjudicate against artifacts that no longer match their sources. uv.lock is left off although the tables' stamp does not cover it, because it pins fontTools and uharfbuzz, and a bump there can change the font the reuse would rely on."""
+    """`comparison_side_label` decides which inputs may change while a cycle reuses the enumeration and font on disk, so a label wrongly on it would let a pass rerun the gates against artifacts that no longer match their sources. uv.lock is left off although the tables' stamp does not cover it, because it pins fontTools and uharfbuzz, and a bump there can change the font the rerun would rely on."""
     from rebuild.pipeline import fingerprint
 
     for label in fingerprint.NON_TABLE_DATA_LABELS:
@@ -3875,7 +3875,7 @@ def test_comparison_side_label_names_only_the_inputs_no_table_stage_reads():
 
 
 def test_every_run_m1_label_is_stamped_the_toolchain_or_comparison_side(tmp_path):
-    """Every label in the run_m1 key must be covered by the tables' stamp or named by `comparison_side_label`; otherwise the gates-only route would reuse artifacts that no longer match that input. The one exception is uv.lock, which is neither, so a change to it prevents the route. A new key line that fits neither group fails this test."""
+    """Every label in the run_m1 key must be covered by the tables' stamp or named by `comparison_side_label`; otherwise a gates-only rerun would reuse artifacts that no longer match that input. The one exception is uv.lock, which is neither, so a change to it prevents a gates-only rerun. A new key line that fits neither group fails this test."""
     from rebuild.pipeline import fingerprint
 
     root = _fake_run_m1_root(tmp_path)
@@ -3918,7 +3918,7 @@ def test_the_allow_list_line_ignores_prose(tmp_path):
 
 
 def test_the_divergence_ledger_line_ignores_prose(tmp_path):
-    """Reclassifying a divergence class must change this key, because the oracle reads the ledger to classify rows. Rewording a class's `why` must not, because no classifier reads it. The review build copies the `why` into the manifest and the Stage B `explain_prose` component hashes it, so a reword costs a surface rebuild served from the unit cache and no re-adjudication."""
+    """Reclassifying a divergence class must change this key, because the oracle reads the ledger to classify rows. Rewording a class's `why` must not, because no classifier reads it. The review build copies the `why` into the manifest and the Stage B `explain_prose` component hashes it, so a reword costs a surface rebuild served from the unit cache and no gates-only rerun."""
     from rebuild.pipeline import fingerprint
 
     root = _fake_run_m1_root(tmp_path)
@@ -3976,8 +3976,8 @@ def test_a_comparison_side_edit_moves_the_run_key_and_leaves_the_sweeps_alone(tm
     assert "semantics" not in files and "M1.otf" not in files
 
 
-def test_gates_only_reuse_licenses_only_a_diff_the_tables_stamp_cannot_see():
-    """`gates_only_reuse` returns None in three cases, each meaning the gates-only route is not taken: there is no usable green record, nothing moved (the plain skip handles that), or a build-side input moved and the tables must be rebuilt. The test also checks `moved_input_labels`, because the annotated labels the note prints, such as `name (changed)`, would match no `comparison_side_label` entry, and the route would silently never be taken."""
+def test_gates_only_rerun_licenses_only_a_diff_the_tables_stamp_cannot_see():
+    """`gates_only_rerun` returns None in three cases, each meaning no gates-only rerun is planned: there is no usable green record, nothing moved (the plain skip handles that), or a build-side input moved and the tables must be rebuilt. The test also checks `moved_input_labels`, because the annotated labels the note prints, such as `name (changed)`, would match no `comparison_side_label` entry, and the rerun would silently never be planned."""
     stored = {
         "glyph_data/runes/qsX.yaml": "r1",
         "rebuild/m1-divergences.yaml": "d1",
@@ -3986,12 +3986,12 @@ def test_gates_only_reuse_licenses_only_a_diff_the_tables_stamp_cannot_see():
         "uv.lock": "l1",
     }
     record = {"files": dict(stored)}
-    assert ac.gates_only_reuse(record, dict(stored)) is None
-    assert ac.gates_only_reuse(None, dict(stored)) is None
-    assert ac.gates_only_reuse({"fingerprint": "fp"}, dict(stored)) is None
+    assert ac.gates_only_rerun(record, dict(stored)) is None
+    assert ac.gates_only_rerun(None, dict(stored)) is None
+    assert ac.gates_only_rerun({"fingerprint": "fp"}, dict(stored)) is None
 
     ledger = {**stored, "rebuild/m1-divergences.yaml": "d2", "rebuild/pipeline/oracle.py": "o2"}
-    assert ac.gates_only_reuse(record, ledger) == [
+    assert ac.gates_only_rerun(record, ledger) == [
         "rebuild/m1-divergences.yaml",
         "rebuild/pipeline/oracle.py",
     ]
@@ -4002,21 +4002,21 @@ def test_gates_only_reuse_licenses_only_a_diff_the_tables_stamp_cannot_see():
     assert ac.moved_inputs_note(record, ledger) == (
         "rebuild/m1-divergences.yaml (changed), rebuild/pipeline/oracle.py (changed)"
     )
-    assert ac.gates_only_reuse(record, {**stored, "rebuild/pipeline/oracle_positions.py": "p2"}) == [
+    assert ac.gates_only_rerun(record, {**stored, "rebuild/pipeline/oracle_positions.py": "p2"}) == [
         "rebuild/pipeline/oracle_positions.py"
     ]
 
-    assert ac.gates_only_reuse(record, {**stored, "baseline-default.subset.tsv.gz": "s1"}) == [
+    assert ac.gates_only_rerun(record, {**stored, "baseline-default.subset.tsv.gz": "s1"}) == [
         "baseline-default.subset.tsv.gz"
     ]
     dropped = {name: value for name, value in stored.items() if name != "rebuild/m1-divergences.yaml"}
-    assert ac.gates_only_reuse(record, dropped) == ["rebuild/m1-divergences.yaml"]
+    assert ac.gates_only_rerun(record, dropped) == ["rebuild/m1-divergences.yaml"]
 
-    assert ac.gates_only_reuse(record, {**stored, "uv.lock": "l2"}) is None
-    assert ac.gates_only_reuse(record, {**stored, "glyph_data/runes/qsX.yaml": "r2"}) is None
-    assert ac.gates_only_reuse(record, {**stored, "rebuild/pipeline/settle.py": "s1"}) is None
+    assert ac.gates_only_rerun(record, {**stored, "uv.lock": "l2"}) is None
+    assert ac.gates_only_rerun(record, {**stored, "glyph_data/runes/qsX.yaml": "r2"}) is None
+    assert ac.gates_only_rerun(record, {**stored, "rebuild/pipeline/settle.py": "s1"}) is None
     assert (
-        ac.gates_only_reuse(record, {name: value for name, value in stored.items() if name != "uv.lock"})
+        ac.gates_only_rerun(record, {name: value for name, value in stored.items() if name != "uv.lock"})
         is None
     )
 
@@ -4936,7 +4936,7 @@ def test_main_runs_every_heavy_gate_on_a_pass_that_rebuilds(tmp_path, monkeypatc
 
 
 def test_main_auto_skips_the_rebuild_suite_even_when_run_m1_runs_live(tmp_path, monkeypatch, capsys):
-    """The suite's closure includes no build artifact, so a live M1 rebuild cannot change its key during the pass, and the preflight can decide that skip on every route."""
+    """The suite's closure includes no build artifact, so a live M1 rebuild cannot change its key during the pass, and the preflight can decide that skip in every run_m1 mode."""
     _unsettled_repo(tmp_path, monkeypatch)
     monkeypatch.setattr(ac, "rebuild_lane_fingerprint", lambda root, lane: f"key-{lane}")
     monkeypatch.setattr(
@@ -4973,7 +4973,7 @@ def _full_build_step(out: str):
 
 
 def _comparison_side_drift(tmp_path, monkeypatch, moved="rebuild/m1-divergences.yaml"):
-    """Set up a repo whose last green M1 build differs from the current inputs only in `moved`, with `m1_artifacts_present` and `m1_tables_stamped` both true. The tests that use it each change one of these three conditions and read the chosen route from the plan."""
+    """Set up a repo whose last green M1 build differs from the current inputs only in `moved`, with `m1_artifacts_present` and `m1_tables_stamped` both true. The tests that use it each change one of these three conditions and read the chosen mode from the plan."""
     _unsettled_repo(tmp_path, monkeypatch)
     ac.record_green(cycle_paths.RUN_M1_GREEN, "green-key", files={moved: "before", "uv.lock": "lock-1"})
     monkeypatch.setattr(ac, "run_m1_skip_files", lambda root=None: {moved: "after", "uv.lock": "lock-1"})
@@ -4981,8 +4981,8 @@ def _comparison_side_drift(tmp_path, monkeypatch, moved="rebuild/m1-divergences.
     monkeypatch.setattr(ac, "m1_tables_stamped", lambda root=None: True)
 
 
-def test_main_re_adjudicates_when_only_comparison_side_inputs_moved(tmp_path, monkeypatch, capsys):
-    """When only a ledger changed, the pass re-runs the gates instead of rebuilding. The tables' stamp does not cover the changed file, so the enumeration and font on disk still match the runes, and `run_m1 --gates-only` re-runs the gates over them. No `--kernel-threads` or `--replay-threads` is passed, because this route enumerates and replays nothing."""
+def test_main_reruns_the_gates_when_only_comparison_side_inputs_moved(tmp_path, monkeypatch, capsys):
+    """When only a ledger changed, the pass re-runs the gates instead of rebuilding. The tables' stamp does not cover the changed file, so the enumeration and font on disk still match the runes, and `run_m1 --gates-only` re-runs the gates over them. No `--kernel-threads` or `--replay-threads` is passed, because this mode enumerates and replays nothing."""
     _comparison_side_drift(tmp_path, monkeypatch)
     assert ac.main(["--dry-run"]) == 0
     out = capsys.readouterr().out
@@ -4999,22 +4999,22 @@ def test_main_re_adjudicates_when_only_comparison_side_inputs_moved(tmp_path, mo
     assert "inputs moved since its last green" not in row
 
 
-def test_a_plan_that_skips_run_m1_never_also_reuses_it():
-    """The skip and reuse routes are exclusive, and the skip wins because nothing moved and there is nothing to re-adjudicate. The plan resolves the pair itself instead of relying on its caller. The reuse route is a step that runs, so it has an argv, and it passes no `--kernel-threads` or `--replay-threads`."""
-    both = _plan(skip_run_m1=True, reuse_run_m1=True, run_m1_note="build inputs unchanged")
-    assert both.reuse_run_m1 is False
+def test_a_plan_that_skips_run_m1_never_also_reruns_its_gates():
+    """The skip and the gates-only rerun are exclusive, and the skip wins because nothing moved and there are no gates to rerun. The plan resolves the pair itself instead of relying on its caller. The gates-only rerun is a step that runs, so it has an argv, and it passes no `--kernel-threads` or `--replay-threads`."""
+    both = _plan(skip_run_m1=True, rerun_gates_only=True, run_m1_note="build inputs unchanged")
+    assert both.rerun_gates_only is False
     assert not both.runs("run_m1")
-    reuse = _plan(reuse_run_m1=True, run_m1_note="only comparison-side inputs moved")
-    assert reuse.runs("run_m1")
-    assert "--gates-only" in reuse.argv("run_m1")
-    assert "--kernel-threads" not in reuse.argv("run_m1")
-    assert "--replay-threads" not in reuse.argv("run_m1")
+    rerun = _plan(rerun_gates_only=True, run_m1_note="only comparison-side inputs moved")
+    assert rerun.runs("run_m1")
+    assert "--gates-only" in rerun.argv("run_m1")
+    assert "--kernel-threads" not in rerun.argv("run_m1")
+    assert "--replay-threads" not in rerun.argv("run_m1")
 
 
-def test_main_skips_the_surface_on_the_reuse_route_only_when_stage_a_already_stands(
+def test_main_skips_the_surface_on_a_gates_only_rerun_only_when_stage_a_already_stands(
     tmp_path, monkeypatch, capsys
 ):
-    """On the gates-only route the surface build is skipped only when `m1_stage_a_current` says the Stage A record on disk matches the live sources. A contact allow-list edit is outside every Stage A component, so the record the gates-only pass rewrites is the one already on disk and the surface cannot change. A divergence-ledger edit moves Stage A's data component, so the record on disk is stale until the pass rewrites it. The skip route can trust the record because nothing moved at all."""
+    """On a gates-only rerun the surface build is skipped only when `m1_stage_a_current` says the Stage A record on disk matches the live sources. A contact allow-list edit is outside every Stage A component, so the record the gates-only pass rewrites is the one already on disk and the surface cannot change. A divergence-ledger edit moves Stage A's data component, so the record on disk is stale until the pass rewrites it. The skip can trust the record because nothing moved at all."""
     _comparison_side_drift(tmp_path, monkeypatch, moved="rebuild/m1-contact-allow.yaml")
     monkeypatch.setattr(ac, "surface_build_skippable", lambda root=None: True)
     monkeypatch.setattr(ac, "m1_stage_a_current", lambda root=None: True)
@@ -5050,7 +5050,7 @@ def test_m1_stage_a_current_compares_the_record_against_the_live_sources(tmp_pat
 
 
 def test_main_rebuilds_when_the_tables_on_disk_no_longer_carry_their_stamp(tmp_path, monkeypatch, capsys):
-    """A green record alone does not permit the reuse. It shows that the artifacts once came from a complete build of every build-side input; only the tables' stamp (`m1_tables_stamped`) shows that none of those inputs has moved since. Without the stamp the pass rebuilds."""
+    """A green record alone does not permit a gates-only rerun. It shows that the artifacts once came from a complete build of every build-side input; only the tables' stamp (`m1_tables_stamped`) shows that none of those inputs has moved since. Without the stamp the pass rebuilds."""
     _comparison_side_drift(tmp_path, monkeypatch)
     monkeypatch.setattr(ac, "m1_tables_stamped", lambda root=None: False)
     assert ac.main(["--dry-run"]) == 0
@@ -5071,8 +5071,8 @@ def test_main_rebuilds_when_anything_build_side_moved(tmp_path, monkeypatch, cap
     assert "--gates-only" not in out
 
 
-def test_main_takes_no_route_at_all_under_fresh(tmp_path, monkeypatch, capsys):
-    """--fresh disables both routes. It covers the case no input fingerprint can detect: an artifact on disk that is wrong for some other reason."""
+def test_main_takes_neither_mode_under_fresh(tmp_path, monkeypatch, capsys):
+    """--fresh disables both modes. It covers the case no input fingerprint can detect: an artifact on disk that is wrong for some other reason."""
     _comparison_side_drift(tmp_path, monkeypatch)
     assert ac.main(["--dry-run", "--fresh"]) == 0
     out = capsys.readouterr().out
@@ -5083,7 +5083,7 @@ def test_main_takes_no_route_at_all_under_fresh(tmp_path, monkeypatch, capsys):
 def test_run_cycle_skips_the_sweep_after_run_m1_on_the_key_the_finished_artifacts_carry(
     monkeypatch, tmp_path, capsys
 ):
-    """The conform skip is decided after run_m1, not in the plan, because only a finished build knows what the font came out as. All three run_m1 routes (skipped, gates-only, rebuilt) end on this same key. A skip over the artifacts the pass leaves behind is recorded as "proved", which is what `review/status.py` needs to call a surface ready for review."""
+    """The conform skip is decided after run_m1, not in the plan, because only a finished build knows what the font came out as. All three run_m1 modes (skipped, gates-only, rebuilt) end on this same key. A skip over the artifacts the pass leaves behind is recorded as "proved", which is what `review/status.py` needs to call a surface ready for review."""
     monkeypatch.setattr(cycle_paths, "CONFORM_GREEN", tmp_path / "conform-green.json")
     monkeypatch.setattr(ac, "conform_skip_fingerprint", lambda root=None, horizon=None: "cfp")
     monkeypatch.setattr(ac, "rebuild_lane_fingerprint", lambda root, lane: f"rfp-{lane}")
@@ -5217,8 +5217,8 @@ def test_do_run_m1_records_green_only_when_fingerprint_stable(monkeypatch, tmp_p
     assert ac.read_green_record(green) is None
 
 
-def test_do_run_m1_reuse_spares_the_summary_the_gates_only_pass_rewrites(monkeypatch, tmp_path):
-    """On the gates-only route the pass keeps pipeline_summary.json and clears the other two summaries. `--gates-only` rewrites that summary's defect fields in place and exits without one, so clearing it would break the pass. The two gate summaries are the child's own output and are cleared as on a full build, so a child that dies mid-pass cannot leave the last pass's results to be read as this one's. After the spawn the route follows the full build's path, including the green record."""
+def test_do_run_m1_gates_only_spares_the_summary_that_pass_rewrites(monkeypatch, tmp_path):
+    """On a gates-only rerun the pass keeps pipeline_summary.json and clears the other two summaries. `--gates-only` rewrites that summary's defect fields in place and exits without one, so clearing it would break the pass. The two gate summaries are the child's own output and are cleared as on a full build, so a child that dies mid-pass cannot leave the last pass's results to be read as this one's. After the spawn the rerun follows the full build's path, including the green record."""
     files = {name: tmp_path / f"{name}.json" for name in cycle_paths.M1_SUMMARY_FILES}
     monkeypatch.setattr(cycle_paths, "M1_SUMMARY_FILES", files)
     green = tmp_path / "run-m1-green.json"
@@ -5245,12 +5245,12 @@ def test_do_run_m1_reuse_spares_the_summary_the_gates_only_pass_rewrites(monkeyp
         emit=ac._Emitter(),
         registry=ac._ChildRegistry(),
         argv=["uv", "run", "python", "-m", "rebuild.pipeline.run_m1", "--gates-only"],
-        reuse=True,
+        gates_only=True,
         record=True,
         fingerprint="fp-live",
     )
     assert survivors == ["pipeline"]
-    assert spawned == [ac.RUN_M1_REUSE_STEP] != ["run_m1"]
+    assert spawned == [ac.RUN_M1_GATES_ONLY_STEP] != ["run_m1"]
     assert gate is not None and gate.ok
     assert report.unmatched == 3
     assert json.loads(files["pipeline"].read_text())["gsub_rule_count"] == 4212
@@ -5260,7 +5260,7 @@ def test_do_run_m1_reuse_spares_the_summary_the_gates_only_pass_rewrites(monkeyp
     assert record["files"] == {"rebuild/m1-divergences.yaml": "d2"}
 
 
-def test_do_run_m1_a_full_build_clears_the_summary_the_reuse_route_keeps(monkeypatch, tmp_path):
+def test_do_run_m1_a_full_build_clears_the_summary_a_gates_only_rerun_keeps(monkeypatch, tmp_path):
     """The converse, so the exemption cannot widen unnoticed: a full build writes its own pipeline summary, so it clears the stale one, which would otherwise be read as this build's if the child died before writing a new one."""
     files = {name: tmp_path / f"{name}.json" for name in cycle_paths.M1_SUMMARY_FILES}
     monkeypatch.setattr(cycle_paths, "M1_SUMMARY_FILES", files)
@@ -5532,18 +5532,18 @@ def test_the_summary_table_carries_each_steps_figure_and_what_it_cost():
     assert reused["run_m1"].outcome == "skipped"
     assert reused["run_m1"].figure == ""
 
-    reuse = _plan(reuse_run_m1=True, run_m1_note="only comparison-side inputs moved")
-    reuse_report = ac.CycleReport()
-    ac._timed_spawn(lambda name, argv, **kw: ac._StepResult(name, 0, "", "", 4.0), reuse_report)(
-        ac.RUN_M1_REUSE_STEP,
+    rerun = _plan(rerun_gates_only=True, run_m1_note="only comparison-side inputs moved")
+    rerun_report = ac.CycleReport()
+    ac._timed_spawn(lambda name, argv, **kw: ac._StepResult(name, 0, "", "", 4.0), rerun_report)(
+        ac.RUN_M1_GATES_ONLY_STEP,
         ["uv", "run", "python", "-m", "rebuild.pipeline.run_m1", "--gates-only"],
         emit=ac._Emitter(),
         registry=ac._ChildRegistry(),
         stream=False,
     )
-    reused = {row.name: row for row in ac.summary_rows(reuse_report, reuse, retention_ran=False)}
-    assert reused["run_m1"].outcome == "ok"
-    assert reused["run_m1"].seconds == 4.0
+    reran = {row.name: row for row in ac.summary_rows(rerun_report, rerun, retention_ran=False)}
+    assert reran["run_m1"].outcome == "ok"
+    assert reran["run_m1"].seconds == 4.0
 
 
 def test_a_step_that_came_back_nonzero_never_reads_as_an_ok_row():
@@ -6103,9 +6103,9 @@ def test_dry_run_plan_skip_verdict_update_replaces_the_whole_step():
     assert by_name["census"].argv is not None
 
 
-def test_dry_run_plan_store_only_merges_the_master():
+def test_dry_run_plan_direct_merge_merges_the_master():
     """When the surface did not move, the carry would map every unit onto itself, and its re-prefixed notes could never outrank the store. So the verdict update merges the master directly: it is the one input the store's own hash cannot see."""
-    plan = _plan(store_only=True)
+    plan = _plan(direct_merge=True)
     by_name = {step.name: step for step in plan.steps}
     assert plan.carry_out is None
     argv = _argv(by_name["verdict-update"])
@@ -6116,18 +6116,18 @@ def test_dry_run_plan_store_only_merges_the_master():
     assert "the carry is the identity" in by_name["verdict-update"].note
 
 
-def test_dry_run_plan_store_only_still_honors_no_merge():
-    plan = _plan(store_only=True, no_merge=True)
+def test_dry_run_plan_direct_merge_still_honors_no_merge():
+    plan = _plan(direct_merge=True, no_merge=True)
     by_name = {step.name: step for step in plan.steps}
     assert "--no-merge" in _argv(by_name["verdict-update"])
     assert not plan.do_merge
 
 
-def test_the_store_only_report_still_names_the_frontier_carried_file(tmp_path, monkeypatch):
+def test_the_direct_merge_report_still_names_the_frontier_carried_file(tmp_path, monkeypatch):
     carried = tmp_path / "verdicts-carried-abc.json"
     carried.write_text("{}")
     monkeypatch.setattr(ac, "frontier_carry_out", lambda: carried)
-    plan = _plan(store_only=True)
+    plan = _plan(direct_merge=True)
     report, failures = _run_verdict_update(plan, _verdict_update_stdout(*_FULL_VERDICT_UPDATE[1:]))
     assert failures == []
     assert report.carry_out == carried
@@ -6383,7 +6383,7 @@ def test_main_never_skips_the_verdict_update_under_fresh_or_a_partial_run(tmp_pa
 def test_main_carries_a_master_stamped_for_another_surface_instead_of_merging_it(
     tmp_path, monkeypatch, capsys
 ):
-    """The store-only route passes the master to the merge unchanged, and the merge refuses any input stamped for another surface, so the route is taken only for a master stamped for the served surface. A pass stopped after the surface build and before the carry leaves the autosave stamped for the previous surface, and the next pass skips the build as unchanged; that pass plans the full carry, as does a pass given such a master by --verdicts. For the auto-resolved master, alignment comes from the resolution, whose line already names the older stamp, so the master is not parsed again and the declined-route note is not printed. A --verdicts master is checked with `master_stamped_for_surface`, and the note says why its carry runs. Once the autosave is restamped for the served surface, the store-only route is taken again."""
+    """The direct merge passes the master to the merge unchanged, and the merge refuses any input stamped for another surface, so the direct merge is planned only for a master stamped for the served surface. A pass stopped after the surface build and before the carry leaves the autosave stamped for the previous surface, and the next pass skips the build as unchanged; that pass plans the full carry, as does a pass given such a master by --verdicts. For the auto-resolved master, alignment comes from the resolution, whose line already names the older stamp, so the master is not parsed again and the direct-merge decline note is not printed. A --verdicts master is checked with `master_stamped_for_surface`, and the note says why its carry runs. Once the autosave is restamped for the served surface, the direct merge is planned again."""
     _settled_repo(tmp_path, monkeypatch)
     ac.record_verdict_update_green("moved")
     served = "2026-07-17T20:24:44Z"
@@ -6412,15 +6412,15 @@ def test_main_carries_a_master_stamped_for_another_surface_instead_of_merging_it
         outs.append(out)
     resolved, named = outs
     assert f"stamped {older}, an older surface than the served one" in resolved
-    assert ac.STORE_ONLY_DECLINED_NOTE not in resolved
-    assert ac.STORE_ONLY_DECLINED_NOTE in named
+    assert ac.DIRECT_MERGE_DECLINED_NOTE not in resolved
+    assert ac.DIRECT_MERGE_DECLINED_NOTE in named
     assert asked == [export]
 
     autosave.write_text(json.dumps(_verdicts_doc(served, ["u-1"])))
     assert ac.main(["--dry-run"]) == 0
     out = capsys.readouterr().out
     assert "--merge-master" in _step_lines(out, "verdict-update")
-    assert ac.STORE_ONLY_DECLINED_NOTE not in out
+    assert ac.DIRECT_MERGE_DECLINED_NOTE not in out
     assert asked == [export]
 
     surface = tmp_path / "rebuild" / "out" / "review"
@@ -6472,7 +6472,7 @@ def test_main_plans_no_assets_refresh_when_the_surface_already_matches(tmp_path,
 
 
 def test_server_can_keep_running_only_when_the_pass_writes_neither_of_the_apps_files():
-    """The predicate depends on what the plan writes. A --no-carry pass, or a --no-merge carry over an unmoved surface, keeps the review server running; any pass that writes the store (store-only included) or rewrites the surface stops the review server."""
+    """The predicate depends on what the plan writes. A --no-carry pass, or a --no-merge carry over an unmoved surface, keeps the review server running; any pass that writes the store (a direct merge included) or rewrites the surface stops the review server."""
     assert ac.server_can_keep_running(skip_surface=True, writes_store=False) is True
     assert ac.server_can_keep_running(skip_surface=True, writes_store=True) is False
     assert ac.server_can_keep_running(skip_surface=False, writes_store=False) is False
@@ -6611,7 +6611,7 @@ def test_main_promotes_a_current_rehearsal_instead_of_rebuilding(tmp_path, monke
 
 
 def test_a_promoting_pass_runs_the_whole_verdict_update(tmp_path, monkeypatch, capsys):
-    """A promoting pass runs the full verdict update. The verdict-update skip and the store-only route both require an unmoved surface, and a promotion moves it and gives it a new stamp. So even with a matching verdict-update record the verdict update runs the full carry, which puts the store's verdicts onto the promoted units by id, and the carry-source line says the master is stamped for the surface this pass replaces."""
+    """A promoting pass runs the full verdict update. The verdict-update skip and the direct merge both require an unmoved surface, and a promotion moves it and gives it a new stamp. So even with a matching verdict-update record the verdict update runs the full carry, which puts the store's verdicts onto the promoted units by id, and the carry-source line says the master is stamped for the surface this pass replaces."""
     _rehearsal_repo(tmp_path, monkeypatch)
     ac.record_verdict_update_green("plu")
     assert ac.main(["--dry-run"]) == 0
@@ -7537,7 +7537,7 @@ _SKIP_LOCK = (
 
 
 def test_a_version_bump_of_the_lock_moves_no_run_m1_input_while_a_pin_bump_still_rebuilds(tmp_path):
-    """The run_m1 skip key hashes `uv.lock` without the project's own block (`fingerprint.lock_digest`). Changing the project version, which the bump-minor skill's `uv sync` writes, leaves the line and the key unchanged, so the green stands and `gates_only_reuse` sees nothing moved. Changing a dependency pin moves the line, and because the lock is not comparison-side the route is a rebuild. The `lock-1` stand-ins elsewhere in this module have no project block and hash by raw bytes, which the earlier tests cover."""
+    """The run_m1 skip key hashes `uv.lock` without the project's own block (`fingerprint.lock_digest`). Changing the project version, which the bump-minor skill's `uv sync` writes, leaves the line and the key unchanged, so the green stands and `gates_only_rerun` sees nothing moved. Changing a dependency pin moves the line, and because the lock is not comparison-side the pass rebuilds. The `lock-1` stand-ins elsewhere in this module have no project block and hash by raw bytes, which the earlier tests cover."""
     root = _fake_run_m1_root(tmp_path)
     (root / "uv.lock").write_text(_SKIP_LOCK)
     stored = ac.run_m1_skip_files(root)
@@ -7547,11 +7547,11 @@ def test_a_version_bump_of_the_lock_moves_no_run_m1_input_while_a_pin_bump_still
     assert ac.run_m1_skip_files(root)["uv.lock"] == stored["uv.lock"]
     assert ac.run_m1_skip_fingerprint(root) == key
     assert ac.moved_input_labels(record, ac.run_m1_skip_files(root)) is None
-    assert ac.gates_only_reuse(record, ac.run_m1_skip_files(root)) is None
+    assert ac.gates_only_rerun(record, ac.run_m1_skip_files(root)) is None
     (root / "uv.lock").write_text(_SKIP_LOCK.replace('version = "4.61.1"', 'version = "4.62.0"'))
     current = ac.run_m1_skip_files(root)
     assert current["uv.lock"] != stored["uv.lock"]
     assert ac.run_m1_skip_fingerprint(root) != key
     assert ac.moved_input_labels(record, current) == ["uv.lock"]
-    assert ac.gates_only_reuse(record, current) is None
+    assert ac.gates_only_rerun(record, current) is None
     assert ac.moved_inputs_note(record, current) == "uv.lock (changed)"

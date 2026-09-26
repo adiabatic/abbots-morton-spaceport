@@ -387,7 +387,7 @@ def render_runs(
 def render_by_step(steps: dict[str, list[dict]], order: list[str], checks: list[dict]) -> list[str]:
     """Return the count, median, max, and latest seconds per step and host, over the cycle's step lines plus every check line recorded outside a cycle. A check line with a run is left out, because the same run's step line already counts its seconds. A skipped check has no seconds and is left out too, so it does not pull a median toward zero.
 
-    A check line gets its own row, named `check:<name>`, because a check run alone on the machine and the same work run beside a whole cycle pass are different measurements. The prefix also keeps the check `run_m1` apart from the step `run_m1`. That check is recorded both for an interactive full build and for a seconds-long `run_m1 --gates-only`, and in the step's row it would make `latest` report the re-adjudication as the most recent cost of a full M1 build.
+    A check line gets its own row, named `check:<name>`, because a check run alone on the machine and the same work run beside a whole cycle pass are different measurements. The prefix also keeps the check `run_m1` apart from the step `run_m1`. That check is recorded both for an interactive full build and for a seconds-long `run_m1 --gates-only`, and in the step's row it would make `latest` report the gates-only rerun as the most recent cost of a full M1 build.
     """
     buckets: dict[tuple[str, str], list[float]] = {}
     rss_peaks: dict[tuple[str, str], list[float]] = {}

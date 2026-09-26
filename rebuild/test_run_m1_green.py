@@ -1,4 +1,4 @@
-"""Tests for the green records and check lines run_m1 writes, plus its exit handling and the oracle and belt fan-in. An interactive run_m1, `--conform-only`, and `--gates-only` record the same green files the artifact cycle skips on, so a fix verified by hand is not verified again by the next cycle, and each records its result as a check line in the timings journal. The results come from artifact_cycle's evaluators (`evaluate_run_m1_gate`, `evaluate_conform_gate`). Unmatched oracle rows are not a failure, so a run that has them records a green and exits zero. `--gates-only` records run_m1's green only when a prior green exists and every input that moved since it is comparison-side (`artifact_cycle.gates_only_reuse`), so the next cycle can skip run_m1 after a ledger edit."""
+"""Tests for the green records and check lines run_m1 writes, plus its exit handling and the oracle and belt fan-in. An interactive run_m1, `--conform-only`, and `--gates-only` record the same green files the artifact cycle skips on, so a fix verified by hand is not verified again by the next cycle, and each records its result as a check line in the timings journal. The results come from artifact_cycle's evaluators (`evaluate_run_m1_gate`, `evaluate_conform_gate`). Unmatched oracle rows are not a failure, so a run that has them records a green and exits zero. `--gates-only` records run_m1's green only when a prior green exists and every input that moved since it is comparison-side (`artifact_cycle.gates_only_rerun`), so the next cycle can skip run_m1 after a ledger edit."""
 
 import gzip
 import itertools
@@ -1253,7 +1253,7 @@ class TestGatesOnly:
         assert record is not None
         assert record["fingerprint"] == "fp-prior"
 
-    def test_it_files_the_re_adjudications_result(self, monkeypatch, tmp_path):
+    def test_it_files_the_gates_only_reruns_result(self, monkeypatch, tmp_path):
         """The pass takes its result from the same evaluator the cycle uses, records that result as a check line with no `run` field, and exits accordingly."""
         ran = self._reuse(monkeypatch, {})
         self._build(monkeypatch, tmp_path, ran)

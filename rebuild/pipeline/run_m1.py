@@ -10,9 +10,9 @@ Settlement-lookup outcomes are `settle.cell_label` names, so the decision-table 
 
 The split-buffer check runs inside gate:conform's belt, at horizon 4 on every build and at horizon 5 or deeper through `make conform-deep`. Read-back's boundary-glyphs stage checks the ZWNJ glyph's zero advance and empty outline on the written font bytes, so the belt does not check them at every shaped slot.
 
-Run as `uv run python -m rebuild.pipeline.run_m1`. `--conform-only` runs only the belt against the M1.otf on disk. `--gates-only` re-runs the defect gate, the Manual-pin gate and the oracle over the tables and font already on disk, without rebuilding anything. It is the fast way to re-check an edit to a comparison-side input: the divergence ledger, the alias map, the kern sidecar, the contact allow-list the defect gate reads, or the oracle's own code (the classifier and ledger match in rebuild/pipeline/oracle.py, the position channel in rebuild/pipeline/oracle_positions.py). The tables' stamp leaves all of these out (`fingerprint.table_code_paths`; rebuild/test_build_code_closure.py checks that the build never imports either module). A `--gates-only` pass records run_m1's green when a prior green exists and everything that changed since is comparison-side, so the artifact cycle takes this route itself and the pass after it skips run_m1.
+Run as `uv run python -m rebuild.pipeline.run_m1`. `--conform-only` runs only the belt against the M1.otf on disk. `--gates-only` re-runs the defect gate, the Manual-pin gate and the oracle over the tables and font already on disk, without rebuilding anything. It is the fast way to re-check an edit to a comparison-side input: the divergence ledger, the alias map, the kern sidecar, the contact allow-list the defect gate reads, or the oracle's own code (the classifier and ledger match in rebuild/pipeline/oracle.py, the position channel in rebuild/pipeline/oracle_positions.py). The tables' stamp leaves all of these out (`fingerprint.table_code_paths`; rebuild/test_build_code_closure.py checks that the build never imports either module). A `--gates-only` pass records run_m1's green when a prior green exists and everything that changed since is comparison-side, so the artifact cycle plans this gates-only rerun itself and the pass after it skips run_m1.
 
-Both routes serve what they can from the per-row verdict stores that rebuild/pipeline/oracle_cache.py keeps beside the tables. A ledger edit changes no family key and no stamp line, so every row and position verdict is served and only the ledger match and the audit run. An alias edit changes the family keys of the families it names, so only the rows that reach them are re-derived. An edit to the kern sidecar or to the position channel's module keeps the row verdicts and re-shapes the positions, and a classifier edit serves both. `--fresh-oracle-cache` ignores the stores, and `--gates-only` may read them but never writes one.
+A full run and a `--gates-only` rerun both serve what they can from the per-row verdict stores that rebuild/pipeline/oracle_cache.py keeps beside the tables. A ledger edit changes no family key and no stamp line, so every row and position verdict is served and only the ledger match and the audit run. An alias edit changes the family keys of the families it names, so only the rows that reach them are re-derived. An edit to the kern sidecar or to the position channel's module keeps the row verdicts and re-shapes the positions, and a classifier edit serves both. `--fresh-oracle-cache` ignores the stores, and `--gates-only` may read them but never writes one.
 """
 
 from __future__ import annotations
@@ -1636,16 +1636,16 @@ def _run_pregate_guards() -> None:
 
 
 def run_gates_only(out_dir: Path = OUT_DIR, jobs: int = 1, fresh_cache: bool = False) -> None:
-    """Re-run everything a full run does after the table build except the stages that produce artifacts: the defect gate, the Manual-pin replay and the oracle, over the tables and the M1.otf already on disk. It rewrites the defect fields of `pipeline_summary.json`, the Stage A record, the gate summaries and `divergence-audit.tsv`, and compiles nothing. The reuse depends on the stamp the build left on its serialized enumerations. The stamp names the sources those tables came from, so a stamp that still matches the runes on disk means the M1.otf beside them is the font those runes describe, and a mismatch stops with an error instead of sweeping a stale binary. Because the stamp names only what the build reads, every comparison-side edit passes it and is re-checked here: the divergence ledger, the alias map, the kern sidecar, the contact allow-list the defect gate reads, and the classifier and the position channel, rebuild/pipeline/oracle.py and rebuild/pipeline/oracle_positions.py, both outside the stamp's code half.
+    """Re-run everything a full run does after the table build except the stages that produce artifacts: the defect gate, the Manual-pin replay and the oracle, over the tables and the M1.otf already on disk. It rewrites the defect fields of `pipeline_summary.json`, the Stage A record, the gate summaries and `divergence-audit.tsv`, and compiles nothing. The rerun depends on the stamp the build left on its serialized enumerations. The stamp names the sources those tables came from, so a stamp that still matches the runes on disk means the M1.otf beside them is the font those runes describe, and a mismatch stops with an error instead of sweeping a stale binary. Because the stamp names only what the build reads, every comparison-side edit passes it and is re-checked here: the divergence ledger, the alias map, the kern sidecar, the contact allow-list the defect gate reads, and the classifier and the position channel, rebuild/pipeline/oracle.py and rebuild/pipeline/oracle_positions.py, both outside the stamp's code half.
 
-    It may record run_m1's green under two conditions: a prior green record exists, and every input that changed since it is comparison-side (`artifact_cycle.gates_only_reuse`). The prior green shows that the tables and font on disk came from a completed build over every build-side input, the stamp check shows that none of those inputs has changed since, and this pass re-checks the gates the changed inputs feed. With all three, the recorded green covers the new inputs, so the next cycle skips run_m1. Otherwise the pass still runs, still records its check line, and prints which input kept it from recording a green. A check line reports only how one invocation came out, while a green record lets a later pass skip work.
+    It may record run_m1's green under two conditions: a prior green record exists, and every input that changed since it is comparison-side (`artifact_cycle.gates_only_rerun`). The prior green shows that the tables and font on disk came from a completed build over every build-side input, the stamp check shows that none of those inputs has changed since, and this pass re-checks the gates the changed inputs feed. With all three, the recorded green covers the new inputs, so the next cycle skips run_m1. Otherwise the pass still runs, still records its check line, and prints which input kept it from recording a green. A check line reports only how one invocation came out, while a green record lets a later pass skip work.
 
     It opens the oracle row cache read-only (`write_cache=False`). A ledger edit serves every row and position verdict, and an alias edit re-derives only the rows that reach the families it names, so the re-check is fast; a store this pass wrote would be one no build produced. Because no store is written, the store's pass ordinal does not advance, and the renewal slice and the verification sample, which advance with it, rotate on the clock instead. Otherwise repeated re-checks would verify the same slice of the table every time. `--fresh-oracle-cache` here skips reading the stores instead of deleting them, since deleting a build input is also a write.
     """
     from rebuild.tools.artifact_cycle import (
         comparison_side_label,
         evaluate_run_m1_gate,
-        gates_only_reuse,
+        gates_only_rerun,
         moved_input_labels,
         read_green_record,
         run_m1_skip_files,
@@ -1692,7 +1692,7 @@ def run_gates_only(out_dir: Path = OUT_DIR, jobs: int = 1, fresh_cache: bool = F
             tables[config] = (decision, table_module.read_treaty_tsv(treaty_path))
         except (OSError, ValueError) as error:
             raise SystemExit(
-                f"{treaty_path} is missing or unreadable ({error}) — the defect gate reads the treaty tables beside the enumeration, so this build is not one this pass can adjudicate; run `uv run python -m rebuild.pipeline.run_m1` first"
+                f"{treaty_path} is missing or unreadable ({error}) — the defect gate reads the treaty tables beside the enumeration, so this pass cannot rerun the gates over this build; run `uv run python -m rebuild.pipeline.run_m1` first"
             )
 
     console.phase("defect_gates")
@@ -1737,7 +1737,7 @@ def run_gates_only(out_dir: Path = OUT_DIR, jobs: int = 1, fresh_cache: bool = F
     if not gate.ok:
         _settle_green(RUN_M1_GREEN, before, False, run_m1_key, "run_m1")
         raise SystemExit("; ".join(gate.failures) + "; see oracle_summary.json and divergence-audit.tsv")
-    if gates_only_reuse(record, current) is not None:
+    if gates_only_rerun(record, current) is not None:
         _settle_green(
             RUN_M1_GREEN,
             before,

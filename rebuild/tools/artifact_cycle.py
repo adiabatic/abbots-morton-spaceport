@@ -34,21 +34,21 @@ Every other heavy stage skips on the same principle: a content fingerprint over 
 - surface-build skips when the manifest's recorded inputs fingerprint equals the one a build would stamp now. A rebuild would then be byte-identical, including `generated_at` (the latest input mtime, floored), so the autosave stays aligned. When the live surface does not match but a rehearsal's directory does (the last cycle summary's `plan.review_out`, or var/rehearsal-review), that directory is moved into rebuild/out/review with its stores instead (`surface-promote`; `promotable_surface` checks the preconditions). Every stamp inside a surface depends only on content relative to its manifest, and the move keeps the `generated_at` a rebuild would reset.
 - The census step has no key and never skips: it reads the surface build's census-facts.json sidecar and rewrites one small checked-in file in milliseconds.
 
-The surface skip applies only on passes where run_m1 skipped, and on the gates-only route when the Stage A record on disk already matches what that pass will write (`m1_stage_a_current`), because the surface reads nothing else the pass writes. That happens on a contact-allow bless, the only comparison-side edit outside every Stage A component.
+The surface skip applies only on passes where run_m1 skipped, and on a gates-only rerun when the Stage A record on disk already matches what that pass will write (`m1_stage_a_current`), because the surface reads nothing else the pass writes. That happens on a contact-allow bless, the only comparison-side edit outside every Stage A component.
 
-Conform's skip is decided after run_m1 finishes, from the key the artifacts it left carry. A route that leaves the emitted lookup's shapes, the compile code and the shaper at the last green key skips the sweep, whether run_m1 skipped, re-adjudicated, or rebuilt, and the skip is recorded as proved because a matching green covers this exact content. Computing the key only after run_m1 has finished also means an M1 rebuild cannot invalidate it during the cycle. The preflight can decide it before the pass only on the route where run_m1 skipped, so nothing will change; that is the route --dry-run can predict. On the reuse and rebuild routes the printed plan shows the conform lane as undecided (`run?`), because only a finished run_m1 knows what the artifacts are, so a plan that shows the sweep may end in a pass that skips it.
+Conform's skip is decided after run_m1 finishes, from the key the artifacts it left carry. A mode that leaves the emitted lookup's shapes, the compile code and the shaper at the last green key skips the sweep, whether run_m1 skipped, reran only its gates, or rebuilt, and the skip is recorded as proved because a matching green covers this exact content. Computing the key only after run_m1 has finished also means an M1 rebuild cannot invalidate it during the cycle. The preflight can decide it before the pass only in the mode where run_m1 skipped, so nothing will change; that is the mode --dry-run can predict. On a gates-only rerun or a rebuild the printed plan shows the conform lane as undecided (`run?`), because only a finished run_m1 knows what the artifacts are, so a plan that shows the sweep may end in a pass that skips it.
 
 Green records are written only when the key still matches after the work ran, and a red result whose key matches its record deletes the record. --fresh runs everything regardless.
 
-Between the run_m1 skip and a full rebuild there is a third route. When the per-file diff against the run_m1 green is confined to comparison-side inputs (the alias map, the divergence ledger, the contact allow-list, the kern sidecar, the oracle's two modules, and the baselines and their subsets, all outside the tables' stamp; `comparison_side_label` lists them and argues each), the tables on disk still carry that stamp, and all the artifacts are present, the cycle spawns `run_m1 --gates-only` instead of a build. It re-runs the defect gate, the Manual-pin gate and the oracle over the tables and font on disk, re-adjudicates the ledgers' verdicts, and enumerates nothing. The green that pass records covers the new inputs, so the next cycle skips run_m1. `uv.lock` is not comparison-side, because a fontTools or uharfbuzz bump can change the font's bytes and what the shaper does with them, so a toolchain bump rebuilds.
+Between the run_m1 skip and a full rebuild there is a third mode, the gates-only rerun. When the per-file diff against the run_m1 green is confined to comparison-side inputs (the alias map, the divergence ledger, the contact allow-list, the kern sidecar, the oracle's two modules, and the baselines and their subsets, all outside the tables' stamp; `comparison_side_label` lists them and argues each), the tables on disk still carry that stamp, and all the artifacts are present, the cycle spawns `run_m1 --gates-only` instead of a build. It re-runs the defect gate, the Manual-pin gate and the oracle over the tables and font on disk, matches the oracle's rows against the ledgers again, and enumerates nothing. The green that pass records covers the new inputs, so the next cycle skips run_m1. `uv.lock` is not comparison-side, because a fontTools or uharfbuzz bump can change the font's bytes and what the shaper does with them, so a toolchain bump rebuilds.
 
 This module, not the caller, decides which passes stop the review server, because only the resolved plan knows. Two things a cycle writes belong to the running app: the surface it serves (livereload watches every shard, and a restamped manifest orphans the tab's store) and the verdict store, which merge_verdicts will not touch under a live server because an open tab would write its own copy back over the merge. A pass whose plan skips both writes neither, so a listening server is left alone and the open tab keeps working for the whole run. That is the pass with no artifact work, whose long verification would otherwise take the app down for its whole length.
 
-A pass whose surface did not change but whose store did has its own route. The carry there maps every unit id to itself and keeps each record's `at`, which the merge compares strictly, so the carry is skipped and the master is merged straight in; the master is the one input the store's own hash cannot see. That pass still writes the store, so it stops the review server. The route needs the master stamped for the served surface, as the merge requires of every input. A master stamped for another surface, which a pass stopped between the surface build and the carry leaves behind, takes the full carry instead. The carry source's resolution says which of the two an auto-resolved master is, and `master_stamped_for_surface` says it for a --verdicts one.
+A pass whose surface did not change but whose store did has its own mode, the direct merge. The carry there maps every unit id to itself and keeps each record's `at`, which the merge compares strictly, so the carry is skipped and the master is merged straight in; the master is the one input the store's own hash cannot see. That pass still writes the store, so it stops the review server. The direct merge needs the master stamped for the served surface, as the merge requires of every input. A master stamped for another surface, which a pass stopped between the surface build and the carry leaves behind, takes the full carry instead. The carry source's resolution says which of the two an auto-resolved master is, and `master_stamped_for_surface` says it for a --verdicts one.
 
-An edit confined to rebuild/review/static/ also has its own route. The copied app assets are the one surface input no unit depends on, so the pass copies them over the served copy and restamps that one fingerprint component (`assets-refresh`). Every shard, both sidecars, the unit-cache store and `generated_at` stay as they were, so nothing the tab is keyed on changes, the review server keeps running, and livereload reloads the tab with the new assets.
+An edit confined to rebuild/review/static/ also has its own mode. The copied app assets are the one surface input no unit depends on, so the pass copies them over the served copy and restamps that one fingerprint component (`assets-refresh`). Every shard, both sidecars, the unit-cache store and `generated_at` stay as they were, so nothing the tab is keyed on changes, the review server keeps running, and livereload reloads the tab with the new assets.
 
-A surface promotion is the opposite case under the same skip. The whole tree under the app is replaced by the rehearsal's and the stamp changes with it, so the pass stops the review server. Both the verdict-update skip and the store-only route are off, because both assume the surface did not change, and here the store's verdicts must be carried onto the promoted units by id.
+A surface promotion is the opposite case under the same skip. The whole tree under the app is replaced by the rehearsal's and the stamp changes with it, so the pass stops the review server. Both the verdict-update skip and the direct merge are off, because both assume the surface did not change, and here the store's verdicts must be carried onto the promoted units by id.
 
 A pass that writes under the app needs the review server stopped. --stop-server (which `make review-cycle` passes) lets it terminate the server and wait until the port is free; without it the pass stops and prints how to proceed. Retention also writes: the app appends to the journal as verdicts are recorded, and a compaction rewrites the file around a read, so while a server is up the journal and the stash sweep that depends on it are left for a later pass.
 
@@ -116,7 +116,7 @@ JSTEST_DIR = ROOT / "rebuild" / "review" / "jstests"
 POOL_POLICIES = ("queue", "overlap")
 REBUILD_POOL_POLICY_DEFAULT = "queue"
 VERDICT_UPDATE_SKIP_NOTE = "surface, verdicts master, live store, and standing approvals unchanged since the last complete verdict-update pass; --fresh overrides"
-STORE_ONLY_DECLINED_NOTE = "The surface build is skipped, but the verdicts master is not stamped for the served surface and the merge would refuse it, so the verdict update carries it onto the served surface by unit id rather than merging it straight in."
+DIRECT_MERGE_DECLINED_NOTE = "The surface build is skipped, but the verdicts master is not stamped for the served surface and the merge would refuse it, so the verdict update carries it onto the served surface by unit id rather than merging it straight in."
 CONFORM_SKIP_NOTE = "no new rule shape, compile code or shaper since its last green sweep; --fresh overrides"
 CONFORM_MAYBE_NOTE = "runs unless run_m1 leaves the emitted lookup's behavior classes, the compile code and the shaper under the key of its last green sweep, in which case it is re-skipped after run_m1"
 UNDECIDED_UNTIL_RUN_M1 = {
@@ -421,7 +421,7 @@ def _subset_tables(root: Path) -> list[Path]:
 
 
 def run_m1_skip_lines(root: Path = ROOT) -> list[str]:
-    """Return the per-file `label\\tdigest` lines behind `run_m1_skip_fingerprint`: every data input and pipeline module individually (rune files and the divergence ledger by their prose-insensitive digests), the contact allow-list by its own prose-insensitive digest, the full baselines as one value, the oracle's subset tables, and uv.lock by its dependency pins (`fingerprint.lock_digest`, which ignores the project's own version block, so a version bump leaves the line unchanged and a fontTools or uharfbuzz bump changes it). The green record stores these lines, so a skip miss can name which input changed, and the pass can check whether every changed label is comparison-side (`comparison_side_label`) and re-adjudicate over the artifacts on disk instead of rebuilding them.
+    """Return the per-file `label\\tdigest` lines behind `run_m1_skip_fingerprint`: every data input and pipeline module individually (rune files and the divergence ledger by their prose-insensitive digests), the contact allow-list by its own prose-insensitive digest, the full baselines as one value, the oracle's subset tables, and uv.lock by its dependency pins (`fingerprint.lock_digest`, which ignores the project's own version block, so a version bump leaves the line unchanged and a fontTools or uharfbuzz bump changes it). The green record stores these lines, so a skip miss can name which input changed, and the pass can check whether every changed label is comparison-side (`comparison_side_label`) and rerun the gates over the artifacts on disk instead of rebuilding them.
 
     The allow-list is here and in no fingerprint component. Only the defect gate reads it, so a bless must change this key and should not change the surface's stamp or drop the unit cache. A missing allow-list contributes no line, as `path_lines` drops a missing file.
     """
@@ -457,12 +457,12 @@ def run_m1_skip_files(root: Path = ROOT) -> dict[str, str]:
 
 
 def run_m1_skip_fingerprint(root: Path = ROOT) -> str:
-    """Return the content key over everything a full run_m1 reads: the data inputs and pipeline code per file, the contact allow-list the defect gate reads, the full baselines, the oracle's subset tables (which the `baselines` line covers only indirectly), and uv.lock's dependency pins. A key equal to the recorded green means a rerun would reproduce rebuild/out/m1 byte for byte. A different key says only that something changed; which lines changed decides whether the pass rebuilds or re-adjudicates (`gates_only_reuse`)."""
+    """Return the content key over everything a full run_m1 reads: the data inputs and pipeline code per file, the contact allow-list the defect gate reads, the full baselines, the oracle's subset tables (which the `baselines` line covers only indirectly), and uv.lock's dependency pins. A key equal to the recorded green means a rerun would reproduce rebuild/out/m1 byte for byte. A different key says only that something changed; which lines changed decides whether the pass rebuilds or reruns only the gates (`gates_only_rerun`)."""
     return _digest_lines(run_m1_skip_lines(root))
 
 
 def capped_labels(entries: list[str], limit: int = 8) -> str:
-    """Return a label list for one line of a report, with the entries past `limit` counted instead of printed. The moved-inputs note and the reused-inputs note share it, so both cap the list the same way."""
+    """Return a label list for one line of a report, with the entries past `limit` counted instead of printed. The moved-inputs note and the gates-only rerun note share it, so both cap the list the same way."""
     shown = ", ".join(entries[:limit])
     return f"{shown} and {len(entries) - limit} more" if len(entries) > limit else shown
 
@@ -487,7 +487,7 @@ def moved_input_labels(record: dict | None, current: dict[str, str]) -> list[str
 
 
 def comparison_side_label(label: str) -> bool:
-    """Return whether one `run_m1_skip_lines` label names an input the comparison reads and the build does not. When only such inputs changed, a cycle can re-adjudicate over the tables and font on disk (`run_m1 --gates-only`) instead of running a kernel fan-out that would produce byte-identical artifacts. Four kinds qualify, and `fingerprint.tables_value` covers none of them, so an enumeration on disk stays current. The alias map, the divergence ledger and the kern sidecar (`fingerprint.NON_TABLE_DATA_LABELS`) are read to name, classify and position divergences over rows the fixpoint has already decided. The contact allow-list (`fingerprint.CONTACT_ALLOW_LABEL`) is read by the defect gate, which reads minted glyphs and mints none. The oracle's two modules (`fingerprint.COMPARISON_CODE_MODULES`) are the classifier those files feed and the position channel that shapes the rows it calls ink-identical, and rebuild/test_build_code_closure.py checks that the build imports neither. The `baselines` line and the `baseline-<config>.subset.tsv.gz` lines are the before side of the comparison, which no table stage or emitter reads.
+    """Return whether one `run_m1_skip_lines` label names an input the comparison reads and the build does not. When only such inputs changed, a cycle can rerun the gates over the tables and font on disk (`run_m1 --gates-only`) instead of running a kernel fan-out that would produce byte-identical artifacts. Four kinds qualify, and `fingerprint.tables_value` covers none of them, so an enumeration on disk stays current. The alias map, the divergence ledger and the kern sidecar (`fingerprint.NON_TABLE_DATA_LABELS`) are read to name, classify and position divergences over rows the fixpoint has already decided. The contact allow-list (`fingerprint.CONTACT_ALLOW_LABEL`) is read by the defect gate, which reads minted glyphs and mints none. The oracle's two modules (`fingerprint.COMPARISON_CODE_MODULES`) are the classifier those files feed and the position channel that shapes the rows it calls ink-identical, and rebuild/test_build_code_closure.py checks that the build imports neither. The `baselines` line and the `baseline-<config>.subset.tsv.gz` lines are the before side of the comparison, which no table stage or emitter reads.
 
     `uv.lock` is not comparison-side, although the tables' stamp does not cover it either. It pins fontTools and uharfbuzz, so a bump can change the compiled font's bytes and what HarfBuzz does with them, and this must never permit reusing a font a different toolchain built. Its line covers only the dependency pins (`fingerprint.lock_digest`), so the project's own version bump leaves the line unchanged and never reaches this question.
     """
@@ -500,10 +500,10 @@ def comparison_side_label(label: str) -> bool:
     return label in {f"rebuild/pipeline/{name}" for name in fingerprint.COMPARISON_CODE_MODULES}
 
 
-def gates_only_reuse(record: dict | None, current: dict[str, str]) -> list[str] | None:
-    """Return the labels that changed since the last green M1 build when every one is comparison-side, and None otherwise. The cycle uses this to plan the gates-only route, and the pass uses it to decide whether it may record a green. None means no reuse in three cases: there is no green record, nothing changed (the plain skip's case), or a build-side input changed and the tables must be rebuilt.
+def gates_only_rerun(record: dict | None, current: dict[str, str]) -> list[str] | None:
+    """Return the labels that changed since the last green M1 build when every one is comparison-side, and None otherwise. The cycle uses this to plan a gates-only rerun, and the pass uses it to decide whether it may record a green. None means no gates-only rerun in three cases: there is no green record, nothing changed (the plain skip's case), or a build-side input changed and the tables must be rebuilt.
 
-    The reuse is sound only with a second check. The prior green shows the artifacts on disk came from a completed build over every build-side input, and `m1_tables_stamped` shows none of those inputs has changed since. Both are checked before the route is taken, and a gates-only pass records its green on the same pair.
+    The rerun is sound only with a second check. The prior green shows the artifacts on disk came from a completed build over every build-side input, and `m1_tables_stamped` shows none of those inputs has changed since. Both are checked before the rerun is planned, and a gates-only pass records its green on the same pair.
     """
     moved = moved_input_labels(record, current)
     if moved is None:
@@ -557,14 +557,14 @@ def m1_artifacts_present(root: Path = ROOT) -> bool:
 
 
 def m1_tables_stamped() -> bool:
-    """Return whether the serialized window enumerations under rebuild/out/m1 were built from the sources on disk: `run_m1.serialized_tables` against `run_m1.tables_inputs`, the stamp the sweep and a gates-only pass check. It checks the artifacts themselves, not a record of a past run, and shows that the M1.otf beside those tables is the font the runes on disk describe. It is the second condition for the gates-only route; `gates_only_reuse` is the first. It takes no root parameter, like `deep_sweep.tables_stamped`, because the stamp is computed over the live repo, and a caller naming another tree would compare that tree's tables against this one's sources."""
+    """Return whether the serialized window enumerations under rebuild/out/m1 were built from the sources on disk: `run_m1.serialized_tables` against `run_m1.tables_inputs`, the stamp the sweep and a gates-only pass check. It checks the artifacts themselves, not a record of a past run, and shows that the M1.otf beside those tables is the font the runes on disk describe. It is the second condition for a gates-only rerun; `gates_only_rerun` is the first. It takes no root parameter, like `deep_sweep.tables_stamped`, because the stamp is computed over the live repo, and a caller naming another tree would compare that tree's tables against this one's sources."""
     from rebuild.pipeline import run_m1
 
     return run_m1.serialized_tables(run_m1.OUT_DIR, run_m1.tables_inputs()) is not None
 
 
 def m1_stage_a_current(root: Path = ROOT) -> bool:
-    """Return whether the Stage A record under rebuild/out/m1 already matches what a pass over the sources on disk would write. On the run_m1 skip route it always does. On the gates-only route it decides whether the surface can skip before the pass runs: that pass rewrites the record from the same sources, and the surface build reads nothing else the pass writes, since the audit and the subset tables change only when a Stage A component does."""
+    """Return whether the Stage A record under rebuild/out/m1 already matches what a pass over the sources on disk would write. When run_m1 skips it always does. On a gates-only rerun it decides whether the surface can skip before the pass runs: that pass rewrites the record from the same sources, and the surface build reads nothing else the pass writes, since the audit and the subset tables change only when a Stage A component does."""
     from rebuild.pipeline import fingerprint
 
     recorded = fingerprint.read_stage_a(root / "rebuild" / "out" / "m1")
@@ -1025,7 +1025,7 @@ def conform_gate_argv(jobs: int, horizon: int = CONFORM_HORIZON_DEFAULT) -> list
 
 STEP_DESCRIPTIONS = {
     "run_m1": "Builds the M1 tables for every settlement configuration in the Rust kernel (the ss10 overlay settles nothing and gets none), mints the glyphs, emits GSUB and GPOS, compiles the font, and reads it back. Then runs the defect gates, the Manual-pin gate, and the oracle over what it built.",
-    "run_m1:gates-only": "Re-adjudicates the tables and font already on disk with the defect gates, the Manual-pin gate, and the oracle, rebuilding nothing. Taken when only comparison-side inputs moved since the last green build.",
+    "run_m1:gates-only": "Reruns the defect gates, the Manual-pin gate, and the oracle over the tables and font already on disk, rebuilding nothing. Taken when only comparison-side inputs moved since the last green build.",
     "surface-build": "Rebuilds the review surface: every unit the tables reach is drafted, enriched, and checked, with cache-served units re-verified by content key. Writes the shards, manifest, and census sidecar that the app and the verdict update read.",
     "assets-refresh": "Overwrites the served copy of the review app's JS, CSS, and HTML and restamps only the manifest's static component. No shard or sidecar moves, so the open tab's store stays aligned.",
     "surface-promote": "Moves the surface a rehearsal already built for these exact inputs into rebuild/out/review, unit store and signature store with it, and deletes the surface it replaces. Two renames in this process; no unit is drafted, enriched, or checked.",
@@ -1042,7 +1042,7 @@ STEP_DESCRIPTIONS = {
 
 
 def step_description(name: str) -> str:
-    """Return a step's banner description from `STEP_DESCRIPTIONS`, printed on every run. The descriptions are kept beside the step definitions, not in a document, because a reader wants to know what a step checks while watching it run. Two keys are variants, not steps: `run_m1:gates-only` is the re-adjudication route, which spawns under that name and reports under run_m1's row, and `gates` is the placeholder --skip-gates leaves in place of the four gates. `_run_step` calls this instead of reading the plan because it receives a name, not a plan, and because one of the things it spawns, the job-costs diff, is a child of a step, for which the empty string is correct."""
+    """Return a step's banner description from `STEP_DESCRIPTIONS`, printed on every run. The descriptions are kept beside the step definitions, not in a document, because a reader wants to know what a step checks while watching it run. Two keys are variants, not steps: `run_m1:gates-only` is the gates-only rerun, which spawns under that name and reports under run_m1's row, and `gates` is the placeholder --skip-gates leaves in place of the four gates. `_run_step` calls this instead of reading the plan because it receives a name, not a plan, and because one of the things it spawns, the job-costs diff, is a child of a step, for which the empty string is correct."""
     return STEP_DESCRIPTIONS.get(name, "")
 
 
@@ -1077,7 +1077,7 @@ class Plan:
     make_test_note: str = ""
     make_test_fingerprint: str | None = None
     skip_run_m1: bool = False
-    reuse_run_m1: bool = False
+    rerun_gates_only: bool = False
     run_m1_note: str = ""
     run_m1_fingerprint: str | None = None
     fresh: bool = False
@@ -1620,7 +1620,7 @@ def build_plan(
     ncores: int | None = None,
     total_bytes: int | None = None,
     skip_run_m1: bool = False,
-    reuse_run_m1: bool = False,
+    rerun_gates_only: bool = False,
     run_m1_note: str = "",
     run_m1_fingerprint: str | None = None,
     fresh: bool = False,
@@ -1636,12 +1636,12 @@ def build_plan(
     conform_proven: bool = False,
     skip_verdict_update: bool = False,
     verdict_update_note: str = "",
-    store_only: bool = False,
+    direct_merge: bool = False,
     record_greens: bool = False,
     keep_history: bool = False,
     recipe_serves: bool = False,
 ) -> Plan:
-    do_carry = not no_carry and not first_run and not skip_verdict_update and not store_only
+    do_carry = not no_carry and not first_run and not skip_verdict_update and not direct_merge
     resolved_carry_out: Path | None = None
     if do_carry:
         resolved_carry_out = (
@@ -1651,7 +1651,7 @@ def build_plan(
         verdict_update_step_note = f"SKIPPED ({verdict_update_note})"
     elif first_run:
         verdict_update_step_note = "SKIPPED (first run)"
-    elif not do_carry and not store_only:
+    elif not do_carry and not direct_merge:
         verdict_update_step_note = "SKIPPED (--no-carry)"
     else:
         verdict_update_step_note = ""
@@ -1766,7 +1766,7 @@ def build_plan(
         skip_make_test=no_make_test, ncores=ncores, total_bytes=total_bytes
     )
     surface_dir = review_out if review_out is not None else REVIEW_OUT
-    do_merge = (do_carry or store_only) and not no_merge and review_out is None
+    do_merge = (do_carry or direct_merge) and not no_merge and review_out is None
     do_retention = not keep_history and not first_run and review_out is None
 
     plan = Plan(
@@ -1781,7 +1781,7 @@ def build_plan(
         make_test_note=make_test_note,
         make_test_fingerprint=make_test_fingerprint,
         skip_run_m1=skip_run_m1,
-        reuse_run_m1=reuse_run_m1 and not skip_run_m1,
+        rerun_gates_only=rerun_gates_only and not skip_run_m1,
         run_m1_note=run_m1_note,
         run_m1_fingerprint=run_m1_fingerprint,
         fresh=fresh,
@@ -1797,7 +1797,7 @@ def build_plan(
         conform_proven=conform_proven,
         skip_verdict_update=skip_verdict_update,
         verdict_update_note=verdict_update_note,
-        verdict_update_direct_merge=store_only,
+        verdict_update_direct_merge=direct_merge,
         record_greens=record_greens,
         retention=do_retention,
         recipe_serves=recipe_serves,
@@ -1833,19 +1833,19 @@ def build_plan(
                 skipped=True,
             )
         )
-    elif plan.reuse_run_m1:
-        reuse_argv = ["uv", "run", "python", "-m", "rebuild.pipeline.run_m1", "--gates-only"]
+    elif plan.rerun_gates_only:
+        rerun_argv = ["uv", "run", "python", "-m", "rebuild.pipeline.run_m1", "--gates-only"]
         if sweep_jobs > 1:
-            reuse_argv += ["--jobs", str(sweep_jobs)]
+            rerun_argv += ["--jobs", str(sweep_jobs)]
         if fresh:
-            reuse_argv += ["--fresh-oracle-cache"]
+            rerun_argv += ["--fresh-oracle-cache"]
         plan.steps.append(
             Step(
                 "run_m1",
-                reuse_argv,
+                rerun_argv,
                 run_m1_note,
                 lane="build",
-                describe=step_description(RUN_M1_REUSE_STEP),
+                describe=step_description(RUN_M1_GATES_ONLY_STEP),
             )
         )
     else:
@@ -1936,7 +1936,7 @@ def build_plan(
                 if review_out is not None
                 else "carry only (--no-merge)"
             )
-        elif store_only:
+        elif direct_merge:
             note = (
                 "the surface did not move, so the carry is the identity — merging the master straight in, "
                 "then the fills and the docket"
@@ -2098,7 +2098,7 @@ def describe_carry_source(resolved: dict, root: Path, *, promoting: bool = False
 
 
 def master_stamped_for_surface(master: Path, surface: Path) -> bool:
-    """Return whether the verdicts master carries the surface's own stamp, read as merge_verdicts reads both: the master parsed whole as an ams-review-verdicts/1 document, and the stamp from the manifest's `generated_at`. This is the store-only route's precondition, because that route passes the master to the merge unchanged and the merge refuses any input stamped for another surface. `main` calls it for a master named by --verdicts. For an auto-resolved master the resolution's `aligned` already holds the answer, computed by `status.resolve_carry_source` from the same parse and stamp, so that master is not parsed twice. If a pass stops after the surface build writes a new surface and before the verdict update carries the store onto it, the store stays stamped for the previous surface and the next pass skips the build as unchanged. This returns False for that master, so the pass takes the full carry by unit id. An unreadable master also returns False, and the carry reports it."""
+    """Return whether the verdicts master carries the surface's own stamp, read as merge_verdicts reads both: the master parsed whole as an ams-review-verdicts/1 document, and the stamp from the manifest's `generated_at`. This is the direct merge's precondition, because the direct merge passes the master to the merge unchanged and the merge refuses any input stamped for another surface. `main` calls it for a master named by --verdicts. For an auto-resolved master the resolution's `aligned` already holds the answer, computed by `status.resolve_carry_source` from the same parse and stamp, so that master is not parsed twice. If a pass stops after the surface build writes a new surface and before the verdict update carries the store onto it, the store stays stamped for the previous surface and the next pass skips the build as unchanged. This returns False for that master, so the pass takes the full carry by unit id. An unreadable master also returns False, and the carry reports it."""
     from rebuild.review.serve import parse_autosave_payload
 
     stamp = _manifest_stamp_at(surface)
@@ -2149,7 +2149,7 @@ def _render_concurrency(plan: Plan) -> list[str]:
         return [
             "",
             "  Concurrency (--skip-gates):",
-            f"    Lane build only; no gates; run_m1 sweeps --jobs {plan.sweep_jobs} ({plan.sweep_reason}) at --kernel-threads {'not passed (gates-only route)' if plan.reuse_run_m1 else plan.kernel_threads} and --replay-threads {'not passed (gates-only route)' if plan.reuse_run_m1 else plan.replay_threads}, surface-build --jobs {plan.surface_jobs} ({plan.surface_reason}), surface-build --signature-jobs {plan.signature_jobs} ({plan.signature_reason}), verdict-update --standing-fill-jobs {plan.standing_fill_jobs} ({plan.standing_fill_reason})",
+            f"    Lane build only; no gates; run_m1 sweeps --jobs {plan.sweep_jobs} ({plan.sweep_reason}) at --kernel-threads {'not passed (gates-only rerun)' if plan.rerun_gates_only else plan.kernel_threads} and --replay-threads {'not passed (gates-only rerun)' if plan.rerun_gates_only else plan.replay_threads}, surface-build --jobs {plan.surface_jobs} ({plan.surface_reason}), surface-build --signature-jobs {plan.signature_jobs} ({plan.signature_reason}), verdict-update --standing-fill-jobs {plan.standing_fill_jobs} ({plan.standing_fill_reason})",
         ]
     t0_lane = "gate:js" if plan.skip_make_test else "gate:js, gate:make-test"
     lines = [
@@ -2203,15 +2203,15 @@ def _render_concurrency(plan: Plan) -> list[str]:
         kernel_reason = f"the table build's memory ceiling, less gate:make-test's {workers}"
     kernel_reason += ", capped at the configuration count and the cores"
     lines.append(f"    run_m1 sweeps --jobs             : {plan.sweep_jobs}  ({plan.sweep_reason})")
-    if plan.reuse_run_m1:
+    if plan.rerun_gates_only:
         lines.append(
-            "    run_m1 --kernel-threads          : not passed (the gates-only route enumerates nothing, so there is no fan-out to size)"
+            "    run_m1 --kernel-threads          : not passed (a gates-only rerun enumerates nothing, so there is no fan-out to size)"
         )
     else:
         lines.append(f"    run_m1 --kernel-threads          : {plan.kernel_threads}  ({kernel_reason})")
-    if plan.reuse_run_m1:
+    if plan.rerun_gates_only:
         lines.append(
-            "    run_m1 --replay-threads          : not passed (the gates-only route replays nothing, so there is no wave to size)"
+            "    run_m1 --replay-threads          : not passed (a gates-only rerun replays nothing, so there is no wave to size)"
         )
     else:
         lines.append(
@@ -2538,9 +2538,9 @@ def classify_rebuild_output(stdout: str, returncode: int, check: str) -> CheckRe
 # The failure reason for a run_m1 that wrote no summaries. The cycle's failure list and the timings journal's check line both use it, so the two record the same text.
 _NO_SUMMARIES_REASONS = ("run_m1 did not write all three summary files",)
 
-RUN_M1_REUSE_STEP = "run_m1:gates-only"
+RUN_M1_GATES_ONLY_STEP = "run_m1:gates-only"
 
-STEP_ALIASES = {RUN_M1_REUSE_STEP: "run_m1"}
+STEP_ALIASES = {RUN_M1_GATES_ONLY_STEP: "run_m1"}
 
 
 def _do_run_m1(
@@ -2552,24 +2552,24 @@ def _do_run_m1(
     argv: list[str] | None = None,
     skip: bool = False,
     skip_note: str = "",
-    reuse: bool = False,
+    gates_only: bool = False,
     record: bool = False,
     fingerprint: str | None = None,
     timings: CycleTimings | None = None,
 ) -> CheckResult | None:
     """Run the M1 build, or reuse it when `skip` is set, and evaluate its gate from the three summary JSONs. The skip path leaves rebuild/out/m1 untouched and re-evaluates the summaries on disk, which is sound because run_m1's outputs are deterministic and carry no timestamps. A live green is recorded only if the fingerprint still matches after the run, because an input edited mid-run means the tested content is no longer on disk. A live red whose fingerprint matches the green record deletes the record.
 
-    With `reuse`, the child is `run_m1 --gates-only` over the tables and font on disk. It rewrites the defect fields of `pipeline_summary.json` in place and exits with an error when that file is missing, so it is the one summary not deleted before the spawn. Everything after the spawn follows the full build's path, green recording included. That green rests on the conditions the route was planned on (`gates_only_reuse` and `m1_tables_stamped`), which the child checks again before recording its own green. The child spawns as `RUN_M1_REUSE_STEP`, not `run_m1`, because `make cycle-timings ARGS='--by-step'` groups rows by step name and host, and a gates-only run of a few seconds recorded as `run_m1` would distort the figures for a full M1 build.
+    With `gates_only`, the child is `run_m1 --gates-only` over the tables and font on disk. It rewrites the defect fields of `pipeline_summary.json` in place and exits with an error when that file is missing, so it is the one summary not deleted before the spawn. Everything after the spawn follows the full build's path, green recording included. That green rests on the conditions the rerun was planned on (`gates_only_rerun` and `m1_tables_stamped`), which the child checks again before recording its own green. The child spawns as `RUN_M1_GATES_ONLY_STEP`, not `run_m1`, because `make cycle-timings ARGS='--by-step'` groups rows by step name and host, and a gates-only run of a few seconds recorded as `run_m1` would distort the figures for a full M1 build.
 
     Every path, the skip included, records a check line in the timings journal, because a skip is an evaluation of this build's summaries. The child records none of its own, because it inherits CYCLE_RUN_ENV. A build that wrote no summaries is recorded red with `_NO_SUMMARIES_REASONS`, the reason the cycle's failure list also gets.
     """
-    step = RUN_M1_REUSE_STEP if reuse else "run_m1"
+    step = RUN_M1_GATES_ONLY_STEP if gates_only else "run_m1"
     result: _StepResult | None = None
     if skip:
         emit.step_skipped("run_m1", f"{skip_note}; evaluating the gate from the recorded summaries")
     else:
         for name, path in cycle_paths.M1_SUMMARY_FILES.items():
-            if reuse and name == "pipeline":
+            if gates_only and name == "pipeline":
                 continue
             path.unlink(missing_ok=True)
         result = spawn(step, argv, emit=emit, registry=registry, stream=False)
@@ -3292,7 +3292,7 @@ def _run_cycle(
             argv=None if plan.skip_run_m1 else plan.argv("run_m1"),
             skip=plan.skip_run_m1,
             skip_note=plan.run_m1_note,
-            reuse=plan.reuse_run_m1,
+            gates_only=plan.rerun_gates_only,
             record=plan.record_greens,
             fingerprint=plan.run_m1_fingerprint,
             timings=timings,
@@ -3448,7 +3448,7 @@ _CARRY_FIGURES = re.compile(r"^carry figures: human=(\d+) key_hits=(\d+) unhit=(
 
 
 def carry_figures(lines: list[str]) -> dict[str, int] | None:
-    """Parse the carry's `carry figures:` line: the human units on the new surface, how many a prior verdict matched, how many none matched, and how many prior verdicts matched no unit. The figures are written to the cycle summary and to the run line in the timings journal. Returns None when the carry printed no such line (the store-only route, a rehearsal, or a verdict update that failed before the carry)."""
+    """Parse the carry's `carry figures:` line: the human units on the new surface, how many a prior verdict matched, how many none matched, and how many prior verdicts matched no unit. The figures are written to the cycle summary and to the run line in the timings journal. Returns None when the carry printed no such line (a direct merge, a rehearsal, or a verdict update that failed before the carry)."""
     for line in lines:
         match = _CARRY_FIGURES.match(line)
         if match is not None:
@@ -3457,7 +3457,7 @@ def carry_figures(lines: list[str]) -> dict[str, int] | None:
 
 
 def carry_figure(lines: list[str]) -> str:
-    """Summarize the carry from its two headline lines: how many verdicts it carried onto the new surface, and the human queue before and after. The verdict update runs as one child with the carry as a step inside it, so these counts reach this process only as printed lines. Returns the empty string when the carry printed neither line (the store-only route, a rehearsal, or a verdict update that failed before the carry)."""
+    """Summarize the carry from its two headline lines: how many verdicts it carried onto the new surface, and the human queue before and after. The verdict update runs as one child with the carry as a step inside it, so these counts reach this process only as printed lines. Returns the empty string when the carry printed neither line (a direct merge, a rehearsal, or a verdict update that failed before the carry)."""
     carried = ""
     queue = ""
     for line in lines:
@@ -3756,13 +3756,13 @@ def cycle_summary_payload(report: CycleReport, failures: list[str], plan: Plan, 
             "carry_out": _as_str(plan.carry_out),
             "do_merge": plan.do_merge,
             "conform_horizon": plan.conform_horizon,
-            "kernel_threads": None if plan.reuse_run_m1 else plan.kernel_threads,
-            "replay_threads": None if plan.reuse_run_m1 else plan.replay_threads,
+            "kernel_threads": None if plan.rerun_gates_only else plan.kernel_threads,
+            "replay_threads": None if plan.rerun_gates_only else plan.replay_threads,
             "pool_policy": plan.pool_policy,
             "skip_gates": plan.skip_gates,
             "skip_conform": plan.skip_conform,
             "skip_run_m1": plan.skip_run_m1,
-            "reuse_run_m1": plan.reuse_run_m1,
+            "rerun_gates_only": plan.rerun_gates_only,
             "skip_surface": plan.skip_surface,
             "refresh_assets": plan.refresh_assets,
             "promote_surface": _as_str(plan.promote_surface),
@@ -4096,7 +4096,7 @@ def main(argv: list[str] | None = None) -> int:
 
     run_m1_fp = run_m1_skip_fingerprint(ROOT)
     skip_run_m1 = False
-    reuse_run_m1 = False
+    rerun_gates_only = False
     run_m1_note = ""
     skip_surface = False
     refresh_assets = False
@@ -4128,11 +4128,11 @@ def main(argv: list[str] | None = None) -> int:
             run_m1_note = "build inputs unchanged since the last green M1 build; --fresh overrides"
         elif green is not None:
             current = run_m1_skip_files(ROOT)
-            reusable = gates_only_reuse(green, current)
-            if reusable is not None and m1_artifacts_present(ROOT) and m1_tables_stamped():
-                reuse_run_m1 = True
+            rerunnable = gates_only_rerun(green, current)
+            if rerunnable is not None and m1_artifacts_present(ROOT) and m1_tables_stamped():
+                rerun_gates_only = True
                 run_m1_note = (
-                    f"only comparison-side inputs moved since the last green M1 build ({capped_labels(reusable)}); "
+                    f"only comparison-side inputs moved since the last green M1 build ({capped_labels(rerunnable)}); "
                     "the tables and font are reused and the gates re-run over them; --fresh overrides"
                 )
             else:
@@ -4142,7 +4142,7 @@ def main(argv: list[str] | None = None) -> int:
                     cache_note = oracle_cache_note(note)
                     if cache_note is not None:
                         run_m1_note = f"{run_m1_note}; {cache_note}"
-    if skip_run_m1 or (reuse_run_m1 and m1_stage_a_current(ROOT)):
+    if skip_run_m1 or (rerun_gates_only and m1_stage_a_current(ROOT)):
         if args.review_out is None and not first_run:
             if surface_build_skippable(ROOT):
                 skip_surface = True
@@ -4189,7 +4189,7 @@ def main(argv: list[str] | None = None) -> int:
             master_aligned = resolved["aligned"]
 
     skip_verdict_update = False
-    store_only = False
+    direct_merge = False
     verdict_update_note = ""
     if (
         skip_surface
@@ -4214,9 +4214,9 @@ def main(argv: list[str] | None = None) -> int:
             if master_aligned is None:
                 master_aligned = master_stamped_for_surface(args.verdicts, REVIEW_OUT)
                 if not master_aligned:
-                    announce(STORE_ONLY_DECLINED_NOTE)
+                    announce(DIRECT_MERGE_DECLINED_NOTE)
             # A master stamped for the served surface needs no carry: every unit id maps to itself, and the carry keeps each record's `at`, so the merge (which takes only a strictly newer `at`) would drop its re-prefixed notes. Merging the master directly into the store gives the same result.
-            store_only = master_aligned
+            direct_merge = master_aligned
 
     plan = build_plan(
         verdicts=args.verdicts,
@@ -4235,7 +4235,7 @@ def main(argv: list[str] | None = None) -> int:
         pool_policy=args.rebuild_pool,
         review_out=args.review_out,
         skip_run_m1=skip_run_m1,
-        reuse_run_m1=reuse_run_m1,
+        rerun_gates_only=rerun_gates_only,
         run_m1_note=run_m1_note,
         run_m1_fingerprint=run_m1_fp,
         fresh=args.fresh,
@@ -4251,7 +4251,7 @@ def main(argv: list[str] | None = None) -> int:
         conform_proven=auto_skip_conform,
         skip_verdict_update=skip_verdict_update,
         verdict_update_note=verdict_update_note,
-        store_only=store_only,
+        direct_merge=direct_merge,
         record_greens=not args.dry_run,
         keep_history=args.keep_history,
         recipe_serves=args.stop_server,
