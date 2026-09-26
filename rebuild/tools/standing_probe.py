@@ -135,8 +135,10 @@ def _reading(intern, before, after):
     gone, gained = painted - shifted, shifted - painted
     dropped = " ".join(f"[{column}, {row}]" for column, row in sorted(gone)) or "nothing"
     added = " ".join(f"[{column}, {row}]" for column, row in sorted(gained)) or "nothing"
-    trade = f" [dropped {dropped}; added {added}]"
-    return f"redrawn {len(painted)}→{len(kept)} cells (−{len(gone)} +{len(gained)}), {moved}{turned}{trade}"
+    cell_swap = f" [dropped {dropped}; added {added}]"
+    return (
+        f"redrawn {len(painted)}→{len(kept)} cells (−{len(gone)} +{len(gained)}), {moved}{turned}{cell_swap}"
+    )
 
 
 def _describe(unit, rules, context, blankness, families):

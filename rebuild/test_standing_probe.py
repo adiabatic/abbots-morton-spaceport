@@ -770,7 +770,7 @@ class _Intern:
 
 
 @pytest.mark.parametrize("count", [3, 9])
-def test_the_redrawn_trade_is_never_truncated(count):
+def test_the_redrawn_cell_swap_is_never_truncated(count):
     """A redrawn rule's dropped and added lists are copied from this output, so it is never truncated. `_reading` runs only for units the user named, so no bulk listing needs a cap."""
     painted = {(column, 0) for column in range(count)}
     kept = {(column, 1) for column in range(count)}

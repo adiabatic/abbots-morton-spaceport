@@ -2406,11 +2406,11 @@ def test_a_slide_that_moves_nothing_is_refused_at_load(tmp_path):
 def test_pivot_lists_spanning_two_families_are_refused_at_load(tmp_path):
     within = json.loads(json.dumps(SLIDE_RULE))
     within["match"]["after"]["pivots"] = ["qsSee.straighter", "qsZoo.straighter"]
-    with pytest.raises(SystemExit, match="speaks for one letter"):
+    with pytest.raises(SystemExit, match="covers one letter"):
         sv.load_rules(_write_rules(tmp_path / "rules.yaml", [within]))
     across = json.loads(json.dumps(SLIDE_RULE))
     across["match"]["before"]["pivots"] = ["qsZoo.ex-y0"]
-    with pytest.raises(SystemExit, match="speaks for one letter"):
+    with pytest.raises(SystemExit, match="covers one letter"):
         sv.load_rules(_write_rules(tmp_path / "rules.yaml", [across]))
 
 
@@ -2583,11 +2583,11 @@ def test_malformed_gain_rules_are_refused(tmp_path, mutate):
 def test_gain_pivot_lists_spanning_two_families_are_refused_at_load(tmp_path):
     within = json.loads(json.dumps(GAIN_RULE))
     within["match"]["after"]["pivots"] = ["qsRoe.hapax", "qsSee.hapax"]
-    with pytest.raises(SystemExit, match="speaks for one letter"):
+    with pytest.raises(SystemExit, match="covers one letter"):
         sv.load_rules(_write_rules(tmp_path / "rules.yaml", [within]))
     across = json.loads(json.dumps(GAIN_RULE))
     across["match"]["before"]["pivots"] = ["qsSee.en-ext-1-at-5"]
-    with pytest.raises(SystemExit, match="speaks for one letter"):
+    with pytest.raises(SystemExit, match="covers one letter"):
         sv.load_rules(_write_rules(tmp_path / "rules.yaml", [across]))
 
 
@@ -5094,11 +5094,11 @@ def test_a_widening_entry_drop_is_refused_at_load(tmp_path):
 def test_entry_drop_pivot_lists_spanning_two_families_are_refused_at_load(tmp_path):
     within = json.loads(json.dumps(ENTRY_RULE))
     within["match"]["after"]["pivots"] = ["qsLow.hapax", "qsSee.hapax"]
-    with pytest.raises(SystemExit, match="speaks for one letter"):
+    with pytest.raises(SystemExit, match="covers one letter"):
         sv.load_rules(_write_rules(tmp_path / "rules.yaml", [within]))
     across = json.loads(json.dumps(ENTRY_RULE))
     across["match"]["before"]["pivots"] = ["qsSee.en-ext-1"]
-    with pytest.raises(SystemExit, match="speaks for one letter"):
+    with pytest.raises(SystemExit, match="covers one letter"):
         sv.load_rules(_write_rules(tmp_path / "rules.yaml", [across]))
 
 
@@ -6438,7 +6438,7 @@ def test_two_ink_gains_matching_one_position_still_refuse(slide_context):
     assert sv._combined_walk(rules, gained_created_join_window(), slide_context()) is None
 
 
-def test_a_created_join_shares_a_letter_with_a_redrawn_trade_on_its_pivot(slide_context):
+def test_a_created_join_shares_a_letter_with_a_redrawn_cell_swap_on_its_pivot(slide_context):
     """·Eight's bowl pulling in and the baseline join that only the smaller bowl reaches are two events on one letter: the picture it takes and the seam it offers. The redrawn event is the position's event, the created join shares its pivot, and both rules are counted at that position."""
     events = sv._combined_match(REDRAWN_CREATED_JOIN_RULES, redrawn_created_join_window(), slide_context())
     assert events == {
@@ -6463,7 +6463,7 @@ def test_a_created_join_sharing_a_letter_with_a_redraw_still_needs_its_follower_
     assert events is None
 
 
-def test_two_redrawn_trades_matching_one_position_still_refuse(slide_context):
+def test_two_redrawn_cell_swaps_matching_one_position_still_refuse(slide_context):
     twin = json.loads(json.dumps(REDRAWN_UNDER_CREATED_JOIN_RULE))
     twin["id"] = REDRAWN_UNDER_CREATED_JOIN_RULE["id"] + "-again"
     rules = [REDRAWN_UNDER_CREATED_JOIN_RULE, twin]
@@ -6946,11 +6946,11 @@ REDRAWN_REVERSE_RULE = {
 }
 
 
-def test_a_pure_redrawn_trade_matches(slide_context):
+def test_a_pure_redrawn_cell_swap_matches(slide_context):
     assert sv._matches(REDRAWN_RULE["match"], redrawn_window(), context=slide_context())
 
 
-def test_a_trade_that_adds_more_than_it_drops_matches_its_own_direction_only(slide_context):
+def test_a_cell_swap_that_adds_more_than_it_drops_matches_its_own_direction_only(slide_context):
     context = slide_context()
     window = slide_unit(
         "rd-8", ["qsL", "qsEight.smaller-loop", "qsF3"], spell(LEAD, EIGHT_REVERSED, FOLLOWER_3)
@@ -6967,7 +6967,7 @@ def test_the_extension_frame_reads_its_own_rule_and_not_the_bare_one(slide_conte
     assert not sv._matches(REDRAWN_EXT_RULE["match"], redrawn_window(), context=context)
 
 
-def test_an_entry_extended_frame_names_the_same_trade_one_column_over(slide_context):
+def test_an_entry_extended_frame_names_the_same_cell_swap_one_column_over(slide_context):
     window = slide_unit(
         "rd-4", ["qsL", "qsEight.en-ext-1", "qsF3"], spell(LEAD, EIGHT_ENTRY_EXTENDED, FOLLOWER_3)
     )
@@ -7030,7 +7030,7 @@ def test_the_redrawn_shape_and_the_other_shapes_do_not_read_each_others_units(sl
     assert not sv._matches(INK_RULE["match"], redrawn_window())
 
 
-def test_a_redrawn_trade_and_an_entry_drop_in_one_window_combine(slide_context):
+def test_a_redrawn_cell_swap_and_an_entry_drop_in_one_window_combine(slide_context):
     events = sv._combined_match(COMBINED_REDRAWN_RULES, combined_redrawn_window(), slide_context())
     assert events == {REDRAWN_EXT_RULE["id"]: [1], ENTRY_RULE["id"]: [2]}
 
@@ -7044,7 +7044,7 @@ def test_the_redrawn_guard_blocks_the_whole_combined_window(slide_context):
     assert sv._combined_blocked(rules, window, events, context)
 
 
-def test_a_trade_the_pivots_own_placement_carries_matches(slide_context):
+def test_a_cell_swap_the_pivots_own_placement_carries_matches(slide_context):
     assert sv._matches(PULLED_REDRAWN_RULE["match"], pulled_redrawn_window(), context=slide_context())
 
 
@@ -7056,15 +7056,15 @@ def test_a_pivot_pulled_further_than_its_contraction_names_is_refused(slide_cont
     )
 
 
-def test_a_slide_and_a_placement_carried_trade_in_one_window_combine(slide_context):
+def test_a_slide_and_a_placement_carried_cell_swap_in_one_window_combine(slide_context):
     events = sv._combined_match(
         COMBINED_PULLED_REDRAWN_RULES, combined_pulled_redrawn_window(), slide_context()
     )
     assert events == {SLIDE_RULE["id"]: [1], PULLED_REDRAWN_RULE["id"]: [3]}
 
 
-def test_a_trade_the_pivots_own_frame_carries_matches(slide_context):
-    """The after form takes the whole entry contraction into its own frame, so the ink it keeps stays where it was and the trade is read one column over."""
+def test_a_cell_swap_the_pivots_own_frame_carries_matches(slide_context):
+    """The after form takes the whole entry contraction into its own frame, so the ink it keeps stays where it was and the cell swap is read one column over."""
     assert sv._matches(FRAMED_REDRAWN_RULE["match"], framed_redrawn_window(), context=slide_context())
 
 
@@ -7085,7 +7085,7 @@ def test_a_placement_taking_the_contraction_the_frame_already_took_is_refused(sl
     )
 
 
-def test_a_slide_and_a_frame_carried_trade_in_one_window_combine(slide_context):
+def test_a_slide_and_a_frame_carried_cell_swap_in_one_window_combine(slide_context):
     events = sv._combined_match(
         COMBINED_FRAMED_REDRAWN_RULES, combined_framed_redrawn_window(), slide_context()
     )
@@ -7136,14 +7136,14 @@ def test_malformed_redrawn_rules_are_refused(tmp_path, mutate):
 def test_redrawn_pivot_lists_spanning_two_families_are_refused_at_load(tmp_path):
     rule = json.loads(json.dumps(REDRAWN_RULE))
     rule["match"]["after"]["pivots"] = ["qsI.smaller-loop"]
-    with pytest.raises(SystemExit, match="speaks for one letter"):
+    with pytest.raises(SystemExit, match="covers one letter"):
         sv.load_rules(_write_rules(tmp_path / "rules.yaml", [rule]))
 
 
 def test_a_cell_shared_between_dropped_and_added_is_refused_at_load(tmp_path):
     rule = json.loads(json.dumps(REDRAWN_RULE))
     rule["match"]["after"]["added"] = [[1, 2]]
-    with pytest.raises(SystemExit, match="traded for itself"):
+    with pytest.raises(SystemExit, match="swapped for itself"):
         sv.load_rules(_write_rules(tmp_path / "rules.yaml", [rule]))
 
 
@@ -7170,7 +7170,7 @@ def combined_pure_loss_window(uid="pl-2"):
 
 
 def test_a_form_that_only_gives_ink_up_is_redrawn(slide_context):
-    """An exit contraction has no trade to name: the foot's terminal pixel goes and nothing replaces it. So the added set is empty and the shift is how far the follower moves. The name-grain extension-dropped shape would also match this seam, without checking the rest of the window. This shape checks that nothing else in the window changed."""
+    """An exit contraction has no cell swap to name: the foot's terminal pixel goes and nothing replaces it. So the added set is empty and the shift is how far the follower moves. The name-grain extension-dropped shape would also match this seam, without checking the rest of the window. This shape checks that nothing else in the window changed."""
     assert sv._matches(PURE_LOSS_RULE["match"], pure_loss_window(), context=slide_context())
 
 
@@ -7645,7 +7645,7 @@ def _warm_runs(tmp_path, monkeypatch, capsys, fonts, units, rules_by_label, memo
     return runs
 
 
-def test_a_units_relevant_rules_are_the_ones_that_could_speak_for_it(slide_context):
+def test_a_units_relevant_rules_are_the_ones_that_could_match_it(slide_context):
     """An entry's relevant ids are the combinable rules with a candidate position in its window, in rules-file order, whatever the window's decision was. A non-combinable rule with a non-empty except_left or an `either` verdict is read by every combined match, so it goes in the roster's `always` list instead. A rule that is neither is in neither list."""
     context = slide_context()
     inert_either = dict(RULE, id="inert-either", verdict="either", match=dict(RULE["match"], except_left=[]))
@@ -8382,7 +8382,7 @@ def test_a_listed_unit_gets_its_decision_line_and_moves_no_line_of_the_rules(tmp
     assert listed[1:5] == [
         f"  listed u-1 (blank): a candidate of {rule_id}; matched by {rule_id}",
         f"  listed u-2 (blank): a candidate of {rule_id}; blocked by except_left {rule_id}",
-        f"  listed u-4 (blank): not a candidate of {rule_id}; no rule speaks for it",
+        f"  listed u-4 (blank): not a candidate of {rule_id}; no rule covers it",
         "  listed u-9: not a human unit on this corpus",
     ]
     assert bare[0] == (
