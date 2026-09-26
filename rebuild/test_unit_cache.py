@@ -118,7 +118,7 @@ RETAG_CLASS = "dangling-anchor-dropped"
 def _edited_audit(tmp_path: Path) -> Path:
     """Return the mini audit with one window dropped and one moved to another ledger class. Dropping a window shifts the triage positions, and so the batches, of the units after it. Retagging a window changes its class and so its echo key. An incremental rebuild must recompute both, not only patch units in place.
 
-    The retag uses a matched class rather than UNMATCHED for a data reason: `derive_premerge` refuses an ink-identical window that claims a verdict family, which is true of the live corpus (every UNMATCHED window is a real new join under review) but not of a window a test declares UNMATCHED by editing a TSV. Every row of the window moves together, since two matched classes on one triple is a classification bug the loader raises on.
+    The retag uses a matched class rather than UNMATCHED for a data reason: `derive_premerge` refuses an ink-identical window that claims an unmatched group, which is true of the live corpus (every UNMATCHED window is a real new join under review) but not of a window a test declares UNMATCHED by editing a TSV. Every row of the window moves together, since two matched classes on one triple is a classification bug the loader raises on.
     """
     lines = MINI_AUDIT.read_text(encoding="utf-8").splitlines()
     header, rows = lines[0], lines[1:]
@@ -147,7 +147,7 @@ def _edited_audit(tmp_path: Path) -> Path:
 def _out_of_order_audit(tmp_path: Path) -> tuple[Path, dict[str, list[str]]]:
     """Return the mini audit with two windows split per config. The ss03 row of each is retagged to a ledger class, so each window is blessed under ss03 and novel under its other configs. The second window's ss03 row is moved to the top of the file, so its class map lists ss03 first while the first window's lists its configs in config order. Returns the edited file and, for the in-order window and then the out-of-order one, the configs in the order the edited file lists them.
 
-    The in-order window is the first in the file whose rows all have one (codepoints, baseline, new) triple and are all UNMATCHED, under configs that include default and ss03. The out-of-order window is the next such window with the same configs. A single triple means the ink-duplicate fold does not reach them. The rows left UNMATCHED keep each unit's class UNMATCHED, and since default is among them, neither the family the review facts defer nor the family phase 1 assigns changes. The mini audit is written one config block at a time, so every class map in it is in config order; the moved row is what gives the build a map in another order.
+    The in-order window is the first in the file whose rows all have one (codepoints, baseline, new) triple and are all UNMATCHED, under configs that include default and ss03. The out-of-order window is the next such window with the same configs. A single triple means the ink-duplicate fold does not reach them. The rows left UNMATCHED keep each unit's class UNMATCHED, and since default is among them, neither the unmatched group the review facts defer nor the group phase 1 assigns changes. The mini audit is written one config block at a time, so every class map in it is in config order; the moved row is what gives the build a map in another order.
     """
     lines = MINI_AUDIT.read_text(encoding="utf-8").splitlines()
     header, rows = lines[0], [line.split("\t") for line in lines[1:]]
@@ -216,7 +216,7 @@ def _class_fragments(corpus: Path, class_id: str) -> list[dict]:
 
 
 def _fragment_of(corpus: Path, codepoints: str) -> dict:
-    """Return the one fragment a corpus ships for a window, searching every class the manifest lists, because the build shards an UNMATCHED unit under the verdict family it promotes the unit to."""
+    """Return the one fragment a corpus ships for a window, searching every class the manifest lists, because the build shards an UNMATCHED unit under the unmatched group it promotes the unit to."""
     manifest = json.loads((corpus / "manifest.json").read_text(encoding="utf-8"))
     (fragment,) = [
         fragment
@@ -1358,14 +1358,14 @@ def test_cluster_id_from_repr_matches_the_tuple_recipe():
 
 
 def test_the_cluster_a_fresh_unit_carries_keys_on_its_final_class(mini_corpus):
-    """The runner computes a unit's cluster where it assigns the verdict family, so an UNMATCHED unit's cluster must be keyed on that family (the class its fragment is sharded under) and a ledger-classed unit's on its ledger class. The diffs behind the id are discarded with the worker, so the test checks the store instead: every unit's record, machine-approved ones included, carries a cluster, and a full fragment's cluster matches its record. A served unit's cluster is taken from the record, which is sound only if the fresh computation keyed on the same class the store records for the unit."""
+    """The runner computes a unit's cluster where it assigns the unmatched group, so an UNMATCHED unit's cluster must be keyed on that group (the class its fragment is sharded under) and a ledger-classed unit's on its ledger class. The diffs behind the id are discarded with the worker, so the test checks the store instead: every unit's record, machine-approved ones included, carries a cluster, and a full fragment's cluster matches its record. A served unit's cluster is taken from the record, which is sound only if the fresh computation keyed on the same class the store records for the unit."""
     manifest = json.loads((mini_corpus / "manifest.json").read_text(encoding="utf-8"))
     with gzip.open(unit_cache.store_path(mini_corpus), "rt", encoding="utf-8") as stream:
         environment = json.loads(next(stream))["environment"]
     store = unit_cache.load_store(mini_corpus, environment)
     assert store
     by_id = {cached.prior_id: cached for cached in store.values()}
-    seen_family = False
+    seen_group = False
     for meta in manifest["classes"]:
         for part in unit_index.class_shards(meta):
             for fragment in json.loads((mini_corpus / part).read_text(encoding="utf-8")):
@@ -1374,14 +1374,14 @@ def test_the_cluster_a_fresh_unit_carries_keys_on_its_final_class(mini_corpus):
                 if not slim_fragment(fragment):
                     assert fragment["cluster"] == cached.cluster
                 assert cached.prior_class == meta["id"]
-                if cached.family:
-                    seen_family = True
-                    assert meta["id"] == cached.family
-    assert seen_family
+                if cached.unmatched_group:
+                    seen_group = True
+                    assert meta["id"] == cached.unmatched_group
+    assert seen_group
 
 
 def test_the_store_parse_interns_and_pools_what_repeats_across_records(tmp_path):
-    """Two records that name the same class, cluster, family, config, delta, cell name, or seam token load as the same string objects, and their span and name tuples as the same tuple objects, so a store with a million records holds one instance per distinct name and per distinct tuple. The per-record keys, which never repeat, are not interned."""
+    """Two records that name the same class, cluster, unmatched group, config, delta, cell name, or seam token load as the same string objects, and their span and name tuples as the same tuple objects, so a store with a million records holds one instance per distinct name and per distinct tuple. The per-record keys, which never repeat, are not interned."""
     (tmp_path / "manifest.json").write_text("{}", encoding="utf-8")
     unit_cache.write_store(tmp_path, "env-a", [_round_trip_unit(), replace(_round_trip_unit(), key="k2")])
     pool: dict = {}
@@ -1391,7 +1391,7 @@ def test_the_store_parse_interns_and_pools_what_repeats_across_records(tmp_path)
     assert first.prior_class is second.prior_class is sys.intern("boundary-echo")
     assert first.cluster is second.cluster
     assert first.diffs_digest is second.diffs_digest
-    assert first.family is second.family
+    assert first.unmatched_group is second.unmatched_group
     assert next(iter(first.ink_deltas)) is next(iter(second.ink_deltas)) is sys.intern("default")
     assert first.ink_deltas["default"] is second.ink_deltas["default"]
     for name in ("after_cells", "after_seams", "before_glyphs", "before_seams"):
@@ -1532,7 +1532,7 @@ def _round_trip_unit() -> unit_cache.CachedUnit:
         ink_deltas={"default": "d-0123456789ab"},
         diffs_digest="deadbeef",
         cluster="c-12345678",
-        family="",
+        unmatched_group="",
         pair_codepoints=(1, 2),
         proj={
             "pair": [0, 1],
@@ -1574,7 +1574,7 @@ def _round_trip_served() -> unit_cache.ServedUnit:
         ink_deltas={"default": "d-0123456789ab"},
         diffs_digest="deadbeef",
         cluster="c-12345678",
-        family="",
+        unmatched_group="",
         pair_codepoints=(1, 2),
         echo="e-2WvdGAWe6bX",
         exemplar=False,

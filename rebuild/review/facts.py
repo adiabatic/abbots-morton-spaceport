@@ -1,12 +1,12 @@
 """The review facts: the counts and structural facts a corpus build reduces its state to, and the regenerator that writes them to rebuild/review-facts-pins.json, the last accepted review facts. Every non-staging artifact-cycle pass rewrites that file from the corpus's review-facts.json sidecar and names what moved in its invariant block. Committing the rewritten file accepts the new review facts. No gate checks the checked-in numbers, so a changed count is something to read, not a failure.
 
-The file has two blocks so the cycle can say what kind of change a pass made. `volatile` holds the manifest, built, audit, ink, and families groups, which change with every migrated letter. `invariant` holds the structural facts a person should review when they change: which classes the corpus ships, which classes the build machine-approves, which are exempt from individual verdicts, and which verdict families the corpus reaches. The invariant block repeats structure that the volatile groups' keys already carry. Both blocks come from one emission, so they cannot disagree, and the separate block lets `invariant_delta` name a new class or a new no-verdict exemption in one summary line and lets the cycle print a diff of that block alone. `rebuild/out/cycle_summary.json` also records the corpus's totals. The machine-approved and family lists are recorded nowhere else, because both are emergent: a class is machine-approved when the build approved at least one of its units through any channel, whatever the ledger declares. `ledger_coverage` compares the ledger's declarations with them.
+The file has two blocks so the cycle can say what kind of change a pass made. `volatile` holds the manifest, built, audit, ink, and unmatched_groups groups, which change with every migrated letter. `invariant` holds the structural facts a person should review when they change: which classes the corpus ships, which classes the build machine-approves, which are exempt from individual verdicts, and which unmatched groups the corpus reaches. The invariant block repeats structure that the volatile groups' keys already carry. Both blocks come from one emission, so they cannot disagree, and the separate block lets `invariant_delta` name a new class or a new no-verdict exemption in one summary line and lets the cycle print a diff of that block alone. `rebuild/out/cycle_summary.json` also records the corpus's totals. The machine-approved and unmatched-group lists are recorded nowhere else, because both are emergent: a class is machine-approved when the build approved at least one of its units through any channel, whatever the ledger declares. `ledger_coverage` compares the ledger's declarations with them.
 
 No test reads this file, since a build asserting the numbers it just wrote would check nothing. The tests check internal consistency (the deduplicated units account for every audit row), invariants derived from the sources (the manifest's own totals, the ledger's no-verdict classes), and that each in-memory reduction matches the shard walk or shaping it replaces.
 
-The manifest and built groups are post-merge: they are read from a built corpus after the ink-duplicate fold. The audit, ink, and families groups count pre-merge units, the (codepoints, baseline, new) triples before the fold, which no corpus shard reports, so their class counts can differ from the manifest's. `audit.row_count` counts raw audit rows.
+The manifest and built groups are post-merge: they are read from a built corpus after the ink-duplicate fold. The audit, ink, and unmatched_groups groups count pre-merge units, the (codepoints, baseline, new) triples before the fold, which no corpus shard reports, so their class counts can differ from the manifest's. `audit.row_count` counts raw audit rows.
 
-The pre-merge groups come from the review-facts.json sidecar, which `build_m1` writes. It derives them from the pre-merge state it captured just before the fold and the phase-1 products it computes anyway (each post-merge unit's ink verdict and each UNMATCHED unit's verdict family), instead of shaping and enriching the whole corpus a second time. The review facts are then less independent of the build, but it takes milliseconds instead of minutes. `--from-scratch` recomputes the groups from the source inputs (TSV, ledger, fonts, spec) when an independent comparison is wanted. `derive_premerge` checks the derivation's assumptions: it fails on a default-novel UNMATCHED unit that was folded away and on an UNMATCHED unit with no family, and it writes one ink flag per captured unit.
+The pre-merge groups come from the review-facts.json sidecar, which `build_m1` writes. It derives them from the pre-merge state it captured just before the fold and the phase-1 products it computes anyway (each post-merge unit's ink verdict and each UNMATCHED unit's unmatched group), instead of shaping and enriching the whole corpus a second time. The review facts are then less independent of the build, but it takes milliseconds instead of minutes. `--from-scratch` recomputes the groups from the source inputs (TSV, ledger, fonts, spec) when an independent comparison is wanted. `derive_premerge` checks the derivation's assumptions: it fails on a default-novel UNMATCHED unit that was folded away and on an UNMATCHED unit with no unmatched group, and it writes one ink flag per captured unit.
 
 Usage:
     uv run python -m rebuild.review.facts --update --corpus rebuild/out/review  # what every non-staging artifact-cycle pass runs
@@ -52,7 +52,11 @@ from rebuild.review.audit import (
 )
 from rebuild.review.columns import StringTable, TuplePool
 from rebuild.review.enrich import LETTERS, Enricher, load_spec
-from rebuild.review.families import FAMILY_ORDER, assign_family, deferred_family
+from rebuild.review.unmatched_groups import (
+    UNMATCHED_GROUP_ORDER,
+    assign_unmatched_group,
+    deferred_unmatched_group,
+)
 from rebuild.review.ink import InkComparator
 
 if TYPE_CHECKING:
@@ -62,7 +66,7 @@ REPO_ROOT = Path(__file__).resolve().parent.parent.parent
 PINS_PATH = REPO_ROOT / "rebuild" / "review-facts-pins.json"
 
 FACTS_FILENAME = "review-facts.json"
-FACTS_FORMAT = "ams-review-facts/3"
+FACTS_FORMAT = "ams-review-facts/4"
 FACTS_REMEDY = "rebuild the corpus with: uv run python -m rebuild.review.build"
 
 AUDIT_PATH = REPO_ROOT / "rebuild" / "out" / "m1" / "divergence-audit.tsv"
@@ -95,13 +99,13 @@ def manifest_group(manifest: dict) -> dict:
     }
 
 
-def invariant_group(manifest: dict, families: dict[str, int]) -> dict:
-    """The invariant block: which classes the corpus ships, which the build machine-approves, which are exempt from individual verdicts, and which verdict families the corpus reaches, each in its source's order. The classes are listed, not counted, so `invariant_delta` can say which class appeared or went."""
+def invariant_group(manifest: dict, unmatched_groups: dict[str, int]) -> dict:
+    """The invariant block: which classes the corpus ships, which the build machine-approves, which are exempt from individual verdicts, and which unmatched groups the corpus reaches, each in its source's order. The classes are listed, not counted, so `invariant_delta` can say which class appeared or went."""
     return {
         "classes": [meta["id"] for meta in manifest["classes"]],
         "machine_approved_classes": list(manifest["machine_approved"]["by_class"]),
         "no_verdict_classes": [meta["id"] for meta in manifest["classes"] if meta["no_verdict"]],
-        "families": list(families),
+        "unmatched_groups": list(unmatched_groups),
     }
 
 
@@ -109,7 +113,7 @@ INVARIANT_LABELS = {
     "classes": "classes",
     "machine_approved_classes": "machine-approved",
     "no_verdict_classes": "no-verdict",
-    "families": "families",
+    "unmatched_groups": "unmatched groups",
 }
 
 
@@ -173,7 +177,7 @@ class LedgerCoverage:
     no_verdict_unreached: tuple[str, ...]
 
     def describe(self) -> str:
-        """The one summary line. Approving classes without a declaration are counted, not named, because approval through the picture or Junior channel, or as a deferred family, is the usual case and `invariant_delta` already names a class that joins them; `as_json` has the names. Each declaration the corpus does not show is named."""
+        """The one summary line. Approving classes without a declaration are counted, not named, because approval through the picture or Junior channel, or as a deferred unmatched group, is the usual case and `invariant_delta` already names a class that joins them; `as_json` has the names. Each declaration the corpus does not show is named."""
         machine = (
             f"machine-approved: {len(self.machine_approved)} classes approve units,"
             f" {len(self.machine_approved_undeclared)} undeclared;"
@@ -304,8 +308,8 @@ def ink_group(repo_root: Path = REPO_ROOT) -> dict:
     return ink_histogram(workload, comparator)
 
 
-def family_assignments(repo_root: Path = REPO_ROOT) -> list[str]:
-    """Assign every UNMATCHED pre-merge unit to its verdict family: load the audit, group rows by (codepoints, baseline, new) triple, enrich each triple that is UNMATCHED under any config, and classify it with `assign_family`. Returns one family label per such triple, in audit order."""
+def unmatched_group_assignments(repo_root: Path = REPO_ROOT) -> list[str]:
+    """Assign every UNMATCHED pre-merge unit to its unmatched group: load the audit, group rows by (codepoints, baseline, new) triple, enrich each triple that is UNMATCHED under any config, and classify it with `assign_unmatched_group`. Returns one group label per such triple, in audit order."""
     by_triple: dict[tuple, list] = {}
     for row in load_audit(AUDIT_PATH):
         by_triple.setdefault((row.codepoints, row.baseline, row.new), []).append(row)
@@ -334,19 +338,19 @@ def family_assignments(repo_root: Path = REPO_ROOT) -> list[str]:
             config_classes=config_classes,
         )
         units.append(unit)
-    return [assign_family(enriched) for enriched in enricher.enrich_many(units)]
+    return [assign_unmatched_group(enriched) for enriched in enricher.enrich_many(units)]
 
 
-def family_counts(assignments: list[str]) -> dict[str, int]:
+def unmatched_group_counts(assignments: list[str]) -> dict[str, int]:
     counts: dict[str, int] = {}
-    for family in assignments:
-        counts[family] = counts.get(family, 0) + 1
-    order = {family: index for index, family in enumerate(FAMILY_ORDER)}
+    for group in assignments:
+        counts[group] = counts.get(group, 0) + 1
+    order = {group: index for index, group in enumerate(UNMATCHED_GROUP_ORDER)}
     return dict(sorted(counts.items(), key=lambda item: (order.get(item[0], len(order)), item[0])))
 
 
-def families_group(repo_root: Path = REPO_ROOT) -> dict:
-    counts = family_counts(family_assignments(repo_root))
+def unmatched_groups_group(repo_root: Path = REPO_ROOT) -> dict:
+    counts = unmatched_group_counts(unmatched_group_assignments(repo_root))
     return {"census": counts, "total": sum(counts.values())}
 
 
@@ -379,7 +383,7 @@ class Grain(NamedTuple):
 
 
 class _Configs(NamedTuple):
-    """A pre-merge row's config fields, in the shape `families.deferred_family` reads."""
+    """A pre-merge row's config fields, in the shape `unmatched_groups.deferred_unmatched_group` reads."""
 
     config_classes: Mapping[str, str]
     configs: tuple[str, ...]
@@ -427,7 +431,7 @@ class PremergeSnapshot:
             bucket = buckets.get(key)
             if bucket is None:
                 bucket = buckets[key] = self.strings.optional(
-                    deferred_family(_Configs(table.mappings[key[0]], self.tuples[key[1]]))
+                    deferred_unmatched_group(_Configs(table.mappings[key[0]], self.tuples[key[1]]))
                 )
             self.deferred[row] = bucket
 
@@ -475,21 +479,21 @@ class PremergeSnapshot:
 
 @dataclass(frozen=True)
 class PremergeFacts:
-    """The pre-merge facts a build reports: how many units the workload held, the digest identifying them, one '0'/'1' ink flag per unit in capture order, and the verdict family of every UNMATCHED unit with its index in that order."""
+    """The pre-merge facts a build reports: how many units the workload held, the digest identifying them, one '0'/'1' ink flag per unit in capture order, and the unmatched group of every UNMATCHED unit with its index in that order."""
 
     units: int
     workload_digest: str
     ink_flags: str
-    families: list[tuple[int, str]]
+    unmatched_groups: list[tuple[int, str]]
 
 
 def capture_premerge(table: UnitTable) -> PremergeSnapshot:
-    """Snapshot the workload for the sidecar. Call it immediately before `merge_ink_duplicate_units`, because each UNMATCHED row's deferral is decided here, from config classes the fold is about to widen. Matched rows get no deferral, since `deferred_family` has no meaningful answer outside UNMATCHED."""
+    """Snapshot the workload for the sidecar. Call it immediately before `merge_ink_duplicate_units`, because each UNMATCHED row's deferral is decided here, from config classes the fold is about to widen. Matched rows get no deferral, since `deferred_unmatched_group` has no meaningful answer outside UNMATCHED."""
     return PremergeSnapshot(table)
 
 
 def workload_digest(units: Iterable[FactsGrain]) -> str:
-    """A sha256 over the `FactsGrain` fields of a unit sequence, in order. It identifies the unit list that the sidecar's ink flags and family indices refer to. The units are hashed one newline-separated line at a time, so the payload for millions of rows is never built as one string."""
+    """A sha256 over the `FactsGrain` fields of a unit sequence, in order. It identifies the unit list that the sidecar's ink flags and unmatched-group indices refer to. The units are hashed one newline-separated line at a time, so the payload for millions of rows is never built as one string."""
     digest = hashlib.sha256()
     first = True
     for unit in units:
@@ -503,9 +507,9 @@ def workload_digest(units: Iterable[FactsGrain]) -> str:
 
 
 def derive_premerge(snapshot: PremergeSnapshot, table: UnitTable, store: UnitStore) -> PremergeFacts:
-    """Project the build's post-merge phase-1 products back onto the pre-merge units the review-facts pins count. A unit that survived the fold reads its own row. A unit that was folded away reads the survivor the fold recorded for it (`PremergeSnapshot.rebase`): the ink flag from the store and the family from the table.
+    """Project the build's post-merge phase-1 products back onto the pre-merge units the review-facts pins count. A unit that survived the fold reads its own row. A unit that was folded away reads the survivor the fold recorded for it (`PremergeSnapshot.rebase`): the ink flag from the store and the unmatched group from the table.
 
-    Both projections are exact. The fold groups units only when every config of every sibling gives one identical `InkComparator.signature`, which is the pair of run-order ink lists `config_diff` reads, so a folded sibling's delta and ink verdict equal its survivor's. A pre-merge UNMATCHED unit that is novel under the default config always leads its window's fold order, so it is its own survivor and its phase-1 family is on its own row. Every other UNMATCHED unit is deferred and took its bucket at capture. The assert below checks the second argument where it could fail: an UNMATCHED, undeferred row that was folded away.
+    Both projections are exact. The fold groups units only when every config of every sibling gives one identical `InkComparator.signature`, which is the pair of run-order ink lists `config_diff` reads, so a folded sibling's delta and ink verdict equal its survivor's. A pre-merge UNMATCHED unit that is novel under the default config always leads its window's fold order, so it is its own survivor and its phase-1 unmatched group is on its own row. Every other UNMATCHED unit is deferred and took its bucket at capture. The assert below checks the second argument where it could fail: an UNMATCHED, undeferred row that was folded away.
     """
     if snapshot.survivor is None or snapshot.folded is None:
         raise ValueError(
@@ -525,21 +529,21 @@ def derive_premerge(snapshot: PremergeSnapshot, table: UnitTable, store: UnitSto
         is_unmatched = class_ids[row] == unmatched
         assert not is_unmatched or deferred[row] or not folded[row], (
             f"window {format_codepoints(snapshot.codepoints(row))}: a default-novel UNMATCHED unit was folded "
-            "away, so its family cannot be read off its own phase-1 row"
+            "away, so its unmatched group cannot be read off its own phase-1 row"
         )
         flags[row] = 49 if ink_identical(target) else 48
         if is_unmatched:
-            family = strings[deferred[row]] if deferred[row] else table.family_id(target)
-            if not family:
+            group = strings[deferred[row]] if deferred[row] else table.unmatched_group(target)
+            if not group:
                 raise ValueError(
-                    f"window {format_codepoints(snapshot.codepoints(row))}: UNMATCHED unit resolved to no verdict family"
+                    f"window {format_codepoints(snapshot.codepoints(row))}: UNMATCHED unit resolved to no unmatched group"
                 )
-            assigned.append((row, family))
+            assigned.append((row, group))
     return PremergeFacts(
         units=snapshot.n,
         workload_digest=workload_digest(snapshot.grains()),
         ink_flags=flags.decode("ascii"),
-        families=assigned,
+        unmatched_groups=assigned,
     )
 
 
@@ -568,9 +572,9 @@ def ink_group_from_flags(class_rows: Iterable[tuple[str, bool]], flags: str) -> 
     }
 
 
-def families_group_from(assignments: list[str]) -> dict:
-    """The families group over families already assigned, so a build can report the families phase 1 computed without enriching every UNMATCHED window again."""
-    counts = family_counts(assignments)
+def unmatched_groups_group_from(assignments: list[str]) -> dict:
+    """The unmatched_groups group over groups already assigned, so a build can report the groups phase 1 computed without enriching every UNMATCHED window again."""
+    counts = unmatched_group_counts(assignments)
     return {"census": counts, "total": sum(counts.values())}
 
 
@@ -609,7 +613,7 @@ def build_facts(
     row_count: int,
 ) -> dict:
     """The sidecar payload: the finished pins the regenerator copies into the checked-in file, the pre-merge records they were reduced from, and the identity of the corpus that owns them. The pre-merge records let a reader re-reduce the pre-merge groups. Only rebuild/test_review_facts.py reads them."""
-    families = families_group_from([family for _index, family in premerge.families])
+    unmatched_groups = unmatched_groups_group_from([group for _index, group in premerge.unmatched_groups])
     return {
         "format": FACTS_FORMAT,
         "corpus": {
@@ -618,20 +622,20 @@ def build_facts(
             "inputs_fingerprint": manifest["inputs_fingerprint"],
         },
         "pins": {
-            "invariant": invariant_group(manifest, families["census"]),
+            "invariant": invariant_group(manifest, unmatched_groups["census"]),
             "volatile": {
                 "manifest": manifest_group(manifest),
                 "built": built_group_from_memory(table, config_notes),
                 "audit": {"row_count": row_count, "units": snapshot.n},
                 "ink": ink_group_from_flags(snapshot.class_rows(), premerge.ink_flags),
-                "families": families,
+                "unmatched_groups": unmatched_groups,
             },
         },
         "premerge": {
             "units": premerge.units,
             "workload_digest": premerge.workload_digest,
             "ink_identical": premerge.ink_flags,
-            "families": [[index, family] for index, family in premerge.families],
+            "unmatched_groups": [[index, group] for index, group in premerge.unmatched_groups],
         },
     }
 
@@ -678,24 +682,24 @@ def _build_or_load_corpus(corpus: Path | None):
 
 
 def compute_pins(corpus: Path | None = None, repo_root: Path = REPO_ROOT, from_scratch: bool = False) -> dict:
-    """Both blocks of the pins. By default the volatile block is read from the corpus's review-facts.json sidecar, and the invariant block is reduced again from the corpus's manifest and the sidecar's family counts, the same sources the build used, so the checked-in file has the block's current shape whichever build wrote the sidecar. With `from_scratch`, all five volatile groups are recomputed from the source artifacts, which shapes and enriches the corpus again."""
+    """Both blocks of the pins. By default the volatile block is read from the corpus's review-facts.json sidecar, and the invariant block is reduced again from the corpus's manifest and the sidecar's unmatched-group counts, the same sources the build used, so the checked-in file has the block's current shape whichever build wrote the sidecar. With `from_scratch`, all five volatile groups are recomputed from the source artifacts, which shapes and enriches the corpus again."""
     if from_scratch:
         with _build_or_load_corpus(corpus) as (out_dir, manifest):
-            families = families_group(repo_root)
+            unmatched_groups = unmatched_groups_group(repo_root)
             return {
-                "invariant": invariant_group(manifest, families["census"]),
+                "invariant": invariant_group(manifest, unmatched_groups["census"]),
                 "volatile": {
                     "manifest": manifest_group(manifest),
                     "built": built_group(out_dir, manifest),
                     "audit": audit_group(repo_root),
                     "ink": ink_group(repo_root),
-                    "families": families,
+                    "unmatched_groups": unmatched_groups,
                 },
             }
     with _build_or_load_corpus(corpus) as (out_dir, manifest):
         volatile = load_facts(out_dir, manifest)["pins"]["volatile"]
         return {
-            "invariant": invariant_group(manifest, volatile["families"]["census"]),
+            "invariant": invariant_group(manifest, volatile["unmatched_groups"]["census"]),
             "volatile": volatile,
         }
 
@@ -741,7 +745,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--from-scratch",
         action="store_true",
-        help="recompute the audit/ink/families groups from sources instead of reading the corpus's review-facts.json sidecar — the slow, independent re-derivation",
+        help="recompute the audit/ink/unmatched_groups groups from sources instead of reading the corpus's review-facts.json sidecar — the slow, independent re-derivation",
     )
     args = parser.parse_args(argv)
 

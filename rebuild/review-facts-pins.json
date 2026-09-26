@@ -55,7 +55,7 @@
       "may-ligature-seam-loosened",
       "ss03-out-tea-ligature-kept"
     ],
-    "families": [
+    "unmatched_groups": [
       "no-chain-gains",
       "tea-it-xheight",
       "oy-it-baseline",
@@ -180,7 +180,7 @@
       "human_units": 272952,
       "batches": 910
     },
-    "families": {
+    "unmatched_groups": {
       "census": {
         "no-chain-gains": 2904,
         "tea-it-xheight": 159,

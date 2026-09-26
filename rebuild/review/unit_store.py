@@ -4,7 +4,7 @@ Columns avoid per-object overhead: a tuple header per span, a pointer per name, 
 
 The ordinal is the unit's row in the workload table (`audit.UnitTable`) after the ink-duplicate merge compacts it, and the store is allocated over the same count, so one index reads both tables. The two tables share one string table, passed in as `strings`. The plan's keyer loop writes every input key (`set_input_key`) before any row is folded, and a fold that carries an input key must match the one already written. The unit id is not stored. `unit_cache.unit_id_for` writes the first 64 bits of the content key as eleven base58 symbols over an ASCII-ordered alphabet, so the id is the key's first eight bytes read big-endian (`id_word`), and ids sort as strings in the same order as those integers. The home reduce breaks ties on the integer. Readers that hold an id string (the checker's served-id lookup, the verification sample, `set_homes` given a string) go through `ordinal_of`, a bisect over the sorted words, built once after the fold. That build fails on a repeated id, because two windows with one 64-bit prefix would share a fragment address.
 
-Every string (a digest, a cluster, a family, a config name, a glyph or cell name, a seam token, a part name, a class, an echo id, a policy file, a config note) is an id into one `columns.StringTable`, which interns through `sys.intern` and assigns ids in first-seen order as the fold runs. In a pooled build that order depends on timing, but no output byte depends on it, because every accessor returns the string. Id 0 is the empty string, which the accessors read as `""` for a required field and as `None` for an optional one.
+Every string (a digest, a cluster, an unmatched group, a config name, a glyph or cell name, a seam token, a part name, a class, an echo id, a policy file, a config note) is an id into one `columns.StringTable`, which interns through `sys.intern` and assigns ids in first-seen order as the fold runs. In a pooled build that order depends on timing, but no output byte depends on it, because every accessor returns the string. Id 0 is the empty string, which the accessors read as `""` for a required field and as `None` for an optional one.
 
 The accessors build one unit's values on demand, in the shapes the build writes: `seam_home` is the `enrich.SeamHomeUnit` the home reduce compares, `seam_home_record` the `proj` dict of a store record, `seam_rects` the `[{"pair", "before", "after"}]` list `patch_fragment` reads, `homes_record` the `[[home, suppressed]]` list, `cached_unit` the `unit_cache.CachedUnit` for `record_line`, and `source` the `unit_cache.PriorFragment` the fragment is read back through. JSON key order is part of the shipped bytes, so each accessor builds its dicts in the order the writer reads them, and the fold raises on input it could not rebuild byte for byte: rect dicts whose keys are not `x_min`, `x_max`, `advance_total` in that order, and rows whose spans, names and seams disagree in length. The store is also the home reduce's `enrich.SeamHomeSource` (`windows`, `seam_count`, `projection`, `id_word`, `invisible` and `set_homes`), so `enrich.resolve_home_assignments` skips units with no secondary seam without building anything and writes its result straight into the seam side column.
 
@@ -83,7 +83,7 @@ class FreshProjection(Protocol):
     @property
     def cluster(self) -> str: ...
     @property
-    def family(self) -> str: ...
+    def unmatched_group(self) -> str: ...
     @property
     def pair_codepoints(self) -> tuple[int, int] | None: ...
     @property
@@ -132,7 +132,7 @@ class UnitStore:
         self._flags = array("B", [0]) * n
         self._diffs_digest = array("I", [0]) * n
         self._cluster = array("I", [0]) * n
-        self._family = array("I", [0]) * n
+        self._unmatched_group = array("I", [0]) * n
         self._pair_l = array("b", [-1]) * n
         self._pair_r = array("b", [-1]) * n
         self._cell_pair_l = array("b", [-1]) * n
@@ -372,7 +372,7 @@ class UnitStore:
         )
         self._diffs_digest[ordinal] = self._table.id(projection.diffs_digest)
         self._cluster[ordinal] = self._table.id(projection.cluster)
-        self._family[ordinal] = self._table.id(projection.family)
+        self._unmatched_group[ordinal] = self._table.id(projection.unmatched_group)
         if projection.pair_codepoints is not None:
             self._pair_l[ordinal], self._pair_r[ordinal] = projection.pair_codepoints
         self._fold_deltas(ordinal, projection.ink_deltas)
@@ -413,7 +413,7 @@ class UnitStore:
         )
         self._diffs_digest[ordinal] = self._table.id(cached.diffs_digest)
         self._cluster[ordinal] = self._table.id(cached.cluster)
-        self._family[ordinal] = self._table.id(cached.family)
+        self._unmatched_group[ordinal] = self._table.id(cached.unmatched_group)
         if cached.pair_codepoints is not None:
             self._pair_l[ordinal], self._pair_r[ordinal] = cached.pair_codepoints
         self._prior_class[ordinal] = self._table.id(cached.prior_class)
@@ -536,8 +536,8 @@ class UnitStore:
     def cluster(self, ordinal: int) -> str:
         return self._table[self._cluster[ordinal]]
 
-    def family(self, ordinal: int) -> str:
-        return self._table[self._family[ordinal]]
+    def unmatched_group(self, ordinal: int) -> str:
+        return self._table[self._unmatched_group[ordinal]]
 
     def pair_codepoints(self, ordinal: int) -> tuple[int, int] | None:
         left = self._pair_l[ordinal]
@@ -777,7 +777,7 @@ class UnitStore:
             ink_deltas=self.ink_deltas(ordinal),
             diffs_digest=self.diffs_digest(ordinal),
             cluster=self.cluster(ordinal),
-            family=self.family(ordinal),
+            unmatched_group=self.unmatched_group(ordinal),
             pair_codepoints=self.pair_codepoints(ordinal),
             proj=self.seam_home_record(ordinal),
             seams=self.seam_rects(ordinal),

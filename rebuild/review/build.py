@@ -33,7 +33,7 @@ from typing import BinaryIO, cast
 
 from rebuild.pipeline import fingerprint
 from rebuild.pipeline.baseline_subset import M1_ALPHABET
-from rebuild.review import app_index, facts, families, tablediff, unit_cache, unit_index
+from rebuild.review import app_index, facts, tablediff, unit_cache, unit_index, unmatched_groups
 from rebuild.review.audit import (
     ACCEPTANCE_CONFIGS,
     BATCH_SIZE,
@@ -56,11 +56,10 @@ from rebuild.review.audit import (
     signature_rows,
     slim_fragment,
     sort_for_triage,
-    synthesize_family_classes,
+    synthesize_unmatched_group_classes,
     triage_key,
 )
 from rebuild.review.drafts import Drafter, _import_test_shaping
-from rebuild.review.families import assign_family
 from rebuild.review.ink import (
     IDENTITY_DIFF,
     JUNIOR_VERIFICATION_METHOD,
@@ -89,6 +88,7 @@ from rebuild.review.enrich import (
 )
 from rebuild.review.subset_pack import ensure_pack, is_seam_token, table_digests
 from rebuild.review.unit_store import UnitStore
+from rebuild.review.unmatched_groups import assign_unmatched_group
 from rebuild.tools import console, pile_tally
 from rebuild.tools.cycle_timings import record_pool
 from rebuild.tools.peak_rss import current_rss_bytes, peak_rss_self_bytes, rss_now_token, rss_token
@@ -288,7 +288,7 @@ def _config_class_note(unit) -> str | None:
 def _machine_approved_meta(
     machine_units: Iterable[tuple[str, int, str]], junior_font: Path, repo_root: Path
 ) -> dict:
-    """Return the manifest's `machine_approved` record: unit and row totals across the three machine channels (ink-identical, picture-identical and junior-equivalent), unit counts per class (classes with none are omitted), and one sub-record per channel with its counts and verification method. `machine_units` yields one `(class_id, row_count, channel)` per machine-approved unit, in triage order. `by_class` keeps classes in first-appearance order, so they follow the manifest's class order: ledger classes, then the verdict families in `families.FAMILY_ORDER`. `facts.invariant_group` publishes that order as the pins' `machine_approved_classes`, so it must not depend on the table's load order. The junior channel also records the Junior font it used, because the manifest's fonts block does not cover it: the app never renders it."""
+    """Return the manifest's `machine_approved` record: unit and row totals across the three machine channels (ink-identical, picture-identical and junior-equivalent), unit counts per class (classes with none are omitted), and one sub-record per channel with its counts and verification method. `machine_units` yields one `(class_id, row_count, channel)` per machine-approved unit, in triage order. `by_class` keeps classes in first-appearance order, so they follow the manifest's class order: ledger classes, then the unmatched groups in `unmatched_groups.UNMATCHED_GROUP_ORDER`. `facts.invariant_group` publishes that order as the pins' `machine_approved_classes`, so it must not depend on the table's load order. The junior channel also records the Junior font it used, because the manifest's fonts block does not cover it: the app never renders it."""
     by_class: dict[str, int] = {}
     channels = {
         "ink_identical": {"units": 0, "rows": 0, "method": VERIFICATION_METHOD},
@@ -457,7 +457,7 @@ def unit_to_json(
     final_class: str | None = None,
     ink_deltas: Mapping[str, str] | None = None,
 ) -> dict:
-    """Return the shard fragment for one enriched unit as phase 1 drafts it, while its batch's shapes are still in the shape memo. The fragment is first built without drafts, with `final_class` (the verdict family an UNMATCHED unit is promoted to) as its class and `ink_deltas` as the comparator found them. It is then stamped: `content_key` is the hash of its carry projection, and the unit's id is `unit_cache.unit_id_for` of that key, written onto both the unit and the fragment so the seam-home projection carries the final id. The drafts are added after the stamp.
+    """Return the shard fragment for one enriched unit as phase 1 drafts it, while its batch's shapes are still in the shape memo. The fragment is first built without drafts, with `final_class` (the unmatched group an UNMATCHED unit is promoted to) as its class and `ink_deltas` as the comparator found them. It is then stamped: `content_key` is the hash of its carry projection, and the unit's id is `unit_cache.unit_id_for` of that key, written onto both the unit and the fragment so the seam-home projection carries the final id. The drafts are added after the stamp.
 
     The echo, the cluster and the secondary-seam homes are placeholders here: `patch_fragment` overwrites them at the write, and all of them are outside the carry projection. The scaffold keys inside the projection (`_STAMPED_SCAFFOLD_KEYS`) already carry the parent's values, which `hold_scaffold` checks at the write. Together these keep the stamp taken here valid for the written fragment. Nothing the drafter or the enricher produces may depend on the placeholders.
 
@@ -846,7 +846,7 @@ def _cluster_id(configs, class_id, diffs) -> str:
 
 @dataclass(frozen=True, slots=True)
 class _UnitProjection:
-    """The picklable phase-1 result a corpus worker returns per unit: what the parent's serial reduces read and what the unit cache persists. It never includes the EnrichedUnit, which is freed when its batch ends; the fragment is drafted and spooled in the same step, and its spool address (`part`, `start`, `length`) is included here. `ordinal` is the unit's row in the parent's unit store (`audit.Unit.ordinal`), so the parent folds the projection in without a lookup. `input_key` is the unit's cache key over its inputs, which the store records so the next build can serve the unit by it. `unit_id` and `content_key` are the drafting's stamp. The ink diffs are sent only as two digests of their repr: `diffs_digest` is the echo key's diff component, and `cluster` is the blank-queue cluster id. The cluster is computed here because everything it depends on is known once the family is assigned: the configs, the diffs, and the final class (the verdict family for an UNMATCHED unit, else the ledger class). It is computed for machine-approved units too, because the store carries it forward and a served unit can become a human unit through a ledger edit alone (its `no_verdict` flipping). Sending digests keeps the parent from holding each unit's diffs repr, which is as long as the diffs, through the units phase."""
+    """The picklable phase-1 result a corpus worker returns per unit: what the parent's serial reduces read and what the unit cache persists. It never includes the EnrichedUnit, which is freed when its batch ends; the fragment is drafted and spooled in the same step, and its spool address (`part`, `start`, `length`) is included here. `ordinal` is the unit's row in the parent's unit store (`audit.Unit.ordinal`), so the parent folds the projection in without a lookup. `input_key` is the unit's cache key over its inputs, which the store records so the next build can serve the unit by it. `unit_id` and `content_key` are the drafting's stamp. The ink diffs are sent only as two digests of their repr: `diffs_digest` is the echo key's diff component, and `cluster` is the blank-queue cluster id. The cluster is computed here because everything it depends on is known once the unmatched group is assigned: the configs, the diffs, and the final class (the unmatched group for an UNMATCHED unit, else the ledger class). It is computed for machine-approved units too, because the store carries it forward and a served unit can become a human unit through a ledger edit alone (its `no_verdict` flipping). Sending digests keeps the parent from holding each unit's diffs repr, which is as long as the diffs, through the units phase."""
 
     unit_id: str
     input_key: str
@@ -857,7 +857,7 @@ class _UnitProjection:
     ink_deltas: tuple[tuple[str, str], ...]
     diffs_digest: str
     cluster: str
-    family: str
+    unmatched_group: str
     pair_codepoints: tuple[int, int] | None
     seam_home: SeamHomeUnit
     seam_rects: tuple[tuple[tuple[int, int], dict, dict], ...]
@@ -884,9 +884,9 @@ def _phase1_unit(
     }
     mismatch_mark = len(enricher.mismatches)
     enriched = enricher.enrich(unit, report)
-    family = assign_family(enriched) if unit.class_id == UNMATCHED_CLASS else ""
+    unmatched_group = assign_unmatched_group(enriched) if unit.class_id == UNMATCHED_CLASS else ""
     diffs_repr = repr(diffs).encode()
-    fragment = unit_to_json(enriched, drafter, final_class=family or None, ink_deltas=ink_deltas)
+    fragment = unit_to_json(enriched, drafter, final_class=unmatched_group or None, ink_deltas=ink_deltas)
     address = spool.add(fragment) if spool is not None else None
     projection = _UnitProjection(
         unit_id=unit.unit_id,
@@ -898,9 +898,9 @@ def _phase1_unit(
         ink_deltas=tuple(ink_deltas.items()),
         diffs_digest=hashlib.sha1(diffs_repr).hexdigest(),
         cluster=_cluster_id_from_repr(
-            unit.configs, family if unit.class_id == UNMATCHED_CLASS else unit.class_id, diffs_repr
+            unit.configs, unmatched_group if unit.class_id == UNMATCHED_CLASS else unit.class_id, diffs_repr
         ),
-        family=family,
+        unmatched_group=unmatched_group,
         pair_codepoints=enriched.pair_codepoints,
         seam_home=seam_home_projection(enriched),
         seam_rects=tuple(
@@ -1208,7 +1208,7 @@ def _phase_timing(label: str, started: float, note: str = "") -> None:
 
 
 class _FreshRunner:
-    """Run phase 1 over the units the cache could not serve: in-process when `jobs` is 1, across persistent spawn workers otherwise, with the same per-unit work either way, so serial and parallel builds share every reduce and are byte-identical. The parent keeps the triage order and every order-sensitive reduce (the index and its batches, family promotion, echo grouping, secondary-home resolution) and takes each fresh unit's id from the projection its drafting stamped. The runner enriches, drafts and runs the drafting-time contract check (`_phase1_unit`). It spools each fragment as it is drafted (`_FragmentSpool`, under `out_dir`) so no EnrichedUnit outlives its batch on either path, folds each projection into the parent's unit store as it arrives (`phase1`), keeps the check's complaints in `contract_errors` for the write, and returns fragments one at a time through `fragment`, read from the spool at the address the store holds, as a served fragment is read from the previous corpus.
+    """Run phase 1 over the units the cache could not serve: in-process when `jobs` is 1, across persistent spawn workers otherwise, with the same per-unit work either way, so serial and parallel builds share every reduce and are byte-identical. The parent keeps the triage order and every order-sensitive reduce (the index and its batches, unmatched-group promotion, echo grouping, secondary-home resolution) and takes each fresh unit's id from the projection its drafting stamped. The runner enriches, drafts and runs the drafting-time contract check (`_phase1_unit`). It spools each fragment as it is drafted (`_FragmentSpool`, under `out_dir`) so no EnrichedUnit outlives its batch on either path, folds each projection into the parent's unit store as it arrives (`phase1`), keeps the check's complaints in `contract_errors` for the write, and returns fragments one at a time through `fragment`, read from the spool at the address the store holds, as a served fragment is read from the previous corpus.
 
     Pooled, every worker draws batches from one queue (`_handout_width` units at a time, one batch in flight per worker) instead of owning a fixed share, so which worker drafts which unit depends on timing and changes no output byte: `OutlineIntern` keys by shape, not by first-seen order, the parent folds each projection into its ordinal's row, and every order-dependent reduce runs in the parent over the whole store. The queue is in configuration order (`_configuration_order`), so a worker's consecutive batches share a configuration. Its baseline rows come from the subset pack the parent writes before the pool starts (`subset_pack`, mapped read-only by every worker and shared through the page cache), its lookups mostly stay in one configuration's key range, and most batches settle under one configuration. The verification sample is split into contiguous slices of the same order for the same reason. A worker holds its interpreter and shapers, one batch's units, projections and addresses, the rows materialized for that batch, and the pages of the mapping it has touched; `CORPUS_WORKER_BYTES` in rebuild/tools/artifact_cycle.py estimates that peak. `close` deletes the spool however the build ends.
     """
@@ -1824,7 +1824,7 @@ def _packed_shape(pile: str) -> pile_tally.Shape:
             "ink_deltas": labeled,
             "diffs_digest": name,
             "cluster": name,
-            "family": name,
+            "unmatched_group": name,
             "pair_codepoints": pair,
             "echo": name,
             "exemplar": flag,
@@ -2122,23 +2122,23 @@ def build_m1(
         # Every unit's id and machine flags are now in the store: a served unit's from the plan, a fresh unit's from its projection. Building the id index fails the build on a repeated id. With 64-bit ids a repeat is very unlikely, but it would give two windows one id, so it is an error and not a merge.
         store.index()
 
-        # Promote each UNMATCHED unit's verdict family to its class, so the per-class shard loop writes it under that family. The cluster id is already keyed on this final class: the runner computed it where it assigned the family, and a served unit uses the stored value, whose inputs (configs, final class, ink diffs) are all covered by the unit's input key and the store's environment stamp.
+        # Promote each UNMATCHED unit's unmatched group to its class, so the per-class shard loop writes it under that group. The cluster id is already keyed on this final class: the runner computed it where it assigned the group, and a served unit uses the stored value, whose inputs (configs, final class, ink diffs) are all covered by the unit's input key and the store's environment stamp.
         for ordinal in range(table.n):
             if table.class_id(ordinal) == UNMATCHED_CLASS:
-                family_id = store.family(ordinal)
-                table.set_family(ordinal, family_id)
-                table.set_class(ordinal, family_id)
+                group_id = store.unmatched_group(ordinal)
+                table.set_unmatched_group(ordinal, group_id)
+                table.set_class(ordinal, group_id)
 
-        # The triage index. `order` is a permutation of all the table's rows in `audit.triage_key` order: class (the ledger classes first, then the verdict families), group, window, id. `assign_batches` numbers the human units along it and slices them into batches. Every term of the key is content, so this index is the only place the queue order is recorded, and no fragment carries a position in it.
-        classes = workload.classes_present + synthesize_family_classes(
-            table, families.FAMILY_ORDER, families.FAMILY_WHY
+        # The triage index. `order` is a permutation of all the table's rows in `audit.triage_key` order: class (the ledger classes first, then the unmatched groups), group, window, id. `assign_batches` numbers the human units along it and slices them into batches. Every term of the key is content, so this index is the only place the queue order is recorded, and no fragment carries a position in it.
+        classes = workload.classes_present + synthesize_unmatched_group_classes(
+            table, unmatched_groups.UNMATCHED_GROUP_ORDER, unmatched_groups.UNMATCHED_GROUP_WHY
         )
         order = sort_for_triage(
             table, store, {entry.id: index for index, entry in enumerate(classes)}, dict(LETTERS)
         )
         total_batches = assign_batches(table, store, order, batch_size)
 
-        # Echo groups: human units whose config set, judged pair, class and ink diffs (`diffs_digest`) all agree show the same change in different surroundings, so one verdict covers all of them. They are keyed after family promotion so the class is final. The id is a digest of the key (`unit_cache.echo_id_for`), so a group keeps its id on every corpus it appears on. The table's string table stores each id once, however many units carry it.
+        # Echo groups: human units whose config set, judged pair, class and ink diffs (`diffs_digest`) all agree show the same change in different surroundings, so one verdict covers all of them. They are keyed after unmatched-group promotion so the class is final. The id is a digest of the key (`unit_cache.echo_id_for`), so a group keeps its id on every corpus it appears on. The table's string table stores each id once, however many units carry it.
         echo_groups: set[str] = set()
         for ordinal in range(table.n):
             if table.batch(ordinal) is None:
@@ -2289,14 +2289,14 @@ def build_m1(
     console.phase("review.build review-facts", file=sys.stderr)
     phase = time.perf_counter()
     premerge_facts = facts.derive_premerge(premerge_capture, table, store)
-    # An UNMATCHED window is a new join under review, so it is never ink-identical. That holds for the real corpus, not for every input, so it is asserted here and not in `derive_premerge`, which tests call with synthetic inputs that give ink-identical units a family.
-    families_on_identical = [
-        index for index, _family in premerge_facts.families if premerge_facts.ink_flags[index] == "1"
+    # An UNMATCHED window is a new join under review, so it is never ink-identical. That holds for the real corpus, not for every input, so it is asserted here and not in `derive_premerge`, which tests call with synthetic inputs that give ink-identical units an unmatched group.
+    grouped_on_identical = [
+        index for index, _group in premerge_facts.unmatched_groups if premerge_facts.ink_flags[index] == "1"
     ]
-    if families_on_identical:
+    if grouped_on_identical:
         raise SystemExit(
-            f"{len(families_on_identical)} ink-identical pre-merge units carry a verdict family "
-            f"(first at capture index {families_on_identical[0]})"
+            f"{len(grouped_on_identical)} ink-identical pre-merge units carry an unmatched group "
+            f"(first at capture index {grouped_on_identical[0]})"
         )
     facts.write_facts(
         out_dir,

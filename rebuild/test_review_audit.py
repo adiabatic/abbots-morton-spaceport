@@ -11,7 +11,7 @@ from pathlib import Path
 import pytest
 import yaml
 
-from rebuild.review import families
+from rebuild.review import unmatched_groups
 from rebuild.review import unit_cache
 from rebuild.review import unit_store
 from rebuild.review.audit import (
@@ -316,7 +316,7 @@ def test_the_dedupe_loses_no_rows(mini):
 
 
 def test_triage_order_follows_ledger_then_group_then_codepoints(mini):
-    # The UNMATCHED units carry the sentinel class at workload level, because their verdict family is assigned later in the build. They rank after every ledger class.
+    # The UNMATCHED units carry the sentinel class at workload level, because their unmatched group is assigned later in the build. They rank after every ledger class.
     class_order = {entry.id: index for index, entry in enumerate(mini.ledger)}
     units = mini.units()
     indices = [class_order.get(unit.class_id, len(mini.ledger)) for unit in units]
@@ -342,7 +342,7 @@ def test_triage_order_follows_ledger_then_group_then_codepoints(mini):
 
 
 def test_unit_ids_batches_and_positions_are_unassigned_until_the_build_knows_them(mini):
-    """An id comes from the content key, which is stamped at enrichment, and a batch is assigned only once every unit has its ink flags and its family, so the loaded workload has neither."""
+    """An id comes from the content key, which is stamped at enrichment, and a batch is assigned only once every unit has its ink flags and its unmatched group, so the loaded workload has neither."""
     for unit in mini.units():
         assert unit.unit_id == ""
         assert unit.order is None
@@ -647,9 +647,9 @@ def test_a_ledger_declaring_one_class_twice_is_refused_at_load(tmp_path):
         )
 
 
-@pytest.mark.parametrize("identifier", ["UNMATCHED", families.FAMILY_ORDER[0]])
+@pytest.mark.parametrize("identifier", ["UNMATCHED", unmatched_groups.UNMATCHED_GROUP_ORDER[0]])
 def test_a_ledger_claiming_a_synthesized_class_is_refused_at_load(tmp_path, identifier):
-    """The build creates the UNMATCHED catch-all and the verdict family classes itself, so a ledger entry with one of those ids would be overridden by a class the ledger does not describe."""
+    """The build creates the UNMATCHED catch-all and the unmatched-group classes itself, so a ledger entry with one of those ids would be overridden by a class the ledger does not describe."""
     with pytest.raises(ValueError, match=identifier):
         load_ledger(_ledger(tmp_path, identifier))
 

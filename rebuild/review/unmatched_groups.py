@@ -1,10 +1,10 @@
-"""Group the UNMATCHED windows (joins the rebuild makes that the old font did not) into verdict families, so each family gets its own class and shard on the review corpus. The grouping is for presentation only: it reads each unit's settled seams, changes no shaping, and writes no ledger predicate, and the oracle stays dirty until the families are adjudicated. `assign_family` returns a family for every UNMATCHED unit, with `unmatched-misc` as the catch-all.
+"""Group the UNMATCHED windows (joins the rebuild makes that the old font did not) into unmatched groups, so each group gets its own class and shard on the review corpus. The grouping is for presentation only: it reads each unit's settled seams, changes no shaping, and writes no ledger predicate, and the oracle stays dirty until the groups are adjudicated. `assign_unmatched_group` returns a group for every UNMATCHED unit, with `unmatched-misc` as the catch-all.
 
-Two things decide a family:
+Two things decide a group:
 
-- Config gating. A window that is novel only under a stylistic set goes to a deferred family named for the set (ss04, ss10, or ss03 for the ss02/ss03/ss05 cases), which sorts last. A window that is novel under the default config gets a default family.
+- Config gating. A window that is novel only under a stylistic set goes to a deferred group named for the set (ss04, ss10, or ss03 for the ss02/ss03/ss05 cases), which sorts last. A window that is novel under the default config gets a default group.
 
-- The first changed seam. Among the default families, the first gap whose before and after seam tokens differ names the family by its left and right letters and by whether the join was gained (`break` to `yN`, or a raised seam) or lost (`yN` to `break`, or a lowered seam). Gains at ·Tea·It, at ·Oy·It, and between ·May and ·Utter each have a family, other gains that touch ·No go to `no-chain-gains`, and the remaining gains go to `unmatched-misc`. Every loss goes to `seam-loss-withdrawal`. A window with no changed seam, or whose seam and cell counts do not line up, goes to `extension-non-summing`.
+- The first changed seam. Among the default groups, the first gap whose before and after seam tokens differ names the group by its left and right letters and by whether the join was gained (`break` to `yN`, or a raised seam) or lost (`yN` to `break`, or a lowered seam). Gains at ·Tea·It, at ·Oy·It, and between ·May and ·Utter each have a group, other gains that touch ·No go to `no-chain-gains`, and the remaining gains go to `unmatched-misc`. Every loss goes to `seam-loss-withdrawal`. A window with no changed seam, or whose seam and cell counts do not line up, goes to `extension-non-summing`.
 """
 
 from __future__ import annotations
@@ -24,8 +24,8 @@ class UnitConfigs(Protocol):
     def configs(self) -> tuple[str, ...]: ...
 
 
-class FamilyInput(Protocol):
-    """What `assign_family` reads from an enriched unit: the unit's configs and the seam and cell tuples `_primary_change` scans. A test stub can satisfy it without building a whole `EnrichedUnit`."""
+class UnmatchedGroupInput(Protocol):
+    """What `assign_unmatched_group` reads from an enriched unit: the unit's configs and the seam and cell tuples `_primary_change` scans. A test stub can satisfy it without building a whole `EnrichedUnit`."""
 
     @property
     def unit(self) -> UnitConfigs: ...
@@ -40,7 +40,7 @@ class FamilyInput(Protocol):
     def after_cells(self) -> tuple[str, ...]: ...
 
 
-FAMILY_ORDER = [
+UNMATCHED_GROUP_ORDER = [
     "no-chain-gains",
     "tea-it-xheight",
     "oy-it-baseline",
@@ -53,12 +53,12 @@ FAMILY_ORDER = [
     "deferred-ss03",
 ]
 
-FAMILY_WHY = {
-    "no-chain-gains": "The new engine adds a ·No-chain join the old font left broken — ·No reaching forward to ·Oy at the x-height, ·It rising into ·No, and the other join-maximizer gains around ·No. A taste call: keep the richer joins or restore the old breaks.",
+UNMATCHED_GROUP_WHY = {
+    "no-chain-gains": "The new engine adds a ·No-chain join the old font left broken — ·No reaching forward to ·Oy at the x-height, ·It rising into ·No, and the other added joins around ·No. A taste call: keep the richer joins or restore the old breaks.",
     "tea-it-xheight": "·Tea·It now joins at the x-height (before ·Day/·Utter) where the old font broke. Resembles the entered-·It x-height gains already accepted; adjudicate whether this window should join too.",
     "oy-it-baseline": "·Oy·It now joins at the baseline before ·No (a strict +1-pixel join) where the old font broke.",
-    "may-utter-gains": "·May/·Utter reach-back gains — ·May·Utter joining at the x-height and the ·Utter·May reach-backs (including the post-ZWNJ ·Utter·May·X windows) the old font did not draw.",
-    "seam-loss-withdrawal": "The new engine breaks (or lowers) a seam the old font joined — ·No's flipped exit withdrawing before ·Tea, the ·Utter/·No chain-flip lowering x-height joins to the baseline, ·It withdrawing before ·Utter. The context-dependent, partly engine-limited family flagged in the round-2 analysis.",
+    "may-utter-gains": "·May/·Utter backward-join gains — ·May·Utter joining at the x-height and the ·Utter·May backward joins (including the post-ZWNJ ·Utter·May·X windows) the old font did not draw.",
+    "seam-loss-withdrawal": "The new engine breaks (or lowers) a seam the old font joined — ·No's flipped exit withdrawing before ·Tea, the ·Utter/·No chain-flip lowering x-height joins to the baseline, ·It withdrawing before ·Utter. The context-dependent, partly engine-limited group flagged in the round-2 analysis.",
     "extension-non-summing": "The seams are unchanged but the lead settles as a different cell because a composed extension no longer sums — the ·Tea·Oy·Day extension-drop window and its kin.",
     "unmatched-misc": "Default-config UNMATCHED windows that fit none of the named seam-gain or seam-loss signatures — the catch-all so no window is ever dropped from review.",
     "deferred-ss04": "Deferred for a later pass: the novel behavior appears only under stylistic set ss04 (the ss04 Group A lowered-lead design question and the ss04 ligature declines). Not part of the round-3 default adjudication.",
@@ -78,8 +78,8 @@ def _unmatched_configs(unit: UnitConfigs) -> list[str]:
     return list(unit.configs)
 
 
-def deferred_family(unit: UnitConfigs) -> str | None:
-    """Return the deferred family for a window that is UNMATCHED only under stylistic sets, or None when it is UNMATCHED under the default config. When several sets apply, ss04 wins over ss10, and ss10 over any other set, which goes to `deferred-ss03`."""
+def deferred_unmatched_group(unit: UnitConfigs) -> str | None:
+    """Return the deferred group for a window that is UNMATCHED only under stylistic sets, or None when it is UNMATCHED under the default config. When several sets apply, ss04 wins over ss10, and ss10 over any other set, which goes to `deferred-ss03`."""
     novel = _unmatched_configs(unit)
     if any(_config_features(config) == frozenset() for config in novel):
         return None
@@ -112,7 +112,7 @@ def _seam_rank(token: str) -> int:
     return -1
 
 
-def _primary_change(enriched: FamilyInput) -> tuple[str, str, str, str] | None:
+def _primary_change(enriched: UnmatchedGroupInput) -> tuple[str, str, str, str] | None:
     """Return the first gap between cells whose seam token changed, as (left family, right family, before token, after token). Return None when no seam changed, or when the seam counts differ or do not match the cell count, as when a ligature forms or splits."""
     before = enriched.before_seams
     after = enriched.after_seams
@@ -126,9 +126,9 @@ def _primary_change(enriched: FamilyInput) -> tuple[str, str, str, str] | None:
     return None
 
 
-def assign_family(enriched: FamilyInput) -> str:
-    """Return the verdict family id for one UNMATCHED unit."""
-    deferred = deferred_family(enriched.unit)
+def assign_unmatched_group(enriched: UnmatchedGroupInput) -> str:
+    """Return the unmatched group id for one UNMATCHED unit."""
+    deferred = deferred_unmatched_group(enriched.unit)
     if deferred is not None:
         return deferred
 

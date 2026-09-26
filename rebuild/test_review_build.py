@@ -1542,7 +1542,7 @@ def _export_corpus():
 
 
 def test_the_machine_approved_classes_are_listed_in_the_manifests_class_order(mini_corpus):
-    """`by_class` is keyed in order of first appearance among the machine-approved units in triage order, so its classes follow the manifest's `classes`: ledger classes in ledger order, then the promoted verdict families in `families.FAMILY_ORDER`. They must not follow the workload table's load order, where an UNMATCHED unit sits by its lead-family pair without a family term. `facts.invariant_group` publishes this order as `machine_approved_classes` in the review-facts pins, so a build that walked the table in row order would change the pins' invariant block for no reason a reviewer could judge."""
+    """`by_class` is keyed in order of first appearance among the machine-approved units in triage order, so its classes follow the manifest's `classes`: ledger classes in ledger order, then the promoted unmatched groups in `unmatched_groups.UNMATCHED_GROUP_ORDER`. They must not follow the workload table's load order, where an UNMATCHED unit sits by its lead-family pair without an unmatched-group term. `facts.invariant_group` publishes this order as `machine_approved_classes` in the review-facts pins, so a build that walked the table in row order would change the pins' invariant block for no reason a reviewer could judge."""
     manifest = json.loads((mini_corpus / "manifest.json").read_text(encoding="utf-8"))
     by_class = list(manifest["machine_approved"]["by_class"])
     classes = [meta["id"] for meta in manifest["classes"]]

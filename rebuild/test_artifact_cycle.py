@@ -5418,7 +5418,7 @@ _ACCEPTED_PINS = {
         "classes": ["boundary-echo", "bare-name-live-join"],
         "machine_approved_classes": ["boundary-echo", "bare-name-live-join"],
         "no_verdict_classes": ["boundary-echo"],
-        "families": ["no-chain-gains"],
+        "unmatched_groups": ["no-chain-gains"],
     },
     "volatile": {"audit": {"row_count": 10, "units": 4}},
 }
@@ -5449,7 +5449,7 @@ def _moved_invariant() -> dict:
             "classes": ["boundary-echo", "bare-name-live-join", "vie-baseline-entry-extension-dropped"],
             "machine_approved_classes": ["boundary-echo", "bare-name-live-join"],
             "no_verdict_classes": ["boundary-echo", "vie-baseline-entry-extension-dropped"],
-            "families": ["no-chain-gains", "deferred-ss10"],
+            "unmatched_groups": ["no-chain-gains", "deferred-ss10"],
         },
         "volatile": {"audit": {"row_count": 12, "units": 5}},
     }
@@ -5582,7 +5582,7 @@ def test_every_spawned_step_closes_with_its_own_detail_and_peak(capsys, tmp_path
 
 
 def test_do_review_facts_names_the_invariant_movement_and_reports_ledger_coverage(monkeypatch, tmp_path):
-    """The review-facts status names the invariant movement: which classes appeared, and which no-verdict exemptions and families came with them. Beside it, the ledger-coverage line compares the ledger's declarations with the classes the corpus reached. Both go to the cycle log and to cycle_summary.json."""
+    """The review-facts status names the invariant movement: which classes appeared, and which no-verdict exemptions and unmatched groups came with them. Beside it, the ledger-coverage line compares the ledger's declarations with the classes the corpus reached. Both go to the cycle log and to cycle_summary.json."""
     _review_facts_fixture(monkeypatch, tmp_path, accepted=_ACCEPTED_PINS, current=_moved_invariant())
     calls: list[str] = []
 
@@ -5595,7 +5595,7 @@ def test_do_review_facts_names_the_invariant_movement_and_reports_ledger_coverag
     assert calls == ["review-facts"]
     assert report.facts_status == (
         "invariant moved: classes +1 (vie-baseline-entry-extension-dropped);"
-        " no-verdict +1 (vie-baseline-entry-extension-dropped); families +1 (deferred-ss10)"
+        " no-verdict +1 (vie-baseline-entry-extension-dropped); unmatched groups +1 (deferred-ss10)"
         " — its diff is shown above; review it at commit time"
     )
     assert report.ledger_coverage == (

@@ -20,7 +20,7 @@ A second fixture of a different kind: a slice of real build output, frozen so th
 These tests run against it at full xdist width instead of against the live `rebuild/out/`:
 
 - all of `rebuild/test_unit_cache.py` (a mini `build_m1` takes seconds), and the mini build that `rebuild/test_app_index.py` checks the sidecars against
-- the ordering and dedupe properties in `rebuild/test_review_audit.py`, and `test_assignment_is_deterministic` in `rebuild/test_review_families.py`
+- the ordering and dedupe properties in `rebuild/test_review_audit.py`, and `test_assignment_is_deterministic` in `rebuild/test_review_unmatched_groups.py`
 - the enrich and drafts worked examples, through the `example_units` fixture in `rebuild/conftest.py`: which position the enricher judges and how the drafter words a record, over the frozen example windows
 - the ink comparisons in `rebuild/test_review_ink.py`, over the bundle's font and a stride through its workload
 - the table-diff build, the snapshot round trip, and the two example-text tests in `rebuild/test_review_tablediff.py`, which re-settle the frozen tables under the spec they were built from

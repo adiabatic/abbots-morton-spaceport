@@ -782,7 +782,7 @@ def test_a_served_unit_skips_check_unit_but_not_the_cross_unit_grain():
 
 
 def test_the_premerge_projection_answers_one_ink_flag_per_captured_unit():
-    """`ink_flags` has one entry per captured unit, at the pre-merge grain the review-facts pins are defined over, so an index into it identifies a unit. The related claim that no unit with a family is ink-identical holds only for the real corpus, so `build_m1` asserts it instead of `derive_premerge`."""
+    """`ink_flags` has one entry per captured unit, at the pre-merge grain the review-facts pins are defined over, so an index into it identifies a unit. The related claim that no unit with an unmatched group is ink-identical holds only for the real corpus, so `build_m1` asserts it instead of `derive_premerge`."""
     rows = [
         AuditRow(
             "default",
@@ -799,10 +799,10 @@ def test_the_premerge_projection_answers_one_ink_flag_per_captured_unit():
     capture.rebase(table.compact())
     store = UnitStore(table.n, strings=table.strings)
     for ordinal in range(table.n):
-        table.set_family(ordinal, "a-family")
+        table.set_unmatched_group(ordinal, "a-group")
     premerge = facts.derive_premerge(capture, table, store)
     assert len(premerge.ink_flags) == premerge.units == table.n == 2
-    assert [index for index, _family in premerge.families] == [0, 1]
+    assert [index for index, _group in premerge.unmatched_groups] == [0, 1]
 
 
 # --- the two moments a build checks a fresh fragment at ----------------------------------------

@@ -38,7 +38,7 @@ class _Projection:
     ink_deltas: tuple[tuple[str, str], ...]
     diffs_digest: str
     cluster: str
-    family: str
+    unmatched_group: str
     pair_codepoints: tuple[int, int] | None
     seam_home: SeamHomeUnit
     seam_rects: tuple[tuple[tuple[int, int], dict, dict], ...]
@@ -95,7 +95,7 @@ def _projection(label: str, codepoints: tuple[int, ...] = (0xE652, 0xE670), **ov
         ink_deltas=(("ss03", "d-0123456789ab"), ("default", "d-ba9876543210")),
         diffs_digest="deadbeef",
         cluster="c-12345678",
-        family="",
+        unmatched_group="",
         pair_codepoints=(1, 0),
         seam_home=seam_home,
         seam_rects=_rects(seam_home),
@@ -156,7 +156,7 @@ def test_a_fresh_projection_reads_back_what_the_fold_was_handed():
     assert list(store.ink_deltas(0)) == ["ss03", "default"]
     assert store.diffs_digest(0) == projection.diffs_digest
     assert store.cluster(0) == projection.cluster
-    assert store.family(0) == projection.family == ""
+    assert store.unmatched_group(0) == projection.unmatched_group == ""
     assert store.pair_codepoints(0) == projection.pair_codepoints
     assert store.cell_pair(0) == projection.seam_home.pair
     assert store.codepoints(0) == projection.seam_home.codepoint_values == _WINDOW
@@ -231,7 +231,7 @@ def _served_record(
         ink_deltas={"default": "d-0123456789ab"},
         diffs_digest="deadbeef",
         cluster="c-12345678",
-        family="",
+        unmatched_group="",
         pair_codepoints=(1, 2),
         proj={
             "pair": [0, 1],
@@ -590,10 +590,10 @@ def test_the_mini_bundle_folds_and_reads_back_every_projection(mini_bundle, tmp_
         )
         assert store.ink_deltas(ordinal) == dict(projection.ink_deltas)
         assert list(store.ink_deltas(ordinal)) == [config for config, _delta in projection.ink_deltas]
-        assert (store.diffs_digest(ordinal), store.cluster(ordinal), store.family(ordinal)) == (
+        assert (store.diffs_digest(ordinal), store.cluster(ordinal), store.unmatched_group(ordinal)) == (
             projection.diffs_digest,
             projection.cluster,
-            projection.family,
+            projection.unmatched_group,
         )
         assert store.pair_codepoints(ordinal) == projection.pair_codepoints
         assert store.seam_home(ordinal) == projection.seam_home

@@ -19,7 +19,7 @@ from typing import NamedTuple, Protocol
 
 import yaml
 
-from rebuild.review import families
+from rebuild.review import unmatched_groups
 from rebuild.review.columns import MappingPool, StringTable, TuplePool
 
 ACCEPTANCE_CONFIGS = ("default", "ss03", "ss04", "ss05", "ss03+ss05", "ss10")
@@ -27,7 +27,7 @@ BATCH_SIZE = 300
 
 UNMATCHED_CLASS = "UNMATCHED"
 
-RESERVED_CLASS_IDS = frozenset({UNMATCHED_CLASS, *families.FAMILY_ORDER})
+RESERVED_CLASS_IDS = frozenset({UNMATCHED_CLASS, *unmatched_groups.UNMATCHED_GROUP_ORDER})
 
 AUDIT_HEADER = ("config", "codepoints", "kinds", "matched_entry", "baseline", "new")
 
@@ -130,7 +130,7 @@ class Unit:
     ink_deltas: Mapping[str, str] = field(default_factory=lambda: NO_DELTAS)
     no_verdict: bool = False
     config_classes: Mapping[str, str] = field(default_factory=dict)
-    family_id: str = ""
+    unmatched_group: str = ""
     echo: str | None = None
     cluster: str | None = None
 
@@ -207,25 +207,25 @@ def load_ledger(path: Path) -> list[LedgerClass]:
     return classes
 
 
-def synthesize_family_classes(
+def synthesize_unmatched_group_classes(
     table: UnitTable,
-    family_order: list[str],
-    family_why: dict[str, str],
+    group_order: list[str],
+    group_why: dict[str, str],
 ) -> list[LedgerClass]:
-    """Synthetic `LedgerClass` records for the verdict families present among the UNMATCHED units, in `family_order`, counted from the table's family column. `status='unmatched'` marks them as a grouping for presentation only: they have no ledger predicate, and the oracle stays dirty until they are adjudicated. The build appends them after the ledger classes, so each family gets a shard and a manifest entry the way a ledger class does. The build passes `families.FAMILY_ORDER` and `families.FAMILY_WHY`."""
-    counts = table.family_counts()
+    """Synthetic `LedgerClass` records for the unmatched groups present among the UNMATCHED units, in `group_order`, counted from the table's unmatched-group column. `status='unmatched'` marks them as a grouping for presentation only: they have no ledger predicate, and the oracle stays dirty until they are adjudicated. The build appends them after the ledger classes, so each group gets a shard and a manifest entry the way a ledger class does. The build passes `unmatched_groups.UNMATCHED_GROUP_ORDER` and `unmatched_groups.UNMATCHED_GROUP_WHY`."""
+    counts = table.unmatched_group_counts()
     return [
         LedgerClass(
-            id=family_id,
+            id=group_id,
             status="unmatched",
-            why=family_why.get(family_id, ""),
+            why=group_why.get(group_id, ""),
             ink_identical=False,
             no_verdict=False,
-            count=counts[family_id],
+            count=counts[group_id],
             exemplar_keys=frozenset(),
         )
-        for family_id in family_order
-        if family_id in counts
+        for group_id in group_order
+        if group_id in counts
     ]
 
 
@@ -386,7 +386,7 @@ class Compaction(NamedTuple):
 
 
 class UnitTable:
-    """The workload as columns over the unit's ordinal. The build's parent holds this from the load to the cache write instead of a list of `Unit` records, in the style of `unit_store.UnitStore`. The loader allocates one row per unit, and each field is a fixed-width `array`. Every name is an id into one `columns.StringTable`, the instance the row columns and the unit store share, so a class from the audit, a family from a worker and an echo id from a reduce are in one vocabulary. Each tuple or mapping field is an id into a pool, and a read returns the pooled instance, so units with equal values share one object. `configs` and `kinds` are ids into `tuples`, and `render_groups` into `groups`. `baseline` and `new` are ids into `names`, the tuple pool the row columns share, until `release_names` drops both columns and the pool. `config_classes` are ids into `mappings`, a `columns.MappingPool` keyed on each mapping's insertion order (the order the audit states the unit's configs in, which appears in the fragment's bytes); a read returns the pooled mapping typed read-only. The window is parsed once at load into `(start, count)` over a `u16` side column. The ledger's two flags and the merge's `LIVE` bit share one byte. `order` and `batch` are `u32`, with `NONE` for a unit outside the triage index. `rows_start` and `row_count` address the unit's run of the row columns. `survivor` is set by the ink-duplicate merge for a row it removes.
+    """The workload as columns over the unit's ordinal. The build's parent holds this from the load to the cache write instead of a list of `Unit` records, in the style of `unit_store.UnitStore`. The loader allocates one row per unit, and each field is a fixed-width `array`. Every name is an id into one `columns.StringTable`, the instance the row columns and the unit store share, so a class from the audit, an unmatched group from a worker and an echo id from a reduce are in one vocabulary. Each tuple or mapping field is an id into a pool, and a read returns the pooled instance, so units with equal values share one object. `configs` and `kinds` are ids into `tuples`, and `render_groups` into `groups`. `baseline` and `new` are ids into `names`, the tuple pool the row columns share, until `release_names` drops both columns and the pool. `config_classes` are ids into `mappings`, a `columns.MappingPool` keyed on each mapping's insertion order (the order the audit states the unit's configs in, which appears in the fragment's bytes); a read returns the pooled mapping typed read-only. The window is parsed once at load into `(start, count)` over a `u16` side column. The ledger's two flags and the merge's `LIVE` bit share one byte. `order` and `batch` are `u32`, with `NONE` for a unit outside the triage index. `rows_start` and `row_count` address the unit's run of the row columns. `survivor` is set by the ink-duplicate merge for a row it removes.
 
     The row index is the ordinal. The loader writes the rows in load order (ledger class, group, window, with the UNMATCHED units after every ledger class). The merge marks the rows it removes (`fold_into`), and `compact` drops them and renumbers the rest in place. After that every row is live, and the unit store is allocated over the same count, so one index reads both tables for the rest of the build. The manifest's triage order is a permutation over the rows (`sort_for_triage`) and does not reorder them. The machine flags and the unit id are stored only in the unit store. `unit` materializes a `Unit` from both tables, as `UnitStore.cached_unit` does for a store record, and `units` materializes the whole list for the review-facts CLI and the tests. The debug tally measures the table through `build.unit_table_sizes` over `columns` and `pools`; the tally is not imported here, for the reason `RowColumns` gives.
     """
@@ -400,7 +400,7 @@ class UnitTable:
         "mappings",
         "_class",
         "_group",
-        "_family",
+        "_unmatched_group",
         "_echo",
         "_cluster",
         "_configs",
@@ -430,7 +430,7 @@ class UnitTable:
         self.mappings = MappingPool()
         self._class = array("I", [0]) * n
         self._group = array("I", [0]) * n
-        self._family = array("I", [0]) * n
+        self._unmatched_group = array("I", [0]) * n
         self._echo = array("I", [0]) * n
         self._cluster = array("I", [0]) * n
         self._configs = array("I", [0]) * n
@@ -479,8 +479,8 @@ class UnitTable:
     def group(self, ordinal: int) -> str:
         return self.strings[self._group[ordinal]]
 
-    def family_id(self, ordinal: int) -> str:
-        return self.strings[self._family[ordinal]]
+    def unmatched_group(self, ordinal: int) -> str:
+        return self.strings[self._unmatched_group[ordinal]]
 
     def echo(self, ordinal: int) -> str | None:
         index = self._echo[ordinal]
@@ -556,8 +556,8 @@ class UnitTable:
     def set_class(self, ordinal: int, class_id: str) -> None:
         self._class[ordinal] = self.strings.id(class_id)
 
-    def set_family(self, ordinal: int, family_id: str) -> None:
-        self._family[ordinal] = self.strings.id(family_id)
+    def set_unmatched_group(self, ordinal: int, group_id: str) -> None:
+        self._unmatched_group[ordinal] = self.strings.id(group_id)
 
     def set_echo(self, ordinal: int, echo: str | None) -> None:
         self._echo[ordinal] = self.strings.optional(echo)
@@ -621,7 +621,7 @@ class UnitTable:
         if len(kept) != n:
             self._class = array("I", map(self._class.__getitem__, kept))
             self._group = array("I", map(self._group.__getitem__, kept))
-            self._family = array("I", map(self._family.__getitem__, kept))
+            self._unmatched_group = array("I", map(self._unmatched_group.__getitem__, kept))
             self._echo = array("I", map(self._echo.__getitem__, kept))
             self._cluster = array("I", map(self._cluster.__getitem__, kept))
             self._configs = array("I", map(self._configs.__getitem__, kept))
@@ -649,9 +649,9 @@ class UnitTable:
 
     # --- whole-table readings --------------------------------------------------------------------
 
-    def family_counts(self) -> dict[str, int]:
+    def unmatched_group_counts(self) -> dict[str, int]:
         counts: dict[int, int] = {}
-        for index in self._family:
+        for index in self._unmatched_group:
             if index:
                 counts[index] = counts.get(index, 0) + 1
         return {self.strings[index]: count for index, count in counts.items()}
@@ -690,7 +690,7 @@ class UnitTable:
     def columns(self) -> Iterator[array]:
         yield self._class
         yield self._group
-        yield self._family
+        yield self._unmatched_group
         yield self._echo
         yield self._cluster
         yield self._configs
@@ -753,7 +753,7 @@ class UnitTable:
             junior_equivalent=junior_equivalent,
             no_verdict=bool(flags & NO_VERDICT),
             config_classes=self.config_classes(ordinal),
-            family_id=self.family_id(ordinal),
+            unmatched_group=self.unmatched_group(ordinal),
             echo=self.echo(ordinal),
             cluster=self.cluster(ordinal),
         )
@@ -769,7 +769,7 @@ def load_table(
     family_of: dict[int, str],
     names: TuplePool[str] | None = None,
 ) -> tuple[UnitTable, RowColumns]:
-    """Dedupe the audit rows to (codepoints, baseline, new) units, and return them as a `UnitTable` in load order together with the row columns the units' runs address. Load order is ledger class, group, window, with the UNMATCHED units after every ledger class, because families are assigned only at enrichment. Once every unit has its family and id, the build orders the units for the manifest with `sort_for_triage` and assigns batches.
+    """Dedupe the audit rows to (codepoints, baseline, new) units, and return them as a `UnitTable` in load order together with the row columns the units' runs address. Load order is ledger class, group, window, with the UNMATCHED units after every ledger class, because unmatched groups are assigned only at enrichment. Once every unit has its unmatched group and id, the build orders the units for the manifest with `sort_for_triage` and assigns batches.
 
     A unit's matched ledger class can differ by config, most often a window matched under ss03 but UNMATCHED under the default config. Each unit keeps the full per-config class map in `config_classes`, in the order the file states the configs. Its `class_id` is the single matched class if every config matched, and UNMATCHED if any config did not, so the unmatched default behavior is what gets reviewed; the matched configs stay in `config_classes` for display. A unit whose rows match two different ledger classes raises `ValueError`.
 
@@ -927,7 +927,7 @@ def _permute(table: UnitTable, permutation: Sequence[int]) -> None:
     for name in (
         "_class",
         "_group",
-        "_family",
+        "_unmatched_group",
         "_echo",
         "_cluster",
         "_configs",
@@ -986,7 +986,7 @@ def triage_key(
 def sort_for_triage(
     table: UnitTable, store: UnitStoreView, class_order: Mapping[str, int], family_of: Mapping[int, str]
 ) -> array:
-    """Return the triage order as a permutation of the table's rows. The rows are not reordered, so the row index stays the ordinal. The class term is each unit's final class (its ledger class, or the verdict family the build promoted an UNMATCHED unit to), indexed through `class_order`, which maps every class the manifest lists. The id term is the store's `id_word`, the content key's first eight bytes as an integer. It sorts like the id strings `triage_key` uses, because `unit_cache.base58_64` writes a fixed-width base58 over an ascending alphabet. The other terms are `triage_key`'s."""
+    """Return the triage order as a permutation of the table's rows. The rows are not reordered, so the row index stays the ordinal. The class term is each unit's final class (its ledger class, or the unmatched group the build promoted an UNMATCHED unit to), indexed through `class_order`, which maps every class the manifest lists. The id term is the store's `id_word`, the content key's first eight bytes as an integer. It sorts like the id strings `triage_key` uses, because `unit_cache.base58_64` writes a fixed-width base58 over an ascending alphabet. The other terms are `triage_key`'s."""
     return _triage_permutation(table, class_order, family_ranks(family_of), store.id_word)
 
 

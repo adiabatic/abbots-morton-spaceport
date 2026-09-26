@@ -1,6 +1,6 @@
 """Tests for the review-facts sidecar (`rebuild/review/facts.py`): projecting a corpus build's post-merge phase-1 products back onto the pre-merge grain the pins are defined over, the two in-memory functions that must match their shard- or font-reading counterparts, reading and writing the sidecar, and the CLI paths that read it.
 
-The tests use hand-built audit rows and hand-set ink verdicts and families, with no fonts, no shaping, and no live workload; the only live input is the checked-in divergence ledger. A failure here is a bug in the derivation, not a change in the corpus.
+The tests use hand-built audit rows and hand-set ink verdicts and unmatched groups, with no fonts, no shaping, and no live workload; the only live input is the checked-in divergence ledger. A failure here is a bug in the derivation, not a change in the corpus.
 """
 
 import json
@@ -108,10 +108,10 @@ def _folded_fixture():
     }
     assert table.n == 5
     for ordinal in range(table.n):
-        ink_identical, family = verdicts[table.codepoints_text(ordinal)]
+        ink_identical, group = verdicts[table.codepoints_text(ordinal)]
         if ink_identical:
             store._flags[ordinal] |= unit_store.INK_IDENTICAL
-        table.set_family(ordinal, family)
+        table.set_unmatched_group(ordinal, group)
     return capture, table, store
 
 
@@ -132,11 +132,11 @@ def test_folded_siblings_take_their_survivors_ink_verdict():
     assert flags[_index_of(capture, STANDALONE_MATCHED, "default")] == "1"
 
 
-def test_families_read_deferral_from_the_premerge_config_classes():
-    """A pre-merge UNMATCHED unit's family is its own deferred bucket when it has one, and otherwise its survivor's phase-1 family. The bucket is decided from the pre-merge config classes: the ss03-only survivor stays deferred-ss03, although the merged unit with its ss04 sibling would be deferred-ss04. A matched unit gets no family."""
+def test_unmatched_groups_read_deferral_from_the_premerge_config_classes():
+    """A pre-merge UNMATCHED unit's unmatched group is its own deferred bucket when it has one, and otherwise its survivor's phase-1 group. The bucket is decided from the pre-merge config classes: the ss03-only survivor stays deferred-ss03, although the merged unit with its ss04 sibling would be deferred-ss04. A matched unit gets no unmatched group."""
     capture, table, store = _folded_fixture()
     premerge = derive_premerge(capture, table, store)
-    assert dict(premerge.families) == {
+    assert dict(premerge.unmatched_groups) == {
         _index_of(capture, FOLD_WINDOW, "default"): "no-chain-gains",
         _index_of(capture, FOLD_WINDOW, "ss04"): "deferred-ss04",
         _index_of(capture, DEFERRED_WINDOW, "ss03"): "deferred-ss03",
@@ -144,11 +144,11 @@ def test_families_read_deferral_from_the_premerge_config_classes():
         _index_of(capture, MIXED_WINDOW, "ss04"): "deferred-ss04",
         _index_of(capture, STANDALONE_UNMATCHED, "default"): "seam-loss-withdrawal",
     }
-    assert [index for index, _family in premerge.families] == sorted(
-        index for index, _family in premerge.families
+    assert [index for index, _group in premerge.unmatched_groups] == sorted(
+        index for index, _group in premerge.unmatched_groups
     )
     matched = {_index_of(capture, MIXED_WINDOW, "default"), _index_of(capture, STANDALONE_MATCHED, "default")}
-    assert matched.isdisjoint(index for index, _family in premerge.families)
+    assert matched.isdisjoint(index for index, _group in premerge.unmatched_groups)
 
 
 def test_derive_premerge_reads_each_folded_rows_survivor_off_the_compaction():
@@ -171,8 +171,8 @@ def test_derive_premerge_reads_each_folded_rows_survivor_off_the_compaction():
         capture.rebase(table.compact())
 
 
-def test_derive_premerge_refuses_an_unmatched_unit_with_no_family():
-    """Every pre-merge UNMATCHED unit must have a family. `derive_premerge` raises on an undeferred one whose survivor has no phase-1 family instead of recording an empty family."""
+def test_derive_premerge_refuses_an_unmatched_unit_with_no_group():
+    """Every pre-merge UNMATCHED unit must have an unmatched group. `derive_premerge` raises on an undeferred one whose survivor has no phase-1 group instead of recording an empty group."""
     capture, table, store = _folded_table(
         [_row("default", STANDALONE_UNMATCHED, "UNMATCHED", ("qsDay", "qsDay"))]
     )
@@ -337,11 +337,11 @@ def _pins(row_count: int) -> dict:
             "classes": ["boundary-echo", "a", "b"],
             "machine_approved_classes": ["a"],
             "no_verdict_classes": ["boundary-echo"],
-            "families": ["no-chain-gains"],
+            "unmatched_groups": ["no-chain-gains"],
         },
         "volatile": {
             "audit": {"row_count": row_count, "units": 1},
-            "families": {"census": {"no-chain-gains": 1}, "total": 1},
+            "unmatched_groups": {"census": {"no-chain-gains": 1}, "total": 1},
         },
     }
 
@@ -356,7 +356,7 @@ def _facts(pins: dict, generated_at: str = "2026-01-01T00:00:00Z") -> dict:
         "format": FACTS_FORMAT,
         "corpus": manifest,
         "pins": pins,
-        "premerge": {"units": 0, "workload_digest": "", "ink_identical": "", "families": []},
+        "premerge": {"units": 0, "workload_digest": "", "ink_identical": "", "unmatched_groups": []},
     }
 
 
@@ -384,7 +384,7 @@ def test_load_facts_refuses_a_missing_wrong_format_or_orphaned_sidecar(tmp_path)
 
 
 def test_invariant_group_keeps_each_sources_own_order():
-    """The invariant block keeps each source's order: the classes and the no-verdict classes in manifest class order, the machine-approved classes in the order of the manifest's `by_class` histogram, and the families in the order `family_counts` emits them (`FAMILY_ORDER`). A block whose order changed on every pass would make `invariant_delta` report reorders that mean nothing."""
+    """The invariant block keeps each source's order: the classes and the no-verdict classes in manifest class order, the machine-approved classes in the order of the manifest's `by_class` histogram, and the unmatched groups in the order `unmatched_group_counts` emits them (`UNMATCHED_GROUP_ORDER`). A block whose order changed on every pass would make `invariant_delta` report reorders that mean nothing."""
     manifest = {
         "classes": [
             {"id": "boundary-echo", "no_verdict": True},
@@ -397,12 +397,12 @@ def test_invariant_group_keeps_each_sources_own_order():
         "classes": ["boundary-echo", "bare-name-live-join", "halves-entry-extension-restored"],
         "machine_approved_classes": ["bare-name-live-join", "boundary-echo"],
         "no_verdict_classes": ["boundary-echo", "halves-entry-extension-restored"],
-        "families": ["no-chain-gains", "deferred-ss03"],
+        "unmatched_groups": ["no-chain-gains", "deferred-ss03"],
     }
 
 
 def test_build_facts_reduces_its_own_premerge_records(tmp_path):
-    """The sidecar's pins are reductions of the pre-merge records beside them, so a reader can recompute them from those records. The invariant block is reduced from the same manifest and family counts as the volatile groups, so the two blocks cannot disagree."""
+    """The sidecar's pins are reductions of the pre-merge records beside them, so a reader can recompute them from those records. The invariant block is reduced from the same manifest and unmatched-group counts as the volatile groups, so the two blocks cannot disagree."""
     table, config_notes, records = _example_table()
     manifest = _write_shard(tmp_path, records)
     capture = capture_premerge(
@@ -419,7 +419,7 @@ def test_build_facts_reduces_its_own_premerge_records(tmp_path):
         units=len(capture),
         workload_digest=workload_digest(capture.grains()),
         ink_flags="10",
-        families=[(_index_of(capture, FOLD_WINDOW, "default"), "no-chain-gains")],
+        unmatched_groups=[(_index_of(capture, FOLD_WINDOW, "default"), "no-chain-gains")],
     )
     built = build_facts(manifest, table, config_notes, capture, premerge, row_count=2)
     assert built["format"] == FACTS_FORMAT
@@ -427,13 +427,13 @@ def test_build_facts_reduces_its_own_premerge_records(tmp_path):
     volatile = built["pins"]["volatile"]
     assert volatile["audit"] == {"row_count": 2, "units": 2}
     assert volatile["built"] == built_group(tmp_path, manifest)
-    assert volatile["families"] == {"census": {"no-chain-gains": 1}, "total": 1}
+    assert volatile["unmatched_groups"] == {"census": {"no-chain-gains": 1}, "total": 1}
     assert volatile["ink"] == ink_group_from_flags(capture.class_rows(), "10")
     assert built["pins"]["invariant"] == {
         "classes": [meta["id"] for meta in manifest["classes"]],
         "machine_approved_classes": ["bare-name-live-join", "boundary-echo"],
         "no_verdict_classes": ["boundary-echo"],
-        "families": ["no-chain-gains"],
+        "unmatched_groups": ["no-chain-gains"],
     }
     assert built["premerge"]["ink_identical"] == "10"
     assert built["premerge"]["workload_digest"] == workload_digest(capture.grains())
@@ -476,7 +476,7 @@ def test_check_reads_the_sidecar_and_reports_per_key_mismatches(tmp_path, monkey
 
 
 def test_update_copies_the_sidecars_volatile_block_and_reduces_the_invariant_again(tmp_path, monkeypatch):
-    """`--update` copies the sidecar's volatile block into the pins file unchanged and recomputes the invariant block from the corpus's manifest and the sidecar's family counts. The file gets the invariant block's current shape even when an older build wrote the sidecar with a different one."""
+    """`--update` copies the sidecar's volatile block into the pins file unchanged and recomputes the invariant block from the corpus's manifest and the sidecar's unmatched-group counts. The file gets the invariant block's current shape even when an older build wrote the sidecar with a different one."""
     pins_path = tmp_path / "pins.json"
     monkeypatch.setattr(facts, "PINS_PATH", pins_path)
     monkeypatch.setattr(facts, "REPO_ROOT", tmp_path)
@@ -489,7 +489,7 @@ def test_update_copies_the_sidecars_volatile_block_and_reduces_the_invariant_aga
 
 
 def test_from_scratch_recomputes_from_sources_without_the_sidecar(tmp_path, monkeypatch):
-    """`compute_pins(from_scratch=True)`, the `--from-scratch` path, recomputes the pre-merge groups from the source artifacts without reading review-facts.json, which this test makes unparsable. It returns the same two-block shape, with the invariant block's families taken from the recomputed families group."""
+    """`compute_pins(from_scratch=True)`, the `--from-scratch` path, recomputes the pre-merge groups from the source artifacts without reading review-facts.json, which this test makes unparsable. It returns the same two-block shape, with the invariant block's unmatched groups taken from the recomputed unmatched_groups group."""
     _table, _config_notes, records = _example_table()
     corpus = tmp_path / "corpus"
     corpus.mkdir()
@@ -499,7 +499,7 @@ def test_from_scratch_recomputes_from_sources_without_the_sidecar(tmp_path, monk
     monkeypatch.setattr(facts, "ink_group", lambda repo_root=REPO_ROOT: {"ink": "sentinel"})
     monkeypatch.setattr(
         facts,
-        "families_group",
+        "unmatched_groups_group",
         lambda repo_root=REPO_ROOT: {"census": {"seam-loss-withdrawal": 3}, "total": 3},
     )
 
@@ -507,13 +507,13 @@ def test_from_scratch_recomputes_from_sources_without_the_sidecar(tmp_path, monk
     volatile = pins["volatile"]
     assert volatile["audit"] == {"audit": "sentinel"}
     assert volatile["ink"] == {"ink": "sentinel"}
-    assert volatile["families"] == {"census": {"seam-loss-withdrawal": 3}, "total": 3}
+    assert volatile["unmatched_groups"] == {"census": {"seam-loss-withdrawal": 3}, "total": 3}
     assert volatile["built"] == built_group(corpus, manifest)
     assert pins["invariant"] == {
         "classes": [meta["id"] for meta in manifest["classes"]],
         "machine_approved_classes": ["bare-name-live-join", "boundary-echo"],
         "no_verdict_classes": ["boundary-echo"],
-        "families": ["seam-loss-withdrawal"],
+        "unmatched_groups": ["seam-loss-withdrawal"],
     }
 
 
@@ -533,7 +533,7 @@ _ACCEPTED_INVARIANT = {
     "classes": ["boundary-echo", "bare-name-live-join", "deferred-ss10"],
     "machine_approved_classes": ["boundary-echo", "bare-name-live-join"],
     "no_verdict_classes": ["boundary-echo"],
-    "families": ["no-chain-gains", "deferred-ss10"],
+    "unmatched_groups": ["no-chain-gains", "deferred-ss10"],
 }
 
 
@@ -542,20 +542,20 @@ def test_invariant_delta_is_empty_exactly_when_nothing_moved():
 
 
 def test_invariant_delta_names_what_appeared_and_what_went_in_the_blocks_own_order():
-    """`invariant_delta` names the ids that were added to or removed from each list (classes, machine-approved classes, no-verdict classes, families), each in the block's own order, so the cycle log can be searched the same way on every pass."""
+    """`invariant_delta` names the ids that were added to or removed from each list (classes, machine-approved classes, no-verdict classes, unmatched groups), each in the block's own order, so the cycle log can be searched the same way on every pass."""
     current = {
         "classes": ["boundary-echo", "bare-name-live-join", "see-out-fused", "deferred-ss04"],
         "machine_approved_classes": ["boundary-echo", "bare-name-live-join", "see-out-fused"],
         "no_verdict_classes": ["boundary-echo", "see-out-fused"],
-        "families": ["no-chain-gains", "deferred-ss04"],
+        "unmatched_groups": ["no-chain-gains", "deferred-ss04"],
     }
     assert invariant_delta(_ACCEPTED_INVARIANT, current) == [
         "classes +2 (see-out-fused, deferred-ss04)",
         "classes -1 (deferred-ss10)",
         "machine-approved +1 (see-out-fused)",
         "no-verdict +1 (see-out-fused)",
-        "families +1 (deferred-ss04)",
-        "families -1 (deferred-ss10)",
+        "unmatched groups +1 (deferred-ss04)",
+        "unmatched groups -1 (deferred-ss10)",
     ]
 
 
@@ -573,7 +573,7 @@ def test_invariant_delta_tells_a_reorder_and_a_shape_change_from_a_corpus_change
 
 def test_invariant_diff_is_the_blocks_own_unified_diff():
     """The cycle prints this when the invariant block changed: the block's unified diff without the volatile block, formatted like the pins file so the lines match what `git diff` shows for those keys."""
-    current = {**_ACCEPTED_INVARIANT, "families": ["no-chain-gains"]}
+    current = {**_ACCEPTED_INVARIANT, "unmatched_groups": ["no-chain-gains"]}
     lines = invariant_diff(_ACCEPTED_INVARIANT, current)
     assert lines[:2] == ["--- invariant (accepted)", "+++ invariant (this corpus)"]
     assert '-    "deferred-ss10"' in lines
@@ -593,7 +593,7 @@ def test_ledger_coverage_holds_the_ledgers_declarations_against_what_the_corpus_
         "classes": ["boundary-echo", "bare-name-live-join", "see-out-fused", "deferred-ss10"],
         "machine_approved_classes": ["boundary-echo", "bare-name-live-join", "deferred-ss10"],
         "no_verdict_classes": ["boundary-echo"],
-        "families": ["deferred-ss10"],
+        "unmatched_groups": ["deferred-ss10"],
     }
     coverage = ledger_coverage(ledger, invariant)
     assert coverage.unreached == ("vie-baseline-entry-extension-dropped",)
