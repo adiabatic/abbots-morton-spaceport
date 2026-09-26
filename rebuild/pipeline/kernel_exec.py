@@ -98,7 +98,7 @@ def replay_threads_default(*, coresident_bytes: float = 0, total_bytes: int | No
 KERNEL_THREADS_DEFAULT = kernel_threads_default()
 TIMEOUT = 1800
 # Every `cargo build` replaces the binary in target/release (it removes the file, then hard-links the new one in) even when nothing recompiled, so a build in one process can make another process's exec miss the file for an instant. This lock orders the two: a build holds it exclusively for the whole `cargo build`, and an invocation holds it shared for the spawn only, never for the run.
-LOCK_PATH = MANIFEST.parent / "target" / ".ams-kernel-uplift.lock"
+LOCK_PATH = MANIFEST.parent / "target" / ".ams-kernel-relink.lock"
 # How many lines of a failed build's stderr the exception includes: cargo reports the error in its last few lines, after the full compilation log.
 BUILD_TAIL_LINES = 20
 # On by default: the third join-count term is scored by the follower's simulated transition instead of seam-bearing candidacy. `AMS_SIMULATED_PROSPECT=0` turns it off for a comparison run, and run_m1's spawn-pool workers inherit that through the environment. It is read at call time, so a test may monkeypatch it; a caller that wants one named world regardless passes `SettlementModes`.
@@ -151,10 +151,10 @@ class KernelRunError(RuntimeError):
 
 
 def cargo_build() -> None:
-    """Build the kernel in release mode, as `make kernel-build` does, holding the uplift lock exclusively. Checking that the binary exists is not enough, because a stale binary sits at the same path as a fresh one; building makes sure the sources on disk are what runs. A warm build takes a fraction of a second; `ensure_built` runs it once per process."""
+    """Build the kernel in release mode, as `make kernel-build` does, holding the binary relink lock exclusively. Checking that the binary exists is not enough, because a stale binary sits at the same path as a fresh one; building makes sure the sources on disk are what runs. A warm build takes a fraction of a second; `ensure_built` runs it once per process."""
     arguments = ["cargo", "build", "--release", "--manifest-path", str(MANIFEST)]
     try:
-        with _uplift_lock(fcntl.LOCK_EX):
+        with _relink_lock(fcntl.LOCK_EX):
             finished = subprocess.run(arguments, capture_output=True, timeout=TIMEOUT)
     except FileNotFoundError:
         raise KernelBuildError(
@@ -170,7 +170,7 @@ def cargo_build() -> None:
         raise KernelBuildError(f"the kernel did not build (cargo exited {finished.returncode}):\n{tail}")
 
 
-class _UpliftLock:
+class _RelinkLock:
     def __init__(self, mode: int) -> None:
         self._mode = mode
         self._handle = None
@@ -187,14 +187,14 @@ class _UpliftLock:
         self._handle.close()
 
 
-def _uplift_lock(mode: int) -> _UpliftLock:
-    return _UpliftLock(mode)
+def _relink_lock(mode: int) -> _RelinkLock:
+    return _RelinkLock(mode)
 
 
 def _run_kernel(arguments: list[str], verb: str) -> subprocess.CompletedProcess:
-    """Spawn the binary with the uplift lock held shared for the spawn only, the moment a concurrent `cargo build` could make the path disappear, then wait without the lock so a long enumeration never blocks a build elsewhere. Raises `KernelRunError` for a missing binary or a timeout."""
+    """Spawn the binary with the relink lock held shared for the spawn only, the moment a concurrent `cargo build` could make the path disappear, then wait without the lock so a long enumeration never blocks a build elsewhere. Raises `KernelRunError` for a missing binary or a timeout."""
     try:
-        with _uplift_lock(fcntl.LOCK_SH):
+        with _relink_lock(fcntl.LOCK_SH):
             process = subprocess.Popen(arguments, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
     except FileNotFoundError:
         raise KernelRunError(
@@ -562,7 +562,7 @@ def replay_emitted(
         arguments.append("--timings")
     read_end, write_end = os.pipe()
     try:
-        with _uplift_lock(fcntl.LOCK_SH):
+        with _relink_lock(fcntl.LOCK_SH):
             process = subprocess.Popen(
                 arguments, stdin=read_end, stdout=subprocess.PIPE, stderr=subprocess.PIPE
             )

@@ -287,7 +287,7 @@ class TestTheMiniReachesEveryShapeTheLiveDumpDoes:
 
 @pytest.mark.parametrize("arm", ["mini", "live"])
 class TestTheCrateEchoesTheDumpByteForByte:
-    """Checks that the crate's spec ingest loses nothing: `spec-echo` parses the dump into the crate's model and emits it again from that model alone, so a field the model does not carry, a reordered mapping, or a differently escaped string shows up as a byte difference. A `model.py` change the crate has not followed fails here. The mini case runs beside the live one because it is cheap and exercises the crate's `against`, `mono`, and `when: null` emit paths even if the live alphabet has none of those shapes. The spawn goes through `kernel_exec._run_kernel` so the uplift lock orders it against a concurrent `ensure_built`."""
+    """Checks that the crate's spec ingest loses nothing: `spec-echo` parses the dump into the crate's model and emits it again from that model alone, so a field the model does not carry, a reordered mapping, or a differently escaped string shows up as a byte difference. A `model.py` change the crate has not followed fails here. The mini case runs beside the live one because it is cheap and exercises the crate's `against`, `mono`, and `when: null` emit paths even if the live alphabet has none of those shapes. The spawn goes through `kernel_exec._run_kernel` so the binary relink lock orders it against a concurrent `ensure_built`."""
 
     def test_the_dump_comes_back_out_of_the_binary_unchanged(self, arm, live_spec, tmp_path):
         subject = SPEC if arm == "mini" else live_spec
