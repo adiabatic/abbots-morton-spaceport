@@ -1,10 +1,10 @@
-"""The deep form of gate:conform: the same exhaustive font-versus-settlement sweep the belt runs, at horizon 5 by default (`--horizon` refuses anything below the belt's 4). The belt shapes every text up to four letters and checks what only shaping the compiled font can test: HarfBuzz's application semantics over the rule shapes the lookup contains. Whether the six-slot window is sufficient for the texts the tables were built for is checked by the crate's string replay, which `run_m1` runs on every build. This tool asks the shaper's question at a depth the belt cannot afford, over texts long enough to reach a letter's fourth lookahead slot, which no belt text reaches.
+"""The deep form of gate:conform: the same exhaustive font-versus-settlement sweep the belt runs, at maximum length 5 by default (`--max-length` refuses anything below the belt's 4). The belt shapes every text up to four letters and checks what only shaping the compiled font can test: HarfBuzz's application semantics over the rule shapes the lookup contains. Whether the six-slot window is sufficient for the texts the tables were built for is checked by the crate's string replay, which `run_m1` runs on every build. This tool asks the shaper's question at a depth the belt cannot afford, over texts long enough to reach a letter's fourth lookahead slot, which no belt text reaches.
 
-It runs on demand (`make conform-deep`), not per edit. The key of its green record (`artifact_cycle.deep_sweep_skip_lines`) is the set of behavior classes the build enumerated from the emitted lookup (`emit_gsub.behavior_classes`), the font-compilation code, and the uharfbuzz version. It leaves out the runes and M1.otf, so a rune edit that changes many rules but adds no new rule shape leaves the sweep current. When a build emits a new shape, or the compilation code or the shaper changes, the key changes and the cycle reports the sweep as `armed` once per pass. The belt's key is the same lines plus its horizon (`artifact_cycle.conform_skip_fingerprint`). No gate depends on this sweep: an armed deep sweep means it should be run, and the cycle does not fail.
+It runs on demand (`make conform-deep`), not per edit. The key of its green record (`artifact_cycle.deep_sweep_skip_lines`) is the set of behavior classes the build enumerated from the emitted lookup (`emit_gsub.behavior_classes`), the font-compilation code, and the uharfbuzz version. It leaves out the runes and M1.otf, so a rune edit that changes many rules but adds no new rule shape leaves the sweep current. When a build emits a new shape, or the compilation code or the shaper changes, the key changes and the cycle reports the sweep as `armed` once per pass. The belt's key is the same lines plus its maximum length (`artifact_cycle.conform_skip_fingerprint`). No gate depends on this sweep: an armed deep sweep means it should be run, and the cycle does not fail.
 
-The belt's split-buffer check (every text split at a boundary shapes the same as its segments shaped alone) runs at this depth too, and this is the only place it covers texts longer than the belt's horizon, since no build step shapes a length-5 text. The ZWNJ glyph's own properties (zero advance, no ink) need no depth: read-back checks them in the font bytes on every build.
+The belt's split-buffer check (every text split at a boundary shapes the same as its segments shaped alone) runs at this depth too, and this is the only place it covers texts longer than the belt's maximum length, since no build step shapes a length-5 text. The ZWNJ glyph's own properties (zero advance, no ink) need no depth: read-back checks them in the font bytes on every build.
 
-A green run also refreshes gate:conform's green record, when the belt's key did not change during the run, because an exhaustive sweep at depth N covers every text the belt at depth 4 shapes. The next cycle can then skip the belt. At or past the deep replay's horizon it also refreshes the deep replay's record (`rebuild.tools.deep_replay`), because it settles every text it shapes against the tables in the font. That record holds the rune digests read before the sweep started, which are the runes the swept font was built from, and the refresh is skipped when a rune changed while the sweep ran.
+A green run also refreshes gate:conform's green record, when the belt's key did not change during the run, because an exhaustive sweep at depth N covers every text the belt at depth 4 shapes. The next cycle can then skip the belt. At or past the deep replay's maximum length it also refreshes the deep replay's record (`rebuild.tools.deep_replay`), because it settles every text it shapes against the tables in the font. That record holds the rune digests read before the sweep started, which are the runes the swept font was built from, and the refresh is skipped when a rune changed while the sweep ran.
 
 Run as: uv run python -m rebuild.tools.deep_sweep, or through `make conform-deep`.
 """
@@ -23,9 +23,9 @@ if str(ROOT) not in sys.path:
 from rebuild.pipeline import conform, fingerprint, run_m1
 from rebuild.tools import cycle_paths
 from rebuild.tools.artifact_cycle import (
-    CONFORM_HORIZON_DEFAULT,
-    DEEP_REPLAY_HORIZON_DEFAULT,
-    DEEP_SWEEP_HORIZON_DEFAULT,
+    CONFORM_MAX_LENGTH_DEFAULT,
+    DEEP_REPLAY_MAX_LENGTH_DEFAULT,
+    DEEP_SWEEP_MAX_LENGTH_DEFAULT,
     clear_contradicted_green,
     conform_skip_files,
     conform_skip_fingerprint,
@@ -60,11 +60,11 @@ def arming_key() -> str:
     return fingerprint
 
 
-def refresh_deep_replay(horizon: int, runes: dict[str, str]) -> None:
-    """Record the deep replay as green at `horizon` for every rune at the digest in `runes`, the snapshot taken before the sweep started, since a green sweep at that depth settled every text that names any of them."""
+def refresh_deep_replay(max_length: int, runes: dict[str, str]) -> None:
+    """Record the deep replay as green at `max_length` for every rune at the digest in `runes`, the snapshot taken before the sweep started, since a green sweep at that depth settled every text that names any of them."""
     from rebuild.pipeline.spec_load import load_default_spec
 
-    record_deep_replay_green(runes, horizon, run_m1.replay_structure_stamp(load_default_spec()))
+    record_deep_replay_green(runes, max_length, run_m1.replay_structure_stamp(load_default_spec()))
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -72,10 +72,11 @@ def main(argv: list[str] | None = None) -> int:
         description="Run the deep form of the font-vs-settle conformance sweep and record its green."
     )
     parser.add_argument(
+        "--max-length",
         "--horizon",
         type=int,
-        default=DEEP_SWEEP_HORIZON_DEFAULT,
-        help=f"exhaustive sweep length (default {DEEP_SWEEP_HORIZON_DEFAULT}); anything below the belt's own {CONFORM_HORIZON_DEFAULT} is refused, since the belt already sweeps that on every edit",
+        default=DEEP_SWEEP_MAX_LENGTH_DEFAULT,
+        help=f"exhaustive sweep length (default {DEEP_SWEEP_MAX_LENGTH_DEFAULT}); anything below the belt's own {CONFORM_MAX_LENGTH_DEFAULT} is refused, since the belt already sweeps that on every edit",
     )
     parser.add_argument(
         "--jobs",
@@ -91,29 +92,29 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
 
     if args.status:
-        status, note = deep_sweep_status(ROOT, args.horizon)
+        status, note = deep_sweep_status(ROOT, args.max_length)
         print(f"deep sweep: {status} — {note}")
         return 0 if status == "current" else 1
 
-    if args.horizon < CONFORM_HORIZON_DEFAULT:
+    if args.max_length < CONFORM_MAX_LENGTH_DEFAULT:
         raise SystemExit(
-            f"--horizon {args.horizon} is shallower than the per-edit belt's {CONFORM_HORIZON_DEFAULT}; the belt already sweeps that depth on every edit"
+            f"--max-length {args.max_length} is shorter than the per-edit belt's {CONFORM_MAX_LENGTH_DEFAULT}; the belt already sweeps that depth on every edit"
         )
     runes = fingerprint.rune_digests(ROOT)
     deep_key = arming_key()
-    belt_key = conform_skip_fingerprint(ROOT, CONFORM_HORIZON_DEFAULT)
+    belt_key = conform_skip_fingerprint(ROOT, CONFORM_MAX_LENGTH_DEFAULT)
     jobs = max(1, min(args.jobs, len(conform.ACCEPTANCE_CONFIGS)))
     print(
-        f"deep sweep: horizon {args.horizon} over every settlement configuration at {jobs} jobs, one process per acceptance configuration at most (the ss10 overlay's arm stays at its own horizon)",
+        f"deep sweep: maximum length {args.max_length} over every settlement configuration at {jobs} jobs, one process per acceptance configuration at most (the ss10 overlay's arm stays at its own maximum length)",
         flush=True,
     )
-    summary = run_m1.run_font_conformance(max_length=args.horizon, jobs=jobs, summary_name=SUMMARY_NAME)
+    summary = run_m1.run_font_conformance(max_length=args.max_length, jobs=jobs, summary_name=SUMMARY_NAME)
     print(json.dumps(summary, indent=2))
 
     if not summary["pass"] or summary["divergences"]:
         clear_contradicted_green(cycle_paths.DEEP_SWEEP_GREEN, deep_key)
         print(
-            f"deep sweep: {summary['divergences']} font-vs-settle divergence(s) at horizon {args.horizon}; see {SUMMARY_NAME}",
+            f"deep sweep: {summary['divergences']} font-vs-settle divergence(s) at maximum length {args.max_length}; see {SUMMARY_NAME}",
             file=sys.stderr,
         )
         return 1
@@ -121,32 +122,32 @@ def main(argv: list[str] | None = None) -> int:
     if deep_sweep_skip_fingerprint(ROOT) != deep_key:
         print("deep sweep: green, but its inputs changed while it ran — green not recorded", flush=True)
         return 0
-    record_deep_sweep_green(deep_key, args.horizon, files=deep_sweep_skip_files(ROOT))
+    record_deep_sweep_green(deep_key, args.max_length, files=deep_sweep_skip_files(ROOT))
     print(
-        f"deep sweep: green at horizon {args.horizon} — recorded in {cycle_paths.DEEP_SWEEP_GREEN.name}",
+        f"deep sweep: green at maximum length {args.max_length} — recorded in {cycle_paths.DEEP_SWEEP_GREEN.name}",
         flush=True,
     )
-    if args.horizon >= DEEP_REPLAY_HORIZON_DEFAULT:
+    if args.max_length >= DEEP_REPLAY_MAX_LENGTH_DEFAULT:
         if fingerprint.rune_digests(ROOT) != runes:
             print(
                 "deep replay: not recorded — the runes changed while the sweep ran, so the swept font does not describe the runes on disk",
                 flush=True,
             )
         else:
-            refresh_deep_replay(args.horizon, runes)
+            refresh_deep_replay(args.max_length, runes)
             print(
-                f"deep replay: green too — every text at horizon {args.horizon} was settled here, so nothing is left for `make replay-deep` to walk",
+                f"deep replay: green too — every text up to length {args.max_length} was settled here, so nothing is left for `make replay-deep` to walk",
                 flush=True,
             )
     if (
-        args.horizon >= CONFORM_HORIZON_DEFAULT
-        and conform_skip_fingerprint(ROOT, CONFORM_HORIZON_DEFAULT) == belt_key
+        args.max_length >= CONFORM_MAX_LENGTH_DEFAULT
+        and conform_skip_fingerprint(ROOT, CONFORM_MAX_LENGTH_DEFAULT) == belt_key
     ):
         record_green(
-            cycle_paths.CONFORM_GREEN, belt_key, files=conform_skip_files(ROOT, CONFORM_HORIZON_DEFAULT)
+            cycle_paths.CONFORM_GREEN, belt_key, files=conform_skip_files(ROOT, CONFORM_MAX_LENGTH_DEFAULT)
         )
         print(
-            f"gate:conform: green too — every belt text at horizon {CONFORM_HORIZON_DEFAULT} was swept here, so the next cycle skips it",
+            f"gate:conform: green too — every belt text up to length {CONFORM_MAX_LENGTH_DEFAULT} was swept here, so the next cycle skips it",
             flush=True,
         )
     return 0

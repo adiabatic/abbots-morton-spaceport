@@ -28,7 +28,7 @@ def bench(tmp_path, monkeypatch):
     monkeypatch.setattr(cycle_paths, "CONFORM_GREEN", tmp_path / "conform-green.json")
     monkeypatch.setattr(deep_sweep, "tables_stamped", lambda: True)
     monkeypatch.setattr(cycle_paths, "DEEP_REPLAY_GREEN", tmp_path / "deep-replay-green.json")
-    monkeypatch.setattr(deep_sweep, "refresh_deep_replay", lambda horizon, runes: None)
+    monkeypatch.setattr(deep_sweep, "refresh_deep_replay", lambda max_length, runes: None)
     return tmp_path
 
 
@@ -70,27 +70,27 @@ def test_tables_stamped_asks_the_enumerations_own_stamp(monkeypatch):
     assert deep_sweep.tables_stamped() is True
 
 
-def test_a_horizon_below_the_belt_is_refused(bench, monkeypatch):
+def test_a_max_length_below_the_belt_is_refused(bench, monkeypatch):
     swept: list = []
     _stub_sweep(monkeypatch, {"pass": True, "divergences": 0}, swept)
-    with pytest.raises(SystemExit, match="shallower than the per-edit belt"):
-        deep_sweep.main(["--horizon", str(ac.CONFORM_HORIZON_DEFAULT - 1)])
+    with pytest.raises(SystemExit, match="shorter than the per-edit belt"):
+        deep_sweep.main(["--max-length", str(ac.CONFORM_MAX_LENGTH_DEFAULT - 1)])
     assert swept == []
 
 
-def test_a_green_run_records_its_horizon_and_hands_the_belt_its_green(bench, monkeypatch):
+def test_a_green_run_records_its_max_length_and_hands_the_belt_its_green(bench, monkeypatch):
     swept: list = []
     _stub_sweep(monkeypatch, {"pass": True, "divergences": 0}, swept)
-    assert deep_sweep.main(["--horizon", "6", "--jobs", "3"]) == 0
+    assert deep_sweep.main(["--max-length", "6", "--jobs", "3"]) == 0
     assert swept == [(6, 3, deep_sweep.SUMMARY_NAME)]
     record = ac.read_green_record(bench / "deep-sweep-green.json")
     assert record is not None
-    assert record["horizon"] == 6
+    assert record["max_length"] == 6
     assert record["fingerprint"] == ac.deep_sweep_skip_fingerprint(bench)
     assert "class:namer-dot" in record["files"]
     belt = ac.read_green_record(bench / "conform-green.json")
     assert belt is not None
-    assert belt["fingerprint"] == ac.conform_skip_fingerprint(bench, ac.CONFORM_HORIZON_DEFAULT)
+    assert belt["fingerprint"] == ac.conform_skip_fingerprint(bench, ac.CONFORM_MAX_LENGTH_DEFAULT)
 
 
 def test_a_red_run_records_nothing_and_clears_a_contradicted_green(bench, monkeypatch):
@@ -133,19 +133,19 @@ def _stub_runes_and_sweep(monkeypatch, edit_mid_sweep):
     return refreshed
 
 
-def test_a_green_sweep_at_the_replay_horizon_refreshes_the_deep_replay_with_the_runes_it_swept(
+def test_a_green_sweep_at_the_replay_max_length_refreshes_the_deep_replay_with_the_runes_it_swept(
     bench, monkeypatch, capsys
 ):
     refreshed = _stub_runes_and_sweep(monkeypatch, edit_mid_sweep=False)
-    assert deep_sweep.main(["--horizon", str(ac.DEEP_REPLAY_HORIZON_DEFAULT)]) == 0
-    assert refreshed == [(ac.DEEP_REPLAY_HORIZON_DEFAULT, {"qsPea": "p1"})]
+    assert deep_sweep.main(["--max-length", str(ac.DEEP_REPLAY_MAX_LENGTH_DEFAULT)]) == 0
+    assert refreshed == [(ac.DEEP_REPLAY_MAX_LENGTH_DEFAULT, {"qsPea": "p1"})]
     assert "deep replay: green too" in capsys.readouterr().out
 
 
 def test_a_rune_edited_mid_sweep_leaves_the_deep_replay_unrecorded(bench, monkeypatch, capsys):
     """The swept font was built from the runes read before the sweep started. A rune edit that adds no behavior class leaves the sweep's own key alone, but the deep replay's record keys on rune digests, so it is refreshed only with that snapshot and only while the runes on disk still match it."""
     refreshed = _stub_runes_and_sweep(monkeypatch, edit_mid_sweep=True)
-    assert deep_sweep.main(["--horizon", str(ac.DEEP_REPLAY_HORIZON_DEFAULT)]) == 0
+    assert deep_sweep.main(["--max-length", str(ac.DEEP_REPLAY_MAX_LENGTH_DEFAULT)]) == 0
     assert refreshed == []
     assert "runes changed while the sweep ran" in capsys.readouterr().out
     assert ac.read_green_record(bench / "deep-sweep-green.json") is not None
@@ -155,7 +155,7 @@ def test_status_exits_on_whether_the_sweep_is_current(bench, monkeypatch, capsys
     _stub_sweep(monkeypatch, {"pass": True, "divergences": 0})
     assert deep_sweep.main(["--status"]) == 1
     assert "never-run" in capsys.readouterr().out
-    deep_sweep.main(["--horizon", "5"])
+    deep_sweep.main(["--max-length", "5"])
     assert deep_sweep.main(["--status"]) == 0
     assert "current" in capsys.readouterr().out
-    assert deep_sweep.main(["--status", "--horizon", "7"]) == 1
+    assert deep_sweep.main(["--status", "--max-length", "7"]) == 1

@@ -367,16 +367,16 @@ def test_dry_run_plan_states_a_corpus_width_of_one_in_the_argv():
     assert plan.corpus_jobs == 1
 
 
-def test_dry_run_plan_conform_horizon():
-    plan = _plan(conform_horizon=3)
+def test_dry_run_plan_conform_max_length():
+    plan = _plan(conform_max_length=3)
     by_name = {step.name: step for step in plan.steps}
-    assert _argv(by_name["gate:conform"])[-2:] == ["--conform-horizon", "3"]
-    assert plan.conform_horizon == 3
+    assert _argv(by_name["gate:conform"])[-2:] == ["--conform-max-length", "3"]
+    assert plan.conform_max_length == 3
 
     default = _plan()
     default_by_name = {step.name: step for step in default.steps}
-    assert "--conform-horizon" not in _argv(default_by_name["gate:conform"])
-    assert default.conform_horizon == ac.CONFORM_HORIZON_DEFAULT
+    assert "--conform-max-length" not in _argv(default_by_name["gate:conform"])
+    assert default.conform_max_length == ac.CONFORM_MAX_LENGTH_DEFAULT
 
 
 def test_dry_run_plan_skip_conform():
@@ -1010,7 +1010,7 @@ def _conform_green(pool_policy, make_fut, spawn, emit, registry, argv):
 
 def _patch_gate_fingerprints(monkeypatch):
     """Stub the gate green records' keys, for tests that only check whether a green was recorded. The live keys are computed by `_run_cycle` before the gates and again by `_record_gate_greens` after them, and each computation hashes files across the repo, which takes seconds per test and depends on the working tree. A separate test checks that a changed key prevents recording the green."""
-    monkeypatch.setattr(ac, "conform_skip_fingerprint", lambda root=None, horizon=None: "cfp")
+    monkeypatch.setattr(ac, "conform_skip_fingerprint", lambda root=None, max_length=None: "cfp")
     monkeypatch.setattr(ac, "rebuild_lane_fingerprint", lambda root, lane: f"rfp-{lane}")
     monkeypatch.setattr(
         ac, "rebuild_lane_closure", lambda root, lane: (f"rfp-{lane}", {"key": f"rfp-{lane}"})
@@ -2901,7 +2901,7 @@ def test_cycle_summary_payload_plan_block_and_argv():
         "verdicts": "v.json",
         "carry_out": str(plan.carry_out),
         "do_merge": True,
-        "conform_horizon": ac.CONFORM_HORIZON_DEFAULT,
+        "conform_max_length": ac.CONFORM_MAX_LENGTH_DEFAULT,
         "kernel_threads": plan.kernel_threads,
         "replay_threads": plan.replay_threads,
         "pool_policy": ac.REBUILD_POOL_POLICY_DEFAULT,
@@ -3794,8 +3794,8 @@ def test_run_m1_skip_fingerprint_moves_with_runes_and_subsets(tmp_path):
     assert ac.run_m1_skip_fingerprint(tmp_path) != fourth
 
 
-def test_conform_skip_fingerprint_includes_horizon_and_the_behavior_classes(tmp_path):
-    """The belt's key is the deep sweep's key plus the horizon. With no behavior-class sidecar it still returns a key, with a line marking the sidecar absent, so a caller that asks before any build has run gets a key instead of an exception. A sidecar, a new class in it, and the horizon each change the key; the font's bytes do not."""
+def test_conform_skip_fingerprint_includes_max_length_and_the_behavior_classes(tmp_path):
+    """The belt's key is the deep sweep's key plus the maximum length. With no behavior-class sidecar it still returns a key, with a line marking the sidecar absent, so a caller that asks before any build has run gets a key instead of an exception. A sidecar, a new class in it, and the maximum length each change the key; the font's bytes do not."""
     (tmp_path / "rebuild" / "out" / "m1").mkdir(parents=True)
     base = ac.conform_skip_fingerprint(tmp_path, 5)
     assert ac.conform_skip_fingerprint(tmp_path, 5) == base
@@ -3931,7 +3931,7 @@ def test_the_divergence_ledger_line_ignores_prose(tmp_path):
 
 
 def test_a_comparison_side_edit_moves_the_run_key_and_leaves_the_sweeps_alone(tmp_path):
-    """The run_m1 key and the conform key cover different inputs. The belt shapes the compiled font and re-settles the windows beside it. It reads no ledger, allow-list, kern sidecar, baseline or oracle code, so editing any of those changes the run_m1 key and leaves the conform key alone. A rune edit, a crate edit, a uv.lock edit and the font's bytes also leave the conform key alone; the crate's string replay inside run_m1 covers rune and crate edits. A behavior class the lookup has not emitted before, the compile code, the tools/ files the compile runs, the uharfbuzz version and the horizon each change it."""
+    """The run_m1 key and the conform key cover different inputs. The belt shapes the compiled font and re-settles the windows beside it. It reads no ledger, allow-list, kern sidecar, baseline or oracle code, so editing any of those changes the run_m1 key and leaves the conform key alone. A rune edit, a crate edit, a uv.lock edit and the font's bytes also leave the conform key alone; the crate's string replay inside run_m1 covers rune and crate edits. A behavior class the lookup has not emitted before, the compile code, the tools/ files the compile runs, the uharfbuzz version and the maximum length each change it."""
     root = _fake_run_m1_root(tmp_path)
     conform = ac.conform_skip_fingerprint(root, 4)
     run_key = ac.run_m1_skip_fingerprint(root)
@@ -4053,7 +4053,7 @@ def test_deep_sweep_skip_lines_name_the_classes_the_code_and_the_shaper(tmp_path
     assert files is not None
     assert set(ac.COMPILE_CODE_FILES) <= set(files)
     assert "uharfbuzz" in files
-    assert not any(name.startswith("horizon") for name in files)
+    assert not any(name.startswith("max_length") for name in files)
     assert ac._digest_lines(lines) == ac.deep_sweep_skip_fingerprint(tmp_path)
 
 
@@ -4093,12 +4093,12 @@ def test_deep_sweep_status_walks_unknown_never_run_armed_and_current(tmp_path, m
     ac.record_deep_sweep_green(fingerprint, 5, files=ac.deep_sweep_skip_files(tmp_path), path=store)
     record = ac.read_green_record(store)
     assert record is not None
-    assert record["horizon"] == 5
-    assert ac.deep_sweep_status(tmp_path) == ("current", "horizon 5")
-    assert ac.deep_sweep_status(tmp_path, horizon=4)[0] == "current"
+    assert record["max_length"] == 5
+    assert ac.deep_sweep_status(tmp_path) == ("current", "maximum length 5")
+    assert ac.deep_sweep_status(tmp_path, max_length=4)[0] == "current"
 
-    assert ac.deep_sweep_status(tmp_path, horizon=6)[0] == "armed"
-    assert "shallower" in ac.deep_sweep_status(tmp_path, horizon=6)[1]
+    assert ac.deep_sweep_status(tmp_path, max_length=6)[0] == "armed"
+    assert "shorter" in ac.deep_sweep_status(tmp_path, max_length=6)[1]
 
     _write_behavior_classes(tmp_path, ["namer-dot", "guard-form:zwnj"])
     status, note = ac.deep_sweep_status(tmp_path)
@@ -4107,14 +4107,30 @@ def test_deep_sweep_status_walks_unknown_never_run_armed_and_current(tmp_path, m
     assert "class:guard-form:zwnj (new)" in note
 
 
+def test_a_deep_green_record_under_the_horizon_key_reads_at_its_max_length(tmp_path, monkeypatch):
+    """A deep sweep or deep replay record that stores its maximum length under `horizon` reads back at that length, so neither check reports due for want of the `max_length` field."""
+    store = tmp_path / "deep-sweep-green.json"
+    monkeypatch.setattr(cycle_paths, "DEEP_SWEEP_GREEN", store)
+    _write_behavior_classes(tmp_path, ["namer-dot"])
+    fingerprint = ac.deep_sweep_skip_fingerprint(tmp_path)
+    assert fingerprint is not None
+    ac.record_deep_sweep_green(fingerprint, 5, files=ac.deep_sweep_skip_files(tmp_path), path=store)
+    record = json.loads(store.read_text())
+    record["horizon"] = record.pop("max_length")
+    store.write_text(json.dumps(record) + "\n")
+    assert ac.deep_sweep_status(tmp_path) == ("current", "maximum length 5")
+    assert ac.recorded_max_length({"horizon": 6}) == 6
+    assert ac.recorded_max_length({"max_length": 5, "horizon": 6}) == 5
+
+
 def test_cycle_summary_payload_carries_the_deep_sweep_status(monkeypatch):
-    monkeypatch.setattr(ac, "deep_sweep_status", lambda root=ac.ROOT, horizon=5: ("armed", "a new shape"))
+    monkeypatch.setattr(ac, "deep_sweep_status", lambda root=ac.ROOT, max_length=5: ("armed", "a new shape"))
     payload = ac.cycle_summary_payload(_green_report(), [], _plan(), "ok")
     assert payload["deep_sweep"] == {"status": "armed", "note": "a new shape"}
 
 
 def test_the_deep_sweep_line_never_fails_the_summary(monkeypatch):
-    def explode(root=ac.ROOT, horizon=5):
+    def explode(root=ac.ROOT, max_length=5):
         raise OSError("no record")
 
     monkeypatch.setattr(ac, "deep_sweep_status", explode)
@@ -4133,8 +4149,8 @@ def test_run_m1_skip_files_carry_the_lines_behind_the_fingerprint(tmp_path):
     assert "uv.lock" in files
     assert ac._digest_lines(ac.run_m1_skip_lines(tmp_path)) == ac.run_m1_skip_fingerprint(tmp_path)
     conform = ac.conform_skip_files(tmp_path, 5)
-    assert conform["horizon"] == "5"
-    assert conform == {"behavior_classes": "absent", "horizon": "5"}
+    assert conform["max_length"] == "5"
+    assert conform == {"behavior_classes": "absent", "max_length": "5"}
 
 
 def test_record_green_stores_the_files_and_the_reader_returns_them(tmp_path):
@@ -5083,7 +5099,7 @@ def test_run_cycle_skips_the_sweep_after_run_m1_on_the_key_the_finished_artifact
 ):
     """The conform skip is decided after run_m1, not in the plan, because only a finished build knows what the font came out as. All three run_m1 modes (skipped, gates-only, rebuilt) end on this same key. A skip over the artifacts the pass leaves behind is recorded as "proved", which is what `review/status.py` needs to call a corpus ready for review."""
     monkeypatch.setattr(cycle_paths, "CONFORM_GREEN", tmp_path / "conform-green.json")
-    monkeypatch.setattr(ac, "conform_skip_fingerprint", lambda root=None, horizon=None: "cfp")
+    monkeypatch.setattr(ac, "conform_skip_fingerprint", lambda root=None, max_length=None: "cfp")
     monkeypatch.setattr(ac, "rebuild_lane_fingerprint", lambda root, lane: f"rfp-{lane}")
     monkeypatch.setattr(
         ac, "rebuild_lane_closure", lambda root, lane: (f"rfp-{lane}", {"key": f"rfp-{lane}"})
@@ -5118,7 +5134,7 @@ def test_run_cycle_skips_the_sweep_after_run_m1_on_the_key_the_finished_artifact
 def test_run_cycle_sweeps_when_the_finished_artifacts_carry_no_green(monkeypatch, tmp_path, capsys):
     """The converse: when the finished artifacts' key matches no green record, the sweep runs. This is why the skip cannot be decided in the plan, which is resolved before run_m1 has changed the font."""
     monkeypatch.setattr(cycle_paths, "CONFORM_GREEN", tmp_path / "conform-green.json")
-    monkeypatch.setattr(ac, "conform_skip_fingerprint", lambda root=None, horizon=None: "cfp")
+    monkeypatch.setattr(ac, "conform_skip_fingerprint", lambda root=None, max_length=None: "cfp")
     monkeypatch.setattr(ac, "rebuild_lane_fingerprint", lambda root, lane: f"rfp-{lane}")
     monkeypatch.setattr(
         ac, "rebuild_lane_closure", lambda root, lane: (f"rfp-{lane}", {"key": f"rfp-{lane}"})
@@ -5364,7 +5380,7 @@ def test_record_gate_greens_records_refuses_and_clears(monkeypatch, tmp_path):
     contracts_green = tmp_path / "rebuild-contracts-green.json"
     monkeypatch.setattr(cycle_paths, "CONFORM_GREEN", conform_green)
     monkeypatch.setattr(cycle_paths, "REBUILD_CONTRACTS_GREEN", contracts_green)
-    monkeypatch.setattr(ac, "conform_skip_fingerprint", lambda root=None, horizon=None: "cfp")
+    monkeypatch.setattr(ac, "conform_skip_fingerprint", lambda root=None, max_length=None: "cfp")
     _patch_gate_fingerprints(monkeypatch)
     keys = {"conform": "cfp", "contracts": "rfp-contracts"}
     plan = _plan()
@@ -6321,7 +6337,7 @@ def _settled_repo(tmp_path, monkeypatch):
     ac.record_green(cycle_paths.RUN_M1_GREEN, "key")
     monkeypatch.setattr(ac, "m1_artifacts_present", lambda root=None: True)
     monkeypatch.setattr(ac, "corpus_build_skippable", lambda root=None: True)
-    monkeypatch.setattr(ac, "conform_skip_fingerprint", lambda root=None, horizon=None: "no-match")
+    monkeypatch.setattr(ac, "conform_skip_fingerprint", lambda root=None, max_length=None: "no-match")
     monkeypatch.setattr(
         cycle_paths, "VERDICT_UPDATE_GREEN", tmp_path / "rebuild" / "out" / "verdict-update-green.json"
     )

@@ -2,13 +2,13 @@
 
 First, `build_tables` builds the decision and treaty tables for every settlement configuration (`conform.SETTLEMENT_CONFIGS`) in one kernel-crate process. It enumerates and folds `default` first and each other configuration as a delta over `default`'s memo. As it folds each configuration it checks first-match-wins against the rows, writes the TSVs, writes one certificate per rule built from the rows' producer chains, and writes the window enumeration stamped with the fingerprint of its sources. `--conform-only` takes its glyph inventory from that enumeration and stops with an error when it is stale or missing. The payloads are packed on a background pool once their heads are read.
 
-Two branches then run over the tables. The table-only branch (`_run_table_gates`, on one background thread) runs the string replay (`run_replay_strings`, recorded in `replay_summary.json`), which walks every configuration's stored rules over the string universe against the crate's own settlement, then the witness stage (`run_rule_witnesses`, recorded in `witness_summary.json`), which settles every certificate and checks that its rule fires. Beside those two it runs the shipped-order walk (`run_emitted_order`), where each configuration's walk waits for that configuration's pack. The glyph chain (`_run_glyph_chain`, on the calling thread) mints the glyphs (settled cells named by their cell labels, the raw cmap glyphs, the marker, chokepoint and ss10 twins, and the namer dot pair), runs the defect gates under the reviewed allow-list, emits GSUB and GPOS (also writing `behavior_classes.json`, the arming key `rebuild/tools/deep_sweep.py` reads), compiles the font, and runs read-back (rebuild/pipeline/readback.py). Read-back re-parses the written font, checks it against the emitters' plan, and checks the GSUB's uint16 subtable-offset headroom against its floor in the same parse.
+Two branches then run over the tables. The table-only branch (`_run_table_gates`, on one background thread) runs the string replay (`run_replay_strings`, recorded in `replay_summary.json`), which walks every configuration's stored rules over every text up to `REPLAY_MAX_LENGTH` against the crate's own settlement, then the witness stage (`run_rule_witnesses`, recorded in `witness_summary.json`), which settles every certificate and checks that its rule fires. Beside those two it runs the shipped-order walk (`run_emitted_order`), where each configuration's walk waits for that configuration's pack. The glyph chain (`_run_glyph_chain`, on the calling thread) mints the glyphs (settled cells named by their cell labels, the raw cmap glyphs, the marker, chokepoint and ss10 twins, and the namer dot pair), runs the defect gates under the reviewed allow-list, emits GSUB and GPOS (also writing `behavior_classes.json`, the arming key `rebuild/tools/deep_sweep.py` reads), compiles the font, and runs read-back (rebuild/pipeline/readback.py). Read-back re-parses the written font, checks it against the emitters' plan, and checks the GSUB's uint16 subtable-offset headroom against its floor in the same parse.
 
 `main` then runs the Manual-pin gate and the oracle. The oracle starts once the string replay has returned, beside the witness stage, and writes to the settle memo files only after the witness stage's writes are on disk. `main` joins the table-only branch after the oracle, before it decides the run_m1 gate. The join raises the first failure in serial order (the packing, the replay, the witnesses, the shipped order), and any of those is raised in place of a glyph-chain failure, so a failing build reports what a serial build would.
 
-Settlement-lookup outcomes are `settle.cell_label` names, so the decision-table rules and the compiled glyph set use the same names. The raw cmap glyph for each rune is the bare rune name, drawn as the isolated cell with no curs anchors. Marker, chokepoint, and ss10 twins reuse that drawing. Under ss10 the pre-empt lookup replaces every letter's cmap glyph with its anchor-free `.ss10` twin before formation, so no ligature forms, nothing settles, each letter keeps its own cluster, and every seam is a break. That is why the overlay configuration (`conform.OVERLAY_CONFIGS`) has no table: read-back checks that the pre-empt covers every letter cmap glyph and that the twins appear in no other stage, the belt (gate:conform's exhaustive HarfBuzz sweep) sweeps the overlay at `conform.OVERLAY_HORIZON`, and the oracle compares its rows against the bare stream, using the twins' `hmtx` advances for positions.
+Settlement-lookup outcomes are `settle.cell_label` names, so the decision-table rules and the compiled glyph set use the same names. The raw cmap glyph for each rune is the bare rune name, drawn as the isolated cell with no curs anchors. Marker, chokepoint, and ss10 twins reuse that drawing. Under ss10 the pre-empt lookup replaces every letter's cmap glyph with its anchor-free `.ss10` twin before formation, so no ligature forms, nothing settles, each letter keeps its own cluster, and every seam is a break. That is why the overlay configuration (`conform.OVERLAY_CONFIGS`) has no table: read-back checks that the pre-empt covers every letter cmap glyph and that the twins appear in no other stage, the belt (gate:conform's exhaustive HarfBuzz sweep) sweeps the overlay at `conform.OVERLAY_MAX_LENGTH`, and the oracle compares its rows against the bare stream, using the twins' `hmtx` advances for positions.
 
-The split-buffer check runs inside gate:conform's belt, at horizon 4 on every build and at horizon 5 or deeper through `make conform-deep`. Read-back's boundary-glyphs stage checks the ZWNJ glyph's zero advance and empty outline on the written font bytes, so the belt does not check them at every shaped slot.
+The split-buffer check runs inside gate:conform's belt, at maximum length 4 on every build and at maximum length 5 or more through `make conform-deep`. Read-back's boundary-glyphs stage checks the ZWNJ glyph's zero advance and empty outline on the written font bytes, so the belt does not check them at every shaped slot.
 
 Run as `uv run python -m rebuild.pipeline.run_m1`. `--conform-only` runs only the belt against the M1.otf on disk. `--gates-only` re-runs the defect gate, the Manual-pin gate and the oracle over the tables and font already on disk, without rebuilding anything. It is the fast way to re-check an edit to a comparison-side input: the divergence ledger, the alias map, the kern sidecar, the contact allow-list the defect gate reads, or the oracle's own code (the classifier and ledger match in rebuild/pipeline/oracle.py, the position channel in rebuild/pipeline/oracle_positions.py). The tables' stamp leaves all of these out (`fingerprint.table_code_paths`; rebuild/test_build_code_closure.py checks that the build never imports either module). A `--gates-only` pass records run_m1's green when a prior green exists and everything that changed since is comparison-side, so the artifact cycle plans this gates-only rerun itself and the pass after it skips run_m1.
 
@@ -584,7 +584,7 @@ def _run_table_gates(
     replay_threads: int | None,
     state: _TableGateState,
 ) -> None:
-    """Run the table-only branch on one background thread beside the glyph chain. The string replay runs first, at its own width (`replay_threads`, or the width `_replay_threads` derives from `kernel_exec.REPLAY_PEAK_BYTES`), and the witness stage runs after it. The order matters: a whole-universe replay writes each configuration's settle memo file whole (`conform.absorb_replay_memo`), and the witness stage then loads the rows of that file its certificates can ask for, writes the windows it settled fresh as a part, and merges the part into the file before it returns. `state.replay_ready` is set once the replay has returned, and the oracle starts after it. `state.memo_ready` is set once the witness stage's files are on disk, and the oracle's own memo writes wait for it. Both are set as soon as that sequence fails, and `TableGates` also sets them when this thread ends any other way, so a wait on either never hangs.
+    """Run the table-only branch on one background thread beside the glyph chain. The string replay runs first, at its own width (`replay_threads`, or the width `_replay_threads` derives from `kernel_exec.REPLAY_PEAK_BYTES`), and the witness stage runs after it. The order matters: a full replay writes each configuration's settle memo file whole (`conform.absorb_replay_memo`), and the witness stage then loads the rows of that file its certificates can ask for, writes the windows it settled fresh as a part, and merges the part into the file before it returns. `state.replay_ready` is set once the replay has returned, and the oracle starts after it. `state.memo_ready` is set once the witness stage's files are on disk, and the oracle's own memo writes wait for it. Both are set as soon as that sequence fails, and `TableGates` also sets them when this thread ends any other way, so a wait on either never hangs.
 
     When `inputs` is given, the shipped-order walks run on a thread of their own beside that sequence, one walk per configuration up to the cores (`_core_bound_threads`, from the configuration count and the cores, not from the build's or the oracle's width), each waiting for its own configuration's pack (`Packing.wait`). They are not narrowed to the cores the oracle's pool leaves: that pool uses the whole machine, so the walks would run one at a time on the critical path. What remains of them shares the machine with the pool's first seconds, the overlap `doc/parallelism.md` describes. The packing is closed here after the last walk. Nothing is raised from this thread: each stage's exception is stored in `state`, and `TableGates` raises the first one in serial order.
     """
@@ -598,9 +598,9 @@ def _run_table_gates(
             replay = run_replay_strings(
                 spec, out_dir, inputs, replay_threads=replay_threads, memo_inputs=memo_inputs
             )
-            walked = "whole universe" if replay["families"] is None else f"{len(replay['families'])} families"
+            walked = "every text" if replay["families"] is None else f"{len(replay['families'])} families"
             console.timing("replay_strings", time.perf_counter() - start, rss_token(process_peak_rss_bytes()))
-            console.say(f"replay_strings: horizon {replay['horizon']}, {walked}")
+            console.say(f"replay_strings: maximum length {replay['max_length']}, {walked}")
             if not replay["pass"]:
                 raise SystemExit(f"the string replay found the tables incomplete: {replay['complaint']}")
             state.replay_ready.set()
@@ -825,8 +825,8 @@ def _run_glyph_chain(spec: ResolvedSpec, tables: Mapping[str, tuple], out_dir: P
     return summary
 
 
-# The belt's horizon (`conform.BELT_HORIZON`), not one more. The walk's cost is its count of distinct raw windows, and every first-position window of a length-N text is distinct: the alphabet size to the Nth per configuration, each a full settlement, since the engine's trace memo is keyed on the raw slots. So each extra letter of depth multiplies the walk by the alphabet size. Over the whole alphabet, a whole-universe walk at horizon 5 exceeded `kernel_exec.TIMEOUT`, and even narrowed to one family it would cost more than the belt run it lets the cycle skip. Checking past this depth is the job of the periodic deep sweep (`make conform-deep`), which settles every text it shapes.
-REPLAY_HORIZON = conform.BELT_HORIZON
+# The belt's maximum length (`conform.SWEEP_MAX_LENGTH`), not one more. The walk's cost is its count of distinct raw windows, and every first-position window of a length-N text is distinct: the alphabet size to the Nth per configuration, each a full settlement, since the engine's trace memo is keyed on the raw slots. So each extra letter of depth multiplies the walk by the alphabet size. Over the whole alphabet, a full replay at maximum length 5 exceeded `kernel_exec.TIMEOUT`, and even narrowed to one family it would cost more than the belt run it lets the cycle skip. Checking past this depth is the job of the periodic deep sweep (`make conform-deep`), which settles every text it shapes.
+REPLAY_MAX_LENGTH = conform.SWEEP_MAX_LENGTH
 REPLAY_FORMAT = "ams-m1-replay/1"
 REPLAY_SUMMARY = "replay_summary.json"
 RUNE_LABEL_PREFIX = "glyph_data/runes/"
@@ -850,15 +850,15 @@ def locality_structure_stamp(spec: ResolvedSpec, root: Path = REPO_ROOT) -> str:
 
 
 def replay_structure_stamp(spec: ResolvedSpec, root: Path = REPO_ROOT) -> str:
-    """Return the hash of everything the string replay's result depends on apart from the rune files: `locality_lines` and the horizon. While it matches the last passing record's, a build walks only the texts naming a rune whose digest changed, closed under `spec_load.rune_closure`. When it differs, the build walks the whole universe."""
-    lines = [*locality_lines(spec, root), f"horizon\t{REPLAY_HORIZON}"]
+    """Return the hash of everything the string replay's result depends on apart from the rune files: `locality_lines` and the maximum length. While it matches the last passing record's, a build walks only the texts naming a rune whose digest changed, closed under `spec_load.rune_closure`. When it differs, the build walks every text."""
+    lines = [*locality_lines(spec, root), f"max_length\t{REPLAY_MAX_LENGTH}"]
     return hashlib.sha256("\n".join(lines).encode()).hexdigest()
 
 
 def replay_families(
     spec: ResolvedSpec, previous: Mapping | None, structure: str, runes: Mapping[str, str]
 ) -> list[str] | None:
-    """Return which runes' texts this build's replay must walk, given the last passing replay record, this build's structure stamp and its per-rune digests: None for the whole universe, an empty list when nothing changed, and otherwise the runes whose digest changed plus every rune whose records read one of them (`spec_load.rune_closure`), sorted. The whole universe is walked when the record is missing, is not a passing record of this format, was walked under another structure stamp, or names a rune this spec no longer models. A narrowed walk is valid only by induction: it needs a passing whole-universe walk as its base and an unchanged structure stamp at every step since."""
+    """Return which runes' texts this build's replay must walk, given the last passing replay record, this build's structure stamp and its per-rune digests: None for every text, an empty list when nothing changed, and otherwise the runes whose digest changed plus every rune whose records read one of them (`spec_load.rune_closure`), sorted. Every text is walked when the record is missing, is not a passing record of this format, was walked under another structure stamp, or names a rune this spec no longer models. A narrowed walk is valid only by induction: it needs a passing full replay as its base and an unchanged structure stamp at every step since."""
     from rebuild.pipeline import spec_load
 
     if (
@@ -896,18 +896,18 @@ def run_replay_strings(
     memo_inputs: oracle_cache.SettleMemoInputs | None = None,
     configs: Sequence[str] = conform.SETTLEMENT_CONFIGS,
 ) -> dict:
-    """Run the enumeration-completeness check every build runs right after its tables are written: the crate's `replay-strings` subcommand (`rebuild/kernel-rs/src/replay.rs`) over the named configurations' settlement TSVs under `out_dir`, walking the string universe to `REPLAY_HORIZON` and checking each window's first-match rule outcome against the engine's own settlement. `configs` is the whole settlement set unless an unstamped caller narrowed its tables the same way. A narrowed walk with `inputs` raises `ValueError` before it starts, because the record it would write is read back as a passing whole-universe base for configurations it never walked.
+    """Run the enumeration-completeness check every build runs right after its tables are written: the crate's `replay-strings` subcommand (`rebuild/kernel-rs/src/replay.rs`) over the named configurations' settlement TSVs under `out_dir`, walking every text up to `REPLAY_MAX_LENGTH` and checking each window's first-match rule outcome against the engine's own settlement. `configs` is the whole settlement set unless an unstamped caller narrowed its tables the same way. A narrowed walk with `inputs` raises `ValueError` before it starts, because the record it would write is read back as a passing full-replay base for configurations it never walked.
 
-    On a rune edit only part of the universe is walked. `replay_families` reads the last passing record beside the tables, and while `replay_structure_stamp` matches, only the texts naming a changed rune, or a rune whose records read one, are walked. A build with no passing record or a changed structure walks everything, and a build where nothing changed walks nothing and carries the record forward. A caller with no stamp (its own spec, whose rune files are not the repository's) walks the whole universe and writes no record.
+    On a rune edit only some of the texts are walked. `replay_families` reads the last passing record beside the tables, and while `replay_structure_stamp` matches, only the texts naming a changed rune, or a rune whose records read one, are walked. A build with no passing record or a changed structure walks everything, and a build where nothing changed walks nothing and carries the record forward. A caller with no stamp (its own spec, whose rune files are not the repository's) walks every text and writes no record.
 
-    The walk also produces the settle memo. With `memo_inputs` (`settle_memo_inputs`, computed before the spec was loaded), every whole-universe walk asks the crate to write its window memo for each walked configuration beside the tables (`kernel_exec.replay_memo_dump`) and absorbs each one into the configuration's `conform.SettleMemoFile` under the stamp and family keys `conform.settle_memo_files` computes. So the witness stage, the oracle and the belt load what the replay settled instead of settling it again. Only the walked configurations' files are touched, so a narrowed walk never dumps, reads, absorbs or deletes a configuration it did not walk. Every dump is deleted in this function whatever the walk or the absorb did, and a failed absorb is a warning, not a failure, since every reader settles what the file lacks. This can widen the walk beyond what the structure stamp requires: the memo stamp covers comparison-side modules the replay's own stamp does not, so when any configuration's file is missing or fails `conform.settle_memo_standing`, the whole universe is walked to refill it. A narrowed walk (a rune edit) writes no memo and leaves the existing files to drop their own stale entries.
+    The walk also produces the settle memo. With `memo_inputs` (`settle_memo_inputs`, computed before the spec was loaded), every full replay asks the crate to write its window memo for each walked configuration beside the tables (`kernel_exec.replay_memo_dump`) and absorbs each one into the configuration's `conform.SettleMemoFile` under the stamp and family keys `conform.settle_memo_files` computes. So the witness stage, the oracle and the belt load what the replay settled instead of settling it again. Only the walked configurations' files are touched, so a narrowed walk never dumps, reads, absorbs or deletes a configuration it did not walk. Every dump is deleted in this function whatever the walk or the absorb did, and a failed absorb is a warning, not a failure, since every reader settles what the file lacks. This can widen the walk beyond what the structure stamp requires: the memo stamp covers comparison-side modules the replay's own stamp does not, so when any configuration's file is missing or fails `conform.settle_memo_standing`, every text is walked to refill it. A narrowed walk (a rune edit) writes no memo and leaves the existing files to drop their own stale entries.
 
-    The record written beside the tables is what the next build's walk is narrowed against, so it carries the structure stamp and every rune digest as well as the counts. It is written whether the walk passed or failed: a disagreement is recorded with the crate's message, and `_run_table_gates` raises it as `SystemExit`. The width is `_replay_threads`: `replay_threads` when given, else the machine's memory divided by `kernel_exec.REPLAY_PEAK_BYTES` (what one configuration's walk holds: the trace memo over the windows its texts reach, plus the window memo's inverse label map and block buffer), capped at the configuration count and the cores, so the whole universe replays in one round on both fleet machines. The absorbs run after the crate has exited, one spawn process per walked configuration at that same width. Each holds one configuration's dump, columns and probe index while it builds the file, a fraction of what `REPLAY_PEAK_BYTES` allows for one configuration, so they use the replay's width and have no constant of their own.
+    The record written beside the tables is what the next build's walk is narrowed against, so it carries the structure stamp and every rune digest as well as the counts. It is written whether the walk passed or failed: a disagreement is recorded with the crate's message, and `_run_table_gates` raises it as `SystemExit`. The width is `_replay_threads`: `replay_threads` when given, else the machine's memory divided by `kernel_exec.REPLAY_PEAK_BYTES` (what one configuration's walk holds: the trace memo over the windows its texts reach, plus the window memo's inverse label map and block buffer), capped at the configuration count and the cores, so every text replays in one round on both fleet machines. The absorbs run after the crate has exited, one spawn process per walked configuration at that same width. Each holds one configuration's dump, columns and probe index while it builds the file, a fraction of what `REPLAY_PEAK_BYTES` allows for one configuration, so they use the replay's width and have no constant of their own.
     """
     configs = tuple(configs)
     if inputs is not None and set(configs) != set(conform.SETTLEMENT_CONFIGS):
         raise ValueError(
-            f"a narrowed replay ({', '.join(configs)}) cannot record: the record beside the tables is read back as a green whole-universe base for every settlement configuration"
+            f"a narrowed replay ({', '.join(configs)}) cannot record: the record beside the tables is read back as a green full-replay base for every settlement configuration"
         )
     threads = _replay_threads(replay_threads)
     recordable = inputs is not None
@@ -931,7 +931,7 @@ def run_replay_strings(
     emitting = families is None and bool(memos)
     summary: dict = {
         "format": REPLAY_FORMAT,
-        "horizon": REPLAY_HORIZON,
+        "max_length": REPLAY_MAX_LENGTH,
         "families": families,
         "walked": families is None or bool(families),
         "configs": {},
@@ -947,7 +947,7 @@ def run_replay_strings(
                     spec,
                     out_dir,
                     configs,
-                    horizon=REPLAY_HORIZON,
+                    max_length=REPLAY_MAX_LENGTH,
                     families=families,
                     threads=threads,
                     timings=True,
@@ -1000,7 +1000,7 @@ def run_rule_witnesses(
 ) -> dict:
     """Run the witness stage: settle every configuration's certificates through the crate and check that each rule fires on its own certificate (`witness.check_rule_certificates`). This is the reachability half of the checks that fail the build on a rule that can never fire: the crate's fold fails on a rule no replayed row first-matches, and this fails on a rule whose replayed row no string reaches, which is what a wrong pin in the worklist would produce. It runs here, on the tables the build just folded, because the certificates describe those tables; `--gates-only` reuses tables this stage already passed.
 
-    Each configuration's walk shares the settle memo that the string replay fills and the oracle and the belt load (`conform.settle_memo_files`, keyed per family from `memo_inputs`, as the oracle row cache is), so a window any of them has settled since the runes it names last changed is settled once. After a whole-universe replay, this stage serves every certificate's windows from the file the replay just wrote and settles only what a narrowed replay left out. The certificates ask for a small part of the file, so the walk loads only the rows its certificate texts can ask for (`conform._SettledWindowWalk.load_only_asked_by`). It writes the windows it settled fresh as a part in a scratch directory (`SettleMemoFile.write_path`, the same form each row range of the pooled oracle uses), and this stage merges the part into the shared file (`conform.absorb_settle_memo_parts`) inside the configuration's timed span. The file then holds every existing window plus the fresh ones, and a walk that settled nothing writes no part and leaves the file unchanged. Because the key is per family, a rune edit invalidates only the memo entries naming an edited family, so only the certificates naming one are settled again. A caller with its own spec has no memo inputs and no memo, and settles everything.
+    Each configuration's walk shares the settle memo that the string replay fills and the oracle and the belt load (`conform.settle_memo_files`, keyed per family from `memo_inputs`, as the oracle row cache is), so a window any of them has settled since the runes it names last changed is settled once. After a full replay, this stage serves every certificate's windows from the file the replay just wrote and settles only what a narrowed replay left out. The certificates ask for a small part of the file, so the walk loads only the rows its certificate texts can ask for (`conform._SettledWindowWalk.load_only_asked_by`). It writes the windows it settled fresh as a part in a scratch directory (`SettleMemoFile.write_path`, the same form each row range of the pooled oracle uses), and this stage merges the part into the shared file (`conform.absorb_settle_memo_parts`) inside the configuration's timed span. The file then holds every existing window plus the fresh ones, and a walk that settled nothing writes no part and leaves the file unchanged. Because the key is per family, a rune edit invalidates only the memo entries naming an edited family, so only the certificates naming one are settled again. A caller with its own spec has no memo inputs and no memo, and settles everything.
 
     The summary is written to `witness_summary.json`; a failure is raised at the join, ahead of any glyph-chain failure. The stage runs after the string replay on the table-only branch (`_run_table_gates`), so it can load the file the replay wrote. The oracle runs beside it and may map the file before or after this stage's merge, but it writes every window it settles as a part and merges its parts only after this stage has returned (`TableGates.wait_for_memo`). So no oracle write can produce a file without this stage's windows or be overwritten by this stage's.
     """
@@ -1146,13 +1146,13 @@ def run_font_conformance(
     jobs: int = 1,
     summary_name: str = "conform_summary.json",
 ) -> dict:
-    """Run the exhaustive font-versus-settlement sweep: the per-edit belt at `max_length` 4 over every settlement configuration, the overlay configuration at `conform.OVERLAY_HORIZON` whatever `max_length` is, and the same sweep deeper when `rebuild.tools.deep_sweep` calls it with its own `summary_name`. The tables under `out_dir` are read only for the glyph inventory `mint_cell_glyphs` needs to name settled cells and read their anchors. The sweep itself takes no table, because it checks HarfBuzz's behavior against the kernel's, and read-back has already checked that the font holds the rules the build planned. A stamp mismatch stops with an error instead of rebuilding: the enumeration costs a whole kernel fan-out, and an inventory built here could describe runes that have since changed. The split-buffer check runs as part of this sweep, on every text that contains a splitter.
+    """Run the exhaustive font-versus-settlement sweep: the per-edit belt at `max_length` 4 over every settlement configuration, the overlay configuration at `conform.OVERLAY_MAX_LENGTH` whatever `max_length` is, and the same sweep deeper when `rebuild.tools.deep_sweep` calls it with its own `summary_name`. The tables under `out_dir` are read only for the glyph inventory `mint_cell_glyphs` needs to name settled cells and read their anchors. The sweep itself takes no table, because it checks HarfBuzz's behavior against the kernel's, and read-back has already checked that the font holds the rules the build planned. A stamp mismatch stops with an error instead of rebuilding: the enumeration costs a whole kernel fan-out, and an inventory built here could describe runes that have since changed. The split-buffer check runs as part of this sweep, on every text that contains a splitter.
 
     The pooled path computes the `doc/rebuild-design.md` §5.7 formation-guard verdicts (`kernel_exec.guard_sweep`) once for the whole run and passes them with each submission. A spawned worker inherits nothing, so each would otherwise build the crate and sweep the spec itself. The serial path sweeps inside `run_conformance`.
 
-    At the per-edit horizon, each configuration's walk shares its settle memo with the string replay that fills it and with the oracle's walk over the same texts, through a file under `out_dir` keyed per family as the oracle row cache is (`conform.settle_memo_files`, from `settle_memo_inputs` taken before the spec loads). The replay writes what it settled, each later phase loads it and writes back what it added, and a rune edit invalidates only the entries whose windows name an edited family. A deeper sweep shares nothing: its memo is a multiple of the belt's, and a file that size would cost the next belt and oracle workers more to decode than they save.
+    At the per-edit maximum length, each configuration's walk shares its settle memo with the string replay that fills it and with the oracle's walk over the same texts, through a file under `out_dir` keyed per family as the oracle row cache is (`conform.settle_memo_files`, from `settle_memo_inputs` taken before the spec loads). The replay writes what it settled, each later phase loads it and writes back what it added, and a rune edit invalidates only the entries whose windows name an edited family. A deeper sweep shares nothing: its memo is a multiple of the belt's, and a file that size would cost the next belt and oracle workers more to decode than they save.
 
-    A pooled belt at `conform.BELT_HORIZON` records every configuration's worker peak (`_priced_conformance_config`) as one observation of the `conform-belt` pool (`cycle_timings.record_pool`), which `make job-costs` reports. The serial path starts no pool, and a deeper sweep's worker has a different peak, so neither records one.
+    A pooled belt at `conform.SWEEP_MAX_LENGTH` records every configuration's worker peak (`_priced_conformance_config`) as one observation of the `conform-belt` pool (`cycle_timings.record_pool`), which `make job-costs` reports. The serial path starts no pool, and a deeper sweep's worker has a different peak, so neither records one.
     """
     inputs = tables_inputs()
     memo_inputs = settle_memo_inputs()
@@ -1167,7 +1167,9 @@ def run_font_conformance(
     print(f"[t] load_tables {time.perf_counter() - start:.1f}s", flush=True)
     cell_glyphs = mint_cell_glyphs(spec, decisions)
     settle_memos = (
-        conform.settle_memo_files(out_dir, spec, memo_inputs) if max_length == conform.BELT_HORIZON else {}
+        conform.settle_memo_files(out_dir, spec, memo_inputs)
+        if max_length == conform.SWEEP_MAX_LENGTH
+        else {}
     )
     if jobs > 1:
         collected: dict[str, conform.ConformanceConfigResult] = {}
@@ -1193,7 +1195,7 @@ def run_font_conformance(
                 collected[result.config] = result
                 worker_peaks[result.config] = peak
                 console.progress(len(collected), len(conform.ACCEPTANCE_CONFIGS), "configurations")
-        if max_length == conform.BELT_HORIZON:
+        if max_length == conform.SWEEP_MAX_LENGTH:
             record_pool(
                 "conform-belt",
                 width=min(jobs, len(conform.ACCEPTANCE_CONFIGS)),
@@ -1810,10 +1812,11 @@ def main(argv: list[str] | None = None) -> None:
         help="derive every row rather than serving any from the oracle's per-row verdict stores, and write fresh ones over them; under --gates-only, which may not write a build input, it declines to read the stores and leaves them where they are",
     )
     parser.add_argument(
+        "--conform-max-length",
         "--conform-horizon",
         type=int,
         default=4,
-        help="exhaustive sweep length for --conform-only (the per-edit belt over the settlement configurations; the overlay configuration's arm stays at its own horizon); `make conform-deep` runs the same sweep deeper on demand",
+        help="exhaustive sweep length for --conform-only (the per-edit belt over the settlement configurations; the overlay configuration's arm stays at its own maximum length); `make conform-deep` runs the same sweep deeper on demand",
     )
     parser.add_argument(
         "--kernel-threads",
@@ -1852,12 +1855,12 @@ def main(argv: list[str] | None = None) -> None:
         from rebuild.tools.cycle_paths import CONFORM_GREEN
 
         def conform_key() -> str:
-            return conform_skip_fingerprint(REPO_ROOT, args.conform_horizon)
+            return conform_skip_fingerprint(REPO_ROOT, args.conform_max_length)
 
         before = conform_key()
         console.phase("run_font_conformance")
         start = time.perf_counter()
-        conformance = run_font_conformance(max_length=args.conform_horizon, jobs=jobs)
+        conformance = run_font_conformance(max_length=args.conform_max_length, jobs=jobs)
         print(
             f"[t] run_font_conformance {time.perf_counter() - start:.1f}s {rss_token(process_peak_rss_bytes())}",
             flush=True,
@@ -1870,7 +1873,7 @@ def main(argv: list[str] | None = None) -> None:
             result.ok,
             conform_key,
             "gate:conform",
-            files_of=lambda: conform_skip_files(REPO_ROOT, args.conform_horizon),
+            files_of=lambda: conform_skip_files(REPO_ROOT, args.conform_max_length),
         )
         _record_cli_check(result, started)
         if not conformance["pass"]:

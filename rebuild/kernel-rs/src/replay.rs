@@ -1,4 +1,4 @@
-//! The string replay behind the `replay-strings` subcommand. It walks every text of the sweep universe window by window, applies the folded rules first-match with each settled left fed forward, and checks each window's rule outcome against this engine's settlement of the same window. It restates `conform._SettledWindowWalk` and `witness._first_matching_rule` over the persisted rules instead of the compiled font. After read-back and the fold's partition assertion, the one data-dependent property left to check is completeness: a live raw window that the fixpoint left at `#NA` or never reached gets a wildcard or default rule in the font, and this walk compares that rule's result with the engine's.
+//! The string replay behind the `replay-strings` subcommand. It walks every text up to the sweep's maximum length window by window, applies the folded rules first-match with each settled left fed forward, and checks each window's rule outcome against this engine's settlement of the same window. It restates `conform._SettledWindowWalk` and `witness._first_matching_rule` over the persisted rules instead of the compiled font. After read-back and the fold's partition assertion, the one data-dependent property left to check is completeness: a live raw window that the fixpoint left at `#NA` or never reached gets a wildcard or default rule in the font, and this walk compares that rule's result with the engine's.
 //!
 //! The walk reads a window as the belt's `conform._window_rights` does. The right slots are the raw labels of the formed token stream, out to the fourth slot. The first slot past the end is `#EDGE`, and every slot after a boundary, the edge, or `#NA` is `#NA`, because no record reads past a boundary. The engine receives the raw tokens themselves, padded with the edge, as `_SettledWindowWalk._rights` passes them. The left slot is the settled cell's label. The fixpoint's partition premise is that each such label names one left state, and `fixpoint`'s `partition_complaint` fails the build when it does not.
 //!
@@ -6,7 +6,7 @@
 //!
 //! The walk's memo is also the build's settle memo. After a passing walk, [`Replay::write_window_memo`] writes it per configuration: one row per distinct window, keyed on the input rune, the settled left, and the four raw rights, with every distinct settled record beside it. That is the key `conform._SettledWindowWalk` uses, in this crate's labels. The input is its `right_token_label`, or after a ZWNJ the chokepoint's locked name. The rights are raw labels. The left is a boundary label where the reach stops and otherwise an index into the record table, because `cell_label` and `geometry.display_name` are two formats of one function of the cell and the Python side converts an index to its own label. The marker renaming also happens on the Python side (`conform.absorb_replay_memo`, over `model.raw_rename_map`), so the crate never needs a configuration's marker names and the file holds only raw labels and record indexes. The file is uncompressed, like every file this crate writes, and `run_m1.run_replay_strings` reads and deletes it in the same phase.
 //!
-//! Within the walk, each window key is settled once per configuration, and every later occurrence is a memo lookup. When the universe sets a ceiling, the walk clears its memo and the engine's memos together before any text that could exceed it. A window met again after a release is settled again with the same result, because every memo here is a pure cache and a left label names one left state. A walk can write its memo only if it never released it. A miss costs one engine call in the same process, with no batched round trip and no shaper, which is why the universe is affordable here and not in Python. The cost still grows with the number of distinct raw windows, which is the alphabet size to the power of the horizon, so each build walks to the belt's horizon (`run_m1.REPLAY_HORIZON`) and deeper walks belong to the periodic sweep. Under the window-locality theorem in `doc/rebuild-design.md` §10, a rune edit needs only the texts naming an edited family or a rune whose records read one, so `run_m1` passes those families and the walk skips every other text.
+//! Within the walk, each window key is settled once per configuration, and every later occurrence is a memo lookup. When the text set sets a ceiling, the walk clears its memo and the engine's memos together before any text that could exceed it. A window met again after a release is settled again with the same result, because every memo here is a pure cache and a left label names one left state. A walk can write its memo only if it never released it. A miss costs one engine call in the same process, with no batched round trip and no shaper, which is why walking every text is affordable here and not in Python. The cost still grows with the number of distinct raw windows, which is the alphabet size to the power of the maximum length, so each build walks to the belt's maximum length (`run_m1.REPLAY_MAX_LENGTH`) and deeper walks belong to the periodic sweep. Under the window-locality theorem in `doc/rebuild-design.md` §10, a rune edit needs only the texts naming an edited family or a rune whose records read one, so `run_m1` passes those families and the walk skips every other text.
 
 use std::io::Write as _;
 use std::path::Path;
@@ -36,36 +36,36 @@ pub struct Report {
 /// How many disagreements a walk names before it stops: enough to show a pattern while keeping the error message short.
 const NAMED_DISAGREEMENTS: usize = 5;
 
-/// The texts one walk covers and the ceiling on its memos. The texts are every text of length 1 through `horizon` over the alphabet, narrowed to the texts naming one of `families` when a set is given.
+/// The texts one walk covers and the ceiling on its memos. The texts are every text of length 1 through `max_length` over the alphabet, narrowed to the texts naming one of `families` when a set is given.
 #[derive(Clone, Copy, Debug)]
-pub struct Universe<'a> {
-    pub horizon: usize,
+pub struct TextSet<'a> {
+    pub max_length: usize,
     pub families: Option<&'a [Sym]>,
-    /// The most windows the walk keeps memoized, or one text's windows when the ceiling is below the horizon. A text of `length` raw tokens settles at most `length` new windows, because formation only merges tokens, so before any text that could push the walk memo past the ceiling, the walk releases that memo and its engine's memos. `None` never releases.
+    /// The most windows the walk keeps memoized, or one text's windows when the ceiling is below the maximum length. A text of `length` raw tokens settles at most `length` new windows, because formation only merges tokens, so before any text that could push the walk memo past the ceiling, the walk releases that memo and its engine's memos. `None` never releases.
     pub memo_windows: Option<usize>,
 }
 
-impl<'a> Universe<'a> {
-    /// The whole universe to `horizon`, with no ceiling.
-    pub fn whole(horizon: usize) -> Self {
+impl<'a> TextSet<'a> {
+    /// Every text to `max_length`, with no ceiling.
+    pub fn all(max_length: usize) -> Self {
         Self {
-            horizon,
+            max_length,
             families: None,
             memo_windows: None,
         }
     }
 
-    /// The texts naming one of `families`, to `horizon`, with no ceiling.
-    pub fn naming(horizon: usize, families: &'a [Sym]) -> Self {
+    /// The texts naming one of `families`, to `max_length`, with no ceiling.
+    pub fn naming(max_length: usize, families: &'a [Sym]) -> Self {
         Self {
-            horizon,
+            max_length,
             families: Some(families),
             memo_windows: None,
         }
     }
 }
 
-/// The sweep universe's alphabet, after `labels.spec_alphabet`: every modeled letter with a code point and every registered boundary token, in code point order. The universe is walked in this order, so disagreements are found in it too. A rune's code point is its own record's, or its registry family's when the record has none; `labels.spec_alphabet` reads only the record's. Where both are set they agree, because `spec_load` rejects a rune whose code point differs from its family's.
+/// The sweep's alphabet, after `labels.spec_alphabet`: every modeled letter with a code point and every registered boundary token, in code point order. The texts are walked in this order, so disagreements are found in it too. A rune's code point is its own record's, or its registry family's when the record has none; `labels.spec_alphabet` reads only the record's. Where both are set they agree, because `spec_load` rejects a rune whose code point differs from its family's.
 pub fn alphabet(index: &SpecIndex) -> Result<Vec<RightToken>, String> {
     let mut seated: Vec<(i64, RightToken)> = Vec::new();
     for (name, _) in index.runes() {
@@ -353,7 +353,7 @@ struct Outcome {
     label: u32,
 }
 
-/// One configuration's walk over the universe, with the disagreements it has found.
+/// One configuration's walk over its text set, with the disagreements it has found.
 pub struct Replay<'i> {
     index: &'i SpecIndex,
     engine: Engine<'i>,
@@ -368,14 +368,14 @@ pub struct Replay<'i> {
     disagreements: Vec<String>,
     /// Every window a disagreement has been named for, so a window met again after a release is not named twice.
     disagreed: HashSet<WindowKey>,
-    /// How many times the walk has released its memos under the universe's ceiling.
+    /// How many times the walk has released its memos under the text set's ceiling.
     releases: u64,
     /// For a walk with the cache stats on, the configuration its lines report under and the `[c]` lines gathered at each release so far. `None` when the cache stats are off.
     cache_stats: Option<(String, Vec<String>)>,
 }
 
 impl<'i> Replay<'i> {
-    /// A walk over `rules` in the world `modes` names, for the features one configuration resolved to. The engine keeps its trace memo, because the universe reaches the same windows many times, and a memo hit replays the window's fired delta, so a warm engine returns what a cold one would. It keeps no explain ladder, because the walk reads only the settled record.
+    /// A walk over `rules` in the world `modes` names, for the features one configuration resolved to. The engine keeps its trace memo, because the text set reaches the same windows many times, and a memo hit replays the window's fired delta, so a warm engine returns what a cold one would. It keeps no explain ladder, because the walk reads only the settled record.
     pub fn new(
         index: &'i SpecIndex,
         features: Vec<Sym>,
@@ -488,20 +488,20 @@ impl<'i> Replay<'i> {
         }
     }
 
-    /// Walks and checks every text of `universe`, under its memo ceiling if it has one. A disagreement between the rules and the engine is an error that names the texts it was found in. A window the engine returns an error for is also an error, as it is in the belt. The walk stops early once it has named `NAMED_DISAGREEMENTS` disagreements.
-    pub fn walk_universe(&mut self, universe: Universe<'_>) -> Result<Report, String> {
+    /// Walks and checks every text of `text_set`, under its memo ceiling if it has one. A disagreement between the rules and the engine is an error that names the texts it was found in. A window the engine returns an error for is also an error, as it is in the belt. The walk stops early once it has named `NAMED_DISAGREEMENTS` disagreements.
+    pub fn walk_texts(&mut self, text_set: TextSet<'_>) -> Result<Report, String> {
         let alphabet = alphabet(self.index)?;
         if alphabet.is_empty() {
             return Err("the spec models no letter with a code point and no boundary token, so there is nothing to walk".to_owned());
         }
-        let wanted = universe
+        let wanted = text_set
             .families
             .map(|families| wanted_seats(self.index, &alphabet, families));
         let mut report = Report::default();
         let mut seats: Vec<usize> = Vec::new();
         let mut raw: Vec<RightToken> = Vec::new();
         let mut formed: Vec<RightToken> = Vec::new();
-        for length in 1..=universe.horizon {
+        for length in 1..=text_set.max_length {
             seats.clear();
             seats.resize(length, 0);
             loop {
@@ -509,7 +509,7 @@ impl<'i> Replay<'i> {
                     .as_ref()
                     .is_none_or(|wanted| seats.iter().any(|seat| wanted[*seat]));
                 if named {
-                    if let Some(ceiling) = universe.memo_windows
+                    if let Some(ceiling) = text_set.memo_windows
                         && !self.memo.is_empty()
                         && self.memo.len() + length > ceiling
                     {
@@ -691,7 +691,7 @@ impl<'i> Replay<'i> {
 
     /// Writes the memo to `path` for the Python side to absorb. The file has:
     ///
-    /// 1. A `# ams-m1-replay-memo/1<tab><head json>` line naming the configuration, the horizon, the row count, the label and record counts, and the column width.
+    /// 1. A `# ams-m1-replay-memo/1<tab><head json>` line naming the configuration, the maximum length, the row count, the label and record counts, and the column width.
     /// 2. The label table, one referenced label per line in id order.
     /// 3. One `settled_json` line per seated record, in seat order.
     /// 4. The rows, seven little-endian integers each, `u16` when every index fits and `u32` otherwise.
@@ -701,7 +701,7 @@ impl<'i> Replay<'i> {
         &mut self,
         path: &Path,
         config: &str,
-        horizon: usize,
+        max_length: usize,
     ) -> Result<(), String> {
         if self.releases > 0 {
             return Err(format!(
@@ -762,7 +762,7 @@ impl<'i> Replay<'i> {
         let mut out = std::io::BufWriter::with_capacity(1 << 20, file);
         writeln!(
             out,
-            "# {MEMO_FORMAT}\t{{\"config\":{},\"horizon\":{horizon},\"rows\":{rows},\"labels\":{labels},\"records\":{records},\"width\":{width}}}",
+            "# {MEMO_FORMAT}\t{{\"config\":{},\"max_length\":{max_length},\"rows\":{rows},\"labels\":{labels},\"records\":{records},\"width\":{width}}}",
             json_string(config)
         )
         .map_err(complain)?;
@@ -889,14 +889,14 @@ mod tests {
         assert_eq!(tokens[5], fixtures::letter(&index, "qsIt"));
     }
 
-    /// The fixture's own table agrees with its engine over every text up to one past the belt's horizon.
+    /// The fixture's own table agrees with its engine over every text up to one past the belt's maximum length.
     #[test]
-    fn the_fixtures_table_agrees_with_its_engine_over_the_universe() {
+    fn the_fixtures_table_agrees_with_its_engine_over_every_text() {
         let index = fixtures::mini();
         let rules = folded_rules(&index);
         let mut walk = replay(&index, &rules);
         let report = walk
-            .walk_universe(Universe::whole(5))
+            .walk_texts(TextSet::all(5))
             .expect("the table is complete");
         assert_eq!(report.texts, 6 + 36 + 216 + 1296 + 7776);
         assert_eq!(report.skipped, 0);
@@ -909,7 +909,7 @@ mod tests {
         let index = fixtures::mini();
         let rules = folded_rules(&index);
         let mut walk = replay(&index, &rules);
-        walk.walk_universe(Universe::whole(3))
+        walk.walk_texts(TextSet::all(3))
             .expect("the table is complete");
         let sizes = walk.engine.cache_stats();
         let row = |name: &str| {
@@ -933,25 +933,25 @@ mod tests {
         rules[0].outcome = Rc::from(format!("{input}.perturbed").as_str());
         let mut walk = replay(&index, &rules);
         let complaint = walk
-            .walk_universe(Universe::whole(4))
+            .walk_texts(TextSet::all(4))
             .expect_err("the perturbed rule disagrees");
         assert!(complaint.contains("replay disagreement"), "{complaint}");
         assert!(complaint.contains(".perturbed"), "{complaint}");
         assert!(complaint.contains("at position"), "{complaint}");
     }
 
-    /// One walk of the fixture over `universe` under `ceiling`. The fixture's table has no disagreement at any ceiling.
+    /// One walk of the fixture over `text_set` under `ceiling`. The fixture's table has no disagreement at any ceiling.
     fn capped<'i>(
         index: &'i SpecIndex,
         rules: &[Rule],
-        universe: Universe<'_>,
+        text_set: TextSet<'_>,
         ceiling: usize,
     ) -> (Replay<'i>, Report) {
         let mut walk = replay(index, rules);
         let report = walk
-            .walk_universe(Universe {
+            .walk_texts(TextSet {
                 memo_windows: Some(ceiling),
-                ..universe
+                ..text_set
             })
             .expect("the table is complete under any ceiling");
         (walk, report)
@@ -990,43 +990,43 @@ mod tests {
         }
     }
 
-    /// A walk under a memo ceiling returns what the uncapped walk returns: the same texts and skipped count, the same records seated in the same order under the same labels, and the uncapped seat and label for every window left in its memo. The ceilings tested release before every text (1), now and then (7), a few times (half the window count), and never (the window count plus the horizon, a ceiling at which the release rule never fires). A white-box pass walks each text from released memos and checks that each of its windows settles at the uncapped walk's seat and label, which covers every window of the universe. Only `windows` differs, because it counts each re-settle. The memo never holds more than the ceiling, or one text's windows when the ceiling is below the horizon. The cache-stats rows, taken at every release and at the end of the walk, show the same bound, and turning the cache stats on does not change when releases happen.
+    /// A walk under a memo ceiling returns what the uncapped walk returns: the same texts and skipped count, the same records seated in the same order under the same labels, and the uncapped seat and label for every window left in its memo. The ceilings tested release before every text (1), now and then (7), a few times (half the window count), and never (the window count plus the maximum length, a ceiling at which the release rule never fires). A white-box pass walks each text from released memos and checks that each of its windows settles at the uncapped walk's seat and label, which covers every window of the text set. Only `windows` differs, because it counts each re-settle. The memo never holds more than the ceiling, or one text's windows when the ceiling is below the maximum length. The cache-stats rows, taken at every release and at the end of the walk, show the same bound, and turning the cache stats on does not change when releases happen.
     #[test]
     fn a_capped_walk_answers_every_text_an_uncapped_walk_answers() {
         let index = fixtures::mini();
         let rules = folded_rules(&index);
-        let horizon = 4;
-        let universe = Universe::whole(horizon);
+        let max_length = 4;
+        let text_set = TextSet::all(max_length);
         let mut uncapped = replay(&index, &rules);
         let whole = uncapped
-            .walk_universe(universe)
+            .walk_texts(text_set)
             .expect("the table is complete");
         let windows = usize::try_from(whole.windows).expect("a window count fits");
 
-        let (never, never_report) = capped(&index, &rules, universe, windows + horizon);
+        let (never, never_report) = capped(&index, &rules, text_set, windows + max_length);
         assert_eq!(never.releases, 0);
         assert_eq!(never_report, whole);
 
-        let (every, every_report) = capped(&index, &rules, universe, 1);
+        let (every, every_report) = capped(&index, &rules, text_set, 1);
         assert!(every.releases > 0);
         assert!(every_report.windows > whole.windows);
-        assert!(every.memo.len() <= horizon);
+        assert!(every.memo.len() <= max_length);
 
-        let (some, some_report) = capped(&index, &rules, universe, 7);
+        let (some, some_report) = capped(&index, &rules, text_set, 7);
         assert!(some.releases > 0);
         assert!(some_report.windows > whole.windows);
         assert!(some.memo.len() <= 7);
 
         let half = windows / 2;
-        let (few, few_report) = capped(&index, &rules, universe, half);
+        let (few, few_report) = capped(&index, &rules, text_set, half);
         assert!(few.releases > 0);
         assert!(few_report.windows > whole.windows);
         let mut with_stats = replay(&index, &rules);
         with_stats.with_cache_stats("default");
         let with_stats_report = with_stats
-            .walk_universe(Universe {
+            .walk_texts(TextSet {
                 memo_windows: Some(half),
-                ..universe
+                ..text_set
             })
             .expect("the table is complete under any ceiling");
         assert_eq!(
@@ -1042,7 +1042,7 @@ mod tests {
         assert!(lens.iter().all(|len| *len <= half), "{lens:?}");
 
         for (ceiling, walk, report) in [
-            (windows + horizon, &never, &never_report),
+            (windows + max_length, &never, &never_report),
             (1, &every, &every_report),
             (7, &some, &some_report),
             (half, &few, &few_report),
@@ -1061,7 +1061,7 @@ mod tests {
         let mut cold = replay(&index, &rules);
         let mut report = Report::default();
         let mut formed = Vec::new();
-        for raw in texts(&tokens, horizon) {
+        for raw in texts(&tokens, max_length) {
             cold.release();
             cold.walk_text(&raw, &mut formed, &mut report)
                 .expect("the fixture's texts settle");
@@ -1071,10 +1071,10 @@ mod tests {
         assert!(cold.disagreements.is_empty(), "{:?}", cold.disagreements);
     }
 
-    /// Every text of length 1 through `horizon` over `tokens`, in the order [`Replay::walk_universe`] walks them.
-    fn texts(tokens: &[RightToken], horizon: usize) -> Vec<Vec<RightToken>> {
+    /// Every text of length 1 through `max_length` over `tokens`, in the order [`Replay::walk_texts`] walks them.
+    fn texts(tokens: &[RightToken], max_length: usize) -> Vec<Vec<RightToken>> {
         let mut out = Vec::new();
-        for length in 1..=horizon {
+        for length in 1..=max_length {
             let exponent = u32::try_from(length).expect("a short text");
             for number in 0..tokens.len().pow(exponent) {
                 let mut text = vec![tokens[0]; length];
@@ -1122,13 +1122,13 @@ mod tests {
 
         let mut uncapped = replay(&index, &rules);
         let expected = uncapped
-            .walk_universe(Universe::whole(4))
+            .walk_texts(TextSet::all(4))
             .expect_err("the perturbed rule disagrees");
         let mut every = replay(&index, &rules);
         let found = every
-            .walk_universe(Universe {
+            .walk_texts(TextSet {
                 memo_windows: Some(1),
-                ..Universe::whole(4)
+                ..TextSet::all(4)
             })
             .expect_err("and does under a ceiling too");
         assert!(every.releases > 0);
@@ -1143,7 +1143,7 @@ mod tests {
         let pea = fixtures::sym(&index, "qsPea");
         let mut walk = replay(&index, &rules);
         let report = walk
-            .walk_universe(Universe::naming(3, &[pea]))
+            .walk_texts(TextSet::naming(3, &[pea]))
             .expect("the table is complete");
         let all = 6 + 36 + 216;
         let without_pea = 5 + 25 + 125;
@@ -1158,12 +1158,12 @@ mod tests {
         perturbed[seat].outcome = Rc::from("qsPea.perturbed");
         let mut narrowed = replay(&index, &perturbed);
         let complaint = narrowed
-            .walk_universe(Universe::naming(3, &[pea]))
+            .walk_texts(TextSet::naming(3, &[pea]))
             .expect_err("the disagreement lives in a text naming qsPea");
         assert!(complaint.contains("qsPea.perturbed"), "{complaint}");
         let it = fixtures::sym(&index, "qsIt");
         let mut elsewhere = replay(&index, &perturbed);
-        let _ = elsewhere.walk_universe(Universe::naming(3, &[it]));
+        let _ = elsewhere.walk_texts(TextSet::naming(3, &[it]));
     }
 
     /// A ligature is named through its components' seats, so a walk narrowed to the ligature still reaches every text that could form it. The ligature has no code point, so it has no seat of its own.
@@ -1299,14 +1299,14 @@ mod tests {
         let rules = folded_rules(&index);
         let mut walk = replay(&index, &rules);
         let report = walk
-            .walk_universe(Universe::whole(3))
+            .walk_texts(TextSet::all(3))
             .expect("the table is complete");
         let path = scratch("replay-memo-complete").join("replay-windows-default.bin");
         walk.write_window_memo(&path, "default", 3)
             .expect("the memo files");
         let filed = read_memo(&path);
         assert_eq!(filed.head["config"], "default");
-        assert_eq!(filed.head["horizon"], 3);
+        assert_eq!(filed.head["max_length"], 3);
         assert_eq!(filed.rows.len() as u64, report.windows);
         assert_eq!(filed.head["rows"], filed.rows.len());
         assert_eq!(filed.records.len(), walk.pool.len());
@@ -1329,7 +1329,7 @@ mod tests {
         let index = fixtures::mini();
         let rules = folded_rules(&index);
         let path = scratch("replay-memo-released").join("replay-windows-default.bin");
-        let (mut released, _) = capped(&index, &rules, Universe::whole(3), 1);
+        let (mut released, _) = capped(&index, &rules, TextSet::all(3), 1);
         assert!(released.releases > 0);
         let refusal = released
             .write_window_memo(&path, "default", 3)
@@ -1339,11 +1339,11 @@ mod tests {
 
         let mut uncapped = replay(&index, &rules);
         let windows = uncapped
-            .walk_universe(Universe::whole(3))
+            .walk_texts(TextSet::all(3))
             .expect("the table is complete")
             .windows;
         let ceiling = usize::try_from(windows).expect("a window count fits") + 3;
-        let (mut never, report) = capped(&index, &rules, Universe::whole(3), ceiling);
+        let (mut never, report) = capped(&index, &rules, TextSet::all(3), ceiling);
         assert_eq!(never.releases, 0);
         assert_eq!(report.windows, windows);
         never
@@ -1444,7 +1444,7 @@ mod tests {
         let index = fixtures::mini();
         let rules = folded_rules(&index);
         let mut walk = replay(&index, &rules);
-        walk.walk_universe(Universe::whole(3))
+        walk.walk_texts(TextSet::all(3))
             .expect("the table is complete");
         let path = scratch("replay-memo-lefts").join("replay-windows-default.bin");
         walk.write_window_memo(&path, "default", 3)

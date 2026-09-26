@@ -1,4 +1,4 @@
-"""Tests for the deep replay's decisions, with the walk stubbed out: which runes it walks after an edit, which inputs it refuses, what it records on a pass and withdraws on a failure, how the cycle reports its status, the width it walks at, and the memo ceiling it passes to the crate. The walk is `kernel_exec.replay_strings`. The build's own horizon-4 replay exercises it everywhere except the `memo_windows` keyword, which the build never passes. `TestTheStringReplay` in rebuild/test_kernel_exec.py tests `memo_windows` through the subcommand."""
+"""Tests for the deep replay's decisions, with the walk stubbed out: which runes it walks after an edit, which inputs it refuses, what it records on a pass and withdraws on a failure, how the cycle reports its status, the width it walks at, and the memo ceiling it passes to the crate. The walk is `kernel_exec.replay_strings`. The build's own length-4 replay exercises it everywhere except the `memo_windows` keyword, which the build never passes. `TestTheStringReplay` in rebuild/test_kernel_exec.py tests `memo_windows` through the subcommand."""
 
 import pytest
 
@@ -39,9 +39,9 @@ def bench(tmp_path, monkeypatch):
 
 
 def _stub_walk(monkeypatch, walked=None, disagree=None, ceilings=None):
-    def fake(spec, out_dir, configs, *, horizon, families, threads, memo_windows, timings=False):
+    def fake(spec, out_dir, configs, *, max_length, families, threads, memo_windows, timings=False):
         if walked is not None:
-            walked.append((horizon, families, threads))
+            walked.append((max_length, families, threads))
         if ceilings is not None:
             ceilings.append(memo_windows)
         if disagree is not None:
@@ -51,10 +51,10 @@ def _stub_walk(monkeypatch, walked=None, disagree=None, ceilings=None):
     monkeypatch.setattr(deep_replay.kernel_exec, "replay_strings", fake)
 
 
-def test_a_horizon_at_or_below_the_builds_own_is_refused(bench, monkeypatch):
+def test_a_max_length_at_or_below_the_builds_own_is_refused(bench, monkeypatch):
     _stub_walk(monkeypatch)
     with pytest.raises(SystemExit, match="no deeper than the build's own replay"):
-        deep_replay.main(["--horizon", str(ac.CONFORM_HORIZON_DEFAULT)])
+        deep_replay.main(["--max-length", str(ac.CONFORM_MAX_LENGTH_DEFAULT)])
 
 
 def test_a_stale_tables_stamp_is_refused(bench, monkeypatch):
@@ -70,25 +70,25 @@ def test_without_a_record_the_walk_needs_families_or_all(bench, monkeypatch):
     with pytest.raises(SystemExit, match="no deep replay has been recorded"):
         deep_replay.main([])
     assert deep_replay.main(["--families", "qsTea", "--threads", "2"]) == 0
-    assert walked == [(ac.DEEP_REPLAY_HORIZON_DEFAULT, ["qsTea"], 2)]
+    assert walked == [(ac.DEEP_REPLAY_MAX_LENGTH_DEFAULT, ["qsTea"], 2)]
     record = ac.read_green_record(bench / "rebuild" / "out" / "deep-replay-green.json")
     assert record is not None
     assert record["files"] == {"qsTea": "t1"}
-    assert record["horizon"] == ac.DEEP_REPLAY_HORIZON_DEFAULT
+    assert record["max_length"] == ac.DEEP_REPLAY_MAX_LENGTH_DEFAULT
     assert record["structure"] == "structure-1"
     assert ac.deep_replay_status(bench)[0] == "armed"
     assert "qsIt" in ac.deep_replay_status(bench)[1] and "qsPea" in ac.deep_replay_status(bench)[1]
 
 
-def test_all_walks_the_universe_and_records_every_rune(bench, monkeypatch, capsys):
+def test_all_walks_every_text_and_records_every_rune(bench, monkeypatch, capsys):
     walked: list = []
     _stub_walk(monkeypatch, walked)
     assert deep_replay.main(["--all", "--threads", "1"]) == 0
-    assert walked == [(ac.DEEP_REPLAY_HORIZON_DEFAULT, None, 1)]
+    assert walked == [(ac.DEEP_REPLAY_MAX_LENGTH_DEFAULT, None, 1)]
     assert JOURNAL == [("green", ["--all", "--threads", "1"])]
     record = ac.read_green_record(bench / "rebuild" / "out" / "deep-replay-green.json")
     assert record is not None and record["files"] == RUNES
-    assert ac.deep_replay_status(bench) == ("current", f"horizon {ac.DEEP_REPLAY_HORIZON_DEFAULT}")
+    assert ac.deep_replay_status(bench) == ("current", f"maximum length {ac.DEEP_REPLAY_MAX_LENGTH_DEFAULT}")
     assert deep_replay.main(["--status"]) == 0
     assert "current" in capsys.readouterr().out
 
@@ -142,7 +142,7 @@ def test_a_disagreement_withdraws_the_walked_runes_from_a_green_record(bench, mo
     record = ac.read_green_record(path)
     assert record is not None
     assert record["files"] == {"qsTea": "t1", "qsIt": "i1"}
-    assert record["horizon"] == 5 and record["structure"] == "structure-1"
+    assert record["max_length"] == 5 and record["structure"] == "structure-1"
     status, note = ac.deep_replay_status(bench)
     assert status == "armed" and "qsPea" in note and "qsTea" not in note
     walked: list = []
@@ -178,7 +178,7 @@ def test_a_disagreeing_bare_walk_withdraws_the_moved_runes_and_their_readers(ben
     record = ac.read_green_record(path)
     assert record is not None
     assert record["files"] == {"qsIt": "i1"}
-    assert record["horizon"] == 5 and record["structure"] == "structure-1"
+    assert record["max_length"] == 5 and record["structure"] == "structure-1"
     status, note = ac.deep_replay_status(bench)
     assert status == "armed" and "qsTea" in note
 
@@ -224,7 +224,7 @@ def test_a_deeper_record_is_current_and_a_shallower_one_is_armed(bench, monkeypa
         dict(RUNES), 6, "structure-1", path=bench / "rebuild" / "out" / "deep-replay-green.json"
     )
     monkeypatch.setattr("rebuild.pipeline.fingerprint.rune_digests", lambda root: dict(RUNES))
-    assert ac.deep_replay_status(bench, 5) == ("current", "horizon 6")
+    assert ac.deep_replay_status(bench, 5) == ("current", "maximum length 6")
     assert ac.deep_replay_status(bench, 7)[0] == "armed"
 
 
@@ -264,7 +264,7 @@ def test_the_shipped_walk_cost_holds_both_fleet_boxes_at_their_widths(total, wan
 
 
 def test_a_green_deep_sweep_refreshes_the_replays_record(tmp_path, monkeypatch):
-    """The deep HarfBuzz sweep over all texts settles every text it shapes, so a passing sweep at the replay's horizon covers the replay. Its refresh records every rune at the digest the sweep read before it started."""
+    """The deep HarfBuzz sweep over all texts settles every text it shapes, so a passing sweep at the replay's maximum length covers the replay. Its refresh records every rune at the digest the sweep read before it started."""
     monkeypatch.setattr(
         cycle_paths, "DEEP_REPLAY_GREEN", tmp_path / "rebuild" / "out" / "deep-replay-green.json"
     )
@@ -272,5 +272,5 @@ def test_a_green_deep_sweep_refreshes_the_replays_record(tmp_path, monkeypatch):
     monkeypatch.setattr("rebuild.pipeline.spec_load.load_default_spec", lambda: Spec())
     deep_sweep.refresh_deep_replay(6, dict(RUNES))
     record = ac.read_green_record(tmp_path / "rebuild" / "out" / "deep-replay-green.json")
-    assert record is not None and record["files"] == RUNES and record["horizon"] == 6
+    assert record is not None and record["files"] == RUNES and record["max_length"] == 6
     assert record["structure"] == "structure-1"

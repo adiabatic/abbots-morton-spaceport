@@ -1,6 +1,6 @@
 """Read, write and delete the green records that keyed stages skip on, and compute the two digests their keys are built from. The module imports only the standard library, so `pyright_gate`, which the root conftest imports, can use it without importing the cycle driver, which would put the whole pipeline into every rebuild test's closure (`rebuild.tools.cycle_paths` says why that matters). `artifact_cycle` imports every name here and re-exports them.
 
-A record is `{format, fingerprint, finished_at}` plus whatever the stage stores beside its key: the per-label digest map behind the fingerprint, the contracts lane's per-test closures, or a sweep's horizon. A writer records a green only when the key still matches after the work has run. `clear_contradicted_green` deletes a record when a red run over content with the same key contradicts it.
+A record is `{format, fingerprint, finished_at}` plus whatever the stage stores beside its key: the per-label digest map behind the fingerprint, the contracts lane's per-test closures, or a sweep's maximum length. A writer records a green only when the key still matches after the work has run. `clear_contradicted_green` deletes a record when a red run over content with the same key contradicts it.
 """
 
 from __future__ import annotations

@@ -599,20 +599,20 @@ pub struct ReplayAnswer {
     pub timed: Vec<String>,
 }
 
-/// Replays every configuration's persisted rules over `universe`, at most `workers` at a time. Each configuration reads `<outdir>/settlement-<config>.tsv` back, walks the universe's texts, and checks the rules' first-match result against the engine's own settlement, window by window. The engine gets the enumeration's two world flags but not `deep_classes`, since a replay settles single windows, which have no grain. With a `memo_dir`, each passing walk writes its window memo there as `replay-windows-<config>.bin` ([`replay::Replay::write_window_memo`]). A walk that fails writes nothing. A walk that released its memo under the universe's ceiling fails instead of writing, and the `replay-strings` CLI rejects `--memo-dir` with `--memo-windows`, so no command line can request that.
+/// Replays every configuration's persisted rules over `text_set`, at most `workers` at a time. Each configuration reads `<outdir>/settlement-<config>.tsv` back, walks the text set, and checks the rules' first-match result against the engine's own settlement, window by window. The engine gets the enumeration's two world flags but not `deep_classes`, since a replay settles single windows, which have no grain. With a `memo_dir`, each passing walk writes its window memo there as `replay-windows-<config>.bin` ([`replay::Replay::write_window_memo`]). A walk that fails writes nothing. A walk that released its memo under the text set's ceiling fails instead of writing, and the `replay-strings` CLI rejects `--memo-dir` with `--memo-windows`, so no command line can request that.
 #[allow(clippy::too_many_arguments)]
 pub fn run_configs_replay(
     index: &SpecIndex,
     configs: &[Configuration<'_>],
     modes: EnumerationModes,
     outdir: &Path,
-    universe: replay::Universe<'_>,
+    text_set: replay::TextSet<'_>,
     workers: usize,
     report: Report,
     memo_dir: Option<&Path>,
 ) -> Result<Vec<ReplayAnswer>, String> {
     claim_all(configs, workers, |config| {
-        run_config_replay(index, config, modes, outdir, universe, report, memo_dir)
+        run_config_replay(index, config, modes, outdir, text_set, report, memo_dir)
             .map_err(|complaint| format!("{}: {complaint}", config.token))
     })
 }
@@ -622,13 +622,13 @@ pub fn replay_memo_path(memo_dir: &Path, token: &str) -> PathBuf {
     memo_dir.join(format!("replay-windows-{token}.bin"))
 }
 
-/// Replays one configuration: reads its rules back and walks the universe. When asked, it returns the cache stats' `[c]` lines and a `replay[<config>]` timing line. With a `memo_dir`, it then writes the window memo, timed as `replay_memo[<config>]`. The walk's clock stops before the cache stats are taken, so the end-of-walk resident-size sample is not counted in the walk's time; the samples a walk with cache stats takes at each release under the universe's ceiling are.
+/// Replays one configuration: reads its rules back and walks its text set. When asked, it returns the cache stats' `[c]` lines and a `replay[<config>]` timing line. With a `memo_dir`, it then writes the window memo, timed as `replay_memo[<config>]`. The walk's clock stops before the cache stats are taken, so the end-of-walk resident-size sample is not counted in the walk's time; the samples a walk with cache stats takes at each release under the text set's ceiling are.
 pub fn run_config_replay(
     index: &SpecIndex,
     config: &Configuration<'_>,
     modes: EnumerationModes,
     outdir: &Path,
-    universe: replay::Universe<'_>,
+    text_set: replay::TextSet<'_>,
     report: Report,
     memo_dir: Option<&Path>,
 ) -> Result<ReplayAnswer, String> {
@@ -648,7 +648,7 @@ pub fn run_config_replay(
     if report.cache_stats {
         walk.with_cache_stats(token);
     }
-    let walked = walk.walk_universe(universe)?;
+    let walked = walk.walk_texts(text_set)?;
     let elapsed = started.elapsed();
     let mut timed = walk.take_cache_stats();
     if report.timings {
@@ -656,7 +656,11 @@ pub fn run_config_replay(
     }
     if let Some(memo_dir) = memo_dir {
         let started = Instant::now();
-        walk.write_window_memo(&replay_memo_path(memo_dir, token), token, universe.horizon)?;
+        walk.write_window_memo(
+            &replay_memo_path(memo_dir, token),
+            token,
+            text_set.max_length,
+        )?;
         if report.timings {
             timed.push(timing_line(
                 &format!("replay_memo[{token}]"),

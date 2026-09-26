@@ -365,8 +365,8 @@ def test_a_manual_pin_gate_with_nothing_in_scope_clears_the_record(monkeypatch, 
 def test_conform_only_records_its_own_green(monkeypatch, tmp_path):
     store = tmp_path / "conform-green.json"
     monkeypatch.setattr(cycle_paths, "CONFORM_GREEN", store)
-    monkeypatch.setattr(ac, "conform_skip_fingerprint", lambda root=None, horizon=4: "fp-conform")
-    monkeypatch.setattr(ac, "conform_skip_files", lambda root=None, horizon=4: {})
+    monkeypatch.setattr(ac, "conform_skip_fingerprint", lambda root=None, max_length=4: "fp-conform")
+    monkeypatch.setattr(ac, "conform_skip_files", lambda root=None, max_length=4: {})
     monkeypatch.setattr(
         run_m1, "run_font_conformance", lambda max_length, jobs: {"pass": True, "divergences": 0}
     )
@@ -379,7 +379,7 @@ def test_conform_only_records_its_own_green(monkeypatch, tmp_path):
 def test_conform_only_divergences_record_no_green(monkeypatch, tmp_path):
     store = tmp_path / "conform-green.json"
     monkeypatch.setattr(cycle_paths, "CONFORM_GREEN", store)
-    monkeypatch.setattr(ac, "conform_skip_fingerprint", lambda root=None, horizon=4: "fp-conform")
+    monkeypatch.setattr(ac, "conform_skip_fingerprint", lambda root=None, max_length=4: "fp-conform")
     monkeypatch.setattr(
         run_m1, "run_font_conformance", lambda max_length, jobs: {"pass": False, "divergences": 3}
     )
@@ -390,8 +390,8 @@ def test_conform_only_divergences_record_no_green(monkeypatch, tmp_path):
 
 def test_conform_only_files_its_own_check(monkeypatch):
     """The sweep records its own check line, named `conform` as the cycle names gate:conform, with the status `evaluate_conform_gate` returns. A divergence records `FAILED`, the status the cycle summary prints."""
-    monkeypatch.setattr(ac, "conform_skip_fingerprint", lambda root=None, horizon=4: "fp-conform")
-    monkeypatch.setattr(ac, "conform_skip_files", lambda root=None, horizon=4: {})
+    monkeypatch.setattr(ac, "conform_skip_fingerprint", lambda root=None, max_length=4: "fp-conform")
+    monkeypatch.setattr(ac, "conform_skip_files", lambda root=None, max_length=4: {})
     monkeypatch.setattr(
         run_m1, "run_font_conformance", lambda max_length, jobs: {"pass": True, "divergences": 0}
     )
@@ -406,13 +406,13 @@ def test_conform_only_files_its_own_check(monkeypatch):
     assert [(check["check"], check["status"]) for check in _checks()][-1] == ("conform", "FAILED")
 
 
-def test_the_conform_horizon_default_matches_the_cycle_driver(monkeypatch, tmp_path):
-    """The horizon is part of the conform green's key, so if run_m1's default differed from the cycle driver's, an interactive sweep would record a green no cycle could match."""
+def test_the_conform_max_length_default_matches_the_cycle_driver(monkeypatch, tmp_path):
+    """The maximum length is part of the conform green's key, so if run_m1's default differed from the cycle driver's, an interactive sweep would record a green no cycle could match."""
     store = tmp_path / "conform-green.json"
     swept = []
     monkeypatch.setattr(cycle_paths, "CONFORM_GREEN", store)
-    monkeypatch.setattr(ac, "conform_skip_fingerprint", lambda root=None, horizon=4: "fp-conform")
-    monkeypatch.setattr(ac, "conform_skip_files", lambda root=None, horizon=4: {})
+    monkeypatch.setattr(ac, "conform_skip_fingerprint", lambda root=None, max_length=4: "fp-conform")
+    monkeypatch.setattr(ac, "conform_skip_files", lambda root=None, max_length=4: {})
 
     def fake_sweep(max_length, jobs):
         swept.append(max_length)
@@ -420,7 +420,7 @@ def test_the_conform_horizon_default_matches_the_cycle_driver(monkeypatch, tmp_p
 
     monkeypatch.setattr(run_m1, "run_font_conformance", fake_sweep)
     run_m1.main(["--conform-only"])
-    assert swept == [ac.CONFORM_HORIZON_DEFAULT]
+    assert swept == [ac.CONFORM_MAX_LENGTH_DEFAULT]
 
 
 def test_a_hand_conform_only_run_defaults_to_the_belts_budget(monkeypatch, tmp_path):
@@ -429,8 +429,8 @@ def test_a_hand_conform_only_run_defaults_to_the_belts_budget(monkeypatch, tmp_p
     handed = []
     belt = ac.conform_job_budget(skip_gates=True, skip_corpus=True)
     monkeypatch.setattr(cycle_paths, "CONFORM_GREEN", store)
-    monkeypatch.setattr(ac, "conform_skip_fingerprint", lambda root=None, horizon=4: "fp-conform")
-    monkeypatch.setattr(ac, "conform_skip_files", lambda root=None, horizon=4: {})
+    monkeypatch.setattr(ac, "conform_skip_fingerprint", lambda root=None, max_length=4: "fp-conform")
+    monkeypatch.setattr(ac, "conform_skip_files", lambda root=None, max_length=4: {})
     monkeypatch.setattr(ac, "sweep_job_budget", lambda ncores=None, total_bytes=None: belt + 1)
 
     def fake_sweep(max_length, jobs):
@@ -919,10 +919,10 @@ class TestConformFanIn:
             assert record["controller_peak_rss_bytes"] == len(configs) + 1
 
     def test_a_serial_or_deep_belt_files_no_pool_record(self, monkeypatch, tmp_path):
-        """The serial belt starts no pool to measure. A deeper sweep's worker holds its horizon's windows in memory, a different load from a belt worker's, so it must not be recorded as a belt worker."""
+        """The serial belt starts no pool to measure. A deeper sweep's worker holds its maximum length's windows in memory, a different load from a belt worker's, so it must not be recorded as a belt worker."""
         self._pool(monkeypatch)
         run_m1.run_font_conformance(out_dir=tmp_path, jobs=1)
-        run_m1.run_font_conformance(out_dir=tmp_path, max_length=conform.BELT_HORIZON + 1, jobs=6)
+        run_m1.run_font_conformance(out_dir=tmp_path, max_length=conform.SWEEP_MAX_LENGTH + 1, jobs=6)
         assert ct.load_pool_records(ct.JOURNAL) == []
 
     def test_the_belt_writes_the_same_summary_at_every_width(self, monkeypatch, tmp_path):

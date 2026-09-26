@@ -64,7 +64,7 @@ def table_digests(subset_dir: Path, configs: Sequence[str]) -> dict[str, str]:
 
 
 def pack_key(codepoints: str) -> int:
-    """Return the pack's integer key for a colon-joined codepoint string. The 16-bit slots are right-aligned, so a shorter window sorts before every longer one and windows of one length sort by their codepoints. `KEY_SLOTS` is four, the longest window the baseline extractor writes (`MAX_LENGTH` in rebuild/baseline/alphabet.py, equal to `conform.BELT_HORIZON`), and a 16-bit slot covers the Basic Multilingual Plane, which holds every codepoint in the tables. A longer window or a codepoint above U+FFFF raises ValueError, so the packer fails on a table that contains one and `SubsetPack.row` returns None for one."""
+    """Return the pack's integer key for a colon-joined codepoint string. The 16-bit slots are right-aligned, so a shorter window sorts before every longer one and windows of one length sort by their codepoints. `KEY_SLOTS` is four, the longest window the baseline extractor writes (`MAX_LENGTH` in rebuild/baseline/alphabet.py, equal to `conform.SWEEP_MAX_LENGTH`), and a 16-bit slot covers the Basic Multilingual Plane, which holds every codepoint in the tables. A longer window or a codepoint above U+FFFF raises ValueError, so the packer fails on a table that contains one and `SubsetPack.row` returns None for one."""
     key = 0
     slots = 0
     for part in codepoints.split(":"):

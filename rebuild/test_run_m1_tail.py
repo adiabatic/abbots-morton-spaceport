@@ -17,7 +17,7 @@ STAMP = "tail-test"
 CONFIGS = conform.SETTLEMENT_CONFIGS
 BOX_32_GIB = 34_359_738_368
 TABLES = {config: (SimpleNamespace(rules=()), SimpleNamespace(rows=())) for config in CONFIGS}
-GREEN_REPLAY = {"pass": True, "complaint": None, "horizon": run_m1.REPLAY_HORIZON, "families": None}
+GREEN_REPLAY = {"pass": True, "complaint": None, "max_length": run_m1.REPLAY_MAX_LENGTH, "families": None}
 GREEN_WITNESSES = {"pass": True, "failures": [], "configs": {}}
 GREEN_EMITTED = {"pass": True, "complaint": None, "configs": {}}
 RED_REPLAY = {**GREEN_REPLAY, "pass": False, "complaint": "(qsPea, …) settlement says one thing"}
@@ -526,7 +526,7 @@ class TestTheTailWidth:
         monkeypatch.setattr(run_m1, "usable_cores", lambda: 64)
 
         def replay_strings(
-            spec, out_dir, configs, *, horizon, families, threads, timings=False, memo_dir=None
+            spec, out_dir, configs, *, max_length, families, threads, timings=False, memo_dir=None
         ):
             widths.append(threads)
             return {config: {"texts": 1, "windows": 1, "skipped": 0} for config in configs}

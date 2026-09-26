@@ -1,4 +1,4 @@
-"""Tests for conform.py and the oracle stages that consume it: label normalization, the raw GSUB replay, the isolated overlay, alias and ledger matching, kern evaluation and the position channel, the oracle's audit shards, row cache and row ranges, the belt's bookkeeping, and the memoized settle walk and its memo file, checked against settling the same texts without a memo. The belt at its full horizon runs in run_m1 against the compiled M1 font. Settlement comes from the Rust crate, so these tests need a built kernel: the formation-guard sweep and the settle walk both call it."""
+"""Tests for conform.py and the oracle stages that consume it: label normalization, the raw GSUB replay, the isolated overlay, alias and ledger matching, kern evaluation and the position channel, the oracle's audit shards, row cache and row ranges, the belt's bookkeeping, and the memoized settle walk and its memo file, checked against settling the same texts without a memo. The belt at its full maximum length runs in run_m1 against the compiled M1 font. Settlement comes from the Rust crate, so these tests need a built kernel: the formation-guard sweep and the settle walk both call it."""
 
 import gzip
 import hashlib
@@ -177,7 +177,7 @@ class TestIsolatedOverlay:
         assert divergent.new_seams == ("break",)
 
     def test_the_overlay_arm_sweeps_two_letters_and_never_reaches_the_crate(self, spec, monkeypatch):
-        """At any belt horizon, the overlay branch shapes every text of one or two alphabet symbols and nothing longer, and it never forms, settles, memoizes or calls the crate."""
+        """At any belt maximum length, the overlay branch shapes every text of one or two alphabet symbols and nothing longer, and it never forms, settles, memoizes or calls the crate."""
 
         def unreachable(*args, **kwargs):
             raise AssertionError("the overlay arm reached the crate")
@@ -194,13 +194,13 @@ class TestIsolatedOverlay:
             conform.splitting_boundary_chars(spec),
             {},
             None,
-            conform.BELT_HORIZON + 3,
+            conform.SWEEP_MAX_LENGTH + 3,
             None,
         )
         alphabet = len(conform.spec_alphabet(spec))
         assert result.sequences == alphabet + alphabet**2
         assert result.shaping_runs == result.sequences == len(shaper.shaped)
-        assert all(len(text) <= conform.OVERLAY_HORIZON for text in shaper.shaped)
+        assert all(len(text) <= conform.OVERLAY_MAX_LENGTH for text in shaper.shaped)
         assert result.divergences and {divergence.kind for divergence in result.divergences} == {"length"}
 
 
@@ -2315,9 +2315,9 @@ class _SilentShaper:
 
 
 class TestBeltEconomics:
-    """What the belt does over a short horizon with a stand-in font: every text of every length up to the horizon is shaped once, and the split-buffer check runs on exactly the texts that contain a splitter."""
+    """What the belt does over a short maximum length with a stand-in font: every text of every length up to the maximum length is shaped once, and the split-buffer check runs on exactly the texts that contain a splitter."""
 
-    HORIZON = 2
+    MAX_LENGTH = 2
 
     def _run(self, spec, guard):
         shaper = _SilentShaper()
@@ -2329,7 +2329,7 @@ class TestBeltEconomics:
             conform.splitting_boundary_chars(spec),
             {},
             None,
-            self.HORIZON,
+            self.MAX_LENGTH,
             guard,
         )
         return result, shaper
@@ -2341,7 +2341,7 @@ class TestBeltEconomics:
         assert result.sequences == alphabet + alphabet**2
         assert result.shaping_runs == result.sequences
         assert len(shaper.shaped) == len(set(shaper.shaped)) == result.sequences
-        assert all(len(text) <= self.HORIZON for text in shaper.shaped)
+        assert all(len(text) <= self.MAX_LENGTH for text in shaper.shaped)
 
     def test_the_split_buffer_check_runs_on_the_texts_that_carry_a_splitter(self, spec, guard, monkeypatch):
         """The belt runs the split-buffer check on every text that contains a splitter, comparing it with its segments shaped separately, and on no other text, since a text without a splitter is its own single segment. The ZWNJ slot's zero advance and empty outline are checked by read-back's boundary-glyphs stage, not by the belt."""
@@ -2616,7 +2616,7 @@ def _write_dump(
 
 
 def _texts_to_depth(spec, max_length=3):
-    """Every text of the fixture alphabet up to `max_length` characters, the universe the memo tests walk."""
+    """Every text of the fixture alphabet up to `max_length` characters, the text set the memo tests walk."""
     alphabet = conform.spec_alphabet(spec)
     return [
         "".join(combo)
@@ -2635,7 +2635,13 @@ class TestCrateEmittedSettleMemo:
         out_dir = tmp_path_factory.mktemp("replay-memo")
         run_m1.build_tables(spec, out_dir)
         kernel_exec.replay_strings(
-            spec, out_dir, conform.SETTLEMENT_CONFIGS, horizon=4, families=None, threads=2, memo_dir=out_dir
+            spec,
+            out_dir,
+            conform.SETTLEMENT_CONFIGS,
+            max_length=4,
+            families=None,
+            threads=2,
+            memo_dir=out_dir,
         )
         return out_dir
 
@@ -2646,7 +2652,7 @@ class TestCrateEmittedSettleMemo:
     def test_the_absorbed_memo_serves_every_window_the_walk_reaches_and_settles_alike(
         self, spec, dumps_dir, tmp_path, config
     ):
-        """The sweep to the replay's horizon, with a walk carrying the crate-written file, settles nothing (every key the walk forms is one the conversion wrote), and its streams and names equal the unmemoized reference. `ss03` exercises the marker renaming on the input and right slots, `default` the unrenamed labels."""
+        """The sweep to the replay's maximum length, with a walk carrying the crate-written file, settles nothing (every key the walk forms is one the conversion wrote), and its streams and names equal the unmemoized reference. `ss03` exercises the marker renaming on the input and right slots, `default` the unrenamed labels."""
         memo = self._memo(tmp_path, config)
         entries = conform.absorb_replay_memo(
             kernel_exec.replay_memo_dump(dumps_dir, config), memo, spec, config
@@ -3448,7 +3454,7 @@ class TestSettleMemoFile:
         assert again.fresh_windows == len(refused)
 
     def test_the_belt_writes_the_file_the_oracle_reads(self, spec, guard, tmp_path, monkeypatch, capsys):
-        """Both phases end to end, in the reverse of the cycle's order: the belt over the mini alphabet at horizon 2 with a stand-in font, then the oracle over rows the belt swept, with `kernel_exec.settle_windows` replaced by a failure. Every window the oracle needs is already in the file, and each phase's `[t]` line shows which one wrote it."""
+        """Both phases end to end, in the reverse of the cycle's order: the belt over the mini alphabet at maximum length 2 with a stand-in font, then the oracle over rows the belt swept, with `kernel_exec.settle_windows` replaced by a failure. Every window the oracle needs is already in the file, and each phase's `[t]` line shows which one wrote it."""
         memo = self._memo(tmp_path)
         belt = conform._conformance_config(
             _SilentShaper(),  # pyright: ignore[reportArgumentType]

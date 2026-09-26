@@ -898,7 +898,7 @@ def test_parse_inner_timings_finds_every_label_when_two_branches_interleave():
             "[t] emitted_order[ss04] 8.6s rows=7623532 expanded=182",
             "[t] readback 1.0s",
             "[t] replay_strings 26.1s rss_gb=16.13",
-            "replay_strings: horizon 4, whole universe",
+            "replay_strings: maximum length 4, every text",
             "[t] run_total 260.0s rss_gb=16.13",
             "[t] rule_witnesses 18.2s",
             "[t] settle_memo_wait 31.4s",

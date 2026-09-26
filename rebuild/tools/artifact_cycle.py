@@ -12,7 +12,7 @@ run_m1's exit status is its own gate's result, but this driver evaluates the thr
 
 This process, not its children, records each check's result in the timings journal. Every evaluated check (run_m1, conform, rebuild-contracts, make-test, js) appends one kind:"check" line tagged with this run, carrying the evaluator's outcome, not the process's exit code; `make cycle-timings ARGS='--by-outcome'` reads them. run_m1's CLI and make_test_gate record their own line when run by hand, so this driver sets its run id in the environment as AMS_CYCLE_RUN (cycle_timings.CYCLE_RUN_ENV), and those children record nothing when they inherit it. Each check invocation gets one line.
 
-gate:js and gate:make-test depend on no build artifact, so they start at t=0 in a small thread pool while the build steps run in sequence in the main thread. gate:conform (the exhaustive font-versus-settlement sweep at the per-edit horizon, `run_m1 --conform-only`) starts after the run_m1 gate passes, queued behind make-test by default. Its deeper form, `make conform-deep`, never runs in the cycle; the summary has one line saying whether the emitted lookup has a shape the last deep run did not shape. gate:rebuild-contracts runs every test under rebuild/, and none of them reads a live build artifact (rebuild/conftest.py's audit hook enforces this). A hand run uses every core. Under a cycle the suite is submitted with the conform lane, right after the run_m1 gate passes, and runs beside the corpus build at `contracts_pool_width`: the cores less the build's parent and its `corpus_job_budget` workers, set on that one child as PYTEST_XDIST_AUTO_NUM_WORKERS, so the pool and the build together run about one process per core. The suite reads nothing the build lane writes, the review-facts pins included, so it waits for nothing downstream, and on a pass where every upstream stage skips it starts at t=0.
+gate:js and gate:make-test depend on no build artifact, so they start at t=0 in a small thread pool while the build steps run in sequence in the main thread. gate:conform (the exhaustive font-versus-settlement sweep at the per-edit maximum length, `run_m1 --conform-only`) starts after the run_m1 gate passes, queued behind make-test by default. Its deeper form, `make conform-deep`, never runs in the cycle; the summary has one line saying whether the emitted lookup has a shape the last deep run did not shape. gate:rebuild-contracts runs every test under rebuild/, and none of them reads a live build artifact (rebuild/conftest.py's audit hook enforces this). A hand run uses every core. Under a cycle the suite is submitted with the conform lane, right after the run_m1 gate passes, and runs beside the corpus build at `contracts_pool_width`: the cores less the build's parent and its `corpus_job_budget` workers, set on that one child as PYTEST_XDIST_AUTO_NUM_WORKERS, so the pool and the build together run about one process per core. The suite reads nothing the build lane writes, the review-facts pins included, so it waits for nothing downstream, and on a pass where every upstream stage skips it starts at t=0.
 
 Under the default queue policy the gates run make-test, then conform, then rebuild-contracts, so only one heavy gate pool runs at a time, and the build steps run beside whichever one it is. Each pool's width comes from its budget function: the oracle (`sweep_job_budget`) splits its tables into row ranges and uses the cores within the memory limit ORACLE_SHARD_BYTES sets; the belt (`conform_job_budget`) runs one process per acceptance configuration wherever CONFORM_BELT_BYTES fits that many beside the build lane; and the corpus build (`corpus_job_budget`) gets the machine less what make-test holds. Two heavy pools side by side oversubscribe the cores roughly 2:1, and that contention was measured to roughly triple the rebuild suite's wall-clock time (`_gate_conform_task`'s docstring, commit b5881022), which is worse than running the same work in sequence. `--rebuild-pool overlap` runs the pools side by side anyway. The suite's width then also subtracts gate:make-test's pool, so it is no wider than under the queue policy: one worker on a ten- or twelve-core machine beside a cap-width build.
 
@@ -29,7 +29,7 @@ The verdict-update skip also requires the corpus build to skip, which is what ma
 Every other heavy stage skips on the same principle: a content fingerprint over the stage's input closure, and a green record written only after that content passed.
 
 - run_m1 skips on rebuild/out/run-m1-green.json (the Stage A fingerprint components plus the contact allow-list, the oracle's subset tables and uv.lock's dependency pins) and re-evaluates its gate from the summary JSONs on disk.
-- gate:conform skips on conform-green.json, keyed on what the belt tests for, not on run_m1's closure: the emitted lookup's behavior classes, the font-compilation code and its tools/ closure, the uharfbuzz version, and the sweep horizon (`conform_skip_fingerprint`). A rune edit that creates no new rule shape leaves that key unchanged, because the crate's string replay inside run_m1 has already checked the new tables against the engine over every string.
+- gate:conform skips on conform-green.json, keyed on what the belt tests for, not on run_m1's closure: the emitted lookup's behavior classes, the font-compilation code and its tools/ closure, the uharfbuzz version, and the sweep's maximum length (`conform_skip_fingerprint`). A rune edit that creates no new rule shape leaves that key unchanged, because the crate's string replay inside run_m1 has already checked the new tables against the engine over every string.
 - The rebuild suite skips on rebuild-contracts-green.json, keyed by `rebuild_lane_fingerprint` over its closure: the repo files under rebuild/ and glyph_data/, the harness files in REBUILD_GATE_HARNESS_PATHS, conftest.py, pyproject.toml, uv.lock by its dependency pins, and the site fonts without their head and name tables. The closure contains no build artifact, so the suite can skip whether or not run_m1 rebuilt: an M1 rebuild writes only under rebuild/out, which the closure does not include. The record also stores each test's input closure, so a pass whose key changed runs only the tests whose closure the diff reaches; a rune edit reruns the tests that load the spec and nothing else. rebuild.tools.contracts_closure defines what a closure holds and when a test may be skipped, and runs the test whenever it cannot tell. rebuild.tools.rebuild_gate (`make test-rebuild`) writes the same record, so interactive and cycle greens share it.
 - corpus-build skips when the manifest's recorded inputs fingerprint equals the one a build would stamp now. A rebuild would then be byte-identical, including `generated_at` (the latest input mtime, floored), so the autosave stays aligned. When the live corpus does not match but a staged corpus does (the last cycle summary's `plan.review_out`, or var/staged-review), that directory is moved into rebuild/out/review with its stores instead (`corpus-promote`; `promotable_corpus` checks the preconditions). Every stamp inside a corpus depends only on content relative to its manifest, and the move keeps the `generated_at` a rebuild would reset.
 - The review-facts step has no key and never skips: it reads the corpus build's review-facts.json sidecar and rewrites one small checked-in file in milliseconds.
@@ -157,14 +157,14 @@ STANDING_FILL_PARENT_BYTES = 6_000_000_000
 # The measurement set is four `run_m1 --gates-only` passes on the 32 GiB machine (`doc/fleet.md`), store-cold (`--fresh-oracle-cache`) and store-warm, at `--jobs 10` over fifteen ranges and at a stated `--jobs 12` over seventeen, which is the plan the 12-core M4 Pro Mac mini (48 GiB) chooses. Every worker holds its own range's records beside its mapped memo, and the five absorbs are recorded beside the ranges. The highest readings are 0.55 GB store-cold and 0.53 GB store-warm at width twelve, and 0.67 GB store-cold and 0.56 GB store-warm at width ten (the pool records finished between 2026-09-16T09:17:38Z and 09:20:58Z, their logs under `var/keep/rung263-4/`). The constant is the highest reading plus a quarter, rounded up to the tenth, because a cost that is too low pushes the machine into swap, and because the walk's state grows with the alphabet. The oracle-shard row of `make job-costs` checks it: `run_m1.run_oracle` writes one kind:"pool" record per fan-out, one observation per row range that ran, and the cycle's job-costs step runs the check. The rebuild suite checks the constant only against the cores, which cannot catch a figure that is too low. At this figure the cores, not memory, limit this pool on every fleet machine.
 ORACLE_SHARD_BYTES = 900_000_000
 # The peak memory of one belt worker, the divisor of gate:conform's width (`conform_job_budget`). A worker is a spawn process running `conform.conformance_config_worker` for one acceptance configuration. It holds its interpreter, a HarfBuzz `Shaper` over M1.otf, the spec's alphabet, splitters, glyph names and anchors, the section 5.7 verdict surface the parent passes down, and its configuration's settle memo, mapped read-only (`conform._MemoStore`) and walked with `promote=False`. The mapping's columns and probe index are page-cache pages, resident once per machine and counted in a worker's resident set as its probes touch them, which over a belt is nearly all of them. The heap holds the file's label and outcome tables plus a dead byte and a reached byte a row. The worker also holds `windows`, the dict of windows the walk settles fresh: empty on a warm memo, every window on a cold one, and the term that grows. The `ss10` overlay worker maps no memo and reads under a tenth of the constant. The belt's controller reads under a quarter of the constant and is covered by the reserve, not by a term of its own.
-# The measurement set is the `conform-belt` pool records of two machines in `doc/fleet.md`. On the 10-core M1 Pro 32 GiB MacBook Pro, three width-six hand `run_m1 --conform-only` belts finished between 2026-09-20T08:45:15Z and 09:28:24Z, their logs under `var/keep/issue-273/`: warm settlement workers read 0.383 to 0.388 GB, cold ones (memo files moved aside, so every window settles fresh) 0.911 to 0.916 GB, the `ss10` worker 0.061 to 0.063 GB, and the controller 0.28 GB. On the 18-core M5 Pro 48 GiB MacBook Pro, a cycle's gate:conform beside a live corpus build and four hand belts finished between 2026-09-23T01:18:26Z and 01:43:38Z, their logs under `var/keep/issue-273/m5pro-48gib/`. The cycle's settlement workers, whose walks pruned the windows the witness stage had added to each memo and rewrote the file, read 0.382 to 0.384 GB. Warm hand workers at widths six and two read 0.231 to 0.237 GB. Cold ones read 0.904 to 0.933 GB at width six and 0.904 to 0.913 GB at width two, where a reused worker runs three configurations and keeps what the earlier ones left, yet reads no higher than a fresh one. The `ss10` worker reads 0.060 to 0.063 GB at width six, and the controller 0.28 GB. The constant is the highest reading, 0.933 GB, plus a quarter, rounded up to the tenth, because a cost that is too low pushes the machine into swap, and because the fresh-window dict grows with the window count, which `rebuild/scaling-ladder.txt` fits against letters and runes, so each new letter raises the cold reading. The conform-belt row of `make job-costs` checks it: `run_m1.run_font_conformance` writes one kind:"pool" record per pooled belt at `conform.BELT_HORIZON`, one observation per configuration. The gate:conform step peak is not used, because `peak_rss.reap_peak_rss_bytes` takes the maximum over the tree and so reads one process. Beside the build lane's larger step (the corpus build's parent and workers, or the verdict update's process and refill pool, `_conform_build_lane`), memory does not limit this pool on any fleet machine at this figure; the acceptance-configuration count does.
+# The measurement set is the `conform-belt` pool records of two machines in `doc/fleet.md`. On the 10-core M1 Pro 32 GiB MacBook Pro, three width-six hand `run_m1 --conform-only` belts finished between 2026-09-20T08:45:15Z and 09:28:24Z, their logs under `var/keep/issue-273/`: warm settlement workers read 0.383 to 0.388 GB, cold ones (memo files moved aside, so every window settles fresh) 0.911 to 0.916 GB, the `ss10` worker 0.061 to 0.063 GB, and the controller 0.28 GB. On the 18-core M5 Pro 48 GiB MacBook Pro, a cycle's gate:conform beside a live corpus build and four hand belts finished between 2026-09-23T01:18:26Z and 01:43:38Z, their logs under `var/keep/issue-273/m5pro-48gib/`. The cycle's settlement workers, whose walks pruned the windows the witness stage had added to each memo and rewrote the file, read 0.382 to 0.384 GB. Warm hand workers at widths six and two read 0.231 to 0.237 GB. Cold ones read 0.904 to 0.933 GB at width six and 0.904 to 0.913 GB at width two, where a reused worker runs three configurations and keeps what the earlier ones left, yet reads no higher than a fresh one. The `ss10` worker reads 0.060 to 0.063 GB at width six, and the controller 0.28 GB. The constant is the highest reading, 0.933 GB, plus a quarter, rounded up to the tenth, because a cost that is too low pushes the machine into swap, and because the fresh-window dict grows with the window count, which `rebuild/scaling-ladder.txt` fits against letters and runes, so each new letter raises the cold reading. The conform-belt row of `make job-costs` checks it: `run_m1.run_font_conformance` writes one kind:"pool" record per pooled belt at `conform.SWEEP_MAX_LENGTH`, one observation per configuration. The gate:conform step peak is not used, because `peak_rss.reap_peak_rss_bytes` takes the maximum over the tree and so reads one process. Beside the build lane's larger step (the corpus build's parent and workers, or the verdict update's process and refill pool, `_conform_build_lane`), memory does not limit this pool on any fleet machine at this figure; the acceptance-configuration count does.
 CONFORM_BELT_BYTES = 1_200_000_000
 # The width of gate:make-test's pytest pool under a cycle, which the cycle passes to that child and reserves for: `corpus_job_budget` subtracts two cores and this pool's memory. Without it the pool runs at `-n auto`, which the root conftest.py resolves to every core, while the build beside it is sized as if the pool held only its reservation.
 MAKE_TEST_POOL_WORKERS = 2
-CONFORM_HORIZON_DEFAULT = 4
-DEEP_SWEEP_HORIZON_DEFAULT = 5
-# One letter past the build's own replay (`run_m1.REPLAY_HORIZON`), the depth at which a text first exercises a letter third slot behind a letter left. The deep replay checks that one extra letter, and `make replay-deep ARGS='--horizon 6'` goes deeper on demand.
-DEEP_REPLAY_HORIZON_DEFAULT = 5
+CONFORM_MAX_LENGTH_DEFAULT = 4
+DEEP_SWEEP_MAX_LENGTH_DEFAULT = 5
+# One letter past the build's own replay (`run_m1.REPLAY_MAX_LENGTH`), the depth at which a text first exercises a letter third slot behind a letter left. The deep replay checks that one extra letter, and `make replay-deep ARGS='--max-length 6'` goes deeper on demand.
+DEEP_REPLAY_MAX_LENGTH_DEFAULT = 5
 COMPILE_CODE_FILES = (
     "rebuild/pipeline/emit_gsub.py",
     "rebuild/pipeline/emit_gpos.py",
@@ -574,30 +574,30 @@ def m1_stage_a_current(root: Path = ROOT) -> bool:
 CONFORM_NO_SIDECAR_LINE = "behavior_classes\tabsent"
 
 
-def conform_skip_lines(root: Path = ROOT, horizon: int = CONFORM_HORIZON_DEFAULT) -> list[str]:
+def conform_skip_lines(root: Path = ROOT, max_length: int = CONFORM_MAX_LENGTH_DEFAULT) -> list[str]:
     lines = deep_sweep_skip_lines(root)
     if lines is None:
         lines = [CONFORM_NO_SIDECAR_LINE]
-    lines.append(f"horizon\t{horizon}")
+    lines.append(f"max_length\t{max_length}")
     return lines
 
 
-def conform_skip_files(root: Path = ROOT, horizon: int = CONFORM_HORIZON_DEFAULT) -> dict[str, str]:
-    return _files_of(conform_skip_lines(root, horizon))
+def conform_skip_files(root: Path = ROOT, max_length: int = CONFORM_MAX_LENGTH_DEFAULT) -> dict[str, str]:
+    return _files_of(conform_skip_lines(root, max_length))
 
 
-def conform_skip_fingerprint(root: Path = ROOT, horizon: int = CONFORM_HORIZON_DEFAULT) -> str:
-    """Return the content key over what the belt tests for, matching the deep sweep's key: the deep sweep's lines (`deep_sweep_skip_lines`: the behavior-class set the build enumerated from the emitted lookup, the font-compilation code in `COMPILE_CODE_FILES` and the tools/ closure the compile runs, and the uharfbuzz version) plus the horizon, so a green at a shallower horizon cannot satisfy a deeper gate. A build that left no behavior-class sidecar contributes `CONFORM_NO_SIDECAR_LINE` instead of the classes, a key no sweep records a green under, since every sweep runs over a build that wrote one.
+def conform_skip_fingerprint(root: Path = ROOT, max_length: int = CONFORM_MAX_LENGTH_DEFAULT) -> str:
+    """Return the content key over what the belt tests for, matching the deep sweep's key: the deep sweep's lines (`deep_sweep_skip_lines`: the behavior-class set the build enumerated from the emitted lookup, the font-compilation code in `COMPILE_CODE_FILES` and the tools/ closure the compile runs, and the uharfbuzz version) plus the maximum length, so a green at a shorter maximum length cannot satisfy a longer one. A build that left no behavior-class sidecar contributes `CONFORM_NO_SIDECAR_LINE` instead of the classes, a key no sweep records a green under, since every sweep runs over a build that wrote one.
 
     The key leaves out the rune digests, the tables' stamp and M1.otf's bytes, because a rune edit changes all three on every pass. After the crate's string replay (`run_m1.run_replay_strings`, on every build), what the belt still checks is how HarfBuzz applies the shapes the emitted lookup gives it, which depends on a rule shape, the code that turns a plan into bytes, and the shaper. An edit that creates no new shape gives the belt nothing it has not already shaped, so its green stays valid. The class enumeration fails closed (`emit_gsub.behavior_classes`), so a new shape always changes the key. The accepted cost is that a disagreement only HarfBuzz can see waits for the next code change or deep sweep instead of the next rune edit. The set of texts the belt sweeps is unchanged.
     """
-    return _digest_lines(conform_skip_lines(root, horizon))
+    return _digest_lines(conform_skip_lines(root, max_length))
 
 
 def deep_sweep_skip_lines(root: Path = ROOT) -> list[str] | None:
     """Return the deep sweep's arming key lines: the behavior-class set the build enumerated (rebuild/out/m1/behavior_classes.json, written by `emit_gsub.behavior_classes`), the font-compilation code that turns a plan into bytes (the pipeline modules in `COMPILE_CODE_FILES` and the tools/ closure compile_font passes the mini font to, `fingerprint.font_compile_tool_paths`, since an edit to the glyph compiler or the FEA emitter changes M1.otf's bytes and must arm this sweep and the belt together), and the shaper version. None when no build has left a sidecar, in which case the caller should run the cycle before asking whether the deep sweep is armed.
 
-    The key leaves out the rune digests and M1.otf's bytes, because a rune edit changes both on every pass, and the deep sweep tests HarfBuzz behavior at a depth the belt cannot reach. It tests the set of shapes the emitted lookup gives the shaper, so an edit that creates no new shape leaves nothing new for a deeper run to find, and its green stays valid. There is no horizon line: a deep sweep runs at any horizon from the belt's 4 up (5 by default), so the depth a green covered is stored in the record's payload and compared with >=. Hashing it into the key would make a horizon-6 green fail a horizon-5 question.
+    The key leaves out the rune digests and M1.otf's bytes, because a rune edit changes both on every pass, and the deep sweep tests HarfBuzz behavior at a depth the belt cannot reach. It tests the set of shapes the emitted lookup gives the shaper, so an edit that creates no new shape leaves nothing new for a deeper run to find, and its green stays valid. There is no maximum-length line: a deep sweep runs at any maximum length from the belt's 4 up (5 by default), so the depth a green covered is stored in the record's payload and compared with >=. Hashing it into the key would make a length-6 green fail a length-5 question.
 
     Each class is its own line label, not a shared `class` label with the token as its value, so the per-file map behind the key (`_files_of`, stored in the green record) has one entry per token and `moved_inputs_note` can name the new shape, which is all the "armed" report says.
     """
@@ -633,24 +633,34 @@ def deep_sweep_skip_fingerprint(root: Path = ROOT) -> str | None:
 
 
 def record_deep_sweep_green(
-    fingerprint: str, horizon: int, files: dict[str, str] | None = None, path: Path | None = None
+    fingerprint: str, max_length: int, files: dict[str, str] | None = None, path: Path | None = None
 ) -> None:
-    """Write the deep sweep's green record. It stores the horizon the run swept as well as the key, because the arming key ignores depth: `deep_sweep_status` reads the horizon back to decide whether a run went deep enough for the depth asked about."""
+    """Write the deep sweep's green record. It stores the maximum length the run swept as well as the key, because the arming key ignores depth: `deep_sweep_status` reads the maximum length back to decide whether a run went deep enough for the depth asked about."""
     _record_outcome(
         path if path is not None else cycle_paths.DEEP_SWEEP_GREEN,
-        {"fingerprint": fingerprint, "horizon": horizon, "files": files},
+        {"fingerprint": fingerprint, "max_length": max_length, "files": files},
     )
 
 
 def record_deep_replay_green(
-    runes: dict[str, str], horizon: int, structure: str | None, path: Path | None = None
+    runes: dict[str, str], max_length: int, structure: str | None, path: Path | None = None
 ) -> None:
-    """Write the deep replay's green record (`rebuild.tools.deep_replay`): the horizon the walk reached, every rune's prose-insensitive digest as the walk covered it (under `files`, so `moved_inputs_note` can name what changed since), the replay structure stamp, and a fingerprint over the rune lines so `read_green_record` reads it like every other record. A rune the record does not have counts as changed."""
+    """Write the deep replay's green record (`rebuild.tools.deep_replay`): the maximum length the walk reached, every rune's prose-insensitive digest as the walk covered it (under `files`, so `moved_inputs_note` can name what changed since), the replay structure stamp, and a fingerprint over the rune lines so `read_green_record` reads it like every other record. A rune the record does not have counts as changed."""
     lines = [f"{name}\t{digest}" for name, digest in sorted(runes.items())]
     _record_outcome(
         path if path is not None else cycle_paths.DEEP_REPLAY_GREEN,
-        {"fingerprint": _digest_lines(lines), "horizon": horizon, "structure": structure, "files": runes},
+        {
+            "fingerprint": _digest_lines(lines),
+            "max_length": max_length,
+            "structure": structure,
+            "files": runes,
+        },
     )
+
+
+def recorded_max_length(record: dict) -> object:
+    """Return the maximum length a deep sweep or deep replay green record reached: its `max_length` field, or the `horizon` field an older record stores it under."""
+    return record.get("max_length", record.get("horizon"))
 
 
 def deep_replay_moved(record: dict | None, runes: dict[str, str]) -> list[str]:
@@ -669,7 +679,7 @@ def deep_replay_green_path(root: Path | None = None) -> Path:
 
 
 def deep_replay_status(
-    root: Path | None = None, horizon: int = DEEP_REPLAY_HORIZON_DEFAULT
+    root: Path | None = None, max_length: int = DEEP_REPLAY_MAX_LENGTH_DEFAULT
 ) -> tuple[str, str]:
     """Return whether the deep replay is current for the runes on disk, as (status, note) for the cycle's one-line report beside the deep sweep's. `current` means the record has every rune at its current digest and reached this depth or deeper. `armed` names the runes whose content changed since the recorded walk, or the shallower depth it reached, and `make replay-deep` is the fix. `never-run` means there is no record. This only reports: the deep replay is never a cycle gate, for the cost `rebuild/tools/deep_replay.py` states."""
     from rebuild.pipeline import fingerprint
@@ -685,18 +695,18 @@ def deep_replay_status(
     if moved:
         return (
             "armed",
-            f"{capped_labels(moved)} moved since the last horizon-{record.get('horizon')} walk; run `make replay-deep`",
+            f"{capped_labels(moved)} moved since the last length-{recorded_max_length(record)} walk; run `make replay-deep`",
         )
-    recorded = record.get("horizon")
-    if not isinstance(recorded, int) or recorded < horizon:
+    recorded = recorded_max_length(record)
+    if not isinstance(recorded, int) or recorded < max_length:
         return (
             "armed",
-            f"the recorded deep replay reached horizon {recorded}, shallower than {horizon}; run `make replay-deep`",
+            f"the recorded deep replay reached maximum length {recorded}, shorter than {max_length}; run `make replay-deep`",
         )
-    return "current", f"horizon {recorded}"
+    return "current", f"maximum length {recorded}"
 
 
-def deep_sweep_status(root: Path = ROOT, horizon: int = DEEP_SWEEP_HORIZON_DEFAULT) -> tuple[str, str]:
+def deep_sweep_status(root: Path = ROOT, max_length: int = DEEP_SWEEP_MAX_LENGTH_DEFAULT) -> tuple[str, str]:
     """Return whether the periodic deep sweep is current for what the build emits, as (status, note) for the cycle's one-line report. `current` means a green record matches the arming key at this depth or deeper. `armed` means something the deep sweep tests for has changed (a new rule shape, the compilation path, the shaper) or the recorded run was shallower than asked, and `make conform-deep` is the fix. `never-run` means there is no record, and `unknown` means no build has left a behavior-class sidecar to key on. This only reports: the deep sweep is never a cycle gate."""
     fingerprint = deep_sweep_skip_fingerprint(root)
     if fingerprint is None:
@@ -712,13 +722,13 @@ def deep_sweep_status(root: Path = ROOT, horizon: int = DEEP_SWEEP_HORIZON_DEFAU
             "armed",
             f"{detail}the build emits shapes the last deep sweep never saw; run `make conform-deep`",
         )
-    recorded = record.get("horizon")
-    if not isinstance(recorded, int) or recorded < horizon:
+    recorded = recorded_max_length(record)
+    if not isinstance(recorded, int) or recorded < max_length:
         return (
             "armed",
-            f"the recorded deep sweep reached horizon {recorded}, shallower than {horizon}; run `make conform-deep`",
+            f"the recorded deep sweep reached maximum length {recorded}, shorter than {max_length}; run `make conform-deep`",
         )
-    return "current", f"horizon {recorded}"
+    return "current", f"maximum length {recorded}"
 
 
 def rebuild_gate_closure_files(root: Path) -> list[str] | None:
@@ -1016,10 +1026,10 @@ def evaluate_conform_gate(summary: dict | None) -> CheckResult:
     )
 
 
-def conform_gate_argv(jobs: int, horizon: int = CONFORM_HORIZON_DEFAULT) -> list[str]:
+def conform_gate_argv(jobs: int, max_length: int = CONFORM_MAX_LENGTH_DEFAULT) -> list[str]:
     argv = ["uv", "run", "python", "-m", "rebuild.pipeline.run_m1", "--conform-only", "--jobs", str(jobs)]
-    if horizon != CONFORM_HORIZON_DEFAULT:
-        argv += ["--conform-horizon", str(horizon)]
+    if max_length != CONFORM_MAX_LENGTH_DEFAULT:
+        argv += ["--conform-max-length", str(max_length)]
     return argv
 
 
@@ -1033,7 +1043,7 @@ STEP_DESCRIPTIONS = {
     "review-facts": "Rewrites rebuild/review-facts-pins.json from the review-facts sidecar the corpus build emitted, names what moved in its invariant block against the last accepted review facts (diffing that block alone when it did), and holds the ledger's declarations against the classes the corpus reached. Committing the rewritten pins is how the review facts are accepted.",
     "gates": "The four post-build gates, skipped together under --skip-gates.",
     "gate:js": "Runs the review app's node test suite over its JavaScript. Fast, and independent of every build artifact.",
-    "gate:conform": "Shapes the compiled font with HarfBuzz over the swept texts and checks it against a fresh re-settlement window by window, the split-buffer check at horizon 4 included; the ss10 overlay takes its own two-letter arm against the bare rendering. The proof that HarfBuzz does what the tables say over every rule shape the lookup emits; that the tables are complete over the same texts is run_m1's string replay, on every build.",
+    "gate:conform": "Shapes the compiled font with HarfBuzz over the swept texts and checks it against a fresh re-settlement window by window, the split-buffer check at maximum length 4 included; the ss10 overlay takes its own two-letter arm against the bare rendering. The proof that HarfBuzz does what the tables say over every rule shape the lookup emits; that the tables are complete over the same texts is run_m1's string replay, on every build.",
     "gate:rebuild-contracts": "Runs the rebuild suite: every test whose subject is the code, over checked-in fixtures and the hermetic mini bundle. Reads no live build artifact.",
     "gate:make-test": "Runs the main font suite and pyright over the whole tree, the same make test you run by hand. Skips when its input closure is unchanged since its last green run.",
     "job-costs": "Checks the recorded per-worker peaks against the memory-budget constants that size every fan-out. A drift here means a width somewhere is priced on stale numbers.",
@@ -1112,7 +1122,7 @@ class Plan:
     contracts_reason: str = ""
     conform_jobs: int = 1
     conform_reason: str = ""
-    conform_horizon: int = CONFORM_HORIZON_DEFAULT
+    conform_max_length: int = CONFORM_MAX_LENGTH_DEFAULT
     review_out: Path | None = None
     corpus_dir: Path = REVIEW_OUT
     complaints_note: str = ""
@@ -1211,7 +1221,7 @@ def kernel_threads_budget(
 def replay_threads_budget(
     *, skip_make_test: bool = False, ncores: int | None = None, total_bytes: int | None = None
 ) -> int:
-    """Return the string replay's width for this cycle, the `--replay-threads` the plan passes run_m1: memory, less the reserve and gate:make-test's pytest pool, divided by `kernel_exec.REPLAY_PEAK_BYTES` (one configuration's horizon-4 walk). The pool is the one `kernel_threads_budget` subtracts, because it runs for the whole run_m1 step and the replay runs inside that step; a pass that skips the gate subtracts nothing. `kernel_exec.replay_threads_default` does the arithmetic, and `AMS_REPLAY_THREADS` overrides it, as it does for a bare run_m1.
+    """Return the string replay's width for this cycle, the `--replay-threads` the plan passes run_m1: memory, less the reserve and gate:make-test's pytest pool, divided by `kernel_exec.REPLAY_PEAK_BYTES` (one configuration's length-4 walk). The pool is the one `kernel_threads_budget` subtracts, because it runs for the whole run_m1 step and the replay runs inside that step; a pass that skips the gate subtracts nothing. `kernel_exec.replay_threads_default` does the arithmetic, and `AMS_REPLAY_THREADS` overrides it, as it does for a bare run_m1.
 
     The result is capped at the configuration count and the usable cores, as in `kernel_threads_budget`. On every fleet machine the memory result exceeds the configuration count with or without the pool subtracted, so the subtraction matters only on a smaller machine, and without the cap the plan line would name a width the run never takes. With it, the plan line and the argv show the real width, and `run_m1._replay_threads`'s own `min()` changes nothing. A stated AMS_REPLAY_THREADS above the configuration count is cut to it here, as the crate and `run_m1._replay_threads` would cut it. `ncores` and `total_bytes` are keywords so a test can compute the width for an invented machine.
     """
@@ -1513,7 +1523,7 @@ def conform_job_budget(
 ) -> int:
     """Return the `--jobs` the cycle passes gate:conform: how many belt workers, one spawn process per acceptance configuration (`run_m1.run_font_conformance`), run at once. It is memory, less the reserve, less what runs beside the belt, divided by CONFORM_BELT_BYTES, capped at the acceptance configurations and the cores, and floored at one (`_conform_fit_terms`). What runs beside it is whichever of the corpus build and the verdict-update step this pass runs that holds more (`_conform_build_lane`). The verdict-update step's own width leaves the belt out, because this subtraction accounts for that overlap. `verdict_update_runs` defaults to False because only the cycle's plan runs a verdict-update step. gate:make-test's pool is subtracted under the overlap policy only, since the queue policy makes the belt wait for make-test. Two things share the machine with no memory estimate, and their bytes come out of the reserve: gate:rebuild-contracts' pool under the overlap policy, which is limited by cores and measured by no constant (`calibrate_budgets.UNITS`), and the build lane's other steps.
 
-    CONFORM_BELT_BYTES is measured at the per-edit horizon (`conform.BELT_HORIZON`) only. A cycle run with a deeper `--conform-horizon` holds its windows in process and shares no memo, so the constant is not a measurement for it; deeper sweeps belong to `make conform-deep`. A hand `run_m1 --conform-only` uses the idle case (`skip_gates=True, skip_corpus=True`, no verdict-update step). A width of one runs the serial belt (`conform.run_conformance`). `ncores` and `total_bytes` are keywords so a test can compute the width for an invented machine.
+    CONFORM_BELT_BYTES is measured at the per-edit maximum length (`conform.SWEEP_MAX_LENGTH`) only. A cycle run with a deeper `--conform-max-length` holds its windows in process and shares no memo, so the constant is not a measurement for it; deeper sweeps belong to `make conform-deep`. A hand `run_m1 --conform-only` uses the idle case (`skip_gates=True, skip_corpus=True`, no verdict-update step). A width of one runs the serial belt (`conform.run_conformance`). `ncores` and `total_bytes` are keywords so a test can compute the width for an invented machine.
     """
     from rebuild.tools import memory_budget
 
@@ -1614,7 +1624,7 @@ def build_plan(
     make_test_note: str = "",
     make_test_fingerprint: str | None = None,
     force_make_test: bool = False,
-    conform_horizon: int = CONFORM_HORIZON_DEFAULT,
+    conform_max_length: int = CONFORM_MAX_LENGTH_DEFAULT,
     pool_policy: str = REBUILD_POOL_POLICY_DEFAULT,
     review_out: Path | None = None,
     ncores: int | None = None,
@@ -1818,7 +1828,7 @@ def build_plan(
         contracts_reason=contracts_reason,
         conform_jobs=conform_jobs,
         conform_reason=conform_reason,
-        conform_horizon=conform_horizon,
+        conform_max_length=conform_max_length,
         review_out=review_out,
         corpus_dir=corpus_dir,
     )
@@ -1988,7 +1998,7 @@ def build_plan(
             )
         else:
             plan.steps.append(
-                Step("gate:conform", conform_gate_argv(conform_jobs, conform_horizon), lane="conform")
+                Step("gate:conform", conform_gate_argv(conform_jobs, conform_max_length), lane="conform")
             )
         if skip_contracts:
             plan.steps.append(
@@ -3163,9 +3173,9 @@ def _record_gate_greens(
     key = gate_keys.get("conform")
     if key:
         if report.gate_conform_green is True:
-            if conform_skip_fingerprint(ROOT, plan.conform_horizon) == key:
+            if conform_skip_fingerprint(ROOT, plan.conform_max_length) == key:
                 record_green(
-                    cycle_paths.CONFORM_GREEN, key, files=conform_skip_files(ROOT, plan.conform_horizon)
+                    cycle_paths.CONFORM_GREEN, key, files=conform_skip_files(ROOT, plan.conform_max_length)
                 )
             else:
                 emit.note(
@@ -3306,7 +3316,7 @@ def _run_cycle(
             return _finish(report, failures, plan, timings, emit)
 
         if not plan.skip_gates and not plan.skip_conform:
-            conform_key = conform_skip_fingerprint(ROOT, plan.conform_horizon)
+            conform_key = conform_skip_fingerprint(ROOT, plan.conform_max_length)
             green = None if plan.fresh else read_green_record(cycle_paths.CONFORM_GREEN)
             if green is not None and green["fingerprint"] == conform_key:
                 report.conform_proven = True
@@ -3751,7 +3761,7 @@ def cycle_summary_payload(report: CycleReport, failures: list[str], plan: Plan, 
             "verdicts": _as_str(plan.verdicts),
             "carry_out": _as_str(plan.carry_out),
             "do_merge": plan.do_merge,
-            "conform_horizon": plan.conform_horizon,
+            "conform_max_length": plan.conform_max_length,
             "kernel_threads": None if plan.rerun_gates_only else plan.kernel_threads,
             "replay_threads": None if plan.rerun_gates_only else plan.replay_threads,
             "pool_policy": plan.pool_policy,
@@ -4041,10 +4051,11 @@ def main(argv: list[str] | None = None) -> int:
         help="run every stage and gate even when a green record proves its inputs unchanged since the last green run (disables all auto-skips, gate:make-test's included)",
     )
     parser.add_argument(
+        "--conform-max-length",
         "--conform-horizon",
         type=int,
-        default=CONFORM_HORIZON_DEFAULT,
-        help=f"exhaustive sweep length for gate:conform, passed through to run_m1 --conform-only (default {CONFORM_HORIZON_DEFAULT}, the per-edit belt); going deeper here is `make conform-deep`'s job, which runs out of band and keys its own green on the emitted lookup's behavior classes",
+        default=CONFORM_MAX_LENGTH_DEFAULT,
+        help=f"exhaustive sweep length for gate:conform, passed through to run_m1 --conform-only (default {CONFORM_MAX_LENGTH_DEFAULT}, the per-edit belt); going deeper here is `make conform-deep`'s job, which runs out of band and keys its own green on the emitted lookup's behavior classes",
     )
     parser.add_argument(
         "--rebuild-pool",
@@ -4156,7 +4167,7 @@ def main(argv: list[str] | None = None) -> int:
         if not args.skip_gates and not args.skip_conform:
             green = read_green_record(cycle_paths.CONFORM_GREEN)
             if green is not None and green["fingerprint"] == conform_skip_fingerprint(
-                ROOT, args.conform_horizon
+                ROOT, args.conform_max_length
             ):
                 auto_skip_conform = True
                 conform_note = CONFORM_SKIP_NOTE
@@ -4227,7 +4238,7 @@ def main(argv: list[str] | None = None) -> int:
         make_test_note=make_test_note,
         make_test_fingerprint=make_test_fp,
         force_make_test=args.force_make_test,
-        conform_horizon=args.conform_horizon,
+        conform_max_length=args.conform_max_length,
         pool_policy=args.rebuild_pool,
         review_out=args.review_out,
         skip_run_m1=skip_run_m1,

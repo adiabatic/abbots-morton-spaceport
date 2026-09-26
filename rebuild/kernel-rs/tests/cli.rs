@@ -792,7 +792,7 @@ fn a_replay_with_a_memo_directory_files_one_window_memo_per_configuration() {
         word(&spec),
         word(&outdir),
         "--configs=default,ss03",
-        "--horizon=3",
+        "--max-length=3",
     ]);
     assert!(bare.status.success(), "{}", complaint(&bare));
     assert!(
@@ -813,7 +813,7 @@ fn a_replay_with_a_memo_directory_files_one_window_memo_per_configuration() {
         word(&spec),
         word(&outdir),
         "--configs=default,ss03",
-        "--horizon=3",
+        "--max-length=3",
         &memo_flag,
         "--timings",
     ]);
@@ -829,7 +829,7 @@ fn a_replay_with_a_memo_directory_files_one_window_memo_per_configuration() {
         let head = std::str::from_utf8(head).expect("the head is text");
         assert!(
             head.starts_with(&format!(
-                "# {}\t{{\"config\":\"{token}\",\"horizon\":3,\"rows\":",
+                "# {}\t{{\"config\":\"{token}\",\"max_length\":3,\"rows\":",
                 ams_m1_kernel::replay::MEMO_FORMAT
             )),
             "{head}"
@@ -852,7 +852,7 @@ fn a_replay_with_a_memo_directory_files_one_window_memo_per_configuration() {
         word(&spec),
         word(&outdir),
         "--configs=default,ss03",
-        "--horizon=3",
+        "--max-length=3",
         &format!("--memo-dir={}", word(&blocker.join("inside"))),
     ]);
     assert_eq!(refused.status.code(), Some(1), "{}", complaint(&refused));
@@ -887,7 +887,7 @@ fn a_replay_with_cache_stats_writes_them_to_stderr_and_leaves_the_answer_alone()
             word(&spec),
             word(&outdir),
             "--configs=default,ss03",
-            "--horizon=3",
+            "--max-length=3",
         ];
         arguments.extend_from_slice(extra);
         run(&arguments)
@@ -1041,7 +1041,7 @@ fn a_replay_with_a_memo_ceiling_answers_the_texts_an_uncapped_walk_answers() {
             word(&spec),
             word(&outdir),
             "--configs=default,ss03",
-            "--horizon=4",
+            "--max-length=4",
         ];
         arguments.extend_from_slice(extra);
         run(&arguments)

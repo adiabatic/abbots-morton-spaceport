@@ -963,9 +963,9 @@ class TestTheStringReplay:
         run_m1.build_tables(SPEC, out_dir)
         return out_dir
 
-    def test_a_clean_walk_answers_every_configuration_over_one_universe(self, tables_dir):
+    def test_a_clean_walk_answers_every_configuration_over_one_text_set(self, tables_dir):
         answered = kernel_exec.replay_strings(
-            SPEC, tables_dir, conform.SETTLEMENT_CONFIGS, horizon=3, families=None, threads=2
+            SPEC, tables_dir, conform.SETTLEMENT_CONFIGS, max_length=3, families=None, threads=2
         )
         assert sorted(answered) == sorted(conform.SETTLEMENT_CONFIGS)
         texts = {counts["texts"] for counts in answered.values()}
@@ -976,15 +976,15 @@ class TestTheStringReplay:
 
     def test_a_family_list_walks_only_the_texts_naming_it(self, tables_dir):
         whole = kernel_exec.replay_strings(
-            SPEC, tables_dir, ["default"], horizon=3, families=None, threads=1
+            SPEC, tables_dir, ["default"], max_length=3, families=None, threads=1
         )["default"]
         narrowed = kernel_exec.replay_strings(
-            SPEC, tables_dir, ["default"], horizon=3, families=["qsPea"], threads=1
+            SPEC, tables_dir, ["default"], max_length=3, families=["qsPea"], threads=1
         )["default"]
         assert 0 < narrowed["texts"] < whole["texts"]
         assert narrowed["texts"] + narrowed["skipped"] == whole["texts"]
         with pytest.raises(ValueError):
-            kernel_exec.replay_strings(SPEC, tables_dir, ["default"], horizon=3, families=[], threads=1)
+            kernel_exec.replay_strings(SPEC, tables_dir, ["default"], max_length=3, families=[], threads=1)
 
     def test_a_memo_directory_files_one_window_memo_per_configuration(self, tables_dir, tmp_path):
         """`memo_dir` is passed as `--memo-dir=`, and each configuration's window memo is written under it with the head `conform.absorb_replay_memo` reads. The counts match a walk without `memo_dir`, and that walk writes no memo beside the tables."""
@@ -992,13 +992,13 @@ class TestTheStringReplay:
             SPEC,
             tables_dir,
             conform.SETTLEMENT_CONFIGS,
-            horizon=3,
+            max_length=3,
             families=None,
             threads=2,
             memo_dir=tmp_path,
         )
         assert answered == kernel_exec.replay_strings(
-            SPEC, tables_dir, conform.SETTLEMENT_CONFIGS, horizon=3, families=None, threads=2
+            SPEC, tables_dir, conform.SETTLEMENT_CONFIGS, max_length=3, families=None, threads=2
         )
         for config in conform.SETTLEMENT_CONFIGS:
             dump = kernel_exec.replay_memo_dump(tmp_path, config)
@@ -1015,10 +1015,16 @@ class TestTheStringReplay:
     ):
         """`memo_windows` is passed as `--memo-windows=`. A capped walk covers the same texts and skips as the uncapped walk and settles more windows, because a window met again after the memo is released is settled again. A ceiling together with a memo directory, or a ceiling below one window, raises `ValueError` before any process starts, so nothing is written to the directory."""
         uncapped = kernel_exec.replay_strings(
-            SPEC, tables_dir, conform.SETTLEMENT_CONFIGS, horizon=3, families=None, threads=1
+            SPEC, tables_dir, conform.SETTLEMENT_CONFIGS, max_length=3, families=None, threads=1
         )
         capped = kernel_exec.replay_strings(
-            SPEC, tables_dir, conform.SETTLEMENT_CONFIGS, horizon=3, families=None, threads=1, memo_windows=1
+            SPEC,
+            tables_dir,
+            conform.SETTLEMENT_CONFIGS,
+            max_length=3,
+            families=None,
+            threads=1,
+            memo_windows=1,
         )
         assert sorted(capped) == sorted(uncapped)
         for config, counts in uncapped.items():
@@ -1035,7 +1041,7 @@ class TestTheStringReplay:
                 SPEC,
                 tables_dir,
                 ["default"],
-                horizon=3,
+                max_length=3,
                 families=None,
                 threads=1,
                 memo_dir=tmp_path,
@@ -1043,7 +1049,7 @@ class TestTheStringReplay:
             )
         with pytest.raises(ValueError, match="at least one window"):
             kernel_exec.replay_strings(
-                SPEC, tables_dir, ["default"], horizon=3, families=None, threads=1, memo_windows=0
+                SPEC, tables_dir, ["default"], max_length=3, families=None, threads=1, memo_windows=0
             )
         assert not list(tmp_path.iterdir())
 
@@ -1057,7 +1063,7 @@ class TestTheStringReplay:
         (tmp_path / "settlement-default.tsv").write_text("\n".join(lines) + "\n")
         with pytest.raises(kernel_exec.ReplayDisagreement) as caught:
             kernel_exec.replay_strings(
-                SPEC, tmp_path, ["default", "ss03"], horizon=3, families=None, threads=2
+                SPEC, tmp_path, ["default", "ss03"], max_length=3, families=None, threads=2
             )
         assert "default" in str(caught.value)
         assert "replay disagreement" in str(caught.value)
@@ -1071,7 +1077,7 @@ class TestTheReplayStage:
     def _record(self, structure, runes, **overrides):
         record = {
             "format": run_m1.REPLAY_FORMAT,
-            "horizon": run_m1.REPLAY_HORIZON,
+            "max_length": run_m1.REPLAY_MAX_LENGTH,
             "families": None,
             "walked": True,
             "configs": {},
@@ -1083,7 +1089,7 @@ class TestTheReplayStage:
         record.update(overrides)
         return record
 
-    def test_no_green_record_or_a_moved_structure_walks_the_whole_universe(self):
+    def test_no_green_record_or_a_moved_structure_walks_every_text(self):
         runes = {name: f"d-{name}" for name in SPEC.runes}
         assert run_m1.replay_families(SPEC, None, "s1", runes) is None
         assert run_m1.replay_families(SPEC, self._record("s0", runes), "s1", runes) is None
@@ -1109,12 +1115,12 @@ class TestTheReplayStage:
         assert "qsNew" not in edited
         assert edited == sorted(edited)
 
-    def test_the_structure_stamp_moves_with_the_horizon_and_the_semantics(self, monkeypatch):
+    def test_the_structure_stamp_moves_with_the_max_length_and_the_semantics(self, monkeypatch):
         base = run_m1.replay_structure_stamp(SPEC)
         assert run_m1.replay_structure_stamp(SPEC) == base
-        monkeypatch.setattr(run_m1, "REPLAY_HORIZON", run_m1.REPLAY_HORIZON + 1)
+        monkeypatch.setattr(run_m1, "REPLAY_MAX_LENGTH", run_m1.REPLAY_MAX_LENGTH + 1)
         assert run_m1.replay_structure_stamp(SPEC) != base
-        monkeypatch.setattr(run_m1, "REPLAY_HORIZON", run_m1.REPLAY_HORIZON - 1)
+        monkeypatch.setattr(run_m1, "REPLAY_MAX_LENGTH", run_m1.REPLAY_MAX_LENGTH - 1)
         monkeypatch.setattr(kernel_exec, "enumeration_tokens", lambda: ["other-world"])
         assert run_m1.replay_structure_stamp(SPEC) != base
 
@@ -1122,9 +1128,9 @@ class TestTheReplayStage:
         asked: list = []
 
         def replay_strings(
-            spec, out_dir, configs, *, horizon, families, threads, timings=False, memo_dir=None
+            spec, out_dir, configs, *, max_length, families, threads, timings=False, memo_dir=None
         ):
-            asked.append((tuple(configs), horizon, families, threads))
+            asked.append((tuple(configs), max_length, families, threads))
             return {config: {"texts": 1, "windows": 1, "skipped": 0} for config in configs}
 
         monkeypatch.setattr(kernel_exec, "replay_strings", replay_strings)
@@ -1134,7 +1140,7 @@ class TestTheReplayStage:
         first = run_m1.run_replay_strings(SPEC, tmp_path, "stamp")
         assert first["pass"] and first["families"] is None and first["walked"]
         assert asked == [
-            (tuple(conform.SETTLEMENT_CONFIGS), run_m1.REPLAY_HORIZON, None, run_m1._replay_threads(None))
+            (tuple(conform.SETTLEMENT_CONFIGS), run_m1.REPLAY_MAX_LENGTH, None, run_m1._replay_threads(None))
         ]
         assert run_m1.read_replay_record(tmp_path) == first
         assert first["runes"] == digests and first["structure"] == "s1"
@@ -1156,7 +1162,7 @@ class TestTheReplayStage:
         asked: list = []
 
         def replay_strings(
-            spec, out_dir, configs, *, horizon, families, threads, timings=False, memo_dir=None
+            spec, out_dir, configs, *, max_length, families, threads, timings=False, memo_dir=None
         ):
             asked.append(threads)
             return {config: {"texts": 1, "windows": 1, "skipped": 0} for config in configs}
@@ -1179,7 +1185,7 @@ class TestTheReplayStage:
         asked: list = []
 
         def replay_strings(
-            spec, out_dir, configs, *, horizon, families, threads, timings=False, memo_dir=None
+            spec, out_dir, configs, *, max_length, families, threads, timings=False, memo_dir=None
         ):
             asked.append((families, memo_dir))
             return {config: {"texts": 1, "windows": 1, "skipped": 0} for config in configs}
@@ -1217,7 +1223,7 @@ class TestTheReplayStage:
         dumps: list = []
 
         def replay_strings(
-            spec, out_dir, configs, *, horizon, families, threads, timings=False, memo_dir=None
+            spec, out_dir, configs, *, max_length, families, threads, timings=False, memo_dir=None
         ):
             asked.append((tuple(configs), memo_dir))
             return {config: {"texts": 1, "windows": 1, "skipped": 0} for config in configs}
@@ -1258,7 +1264,7 @@ class TestTheReplayStage:
         asked: list = []
 
         def replay_strings(
-            spec, out_dir, configs, *, horizon, families, threads, timings=False, memo_dir=None
+            spec, out_dir, configs, *, max_length, families, threads, timings=False, memo_dir=None
         ):
             asked.append((families, memo_dir))
             return {config: {"texts": 1, "windows": 1, "skipped": 0} for config in configs}
