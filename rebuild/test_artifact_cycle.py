@@ -1172,7 +1172,7 @@ def test_the_driver_reads_a_line_per_step_out_of_one_child(capsys):
 
 
 def test_standing_fill_news_keeps_rules_and_drops_steady_state_combined_matches():
-    """Per-rule lines are kept at any count, so a newly added rule shows even at 0 filled. A combined-match line is kept only when it filled or held something, which keeps the quadratic number of unchanged pair lines out of the console block and cycle_summary.json. The disputed-match warning is always kept. Both line formats are handled: the verdict update runs the fill with --open-only, which prints no already-verdicted column, while a dry run over the whole domain prints it."""
+    """Per-rule lines are kept at any count, so a newly added rule shows even at 0 filled. A combined-match line is kept only when it filled or held something, which keeps the quadratic number of unchanged combined-match lines out of the console block and cycle_summary.json. The disputed-match warning is always kept. Both line formats are handled: the verdict update runs the fill with --open-only, which prints no already-verdicted column, while a dry run over the whole domain prints it."""
     news = ac._standing_fill_news
     assert news("wrote verdicts-standing-fill.json: 25 standing-approval verdicts onto manifest S1")
     assert news("quiet-rule: 0 filled, 12 already verdicted, 0 held for review by except_left")
