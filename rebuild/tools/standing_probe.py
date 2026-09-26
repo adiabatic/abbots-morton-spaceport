@@ -1,4 +1,4 @@
-"""Explain why a review-corpus unit still needs a verdict, in the terms the standing approvals use, so the next standing rule is written from evidence: for each named unit, print both grains side by side. The recorded grain is the before glyphs and after cells with their seams. The rendered grain is each font's pieces with their placement, own-frame origin and cell count, and a one-line reading of the change: "same shape" with the placement move, "redrawn" with the cell counts, "inkless", or ink appearing or vanishing. Then print what each checked-in rule makes of the unit (matches, held by except_left, or nothing), whether the combined match counts any rules and whether it has at least two matched positions, and how many human units have exactly this unit's ink-delta digests and how they were verdicted. That last tally often shows that the user has already decided the change.
+"""Explain why a review-corpus unit still needs a verdict, in the terms the standing approvals use, so the next standing rule is written from evidence: for each named unit, print both grains side by side. The recorded grain is the before glyphs and after cells with their seams. The rendered grain is each font's pieces with their placement, own-frame origin and cell count, and a one-line reading of the change: "same shape" with the placement move, "redrawn" with the cell counts, "inkless", or ink appearing or vanishing. Then print what each checked-in rule makes of the unit (matches, blocked by except_left, or nothing), whether the combined match counts any rules and whether it has at least two matched positions, and how many human units have exactly this unit's ink-delta digests and how they were verdicted. That last tally often shows that the user has already decided the change.
 
 `--extension-cells PIVOT TOKEN SEAM` lists the pivot and follower cells a new extension-dropped rule has to name. It enumerates every window where a PIVOT glyph carrying TOKEN exits at SEAM on both sides and settles into a cell without the named extension or with a shorter one, or into a cell carrying the named contraction. TOKEN is an `ex-ext-N` on the before glyph, or an `ex-con-N` on the after cell whose before glyph carried no exit extension. Each row gives the pivot cell, the follower's family, the follower cell, and the verdict tally.
 
@@ -186,7 +186,7 @@ def _describe(unit, rules, context, blankness, families):
         elif not sv._guard_is_inert(rule["match"]) and sv._matches(
             rule["match"], unit, guard=False, context=context
         ):
-            print(f"  rule {rule['id']}: held by except_left")
+            print(f"  rule {rule['id']}: blocked by except_left")
     combinable = sv._combinable(rules)
     if context is not None and combinable:
         found = {rule["id"]: sv._candidates(rule["match"], unit) for rule in combinable}

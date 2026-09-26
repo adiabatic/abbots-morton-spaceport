@@ -2732,17 +2732,17 @@ def _scrape(lines: list[str], keep) -> list[str]:
 
 
 def _standing_fill_news(line: str) -> bool:
-    """Return whether the summary keeps this line of the standing fill's output. It keeps the `wrote` line, the disputed-match warning (so an over-broad rule shows in cycle_summary.json), every per-rule line (so a newly added rule shows even at 0 filled), and the combined-match lines that filled or held something. Combined-match lines grow quadratically with the rule count, so the rest are left to `standing_probe --coverage`. The REACHED NOTHING lines are left out because `--require-reach` fails the step on such a rule, and the except_left vocabulary line is informational. The already-verdicted column is optional because the verdict update runs the fill with `--open-only`, which omits it, while a dry run over the whole domain prints it."""
+    """Return whether the summary keeps this line of the standing fill's output. It keeps the `wrote` line, the disputed-match warning (so an over-broad rule shows in cycle_summary.json), every per-rule line (so a newly added rule shows even at 0 filled), and the combined-match lines that filled or blocked something. Combined-match lines grow quadratically with the rule count, so the rest are left to `standing_probe --coverage`. The REACHED NOTHING lines are left out because `--require-reach` fails the step on such a rule, and the except_left vocabulary line is informational. The already-verdicted column is optional because the verdict update runs the fill with `--open-only`, which omits it, while a dry run over the whole domain prints it."""
     if line.startswith("wrote ") and "standing-approval verdicts" in line:
         return True
     if line.startswith("WARNING:"):
         return True
-    if not line.endswith("held for review by except_left"):
+    if not line.endswith("blocked by except_left, left for review"):
         return False
     head, _, tail = line.partition(": ")
     if " + " not in head:
         return True
-    match = re.match(r"(\d+) filled, (?:\d+ already verdicted, )?(\d+) held", tail)
+    match = re.match(r"(\d+) filled, (?:\d+ already verdicted, )?(\d+) blocked", tail)
     return match is not None and (int(match.group(1)) > 0 or int(match.group(2)) > 0)
 
 

@@ -937,7 +937,7 @@ _FULL_VERDICT_UPDATE = (
         "standing-fill",
         [
             "wrote verdicts-standing-fill.json: 25 standing-approval verdicts onto manifest S1",
-            "  tea-oy-ligature-break: 25 filled, 0 held for review by except_left",
+            "  tea-oy-ligature-break: 25 filled, 0 blocked by except_left, left for review",
             "  WARNING: a verdict outside approve/either/identical sits on 1 matched unit — u-9 under "
             "tea-oy-ligature-break (reject); a rule reaching a window the user judged otherwise is the "
             "shape an over-broad rule takes.",
@@ -1160,7 +1160,9 @@ def test_the_driver_reads_a_line_per_step_out_of_one_child(capsys):
         line.startswith("wrote verdicts-standing-fill.json: 25 standing-approval verdicts")
         for line in report.standing_fill_lines
     )
-    assert any(line.endswith("held for review by except_left") for line in report.standing_fill_lines)
+    assert any(
+        line.endswith("blocked by except_left, left for review") for line in report.standing_fill_lines
+    )
     assert any(line.startswith("WARNING:") for line in report.standing_fill_lines)
     assert report.standing_merge_status == "merged"
     assert any(line.startswith("nothing changed") for line in report.standing_merge_lines)
@@ -1172,16 +1174,18 @@ def test_the_driver_reads_a_line_per_step_out_of_one_child(capsys):
 
 
 def test_standing_fill_news_keeps_rules_and_drops_steady_state_combined_matches():
-    """Per-rule lines are kept at any count, so a newly added rule shows even at 0 filled. A combined-match line is kept only when it filled or held something, which keeps the quadratic number of unchanged combined-match lines out of the console block and cycle_summary.json. The disputed-match warning is always kept. Both line formats are handled: the verdict update runs the fill with --open-only, which prints no already-verdicted column, while a dry run over the whole domain prints it."""
+    """Per-rule lines are kept at any count, so a newly added rule shows even at 0 filled. A combined-match line is kept only when it filled or blocked something, which keeps the quadratic number of unchanged combined-match lines out of the console block and cycle_summary.json. The disputed-match warning is always kept. Both line formats are handled: the verdict update runs the fill with --open-only, which prints no already-verdicted column, while a dry run over the whole domain prints it."""
     news = ac._standing_fill_news
     assert news("wrote verdicts-standing-fill.json: 25 standing-approval verdicts onto manifest S1")
-    assert news("quiet-rule: 0 filled, 12 already verdicted, 0 held for review by except_left")
-    assert news("quiet-rule: 0 filled, 0 held for review by except_left")
-    assert news("rule-a + rule-b: 2 filled, 0 already verdicted, 0 held for review by except_left")
-    assert news("rule-a + rule-b: 0 filled, 3 already verdicted, 1 held for review by except_left")
-    assert news("rule-a + rule-b: 2 filled, 0 held for review by except_left")
-    assert not news("rule-a + rule-b: 0 filled, 9 already verdicted, 0 held for review by except_left")
-    assert not news("rule-a + rule-b: 0 filled, 0 held for review by except_left")
+    assert news("quiet-rule: 0 filled, 12 already verdicted, 0 blocked by except_left, left for review")
+    assert news("quiet-rule: 0 filled, 0 blocked by except_left, left for review")
+    assert news("rule-a + rule-b: 2 filled, 0 already verdicted, 0 blocked by except_left, left for review")
+    assert news("rule-a + rule-b: 0 filled, 3 already verdicted, 1 blocked by except_left, left for review")
+    assert news("rule-a + rule-b: 2 filled, 0 blocked by except_left, left for review")
+    assert not news(
+        "rule-a + rule-b: 0 filled, 9 already verdicted, 0 blocked by except_left, left for review"
+    )
+    assert not news("rule-a + rule-b: 0 filled, 0 blocked by except_left, left for review")
     assert news(
         "WARNING: a verdict outside approve/either/identical sits on 1 matched unit — u-9 under "
         "quiet-rule (reject); a rule reaching a window the user judged otherwise is the shape an "

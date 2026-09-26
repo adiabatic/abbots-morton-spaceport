@@ -781,17 +781,17 @@ def test_canonical_unit_matches():
     assert sv._matches(RULE["match"], canonical())
 
 
-def test_out_left_is_held_by_the_guard():
-    held = canonical(left="qsOut.ex-ext-1")
-    assert not sv._matches(RULE["match"], held)
-    assert sv._matches(RULE["match"], held, guard=False)
+def test_out_left_is_blocked_by_the_guard():
+    blocked = canonical(left="qsOut.ex-ext-1")
+    assert not sv._matches(RULE["match"], blocked)
+    assert sv._matches(RULE["match"], blocked, guard=False)
 
 
-def test_a_rule_with_an_inert_guard_holds_nothing_by_construction():
+def test_a_rule_with_an_inert_guard_blocks_nothing_by_construction():
     bare = dict(RULE, match=guarding(RULE, []))
     units = [canonical("u-1"), canonical("u-2", left="qsOut.ex-ext-1")]
     run = sv.rule_reach([bare], units, {}, STAMP)
-    assert run.reaches[bare["id"]].held == []
+    assert run.reaches[bare["id"]].blocked_by_except == []
     assert not any(
         sv._matches(bare["match"], unit, guard=False) and not sv._matches(bare["match"], unit)
         for unit in units
@@ -799,10 +799,10 @@ def test_a_rule_with_an_inert_guard_holds_nothing_by_construction():
     assert sorted(run.reaches[bare["id"]].filled) == ["u-1", "u-2"]
 
 
-def test_a_guarded_rules_held_pass_still_runs_and_names_the_held_unit():
+def test_a_guarded_rules_blocked_pass_still_runs_and_names_the_blocked_unit():
     units = [canonical("u-1"), canonical("u-2", left="qsOut.ex-ext-1")]
     run = sv.rule_reach([RULE], units, {}, STAMP)
-    assert run.reaches[RULE["id"]].held == ["u-2"]
+    assert run.reaches[RULE["id"]].blocked_by_except == ["u-2"]
     assert run.reaches[RULE["id"]].filled == ["u-1"]
 
 
@@ -912,7 +912,7 @@ def test_word_initial_extension_drop_matches():
     assert sv._matches(EXT_RULE["match"], tea_i())
 
 
-def test_a_word_initial_pivot_has_no_left_context_for_the_guard_to_hold():
+def test_a_word_initial_pivot_has_no_left_context_for_the_guard_to_block():
     assert sv._matches(EXT_RULE["match"], tea_i(), guard=True)
     assert sv._matches(EXT_RULE["match"], tea_i(), guard=False)
 
@@ -1180,16 +1180,16 @@ def test_a_window_whose_names_do_not_account_for_its_codepoints_is_refused():
     assert not sv._matches(EXT_RULE["match"], unaccounted)
 
 
-def test_except_left_holds_the_guarded_left_family_on_the_extension_shape():
-    held = medial_tea_i(left="qsMay.ex-y5", left_cell="qsMay/full/None/x-height/", seam_into="y5")
-    assert not sv._matches(EXT_RULE["match"], held)
-    assert sv._matches(EXT_RULE["match"], held, guard=False)
+def test_except_left_blocks_the_guarded_left_family_on_the_extension_shape():
+    blocked = medial_tea_i(left="qsMay.ex-y5", left_cell="qsMay/full/None/x-height/", seam_into="y5")
+    assert not sv._matches(EXT_RULE["match"], blocked)
+    assert sv._matches(EXT_RULE["match"], blocked, guard=False)
 
 
 def test_a_ligature_trailing_left_component_is_guarded_on_the_extension_shape():
-    held = medial_tea_i(left="qsDay_qsMay.alt", left_cell="qsDay_qsMay/alt/None/x-height/", seam_into="y5")
-    assert not sv._matches(EXT_RULE["match"], held)
-    assert sv._matches(EXT_RULE["match"], held, guard=False)
+    blocked = medial_tea_i(left="qsDay_qsMay.alt", left_cell="qsDay_qsMay/alt/None/x-height/", seam_into="y5")
+    assert not sv._matches(EXT_RULE["match"], blocked)
+    assert sv._matches(EXT_RULE["match"], blocked, guard=False)
 
 
 def tea_i_tea_i(uid="u-15"):
@@ -1295,23 +1295,23 @@ def test_an_ink_deltas_field_that_is_not_a_mapping_does_not_match():
     assert not sv._matches(INK_RULE["match"], ink_delta_unit(deltas=DELTA_A))
 
 
-def test_except_left_holds_the_guarded_family_on_the_ink_delta_shape():
-    held = ink_delta_unit(glyphs=("qsOut.ex-y0", "qsMay.en-y0"))
-    assert not sv._matches(guarding(INK_RULE, ["qsOut"]), held)
-    assert sv._matches(guarding(INK_RULE, ["qsOut"]), held, guard=False)
+def test_except_left_blocks_the_guarded_family_on_the_ink_delta_shape():
+    blocked = ink_delta_unit(glyphs=("qsOut.ex-y0", "qsMay.en-y0"))
+    assert not sv._matches(guarding(INK_RULE, ["qsOut"]), blocked)
+    assert sv._matches(guarding(INK_RULE, ["qsOut"]), blocked, guard=False)
 
 
 def test_a_ligature_trailing_left_component_is_guarded_on_the_ink_delta_shape():
-    held = ink_delta_unit(glyphs=("qsPea", "qsDay_qsMay.alt", "qsIt"))
-    assert not sv._matches(guarding(INK_RULE, ["qsMay"]), held)
-    assert sv._matches(guarding(INK_RULE, ["qsMay"]), held, guard=False)
-    assert sv._matches(guarding(INK_RULE, ["qsDay"]), held)
+    blocked = ink_delta_unit(glyphs=("qsPea", "qsDay_qsMay.alt", "qsIt"))
+    assert not sv._matches(guarding(INK_RULE, ["qsMay"]), blocked)
+    assert sv._matches(guarding(INK_RULE, ["qsMay"]), blocked, guard=False)
+    assert sv._matches(guarding(INK_RULE, ["qsDay"]), blocked)
 
 
 def test_the_ink_delta_guard_reads_the_whole_window_and_not_a_pivots_left():
-    held = ink_delta_unit()
-    assert not sv._matches(guarding(INK_RULE, ["qsMay"]), held)
-    assert sv._matches(guarding(INK_RULE, ["qsMay"]), held, guard=False)
+    blocked = ink_delta_unit()
+    assert not sv._matches(guarding(INK_RULE, ["qsMay"]), blocked)
+    assert sv._matches(guarding(INK_RULE, ["qsMay"]), blocked, guard=False)
 
 
 def test_neither_shape_reads_the_other_shapes_units():
@@ -2349,11 +2349,11 @@ def test_two_pivots_in_one_window_slide_cumulatively(slide_context):
     assert not sv._matches(two_columns, twice, context=context)
 
 
-def test_except_left_holds_the_guarded_family_on_the_slide_shape(slide_context):
+def test_except_left_blocks_the_guarded_family_on_the_slide_shape(slide_context):
     context = slide_context()
-    held = guarding(SLIDE_RULE, ["qsL"])
-    assert not sv._matches(held, founding_window(), context=context)
-    assert sv._matches(held, founding_window(), guard=False, context=context)
+    blocked = guarding(SLIDE_RULE, ["qsL"])
+    assert not sv._matches(blocked, founding_window(), context=context)
+    assert sv._matches(blocked, founding_window(), guard=False, context=context)
 
 
 def test_the_slide_shape_and_the_other_shapes_do_not_read_each_others_units(slide_context):
@@ -2530,7 +2530,7 @@ def test_a_matchable_gain_window_with_no_context_refuses_to_guess():
         sv._matches(GAIN_RULE["match"], gain_window())
 
 
-def test_except_left_holds_the_guarded_family_on_the_ink_gain_shape(slide_context):
+def test_except_left_blocks_the_guarded_family_on_the_ink_gain_shape(slide_context):
     context = slide_context()
     assert not sv._matches(guarding(GAIN_RULE, ["qsL"]), gain_window(), context=context)
     assert sv._matches(guarding(GAIN_RULE, ["qsL"]), gain_window(), guard=False, context=context)
@@ -2768,7 +2768,7 @@ def test_a_matchable_join_window_with_no_context_refuses_to_guess():
         sv._matches(JOIN_RULE["match"], join_window())
 
 
-def test_except_left_holds_the_guarded_family_on_the_join_dropped_shape(slide_context):
+def test_except_left_blocks_the_guarded_family_on_the_join_dropped_shape(slide_context):
     context = slide_context()
     assert not sv._matches(guarding(JOIN_RULE, ["qsL"]), join_window(), context=context)
     assert sv._matches(guarding(JOIN_RULE, ["qsL"]), join_window(), guard=False, context=context)
@@ -3120,7 +3120,7 @@ def test_main_refuses_a_stale_stamped_verdicts_file(tmp_path, monkeypatch):
 
 
 def out_window(uid="o-1"):
-    """A two-letter window joining from ·Out that no rule in this file matches. The corpus then has a window joining from the guarded family ·Out, but no guard is checked on it, so the rule's except_left holds nothing and is still in use."""
+    """A two-letter window joining from ·Out that no rule in this file matches. The corpus then has a window joining from the guarded family ·Out, but no guard is checked on it, so the rule's except_left blocks nothing and is still in use."""
     return unit(
         uid,
         ["qsOut.ex-y5", "qsMay"],
@@ -3135,7 +3135,9 @@ def test_the_per_rule_line_carries_the_tally(tmp_path, monkeypatch, capsys):
     verdicts = [{"unit": "u-2", "verdict": "approve", "note": "", "at": "2026-07-11T00:00:00Z"}]
     _run_main(tmp_path, monkeypatch, units, verdicts)
     lines = capsys.readouterr().out.splitlines()
-    assert f"  {RULE['id']}: 1 filled, 1 already verdicted, 1 held for review by except_left" in lines
+    assert (
+        f"  {RULE['id']}: 1 filled, 1 already verdicted, 1 blocked by except_left, left for review" in lines
+    )
 
 
 def test_the_rollup_reads_the_same_numbers_the_per_rule_line_does(tmp_path, monkeypatch, capsys):
@@ -3224,7 +3226,7 @@ def test_open_only_drops_the_already_verdicted_column_and_the_rollup(tmp_path, m
         extra=("--open-only",),
     )
     lines = capsys.readouterr().out.splitlines()
-    assert f"  {RULE['id']}: 1 filled, 1 held for review by except_left" in lines
+    assert f"  {RULE['id']}: 1 filled, 1 blocked by except_left, left for review" in lines
     assert not any("already verdicted" in line for line in lines)
     assert not any(line.startswith("  per-rule reach (") for line in lines)
     assert not any(line.startswith("  REACHED NOTHING:") for line in lines)
@@ -3329,10 +3331,12 @@ def test_an_except_left_family_no_window_joins_from_is_named(tmp_path, monkeypat
     )
 
 
-def test_a_guarded_family_the_corpus_carries_but_never_holds_says_nothing(tmp_path, monkeypatch, capsys):
+def test_a_guarded_family_the_corpus_carries_but_never_blocks_says_nothing(tmp_path, monkeypatch, capsys):
     _run_main(tmp_path, monkeypatch, [canonical("u-1"), out_window("o-1")], [])
     lines = capsys.readouterr().out.splitlines()
-    assert f"  {RULE['id']}: 1 filled, 0 already verdicted, 0 held for review by except_left" in lines
+    assert (
+        f"  {RULE['id']}: 1 filled, 0 already verdicted, 0 blocked by except_left, left for review" in lines
+    )
     assert not any("except_left vocabulary" in line for line in lines)
 
 
@@ -3344,7 +3348,7 @@ def test_explain_splits_a_rules_matched_ids_into_three_columns(tmp_path, monkeyp
     assert f"  explain {RULE['id']}:" in lines
     assert "    filled (1): u-1" in lines
     assert "    already verdicted (1): u-2 (either)" in lines
-    assert "    held by except_left (1): u-3" in lines
+    assert "    blocked by except_left (1): u-3" in lines
 
 
 def test_explain_on_a_caught_up_store_puts_the_whole_reach_in_the_verdicted_column(
@@ -3359,7 +3363,7 @@ def test_explain_on_a_caught_up_store_puts_the_whole_reach_in_the_verdicted_colu
     lines = capsys.readouterr().out.splitlines()
     assert "    filled (0): none" in lines
     assert "    already verdicted (2): u-1 (approve) u-2 (approve)" in lines
-    assert "    held by except_left (0): none" in lines
+    assert "    blocked by except_left (0): none" in lines
 
 
 def test_an_unknown_explain_rule_is_refused(tmp_path, monkeypatch):
@@ -3460,13 +3464,16 @@ def test_main_writes_one_combined_record_and_leaves_the_per_rule_lines(
         f"{SLIDE_RULE['note']}; {COMBINED_EXT_RULE['note']}"
     )
     lines = capsys.readouterr().out.splitlines()
-    assert f"  {SLIDE_RULE['id']}: 0 filled, 0 already verdicted, 0 held for review by except_left" in lines
     assert (
-        f"  {COMBINED_EXT_RULE['id']}: 0 filled, 0 already verdicted, 0 held for review by except_left"
+        f"  {SLIDE_RULE['id']}: 0 filled, 0 already verdicted, 0 blocked by except_left, left for review"
+        in lines
+    )
+    assert (
+        f"  {COMBINED_EXT_RULE['id']}: 0 filled, 0 already verdicted, 0 blocked by except_left, left for review"
     ) in lines
     assert (
         f"  {SLIDE_RULE['id']} + {COMBINED_EXT_RULE['id']}: 1 filled, 0 already verdicted, "
-        "0 held for review by except_left"
+        "0 blocked by except_left, left for review"
     ) in lines
 
 
@@ -3484,7 +3491,9 @@ def test_main_writes_a_twice_slid_window_on_a_combined_match_line(tmp_path, monk
     assert payload["verdicts"][0]["note"] == f"[standing: {SLIDE_RULE['id']}] {SLIDE_RULE['note']}"
     lines = capsys.readouterr().out.splitlines()
     assert (
-        lines.count(f"  {SLIDE_RULE['id']}: 1 filled, 0 already verdicted, 0 held for review by except_left")
+        lines.count(
+            f"  {SLIDE_RULE['id']}: 1 filled, 0 already verdicted, 0 blocked by except_left, left for review"
+        )
         == 1
     )
     assert f"    {SLIDE_RULE['id']}: 0 on its own line, 1 counted in 1 combined-match line, 1 in all" in lines
@@ -3504,10 +3513,11 @@ def test_open_only_names_the_combined_match_line_without_the_column(
         extra=("--open-only",),
     )
     lines = capsys.readouterr().out.splitlines()
-    assert f"  {SLIDE_RULE['id']}: 0 filled, 0 held for review by except_left" in lines
-    assert f"  {COMBINED_EXT_RULE['id']}: 0 filled, 0 held for review by except_left" in lines
+    assert f"  {SLIDE_RULE['id']}: 0 filled, 0 blocked by except_left, left for review" in lines
+    assert f"  {COMBINED_EXT_RULE['id']}: 0 filled, 0 blocked by except_left, left for review" in lines
     assert (
-        f"  {SLIDE_RULE['id']} + {COMBINED_EXT_RULE['id']}: 1 filled, " "0 held for review by except_left"
+        f"  {SLIDE_RULE['id']} + {COMBINED_EXT_RULE['id']}: 1 filled, "
+        "0 blocked by except_left, left for review"
     ) in lines
 
 
@@ -3538,7 +3548,7 @@ def test_a_combined_window_already_verdicted_is_counted_and_not_refilled(
     lines = capsys.readouterr().out.splitlines()
     assert (
         f"  {SLIDE_RULE['id']} + {COMBINED_EXT_RULE['id']}: 1 filled, 1 already verdicted, "
-        "0 held for review by except_left"
+        "0 blocked by except_left, left for review"
     ) in lines
 
 
@@ -3599,9 +3609,12 @@ def test_main_fills_a_single_shape_window_under_that_shapes_own_line(
     assert by_unit["s-1"]["note"] == f"[standing: {SLIDE_RULE['id']}] {SLIDE_RULE['note']}"
     assert by_unit["e-1"]["note"] == f"[standing: {COMBINED_EXT_RULE['id']}] {COMBINED_EXT_RULE['note']}"
     lines = capsys.readouterr().out.splitlines()
-    assert f"  {SLIDE_RULE['id']}: 1 filled, 0 already verdicted, 0 held for review by except_left" in lines
     assert (
-        f"  {COMBINED_EXT_RULE['id']}: 1 filled, 0 already verdicted, 0 held for review by except_left"
+        f"  {SLIDE_RULE['id']}: 1 filled, 0 already verdicted, 0 blocked by except_left, left for review"
+        in lines
+    )
+    assert (
+        f"  {COMBINED_EXT_RULE['id']}: 1 filled, 0 already verdicted, 0 blocked by except_left, left for review"
     ) in lines
     assert not any(" + " in line for line in lines)
 
@@ -3656,9 +3669,12 @@ def test_the_rollup_reads_zero_combined_match_lines_when_nothing_combined(
         fonts=slide_fonts,
     )
     lines = capsys.readouterr().out.splitlines()
-    assert f"  {SLIDE_RULE['id']}: 1 filled, 0 already verdicted, 0 held for review by except_left" in lines
     assert (
-        f"  {COMBINED_EXT_RULE['id']}: 1 filled, 0 already verdicted, 0 held for review by except_left"
+        f"  {SLIDE_RULE['id']}: 1 filled, 0 already verdicted, 0 blocked by except_left, left for review"
+        in lines
+    )
+    assert (
+        f"  {COMBINED_EXT_RULE['id']}: 1 filled, 0 already verdicted, 0 blocked by except_left, left for review"
     ) in lines
     assert (
         f"    {SLIDE_RULE['id']}: 1 on its own line, 0 counted in 0 combined-match lines, 1 in all"
@@ -3918,17 +3934,17 @@ def test_an_extension_whose_follower_is_a_slide_pivot_combines(slide_context):
 
 
 @pytest.mark.parametrize("family", ["qsL", "qsF3"])
-def test_the_slide_guard_holds_the_whole_combined_window(slide_context, family):
-    """·L is the slide pivot's left neighbor, and ·F3 is three letters past the pivot, beyond the other counted rule's pivot. The slide shape's guard reads the whole window, so either family holds the unit."""
+def test_the_slide_guard_blocks_the_whole_combined_window(slide_context, family):
+    """·L is the slide pivot's left neighbor, and ·F3 is three letters past the pivot, beyond the other counted rule's pivot. The slide shape's guard reads the whole window, so either family blocks the unit."""
     rules = [guarded_rule(SLIDE_RULE, [family]), COMBINED_EXT_RULE]
     window = combined_window()
     context = slide_context()
     events = sv._combined_match(rules, window, context)
     assert events is not None
-    assert sv._combined_held(rules, window, events, context)
+    assert sv._combined_blocked(rules, window, events, context)
 
 
-def test_a_guarded_rule_outside_the_walk_still_holds_a_combined_window(slide_context):
+def test_a_guarded_rule_outside_the_walk_still_blocks_a_combined_window(slide_context):
     context = slide_context()
     bystander = {
         "id": "the-whole-change-is-blessed",
@@ -3940,8 +3956,10 @@ def test_a_guarded_rule_outside_the_walk_still_holds_a_combined_window(slide_con
     events = sv._combined_match(COMBINABLE_RULES, window, context)
     assert events is not None
     assert sv._matches(bystander["match"], window, context=context)
-    assert not sv._combined_held([*COMBINABLE_RULES, bystander], window, events, context)
-    assert sv._combined_held([*COMBINABLE_RULES, guarded_rule(bystander, ["qsL"])], window, events, context)
+    assert not sv._combined_blocked([*COMBINABLE_RULES, bystander], window, events, context)
+    assert sv._combined_blocked(
+        [*COMBINABLE_RULES, guarded_rule(bystander, ["qsL"])], window, events, context
+    )
 
 
 def test_the_extension_guard_reads_only_the_pivots_left_neighbor(slide_context):
@@ -3949,13 +3967,13 @@ def test_the_extension_guard_reads_only_the_pivots_left_neighbor(slide_context):
     at_pivot = [SLIDE_RULE, guarded_rule(COMBINED_EXT_RULE, ["qsM"])]
     elsewhere = [SLIDE_RULE, guarded_rule(COMBINED_EXT_RULE, ["qsL"])]
     window = combined_window()
-    held = sv._combined_match(at_pivot, window, context)
-    assert held is not None and sv._combined_held(at_pivot, window, held, context)
+    blocked = sv._combined_match(at_pivot, window, context)
+    assert blocked is not None and sv._combined_blocked(at_pivot, window, blocked, context)
     free = sv._combined_match(elsewhere, window, context)
-    assert free is not None and not sv._combined_held(elsewhere, window, free, context)
+    assert free is not None and not sv._combined_blocked(elsewhere, window, free, context)
 
 
-def test_main_holds_a_guarded_combined_window_and_hands_it_to_nobody(
+def test_main_blocks_a_guarded_combined_window_and_hands_it_to_nobody(
     tmp_path, monkeypatch, capsys, slide_fonts
 ):
     guarded = guarded_rule(COMBINED_EXT_RULE, ["qsM"])
@@ -3971,9 +3989,12 @@ def test_main_holds_a_guarded_combined_window_and_hands_it_to_nobody(
     lines = capsys.readouterr().out.splitlines()
     assert (
         f"  {SLIDE_RULE['id']} + {guarded['id']}: 0 filled, 0 already verdicted, "
-        "1 held for review by except_left"
+        "1 blocked by except_left, left for review"
     ) in lines
-    assert f"  {guarded['id']}: 0 filled, 0 already verdicted, 0 held for review by except_left" in lines
+    assert (
+        f"  {guarded['id']}: 0 filled, 0 already verdicted, 0 blocked by except_left, left for review"
+        in lines
+    )
 
 
 def test_a_counted_either_rule_weakens_the_combined_verdict(tmp_path, monkeypatch, slide_fonts):
@@ -4033,11 +4054,11 @@ def test_a_window_the_extension_rule_fills_today_moves_to_the_combined_match_lin
     )
     lines = capsys.readouterr().out.splitlines()
     assert (
-        f"  {COMBINED_EXT_RULE['id']}: 0 filled, 0 already verdicted, 0 held for review by except_left"
+        f"  {COMBINED_EXT_RULE['id']}: 0 filled, 0 already verdicted, 0 blocked by except_left, left for review"
     ) in lines
     assert (
         f"  {SLIDE_RULE['id']} + {COMBINED_EXT_RULE['id']}: 1 filled, 0 already verdicted, "
-        "0 held for review by except_left"
+        "0 blocked by except_left, left for review"
     ) in lines
 
 
@@ -4117,11 +4138,17 @@ def test_main_writes_one_combined_gain_record_and_leaves_the_per_rule_lines(
         f"[standing: {SLIDE_RULE['id']} + {GAIN_RULE['id']}] " f"{SLIDE_RULE['note']}; {GAIN_RULE['note']}"
     )
     lines = capsys.readouterr().out.splitlines()
-    assert f"  {SLIDE_RULE['id']}: 0 filled, 0 already verdicted, 0 held for review by except_left" in lines
-    assert f"  {GAIN_RULE['id']}: 0 filled, 0 already verdicted, 0 held for review by except_left" in lines
+    assert (
+        f"  {SLIDE_RULE['id']}: 0 filled, 0 already verdicted, 0 blocked by except_left, left for review"
+        in lines
+    )
+    assert (
+        f"  {GAIN_RULE['id']}: 0 filled, 0 already verdicted, 0 blocked by except_left, left for review"
+        in lines
+    )
     assert (
         f"  {SLIDE_RULE['id']} + {GAIN_RULE['id']}: 1 filled, 0 already verdicted, "
-        "0 held for review by except_left"
+        "0 blocked by except_left, left for review"
     ) in lines
 
 
@@ -4141,9 +4168,9 @@ def test_a_wrong_gained_cell_defeats_the_combined_gain_match(slide_context):
     )
 
 
-def test_the_gain_guard_holds_the_whole_combined_window(slide_context):
+def test_the_gain_guard_blocks_the_whole_combined_window(slide_context):
     events = sv._combined_match(COMBINED_GAIN_RULES, combined_gain_window(), slide_context())
-    assert sv._combined_held(
+    assert sv._combined_blocked(
         [guarded_rule(GAIN_RULE, ["qsL"]), SLIDE_RULE],
         combined_gain_window(),
         events,
@@ -4167,10 +4194,13 @@ def test_main_fills_a_single_gain_window_under_that_shapes_own_line(
     assert by_unit["g-1"]["note"] == f"[standing: {GAIN_RULE['id']}] {GAIN_RULE['note']}"
     assert by_unit["cg-1"]["note"].startswith(f"[standing: {SLIDE_RULE['id']} + {GAIN_RULE['id']}]")
     lines = capsys.readouterr().out.splitlines()
-    assert f"  {GAIN_RULE['id']}: 1 filled, 0 already verdicted, 0 held for review by except_left" in lines
+    assert (
+        f"  {GAIN_RULE['id']}: 1 filled, 0 already verdicted, 0 blocked by except_left, left for review"
+        in lines
+    )
     assert (
         f"  {SLIDE_RULE['id']} + {GAIN_RULE['id']}: 1 filled, 0 already verdicted, "
-        "0 held for review by except_left"
+        "0 blocked by except_left, left for review"
     ) in lines
 
 
@@ -4283,11 +4313,17 @@ def test_main_writes_one_combined_join_record_and_leaves_the_per_rule_lines(
         f"[standing: {SLIDE_RULE['id']} + {JOIN_RULE['id']}] " f"{SLIDE_RULE['note']}; {JOIN_RULE['note']}"
     )
     lines = capsys.readouterr().out.splitlines()
-    assert f"  {SLIDE_RULE['id']}: 0 filled, 0 already verdicted, 0 held for review by except_left" in lines
-    assert f"  {JOIN_RULE['id']}: 0 filled, 0 already verdicted, 0 held for review by except_left" in lines
+    assert (
+        f"  {SLIDE_RULE['id']}: 0 filled, 0 already verdicted, 0 blocked by except_left, left for review"
+        in lines
+    )
+    assert (
+        f"  {JOIN_RULE['id']}: 0 filled, 0 already verdicted, 0 blocked by except_left, left for review"
+        in lines
+    )
     assert (
         f"  {SLIDE_RULE['id']} + {JOIN_RULE['id']}: 1 filled, 0 already verdicted, "
-        "0 held for review by except_left"
+        "0 blocked by except_left, left for review"
     ) in lines
 
 
@@ -4309,9 +4345,9 @@ def test_a_redrawn_join_follower_defeats_the_combined_match(slide_context):
     )
 
 
-def test_the_join_guard_holds_the_whole_combined_window(slide_context):
+def test_the_join_guard_blocks_the_whole_combined_window(slide_context):
     events = sv._combined_match(COMBINED_JOIN_RULES, combined_join_window(), slide_context())
-    assert sv._combined_held(
+    assert sv._combined_blocked(
         [guarded_rule(JOIN_RULE, ["qsL"]), SLIDE_RULE],
         combined_join_window(),
         events,
@@ -4335,10 +4371,13 @@ def test_main_fills_a_single_join_window_under_that_shapes_own_line(
     assert by_unit["j-1"]["note"] == f"[standing: {JOIN_RULE['id']}] {JOIN_RULE['note']}"
     assert by_unit["cj-1"]["note"].startswith(f"[standing: {SLIDE_RULE['id']} + {JOIN_RULE['id']}]")
     lines = capsys.readouterr().out.splitlines()
-    assert f"  {JOIN_RULE['id']}: 1 filled, 0 already verdicted, 0 held for review by except_left" in lines
+    assert (
+        f"  {JOIN_RULE['id']}: 1 filled, 0 already verdicted, 0 blocked by except_left, left for review"
+        in lines
+    )
     assert (
         f"  {SLIDE_RULE['id']} + {JOIN_RULE['id']}: 1 filled, 0 already verdicted, "
-        "0 held for review by except_left"
+        "0 blocked by except_left, left for review"
     ) in lines
 
 
@@ -4901,14 +4940,14 @@ def test_an_entry_contraction_that_keeps_its_origin_is_not_a_stub_drop(slide_con
     assert sv._combined_match(COMBINED_STUB_RULES, combined, context) is None
 
 
-def test_the_stub_guard_holds_the_whole_combined_window(slide_context):
+def test_the_stub_guard_blocks_the_whole_combined_window(slide_context):
     """·Roe is the window's first letter, two letters before the stub pivot, so only a guard read over the whole window reaches it. The stub-dropped shape's guard scope is the whole window, as it is for its single-rule matcher."""
     rules = [GAIN_RULE, guarded_rule(STUB_RULE, ["qsRoe"])]
     window = combined_stub_window()
     context = slide_context()
     events = sv._combined_match(rules, window, context)
     assert events is not None
-    assert sv._combined_held(rules, window, events, context)
+    assert sv._combined_blocked(rules, window, events, context)
 
 
 def test_the_checked_in_vie_utter_rule_reads_the_drop_and_nothing_wider(slide_context):
@@ -4954,7 +4993,7 @@ def test_a_matchable_entry_window_with_no_context_refuses_to_guess():
         sv._matches(ENTRY_RULE["match"], entry_window())
 
 
-def test_except_left_holds_the_guarded_family_on_the_entry_drop_shape(slide_context):
+def test_except_left_blocks_the_guarded_family_on_the_entry_drop_shape(slide_context):
     context = slide_context()
     assert not sv._matches(guarding(ENTRY_RULE, ["qsL"]), entry_window(), context=context)
     assert sv._matches(guarding(ENTRY_RULE, ["qsL"]), entry_window(), guard=False, context=context)
@@ -5089,11 +5128,16 @@ def test_main_writes_one_combined_entry_record_and_leaves_the_per_rule_lines(
         f"[standing: {SLIDE_RULE['id']} + {ENTRY_RULE['id']}] " f"{SLIDE_RULE['note']}; {ENTRY_RULE['note']}"
     )
     lines = capsys.readouterr().out.splitlines()
-    assert f"  {SLIDE_RULE['id']}: 0 filled, 0 already verdicted, 0 held for review by except_left" in lines
-    assert (f"  {ENTRY_RULE['id']}: 0 filled, 0 already verdicted, 0 held for review by except_left") in lines
+    assert (
+        f"  {SLIDE_RULE['id']}: 0 filled, 0 already verdicted, 0 blocked by except_left, left for review"
+        in lines
+    )
+    assert (
+        f"  {ENTRY_RULE['id']}: 0 filled, 0 already verdicted, 0 blocked by except_left, left for review"
+    ) in lines
     assert (
         f"  {SLIDE_RULE['id']} + {ENTRY_RULE['id']}: 1 filled, 0 already verdicted, "
-        "0 held for review by except_left"
+        "0 blocked by except_left, left for review"
     ) in lines
 
 
@@ -5106,9 +5150,9 @@ def test_one_extra_pixel_defeats_the_combined_entry_match(slide_context):
     )
 
 
-def test_the_entry_drop_guard_holds_the_whole_combined_window(slide_context):
+def test_the_entry_drop_guard_blocks_the_whole_combined_window(slide_context):
     events = sv._combined_match(COMBINED_ENTRY_RULES, combined_entry_window(), slide_context())
-    assert sv._combined_held(
+    assert sv._combined_blocked(
         [guarded_rule(ENTRY_RULE, ["qsL"]), SLIDE_RULE],
         combined_entry_window(),
         events,
@@ -5132,10 +5176,13 @@ def test_main_fills_a_single_entry_window_under_that_shapes_own_line(
     assert by_unit["e-1"]["note"] == f"[standing: {ENTRY_RULE['id']}] {ENTRY_RULE['note']}"
     assert by_unit["ce-1"]["note"].startswith(f"[standing: {SLIDE_RULE['id']} + {ENTRY_RULE['id']}]")
     lines = capsys.readouterr().out.splitlines()
-    assert f"  {ENTRY_RULE['id']}: 1 filled, 0 already verdicted, 0 held for review by except_left" in lines
+    assert (
+        f"  {ENTRY_RULE['id']}: 1 filled, 0 already verdicted, 0 blocked by except_left, left for review"
+        in lines
+    )
     assert (
         f"  {SLIDE_RULE['id']} + {ENTRY_RULE['id']}: 1 filled, 0 already verdicted, "
-        "0 held for review by except_left"
+        "0 blocked by except_left, left for review"
     ) in lines
 
 
@@ -6183,7 +6230,7 @@ def test_a_matchable_retarget_window_with_no_context_refuses_to_guess():
         sv._matches(RETARGET_RULE["match"], retarget_window())
 
 
-def test_except_left_holds_the_guarded_family_on_the_join_retargeted_shape(slide_context):
+def test_except_left_blocks_the_guarded_family_on_the_join_retargeted_shape(slide_context):
     context = slide_context()
     assert not sv._matches(guarding(RETARGET_RULE, ["qsL"]), retarget_window(), context=context)
     assert sv._matches(guarding(RETARGET_RULE, ["qsL"]), retarget_window(), guard=False, context=context)
@@ -6759,13 +6806,16 @@ def test_main_writes_one_combined_retarget_record_and_leaves_the_per_rule_lines(
         f"{SLIDE_RULE['note']}; {RETARGET_RULE['note']}"
     )
     lines = capsys.readouterr().out.splitlines()
-    assert f"  {SLIDE_RULE['id']}: 0 filled, 0 already verdicted, 0 held for review by except_left" in lines
     assert (
-        f"  {RETARGET_RULE['id']}: 0 filled, 0 already verdicted, 0 held for review by except_left"
+        f"  {SLIDE_RULE['id']}: 0 filled, 0 already verdicted, 0 blocked by except_left, left for review"
+        in lines
+    )
+    assert (
+        f"  {RETARGET_RULE['id']}: 0 filled, 0 already verdicted, 0 blocked by except_left, left for review"
     ) in lines
     assert (
         f"  {SLIDE_RULE['id']} + {RETARGET_RULE['id']}: 1 filled, 0 already verdicted, "
-        "0 held for review by except_left"
+        "0 blocked by except_left, left for review"
     ) in lines
 
 
@@ -6778,9 +6828,9 @@ def test_one_extra_pixel_defeats_the_combined_retarget_match(slide_context):
     )
 
 
-def test_the_retarget_guard_holds_the_whole_combined_window(slide_context):
+def test_the_retarget_guard_blocks_the_whole_combined_window(slide_context):
     events = sv._combined_match(COMBINED_RETARGET_RULES, combined_retarget_window(), slide_context())
-    assert sv._combined_held(
+    assert sv._combined_blocked(
         [guarded_rule(RETARGET_RULE, ["qsL"]), SLIDE_RULE],
         combined_retarget_window(),
         events,
@@ -6805,11 +6855,12 @@ def test_main_fills_a_single_retarget_window_under_that_shapes_own_line(
     assert by_unit["cr-1"]["note"].startswith(f"[standing: {SLIDE_RULE['id']} + {RETARGET_RULE['id']}]")
     lines = capsys.readouterr().out.splitlines()
     assert (
-        f"  {RETARGET_RULE['id']}: 1 filled, 0 already verdicted, 0 held for review by except_left" in lines
+        f"  {RETARGET_RULE['id']}: 1 filled, 0 already verdicted, 0 blocked by except_left, left for review"
+        in lines
     )
     assert (
         f"  {SLIDE_RULE['id']} + {RETARGET_RULE['id']}: 1 filled, 0 already verdicted, "
-        "0 held for review by except_left"
+        "0 blocked by except_left, left for review"
     ) in lines
 
 
@@ -6958,7 +7009,7 @@ def test_a_matchable_redrawn_window_with_no_context_refuses_to_guess():
         sv._matches(REDRAWN_RULE["match"], redrawn_window())
 
 
-def test_except_left_holds_the_guarded_family_on_the_redrawn_shape(slide_context):
+def test_except_left_blocks_the_guarded_family_on_the_redrawn_shape(slide_context):
     context = slide_context()
     assert not sv._matches(guarding(REDRAWN_RULE, ["qsL"]), redrawn_window(), context=context)
     assert sv._matches(guarding(REDRAWN_RULE, ["qsL"]), redrawn_window(), guard=False, context=context)
@@ -6978,13 +7029,13 @@ def test_a_redrawn_trade_and_an_entry_drop_in_one_window_combine(slide_context):
     assert events == {REDRAWN_EXT_RULE["id"]: [1], ENTRY_RULE["id"]: [2]}
 
 
-def test_the_redrawn_guard_holds_the_whole_combined_window(slide_context):
+def test_the_redrawn_guard_blocks_the_whole_combined_window(slide_context):
     rules = [REDRAWN_RULE, guarded_rule(REDRAWN_EXT_RULE, ["qsF3"]), ENTRY_RULE]
     window = combined_redrawn_window()
     context = slide_context()
     events = sv._combined_match(rules, window, context)
     assert events is not None
-    assert sv._combined_held(rules, window, events, context)
+    assert sv._combined_blocked(rules, window, events, context)
 
 
 def test_a_trade_the_pivots_own_placement_carries_matches(slide_context):
@@ -7457,7 +7508,7 @@ def test_a_header_with_no_readable_roster_reads_as_every_rule_moved(tmp_path):
 
 
 def test_a_decision_survives_the_memo_round_trip(tmp_path):
-    """Every field of a decision reads back from the file as written: the combined part's counted ids, held flag, verdict, and weakening rule; the matched and held ids; and the entry's relevant ids. The header's roster reads back too."""
+    """Every field of a decision reads back from the file as written: the combined part's counted ids, blocked flag, verdict, and weakening rule; the matched and blocked ids; and the entry's relevant ids. The header's roster reads back too."""
     combined = sv.CombinedMatch(("a", "b"), False, "either", "w")
     decisions = {
         "1" * 64: sv.Decision(combined, frozenset(), frozenset(), ("a", "b", "d")),
@@ -7661,9 +7712,11 @@ def test_a_changed_rule_drops_only_the_entries_it_had_candidates_in(
 def test_a_vanished_rule_is_taken_off_the_entries_it_was_matched_on(
     tmp_path, monkeypatch, capsys, slide_fonts
 ):
-    """A non-combinable rule removed from the file has no candidates, so no entry is re-evaluated for it. It is removed from the matched and held sets of the entries that named it, so the memo does not name a rule the report has no line for, and the file written back does not name it either."""
-    held = dict(canonical("k-2", left="qsOut.ex-ext-1"), content_key="e" * 64, ink_deltas={"ss03": DELTA_A})
-    units = [_keyed_unit("k-1"), held]
+    """A non-combinable rule removed from the file has no candidates, so no entry is re-evaluated for it. It is removed from the matched and blocked sets of the entries that named it, so the memo does not name a rule the report has no line for, and the file written back does not name it either."""
+    blocked = dict(
+        canonical("k-2", left="qsOut.ex-ext-1"), content_key="e" * 64, ink_deltas={"ss03": DELTA_A}
+    )
+    units = [_keyed_unit("k-1"), blocked]
     memo = tmp_path / "memo.ndjson.gz"
     runs = _warm_runs(
         tmp_path,
@@ -7755,9 +7808,11 @@ def test_two_combinable_rules_swapping_places_re_evaluate_the_windows_naming_bot
 def test_a_new_non_combinable_rule_is_asked_on_the_served_entries_its_shape_admits(
     tmp_path, monkeypatch, capsys, slide_fonts
 ):
-    """A non-combinable rule appended to the file has no candidate positions, so no entry without a combined match is re-evaluated for it. Instead it is checked, with and without its guard, on every served entry without a combined match its name-grain precondition admits, and nothing else runs on those entries. The test lets the parent's `evaluate` run only for the two combined-match windows and fails otherwise, so every other result the run counted came from the repair. The fills and the report match a run with no memo under the appended rules: the window the rule accepts is filled, the one its guard holds is reported held, the combined-match windows are re-evaluated because a guarded rule joins the rules every combined match reads, and the extension window with no combined match, which a ·Tea ligature rule's precondition does not admit, is served unchanged."""
-    held = dict(canonical("k-2", left="qsOut.ex-ext-1"), content_key="e" * 64, ink_deltas={"ss03": DELTA_A})
-    units = [_keyed_unit("k-1"), held, *_keyed_windows()]
+    """A non-combinable rule appended to the file has no candidate positions, so no entry without a combined match is re-evaluated for it. Instead it is checked, with and without its guard, on every served entry without a combined match its name-grain precondition admits, and nothing else runs on those entries. The test lets the parent's `evaluate` run only for the two combined-match windows and fails otherwise, so every other result the run counted came from the repair. The fills and the report match a run with no memo under the appended rules: the window the rule accepts is filled, the one its guard blocks is reported blocked, the combined-match windows are re-evaluated because a guarded rule joins the rules every combined match reads, and the extension window with no combined match, which a ·Tea ligature rule's precondition does not admit, is served unchanged."""
+    blocked = dict(
+        canonical("k-2", left="qsOut.ex-ext-1"), content_key="e" * 64, ink_deltas={"ss03": DELTA_A}
+    )
+    units = [_keyed_unit("k-1"), blocked, *_keyed_windows()]
     appended = [*COMBINABLE_RULES, RULE]
     runs = _warm_runs(tmp_path, monkeypatch, capsys, slide_fonts, units, {"seed": COMBINABLE_RULES})
     fresh = _warm_runs(tmp_path / "fresh", monkeypatch, capsys, slide_fonts, units, {"appended": appended})
@@ -8183,7 +8238,7 @@ def test_the_alignment_cache_answers_per_unit_object_and_releases():
 
 
 def test_a_rules_lines_never_name_a_unit_outside_its_name_grain_candidates(tmp_path, mini_corpus):
-    """The targeted run depends on this. Over the frozen mini bundle, under the checked-in rules and the bundle-local ink-delta rule, every unit a rule's own matcher accepts or holds, and every unit a combined match counts it in, is one `_reachable` admits for that rule. So a run over only the admitted units sees everything the whole domain would put on the rule's lines. The test also checks that the narrowing removes units: some rule with a reach admits fewer units than the domain holds."""
+    """The targeted run depends on this. Over the frozen mini bundle, under the checked-in rules and the bundle-local ink-delta rule, every unit a rule's own matcher accepts or blocks, and every unit a combined match counts it in, is one `_reachable` admits for that rule. So a run over only the admitted units sees everything the whole domain would put on the rule's lines. The test also checks that the narrowing removes units: some rule with a reach admits fewer units than the domain holds."""
     rules = sv.load_rules(_mini_rules(mini_corpus, tmp_path / "rules.yaml"))
     context = sv.SlideContext(mini_corpus / "fonts" / "before.otf", mini_corpus / "fonts" / "after.otf")
     decide = sv.Decider(rules, context).decide
@@ -8192,7 +8247,7 @@ def test_a_rules_lines_never_name_a_unit_outside_its_name_grain_candidates(tmp_p
     for unit in units:
         decision = decide(unit)
         counted = decision.combined.counted if decision.combined is not None else ()
-        for rule_id in (*counted, *decision.matched, *decision.held):
+        for rule_id in (*counted, *decision.matched, *decision.blocked_by_except):
             named[rule_id].add(unit["id"])
     admitted = {
         rule["id"]: {unit["id"] for unit in units if sv._reachable(rule["match"], unit)} for rule in rules
@@ -8300,7 +8355,7 @@ def test_a_targeted_run_refuses_the_flags_that_would_write_or_read_the_whole_dom
 
 
 def test_a_listed_unit_gets_its_decision_line_and_moves_no_line_of_the_rules(tmp_path, monkeypatch, capsys):
-    """Each listed id gets one line saying whether it is a name-grain candidate of the rule and what the run decided about it: matched, held by the guard, covered by no rule, or not a human unit. Listing units changes only the header line, which counts them. Every line after the listed-unit lines matches the run without the listing."""
+    """Each listed id gets one line saying whether it is a name-grain candidate of the rule and what the run decided about it: matched, blocked by the guard, covered by no rule, or not a human unit. Listing units changes only the header line, which counts them. Every line after the listed-unit lines matches the run without the listing."""
     units = [
         canonical("u-1"),
         canonical("u-2", left="qsOut.ex-ext-1"),
@@ -8320,7 +8375,7 @@ def test_a_listed_unit_gets_its_decision_line_and_moves_no_line_of_the_rules(tmp
     listed = capsys.readouterr().out.splitlines()
     assert listed[1:5] == [
         f"  listed u-1 (blank): a candidate of {rule_id}; matched by {rule_id}",
-        f"  listed u-2 (blank): a candidate of {rule_id}; held by except_left {rule_id}",
+        f"  listed u-2 (blank): a candidate of {rule_id}; blocked by except_left {rule_id}",
         f"  listed u-4 (blank): not a candidate of {rule_id}; no rule speaks for it",
         "  listed u-9: not a human unit on this corpus",
     ]
@@ -8333,7 +8388,7 @@ def test_a_listed_unit_gets_its_decision_line_and_moves_no_line_of_the_rules(tmp
         "4 listed — and no fill file written"
     )
     assert bare[1:] == listed[5:]
-    assert f"  {rule_id}: 1 filled, 0 already verdicted, 1 held for review by except_left" in bare
+    assert f"  {rule_id}: 1 filled, 0 already verdicted, 1 blocked by except_left, left for review" in bare
 
 
 def test_a_listed_combined_window_names_its_counted_rules(tmp_path, monkeypatch, capsys, slide_fonts):
@@ -8350,9 +8405,9 @@ def test_a_listed_combined_window_names_its_counted_rules(tmp_path, monkeypatch,
     )
     lines = capsys.readouterr().out.splitlines()
     assert (
-        f"  {rule_id} + {COMBINED_EXT_RULE['id']}: 1 filled, 0 already verdicted, 0 held for review by except_left"
+        f"  {rule_id} + {COMBINED_EXT_RULE['id']}: 1 filled, 0 already verdicted, 0 blocked by except_left, left for review"
     ) in lines
-    assert f"  {rule_id}: 0 filled, 0 already verdicted, 0 held for review by except_left" in lines
+    assert f"  {rule_id}: 0 filled, 0 already verdicted, 0 blocked by except_left, left for review" in lines
     assert f"    {rule_id}: 0 on its own line, 1 counted in 1 combined-match line, 1 in all" in lines
     assert not any(line.startswith(f"  {COMBINED_EXT_RULE['id']}: ") for line in lines)
     assert (

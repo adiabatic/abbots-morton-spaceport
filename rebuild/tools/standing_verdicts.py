@@ -59,7 +59,7 @@ A candidate whose own contract fails is not an event, and its ink is judged as o
 
 A combined match needs two or more events. One rule matched at two positions is enough, as in a window where ·Ah gives up its exit tail twice, and a single event belongs on that rule's own line. A combined fill's verdict is `either` when any counted rule's verdict is `either` or a non-combinable `either` rule also matches the window, and `approve` otherwise. Its note names the counted ids in rules-file order.
 
-A rule's except_left guard refuses the whole unit, never one position, so a guarded context is never filled beside an unguarded one. Most shapes read the guard across the whole window; `extension-dropped` and `ligature` read it at the left neighbor of each matched pivot. A combined match reads each counted rule's guard in that rule's `guard_scope`, and a guard that holds a combined-match window holds the whole unit: it is counted on the combined-match line, never filled, and never passed to the single-rule pass. A rule's except_left families name the contexts the user still wants to review: units in those contexts are held, so they still reach the review queue.
+A rule's except_left guard refuses the whole unit, never one position, so a guarded context is never filled beside an unguarded one. Most shapes read the guard across the whole window; `extension-dropped` and `ligature` read it at the left neighbor of each matched pivot. A combined match reads each counted rule's guard in that rule's `guard_scope`, and a guard that blocks a combined-match window blocks the whole unit: it is counted on the combined-match line, never filled, and never passed to the single-rule pass. A rule's except_left families name the contexts the user still wants to review: units in those contexts are blocked, so they still reach the review queue.
 
 Standing fills complement echo_verdicts.py. The echo fill copies the user's verdicts to units whose change is pixel-identical, while a standing rule applies a recorded decision to units the user has never seen, such as windows with new left letters created by later migrations, so those units never queue.
 
@@ -285,7 +285,7 @@ def _matches_ligature(match, unit, excluded, context=None):
 
 
 def _matches_extension(match, unit, excluded, context=None):
-    """A pivot letter that gives up the named stretch of exit into a seam that keeps its named height, with every seam in the window unchanged, the follower in one of the named families, and the pivot and follower settling into cells the rule names in full. Naming the cells in full makes the change exact. Rune, stance, entry, and exit fix the bitmaps on both sides of the seam, and the adjustment set fixes what the pivot still carries (no extension, a shorter one, or the named contraction), so a rule covers only the columns between the stretch it names and the one its pivot cell keeps. Identical seams say nothing about ink elsewhere, so the unit's own judgment fields decide where the change is: the unit's primary judged pair must be this pivot and follower, and a window with any secondary seam is refused. The two sides must line up letter for letter, and the follower is compared by its whole family name, so a ligature in that slot matches only a rule that names the compound. The follower's after cell must belong to that same family, so a rule naming several followers never accepts one family's cell for another's. A word-initial pivot has no left neighbor, so except_left never holds it."""
+    """A pivot letter that gives up the named stretch of exit into a seam that keeps its named height, with every seam in the window unchanged, the follower in one of the named families, and the pivot and follower settling into cells the rule names in full. Naming the cells in full makes the change exact. Rune, stance, entry, and exit fix the bitmaps on both sides of the seam, and the adjustment set fixes what the pivot still carries (no extension, a shorter one, or the named contraction), so a rule covers only the columns between the stretch it names and the one its pivot cell keeps. Identical seams say nothing about ink elsewhere, so the unit's own judgment fields decide where the change is: the unit's primary judged pair must be this pivot and follower, and a window with any secondary seam is refused. The two sides must line up letter for letter, and the follower is compared by its whole family name, so a ligature in that slot matches only a rule that names the compound. The follower's after cell must belong to that same family, so a rule naming several followers never accepts one family's cell for another's. A word-initial pivot has no left neighbor, so except_left never blocks it."""
     glyphs, seams = unit["before"]["glyphs"], unit["before"]["seams"]
     cells, after_seams = unit["after"]["cells"], unit["after"]["seams"]
     mb, ma = match["before"], match["after"]
@@ -1717,7 +1717,7 @@ def _extension_positions(match, unit):
 
 
 def _reachable(match, unit):
-    """Whether a rule could accept or hold the unit, judged from names alone without shaping. A combinable rule needs a candidate position (`_candidates`, or `_extension_positions` for an extension rule); a ligature rule needs a glyph with its pivot prefix; an ink-delta rule needs the unit's persisted digests to be a nonempty subset of its own. Each condition is necessary for the rule's matcher, guarded or not, and for a count in a combined match, since the walk tries a rule only at its candidates. So a unit this rejects appears on none of the rule's report lines: filled, already verdicted, held, or combined. `--targeted` relies on this to evaluate only the admitted units and still print the rule's lines as the whole-domain run would. test_a_rules_lines_never_name_a_unit_outside_its_name_grain_candidates in rebuild/test_standing_verdicts.py checks it for every checked-in rule over the frozen mini bundle."""
+    """Whether a rule could accept or block the unit, judged from names alone without shaping. A combinable rule needs a candidate position (`_candidates`, or `_extension_positions` for an extension rule); a ligature rule needs a glyph with its pivot prefix; an ink-delta rule needs the unit's persisted digests to be a nonempty subset of its own. Each condition is necessary for the rule's matcher, guarded or not, and for a count in a combined match, since the walk tries a rule only at its candidates. So a unit this rejects appears on none of the rule's report lines: filled, already verdicted, blocked, or combined. `--targeted` relies on this to evaluate only the admitted units and still print the rule's lines as the whole-domain run would. test_a_rules_lines_never_name_a_unit_outside_its_name_grain_candidates in rebuild/test_standing_verdicts.py checks it for every checked-in rule over the frozen mini bundle."""
     if not unit.get("before") or not unit.get("after"):
         return False
     shape = _shape_of(match)
@@ -2231,8 +2231,8 @@ def _combined_match(rules, unit, context, digest=None, counts=None):
     return events if events is not None and sum(len(at) for at in events.values()) > 1 else None
 
 
-def _combined_held(rules, unit, events, context):
-    """Whether an except_left guard holds this combined-match window. A counted rule's guard is read in its shape's `guard_scope`: across the whole window for `window`, or at the left neighbor of each counted position for `left-neighbor`. A non-combinable rule holds the window when its own matcher accepts it unguarded and rejects it guarded, since it would have held the window in the single-rule pass. A hold applies to the whole unit, not only to one counted rule."""
+def _combined_blocked(rules, unit, events, context):
+    """Whether an except_left guard blocks this combined-match window. A counted rule's guard is read in its shape's `guard_scope`: across the whole window for `window`, or at the left neighbor of each counted position for `left-neighbor`. A non-combinable rule blocks the window when its own matcher accepts it unguarded and rejects it guarded, since it would have blocked the window in the single-rule pass. A block applies to the whole unit, not only to one counted rule."""
     glyphs = unit["before"]["glyphs"]
     for rule in rules:
         match = rule["match"]
@@ -2606,17 +2606,17 @@ def _matches(match, unit, *, guard=True, context=None):
 
 
 class Reach(NamedTuple):
-    """One rule's reach on a run: the unit ids its own matcher accepted, split into the blanks it filled and the units that already had a verdict; the ids its except_left held back; and its count in combined matches, kept separately as the number of units combined matches counted it in and the number of those combined-match lines. The combined pass takes a window before any single rule is checked, so a rule that is only ever counted in combined matches shows nothing on its own line and is still in use. Under `--open-only`, `verdicted` holds only matched units whose verdict is outside ACCEPTING_VERDICTS, which are the units the disputed-match warning names."""
+    """One rule's reach on a run: the unit ids its own matcher accepted, split into the blanks it filled and the units that already had a verdict; the ids its except_left blocked; and its count in combined matches, kept separately as the number of units combined matches counted it in and the number of those combined-match lines. The combined pass takes a window before any single rule is checked, so a rule that is only ever counted in combined matches shows nothing on its own line and is still in use. Under `--open-only`, `verdicted` holds only matched units whose verdict is outside ACCEPTING_VERDICTS, which are the units the disputed-match warning names."""
 
     filled: list[str]
     verdicted: list[str]
-    held: list[str]
+    blocked_by_except: list[str]
     combined_units: int
     combined_lines: int
 
 
 class Run(NamedTuple):
-    """One pass of the standing approvals over a corpus: the fill records to write, the combined pass's [filled, already verdicted, held] counts per counted-id tuple in rules-file order, and each rule's Reach by id."""
+    """One pass of the standing approvals over a corpus: the fill records to write, the combined pass's [filled, already verdicted, blocked] counts per counted-id tuple in rules-file order, and each rule's Reach by id."""
 
     fills: list[dict]
     combined_counts: dict[tuple[str, ...], list[int]]
@@ -2624,10 +2624,10 @@ class Run(NamedTuple):
 
 
 class CombinedMatch(NamedTuple):
-    """The combined match's decision for one window: the counted rule ids in rules-file order, whether a guard holds the whole unit, and, for a window no guard holds, the verdict a fill carries and the id of the non-combinable `either` rule that weakened it (None when none did). A held window's verdict is not computed, because nothing writes it. The decision holds no note text: `_combined_note` reads the notes from the live rules when the fill is written, so a reworded note does not invalidate a stored decision."""
+    """The combined match's decision for one window: the counted rule ids in rules-file order, whether a guard blocks the whole unit, and, for a window no guard blocks, the verdict a fill carries and the id of the non-combinable `either` rule that weakened it (None when none did). A blocked window's verdict is not computed, because nothing writes it. The decision holds no note text: `_combined_note` reads the notes from the live rules when the fill is written, so a reworded note does not invalidate a stored decision."""
 
     counted: tuple[str, ...]
-    held: bool
+    blocked_by_except: bool
     verdict: str | None
     weakened: str | None = None
 
@@ -2640,11 +2640,11 @@ def _combined_note(by_id, combined: CombinedMatch) -> str:
 
 
 class Decision(NamedTuple):
-    """Everything a run needs about one unit apart from the verdict store: the combined match when one explains the window, else the rules whose own matchers accept it and the rules whose except_left holds it. A combined-match window has no per-rule results, because the single-rule pass never sees it. `relevant` is not part of the verdict; it is part of the memo entry's key: the combinable rules with a candidate position in this window (`_candidate_counts`), in rules-file order. Only these rules add a term to the name-only precheck or an event to `_combined_walk`, so a change to any other rule cannot change the combined part. It is empty when the combined match is off (`Decider.gate`)."""
+    """Everything a run needs about one unit apart from the verdict store: the combined match when one explains the window, else the rules whose own matchers accept it and the rules whose except_left blocks it. A combined-match window has no per-rule results, because the single-rule pass never sees it. `relevant` is not part of the verdict; it is part of the memo entry's key: the combinable rules with a candidate position in this window (`_candidate_counts`), in rules-file order. Only these rules add a term to the name-only precheck or an event to `_combined_walk`, so a change to any other rule cannot change the combined part. It is empty when the combined match is off (`Decider.gate`)."""
 
     combined: CombinedMatch | None
     matched: frozenset[str]
-    held: frozenset[str]
+    blocked_by_except: frozenset[str]
     relevant: tuple[str, ...] = ()
 
 
@@ -2682,7 +2682,7 @@ def memo_environment(corpus, root=ROOT) -> tuple[str, dict[str, str]]:
 
 
 class Roster(NamedTuple):
-    """What the memo header records about the rules file, and what a `Decider` compares the live file against. `rules` maps each id, in rules-file order, to the rule's match digest and verdict. `always` lists, in the same order, the non-combinable rules the combined match consults for every combined-match window, because they have a non-empty except_left (`_combined_held`) or an `either` verdict (`_combined_verdict`). `combined_gate` says whether the combined match is on (`Decider.gate`). Together with an entry's `relevant` ids, this is everything a stored decision depends on besides its unit key, and it contains no note text."""
+    """What the memo header records about the rules file, and what a `Decider` compares the live file against. `rules` maps each id, in rules-file order, to the rule's match digest and verdict. `always` lists, in the same order, the non-combinable rules the combined match consults for every combined-match window, because they have a non-empty except_left (`_combined_blocked`) or an `either` verdict (`_combined_verdict`). `combined_gate` says whether the combined match is on (`Decider.gate`). Together with an entry's `relevant` ids, this is everything a stored decision depends on besides its unit key, and it contains no note text."""
 
     rules: dict[str, tuple[str, str]]
     always: tuple[str, ...]
@@ -2726,17 +2726,17 @@ def _decision_record(decision: Decision) -> list:
         (
             None
             if combined is None
-            else [list(combined.counted), combined.held, combined.verdict, combined.weakened]
+            else [list(combined.counted), combined.blocked_by_except, combined.verdict, combined.weakened]
         ),
         sorted(decision.matched),
-        sorted(decision.held),
+        sorted(decision.blocked_by_except),
         list(decision.relevant),
     ]
 
 
 def _decision_from_record(record: list) -> Decision:
     """Rebuild a decision from its memo record, interning the rule ids: the memo holds one entry per human unit, the entries repeat a small set of rule ids, and `json` gives every line its own copies."""
-    combined, matched, held, relevant = record
+    combined, matched, blocked, relevant = record
     return Decision(
         (
             None
@@ -2744,7 +2744,7 @@ def _decision_from_record(record: list) -> Decision:
             else CombinedMatch(tuple(map(sys.intern, combined[0])), combined[1], combined[2], combined[3])
         ),
         frozenset(map(sys.intern, matched)),
-        frozenset(map(sys.intern, held)),
+        frozenset(map(sys.intern, blocked)),
         tuple(map(sys.intern, relevant)),
     )
 
@@ -2877,7 +2877,7 @@ class Decider:
         self.unkeyed = 0
 
     def evaluate(self, unit) -> Decision:
-        """Compute the decision. The combined match runs first, because it takes a window before any single rule is checked. For any other window each rule's own matcher runs, and a guarded rule that fails is run again unguarded to find whether its guard held the window. The candidate counts for the name-only precheck are computed once and also give the entry's `relevant` rules."""
+        """Compute the decision. The combined match runs first, because it takes a window before any single rule is checked. For any other window each rule's own matcher runs, and a guarded rule that fails is run again unguarded to find whether its guard blocked the window. The candidate counts for the name-only precheck are computed once and also give the entry's `relevant` rules."""
         combined = None
         relevant: tuple[str, ...] = ()
         if self.gate:
@@ -2886,21 +2886,21 @@ class Decider:
             events = _combined_match(self.combinable, unit, self.context, self.combinable_digest, counts)
             if events is not None:
                 counted = tuple(rule["id"] for rule in self.rules if rule["id"] in events)
-                held = _combined_held(self.rules, unit, events, self.context)
+                blocked = _combined_blocked(self.rules, unit, events, self.context)
                 verdict, weakened = (
-                    (None, None) if held else _combined_verdict(self.rules, unit, events, self.context)
+                    (None, None) if blocked else _combined_verdict(self.rules, unit, events, self.context)
                 )
-                combined = CombinedMatch(counted, held, verdict, weakened)
+                combined = CombinedMatch(counted, blocked, verdict, weakened)
         matched: list[str] = []
-        held_by: list[str] = []
+        blocked_by: list[str] = []
         if combined is None:
             for rule in self.rules:
                 match = rule["match"]
                 if _matches(match, unit, context=self.context):
                     matched.append(rule["id"])
                 elif not _guard_is_inert(match) and _matches(match, unit, guard=False, context=self.context):
-                    held_by.append(rule["id"])
-        return Decision(combined, frozenset(matched), frozenset(held_by), relevant)
+                    blocked_by.append(rule["id"])
+        return Decision(combined, frozenset(matched), frozenset(blocked_by), relevant)
 
     def _serve(self, unit, entry: Decision) -> tuple[Decision, bool] | None:
         """Return the decision a memo entry still stands for under the live rules, with whether a matcher ran to repair it, or None when only `evaluate` can decide. Every uncertain case returns None:
@@ -2910,7 +2910,7 @@ class Decider:
         - A window with no combined match whose `relevant` ids include a dropped rule, for the same reasons apart from the guard and the verdict.
         - A probed combinable rule has a candidate position here, so it would take part in the walk.
 
-        Otherwise the entry is served. A combined-match window is served unchanged. One with no combined match is repaired per rule: the dropped rules are removed from its matched and held sets, and each probed rule that its shape's name-grain precondition admits (`_reachable`) is run guarded and, for a non-empty guard, unguarded. A combinable rule with no candidate is admitted only when it is an extension rule whose seam the walk cannot place, checked through `_extension_positions` as `_reachable` does. The repair is correct only if `_reachable` admits every unit a rule's own matcher accepts or holds; test_a_rules_lines_never_name_a_unit_outside_its_name_grain_candidates in rebuild/test_standing_verdicts.py checks that over the frozen mini bundle. A window with no shaped side skips the probe check and is served unchanged, since no matcher accepts one.
+        Otherwise the entry is served. A combined-match window is served unchanged. One with no combined match is repaired per rule: the dropped rules are removed from its matched and blocked sets, and each probed rule that its shape's name-grain precondition admits (`_reachable`) is run guarded and, for a non-empty guard, unguarded. A combinable rule with no candidate is admitted only when it is an extension rule whose seam the walk cannot place, checked through `_extension_positions` as `_reachable` does. The repair is correct only if `_reachable` admits every unit a rule's own matcher accepts or blocks; test_a_rules_lines_never_name_a_unit_outside_its_name_grain_candidates in rebuild/test_standing_verdicts.py checks that over the frozen mini bundle. A window with no shaped side skips the probe check and is served unchanged, since no matcher accepts one.
         """
         if self._gate_moved:
             return None
@@ -2942,14 +2942,14 @@ class Decider:
         if combined is not None:
             return entry, False
         matched = set(entry.matched) - self._dropped
-        held = set(entry.held) - self._dropped
+        blocked = set(entry.blocked_by_except) - self._dropped
         for rule in repairs:
             match = rule["match"]
             if _matches(match, unit, context=self.context):
                 matched.add(rule["id"])
             elif not _guard_is_inert(match) and _matches(match, unit, guard=False, context=self.context):
-                held.add(rule["id"])
-        return Decision(None, frozenset(matched), frozenset(held), entry.relevant), bool(repairs)
+                blocked.add(rule["id"])
+        return Decision(None, frozenset(matched), frozenset(blocked), entry.relevant), bool(repairs)
 
     def _release(self) -> None:
         """Empty the context's shape and walk memos. Every key in them is for one unit, and `_decided` and `_servings` answer repeat requests, so emptying them after each unit loses nothing. It also empties the alignment cache (`release_alignment_cache`), whose entries each hold one unit record, so the parent keeps no unit it has decided or served. `decide` calls this after every unit it serves or computes, `_serving` after every memo entry it checks (which `_prefill` does outside `decide`), and a pooled worker after every chunk (`_standing_pool_chunk`)."""
@@ -3088,19 +3088,19 @@ def _decision_reach(rules, decisions, records, stamp) -> Run:
     counted_units: dict[str, list[str]] = {}
     combined_counts: dict[tuple[str, ...], list[int]] = {}
     matched_by: dict[str, list[str]] = {rule["id"]: [] for rule in rules}
-    held_by: dict[str, list[str]] = {rule["id"]: [] for rule in rules}
+    blocked_by: dict[str, list[str]] = {rule["id"]: [] for rule in rules}
     for unit_id, decision in decisions:
         combined = decision.combined
         if combined is None:
             for rule_id in decision.matched:
                 matched_by[rule_id].append(unit_id)
-            for rule_id in decision.held:
-                held_by[rule_id].append(unit_id)
+            for rule_id in decision.blocked_by_except:
+                blocked_by[rule_id].append(unit_id)
             continue
         for rule_id in combined.counted:
             counted_units.setdefault(rule_id, []).append(unit_id)
         counts = combined_counts.setdefault(combined.counted, [0, 0, 0])
-        if combined.held:
+        if combined.blocked_by_except:
             counts[2] += 1
         elif unit_id in records:
             counts[1] += 1
@@ -3125,7 +3125,7 @@ def _decision_reach(rules, decisions, records, stamp) -> Run:
         reaches[rule["id"]] = Reach(
             filled=blanks,
             verdicted=[unit_id for unit_id in matched if unit_id in records],
-            held=held_by[rule["id"]],
+            blocked_by_except=blocked_by[rule["id"]],
             combined_units=len(counted_units.get(rule["id"], ())),
             combined_lines=sum(1 for ids in combined_counts if rule["id"] in ids),
         )
@@ -3150,14 +3150,14 @@ def _count(number, noun):
 
 
 def _own_line_total(reach):
-    """The units one rule's own report line counts: filled, already verdicted, and held by except_left."""
-    return len(reach.filled) + len(reach.verdicted) + len(reach.held)
+    """The units one rule's own report line counts: filled, already verdicted, and blocked by except_left."""
+    return len(reach.filled) + len(reach.verdicted) + len(reach.blocked_by_except)
 
 
-def _tally_line(name, filled, verdicted, held, open_only):
+def _tally_line(name, filled, verdicted, blocked, open_only):
     """One report line for a rule or a counted tuple. Under `--open-only` the already-verdicted column is omitted, not shown as zero, because the run never saw the units it would count."""
     column = "" if open_only else f"{verdicted} already verdicted, "
-    return f"  {name}: {filled} filled, {column}{held} held for review by except_left"
+    return f"  {name}: {filled} filled, {column}{blocked} blocked by except_left, left for review"
 
 
 def _tally_lines(rules, run, open_only):
@@ -3166,10 +3166,12 @@ def _tally_lines(rules, run, open_only):
     for rule in rules:
         reach = run.reaches[rule["id"]]
         lines.append(
-            _tally_line(rule["id"], len(reach.filled), len(reach.verdicted), len(reach.held), open_only)
+            _tally_line(
+                rule["id"], len(reach.filled), len(reach.verdicted), len(reach.blocked_by_except), open_only
+            )
         )
-    for counted, (filled, verdicted, held) in run.combined_counts.items():
-        lines.append(_tally_line(" + ".join(counted), filled, verdicted, held, open_only))
+    for counted, (filled, verdicted, blocked) in run.combined_counts.items():
+        lines.append(_tally_line(" + ".join(counted), filled, verdicted, blocked, open_only))
     return lines
 
 
@@ -3216,7 +3218,7 @@ def _disputed_match_lines(reaches, records):
 
 
 def _vocabulary_lines(rules, units):
-    """Report each except_left family that no window on this corpus joins from, a typo the REACHED NOTHING line cannot catch. The rule still matches what it always did and only its guard is inactive, so the line is informational and nothing fails. A guard that names a family the corpus carries but holds nothing on this pass is not reported."""
+    """Report each except_left family that no window on this corpus joins from, a typo the REACHED NOTHING line cannot catch. The rule still matches what it always did and only its guard is inactive, so the line is informational and nothing fails. A guard that names a family the corpus carries but blocks nothing on this pass is not reported."""
     joining = {
         _joining_family(name) for unit in units for name in (unit.get("before") or {}).get("glyphs") or ()
     }
@@ -3227,7 +3229,7 @@ def _joining_vocabulary_lines(rules, joining):
     return [
         f"  except_left vocabulary: {rule['id']} guards against {family}, which no window on this corpus "
         "joins from — the rule matches exactly what it always did, and its guard simply has nothing here "
-        "to hold."
+        "to block."
         for rule in rules
         for family in rule["match"].get("except_left", [])
         if family not in joining
@@ -3235,18 +3237,18 @@ def _joining_vocabulary_lines(rules, joining):
 
 
 def _explain_lines(rule_id, reach, records):
-    """One rule's matched unit ids in the three columns its report line counts: the blanks it filled, the units already verdicted (with the verdict), and the units its except_left held. When every matched unit has a verdict, the whole reach is in the middle column, and no other output lists those ids."""
+    """One rule's matched unit ids in the three columns its report line counts: the blanks it filled, the units already verdicted (with the verdict), and the units its except_left blocked. When every matched unit has a verdict, the whole reach is in the middle column, and no other output lists those ids."""
     verdicted = [f"{unit_id} ({records[unit_id]['verdict']})" for unit_id in reach.verdicted]
     return [
         f"  explain {rule_id}:",
         f"    filled ({len(reach.filled)}): {' '.join(reach.filled) or 'none'}",
         f"    already verdicted ({len(verdicted)}): {' '.join(verdicted) or 'none'}",
-        f"    held by except_left ({len(reach.held)}): {' '.join(reach.held) or 'none'}",
+        f"    blocked by except_left ({len(reach.blocked_by_except)}): {' '.join(reach.blocked_by_except) or 'none'}",
     ]
 
 
 def _listed_lines(rules, rule, listed, records, decide):
-    """One line per listed unit, in the order listed: the verdict the store holds (`blank` when none), whether the unit is a name-grain candidate of the targeted rule (`_reachable`), and what the run decided. That is the combined match that explains it, with the fill's verdict or `held` when a guard holds the window; else the rules whose own matchers accept it and the rules whose except_left holds it, in rules-file order; else that no rule matches it. It shows why a unit the user named is missing from the explain block. It reads the same `Decision` the run counted, so listing a unit changes no other line."""
+    """One line per listed unit, in the order listed: the verdict the store holds (`blank` when none), whether the unit is a name-grain candidate of the targeted rule (`_reachable`), and what the run decided. That is the combined match that explains it, with the fill's verdict or `blocked` when a guard blocks the window; else the rules whose own matchers accept it and the rules whose except_left blocks it, in rules-file order; else that no rule matches it. It shows why a unit the user named is missing from the explain block. It reads the same `Decision` the run counted, so listing a unit changes no other line."""
     order = {each["id"]: index for index, each in enumerate(rules)}
     lines = []
     for unit in listed:
@@ -3256,15 +3258,16 @@ def _listed_lines(rules, rule, listed, records, decide):
         decision = decide(unit)
         combined = decision.combined
         if combined is not None:
-            outcome = "held" if combined.held else combined.verdict
+            outcome = "blocked" if combined.blocked_by_except else combined.verdict
             reading = f"combined {' + '.join(combined.counted)} ({outcome})"
         else:
             clauses = []
             if decision.matched:
                 clauses.append("matched by " + " ".join(sorted(decision.matched, key=order.__getitem__)))
-            if decision.held:
+            if decision.blocked_by_except:
                 clauses.append(
-                    "held by except_left " + " ".join(sorted(decision.held, key=order.__getitem__))
+                    "blocked by except_left "
+                    + " ".join(sorted(decision.blocked_by_except, key=order.__getitem__))
                 )
             reading = "; ".join(clauses) or "no rule speaks for it"
         lines.append(f"  listed {unit_id} ({verdict}): {candidacy} of {rule['id']}; {reading}")
@@ -3330,7 +3333,7 @@ def main(
     parser.add_argument(
         "--explain",
         metavar="RULE",
-        help="also print this rule's matched unit ids, split into the blanks it filled, the ones a verdict already covers, and the ones its except_left held",
+        help="also print this rule's matched unit ids, split into the blanks it filled, the ones a verdict already covers, and the ones its except_left blocked",
     )
     parser.add_argument(
         "--targeted",
