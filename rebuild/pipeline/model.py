@@ -282,7 +282,9 @@ class CellPlan:
     exit_x: int | None = None
     entry_stub: Stub | None = None
     exit_stub: Stub | None = None
-    entry_curs_only: tuple[int, int] | None = None  # selectable: false anchor kept for GPOS parity
+    entry_curs_only: tuple[int, int] | None = (
+        None  # selectable: false anchor kept as a coverage-only GPOS registration
+    )
     exit_ink_y: int | None = None
     convention_exempt: tuple[str, ...] = ()
     safety_checks: tuple[tuple[str, Height], ...] = ()

@@ -6,7 +6,7 @@
 
 The extension-band check is coarse because a treaty row does not say which extend record applied. A seam with a positive summed extension is checked against every band that an extend record on either rune declares at the seam's side and height, whatever its `when:`. An extension below every band, or on a seam where no record declares a band, is an error. Any other extension outside every band is a flag.
 
-E-ANCHOR is checked only here. `_check_anchors` checks the live, non-exempt sides of every realized record against the drawing that record ships. `_check_parity_anchors` checks the `selectable: false` rows, which realize into no cell, against their stance's base drawing. A row's `x_off_convention` flag exempts that side alone, and a `trim` adjustment exempts the side it trimmed. An `anchor:` signature in the allow set blesses an E-ANCHOR finding like any other.
+E-ANCHOR is checked only here. `_check_anchors` checks the live, non-exempt sides of every realized record against the drawing that record ships. `_check_coverage_only_anchors` checks the `selectable: false` rows, which realize into no cell, against their stance's base drawing. A row's `x_off_convention` flag exempts that side alone, and a `trim` adjustment exempts the side it trimmed. An `anchor:` signature in the allow set blesses an E-ANCHOR finding like any other.
 
 The dead-policy check splits unexercised records by scope. A record is exercised when its provenance is cited. The settlement engine cites the provenance of every record that fired while tabulating a configuration (refusals that removed a candidate, including inside the lookahead closure, unlocks that granted a capability, row scopes that admitted a side, and extends, contracts, and prefers that shaped a committed cell), and the table exposes them as `DecisionTable.cited_provenance`. Rule and treaty-row provenance strings are added to the cited set too. An unexercised record is deferred-partner when one of its `when:` conditions names only families that are not modeled runes. A row scope is deferred-partner when every one of its conditions names only such families. Otherwise the record or scope is dead within the alphabet. `run_m1` writes both lists to `pipeline_summary.json`, and neither fails the build.
 """
@@ -167,7 +167,7 @@ def _check_anchors(report: DefectReport, allow: frozenset[str], glyphs: Mapping[
                 )
 
 
-def _check_parity_anchors(report: DefectReport, allow: frozenset[str], spec: ResolvedSpec) -> None:
+def _check_coverage_only_anchors(report: DefectReport, allow: frozenset[str], spec: ResolvedSpec) -> None:
     """Check the entry anchor of every declared `selectable: false` row against the stance's base drawing. Such a row realizes into no cell, because settlement never offers it, so `_check_anchors` never sees it; its anchor reaches GPOS only as `GlyphRecord.entry_curs_only`. Rows added by unlocks are always selectable, so only declared rows are checked."""
     for rune_name, rune in spec.runes.items():
         for stance in rune.stances.values():
@@ -181,7 +181,7 @@ def _check_parity_anchors(report: DefectReport, allow: frozenset[str], spec: Res
                         report,
                         allow,
                         "E-ANCHOR",
-                        f"anchor:{rune_name}.{stance.name}.en-{height}:parity",
+                        f"anchor:{rune_name}.{stance.name}.en-{height}:coverage-only",
                         f"{rune_name}.{stance.name} entry {height} (selectable: false) anchor x={row.x} but leftmost ink at y={y} is {span[0] if span else 'absent'}",
                         error=True,
                     )
@@ -407,7 +407,7 @@ def run_gates(
     report = DefectReport()
     _check_dangle(report, allow, glyphs)
     _check_anchors(report, allow, glyphs)
-    _check_parity_anchors(report, allow, spec)
+    _check_coverage_only_anchors(report, allow, spec)
     _check_treaties(report, allow, spec, tables_by_config, glyphs)
     _check_dead_policy(report, spec, tables_by_config)
     report.notes.append(

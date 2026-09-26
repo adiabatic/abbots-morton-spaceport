@@ -43,7 +43,7 @@ def _entry_heights(spec: ResolvedSpec, rune_name: str) -> set[int]:
 def cursive_registrations(
     glyphs: Mapping[CellId, GlyphRecord], spec: ResolvedSpec | None = None
 ) -> dict[int, dict[str, Registration]]:
-    """Per registered height, every glyph's (entry, exit) anchor pair in font units. `emit_gpos` renders it and `rebuild/pipeline/readback.py` checks the compiled GPOS against it. An absent side is None, and a locked twin's parity registration is (None, None)."""
+    """Per registered height, every glyph's (entry, exit) anchor pair in font units. `emit_gpos` renders it and `rebuild/pipeline/readback.py` checks the compiled GPOS against it. An absent side is None, and a locked twin's coverage-only registration is (None, None)."""
     per_height: dict[int, dict[str, Registration]] = {y: {} for y in CURS_HEIGHT_YS}
     for cell, record in glyphs.items():
         for y in CURS_HEIGHT_YS:
@@ -68,7 +68,7 @@ def cursive_registrations(
 
 def emit_gpos(glyphs: Mapping[CellId, GlyphRecord], spec: ResolvedSpec | None = None) -> str:
     per_height = cursive_registrations(glyphs, spec)
-    parity_skipped = spec is None
+    coverage_only_skipped = spec is None
 
     blocks: list[str] = []
     for y in CURS_HEIGHT_YS:
@@ -84,6 +84,8 @@ def emit_gpos(glyphs: Mapping[CellId, GlyphRecord], spec: ResolvedSpec | None = 
         )
 
     header = ""
-    if parity_skipped:
-        header = "# locked-twin NULL/NULL parity skipped: no spec supplied to emit_gpos.\n"
+    if coverage_only_skipped:
+        header = (
+            "# locked-twin NULL/NULL coverage-only registrations skipped: no spec supplied to emit_gpos.\n"
+        )
     return header + "feature curs {\n" + "\n".join(blocks) + "\n} curs;\n"

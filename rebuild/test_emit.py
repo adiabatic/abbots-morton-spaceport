@@ -455,13 +455,13 @@ class TestEmitGpos:
         assert f"pos cursive {record.name} <anchor NULL> <anchor 100 0>;" in y0
         assert f"pos cursive {record.name} <anchor 50 250> <anchor NULL>;" in y5
 
-    def test_entry_curs_only_registers_for_parity(self, spec, glyphs):
+    def test_entry_curs_only_gets_a_coverage_only_registration(self, spec, glyphs):
         curs = emit_gpos.emit_gpos(glyphs, spec=spec)
         record = glyphs[CellId("qsTea", "half", None, "x-height", ())]
         y8 = curs.split("lookup m1_cursive_y8 {")[1].split("}")[0]
         assert f"pos cursive {record.name} <anchor 50 400> <anchor NULL>;" in y8
 
-    def test_locked_twin_null_null_parity(self, spec, glyphs):
+    def test_locked_twin_gets_a_null_null_registration(self, spec, glyphs):
         curs = emit_gpos.emit_gpos(glyphs, spec=spec)
         record = glyphs[CellId("qsTea", "full", None, None, ("locked",))]
         for y in (0, 5, 8):

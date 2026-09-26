@@ -144,7 +144,7 @@ class TestAnchorConvention:
         spec = load_tmp_spec(tmp_path, {"qsIt": text})
         report = defects.run_gates(spec, _tables(rules=[_cite_all_policy(spec)]), {})
         errors = [d for d in report.errors if d.code == "E-ANCHOR"]
-        signature = "anchor:qsIt.hapax.en-x-height:parity"
+        signature = "anchor:qsIt.hapax.en-x-height:coverage-only"
         assert [d.signature for d in errors] == [signature]
 
         flagged = load_tmp_spec(
